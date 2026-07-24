@@ -1,0 +1,1026 @@
+pokemon_species_id,local_language_id,name,genus
+1,9,Bulbasaur,Seed Pokémon
+2,9,Ivysaur,Seed Pokémon
+3,9,Venusaur,Seed Pokémon
+4,9,Charmander,Lizard Pokémon
+5,9,Charmeleon,Flame Pokémon
+6,9,Charizard,Flame Pokémon
+7,9,Squirtle,Tiny Turtle Pokémon
+8,9,Wartortle,Turtle Pokémon
+9,9,Blastoise,Shellfish Pokémon
+10,9,Caterpie,Worm Pokémon
+11,9,Metapod,Cocoon Pokémon
+12,9,Butterfree,Butterfly Pokémon
+13,9,Weedle,Hairy Bug Pokémon
+14,9,Kakuna,Cocoon Pokémon
+15,9,Beedrill,Poison Bee Pokémon
+16,9,Pidgey,Tiny Bird Pokémon
+17,9,Pidgeotto,Bird Pokémon
+18,9,Pidgeot,Bird Pokémon
+19,9,Rattata,Mouse Pokémon
+20,9,Raticate,Mouse Pokémon
+21,9,Spearow,Tiny Bird Pokémon
+22,9,Fearow,Beak Pokémon
+23,9,Ekans,Snake Pokémon
+24,9,Arbok,Cobra Pokémon
+25,9,Pikachu,Mouse Pokémon
+26,9,Raichu,Mouse Pokémon
+27,9,Sandshrew,Mouse Pokémon
+28,9,Sandslash,Mouse Pokémon
+29,9,Nidoran♀,Poison Pin Pokémon
+30,9,Nidorina,Poison Pin Pokémon
+31,9,Nidoqueen,Drill Pokémon
+32,9,Nidoran♂,Poison Pin Pokémon
+33,9,Nidorino,Poison Pin Pokémon
+34,9,Nidoking,Drill Pokémon
+35,9,Clefairy,Fairy Pokémon
+36,9,Clefable,Fairy Pokémon
+37,9,Vulpix,Fox Pokémon
+38,9,Ninetales,Fox Pokémon
+39,9,Jigglypuff,Balloon Pokémon
+40,9,Wigglytuff,Balloon Pokémon
+41,9,Zubat,Bat Pokémon
+42,9,Golbat,Bat Pokémon
+43,9,Oddish,Weed Pokémon
+44,9,Gloom,Weed Pokémon
+45,9,Vileplume,Flower Pokémon
+46,9,Paras,Mushroom Pokémon
+47,9,Parasect,Mushroom Pokémon
+48,9,Venonat,Insect Pokémon
+49,9,Venomoth,Poison Moth Pokémon
+50,9,Diglett,Mole Pokémon
+51,9,Dugtrio,Mole Pokémon
+52,9,Meowth,Scratch Cat Pokémon
+53,9,Persian,Classy Cat Pokémon
+54,9,Psyduck,Duck Pokémon
+55,9,Golduck,Duck Pokémon
+56,9,Mankey,Pig Monkey Pokémon
+57,9,Primeape,Pig Monkey Pokémon
+58,9,Growlithe,Puppy Pokémon
+59,9,Arcanine,Legendary Pokémon
+60,9,Poliwag,Tadpole Pokémon
+61,9,Poliwhirl,Tadpole Pokémon
+62,9,Poliwrath,Tadpole Pokémon
+63,9,Abra,Psi Pokémon
+64,9,Kadabra,Psi Pokémon
+65,9,Alakazam,Psi Pokémon
+66,9,Machop,Superpower Pokémon
+67,9,Machoke,Superpower Pokémon
+68,9,Machamp,Superpower Pokémon
+69,9,Bellsprout,Flower Pokémon
+70,9,Weepinbell,Flycatcher Pokémon
+71,9,Victreebel,Flycatcher Pokémon
+72,9,Tentacool,Jellyfish Pokémon
+73,9,Tentacruel,Jellyfish Pokémon
+74,9,Geodude,Rock Pokémon
+75,9,Graveler,Rock Pokémon
+76,9,Golem,Megaton Pokémon
+77,9,Ponyta,Fire Horse Pokémon
+78,9,Rapidash,Fire Horse Pokémon
+79,9,Slowpoke,Dopey Pokémon
+80,9,Slowbro,Hermit Crab Pokémon
+81,9,Magnemite,Magnet Pokémon
+82,9,Magneton,Magnet Pokémon
+83,9,Farfetch’d,Wild Duck Pokémon
+84,9,Doduo,Twin Bird Pokémon
+85,9,Dodrio,Triple Bird Pokémon
+86,9,Seel,Sea Lion Pokémon
+87,9,Dewgong,Sea Lion Pokémon
+88,9,Grimer,Sludge Pokémon
+89,9,Muk,Sludge Pokémon
+90,9,Shellder,Bivalve Pokémon
+91,9,Cloyster,Bivalve Pokémon
+92,9,Gastly,Gas Pokémon
+93,9,Haunter,Gas Pokémon
+94,9,Gengar,Shadow Pokémon
+95,9,Onix,Rock Snake Pokémon
+96,9,Drowzee,Hypnosis Pokémon
+97,9,Hypno,Hypnosis Pokémon
+98,9,Krabby,River Crab Pokémon
+99,9,Kingler,Pincer Pokémon
+100,9,Voltorb,Ball Pokémon
+101,9,Electrode,Ball Pokémon
+102,9,Exeggcute,Egg Pokémon
+103,9,Exeggutor,Coconut Pokémon
+104,9,Cubone,Lonely Pokémon
+105,9,Marowak,Bone Keeper Pokémon
+106,9,Hitmonlee,Kicking Pokémon
+107,9,Hitmonchan,Punching Pokémon
+108,9,Lickitung,Licking Pokémon
+109,9,Koffing,Poison Gas Pokémon
+110,9,Weezing,Poison Gas Pokémon
+111,9,Rhyhorn,Spikes Pokémon
+112,9,Rhydon,Drill Pokémon
+113,9,Chansey,Egg Pokémon
+114,9,Tangela,Vine Pokémon
+115,9,Kangaskhan,Parent Pokémon
+116,9,Horsea,Dragon Pokémon
+117,9,Seadra,Dragon Pokémon
+118,9,Goldeen,Goldfish Pokémon
+119,9,Seaking,Goldfish Pokémon
+120,9,Staryu,Star Shape Pokémon
+121,9,Starmie,Mysterious Pokémon
+122,9,Mr. Mime,Barrier Pokémon
+123,9,Scyther,Mantis Pokémon
+124,9,Jynx,Human Shape Pokémon
+125,9,Electabuzz,Electric Pokémon
+126,9,Magmar,Spitfire Pokémon
+127,9,Pinsir,Stag Beetle Pokémon
+128,9,Tauros,Wild Bull Pokémon
+129,9,Magikarp,Fish Pokémon
+130,9,Gyarados,Atrocious Pokémon
+131,9,Lapras,Transport Pokémon
+132,9,Ditto,Transform Pokémon
+133,9,Eevee,Evolution Pokémon
+134,9,Vaporeon,Bubble Jet Pokémon
+135,9,Jolteon,Lightning Pokémon
+136,9,Flareon,Flame Pokémon
+137,9,Porygon,Virtual Pokémon
+138,9,Omanyte,Spiral Pokémon
+139,9,Omastar,Spiral Pokémon
+140,9,Kabuto,Shellfish Pokémon
+141,9,Kabutops,Shellfish Pokémon
+142,9,Aerodactyl,Fossil Pokémon
+143,9,Snorlax,Sleeping Pokémon
+144,9,Articuno,Freeze Pokémon
+145,9,Zapdos,Electric Pokémon
+146,9,Moltres,Flame Pokémon
+147,9,Dratini,Dragon Pokémon
+148,9,Dragonair,Dragon Pokémon
+149,9,Dragonite,Dragon Pokémon
+150,9,Mewtwo,Genetic Pokémon
+151,9,Mew,New Species Pokémon
+152,9,Chikorita,Leaf Pokémon
+153,9,Bayleef,Leaf Pokémon
+154,9,Meganium,Herb Pokémon
+155,9,Cyndaquil,Fire Mouse Pokémon
+156,9,Quilava,Volcano Pokémon
+157,9,Typhlosion,Volcano Pokémon
+158,9,Totodile,Big Jaw Pokémon
+159,9,Croconaw,Big Jaw Pokémon
+160,9,Feraligatr,Big Jaw Pokémon
+161,9,Sentret,Scout Pokémon
+162,9,Furret,Long Body Pokémon
+163,9,Hoothoot,Owl Pokémon
+164,9,Noctowl,Owl Pokémon
+165,9,Ledyba,Five Star Pokémon
+166,9,Ledian,Five Star Pokémon
+167,9,Spinarak,String Spit Pokémon
+168,9,Ariados,Long Leg Pokémon
+169,9,Crobat,Bat Pokémon
+170,9,Chinchou,Angler Pokémon
+171,9,Lanturn,Light Pokémon
+172,9,Pichu,Tiny Mouse Pokémon
+173,9,Cleffa,Star Shape Pokémon
+174,9,Igglybuff,Balloon Pokémon
+175,9,Togepi,Spike Ball Pokémon
+176,9,Togetic,Happiness Pokémon
+177,9,Natu,Tiny Bird Pokémon
+178,9,Xatu,Mystic Pokémon
+179,9,Mareep,Wool Pokémon
+180,9,Flaaffy,Wool Pokémon
+181,9,Ampharos,Light Pokémon
+182,9,Bellossom,Flower Pokémon
+183,9,Marill,Aqua Mouse Pokémon
+184,9,Azumarill,Aqua Rabbit Pokémon
+185,9,Sudowoodo,Imitation Pokémon
+186,9,Politoed,Frog Pokémon
+187,9,Hoppip,Cottonweed Pokémon
+188,9,Skiploom,Cottonweed Pokémon
+189,9,Jumpluff,Cottonweed Pokémon
+190,9,Aipom,Long Tail Pokémon
+191,9,Sunkern,Seed Pokémon
+192,9,Sunflora,Sun Pokémon
+193,9,Yanma,Clear Wing Pokémon
+194,9,Wooper,Water Fish Pokémon
+195,9,Quagsire,Water Fish Pokémon
+196,9,Espeon,Sun Pokémon
+197,9,Umbreon,Moonlight Pokémon
+198,9,Murkrow,Darkness Pokémon
+199,9,Slowking,Royal Pokémon
+200,9,Misdreavus,Screech Pokémon
+201,9,Unown,Symbol Pokémon
+202,9,Wobbuffet,Patient Pokémon
+203,9,Girafarig,Long Neck Pokémon
+204,9,Pineco,Bagworm Pokémon
+205,9,Forretress,Bagworm Pokémon
+206,9,Dunsparce,Land Snake Pokémon
+207,9,Gligar,Fly Scorpion Pokémon
+208,9,Steelix,Iron Snake Pokémon
+209,9,Snubbull,Fairy Pokémon
+210,9,Granbull,Fairy Pokémon
+211,9,Qwilfish,Balloon Pokémon
+212,9,Scizor,Pincer Pokémon
+213,9,Shuckle,Mold Pokémon
+214,9,Heracross,Single Horn Pokémon
+215,9,Sneasel,Sharp Claw Pokémon
+216,9,Teddiursa,Little Bear Pokémon
+217,9,Ursaring,Hibernator Pokémon
+218,9,Slugma,Lava Pokémon
+219,9,Magcargo,Lava Pokémon
+220,9,Swinub,Pig Pokémon
+221,9,Piloswine,Swine Pokémon
+222,9,Corsola,Coral Pokémon
+223,9,Remoraid,Jet Pokémon
+224,9,Octillery,Jet Pokémon
+225,9,Delibird,Delivery Pokémon
+226,9,Mantine,Kite Pokémon
+227,9,Skarmory,Armor Bird Pokémon
+228,9,Houndour,Dark Pokémon
+229,9,Houndoom,Dark Pokémon
+230,9,Kingdra,Dragon Pokémon
+231,9,Phanpy,Long Nose Pokémon
+232,9,Donphan,Armor Pokémon
+233,9,Porygon2,Virtual Pokémon
+234,9,Stantler,Big Horn Pokémon
+235,9,Smeargle,Painter Pokémon
+236,9,Tyrogue,Scuffle Pokémon
+237,9,Hitmontop,Handstand Pokémon
+238,9,Smoochum,Kiss Pokémon
+239,9,Elekid,Electric Pokémon
+240,9,Magby,Live Coal Pokémon
+241,9,Miltank,Milk Cow Pokémon
+242,9,Blissey,Happiness Pokémon
+243,9,Raikou,Thunder Pokémon
+244,9,Entei,Volcano Pokémon
+245,9,Suicune,Aurora Pokémon
+246,9,Larvitar,Rock Skin Pokémon
+247,9,Pupitar,Hard Shell Pokémon
+248,9,Tyranitar,Armor Pokémon
+249,9,Lugia,Diving Pokémon
+250,9,Ho-Oh,Rainbow Pokémon
+251,9,Celebi,Time Travel Pokémon
+252,9,Treecko,Wood Gecko Pokémon
+253,9,Grovyle,Wood Gecko Pokémon
+254,9,Sceptile,Forest Pokémon
+255,9,Torchic,Chick Pokémon
+256,9,Combusken,Young Fowl Pokémon
+257,9,Blaziken,Blaze Pokémon
+258,9,Mudkip,Mud Fish Pokémon
+259,9,Marshtomp,Mud Fish Pokémon
+260,9,Swampert,Mud Fish Pokémon
+261,9,Poochyena,Bite Pokémon
+262,9,Mightyena,Bite Pokémon
+263,9,Zigzagoon,Tiny Raccoon Pokémon
+264,9,Linoone,Rushing Pokémon
+265,9,Wurmple,Worm Pokémon
+266,9,Silcoon,Cocoon Pokémon
+267,9,Beautifly,Butterfly Pokémon
+268,9,Cascoon,Cocoon Pokémon
+269,9,Dustox,Poison Moth Pokémon
+270,9,Lotad,Water Weed Pokémon
+271,9,Lombre,Jolly Pokémon
+272,9,Ludicolo,Carefree Pokémon
+273,9,Seedot,Acorn Pokémon
+274,9,Nuzleaf,Wily Pokémon
+275,9,Shiftry,Wicked Pokémon
+276,9,Taillow,Tiny Swallow Pokémon
+277,9,Swellow,Swallow Pokémon
+278,9,Wingull,Seagull Pokémon
+279,9,Pelipper,Water Bird Pokémon
+280,9,Ralts,Feeling Pokémon
+281,9,Kirlia,Emotion Pokémon
+282,9,Gardevoir,Embrace Pokémon
+283,9,Surskit,Pond Skater Pokémon
+284,9,Masquerain,Eyeball Pokémon
+285,9,Shroomish,Mushroom Pokémon
+286,9,Breloom,Mushroom Pokémon
+287,9,Slakoth,Slacker Pokémon
+288,9,Vigoroth,Wild Monkey Pokémon
+289,9,Slaking,Lazy Pokémon
+290,9,Nincada,Trainee Pokémon
+291,9,Ninjask,Ninja Pokémon
+292,9,Shedinja,Shed Pokémon
+293,9,Whismur,Whisper Pokémon
+294,9,Loudred,Big Voice Pokémon
+295,9,Exploud,Loud Noise Pokémon
+296,9,Makuhita,Guts Pokémon
+297,9,Hariyama,Arm Thrust Pokémon
+298,9,Azurill,Polka Dot Pokémon
+299,9,Nosepass,Compass Pokémon
+300,9,Skitty,Kitten Pokémon
+301,9,Delcatty,Prim Pokémon
+302,9,Sableye,Darkness Pokémon
+303,9,Mawile,Deceiver Pokémon
+304,9,Aron,Iron Armor Pokémon
+305,9,Lairon,Iron Armor Pokémon
+306,9,Aggron,Iron Armor Pokémon
+307,9,Meditite,Meditate Pokémon
+308,9,Medicham,Meditate Pokémon
+309,9,Electrike,Lightning Pokémon
+310,9,Manectric,Discharge Pokémon
+311,9,Plusle,Cheering Pokémon
+312,9,Minun,Cheering Pokémon
+313,9,Volbeat,Firefly Pokémon
+314,9,Illumise,Firefly Pokémon
+315,9,Roselia,Thorn Pokémon
+316,9,Gulpin,Stomach Pokémon
+317,9,Swalot,Poison Bag Pokémon
+318,9,Carvanha,Savage Pokémon
+319,9,Sharpedo,Brutal Pokémon
+320,9,Wailmer,Ball Whale Pokémon
+321,9,Wailord,Float Whale Pokémon
+322,9,Numel,Numb Pokémon
+323,9,Camerupt,Eruption Pokémon
+324,9,Torkoal,Coal Pokémon
+325,9,Spoink,Bounce Pokémon
+326,9,Grumpig,Manipulate Pokémon
+327,9,Spinda,Spot Panda Pokémon
+328,9,Trapinch,Ant Pit Pokémon
+329,9,Vibrava,Vibration Pokémon
+330,9,Flygon,Mystic Pokémon
+331,9,Cacnea,Cactus Pokémon
+332,9,Cacturne,Scarecrow Pokémon
+333,9,Swablu,Cotton Bird Pokémon
+334,9,Altaria,Humming Pokémon
+335,9,Zangoose,Cat Ferret Pokémon
+336,9,Seviper,Fang Snake Pokémon
+337,9,Lunatone,Meteorite Pokémon
+338,9,Solrock,Meteorite Pokémon
+339,9,Barboach,Whiskers Pokémon
+340,9,Whiscash,Whiskers Pokémon
+341,9,Corphish,Ruffian Pokémon
+342,9,Crawdaunt,Rogue Pokémon
+343,9,Baltoy,Clay Doll Pokémon
+344,9,Claydol,Clay Doll Pokémon
+345,9,Lileep,Sea Lily Pokémon
+346,9,Cradily,Barnacle Pokémon
+347,9,Anorith,Old Shrimp Pokémon
+348,9,Armaldo,Plate Pokémon
+349,9,Feebas,Fish Pokémon
+350,9,Milotic,Tender Pokémon
+351,9,Castform,Weather Pokémon
+352,9,Kecleon,Color Swap Pokémon
+353,9,Shuppet,Puppet Pokémon
+354,9,Banette,Marionette Pokémon
+355,9,Duskull,Requiem Pokémon
+356,9,Dusclops,Beckon Pokémon
+357,9,Tropius,Fruit Pokémon
+358,9,Chimecho,Wind Chime Pokémon
+359,9,Absol,Disaster Pokémon
+360,9,Wynaut,Bright Pokémon
+361,9,Snorunt,Snow Hat Pokémon
+362,9,Glalie,Face Pokémon
+363,9,Spheal,Clap Pokémon
+364,9,Sealeo,Ball Roll Pokémon
+365,9,Walrein,Ice Break Pokémon
+366,9,Clamperl,Bivalve Pokémon
+367,9,Huntail,Deep Sea Pokémon
+368,9,Gorebyss,South Sea Pokémon
+369,9,Relicanth,Longevity Pokémon
+370,9,Luvdisc,Rendezvous Pokémon
+371,9,Bagon,Rock Head Pokémon
+372,9,Shelgon,Endurance Pokémon
+373,9,Salamence,Dragon Pokémon
+374,9,Beldum,Iron Ball Pokémon
+375,9,Metang,Iron Claw Pokémon
+376,9,Metagross,Iron Leg Pokémon
+377,9,Regirock,Rock Peak Pokémon
+378,9,Regice,Iceberg Pokémon
+379,9,Registeel,Iron Pokémon
+380,9,Latias,Eon Pokémon
+381,9,Latios,Eon Pokémon
+382,9,Kyogre,Sea Basin Pokémon
+383,9,Groudon,Continent Pokémon
+384,9,Rayquaza,Sky High Pokémon
+385,9,Jirachi,Wish Pokémon
+386,9,Deoxys,DNA Pokémon
+387,9,Turtwig,Tiny Leaf Pokémon
+388,9,Grotle,Grove Pokémon
+389,9,Torterra,Continent Pokémon
+390,9,Chimchar,Chimp Pokémon
+391,9,Monferno,Playful Pokémon
+392,9,Infernape,Flame Pokémon
+393,9,Piplup,Penguin Pokémon
+394,9,Prinplup,Penguin Pokémon
+395,9,Empoleon,Emperor Pokémon
+396,9,Starly,Starling Pokémon
+397,9,Staravia,Starling Pokémon
+398,9,Staraptor,Predator Pokémon
+399,9,Bidoof,Plump Mouse Pokémon
+400,9,Bibarel,Beaver Pokémon
+401,9,Kricketot,Cricket Pokémon
+402,9,Kricketune,Cricket Pokémon
+403,9,Shinx,Flash Pokémon
+404,9,Luxio,Spark Pokémon
+405,9,Luxray,Gleam Eyes Pokémon
+406,9,Budew,Bud Pokémon
+407,9,Roserade,Bouquet Pokémon
+408,9,Cranidos,Head Butt Pokémon
+409,9,Rampardos,Head Butt Pokémon
+410,9,Shieldon,Shield Pokémon
+411,9,Bastiodon,Shield Pokémon
+412,9,Burmy,Bagworm Pokémon
+413,9,Wormadam,Bagworm Pokémon
+414,9,Mothim,Moth Pokémon
+415,9,Combee,Tiny Bee Pokémon
+416,9,Vespiquen,Beehive Pokémon
+417,9,Pachirisu,EleSquirrel Pokémon
+418,9,Buizel,Sea Weasel Pokémon
+419,9,Floatzel,Sea Weasel Pokémon
+420,9,Cherubi,Cherry Pokémon
+421,9,Cherrim,Blossom Pokémon
+422,9,Shellos,Sea Slug Pokémon
+423,9,Gastrodon,Sea Slug Pokémon
+424,9,Ambipom,Long Tail Pokémon
+425,9,Drifloon,Balloon Pokémon
+426,9,Drifblim,Blimp Pokémon
+427,9,Buneary,Rabbit Pokémon
+428,9,Lopunny,Rabbit Pokémon
+429,9,Mismagius,Magical Pokémon
+430,9,Honchkrow,Big Boss Pokémon
+431,9,Glameow,Catty Pokémon
+432,9,Purugly,Tiger Cat Pokémon
+433,9,Chingling,Bell Pokémon
+434,9,Stunky,Skunk Pokémon
+435,9,Skuntank,Skunk Pokémon
+436,9,Bronzor,Bronze Pokémon
+437,9,Bronzong,Bronze Bell Pokémon
+438,9,Bonsly,Bonsai Pokémon
+439,9,Mime Jr.,Mime Pokémon
+440,9,Happiny,Playhouse Pokémon
+441,9,Chatot,Music Note Pokémon
+442,9,Spiritomb,Forbidden Pokémon
+443,9,Gible,Land Shark Pokémon
+444,9,Gabite,Cave Pokémon
+445,9,Garchomp,Mach Pokémon
+446,9,Munchlax,Big Eater Pokémon
+447,9,Riolu,Emanation Pokémon
+448,9,Lucario,Aura Pokémon
+449,9,Hippopotas,Hippo Pokémon
+450,9,Hippowdon,Heavyweight Pokémon
+451,9,Skorupi,Scorpion Pokémon
+452,9,Drapion,Ogre Scorpion Pokémon
+453,9,Croagunk,Toxic Mouth Pokémon
+454,9,Toxicroak,Toxic Mouth Pokémon
+455,9,Carnivine,Bug Catcher Pokémon
+456,9,Finneon,Wing Fish Pokémon
+457,9,Lumineon,Neon Pokémon
+458,9,Mantyke,Kite Pokémon
+459,9,Snover,Frost Tree Pokémon
+460,9,Abomasnow,Frost Tree Pokémon
+461,9,Weavile,Sharp Claw Pokémon
+462,9,Magnezone,Magnet Area Pokémon
+463,9,Lickilicky,Licking Pokémon
+464,9,Rhyperior,Drill Pokémon
+465,9,Tangrowth,Vine Pokémon
+466,9,Electivire,Thunderbolt Pokémon
+467,9,Magmortar,Blast Pokémon
+468,9,Togekiss,Jubilee Pokémon
+469,9,Yanmega,Ogre Darner Pokémon
+470,9,Leafeon,Verdant Pokémon
+471,9,Glaceon,Fresh Snow Pokémon
+472,9,Gliscor,Fang Scorpion Pokémon
+473,9,Mamoswine,Twin Tusk Pokémon
+474,9,Porygon-Z,Virtual Pokémon
+475,9,Gallade,Blade Pokémon
+476,9,Probopass,Compass Pokémon
+477,9,Dusknoir,Gripper Pokémon
+478,9,Froslass,Snow Land Pokémon
+479,9,Rotom,Plasma Pokémon
+480,9,Uxie,Knowledge Pokémon
+481,9,Mesprit,Emotion Pokémon
+482,9,Azelf,Willpower Pokémon
+483,9,Dialga,Temporal Pokémon
+484,9,Palkia,Spatial Pokémon
+485,9,Heatran,Lava Dome Pokémon
+486,9,Regigigas,Colossal Pokémon
+487,9,Giratina,Renegade Pokémon
+488,9,Cresselia,Lunar Pokémon
+489,9,Phione,Sea Drifter Pokémon
+490,9,Manaphy,Seafaring Pokémon
+491,9,Darkrai,Pitch-Black Pokémon
+492,9,Shaymin,Gratitude Pokémon
+493,9,Arceus,Alpha Pokémon
+494,9,Victini,Victory Pokémon
+495,9,Snivy,Grass Snake Pokémon
+496,9,Servine,Grass Snake Pokémon
+497,9,Serperior,Regal Pokémon
+498,9,Tepig,Fire Pig Pokémon
+499,9,Pignite,Fire Pig Pokémon
+500,9,Emboar,Mega Fire Pig Pokémon
+501,9,Oshawott,Sea Otter Pokémon
+502,9,Dewott,Discipline Pokémon
+503,9,Samurott,Formidable Pokémon
+504,9,Patrat,Scout Pokémon
+505,9,Watchog,Lookout Pokémon
+506,9,Lillipup,Puppy Pokémon
+507,9,Herdier,Loyal Dog Pokémon
+508,9,Stoutland,Big-Hearted Pokémon
+509,9,Purrloin,Devious Pokémon
+510,9,Liepard,Cruel Pokémon
+511,9,Pansage,Grass Monkey Pokémon
+512,9,Simisage,Thorn Monkey Pokémon
+513,9,Pansear,High Temp Pokémon
+514,9,Simisear,Ember Pokémon
+515,9,Panpour,Spray Pokémon
+516,9,Simipour,Geyser Pokémon
+517,9,Munna,Dream Eater Pokémon
+518,9,Musharna,Drowsing Pokémon
+519,9,Pidove,Tiny Pigeon Pokémon
+520,9,Tranquill,Wild Pigeon Pokémon
+521,9,Unfezant,Proud Pokémon
+522,9,Blitzle,Electrified Pokémon
+523,9,Zebstrika,Thunderbolt Pokémon
+524,9,Roggenrola,Mantle Pokémon
+525,9,Boldore,Ore Pokémon
+526,9,Gigalith,Compressed Pokémon
+527,9,Woobat,Bat Pokémon
+528,9,Swoobat,Courting Pokémon
+529,9,Drilbur,Mole Pokémon
+530,9,Excadrill,Subterrene Pokémon
+531,9,Audino,Hearing Pokémon
+532,9,Timburr,Muscular Pokémon
+533,9,Gurdurr,Muscular Pokémon
+534,9,Conkeldurr,Muscular Pokémon
+535,9,Tympole,Tadpole Pokémon
+536,9,Palpitoad,Vibration Pokémon
+537,9,Seismitoad,Vibration Pokémon
+538,9,Throh,Judo Pokémon
+539,9,Sawk,Karate Pokémon
+540,9,Sewaddle,Sewing Pokémon
+541,9,Swadloon,Leaf-Wrapped Pokémon
+542,9,Leavanny,Nurturing Pokémon
+543,9,Venipede,Centipede Pokémon
+544,9,Whirlipede,Curlipede Pokémon
+545,9,Scolipede,Megapede Pokémon
+546,9,Cottonee,Cotton Puff Pokémon
+547,9,Whimsicott,Windveiled Pokémon
+548,9,Petilil,Bulb Pokémon
+549,9,Lilligant,Flowering Pokémon
+550,9,Basculin,Hostile Pokémon
+551,9,Sandile,Desert Croc Pokémon
+552,9,Krokorok,Desert Croc Pokémon
+553,9,Krookodile,Intimidation Pokémon
+554,9,Darumaka,Zen Charm Pokémon
+555,9,Darmanitan,Blazing Pokémon
+556,9,Maractus,Cactus Pokémon
+557,9,Dwebble,Rock Inn Pokémon
+558,9,Crustle,Stone Home Pokémon
+559,9,Scraggy,Shedding Pokémon
+560,9,Scrafty,Hoodlum Pokémon
+561,9,Sigilyph,Avianoid Pokémon
+562,9,Yamask,Spirit Pokémon
+563,9,Cofagrigus,Coffin Pokémon
+564,9,Tirtouga,Prototurtle Pokémon
+565,9,Carracosta,Prototurtle Pokémon
+566,9,Archen,First Bird Pokémon
+567,9,Archeops,First Bird Pokémon
+568,9,Trubbish,Trash Bag Pokémon
+569,9,Garbodor,Trash Heap Pokémon
+570,9,Zorua,Tricky Fox Pokémon
+571,9,Zoroark,Illusion Fox Pokémon
+572,9,Minccino,Chinchilla Pokémon
+573,9,Cinccino,Scarf Pokémon
+574,9,Gothita,Fixation Pokémon
+575,9,Gothorita,Manipulate Pokémon
+576,9,Gothitelle,Astral Body Pokémon
+577,9,Solosis,Cell Pokémon
+578,9,Duosion,Mitosis Pokémon
+579,9,Reuniclus,Multiplying Pokémon
+580,9,Ducklett,Water Bird Pokémon
+581,9,Swanna,White Bird Pokémon
+582,9,Vanillite,Fresh Snow Pokémon
+583,9,Vanillish,Icy Snow Pokémon
+584,9,Vanilluxe,Snowstorm Pokémon
+585,9,Deerling,Season Pokémon
+586,9,Sawsbuck,Season Pokémon
+587,9,Emolga,Sky Squirrel Pokémon
+588,9,Karrablast,Clamping Pokémon
+589,9,Escavalier,Cavalry Pokémon
+590,9,Foongus,Mushroom Pokémon
+591,9,Amoonguss,Mushroom Pokémon
+592,9,Frillish,Floating Pokémon
+593,9,Jellicent,Floating Pokémon
+594,9,Alomomola,Caring Pokémon
+595,9,Joltik,Attaching Pokémon
+596,9,Galvantula,EleSpider Pokémon
+597,9,Ferroseed,Thorn Seed Pokémon
+598,9,Ferrothorn,Thorn Pod Pokémon
+599,9,Klink,Gear Pokémon
+600,9,Klang,Gear Pokémon
+601,9,Klinklang,Gear Pokémon
+602,9,Tynamo,EleFish Pokémon
+603,9,Eelektrik,EleFish Pokémon
+604,9,Eelektross,EleFish Pokémon
+605,9,Elgyem,Cerebral Pokémon
+606,9,Beheeyem,Cerebral Pokémon
+607,9,Litwick,Candle Pokémon
+608,9,Lampent,Lamp Pokémon
+609,9,Chandelure,Luring Pokémon
+610,9,Axew,Tusk Pokémon
+611,9,Fraxure,Axe Jaw Pokémon
+612,9,Haxorus,Axe Jaw Pokémon
+613,9,Cubchoo,Chill Pokémon
+614,9,Beartic,Freezing Pokémon
+615,9,Cryogonal,Crystallizing Pokémon
+616,9,Shelmet,Snail Pokémon
+617,9,Accelgor,Shell Out Pokémon
+618,9,Stunfisk,Trap Pokémon
+619,9,Mienfoo,Martial Arts Pokémon
+620,9,Mienshao,Martial Arts Pokémon
+621,9,Druddigon,Cave Pokémon
+622,9,Golett,Automaton Pokémon
+623,9,Golurk,Automaton Pokémon
+624,9,Pawniard,Sharp Blade Pokémon
+625,9,Bisharp,Sword Blade Pokémon
+626,9,Bouffalant,Bash Buffalo Pokémon
+627,9,Rufflet,Eaglet Pokémon
+628,9,Braviary,Valiant Pokémon
+629,9,Vullaby,Diapered Pokémon
+630,9,Mandibuzz,Bone Vulture Pokémon
+631,9,Heatmor,Anteater Pokémon
+632,9,Durant,Iron Ant Pokémon
+633,9,Deino,Irate Pokémon
+634,9,Zweilous,Hostile Pokémon
+635,9,Hydreigon,Brutal Pokémon
+636,9,Larvesta,Torch Pokémon
+637,9,Volcarona,Sun Pokémon
+638,9,Cobalion,Iron Will Pokémon
+639,9,Terrakion,Cavern Pokémon
+640,9,Virizion,Grassland Pokémon
+641,9,Tornadus,Cyclone Pokémon
+642,9,Thundurus,Bolt Strike Pokémon
+643,9,Reshiram,Vast White Pokémon
+644,9,Zekrom,Deep Black Pokémon
+645,9,Landorus,Abundance Pokémon
+646,9,Kyurem,Boundary Pokémon
+647,9,Keldeo,Colt Pokémon
+648,9,Meloetta,Melody Pokémon
+649,9,Genesect,Paleozoic Pokémon
+650,9,Chespin,Spiny Nut Pokémon
+651,9,Quilladin,Spiny Armor Pokémon
+652,9,Chesnaught,Spiny Armor Pokémon
+653,9,Fennekin,Fox Pokémon
+654,9,Braixen,Fox Pokémon
+655,9,Delphox,Fox Pokémon
+656,9,Froakie,Bubble Frog Pokémon
+657,9,Frogadier,Bubble Frog Pokémon
+658,9,Greninja,Ninja Pokémon
+659,9,Bunnelby,Digging Pokémon
+660,9,Diggersby,Digging Pokémon
+661,9,Fletchling,Tiny Robin Pokémon
+662,9,Fletchinder,Ember Pokémon
+663,9,Talonflame,Scorching Pokémon
+664,9,Scatterbug,Scatterdust Pokémon
+665,9,Spewpa,Scatterdust Pokémon
+666,9,Vivillon,Scale Pokémon
+667,9,Litleo,Lion Cub Pokémon
+668,9,Pyroar,Royal Pokémon
+669,9,Flabébé,Single Bloom Pokémon
+670,9,Floette,Single Bloom Pokémon
+671,9,Florges,Garden Pokémon
+672,9,Skiddo,Mount Pokémon
+673,9,Gogoat,Mount Pokémon
+674,9,Pancham,Playful Pokémon
+675,9,Pangoro,Daunting Pokémon
+676,9,Furfrou,Poodle Pokémon
+677,9,Espurr,Restraint Pokémon
+678,9,Meowstic,Constraint Pokémon
+679,9,Honedge,Sword Pokémon
+680,9,Doublade,Sword Pokémon
+681,9,Aegislash,Royal Sword Pokémon
+682,9,Spritzee,Perfume Pokémon
+683,9,Aromatisse,Fragrance Pokémon
+684,9,Swirlix,Cotton Candy Pokémon
+685,9,Slurpuff,Meringue Pokémon
+686,9,Inkay,Revolving Pokémon
+687,9,Malamar,Overturning Pokémon
+688,9,Binacle,Two-Handed Pokémon
+689,9,Barbaracle,Collective Pokémon
+690,9,Skrelp,Mock Kelp Pokémon
+691,9,Dragalge,Mock Kelp Pokémon
+692,9,Clauncher,Water Gun Pokémon
+693,9,Clawitzer,Howitzer Pokémon
+694,9,Helioptile,Generator Pokémon
+695,9,Heliolisk,Generator Pokémon
+696,9,Tyrunt,Royal Heir Pokémon
+697,9,Tyrantrum,Despot Pokémon
+698,9,Amaura,Tundra Pokémon
+699,9,Aurorus,Tundra Pokémon
+700,9,Sylveon,Intertwining Pokémon
+701,9,Hawlucha,Wrestling Pokémon
+702,9,Dedenne,Antenna Pokémon
+703,9,Carbink,Jewel Pokémon
+704,9,Goomy,Soft Tissue Pokémon
+705,9,Sliggoo,Soft Tissue Pokémon
+706,9,Goodra,Dragon Pokémon
+707,9,Klefki,Key Ring Pokémon
+708,9,Phantump,Stump Pokémon
+709,9,Trevenant,Elder Tree Pokémon
+710,9,Pumpkaboo,Pumpkin Pokémon
+711,9,Gourgeist,Pumpkin Pokémon
+712,9,Bergmite,Ice Chunk Pokémon
+713,9,Avalugg,Iceberg Pokémon
+714,9,Noibat,Sound Wave Pokémon
+715,9,Noivern,Sound Wave Pokémon
+716,9,Xerneas,Life Pokémon
+717,9,Yveltal,Destruction Pokémon
+718,9,Zygarde,Order Pokémon
+719,9,Diancie,Jewel Pokémon
+720,9,Hoopa,Mischief Pokémon
+721,9,Volcanion,Steam Pokémon
+722,9,Rowlet,Grass Quill Pokémon
+723,9,Dartrix,Blade Quill Pokémon
+724,9,Decidueye,Arrow Quill Pokémon
+725,9,Litten,Fire Cat Pokémon
+726,9,Torracat,Fire Cat Pokémon
+727,9,Incineroar,Heel Pokémon
+728,9,Popplio,Sea Lion Pokémon
+729,9,Brionne,Pop Star Pokémon
+730,9,Primarina,Soloist Pokémon
+731,9,Pikipek,Woodpecker Pokémon
+732,9,Trumbeak,Bugle Beak Pokémon
+733,9,Toucannon,Cannon Pokémon
+734,9,Yungoos,Loitering Pokémon
+735,9,Gumshoos,Stakeout Pokémon
+736,9,Grubbin,Larva Pokémon
+737,9,Charjabug,Battery Pokémon
+738,9,Vikavolt,Stag Beetle Pokémon
+739,9,Crabrawler,Boxing Pokémon
+740,9,Crabominable,Woolly Crab Pokémon
+741,9,Oricorio,Dancing Pokémon
+742,9,Cutiefly,Bee Fly Pokémon
+743,9,Ribombee,Bee Fly Pokémon
+744,9,Rockruff,Puppy Pokémon
+745,9,Lycanroc,Wolf Pokémon
+746,9,Wishiwashi,Small Fry Pokémon
+747,9,Mareanie,Brutal Star Pokémon
+748,9,Toxapex,Brutal Star Pokémon
+749,9,Mudbray,Donkey Pokémon
+750,9,Mudsdale,Draft Horse Pokémon
+751,9,Dewpider,Water Bubble Pokémon
+752,9,Araquanid,Water Bubble Pokémon
+753,9,Fomantis,Sickle Grass Pokémon
+754,9,Lurantis,Bloom Sickle Pokémon
+755,9,Morelull,Illuminating Pokémon
+756,9,Shiinotic,Illuminating Pokémon
+757,9,Salandit,Toxic Lizard Pokémon
+758,9,Salazzle,Toxic Lizard Pokémon
+759,9,Stufful,Flailing Pokémon
+760,9,Bewear,Strong Arm Pokémon
+761,9,Bounsweet,Fruit Pokémon
+762,9,Steenee,Fruit Pokémon
+763,9,Tsareena,Fruit Pokémon
+764,9,Comfey,Posy Picker Pokémon
+765,9,Oranguru,Sage Pokémon
+766,9,Passimian,Teamwork Pokémon
+767,9,Wimpod,Turn Tail Pokémon
+768,9,Golisopod,Hard Scale Pokémon
+769,9,Sandygast,Sand Heap Pokémon
+770,9,Palossand,Sand Castle Pokémon
+771,9,Pyukumuku,Sea Cucumber Pokémon
+772,9,Type: Null,Synthetic Pokémon
+773,9,Silvally,Synthetic Pokémon
+774,9,Minior,Meteor Pokémon
+775,9,Komala,Drowsing Pokémon
+776,9,Turtonator,Blast Turtle Pokémon
+777,9,Togedemaru,Roly-Poly Pokémon
+778,9,Mimikyu,Disguise Pokémon
+779,9,Bruxish,Gnash Teeth Pokémon
+780,9,Drampa,Placid Pokémon
+781,9,Dhelmise,Sea Creeper Pokémon
+782,9,Jangmo-o,Scaly Pokémon
+783,9,Hakamo-o,Scaly Pokémon
+784,9,Kommo-o,Scaly Pokémon
+785,9,Tapu Koko,Land Spirit Pokémon
+786,9,Tapu Lele,Land Spirit Pokémon
+787,9,Tapu Bulu,Land Spirit Pokémon
+788,9,Tapu Fini,Land Spirit Pokémon
+789,9,Cosmog,Nebula Pokémon
+790,9,Cosmoem,Protostar Pokémon
+791,9,Solgaleo,Sunne Pokémon
+792,9,Lunala,Moone Pokémon
+793,9,Nihilego,Parasite Pokémon
+794,9,Buzzwole,Swollen Pokémon
+795,9,Pheromosa,Lissome Pokémon
+796,9,Xurkitree,Glowing Pokémon
+797,9,Celesteela,Launch Pokémon
+798,9,Kartana,Drawn Sword Pokémon
+799,9,Guzzlord,Junkivore Pokémon
+800,9,Necrozma,Prism Pokémon
+801,9,Magearna,Artificial Pokémon
+802,9,Marshadow,Gloomdweller Pokémon
+803,9,Poipole,Poison Pin Pokémon
+804,9,Naganadel,Poison Pin Pokémon
+805,9,Stakataka,Rampart Pokémon
+806,9,Blacephalon,Fireworks Pokémon
+807,9,Zeraora,Thunderclap Pokémon
+808,9,Meltan,Hex Nut Pokémon
+809,9,Melmetal,Hex Nut Pokémon
+810,9,Grookey,Chimp Pokémon
+811,9,Thwackey,Beat Pokémon
+812,9,Rillaboom,Drummer Pokémon
+813,9,Scorbunny,Rabbit Pokémon
+814,9,Raboot,Rabbit Pokémon
+815,9,Cinderace,Striker Pokémon
+816,9,Sobble,Water Lizard Pokémon
+817,9,Drizzile,Water Lizard Pokémon
+818,9,Inteleon,Secret Agent Pokémon
+819,9,Skwovet,Cheeky Pokémon
+820,9,Greedent,Greedy Pokémon
+821,9,Rookidee,Tiny Bird Pokémon
+822,9,Corvisquire,Raven Pokémon
+823,9,Corviknight,Raven Pokémon
+824,9,Blipbug,Larva Pokémon
+825,9,Dottler,Radome Pokémon
+826,9,Orbeetle,Seven Spot Pokémon
+827,9,Nickit,Fox Pokémon
+828,9,Thievul,Fox Pokémon
+829,9,Gossifleur,Flowering Pokémon
+830,9,Eldegoss,Cotton Bloom Pokémon
+831,9,Wooloo,Sheep Pokémon
+832,9,Dubwool,Sheep Pokémon
+833,9,Chewtle,Snapping Pokémon
+834,9,Drednaw,Bite Pokémon
+835,9,Yamper,Puppy Pokémon
+836,9,Boltund,Dog Pokémon
+837,9,Rolycoly,Coal Pokémon
+838,9,Carkol,Coal Pokémon
+839,9,Coalossal,Coal Pokémon
+840,9,Applin,Apple Core Pokémon
+841,9,Flapple,Apple Wing Pokémon
+842,9,Appletun,Apple Nectar Pokémon
+843,9,Silicobra,Sand Snake Pokémon
+844,9,Sandaconda,Sand Snake Pokémon
+845,9,Cramorant,Gulp Pokémon
+846,9,Arrokuda,Rush Pokémon
+847,9,Barraskewda,Skewer Pokémon
+848,9,Toxel,Baby Pokémon
+849,9,Toxtricity,Punk Pokémon
+850,9,Sizzlipede,Radiator Pokémon
+851,9,Centiskorch,Radiator Pokémon
+852,9,Clobbopus,Tantrum Pokémon
+853,9,Grapploct,Jujitsu Pokémon
+854,9,Sinistea,Black Tea Pokémon
+855,9,Polteageist,Black Tea Pokémon
+856,9,Hatenna,Calm Pokémon
+857,9,Hattrem,Serene Pokémon
+858,9,Hatterene,Silent Pokémon
+859,9,Impidimp,Wily Pokémon
+860,9,Morgrem,Devious Pokémon
+861,9,Grimmsnarl,Bulk Up Pokémon
+862,9,Obstagoon,Blocking Pokémon
+863,9,Perrserker,Viking Pokémon
+864,9,Cursola,Coral Pokémon
+865,9,Sirfetch’d,Wild Duck Pokémon
+866,9,Mr. Rime,Comedian Pokémon
+867,9,Runerigus,Grudge Pokémon
+868,9,Milcery,Cream Pokémon
+869,9,Alcremie,Cream Pokémon
+870,9,Falinks,Formation Pokémon
+871,9,Pincurchin,Sea Urchin Pokémon
+872,9,Snom,Worm Pokémon
+873,9,Frosmoth,Frost Moth Pokémon
+874,9,Stonjourner,Big Rock Pokémon
+875,9,Eiscue,Penguin Pokémon
+876,9,Indeedee,Emotion Pokémon
+877,9,Morpeko,Two-Sided Pokémon
+878,9,Cufant,Copperderm Pokémon
+879,9,Copperajah,Copperderm Pokémon
+880,9,Dracozolt,Fossil Pokémon
+881,9,Arctozolt,Fossil Pokémon
+882,9,Dracovish,Fossil Pokémon
+883,9,Arctovish,Fossil Pokémon
+884,9,Duraludon,Alloy Pokémon
+885,9,Dreepy,Lingering Pokémon
+886,9,Drakloak,Caretaker Pokémon
+887,9,Dragapult,Stealth Pokémon
+888,9,Zacian,Warrior Pokémon
+889,9,Zamazenta,Warrior Pokémon
+890,9,Eternatus,Gigantic Pokémon
+891,9,Kubfu,Wushu Pokémon
+892,9,Urshifu,Wushu Pokémon
+893,9,Zarude,Rogue Monkey Pokémon
+894,9,Regieleki,Electron Pokémon
+895,9,Regidrago,Dragon Orb Pokémon
+896,9,Glastrier,Wild Horse Pokémon
+897,9,Spectrier,Swift Horse Pokémon
+898,9,Calyrex,King Pokémon
+899,9,Wyrdeer,Big Horn Pokémon
+900,9,Kleavor,Axe Pokémon
+901,9,Ursaluna,Peat Pokémon
+902,9,Basculegion,Big Fish Pokémon
+903,9,Sneasler,Free Climb Pokémon
+904,9,Overqwil,Pin Cluster Pokémon
+905,9,Enamorus,Love-Hate Pokémon
+906,9,Sprigatito,Grass Cat Pokémon
+907,9,Floragato,Grass Cat Pokémon
+908,9,Meowscarada,Magician Pokémon
+909,9,Fuecoco,Fire Croc Pokémon
+910,9,Crocalor,Fire Croc Pokémon
+911,9,Skeledirge,Singer Pokémon
+912,9,Quaxly,Duckling Pokémon
+913,9,Quaxwell,Practicing Pokémon
+914,9,Quaquaval,Dancer Pokémon
+915,9,Lechonk,Hog Pokémon
+916,9,Oinkologne,Hog Pokémon
+917,9,Tarountula,String Ball Pokémon
+918,9,Spidops,Trap Pokémon
+919,9,Nymble,Grasshopper Pokémon
+920,9,Lokix,Grasshopper Pokémon
+921,9,Pawmi,Mouse Pokémon
+922,9,Pawmo,Mouse Pokémon
+923,9,Pawmot,Hands-On Pokémon
+924,9,Tandemaus,Couple Pokémon
+925,9,Maushold,Family Pokémon
+926,9,Fidough,Puppy Pokémon
+927,9,Dachsbun,Dog Pokémon
+928,9,Smoliv,Olive Pokémon
+929,9,Dolliv,Olive Pokémon
+930,9,Arboliva,Olive Pokémon
+931,9,Squawkabilly,Parrot Pokémon
+932,9,Nacli,Rock Salt Pokémon
+933,9,Naclstack,Rock Salt Pokémon
+934,9,Garganacl,Rock Salt Pokémon
+935,9,Charcadet,Fire Child Pokémon
+936,9,Armarouge,Fire Warrior Pokémon
+937,9,Ceruledge,Fire Blades Pokémon
+938,9,Tadbulb,EleTadpole Pokémon
+939,9,Bellibolt,EleFrog Pokémon
+940,9,Wattrel,Storm Petrel Pokémon
+941,9,Kilowattrel,Frigatebird Pokémon
+942,9,Maschiff,Rascal Pokémon
+943,9,Mabosstiff,Boss Pokémon
+944,9,Shroodle,Toxic Mouse Pokémon
+945,9,Grafaiai,Toxic Monkey Pokémon
+946,9,Bramblin,Tumbleweed Pokémon
+947,9,Brambleghast,Tumbleweed Pokémon
+948,9,Toedscool,Woodear Pokémon
+949,9,Toedscruel,Woodear Pokémon
+950,9,Klawf,Ambush Pokémon
+951,9,Capsakid,Spicy Pepper Pokémon
+952,9,Scovillain,Spicy Pepper Pokémon
+953,9,Rellor,Rolling Pokémon
+954,9,Rabsca,Rolling Pokémon
+955,9,Flittle,Frill Pokémon
+956,9,Espathra,Ostrich Pokémon
+957,9,Tinkatink,Metalsmith Pokémon
+958,9,Tinkatuff,Hammer Pokémon
+959,9,Tinkaton,Hammer Pokémon
+960,9,Wiglett,Garden Eel Pokémon
+961,9,Wugtrio,Garden Eel Pokémon
+962,9,Bombirdier,Item Drop Pokémon
+963,9,Finizen,Dolphin Pokémon
+964,9,Palafin,Dolphin Pokémon
+965,9,Varoom,Single-Cyl Pokémon
+966,9,Revavroom,Multi-Cyl Pokémon
+967,9,Cyclizar,Mount Pokémon
+968,9,Orthworm,Earthworm Pokémon
+969,9,Glimmet,Ore Pokémon
+970,9,Glimmora,Ore Pokémon
+971,9,Greavard,Ghost Dog Pokémon
+972,9,Houndstone,Ghost Dog Pokémon
+973,9,Flamigo,Synchronize Pokémon
+974,9,Cetoddle,Terra Whale Pokémon
+975,9,Cetitan,Terra Whale Pokémon
+976,9,Veluza,Jettison Pokémon
+977,9,Dondozo,Big Catfish Pokémon
+978,9,Tatsugiri,Mimicry Pokémon
+979,9,Annihilape,Rage Monkey Pokémon
+980,9,Clodsire,Spiny Fish Pokémon
+981,9,Farigiraf,Long Neck Pokémon
+982,9,Dudunsparce,Land Snake Pokémon
+983,9,Kingambit,Big Blade Pokémon
+984,9,Great Tusk,Paradox Pokémon
+985,9,Scream Tail,Paradox Pokémon
+986,9,Brute Bonnet,Paradox Pokémon
+987,9,Flutter Mane,Paradox Pokémon
+988,9,Slither Wing,Paradox Pokémon
+989,9,Sandy Shocks,Paradox Pokémon
+990,9,Iron Treads,Paradox Pokémon
+991,9,Iron Bundle,Paradox Pokémon
+992,9,Iron Hands,Paradox Pokémon
+993,9,Iron Jugulis,Paradox Pokémon
+994,9,Iron Moth,Paradox Pokémon
+995,9,Iron Thorns,Paradox Pokémon
+996,9,Frigibax,Ice Fin Pokémon
+997,9,Arctibax,Ice Fin Pokémon
+998,9,Baxcalibur,Ice Dragon Pokémon
+999,9,Gimmighoul,Coin Chest Pokémon
+1000,9,Gholdengo,Coin Entity Pokémon
+1001,9,Wo-Chien,Ruinous Pokémon
+1002,9,Chien-Pao,Ruinous Pokémon
+1003,9,Ting-Lu,Ruinous Pokémon
+1004,9,Chi-Yu,Ruinous Pokémon
+1005,9,Roaring Moon,Paradox Pokémon
+1006,9,Iron Valiant,Paradox Pokémon
+1007,9,Koraidon,Paradox Pokémon
+1008,9,Miraidon,Paradox Pokémon
+1009,9,Walking Wake,Paradox Pokémon
+1010,9,Iron Leaves,Paradox Pokémon
+1011,9,Dipplin,Candy Apple Pokémon
+1012,9,Poltchageist,Matcha Pokémon
+1013,9,Sinistcha,Matcha Pokémon
+1014,9,Okidogi,Retainer Pokémon
+1015,9,Munkidori,Retainer Pokémon
+1016,9,Fezandipiti,Retainer Pokémon
+1017,9,Ogerpon,Mask Pokémon
+1018,9,Archaludon,Alloy Pokémon
+1019,9,Hydrapple,Apple Hydra Pokémon
+1020,9,Gouging Fire,Paradox Pokémon
+1021,9,Raging Bolt,Paradox Pokémon
+1022,9,Iron Boulder,Paradox Pokémon
+1023,9,Iron Crown,Paradox Pokémon
+1024,9,Terapagos,Tera Pokémon
+1025,9,Pecharunt,Subjugation Pokémon
