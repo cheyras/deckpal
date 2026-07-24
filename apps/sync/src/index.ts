@@ -1,5 +1,8 @@
 import cron from 'node-cron';
 import { loadEnv, makePool } from '@pokedex/db';
+import { ingestTcgcsvPrices } from './prices/tcgcsv.js';
+import { ingestCardmarket } from './prices/cardmarket.js';
+import type { Queryable } from './prices/db.js';
 
 // Phase 2 · task 1 skeleton — the node-cron scheduler shell only. NO network calls, NO catalog
 // import; those are later tasks. Cadences and the job list come from research/DATA-LAYER.md §7.2 and
@@ -37,11 +40,35 @@ function registerStub(job: JobName, expr: string): void {
   });
 }
 
+// Run a real price job on the single sync client, then release it. Each job internally holds a
+// pg advisory lock + skip-if-unchanged, so a cron fire that overlaps a manual run is a clean no-op.
+// Full run (no --sets): walks all 178 groups (TCGCSV) / all matched products (Cardmarket).
+async function runJob(job: JobName, fn: (c: Queryable) => Promise<unknown>): Promise<void> {
+  const client = (await pool.connect()) as unknown as Queryable & { release(): void };
+  try {
+    const r = await fn(client);
+    console.log(`[pokedex-sync] ${job} ok:`, JSON.stringify(r));
+  } catch (err) {
+    console.error(`[pokedex-sync] ${job} FAILED:`, err instanceof Error ? err.message : err);
+  } finally {
+    client.release();
+  }
+}
+
+const REAL_JOBS: Partial<Record<JobName, (c: Queryable) => Promise<unknown>>> = {
+  'prices-tcgcsv': (c) => ingestTcgcsvPrices(c),
+  'prices-cardmarket': (c) => ingestCardmarket(c),
+};
+
 async function main(): Promise<void> {
   // Prove DB reachability at boot, then idle as the scheduler.
   const { rows } = await pool.query<{ n: number }>('SELECT count(*)::int AS n FROM sync_run');
-  console.log(`pokedex-sync up. sync_run rows: ${rows[0]?.n ?? 0}. Registering ${Object.keys(SCHEDULE).length} cron stubs.`);
-  for (const [job, expr] of Object.entries(SCHEDULE)) registerStub(job as JobName, expr);
+  console.log(`pokedex-sync up. sync_run rows: ${rows[0]?.n ?? 0}. Registering ${Object.keys(SCHEDULE).length} cron jobs.`);
+  for (const [job, expr] of Object.entries(SCHEDULE)) {
+    const real = REAL_JOBS[job as JobName];
+    if (real) cron.schedule(expr, () => void runJob(job as JobName, real));
+    else registerStub(job as JobName, expr);
+  }
 }
 
 main().catch((err) => {
