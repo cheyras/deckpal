@@ -233,8 +233,17 @@ silent when wrong.
 Full DDL, indexes and worked SQL: `research/SCHEMA.md` (2,584 lines).
 
 **Variants are the atomic unit.** `card_variant` is the ownership, pricing and
-buy-link row, keyed on TCGdex's `variantId` so re-deriving our own slug vocabulary
-can never orphan user data.
+buy-link row.
+
+> **Correction (Phase 2, verified against the real catalog):** the natural key is
+> **`(card_id, variant_kind_code)`**, *not* `tcgdex_variant_id`. Earlier passes
+> assumed `variantId` was a per-variant identifier; it is not — the compiled
+> catalog has only **324 distinct `variantId` values across 35,648 rows** (it is a
+> facet-tuple hash, and the sentinel `"generated"` alone covers 10,296 rows).
+> `tcgdex_variant_id` is retained as a non-unique, nullable attribute. The real key
+> is the same one the reverse-holo cross-fill (§8.1) keys on, so the two are
+> consistent: a cross-filled row and its eventual TCGdex backfill collide on
+> `(card_id, variant_kind_code)` and reconcile in place.
 
 **The taxonomy is an open enum implemented as data.** A `variant_kind` lookup table
 carries typed facet columns decomposed from `variants_detailed`, so a new stamp is
