@@ -1,0 +1,106 @@
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  createRouter,
+  createRootRoute,
+  createRoute,
+  redirect,
+  retainSearchParams,
+  stripSearchParams,
+  RouterProvider,
+  Outlet,
+} from '@tanstack/react-router'
+import './theme.css'
+import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
+import { AppShell } from './components/AppShell'
+import { SeriesIndex } from './routes/SeriesIndex'
+import { SeriesDetail } from './routes/SeriesDetail'
+import { SetDetail } from './routes/SetDetail'
+import { CardDetail } from './routes/CardDetail'
+import { validateCardSearch } from './routes/setSearch'
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60_000,
+      gcTime: 24 * 60 * 60_000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+})
+
+const rootRoute = createRootRoute({
+  component: () => (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  ),
+})
+
+const indexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/',
+  beforeLoad: () => {
+    throw redirect({ to: '/series' })
+  },
+})
+
+const seriesIndexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/series',
+  component: SeriesIndex,
+})
+
+const seriesDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/series/$series',
+  component: SeriesDetail,
+})
+
+const setDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/series/$series/$set',
+  validateSearch: validateCardSearch,
+  // Keep default-valued params OUT of the URL (clean canonical URL); carry the
+  // chosen view across navigations. FRONTEND.md §A.5.
+  search: {
+    middlewares: [retainSearchParams(['view']), stripSearchParams(CARD_SEARCH_DEFAULTS)],
+  },
+  component: SetDetail,
+})
+
+const cardDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/series/$series/$set/$number',
+  component: CardDetail,
+})
+
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  seriesIndexRoute,
+  seriesDetailRoute,
+  setDetailRoute,
+  cardDetailRoute,
+])
+
+const router = createRouter({
+  routeTree,
+  basepath: '/pokedex',
+  defaultPreload: 'intent',
+})
+
+declare module '@tanstack/react-router' {
+  interface Register {
+    router: typeof router
+  }
+}
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  </StrictMode>,
+)
