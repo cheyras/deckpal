@@ -1,0 +1,114 @@
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import pg from 'pg';
+
+/**
+ * A tiny, boring, forward-only migration runner.
+ *
+ * Why not an ORM / migration framework? research/SCHEMA.md (2,985 lines) is
+ * hand-written, authoritative SQL with partitioning, generated columns, partial
+ * unique indexes, views and CHECK constraints an ORM would fight or silently
+ * paper over. Plain numbered `.sql` files keep that SQL the source of truth.
+ *
+ * Contract:
+ *  - files are `NNN_name.sql`, applied in filename order.
+ *  - each file runs inside ONE transaction; a failure rolls the whole file back.
+ *  - applied files are recorded in `schema_migrations` with a sha256 checksum.
+ *  - re-running is a no-op; a checksum change on an already-applied file is a
+ *    hard error (edit-in-place of shipped migrations is forbidden — add a new one).
+ */
+
+export interface MigrationResult {
+  version: string;
+  applied: boolean;
+  checksum: string;
+}
+
+const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
+
+function sha256(s: string): string {
+  return createHash('sha256').update(s).digest('hex');
+}
+
+function listMigrations(): { version: string; file: string; sql: string; checksum: string }[] {
+  return readdirSync(migrationsDir)
+    .filter((f) => /^\d+.*\.sql$/.test(f))
+    .sort()
+    .map((file) => {
+      const sql = readFileSync(join(migrationsDir, file), 'utf-8');
+      return { version: file.replace(/\.sql$/, ''), file, sql, checksum: sha256(sql) };
+    });
+}
+
+async function ensureTable(client: pg.PoolClient): Promise<void> {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version    TEXT PRIMARY KEY,
+      checksum   TEXT NOT NULL,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+}
+
+export async function migrateUp(pool: pg.Pool): Promise<MigrationResult[]> {
+  const migrations = listMigrations();
+  const results: MigrationResult[] = [];
+  const client = await pool.connect();
+  try {
+    await ensureTable(client);
+    const { rows } = await client.query<{ version: string; checksum: string }>(
+      'SELECT version, checksum FROM schema_migrations',
+    );
+    const applied = new Map(rows.map((r) => [r.version, r.checksum]));
+
+    for (const m of migrations) {
+      const prior = applied.get(m.version);
+      if (prior !== undefined) {
+        if (prior !== m.checksum) {
+          throw new Error(
+            `checksum mismatch for already-applied migration ${m.version}: ` +
+              `stored ${prior.slice(0, 12)} vs file ${m.checksum.slice(0, 12)}. ` +
+              `Shipped migrations are immutable — add a new migration instead of editing.`,
+          );
+        }
+        results.push({ version: m.version, applied: false, checksum: m.checksum });
+        continue;
+      }
+      await client.query('BEGIN');
+      try {
+        await client.query(m.sql);
+        await client.query(
+          'INSERT INTO schema_migrations (version, checksum) VALUES ($1, $2)',
+          [m.version, m.checksum],
+        );
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw new Error(`migration ${m.version} failed: ${(err as Error).message}`);
+      }
+      results.push({ version: m.version, applied: true, checksum: m.checksum });
+    }
+    return results;
+  } finally {
+    client.release();
+  }
+}
+
+export async function migrationStatus(
+  pool: pg.Pool,
+): Promise<{ version: string; applied: boolean }[]> {
+  const migrations = listMigrations();
+  const client = await pool.connect();
+  try {
+    await ensureTable(client);
+    const { rows } = await client.query<{ version: string }>(
+      'SELECT version FROM schema_migrations',
+    );
+    const applied = new Set(rows.map((r) => r.version));
+    return migrations.map((m) => ({ version: m.version, applied: applied.has(m.version) }));
+  } finally {
+    client.release();
+  }
+}
