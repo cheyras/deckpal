@@ -187,6 +187,20 @@ apps' live connections held at 5+5 unbroken across the change. `datacl` is now
   needs catalog imported for the numeric join).
 - ⏳ **Task 6 — offline proof** + two-set end-to-end demo for the user.
 
+## Phase 3 progress (the app)
+
+- ✅ **Task 1 — read API** (`apps/api` :3700, `/pokedex/api/*`). Lead-verified against
+  live data: base1 goals 102/102/409; sv03.5 goals 207/373/384 (Master<Grandmaster,
+  distinct pair fractions); `base1-4` Charizard 4 composed variants, Holofoil
+  `market` $800.43 USD / €421.11 EUR with full price object (low/mid/high/directLow/
+  trend/avg1-7-30, pricedAt, isFallback); dex charizard gen1 fire/flying 124 cards.
+  12 filter facets populated; **Sub-Type empty** (card_subtype/card_tag not imported).
+  Contract in `API.md`. Cleanup verified (port free, connections baseline).
+  - Notable: `tcgplayer_url` NULL on tcgdex variants (compose from product_id);
+    `dex_species.total_card_count`=0 (computed live); prices integer minor units.
+- 🔄 **Task 2 — React frontend** (browse MVP: series→set→card + binder), in flight.
+- ⏳ Then: collection write endpoints + Have/Need/Dupe steppers wired to progress.
+
 ## Phase 2 follow-ups (found during verification, non-blocking)
 
 - ✅ **Task 4 — dex importer** and ✅ **Task 5 — price ingest + cross-fill**, both
