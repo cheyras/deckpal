@@ -353,7 +353,7 @@ Decomposition of the 51 "wrong", measured:
 
 **38 of them are TAG-TEAM/duo cards where the fallback picks the first-named species and TCGdex's `dexId[0]` is the second-named one** (`Celebi & Venusaur GX` → fallback 251, TCGdex `[3,251]`). Those are ordering disagreements, not errors — the multi-species `resolveAll` recovers the complete set for 124/126 cards. The remaining **13** are the genuine TCGdex errors of F6.
 
-**Ordering caution — noise-word lists are a foot-gun.** My first pass put `sandy` in the noise list (for Wormadam Sandy Cloak) and it broke **Sandy Shocks ex** (#1005). The fix is the ordering above: *try the full token window before removing any noise word*. That ordering change alone moved the fallback from 95.39 % → 99.17 %.
+**Ordering caution — noise-word lists are a foot-gun.** My first pass put `sandy` in the noise list (for Wormadam Sandy Cloak) and it broke **Sandy Shocks ex** (#989 — *corrected: this doc originally said #1005, which is Roaring Moon; the importer used the authoritative PokeAPI CSV and maps Sandy Shocks to 989*). The fix is the ordering above: *try the full token window before removing any noise word*. That ordering change alone moved the fallback from 95.39 % → 99.17 %.
 
 ## A.6 Expected match rate, with reasoning
 
