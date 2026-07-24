@@ -1,32 +1,95 @@
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
-import { loadEnv, makePool } from '@pokedex/db';
+import { closePool, pool, q } from './db.js';
+import { asyncHandler, catalogCache, errorMiddleware } from './http.js';
+import { seriesRouter } from './routes/series.js';
+import { setsRouter } from './routes/sets.js';
+import { cardsRouter } from './routes/cards.js';
+import { searchRouter } from './routes/search.js';
+import { dexRouter } from './routes/dex.js';
 
-// Phase 2 · task 1 skeleton. REST routes land in later tasks; this proves the process
-// boots, binds localhost-only (nginx is the sole ingress), and reaches the DB within budget.
-loadEnv();
+/**
+ * pokedex-api — the read API over the populated catalog (ARCHITECTURE §4).
+ *
+ * Everything mounts under the /pokedex/api base: the app is served behind nginx
+ * at the /pokedex/ sub-path (never the domain root), so no route assumes it.
+ * Bound to 127.0.0.1 — nginx (LAN) / the SSO gate (remote) is the sole ingress and
+ * the only auth boundary; the API has none of its own. All queries are read-only
+ * and parameterized. Connection budget: 2 (shared pool, hard-capped at 3).
+ */
 
-// Connection budget: the API gets 2 of the 3 total. See DECISIONS.md / DATA-LAYER §6.5.
-const pool = makePool(Number(process.env.PGPOOL_MAX_API ?? 2));
+export function createApp(): express.Express {
+  const app = express();
+  app.disable('x-powered-by');
+  app.use(helmet());
+  app.use(cors());
+  app.use(express.json());
 
-const app = express();
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
+  const api = express.Router();
 
-// The app serves from a sub-path behind nginx (/pokedex, /api/pokedex). Router basename TBD.
-app.get('/api/pokedex/health', async (_req, res) => {
-  try {
-    const { rows } = await pool.query<{ now: string }>('SELECT now() AS now');
-    res.json({ status: 'ok', db: 'up', now: rows[0]?.now });
-  } catch (err) {
-    res.status(503).json({ status: 'degraded', db: 'down', error: (err as Error).message });
-  }
-});
+  // Health: DB liveness + per-sync freshness (cheap; single grouped query).
+  api.get(
+    '/health',
+    asyncHandler(async (_req, res) => {
+      try {
+        await q('SELECT 1');
+      } catch (err) {
+        res.status(503).json({ status: 'degraded', db: 'down', error: (err as Error).message });
+        return;
+      }
+      let syncs: Array<{ job: string; status: string; finishedAt: string | null; sourceStamp: string | null }> = [];
+      try {
+        const rows = await q<{ job: string; status: string; finished_at: string | null; source_stamp: string | null }>(
+          `SELECT DISTINCT ON (job) job, status, finished_at, source_stamp
+             FROM sync_run ORDER BY job, started_at DESC`,
+        );
+        syncs = rows.map((r) => ({ job: r.job, status: r.status, finishedAt: r.finished_at, sourceStamp: r.source_stamp }));
+      } catch {
+        /* sync_run optional for liveness */
+      }
+      res.json({ status: 'ok', db: 'up', syncs });
+    }),
+  );
 
-const port = Number(process.env.POKEDEX_API_PORT ?? 3700);
-// Bind to loopback only — the app has no auth of its own; the SSO gate/nginx is the boundary.
-app.listen(port, '127.0.0.1', () => {
-  console.log(`pokedex-api listening on 127.0.0.1:${port}`);
-});
+  // A tiny index so hitting the base is not a 404.
+  api.get('/', (_req, res) => {
+    catalogCache(res, 3600);
+    res.json({
+      name: 'pokedex-api',
+      endpoints: ['/health', '/series', '/series/:seriesSlug', '/sets/:setId', '/cards/:cardId', '/search', '/dex', '/dex/:speciesId'],
+    });
+  });
+
+  api.use('/series', seriesRouter);
+  api.use('/sets', setsRouter);
+  api.use('/cards', cardsRouter);
+  api.use('/search', searchRouter);
+  api.use('/dex', dexRouter);
+
+  app.use('/pokedex/api', api);
+
+  app.use((_req, res) => {
+    res.status(404).json({ error: { code: 'not_found', message: 'No such route' } });
+  });
+  app.use(errorMiddleware);
+  return app;
+}
+
+const isMain = process.argv[1]?.endsWith('index.js') || process.argv[1]?.endsWith('index.ts');
+if (isMain) {
+  const app = createApp();
+  const port = Number(process.env.POKEDEX_API_PORT ?? 3700);
+  const server = app.listen(port, '127.0.0.1', () => {
+    console.log(`pokedex-api listening on 127.0.0.1:${port} (base /pokedex/api)`);
+  });
+  const shutdown = (): void => {
+    server.close(() => {
+      void closePool().finally(() => process.exit(0));
+    });
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+  // Keep a reference so lint doesn't flag pool as unused before first request.
+  void pool;
+}
