@@ -1,0 +1,65 @@
+import type { Price, VariantPrice } from './api'
+
+const USD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+
+// Money: null → "—" (never $0). Non-USD keeps its own currency symbol.
+export function fmtPrice(p: Price | VariantPrice | null | undefined): string {
+  if (!p || p.market == null) return '—'
+  if (p.currency === 'USD') return USD.format(p.market)
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: p.currency }).format(p.market)
+  } catch {
+    return `${p.market} ${p.currency}`
+  }
+}
+
+export function fmtUsd(n: number | null | undefined): string {
+  if (n == null) return '—'
+  return USD.format(n)
+}
+
+export function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+// "2 hours ago" freshness line for prices.
+export function fmtRelative(iso: string | null | undefined): string {
+  if (!iso) return 'unknown'
+  const then = new Date(iso).getTime()
+  if (isNaN(then)) return 'unknown'
+  const diff = Date.now() - then
+  const mins = Math.round(diff / 60000)
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? '' : 's'} ago`
+  const days = Math.round(hrs / 24)
+  return `${days} day${days === 1 ? '' : 's'} ago`
+}
+
+// Card number as printed: "#001".
+export function fmtNumber(n: string): string {
+  const asInt = parseInt(n, 10)
+  if (!isNaN(asInt) && String(asInt) === n) return `#${String(asInt).padStart(3, '0')}`
+  return `#${n}`
+}
+
+// Printed rarity glyph (UI-SPEC §3.2 — rendered as glyphs, not tokens).
+export function rarityGlyph(rarity: string | null): string {
+  if (!rarity) return ''
+  const r = rarity.toLowerCase()
+  if (r.includes('double rare')) return '☆☆'
+  if (r.includes('rare')) return '☆'
+  if (r.includes('uncommon')) return '◇'
+  if (r.includes('common')) return '○'
+  return '◆'
+}
+
+// Set LVL from Complete-Set pct (AUTH-CAPTURES §10): 0 if 0%, else 1+floor(pct/25), cap "Max".
+export function setLevelLabel(pct: number): string {
+  if (pct >= 100) return 'MAX'
+  if (pct === 0) return '0'
+  return String(1 + Math.floor(pct / 25))
+}
