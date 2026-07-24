@@ -1,0 +1,192 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter/wght.css';
+
+/*
+ * pokedex design-system tokens — the 77 flat semantic roles from UI-SPEC §1.10.
+ * Dark-only theming (UI-SPEC §2): pkmnDark is the only scheme shipped; the
+ * data-theme="dark" attribute on <html> is the machine-readable switch.
+ * `static` so every token is emitted even when no utility references it.
+ */
+@theme static {
+  /* ── surfaces ─────────────────────────────────────────────── */
+  --color-surface-primary: #15181f;
+  --color-surface-secondary: #1f232d;
+  --color-surface-tertiary: #282d38;
+  --color-surface-tertiary-subtle: rgb(44 48 59 / 0.2);
+  --color-surface-tertiary-transparent: rgb(44 48 59 / 0.5);
+  --color-surface-quaternary: #373d4c;
+  --color-surface-raised: #3e4353;
+  --color-surface-control-active: #484f60;
+  --color-surface-profile-card: #282d38;
+  --color-surface-on-light: #f7f9ff;
+  --color-surface-on-light-border: #e0e4ef;
+  --color-surface-on-light-text: #1f232d;
+  --color-surface-footer: #1b1f27;
+
+  /* ── text & links ─────────────────────────────────────────── */
+  --color-text-primary: #ffffff;
+  --color-text-body: #c1c7d8;
+  --color-text-secondary: #989eb3;
+  --color-text-muted: #7f8596;
+  --color-text-primary-on-dark: rgb(255 255 255 / 0.85);
+  --color-link: #32b5ff;
+  --color-link-hover: #45bcff;
+
+  /* ── actions ──────────────────────────────────────────────── */
+  --color-action-primary: #ffd54a;
+  --color-action-primary-hover: #e6ca5b;
+  --color-action-primary-text: #1f232d;
+  --color-action-primary-strong: #ffe165;
+  --color-action-primary-strong-hover: #ffd63b;
+  --color-action-primary-strong-text: #1f232d;
+  --color-action-default: #282d38;
+  --color-action-default-hover: #3b3f4b;
+  --color-action-default-text: #ffffff;
+  --color-action-ghost-border: #3b3f4b;
+  --color-action-ghost-hover: #282d38;
+  --color-action-ghost-text: #7f8596;
+  --color-action-danger: #ff7893;
+  --color-action-danger-hover: #e6657f;
+  --color-action-danger-text: #15181f;
+  --color-action-brand: #32b5ff;
+  --color-action-brand-text: #ffffff;
+
+  /* ── status / feedback ────────────────────────────────────── */
+  --color-success: #32ffce;
+  --color-error: #ff7893;
+  --color-change-positive: #35f197;
+  --color-change-negative: #ff6b6b;
+  --color-halo-success: rgb(50 255 206 / 0.1);
+  --color-halo-error: rgb(255 120 147 / 0.1);
+  --color-halo-neutral: rgb(255 225 101 / 0.1);
+  --color-overlay-scrim: rgb(44 48 59 / 0.7);
+  --color-overlay-scrim-strong: rgb(21 24 31 / 0.75);
+  --color-overlay-ring: rgb(255 225 101 / 0.2);
+  --color-overlay-ring-error: rgb(255 120 147 / 0.2);
+  --color-banner-gradient-top: rgb(31 35 45 / 0.8);
+
+  /* ── borders / icons ──────────────────────────────────────── */
+  --color-border-default: #282d38;
+  --color-border-focus: #7f8596;
+  --color-divider-subtle: #383c49;
+  --color-avatar-ring: #282d38;
+  --color-icon-default: #7f8596;
+  --color-icon-hover: #ffffff;
+  --color-icon-active: #ffe165;
+  --color-icon-muted: #666f84;
+  --color-icon-muted-strong: #484f60;
+  --color-icon-disabled: #4a4f5c;
+  --color-icon-disabled-strong: #292e3a;
+
+  /* ── brand / pro / promo ──────────────────────────────────── */
+  --color-pro-accent: #45bcff;
+  --color-pro-accent-text: #15181f;
+  --color-pro-pink: #7f42ff;
+  --color-pro-pink-text: #ffffff;
+  --color-announcement: #3f52ff;
+  --color-announcement-text: #ffffff;
+  --color-completion-grandmaster: #9b6bff;
+  --color-glow-active: #ffe165;
+
+  /* ── variant accents (owned-badge + legend) ───────────────── */
+  --color-variant-normal: #ffe165; /* Normal */
+  --color-variant-reverse-holo: #32b5ff; /* Reverse Holofoil */
+  --color-variant-holofoil: #9b6bff; /* Holofoil */
+  --color-variant-other: #a8aebd; /* Additional / special tier */
+
+  /* ── radii ────────────────────────────────────────────────── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px; /* DEFAULT */
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-full: 9999px;
+
+  /* ── elevation ────────────────────────────────────────────── */
+  --shadow-elevated: 0 16px 24px rgb(0 0 0 / 0.25);
+  --shadow-panel: 0 8px 12px rgb(0 0 0 / 0.25);
+  --shadow-sticker: 4px 4px 4px 4px rgb(0 0 0 / 0.25);
+
+  /* ── typography ───────────────────────────────────────────── */
+  --font-sans: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  --text-3xs: 9px;
+  --text-3xs--line-height: 15px;
+  --text-2xs: 10px;
+  --text-2xs--line-height: 15px;
+  --text-xs: 11px;
+  --text-xs--line-height: 16.5px;
+  --text-sm: 12px;
+  --text-sm--line-height: 18px;
+  --text-md: 13px;
+  --text-md--line-height: 16.25px;
+  --text-base: 14px;
+  --text-base--line-height: 21px;
+  --text-lg: 15px;
+  --text-lg--line-height: 22.5px;
+  --text-xl: 16px;
+  --text-xl--line-height: 24px;
+  --text-2xl: 18px;
+  --text-2xl--line-height: 27px;
+  --text-3xl: 24px;
+  --text-3xl--line-height: 36px;
+  --text-4xl: 32px;
+  --text-4xl--line-height: 40px;
+  --text-5xl: 48px;
+  --text-5xl--line-height: 58px;
+
+  /* ── motion (UI-SPEC §1.9 — only these exist) ─────────────── */
+  --ease-standard: ease;
+
+  /* ── breakpoints (UI-SPEC §4.3 — 1068 is the ONE real one) ── */
+  --breakpoint-gap: 567px;
+  --breakpoint-nav: 1068px;
+}
+
+/* z-index layers — plain custom properties */
+:root {
+  --z-art: -1;
+  --z-base: 0;
+  --z-raised: 5;
+  --z-sticky: 8;
+  --z-overlay: 10;
+  --z-popover: 13;
+  --z-chrome: 20;
+  --z-modal: 100;
+  --z-toast: 9999;
+}
+
+html,
+body {
+  background-color: var(--color-surface-primary);
+  color: var(--color-text-body);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Motion contract: the ONLY authored transitions on pkmn.gg are
+   background-color 150ms on buttons and height 200ms on accordions. */
+button {
+  transition: background-color 150ms ease;
+}
+
+/* Our addition (flagged): a real focus ring — pkmn.gg ships none (UI-SPEC §3.10). */
+:focus-visible {
+  outline: 2px solid var(--color-action-primary-strong);
+  outline-offset: 2px;
+}
+
+/* Thin scrollbars on horizontal chip rows */
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-surface-quaternary) transparent;
+}
+.scroll-x::-webkit-scrollbar {
+  height: 6px;
+}
+.scroll-x::-webkit-scrollbar-thumb {
+  background: var(--color-surface-quaternary);
+  border-radius: 9999px;
+}
