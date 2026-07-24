@@ -7,7 +7,11 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "warm": "node dist/warmer.js",
+    "warm:dev": "tsx src/warmer.ts",
+    "evict": "node dist/evict.js",
+    "evict:dev": "tsx src/evict.ts"
   },
   "dependencies": {
     "@pokedex/db": "workspace:*",
