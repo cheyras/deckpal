@@ -27,5 +27,8 @@ assets/sprites/
 extract/
 *.tar
 
+# ── runtime catalog data dir (the importer reads compiled JSON from here) ───
+data/
+
 # ── os cruft ──────────────────────────────────────────────────────────────
 .DS_Store

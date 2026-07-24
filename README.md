@@ -9,9 +9,10 @@ Design docs live alongside this file (`ARCHITECTURE.md`, `DECISIONS.md`, `BRIEF.
 `PRIOR-ART.md`, `UI-SPEC.md`) and the deep research is under `research/`. The database
 model is specified in `research/SCHEMA.md`; this repo implements it.
 
-> **Status:** Phase 2, task 1 — repository scaffold + database. Backend/DB/sync
-> **skeleton** only. No frontend yet, no catalog data yet, and **nothing is wired into
-> pm2 or nginx**. See the checklist at the bottom.
+> **Status:** Phase 2, task 2 — repository scaffold + database + **the TCGdex catalog
+> importer**. The catalog (series/sets/cards/variants + variant vocabulary) now loads from
+> the compiled TCGdex JSON. No prices, no images, no frontend yet, and **nothing is wired
+> into pm2 or nginx**. See the checklist at the bottom.
 
 ---
 
@@ -32,6 +33,7 @@ pokedex/
     ├── api/                    # pokedex-api  (:3700) — REST + SPA host (skeleton)
     ├── images/                 # pokedex-images (:3701) — WebP cache server (skeleton)
     └── sync/                   # pokedex-sync — node-cron scheduler (stubs, no network)
+        └── src/catalog/        # the TCGdex catalog importer (transform.ts + import.ts + cli.ts)
 ```
 
 **Why this shape:** it mirrors the existing `/home/cheyras/thegrid-api/` pnpm workspace
@@ -140,11 +142,48 @@ pnpm --filter pokedex-api dev
 
 ---
 
+## Catalog import (Phase 2, task 2)
+
+The importer populates `series`, `card_set`, `card` (+ the `card_type`/`card_attack`/
+`card_ability`/`card_matchup` attribute junctions), the variant vocabulary
+(`variant_kind` + `variant_kind_stamp` + the facet/stamp/print-run lookups) and
+`card_variant`, from the compiled TCGdex English JSON.
+
+```bash
+# 1. stage the compiled JSON (the weekly job does this via `docker save | tar`, ARCHITECTURE §5.1)
+mkdir -p data/catalog/en          # data/ is gitignored
+cp <extract>/generated/en/{cards,sets,series}.json data/catalog/en/
+
+# 2. run it (uses 1 pooled connection; one transaction per set)
+pnpm --filter pokedex-sync import:catalog          # or: … import:catalog <dataDir>
+```
+
+Idempotent — re-running is a no-op (upserts on `card.id`, `card_variant (card_id,
+variant_kind_code)`, etc.; user ownership on `card_variant` is never deleted). Loads the
+full English corpus (**23,444 cards, 35,719 variant rows** — 35,648 upstream rows, 4
+intra-card exact-duplicate facet tuples collapsed by the unique key, + 75 synthesized
+`normal` variants for the zero-variant cards) in ~9 s at RSS well under the budget.
+
+Facets are decomposed into the vocabulary tables; the pack-pulled **tier** is derived by
+rule v3 (SCHEMA §5.3); variant **display names** are composed and stored (SCHEMA §5.4.2,
+verified against the authenticated captures); per-variant TCGplayer/Cardmarket/CardTrader
+ids are stored where present and modelled as genuine `NULL` (with `id_source`) where not.
+Every row is written with `source='tcgdex'`, so the next task's reverse-holo cross-fill
+can land provisional `source='tcgcsv'` rows on the same `(card_id, variant_kind_code)` slot
+via `ON CONFLICT DO UPDATE`. Prices, images, dex data and the cross-fill are **later tasks**.
+
+> Two schema corrections this task forced (see `packages/db/src/migrations/014_*.sql`):
+> `card_variant` gained the `source`/`fill_confidence` columns ARCHITECTURE §8.1 specifies,
+> and the `tcgdex_variant_id` **UNIQUE** constraint was dropped — the compiled catalog has
+> only 324 distinct `variantId` values across 35,648 rows (a facet-tuple hash, one sentinel
+> `"generated"` covering ~10k rows), so it is not a per-row key; the real idempotency key is
+> `UNIQUE (card_id, variant_kind_code)`.
+
+---
+
 ## What this task did **not** do (deliberately)
 
-- **No catalog import.** Sets/cards/variants/prices tables are empty by design — that is
-  the next task. Only the closed-vocabulary tables (currencies, variant facets, formats)
-  and the single default user are seeded.
+- **No prices, images, dex data, or reverse-holo cross-fill** — each is its own later task.
 - **No pm2 process** was created and `thegrid-api`'s `ecosystem.config.cjs` was not
   touched. `pokedex/ecosystem.config.cjs` is a template for later.
 - **No nginx change.** `deploy/nginx/*.conf` are fragments to paste in later, with the
