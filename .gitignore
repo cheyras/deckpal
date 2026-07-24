@@ -28,7 +28,10 @@ extract/
 *.tar
 
 # ── runtime catalog data dir (the importer reads compiled JSON from here) ───
-data/
+# Ignore data/* contents but re-include the vendored PokeAPI species CSVs, which ARE
+# committed (BSD-3, ~216 KB, static — DEX-DATA.md §B.3). Sprites are NOT here (fetched).
+data/*
+!data/pokeapi/
 
 # ── os cruft ──────────────────────────────────────────────────────────────
 .DS_Store

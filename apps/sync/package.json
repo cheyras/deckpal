@@ -8,7 +8,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
-    "import:catalog": "tsx src/catalog/cli.ts"
+    "import:catalog": "tsx src/catalog/cli.ts",
+    "import:dex": "tsx src/dex/cli.ts"
   },
   "dependencies": {
     "@pokedex/db": "workspace:*",
