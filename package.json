@@ -1,0 +1,24 @@
+{
+  "name": "pokedex",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Self-hosted pkmn.gg clone for the original host (the original host). Backend + DB + sync.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "migrate": "pnpm --filter @pokedex/db migrate",
+    "migrate:status": "pnpm --filter @pokedex/db migrate:status",
+    "build": "pnpm --filter @pokedex/db build && pnpm --filter pokedex-api build && pnpm --filter pokedex-images build && pnpm --filter pokedex-sync build",
+    "typecheck": "pnpm -r typecheck",
+    "dev:api": "pnpm --filter pokedex-api dev"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": []
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.0"
+  }
+}

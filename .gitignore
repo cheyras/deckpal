@@ -1,0 +1,31 @@
+# ── secrets ───────────────────────────────────────────────────────────────
+.env
+.env.local
+*.secret
+
+# ── node / build ──────────────────────────────────────────────────────────
+node_modules/
+dist/
+*.tsbuildinfo
+**/package-lock.json
+
+# ── logs ──────────────────────────────────────────────────────────────────
+*.log
+**/logs/
+*.jsonl
+
+# ── image cache + fetched assets (never committed — DECISIONS.md 2026-07-24) ─
+cache/
+image-cache/
+**/cache/cards/
+**/cache/sets/
+assets/sprites/
+**/*.webp
+**/*.avif
+
+# ── transient catalog extract (docker save | tar output) ──────────────────
+extract/
+*.tar
+
+# ── os cruft ──────────────────────────────────────────────────────────────
+.DS_Store
