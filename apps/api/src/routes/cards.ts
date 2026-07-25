@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { cardImages, q, q1, shapePrice, tcgplayerUrl, type PriceRow } from '../db.js';
+import { cardImages, defaultUserId, q, q1, shapePrice, tcgplayerUrl, type PriceRow } from '../db.js';
 import { asyncHandler, notFound, userCache } from '../http.js';
 
 export const cardsRouter: Router = Router();
@@ -54,6 +54,7 @@ interface VariantRow {
   tcgplayer_url: string | null;
   tcgplayer_product_id: number | null;
   tcgplayer_printing: string | null;
+  quantity: number;
 }
 
 /**
@@ -84,19 +85,22 @@ cardsRouter.get(
     );
     if (!card) throw notFound(`No card '${cardTcgdexId}'`);
     const cardId = card.id;
+    const userId = await defaultUserId();
 
     const [variants, priceRows, attacks, abilities, matchups, types, subtypes, tags, species] = await Promise.all([
       q<VariantRow>(
         `SELECT cv.id, cv.variant_kind_code, cv.display_name, vk.display_name AS kind_display,
                 cv.provenance, cv.sort_order, cv.is_primary, cv.is_synthesized, cv.source,
                 cv.fill_confidence, t.tier, t.tier_source,
-                cv.tcgplayer_url, cv.tcgplayer_product_id, cv.tcgplayer_printing
+                cv.tcgplayer_url, cv.tcgplayer_product_id, cv.tcgplayer_printing,
+                COALESCE(ci.quantity, 0) AS quantity
            FROM card_variant cv
            JOIN variant_kind vk ON vk.code = cv.variant_kind_code
            JOIN variant_tier_resolved t ON t.card_variant_id = cv.id
+      LEFT JOIN collection_item ci ON ci.card_variant_id = cv.id AND ci.user_id = $2
           WHERE cv.card_id = $1
           ORDER BY cv.sort_order`,
-        [cardId],
+        [cardId, userId],
       ),
       q<PriceRow & { card_variant_id: string }>(
         `SELECT pc.card_variant_id, pc.source_code, ps.label AS source_label, ps.marketplace,
@@ -179,6 +183,7 @@ cardsRouter.get(
         isSynthesized: v.is_synthesized,
         source: v.source, // 'tcgdex' | 'tcgcsv' (cross-filled reverse holos count for real)
         fillConfidence: v.fill_confidence,
+        quantity: Number(v.quantity), // owned quantity for the default user (0 if unowned)
         buyUrl: tcgplayerUrl(v.tcgplayer_url, v.tcgplayer_product_id, v.tcgplayer_printing),
         // Every price carries currency + priced_at; a missing price is null, never 0.
         prices: (pricesByVariant.get(v.id) ?? []).map(shapePrice),
