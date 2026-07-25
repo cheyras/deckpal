@@ -8,6 +8,7 @@ import { setsRouter } from './routes/sets.js';
 import { cardsRouter } from './routes/cards.js';
 import { searchRouter } from './routes/search.js';
 import { dexRouter } from './routes/dex.js';
+import { collectionRouter } from './routes/collection.js';
 
 /**
  * pokedex-api — the read API over the populated catalog (ARCHITECTURE §4).
@@ -57,7 +58,10 @@ export function createApp(): express.Express {
     catalogCache(res, 3600);
     res.json({
       name: 'pokedex-api',
-      endpoints: ['/health', '/series', '/series/:seriesSlug', '/sets/:setId', '/cards/:cardId', '/search', '/dex', '/dex/:speciesId'],
+      endpoints: [
+        '/health', '/series', '/series/:seriesSlug', '/sets/:setId', '/cards/:cardId', '/search', '/dex', '/dex/:speciesId',
+        'PATCH /collection/variants/:variantId', 'POST /collection/variants/:variantId/increment', 'POST /collection/cards/:cardId/have',
+      ],
     });
   });
 
@@ -66,6 +70,7 @@ export function createApp(): express.Express {
   api.use('/cards', cardsRouter);
   api.use('/search', searchRouter);
   api.use('/dex', dexRouter);
+  api.use('/collection', collectionRouter);
 
   app.use('/pokedex/api', api);
 

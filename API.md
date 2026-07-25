@@ -3,8 +3,10 @@
 The React frontend's contract. TypeScript/Express, port **3700**, bound to
 `127.0.0.1`; nginx (LAN) / the SSO gate (remote) is the sole ingress and the only auth
 boundary. **Every route is under the `/pokedex/` sub-path** — the app never assumes
-the domain root. All routes are read-only, all queries parameterized, connection
-budget **2** (shared `@pokedex/db` pool, hard-capped at 3).
+the domain root. Reads are cached per §Caching; the **collection write endpoints**
+(§Write endpoints) mutate `collection_item` + `collection_event` and recompute the
+affected set's `user_set_progress` rows in one transaction. All queries parameterized,
+connection budget **2** (shared `@pokedex/db` pool, hard-capped at 3).
 
 Base path: **`/pokedex/api`**. All examples below omit the host (`http://localhost`).
 
@@ -131,7 +133,7 @@ sources/currencies.
   "variants": [
     { "variantId":15,"kind":"holo-unlimited","displayName":"Holofoil","provenance":"Found in Booster Packs",
       "tier":"standard","tierSource":"derived","isPrimary":true,"isSynthesized":false,
-      "source":"tcgdex","fillConfidence":null,
+      "source":"tcgdex","fillConfidence":null,"quantity":0,
       "buyUrl":"https://www.tcgplayer.com/product/…?Printing=…&Condition=Near+Mint",
       "prices":[ { "source":"tcgcsv","sourceLabel":"TCGplayer (via TCGCSV bulk)","marketplace":"tcgplayer",
                    "currency":"USD","market":800.43,"low":510,"mid":null,"high":null,"directLow":null,
@@ -144,7 +146,54 @@ sources/currencies.
 `tier`: `standard` counts toward Master; `special` is Grandmaster-only.
 `source:"tcgcsv"` variants are cross-filled reverse holos and count for real.
 Empty `prices` ⇒ render "no price". `buyUrl` is `null` when there is no TCGplayer
-mapping at all.
+mapping at all. `quantity` is the default user's owned count of that variant (0 if
+unowned) — the initial value for the card-detail quantity stepper.
+
+---
+
+## Write endpoints — collection mutation
+
+The only writers in the app. The single default user owns the collection (no auth;
+nginx/the SSO gate is the ingress). Each mutation runs in **one transaction**: upsert
+`collection_item` to the new quantity, append a `collection_event` for the non-zero
+delta, then **recompute the affected set's three `user_set_progress` rows** and
+return them authoritatively. Idempotent (setting the same quantity writes no event).
+Bodies are JSON; all queries parameterized. Responses are `private, no-cache`.
+
+Tier drives which goals a variant advances (SCHEMA §5.3, AUTH-CAPTURES §4/§8/§11):
+**Complete** = own the card in ≥1 variant of any tier (card fraction); **Master** =
+own each `(card, standard-variant)` pair (over `master_required_variant`);
+**Grandmaster** = own each `(card, any-variant)` pair. `totalQuantity` is per-goal
+(sum over that goal's counted variants). Dupes = a card whose owned quantity ≥ 2.
+
+**Shared success body** (returned by all three):
+```json
+{ "variantId": 15, "quantity": 1, "delta": 1, "isFirstAcquisition": true,
+  "card": { "cardId": "base1-4",
+            "variants": [ { "variantId":15,"quantity":1 }, { "variantId":16,"quantity":0 } ],
+            "ownership": { "totalQuantity":1,"have":true,"need":false,"dupe":false } },
+  "setId": "base1",
+  "progress": { "complete":    { "owned":1,"total":102,"pct":1,"totalQuantity":1,"setLevel":1 },
+                "master":      { "owned":1,"total":102,"pct":1,"totalQuantity":1 },
+                "grandmaster": { "owned":1,"total":409,"pct":0.2,"totalQuantity":1 } } }
+```
+The `/cards/:cardId/have` response omits `variantId`/`delta`/`isFirstAcquisition`
+and adds `cardId` at top level; `card`, `setId`, `progress` are identical in shape.
+
+### PATCH /pokedex/api/collection/variants/:variantId
+Set the **absolute** owned quantity for a variant. `:variantId` is the numeric
+`card_variant.id`. Body `{ "quantity": N }` (integer 0–100000). Setting 0 keeps a
+qty-0 row (SCHEMA §9.1). `404` if the variant doesn't exist; `400` on a bad quantity.
+
+### POST /pokedex/api/collection/variants/:variantId/increment
+Adjust the owned quantity by a **signed delta** (default `+1`). Body `{ "delta": N }`
+(non-zero integer; floors at 0 — decrementing below 0 is a no-op with `delta:0`).
+
+### POST /pokedex/api/collection/cards/:cardId/have
+Tile-level Have/Need toggle. `:cardId` is the card tcgdex id. Body `{ "have": bool }`.
+`have:true` owns the primary variant (sets it to 1 only if currently 0; never lowers
+a higher quantity). `have:false` zeroes **every** variant of the card (Need = own
+nothing). One transaction, one recompute.
 
 ## GET /pokedex/api/search
 The 12-filter advanced search. AND across fields, OR within a multi-value field.

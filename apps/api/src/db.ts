@@ -49,6 +49,143 @@ export async function closePool(): Promise<void> {
   await pool.end();
 }
 
+/**
+ * Run `fn` inside a single BEGIN/COMMIT transaction on one pooled client, rolling
+ * back on any throw. The write path (collection mutations) uses this so that the
+ * collection_item write, the collection_event append, and the user_set_progress
+ * recompute either all land together or not at all. Stays within the 2-connection
+ * budget: one client is checked out for the duration and released in `finally`.
+ */
+export async function withTx<T>(fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = await fn(client);
+    await client.query('COMMIT');
+    return out;
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      /* ignore rollback failure — original error is what matters */
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export interface GoalProgress {
+  owned: number;
+  total: number;
+  pct: number;
+  totalQuantity: number;
+  setLevel?: number;
+}
+export interface SetProgress {
+  complete: GoalProgress;
+  master: GoalProgress;
+  grandmaster: GoalProgress;
+}
+
+function pct(owned: number, total: number): number {
+  if (!owned || !total) return 0;
+  return Math.round((owned / total) * 1000) / 10;
+}
+
+interface ProgressDbRow {
+  goal: 'complete' | 'master' | 'grandmaster';
+  owned_required: number;
+  total_required: number;
+  total_quantity: number;
+  set_level: number | null;
+}
+
+/**
+ * Recompute + persist the three user_set_progress rows for one (user, set) and
+ * return them shaped for the API. Must be called on a transaction client so the
+ * recompute is atomic with the collection write that triggered it.
+ *
+ * Semantics (SCHEMA §5.3 / §9.2, AUTH-CAPTURES §4/§8/§11):
+ *   • complete    — card fraction: a card counts owned if ANY variant qty ≥ 1.
+ *   • master      — (card, standard-variant) pair fraction over master_required_variant
+ *                   (standard-tier pairs + is_primary fallback for cards with no standard).
+ *   • grandmaster — (card, ANY variant) pair fraction over all variants.
+ * total_required is recomputed from the live catalog in the same pass (identical to
+ * the catalog-import baseline), so owned_required ≤ total_required holds by construction
+ * and a mid-flight catalog change can never leave a stale denominator behind.
+ */
+export async function recomputeSetProgress(client: pg.PoolClient, userId: number, setId: number): Promise<SetProgress> {
+  await client.query(
+    `WITH v AS (
+       SELECT c.id AS card_id, cv.id AS cv_id, cv.is_primary,
+              (tr.tier = 'standard') AS is_std,
+              COALESCE(ci.quantity, 0) AS qty
+         FROM card c
+         JOIN card_variant cv ON cv.card_id = c.id
+         JOIN variant_tier_resolved tr ON tr.card_variant_id = cv.id
+    LEFT JOIN collection_item ci ON ci.card_variant_id = cv.id AND ci.user_id = $1
+        WHERE c.set_id = $2
+     ),
+     card_std AS (SELECT card_id, bool_or(is_std) AS has_std FROM v GROUP BY card_id),
+     m AS (
+       SELECT v.qty, (v.is_std OR (NOT cs.has_std AND v.is_primary)) AS is_master
+         FROM v JOIN card_std cs ON cs.card_id = v.card_id
+     ),
+     totals AS (
+       SELECT count(DISTINCT card_id)                          AS complete_total,
+              count(DISTINCT card_id) FILTER (WHERE qty >= 1)  AS complete_owned,
+              count(*)                                         AS grand_total,
+              count(*) FILTER (WHERE qty >= 1)                 AS grand_owned,
+              COALESCE(sum(qty), 0)::int                       AS all_qty
+         FROM v
+     ),
+     mt AS (
+       SELECT count(*) FILTER (WHERE is_master)                            AS master_total,
+              count(*) FILTER (WHERE is_master AND qty >= 1)               AS master_owned,
+              COALESCE(sum(qty) FILTER (WHERE is_master), 0)::int          AS master_qty
+         FROM m
+     )
+     INSERT INTO user_set_progress
+       (user_id, set_id, goal, owned_required, total_required, total_quantity, catalog_variant_count, recomputed_at, reconciled_at)
+     SELECT $1, $2, g.goal,
+            CASE g.goal WHEN 'complete' THEN t.complete_owned WHEN 'grandmaster' THEN t.grand_owned ELSE mt.master_owned END,
+            CASE g.goal WHEN 'complete' THEN t.complete_total WHEN 'grandmaster' THEN t.grand_total ELSE mt.master_total END,
+            CASE g.goal WHEN 'master' THEN mt.master_qty ELSE t.all_qty END,
+            t.grand_total, now(), now()
+       FROM totals t CROSS JOIN mt
+       CROSS JOIN (VALUES ('complete'), ('master'), ('grandmaster')) AS g(goal)
+     ON CONFLICT (user_id, set_id, goal) DO UPDATE SET
+       owned_required        = EXCLUDED.owned_required,
+       total_required        = EXCLUDED.total_required,
+       total_quantity        = EXCLUDED.total_quantity,
+       catalog_variant_count = EXCLUDED.catalog_variant_count,
+       recomputed_at         = now(),
+       reconciled_at         = now()`,
+    [userId, setId],
+  );
+
+  const { rows } = await client.query<ProgressDbRow>(
+    `SELECT goal, owned_required, total_required, total_quantity, set_level
+       FROM user_set_progress WHERE user_id = $1 AND set_id = $2`,
+    [userId, setId],
+  );
+  const byGoal = new Map(rows.map((r) => [r.goal, r]));
+  const shape = (g: 'complete' | 'master' | 'grandmaster'): GoalProgress => {
+    const r = byGoal.get(g);
+    const owned = r?.owned_required ?? 0;
+    const total = r?.total_required ?? 0;
+    return {
+      owned,
+      total,
+      pct: pct(owned, total),
+      totalQuantity: r?.total_quantity ?? 0,
+      ...(g === 'complete' ? { setLevel: r?.set_level ?? 0 } : {}),
+    };
+  };
+  return { complete: shape('complete'), master: shape('master'), grandmaster: shape('grandmaster') };
+}
+
 // ── Money ───────────────────────────────────────────────────────────────────
 // Prices are stored as integer minor units per (variant, source, currency) with
 // genuine NULLs. A NULL market_minor means "no price" — NEVER render it as 0.

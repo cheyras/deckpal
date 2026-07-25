@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { api, type Variant } from '../lib/api'
+import { api, type CardDetailResponse, type Progress, type SetDetailResponse, type Variant } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, SetSymbolTile } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
@@ -17,21 +17,152 @@ function variantColor(v: Variant): string {
   return 'var(--color-variant-normal)'
 }
 
-function QtyStepper({ color }: { color: string }) {
-  // Visual-only: the write API doesn't exist yet (this task is read-only).
+// ── Optimistic progress maths — mirrors the server recompute (SCHEMA §5.3/§9.2)
+// so the three bars move instantly, then reconcile against the authoritative
+// server numbers on settle. Given a card's variant list, how many goal-units it
+// contributes: complete (0/1 card), master ((card,standard-variant) pairs owned),
+// grandmaster ((card,any-variant) pairs owned).
+type OwnBits = { tier: 'standard' | 'special'; isPrimary: boolean; quantity: number }
+function cardOwnedUnits(variants: OwnBits[]): { complete: number; master: number; grand: number } {
+  const anyOwned = variants.some((v) => v.quantity >= 1)
+  const hasStd = variants.some((v) => v.tier === 'standard')
+  const masterReq = hasStd ? variants.filter((v) => v.tier === 'standard') : variants.filter((v) => v.isPrimary)
+  return {
+    complete: anyOwned ? 1 : 0,
+    master: masterReq.filter((v) => v.quantity >= 1).length,
+    grand: variants.filter((v) => v.quantity >= 1).length,
+  }
+}
+
+function pct(owned: number, total: number): number {
+  if (!owned || !total) return 0
+  return Math.round((owned / total) * 1000) / 10
+}
+
+function setLevelFor(owned: number, total: number): number {
+  if (owned === 0 || total === 0) return 0
+  return 1 + Math.min(4, Math.floor(((owned * 100) / total) / 25))
+}
+
+/**
+ * Optimistically fold a single variant's quantity change into every cached
+ * ['card', cardId] and ['set', setId, …] query, and return an undo closure.
+ * total_required is never touched (catalog-fixed); only owned + totalQuantity + pct move.
+ */
+function optimisticApply(
+  qc: QueryClient,
+  cardId: string,
+  setId: string,
+  variantId: number,
+  newQty: number,
+): () => void {
+  const cardKey = ['card', cardId] as const
+  const prevCard = qc.getQueryData<CardDetailResponse>(cardKey)
+  const prevSets = qc.getQueriesData<SetDetailResponse>({ queryKey: ['set', setId] })
+
+  if (!prevCard) return () => undefined
+  const before = prevCard.variants.map<OwnBits>((v) => ({ tier: v.tier, isPrimary: v.isPrimary, quantity: v.quantity }))
+  const changed = prevCard.variants.find((v) => v.variantId === variantId)
+  const oldQty = changed?.quantity ?? 0
+  const clampedNew = Math.max(0, newQty)
+  const after = prevCard.variants.map<OwnBits>((v) => ({
+    tier: v.tier,
+    isPrimary: v.isPrimary,
+    quantity: v.variantId === variantId ? clampedNew : v.quantity,
+  }))
+  const b = cardOwnedUnits(before)
+  const a = cardOwnedUnits(after)
+  const dOwned = { complete: a.complete - b.complete, master: a.master - b.master, grand: a.grand - b.grand }
+  const qtyDelta = clampedNew - oldQty
+  const wasMasterReq = (() => {
+    const hasStd = before.some((v) => v.tier === 'standard')
+    return changed ? (hasStd ? changed.tier === 'standard' : changed.isPrimary) : false
+  })()
+
+  // Card query: just the one variant's quantity.
+  qc.setQueryData<CardDetailResponse>(cardKey, (old) =>
+    old
+      ? { ...old, variants: old.variants.map((v) => (v.variantId === variantId ? { ...v, quantity: clampedNew } : v)) }
+      : old,
+  )
+
+  // Every cached set view: shift progress owned/pct/totalQuantity + the card row.
+  qc.setQueriesData<SetDetailResponse>({ queryKey: ['set', setId] }, (old) => {
+    if (!old) return old
+    const p = old.progress
+    const nextProgress: Progress = {
+      complete: {
+        ...p.complete,
+        owned: p.complete.owned + dOwned.complete,
+        pct: pct(p.complete.owned + dOwned.complete, p.complete.total),
+        totalQuantity: (p.complete.totalQuantity ?? 0) + qtyDelta,
+        setLevel: setLevelFor(p.complete.owned + dOwned.complete, p.complete.total),
+      },
+      master: {
+        ...p.master,
+        owned: p.master.owned + dOwned.master,
+        pct: pct(p.master.owned + dOwned.master, p.master.total),
+        totalQuantity: (p.master.totalQuantity ?? 0) + (wasMasterReq ? qtyDelta : 0),
+      },
+      grandmaster: {
+        ...p.grandmaster,
+        owned: p.grandmaster.owned + dOwned.grand,
+        pct: pct(p.grandmaster.owned + dOwned.grand, p.grandmaster.total),
+        totalQuantity: (p.grandmaster.totalQuantity ?? 0) + qtyDelta,
+      },
+    }
+    const cards = old.cards.map((c) => {
+      if (c.cardId !== cardId) return c
+      const newTotal = c.ownership.totalQuantity + qtyDelta
+      return {
+        ...c,
+        ownership: { ...c.ownership, totalQuantity: newTotal, have: newTotal >= 1, need: newTotal === 0, dupe: newTotal >= 2 },
+      }
+    })
+    return { ...old, progress: nextProgress, cards }
+  })
+
+  return () => {
+    qc.setQueryData(cardKey, prevCard)
+    for (const [key, data] of prevSets) qc.setQueryData(key, data)
+  }
+}
+
+function QtyStepper({
+  v,
+  color,
+  quantity,
+  onAdjust,
+  pending,
+}: {
+  v: Variant
+  color: string
+  quantity: number
+  onAdjust: (variantId: number, newQty: number) => void
+  pending: boolean
+}) {
+  const owned = quantity > 0
   return (
-    <div className="flex items-center gap-[8px]" title="Sign in to track collection (coming soon)">
+    <div className="flex items-center gap-[8px]">
       <button
-        disabled
-        className="flex h-[36px] w-[36px] items-center justify-center rounded-lg bg-surface-tertiary text-icon-disabled"
+        onClick={() => onAdjust(v.variantId, quantity - 1)}
+        disabled={pending || quantity <= 0}
+        aria-label={`Remove one ${v.displayName}`}
+        className="flex h-[36px] w-[36px] items-center justify-center rounded-lg bg-surface-tertiary text-icon-default enabled:hover:bg-action-default-hover disabled:text-icon-disabled"
       >
         <Icon name="minus" size={16} />
       </button>
-      <span className="w-[20px] text-center text-[16px] font-bold text-text-primary">0</span>
+      <span
+        className={`w-[20px] text-center text-[16px] font-bold ${owned ? 'text-text-primary' : 'text-text-muted'}`}
+      >
+        {quantity}
+      </span>
       <button
-        disabled
-        className="flex h-[36px] w-[36px] items-center justify-center rounded-lg"
-        style={{ background: 'var(--color-surface-tertiary)', color }}
+        onClick={() => onAdjust(v.variantId, quantity + 1)}
+        disabled={pending}
+        aria-label={`Add one ${v.displayName}`}
+        className="flex h-[36px] w-[36px] items-center justify-center rounded-lg enabled:hover:opacity-90 disabled:opacity-50"
+        style={{ background: owned ? color : 'var(--color-surface-tertiary)', color: owned ? '#fff' : color }}
       >
         <Icon name="plus" size={16} />
       </button>
@@ -39,11 +170,19 @@ function QtyStepper({ color }: { color: string }) {
   )
 }
 
-function VariantRow({ v }: { v: Variant }) {
+function VariantRow({
+  v,
+  onAdjust,
+  pending,
+}: {
+  v: Variant
+  onAdjust: (variantId: number, newQty: number) => void
+  pending: boolean
+}) {
   const color = variantColor(v)
   const price = v.prices.find((p) => p.currency === 'USD') ?? v.prices[0] ?? null
   return (
-    <div className="rounded-lg bg-surface-tertiary p-[16px]">
+    <div className="rounded-lg bg-surface-tertiary p-[16px]" data-owned={v.quantity > 0 ? 'true' : 'false'}>
       <div className="flex flex-wrap items-center gap-x-[16px] gap-y-[10px]">
         <span className="inline-block h-[12px] w-[12px] shrink-0 rounded-[3px]" style={{ background: color }} />
         <div className="min-w-0 flex-1">
@@ -70,7 +209,7 @@ function VariantRow({ v }: { v: Variant }) {
             <div className="text-[10px] text-text-muted">as of {fmtRelative(price.pricedAt)}</div>
           )}
         </div>
-        <QtyStepper color={color} />
+        <QtyStepper v={v} color={color} quantity={v.quantity} onAdjust={onAdjust} pending={pending} />
       </div>
     </div>
   )
@@ -100,11 +239,34 @@ export function CardDetail() {
   const cardId = `${set}-${number}`
   const [tab, setTab] = useState<(typeof TABS)[number]>('Card')
   const [showAdditional, setShowAdditional] = useState(false)
+  const qc = useQueryClient()
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['card', cardId],
     queryFn: ({ signal }) => api.card(cardId, signal),
   })
+
+  // Own/un-own a variant. Optimistic: the stepper + the three progress bars move
+  // instantly (optimisticApply), roll back on error, and reconcile against the
+  // server's authoritative recompute on settle by invalidating both queries.
+  const mutation = useMutation({
+    mutationFn: ({ variantId, newQty }: { variantId: number; newQty: number }) =>
+      api.setVariantQuantity(variantId, Math.max(0, newQty)),
+    onMutate: async ({ variantId, newQty }) => {
+      await qc.cancelQueries({ queryKey: ['card', cardId] })
+      await qc.cancelQueries({ queryKey: ['set', set] })
+      const undo = optimisticApply(qc, cardId, set, variantId, Math.max(0, newQty))
+      return { undo }
+    },
+    onError: (_err, _vars, ctx) => {
+      ctx?.undo()
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['card', cardId] })
+      void qc.invalidateQueries({ queryKey: ['set', set] })
+    },
+  })
+  const onAdjust = (variantId: number, newQty: number) => mutation.mutate({ variantId, newQty })
 
   return (
     <Content cap={1165}>
@@ -173,7 +335,15 @@ export function CardDetail() {
                 ))}
               </div>
 
-              {tab === 'Card' && <CardTab data={data} showAdditional={showAdditional} setShowAdditional={setShowAdditional} />}
+              {tab === 'Card' && (
+                <CardTab
+                  data={data}
+                  showAdditional={showAdditional}
+                  setShowAdditional={setShowAdditional}
+                  onAdjust={onAdjust}
+                  pending={mutation.isPending}
+                />
+              )}
               {tab === 'Price' && (
                 <div className="py-[40px] text-center text-[14px] text-text-muted">
                   Price history — coming soon.
@@ -196,10 +366,14 @@ function CardTab({
   data,
   showAdditional,
   setShowAdditional,
+  onAdjust,
+  pending,
 }: {
   data: import('../lib/api').CardDetailResponse
   showAdditional: boolean
   setShowAdditional: (v: boolean) => void
+  onAdjust: (variantId: number, newQty: number) => void
+  pending: boolean
 }) {
   const c = data.card
   const standard = data.variants.filter((v) => v.tier === 'standard')
@@ -217,7 +391,7 @@ function CardTab({
         </div>
         <div className="flex flex-col gap-[10px]">
           {standard.map((v) => (
-            <VariantRow key={v.variantId} v={v} />
+            <VariantRow key={v.variantId} v={v} onAdjust={onAdjust} pending={pending} />
           ))}
         </div>
 
@@ -233,7 +407,7 @@ function CardTab({
             {showAdditional && (
               <div className="flex flex-col gap-[10px]">
                 {special.map((v) => (
-                  <VariantRow key={v.variantId} v={v} />
+                  <VariantRow key={v.variantId} v={v} onAdjust={onAdjust} pending={pending} />
                 ))}
               </div>
             )}
