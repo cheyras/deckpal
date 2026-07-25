@@ -18,6 +18,25 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return res.json() as Promise<T>
 }
 
+async function send<T>(method: 'PATCH' | 'POST', path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try {
+      const b = await res.json()
+      if (b?.error?.message) msg = b.error.message
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg)
+  }
+  return res.json() as Promise<T>
+}
+
 // ── Money ──────────────────────────────────────────────────────
 // Prices are objects: null means "no price" → render "—", never $0.
 export interface Price {
@@ -137,6 +156,7 @@ export interface Variant {
   isPrimary: boolean
   isSynthesized?: boolean
   source: string
+  quantity: number
   buyUrl: string | null
   prices: VariantPrice[]
 }
@@ -170,6 +190,23 @@ export interface CardDetailResponse {
   variants: Variant[]
 }
 
+// ── Collection mutations (write API) ───────────────────────────
+// The set of quantities changes; the server recomputes the affected set's three
+// progress goals in the same transaction and returns them authoritatively.
+export interface CollectionMutationResponse {
+  variantId: number
+  quantity: number
+  delta: number
+  isFirstAcquisition: boolean
+  card: {
+    cardId: string
+    variants: { variantId: number; quantity: number }[]
+    ownership: { totalQuantity: number; have: boolean; need: boolean; dupe: boolean }
+  }
+  setId: string
+  progress: Progress
+}
+
 // ── Endpoints ──────────────────────────────────────────────────
 export const api = {
   series: (signal?: AbortSignal) => get<SeriesIndexResponse>('/series', signal),
@@ -179,4 +216,10 @@ export const api = {
     get<SetDetailResponse>(`/sets/${encodeURIComponent(setId)}?${params.toString()}`, signal),
   card: (cardId: string, signal?: AbortSignal) =>
     get<CardDetailResponse>(`/cards/${encodeURIComponent(cardId)}`, signal),
+  // Set an absolute owned quantity for a variant.
+  setVariantQuantity: (variantId: number, quantity: number) =>
+    send<CollectionMutationResponse>('PATCH', `/collection/variants/${variantId}`, { quantity }),
+  // Adjust a variant's owned quantity by a signed delta (floors at 0).
+  incrementVariant: (variantId: number, delta: number) =>
+    send<CollectionMutationResponse>('POST', `/collection/variants/${variantId}/increment`, { delta }),
 }
