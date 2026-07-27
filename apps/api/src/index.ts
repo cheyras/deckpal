@@ -15,6 +15,7 @@ import { collectionRouter } from './routes/collection.js';
 import { listsRouter } from './routes/lists.js';
 import { decksRouter } from './routes/decks.js';
 import { insightsRouter } from './routes/insights.js';
+import { exportRouter } from './export/router.js';
 
 /**
  * pokedex-api — the read API over the populated catalog (ARCHITECTURE §4).
@@ -71,9 +72,15 @@ export function createApp(): express.Express {
         '/decks', 'POST /decks', '/decks/:id', 'PATCH /decks/:id', 'DELETE /decks/:id',
         'POST /decks/:id/cards', 'PATCH /decks/:id/cards/:cardId', 'DELETE /decks/:id/cards/:cardId',
         '/decks/:id/validate', 'POST /decks/import', '/decks/:id/export', '/decks/:id/testhand', '/decks/:id/pricing',
+        '/decks/:id/pdf', '/lists/:id/pdf', '/sets/:setId/checklist.pdf',
       ],
     });
   });
+
+  // PDF export routes carry full paths (/decks/:id/pdf, /lists/:id/pdf,
+  // /sets/:setId/checklist.pdf) and are mounted first so they resolve here rather
+  // than falling through the /decks, /lists, /sets routers below.
+  api.use('/', exportRouter);
 
   api.use('/series', seriesRouter);
   api.use('/sets', setsRouter);
