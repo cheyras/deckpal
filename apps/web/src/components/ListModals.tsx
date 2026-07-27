@@ -13,7 +13,7 @@ export function Modal({ title, onClose, children, wide = false }: { title: strin
   }, [onClose])
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto p-[16px] pt-[80px]"
+      className="fixed inset-0 z-[60] flex items-end justify-center overflow-y-auto p-0 nav:items-start nav:p-[16px] nav:pt-[80px]"
       style={{ background: 'var(--color-overlay-scrim-strong)' }}
       onClick={onClose}
       role="dialog"
@@ -21,17 +21,17 @@ export function Modal({ title, onClose, children, wide = false }: { title: strin
       aria-label={title}
     >
       <div
-        className="w-full rounded-2xl border border-border-default bg-surface-secondary shadow-xl"
-        style={{ maxWidth: wide ? 720 : 480 }}
+        className="w-full rounded-t-2xl border border-border-default bg-surface-secondary shadow-xl nav:rounded-2xl"
+        style={{ maxWidth: wide ? 720 : 480, paddingBottom: 'env(safe-area-inset-bottom)' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border-default px-[24px] py-[18px]">
+        <div className="flex items-center justify-between border-b border-border-default px-[20px] py-[16px] nav:px-[24px] nav:py-[18px]">
           <h2 className="text-[18px] font-bold text-text-primary">{title}</h2>
-          <button onClick={onClose} aria-label="Close" className="flex h-[32px] w-[32px] items-center justify-center rounded-lg text-icon-default hover:bg-surface-tertiary">
-            <Icon name="close" size={20} />
+          <button onClick={onClose} aria-label="Close" className="-mr-[6px] flex h-[44px] w-[44px] items-center justify-center rounded-lg text-icon-default hover:bg-surface-tertiary">
+            <Icon name="close" size={22} />
           </button>
         </div>
-        <div className="p-[24px]">{children}</div>
+        <div className="p-[20px] nav:p-[24px]">{children}</div>
       </div>
     </div>
   )

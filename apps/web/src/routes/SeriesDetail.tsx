@@ -68,7 +68,7 @@ export function SeriesDetail() {
             {data.series.name}
           </h1>
           <p className="mb-[24px] text-[14px] text-text-muted">{data.sets.length} sets</p>
-          <div className="grid gap-[20px] [grid-template-columns:repeat(auto-fill,minmax(420px,1fr))]">
+          <div className="grid gap-[20px] [grid-template-columns:repeat(auto-fill,minmax(min(420px,100%),1fr))]">
             {data.sets.map((s) => (
               <SetRow key={s.setId} set={s} seriesSlug={series} />
             ))}

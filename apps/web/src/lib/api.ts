@@ -500,6 +500,24 @@ export interface InsightsOverview {
   collectionValue: CurrencyTotal[]
   pokedex: { captured: number; total: number; pct: number }
 }
+export interface CollectionEvent {
+  eventId: string
+  occurredAt: string
+  kind: string
+  cardId: string
+  cardName: string
+  setId: string
+  setName: string
+  number: string
+  variantId: number
+  variantName: string
+  quantityDelta: number
+  newQuantity: number
+  images: { low: string | null; high: string | null }
+}
+export interface CollectionEventsResponse {
+  events: CollectionEvent[]
+}
 export type ValueRange = '30d' | '3m' | '6m' | '1y'
 export interface ValuePoint {
   date: string
@@ -689,6 +707,17 @@ export const api = {
 
   // Insights / gamification (Phase 6)
   overview: (signal?: AbortSignal) => get<InsightsOverview>('/insights/overview', signal),
+  // Newest-first named collection events (for the stream overlay). `since` is an
+  // ISO timestamp filter; pair it with client-side eventId dedup (the API notes a
+  // microsecond→millisecond `since` precision caveat, so `since` alone can re-return
+  // a just-seen event).
+  collectionEvents: (params?: { since?: string; limit?: number }, signal?: AbortSignal) => {
+    const q = new URLSearchParams()
+    if (params?.since) q.set('since', params.since)
+    if (params?.limit != null) q.set('limit', String(params.limit))
+    const qs = q.toString()
+    return get<CollectionEventsResponse>(`/collection/events${qs ? `?${qs}` : ''}`, signal)
+  },
   insightsValue: (range: ValueRange, currency = 'USD', signal?: AbortSignal) =>
     get<ValueResponse>(`/insights/value?range=${range}&currency=${encodeURIComponent(currency)}`, signal),
   dex: (params: URLSearchParams, signal?: AbortSignal) =>

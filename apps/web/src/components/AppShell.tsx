@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Icon, BrandMark, type IconName } from './Icon'
@@ -121,40 +121,64 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
 }
 
 function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
   if (!open) return null
+  const top = 'calc(99px + env(safe-area-inset-top))'
   return (
-    <div
-      className="fixed left-0 top-[100px] z-[10] h-[calc(100vh-100px)] w-[275px] overflow-y-auto bg-surface-primary nav:hidden"
-      role="dialog"
-      aria-label="Navigation"
-    >
-      <div className="px-[16px] py-[20px]" onClick={onClose}>
-        <Link
-          to="/profile"
-          className="flex h-[48px] items-center justify-center gap-[8px] rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text"
-        >
-          <Icon name="user" size={18} /> View Profile
-        </Link>
+    <>
+      {/* tap-anywhere-outside backdrop */}
+      <div
+        className="fixed inset-0 z-[9] nav:hidden"
+        style={{ top }}
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div
+        className="fixed left-0 z-[10] w-[280px] max-w-[85vw] overflow-y-auto border-r border-border-default bg-surface-primary nav:hidden"
+        style={{ top, height: `calc(100dvh - ${top})`, paddingBottom: 'env(safe-area-inset-bottom)' }}
+        role="dialog"
+        aria-label="Navigation"
+      >
+        <div className="px-[16px] py-[20px]" onClick={onClose}>
+          <Link
+            to="/profile"
+            className="flex h-[48px] items-center justify-center gap-[8px] rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text"
+          >
+            <Icon name="user" size={18} /> View Profile
+          </Link>
+        </div>
+        <nav>
+          {NAV.map((item) => (
+            <div key={item.label} onClick={item.to ? onClose : undefined}>
+              <NavRow item={item} active={false} collapsed={false} />
+            </div>
+          ))}
+        </nav>
       </div>
-      <nav>
-        {NAV.map((item) => (
-          <div key={item.label} onClick={item.to ? onClose : undefined}>
-            <NavRow item={item} active={false} collapsed={false} />
-          </div>
-        ))}
-      </nav>
-    </div>
+    </>
   )
 }
 
 function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: boolean }) {
   return (
-    <header className="app-header fixed left-0 right-0 top-0 z-[20] border-b border-border-default bg-surface-secondary">
+    <header
+      className="app-header fixed left-0 right-0 top-0 z-[20] border-b border-border-default bg-surface-secondary"
+      style={{
+        paddingTop: 'env(safe-area-inset-top)',
+        paddingLeft: 'env(safe-area-inset-left)',
+        paddingRight: 'env(safe-area-inset-right)',
+      }}
+    >
       <div className="flex h-[99px] items-center gap-[12px] px-[16px] nav:h-[78px] nav:px-[24px]">
         {/* mobile: burger + brand */}
         <button
           onClick={onBurger}
-          className="flex h-[39px] w-[39px] items-center justify-center rounded-full text-icon-default nav:hidden"
+          className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-icon-default nav:hidden"
           aria-label="Menu"
         >
           <Icon name={drawerOpen ? 'close' : 'menu'} size={24} />
@@ -179,7 +203,7 @@ function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: bo
         </label>
         <div className="flex-1 nav:hidden" />
         <button
-          className="flex h-[39px] w-[39px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default nav:hidden"
+          className="flex h-[44px] w-[44px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default nav:hidden"
           aria-label="Search"
         >
           <Icon name="search" size={20} />
@@ -189,7 +213,7 @@ function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: bo
         <Link
           to="/scan"
           aria-label="Scan a card"
-          className="flex h-[39px] w-[39px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover hover:text-icon-hover nav:h-[42px] nav:w-auto nav:gap-[8px] nav:px-[16px]"
+          className="flex h-[44px] w-[44px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover hover:text-icon-hover nav:h-[42px] nav:w-auto nav:gap-[8px] nav:px-[16px]"
         >
           <Icon name="camera" size={20} />
           <span className="hidden text-[14px] font-semibold text-text-primary nav:inline">Scan</span>
@@ -222,10 +246,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Header onBurger={() => setDrawerOpen((o) => !o)} drawerOpen={drawerOpen} />
       <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
       <main className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
-        <div className="pt-[99px] nav:pt-[78px]">{children}</div>
+        <div className="app-content pt-[99px] nav:pt-[78px]">{children}</div>
       </main>
       {/* Fixed sidebar occupies the left rail at ≥1068; offset main + header to match. */}
-      <style>{`@media (min-width:1068px){.app-main{margin-left:${sidebarW}px}.app-header{left:${sidebarW}px}}`}</style>
+      <style>{`.app-content{padding-top:calc(99px + env(safe-area-inset-top))}@media (min-width:1068px){.app-main{margin-left:${sidebarW}px}.app-header{left:${sidebarW}px}.app-content{padding-top:78px}}`}</style>
       <PwaUi />
     </div>
   )
