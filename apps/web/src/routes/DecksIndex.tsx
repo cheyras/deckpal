@@ -5,6 +5,7 @@ import { api, type CreateDeckBody, type DeckFormat, type DeckSummary } from '../
 import { Content, Spinner, ErrorState } from '../components/ui'
 import { Modal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
+import { EnergyIcon } from '../components/EnergyIcon'
 import { fmtUsd } from '../lib/format'
 import { FORMAT_META, LegalBadge } from './deckShared'
 import { DECK_SEARCH_DEFAULTS } from './deckSearch'
@@ -23,9 +24,15 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
         ) : (
           <Icon name="deck" size={40} className="text-icon-muted" />
         )}
-        <span className="absolute right-[10px] top-[10px] rounded-full bg-surface-primary/80 px-[10px] py-[3px] text-[11px] font-bold text-text-secondary backdrop-blur-sm">
+        <span className="absolute right-[10px] top-[10px] inline-flex items-center gap-[4px] rounded-full bg-surface-primary/80 px-[10px] py-[3px] text-[11px] font-bold text-text-secondary backdrop-blur-sm">
           {FORMAT_META[deck.formatCode].short}
-          {deck.formatCode === 'glc' && deck.glcType ? ` · ${deck.glcType}` : ''}
+          {deck.formatCode === 'glc' && deck.glcType && (
+            <>
+              <span>·</span>
+              <EnergyIcon type={deck.glcType} size={13} />
+              {deck.glcType}
+            </>
+          )}
         </span>
         <span className="absolute left-[10px] top-[10px]">
           <LegalBadge legal={deck.legal} />
