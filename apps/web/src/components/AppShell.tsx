@@ -1,6 +1,30 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { Icon, BrandMark, type IconName } from './Icon'
+import { api } from '../lib/api'
+
+// Signed-in avatar chip (single-user "me") — replaces Log In / Sign Up. The level
+// badge reads straight from the insights overview; links to the profile surface.
+function ProfileChip() {
+  const { data } = useQuery({ queryKey: ['insights', 'overview'], queryFn: ({ signal }) => api.overview(signal) })
+  const level = data?.trainer.level ?? 0
+  return (
+    <Link
+      to="/profile"
+      className="flex items-center gap-[8px] rounded-full bg-surface-tertiary py-[6px] pl-[6px] pr-[14px] hover:bg-action-default-hover"
+      aria-label="Your profile"
+    >
+      <span className="relative flex h-[34px] w-[34px] items-center justify-center rounded-full bg-surface-raised text-icon-default">
+        <Icon name="user" size={20} />
+        <span className="absolute -bottom-[3px] left-1/2 -translate-x-1/2 rounded-full bg-action-primary px-[5px] text-[9px] font-extrabold leading-[13px] text-action-primary-text">
+          {level}
+        </span>
+      </span>
+      <span className="text-[14px] font-semibold text-text-primary">Trainer</span>
+    </Link>
+  )
+}
 
 interface NavItem {
   label: string
@@ -18,7 +42,8 @@ const NAV: NavItem[] = [
   { label: 'TCG Pocket', icon: 'cards', expandable: true },
   { label: 'My Lists', icon: 'lists', to: '/lists' },
   { label: 'Deck Builder', icon: 'deck', to: '/decks' },
-  { label: 'Pokédex', icon: 'pokedex' },
+  { label: 'Pokédex', icon: 'pokedex', to: '/pokedex' },
+  { label: 'Insights', icon: 'chart', to: '/insights' },
   { label: 'Stream Tools', icon: 'stream' },
   { label: 'Discord', icon: 'discord', external: true },
   { label: 'Merch', icon: 'merch', external: true },
@@ -101,13 +126,13 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
       role="dialog"
       aria-label="Navigation"
     >
-      <div className="flex gap-[10px] px-[16px] py-[20px]">
-        <button className="h-[48px] flex-1 rounded-full bg-action-default text-[14px] font-semibold text-action-default-text">
-          Log In
-        </button>
-        <button className="h-[48px] flex-1 rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text">
-          Sign Up
-        </button>
+      <div className="px-[16px] py-[20px]" onClick={onClose}>
+        <Link
+          to="/profile"
+          className="flex h-[48px] items-center justify-center gap-[8px] rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text"
+        >
+          <Icon name="user" size={18} /> View Profile
+        </Link>
       </div>
       <nav>
         {NAV.map((item) => (
@@ -158,14 +183,9 @@ function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: bo
           <Icon name="search" size={20} />
         </button>
 
-        {/* auth pills — desktop only */}
+        {/* profile chip — desktop only (single-user signed-in state) */}
         <div className="hidden items-center gap-[12px] nav:flex">
-          <button className="h-[48px] w-[117px] rounded-full bg-action-default text-[14px] font-semibold text-action-default-text hover:bg-action-default-hover">
-            Log In
-          </button>
-          <button className="h-[48px] w-[117px] rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text hover:bg-action-primary-hover">
-            Sign Up
-          </button>
+          <ProfileChip />
         </div>
       </div>
     </header>

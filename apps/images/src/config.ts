@@ -15,6 +15,18 @@ loadEnv();
 // layout (images/<lang>/<serie>/<set>/…) is identical.
 export const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? '/home/cheyras/pokedex/cache';
 
+// Pokédex species sprite root (pixel art + official artwork, normal + shiny),
+// populated out-of-band by the sprite background job. Disk layout under this root:
+//   {id}.png                              → pixel art (normal)
+//   shiny/{id}.png                        → pixel art (shiny)
+//   other/official-artwork/{id}.png       → official artwork (normal)
+//   other/official-artwork/shiny/{id}.png → official artwork (shiny)
+// The insights backend (apps/api insights/pokedex.ts speciesSprite) references
+// these at /pokedex/images/sprites/{pixel|art}[/shiny]/{id}.png — this service
+// resolves those URLs to the paths above. Missing sprites 404 so the client can
+// render its own placeholder tile (no layout shift), mirroring un-warmed card art.
+export const SPRITE_ROOT = process.env.SPRITE_ROOT ?? '/home/cheyras/pokedex/assets/sprites/pokemon';
+
 export const IMAGES_PORT = Number(process.env.POKEDEX_IMAGES_PORT ?? 3701);
 
 // Upstream asset origin. Only ever touched by the warmer, never the read path.

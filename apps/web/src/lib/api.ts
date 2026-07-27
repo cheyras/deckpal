@@ -438,6 +438,126 @@ export interface UpdateDeckBody {
   coverRender?: string
 }
 
+// ── Insights / gamification (Phase 6) ──────────────────────────
+// All read-only, over /insights/*. Shapes mirror apps/api/src/insights/*.
+export interface TrainerLevel {
+  level: number
+  uniqueCards: number
+  intoLevel: number
+  toNext: number
+  nextLevelAt: number
+  fraction: number
+  uniqueMode: 'cards' | 'pairs'
+  totalCards: number
+  uniquePairs: number
+}
+export interface CurrencyTotal {
+  currency: string
+  totalMinor: number
+  total: number
+  pricedVariants: number
+  quantity: number
+}
+export interface InsightsOverview {
+  trainer: TrainerLevel
+  collectionValue: CurrencyTotal[]
+  pokedex: { captured: number; total: number; pct: number }
+}
+export type ValueRange = '30d' | '3m' | '6m' | '1y'
+export interface ValuePoint {
+  date: string
+  value: number
+  valueMinor: number
+}
+export interface ValueDelta {
+  valueMinor: number
+  value: number
+  pct: number | null
+}
+export interface ValueSeriesData {
+  currency: string
+  range: ValueRange
+  points: ValuePoint[]
+  delta: ValueDelta | null
+}
+export interface Mover {
+  cardId: string
+  variantKind: string
+  name: string
+  currency: string
+  quantity: number
+  market: number
+  change: number
+  changePct: number | null
+}
+export interface ValueResponse {
+  currency: string
+  range: ValueRange
+  current: CurrencyTotal
+  series: ValueSeriesData
+  movers: Mover[]
+}
+export interface SpeciesSprite {
+  pixel: string
+  pixelShiny: string
+  art: string
+  artShiny: string
+}
+export interface SpeciesGridRow {
+  speciesId: number
+  slug: string
+  name: string
+  genus: string | null
+  generation: number
+  types: string[]
+  cardPool: number
+  uniqueOwned: number
+  captured: boolean
+  level: number
+  levelLabel: string
+  shiny: boolean
+  shinyBreadth: number
+  sprite: SpeciesSprite
+}
+export interface SpeciesGridResponse {
+  completion: { captured: number; total: number }
+  pagination: { page: number; pageSize: number; total: number; pageCount: number }
+  species: SpeciesGridRow[]
+}
+export interface SpeciesDetailCard {
+  cardId: string
+  number: string
+  name: string
+  category: string
+  rarity: string | null
+  artist: string | null
+  set: { setId: string; name: string }
+  variantCount: number
+  owned: boolean
+  ownedQuantity: number
+  images: { low: string; high: string }
+  price: Price | null
+}
+export interface SpeciesDetailResponse {
+  species: {
+    speciesId: number
+    slug: string
+    name: string
+    genus: string | null
+    generation: number
+    types: string[]
+    cardPool: number
+    uniqueOwned: number
+    captured: boolean
+    level: number
+    levelLabel: string
+    shiny: boolean
+    shinyBreadth: number
+    sprite: SpeciesSprite
+  }
+  cards: SpeciesDetailCard[]
+}
+
 // The raw item shape the API returns before we normalise `kind` → `itemKind`.
 interface RawListItem extends Omit<ListItem, 'itemKind'> {
   kind: 'card' | 'species'
@@ -500,4 +620,13 @@ export const api = {
   testHand: (id: string, seed?: number, signal?: AbortSignal) =>
     get<TestHand>(`/decks/${encodeURIComponent(id)}/testhand${seed !== undefined ? `?seed=${seed}` : ''}`, signal),
   deckPricing: (id: string, signal?: AbortSignal) => get<DeckPricing>(`/decks/${encodeURIComponent(id)}/pricing`, signal),
+
+  // Insights / gamification (Phase 6)
+  overview: (signal?: AbortSignal) => get<InsightsOverview>('/insights/overview', signal),
+  insightsValue: (range: ValueRange, currency = 'USD', signal?: AbortSignal) =>
+    get<ValueResponse>(`/insights/value?range=${range}&currency=${encodeURIComponent(currency)}`, signal),
+  dex: (params: URLSearchParams, signal?: AbortSignal) =>
+    get<SpeciesGridResponse>(`/insights/pokedex?${params.toString()}`, signal),
+  species: (id: string, signal?: AbortSignal) =>
+    get<SpeciesDetailResponse>(`/insights/pokedex/${encodeURIComponent(id)}`, signal),
 }

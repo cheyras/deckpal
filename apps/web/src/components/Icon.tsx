@@ -33,6 +33,10 @@ export type IconName =
   | 'shuffle'
   | 'download'
   | 'cart'
+  | 'chart'
+  | 'user'
+  | 'gear'
+  | 'sparkle'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   cards: (
@@ -180,6 +184,29 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <circle cx="9" cy="20" r="1.4" />
       <circle cx="18" cy="20" r="1.4" />
       <path d="M2 3h3l2.2 12.2a1.5 1.5 0 001.5 1.3h8.6a1.5 1.5 0 001.5-1.2L21 7H6" />
+    </>
+  ),
+  chart: (
+    <>
+      <path d="M4 4v15a1 1 0 001 1h15" />
+      <path d="M8 15l3.5-4 3 2.5L20 7" />
+    </>
+  ),
+  user: (
+    <>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5 20a7 7 0 0114 0" />
+    </>
+  ),
+  gear: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2.5v3M12 18.5v3M4.2 7l2.6 1.5M17.2 15.5l2.6 1.5M4.2 17l2.6-1.5M17.2 8.5l2.6-1.5" />
+    </>
+  ),
+  sparkle: (
+    <>
+      <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" fill="currentColor" stroke="none" />
     </>
   ),
 }

@@ -22,6 +22,10 @@ import { ListsIndex } from './routes/ListsIndex'
 import { ListDetail } from './routes/ListDetail'
 import { DecksIndex } from './routes/DecksIndex'
 import { DeckBuilder } from './routes/DeckBuilder'
+import { Insights } from './routes/Insights'
+import { PokedexIndex } from './routes/PokedexIndex'
+import { SpeciesDetail } from './routes/SpeciesDetail'
+import { Profile } from './routes/Profile'
 import { validateCardSearch } from './routes/setSearch'
 import { validateListSearch } from './routes/listSearch'
 import { validateDeckSearch } from './routes/deckSearch'
@@ -109,6 +113,37 @@ const deckBuilderRoute = createRoute({
   component: DeckBuilder,
 })
 
+const insightsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/insights',
+  component: Insights,
+})
+
+const pokedexIndexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/pokedex',
+  component: PokedexIndex,
+})
+
+const speciesDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/pokedex/$speciesId',
+  component: SpeciesDetail,
+})
+
+const profileRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/profile',
+  component: Profile,
+})
+
+// pkmn.gg's canonical profile URL is /u/{name}; alias /u/me → the same surface.
+const profileAliasRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/u/me',
+  component: Profile,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   seriesIndexRoute,
@@ -119,6 +154,11 @@ const routeTree = rootRoute.addChildren([
   listDetailRoute,
   decksIndexRoute,
   deckBuilderRoute,
+  insightsRoute,
+  pokedexIndexRoute,
+  speciesDetailRoute,
+  profileRoute,
+  profileAliasRoute,
 ])
 
 const router = createRouter({
