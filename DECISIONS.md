@@ -234,6 +234,15 @@ images. It runs from manually-started node processes; **it is NOT yet deployed**
   the SSO gate-authrequest include → `deploy/nginx-brain-public-pokedex.conf`
   (the SSO gate-gated). Config correct (`nginx -t` clean).
 
+**✅ RESOLVED 2026-07-27 (user asked):** root cause was `/etc/the SSO gate/secrets/`
+having lost its owner **execute** bit (`drw-r-----`) — the owner (the SSO gate, uid 980)
+could not traverse the dir to read `smtp_password`, so it died at config load on the
+last boot. Fix: `chmod u+x /etc/the SSO gate/secrets` (surgical; file contents untouched).
+`systemctl start the SSO gate` → active, 9091 listening, portal 200. All gated routes
+recovered (`/git/`, `/pokedex/`, MCP endpoints now 302→portal instead of 500). If the
+x-bit is stripped again on a future boot, investigate what does it — the perm fix
+itself is persistent and the unit is `enabled`.
+
 **🔴 Pre-existing blocker (NOT caused by pokedex): `the SSO gate.service` is `failed`.**
 Port 9091 isn't listening; every the SSO gate-gated route 500s — `/git/` 500s with the
 pokedex include *removed*, proving it's the SSO gate, not us. This blocks ALL remote/
