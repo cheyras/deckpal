@@ -180,6 +180,10 @@ button {
 /* Thin scrollbars on horizontal chip rows */
 .scroll-x {
   overflow-x: auto;
+  /* min-width:0 lets a scroll-x row that is itself a flex child actually scroll
+     instead of forcing its flex parent (and the page) wider than the viewport. */
+  min-width: 0;
+  max-width: 100%;
   scrollbar-width: thin;
   scrollbar-color: var(--color-surface-quaternary) transparent;
 }
