@@ -6,6 +6,7 @@ import { Content, Spinner, ErrorState, BackPill, SetSymbolTile } from '../compon
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
 import { fmtPrice, fmtDate, fmtNumber, fmtRelative } from '../lib/format'
+import { useOnline } from '../lib/useOnline'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 
 // Map a variant kind to its accent colour (AUTH-CAPTURES §12.3).
@@ -142,11 +143,15 @@ function QtyStepper({
   pending: boolean
 }) {
   const owned = quantity > 0
+  // Collection writes are network-only (hard rule — no offline write queue). When
+  // offline, disable the steppers with a clear reason rather than letting a tap fail.
+  const online = useOnline()
+  const offlineTitle = online ? undefined : 'Offline — reconnect to change your collection'
   return (
-    <div className="flex items-center gap-[8px]">
+    <div className="flex items-center gap-[8px]" title={offlineTitle}>
       <button
         onClick={() => onAdjust(v.variantId, quantity - 1)}
-        disabled={pending || quantity <= 0}
+        disabled={pending || !online || quantity <= 0}
         aria-label={`Remove one ${v.displayName}`}
         className="flex h-[36px] w-[36px] items-center justify-center rounded-lg bg-surface-tertiary text-icon-default enabled:hover:bg-action-default-hover disabled:text-icon-disabled"
       >
@@ -159,7 +164,7 @@ function QtyStepper({
       </span>
       <button
         onClick={() => onAdjust(v.variantId, quantity + 1)}
-        disabled={pending}
+        disabled={pending || !online}
         aria-label={`Add one ${v.displayName}`}
         className="flex h-[36px] w-[36px] items-center justify-center rounded-lg enabled:hover:opacity-90 disabled:opacity-50"
         style={{ background: owned ? color : 'var(--color-surface-tertiary)', color: owned ? '#fff' : color }}

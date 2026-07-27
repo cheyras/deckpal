@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Icon, BrandMark, type IconName } from './Icon'
+import { PwaUi } from './PwaUi'
 import { api } from '../lib/api'
 
 // Signed-in avatar chip (single-user "me") — replaces Log In / Sign Up. The level
@@ -207,6 +208,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </main>
       {/* Fixed sidebar occupies the left rail at ≥1068; offset main + header to match. */}
       <style>{`@media (min-width:1068px){.app-main{margin-left:${sidebarW}px}.app-header{left:${sidebarW}px}}`}</style>
+      <PwaUi />
     </div>
   )
 }
