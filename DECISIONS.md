@@ -440,4 +440,11 @@ Every remaining item done and lead-verified against the live stack:
 2. Overlay names no card — needs a `GET /collection/events` read endpoint (activity feed exists in DB, no route); currently watches owned-count deltas only.
 3. BW/XY-era ACE SPEC sublist (10 names) vendored from public docs, not DB-derivable — flagged in deck engine `data/_provenance.json` for refresh.
 4. Offline is tiered (shell + visited art + collection), not full-catalog — deliberate on a phone.
-5. Remote HTTPS (example.invalid/pokedex/) works via the SSO gate; git history has one entangled commit (e0e5fd4) from the concurrent Phase 7/8 agents — cosmetic, nothing lost.
+5. Remote HTTPS (example.invalid/pokedex/) works via the SSO gate.
+
+## 2026-07-27 — Correction: git history is clean (no entanglement)
+An earlier note called e0e5fd4 "entangled" from the concurrent Phase 7/8 commit race.
+**Verified false:** e0e5fd4 contains scanner files ONLY (apps/api/scan, index.ts,
+migration 016, package.json); bb46766 (PWA) and 7ace0c6 (web wave) each contain 0
+non-web files. The scanner agent's `reset --mixed` + scoped re-commit fully corrected
+the race; the transient bad SHA (7e5237d) never survived into history. Nothing to fix.
