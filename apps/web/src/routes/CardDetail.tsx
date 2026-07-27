@@ -5,6 +5,7 @@ import { api, type CardDetailResponse, type Progress, type SetDetailResponse, ty
 import { Content, Spinner, ErrorState, BackPill, SetSymbolTile } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
+import { EnergyIcon } from '../components/EnergyIcon'
 import { fmtPrice, fmtDate, fmtNumber, fmtRelative } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
@@ -444,11 +445,8 @@ function CardTab({
                 <div className="flex items-center gap-[8px]">
                   {a.cost && (
                     <span className="flex gap-[2px]">
-                      {a.cost.split(',').map((_, i) => (
-                        <span
-                          key={i}
-                          className="inline-block h-[16px] w-[16px] rounded-full bg-action-primary"
-                        />
+                      {a.cost.split(',').map((t, i) => (
+                        <EnergyIcon key={i} type={t.trim()} size={18} />
                       ))}
                     </span>
                   )}
@@ -472,7 +470,10 @@ function CardTab({
         {c.types.length > 0 && (
           <Attribute label="Type">
             {c.types.map((t) => (
-              <Chip key={t}>{t}</Chip>
+              <Chip key={t}>
+                <EnergyIcon type={t} size={18} className="mr-[6px]" />
+                {t}
+              </Chip>
             ))}
           </Attribute>
         )}
@@ -485,14 +486,35 @@ function CardTab({
           <Attribute label="Weaknesses">
             {c.weaknesses.map((w) => (
               <Chip key={w.type}>
-                {w.type} {w.value}
+                <EnergyIcon type={w.type} size={18} className="mr-[6px]" />
+                {w.value}
+              </Chip>
+            ))}
+          </Attribute>
+        )}
+        {c.resistances.length > 0 && (
+          <Attribute label="Resistances">
+            {c.resistances.map((r) => (
+              <Chip key={r.type}>
+                <EnergyIcon type={r.type} size={18} className="mr-[6px]" />
+                {r.value}
               </Chip>
             ))}
           </Attribute>
         )}
         {c.retreat != null && (
           <Attribute label="Retreat Cost">
-            <Chip>{c.retreat === 0 ? '—' : '★'.repeat(c.retreat)}</Chip>
+            <Chip>
+              {c.retreat === 0 ? (
+                '—'
+              ) : (
+                <span className="flex gap-[2px]">
+                  {Array.from({ length: c.retreat }).map((_, i) => (
+                    <EnergyIcon key={i} type="colorless" size={18} />
+                  ))}
+                </span>
+              )}
+            </Chip>
           </Attribute>
         )}
         {c.evolvesFrom && (
