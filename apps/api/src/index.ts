@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
@@ -73,6 +76,20 @@ export function createApp(): express.Express {
   api.use('/collection', collectionRouter);
 
   app.use('/pokedex/api', api);
+
+  // Serve the built SPA (matches the box convention: every first-party app serves
+  // its own frontend on its own port, proxied by nginx — no nginx-static-from-home,
+  // which would need www-data to traverse the 700 home dir). Static assets first,
+  // then a client-routing fallback to index.html for any non-API GET under /pokedex/.
+  // webDist resolves relative to this compiled file: apps/api/dist -> apps/web/dist.
+  const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
+  if (existsSync(webDist)) {
+    app.use('/pokedex', express.static(webDist, { index: false, maxAge: '1h' }));
+    app.get(/^\/pokedex(\/.*)?$/, (req, res, next) => {
+      if (req.method !== 'GET' || req.path.startsWith('/pokedex/api')) return next();
+      res.sendFile(join(webDist, 'index.html'));
+    });
+  }
 
   app.use((_req, res) => {
     res.status(404).json({ error: { code: 'not_found', message: 'No such route' } });
