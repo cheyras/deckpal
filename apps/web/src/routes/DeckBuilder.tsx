@@ -7,12 +7,21 @@ import {
 import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
 import { Modal, ConfirmModal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
+import { EnergyIcon, ENERGY_TYPES } from '../components/EnergyIcon'
 import { fmtUsd, fmtPrice } from '../lib/format'
 import { FORMAT_META, LegalBadge } from './deckShared'
 import { type DeckSearch, DECK_SEARCH_DEFAULTS } from './deckSearch'
 
 const FORMATS: DeckFormat[] = ['standard', 'expanded', 'glc', 'unlimited']
 const SECTION_TITLE = { pokemon: 'Pokémon', trainer: 'Trainer', energy: 'Energy' } as const
+
+// Basic energy cards are named "<Type> Energy" (DeckCard carries no per-card type
+// field), so infer the energy symbol from the leading word for the energy section.
+function basicEnergyType(card: DeckCard): string | null {
+  if (card.category !== 'Energy') return null
+  const first = card.name.split(/\s+/)[0]?.toLowerCase()
+  return first && ENERGY_TYPES.includes(first) ? first : null
+}
 const MARK_POOL: Record<DeckFormat, string[] | null> = {
   standard: ['H', 'I', 'J'],
   expanded: ['D', 'E', 'F', 'G', 'H', 'I', 'J'],
@@ -42,6 +51,7 @@ function FormatSelector({ deck, glcTypes, onFormat, onGlcType }: {
       {deck.formatCode === 'glc' && (
         <label className="flex items-center justify-between gap-[8px] text-[12px] text-text-secondary">
           <span className="font-semibold">Deck type</span>
+          <EnergyIcon type={deck.glcType ?? glcTypes[0]} size={20} className="shrink-0" />
           <select value={deck.glcType ?? glcTypes[0]} onChange={(e) => onGlcType(e.target.value)}
             className="h-[34px] flex-1 rounded-lg border border-border-default bg-surface-primary px-[10px] text-[13px] text-text-primary">
             {glcTypes.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -121,6 +131,7 @@ function DeckRow({ card, offending, onSet, onRemove }: {
       <img src={card.images.low} alt={card.name} loading="lazy" className="h-[52px] w-[37px] shrink-0 rounded object-cover" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-[6px]">
+          {basicEnergyType(card) && <EnergyIcon type={basicEnergyType(card)!} size={16} className="shrink-0" />}
           <span className="truncate text-[14px] font-semibold text-text-primary">{card.name}</span>
           {offending && <span className="shrink-0" style={{ color: '#ff9d42' }}><Icon name="alert" size={13} /></span>}
         </div>
@@ -465,8 +476,15 @@ export function DeckBuilder() {
             <div className="flex flex-wrap items-start justify-between gap-[12px]">
               <div className="min-w-0">
                 <div className="mb-[6px] flex items-center gap-[8px]">
-                  <span className="rounded-full bg-surface-tertiary px-[10px] py-[3px] text-[11px] font-bold text-text-secondary">
-                    {FORMAT_META[deck.formatCode].short}{deck.formatCode === 'glc' && deck.glcType ? ` · ${deck.glcType}` : ''}
+                  <span className="inline-flex items-center gap-[5px] rounded-full bg-surface-tertiary px-[10px] py-[3px] text-[11px] font-bold text-text-secondary">
+                    {FORMAT_META[deck.formatCode].short}
+                    {deck.formatCode === 'glc' && deck.glcType && (
+                      <>
+                        <span>·</span>
+                        <EnergyIcon type={deck.glcType} size={14} />
+                        {deck.glcType}
+                      </>
+                    )}
                   </span>
                   <LegalBadge legal={deck.legal} />
                 </div>
