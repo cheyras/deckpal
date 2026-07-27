@@ -78,7 +78,7 @@ export function SetDetail() {
           <div className="mt-[24px] flex flex-col gap-[16px]">
             <div className="flex flex-wrap items-center gap-[16px]">
               <SearchBox value={search.q} onChange={(v) => patch({ q: v })} />
-              <div className="flex-1">
+              <div className="min-w-0 flex-1">
                 <SortChips search={search} patch={patch} />
               </div>
             </div>
