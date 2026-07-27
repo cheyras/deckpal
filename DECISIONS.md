@@ -423,3 +423,21 @@ to dist → built app crash-looped on ENOENT (latent: engine only ran under tsx 
 - **Backup cron DONE.** User crontab: `15 4 * * * bash scripts/backup.sh` (between the 03:00 fuel + 05:00 karakeep jobs). Script already proven (valid dump + restore-drill).
 - **In flight:** catalog-imagery fill (set logos/symbols warm + image-service route + frontend wiring — the "unpopulated/empty" fix) and PDF export backend.
 - **Queued (web-file-collision-serialized, after imagery lands):** PWA manifest+SW (now unblocked by LAN HTTPS), stream overlay, card scanner, wire PDF buttons. **Then** zero demo data to pristine baseline (held last so the PDF agent can test against the demo deck/list).
+
+## 2026-07-27 — "All of the above" complete + pristine baseline
+
+Every remaining item done and lead-verified against the live stack:
+- ✅ Split-horizon DNS + LAN HTTPS (valid cert) · ✅ nightly backup cron
+- ✅ Set imagery filled (326 logos/symbols, series index, set headers) — the "empty" fix
+- ✅ PDF export (deck/list/set checklist) + UI buttons
+- ✅ PWA (manifest, SW, offline shell+visited-art, iOS mitigations)
+- ✅ Card scanner (perceptual-hash, 21,828-card index, ImageMagick decode, no native deps) + UI (upload/camera → match → add), verified dist-0 exact match
+- ✅ Stream overlay (transparent OBS source at /pokedex/overlay)
+- ✅ **Demo data zeroed to pristine** (collection/lists/decks/events/value-points/dex/progress all 0; catalog + prices + sprites + set imagery intact; app_user seeded). Empty-state endpoints all 200.
+
+**Genuine follow-ups (not done, by design/limitation):**
+1. Energy-type icons on cards — no local/derivable source; needs 11 hand-authored SVGs (design work).
+2. Overlay names no card — needs a `GET /collection/events` read endpoint (activity feed exists in DB, no route); currently watches owned-count deltas only.
+3. BW/XY-era ACE SPEC sublist (10 names) vendored from public docs, not DB-derivable — flagged in deck engine `data/_provenance.json` for refresh.
+4. Offline is tiered (shell + visited art + collection), not full-catalog — deliberate on a phone.
+5. Remote HTTPS (example.invalid/pokedex/) works via the SSO gate; git history has one entangled commit (e0e5fd4) from the concurrent Phase 7/8 agents — cosmetic, nothing lost.
