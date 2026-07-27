@@ -29,10 +29,12 @@ export function GridView({
   cards,
   seriesSlug,
   setId,
+  onRemove,
 }: {
   cards: CardRow[]
   seriesSlug: string
   setId: string
+  onRemove?: (card: CardRow) => void
 }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
@@ -89,11 +91,12 @@ export function GridView({
             >
               {rowCards.map((card, i) => (
                 <CardTile
-                  key={card.cardId}
+                  key={(card as { itemId?: string }).itemId ?? card.cardId}
                   card={card}
                   seriesSlug={seriesSlug}
                   setId={setId}
                   eager={vRow.index === 0 && i < cols}
+                  onRemove={onRemove ? () => onRemove(card) : undefined}
                 />
               ))}
             </div>

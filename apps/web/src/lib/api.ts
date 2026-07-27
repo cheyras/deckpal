@@ -18,11 +18,11 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return res.json() as Promise<T>
 }
 
-async function send<T>(method: 'PATCH' | 'POST', path: string, body: unknown): Promise<T> {
+async function send<T>(method: 'PATCH' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   })
   if (!res.ok) {
     let msg = `HTTP ${res.status}`
@@ -123,6 +123,9 @@ export interface CardRow {
   images: { low: string; high: string }
   price: Price | null
   ownership: CardOwnership
+  // Optional per-card routing (present on list items, which span many sets).
+  seriesSlug?: string | null
+  setId?: string | null
 }
 export interface SetDetailResponse {
   set: {
@@ -207,6 +210,92 @@ export interface CollectionMutationResponse {
   progress: Progress
 }
 
+// ── Lists ──────────────────────────────────────────────────────
+export type ListKind = 'dynamic' | 'static' | 'pokedex_binder'
+export type ListVisibility = 'private' | 'public'
+
+export interface ListProgress {
+  owned: number
+  total: number
+  pct: number
+  copies: number
+}
+export interface ListSummary {
+  id: string
+  kind: ListKind
+  name: string
+  description: string | null
+  visibility: ListVisibility
+  isFavorite: boolean
+  coverRender: string
+  pocketSize: number | null
+  itemCount: number
+  progress: ListProgress | null
+  marketValueUsd: number | null
+  coverImage: { low: string; high: string } | null
+  createdAt: string
+  updatedAt: string
+}
+// A resolved list row. Extends CardRow so GridView/BinderView/TableView render it
+// directly; the extra fields carry list identity + read-through/static quantities.
+export interface ListItem extends CardRow {
+  itemId: string
+  position: number
+  itemKind: 'card' | 'species'
+  variantId?: number | null
+  variant?: { kind: string | null; displayName: string | null; tier: string | null; isPrimary: boolean | null }
+  setName?: string | null
+  note?: string | null
+  staticQuantity?: number | null
+  ownedQuantity?: number
+  dexId?: number
+  generation?: number | null
+}
+export interface ListDetailResponse {
+  list: ListSummary
+  items: ListItem[]
+}
+export interface CreateListBody {
+  name: string
+  kind: ListKind
+  description?: string | null
+  visibility?: ListVisibility
+}
+export interface UpdateListBody {
+  name?: string
+  description?: string | null
+  visibility?: ListVisibility
+  isFavorite?: boolean
+  itemOrder?: string[]
+  coverCardVariantId?: number | null
+}
+
+// ── Search (used by the Add-to-List picker) ────────────────────
+export interface SearchCard {
+  cardId: string
+  number: string
+  name: string
+  category: string
+  rarity: string | null
+  artist: string | null
+  set: { setId: string; name: string }
+  variantCount: number
+  images: { low: string; high: string }
+  price: Price | null
+}
+export interface SearchResponse {
+  pagination: { page: number; pageSize: number; total: number; pageCount: number }
+  cards: SearchCard[]
+}
+
+// The raw item shape the API returns before we normalise `kind` → `itemKind`.
+interface RawListItem extends Omit<ListItem, 'itemKind'> {
+  kind: 'card' | 'species'
+}
+function normaliseItems(r: { list: ListSummary; items: RawListItem[] }): ListDetailResponse {
+  return { list: r.list, items: r.items.map(({ kind, ...rest }) => ({ ...rest, itemKind: kind })) }
+}
+
 // ── Endpoints ──────────────────────────────────────────────────
 export const api = {
   series: (signal?: AbortSignal) => get<SeriesIndexResponse>('/series', signal),
@@ -222,4 +311,18 @@ export const api = {
   // Adjust a variant's owned quantity by a signed delta (floors at 0).
   incrementVariant: (variantId: number, delta: number) =>
     send<CollectionMutationResponse>('POST', `/collection/variants/${variantId}/increment`, { delta }),
+
+  // Lists
+  lists: (signal?: AbortSignal) => get<{ lists: ListSummary[] }>('/lists', signal),
+  list: async (id: string, signal?: AbortSignal) =>
+    normaliseItems(await get<{ list: ListSummary; items: RawListItem[] }>(`/lists/${encodeURIComponent(id)}`, signal)),
+  createList: (body: CreateListBody) => send<{ list: ListSummary }>('POST', '/lists', body),
+  updateList: (id: string, body: UpdateListBody) => send<{ list: ListSummary }>('PATCH', `/lists/${encodeURIComponent(id)}`, body),
+  deleteList: (id: string) => send<{ deleted: string }>('DELETE', `/lists/${encodeURIComponent(id)}`),
+  addListItem: (id: string, body: { cardVariantId?: number; dexId?: number; staticQuantity?: number; note?: string }) =>
+    send<{ itemId: string | null; alreadyPresent: boolean; list: ListSummary }>('POST', `/lists/${encodeURIComponent(id)}/items`, body),
+  removeListItem: (id: string, itemId: string) =>
+    send<{ deleted: string; list: ListSummary | null }>('DELETE', `/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}`),
+  searchCards: (params: URLSearchParams, signal?: AbortSignal) =>
+    get<SearchResponse>(`/search?${params.toString()}`, signal),
 }

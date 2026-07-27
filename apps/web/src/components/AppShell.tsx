@@ -16,7 +16,7 @@ const NAV: NavItem[] = [
   { label: 'English TCG', icon: 'cards', to: '/series', expandable: true },
   { label: 'Japanese TCG', icon: 'cards', expandable: true },
   { label: 'TCG Pocket', icon: 'cards', expandable: true },
-  { label: 'My Lists', icon: 'lists' },
+  { label: 'My Lists', icon: 'lists', to: '/lists' },
   { label: 'Deck Builder', icon: 'deck' },
   { label: 'Pokédex', icon: 'pokedex' },
   { label: 'Stream Tools', icon: 'stream' },
@@ -85,9 +85,8 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       </div>
       <nav className="flex-1 overflow-y-auto py-[6px]">
         {NAV.map((item) => {
-          const active =
-            !!item.to && (pathname === item.to || pathname.startsWith('/series'))
-          return <NavRow key={item.label} item={item} active={active && item.to === '/series'} collapsed={collapsed} />
+          const active = !!item.to && (pathname === item.to || pathname.startsWith(`${item.to}/`))
+          return <NavRow key={item.label} item={item} active={active} collapsed={collapsed} />
         })}
       </nav>
     </aside>
@@ -113,7 +112,7 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
       <nav>
         {NAV.map((item) => (
           <div key={item.label} onClick={item.to ? onClose : undefined}>
-            <NavRow item={item} active={item.to === '/series'} collapsed={false} />
+            <NavRow item={item} active={false} collapsed={false} />
           </div>
         ))}
       </nav>
