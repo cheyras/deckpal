@@ -39,3 +39,33 @@ export function cardCacheKey(ref: CardRef, quality: Quality): string {
 export function cardSourceUrl(ref: CardRef, quality: Quality): string {
   return `https://assets.tcgdex.net/${LANG}/${ref.serie}/${ref.set}/${ref.localId}/${quality}.webp`;
 }
+
+// ── Set imagery (logo + symbol) ──────────────────────────────────────────────
+// Set logos/symbols are catalog imagery, warmed from the base URLs stored in
+// card_set (logo_url / symbol_url). The correct TCGdex asset is the stored base
+// URL + '.webp' (DATA-LAYER §3.4). We key/serve them by the set's tcgdex_id, the
+// same id the API and SPA already route on, so the read path needs no DB lookup:
+//   local path: sets/{setId}/{logo|symbol}.webp
+// These are tiny (~4 MB total across 218 sets) and are NOT eviction candidates —
+// their cache_key never ends in ':high' (see assets.ts evictionCandidates).
+
+export type SetImageKind = 'logo' | 'symbol';
+
+export function setImageRelativePath(setId: string, kind: SetImageKind): string {
+  return join('sets', setId, `${kind}.webp`);
+}
+
+export function setImageAbsolutePath(setId: string, kind: SetImageKind): string {
+  return join(CACHE_ROOT, setImageRelativePath(setId, kind));
+}
+
+export function setImageCacheKey(setId: string, kind: SetImageKind): string {
+  return `set:${setId}:${kind}`;
+}
+
+// The upstream asset URL is the stored base URL with a '.webp' suffix. The base
+// already encodes the correct origin path (…/en/{serie}/{set}/logo for logos,
+// …/univ/{serie}/{set}/symbol for symbols), so we only append the extension.
+export function setImageSourceUrl(baseUrl: string): string {
+  return /\.webp$/i.test(baseUrl) ? baseUrl : `${baseUrl}.webp`;
+}

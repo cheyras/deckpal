@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
 import { api, type SetSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, assetUrl } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, setAssetUrl } from '../components/ui'
 import { fmtDate, setLevelLabel } from '../lib/format'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 
@@ -17,13 +17,13 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
       <div className="flex h-[72px] w-[110px] shrink-0 items-center justify-center rounded-md bg-surface-secondary">
         {set.logoUrl ? (
           <img
-            src={assetUrl(set.logoUrl)}
+            src={setAssetUrl(set.setId, 'logo')}
             alt=""
             className="max-h-[56px] max-w-[96px] object-contain"
             onError={(e) => ((e.currentTarget.style.display = 'none'))}
           />
         ) : (
-          <span className="text-[12px] text-text-muted">{set.name}</span>
+          <span className="px-[6px] text-center text-[12px] text-text-muted">{set.name}</span>
         )}
       </div>
       <div className="min-w-0 flex-1">
@@ -45,7 +45,7 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
           </span>
         </div>
       </div>
-      <SetSymbolTile url={set.symbolUrl} size={40} />
+      <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.symbolUrl)} size={40} />
     </Link>
   )
 }

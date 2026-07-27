@@ -303,7 +303,7 @@ export function CardDetail() {
                 </button>
               </div>
               <div className="mt-[10px] flex items-center gap-[10px]">
-                <SetSymbolTile url={data.card.set.setId ? null : null} size={28} />
+                <SetSymbolTile setId={data.card.set.setId} hasSymbol={Boolean(data.card.set.symbolUrl)} size={28} />
                 <Link
                   to="/series/$series/$set"
                   params={{ series, set }}
