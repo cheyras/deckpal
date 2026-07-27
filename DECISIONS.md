@@ -234,6 +234,15 @@ images. It runs from manually-started node processes; **it is NOT yet deployed**
   authelia-authrequest include → `deploy/nginx-brain-public-pokedex.conf`
   (Authelia-gated). Config correct (`nginx -t` clean).
 
+**✅ RESOLVED 2026-07-27 (user asked):** root cause was `/etc/authelia/secrets/`
+having lost its owner **execute** bit (`drw-r-----`) — the owner (authelia, uid 980)
+could not traverse the dir to read `smtp_password`, so it died at config load on the
+last boot. Fix: `chmod u+x /etc/authelia/secrets` (surgical; file contents untouched).
+`systemctl start authelia` → active, 9091 listening, portal 200. All gated routes
+recovered (`/git/`, `/pokedex/`, MCP endpoints now 302→portal instead of 500). If the
+x-bit is stripped again on a future boot, investigate what does it — the perm fix
+itself is persistent and the unit is `enabled`.
+
 **🔴 Pre-existing blocker (NOT caused by pokedex): `authelia.service` is `failed`.**
 Port 9091 isn't listening; every Authelia-gated route 500s — `/git/` 500s with the
 pokedex include *removed*, proving it's Authelia, not us. This blocks ALL remote/
