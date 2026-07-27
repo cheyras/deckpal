@@ -571,6 +571,9 @@ export function DeckBuilder() {
                 <button onClick={() => setShowExport(true)} className="flex h-[42px] items-center justify-center gap-[8px] rounded-full bg-surface-tertiary text-[13px] font-bold text-text-primary hover:bg-action-default-hover">
                   <Icon name="download" size={16} /> Export to PTCG Live
                 </button>
+                <a href={api.deckPdfUrl(id)} target="_blank" rel="noreferrer" className="flex h-[42px] items-center justify-center gap-[8px] rounded-full bg-surface-tertiary text-[13px] font-bold text-text-primary hover:bg-action-default-hover">
+                  <Icon name="printer" size={16} /> Export PDF
+                </a>
               </div>
             </div>
           </div>

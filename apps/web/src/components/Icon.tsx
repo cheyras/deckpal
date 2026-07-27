@@ -37,6 +37,8 @@ export type IconName =
   | 'user'
   | 'gear'
   | 'sparkle'
+  | 'camera'
+  | 'printer'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   cards: (
@@ -207,6 +209,20 @@ const PATHS: Record<IconName, React.ReactNode> = {
   sparkle: (
     <>
       <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  camera: (
+    <>
+      <path d="M4 8a2 2 0 012-2h1.5l1.2-1.8a1 1 0 01.83-.45h5a1 1 0 01.83.45L15.5 6H18a2 2 0 012 2v9a2 2 0 01-2 2H6a2 2 0 01-2-2z" />
+      <circle cx="12" cy="13" r="3.2" />
+    </>
+  ),
+  printer: (
+    <>
+      <path d="M6 9V4h12v5" />
+      <path d="M6 18H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-1" />
+      <rect x="7" y="15" width="10" height="5" rx="1" />
+      <path d="M17 12.5h.01" />
     </>
   ),
 }

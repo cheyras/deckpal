@@ -57,6 +57,41 @@ export interface VariantPrice {
   isFallback: boolean
 }
 
+// ── Scanner (Phase 8 — perceptual-hash image → card matcher) ───
+// POST /scan takes the RAW image bytes with an image/* Content-Type (never
+// multipart, never JSON), so it bypasses the shared json() helpers above.
+export interface ScanMatch {
+  cardId: string
+  name: string
+  number: string
+  setId: string
+  setName: string
+  rarity: string | null
+  images: { low: string; high: string }
+  distance: number
+  confidence: number
+}
+export interface ScanResponse {
+  query: { algo: string; hash: string }
+  matched: boolean
+  threshold: number
+  indexSize: number
+  matches: ScanMatch[]
+  note?: string
+}
+
+// Response of POST /collection/cards/:cardId/have (tile-level Have/Need toggle).
+export interface HaveMutationResponse {
+  cardId: string
+  setId: string
+  card: {
+    cardId: string
+    variants: { variantId: number; quantity: number }[]
+    ownership: { totalQuantity: number; have: boolean; need: boolean; dupe: boolean }
+  }
+  progress: Progress
+}
+
 // ── Series ─────────────────────────────────────────────────────
 export interface SeriesSummary {
   slug: string
@@ -583,6 +618,35 @@ export const api = {
   // Adjust a variant's owned quantity by a signed delta (floors at 0).
   incrementVariant: (variantId: number, delta: number) =>
     send<CollectionMutationResponse>('POST', `/collection/variants/${variantId}/increment`, { delta }),
+  // Tile-level Have/Need toggle by card id (owns/zeroes the primary variant).
+  setCardHave: (cardId: string, have: boolean) =>
+    send<HaveMutationResponse>('POST', `/collection/cards/${encodeURIComponent(cardId)}/have`, { have }),
+
+  // Scanner — POST raw image bytes, get ranked perceptual-hash matches.
+  scan: async (bytes: ArrayBuffer, contentType: string, k = 5, quality: 'low' | 'high' = 'low', signal?: AbortSignal): Promise<ScanResponse> => {
+    const params = new URLSearchParams({ k: String(k), quality })
+    const res = await fetch(`${BASE}/scan?${params.toString()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType || 'application/octet-stream' },
+      body: bytes,
+      signal,
+    })
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`
+      try {
+        const b = await res.json()
+        if (b?.error?.message) msg = b.error.message
+      } catch {
+        /* ignore */
+      }
+      throw new Error(msg)
+    }
+    return res.json() as Promise<ScanResponse>
+  },
+  // PDF export URLs (streamed by the API; open in a new tab).
+  deckPdfUrl: (id: string) => `${BASE}/decks/${encodeURIComponent(id)}/pdf`,
+  listPdfUrl: (id: string) => `${BASE}/lists/${encodeURIComponent(id)}/pdf`,
+  setChecklistPdfUrl: (setId: string) => `${BASE}/sets/${encodeURIComponent(setId)}/checklist.pdf`,
 
   // Lists
   lists: (signal?: AbortSignal) => get<{ lists: ListSummary[] }>('/lists', signal),

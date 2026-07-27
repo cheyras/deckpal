@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import type { SetDetailResponse } from '../lib/api'
 import type { Goal } from '../routes/setSearch'
+import { api } from '../lib/api'
 import { fmtDate, fmtUsd } from '../lib/format'
 import { SetSymbolTile, setAssetUrl } from './ui'
 import { ProgressCluster } from './ProgressCluster'
@@ -56,6 +57,9 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
             <button className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
               <Icon name="external" size={16} className="text-action-brand" /> Purchase Set
             </button>
+            <a href={api.setChecklistPdfUrl(set.setId)} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
+              <Icon name="printer" size={16} className="text-action-brand" /> Print Checklist
+            </a>
           </div>
 
           <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.images.symbolUrl)} size={40} />
