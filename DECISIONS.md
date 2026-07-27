@@ -218,6 +218,41 @@ cards + live three-goal progress + search/filter/sort in URL + prices + dex + lo
 images. It runs from manually-started node processes; **it is NOT yet deployed**
 (no pm2 unit, no nginx route) — that touches shared infra and needs user consent.
 
+## 2026-07-27 — Deployment (Phase 7, partial): LAN live; HTTPS/remote blocked by a pre-existing Authelia failure
+
+**Applied and verified (reversible):**
+- **pm2:** `pokedex-api` :3700, `pokedex-images` :3701, `pokedex-sync` (cron) — all
+  online, `pm2 save`d (survive reboot). Config: `deploy/ecosystem.pokedex.config.cjs`.
+- **API serves the SPA** (`apps/web/dist` + client-route fallback), matching the
+  box's proxy-not-static convention — so nginx never needs to traverse the 700 `$HOME`
+  (and `setfacl` isn't installed anyway).
+- **nginx LAN vhost** (`thegrid`): one `include` line added after `server_name`
+  → `deploy/nginx-thegrid-pokedex.conf`. **`http://the.grid/pokedex/` works now**,
+  verified in a browser end-to-end (nginx→api→images, real art, all 200), and
+  git/colorsplash/lumina/root all still 200.
+- **nginx public vhost** (`brain-public` :443): one `include` after the
+  authelia-authrequest include → `deploy/nginx-brain-public-pokedex.conf`
+  (Authelia-gated). Config correct (`nginx -t` clean).
+
+**🔴 Pre-existing blocker (NOT caused by pokedex): `authelia.service` is `failed`.**
+Port 9091 isn't listening; every Authelia-gated route 500s — `/git/` 500s with the
+pokedex include *removed*, proving it's Authelia, not us. This blocks ALL remote/
+gated access on the box, not just pokedex. **Lead did not restart it** — it's the
+user's auth infra and it failed for an unknown reason. Until it's back:
+  - LAN **HTTP** access works fully (the LAN vhost has no Authelia).
+  - Remote HTTPS + the LAN-HTTPS/PWA path (via `cheyrasnet.tplinkdns.com`) will 500.
+
+**⏸ Deferred: split-horizon dnsmasq (Stage D).** `deploy/dnsmasq-pokedex.conf` is
+ready (`address=/cheyrasnet.tplinkdns.com/192.168.68.76`), but its only benefit —
+HTTPS secure-context on LAN for the PWA — requires Authelia up to verify, and it's
+the riskiest change (rewrites DNS resolution of that hostname for every service).
+Not worth flipping DNS for an unverifiable, currently-500ing target. Apply after
+Authelia is healthy.
+
+**Rollback:** vhost backups at `scratchpad/{thegrid,brain-public}.bak`; remove the
+two `include` lines + `nginx -t` + reload; `pm2 delete pokedex-api pokedex-images
+pokedex-sync && pm2 save`.
+
 ## Phase 2 follow-ups (found during verification, non-blocking)
 
 - ✅ **Task 4 — dex importer** and ✅ **Task 5 — price ingest + cross-fill**, both
