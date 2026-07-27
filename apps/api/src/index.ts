@@ -81,7 +81,11 @@ export function createApp(): express.Express {
   return app;
 }
 
-const isMain = process.argv[1]?.endsWith('index.js') || process.argv[1]?.endsWith('index.ts');
+// Under pm2 fork mode process.argv[1] is pm2's ProcessContainerFork.js wrapper, not
+// our entry, so an argv-only check never fires. pm2 exposes the real script path in
+// pm_exec_path; fall back to argv[1] for direct `node dist/index.js` runs.
+const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
+const isMain = entryPath.endsWith('index.js') || entryPath.endsWith('index.ts');
 if (isMain) {
   const app = createApp();
   const port = Number(process.env.POKEDEX_API_PORT ?? 3700);
