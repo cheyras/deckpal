@@ -18,7 +18,10 @@ import { SeriesIndex } from './routes/SeriesIndex'
 import { SeriesDetail } from './routes/SeriesDetail'
 import { SetDetail } from './routes/SetDetail'
 import { CardDetail } from './routes/CardDetail'
+import { ListsIndex } from './routes/ListsIndex'
+import { ListDetail } from './routes/ListDetail'
 import { validateCardSearch } from './routes/setSearch'
+import { validateListSearch } from './routes/listSearch'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -77,12 +80,27 @@ const cardDetailRoute = createRoute({
   component: CardDetail,
 })
 
+const listsIndexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/lists',
+  component: ListsIndex,
+})
+
+const listDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/lists/$id',
+  validateSearch: validateListSearch,
+  component: ListDetail,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   seriesIndexRoute,
   seriesDetailRoute,
   setDetailRoute,
   cardDetailRoute,
+  listsIndexRoute,
+  listDetailRoute,
 ])
 
 const router = createRouter({

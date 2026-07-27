@@ -20,9 +20,9 @@ export function TableView({
     <div className="flex flex-col gap-[20px]">
       {cards.map((card) => (
         <Link
-          key={card.cardId}
+          key={(card as { itemId?: string }).itemId ?? card.cardId}
           to="/series/$series/$set/$number"
-          params={{ series: seriesSlug, set: setId, number: card.number }}
+          params={{ series: card.seriesSlug ?? seriesSlug, set: card.setId ?? setId, number: card.number }}
           className="group flex items-stretch overflow-hidden rounded-lg bg-surface-tertiary hover:bg-action-default-hover"
         >
           <div className="w-[48px] shrink-0 overflow-hidden bg-surface-secondary">
