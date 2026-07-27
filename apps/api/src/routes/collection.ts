@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type pg from 'pg';
-import { defaultUserId, recomputeSetProgress, withTx, type SetProgress } from '../db.js';
-import { asyncHandler, badRequest, notFound, userCache } from '../http.js';
+import { cardImages, defaultUserId, q, recomputeSetProgress, withTx, type SetProgress } from '../db.js';
+import { asyncHandler, badRequest, clampInt, notFound, str, userCache } from '../http.js';
 
 export const collectionRouter: Router = Router();
 
@@ -287,5 +287,104 @@ collectionRouter.post(
 
     userCache(res);
     res.json(result);
+  }),
+);
+
+interface EventRow {
+  id: string;
+  occurred_at: string;
+  delta: number;
+  quantity_after: number;
+  is_first_acquisition: boolean;
+  card_variant_id: string;
+  card_tcgdex_id: string;
+  card_name: string;
+  local_id: string;
+  set_tcgdex_id: string;
+  set_name: string;
+  series_tcgdex_id: string;
+  variant_display_name: string | null;
+  variant_kind_display: string;
+}
+
+/**
+ * Derive a human "kind" from the append-only event row. The table stores only a
+ * signed `delta` and the resulting `quantity_after` (+ is_first_acquisition), NOT
+ * a categorical kind — so we infer it:
+ *   • delta > 0, first acquisition   → 'added'           (0 → n for the first time)
+ *   • delta > 0, not first           → 'quantity-increased'
+ *   • delta < 0, quantity_after = 0  → 'removed'         (n → 0)
+ *   • delta < 0, quantity_after > 0  → 'quantity-decreased'
+ */
+function eventKind(delta: number, quantityAfter: number, isFirst: boolean): string {
+  if (delta > 0) return isFirst ? 'added' : 'quantity-increased';
+  return quantityAfter === 0 ? 'removed' : 'quantity-decreased';
+}
+
+/**
+ * GET /pokedex/api/collection/events — read the collection activity log, newest
+ * first, each event resolved to human fields (card/set names, number, variant
+ * label, images). Powers the stream overlay ("just added Charizard, Base Set,
+ * #4") and an Activity view. Read-only, parameterized, shared pool.
+ *
+ *   ?limit=<n>     how many events (default 50, capped 1..200)
+ *   ?since=<iso>   only events strictly newer than this timestamp (overlay polls
+ *                  with the occurredAt of the last event it saw). Invalid → 400.
+ *
+ * Uses the (user_id, occurred_at DESC) feed index; id DESC is a stable tiebreak
+ * for events sharing an occurred_at. Empty collection returns { events: [] }.
+ */
+collectionRouter.get(
+  '/events',
+  asyncHandler(async (req, res) => {
+    const limit = clampInt(req.query.limit, 50, 1, 200);
+    const sinceRaw = str(req.query.since);
+    let since: string | null = null;
+    if (sinceRaw !== undefined) {
+      const d = new Date(sinceRaw);
+      if (Number.isNaN(d.getTime())) throw badRequest('since must be an ISO-8601 timestamp');
+      since = d.toISOString();
+    }
+    const userId = await defaultUserId();
+
+    const rows = await q<EventRow>(
+      `SELECT ce.id, ce.occurred_at, ce.delta, ce.quantity_after, ce.is_first_acquisition,
+              ce.card_variant_id,
+              c.tcgdex_id AS card_tcgdex_id, c.name AS card_name, c.local_id,
+              cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name,
+              ser.tcgdex_id AS series_tcgdex_id,
+              cv.display_name AS variant_display_name, vk.display_name AS variant_kind_display
+         FROM collection_event ce
+         JOIN card_variant cv ON cv.id = ce.card_variant_id
+         JOIN variant_kind vk ON vk.code = cv.variant_kind_code
+         JOIN card c ON c.id = cv.card_id
+         JOIN card_set cs ON cs.id = c.set_id
+         JOIN series ser ON ser.id = cs.series_id
+        WHERE ce.user_id = $1
+          AND ($2::timestamptz IS NULL OR ce.occurred_at > $2::timestamptz)
+        ORDER BY ce.occurred_at DESC, ce.id DESC
+        LIMIT $3`,
+      [userId, since, limit],
+    );
+
+    userCache(res);
+    res.json({
+      events: rows.map((r) => ({
+        eventId: Number(r.id),
+        occurredAt: r.occurred_at,
+        kind: eventKind(r.delta, r.quantity_after, r.is_first_acquisition),
+        cardId: r.card_tcgdex_id,
+        cardName: r.card_name,
+        setId: r.set_tcgdex_id,
+        setName: r.set_name,
+        number: r.local_id,
+        variantId: Number(r.card_variant_id),
+        variantName: r.variant_display_name ?? r.variant_kind_display,
+        quantityDelta: r.delta,
+        newQuantity: r.quantity_after,
+        isFirstAcquisition: r.is_first_acquisition,
+        images: cardImages(r.series_tcgdex_id, r.set_tcgdex_id, r.local_id),
+      })),
+    });
   }),
 );
