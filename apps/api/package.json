@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "test:deck": "node --import tsx --test src/deck/__tests__/*.test.ts",
-    "prove:deck": "node --import tsx src/deck/prove.ts"
+    "prove:deck": "node --import tsx src/deck/prove.ts",
+    "scan:index": "node --import tsx src/scan/index.ts"
   },
   "dependencies": {
     "@pokedex/db": "workspace:*",
