@@ -416,3 +416,10 @@ to dist → built app crash-looped on ENOENT (latent: engine only ran under tsx 
 - Phase 8 optional: card scanner, stream overlay, PDF export — not started.
 - Demo state: 4 owned base1 holos + 1 demo list + 1 demo deck left in place so the
   gamification surfaces are non-empty. Zero on request.
+
+## 2026-07-27 — Split-horizon DNS + backup cron applied (user: "all of the above")
+
+- **Split-horizon DNS DONE.** `/etc/dnsmasq.d/pokedex.conf` = `address=/cheyrasnet.tplinkdns.com/192.168.68.76` (mirrors the existing Minecraft split-horizon entries). `dnsmasq --test` OK → restarted. Verified: hostname → Pi LAN IP via dnsmasq; Minecraft entries + external DNS (github) still resolve; **LAN HTTPS serves a VALID cert** (curl without -k → 302 Authelia gate, not a cert error) → secure context enabled → PWA now possible on LAN. `/git/` + Authelia portal still serve over the LAN path. Rollback: `rm /etc/dnsmasq.d/pokedex.conf && systemctl restart dnsmasq`.
+- **Backup cron DONE.** User crontab: `15 4 * * * bash scripts/backup.sh` (between the 03:00 fuel + 05:00 karakeep jobs). Script already proven (valid dump + restore-drill).
+- **In flight:** catalog-imagery fill (set logos/symbols warm + image-service route + frontend wiring — the "unpopulated/empty" fix) and PDF export backend.
+- **Queued (web-file-collision-serialized, after imagery lands):** PWA manifest+SW (now unblocked by LAN HTTPS), stream overlay, card scanner, wire PDF buttons. **Then** zero demo data to pristine baseline (held last so the PDF agent can test against the demo deck/list).
