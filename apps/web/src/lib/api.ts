@@ -278,6 +278,7 @@ export interface SearchCard {
   category: string
   rarity: string | null
   artist: string | null
+  regulationMark?: string | null
   set: { setId: string; name: string }
   variantCount: number
   images: { low: string; high: string }
@@ -286,6 +287,155 @@ export interface SearchCard {
 export interface SearchResponse {
   pagination: { page: number; pageSize: number; total: number; pageCount: number }
   cards: SearchCard[]
+}
+
+// ── Decks (Phase 5) ────────────────────────────────────────────
+export type DeckFormat = 'standard' | 'expanded' | 'glc' | 'unlimited'
+
+export interface DeckSummary {
+  id: string
+  name: string
+  description: string | null
+  formatCode: DeckFormat
+  formatName: string
+  glcType: string | null
+  isFavorite: boolean
+  coverRender: string
+  coverImage: { low: string; high: string } | null
+  totalCount: number
+  valueUsd: number | null
+  legal: boolean
+  createdAt: string
+  updatedAt: string
+}
+export interface DeckCard {
+  cardId: string
+  name: string
+  number: string
+  numberSort: string | null
+  category: string
+  section: 'pokemon' | 'trainer' | 'energy'
+  stage: string | null
+  rarity: string | null
+  artist: string | null
+  regulationMark: string | null
+  setId: string
+  setName: string
+  seriesSlug: string
+  quantity: number
+  owned: number
+  have: boolean
+  images: { low: string; high: string }
+  price: Price | null
+}
+export interface DeckCounts {
+  total: number
+  pokemon: number
+  trainer: number
+  energy: number
+  distinctNames: number
+}
+export interface Violation {
+  code: string
+  severity: 'error' | 'warning'
+  rule: string
+  message: string
+  scope: string
+  subject?: string
+  card_ids?: number[]
+  observed?: number
+  allowed?: number
+  delta?: number
+  detail?: Record<string, unknown>
+}
+export interface ValidationWarning {
+  code: string
+  message: string
+}
+export interface ValidationResult {
+  format: DeckFormat
+  format_data_checked_at: string
+  legal: boolean
+  counts: { total: number; pokemon: number; trainer: number; energy: number; distinct_names: number; unresolved: number }
+  violations: Violation[]
+  warnings: ValidationWarning[]
+}
+export interface CardRef {
+  cardId: string
+  name: string
+  number: string
+  setId: string
+  seriesSlug: string
+  image: string
+}
+export interface DeckDetail {
+  deck: DeckSummary
+  counts: DeckCounts
+  cards: DeckCard[]
+  validation: ValidationResult
+  cardRefs: Record<string, CardRef>
+  glcTypes: string[]
+  import?: {
+    source: string
+    resolvedEntries: number
+    distinctCards: number
+    unresolved: string[]
+    warnings: ValidationWarning[]
+  }
+}
+export interface HandCard {
+  cardId: string | null
+  name: string
+  number: string | null
+  category: string | null
+  isBasicPokemon: boolean
+  image: string | null
+}
+export interface TestHand {
+  seed: number
+  deckSize: number
+  basicPokemonCount: number
+  mulligans: number
+  opponentDraws: number
+  mulliganChancePct: number
+  hand: HandCard[]
+  prizes: HandCard[]
+  note: string
+}
+export interface MissingCard {
+  cardId: string
+  name: string
+  number: string
+  setId: string
+  missingQty: number
+  unitPrice: number | null
+  lineTotal: number | null
+  buyUrl: string | null
+  massEntry: string
+  image: string
+}
+export interface DeckPricing {
+  currency: string
+  totalUsd: number | null
+  ownedValueUsd: number | null
+  missingValueUsd: number | null
+  cards: { cardId: string; name: string; number: string; setId: string; quantity: number; owned: number; unitPrice: number | null; lineTotal: number | null; currency: string }[]
+  missing: MissingCard[]
+  massEntryText: string
+}
+export interface CreateDeckBody {
+  name: string
+  formatCode?: DeckFormat
+  glcType?: string | null
+  description?: string | null
+}
+export interface UpdateDeckBody {
+  name?: string
+  description?: string | null
+  formatCode?: DeckFormat
+  glcType?: string | null
+  isFavorite?: boolean
+  coverRender?: string
 }
 
 // The raw item shape the API returns before we normalise `kind` → `itemKind`.
@@ -325,4 +475,29 @@ export const api = {
     send<{ deleted: string; list: ListSummary | null }>('DELETE', `/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}`),
   searchCards: (params: URLSearchParams, signal?: AbortSignal) =>
     get<SearchResponse>(`/search?${params.toString()}`, signal),
+
+  // Decks
+  decks: (signal?: AbortSignal) => get<{ decks: DeckSummary[] }>('/decks', signal),
+  deck: (id: string, signal?: AbortSignal) => get<DeckDetail>(`/decks/${encodeURIComponent(id)}`, signal),
+  createDeck: (body: CreateDeckBody) => send<DeckDetail>('POST', '/decks', body),
+  updateDeck: (id: string, body: UpdateDeckBody) => send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}`, body),
+  deleteDeck: (id: string) => send<{ deleted: string }>('DELETE', `/decks/${encodeURIComponent(id)}`),
+  importDeck: (body: { text: string; formatCode?: DeckFormat; glcType?: string | null; name?: string; source?: 'ptcgl' | 'massentry' }) =>
+    send<DeckDetail>('POST', '/decks/import', body),
+  addDeckCard: (id: string, cardId: string, quantity = 1) =>
+    send<DeckDetail>('POST', `/decks/${encodeURIComponent(id)}/cards`, { cardId, quantity }),
+  setDeckCardQuantity: (id: string, cardId: string, quantity: number) =>
+    send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`, { quantity }),
+  removeDeckCard: (id: string, cardId: string) =>
+    send<DeckDetail>('DELETE', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`),
+  validateDeck: (id: string, format?: DeckFormat, signal?: AbortSignal) =>
+    get<{ validation: ValidationResult; cardRefs: Record<string, CardRef> }>(
+      `/decks/${encodeURIComponent(id)}/validate${format ? `?format=${format}` : ''}`,
+      signal,
+    ),
+  exportDeck: (id: string, format: 'ptcgl' | 'massentry' = 'ptcgl', signal?: AbortSignal) =>
+    get<{ format: string; text: string }>(`/decks/${encodeURIComponent(id)}/export?format=${format}`, signal),
+  testHand: (id: string, seed?: number, signal?: AbortSignal) =>
+    get<TestHand>(`/decks/${encodeURIComponent(id)}/testhand${seed !== undefined ? `?seed=${seed}` : ''}`, signal),
+  deckPricing: (id: string, signal?: AbortSignal) => get<DeckPricing>(`/decks/${encodeURIComponent(id)}/pricing`, signal),
 }

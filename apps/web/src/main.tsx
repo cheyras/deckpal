@@ -20,8 +20,11 @@ import { SetDetail } from './routes/SetDetail'
 import { CardDetail } from './routes/CardDetail'
 import { ListsIndex } from './routes/ListsIndex'
 import { ListDetail } from './routes/ListDetail'
+import { DecksIndex } from './routes/DecksIndex'
+import { DeckBuilder } from './routes/DeckBuilder'
 import { validateCardSearch } from './routes/setSearch'
 import { validateListSearch } from './routes/listSearch'
+import { validateDeckSearch } from './routes/deckSearch'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -93,6 +96,19 @@ const listDetailRoute = createRoute({
   component: ListDetail,
 })
 
+const decksIndexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/decks',
+  component: DecksIndex,
+})
+
+const deckBuilderRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/decks/$id',
+  validateSearch: validateDeckSearch,
+  component: DeckBuilder,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   seriesIndexRoute,
@@ -101,6 +117,8 @@ const routeTree = rootRoute.addChildren([
   cardDetailRoute,
   listsIndexRoute,
   listDetailRoute,
+  decksIndexRoute,
+  deckBuilderRoute,
 ])
 
 const router = createRouter({

@@ -21,6 +21,7 @@ interface SearchRow {
   rarity: string | null;
   illustrator: string | null;
   hp: number | null;
+  regulation_mark: string | null;
   released_on: string | null;
   serie: string;
   setcode: string;
@@ -103,7 +104,7 @@ searchRouter.get(
     const offsetIdx = p(offset);
 
     const rows = await q<SearchRow>(
-      `SELECT c.tcgdex_id, c.local_id, c.name, c.category, c.rarity, c.illustrator, c.hp, c.released_on,
+      `SELECT c.tcgdex_id, c.local_id, c.name, c.category, c.rarity, c.illustrator, c.hp, c.regulation_mark, c.released_on,
               ser.tcgdex_id AS serie, cs.tcgdex_id AS setcode, cs.name AS set_name,
               vc.variant_count, price.market_minor AS price_minor, price.currency_code AS price_currency,
               count(*) OVER() AS total_rows
@@ -145,6 +146,7 @@ searchRouter.get(
         rarity: r.rarity,
         artist: r.illustrator,
         hp: r.hp,
+        regulationMark: r.regulation_mark,
         set: { setId: r.setcode, name: r.set_name },
         releasedOn: r.released_on,
         variantCount: Number(r.variant_count),
