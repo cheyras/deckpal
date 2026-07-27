@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#15181f" />
+    <!-- iOS Home-Screen install: standalone chrome + dark status bar + app icon.
+         Home-Screen install is one of the two ITP-eviction escapes (FRONTEND.md §C.4);
+         the manifest link is injected by vite-plugin-pwa at build. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="pokedex" />
+    <link rel="apple-touch-icon" href="/pokedex/apple-touch-icon.png" />
     <title>pokedex</title>
   </head>
   <body>

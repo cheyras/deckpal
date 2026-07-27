@@ -12,6 +12,7 @@ import {
   Outlet,
 } from '@tanstack/react-router'
 import './theme.css'
+import { registerPwa } from './pwa'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
 import { SeriesIndex } from './routes/SeriesIndex'
@@ -180,3 +181,6 @@ createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </StrictMode>,
 )
+
+// Register the service worker + request persistent storage (iOS-eviction guard).
+registerPwa()
