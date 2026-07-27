@@ -1,0 +1,22 @@
+{
+  "_comment": "Gym Leader Challenge ban list. DECK-FORMATS §2.3.5 (S7, as of 2026-07-24), 13 entries. GLC has its OWN ban list -- Standard/Expanded bans do NOT apply (§2.3.4 item 3). 'Double Colorless Energy' is NAME-scoped ('and all other versions'); every other row is print-scoped.",
+  "as_of": "2026-07-27",
+  "source_url": "https://gymleaderchallenge.com/ban-list",
+  "bans": [
+    { "scope": "print", "name": "Lysandre's Trump Card", "set": "xy4", "local_ids": ["99", "118"], "banned_from": "2021-11-16", "source_text": "Lysandre's Trump Card — XY: Phantom Forces, 99/119 and 118/119" },
+    { "scope": "print", "name": "Oranguru", "set": "sm5", "local_ids": ["114"], "banned_from": "2021-11-16", "source_text": "Oranguru — SM: Ultra Prism, 114/156" },
+    { "scope": "print", "name": "Forest of Giant Plants", "set": "xy7", "local_ids": ["74"], "banned_from": "2022-01-10", "source_text": "Forest of Giant Plants — XY: Ancient Origins, 74/98" },
+    { "scope": "print", "name": "Chip-Chip Ice Axe", "set": "sm10", "local_ids": ["165"], "banned_from": "2022-06-08", "source_text": "Chip-Chip Ice Axe — SM: Unbroken Bonds 165/214" },
+    { "scope": "print", "name": "Hiker", "set": "sm7", "local_ids": ["133"], "banned_from": "2022-06-08", "source_text": "Hiker — SM: Celestial Storm 133/168" },
+    { "scope": "print", "name": "Hiker", "set": "sm115", "local_ids": ["SV85"], "banned_from": "2022-06-08", "source_text": "Hiker — Hidden Fates SV85/SV94" },
+    { "scope": "print", "name": "Kyogre", "set": "swsh4.5", "local_ids": ["021"], "banned_from": "2022-11-11", "source_text": "Kyogre — Shining Fates 021/072" },
+    { "scope": "print", "name": "Pokémon Research Lab", "set": "sm11", "local_ids": ["205"], "banned_from": "2023-11-01", "source_text": "Pokémon Research Lab — SM: Unified Minds, 205/236" },
+    { "scope": "print", "name": "Raikou", "set": "swsh4", "local_ids": ["050"], "banned_from": "2024-09-01", "source_text": "Raikou — SWSH: Vivid Voltage 050/185" },
+    { "scope": "print", "name": "Marshadow", "set": "sm3.5", "local_ids": ["45"], "banned_from": "2024-09-01", "source_text": "Marshadow — Shining Legends 45/73" },
+    { "scope": "print", "name": "Marshadow", "set": "smp", "local_ids": ["SM85"], "banned_from": "2024-09-01", "source_text": "Marshadow — Promo SM85" },
+    { "scope": "print", "name": "Duskull", "set": "sm12", "local_ids": ["83"], "banned_from": "2024-09-01", "source_text": "Duskull — SM-Cosmic Eclipse 83/236" },
+    { "scope": "name", "name": "Double Colorless Energy", "banned_from": "2025-04-24", "source_text": "Double Colorless Energy — Shining Legends 69/73 and all other versions" },
+    { "scope": "print", "name": "Twin Energy", "set": "swsh2", "local_ids": ["174", "209"], "banned_from": "2025-04-24", "source_text": "Twin Energy — SWSH: Rebel Clash 174/192 and 209/192" },
+    { "scope": "print", "name": "Dimension Valley", "set": "xy4", "local_ids": ["93"], "banned_from": "2026-04-20", "source_text": "Dimension Valley — XY: Phantom Forces 93/119" }
+  ]
+}
