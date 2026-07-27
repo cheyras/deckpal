@@ -1,0 +1,30 @@
+{
+  "_comment": "GLC-specific rule data beyond the format knobs. DECK-FORMATS §2.3. Rule-box classes drive both GLC's forbid_rule_box and the Std/Exp Radiant/Prism limits.",
+  "as_of": "2026-07-27",
+  "source_url": "https://gymleaderchallenge.com/faq",
+  "rule_box_suffixes": ["ex", "EX", "V", "GX", "TAG TEAM-GX"],
+  "_rule_box_suffix_note": "TCGdex 'suffix' covers these. VMAX/VSTAR/V-UNION/BREAK do NOT appear in suffix (DECK-FORMATS §7 item 9, confirmed against this DB: VMAX/BREAK have empty suffix, VSTAR carries 'V'); they are detected from the NAME instead (see rule_box_name_suffixes). Radiant and Prism Star are also name-detected. ACE SPEC comes from ace-spec.json.",
+  "rule_box_name_suffixes": [" VMAX", " VSTAR", " V-UNION", " V", " BREAK"],
+  "exclusive_groups": [
+    {
+      "label": "Boss's Orders / Lysandre",
+      "max_total": 1,
+      "members": ["Boss's Orders", "Lysandre"]
+    },
+    {
+      "label": "Professor's Research / Professor Sycamore / Professor Juniper",
+      "max_total": 1,
+      "members": ["Professor's Research", "Professor Sycamore", "Professor Juniper"]
+    }
+  ],
+  "_exclusive_groups_note": "DECK-FORMATS §2.3.4 item 2. The FAQ explicitly closes the set ('these are the only cards affected'), so this will not grow silently. Note Professor's Research prints are disambiguated by TCGdex as 'Professor's Research (Professor Oak)' etc.; match on the parenthetical-stripped name.",
+  "not_tournament_legal": [
+    "Zacian Lv. X",
+    "Dragapult Prime",
+    "Imakuni?'s Doduo"
+  ],
+  "_not_tournament_legal_note": "DECK-FORMATS §2.3.4 item 4 — illustrative, not exhaustive; no field marks these so it is hand-listed. Pre-BW anyway, so also excluded by the pool rule.",
+  "set_carveouts": [
+    { "set": "cel25cc", "mode": "deny_except", "except_names": ["Reshiram", "Zekrom"], "note": "Celebrations Classic Collection: only Reshiram & Zekrom are GLC-legal (§2.3.4 item 5)." }
+  ]
+}
