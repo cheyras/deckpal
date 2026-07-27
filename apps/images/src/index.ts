@@ -10,7 +10,13 @@ import {
   SPRITE_ROOT,
   type Quality,
 } from './config.js';
-import { cardAbsolutePath, cardCacheKey, type CardRef } from './layout.js';
+import {
+  cardAbsolutePath,
+  cardCacheKey,
+  setImageAbsolutePath,
+  type CardRef,
+  type SetImageKind,
+} from './layout.js';
 import { cacheStats, closePool, touchLastAccess } from './assets.js';
 import { PLACEHOLDER_CONTENT_TYPE, PLACEHOLDER_WEBP } from './placeholder.js';
 
@@ -61,6 +67,12 @@ export function createApp(): express.Express {
   app.get('/pokedex/images/sprites/:kind/:a', spriteHandler);
   app.get('/pokedex/images/sprites/:kind/:shiny/:a', spriteHandler);
 
+  // Set logos + symbols (catalog imagery warmed from card_set base URLs). 4-segment
+  // path after /pokedex/images, so it never collides with the 5-segment card route.
+  //   GET /pokedex/images/sets/sv03.5/logo.webp   → {CACHE_ROOT}/sets/sv03.5/logo.webp
+  //   GET /pokedex/images/sets/base1/symbol.webp  → 404 (no upstream symbol) → client fallback
+  app.get('/pokedex/images/sets/:setId/:file', setHandler);
+
   // Mirrored-upstream card route: the local path is a pure function of the
   // upstream image URL (DATA-LAYER §5.3), so no DB lookup is needed to locate a file.
   //   GET /pokedex/images/en/sv/sv03.5/006/high.webp
@@ -89,6 +101,38 @@ function spriteHandler(req: Request, res: Response): void {
   const subdir = kind === 'art' ? 'other/official-artwork' : '';
   const shinyDir = shinySeg ? 'shiny' : '';
   const abs = join(SPRITE_ROOT, subdir, shinyDir, `${id}.png`);
+  if (!existsSync(abs)) {
+    res.status(404).end();
+    return;
+  }
+  res.setHeader('Cache-Control', IMMUTABLE_CACHE_CONTROL);
+  res.setHeader('X-Cache', 'HIT');
+  res.sendFile(abs, { headers: { 'Cache-Control': IMMUTABLE_CACHE_CONTROL } }, (err) => {
+    if (err && !res.headersSent) res.status(404).end();
+  });
+}
+
+// Serve a cached set logo/symbol, or 404 on miss (the SPA renders its own neutral
+// placeholder — no broken image, no layout shift). No upstream fetch (same rule as
+// cards/sprites). setId is validated to bar path traversal; only logo|symbol allowed.
+function setHandler(req: Request, res: Response): void {
+  const p = (v: string | string[] | undefined): string => (typeof v === 'string' ? v : '');
+  const setId = p(req.params.setId);
+  const file = p(req.params.file);
+
+  // TCGdex set ids are [A-Za-z0-9.-] (e.g. base1, sv03.5, A1a, P-A, tk-bw-e). Reject
+  // anything else and, defensively, any '..' so setId can never escape the sets root.
+  if (!/^[A-Za-z0-9][A-Za-z0-9.-]*$/.test(setId) || setId.includes('..')) {
+    res.status(404).end();
+    return;
+  }
+  const m = /^(logo|symbol)\.webp$/.exec(file);
+  if (!m) {
+    res.status(404).end();
+    return;
+  }
+  const kind = m[1] as SetImageKind;
+  const abs = setImageAbsolutePath(setId, kind);
   if (!existsSync(abs)) {
     res.status(404).end();
     return;

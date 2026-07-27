@@ -13,21 +13,35 @@ interface SeriesRow {
   sort_order: number;
   set_count: string;
   card_count: string;
+  rep_set_id: string | null;
+  rep_has_symbol: boolean | null;
 }
 
 /** GET /pokedex/api/series — the series list (English catalogue). */
 seriesRouter.get(
   '/',
   asyncHandler(async (_req, res) => {
+    // rep: a representative set per series — the most recent set that HAS a logo —
+    // so the series index isn't bare text. Its logo/symbol are served locally by
+    // pokedex-images via the set id (falls back to a glyph when absent).
     const rows = await q<SeriesRow>(
       `SELECT s.id, s.tcgdex_id, s.slug, s.name, s.first_release_on, s.sort_order,
               count(DISTINCT cs.id) AS set_count,
-              count(c.id)          AS card_count
+              count(c.id)          AS card_count,
+              rep.tcgdex_id        AS rep_set_id,
+              rep.symbol_url IS NOT NULL AS rep_has_symbol
          FROM series s
          JOIN catalogue cat ON cat.code = s.catalogue_code AND cat.is_enabled
     LEFT JOIN card_set cs ON cs.series_id = s.id
     LEFT JOIN card c ON c.set_id = cs.id
-        GROUP BY s.id
+    LEFT JOIN LATERAL (
+                SELECT cs2.tcgdex_id, cs2.symbol_url
+                  FROM card_set cs2
+                 WHERE cs2.series_id = s.id AND cs2.logo_url IS NOT NULL
+                 ORDER BY cs2.released_on DESC NULLS LAST, cs2.name
+                 LIMIT 1
+              ) rep ON true
+        GROUP BY s.id, rep.tcgdex_id, rep.symbol_url
         ORDER BY s.sort_order, s.first_release_on NULLS LAST, s.name`,
     );
     catalogCache(res);
@@ -40,6 +54,8 @@ seriesRouter.get(
         sortOrder: r.sort_order,
         setCount: Number(r.set_count),
         cardCount: Number(r.card_count),
+        repSetId: r.rep_set_id,
+        repHasSymbol: Boolean(r.rep_has_symbol),
       })),
     });
   }),

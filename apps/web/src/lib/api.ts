@@ -66,6 +66,8 @@ export interface SeriesSummary {
   sortOrder: number
   setCount: number
   cardCount: number
+  repSetId: string | null
+  repHasSymbol: boolean
 }
 export interface SeriesIndexResponse {
   series: SeriesSummary[]
@@ -178,7 +180,7 @@ export interface CardDetailResponse {
     retreat: number | null
     regulationMark: string | null
     releasedOn: string | null
-    set: { setId: string; name: string; slug: string }
+    set: { setId: string; name: string; slug: string; logoUrl: string | null; symbolUrl: string | null }
     series: { slug: string; name: string; tcgdexId: string }
     images: { low: string; high: string }
     types: string[]

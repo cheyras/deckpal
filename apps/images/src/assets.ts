@@ -149,3 +149,21 @@ export async function evictionCandidates(): Promise<ImageAssetRow[]> {
 export async function deleteAsset(cacheKey: string): Promise<void> {
   await getPool().query(`DELETE FROM image_asset WHERE cache_key = $1`, [cacheKey]);
 }
+
+// Set imagery work-list for the set warmer: every set with a logo and/or symbol
+// base URL. NULLs are genuinely absent upstream (DATA-LAYER §3.4) and are skipped —
+// we never fabricate. Ordered for stable, resumable runs.
+export interface SetImageRow {
+  set_id: string;
+  logo_url: string | null;
+  symbol_url: string | null;
+}
+export async function listSetImageSources(): Promise<SetImageRow[]> {
+  const { rows } = await getPool().query<SetImageRow>(
+    `SELECT tcgdex_id AS set_id, logo_url, symbol_url
+       FROM card_set
+      WHERE logo_url IS NOT NULL OR symbol_url IS NOT NULL
+      ORDER BY tcgdex_id`,
+  );
+  return rows;
+}
