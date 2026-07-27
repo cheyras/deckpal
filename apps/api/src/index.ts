@@ -16,6 +16,7 @@ import { listsRouter } from './routes/lists.js';
 import { decksRouter } from './routes/decks.js';
 import { insightsRouter } from './routes/insights.js';
 import { exportRouter } from './export/router.js';
+import { scanRouter } from './scan/router.js';
 
 /**
  * pokedex-api — the read API over the populated catalog (ARCHITECTURE §4).
@@ -73,6 +74,7 @@ export function createApp(): express.Express {
         'POST /decks/:id/cards', 'PATCH /decks/:id/cards/:cardId', 'DELETE /decks/:id/cards/:cardId',
         '/decks/:id/validate', 'POST /decks/import', '/decks/:id/export', '/decks/:id/testhand', '/decks/:id/pricing',
         '/decks/:id/pdf', '/lists/:id/pdf', '/sets/:setId/checklist.pdf',
+        'POST /scan',
       ],
     });
   });
@@ -91,6 +93,7 @@ export function createApp(): express.Express {
   api.use('/lists', listsRouter);
   api.use('/decks', decksRouter);
   api.use('/insights', insightsRouter);
+  api.use('/scan', scanRouter);
 
   app.use('/pokedex/api', api);
 
