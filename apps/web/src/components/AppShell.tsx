@@ -45,7 +45,8 @@ const NAV: NavItem[] = [
   { label: 'Deck Builder', icon: 'deck', to: '/decks' },
   { label: 'Pokédex', icon: 'pokedex', to: '/pokedex' },
   { label: 'Insights', icon: 'chart', to: '/insights' },
-  { label: 'Stream Tools', icon: 'stream' },
+  { label: 'Scan Card', icon: 'camera', to: '/scan' },
+  { label: 'Stream Tools', icon: 'stream', to: '/overlay' },
   { label: 'Discord', icon: 'discord', external: true },
   { label: 'Merch', icon: 'merch', external: true },
   { label: 'Pro Membership', icon: 'pro' },
@@ -184,6 +185,16 @@ function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: bo
           <Icon name="search" size={20} />
         </button>
 
+        {/* scan shortcut — camera CTA into the card scanner */}
+        <Link
+          to="/scan"
+          aria-label="Scan a card"
+          className="flex h-[39px] w-[39px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover hover:text-icon-hover nav:h-[42px] nav:w-auto nav:gap-[8px] nav:px-[16px]"
+        >
+          <Icon name="camera" size={20} />
+          <span className="hidden text-[14px] font-semibold text-text-primary nav:inline">Scan</span>
+        </Link>
+
         {/* profile chip — desktop only (single-user signed-in state) */}
         <div className="hidden items-center gap-[12px] nav:flex">
           <ProfileChip />
@@ -197,6 +208,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const sidebarW = collapsed ? 82 : 275
+
+  // The OBS overlay is a standalone browser source: no header, no sidebar, no
+  // page surface — it must render chrome-free and transparent.
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  if (pathname === '/pokedex/overlay' || pathname === '/overlay') {
+    return <>{children}</>
+  }
 
   return (
     <div className="min-h-screen bg-surface-primary">

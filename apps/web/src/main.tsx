@@ -27,6 +27,8 @@ import { Insights } from './routes/Insights'
 import { PokedexIndex } from './routes/PokedexIndex'
 import { SpeciesDetail } from './routes/SpeciesDetail'
 import { Profile } from './routes/Profile'
+import { Scan } from './routes/Scan'
+import { Overlay } from './routes/Overlay'
 import { validateCardSearch } from './routes/setSearch'
 import { validateListSearch } from './routes/listSearch'
 import { validateDeckSearch } from './routes/deckSearch'
@@ -145,6 +147,19 @@ const profileAliasRoute = createRoute({
   component: Profile,
 })
 
+const scanRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/scan',
+  component: Scan,
+})
+
+// Standalone OBS browser-source overlay — AppShell renders it chrome-free.
+const overlayRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/overlay',
+  component: Overlay,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   seriesIndexRoute,
@@ -160,6 +175,8 @@ const routeTree = rootRoute.addChildren([
   speciesDetailRoute,
   profileRoute,
   profileAliasRoute,
+  scanRoute,
+  overlayRoute,
 ])
 
 const router = createRouter({
