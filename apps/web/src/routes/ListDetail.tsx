@@ -257,6 +257,9 @@ export function ListDetail() {
                 <button onClick={() => setShowAdd(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover">
                   <Icon name="plus" size={16} /> Add Cards
                 </button>
+                <a href={api.listPdfUrl(id)} target="_blank" rel="noreferrer" className="flex h-[42px] items-center gap-[8px] rounded-full bg-surface-tertiary px-[16px] text-[13px] font-bold text-text-primary hover:bg-action-default-hover">
+                  <Icon name="printer" size={16} /> Print checklist
+                </a>
                 <button onClick={() => setShowEdit(true)} aria-label="Edit list" className="flex h-[42px] w-[42px] items-center justify-center rounded-full bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
                   <Icon name="sliders" size={18} />
                 </button>
