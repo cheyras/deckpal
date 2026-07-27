@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { api } from '../lib/api'
-import { Content, Spinner, ErrorState } from '../components/ui'
+import { Content, Spinner, ErrorState, setAssetUrl } from '../components/ui'
 import { fmtDate } from '../lib/format'
 
 export function SeriesIndex() {
@@ -28,9 +28,22 @@ export function SeriesIndex() {
               to="/series/$series"
               params={{ series: s.slug }}
               className="flex flex-col justify-between rounded-lg border border-border-default bg-surface-tertiary p-[20px] hover:border-surface-quaternary"
-              style={{ minHeight: 150 }}
+              style={{ minHeight: 178 }}
             >
               <div>
+                {/* representative set logo — the most recent set in the series with
+                    art; keeps the index from being bare text. Falls back to nothing
+                    (the name below always shows) if absent or the fetch fails. */}
+                <div className="mb-[12px] flex h-[48px] items-center">
+                  {s.repSetId && (
+                    <img
+                      src={setAssetUrl(s.repSetId, 'logo')}
+                      alt=""
+                      className="max-h-[48px] max-w-[180px] object-contain"
+                      onError={(e) => (e.currentTarget.style.display = 'none')}
+                    />
+                  )}
+                </div>
                 <div className="text-[18px] font-semibold leading-[27px] text-text-primary">{s.name}</div>
                 <div className="mt-[2px] text-[12px] text-text-muted">
                   First released {fmtDate(s.firstReleaseOn)}

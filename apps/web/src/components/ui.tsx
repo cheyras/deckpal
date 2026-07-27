@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Icon } from './Icon'
 
 // Content column: 85% of main with a per-page max-width cap, centred
@@ -23,6 +23,13 @@ export function assetUrl(url: string | null | undefined, ext = 'png'): string | 
   return /\.(png|webp|jpg|jpeg|svg)$/i.test(url) ? url : `${url}.${ext}`
 }
 
+// Local set logo/symbol served by pokedex-images from the WebP cache. The path is
+// a pure function of the set's tcgdex_id; the service 404s when a set lacks that
+// asset, so callers gate on known presence AND handle onError for a clean fallback.
+export function setAssetUrl(setId: string, kind: 'logo' | 'symbol'): string {
+  return `/pokedex/images/sets/${encodeURIComponent(setId)}/${kind}.webp`
+}
+
 export function BackPill({ to, params, label }: { to: string; params?: Record<string, string>; label: string }) {
   return (
     <Link
@@ -36,16 +43,32 @@ export function BackPill({ to, params, label }: { to: string; params?: Record<st
   )
 }
 
-// White rounded set-symbol tile (UI-SPEC §3.7). symbolUrl is usually null in
-// our data → render a placeholder glyph on the white surface.
-export function SetSymbolTile({ url, size = 40 }: { url?: string | null; size?: number }) {
+// White rounded set-symbol tile (UI-SPEC §3.7). The symbol is served locally from
+// the WebP cache by set id; when a set has no symbol (49 of 218) or the fetch fails,
+// a placeholder ◆ glyph fills the same white tile — no broken image, no layout shift.
+export function SetSymbolTile({
+  setId,
+  hasSymbol,
+  size = 40,
+}: {
+  setId?: string | null
+  hasSymbol?: boolean | null
+  size?: number
+}) {
+  const [failed, setFailed] = useState(false)
+  const showImg = Boolean(setId && hasSymbol && !failed)
   return (
     <div
       className="flex shrink-0 items-center justify-center rounded-lg bg-surface-on-light"
       style={{ width: size, height: size }}
     >
-      {url ? (
-        <img src={url} alt="" className="h-[70%] w-[70%] object-contain" />
+      {showImg ? (
+        <img
+          src={setAssetUrl(setId!, 'symbol')}
+          alt=""
+          className="h-[70%] w-[70%] object-contain"
+          onError={() => setFailed(true)}
+        />
       ) : (
         <span
           className="font-black text-surface-on-light-text"

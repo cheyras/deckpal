@@ -32,6 +32,8 @@ interface CardRow {
   set_tcgdex_id: string;
   set_name: string;
   set_slug: string;
+  set_symbol_url: string | null;
+  set_logo_url: string | null;
   card_count_official: number | null;
   series_slug: string;
   series_name: string;
@@ -75,6 +77,7 @@ cardsRouter.get(
               c.legal_standard, c.legal_expanded, c.is_ace_spec, c.is_radiant,
               c.is_prism_star, c.has_rule_box, c.released_on,
               cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name, cs.slug AS set_slug,
+              cs.symbol_url AS set_symbol_url, cs.logo_url AS set_logo_url,
               cs.card_count_official,
               ser.slug AS series_slug, ser.name AS series_name, ser.tcgdex_id AS series_tcgdex_id
          FROM card c
@@ -159,7 +162,13 @@ cardsRouter.get(
         releasedOn: card.released_on,
         legal: { standard: card.legal_standard, expanded: card.legal_expanded },
         flags: { aceSpec: card.is_ace_spec, radiant: card.is_radiant, prismStar: card.is_prism_star, ruleBox: card.has_rule_box },
-        set: { setId: card.set_tcgdex_id, name: card.set_name, slug: card.set_slug },
+        set: {
+          setId: card.set_tcgdex_id,
+          name: card.set_name,
+          slug: card.set_slug,
+          logoUrl: card.set_logo_url,
+          symbolUrl: card.set_symbol_url,
+        },
         series: { slug: card.series_slug, name: card.series_name, tcgdexId: card.series_tcgdex_id },
         images: cardImages(card.series_tcgdex_id, card.set_tcgdex_id, card.local_id),
         types: types.map((t) => t.type),

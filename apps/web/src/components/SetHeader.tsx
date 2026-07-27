@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 import type { SetDetailResponse } from '../lib/api'
 import type { Goal } from '../routes/setSearch'
 import { fmtDate, fmtUsd } from '../lib/format'
-import { SetSymbolTile, assetUrl } from './ui'
+import { SetSymbolTile, setAssetUrl } from './ui'
 import { ProgressCluster } from './ProgressCluster'
 import { Icon } from './Icon'
 
@@ -37,7 +37,7 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
           <div className="flex h-[103px] min-w-[135px] items-center">
             {set.images.logoUrl ? (
               <img
-                src={assetUrl(set.images.logoUrl)}
+                src={setAssetUrl(set.setId, 'logo')}
                 alt={set.name}
                 className="max-h-[103px] max-w-[220px] object-contain"
                 onError={(e) => {
@@ -58,7 +58,7 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
             </button>
           </div>
 
-          <SetSymbolTile url={set.images.symbolUrl} size={40} />
+          <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.images.symbolUrl)} size={40} />
 
           <div className="ml-auto min-w-[300px] flex-1">
             <ProgressCluster progress={progress} goal={goal} />
