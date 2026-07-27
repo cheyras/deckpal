@@ -1,0 +1,39 @@
+{
+  "as_of": "2026-07-27",
+  "note": "Vendored legality data. Per DECK-FORMATS.md §2.6: vendored JSON is the authority; scrapers only ever propose a diff for human review. A confidently-wrong ban list silently breaks decks, so every list below carries its source and an 'as of' date. Refresh with the sync jobs described in DECK-FORMATS §2.6 (J1-J7).",
+  "sources": {
+    "formats.json": {
+      "derived_from": "DECK-FORMATS.md §2.1.2 / §3.8 + live pokedex DB (format, format_regulation_mark tables, seeded).",
+      "authority": "The DB `format` + `format_regulation_mark` tables are also authoritative and agree with this file. This file is the offline mirror the validator uses so it needs no DB round-trip for format knobs.",
+      "current_standard_marks": "H, I, J (DECK-FORMATS §2.1.2, sources S1+S3). G rotated out 2026-04-10.",
+      "todo": "Next rotation ~2027-04-09 (H drops, K enters). Re-verify after reading the January 2027 rotation announcement. Treat legality computed after 2027-04-01 as stale until then."
+    },
+    "banlist-standard.json": {
+      "source_url": "https://www.pokemon.com/us/play-pokemon/about/pokemon-tcg-banned-card-list",
+      "fetched": "DECK-FORMATS.md §2.1.4 (as of 2026-07-24). Empty today: 'No cards are currently banned in the Standard format.'"
+    },
+    "banlist-expanded.json": {
+      "source_url": "https://www.pokemon.com/us/play-pokemon/about/pokemon-tcg-banned-card-list",
+      "fetched": "DECK-FORMATS.md §2.2 (as of 2026-07-24). 27 print-scoped entries transcribed verbatim from the spec.",
+      "confidence": "HIGH for the entries that name a specific set+number. Set-id mapping (name -> tcgdex set) done by hand; a couple of pre-SM set ids should be spot-checked against the DB before production use."
+    },
+    "banlist-glc.json": {
+      "source_url": "https://gymleaderchallenge.com/ban-list",
+      "fetched": "DECK-FORMATS.md §2.3.5 (as of 2026-07-24). 13 entries. 'Double Colorless Energy' is the one NAME-scoped ban ('and all other versions')."
+    },
+    "glc-rules.json": {
+      "source_url": "https://gymleaderchallenge.com/rules + /faq + /overview",
+      "fetched": "DECK-FORMATS.md §2.3 (as of 2026-07-24)."
+    },
+    "ace-spec.json": {
+      "sv_era": "DERIVED from the live pokedex DB: SELECT DISTINCT name FROM card WHERE rarity='ACE SPEC Rare' (29 names, verified 2026-07-27). TCGdex has no ACE SPEC field (DECK-FORMATS §3.5) so this rarity scan is the seed the spec recommends.",
+      "bw_xy_era": "VENDORED from public documentation (Bulbapedia 'ACE SPEC card' category). BW/XY ACE SPEC Trainers carry no 'ACE SPEC Rare' rarity and no 'ACE SPEC' effect text in TCGdex, so they cannot be derived from the DB. FLAGGED: this sub-list is the least certain data in the module (DECK-FORMATS §7 item 7 rates it 'High impact'). Verify before trusting Expanded legality of a BW/XY ACE SPEC.",
+      "todo": "Extend once per set. Re-run the rarity scan after each SV/ME set sync."
+    },
+    "ptcgl-set-alias.json": {
+      "derived_from": "Hand-authored from the live DB set list joined to PTCGL codes (DECK-FORMATS §1.7). Seeded by tcgOnline where present, corrected for the collisions tcgOnline creates (CRZ tcgOnline points at the Galarian Gallery, not main Crown Zenith) and extended across the SM/SWSH/SV/ME eras which tcgOnline does not cover at all.",
+      "coverage": "Covers the codes in the three fixture decklists plus the common modern pool. Unmapped pseudo-sets (SWSHALT/SVALT/SMALT, SVOM, MBD, ...) resolve via the name-only fallback ladder (§1.7.2 step 5).",
+      "tcgplayer_abbrev": "Mostly null. Mass Entry uses a THIRD namespace (TCGplayer abbrevs from TCGCSV group data, §1.9) which is not vendored here; populate from the price feed when the buy-links feature lands."
+    }
+  }
+}

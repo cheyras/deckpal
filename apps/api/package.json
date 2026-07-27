@@ -7,7 +7,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test:deck": "node --import tsx --test src/deck/__tests__/*.test.ts",
+    "prove:deck": "node --import tsx src/deck/prove.ts"
   },
   "dependencies": {
     "@pokedex/db": "workspace:*",
