@@ -17,7 +17,7 @@ const NAV: NavItem[] = [
   { label: 'Japanese TCG', icon: 'cards', expandable: true },
   { label: 'TCG Pocket', icon: 'cards', expandable: true },
   { label: 'My Lists', icon: 'lists', to: '/lists' },
-  { label: 'Deck Builder', icon: 'deck' },
+  { label: 'Deck Builder', icon: 'deck', to: '/decks' },
   { label: 'Pokédex', icon: 'pokedex' },
   { label: 'Stream Tools', icon: 'stream' },
   { label: 'Discord', icon: 'discord', external: true },

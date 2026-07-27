@@ -26,6 +26,13 @@ export type IconName =
   | 'link'
   | 'minus'
   | 'plus'
+  | 'check'
+  | 'check-circle'
+  | 'alert'
+  | 'copy'
+  | 'shuffle'
+  | 'download'
+  | 'cart'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   cards: (
@@ -140,6 +147,41 @@ const PATHS: Record<IconName, React.ReactNode> = {
   ),
   minus: <path d="M5 12h14" />,
   plus: <path d="M12 5v14M5 12h14" />,
+  check: <path d="M5 12.5l4.5 4.5L19 6.5" />,
+  'check-circle': (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8 12.2l2.6 2.6L16 9" />
+    </>
+  ),
+  alert: (
+    <>
+      <path d="M12 3.2L1.8 20.5h20.4L12 3.2z" />
+      <path d="M12 9.5v5M12 17.6v.1" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M6 15H5a2 2 0 01-2-2V5a2 2 0 012-2h8a2 2 0 012 2v1" />
+    </>
+  ),
+  shuffle: (
+    <>
+      <path d="M16 4h4v4" />
+      <path d="M4 20l16-16" />
+      <path d="M16 20h4v-4" />
+      <path d="M4 4l5 5M15 15l5 5" />
+    </>
+  ),
+  download: <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16" />,
+  cart: (
+    <>
+      <circle cx="9" cy="20" r="1.4" />
+      <circle cx="18" cy="20" r="1.4" />
+      <path d="M2 3h3l2.2 12.2a1.5 1.5 0 001.5 1.3h8.6a1.5 1.5 0 001.5-1.2L21 7H6" />
+    </>
+  ),
 }
 
 export function Icon({

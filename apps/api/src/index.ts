@@ -13,6 +13,7 @@ import { searchRouter } from './routes/search.js';
 import { dexRouter } from './routes/dex.js';
 import { collectionRouter } from './routes/collection.js';
 import { listsRouter } from './routes/lists.js';
+import { decksRouter } from './routes/decks.js';
 
 /**
  * pokedex-api — the read API over the populated catalog (ARCHITECTURE §4).
@@ -66,6 +67,9 @@ export function createApp(): express.Express {
         '/health', '/series', '/series/:seriesSlug', '/sets/:setId', '/cards/:cardId', '/search', '/dex', '/dex/:speciesId',
         'PATCH /collection/variants/:variantId', 'POST /collection/variants/:variantId/increment', 'POST /collection/cards/:cardId/have',
         '/lists', '/lists/:id', 'POST /lists', 'PATCH /lists/:id', 'DELETE /lists/:id', 'POST /lists/:id/items', 'DELETE /lists/:id/items/:itemId',
+        '/decks', 'POST /decks', '/decks/:id', 'PATCH /decks/:id', 'DELETE /decks/:id',
+        'POST /decks/:id/cards', 'PATCH /decks/:id/cards/:cardId', 'DELETE /decks/:id/cards/:cardId',
+        '/decks/:id/validate', 'POST /decks/import', '/decks/:id/export', '/decks/:id/testhand', '/decks/:id/pricing',
       ],
     });
   });
@@ -77,6 +81,7 @@ export function createApp(): express.Express {
   api.use('/dex', dexRouter);
   api.use('/collection', collectionRouter);
   api.use('/lists', listsRouter);
+  api.use('/decks', decksRouter);
 
   app.use('/pokedex/api', api);
 
