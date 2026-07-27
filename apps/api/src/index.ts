@@ -14,6 +14,7 @@ import { dexRouter } from './routes/dex.js';
 import { collectionRouter } from './routes/collection.js';
 import { listsRouter } from './routes/lists.js';
 import { decksRouter } from './routes/decks.js';
+import { insightsRouter } from './routes/insights.js';
 
 /**
  * pokedex-api — the read API over the populated catalog (ARCHITECTURE §4).
@@ -82,6 +83,7 @@ export function createApp(): express.Express {
   api.use('/collection', collectionRouter);
   api.use('/lists', listsRouter);
   api.use('/decks', decksRouter);
+  api.use('/insights', insightsRouter);
 
   app.use('/pokedex/api', api);
 
