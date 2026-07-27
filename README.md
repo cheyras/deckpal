@@ -193,6 +193,28 @@ via `ON CONFLICT DO UPDATE`. Prices, images, dex data and the cross-fill are **l
 
 ---
 
+## Backup, restore & export (BRIEF §5)
+
+Data ownership is enforced by three scripts under `scripts/` — full details and the
+restore drill are in **`deploy/BACKUP.md`**.
+
+```bash
+scripts/backup.sh            # pg_dump the pokedex DB (only) + tar the image cache
+                             #   → ~/pokedex-backups/<ts>/  (outside the repo)
+scripts/restore.sh <dir>     # role+DB bootstrap, pg_restore, image untar (--force to clobber)
+node scripts/export.mjs      # collection/lists/decks → CSV + full JSON + per-deck PTCG Live text
+                             #   → ~/pokedex-exports/<ts>/
+```
+
+- Dumps **one database** (`pokedex`), never the cluster or the brain DBs.
+- ~1.9 GB per backup (DB dump ~5 MB + image cache ~1.9 GB); sprites are re-fetchable
+  and intentionally excluded.
+- **Schedule:** a nightly `crontab` entry calling `scripts/backup.sh` (matches the box's
+  existing `fuel` cron); a systemd timer is an equally-fine alternative. See `deploy/BACKUP.md §2`.
+- Restore is proven by a scratch-DB drill that never touches prod (`deploy/BACKUP.md §3`).
+
+---
+
 ## Later tasks (not this one)
 
 Catalog import (TCGdex extract) → image warm → price sync (TCGCSV + Cardmarket) →
