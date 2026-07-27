@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import express, { type Request, type Response } from 'express';
 import {
   CACHE_ROOT,
@@ -6,6 +7,7 @@ import {
   IMMUTABLE_CACHE_CONTROL,
   LANG,
   QUALITIES,
+  SPRITE_ROOT,
   type Quality,
 } from './config.js';
 import { cardAbsolutePath, cardCacheKey, type CardRef } from './layout.js';
@@ -50,12 +52,52 @@ export function createApp(): express.Express {
     });
   });
 
+  // Pokédex species sprites (registered BEFORE the 5-segment card route; these are
+  // 3–4 segments so they never collide). id is validated numeric to bar traversal.
+  //   GET /pokedex/images/sprites/pixel/6.png        → {SPRITE_ROOT}/6.png
+  //   GET /pokedex/images/sprites/pixel/shiny/6.png  → {SPRITE_ROOT}/shiny/6.png
+  //   GET /pokedex/images/sprites/art/6.png          → {SPRITE_ROOT}/other/official-artwork/6.png
+  //   GET /pokedex/images/sprites/art/shiny/6.png    → {SPRITE_ROOT}/other/official-artwork/shiny/6.png
+  app.get('/pokedex/images/sprites/:kind/:a', spriteHandler);
+  app.get('/pokedex/images/sprites/:kind/:shiny/:a', spriteHandler);
+
   // Mirrored-upstream card route: the local path is a pure function of the
   // upstream image URL (DATA-LAYER §5.3), so no DB lookup is needed to locate a file.
   //   GET /pokedex/images/en/sv/sv03.5/006/high.webp
   app.get('/pokedex/images/:lang/:serie/:set/:localId/:file', cardHandler);
 
   return app;
+}
+
+// Resolve a sprite URL to its on-disk path and serve it, or 404 on miss so the
+// client renders its own placeholder tile. No upstream fetch (same rule as cards).
+function spriteHandler(req: Request, res: Response): void {
+  const p = (v: string | string[] | undefined): string => (typeof v === 'string' ? v : '');
+  const kind = p(req.params.kind); // 'pixel' | 'art'
+  const shinySeg = req.params.shiny !== undefined; // present only on the shiny route
+  if (shinySeg && p(req.params.shiny) !== 'shiny') {
+    res.status(404).end();
+    return;
+  }
+  const fileParam = p(req.params.a); // e.g. '6.png'
+  const m = /^(\d+)\.png$/.exec(fileParam);
+  if ((kind !== 'pixel' && kind !== 'art') || !m) {
+    res.status(404).end();
+    return;
+  }
+  const id = m[1]!;
+  const subdir = kind === 'art' ? 'other/official-artwork' : '';
+  const shinyDir = shinySeg ? 'shiny' : '';
+  const abs = join(SPRITE_ROOT, subdir, shinyDir, `${id}.png`);
+  if (!existsSync(abs)) {
+    res.status(404).end();
+    return;
+  }
+  res.setHeader('Cache-Control', IMMUTABLE_CACHE_CONTROL);
+  res.setHeader('X-Cache', 'HIT');
+  res.sendFile(abs, { headers: { 'Cache-Control': IMMUTABLE_CACHE_CONTROL } }, (err) => {
+    if (err && !res.headersSent) res.status(404).end();
+  });
 }
 
 function cardHandler(req: Request, res: Response): void {

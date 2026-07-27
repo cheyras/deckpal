@@ -16,6 +16,7 @@ export function CardTile({
   eager = false,
   onRemove,
   badge,
+  ownership,
 }: {
   card: CardRow
   seriesSlug: string
@@ -23,22 +24,33 @@ export function CardTile({
   eager?: boolean
   onRemove?: () => void
   badge?: string
+  // Optional owned-state rendering (species detail / signed-in grid, AUTH-CAPTURES
+  // §15.2): dim un-owned cards, and stamp a quantity chip on owned ones. Omitted on
+  // the set page, which is unaffected.
+  ownership?: boolean
 }) {
   const series = card.seriesSlug ?? seriesSlug
   const set = card.setId ?? setId
+  const owned = ownership ? card.ownership?.have : undefined
+  const qty = card.ownership?.totalQuantity ?? 0
   return (
     <Link
       to="/series/$series/$set/$number"
       params={{ series, set, number: card.number }}
       className="group block"
     >
-      <div className="relative">
+      <div className="relative" style={owned === false ? { opacity: 0.5, filter: 'grayscale(0.6)' } : undefined}>
         <CardImage
           low={card.images.low}
           high={card.images.high}
           alt={`${card.name} — ${fmtNumber(card.number)}`}
           eager={eager}
         />
+        {owned === true && qty > 0 && (
+          <span className="absolute bottom-[8px] right-[8px] rounded-md bg-action-primary px-[7px] py-[2px] text-[12px] font-extrabold leading-[16px] text-action-primary-text shadow-panel">
+            ×{qty}
+          </span>
+        )}
         {card.variantCount > 1 && (
           <span className="absolute bottom-[8px] left-[8px] rounded-md bg-surface-tertiary-transparent px-[8px] py-[3px] text-[12px] font-medium leading-[18px] text-text-muted backdrop-blur-sm">
             <span className="font-bold text-text-body">+{card.variantCount - 1}</span> Variants

@@ -30,11 +30,14 @@ export function GridView({
   seriesSlug,
   setId,
   onRemove,
+  ownership,
 }: {
   cards: CardRow[]
   seriesSlug: string
   setId: string
   onRemove?: (card: CardRow) => void
+  // When true, tiles render owned/dimmed state from card.ownership (species detail).
+  ownership?: boolean
 }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
@@ -97,6 +100,7 @@ export function GridView({
                   setId={setId}
                   eager={vRow.index === 0 && i < cols}
                   onRemove={onRemove ? () => onRemove(card) : undefined}
+                  ownership={ownership}
                 />
               ))}
             </div>
