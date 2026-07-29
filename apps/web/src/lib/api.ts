@@ -103,6 +103,8 @@ export interface SeriesSummary {
   cardCount: number
   repSetId: string | null
   repHasSymbol: boolean
+  // Per-series completion rollup: owned cards / total cards across the series.
+  progress: { owned: number; total: number; pct: number }
 }
 export interface SeriesIndexResponse {
   series: SeriesSummary[]

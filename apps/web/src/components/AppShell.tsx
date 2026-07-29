@@ -39,7 +39,7 @@ interface NavItem {
 // Order mirrors pkmn.gg's rail (UI-SPEC §3.1). Single-user English-TCG build:
 // "English TCG" expands to the live series list; every other entry is wired.
 const NAV: NavItem[] = [
-  { label: 'English TCG', icon: 'cards', to: '/series', expandable: true },
+  { label: 'Pokémon TCG (English)', icon: 'cards', to: '/series', expandable: true },
   { label: 'My Lists', icon: 'lists', to: '/lists' },
   { label: 'Deck Builder', icon: 'deck', to: '/decks' },
   { label: 'Pokédex', icon: 'pokedex', to: '/pokedex' },

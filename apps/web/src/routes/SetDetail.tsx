@@ -79,7 +79,9 @@ export function SetDetail() {
           <div className="mt-[24px] flex flex-col gap-[16px]">
             <div className="flex flex-wrap items-center gap-[16px]">
               <SearchBox value={search.q} onChange={(v) => patch({ q: v })} />
-              <div className="min-w-0 flex-1">
+              {/* Full-width own row on mobile so the sort chips scroll within the
+                  viewport instead of spilling off-page; shares the row on sm+. */}
+              <div className="w-full min-w-0 sm:w-auto sm:flex-1">
                 <SortChips search={search} patch={patch} />
               </div>
             </div>
