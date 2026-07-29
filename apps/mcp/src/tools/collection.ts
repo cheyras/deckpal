@@ -39,11 +39,11 @@ export function errText(err: unknown): string {
 
 const nfmt = (v: string | number): string => Number(v).toLocaleString('en-US');
 
-/** timestamptz/Date → compact UTC stamp 'YYYY-MM-DD HH:MM'. */
+/** timestamptz/Date → compact UTC stamp 'YYYY-MM-DD HH:MMZ' (Z so the zone is unambiguous). */
 function stamp(v: unknown): string {
   const d = v instanceof Date ? v : new Date(String(v));
   if (Number.isNaN(d.getTime())) return String(v);
-  return d.toISOString().slice(0, 16).replace('T', ' ');
+  return `${d.toISOString().slice(0, 16).replace('T', ' ')}Z`;
 }
 
 // ── collection_summary / collection://summary ────────────────────────────────

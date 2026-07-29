@@ -118,7 +118,8 @@ export async function loadBySetNumber(
 export async function loadByName(pool: pg.Pool, rawName: string): Promise<CardFacts[]> {
   const nn = normalizeName(rawName);
   const { rows } = await pool.query<CardRow>(
-    `${CARD_SELECT} WHERE c.name_normalized LIKE $1 AND c.lang='en'`,
+    `${CARD_SELECT} WHERE c.name_normalized LIKE $1 AND c.lang='en'
+     ORDER BY c.released_on DESC NULLS LAST, c.id`,
     [`${nn.replace(/[%_]/g, '')}%`],
   );
   const facts = await factsFromRows(pool, rows);
