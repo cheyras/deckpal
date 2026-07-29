@@ -6,14 +6,16 @@ const { Pool } = pg;
 /**
  * A pg Pool with a HARD connection cap.
  *
- * 🔴 Connection budget is 3 TOTAL across the whole app (API 2 + sync 1).
- * Postgres on this box runs at max_connections=20, 3 reserved, ~11 already used
- * by openbrain/brain2db. See DECISIONS.md 2026-07-24 (storage) and
- * research/DATA-LAYER.md §6.5. Never raise past 5 without re-checking headroom
- * AND a Postgres restart (which requires the user's permission).
+ * 🔴 Connection budget is 4 TOTAL across the whole app (API 2 + sync 1 + mcp 1;
+ * see DECISIONS.md 2026-07-29). Postgres on this box runs at max_connections=20,
+ * 3 reserved, ~11 already used by openbrain/brain2db. See DECISIONS.md
+ * 2026-07-24 (storage) and research/DATA-LAYER.md §6.5. Never raise past 5
+ * without re-checking headroom AND a Postgres restart (which requires the
+ * user's permission).
  *
- * `PGPOOL_MAX` is clamped to 3 here regardless of what the environment asks for,
- * so a misconfigured process cannot blow the cluster budget.
+ * `PGPOOL_MAX` is clamped to 3 PER PROCESS regardless of what the environment
+ * asks for, so a misconfigured process cannot blow the cluster budget (no
+ * single app is allotted more than 2).
  */
 const HARD_CAP = 3;
 

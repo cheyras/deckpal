@@ -1,9 +1,9 @@
 // pokedex — pm2 process definitions.
 //
-// ⚠ NOT ACTIVATED by Phase 2 task 1. This file exists for a later (hardening) task.
-// Do NOT `pm2 start` this yet, and do NOT merge it into
-// /home/cheyras/thegrid-api/ecosystem.config.cjs without the user's say-so — six services
-// the user depends on live in that file.
+// The pokedex apps run under pm2 (`pm2 list`). To add/update ONE app from this file
+// without touching the others: `pm2 start ecosystem.config.cjs --only <name>` then
+// `pm2 save`. Do NOT merge this into /home/cheyras/thegrid-api/ecosystem.config.cjs —
+// six services the user depends on live in that file.
 //
 // Ports 3700-3709 are localhost-only; nginx is the sole ingress (ARCHITECTURE §4).
 // Secrets (PGPASSWORD etc.) come from /home/cheyras/pokedex/.env, loaded by @pokedex/db's
@@ -37,6 +37,19 @@ module.exports = {
         IMAGE_CACHE_ROOT: '/home/cheyras/pokedex/cache',
         PGAPPNAME: 'pokedex-images',
       },
+      exec_mode: 'fork',
+      max_memory_restart: '300M',
+      autorestart: true,
+      watch: false,
+    },
+    {
+      name: 'pokedex-mcp',
+      script: 'dist/index.js',
+      cwd: '/home/cheyras/pokedex/apps/mcp',
+      interpreter: '/usr/bin/node',
+      // rotom-mcp: MCP face over the pokedex DB. 1 connection (budget is 4 total:
+      // API 2 + sync 1 + mcp 1). ROTOM_MCP_KEY comes from .env via loadEnv().
+      env: { NODE_ENV: 'production', POKEDEX_MCP_PORT: 3704, PGPOOL_MAX_MCP: 1, PGAPPNAME: 'pokedex-mcp' },
       exec_mode: 'fork',
       max_memory_restart: '300M',
       autorestart: true,

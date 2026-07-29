@@ -7,12 +7,13 @@ and completion goals. Built for Pokémon but the data model, image cache, and sc
 
 ## Architecture at a glance
 
-pnpm monorepo. Four apps + a shared db package:
+pnpm monorepo. Five apps + a shared db package:
 
 | App | Port | What |
 |---|---|---|
 | `apps/api` (`pokedex-api`) | 3700 | Read API under `/pokedex/api/*` **and serves the built SPA** (`apps/web/dist`) |
 | `apps/images` (`pokedex-images`) | 3701 | Serves the local WebP art cache; disk-only (never proxies upstream) |
+| `apps/mcp` (`pokedex-mcp`) | 3704 | **rotom-mcp** — MCP server for Claude: collection/catalog/price/deck tools + attributed collection writes (see `apps/mcp/SPEC.md`) |
 | `apps/sync` (`pokedex-sync`) | cron | Catalog import, dex import, price ingest |
 | `apps/web` | — | React 19 + Vite + Tailwind 4 SPA (built, then served by `pokedex-api`) |
 | `packages/db` | — | Pool + migrations (`@pokedex/db`) |
@@ -42,8 +43,8 @@ Data lives in host **Postgres**, database `pokedex`. Runs behind nginx at `http:
 
 ## Hard rules & gotchas (learned the hard way — see DECISIONS.md)
 
-- **Postgres connection budget is 3** (API 2, sync 1) — it shares the host cluster with other
-  apps. One-off scripts use **one** connection. Never raise the pool without re-checking headroom.
+- **Postgres connection budget is 4** (API 2, sync 1, mcp 1) — it shares the host cluster with
+  other apps. One-off scripts use **one** connection. Never raise the pool without re-checking headroom.
 - **NEVER run the TCGdex API server** (it loads all languages into RAM per worker and OOMs the
   Pi). Extract its *compiled* JSON instead (`docker create` + `docker cp`, never `docker run`).
 - **Image cache is a contract.** Art lives at
