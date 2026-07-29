@@ -128,9 +128,15 @@ const pokedexIndexRoute = createRoute({
   component: PokedexIndex,
 })
 
+// `?card=<cardId>` opens the card-detail bottom-sheet over the species page
+// (leaving it mounted so scroll/owned-filter survive), same pattern as the set
+// page. Only present while a card is open.
 const speciesDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/pokedex/$speciesId',
+  validateSearch: (raw: Record<string, unknown>): { card?: string } => ({
+    card: typeof raw.card === 'string' && raw.card ? raw.card : undefined,
+  }),
   component: SpeciesDetail,
 })
 
@@ -147,9 +153,14 @@ const profileAliasRoute = createRoute({
   component: Profile,
 })
 
+// `?card=<cardId>` opens the card-detail bottom-sheet over the scanner match list
+// without tearing down the camera/result state.
 const scanRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/scan',
+  validateSearch: (raw: Record<string, unknown>): { card?: string } => ({
+    card: typeof raw.card === 'string' && raw.card ? raw.card : undefined,
+  }),
   component: Scan,
 })
 

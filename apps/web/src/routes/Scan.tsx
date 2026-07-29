@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type ScanMatch, type ScanResponse } from '../lib/api'
 import { Content } from '../components/ui'
 import { CardImage } from '../components/CardImage'
+import { CardSheet } from './CardDetail'
 import { Icon } from '../components/Icon'
 import { fmtNumber } from '../lib/format'
 
@@ -18,15 +19,6 @@ import { fmtNumber } from '../lib/format'
 const FRAME_MS = 700 // how often we grab + send a frame while live
 const STABLE_FRAMES = 2 // identical confident matches in a row before we commit
 const CARD_ASPECT = 63 / 88 // TCG card width:height — the guide + capture aspect
-
-// The scan match carries a tcgdex cardId + set id but no series slug; the image
-// URL encodes it as /pokedex/images/<lang>/<series>/<set>/<number>/<q>.webp.
-function routeFromImage(low: string): { series: string; set: string; number: string } | null {
-  const parts = low.split('/').filter(Boolean) // [pokedex, images, en, series, set, number, low.webp]
-  const i = parts.indexOf('images')
-  if (i < 0 || parts.length < i + 5) return null
-  return { series: parts[i + 2], set: parts[i + 3], number: parts[i + 4] }
-}
 
 function confidencePct(c: number): number {
   return Math.round(c * 100)
@@ -68,7 +60,6 @@ async function captureGuide(video: HTMLVideoElement, guide: HTMLElement): Promis
 
 function MatchTile({ match, best }: { match: ScanMatch; best: boolean }) {
   const [state, setState] = useState<'idle' | 'adding' | 'added' | 'error'>('idle')
-  const route = routeFromImage(match.images.low)
   const pct = confidencePct(match.confidence)
 
   const add = async () => {
@@ -94,13 +85,17 @@ function MatchTile({ match, best }: { match: ScanMatch; best: boolean }) {
 
   return (
     <div className="flex flex-col gap-[8px] rounded-xl border border-border-default bg-surface-secondary p-[10px]">
-      {route ? (
-        <Link to="/series/$series/$set/$number" params={route} className="group block">
-          {tile}
-        </Link>
-      ) : (
-        tile
-      )}
+      {/* Open the card-detail bottom-sheet over the scanner (a ?card=<cardId>
+          search change that keeps Scan mounted → camera/result state survive)
+          instead of a full-page navigation to the standalone card route. */}
+      <Link
+        to="/scan"
+        search={((prev: { card?: string }) => ({ ...prev, card: match.cardId })) as never}
+        resetScroll={false}
+        className="group block"
+      >
+        {tile}
+      </Link>
 
       <div className="min-w-0">
         <div className="truncate text-[15px] font-semibold leading-[20px] text-text-primary">{match.name}</div>
@@ -201,6 +196,8 @@ function GuideOverlay({ guideRef, hint, active }: { guideRef: React.RefObject<HT
 }
 
 export function Scan() {
+  const search = useSearch({ from: '/scan' })
+  const navigate = useNavigate({ from: '/scan' })
   const [preview, setPreview] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false) // an upload/file scan is in flight
   const [result, setResult] = useState<ScanResponse | null>(null)
@@ -495,6 +492,17 @@ export function Scan() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Card detail as a bottom-sheet driven by the ?card=<cardId> search param —
+          keeps Scan mounted so the camera stream + match list survive the sheet. */}
+      {search.card && (
+        <CardSheet
+          cardId={search.card}
+          onClose={() =>
+            navigate({ search: ((prev: { card?: string }) => ({ ...prev, card: undefined })) as never, resetScroll: false })
+          }
+        />
       )}
     </Content>
   )

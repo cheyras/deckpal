@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { api, type SeriesSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, setAssetUrl } from '../components/ui'
+import { Content, Spinner, ErrorState, setAssetUrl, McdonaldsMark } from '../components/ui'
 import { fmtDate } from '../lib/format'
 
 // ── Sort / group preferences (issue 14i8ys) ────────────────────────────────
@@ -66,13 +66,17 @@ function SeriesCard({ s }: { s: SeriesSummary }) {
             "Scarlet & Violet" set for the Scarlet & Violet era). Falls back to
             nothing (the name below always shows) if absent or the fetch fails. */}
         <div className="mb-[12px] flex h-[48px] items-center">
-          {s.repSetId && (
-            <img
-              src={setAssetUrl(s.repSetId, 'logo')}
-              alt=""
-              className="max-h-[48px] max-w-[180px] object-contain"
-              onError={(e) => (e.currentTarget.style.display = 'none')}
-            />
+          {/mc ?donald/i.test(s.name) ? (
+            <McdonaldsMark size={48} />
+          ) : (
+            s.repSetId && (
+              <img
+                src={setAssetUrl(s.repSetId, 'logo')}
+                alt=""
+                className="max-h-[48px] max-w-[180px] object-contain"
+                onError={(e) => (e.currentTarget.style.display = 'none')}
+              />
+            )
           )}
         </div>
         <div className="text-[18px] font-semibold leading-[27px] text-text-primary">{s.name}</div>

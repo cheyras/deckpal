@@ -156,6 +156,9 @@ seriesRouter.get(
         WHERE cs.series_id = $1
         GROUP BY cs.id, pc.owned_required, pc.total_required, pc.set_level,
                  pm.owned_required, pm.total_required, pg.owned_required, pg.total_required
+        -- Hide zero-card sets (catalogue artifacts with no cards imported, e.g.
+        -- base/wp, miscellaneous/jumbo): they'd otherwise render an empty set page.
+        HAVING count(c.id) > 0
         ORDER BY cs.released_on DESC NULLS LAST, cs.name`,
       [series.id, userId],
     );

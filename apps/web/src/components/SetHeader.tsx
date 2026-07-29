@@ -68,7 +68,7 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
             </a>
           </div>
 
-          <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.images.symbolUrl)} size={40} />
+          <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.images.symbolUrl)} name={set.name} size={40} />
 
           <div className="ml-auto min-w-[300px] flex-1">
             <ProgressCluster progress={progress} goal={goal} />
