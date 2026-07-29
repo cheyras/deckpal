@@ -3,6 +3,7 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Icon, BrandMark, type IconName } from './Icon'
 import { PwaUi } from './PwaUi'
+import { BugButton } from './BugReport'
 import { api } from '../lib/api'
 
 // Signed-in avatar chip (single-user "me") — replaces Log In / Sign Up. The level
@@ -218,6 +219,9 @@ function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: bo
           <Icon name="camera" size={20} />
           <span className="hidden text-[14px] font-semibold text-text-primary nav:inline">Scan</span>
         </Link>
+
+        {/* report-a-bug — captures a screenshot of the current view + a comment */}
+        <BugButton />
 
         {/* profile chip — desktop only (single-user signed-in state) */}
         <div className="hidden items-center gap-[12px] nav:flex">

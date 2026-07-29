@@ -448,3 +448,100 @@ An earlier note called e0e5fd4 "entangled" from the concurrent Phase 7/8 commit 
 migration 016, package.json); bb46766 (PWA) and 7ace0c6 (web wave) each contain 0
 non-web files. The scanner agent's `reset --mixed` + scoped re-commit fully corrected
 the race; the transient bad SHA (7e5237d) never survived into history. Nothing to fix.
+
+## 2026-07-28 — Collection migrated from pkmn.gg (100% faithful) + catalog gaps modelled
+
+The user's real pkmn.gg collection (account **[redacted]**) is imported. **389 (card,variant)
+rows / 835 cards across 23 English sets — 0 in the review bucket.**
+
+**Extraction.** pkmn.gg's backend is `[redacted host]/pkmn`. The authoritative endpoints
+(discovered from the SPA bundle + session):
+- `GET /v1/collection?setId=<id>` — real per-set ownership `{cardId, variant, quantity}`.
+  The `/v1/collection/recent` feed in the user's XHR sample was a *views* feed (all
+  quantities 0) — **not** ownership; the gating risk is resolved by using the per-set GET.
+- `GET /v1/card/<setId>` — authoritative full per-card `variantMap` (incl. `tcgPlayerId`,
+  `tcgPlayerSubtype`, and a `type: Primary|Secondary` flag = pkmn's master-tier boundary).
+- `GET /v1/set` — all 649 sets (211 EN / 21 Pocket-EN / 417 JP). Swept the 211 EN only.
+- `POST /v1/auth/refresh` with `Cookie: refresh_token=…` mints a fresh access token
+  (rotates the refresh token). Access JWT lives ~15 min; the extractor auto-refreshes.
+Scripts: `scripts/pkmn-extract.mjs` (sweep → `~/Transfer/pkmn-collection-full.jsonl`,
+durable, gitignored), `scripts/pkmn-import.mjs` (resolve + dry-run/`--commit`, idempotent
+SET-quantity upsert + `collection_event` + `recomputeSetProgress`). Session/token files
+live in `~/Transfer/` only — never committed or logged.
+
+**Mapping.** Card: pkmn `cardId` → our `card.tcgdex_id` via a set crosswalk
+(`sv3pt5`→`sv03.5`, `sv8pt5`→`sv08.5`, `sv10pt5_blk`→`sv10.5b`, `sve23`→`sve`, `misc-MEW`→
+`miscp-001` "Ancient Mew") + numeric `local_id` join (survives zero-padding). Variant:
+primaries (normal/holofoil/reverseHolofoil) → the card's **plainest standard-tier** variant
+of that finish (this is pkmn's "bare name = base print run" semantic — Base Set Holofoil →
+`holo-unlimited`, Fossil Normal → `normal-foil-galaxy`); facet keys (1st-edition, poké-ball,
+stamps) require the exact facet.
+
+**Catalog gap fixed (`scripts/pkmn-enrich.mjs`).** TCGdex under-catalogues reverse-holos:
+**me04 Chaos Rising had 0 reverse variants** (siblings me01–03 have ~1.9/card) — a real
+ingest gap, NOT a new set. Modelled the missing variants from pkmn.gg's authoritative
+variantMap, tagged `source='pkmn.gg'` (fully reversible: `DELETE … WHERE source='pkmn.gg'`).
+Added `pkmn.gg` to the `card_variant.source` CHECK and one new `variant_kind`
+(`holo-stamp-trick-or-trade`). Result verified against pkmn's own `set-stats`: me04 reverse
+0→**76**, me05→**74** — Complete + Grandmaster now match pkmn.gg **exactly** on every ME set;
+Master matches 5/6 (me01 off by **2**, see below).
+
+**Known residual (not a bug):** our global v3 tier rule marks every plain `normal` as
+standard, but pkmn flags the `normal` of two holo-rare cards (me01-73 Hariyama, me01-74
+Lunatone) as **Secondary** (grandmaster-only) — so our me01 Master reads 12 vs pkmn's 10.
+This is the documented pack-pulled-boundary derivation gap (§5). **Fixable** by ingesting
+pkmn's `type: Primary/Secondary` flag into `variant_tier_override` catalog-wide — deferred
+(a tier-system change, offered to the user). Also: pkmn.gg-modelled variants carry a
+`tcgPlayerId` but no price row yet, so collection value ($746) slightly under-counts them.
+
+Verified live (http://the.grid/pokedex/) desktop + 390px: Pitch Black 38/120 · 31.7% ·
+Master 22.4% (matches pkmn), Trainer Level 36, value [redacted]/[redacted], Pokédex 213/1025.
+Import is idempotent — re-run picks up any future TCGdex reverse-holo backfill automatically.
+
+## 2026-07-28 — Tier boundary synced to pkmn + prices + runbook (23/23 sets exact)
+
+Closed out the three residuals from the import so the collection is **completely** faithful:
+
+- **Tier sync (`scripts/pkmn-tier-sync.mjs`).** pkmn's per-card `variantMap[key].type`
+  (`Primary`=Master / `Secondary`=Grandmaster-only) is the authoritative pack-pulled
+  boundary. Ingested it into `variant_tier_override` (card-scoped, `asserted_by=
+  'pkmn.gg-tier-sync'`) wherever our derived v3 rule disagreed — **260 overrides**. Two
+  legitimate patterns (both correct, documented in the runbook §4): (1) holo-rare `normal`
+  → Secondary (~40, e.g. me01 Hariyama/Lunatone — fixed the earlier me01 Master −2);
+  (2) WOTC 1st-edition → Primary for Jungle/Fossil/Team Rocket (~209 — pkmn counts BOTH
+  unlimited and 1st-ed printings as Master; Base Set is the exception since its 1st-ed is
+  *also* Shadowless, correctly staying Secondary). Result: **23/23 owned sets now match
+  pkmn.gg exactly on Complete + Master + Grandmaster** (`scripts/pkmn-verify.mjs`).
+- **Prices.** Re-ran the TCGCSV ingest; the modelled standard variants (83 reverse + 9 holo
+  with TCGplayer ids) are now priced. The ~11 promo variants without a TCGplayer id stay
+  unpriced by design (no invented prices — SCHEMA §4.6).
+- **New `card_variant.source` value `pkmn.gg`** added to the CHECK constraint (inline in
+  `pkmn-enrich.mjs`); one new `variant_kind` `holo-stamp-trick-or-trade`.
+- **Runbook: `PKMN-SYNC-RUNBOOK.md`** — the full procedure for a future agent on each new
+  release (fetch pkmn variantMap → model missing variants → tier-sync → price → import →
+  verify against set-stats), with the API map, the tier nuances, and per-step undo. New
+  helper scripts: `pkmn-fetch-sets.mjs`, `pkmn-verify.mjs`. `HANDOFF-COLLECTION-IMPORT.md`
+  is now superseded by the runbook.
+
+## 2026-07-29 — In-app bug reporter + `fix-issues` skill
+
+Added a **Report a bug** button to the top nav (`components/BugReport.tsx`, wired in
+`AppShell` next to Scan). Clicking it captures a screenshot of the current view **before**
+the modal opens (so the modal is never in the shot) via **html2canvas** (added as an
+`apps/web` dep, **lazy-imported** so it stays out of the initial bundle — it splits into its
+own ~47 KB-gzip chunk fetched only on first click), then opens a comment form. Submit POSTs
+`{text, page, screenshot(JPEG dataURL), viewport, userAgent}` to **`POST /pokedex/api/bugs`**
+(`routes/bugs.ts`), which writes each report to **`issues/<id>/`** in the repo (`report.md`
+with YAML frontmatter + `screenshot.jpg`) — reports live in the codebase, not the DB. Raised
+the app-wide `express.json` limit to 12 MB for the screenshot payload (every other route is
+tiny; nginx already allows 50–100 MB on the pokedex locations). Screenshots are JPEG q0.85 of
+the viewport region (~120 KB).
+
+**Project skill `fix-issues`** (`.claude/skills/fix-issues/SKILL.md`): walks `issues/*/`,
+reproduces each open issue from the comment + screenshot, fixes the root cause, **verifies in
+a real browser (Playwright) at the reported viewport + 390px**, and only then deletes the
+screenshot and flips `status: resolved` (keeping `report.md` as the audit trail). Hard rule:
+never resolve without visual confirmation.
+
+Verified end-to-end (Playwright, desktop 1280 + mobile 390): button renders, capture excludes
+the modal, submit writes `issues/<id>/{report.md,screenshot.jpg}`, success toast → auto-close.
