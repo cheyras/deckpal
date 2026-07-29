@@ -72,7 +72,7 @@ export function OwnershipStrip({
 
 export function SearchBox({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <label className="relative flex h-[48px] items-center" style={{ width: 295, maxWidth: '100%' }}>
+    <label className="relative flex h-[48px] w-full items-center sm:w-[295px]">
       <span className="pointer-events-none absolute left-[14px] text-icon-default">
         <Icon name="search" size={20} />
       </span>

@@ -20,6 +20,12 @@ function Stat({ label, value, money = false }: { label: string; value: string; m
 
 export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal }) {
   const { set, progress } = data
+  // No canonical per-set product URL is derivable from our catalog, so both the
+  // Shop and Purchase Set actions open a TCGplayer Pokémon search for the set
+  // name — a reliable landing page for singles and sealed product alike.
+  const tcgSearchUrl = `https://www.tcgplayer.com/search/pokemon/product?productLineName=pokemon&q=${encodeURIComponent(
+    set.name,
+  )}`
   return (
     <div className="relative overflow-hidden">
       {/* blurred set art / gradient wash behind the block (UI-SPEC §3.7) */}
@@ -51,12 +57,12 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
           </div>
 
           <div className="flex items-center gap-[10px]">
-            <button className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
+            <a href={tcgSearchUrl} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
               <Icon name="external" size={16} className="text-action-brand" /> Shop
-            </button>
-            <button className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
+            </a>
+            <a href={tcgSearchUrl} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
               <Icon name="external" size={16} className="text-action-brand" /> Purchase Set
-            </button>
+            </a>
             <a href={api.setChecklistPdfUrl(set.setId)} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
               <Icon name="printer" size={16} className="text-action-brand" /> Print Checklist
             </a>

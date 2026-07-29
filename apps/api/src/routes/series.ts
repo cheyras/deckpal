@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { defaultUserId, q, q1 } from '../db.js';
-import { asyncHandler, catalogCache, notFound, userCache } from '../http.js';
+import { asyncHandler, notFound, userCache } from '../http.js';
 
 export const seriesRouter: Router = Router();
 
@@ -15,12 +15,19 @@ interface SeriesRow {
   card_count: string;
   rep_set_id: string | null;
   rep_has_symbol: boolean | null;
+  owned_required: string | null;
+  total_required: string | null;
 }
 
 /** GET /pokedex/api/series — the series list (English catalogue). */
 seriesRouter.get(
   '/',
   asyncHandler(async (_req, res) => {
+    // The default user's per-series completion rollup (issue yscpfd): owned/total
+    // cards summed across the series' sets for the 'complete' goal, from the
+    // materialised user_set_progress. Aggregated in a LATERAL so it can't multiply
+    // against the card join above.
+    const userId = await defaultUserId();
     // rep: the series' base/namesake set — the set sharing the series name (e.g.
     // "Scarlet & Violet" → set sv01), else the earliest non-promo set with a logo
     // (the flagship base set). Represents the whole era rather than a random recent
@@ -34,7 +41,9 @@ seriesRouter.get(
               count(DISTINCT cs.id) AS set_count,
               count(c.id)          AS card_count,
               rep.tcgdex_id        AS rep_set_id,
-              rep.symbol_url IS NOT NULL AS rep_has_symbol
+              rep.symbol_url IS NOT NULL AS rep_has_symbol,
+              prog.owned_required  AS owned_required,
+              prog.total_required  AS total_required
          FROM series s
          JOIN catalogue cat ON cat.code = s.catalogue_code AND cat.is_enabled
     LEFT JOIN card_set cs ON cs.series_id = s.id
@@ -49,23 +58,38 @@ seriesRouter.get(
                           cs2.name
                  LIMIT 1
               ) rep ON true
+    LEFT JOIN LATERAL (
+                SELECT COALESCE(sum(usp.owned_required), 0) AS owned_required,
+                       COALESCE(sum(usp.total_required), 0) AS total_required
+                  FROM user_set_progress usp
+                  JOIN card_set cs3 ON cs3.id = usp.set_id
+                 WHERE cs3.series_id = s.id AND usp.user_id = $1 AND usp.goal = 'complete'
+              ) prog ON true
         WHERE s.tcgdex_id <> 'tcgp'
-        GROUP BY s.id, rep.tcgdex_id, rep.symbol_url
+        GROUP BY s.id, rep.tcgdex_id, rep.symbol_url, prog.owned_required, prog.total_required
         ORDER BY s.sort_order DESC, s.first_release_on DESC NULLS LAST, s.name`,
+      [userId],
     );
-    catalogCache(res);
+    // Now includes the user's completion rollup, so it's user-private (not shared-cacheable).
+    userCache(res);
     res.json({
-      series: rows.map((r) => ({
-        slug: r.slug,
-        tcgdexId: r.tcgdex_id,
-        name: r.name,
-        firstReleaseOn: r.first_release_on,
-        sortOrder: r.sort_order,
-        setCount: Number(r.set_count),
-        cardCount: Number(r.card_count),
-        repSetId: r.rep_set_id,
-        repHasSymbol: Boolean(r.rep_has_symbol),
-      })),
+      series: rows.map((r) => {
+        const owned = Number(r.owned_required ?? 0);
+        const total = Number(r.total_required ?? 0) || Number(r.card_count);
+        return {
+          slug: r.slug,
+          tcgdexId: r.tcgdex_id,
+          name: r.name,
+          firstReleaseOn: r.first_release_on,
+          sortOrder: r.sort_order,
+          setCount: Number(r.set_count),
+          cardCount: Number(r.card_count),
+          repSetId: r.rep_set_id,
+          repHasSymbol: Boolean(r.rep_has_symbol),
+          // Per-series completion rollup (owned cards / total cards across the series).
+          progress: { owned, total, pct: pct(owned, total) },
+        };
+      }),
     });
   }),
 );
