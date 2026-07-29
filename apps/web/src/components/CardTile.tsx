@@ -203,15 +203,20 @@ export function CardTile({
   // when the tile already renders an ownership total, a badge, or a remove button
   // (their lower-right corner is spoken for) or has no real set to resolve.
   const showCounters = !ownership && !badge && !onRemove && Boolean(set)
-  // On the set page the tile opens the detail as a bottom-sheet (a ?card= search
-  // change that leaves SetDetail mounted → scroll/filter preserved) instead of a
-  // full-page nav. Elsewhere (species detail, lists) it links to the card route as
-  // before. "Set page" = the set route is the current leaf match; opening the sheet
-  // is only a search-param change, so the leaf stays put and tiles remain in sheet
-  // mode. The standalone card route ('/…/$set/$number') is a different leaf.
-  const onSetPage = useRouterState({
-    select: (s) => s.matches[s.matches.length - 1]?.routeId === '/series/$series/$set',
+  // On the set page AND the species page the tile opens the detail as a bottom-sheet
+  // (a ?card= search change that leaves the current page mounted → scroll/filter
+  // preserved) instead of a full-page nav. Elsewhere (lists) it links to the card
+  // route as before. "Current page" = the leaf route match; opening the sheet is only
+  // a search-param change, so the leaf stays put and tiles remain in sheet mode. The
+  // standalone card route ('/…/$set/$number') is a different leaf.
+  //   • Set page keys ?card= by card NUMBER (SetDetail rebuilds the id from its set).
+  //   • Species page spans many sets, so it keys ?card= by the full cardId.
+  const leafId = useRouterState({ select: (s) => s.matches[s.matches.length - 1]?.routeId })
+  const speciesId = useRouterState({
+    select: (s) => (s.matches[s.matches.length - 1]?.params as { speciesId?: string } | undefined)?.speciesId,
   })
+  const onSetPage = leafId === '/series/$series/$set'
+  const onSpeciesPage = leafId === '/pokedex/$speciesId'
 
   const inner = (
     <>
@@ -279,6 +284,21 @@ export function CardTile({
         to="/series/$series/$set"
         params={{ series, set }}
         search={((prev: CardSearch) => ({ ...prev, card: card.number })) as never}
+        resetScroll={false}
+        className="group block"
+      >
+        {inner}
+      </Link>
+    )
+  }
+
+  // Species page: same sheet, keyed by the full cardId (the page spans many sets).
+  if (onSpeciesPage && speciesId) {
+    return (
+      <Link
+        to="/pokedex/$speciesId"
+        params={{ speciesId }}
+        search={((prev: { card?: string }) => ({ ...prev, card: card.cardId })) as never}
         resetScroll={false}
         className="group block"
       >

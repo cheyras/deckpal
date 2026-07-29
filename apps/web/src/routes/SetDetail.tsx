@@ -96,7 +96,7 @@ export function SetDetail() {
           <div className="mt-[24px]" style={{ opacity: isFetching ? 0.6 : 1 }}>
             {cards.length === 0 ? (
               <div className="py-[60px] text-center text-[14px] text-text-muted">
-                No cards match this filter.
+                {allCards.length === 0 ? 'No cards in this set yet.' : 'No cards match this filter.'}
               </div>
             ) : search.view === 'grid' ? (
               <GridView cards={cards} seriesSlug={series} setId={set} />

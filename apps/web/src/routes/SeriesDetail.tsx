@@ -45,7 +45,7 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
           </span>
         </div>
       </div>
-      <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.symbolUrl)} size={40} />
+      <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.symbolUrl)} name={set.name} size={40} />
     </Link>
   )
 }

@@ -268,26 +268,27 @@ export function CardDetail() {
   const { series, set, number } = useParams({ from: '/series/$series/$set/$number' })
   return (
     <Content cap={1165}>
-      <CardDetailBody series={series} set={set} number={number} />
+      <CardDetailBody cardId={`${set}-${number}`} backTo={{ series, set }} />
     </Content>
   )
 }
 
 // The card-detail body (hero art + variant table on a shared grid). Reused by both
-// the standalone route above and the bottom-sheet below, so params come in as props
-// rather than from useParams. `inSheet` swaps the standalone BackPill for sheet chrome.
+// the standalone route above and the bottom-sheet below. It is keyed solely by
+// `cardId`; the authoritative series-slug + set-id come from the card fetch, so any
+// entry point (set page, species page, scanner) can open it without knowing the
+// route params up front. `inSheet` swaps the standalone BackPill for sheet chrome.
 export function CardDetailBody({
-  series,
-  set,
-  number,
+  cardId,
   inSheet = false,
+  backTo,
 }: {
-  series: string
-  set: string
-  number: string
+  cardId: string
   inSheet?: boolean
+  // Optional immediate BackPill target for the standalone route, used only until
+  // the card fetch resolves the authoritative series/set. Never passed in-sheet.
+  backTo?: { series: string; set: string }
 }) {
-  const cardId = `${set}-${number}`
   const [tab, setTab] = useState<(typeof TABS)[number]>('Card')
   const [showAdditional, setShowAdditional] = useState(false)
   const qc = useQueryClient()
@@ -297,6 +298,12 @@ export function CardDetailBody({
     queryFn: ({ signal }) => api.card(cardId, signal),
   })
 
+  // Series slug + set id are resolved from the fetched card (authoritative),
+  // falling back to any caller-supplied hint before the fetch settles. Both feed
+  // the internal links + the ['set', setId] progress invalidation on mutation.
+  const seriesSlug = data?.card.series.slug ?? backTo?.series ?? ''
+  const setId = data?.card.set.setId ?? backTo?.set ?? ''
+
   // Own/un-own a variant. Optimistic: the stepper + the three progress bars move
   // instantly (optimisticApply), roll back on error, and reconcile against the
   // server's authoritative recompute on settle by invalidating both queries.
@@ -305,8 +312,8 @@ export function CardDetailBody({
       api.setVariantQuantity(variantId, Math.max(0, newQty)),
     onMutate: async ({ variantId, newQty }) => {
       await qc.cancelQueries({ queryKey: ['card', cardId] })
-      await qc.cancelQueries({ queryKey: ['set', set] })
-      const undo = optimisticApply(qc, cardId, set, variantId, Math.max(0, newQty))
+      await qc.cancelQueries({ queryKey: ['set', setId] })
+      const undo = optimisticApply(qc, cardId, setId, variantId, Math.max(0, newQty))
       return { undo }
     },
     onError: (_err, _vars, ctx) => {
@@ -314,7 +321,7 @@ export function CardDetailBody({
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ['card', cardId] })
-      void qc.invalidateQueries({ queryKey: ['set', set] })
+      void qc.invalidateQueries({ queryKey: ['set', setId] })
     },
   })
   const onAdjust = (variantId: number, newQty: number) => mutation.mutate({ variantId, newQty })
@@ -323,7 +330,7 @@ export function CardDetailBody({
     <>
       {!inSheet && (
         <div className="mb-[16px]">
-          <BackPill to="/series/$series/$set" params={{ series, set }} label={data?.card.set.name ?? 'Set'} />
+          <BackPill to="/series/$series/$set" params={{ series: seriesSlug, set: setId }} label={data?.card.set.name ?? 'Set'} />
         </div>
       )}
 
@@ -359,7 +366,7 @@ export function CardDetailBody({
                 <SetSymbolTile setId={data.card.set.setId} hasSymbol={Boolean(data.card.set.symbolUrl)} size={28} />
                 <Link
                   to="/series/$series/$set"
-                  params={{ series, set }}
+                  params={{ series: seriesSlug, set: setId }}
                   search={CARD_SEARCH_DEFAULTS}
                   className="text-[16px] text-link hover:text-link-hover"
                 >
@@ -421,14 +428,20 @@ export function CardDetailBody({
 // adds an enter+exit slide animation. Closing is a route-search change owned by
 // the caller (onClose) — SetDetail never unmounts, so its scroll/filter survive.
 export function CardSheet({
-  series,
+  cardId,
   set,
   number,
   onClose,
 }: {
-  series: string
-  set: string
-  number: string
+  // Two ways to key the sheet, both resolving to one cardId:
+  //  • cardId  — species page / scanner, which carry the full id directly.
+  //  • set + number — the set page, whose ?card= param is just the card number.
+  // `series` is still accepted (the set page passes it) but no longer needed:
+  // CardDetailBody resolves the series slug from the card fetch itself.
+  cardId?: string
+  series?: string
+  set?: string
+  number?: string
   onClose: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -495,7 +508,7 @@ export function CardSheet({
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-[16px] pb-[24px] nav:px-[24px]"
           style={{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom))' }}
         >
-          <CardDetailBody series={series} set={set} number={number} inSheet />
+          <CardDetailBody cardId={cardId ?? `${set}-${number}`} inSheet />
         </div>
       </div>
     </div>
