@@ -707,6 +707,9 @@ export const api = {
 
   // Insights / gamification (Phase 6)
   overview: (signal?: AbortSignal) => get<InsightsOverview>('/insights/overview', signal),
+
+  submitBug: (body: { text: string; page: string; screenshot?: string; viewport?: string; userAgent?: string }) =>
+    send<{ id: string; saved: string }>('POST', '/bugs', body),
   // Newest-first named collection events (for the stream overlay). `since` is an
   // ISO timestamp filter; pair it with client-side eventId dedup (the API notes a
   // microsecond→millisecond `since` precision caveat, so `since` alone can re-return

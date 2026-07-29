@@ -17,6 +17,7 @@ import { decksRouter } from './routes/decks.js';
 import { insightsRouter } from './routes/insights.js';
 import { exportRouter } from './export/router.js';
 import { scanRouter } from './scan/router.js';
+import { bugsRouter } from './routes/bugs.js';
 
 /**
  * pokedex-api — the read API over the populated catalog (ARCHITECTURE §4).
@@ -33,7 +34,9 @@ export function createApp(): express.Express {
   app.disable('x-powered-by');
   app.use(helmet());
   app.use(cors());
-  app.use(express.json());
+  // 12mb accommodates the bug reporter's screenshot dataURL; every other route
+  // posts tiny JSON, so the raised ceiling only ever matters for /bugs.
+  app.use(express.json({ limit: '12mb' }));
 
   const api = express.Router();
 
@@ -94,6 +97,7 @@ export function createApp(): express.Express {
   api.use('/decks', decksRouter);
   api.use('/insights', insightsRouter);
   api.use('/scan', scanRouter);
+  api.use('/bugs', bugsRouter);
 
   app.use('/pokedex/api', api);
 
