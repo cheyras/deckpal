@@ -3,13 +3,26 @@ import { Link } from '@tanstack/react-router'
 import type { CardRow } from '../lib/api'
 import { Icon } from './Icon'
 
-// Binder view (UI-SPEC §3.25, AUTH-CAPTURES §15.3). 9-pocket 3×3.
+// Binder view (UI-SPEC §3.25, AUTH-CAPTURES §15.3).
 //
-// mode='set'  — the signed-out set-page look: single page, PRO upsell, blank
-//               inside cover, every pocket scrimmed with a "Slot #N" overlay.
-// mode='list' — a real, paged binder for a list: every page of 9 across the whole
-//               list, an owned card renders at full brightness (no scrim), an
-//               unowned pocket keeps the dimmed "Slot #N" treatment. No PRO gate.
+// A real, paged binder. Pockets are laid out per the selected layout tab
+// (9 / 12 / 4 / 16 per page). An owned card renders at full brightness; an
+// unowned pocket keeps the dimmed "Slot #N" treatment so it reads as a "need".
+//
+// This is a single-user, self-hosted app: there is no paid tier and no PRO
+// gate — every mode gets the same fully-functional binder.
+//
+// mode is retained only so `alwaysBright` (static lists, which aren't
+// collection-tracked) can force every present card bright; otherwise ownership
+// drives per-pocket brightness in every mode.
+
+// Pocket layouts. `cols` drives the CSS grid; `perPage = cols * rows`.
+const LAYOUTS = [
+  { label: '9-Pocket', cols: 3, rows: 3 },
+  { label: '12-Pocket', cols: 4, rows: 3 },
+  { label: '4-Pocket', cols: 2, rows: 2 },
+  { label: '16-Pocket', cols: 4, rows: 4 },
+] as const
 
 function Pocket({
   card,
@@ -56,7 +69,7 @@ function Pocket({
       )}
     </div>
   )
-  // In list mode an owned/bright card with routing links to the card page.
+  // An owned/bright card links through to its card page when we have routing keys.
   if (bright && card && seriesSlug && setId && card.number) {
     return (
       <Link
@@ -79,21 +92,35 @@ function Pocket({
 function Page({
   cards,
   startSlot,
-  mode,
+  cols,
+  perPage,
   alwaysBright,
 }: {
   cards: (CardRow | undefined)[]
   startSlot: number
-  mode: 'set' | 'list'
+  cols: number
+  perPage: number
   alwaysBright: boolean
 }) {
   return (
     <div className="rounded-2xl bg-surface-primary" style={{ padding: '18px 17px 18px 44px' }}>
-      <div className="grid grid-cols-3 gap-x-[17px] gap-y-[22px]">
-        {Array.from({ length: 9 }).map((_, i) => {
+      <div
+        className="grid gap-x-[17px] gap-y-[22px]"
+        style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+      >
+        {Array.from({ length: perPage }).map((_, i) => {
           const card = cards[i]
-          const bright = mode === 'list' && !!card && (alwaysBright || !!card.ownership?.have)
-          return <Pocket key={i} card={card} slot={startSlot + i} bright={bright} seriesSlug={card?.seriesSlug ?? undefined} setId={card?.setId ?? undefined} />
+          const bright = !!card && (alwaysBright || !!card.ownership?.have)
+          return (
+            <Pocket
+              key={i}
+              card={card}
+              slot={startSlot + i}
+              bright={bright}
+              seriesSlug={card?.seriesSlug ?? undefined}
+              setId={card?.setId ?? undefined}
+            />
+          )
         })}
       </div>
     </div>
@@ -101,30 +128,52 @@ function Page({
 }
 
 // alwaysBright: a static list is not collection-tracked, so every present card
-// renders bright (no owned/needed dimming) — only dynamic/binder lists dim unowned.
-export function BinderView({ cards, mode = 'set', alwaysBright = false }: { cards: CardRow[]; mode?: 'set' | 'list'; alwaysBright?: boolean }) {
+// renders bright (no owned/needed dimming) — only dynamic/binder lists and set
+// pages dim unowned pockets.
+export function BinderView({
+  cards,
+  mode = 'set',
+  alwaysBright = false,
+}: {
+  cards: CardRow[]
+  mode?: 'set' | 'list'
+  alwaysBright?: boolean
+}) {
+  void mode // retained for call-site compatibility; behavior is now uniform
   const [stackVariants, setStackVariants] = useState(true)
+  const [layoutIdx, setLayoutIdx] = useState(0)
   const [page, setPage] = useState(0)
-  const pageCount = Math.max(1, Math.ceil(cards.length / 9))
-  const pageCards = useMemo(() => cards.slice(page * 9, page * 9 + 9), [cards, page])
-  // Set mode preserves the original single-page-of-9 signed-out look.
-  const rightCards = mode === 'set' ? cards.slice(0, 9) : pageCards
-  const startSlot = mode === 'set' ? 1 : page * 9 + 1
+
+  const layout = LAYOUTS[layoutIdx]
+  const perPage = layout.cols * layout.rows
+  const pageCount = Math.max(1, Math.ceil(cards.length / perPage))
+  // Clamp the page when a layout change shrinks the number of pages.
+  const safePage = Math.min(page, pageCount - 1)
+  const pageCards = useMemo(
+    () => cards.slice(safePage * perPage, safePage * perPage + perPage),
+    [cards, safePage, perPage],
+  )
+  const startSlot = safePage * perPage + 1
 
   return (
     <div>
       {/* pocket-layout tabs (UI-SPEC §3.25) */}
       <div className="mb-[16px] flex items-center gap-[24px] border-b border-divider-subtle">
-        {['9-Pocket', '12-Pocket', '4-Pocket', '16-Pocket'].map((p, i) => (
+        {LAYOUTS.map((l, i) => (
           <button
-            key={p}
+            key={l.label}
+            onClick={() => {
+              setLayoutIdx(i)
+              setPage(0)
+            }}
+            aria-pressed={i === layoutIdx}
             className={`pb-[3px] text-[14px] ${
-              i === 0
+              i === layoutIdx
                 ? 'border-b-2 border-action-primary font-[650] text-text-primary'
                 : 'font-medium text-text-muted'
             }`}
           >
-            {p}
+            {l.label}
           </button>
         ))}
       </div>
@@ -161,35 +210,33 @@ export function BinderView({ cards, mode = 'set', alwaysBright = false }: { card
         {/* left inside cover — blank, desktop only */}
         <div className="hidden flex-1 rounded-2xl bg-surface-primary nav:block" style={{ maxWidth: 493 }} />
         <div className="w-full flex-1" style={{ maxWidth: 493 }}>
-          <Page cards={rightCards} startSlot={startSlot} mode={mode} alwaysBright={alwaysBright} />
+          <Page
+            cards={pageCards}
+            startSlot={startSlot}
+            cols={layout.cols}
+            perPage={perPage}
+            alwaysBright={alwaysBright}
+          />
           {/* pager */}
           <div className="mt-[16px] flex items-center justify-end gap-[16px]">
             <span className="text-[14px] font-bold text-text-muted">
-              Page {mode === 'set' ? 1 : page + 1}
-              {mode === 'list' ? ` / ${pageCount}` : ''}
+              Page {safePage + 1} / {pageCount}
             </span>
-            {mode === 'list' && (
-              <button
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                disabled={page === 0}
-                className="flex h-[50px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[15px] text-[14px] font-bold text-text-secondary hover:bg-action-default-hover disabled:opacity-40"
-              >
-                <Icon name="chevron-left" size={16} /> Prev
-              </button>
-            )}
             <button
-              onClick={() => mode === 'list' && setPage((p) => Math.min(pageCount - 1, p + 1))}
-              disabled={mode === 'list' && page >= pageCount - 1}
+              onClick={() => setPage(() => Math.max(0, safePage - 1))}
+              disabled={safePage === 0}
+              className="flex h-[50px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[15px] text-[14px] font-bold text-text-secondary hover:bg-action-default-hover disabled:opacity-40"
+            >
+              <Icon name="chevron-left" size={16} /> Prev
+            </button>
+            <button
+              onClick={() => setPage(() => Math.min(pageCount - 1, safePage + 1))}
+              disabled={safePage >= pageCount - 1}
               className="flex h-[50px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[15px] text-[14px] font-bold text-text-secondary hover:bg-action-default-hover disabled:opacity-40"
             >
               Next <Icon name="chevron-right" size={16} />
             </button>
           </div>
-          {mode === 'set' && (
-            <p className="mt-[8px] text-right text-[14px] font-[650] text-text-primary">
-              Unlock Binder View with <span className="text-pro-accent">PRO</span>
-            </p>
-          )}
         </div>
       </div>
     </div>

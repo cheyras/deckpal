@@ -218,7 +218,7 @@ export function Profile() {
 
             {/* Collection at a glance */}
             <section className="rounded-2xl bg-surface-secondary p-[20px]">
-              <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">English TCG</div>
+              <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Pokémon TCG (English)</div>
               <div className="mt-[10px] grid grid-cols-3 gap-[12px]">
                 <Stat label="Total Cards" value={ov.trainer.totalCards} />
                 <Stat label="Unique Cards" value={ov.trainer.uniqueCards} />

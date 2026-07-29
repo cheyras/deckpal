@@ -1,12 +1,171 @@
+import { useRef } from 'react'
 import { Link } from '@tanstack/react-router'
-import type { CardRow } from '../lib/api'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api, type CardDetailResponse, type CardRow, type Variant } from '../lib/api'
 import { fmtPrice, fmtNumber } from '../lib/format'
+import { useOnline } from '../lib/useOnline'
 import { Icon } from './Icon'
 
-// Table view (UI-SPEC §3.26). No <table>: a flex column of per-card groups,
-// each a header bar with the art bleeding in from the left edge, the name, and
-// the representative price. (Per-variant rows require the card-detail payload;
-// noted as a follow-up — the set list returns one representative price per card.)
+// Per-variant accent colour + dark-text flag. Mirrors CardTile.variantMeta so the
+// table counters read as the same system as the grid tiles' count boxes.
+function variantMeta(v: Variant): { color: string; dark: boolean; order: number } {
+  const k = v.kind.toLowerCase()
+  if (v.tier === 'special') return { color: 'var(--color-variant-other)', dark: true, order: 3 }
+  if (k.includes('reverse')) return { color: 'var(--color-variant-reverse-holo)', dark: false, order: 2 }
+  if (k.includes('holo')) return { color: 'var(--color-variant-holofoil)', dark: false, order: 1 }
+  return { color: 'var(--color-variant-normal)', dark: true, order: 0 }
+}
+
+// One tappable count box (one main variant). Tap = +1, long-press / right-click = −1.
+// Lives inside the row's <Link>, so every handler stops propagation to keep the
+// row navigation inert while tapping a counter.
+function CounterBox({
+  label,
+  color,
+  dark,
+  qty,
+  disabled,
+  onInc,
+  onDec,
+}: {
+  label: string
+  color: string
+  dark: boolean
+  qty: number
+  disabled: boolean
+  onInc: () => void
+  onDec: () => void
+}) {
+  const timer = useRef<number | null>(null)
+  const longPressed = useRef(false)
+
+  const clear = () => {
+    if (timer.current != null) {
+      clearTimeout(timer.current)
+      timer.current = null
+    }
+  }
+  const startPress = () => {
+    longPressed.current = false
+    clear()
+    timer.current = window.setTimeout(() => {
+      longPressed.current = true
+      if (qty > 0) onDec()
+    }, 500)
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-label={`${label}: ${qty} owned. Tap to add one, long-press to remove one.`}
+      title={`${label} — ${qty} owned · tap +1, hold −1`}
+      onPointerDown={(e) => {
+        e.stopPropagation()
+        startPress()
+      }}
+      onPointerUp={clear}
+      onPointerLeave={clear}
+      onPointerCancel={clear}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (qty > 0) onDec()
+      }}
+      onClick={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (longPressed.current) {
+          longPressed.current = false
+          return
+        }
+        onInc()
+      }}
+      className="flex h-[24px] min-w-[22px] items-center justify-center rounded-[6px] px-[5px] text-[12px] font-extrabold leading-none tabular-nums shadow-panel transition-opacity enabled:hover:opacity-90 disabled:opacity-60"
+      style={
+        qty > 0
+          ? { background: color, color: dark ? '#15181f' : '#fff' }
+          : {
+              background: 'var(--color-surface-tertiary-transparent)',
+              color: 'var(--color-text-muted)',
+              border: `2px solid ${color}`,
+            }
+      }
+    >
+      {qty > 0 ? qty : ''}
+    </button>
+  )
+}
+
+// Per-variant quantity counters for a table row — the same mechanism as the grid
+// tiles (CardTile.VariantCounters): read the card's variants from the shared
+// ['card', cardId] query and write through the existing collection endpoints with
+// an optimistic update; the ['set', setId] invalidation reconciles progress.
+function RowCounters({ cardId, setId }: { cardId: string; setId: string }) {
+  const qc = useQueryClient()
+  const online = useOnline()
+  const { data } = useQuery({
+    queryKey: ['card', cardId],
+    queryFn: ({ signal }) => api.card(cardId, signal),
+  })
+
+  const mutation = useMutation({
+    mutationFn: ({ variantId, delta }: { variantId: number; delta: number }) =>
+      api.incrementVariant(variantId, delta),
+    onMutate: async ({ variantId, delta }) => {
+      await qc.cancelQueries({ queryKey: ['card', cardId] })
+      const prevCard = qc.getQueryData<CardDetailResponse>(['card', cardId])
+      qc.setQueryData<CardDetailResponse>(['card', cardId], (old) =>
+        old
+          ? {
+              ...old,
+              variants: old.variants.map((v) =>
+                v.variantId === variantId ? { ...v, quantity: Math.max(0, v.quantity + delta) } : v,
+              ),
+            }
+          : old,
+      )
+      return { prevCard }
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prevCard) qc.setQueryData(['card', cardId], ctx.prevCard)
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['card', cardId] })
+      void qc.invalidateQueries({ queryKey: ['set', setId] })
+    },
+  })
+
+  const standard = (data?.variants ?? [])
+    .filter((v) => v.tier === 'standard')
+    .map((v) => ({ v, meta: variantMeta(v) }))
+    .sort((a, b) => a.meta.order - b.meta.order)
+  if (standard.length === 0) return null
+
+  return (
+    <div
+      className="flex shrink-0 items-center gap-[4px]"
+      title={online ? undefined : 'Offline — reconnect to change your collection'}
+    >
+      {standard.map(({ v, meta }) => (
+        <CounterBox
+          key={v.variantId}
+          label={v.displayName}
+          color={meta.color}
+          dark={meta.dark}
+          qty={v.quantity}
+          disabled={!online || mutation.isPending}
+          onInc={() => mutation.mutate({ variantId: v.variantId, delta: 1 })}
+          onDec={() => mutation.mutate({ variantId: v.variantId, delta: -1 })}
+        />
+      ))}
+    </div>
+  )
+}
+
+// Table view (UI-SPEC §3.26). No <table>: a flex column of per-card rows, each a
+// header bar with a cropped art thumbnail, the number/name, the representative
+// price, and per-variant "have" counters on the far right.
 export function TableView({
   cards,
   seriesSlug,
@@ -18,33 +177,41 @@ export function TableView({
 }) {
   return (
     <div className="flex flex-col gap-[20px]">
-      {cards.map((card) => (
-        <Link
-          key={(card as { itemId?: string }).itemId ?? card.cardId}
-          to="/series/$series/$set/$number"
-          params={{ series: card.seriesSlug ?? seriesSlug, set: card.setId ?? setId, number: card.number }}
-          className="group flex items-stretch overflow-hidden rounded-lg bg-surface-tertiary hover:bg-action-default-hover"
-        >
-          <div className="w-[48px] shrink-0 overflow-hidden bg-surface-secondary">
-            <img
-              src={card.images.low}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              className="h-full w-[120px] max-w-none object-cover object-left"
-            />
-          </div>
-          <div className="flex flex-1 items-center gap-[16px] px-[16px] py-[12px]">
-            <span className="w-[48px] shrink-0 text-[12px] text-text-muted">{fmtNumber(card.number)}</span>
-            <span className="flex-1 truncate text-[14px] font-medium text-text-primary">{card.name}</span>
-            {card.variantCount > 1 && (
-              <span className="hidden text-[12px] text-text-muted sm:inline">{card.variantCount} variants</span>
-            )}
-            <span className="text-[14px] font-medium text-change-positive">{fmtPrice(card.price)}</span>
-            <Icon name="chevron-right" size={16} className="text-icon-muted" />
-          </div>
-        </Link>
-      ))}
+      {cards.map((card) => {
+        const series = card.seriesSlug ?? seriesSlug
+        const set = card.setId ?? setId
+        return (
+          <Link
+            key={(card as { itemId?: string }).itemId ?? card.cardId}
+            to="/series/$series/$set/$number"
+            params={{ series, set, number: card.number }}
+            className="group flex items-stretch overflow-hidden rounded-lg bg-surface-tertiary hover:bg-action-default-hover"
+          >
+            {/* Thumbnail: object-cover into a landscape window crops to the card's
+                art box — full card width, centred on the upper illustration. */}
+            <div className="w-[72px] shrink-0 overflow-hidden bg-surface-secondary">
+              <img
+                src={card.images.low}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-cover"
+                style={{ objectPosition: 'center 20%' }}
+              />
+            </div>
+            <div className="flex flex-1 items-center gap-[16px] px-[16px] py-[12px]">
+              <span className="w-[48px] shrink-0 text-[12px] text-text-muted">{fmtNumber(card.number)}</span>
+              <span className="flex-1 truncate text-[14px] font-medium text-text-primary">{card.name}</span>
+              {card.variantCount > 1 && (
+                <span className="hidden text-[12px] text-text-muted sm:inline">{card.variantCount} variants</span>
+              )}
+              <span className="text-[14px] font-medium text-change-positive">{fmtPrice(card.price)}</span>
+              {set && <RowCounters cardId={`${set}-${card.number}`} setId={set} />}
+              <Icon name="chevron-right" size={16} className="text-icon-muted" />
+            </div>
+          </Link>
+        )
+      })}
     </div>
   )
 }
