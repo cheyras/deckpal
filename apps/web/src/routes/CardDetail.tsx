@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
 import { api, type CardDetailResponse, type Progress, type SetDetailResponse, type Variant } from '../lib/api'
@@ -176,6 +176,14 @@ function QtyStepper({
   )
 }
 
+// Shared column template for the variant table header + every row, so the three
+// columns (Variant · Market Price · Quantity) line up on one grid at any width
+// instead of two independent flex layouts drifting apart. Fixed price/qty tracks
+// keep the header labels sitting directly above their data; the variant track
+// (minmax(0,1fr)) absorbs the rest and its min-w-0 lets long names/URLs wrap
+// rather than blow the column out of bounds.
+const VARIANT_GRID = 'grid grid-cols-[minmax(0,1fr)_84px_108px] gap-x-[12px] nav:gap-x-[16px]'
+
 function VariantRow({
   v,
   onAdjust,
@@ -189,33 +197,46 @@ function VariantRow({
   const price = v.prices.find((p) => p.currency === 'USD') ?? v.prices[0] ?? null
   return (
     <div className="rounded-lg bg-surface-tertiary p-[16px]" data-owned={v.quantity > 0 ? 'true' : 'false'}>
-      <div className="flex flex-wrap items-center gap-x-[16px] gap-y-[10px]">
-        <span className="inline-block h-[12px] w-[12px] shrink-0 rounded-[3px]" style={{ background: color }} />
-        <div className="min-w-0 flex-1">
-          <div className="text-[14px] font-bold text-text-primary">{v.displayName}</div>
-          {v.provenance && <div className="text-[12px] text-text-muted">{v.provenance}</div>}
+      <div className={`${VARIANT_GRID} items-center`}>
+        {/* Variant column */}
+        <div className="flex min-w-0 items-start gap-[8px]">
+          <span
+            className="mt-[5px] inline-block h-[12px] w-[12px] shrink-0 rounded-[3px]"
+            style={{ background: color }}
+          />
+          <div className="min-w-0">
+            <div className="break-words text-[14px] font-bold text-text-primary">{v.displayName}</div>
+            {v.provenance && <div className="break-words text-[12px] text-text-muted">{v.provenance}</div>}
+            {v.buyUrl && (
+              <a
+                href={v.buyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-[8px] inline-flex h-[30px] max-w-full items-center gap-[6px] rounded-lg bg-surface-secondary px-[8px] text-[12px] font-bold text-text-primary hover:bg-action-default-hover"
+              >
+                <Icon name="external" size={14} className="shrink-0 text-action-brand" />
+                <span className="truncate">TCGplayer</span>
+              </a>
+            )}
+          </div>
         </div>
-        {v.buyUrl && (
-          <a
-            href={v.buyUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex h-[36px] items-center gap-[6px] rounded-lg bg-surface-secondary px-[12px] text-[12px] font-bold text-text-primary hover:bg-action-default-hover"
-          >
-            <Icon name="external" size={14} className="text-action-brand" /> TCGplayer
-          </a>
-        )}
-        <div className="min-w-[70px] text-right">
+
+        {/* Market Price column */}
+        <div className="min-w-0 text-right">
           {price && price.market != null ? (
             <div className="text-[16px] font-medium text-change-positive">{fmtPrice(price)}</div>
           ) : (
             <div className="text-[14px] text-text-muted">No price</div>
           )}
           {price?.pricedAt && (
-            <div className="text-[10px] text-text-muted">as of {fmtRelative(price.pricedAt)}</div>
+            <div className="text-[10px] leading-[14px] text-text-muted">as of {fmtRelative(price.pricedAt)}</div>
           )}
         </div>
-        <QtyStepper v={v} color={color} quantity={v.quantity} onAdjust={onAdjust} pending={pending} />
+
+        {/* Quantity column */}
+        <div className="flex justify-end">
+          <QtyStepper v={v} color={color} quantity={v.quantity} onAdjust={onAdjust} pending={pending} />
+        </div>
       </div>
     </div>
   )
@@ -240,8 +261,32 @@ function Chip({ children }: { children: React.ReactNode }) {
 
 const TABS = ['Card', 'Price', 'TCG'] as const
 
+// Standalone route (deep links / direct navigation to /series/$series/$set/$number).
+// Renders the shared body inside the page Content column; on the set page the same
+// body is rendered inside CardSheet instead.
 export function CardDetail() {
   const { series, set, number } = useParams({ from: '/series/$series/$set/$number' })
+  return (
+    <Content cap={1165}>
+      <CardDetailBody series={series} set={set} number={number} />
+    </Content>
+  )
+}
+
+// The card-detail body (hero art + variant table on a shared grid). Reused by both
+// the standalone route above and the bottom-sheet below, so params come in as props
+// rather than from useParams. `inSheet` swaps the standalone BackPill for sheet chrome.
+export function CardDetailBody({
+  series,
+  set,
+  number,
+  inSheet = false,
+}: {
+  series: string
+  set: string
+  number: string
+  inSheet?: boolean
+}) {
   const cardId = `${set}-${number}`
   const [tab, setTab] = useState<(typeof TABS)[number]>('Card')
   const [showAdditional, setShowAdditional] = useState(false)
@@ -275,10 +320,12 @@ export function CardDetail() {
   const onAdjust = (variantId: number, newQty: number) => mutation.mutate({ variantId, newQty })
 
   return (
-    <Content cap={1165}>
-      <div className="mb-[16px]">
-        <BackPill to="/series/$series/$set" params={{ series, set }} label={data?.card.set.name ?? 'Set'} />
-      </div>
+    <>
+      {!inSheet && (
+        <div className="mb-[16px]">
+          <BackPill to="/series/$series/$set" params={{ series, set }} label={data?.card.set.name ?? 'Set'} />
+        </div>
+      )}
 
       {isLoading && <Spinner label="Loading card…" />}
       {error && <ErrorState message={(error as Error).message} />}
@@ -364,7 +411,94 @@ export function CardDetail() {
           </div>
         </div>
       )}
-    </Content>
+    </>
+  )
+}
+
+// ── Bottom-sheet wrapper ───────────────────────────────────────────────────────
+// Card detail as a sheet that slides up over the set page (mobile) / a centred
+// dialog (desktop). Mirrors ListModals' Modal for scrim / Escape / scroll-lock,
+// adds an enter+exit slide animation. Closing is a route-search change owned by
+// the caller (onClose) — SetDetail never unmounts, so its scroll/filter survive.
+export function CardSheet({
+  series,
+  set,
+  number,
+  onClose,
+}: {
+  series: string
+  set: string
+  number: string
+  onClose: () => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  // Animate in on mount.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setOpen(true))
+    return () => cancelAnimationFrame(id)
+  }, [])
+
+  // Animate out, then hand back to the caller to drop the ?card= param.
+  const requestClose = useCallback(() => {
+    setOpen(false)
+    const t = window.setTimeout(onClose, 240)
+    return () => window.clearTimeout(t)
+  }, [onClose])
+
+  // Escape to close + scroll-lock the page behind the sheet.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && requestClose()
+    window.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [requestClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-end justify-center overflow-hidden p-0 nav:items-start nav:p-[16px] nav:pt-[64px]"
+      style={{
+        background: open ? 'var(--color-overlay-scrim-strong)' : 'transparent',
+        transition: 'background 240ms ease',
+      }}
+      onClick={requestClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Card details"
+    >
+      <div
+        className="relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-border-default bg-surface-primary shadow-xl nav:max-h-[86vh] nav:max-w-[920px] nav:rounded-2xl"
+        style={{
+          transform: open ? 'translateY(0)' : 'translateY(100%)',
+          transition: 'transform 260ms cubic-bezier(0.32, 0.72, 0, 1)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* header: mobile grab handle + always-present close button */}
+        <div className="relative flex h-[44px] shrink-0 items-center justify-center">
+          <span className="h-[4px] w-[40px] rounded-full bg-surface-tertiary nav:hidden" />
+          <button
+            onClick={requestClose}
+            aria-label="Close"
+            className="absolute right-[10px] top-[6px] flex h-[40px] w-[40px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover"
+          >
+            <Icon name="close" size={22} />
+          </button>
+        </div>
+
+        {/* scrollable content */}
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-[16px] pb-[24px] nav:px-[24px]"
+          style={{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom))' }}
+        >
+          <CardDetailBody series={series} set={set} number={number} inSheet />
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -390,10 +524,10 @@ function CardTab({
     <>
       {/* variant table */}
       <div className="mt-[16px]">
-        <div className="mb-[8px] flex items-center px-[16px] text-[12px] text-text-muted">
-          <span className="flex-1">Variant</span>
-          <span className="pr-[100px]">Market Price</span>
-          <span>Quantity</span>
+        <div className={`${VARIANT_GRID} mb-[8px] items-center px-[16px] text-[12px] text-text-muted`}>
+          <span>Variant</span>
+          <span className="text-right">Market Price</span>
+          <span className="text-right">Quantity</span>
         </div>
         <div className="flex flex-col gap-[10px]">
           {standard.map((v) => (

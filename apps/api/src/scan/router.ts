@@ -1,7 +1,7 @@
 import { Router, raw } from 'express';
 import { cardImages, q } from '../db.js';
 import { asyncHandler, badRequest, clampInt, oneOf } from '../http.js';
-import { ALGO, bytesToHash, hammingDistance, hashBuffer, hashToHex } from './phash.js';
+import { ALGO, bytesToHash, hammingDistance, hashQueryCandidates, hashToHex } from './phash.js';
 
 /**
  * Offline card scanner (Phase 8) — image → card matcher.
@@ -64,12 +64,18 @@ scanRouter.post(
     const k = clampInt(req.query.k, 5, 1, 25);
     const quality = oneOf(req.query.quality, ['low', 'high'] as const, 'low');
 
-    let queryHash: bigint;
+    // Up to two candidate hashes for the same photo: the whole frame plus a
+    // background-trimmed variant (see hashQueryCandidates). We rank each catalog
+    // entry by the MIN distance across candidates so a card centred in a photo's
+    // background is still found without penalising a clean, full-bleed shot.
+    let queryHashes: bigint[];
     try {
-      queryHash = await hashBuffer(body);
+      queryHashes = await hashQueryCandidates(body);
     } catch (e) {
       throw badRequest(`could not decode the uploaded image: ${(e as Error).message}`);
     }
+    // The reported hash is the whole-frame one — stable + comparable to the index.
+    const queryHash = queryHashes[0]!;
 
     const entries = await loadHashes(quality);
     if (entries.length === 0) {
@@ -89,7 +95,11 @@ scanRouter.post(
     const top: Array<{ cardId: number; distance: number }> = [];
     let worstKept = 64;
     for (const e of entries) {
-      const d = hammingDistance(queryHash, e.hash);
+      let d = 64;
+      for (const qh of queryHashes) {
+        const dd = hammingDistance(qh, e.hash);
+        if (dd < d) d = dd;
+      }
       if (top.length < k || d < worstKept) {
         top.push({ cardId: e.cardId, distance: d });
         top.sort((a, b) => a.distance - b.distance);
