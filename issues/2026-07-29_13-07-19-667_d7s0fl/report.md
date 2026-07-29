@@ -1,6 +1,8 @@
 ---
 id: 2026-07-29_13-07-19-667_d7s0fl
-status: open
+status: resolved
+resolvedAt: 2026-07-29T19:02:55.842Z
+resolution: Black Star Promo sets now show an authored black-star 'PROMO' SVG icon instead of placeholder text.
 createdAt: 2026-07-29T13:07:19.667Z
 page: /pokedex/series/mega-evolution
 viewport: 428x781

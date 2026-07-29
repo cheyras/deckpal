@@ -1,6 +1,8 @@
 ---
 id: 2026-07-29_13-41-06-831_gvq0kv
-status: open
+status: resolved
+resolvedAt: 2026-07-29T19:02:55.842Z
+resolution: Pokédex mobile: 2 columns with untruncated names + tightened row spacing (VirtualGrid column/measure fix).
 createdAt: 2026-07-29T13:41:06.831Z
 page: /pokedex/series/mega-evolution
 viewport: 428x781

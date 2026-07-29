@@ -1,6 +1,8 @@
 ---
 id: 2026-07-29_13-05-40-689_1m4lrn
-status: open
+status: resolved
+resolvedAt: 2026-07-29T19:02:55.842Z
+resolution: Sets with no symbol now show a derived acronym tag (MEP/MEE/ME02/…) instead of a black diamond; energy sets show an energy-symbols cluster. UI fallback ladder in SetSymbolTile.
 createdAt: 2026-07-29T13:05:40.689Z
 page: /pokedex/series/mega-evolution
 viewport: 428x781

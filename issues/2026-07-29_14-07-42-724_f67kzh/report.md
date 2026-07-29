@@ -1,6 +1,8 @@
 ---
 id: 2026-07-29_14-07-42-724_f67kzh
-status: open
+status: resolved
+resolvedAt: 2026-07-29T19:02:55.842Z
+resolution: W Promotional (0 cards) hidden from listings with the same empty-set filter + graceful empty state; no data deleted.
 createdAt: 2026-07-29T14:07:42.724Z
 page: /pokedex/series/base/wp
 viewport: 428x781

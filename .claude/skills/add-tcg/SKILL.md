@@ -217,6 +217,9 @@ keep game-specific specifics in `PKMN-SYNC-RUNBOOK.md` / the slot's `image-slots
 - Trust the **filesystem**, not a warmer's "warmed/gap" counter (it conflates already-cached with
   failed): count real files (`-size +2k`) and `curl` served URLs for real bytes.
 - After warming art that feeds the scanner, **reindex AND restart** the scan service (index is in-memory).
+- A missing set symbol/logo isn't always a warming gap — whole set *families* (promos, basic-energy,
+  licensed tie-ins) have no per-set mark at the source. Prefer a **UI fallback ladder** (authored
+  family SVG → derived acronym from the set code → neutral placeholder) over warming a nonexistent asset.
 
 ## Definition of done (adding a TCG, or a refresh)
 

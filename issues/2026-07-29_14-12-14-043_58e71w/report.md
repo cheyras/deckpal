@@ -1,6 +1,8 @@
 ---
 id: 2026-07-29_14-12-14-043_58e71w
-status: open
+status: resolved
+resolvedAt: 2026-07-29T19:02:55.842Z
+resolution: Pokédex mobile: replaced the second tab row with a funnel tile button + dropdown for the own-filter.
 createdAt: 2026-07-29T14:12:14.043Z
 page: /pokedex/pokedex
 viewport: 428x781

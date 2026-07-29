@@ -1,6 +1,8 @@
 ---
 id: 2026-07-29_14-01-57-299_14bbrw
-status: open
+status: resolved
+resolvedAt: 2026-07-29T19:02:55.842Z
+resolution: Empty (0-card) sets like Jumbo are hidden from series listings (HAVING count>0); direct URLs show a graceful 'No cards in this set yet' state.
 createdAt: 2026-07-29T14:01:57.300Z
 page: /pokedex/series/miscellaneous/jumbo
 viewport: 428x781

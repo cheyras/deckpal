@@ -1,6 +1,8 @@
 ---
 id: 2026-07-29_14-15-17-809_889fx1
-status: open
+status: resolved
+resolvedAt: 2026-07-29T19:02:55.842Z
+resolution: Card detail now opens as the bottom-sheet from Pokédex→species too (generalized CardSheet keyed by cardId; page stays mounted, state preserved).
 createdAt: 2026-07-29T14:15:17.809Z
 page: /pokedex/pokedex/2
 viewport: 428x821

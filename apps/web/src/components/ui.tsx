@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { useState, type ReactNode } from 'react'
 import { Icon } from './Icon'
+import { EnergyIcon } from './EnergyIcon'
 
 // Content column: 85% of main with a per-page max-width cap, centred
 // (UI-SPEC §4.1 — gutters are proportional, not fixed).
@@ -43,26 +44,157 @@ export function BackPill({ to, params, label }: { to: string; params?: Record<st
   )
 }
 
+// --- Set-symbol fallbacks ----------------------------------------------------
+// Some sets legitimately have no warmed symbol (49 of 218) — and a few families
+// (Black Star Promos, energy sets, McDonald's Collection) either have no symbol
+// or a generic one that doesn't convey what the set is. For those we render a
+// small authored mark; for everything else we derive a readable acronym tag from
+// the set code/id (e.g. `mep`→MEP, `mee`→MEE, `swsh12.5gg`→GG) — never a bare ◆.
+
+// Black Star Promo set ids across every series (name also carries "Black Star Promos").
+const BLACK_STAR_PROMO_IDS = new Set([
+  'basep', 'bwp', 'dpp', 'hgssp', 'mep', 'np', 'smp', 'svp', 'swshp', 'xyp',
+])
+// Energy sets (full-art / basic-energy printings) — show all the type symbols.
+const ENERGY_SET_IDS = new Set(['mee', 'sve'])
+
+type SetMark = 'promo' | 'energy' | 'mcdonalds' | null
+
+// Classify a set into a special-mark family from its id and/or name. Works from
+// the id alone (so callers that don't pass a name — e.g. CardDetail — still get
+// the right mark); the name is a secondary signal for robustness.
+function setMarkKind(setId?: string | null, name?: string | null): SetMark {
+  const id = (setId ?? '').toLowerCase()
+  const nm = name ?? ''
+  if (BLACK_STAR_PROMO_IDS.has(id) || /black star promos?/i.test(nm)) return 'promo'
+  if (ENERGY_SET_IDS.has(id) || /\benergy\b/i.test(nm)) return 'energy'
+  if (/^20\d{2}/.test(id) || /mc ?donald/i.test(nm)) return 'mcdonalds'
+  return null
+}
+
+// Derive a short, readable acronym tag from a set's code/id (falling back to its
+// name). Purpose-built for the tile — keeps it to a few uppercase chars so it fits.
+export function deriveSetTag(setId?: string | null, name?: string | null): string {
+  const raw = (setId ?? '').trim()
+  const compact = raw.replace(/[^a-zA-Z0-9]/g, '')
+  // Short clean codes (mep, mee, svp, rc, np, A3, B1a, P-A, me02…) read best as-is.
+  if (compact.length > 0 && compact.length <= 4) return compact.toUpperCase()
+  // Trailing letter suffix after a digit → Galarian/Trainer Gallery, Shiny Vault,
+  // Classic Collection (swsh12.5gg→GG, swsh10.5tg→TG, cel25cc→CC, swsh4.5sv→SV).
+  const suffix = raw.match(/\d([a-zA-Z]{2,3})$/)
+  if (suffix) return suffix[1].toUpperCase()
+  // Otherwise initials from the set name, skipping filler words.
+  if (name) {
+    const words = name
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w && !/^(the|of|and|a|an|set|collection|promos?|trainer|classic|pack|cards?|kit)$/i.test(w))
+    if (words.length >= 2) return words.slice(0, 4).map((w) => w[0]).join('').toUpperCase()
+  }
+  // Last resort: leading letter prefix, else the compacted head.
+  const prefix = raw.match(/^([a-zA-Z]{1,4})/)
+  if (prefix) return prefix[1].toUpperCase()
+  return compact.slice(0, 4).toUpperCase() || '?'
+}
+
+// Authored mark: the black star with "PROMO" beneath, white-outlined — the icon
+// printed on every Black Star Promo card. Reads as a plain black star on the
+// white tile (the white outline is for dark backgrounds).
+function PromoStarMark({ size }: { size: number }) {
+  return (
+    <svg width={size * 0.86} height={size * 0.86} viewBox="0 0 24 26" role="img" aria-label="Black Star Promo">
+      <title>Black Star Promo</title>
+      <path
+        d="M12 1.5 L15 8.3 L22.4 9 L16.9 14 L18.5 21.2 L12 17.4 L5.5 21.2 L7.1 14 L1.6 9 L9 8.3 Z"
+        fill="#111318"
+        stroke="#ffffff"
+        strokeWidth="0.9"
+        strokeLinejoin="round"
+      />
+      <text
+        x="12"
+        y="24.6"
+        textAnchor="middle"
+        fontSize="5.4"
+        fontWeight="800"
+        letterSpacing="0.2"
+        fill="#111318"
+        stroke="#ffffff"
+        strokeWidth="0.35"
+        paintOrder="stroke"
+        fontFamily="ui-sans-serif, system-ui, sans-serif"
+      >
+        PROMO
+      </text>
+    </svg>
+  )
+}
+
+// Authored mark: the McDonald's golden arches.
+export function McdonaldsMark({ size }: { size: number }) {
+  return (
+    <svg width={size * 0.74} height={size * 0.74} viewBox="0 0 24 24" role="img" aria-label="McDonald's">
+      <title>McDonald&apos;s</title>
+      <path
+        d="M4 21 V10 Q4 4 8 4 Q12 4 12 10 V21 M12 21 V10 Q12 4 16 4 Q20 4 20 10 V21"
+        fill="none"
+        stroke="#ffbc0d"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// Composed mark: a small cluster of the Pokémon energy-type symbols, standing in
+// for an energy set's thumbnail.
+function EnergySymbolsMark({ size }: { size: number }) {
+  const types = ['grass', 'fire', 'water', 'lightning', 'psychic', 'fighting']
+  const icon = Math.round(size * 0.3)
+  return (
+    <div
+      className="grid grid-cols-3 place-items-center"
+      style={{ gap: size * 0.02, width: '84%', height: '84%' }}
+    >
+      {types.map((t) => (
+        <EnergyIcon key={t} type={t} size={icon} />
+      ))}
+    </div>
+  )
+}
+
 // White rounded set-symbol tile (UI-SPEC §3.7). The symbol is served locally from
-// the WebP cache by set id; when a set has no symbol (49 of 218) or the fetch fails,
-// a placeholder ◆ glyph fills the same white tile — no broken image, no layout shift.
+// the WebP cache by set id. When a set belongs to a special family (Black Star
+// Promo, energy, McDonald's) we render an authored mark; when it has no warmed
+// symbol (or the fetch fails) we render a derived acronym tag — never a bare ◆,
+// no broken image, no layout shift. `name` is optional & backward-compatible.
 export function SetSymbolTile({
   setId,
   hasSymbol,
+  name,
   size = 40,
 }: {
   setId?: string | null
   hasSymbol?: boolean | null
+  name?: string | null
   size?: number
 }) {
   const [failed, setFailed] = useState(false)
-  const showImg = Boolean(setId && hasSymbol && !failed)
+  const mark = setMarkKind(setId, name)
+  const showImg = Boolean(setId && hasSymbol && !mark && !failed)
   return (
     <div
-      className="flex shrink-0 items-center justify-center rounded-lg bg-surface-on-light"
+      className="flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-on-light"
       style={{ width: size, height: size }}
     >
-      {showImg ? (
+      {mark === 'promo' ? (
+        <PromoStarMark size={size} />
+      ) : mark === 'mcdonalds' ? (
+        <McdonaldsMark size={size} />
+      ) : mark === 'energy' ? (
+        <EnergySymbolsMark size={size} />
+      ) : showImg ? (
         <img
           src={setAssetUrl(setId!, 'symbol')}
           alt=""
@@ -71,10 +203,10 @@ export function SetSymbolTile({
         />
       ) : (
         <span
-          className="font-black text-surface-on-light-text"
-          style={{ fontSize: size * 0.42 }}
+          className="font-black leading-none text-surface-on-light-text"
+          style={{ fontSize: size * (deriveSetTag(setId, name).length >= 4 ? 0.3 : 0.4) }}
         >
-          ◆
+          {deriveSetTag(setId, name)}
         </span>
       )}
     </div>

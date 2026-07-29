@@ -1,6 +1,8 @@
 ---
 id: 2026-07-29_13-42-33-643_j4y330
-status: open
+status: resolved
+resolvedAt: 2026-07-29T19:02:55.842Z
+resolution: Stream Tools is now a non-navigable 'Soon' nav item (the /overlay OBS route is retained).
 createdAt: 2026-07-29T13:42:33.643Z
 page: /pokedex/series/mega-evolution
 viewport: 428x781

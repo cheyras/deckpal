@@ -1,6 +1,8 @@
 ---
 id: 2026-07-29_14-10-57-381_91wf6b
-status: open
+status: resolved
+resolvedAt: 2026-07-29T19:02:55.842Z
+resolution: Pokédex completion stat now scopes to the selected generation (regional dex name Kanto/Johto/…; % over that gen's species).
 createdAt: 2026-07-29T14:10:57.381Z
 page: /pokedex/pokedex
 viewport: 428x781

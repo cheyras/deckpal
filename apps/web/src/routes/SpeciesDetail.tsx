@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useParams } from '@tanstack/react-router'
+import { useParams, useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type CardRow, type SpeciesDetailCard } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
 import { GridView } from '../components/GridView'
 import { SpriteTile } from '../components/SpriteTile'
+import { CardSheet } from './CardDetail'
 import { fmtNumber, typeColor } from '../lib/format'
 
 // The card-detail route param $series is a series SLUG (e.g. "scarlet-violet"),
@@ -44,6 +45,8 @@ function toCardRow(c: SpeciesDetailCard, seriesSlug: string | null): CardRow {
 
 export function SpeciesDetail() {
   const { speciesId } = useParams({ from: '/pokedex/$speciesId' })
+  const search = useSearch({ from: '/pokedex/$speciesId' })
+  const navigate = useNavigate({ from: '/pokedex/$speciesId' })
   const [ownedOnly, setOwnedOnly] = useState(false)
 
   const { data, isLoading, error } = useQuery({
@@ -151,6 +154,19 @@ export function SpeciesDetail() {
             )}
           </div>
         </>
+      )}
+
+      {/* Card detail as a bottom-sheet driven by the ?card=<cardId> search param.
+          Rendering it here (rather than navigating to the standalone card route)
+          keeps SpeciesDetail mounted, so scroll position + the owned filter survive
+          an open→close cycle — identical to the set page. */}
+      {search.card && (
+        <CardSheet
+          cardId={search.card}
+          onClose={() =>
+            navigate({ search: ((prev: { card?: string }) => ({ ...prev, card: undefined })) as never, resetScroll: false })
+          }
+        />
       )}
     </Content>
   )

@@ -34,6 +34,7 @@ interface NavItem {
   to?: string
   expandable?: boolean
   external?: boolean
+  soon?: boolean
 }
 
 // Order mirrors pkmn.gg's rail (UI-SPEC §3.1). Single-user English-TCG build:
@@ -45,7 +46,10 @@ const NAV: NavItem[] = [
   { label: 'Pokédex', icon: 'pokedex', to: '/pokedex' },
   { label: 'Insights', icon: 'chart', to: '/insights' },
   { label: 'Scan Card', icon: 'camera', to: '/scan' },
-  { label: 'Stream Tools', icon: 'stream', to: '/overlay' },
+  // Stream Tools is the OBS overlay browser source (chrome-free/transparent), which
+  // renders as a black screen in a normal tab — so it's non-navigable with a "Soon"
+  // badge until there's a real in-app surface for it. The /overlay route still exists.
+  { label: 'Stream Tools', icon: 'stream', soon: true },
 ]
 
 function NavRow({ item, active, collapsed }: { item: NavItem; active: boolean; collapsed: boolean }) {
@@ -63,6 +67,11 @@ function NavRow({ item, active, collapsed }: { item: NavItem; active: boolean; c
       {!collapsed && (
         <>
           <span className="flex-1 text-[14px] font-normal leading-[21px]">{item.label}</span>
+          {item.soon && (
+            <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[10px] font-bold uppercase tracking-wide text-text-muted">
+              Soon
+            </span>
+          )}
           {item.expandable && <Icon name="chevron-down" size={18} className="text-icon-muted" />}
           {item.external && <Icon name="external" size={14} className="text-icon-muted" />}
         </>
