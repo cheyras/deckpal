@@ -37,7 +37,7 @@ interface CardRow {
   retreat: number | null;
   regulation_mark: string | null;
   evolve_from: string | null;
-  released_on: string | null;
+  released_on: Date | string | null; // pg returns DATE columns as Date objects
 }
 
 const CARD_SELECT = `
@@ -81,7 +81,11 @@ function toFacts(row: CardRow, types: PokemonType[]): CardFacts {
     regulationMark: row.regulation_mark,
     evolveFrom: row.evolve_from,
     types,
-    releasedOn: row.released_on,
+    // pg returns DATE columns as Date objects; CardFacts declares an ISO string
+    releasedOn:
+      row.released_on instanceof Date
+        ? row.released_on.toISOString().slice(0, 10)
+        : row.released_on,
   };
 }
 
