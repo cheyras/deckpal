@@ -36,21 +36,16 @@ interface NavItem {
   external?: boolean
 }
 
-// Order mirrors pkmn.gg's rail (UI-SPEC §3.1). Only "English TCG" is wired;
-// the rest render as authentic-looking but inert entries for this browse MVP.
+// Order mirrors pkmn.gg's rail (UI-SPEC §3.1). Single-user English-TCG build:
+// "English TCG" expands to the live series list; every other entry is wired.
 const NAV: NavItem[] = [
   { label: 'English TCG', icon: 'cards', to: '/series', expandable: true },
-  { label: 'Japanese TCG', icon: 'cards', expandable: true },
-  { label: 'TCG Pocket', icon: 'cards', expandable: true },
   { label: 'My Lists', icon: 'lists', to: '/lists' },
   { label: 'Deck Builder', icon: 'deck', to: '/decks' },
   { label: 'Pokédex', icon: 'pokedex', to: '/pokedex' },
   { label: 'Insights', icon: 'chart', to: '/insights' },
   { label: 'Scan Card', icon: 'camera', to: '/scan' },
   { label: 'Stream Tools', icon: 'stream', to: '/overlay' },
-  { label: 'Discord', icon: 'discord', external: true },
-  { label: 'Merch', icon: 'merch', external: true },
-  { label: 'Pro Membership', icon: 'pro' },
 ]
 
 function NavRow({ item, active, collapsed }: { item: NavItem; active: boolean; collapsed: boolean }) {
@@ -84,6 +79,84 @@ function NavRow({ item, active, collapsed }: { item: NavItem; active: boolean; c
   return <div className="block cursor-default select-none opacity-90">{body}</div>
 }
 
+// The live series list, rendered as indented sub-items under an expanded parent.
+// Shares react-query's ['series'] cache with SeriesIndex, so it's usually warm.
+// `onNavigate` lets the mobile drawer close itself when a sub-item is tapped.
+function SeriesSubNav({ onNavigate }: { onNavigate?: () => void }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const { data, isLoading, error } = useQuery({ queryKey: ['series'], queryFn: ({ signal }) => api.series(signal) })
+  if (isLoading) {
+    return <div className="py-[8px] pl-[62px] pr-[24px] text-[13px] text-text-muted">Loading series…</div>
+  }
+  if (error || !data?.series.length) {
+    return <div className="py-[8px] pl-[62px] pr-[24px] text-[13px] text-text-muted">No series</div>
+  }
+  return (
+    <div className="pb-[6px]">
+      {data.series.map((s) => {
+        const active = pathname === `/series/${s.slug}` || pathname.startsWith(`/series/${s.slug}/`)
+        return (
+          <Link
+            key={s.slug}
+            to="/series/$series"
+            params={{ series: s.slug }}
+            onClick={onNavigate}
+            className={[
+              'block py-[8px] pl-[62px] pr-[24px] text-[13px] leading-[18px]',
+              active ? 'font-medium text-text-primary' : 'text-text-muted hover:text-text-body',
+            ].join(' ')}
+          >
+            {s.name}
+          </Link>
+        )
+      })}
+    </div>
+  )
+}
+
+// An expandable parent row (English TCG). Not-collapsed: the row is a toggle that
+// reveals SeriesSubNav and rotates its chevron. Collapsed (icon-only rail): there's
+// no room for sub-items, so it degrades to a plain link via NavRow.
+function ExpandableNavRow({
+  item,
+  collapsed,
+  onNavigate,
+}: {
+  item: NavItem
+  collapsed: boolean
+  onNavigate?: () => void
+}) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const [open, setOpen] = useState(false)
+  const active = !!item.to && (pathname === item.to || pathname.startsWith(`${item.to}/`))
+  if (collapsed) {
+    return <NavRow item={item} active={active} collapsed />
+  }
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="block w-full text-left">
+        <span
+          className={[
+            'flex h-[56px] items-center gap-[14px] px-[24px]',
+            active ? 'bg-surface-secondary text-text-primary' : 'text-text-muted hover:text-text-body',
+          ].join(' ')}
+        >
+          <span className={active ? 'text-text-primary' : 'text-icon-muted-strong'}>
+            <Icon name={item.icon} size={24} />
+          </span>
+          <span className="flex-1 text-[14px] font-normal leading-[21px]">{item.label}</span>
+          <Icon
+            name="chevron-down"
+            size={18}
+            className={['text-icon-muted transition-transform', open ? 'rotate-180' : ''].join(' ')}
+          />
+        </span>
+      </button>
+      {open && <SeriesSubNav onNavigate={onNavigate} />}
+    </div>
+  )
+}
+
 function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   return (
@@ -113,6 +186,9 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       </div>
       <nav className="flex-1 overflow-y-auto py-[6px]">
         {NAV.map((item) => {
+          if (item.expandable) {
+            return <ExpandableNavRow key={item.label} item={item} collapsed={collapsed} />
+          }
           const active = !!item.to && (pathname === item.to || pathname.startsWith(`${item.to}/`))
           return <NavRow key={item.label} item={item} active={active} collapsed={collapsed} />
         })}
@@ -154,11 +230,16 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
           </Link>
         </div>
         <nav>
-          {NAV.map((item) => (
-            <div key={item.label} onClick={item.to ? onClose : undefined}>
-              <NavRow item={item} active={false} collapsed={false} />
-            </div>
-          ))}
+          {NAV.map((item) =>
+            item.expandable ? (
+              // Self-manages its toggle + sub-links; closes the drawer on a sub-item tap.
+              <ExpandableNavRow key={item.label} item={item} collapsed={false} onNavigate={onClose} />
+            ) : (
+              <div key={item.label} onClick={item.to ? onClose : undefined}>
+                <NavRow item={item} active={false} collapsed={false} />
+              </div>
+            ),
+          )}
         </nav>
       </div>
     </>

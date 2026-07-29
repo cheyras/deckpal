@@ -28,15 +28,29 @@ export const ALGO = 'dhash8';
 // with the arg vector below. Overridable for odd installs.
 const IM_BIN = process.env.IMAGEMAGICK_BIN ?? 'magick';
 
-// The decode pipeline, shared by path and buffer inputs. `INPUT` is replaced by
-// a file path or `-` (stdin). Output is raw 8-bit gray, row-major, 72 bytes.
-function imArgs(input: string): string[] {
-  return [input, '-colorspace', 'Gray', '-resize', '9x8!', '-depth', '8', 'gray:-'];
+// Background-trim ops, applied ONLY to a query photo (never to the index).
+// `-fuzz N% -trim` strips a roughly-uniform border — the table/mat/desk around a
+// card that doesn't fill the phone frame — before the grid is sampled. Without
+// it, a centred card surrounded by 25% background hashes almost entirely to the
+// background gradient and matches nothing (measured: distance 37 → 4 once the
+// border is trimmed). It is a QUERY-ONLY candidate, min-combined with the plain
+// hash (see hashQueryCandidates), so it can only ever help: a full-bleed modern
+// card or a white/yellow-bordered vintage card still matches via the plain hash
+// at distance 0, even though trimming would shift its own border by several bits.
+const TRIM_OPS = ['-fuzz', '15%', '-trim', '+repage'];
+
+// The decode pipeline, shared by path and buffer inputs. `input` is a file path
+// or `-` (stdin). `pre` are extra ops that run BEFORE grayscale+resize (e.g. a
+// background trim for query photos). Output is raw 8-bit gray, row-major, 72 B.
+function imArgs(input: string, pre: string[]): string[] {
+  return [input, ...pre, '-colorspace', 'Gray', '-resize', '9x8!', '-depth', '8', 'gray:-'];
 }
 
 interface GrayInput {
   path?: string;
   buffer?: Buffer;
+  /** Extra ImageMagick ops before grayscale+resize (query-only preprocessing). */
+  pre?: string[];
 }
 
 /**
@@ -46,7 +60,7 @@ interface GrayInput {
  */
 export function decodeGray(input: GrayInput): Promise<Uint8Array> {
   const fromStdin = input.buffer !== undefined;
-  const args = imArgs(fromStdin ? '-' : (input.path as string));
+  const args = imArgs(fromStdin ? '-' : (input.path as string), input.pre ?? []);
   return new Promise((resolve, reject) => {
     const cp = spawn(IM_BIN, args, { stdio: ['pipe', 'pipe', 'pipe'] });
     const chunks: Buffer[] = [];
@@ -98,6 +112,30 @@ export async function hashPath(path: string): Promise<bigint> {
 
 export async function hashBuffer(buffer: Buffer): Promise<bigint> {
   return dhashFromGray(await decodeGray({ buffer }));
+}
+
+/**
+ * Query-time hashing that is robust to a photographed card sitting inside a
+ * background. Returns up to two candidate hashes for the SAME uploaded image:
+ *   [0] whole-frame dHash — matches full-bleed catalog art and client-cropped
+ *       frames, and re-finds vintage bordered cards at distance 0.
+ *   [1] background-trimmed dHash — rescues photos where the card doesn't fill
+ *       the frame (a phone shot with table/mat around it).
+ * The caller scores each catalog entry by the MINIMUM distance across these
+ * candidates, so trimming is purely additive: it can rescue a match but never
+ * push a clean card away (its plain hash is always still in the running). If the
+ * trim step fails (e.g. a perfectly uniform image collapses to nothing), only
+ * the plain hash is returned — the query still succeeds.
+ */
+export async function hashQueryCandidates(buffer: Buffer): Promise<bigint[]> {
+  const out: bigint[] = [dhashFromGray(await decodeGray({ buffer }))];
+  try {
+    const trimmed = dhashFromGray(await decodeGray({ buffer, pre: TRIM_OPS }));
+    if (trimmed !== out[0]) out.push(trimmed);
+  } catch {
+    /* trim can fail on a degenerate (uniform) image; the plain hash stands. */
+  }
+  return out;
 }
 
 // ── bigint ⇄ 8-byte big-endian bytea (how the hash persists) ─────────────────

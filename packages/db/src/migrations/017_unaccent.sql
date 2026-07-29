@@ -1,0 +1,12 @@
+-- 017 · unaccent extension for accent-insensitive card-name search
+-- Bug 2026-07-29_05-23-59-152_fvrc4t: typing "Poke" should match "Pokémon"
+-- (é ↔ e). unaccent() folds diacritics so the ?q= card-name filter on set pages
+-- and global search treats "Poke"/"Pokemon" as matching "Pokémon".
+--
+-- unaccent is a "trusted" extension (PG14+), so the pokedex role can create it
+-- as owner of this database without superuser (same as pg_trgm in 001).
+--
+-- NOTE: the single-arg unaccent(text) is only STABLE, not IMMUTABLE, so it is
+-- deliberately NOT indexed here — for this catalogue's scale a functional scan
+-- over card.name is fine, and an unaccent functional index would be fragile.
+CREATE EXTENSION IF NOT EXISTS unaccent;

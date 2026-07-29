@@ -8,6 +8,7 @@ import { OwnershipStrip, SearchBox, SortChips, VariantLegend, ViewToggle } from 
 import { GridView } from '../components/GridView'
 import { BinderView } from '../components/BinderView'
 import { TableView } from '../components/TableView'
+import { CardSheet } from './CardDetail'
 import { type CardSearch } from './setSearch'
 
 export function SetDetail() {
@@ -104,6 +105,20 @@ export function SetDetail() {
             )}
           </div>
         </>
+      )}
+
+      {/* Card detail as a bottom-sheet driven by the ?card= search param. Rendering
+          it here (rather than navigating to the card route) keeps SetDetail mounted,
+          so scroll position + q/sort/goal/own filters survive an open→close cycle. */}
+      {search.card && (
+        <CardSheet
+          series={series}
+          set={set}
+          number={search.card}
+          onClose={() =>
+            navigate({ search: ((prev: CardSearch) => ({ ...prev, card: undefined })) as never, resetScroll: false })
+          }
+        />
       )}
     </Content>
   )

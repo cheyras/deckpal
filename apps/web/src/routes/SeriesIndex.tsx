@@ -31,9 +31,9 @@ export function SeriesIndex() {
               style={{ minHeight: 178 }}
             >
               <div>
-                {/* representative set logo — the most recent set in the series with
-                    art; keeps the index from being bare text. Falls back to nothing
-                    (the name below always shows) if absent or the fetch fails. */}
+                {/* representative set logo — the series' base/namesake set (e.g. the
+                    "Scarlet & Violet" set for the Scarlet & Violet era). Falls back to
+                    nothing (the name below always shows) if absent or the fetch fails. */}
                 <div className="mb-[12px] flex h-[48px] items-center">
                   {s.repSetId && (
                     <img

@@ -163,6 +163,24 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Native feel: a stray zoom or scroll must never drift the layout sideways. */
+  max-width: 100%;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+
+/* iOS Safari auto-zooms the whole page when a focused input/textarea/select has
+   a font-size below 16px — the app ships controls at 13–15px, which trips it and
+   throws the layout off (issue tiachw). Forcing ≥16px on non-desktop widths is the
+   accessible root-cause fix (never disable pinch-zoom). !important is required to
+   win over Tailwind's per-control `text-[13px]`… arbitrary utilities; desktop
+   (>1068px, the app's nav breakpoint) keeps its designed sizes. */
+@media (max-width: 1068px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
 }
 
 /* Motion contract: the ONLY authored transitions on pkmn.gg are
