@@ -1,8 +1,174 @@
-import { Link } from '@tanstack/react-router'
-import type { CardRow } from '../lib/api'
+import { useRef } from 'react'
+import { Link, useRouterState } from '@tanstack/react-router'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api, type CardDetailResponse, type CardRow, type Variant } from '../lib/api'
 import { fmtPrice, fmtNumber, rarityGlyph } from '../lib/format'
+import { useOnline } from '../lib/useOnline'
 import { CardImage } from './CardImage'
 import { Icon } from './Icon'
+import type { CardSearch } from '../routes/setSearch'
+
+// Per-variant accent colour + whether the filled chip needs dark text for
+// legibility (yellow/normal does; purple/blue do not). Mirrors CardDetail's
+// variantColor() + the VariantLegend so the grid counters read as the same system.
+function variantMeta(v: Variant): { color: string; dark: boolean; order: number } {
+  const k = v.kind.toLowerCase()
+  if (v.tier === 'special') return { color: 'var(--color-variant-other)', dark: true, order: 3 }
+  if (k.includes('reverse')) return { color: 'var(--color-variant-reverse-holo)', dark: false, order: 2 }
+  if (k.includes('holo')) return { color: 'var(--color-variant-holofoil)', dark: false, order: 1 }
+  return { color: 'var(--color-variant-normal)', dark: true, order: 0 }
+}
+
+// A single tappable count box (one main variant). Tap = +1, long-press or
+// right-click = −1 (floored at 0 via the disabled state). Sits above the card
+// image, so every handler stops propagation to keep the tile's link inert.
+function CounterBox({
+  label,
+  color,
+  dark,
+  qty,
+  disabled,
+  onInc,
+  onDec,
+}: {
+  label: string
+  color: string
+  dark: boolean
+  qty: number
+  disabled: boolean
+  onInc: () => void
+  onDec: () => void
+}) {
+  const timer = useRef<number | null>(null)
+  const longPressed = useRef(false)
+
+  const clear = () => {
+    if (timer.current != null) {
+      clearTimeout(timer.current)
+      timer.current = null
+    }
+  }
+  const startPress = () => {
+    longPressed.current = false
+    clear()
+    timer.current = window.setTimeout(() => {
+      longPressed.current = true
+      if (qty > 0) onDec()
+    }, 500)
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-label={`${label}: ${qty} owned. Tap to add one, long-press to remove one.`}
+      title={`${label} — ${qty} owned · tap +1, hold −1`}
+      onPointerDown={(e) => {
+        e.stopPropagation()
+        startPress()
+      }}
+      onPointerUp={clear}
+      onPointerLeave={clear}
+      onPointerCancel={clear}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (qty > 0) onDec()
+      }}
+      onClick={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (longPressed.current) {
+          longPressed.current = false
+          return
+        }
+        onInc()
+      }}
+      className="flex h-[24px] min-w-[22px] items-center justify-center rounded-[6px] px-[5px] text-[12px] font-extrabold leading-none tabular-nums shadow-panel transition-opacity enabled:hover:opacity-90 disabled:opacity-60"
+      style={
+        qty > 0
+          ? { background: color, color: dark ? '#15181f' : '#fff' }
+          : {
+              background: 'var(--color-surface-tertiary-transparent)',
+              color: 'var(--color-text-muted)',
+              border: `2px solid ${color}`,
+            }
+      }
+    >
+      {qty > 0 ? qty : ''}
+    </button>
+  )
+}
+
+// Per-variant quantity counters (pkmn.gg's little count boxes). The set list API
+// only returns an aggregate owned total, not per-variant quantities, so we read
+// the card's variants from the shared ['card', cardId] query — the same cache
+// CardDetail populates and mutates — and write through the existing collection
+// endpoints. Progress bars reconcile via the ['set', setId] invalidation on settle.
+function VariantCounters({ cardId, setId }: { cardId: string; setId: string }) {
+  const qc = useQueryClient()
+  const online = useOnline()
+  const { data } = useQuery({
+    queryKey: ['card', cardId],
+    queryFn: ({ signal }) => api.card(cardId, signal),
+  })
+
+  const mutation = useMutation({
+    mutationFn: ({ variantId, delta }: { variantId: number; delta: number }) =>
+      api.incrementVariant(variantId, delta),
+    onMutate: async ({ variantId, delta }) => {
+      await qc.cancelQueries({ queryKey: ['card', cardId] })
+      const prevCard = qc.getQueryData<CardDetailResponse>(['card', cardId])
+      // Optimistically move just this variant's quantity so the box updates
+      // instantly; the set query's progress + counts reconcile on settle.
+      qc.setQueryData<CardDetailResponse>(['card', cardId], (old) =>
+        old
+          ? {
+              ...old,
+              variants: old.variants.map((v) =>
+                v.variantId === variantId ? { ...v, quantity: Math.max(0, v.quantity + delta) } : v,
+              ),
+            }
+          : old,
+      )
+      return { prevCard }
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prevCard) qc.setQueryData(['card', cardId], ctx.prevCard)
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['card', cardId] })
+      void qc.invalidateQueries({ queryKey: ['set', setId] })
+    },
+  })
+
+  if (!data) return null
+  const standard = data.variants
+    .filter((v) => v.tier === 'standard')
+    .map((v) => ({ v, meta: variantMeta(v) }))
+    .sort((a, b) => a.meta.order - b.meta.order)
+  if (standard.length === 0) return null
+
+  return (
+    <div
+      className="absolute bottom-[8px] right-[8px] flex items-center gap-[4px]"
+      title={online ? undefined : 'Offline — reconnect to change your collection'}
+    >
+      {standard.map(({ v, meta }) => (
+        <CounterBox
+          key={v.variantId}
+          label={v.displayName}
+          color={meta.color}
+          dark={meta.dark}
+          qty={v.quantity}
+          disabled={!online || mutation.isPending}
+          onInc={() => mutation.mutate({ variantId: v.variantId, delta: 1 })}
+          onDec={() => mutation.mutate({ variantId: v.variantId, delta: -1 })}
+        />
+      ))}
+    </div>
+  )
+}
 
 // The signature component (UI-SPEC §3.2). The tile is INERT — no hover
 // transform, no shadow (pkmn.gg's is completely inert). Only the name link
@@ -33,12 +199,22 @@ export function CardTile({
   const set = card.setId ?? setId
   const owned = ownership ? card.ownership?.have : undefined
   const qty = card.ownership?.totalQuantity ?? 0
-  return (
-    <Link
-      to="/series/$series/$set/$number"
-      params={{ series, set, number: card.number }}
-      className="group block"
-    >
+  // Per-variant count boxes only make sense on the plain set catalog: skip them
+  // when the tile already renders an ownership total, a badge, or a remove button
+  // (their lower-right corner is spoken for) or has no real set to resolve.
+  const showCounters = !ownership && !badge && !onRemove && Boolean(set)
+  // On the set page the tile opens the detail as a bottom-sheet (a ?card= search
+  // change that leaves SetDetail mounted → scroll/filter preserved) instead of a
+  // full-page nav. Elsewhere (species detail, lists) it links to the card route as
+  // before. "Set page" = the set route is the current leaf match; opening the sheet
+  // is only a search-param change, so the leaf stays put and tiles remain in sheet
+  // mode. The standalone card route ('/…/$set/$number') is a different leaf.
+  const onSetPage = useRouterState({
+    select: (s) => s.matches[s.matches.length - 1]?.routeId === '/series/$series/$set',
+  })
+
+  const inner = (
+    <>
       <div className="relative" style={owned === false ? { opacity: 0.5, filter: 'grayscale(0.6)' } : undefined}>
         <CardImage
           low={card.images.low}
@@ -74,6 +250,7 @@ export function CardTile({
             <Icon name="close" size={16} />
           </button>
         )}
+        {showCounters && <VariantCounters cardId={`${set}-${card.number}`} setId={set} />}
       </div>
       {/* Footer block — 74px, uniform for virtualization */}
       <div className="pt-[10px]">
@@ -92,6 +269,32 @@ export function CardTile({
           </span>
         </div>
       </div>
+    </>
+  )
+
+  // Set page: open the sheet via a scroll-preserving search-param change.
+  if (onSetPage) {
+    return (
+      <Link
+        to="/series/$series/$set"
+        params={{ series, set }}
+        search={((prev: CardSearch) => ({ ...prev, card: card.number })) as never}
+        resetScroll={false}
+        className="group block"
+      >
+        {inner}
+      </Link>
+    )
+  }
+
+  // Everywhere else: full navigation to the standalone card route.
+  return (
+    <Link
+      to="/series/$series/$set/$number"
+      params={{ series, set, number: card.number }}
+      className="group block"
+    >
+      {inner}
     </Link>
   )
 }

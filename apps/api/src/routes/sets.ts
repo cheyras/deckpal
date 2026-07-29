@@ -173,7 +173,9 @@ setsRouter.get(
     let searchSql = '';
     if (search) {
       params.push(`%${search}%`);
-      searchSql = `AND (c.name ILIKE $${params.length} OR c.local_id ILIKE $${params.length} OR c.number_sort ILIKE $${params.length})`;
+      // Accent-insensitive name match: unaccent() folds diacritics on both sides
+      // so "Poke" matches "Pokémon" (é ↔ e). local_id/number_sort are ASCII.
+      searchSql = `AND (unaccent(c.name) ILIKE unaccent($${params.length}) OR c.local_id ILIKE $${params.length} OR c.number_sort ILIKE $${params.length})`;
     }
     params.push(pageSize);
     const limitIdx = params.length;

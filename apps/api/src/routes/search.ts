@@ -97,7 +97,9 @@ searchRouter.get(
     if (attack) where.push(`EXISTS (SELECT 1 FROM card_attack a WHERE a.card_id = c.id AND (a.name ILIKE ${p(`%${attack}%`)} OR a.effect ILIKE $${params.length}))`);
     if (ability) where.push(`EXISTS (SELECT 1 FROM card_ability ab WHERE ab.card_id = c.id AND (ab.name ILIKE ${p(`%${ability}%`)} OR ab.effect ILIKE $${params.length}))`);
     if (artist.length) where.push(`c.illustrator = ANY(${p(artist)})`);
-    if (search) where.push(`(c.name ILIKE ${p(`%${search}%`)} OR c.local_id ILIKE $${params.length} OR c.number_sort ILIKE $${params.length})`);
+    // Accent-insensitive name match: unaccent() folds diacritics on both sides
+    // so "Poke" matches "Pokémon" (é ↔ e). local_id/number_sort are ASCII.
+    if (search) where.push(`(unaccent(c.name) ILIKE unaccent(${p(`%${search}%`)}) OR c.local_id ILIKE $${params.length} OR c.number_sort ILIKE $${params.length})`);
 
     const orderSql = `ORDER BY ${SORT_COLUMNS[sort]} ${dir === 'desc' ? 'DESC' : 'ASC'} NULLS LAST, c.number_sort ASC`;
     const limitIdx = p(pageSize);

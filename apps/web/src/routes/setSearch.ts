@@ -16,6 +16,11 @@ export interface CardSearch {
   own: Ownership
   q: string
   page: number
+  // Open card detail as a bottom-sheet over the set page. Not part of the
+  // stripped defaults, so it only appears in the URL while a card is open;
+  // toggling it is a search-param change that never unmounts SetDetail, which
+  // is what preserves scroll/filter state when the sheet closes.
+  card?: string
 }
 
 export const CARD_SEARCH_DEFAULTS: CardSearch = {
@@ -51,6 +56,7 @@ export function validateCardSearch(raw: Record<string, unknown>): CardSearch {
     own: pick(raw.own, OWNS, CARD_SEARCH_DEFAULTS.own),
     q: typeof raw.q === 'string' ? raw.q : CARD_SEARCH_DEFAULTS.q,
     page: Number.isInteger(pageNum) && pageNum > 0 ? pageNum : 1,
+    card: typeof raw.card === 'string' && raw.card ? raw.card : undefined,
   }
 }
 

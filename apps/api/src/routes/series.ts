@@ -21,9 +21,14 @@ interface SeriesRow {
 seriesRouter.get(
   '/',
   asyncHandler(async (_req, res) => {
-    // rep: a representative set per series — the most recent set that HAS a logo —
-    // so the series index isn't bare text. Its logo/symbol are served locally by
-    // pokedex-images via the set id (falls back to a glyph when absent).
+    // rep: the series' base/namesake set — the set sharing the series name (e.g.
+    // "Scarlet & Violet" → set sv01), else the earliest non-promo set with a logo
+    // (the flagship base set). Represents the whole era rather than a random recent
+    // sub-set. Its logo/symbol are served locally by pokedex-images via the set id
+    // (the client falls back cleanly when absent).
+    //
+    // Pokémon TCG Pocket (tcgdex_id 'tcgp') is a separate game, not an English TCG
+    // era — excluded from this list. The rows are ordered newest era first.
     const rows = await q<SeriesRow>(
       `SELECT s.id, s.tcgdex_id, s.slug, s.name, s.first_release_on, s.sort_order,
               count(DISTINCT cs.id) AS set_count,
@@ -38,11 +43,15 @@ seriesRouter.get(
                 SELECT cs2.tcgdex_id, cs2.symbol_url
                   FROM card_set cs2
                  WHERE cs2.series_id = s.id AND cs2.logo_url IS NOT NULL
-                 ORDER BY cs2.released_on DESC NULLS LAST, cs2.name
+                 ORDER BY (lower(cs2.name) = lower(s.name)) DESC,
+                          cs2.is_promo ASC,
+                          cs2.released_on ASC NULLS LAST,
+                          cs2.name
                  LIMIT 1
               ) rep ON true
+        WHERE s.tcgdex_id <> 'tcgp'
         GROUP BY s.id, rep.tcgdex_id, rep.symbol_url
-        ORDER BY s.sort_order, s.first_release_on NULLS LAST, s.name`,
+        ORDER BY s.sort_order DESC, s.first_release_on DESC NULLS LAST, s.name`,
     );
     catalogCache(res);
     res.json({
