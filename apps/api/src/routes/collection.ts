@@ -64,6 +64,32 @@ function parseDelta(v: unknown): number {
   return n;
 }
 
+// ── Attribution (migration 018) ───────────────────────────────────────────────
+// Every collection_event carries WHO wrote it (source) and an optional note.
+// The shape mirrors the DB CHECK (collection_event_source_shape) exactly, so a
+// bad value is rejected here as a 400 instead of surfacing as a 500 from Postgres.
+
+const SOURCE_SHAPE = /^[a-z0-9][a-z0-9._-]{0,39}$/;
+
+/** Writer attribution for an event; omitted → 'web' (the UI, matching the column default). */
+function parseSource(v: unknown): string {
+  if (v === undefined || v === null) return 'web';
+  if (typeof v !== 'string' || !SOURCE_SHAPE.test(v)) {
+    throw badRequest("source must match ^[a-z0-9][a-z0-9._-]{0,39}$ (e.g. 'web', 'rotom-mcp')");
+  }
+  return v;
+}
+
+/** Optional free-text note: trimmed, ≤500 chars, empty → null (never stored as ''). */
+function parseNote(v: unknown): string | null {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== 'string') throw badRequest('note must be a string');
+  const trimmed = v.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed.length > 500) throw badRequest('note too long (max 500 chars)');
+  return trimmed;
+}
+
 /**
  * Apply a new absolute quantity to (user, variant) and recompute set progress, all
  * in one transaction. `resolveQty` maps the current quantity to the target — this
@@ -72,6 +98,8 @@ function parseDelta(v: unknown): number {
 async function applyQuantity(
   variantIdRaw: string,
   resolveQty: (current: number) => number,
+  source: string,
+  note: string | null,
 ): Promise<MutationResult> {
   const variantId = Number(variantIdRaw);
   if (!Number.isInteger(variantId) || variantId <= 0) throw badRequest('variantId must be a positive integer');
@@ -121,9 +149,9 @@ async function applyQuantity(
       }
       // Append the activity log (delta <> 0 enforced above and by the CHECK).
       await client.query(
-        `INSERT INTO collection_event (user_id, card_variant_id, delta, quantity_after, is_first_acquisition)
-              VALUES ($1, $2, $3, $4, $5)`,
-        [userId, variantId, delta, clamped, isFirstAcquisition],
+        `INSERT INTO collection_event (user_id, card_variant_id, delta, quantity_after, is_first_acquisition, source, note)
+              VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [userId, variantId, delta, clamped, isFirstAcquisition, source, note],
       );
     }
 
@@ -164,43 +192,50 @@ async function applyQuantity(
 }
 
 /**
- * PATCH /pokedex/api/collection/variants/:variantId  { quantity }
+ * PATCH /pokedex/api/collection/variants/:variantId  { quantity, source?, note? }
  * Set the absolute owned quantity for a variant. Idempotent.
  */
 collectionRouter.patch(
   '/variants/:variantId',
   asyncHandler(async (req, res) => {
-    const quantity = parseQuantity((req.body ?? {}).quantity);
-    const result = await applyQuantity(String(req.params.variantId), () => quantity);
+    const body = req.body ?? {};
+    const quantity = parseQuantity(body.quantity);
+    const result = await applyQuantity(String(req.params.variantId), () => quantity, parseSource(body.source), parseNote(body.note));
     userCache(res);
     res.json(result);
   }),
 );
 
 /**
- * POST /pokedex/api/collection/variants/:variantId/increment  { delta? }
+ * POST /pokedex/api/collection/variants/:variantId/increment  { delta?, source?, note? }
  * Adjust the owned quantity by a signed delta (default +1). Floors at 0.
  */
 collectionRouter.post(
   '/variants/:variantId/increment',
   asyncHandler(async (req, res) => {
-    const delta = parseDelta((req.body ?? {}).delta);
-    const result = await applyQuantity(String(req.params.variantId), (cur) => cur + delta);
+    const body = req.body ?? {};
+    const delta = parseDelta(body.delta);
+    const result = await applyQuantity(String(req.params.variantId), (cur) => cur + delta, parseSource(body.source), parseNote(body.note));
     userCache(res);
     res.json(result);
   }),
 );
 
 /**
- * POST /pokedex/api/collection/cards/:cardId/have   { have }
+ * POST /pokedex/api/collection/cards/:cardId/have   { have, source?, note? }
  * Tile-level Have/Need toggle. have:true owns the primary variant (sets it to 1 if
  * currently 0; leaves an existing higher quantity untouched). have:false zeroes
  * EVERY variant of the card (Need = own nothing). One transaction, one recompute.
+ * have:false may write several events (one per zeroed variant) — each carries the
+ * same source/note attribution.
  */
 collectionRouter.post(
   '/cards/:cardId/have',
   asyncHandler(async (req, res) => {
-    const have = Boolean((req.body ?? {}).have);
+    const body = req.body ?? {};
+    const have = Boolean(body.have);
+    const source = parseSource(body.source);
+    const note = parseNote(body.note);
     const cardTcgdexId = String(req.params.cardId);
     const userId = await defaultUserId();
 
@@ -236,9 +271,9 @@ collectionRouter.post(
             [userId, pv],
           );
           await client.query(
-            `INSERT INTO collection_event (user_id, card_variant_id, delta, quantity_after, is_first_acquisition)
-                  VALUES ($1, $2, 1, 1, $3)`,
-            [userId, pv, Number(prior.rows[0]?.n ?? 0) === 0],
+            `INSERT INTO collection_event (user_id, card_variant_id, delta, quantity_after, is_first_acquisition, source, note)
+                  VALUES ($1, $2, 1, 1, $3, $4, $5)`,
+            [userId, pv, Number(prior.rows[0]?.n ?? 0) === 0, source, note],
           );
         }
       } else {
@@ -257,9 +292,9 @@ collectionRouter.post(
             [userId, row.card_variant_id],
           );
           await client.query(
-            `INSERT INTO collection_event (user_id, card_variant_id, delta, quantity_after, is_first_acquisition)
-                  VALUES ($1, $2, $3, 0, false)`,
-            [userId, row.card_variant_id, -Number(row.quantity)],
+            `INSERT INTO collection_event (user_id, card_variant_id, delta, quantity_after, is_first_acquisition, source, note)
+                  VALUES ($1, $2, $3, 0, false, $4, $5)`,
+            [userId, row.card_variant_id, -Number(row.quantity), source, note],
           );
         }
       }
@@ -296,6 +331,8 @@ interface EventRow {
   delta: number;
   quantity_after: number;
   is_first_acquisition: boolean;
+  source: string;
+  note: string | null;
   card_variant_id: string;
   card_tcgdex_id: string;
   card_name: string;
@@ -330,6 +367,8 @@ function eventKind(delta: number, quantityAfter: number, isFirst: boolean): stri
  *   ?limit=<n>     how many events (default 50, capped 1..200)
  *   ?since=<iso>   only events strictly newer than this timestamp (overlay polls
  *                  with the occurredAt of the last event it saw). Invalid → 400.
+ *   ?source=<s>    only events written by this source (exact match, e.g.
+ *                  'rotom-mcp'; same shape rule as writes). Invalid → 400.
  *
  * Uses the (user_id, occurred_at DESC) feed index; id DESC is a stable tiebreak
  * for events sharing an occurred_at. Empty collection returns { events: [] }.
@@ -345,11 +384,17 @@ collectionRouter.get(
       if (Number.isNaN(d.getTime())) throw badRequest('since must be an ISO-8601 timestamp');
       since = d.toISOString();
     }
+    const sourceRaw = str(req.query.source);
+    let sourceFilter: string | null = null;
+    if (sourceRaw !== undefined) {
+      if (!SOURCE_SHAPE.test(sourceRaw)) throw badRequest("source must match ^[a-z0-9][a-z0-9._-]{0,39}$ (e.g. 'web', 'rotom-mcp')");
+      sourceFilter = sourceRaw;
+    }
     const userId = await defaultUserId();
 
     const rows = await q<EventRow>(
       `SELECT ce.id, ce.occurred_at, ce.delta, ce.quantity_after, ce.is_first_acquisition,
-              ce.card_variant_id,
+              ce.source, ce.note, ce.card_variant_id,
               c.tcgdex_id AS card_tcgdex_id, c.name AS card_name, c.local_id,
               cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name,
               ser.tcgdex_id AS series_tcgdex_id,
@@ -362,9 +407,10 @@ collectionRouter.get(
          JOIN series ser ON ser.id = cs.series_id
         WHERE ce.user_id = $1
           AND ($2::timestamptz IS NULL OR ce.occurred_at > $2::timestamptz)
+          AND ($4::text IS NULL OR ce.source = $4::text)
         ORDER BY ce.occurred_at DESC, ce.id DESC
         LIMIT $3`,
-      [userId, since, limit],
+      [userId, since, limit, sourceFilter],
     );
 
     userCache(res);
@@ -383,6 +429,8 @@ collectionRouter.get(
         quantityDelta: r.delta,
         newQuantity: r.quantity_after,
         isFirstAcquisition: r.is_first_acquisition,
+        source: r.source,
+        note: r.note,
         images: cardImages(r.series_tcgdex_id, r.set_tcgdex_id, r.local_id),
       })),
     });
