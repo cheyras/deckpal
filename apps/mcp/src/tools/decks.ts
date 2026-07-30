@@ -2,15 +2,21 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/server';
 import type { Ctx } from '../ctx.js';
 import { fail, ok } from '../envelope.js';
-import { row } from '../format.js';
+import { row, winLoss } from '../format.js';
+import { strategyLabel } from './deckIntel.js';
 
 /**
  * Deck tools — SPEC §5 #8–#10. Every operation goes through pokedex-api
  * (apps/api/src/routes/decks.ts is the contract) via ctx.api; no SQL here so
  * deck logic stays single-sourced (SPEC §3). Card identifiers are TCGdex ids
  * (e.g. 'sv01-25') — the deck routes resolve them server-side.
+ *
+ * Deck intelligence (strategy guides, battle logs, version history) lives in
+ * tools/deckIntel.ts — these tools surface its headline numbers (version,
+ * W/L record, strategy presence) and attribute writes as source 'rotom-mcp'.
  */
 
+const SOURCE = 'rotom-mcp';
 const FORMATS = ['standard', 'expanded', 'glc', 'unlimited'] as const;
 const INCLUDES = ['cards', 'validate', 'pricing', 'testhand'] as const;
 
@@ -20,10 +26,16 @@ interface DeckSummary {
   id: string;
   name: string;
   formatCode: string;
+  version: number;
   totalCount: number;
   valueUsd: number | null;
   legal: boolean;
   updatedAt: string;
+}
+
+/** GET /decks index rows also carry the all-versions battle record. */
+interface DeckIndexRow extends DeckSummary {
+  record: { wins: number; losses: number; ties: number };
 }
 
 interface DeckCardRow {
@@ -47,10 +59,15 @@ interface Validation {
 }
 
 interface DeckDetail {
-  deck: DeckSummary;
+  deck: DeckSummary & { strategyMd: string | null };
   counts: { total: number; pokemon: number; trainer: number; energy: number; distinctNames: number };
   cards: DeckCardRow[];
   validation: Validation;
+}
+
+/** GET /decks/:id/logs — only the aggregate this file needs (full shape in deckIntel.ts). */
+interface LogTotals {
+  totals: { total: number; wins: number; losses: number; ties: number };
 }
 
 interface Pricing {
@@ -100,6 +117,7 @@ function deckHeader(d: DeckDetail): string {
     d.deck.name,
     d.deck.id,
     d.deck.formatCode,
+    `v${d.deck.version}`,
     `${c.total} cards (${c.pokemon} Pokemon / ${c.trainer} Trainer / ${c.energy} Energy)`,
     d.validation.legal ? 'legal' : 'NOT legal',
     `value ${anyPriced || d.cards.length === 0 ? usd(d.deck.valueUsd) : 'unpriced'}`,
@@ -223,33 +241,36 @@ function diffCards(current: DeckCardRow[], target: Map<string, number>): Op[] {
   return ops;
 }
 
-async function runOp(ctx: Ctx, deckId: string, op: Op): Promise<void> {
+async function runOp(ctx: Ctx, deckId: string, op: Op, versionNote?: string): Promise<void> {
+  // Attribution on every write; versionNote lands on the deck_version snapshot
+  // for the ops that touch versions (card ops + format change — rename never does).
+  const attrib = { source: SOURCE, ...(versionNote !== undefined ? { versionNote } : {}) };
   switch (op.kind) {
     case 'rename':
-      await ctx.api.send('PATCH', `/decks/${deckId}`, { name: op.to });
+      await ctx.api.send('PATCH', `/decks/${deckId}`, { name: op.to, source: SOURCE });
       return;
     case 'format':
-      await ctx.api.send('PATCH', `/decks/${deckId}`, { formatCode: op.to });
+      await ctx.api.send('PATCH', `/decks/${deckId}`, { formatCode: op.to, ...attrib });
       return;
     case 'add':
-      await ctx.api.send('POST', `/decks/${deckId}/cards`, { cardId: op.cardId, quantity: op.qty });
+      await ctx.api.send('POST', `/decks/${deckId}/cards`, { cardId: op.cardId, quantity: op.qty, ...attrib });
       return;
     case 'set':
-      await ctx.api.send('PATCH', `/decks/${deckId}/cards/${op.cardId}`, { quantity: op.to });
+      await ctx.api.send('PATCH', `/decks/${deckId}/cards/${op.cardId}`, { quantity: op.to, ...attrib });
       return;
     case 'remove':
-      await ctx.api.send('DELETE', `/decks/${deckId}/cards/${op.cardId}`);
+      await ctx.api.send('DELETE', `/decks/${deckId}/cards/${op.cardId}`, attrib);
       return;
   }
 }
 
 /** Execute ops sequentially; a failure is reported per-op and does not stop the rest (SPEC §5 #9). */
-async function runOps(ctx: Ctx, deckId: string, ops: Op[]): Promise<{ lines: string[]; failures: number }> {
+async function runOps(ctx: Ctx, deckId: string, ops: Op[], versionNote?: string): Promise<{ lines: string[]; failures: number }> {
   const lines: string[] = [];
   let failures = 0;
   for (const op of ops) {
     try {
-      await runOp(ctx, deckId, op);
+      await runOp(ctx, deckId, op, versionNote);
       lines.push(`  done: ${describeOp(op)}`);
     } catch (err) {
       failures++;
@@ -267,11 +288,15 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
     {
       title: 'Browse decks',
       description:
-        'Read decks. Without deck_id: the deck index (id, name, format, card count, legality, value). ' +
-        'With deck_id: full deck detail plus any requested includes — cards (the deck list with owned ' +
-        'counts), validate (format-legality violations), pricing (the buy-the-missing-cards gap ' +
-        'analysis: owned vs needed per card, cost to close, TCGplayer mass-entry lines), testhand ' +
-        '(a sample opening hand). Read-only. To create or edit a deck use save_deck; to delete use delete_deck.',
+        'Read decks. Without deck_id: the deck index (id, name, format, version, card count, ' +
+        'legality, value, battle record). With deck_id: full deck detail — version, win/loss record, ' +
+        'strategy-guide presence, battle-log count — plus any requested includes: cards (the deck ' +
+        'list with owned counts), validate (format-legality violations), pricing (the ' +
+        'buy-the-missing-cards gap analysis: owned vs needed per card, cost to close, TCGplayer ' +
+        'mass-entry lines), testhand (a sample opening hand). Read-only. To create or edit a deck ' +
+        'use save_deck; to delete use delete_deck. Deck intelligence has its own tools: ' +
+        'deck_strategy (the full strategy guide), battle_logs (game results per version), ' +
+        'deck_history (version timeline, snapshots, revert).',
       inputSchema: z.object({
         deck_id: z
           .string()
@@ -289,11 +314,21 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
     async ({ deck_id, include }) => {
       try {
         if (!deck_id) {
-          const res = (await ctx.api.get('/decks')) as { decks: DeckSummary[] };
+          const res = (await ctx.api.get('/decks')) as { decks: DeckIndexRow[] };
           if (res.decks.length === 0) return ok('No decks yet. Create one with save_deck.');
-          const lines = res.decks.map((d) =>
-            row(d.name, d.id, d.formatCode, `${d.totalCount} cards`, d.legal ? 'legal' : 'NOT legal', `value ${usd(d.valueUsd)}`),
-          );
+          const lines = res.decks.map((d) => {
+            const games = d.record.wins + d.record.losses + d.record.ties;
+            return row(
+              d.name,
+              d.id,
+              d.formatCode,
+              `v${d.version}`,
+              `${d.totalCount} cards`,
+              d.legal ? 'legal' : 'NOT legal',
+              `value ${usd(d.valueUsd)}`,
+              games > 0 ? winLoss(d.record) : null,
+            );
+          });
           lines.push(`${res.decks.length} deck(s)`);
           return ok(lines.join('\n'));
         }
@@ -301,6 +336,16 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
         const detail = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
         const want = new Set(include ?? []);
         const lines: string[] = [deckHeader(detail)];
+
+        // Intelligence headline: battle record + strategy presence, one cheap call.
+        const logs = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/logs?pageSize=1`)) as LogTotals;
+        lines.push(
+          row(
+            `record ${winLoss(logs.totals)} (${logs.totals.total} battle log(s))`,
+            `strategy ${strategyLabel(detail.deck.strategyMd)}`,
+            'more via deck_strategy / battle_logs / deck_history',
+          ),
+        );
 
         if (want.has('cards')) {
           lines.push('cards:');
@@ -338,7 +383,13 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
         'its card list to the given cards array (only changed rows are touched — adds, quantity sets, ' +
         'removes). To create from a PTCG Live decklist pass ptcgl_text instead of cards (creation only). ' +
         'Card ids are TCGdex ids (e.g. sv01-25). Defaults to a dry run that prints the exact operations ' +
-        'without executing — re-run with dry_run: false to apply. Not for reading (use decks) or deleting (use delete_deck).',
+        'without executing — re-run with dry_run: false to apply. ' +
+        'Versioning is automatic: card and format changes to a deck version that already has battle ' +
+        'logs create a NEW version (its snapshot is kept forever — see deck_history); changes to a ' +
+        'logless version just amend the current snapshot, so a burst of edits stays one version. ' +
+        "Pass version_note to record WHY the list changed (e.g. 'cut Switch for Jet Energy after v2 " +
+        "losses to Dragapult') — future agents read it in deck_history. Strategy guides are edited " +
+        'with deck_strategy, not here. Not for reading (use decks) or deleting (use delete_deck).',
       inputSchema: z.object({
         deck_id: z
           .string()
@@ -373,6 +424,14 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
             'A PTCG Live decklist to import as a NEW deck (creation only, mutually exclusive with cards). ' +
               'Unresolvable lines are reported, not silently dropped.',
           ),
+        version_note: z
+          .string()
+          .max(500)
+          .optional()
+          .describe(
+            'Why the card list is changing (max 500 chars) — recorded on the deck_version snapshot ' +
+              'and shown in deck_history. Ignored when nothing version-relevant changes.',
+          ),
         dry_run: z
           .boolean()
           .default(true)
@@ -380,7 +439,7 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async ({ deck_id, name, format, cards, ptcgl_text, dry_run }) => {
+    async ({ deck_id, name, format, cards, ptcgl_text, version_note, dry_run }) => {
       try {
         if (ptcgl_text !== undefined && cards !== undefined) {
           return fail('Pass either ptcgl_text or cards, not both.');
@@ -404,6 +463,9 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
               text: ptcgl_text,
               ...(name !== undefined ? { name } : {}),
               ...(format !== undefined ? { format } : {}),
+              // On /decks/import the attribution field is writeSource ('source'
+              // is the decklist-syntax param on this one endpoint).
+              writeSource: SOURCE,
             })) as ImportResult;
             const lines = [
               `Imported deck '${res.deck.name}' (${res.deck.formatCode}) — id ${res.deck.id}`,
@@ -426,11 +488,12 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
           const created = (await ctx.api.send('POST', '/decks', {
             name,
             ...(format !== undefined ? { format } : {}),
+            source: SOURCE,
           })) as DeckDetail;
           const lines = [`Created deck '${created.deck.name}' (${created.deck.formatCode}) — id ${created.deck.id}`];
           const ops: Op[] = [...target].map(([cardId, qty]) => ({ kind: 'add', cardId, qty }));
           if (ops.length > 0) {
-            const { lines: opLines, failures } = await runOps(ctx, created.deck.id, ops);
+            const { lines: opLines, failures } = await runOps(ctx, created.deck.id, ops, version_note);
             lines.push(...opLines);
             const after = (await ctx.api.get(`/decks/${created.deck.id}`)) as DeckDetail;
             lines.push(
@@ -463,11 +526,16 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
           lines.push('Re-run with dry_run: false to execute.');
           return ok(lines.join('\n'));
         }
-        const { lines: opLines, failures } = await runOps(ctx, deck_id, ops);
+        const { lines: opLines, failures } = await runOps(ctx, deck_id, ops, version_note);
         const after = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
         const lines = [`Updated deck '${after.deck.name}' (${deck_id}):`, ...opLines];
+        const versionChanged = after.deck.version !== current.deck.version;
         lines.push(
-          `${failures ? `${failures} operation(s) FAILED — applied partially. ` : ''}Deck now has ${after.counts.total} card(s), ${after.validation.legal ? 'legal' : 'NOT legal'}.`,
+          `${failures ? `${failures} operation(s) FAILED — applied partially. ` : ''}Deck now has ${after.counts.total} card(s), ${after.validation.legal ? 'legal' : 'NOT legal'}, at v${after.deck.version}${
+            versionChanged
+              ? ` (bumped from v${current.deck.version} — the previous version had battle logs; its snapshot is kept in deck_history)`
+              : ''
+          }.`,
         );
         return ok(lines.join('\n'));
       } catch (err) {
@@ -482,8 +550,10 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
       title: 'Delete a deck',
       description:
         'Permanently delete a deck and its card list (the collection is NOT touched — decks only ' +
-        'reference cards). Defaults to a dry run that shows what would be deleted; re-run with ' +
-        'dry_run: false to actually delete. To remove individual cards from a deck use save_deck instead.',
+        'reference cards). The deck\'s entire version history and all its battle logs cascade with ' +
+        'it — there is no undo. Defaults to a dry run that shows what would be deleted; re-run with ' +
+        'dry_run: false to actually delete. To remove individual cards from a deck use save_deck; ' +
+        'to roll back to an older list keep the deck and use deck_history revert_to instead.',
       inputSchema: z.object({
         deck_id: z.string().describe('Deck UUID to delete (from the decks index).'),
         dry_run: z
@@ -496,7 +566,13 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
     async ({ deck_id, dry_run }) => {
       try {
         const detail = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
-        const what = `deck '${detail.deck.name}' (${deck_id}) — ${detail.counts.total} card(s), ${detail.counts.distinctNames} distinct name(s)`;
+        const versions = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/versions`)) as {
+          versions: { battleLogs: { total: number } }[];
+        };
+        const logCount = versions.versions.reduce((n, v) => n + v.battleLogs.total, 0);
+        const what =
+          `deck '${detail.deck.name}' (${deck_id}) — ${detail.counts.total} card(s), ${detail.counts.distinctNames} distinct name(s), ` +
+          `${versions.versions.length} version(s) and ${logCount} battle log(s) (history and logs cascade — no undo)`;
         if (dry_run) {
           return ok(`DRY RUN — nothing deleted. Would delete ${what}.\nRe-run with dry_run: false to delete.`);
         }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
-  api, type DeckDetail, type DeckCard, type DeckFormat, type Violation, type CardRef, type SearchCard,
+  api, type DeckDetail, type DeckCard, type DeckFormat, type Violation, type CardRef, type SearchCard, type RevertResult,
 } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
 import { Modal, ConfirmModal } from '../components/ListModals'
@@ -10,7 +10,10 @@ import { Icon } from '../components/Icon'
 import { EnergyIcon, ENERGY_TYPES } from '../components/EnergyIcon'
 import { fmtUsd, fmtPrice } from '../lib/format'
 import { FORMAT_META, LegalBadge } from './deckShared'
-import { type DeckSearch, DECK_SEARCH_DEFAULTS } from './deckSearch'
+import { type DeckSearch, type DeckTab, DECK_SEARCH_DEFAULTS } from './deckSearch'
+import { StrategyTab } from './deck/StrategyTab'
+import { BattlesTab } from './deck/BattlesTab'
+import { HistoryTab } from './deck/HistoryTab'
 
 const FORMATS: DeckFormat[] = ['standard', 'expanded', 'glc', 'unlimited']
 const SECTION_TITLE = { pokemon: 'Pokémon', trainer: 'Trainer', energy: 'Energy' } as const
@@ -401,6 +404,10 @@ export function DeckBuilder() {
     qc.invalidateQueries({ queryKey: ['export', id] })
     qc.invalidateQueries({ queryKey: ['pricing', id] })
     qc.invalidateQueries({ queryKey: ['decks'] })
+    // Card edits amend or bump the deck version (the auto-bump rule), so the
+    // version timeline + per-version battle rollups are stale after any of them.
+    qc.invalidateQueries({ queryKey: ['deck-versions', id] })
+    qc.invalidateQueries({ queryKey: ['battle-logs', id] })
   }
 
   const setQty = useMutation({
@@ -444,6 +451,37 @@ export function DeckBuilder() {
 
   const detail = data
   const deck = detail?.deck
+
+  // Battle count for the tab label. Same key/params as BattlesTab's default view
+  // (all versions, page 1) so the two share one cache entry.
+  const { data: logsData } = useQuery({
+    queryKey: ['battle-logs', id, 'all', 1],
+    queryFn: ({ signal }) => api.battleLogs(id, {}, signal),
+    enabled: Boolean(detail),
+  })
+  const battleCount = logsData?.totals.total
+
+  const tabs: { key: DeckTab; label: string }[] = [
+    { key: 'cards', label: 'Cards' },
+    { key: 'strategy', label: 'Strategy' },
+    { key: 'battles', label: battleCount != null ? `Battles (${battleCount})` : 'Battles' },
+    { key: 'history', label: 'History' },
+  ]
+
+  // Strategy saves return the full DeckDetail; the current version's snapshot
+  // was amended in place, so version details are stale.
+  const onStrategySaved = (d: DeckDetail) => {
+    setDetail(d)
+    qc.invalidateQueries({ queryKey: ['deck-versions', id] })
+  }
+
+  // Revert returns DeckDetail (+ revert bookkeeping) — adopt it and land the
+  // user on the Cards tab to see the restored list.
+  const onReverted = (d: DeckDetail & { revert: RevertResult }) => {
+    setDetail(d)
+    invalidateSideQueries()
+    patchSearch({ tab: 'cards' })
+  }
 
   // cards that any error violation references → highlight in place (BEHAVIOR-SPEC §8.4)
   const offending = useMemo(() => {
@@ -514,6 +552,29 @@ export function DeckBuilder() {
               </button>
             </div>
 
+            {/* tabs — Cards · Strategy · Battles (n) · History (CardDetail underline pattern) */}
+            <div className="scroll-x mt-[16px] flex gap-[28px] border-b border-divider-subtle">
+              {tabs.map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => patchSearch({ tab: t.key })}
+                  className={`shrink-0 whitespace-nowrap pb-[8px] text-[14px] ${
+                    search.tab === t.key
+                      ? 'border-b border-action-primary font-semibold text-text-primary'
+                      : 'font-medium text-text-muted'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {search.tab === 'strategy' && <StrategyTab deckId={id} strategyMd={deck.strategyMd} onSaved={onStrategySaved} />}
+            {search.tab === 'battles' && <BattlesTab deckId={id} currentVersion={deck.version} />}
+            {search.tab === 'history' && <HistoryTab deckId={id} onReverted={onReverted} />}
+
+            {search.tab === 'cards' && (
+            <>
             {/* controls */}
             <div className="mt-[16px] flex flex-wrap items-center gap-[10px]">
               <button onClick={() => setShowAdd(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover">
@@ -566,6 +627,8 @@ export function DeckBuilder() {
                 })
               )}
             </div>
+            </>
+            )}
           </div>
 
           {/* right: sticky sidebar */}

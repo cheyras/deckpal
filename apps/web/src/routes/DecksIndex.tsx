@@ -11,6 +11,8 @@ import { FORMAT_META, LegalBadge } from './deckShared'
 import { DECK_SEARCH_DEFAULTS } from './deckSearch'
 
 function DeckCard({ deck }: { deck: DeckSummary }) {
+  // Battle record footer line — only once the deck has any scored logs.
+  const rec = deck.record && deck.record.wins + deck.record.losses + deck.record.ties > 0 ? deck.record : null
   return (
     <Link
       to="/decks/$id"
@@ -45,7 +47,23 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
         </div>
         {deck.description && <p className="line-clamp-2 text-[12px] text-text-muted">{deck.description}</p>}
         <div className="mt-auto flex items-center justify-between pt-[6px] text-[12px]">
-          <span className="font-semibold text-text-secondary">{deck.totalCount}/60 cards</span>
+          <span className="font-semibold text-text-secondary">
+            {deck.totalCount}/60 cards
+            {rec && (
+              <>
+                {' · '}
+                <span style={{ color: 'var(--color-success)' }}>{rec.wins}W</span>
+                <span className="text-text-muted">–</span>
+                <span style={{ color: 'var(--color-error)' }}>{rec.losses}L</span>
+                {rec.ties > 0 && (
+                  <>
+                    <span className="text-text-muted">–</span>
+                    <span className="text-text-secondary">{rec.ties}T</span>
+                  </>
+                )}
+              </>
+            )}
+          </span>
           <span className="text-change-positive">{fmtUsd(deck.valueUsd)}</span>
         </div>
       </div>

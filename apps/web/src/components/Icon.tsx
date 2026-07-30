@@ -40,6 +40,8 @@ export type IconName =
   | 'camera'
   | 'printer'
   | 'bug'
+  | 'book'
+  | 'history'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   cards: (
@@ -231,6 +233,19 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M9 6a3 3 0 016 0v1H9V6z" />
       <rect x="7" y="7" width="10" height="11" rx="5" />
       <path d="M12 10v8M3 11h4M17 11h4M3.5 6.5L7 9M20.5 6.5L17 9M3.5 18.5L7 15M20.5 18.5L17 15" />
+    </>
+  ),
+  book: (
+    <>
+      <path d="M12 6.5C10.4 5 8.3 4.5 4 4.5v14c4.3 0 6.4.5 8 2 1.6-1.5 3.7-2 8-2v-14c-4.3 0-6.4.5-8 2z" />
+      <path d="M12 6.5v14" />
+    </>
+  ),
+  history: (
+    <>
+      <path d="M4.6 7.5A8.5 8.5 0 113.5 12" />
+      <path d="M4 3.5v4.5h4.5" />
+      <path d="M12 8v4.5l3 2" />
     </>
   ),
 }

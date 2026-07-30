@@ -6,6 +6,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import type { Ctx } from './ctx.js';
 import { registerCatalogTools } from './tools/catalog.js';
 import { registerCollectionTools, summaryText } from './tools/collection.js';
+import { registerDeckIntelTools } from './tools/deckIntel.js';
 import { registerDeckTools } from './tools/decks.js';
 import { registerListTools } from './tools/lists.js';
 import { registerLoggingTools } from './tools/logging.js';
@@ -47,6 +48,7 @@ export function buildServer(ctx: Ctx): McpServer {
   registerCollectionTools(server, ctx);
   registerCatalogTools(server, ctx);
   registerDeckTools(server, ctx);
+  registerDeckIntelTools(server, ctx);
   registerListTools(server, ctx);
   registerLoggingTools(server, ctx);
   registerShoppingTools(server, ctx);

@@ -268,6 +268,110 @@ cards appear on both species). `sort` = `number`\|`price`\|`rarity`\|`artist`\|
 
 ---
 
+## Deck intelligence — strategy, versions, battle logs
+
+Additions from migration 019 (SCHEMA §8.7). Decks carry a `version` (int, from 1)
+and a `strategyMd` markdown guide; battle logs attach to the version they were
+played with. **Auto-bump rule (LOCKED):** a card-list or format change creates a
+new version only when the current version already has ≥1 battle log — otherwise
+it amends the current snapshot in place. Strategy edits and rename/favorite/cover
+changes never bump. All deck writes accept an optional `source` (attribution,
+shape `^[a-z0-9][a-z0-9._-]{0,39}$`, default `web`) — **except `POST
+/decks/import`, where `source` was already the decklist syntax, so attribution
+rides as `writeSource`**. Card ops (`POST/PATCH/DELETE /decks/:id/cards…`, and
+`PATCH /decks/:id` when it changes the format) also accept `versionNote` (≤500),
+which lands on the resulting `deck_version` row.
+
+Existing payload changes: deck rows in `GET /decks` gain `version` and
+`record: { "wins", "losses", "ties" }` (aggregate over **all** versions); the
+detail payload's `deck` object gains `version` and `strategyMd`.
+
+### PUT /pokedex/api/decks/:id/strategy
+Body `{ "strategyMd": "# …" | null, "source"? }` (≤40000 chars; `null`/`''`
+clears). Updates `deck.strategy_md` **and** the current version's snapshot in
+place — never bumps. Returns the full deck detail payload.
+
+### GET /pokedex/api/decks/:id/versions
+The version timeline, newest first.
+```json
+{ "current": 3,
+  "versions": [ { "version": 3, "note": "added a second attacker", "source": "rotom-mcp",
+                  "createdAt": "2026-07-30T…", "cardCount": 60, "formatCode": "standard",
+                  "battleLogs": { "total": 0, "wins": 0, "losses": 0, "ties": 0 },
+                  "isCurrent": true } ] }
+```
+
+### GET /pokedex/api/decks/:id/versions/:v
+One snapshot plus the diff vs `v-1` (`diff` is `null` for v1).
+```json
+{ "version": 2, "isCurrent": false, "formatCode": "standard",
+  "note": "…", "source": "web", "createdAt": "…", "strategyMd": "# …",
+  "cardCount": 60,
+  "cards": [ { "cardId": 123, "tcgdexId": "sv01-25", "name": "…", "quantity": 2 } ],
+  "battleLogs": { "total": 4, "wins": 3, "losses": 1, "ties": 0 },
+  "diff": { "added":   [ { "name": "Dhelmise", "tcgdexId": "sv06-22", "quantity": 2 } ],
+            "removed": [ { "name": "Switch",   "tcgdexId": "sv01-194", "quantity": 1 } ],
+            "changed": [ { "name": "Ultra Ball", "tcgdexId": "sv01-196", "from": 3, "to": 4 } ] } }
+```
+
+### POST /pokedex/api/decks/:id/revert
+Body `{ "toVersion": 1, "includeStrategy"?: true, "note"?, "source"? }`.
+Non-destructive: reconciles `deck_card` to the old snapshot **through the same
+auto-bump path** (bumps if the current version has logs, else amends), note
+auto-set to `Reverted to v<k>`. `400` when `toVersion` is already current.
+Returns the deck detail payload plus
+`"revert": { "toVersion", "version", "bumped", "skippedCards": [ { "cardId", "tcgdexId", "name" } ] }`
+(`skippedCards` = snapshot entries whose print has vanished from the catalog —
+near-impossible under `ON DELETE RESTRICT` — reported, never silently dropped).
+
+### GET /pokedex/api/decks/:id/logs
+`?version=` (filter to one version) `&page=` `&pageSize=` (default 50, cap 200).
+Summaries only — never `rawLog`. `totals` covers the same filter scope.
+```json
+{ "version": null,
+  "logs": [ { "id": 7, "deckVersion": 1, "result": "win", "opponent": "Robni16",
+              "opponentDeck": "Dragapult ex / Dusknoir", "turns": 14,
+              "prizes": { "me": 6, "opponent": 5 }, "notes": null,
+              "playedAt": "2026-07-30T…", "source": "web" } ],
+  "totals": { "total": 4, "wins": 3, "losses": 1, "ties": 0 },
+  "pagination": { "page": 1, "pageSize": 50, "total": 4, "pageCount": 1 } }
+```
+
+### POST /pokedex/api/decks/:id/logs
+Body `{ "rawLog" (required, ≤50000), "result"?, "opponent"?, "opponentDeck"?,
+"notes"? (≤2000), "playedAt"? (ISO), "playerName"?, "source"? }`. Runs the PTCG
+Live parser; parser-derived `result` / `opponent` / `opponentDeck` (deck guess)
+fill any fields the caller omitted. Attaches to the deck's **current** version.
+`400` when the parser cannot tell which player owns the deck **and** neither
+`playerName` nor an explicit `result` was given (the message says which to pass).
+```json
+201 { "attachedToVersion": 2,
+      "log": { "id": 7, "deckVersion": 2, "result": "win", "opponent": "Robni16",
+               "opponentDeck": "Dragapult ex / Dusknoir", "turns": 14,
+               "prizes": { "me": 6, "opponent": 5 }, "notes": null,
+               "playedAt": "…", "source": "web", "createdAt": "…", "rawLog": "Setup…",
+               "parsed": { "players": { "me": "cheyras", "opponent": "Robni16" },
+                           "confidence": "high", "result": "win", "wentFirst": "opponent",
+                           "totalTurns": 14, "prizesTaken": { "me": 6, "opponent": 5 },
+                           "knockouts": { "byMe": ["Dusknoir","…"], "byOpponent": ["…"] },
+                           "opponentPokemon": ["Dreepy","…"], "myPokemon": ["Poltchageist","…"],
+                           "opponentDeckGuess": "Dragapult ex / Dusknoir" } } }
+```
+
+### GET /pokedex/api/decks/:id/logs/:logId
+The full row — same `log` shape as the 201 above (summary fields + `rawLog` +
+`parsed` + `createdAt`).
+
+### PATCH /pokedex/api/decks/:id/logs/:logId
+Body: any of `{ "result", "opponent", "opponentDeck", "notes", "playedAt" }`.
+Metadata only — the raw log and its version attachment are immutable. Explicit
+`null` clears everything except `playedAt`. Returns `{ "log": … }` (full shape).
+
+### DELETE /pokedex/api/decks/:id/logs/:logId
+`{ "deleted": 7 }`.
+
+---
+
 ## Data gaps found while building (real, not fabricated)
 - **`subType` / `tags` vocabularies are empty** — `card_subtype` and `card_tag`
   have 0 rows; the subtype/tag filters return nothing until imported. All other 11

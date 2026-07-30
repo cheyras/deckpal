@@ -44,6 +44,11 @@ export function table(rows: ReadonlyArray<ReadonlyArray<string | number | null |
   return rows.map((r) => row(...r)).join('\n');
 }
 
+/** Battle record footer: {wins:3, losses:1, ties:0} → "3W–1L–0T". */
+export function winLoss(r: { wins: number; losses: number; ties: number }): string {
+  return `${r.wins}W–${r.losses}L–${r.ties}T`;
+}
+
 /**
  * Paging footer for list-returning tools, e.g.
  * "showing 1–50 of 312 — page 2 for more". States the total on every
