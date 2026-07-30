@@ -1,0 +1,261 @@
+import { useState } from 'react'
+import type { Goal } from '../routes/setSearch'
+import { Icon } from './Icon'
+import { Modal } from './ListModals'
+
+// "Purchase Set" — preferences menu + TCGplayer Mass Entry deep-link generation
+// (issue 2026-07-30_qhfs2f). The link generation lives in the API
+// (GET /sets/:setId/massentry) so rotom-mcp can reuse it.
+//
+// Real Mass Entry constraints (research/DECK-FORMATS.md §1.9 + live checks):
+// printing and condition can NOT be preselected by link — TCGplayer's own page
+// has the preferences panel for those. The only honest preferences here are
+// what "needed" means: the goal, and (for master/grandmaster) which finishes
+// to include. We say so in the menu instead of offering switches that do nothing.
+
+const FINISHES = [
+  { code: 'normal', label: 'Normal' },
+  { code: 'reverse', label: 'Reverse Holofoil' },
+  { code: 'holo', label: 'Holofoil' },
+  { code: 'lenticular', label: 'Lenticular' },
+  { code: 'metal', label: 'Metal' },
+] as const
+type FinishCode = (typeof FINISHES)[number]['code']
+
+const GOALS: { key: Goal; label: string; blurb: string }[] = [
+  { key: 'complete', label: 'Complete Set', blurb: 'one of any printing per card' },
+  { key: 'master', label: 'Master Set', blurb: 'every standard printing' },
+  { key: 'grandmaster', label: 'Grandmaster Set', blurb: 'every printing, stamps included' },
+]
+
+interface MassEntryResponse {
+  set: { setId: string; name: string }
+  goal: Goal
+  finishes: string[] | null
+  setCode: string | null
+  needed: { cards: number; items: number; unlinkable: number }
+  lines: string[]
+  text: string
+  urls: string[]
+  unlinkable: { name: string; number: string; variant: string | null }[]
+  warnings: string[]
+  note: string
+}
+
+async function fetchMassEntry(setId: string, goal: Goal, finishes: FinishCode[] | null, signal: AbortSignal) {
+  const params = new URLSearchParams({ goal })
+  for (const f of finishes ?? []) params.append('finish', f)
+  const res = await fetch(`/pokedex/api/sets/${encodeURIComponent(setId)}/massentry?${params}`, { signal })
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try {
+      const body = await res.json()
+      if (body?.error?.message) msg = body.error.message
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg)
+  }
+  return res.json() as Promise<MassEntryResponse>
+}
+
+export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: Goal }) {
+  const [open, setOpen] = useState(false)
+  const [goal, setGoal] = useState<Goal>(pageGoal)
+  const [finishes, setFinishes] = useState<Set<FinishCode>>(new Set(FINISHES.map((f) => f.code)))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<MassEntryResponse | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const allFinishes = finishes.size === FINISHES.length
+  const reset = () => {
+    setResult(null)
+    setError(null)
+    setCopied(false)
+  }
+
+  const generate = async () => {
+    setBusy(true)
+    reset()
+    try {
+      setResult(await fetchMassEntry(setId, goal, goal !== 'complete' && !allFinishes ? [...finishes] : null, AbortSignal.timeout(20000)))
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copyText = async () => {
+    if (!result) return
+    try {
+      await navigator.clipboard.writeText(result.text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setError('Could not copy — select the list below and copy manually.')
+    }
+  }
+
+  return (
+    <>
+      <button
+        onClick={() => {
+          setGoal(pageGoal)
+          reset()
+          setOpen(true)
+        }}
+        className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover"
+      >
+        <Icon name="cart" size={16} className="text-action-brand" /> Purchase Set
+      </button>
+
+      {open && (
+        <Modal title="Purchase Set" onClose={() => setOpen(false)}>
+          <div className="flex flex-col gap-[16px]">
+            <p className="text-[13px] leading-[19px] text-text-secondary">
+              Builds a TCGplayer Mass Entry link that pre-fills a cart with every card you still need. Nothing is
+              purchased until you check out on TCGplayer.
+            </p>
+
+            {/* goal */}
+            <fieldset className="flex flex-col gap-[8px]" disabled={busy}>
+              <legend className="mb-[6px] text-[12px] font-bold uppercase tracking-wide text-text-muted">
+                Needed to finish
+              </legend>
+              {GOALS.map((g) => (
+                <label key={g.key} className="flex cursor-pointer items-center gap-[10px] text-[14px] text-text-primary">
+                  <input
+                    type="radio"
+                    name="massentry-goal"
+                    checked={goal === g.key}
+                    onChange={() => {
+                      setGoal(g.key)
+                      reset()
+                    }}
+                    className="h-[16px] w-[16px] accent-[var(--color-action-primary)]"
+                  />
+                  <span className="font-semibold">{g.label}</span>
+                  <span className="text-[12px] text-text-muted">{g.blurb}</span>
+                </label>
+              ))}
+            </fieldset>
+
+            {/* finishes (variant scope) — only meaningful for master/grandmaster */}
+            <fieldset className="flex flex-col gap-[8px]" disabled={busy || goal === 'complete'}>
+              <legend className="mb-[6px] text-[12px] font-bold uppercase tracking-wide text-text-muted">
+                Printings to include
+              </legend>
+              <div className={`flex flex-wrap gap-x-[16px] gap-y-[8px] ${goal === 'complete' ? 'opacity-40' : ''}`}>
+                {FINISHES.map((f) => (
+                  <label key={f.code} className="flex cursor-pointer items-center gap-[6px] text-[13px] text-text-primary">
+                    <input
+                      type="checkbox"
+                      checked={finishes.has(f.code)}
+                      onChange={(e) => {
+                        const next = new Set(finishes)
+                        if (e.target.checked) next.add(f.code)
+                        else next.delete(f.code)
+                        setFinishes(next)
+                        reset()
+                      }}
+                      className="h-[15px] w-[15px] accent-[var(--color-action-primary)]"
+                    />
+                    {f.label}
+                  </label>
+                ))}
+              </div>
+              {goal === 'complete' && (
+                <p className="text-[12px] text-text-muted">Any one printing completes a card, so all printings count.</p>
+              )}
+            </fieldset>
+
+            <p className="rounded-lg bg-surface-tertiary px-[12px] py-[10px] text-[12px] leading-[17px] text-text-secondary">
+              Card condition (NM, LP, …) and the exact printing per card can’t be preselected by link — pick them in
+              the preferences panel on TCGplayer’s Mass Entry page after it opens.
+            </p>
+
+            <button
+              onClick={generate}
+              disabled={busy || (goal !== 'complete' && finishes.size === 0)}
+              className="flex h-[44px] items-center justify-center gap-[8px] rounded-lg bg-action-primary-strong text-[14px] font-bold text-action-primary-strong-text disabled:opacity-50"
+            >
+              <Icon name="cart" size={16} />
+              {busy ? 'Building cart link…' : 'Generate cart link'}
+            </button>
+
+            {error && <p className="text-[13px] text-red-400">{error}</p>}
+
+            {result && (
+              <div className="flex flex-col gap-[12px] border-t border-border-default pt-[14px]">
+                {result.needed.cards === 0 ? (
+                  <p className="text-[14px] text-text-primary">
+                    Nothing needed — this goal is already finished. 🎉
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-[13px] text-text-secondary">
+                      <span className="font-semibold text-text-primary">
+                        {result.needed.items} card{result.needed.items === 1 ? '' : 's'}
+                      </span>{' '}
+                      needed across {result.needed.cards} line{result.needed.cards === 1 ? '' : 's'}
+                      {result.urls.length > 1 ? ` — split into ${result.urls.length} links (each adds to the same cart)` : ''}
+                      .
+                    </p>
+                    <div className="flex flex-col gap-[8px]">
+                      {result.urls.map((u, i) => (
+                        <a
+                          key={u}
+                          href={u}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex h-[44px] items-center justify-center gap-[8px] rounded-lg bg-surface-tertiary text-[13px] font-bold text-text-primary hover:bg-action-default-hover"
+                        >
+                          <Icon name="external" size={15} className="text-action-brand" />
+                          {result.urls.length > 1 ? `Open on TCGplayer — part ${i + 1} of ${result.urls.length}` : 'Open cart on TCGplayer'}
+                        </a>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[12px] font-bold uppercase tracking-wide text-text-muted">
+                        Mass Entry list (fallback)
+                      </span>
+                      <button
+                        onClick={copyText}
+                        className="flex items-center gap-[6px] text-[12px] font-semibold text-link hover:text-link-hover"
+                      >
+                        <Icon name={copied ? 'check' : 'copy'} size={14} /> {copied ? 'Copied' : 'Copy list'}
+                      </button>
+                    </div>
+                    <textarea
+                      readOnly
+                      value={result.text}
+                      rows={Math.min(6, result.lines.length)}
+                      className="w-full resize-none rounded-lg border border-border-default bg-surface-primary p-[10px] font-mono text-[12px] leading-[17px] text-text-secondary"
+                    />
+                  </>
+                )}
+                {result.unlinkable.length > 0 && (
+                  <div className="text-[12px] leading-[18px] text-text-muted">
+                    <span className="font-semibold text-text-secondary">
+                      Not on TCGplayer ({result.unlinkable.length}):
+                    </span>{' '}
+                    {result.unlinkable.map((u) => `${u.name} #${u.number}${u.variant ? ` (${u.variant})` : ''}`).join(', ')}
+                  </div>
+                )}
+                {result.warnings
+                  .filter((w) => !w.includes('no TCGplayer product')) // already rendered above
+                  .map((w) => (
+                    <p key={w} className="text-[12px] text-amber-400">
+                      {w}
+                    </p>
+                  ))}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+    </>
+  )
+}

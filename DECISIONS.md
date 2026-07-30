@@ -613,3 +613,70 @@ The last two daily cron stubs in `apps/sync` are now real: `snapshot-collection`
   `sync_run status='failed', error='fetch failed'`, exit 1, no orphaned running row.
 - Also fixed the stale "NOT REGISTERED" header comment in `routes/insights.ts`
   (it has been mounted in index.ts since Phase 6 integration).
+
+## 2026-07-30 — Rarity sort: canonical rank ladder replaces alphabetical ORDER BY
+
+Issue 2026-07-30_00-38-11-751_4sg27s: `sort=rarity` on set pages sorted the raw
+`card.rarity` **string alphabetically** — ASC only *looked* right ("Common" sorts
+early by accident); DESC started at "Uncommon" (alphabetically last), i.e. diamonds
+before Special Illustration/Mega Hyper Rares.
+
+- **`apps/api/src/rarity.ts`** (new): `RARITY_RANK` maps **all 40 distinct rarities
+  in the DB** (verified 40/40, zero unmapped, zero stale extras) to integer ranks,
+  and `raritySortSql(col)` emits a CASE expression for ORDER BY. Wired into the
+  `rarity` sort column of `routes/sets.ts`, `routes/search.ts`, `routes/dex.ts`.
+- **Ladder ordering** (modern era): official JP rarity codes — C < U < R < RR
+  (Double rare) < AR (Illustration rare) < SR (Ultra Rare) < SAR (Special
+  illustration rare) < gold tiers (Secret/Hyper < Black White Rare < Mega Hyper
+  Rare); corroborated by TCGplayer SV pull-rate data. SWSH: Holo < V < VMAX/VSTAR
+  (tied) < Radiant/Amazing < Ultra < shinies < Secret. Pocket: ◊×4 < ☆×3 < ✵×2 <
+  Crown, per in-game order. `None` 0, `Promo` 5 (bottom of ASC).
+- **Unknown-rarity policy**: exact map first, then ILIKE keyword fallbacks
+  ('%hyper%'→gold tier, '%illustration%'→AR, '%shiny%', …) so a new rarity from a
+  future set sorts **next to its closest tier**, else mid-ladder (=Rare) — never at
+  a random end. The CASE never yields NULL, so ASC/DESC stay symmetric under the
+  shared `NULLS LAST` order clause.
+- Ranks are spaced (10/20/…/86/90) so new tiers slot in without renumbering. After
+  a catalog sync introducing new rarities, add them to `RARITY_RANK` (coverage
+  check: diff `SELECT DISTINCT rarity FROM card` against the map keys).
+
+## 2026-07-30 — Series index: mobile toolbar popover + completion rings (issues h09o57, hln3d0)
+- **Mobile collapse breakpoint is `sm` (640px), not `nav`:** the sort/group toolbar
+  on `/series` now collapses below `sm` into a 38px sliders-icon button on the
+  heading row that opens a popover; ≥sm keeps the inline toolbar. Dismissal
+  (tap-outside + Escape, `aria-expanded`) mirrors the existing `OwnFilterMenu`
+  pattern in `PokedexIndex.tsx` — reuse that pattern for future popovers.
+- Both toolbar variants mount at once (CSS-hidden), so the sort `<select>` id is
+  suffixed `-mobile` in the stacked variant to avoid duplicate ids.
+- **Series-card completion is a right-side SVG ring** (stroke-dasharray, % centered),
+  not a bottom bar row. The stroke reuses the set-page bar's danger→primary
+  gradient via ONE shared `<linearGradient id="series-ring-grad">` def at the page
+  root — per-card defs would need unique ids (React 19 `useId` emits `«…»` which is
+  unsafe in `url(#…)`). The old row's owned/total detail lives on in the ring's
+  `title` + `aria-label` ("Completion: X of Y cards (Z%)").
+
+## 2026-07-30 — Purchase Set → TCGplayer Mass Entry deep links (issue qhfs2f)
+- **Mass Entry's real contract** (TCGplayer help S11 + live checks): URL
+  `https://www.tcgplayer.com/massentry?productline=Pokemon&c=<lines>`, lines
+  `<qty> <name> [<SETCODE>] <number>` joined by `||` (`%7C%7C`), spaces `+`.
+  Set codes are **TCGplayer's abbreviation vocabulary** (Pitch Black = `PBL`,
+  not pkmn.gg's `ME05`), numbers lose leading zeros. **Printing and condition
+  (NM/LP) can NOT be encoded per line or URL** — they're picked in the Mass
+  Entry page's own prefs panel, so our menu offers only real knobs (goal +
+  finish filter) and says so instead of shipping dead switches.
+- **`card_variant.tcgplayer_mass_entry` is 0/40107 populated** (schema intended
+  it for this feature; sync never fills it). New `GET /sets/:setId/massentry`
+  (`apps/api/src/routes/massentry.ts`) therefore composes lines from
+  name + abbrev + local_id, honoring stored tokens first if they ever appear.
+  Abbreviations come from TCGCSV `/tcgplayer/3/groups` at runtime (in-process
+  cache 24h, 5min negative, 5s timeout, graceful bare-name fallback).
+  **TCGCSV 401s UA-less fetches** — send the same `pokedex/1.0` UA as apps/sync.
+- Missing-for-goal math mirrors rotom-mcp `set_progress` (master =
+  `master_required_variant`, grandmaster = all variants, complete = card-level);
+  verified against `user_set_progress` for me05 (81/152/157) and swsh8 gm
+  (501 linkable + 6 unlinkable = 507). Variants without a TCGplayer product are
+  returned as `unlinkable`, never dropped. `c` payload chunks at ~1800 encoded
+  chars into ordered URLs (each adds to the same cart); generated URL fetch → 200.
+- Reused by new MCP tool `set_cart` (`apps/mcp/src/tools/shopping.ts`, read-only,
+  builds links only) and the web `PurchaseSetMenu` modal; Shop keeps the plain
+  set search URL.

@@ -6,6 +6,7 @@ import { fmtDate, fmtUsd } from '../lib/format'
 import { SetSymbolTile, setAssetUrl } from './ui'
 import { ProgressCluster } from './ProgressCluster'
 import { Icon } from './Icon'
+import { PurchaseSetMenu } from './PurchaseSetMenu'
 
 function Stat({ label, value, money = false }: { label: string; value: string; money?: boolean }) {
   return (
@@ -20,9 +21,10 @@ function Stat({ label, value, money = false }: { label: string; value: string; m
 
 export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal }) {
   const { set, progress } = data
-  // No canonical per-set product URL is derivable from our catalog, so both the
-  // Shop and Purchase Set actions open a TCGplayer Pokémon search for the set
-  // name — a reliable landing page for singles and sealed product alike.
+  // Shop: no canonical per-set product URL is derivable from our catalog, so it
+  // opens a TCGplayer Pokémon search for the set name — a reliable landing page
+  // for singles and sealed product alike. Purchase Set is different: it builds a
+  // Mass Entry cart deep link for the cards still needed (PurchaseSetMenu).
   const tcgSearchUrl = `https://www.tcgplayer.com/search/pokemon/product?productLineName=pokemon&q=${encodeURIComponent(
     set.name,
   )}`
@@ -60,9 +62,7 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
             <a href={tcgSearchUrl} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
               <Icon name="external" size={16} className="text-action-brand" /> Shop
             </a>
-            <a href={tcgSearchUrl} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
-              <Icon name="external" size={16} className="text-action-brand" /> Purchase Set
-            </a>
+            <PurchaseSetMenu setId={set.setId} pageGoal={goal} />
             <a href={api.setChecklistPdfUrl(set.setId)} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
               <Icon name="printer" size={16} className="text-action-brand" /> Print Checklist
             </a>
