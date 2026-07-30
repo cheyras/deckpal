@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { cardImages, q, toMajor } from '../db.js';
 import { asyncHandler, catalogCache, clampInt, oneOf, str, strList } from '../http.js';
+import { raritySortSql } from '../rarity.js';
 
 export const searchRouter: Router = Router();
 
@@ -8,7 +9,7 @@ const SORT_COLUMNS = {
   name: 'c.name',
   number: 'c.number_sort',
   price: 'price_minor',
-  rarity: 'c.rarity',
+  rarity: raritySortSql('c.rarity'),
   released: 'c.released_on',
 } as const;
 type SortKey = keyof typeof SORT_COLUMNS;
