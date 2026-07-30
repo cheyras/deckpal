@@ -60,7 +60,7 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return res.json() as Promise<T>
 }
 
-async function send<T>(method: 'PATCH' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<T> {
+async function send<T>(method: 'PATCH' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -374,6 +374,11 @@ export interface SearchResponse {
 // ── Decks (Phase 5) ────────────────────────────────────────────
 export type DeckFormat = 'standard' | 'expanded' | 'glc' | 'unlimited'
 
+export interface BattleRecord {
+  wins: number
+  losses: number
+  ties: number
+}
 export interface DeckSummary {
   id: string
   name: string
@@ -384,11 +389,14 @@ export interface DeckSummary {
   isFavorite: boolean
   coverRender: string
   coverImage: { low: string; high: string } | null
+  version: number
   totalCount: number
   valueUsd: number | null
   legal: boolean
   createdAt: string
   updatedAt: string
+  // Aggregate battle record over ALL versions — present on GET /decks rows only.
+  record?: BattleRecord
 }
 export interface DeckCard {
   cardId: string
@@ -451,7 +459,7 @@ export interface CardRef {
   image: string
 }
 export interface DeckDetail {
-  deck: DeckSummary
+  deck: DeckSummary & { strategyMd: string | null }
   counts: DeckCounts
   cards: DeckCard[]
   validation: ValidationResult
@@ -510,6 +518,101 @@ export interface CreateDeckBody {
   formatCode?: DeckFormat
   glcType?: string | null
   description?: string | null
+}
+
+// ── Deck intelligence: versions, strategy, battle logs ─────────
+// Per-version battle-log aggregate (`total` includes result-less logs).
+export interface VersionBattleRecord extends BattleRecord {
+  total: number
+}
+export interface DeckVersionSummary {
+  version: number
+  note: string | null
+  source: string
+  createdAt: string
+  cardCount: number
+  formatCode: DeckFormat
+  battleLogs: VersionBattleRecord
+  isCurrent: boolean
+}
+export interface DeckVersionsResponse {
+  current: number
+  versions: DeckVersionSummary[]
+}
+export interface SnapshotCard {
+  cardId: number
+  tcgdexId: string
+  name: string
+  quantity: number
+}
+export interface DeckVersionDiff {
+  added: { name: string; tcgdexId: string; quantity: number }[]
+  removed: { name: string; tcgdexId: string; quantity: number }[]
+  changed: { name: string; tcgdexId: string; from: number; to: number }[]
+}
+export interface DeckVersionDetail {
+  version: number
+  isCurrent: boolean
+  formatCode: DeckFormat
+  note: string | null
+  source: string
+  createdAt: string
+  strategyMd: string | null
+  cardCount: number
+  cards: SnapshotCard[]
+  battleLogs: VersionBattleRecord
+  diff: DeckVersionDiff | null // null for v1 (nothing to diff against)
+}
+export interface RevertResult {
+  toVersion: number
+  version: number
+  bumped: boolean
+  skippedCards: { cardId: number; tcgdexId: string; name: string }[]
+}
+export type BattleResult = 'win' | 'loss' | 'tie'
+export interface BattleLogSummary {
+  id: number
+  deckVersion: number
+  result: BattleResult | null
+  opponent: string | null
+  opponentDeck: string | null
+  turns: number | null
+  prizes: { me: number; opponent: number } | null
+  notes: string | null
+  playedAt: string
+  source: string
+}
+export interface ParsedBattleLog {
+  players: { me: string | null; opponent: string | null }
+  confidence: 'high' | 'low'
+  result: BattleResult | null
+  wentFirst: 'me' | 'opponent' | null
+  totalTurns: number
+  prizesTaken: { me: number; opponent: number }
+  knockouts: { byMe: string[]; byOpponent: string[] }
+  opponentPokemon: string[]
+  myPokemon: string[]
+  opponentDeckGuess: string | null
+}
+export interface BattleLog extends BattleLogSummary {
+  rawLog: string
+  parsed: ParsedBattleLog | null
+  createdAt: string
+}
+export interface BattleLogsResponse {
+  version: number | null
+  logs: BattleLogSummary[]
+  totals: VersionBattleRecord
+  pagination: { page: number; pageSize: number; total: number; pageCount: number }
+}
+export interface AddBattleLogBody {
+  rawLog: string
+  result?: BattleResult
+  opponent?: string
+  opponentDeck?: string
+  notes?: string
+  playedAt?: string
+  playerName?: string
 }
 export interface UpdateDeckBody {
   name?: string
@@ -753,6 +856,34 @@ export const api = {
   testHand: (id: string, seed?: number, signal?: AbortSignal) =>
     get<TestHand>(`/decks/${encodeURIComponent(id)}/testhand${seed !== undefined ? `?seed=${seed}` : ''}`, signal),
   deckPricing: (id: string, signal?: AbortSignal) => get<DeckPricing>(`/decks/${encodeURIComponent(id)}/pricing`, signal),
+
+  // Deck intelligence — strategy guide, version history, battle logs.
+  // Strategy edits never bump the version; null / '' clears the guide.
+  setDeckStrategy: (id: string, strategyMd: string | null) =>
+    send<DeckDetail>('PUT', `/decks/${encodeURIComponent(id)}/strategy`, { strategyMd }),
+  deckVersions: (id: string, signal?: AbortSignal) =>
+    get<DeckVersionsResponse>(`/decks/${encodeURIComponent(id)}/versions`, signal),
+  deckVersion: (id: string, version: number, signal?: AbortSignal) =>
+    get<DeckVersionDetail>(`/decks/${encodeURIComponent(id)}/versions/${version}`, signal),
+  // Non-destructive: applies the old snapshot as a NEW version (history is kept).
+  revertDeck: (id: string, body: { toVersion: number; includeStrategy?: boolean; note?: string }) =>
+    send<DeckDetail & { revert: RevertResult }>('POST', `/decks/${encodeURIComponent(id)}/revert`, body),
+  battleLogs: (id: string, params?: { version?: number; page?: number; pageSize?: number }, signal?: AbortSignal) => {
+    const q = new URLSearchParams()
+    if (params?.version != null) q.set('version', String(params.version))
+    if (params?.page != null) q.set('page', String(params.page))
+    if (params?.pageSize != null) q.set('pageSize', String(params.pageSize))
+    const qs = q.toString()
+    return get<BattleLogsResponse>(`/decks/${encodeURIComponent(id)}/logs${qs ? `?${qs}` : ''}`, signal)
+  },
+  battleLog: (id: string, logId: number, signal?: AbortSignal) =>
+    get<{ log: BattleLog }>(`/decks/${encodeURIComponent(id)}/logs/${logId}`, signal),
+  addBattleLog: (id: string, body: AddBattleLogBody) =>
+    send<{ log: BattleLog; attachedToVersion: number }>('POST', `/decks/${encodeURIComponent(id)}/logs`, body),
+  patchBattleLog: (id: string, logId: number, body: { result?: BattleResult | null; opponent?: string | null; opponentDeck?: string | null; notes?: string | null; playedAt?: string }) =>
+    send<{ log: BattleLog }>('PATCH', `/decks/${encodeURIComponent(id)}/logs/${logId}`, body),
+  deleteBattleLog: (id: string, logId: number) =>
+    send<{ deleted: number }>('DELETE', `/decks/${encodeURIComponent(id)}/logs/${logId}`),
 
   // Insights / gamification (Phase 6)
   overview: (signal?: AbortSignal) => get<InsightsOverview>('/insights/overview', signal),

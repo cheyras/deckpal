@@ -1483,6 +1483,75 @@ CREATE TABLE deck_card (
 | `require_single_type` | — | — | ✔ | — |
 | exclusive groups | — | — | ✔ | — |
 
+## 8.7 Deck intelligence — versions, battle logs, strategy (migration 019)
+
+Decks accumulate battle-tested knowledge over time: a markdown **strategy guide**,
+pasted **PTCG Live battle logs**, and a **version history** so logs attach to the
+list they were actually played with. `deck_card` stays the live working list every
+existing query and the validation engine read — snapshots are a parallel record,
+not a replacement.
+
+```sql
+ALTER TABLE deck
+  ADD COLUMN version INTEGER NOT NULL DEFAULT 1,          -- the CURRENT version number
+  ADD COLUMN strategy_md TEXT CHECK (char_length(strategy_md) <= 40000);
+
+CREATE TABLE deck_version (
+  deck_id     UUID NOT NULL REFERENCES deck(id) ON DELETE CASCADE,
+  version     INTEGER NOT NULL CHECK (version >= 1),
+  format_code TEXT NOT NULL REFERENCES format(code),
+  cards       JSONB NOT NULL,   -- [{"cardId":123,"tcgdexId":"sv01-25","name":"…","quantity":2}]
+  strategy_md TEXT,
+  note        TEXT CHECK (char_length(note) <= 500),
+  source      TEXT NOT NULL DEFAULT 'web' CHECK (source ~ '^[a-z0-9][a-z0-9._-]{0,39}$'),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (deck_id, version)
+);
+
+CREATE TABLE battle_log (
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  deck_id       UUID NOT NULL REFERENCES deck(id) ON DELETE CASCADE,
+  deck_version  INTEGER NOT NULL,               -- the version current when the game was played
+  raw_log       TEXT NOT NULL CHECK (char_length(raw_log) <= 50000),
+  result        TEXT CHECK (result IN ('win','loss','tie')),   -- NULL = undetermined
+  opponent      TEXT, opponent_deck TEXT,
+  notes         TEXT CHECK (char_length(notes) <= 2000),
+  parsed        JSONB,                          -- parser output (players, turns, prizes, KOs, …)
+  source        TEXT NOT NULL DEFAULT 'web' CHECK (source ~ '^[a-z0-9][a-z0-9._-]{0,39}$'),
+  played_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  FOREIGN KEY (deck_id, deck_version) REFERENCES deck_version (deck_id, version) ON DELETE CASCADE
+);
+CREATE INDEX battle_log_deck ON battle_log (deck_id, deck_version, played_at DESC);
+```
+
+**The auto-bump rule** (the load-bearing decision, LOCKED — implemented in
+`apps/api/src/deck/versions.ts::recordDeckChange`, called from every card-mutating
+handler inside its transaction, after the `deck_card` writes):
+
+- A card-list mutation checks whether the CURRENT version has ≥1 `battle_log` row.
+  **Yes** → increment `deck.version` and insert a NEW `deck_version` snapshot
+  (post-change state). **No** → amend the current snapshot row in place.
+  This collapses UI stepper noise — twenty single-card calls with no intervening
+  battles are still one version — and composes with sequential agent edits (the
+  first op bumps, the rest amend the new logless version).
+- **Strategy edits never bump**: they update `deck.strategy_md` AND the current
+  snapshot in place. Rename/favorite/cover changes never touch versions. A
+  **format change** goes through the same rule as a card edit (it changes what
+  the list means).
+- **Revert** applies an old snapshot's cards (+ strategy, by default) through the
+  same write path — so the rule above decides whether it bumps or amends — with
+  the note auto-set to `Reverted to v<k>`. History is never deleted.
+- Deck create and import seed the v1 snapshot in the same transaction; migration
+  019 backfilled a v1 snapshot for every pre-existing deck (`source = 'backfill'`).
+
+`source` reuses §9's attribution shape (`web`, `rotom-mcp`, …) so both snapshot
+and log rows say who wrote them. `battle_log.result` is nullable on purpose: a
+truncated paste with no win/concede line stores as undetermined rather than
+guessing, and the API refuses (400) only when it can identify neither the deck
+owner nor an explicit result.
+
 
 # 9. Collection, goals, and progress
 

@@ -1,0 +1,291 @@
+Setup
+Robni16 chose tails for the opening coin flip.
+Robni16 won the coin toss.
+Robni16 decided to go first.
+Robni16 drew 7 cards for the opening hand.
+- 7 drawn cards.
+cheyras drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • Telepathic Psychic Energy, Poltchageist, Air Balloon, Buddy-Buddy Poffin, Lillie's Determination, Telepathic Psychic Energy, Buddy-Buddy Poffin
+Robni16 took a mulligan.
+- Cards revealed from Mulligan 1
+   • Basic Psychic Energy, Buddy-Buddy Poffin, Basic Fire Energy, Lillie's Determination, Rare Candy, Boss's Orders, Judge
+cheyras drew 1 more card because Robni16 took at least 1 mulligan.
+- cheyras drew Switch.
+Robni16 played Dreepy to the Active Spot.
+cheyras played Poltchageist to the Active Spot.
+
+Robni16's Turn
+Robni16 drew a card.
+Robni16 played Duskull to the Bench.
+Robni16 attached Basic Psychic Energy to Dreepy in the Active Spot.
+Robni16 played Poké Pad.
+- Robni16 drew Dusclops.
+- Robni16 shuffled their deck.
+Robni16 ended their turn.
+
+cheyras's Turn
+cheyras drew Shuppet.
+cheyras played Shuppet to the Bench.
+cheyras played Lillie's Determination.
+- cheyras shuffled 6 cards into their deck.
+   • Telepathic Psychic Energy, Air Balloon, Buddy-Buddy Poffin, Telepathic Psychic Energy, Buddy-Buddy Poffin, Switch
+- cheyras drew 8 cards.
+   • Air Balloon, Basic Psychic Energy, Buddy-Buddy Poffin, Poltchageist, Dhelmise, Telepathic Psychic Energy, Poké Pad, Prism Tower
+cheyras played Dhelmise to the Bench.
+cheyras played Prism Tower to the Stadium spot.
+cheyras played Prism Tower.
+- cheyras discarded 2 cards.
+   • Poltchageist, Buddy-Buddy Poffin
+- cheyras drew Ultra Ball.
+cheyras attached Basic Psychic Energy to Dhelmise on the Bench.
+cheyras ended their turn.
+
+Robni16's Turn
+Robni16 drew a card.
+Robni16 evolved Dreepy to Drakloak in the Active Spot.
+Robni16 evolved Duskull to Dusclops on the Bench.
+Robni16 played Hilda.
+- Robni16 drew 2 cards.
+   • Dragapult ex, Basic Fire Energy
+- Robni16 shuffled their deck.
+Robni16 attached Basic Fire Energy to Drakloak in the Active Spot.
+Robni16's Drakloak used Recon Directive.
+- Robni16 drew a card.
+Robni16's Drakloak used Dragon Headbutt on cheyras’s Poltchageist for 70 damage.
+cheyras's Poltchageist was Knocked Out!
+Robni16 took a Prize card.
+A card was added to Robni16's hand.
+cheyras's Shuppet is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew Switch.
+cheyras attached Telepathic Psychic Energy to Shuppet in the Active Spot.
+Telepathic Psychic Energy was activated.
+- cheyras drew 2 cards and played them to the Bench.
+   • Shuppet, Shuppet
+- cheyras shuffled their deck.
+cheyras played Poké Pad.
+- cheyras drew Banette.
+- cheyras shuffled their deck.
+cheyras evolved Shuppet to Banette in the Active Spot.
+cheyras played Ultra Ball.
+- cheyras discarded 2 cards.
+   • Air Balloon, Switch
+- cheyras drew Poltchageist.
+- cheyras shuffled their deck.
+cheyras's Banette used Puppet Pull on Robni16’s Drakloak for 80 damage.
+- cheyras drew Fezandipiti ex.
+- cheyras shuffled their deck.
+
+Robni16's Turn
+Robni16 drew a card.
+Robni16 evolved Drakloak to Dragapult ex in the Active Spot.
+Robni16 evolved Dusclops to Dusknoir on the Bench.
+Robni16 played Buddy-Buddy Poffin.
+- Robni16 drew 2 cards and played them to the Bench.
+   • Duskull, Dreepy
+- Robni16 shuffled their deck.
+Robni16's Dragapult ex used Phantom Dive on cheyras’s Banette for 200 damage.
+cheyras's Shuppet used Hide 'n' Sneak.
+- Effects of Phantom Dive did not affect Shuppet.
+cheyras's Shuppet used Hide 'n' Sneak.
+- Effects of Phantom Dive did not affect Shuppet.
+cheyras's Banette was Knocked Out!
+- 2 cards were discarded from cheyras's Banette.
+   • Telepathic Psychic Energy, Shuppet
+Robni16 took a Prize card.
+A card was added to Robni16's hand.
+cheyras's Dhelmise is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew Poké Pad.
+cheyras played Poké Pad.
+- cheyras drew Dhelmise.
+- cheyras shuffled their deck.
+cheyras played Dhelmise to the Bench.
+cheyras played Fezandipiti ex to the Bench.
+cheyras's Fezandipiti ex used Flip the Script.
+- cheyras drew 3 cards.
+   • Lillie's Determination, Buddy-Buddy Poffin, Boss's Orders
+cheyras's Dhelmise used Vengeful Anchor on Robni16’s Dragapult ex for 170 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 4 discarded Pokémon: 140 damage
+   • Total damage: 170 damage
+
+
+Robni16's Turn
+Robni16 drew a card.
+Robni16 played Rare Candy.
+- Robni16 evolved Dreepy to Dragapult ex on the Bench.
+Robni16 played Lillie's Determination.
+- Robni16 shuffled 3 cards into their deck.
+- Robni16 drew 6 cards.
+Robni16's Dusknoir used Cursed Blast.
+cheyras's Shuppet used Hide 'n' Sneak.
+- Effects of Cursed Blast did not affect Shuppet.
+cheyras's Shuppet used Hide 'n' Sneak.
+- Effects of Cursed Blast did not affect Shuppet.
+Robni16's Dusknoir was Knocked Out!
+- 2 cards were discarded from Robni16's Dusknoir.
+   • Dusclops, Duskull
+cheyras took a Prize card.
+Night Stretcher was added to cheyras's hand.
+Robni16's Dragapult ex used Phantom Dive on cheyras’s Dhelmise for 200 damage.
+cheyras's Shuppet used Hide 'n' Sneak.
+- Effects of Phantom Dive did not affect Shuppet.
+cheyras's Shuppet used Hide 'n' Sneak.
+- Effects of Phantom Dive did not affect Shuppet.
+cheyras's Dhelmise was Knocked Out!
+Basic Psychic Energy was discarded from cheyras's Dhelmise.
+Robni16 took a Prize card.
+A card was added to Robni16's hand.
+cheyras's Dhelmise is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew Banette.
+cheyras's Fezandipiti ex used Flip the Script.
+- cheyras drew 3 cards.
+   • Special Red Card, Shuppet, Dhelmise
+cheyras played Special Red Card.
+- Robni16 shuffled their hand.
+- cheyras put 7 cards on the bottom of their deck.
+- cheyras drew 3 cards.
+cheyras played Prism Tower.
+- cheyras discarded 2 cards.
+   • Shuppet, Poltchageist
+- cheyras drew Poltchageist.
+cheyras evolved Shuppet to Banette on the Bench.
+cheyras played Night Stretcher.
+- cheyras moved cheyras's Basic Psychic Energy to their hand.
+cheyras attached Basic Psychic Energy to Dhelmise in the Active Spot.
+cheyras played Boss's Orders.
+- Robni16's Dragapult ex was switched with Robni16's Dragapult ex to become the Active Pokémon.
+Robni16's Dragapult ex is now in the Active Spot.
+cheyras's Dhelmise used Vengeful Anchor on Robni16’s Dragapult ex for 170 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 6 discarded Pokémon: 140 damage
+   • Total damage: 170 damage
+
+
+Robni16's Turn
+Robni16 drew a card.
+Robni16 attached Basic Psychic Energy to Dragapult ex in the Active Spot.
+Robni16 played Lillie's Determination.
+- Robni16 shuffled 2 cards into their deck.
+- Robni16 drew 6 cards.
+Robni16 played Ultra Ball.
+- Robni16 discarded 2 cards.
+   • Basic Psychic Energy, Judge
+- Robni16 drew Dragapult ex.
+- Robni16 shuffled their deck.
+Robni16 retreated Dragapult ex to the Bench.
+- Basic Psychic Energy was discarded from Robni16's Dragapult ex.
+Robni16's Dragapult ex is now in the Active Spot.
+Robni16's Dragapult ex used Phantom Dive on cheyras’s Dhelmise for 200 damage.
+cheyras's Shuppet used Hide 'n' Sneak.
+- Effects of Phantom Dive did not affect Shuppet.
+cheyras's Banette used Hide 'n' Sneak.
+- Effects of Phantom Dive did not affect Banette.
+cheyras's Dhelmise was Knocked Out!
+Basic Psychic Energy was discarded from cheyras's Dhelmise.
+Robni16 took a Prize card.
+A card was added to Robni16's hand.
+cheyras's Banette is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew Night Stretcher.
+cheyras played Night Stretcher.
+- cheyras moved cheyras's Basic Psychic Energy to their hand.
+cheyras's Fezandipiti ex used Flip the Script.
+- cheyras drew 3 cards.
+   • Boss's Orders, Telepathic Psychic Energy, Poké Pad
+cheyras attached Telepathic Psychic Energy to Banette in the Active Spot.
+Telepathic Psychic Energy was activated.
+- cheyras shuffled their deck.
+cheyras played Dhelmise to the Bench.
+cheyras played Poké Pad.
+- cheyras drew Sinistcha.
+- cheyras shuffled their deck.
+cheyras played Poltchageist to the Bench.
+cheyras's Banette used Puppet Pull on Robni16’s Dragapult ex for 80 damage.
+- cheyras drew Telepathic Psychic Energy.
+- cheyras shuffled their deck.
+Robni16's Dragapult ex was Knocked Out!
+- 4 cards were discarded from Robni16's Dragapult ex.
+   • Basic Psychic Energy, Basic Fire Energy, Drakloak, Dreepy
+cheyras took 2 Prize cards.
+Special Red Card was added to cheyras's hand.
+Banette was added to cheyras's hand.
+Robni16's Dragapult ex is now in the Active Spot.
+
+Robni16's Turn
+Robni16 drew a card.
+Robni16 played Crispin.
+- Robni16 drew Basic Fire Energy.
+Robni16 attached Basic Psychic Energy to Dragapult ex in the Active Spot.
+Robni16 played Dreepy to the Bench.
+Robni16 played Prism Tower.
+- cheyras moved Robni16's 2 cards to the discard pile.
+   • Rare Candy, Dragapult ex
+- cheyras drew a card.
+Robni16's Dragapult ex used Jet Headbutt on cheyras’s Banette for 70 damage.
+
+cheyras's Turn
+cheyras drew Basic Psychic Energy.
+cheyras played Special Red Card.
+- Robni16 shuffled their hand.
+- cheyras put 3 cards on the bottom of their deck.
+- cheyras drew 3 cards.
+cheyras played Boss's Orders.
+- Robni16's Dreepy was switched with Robni16's Dragapult ex to become the Active Pokémon.
+Robni16's Dreepy is now in the Active Spot.
+cheyras evolved Poltchageist to Sinistcha on the Bench.
+cheyras attached Telepathic Psychic Energy to Sinistcha on the Bench.
+cheyras evolved Shuppet to Banette on the Bench.
+cheyras played Buddy-Buddy Poffin.
+- cheyras shuffled their deck.
+cheyras's Banette used Puppet Pull on Robni16’s Dreepy for 80 damage.
+- cheyras drew Switch.
+- cheyras shuffled their deck.
+Robni16's Dreepy was Knocked Out!
+cheyras took a Prize card.
+Lillie's Determination was added to cheyras's hand.
+Robni16's Dragapult ex is now in the Active Spot.
+
+Robni16's Turn
+Robni16 drew a card.
+Robni16 played Ultra Ball.
+- Robni16 discarded 2 cards.
+   • Drakloak, Drakloak
+- Robni16 drew Dusclops.
+- Robni16 shuffled their deck.
+Robni16's Dragapult ex used Jet Headbutt on cheyras’s Banette for 70 damage.
+cheyras's Banette was Knocked Out!
+- 2 cards were discarded from cheyras's Banette.
+   • Telepathic Psychic Energy, Shuppet
+Robni16 took a Prize card.
+A card was added to Robni16's hand.
+cheyras's Dhelmise is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew Gwynn.
+cheyras attached Basic Psychic Energy to Dhelmise in the Active Spot.
+cheyras's Fezandipiti ex used Flip the Script.
+- cheyras drew 3 cards.
+   • Ultra Ball, Prism Tower, Gwynn
+cheyras's Dhelmise used Vengeful Anchor on Robni16’s Dragapult ex for 170 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 8 discarded Pokémon: 140 damage
+   • Total damage: 170 damage
+
+Robni16's Dragapult ex was Knocked Out!
+- 2 cards were discarded from Robni16's Dragapult ex.
+   • Basic Psychic Energy, Dreepy
+cheyras took 2 Prize cards.
+Dhelmise was added to cheyras's hand.
+Gwynn was added to cheyras's hand.
+All Prize cards taken. PlayerA wins.

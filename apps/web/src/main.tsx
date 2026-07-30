@@ -31,7 +31,7 @@ import { Scan } from './routes/Scan'
 import { Overlay } from './routes/Overlay'
 import { validateCardSearch } from './routes/setSearch'
 import { validateListSearch } from './routes/listSearch'
-import { validateDeckSearch } from './routes/deckSearch'
+import { validateDeckSearch, DECK_SEARCH_DEFAULTS } from './routes/deckSearch'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -113,6 +113,10 @@ const deckBuilderRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/decks/$id',
   validateSearch: validateDeckSearch,
+  // Default-valued params (q='', sort=section, tab=cards) stay OUT of the URL.
+  search: {
+    middlewares: [stripSearchParams(DECK_SEARCH_DEFAULTS)],
+  },
   component: DeckBuilder,
 })
 
