@@ -9,11 +9,18 @@ const BASE = '/pokedex/api'
 // (the SSO gate-protect.conf: `error_page 401 =302 https://$host/the SSO gate/?rd=…`).
 // fetch follows it and lands on the portal's HTML login page with status 200,
 // so without this guard res.json() throws and every route dead-ends on
-// "Something went wrong". Detect the bounce and reload the page instead —
-// nginx then sends the *browser* through the portal and back here after login.
+// "Something went wrong".
+//
+// ⚠️ Recovery MUST navigate to the portal, never reload the current URL: the
+// service worker serves any /pokedex/* navigation from the precached shell
+// (sw.ts NavigationRoute), so a same-URL reload never reaches nginx and the
+// login flow never runs — the PWA dead-ends on the error screen forever (the
+// 2026-07-30 recurrence of issue ylftyb). /the SSO gate/ is OUTSIDE the SW's
+// /pokedex/ scope, so navigating there always hits the network; the SSO gate's
+// rd= param brings the user straight back to the page they were on.
 // On the LAN vhost there is no the SSO gate, so none of these signals ever fire.
 function isAuthBounce(res: Response): boolean {
-  if (res.redirected) {
+  if (res.redirected || res.type === 'opaqueredirect') {
     try {
       if (new URL(res.url).pathname.startsWith('/the SSO gate/')) return true
     } catch {
@@ -23,30 +30,48 @@ function isAuthBounce(res: Response): boolean {
     const ct = res.headers.get('content-type') ?? ''
     if (ct.includes('text/html')) return true
   }
+  // An OK-but-HTML body on an API path can only be a login page (the API is
+  // JSON-only, its 404s are JSON, and the SW denylists /pokedex/api/ from the
+  // shell fallback) — catch it even if the redirected flag was lost in transit.
+  if (res.ok && (res.headers.get('content-type') ?? '').includes('text/html')) return true
   // A bare 401 also only ever comes from the auth layer (the API never 401s).
   return res.status === 401
 }
 
-const AUTH_RELOAD_KEY = 'pokedex:auth-reload-at'
-let authReloadInFlight = false
+const AUTH_PORTAL_KEY = 'pokedex:auth-portal-at'
+let authRedirectInFlight = false
 
-// Re-run the auth flow via a full reload of the current SPA URL. Guarded so a
-// burst of failing fetches triggers one reload, and a reload that *still*
-// bounces within 15s falls through to the normal error UI instead of looping.
-function redirectToAuth(): Error {
+// Send the user through the the SSO gate portal and back. Guarded so a burst of
+// failing fetches triggers one navigation, and a bounce that recurs within 15s
+// of returning from the portal (login abandoned / still broken) falls through
+// to the normal error UI instead of ping-ponging portal ↔ app.
+function redirectToAuth(res?: Response): Error {
   const now = Date.now()
-  const last = Number(sessionStorage.getItem(AUTH_RELOAD_KEY) ?? 0)
-  if (!authReloadInFlight && now - last > 15_000) {
-    authReloadInFlight = true
-    sessionStorage.setItem(AUTH_RELOAD_KEY, String(now))
-    window.location.assign(window.location.href)
+  const last = Number(sessionStorage.getItem(AUTH_PORTAL_KEY) ?? 0)
+  if (!authRedirectInFlight && now - last > 15_000) {
+    authRedirectInFlight = true
+    sessionStorage.setItem(AUTH_PORTAL_KEY, String(now))
+    // Prefer the portal origin we were actually bounced to; fall back to the
+    // conventional same-host portal path.
+    let portal: URL
+    try {
+      const bounced = res?.redirected ? new URL(res.url) : null
+      portal =
+        bounced && bounced.pathname.startsWith('/the SSO gate/')
+          ? new URL(bounced.origin + '/the SSO gate/')
+          : new URL('/the SSO gate/', window.location.origin)
+    } catch {
+      portal = new URL('/the SSO gate/', window.location.origin)
+    }
+    portal.searchParams.set('rd', window.location.href)
+    window.location.assign(portal.toString())
   }
   return new Error('Session expired — signing you back in…')
 }
 
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { signal })
-  if (isAuthBounce(res)) throw redirectToAuth()
+  if (isAuthBounce(res)) throw redirectToAuth(res)
   if (!res.ok) {
     let msg = `HTTP ${res.status}`
     try {
@@ -66,7 +91,7 @@ async function send<T>(method: 'PATCH' | 'POST' | 'PUT' | 'DELETE', path: string
     headers: { 'Content-Type': 'application/json' },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   })
-  if (isAuthBounce(res)) throw redirectToAuth()
+  if (isAuthBounce(res)) throw redirectToAuth(res)
   if (!res.ok) {
     let msg = `HTTP ${res.status}`
     try {
@@ -797,7 +822,7 @@ export const api = {
       body: bytes,
       signal,
     })
-    if (isAuthBounce(res)) throw redirectToAuth()
+    if (isAuthBounce(res)) throw redirectToAuth(res)
     if (!res.ok) {
       let msg = `HTTP ${res.status}`
       try {
