@@ -325,6 +325,32 @@ collectionRouter.post(
   }),
 );
 
+/**
+ * POST /pokedex/api/collection/reconcile — nightly consistency sweep: recompute
+ * the three user_set_progress rows for EVERY set that has progress rows, from
+ * the live catalog + collection (bumps recomputed_at AND reconciled_at). On a
+ * quiet system this never changes derived values — it exists to heal any drift.
+ * One withTx transaction per set, strictly sequential (connection budget: the
+ * API owns 2 connections total). Internal: called by the pokedex-sync
+ * `reconcile` cron over HTTP. Any request body is ignored.
+ */
+collectionRouter.post(
+  '/reconcile',
+  asyncHandler(async (_req, res) => {
+    const userId = await defaultUserId();
+    const started = Date.now();
+    const rows = await q<{ set_id: string }>(
+      `SELECT DISTINCT set_id FROM user_set_progress WHERE user_id = $1 ORDER BY set_id`,
+      [userId],
+    );
+    for (const r of rows) {
+      await withTx((client: pg.PoolClient) => recomputeSetProgress(client, userId, Number(r.set_id)));
+    }
+    userCache(res);
+    res.json({ sets: rows.length, ms: Date.now() - started });
+  }),
+);
+
 interface EventRow {
   id: string;
   occurred_at: string;

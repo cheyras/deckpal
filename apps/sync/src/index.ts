@@ -2,11 +2,16 @@ import cron from 'node-cron';
 import { loadEnv, makePool } from '@pokedex/db';
 import { ingestTcgcsvPrices } from './prices/tcgcsv.js';
 import { ingestCardmarket } from './prices/cardmarket.js';
+import { runReconcile, runSnapshotCollection } from './jobs/api-jobs.js';
 import type { Queryable } from './prices/db.js';
 
-// Phase 2 · task 1 skeleton — the node-cron scheduler shell only. NO network calls, NO catalog
-// import; those are later tasks. Cadences and the job list come from research/DATA-LAYER.md §7.2 and
-// the sync_run.job CHECK. Every real job's FIRST step will be skip-if-unchanged on its source_stamp.
+// The node-cron scheduler. FOUR of the seven jobs are real (see REAL_JOBS): the two price
+// ingests (prices-tcgcsv, prices-cardmarket) run in-process, and snapshot-collection /
+// reconcile call pokedex-api's internal endpoints over HTTP (jobs/api-jobs.ts — sync must
+// not import apps/api, whose db.ts opens its own 2-connection pool at module load).
+// catalog / images / products-tcgcsv remain MANUAL per PKMN-SYNC-RUNBOOK.md and fire as
+// logging stubs. Cadences and the job list come from research/DATA-LAYER.md §7.2 and the
+// sync_run.job CHECK. Run any real job once by hand: `pnpm --filter pokedex-sync run-once <job>`.
 loadEnv();
 
 // Connection budget: the sync process gets 1 of the 3 total. DATA-LAYER §6.5.
@@ -21,7 +26,7 @@ type JobName =
   | 'snapshot-collection'
   | 'reconcile';
 
-// cron cadences (local time unless noted); DATA-LAYER §7.2. Not yet wired to implementations.
+// cron cadences (local time unless noted); DATA-LAYER §7.2.
 const SCHEDULE: Record<JobName, string> = {
   catalog: '30 4 * * 0', // weekly, Sun 04:30 (after the JFF timer at 03:00)
   images: '0 5 * * 0', // triggered by catalog; placeholder weekly slot
@@ -40,9 +45,10 @@ function registerStub(job: JobName, expr: string): void {
   });
 }
 
-// Run a real price job on the single sync client, then release it. Each job internally holds a
-// pg advisory lock + skip-if-unchanged, so a cron fire that overlaps a manual run is a clean no-op.
-// Full run (no --sets): walks all 178 groups (TCGCSV) / all matched products (Cardmarket).
+// Run a real job on the single sync client, then release it. Each job internally holds a
+// pg advisory lock (+ skip-if-unchanged for prices), so a cron fire that overlaps a manual run
+// is a clean no-op. The catch here is the scheduler's crash barrier: a failed run (fetch error,
+// non-2xx, DB hiccup) is logged and the scheduler lives on.
 async function runJob(job: JobName, fn: (c: Queryable) => Promise<unknown>): Promise<void> {
   const client = (await pool.connect()) as unknown as Queryable & { release(): void };
   try {
@@ -55,15 +61,24 @@ async function runJob(job: JobName, fn: (c: Queryable) => Promise<unknown>): Pro
   }
 }
 
-const REAL_JOBS: Partial<Record<JobName, (c: Queryable) => Promise<unknown>>> = {
+// Exported for run-once.ts (the manual single-job CLI). Guarded by isMain below,
+// importing this module does NOT start the scheduler.
+export const REAL_JOBS: Partial<Record<JobName, (c: Queryable) => Promise<unknown>>> = {
   'prices-tcgcsv': (c) => ingestTcgcsvPrices(c),
   'prices-cardmarket': (c) => ingestCardmarket(c),
+  'snapshot-collection': (c) => runSnapshotCollection(c),
+  reconcile: (c) => runReconcile(c),
 };
 
 async function main(): Promise<void> {
   // Prove DB reachability at boot, then idle as the scheduler.
   const { rows } = await pool.query<{ n: number }>('SELECT count(*)::int AS n FROM sync_run');
-  console.log(`pokedex-sync up. sync_run rows: ${rows[0]?.n ?? 0}. Registering ${Object.keys(SCHEDULE).length} cron jobs.`);
+  const roster = (Object.keys(SCHEDULE) as JobName[])
+    .map((j) => `${j}=${REAL_JOBS[j] ? 'REAL' : 'stub'}`)
+    .join(' ');
+  console.log(
+    `pokedex-sync up. sync_run rows: ${rows[0]?.n ?? 0}. Registering ${Object.keys(SCHEDULE).length} cron jobs: ${roster}`,
+  );
   for (const [job, expr] of Object.entries(SCHEDULE)) {
     const real = REAL_JOBS[job as JobName];
     if (real) cron.schedule(expr, () => void runJob(job as JobName, real));
@@ -71,7 +86,13 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error('[pokedex-sync] fatal at boot:', err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+// Same isMain dance as apps/api: under pm2 fork mode pm_exec_path is the real script
+// path; argv[1] covers direct node/tsx runs. run-once.ts imports REAL_JOBS from here
+// without tripping the scheduler (its argv[1] ends in run-once.ts).
+const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
+if (entryPath.endsWith('index.js') || entryPath.endsWith('index.ts')) {
+  main().catch((err) => {
+    console.error('[pokedex-sync] fatal at boot:', err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+}
