@@ -1,13 +1,14 @@
 import { Router } from 'express';
 import { cardImages, defaultUserId, q, q1, toMajor } from '../db.js';
 import { asyncHandler, clampInt, notFound, oneOf, str, userCache } from '../http.js';
+import { raritySortSql } from '../rarity.js';
 
 export const dexRouter: Router = Router();
 
 const CARD_SORT = {
   number: 'c.number_sort',
   price: 'price_minor',
-  rarity: 'c.rarity',
+  rarity: raritySortSql('c.rarity'),
   artist: 'c.illustrator',
   released: 'c.released_on',
 } as const;
