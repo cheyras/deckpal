@@ -3,8 +3,50 @@
 
 const BASE = '/pokedex/api'
 
+// ── Authelia session-expiry handling ───────────────────────────
+// On the public vhost every /pokedex/* location is Authelia-gated; when the
+// session expires nginx answers the API fetch with a 302 to the login portal
+// (authelia-protect.conf: `error_page 401 =302 https://$host/authelia/?rd=…`).
+// fetch follows it and lands on the portal's HTML login page with status 200,
+// so without this guard res.json() throws and every route dead-ends on
+// "Something went wrong". Detect the bounce and reload the page instead —
+// nginx then sends the *browser* through the portal and back here after login.
+// On the LAN vhost there is no Authelia, so none of these signals ever fire.
+function isAuthBounce(res: Response): boolean {
+  if (res.redirected) {
+    try {
+      if (new URL(res.url).pathname.startsWith('/authelia/')) return true
+    } catch {
+      /* ignore */
+    }
+    // Redirected off the API onto an HTML page — an auth portal by any name.
+    const ct = res.headers.get('content-type') ?? ''
+    if (ct.includes('text/html')) return true
+  }
+  // A bare 401 also only ever comes from the auth layer (the API never 401s).
+  return res.status === 401
+}
+
+const AUTH_RELOAD_KEY = 'pokedex:auth-reload-at'
+let authReloadInFlight = false
+
+// Re-run the auth flow via a full reload of the current SPA URL. Guarded so a
+// burst of failing fetches triggers one reload, and a reload that *still*
+// bounces within 15s falls through to the normal error UI instead of looping.
+function redirectToAuth(): Error {
+  const now = Date.now()
+  const last = Number(sessionStorage.getItem(AUTH_RELOAD_KEY) ?? 0)
+  if (!authReloadInFlight && now - last > 15_000) {
+    authReloadInFlight = true
+    sessionStorage.setItem(AUTH_RELOAD_KEY, String(now))
+    window.location.assign(window.location.href)
+  }
+  return new Error('Session expired — signing you back in…')
+}
+
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { signal })
+  if (isAuthBounce(res)) throw redirectToAuth()
   if (!res.ok) {
     let msg = `HTTP ${res.status}`
     try {
@@ -24,6 +66,7 @@ async function send<T>(method: 'PATCH' | 'POST' | 'DELETE', path: string, body?:
     headers: { 'Content-Type': 'application/json' },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   })
+  if (isAuthBounce(res)) throw redirectToAuth()
   if (!res.ok) {
     let msg = `HTTP ${res.status}`
     try {
@@ -651,6 +694,7 @@ export const api = {
       body: bytes,
       signal,
     })
+    if (isAuthBounce(res)) throw redirectToAuth()
     if (!res.ok) {
       let msg = `HTTP ${res.status}`
       try {
