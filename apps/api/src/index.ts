@@ -8,6 +8,7 @@ import { closePool, pool, q } from './db.js';
 import { asyncHandler, catalogCache, errorMiddleware } from './http.js';
 import { seriesRouter } from './routes/series.js';
 import { setsRouter } from './routes/sets.js';
+import { massEntryRouter } from './routes/massentry.js';
 import { cardsRouter } from './routes/cards.js';
 import { searchRouter } from './routes/search.js';
 import { dexRouter } from './routes/dex.js';
@@ -70,7 +71,7 @@ export function createApp(): express.Express {
     res.json({
       name: 'pokedex-api',
       endpoints: [
-        '/health', '/series', '/series/:seriesSlug', '/sets/:setId', '/cards/:cardId', '/search', '/dex', '/dex/:speciesId',
+        '/health', '/series', '/series/:seriesSlug', '/sets/:setId', '/sets/:setId/massentry', '/cards/:cardId', '/search', '/dex', '/dex/:speciesId',
         'PATCH /collection/variants/:variantId', 'POST /collection/variants/:variantId/increment', 'POST /collection/cards/:cardId/have',
         '/lists', '/lists/:id', 'POST /lists', 'PATCH /lists/:id', 'DELETE /lists/:id', 'POST /lists/:id/items', 'DELETE /lists/:id/items/:itemId',
         '/decks', 'POST /decks', '/decks/:id', 'PATCH /decks/:id', 'DELETE /decks/:id',
@@ -88,6 +89,9 @@ export function createApp(): express.Express {
   api.use('/', exportRouter);
 
   api.use('/series', seriesRouter);
+  // /sets/:setId/massentry (TCGplayer cart deep links) resolves before the
+  // general set-detail router; the two never overlap (:setId is one segment).
+  api.use('/sets', massEntryRouter);
   api.use('/sets', setsRouter);
   api.use('/cards', cardsRouter);
   api.use('/search', searchRouter);

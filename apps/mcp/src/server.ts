@@ -6,6 +6,7 @@ import { registerCollectionTools, summaryText } from './tools/collection.js';
 import { registerDeckTools } from './tools/decks.js';
 import { registerListTools } from './tools/lists.js';
 import { registerLoggingTools } from './tools/logging.js';
+import { registerShoppingTools } from './tools/shopping.js';
 import { registerStatusTools } from './tools/status.js';
 
 const pkg = createRequire(import.meta.url)('../package.json') as { version: string };
@@ -28,6 +29,7 @@ export function buildServer(ctx: Ctx): McpServer {
   registerDeckTools(server, ctx);
   registerListTools(server, ctx);
   registerLoggingTools(server, ctx);
+  registerShoppingTools(server, ctx);
 
   // SPEC §5 resource: same payload as collection_summary, so clients can pull
   // collection context without a tool round-trip. summaryText lives in
