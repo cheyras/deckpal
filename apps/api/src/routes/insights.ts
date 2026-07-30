@@ -5,6 +5,7 @@ import { TRAINER_UNIQUE_MODE, trainerLevelProgress } from '../insights/trainerLe
 import {
   currentCollectionValue,
   ownedCounts,
+  snapshotCollectionValue,
   topMovers,
   valueSeries,
   type Range,
@@ -12,13 +13,11 @@ import {
 import { dexCompletion, speciesDetail, speciesGrid } from '../insights/pokedex.js';
 
 /**
- * Insights / gamification router — Phase 6 backend.
- *
- * ⚠️ NOT REGISTERED. Integrator: mount with `api.use('/insights', insightsRouter)`
- * in apps/api/src/index.ts (alongside the other api.use(...) lines). Everything
- * here is read-only over the collection; the daily snapshot write lives in
- * insights/collectionValue.snapshotCollectionValue() and is called by the sync
- * cron, not by any endpoint.
+ * Insights / gamification router — Phase 6 backend, mounted at /insights in
+ * apps/api/src/index.ts. Every GET is read-only over the collection; the one
+ * write is POST /value/snapshot (insights/collectionValue.snapshotCollectionValue,
+ * idempotent per day), which the pokedex-sync daily cron calls over HTTP — sync
+ * must not import this app (its db.ts opens a 2-connection pool at module load).
  */
 export const insightsRouter: Router = Router();
 
@@ -60,6 +59,24 @@ insightsRouter.get(
     const current = totals.find((t) => t.currency === currency) ?? { currency, totalMinor: 0, total: 0, pricedVariants: 0, quantity: 0 };
     userCache(res);
     res.json({ currency, range, current, series, movers });
+  }),
+);
+
+/**
+ * POST /insights/value/snapshot — append today's per-currency totals to
+ * collection_value_point for the default user. Idempotent per
+ * (user, observed_on, currency): a same-day re-run inserts nothing
+ * (ON CONFLICT DO NOTHING) and reports inserted: 0. Returns the SnapshotResult.
+ * Internal: called by the pokedex-sync `snapshot-collection` cron (127.0.0.1;
+ * nginx/Authelia is the only external ingress). Any request body is ignored.
+ */
+insightsRouter.post(
+  '/value/snapshot',
+  asyncHandler(async (_req, res) => {
+    const userId = await defaultUserId();
+    const result = await snapshotCollectionValue(userId);
+    userCache(res);
+    res.json(result);
   }),
 );
 
