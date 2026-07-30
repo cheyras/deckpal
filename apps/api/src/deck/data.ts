@@ -83,6 +83,8 @@ export interface SetAlias {
   set: string | null;
   kind: 'main' | 'subset' | 'promo' | 'energy' | 'alt' | 'unmapped';
   number_offset?: number;
+  /** false = code exists in decklist vocabulary (Limitless/PTCGO) but the set is NOT in PTCG Live's card pool (pool floor: Sun & Moon series). Absent = true. */
+  live?: boolean;
   note?: string;
 }
 interface SetAliasFile {

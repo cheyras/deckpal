@@ -301,6 +301,16 @@ function ExportModal({ deckId, onClose }: { deckId: string; onClose: () => void 
         <p className="text-[13px] text-text-muted">Copy this list and paste it into Pokémon TCG Live’s deck importer.</p>
         <textarea readOnly value={data?.text ?? 'Loading…'} rows={16}
           className="rounded-lg border border-border-default bg-surface-primary px-[14px] py-[10px] font-mono text-[13px] leading-[19px] text-text-primary" />
+        {data && data.warnings.length > 0 && (
+          <div className="flex flex-col gap-[6px] rounded-lg border border-[#ff9d42]/40 bg-[#ff9d42]/10 p-[10px]">
+            {data.warnings.map((w, i) => (
+              <div key={i} className="flex gap-[8px] text-[12px] leading-[17px] text-text-primary">
+                <Icon name="alert" size={14} className="mt-[1px] shrink-0 text-[#ff9d42]" />
+                <span>{w.message}</span>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex justify-end gap-[10px]">
           <button onClick={onClose} className="h-[44px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover">Close</button>
           <button onClick={copy} disabled={!data} className="flex h-[44px] items-center gap-[8px] rounded-full bg-action-primary px-[22px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50">
