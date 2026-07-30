@@ -264,17 +264,17 @@ export function Icon({
   )
 }
 
-// The brand mark: a yellow rounded tile with a card + star, echoing pkmn.gg's lockup
-// without copying it.
+// The brand mark: the card-scanner app icon (public/brand-icon.png, 128px with
+// baked rounded corners + alpha). Same art as the favicon.
 export function BrandMark({ size = 33 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">
-      <rect x="2" y="2" width="36" height="36" rx="9" fill="var(--color-action-primary)" />
-      <rect x="11" y="9" width="13" height="20" rx="2.5" fill="#1f232d" />
-      <path
-        d="M27 12.5l1.7 3.4 3.8.6-2.8 2.7.7 3.8-3.4-1.8-3.4 1.8.7-3.8-2.8-2.7 3.8-.6z"
-        fill="#fff"
-      />
-    </svg>
+    <img
+      src={`${import.meta.env.BASE_URL}brand-icon.png`}
+      width={size}
+      height={size}
+      alt=""
+      aria-hidden="true"
+      style={{ display: 'block', borderRadius: '22%' }}
+    />
   )
 }
