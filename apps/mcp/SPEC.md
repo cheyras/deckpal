@@ -105,7 +105,7 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
   (`card_variant.is_primary`); "set absolute quantity" on a card where the user owns multiple
   variants and no variant was given → refuse with the owned-variant list.
 
-## 5. Tool surface (14 tools + 1 resource)
+## 5. Tool surface (19 tools + 1 resource)
 
 ### Reads — direct SQL (`readOnlyHint: true`)
 
@@ -144,18 +144,26 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
 Exact request/response shapes: **read `apps/api/src/routes/decks.ts` / `lists.ts` first**; the
 routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST /decks/:id/cards`,
 `PATCH/DELETE /decks/:id/cards/:cardId`, `GET /decks/:id/{validate,export,testhand,pricing}`,
-`POST /decks/import`; `GET/POST /lists`, `GET/PATCH/DELETE /lists/:id`, `POST /lists/:id/items`,
+`POST /decks/import`, `PUT /decks/:id/strategy`, `GET /decks/:id/versions[/:v]`,
+`POST /decks/:id/revert`, `GET/POST /decks/:id/logs`, `GET/PATCH/DELETE /decks/:id/logs/:logId`;
+`GET/POST /lists`, `GET/PATCH/DELETE /lists/:id`, `POST /lists/:id/items`,
 `DELETE /lists/:id/items/:itemId`).
 
 8. **`decks`** — `{ deck_id?, include?: subset of [cards, validate, pricing, testhand] }`.
-   No id: deck index (id, name, format, card count). With id: deck + requested includes.
-   `pricing` include **is the gap analysis**: per-card owned vs needed, missing list with cost
-   to close and TCGplayer mass-entry lines (the API computes all of it).
+   No id: deck index (id, name, format, version, card count, battle record). With id: deck +
+   an intelligence headline (W/L record, battle-log count, strategy-guide presence as first
+   heading + char count) + requested includes. `pricing` include **is the gap analysis**:
+   per-card owned vs needed, missing list with cost to close and TCGplayer mass-entry lines
+   (the API computes all of it).
 9. **`save_deck`** — `{ deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
-   dry_run? = true }`. Create (POST /decks, or POST /decks/import when `ptcgl_text` given),
-   rename (PATCH), and reconcile the card list to `cards` via the per-card routes. Dry run
-   returns the would-be diff (current vs proposed lines) and changes nothing.
-10. **`delete_deck`** — `{ deck_id, dry_run? = true }`. `destructiveHint: true`.
+   version_note?, dry_run? = true }`. Create (POST /decks, or POST /decks/import when
+   `ptcgl_text` given), rename (PATCH), and reconcile the card list to `cards` via the
+   per-card routes — every write attributed `source: 'rotom-mcp'` (`writeSource` on the
+   import route, whose `source` names the decklist syntax). `version_note` rides as
+   `versionNote` on card ops and format PATCH and lands on the deck_version snapshot (§6b).
+   Dry run returns the would-be diff (current vs proposed lines) and changes nothing.
+10. **`delete_deck`** — `{ deck_id, dry_run? = true }`. `destructiveHint: true`. The dry run
+    (and the deed) spell out that the deck's version history and battle logs cascade with it.
 11. **`lists`** — `{ list_id? }`. Index or one list with items (compact).
 12. **`edit_list`** — `{ list_id?, name?, add_cards?, remove_item_ids?, dry_run? = true }`.
     Creates the list when `list_id` omitted. Item payload shape comes from `lists.ts`.
@@ -174,6 +182,41 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
     'rotom-mcp'`**. Description must say: this edits the local pokedex collection only —
     nothing external. `readOnlyHint: false`, `destructiveHint: false` (dry-run gated,
     delta-reversible).
+
+### Deck intelligence — via pokedex-api (migration 019; semantics in §6b)
+
+Numbered 15–18 so the earlier `§5 #N` references in code comments stay stable. All four live in
+`src/tools/deckIntel.ts`; writes carry `source: 'rotom-mcp'`.
+
+15. **`deck_strategy`** — `{ deck_id, markdown? }`. Omit `markdown` → the full guide. Provide it →
+    `PUT /decks/:id/strategy` replaces the whole guide (empty string clears); the response names
+    the previous guide's first heading + length so an accidental overwrite is visible. Strategy
+    edits NEVER bump the deck version (§6b) and the descriptions say so.
+16. **`add_battle_log`** — `{ deck_id, log, result?, player_name?, opponent_deck?, notes?,
+    played_at? }`. `POST /decks/:id/logs`: the API parses the raw PTCG Live log (result, opponent,
+    turns, prizes, KOs, deck guess) and attaches it to the deck's CURRENT version. The
+    ambiguous-owner 400 is surfaced verbatim — it tells the agent to retry with `player_name`
+    (exact screen name) or an explicit `result`.
+17. **`battle_logs`** — `{ deck_id, log_id?, version?, include_raw? = false, page?, page_size? }`.
+    List mode: one compact row per game, newest first, W/L footer (`3W–1L–0T`) over the filter
+    scope plus a per-version breakdown when unfiltered. `log_id`: full detail incl parsed fields.
+    `include_raw` appends raw log text — the synthesis read path; raw logs are huge, so list-mode
+    `page_size` then defaults to 10 (result-size budgets, §7). `readOnlyHint: true`.
+18. **`deck_history`** — `{ deck_id, version?, revert_to?, include_strategy? = true, note?,
+    dry_run? = true }`. No extra args: version timeline with per-version W/L, note, source, card
+    count, current marker. `version`: full snapshot + card diff vs the previous version.
+    `revert_to`: `POST /decks/:id/revert` — the API has no dry-run mode, so the tool's default
+    dry run fetches the target and current snapshots itself and prints the exact diff (and
+    whether the revert will bump or amend) before anything is written. Non-destructive by
+    design — history is never deleted — hence `destructiveHint: false`.
+
+### Shopping — via pokedex-api (`readOnlyHint: true`)
+
+19. **`set_cart`** — `{ set_id, goal? = default goal, finishes? }`. Thin wrapper over
+    `GET /sets/:setId/massentry` (single source of Mass Entry link generation, shared with the
+    web UI's Purchase Set button): TCGplayer Mass Entry deep link(s) + plain-text list for
+    everything still needed to finish a set. Builds links only — never buys anything; the user
+    opens them in their own logged-in browser.
 
 ### Resource
 
@@ -202,6 +245,38 @@ API changes (`apps/api/src/routes/collection.ts` + wherever the event INSERT liv
 - `GET /collection/events` returns `source`/`note` and accepts optional `?source=` filter.
 - Update/add API tests in `apps/api/src/__tests__` covering: default source stays `'web'`,
   explicit source+note round-trips through the events feed, invalid source rejected 400.
+
+## 6b. Migration 019 + deck intelligence (prerequisite for §5 15–18)
+
+Migration `019_deck_intelligence.sql` gives decks a strategy guide (`deck.strategy_md`,
+markdown, ≤40k chars), an integer `deck.version`, per-version snapshots (`deck_version`:
+cards jsonb + strategy + note + source) and battle logs (`battle_log`, raw PTCG Live text +
+parser output, FK'd to the deck version it was played on). The authoritative write logic lives
+in `apps/api/src/deck/versions.ts` — these tools NEVER reimplement it (§3 hybrid rule holds:
+every deck-intel operation goes through the API).
+
+The versioning semantics the tool descriptions must keep teaching (LOCKED in the feature plan):
+
+- **Auto-bump rule**: a card-list or format change to a version that already has ≥1 battle log
+  creates a NEW version (post-change snapshot); with no logs, the current snapshot is amended
+  in place — a burst of single-card edits with no battles in between stays one version, and
+  save_deck's sequential ops compose (first op bumps, the rest amend the new logless version).
+- **Strategy edits never bump.** `PUT /strategy` updates `deck.strategy_md` and the current
+  snapshot in place.
+- **Logs attach to the current version** — the list the game was actually played with — so
+  per-version W/L records mean something.
+- **Revert is non-destructive**: it re-applies an old snapshot through the same write path
+  (same auto-bump rule); history is never deleted.
+- **The synthesis loop** these tools exist for: `battle_logs` (read a version's results, raw
+  logs via `include_raw`) → `save_deck` with `version_note` / `deck_strategy` (push the
+  improved list + guide) → new games log against the new version. Compounding, battle-tested
+  deck intelligence.
+
+Attribution extends the §6 convention: every deck write accepts optional `source` (same shape,
+default `'web'`) — the tools always send `'rotom-mcp'` — and card ops + format PATCH accept
+`versionNote` (≤500) which lands on the `deck_version` row. On `POST /decks/import` the writer
+attribution field is **`writeSource`** because `source` was already the decklist-syntax param
+there.
 
 ## 7. Non-negotiables (inherited from the repo)
 

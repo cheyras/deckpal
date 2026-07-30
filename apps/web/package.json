@@ -16,7 +16,9 @@
     "@tanstack/react-virtual": "3.14.8",
     "html2canvas": "^1.4.1",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.3",
