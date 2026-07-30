@@ -4,11 +4,12 @@ import { cardImages, defaultUserId, pool, q, q1, toMajor, tcgplayerUrl, withTx }
 import { asyncHandler, badRequest, notFound, oneOf, str, userCache } from '../http.js';
 import {
   validateDeck, resolveDeck, buildReprintOracle,
-  parsePtcgl, parseMassEntry, serializePtcgl, serializeMassEntry,
+  parsePtcgl, parseMassEntry, serializeMassEntry,
+  buildPtcglExport, findLiveReprint,
   expandLibrary, drawOpeningHand, mulberry32, hypergeometricMulligan,
-  formatConfig, setAliases, glcTypes, normalizeName,
+  formatConfig, glcTypes, normalizeName,
   type FormatCode, type PokemonType, type CardFacts, type Deck, type DeckEntry,
-  type ValidationResult, type ParsedDeck, type ParsedLine, type Section, type SerializableLine,
+  type ValidationResult, type ParsedDeck, type ParsedLine, type Section, type ExportRow,
 } from '../deck/index.js';
 
 export const decksRouter: Router = Router();
@@ -41,17 +42,6 @@ const FORMATS = ['standard', 'expanded', 'glc', 'unlimited'] as const;
 const NAME_MAX = 120;
 const DESC_MAX = 2000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// tcgdex set id -> PTCGL set code, for lossless-ish export. Built once from the
-// vendored alias table (prefer the 'main' print of a code). Reverse of resolveSetAlias.
-const REVERSE_ALIAS: Map<string, string> = (() => {
-  const m = new Map<string, string>();
-  for (const [ptcgl, a] of Object.entries(setAliases())) {
-    if (!a.set) continue;
-    if (!m.has(a.set) || a.kind === 'main') m.set(a.set, ptcgl);
-  }
-  return m;
-})();
 
 function parseFormat(v: unknown, fallback: FormatCode = 'standard'): FormatCode {
   return oneOf<FormatCode>(v, FORMATS, fallback);
@@ -655,11 +645,10 @@ decksRouter.get(
     const kind = oneOf(req.query.format, ['ptcgl', 'massentry'] as const, 'ptcgl');
     const { rows } = await loadRows(deckId, userId);
 
-    let text: string;
     if (kind === 'massentry') {
       // Buy format (§1.9): use the stored per-variant Mass Entry line when present,
       // else a bare name line. Never share the PTCGL formatter.
-      text = serializeMassEntry(
+      const text = serializeMassEntry(
         rows.map((r) => ({
           quantity: r.quantity,
           name: r.name,
@@ -668,19 +657,27 @@ decksRouter.get(
           raw: '',
         })),
       );
-    } else {
-      const lines: SerializableLine[] = rows.map((r) => ({
-        quantity: r.quantity,
-        name: r.name,
-        setCode: REVERSE_ALIAS.get(r.set_tcgdex_id) ?? r.set_tcgdex_id.toUpperCase(),
-        number: r.local_id,
-        print: null,
-        section: sectionOf(r.category),
-      }));
-      text = serializePtcgl(lines);
+      userCache(res);
+      res.json({ format: kind, text, warnings: [] });
+      return;
     }
+
+    // PTCGL: emit real PTCGL vocabulary (set codes, brace Energy, stripped zeros)
+    // with structured warnings for anything Live cannot resolve — see deck/export.ts.
+    const exportRows: ExportRow[] = rows.map((r) => ({
+      cardId: Number(r.card_id),
+      tcgdexId: r.tcgdex_id,
+      quantity: r.quantity,
+      name: r.name,
+      localId: r.local_id,
+      category: r.category,
+      energyType: r.energy_type,
+      setTcgdexId: r.set_tcgdex_id,
+      setName: r.set_name,
+    }));
+    const { text, warnings } = await buildPtcglExport(exportRows, (row) => findLiveReprint(pool, row));
     userCache(res);
-    res.json({ format: kind, text });
+    res.json({ format: kind, text, warnings });
   }),
 );
 

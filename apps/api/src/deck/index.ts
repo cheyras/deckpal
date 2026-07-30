@@ -31,3 +31,7 @@ export {
   makeDeckPool, resolveDeck, resolveLine, loadBySetNumber, loadByName,
   computeFingerprints, fingerprintInputs, buildReprintOracle,
 } from './db.js';
+export {
+  buildPtcglExport, findLiveReprint, ptcglCodeForSet, ptcglName, basicEnergyBrace,
+  type ExportRow, type ExportWarning, type PtcglExportResult, type LiveReprint,
+} from './export.js';

@@ -746,7 +746,10 @@ export const api = {
       signal,
     ),
   exportDeck: (id: string, format: 'ptcgl' | 'massentry' = 'ptcgl', signal?: AbortSignal) =>
-    get<{ format: string; text: string }>(`/decks/${encodeURIComponent(id)}/export?format=${format}`, signal),
+    get<{ format: string; text: string; warnings: { code: string; message: string; cardId: string }[] }>(
+      `/decks/${encodeURIComponent(id)}/export?format=${format}`,
+      signal,
+    ),
   testHand: (id: string, seed?: number, signal?: AbortSignal) =>
     get<TestHand>(`/decks/${encodeURIComponent(id)}/testhand${seed !== undefined ? `?seed=${seed}` : ''}`, signal),
   deckPricing: (id: string, signal?: AbortSignal) => get<DeckPricing>(`/decks/${encodeURIComponent(id)}/pricing`, signal),
