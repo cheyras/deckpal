@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/server';
 import type { Ctx } from './ctx.js';
 import { registerCatalogTools } from './tools/catalog.js';
@@ -11,6 +14,20 @@ import { registerStatusTools } from './tools/status.js';
 
 const pkg = createRequire(import.meta.url)('../package.json') as { version: string };
 
+// Server icon (Rotom on dark gray) advertised per MCP SEP-973 (spec 2025-11-25).
+// claude.ai doesn't render custom-connector icons yet (shows a globe) — when it
+// ships support, this is what appears. Read once at module load; the file lives
+// in assets/ beside src/ and dist/, so resolve from this file's directory.
+const iconDataUri: string | null = (() => {
+  try {
+    const p = join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'icon-128.png');
+    return `data:image/png;base64,${readFileSync(p).toString('base64')}`;
+  } catch {
+    console.error('[pokedex-mcp] assets/icon-128.png missing — serving without an icon');
+    return null;
+  }
+})();
+
 /**
  * Build a fresh McpServer wired to the shared, build-once context. Called by
  * createMcpHandler's factory on every request (stateless HTTP mode, SPEC §2):
@@ -21,6 +38,9 @@ export function buildServer(ctx: Ctx): McpServer {
     name: 'rotom-mcp',
     version: pkg.version,
     title: 'Rotom — pokedex collection assistant',
+    ...(iconDataUri
+      ? { icons: [{ src: iconDataUri, mimeType: 'image/png', sizes: ['128x128'] }] }
+      : {}),
   });
 
   registerStatusTools(server, ctx);
