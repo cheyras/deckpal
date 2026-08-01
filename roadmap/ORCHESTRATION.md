@@ -105,7 +105,7 @@ Unregister with `POST /unregister {"branch": "..."}` when a worktree is retired.
 `apps/web/vite.config.ts` reads `POKEDEX_DEV_API_PORT` (default 3700) for its dev proxy, so a
 branch that changes the API runs its own api instance instead of polluting prod's.
 
-Prod (`http://localhost/pokedex/`) is pre-registered in the hub menu as a permanent entry.
+The hub lists dev surfaces only — no prod entry (removed 2026-08-01; it broke for raw-IP visitors and the hub's job is in-flight work). Reach the live app directly at `http://localhost/pokedex/` when needed.
 
 ## Ready-for-review checklist (per feature)
 
