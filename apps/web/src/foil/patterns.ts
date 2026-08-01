@@ -64,36 +64,60 @@ export const PATTERNS: FoilPattern[] = [
     label: 'Starlight (WOTC)',
     taxonomy: 'Starlight / "cosmos" star-field foil',
     usedOn: 'WOTC holo rares 1999–2003 (Base–Skyridge) — art-window foil.',
-    // Two layers: a noise-warped rainbow wash that sweeps with tilt (the
-    // liquid "galaxy" sheet) + discrete star sparkles that pop in and out as
-    // the card turns (each star has a random phase; brightness is a sharp
-    // cosine lobe over phase+tilt, so individual stars ignite one by one).
+    // Reworked 2026-08-01 from Chey's workbench comment (issues/foil/
+    // 2026-08-01_22-40-03-629_ftoz71): real WOTC Starlight has a layered
+    // parallax 3-D quality — star layers shift left/right AGAINST each other
+    // as the card tilts — and the stars are a MIX of crisp glyph-like
+    // sparkles and soft blurry ones living on different layers. Brightness
+    // breathes smoothly (floor + wide lobe), never binary blink.
+    //
+    // Three depth layers over the rainbow wash: back layer (soft blurry dots)
+    // offsets opposite the tilt, front layer (crisp glyphs) offsets with it,
+    // mid layer barely moves — the relative shift is what reads as depth.
     glsl: `
+vec3 starLayer(vec2 uv, float scale, float seed, vec2 par, float softBias, float sweep) {
+  vec2 p = (uv + par) * vec2(1.0, CARD_ASPECT) * scale;
+  vec2 id = floor(p);
+  vec2 f = fract(p) - 0.5;
+  vec2 rnd = hash22(id + seed);
+  // not every cell holds a star — culling breaks the grid feel and keeps the
+  // field a constellation of individuals, not confetti mottle
+  float exists = step(rnd.x, 0.62);
+  vec2 sp = f - (rnd - 0.5) * 0.6;
+  float d = length(sp);
+  float phase = fract(rnd.x * 7.13 + rnd.y * 3.71 + seed * 0.173);
+  // smooth angular visibility: wide lobe over a floor — stars brighten and
+  // dim as the card turns; they never pop in or out. The pow keeps only a
+  // few near peak at any one angle.
+  float vis = 0.18 + 0.82 * pow(0.5 + 0.5 * cos(TAU * phase + sweep * 2.6), 5.0);
+  // population mix: glyph-crisp vs blurry, biased per layer, varied per star
+  float soft = clamp(softBias + (rnd.y - 0.5) * 0.55, 0.0, 1.0);
+  float core = smoothstep(0.13, 0.03, d);
+  float flare = pow(max(0.0, 1.0 - abs(sp.x) * 9.0), 3.0) * pow(max(0.0, 1.0 - abs(sp.y) * 2.8), 3.0)
+              + pow(max(0.0, 1.0 - abs(sp.y) * 9.0), 3.0) * pow(max(0.0, 1.0 - abs(sp.x) * 2.8), 3.0);
+  float glyph = core + flare * 0.6;
+  float blob = 0.9 * exp(-d * d * 13.0);
+  float shape = mix(glyph, blob, soft);
+  vec3 col = mix(vec3(1.0), hueRamp(rnd.y + 0.3 * sweep + seed * 0.21), 0.4 + 0.2 * soft);
+  return exists * shape * vis * col;
+}
+
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x * 0.8 + tilt.y * 0.55;
-  // rainbow wash — large-scale warped hue field
+  // rainbow wash — large-scale warped hue field under the stars
   vec2 wp = uv * 3.2 * uScale;
   float n = fnoise(wp + tilt * 1.4);
   float n2 = fnoise(wp * 2.3 - tilt * 0.9 + 7.31);
-  // hue varies across the face (n + uv), not just with tilt — rainbow patches
-  // drifting through the field, never one flat color.
   vec3 wash = hueRamp(uHueShift + uHueSpread * (1.1 * n + 0.35 * (uv.x + 0.7 * uv.y) + 0.45 * sweep));
   wash *= uP2 * (0.10 + 0.28 * n + 0.22 * n2);
-  // star layer — jittered grid, per-star phase
-  vec2 g = uv * vec2(1.0, CARD_ASPECT) * uP0 * uScale;
-  vec2 id = floor(g);
-  vec2 f = fract(g) - 0.5;
-  vec2 rnd = hash22(id);
-  vec2 sp = f - (rnd - 0.5) * 0.7;
-  float d = length(sp);
-  float phase = fract(rnd.x * 7.13 + rnd.y * 3.71);
-  float lobe = pow(max(0.0, cos(TAU * (phase + sweep * uP1))), 28.0);
-  float core = smoothstep(0.16, 0.02, d);
-  // 4-point flare on the brightest stars
-  float flare = pow(max(0.0, 1.0 - abs(sp.x) * 9.0), 3.0) * pow(max(0.0, 1.0 - abs(sp.y) * 2.6), 3.0)
-              + pow(max(0.0, 1.0 - abs(sp.y) * 9.0), 3.0) * pow(max(0.0, 1.0 - abs(sp.x) * 2.6), 3.0);
-  vec3 starCol = mix(vec3(1.0), hueRamp(rnd.y + sweep * 0.35), 0.45);
-  return wash + lobe * (core + flare * 0.35) * starCol * uP3;
+  // three star layers at opposing parallax depths (uP1)
+  float dens = uP0 * uScale;
+  float par = 0.028 * uP1;
+  vec3 stars =
+      starLayer(uv, dens * 0.75, 11.0, tilt * (-par * 1.6), 0.95, sweep) * 0.70
+    + starLayer(uv, dens * 1.00, 23.0, tilt * (par * 0.2), 0.55, sweep) * 0.85
+    + starLayer(uv, dens * 1.30, 37.0, tilt * (par * 1.8), 0.10, sweep);
+  return wash + stars * uP3 * 0.55;
 }`,
     defaults: {
       uIntensity: 1.1,
@@ -105,8 +129,8 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
       uSpecular: 0.25,
     },
     params: [
-      { key: 'uP0', label: 'Star density', min: 8, max: 80, step: 1, default: 38 },
-      { key: 'uP1', label: 'Twinkle rate', min: 0.2, max: 4, step: 0.05, default: 1.4 },
+      { key: 'uP0', label: 'Star density', min: 8, max: 80, step: 1, default: 26 },
+      { key: 'uP1', label: 'Parallax depth', min: 0, max: 3, step: 0.05, default: 1.2 },
       { key: 'uP2', label: 'Galaxy wash', min: 0, max: 2, step: 0.05, default: 1.0 },
       { key: 'uP3', label: 'Star gain', min: 0, max: 4, step: 0.05, default: 2.2 },
     ],
