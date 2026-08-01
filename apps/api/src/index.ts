@@ -19,6 +19,7 @@ import { insightsRouter } from './routes/insights.js';
 import { exportRouter } from './export/router.js';
 import { scanRouter } from './scan/router.js';
 import { bugsRouter } from './routes/bugs.js';
+import { foilLabRouter } from './routes/foil-lab.js';
 
 /**
  * deckscout-api — the read/write API over the populated catalog.
@@ -203,6 +204,12 @@ export function createApp(): express.Express {
   api.use('/insights', insightsRouter);
   api.use('/scan', scanRouter);
   api.use('/bugs', bugsRouter);
+  // Quarantined foil-workbench dev surface (masks + comments → working tree).
+  // Mounted only on the foil branch's dev api instance (POKEDEX_FOIL_LAB=1,
+  // port 3712 per roadmap/ORCHESTRATION.md); inert in prod by construction.
+  if (process.env.POKEDEX_FOIL_LAB === '1') {
+    api.use('/foil-lab', foilLabRouter);
+  }
 
   // Base path: /api on Vercel, /deckscout/api on self-host (nginx sub-path).
   const basePath = process.env.API_BASE_PATH ?? '/deckscout/api';
