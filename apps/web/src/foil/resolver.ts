@@ -7,6 +7,11 @@
 
 import layouts from './era-layouts.json'
 
+// Bumped whenever the resolver heuristics or era-layouts data change meaning.
+// Recorded in every hand-mask sidecar's prior so the corpus states which rule
+// version it was diffed against (mask-pipeline SKILL.md, "Sidecar v2").
+export const RESOLVER_VERSION = 1
+
 export type FoilScope = 'window' | 'sheet' | 'full' | 'none'
 
 export interface FoilRecipeRef {
