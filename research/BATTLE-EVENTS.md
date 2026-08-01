@@ -97,7 +97,7 @@ Orders"`).
 | `retreat` | owner | `{card; via?}` | `cheyras retreated Dhelmise to the Bench.` |
 | `promote` | owner | `{card; via?}` — new Active after KO/retreat/switch | `cheyras's Poltchageist is now in the Active Spot.` |
 | `switch` | board owner | `{in; out; via?}` — `in` becomes Active; via = the gust/switch effect | `- cheyras's Dhelmise was switched with cheyras's Poltchageist to become the Active Pokémon.` |
-| `attack` | attacker's owner | `{attacker; move; target: BoardRef; damage; modifiers?: {amount, reason}[]; breakdown?: {label, amount}[]}` — amounts signed as printed | `warthog2010's Mega Darkrai ex used Dusk Raid on cheyras's Dhelmise for 440 damage. …took 220 more damage because of Darkness Weakness.` |
+| `attack` | attacker's owner | `{attacker; move; target: BoardRef; damage; modifiers?: {amount, reason}[]; breakdown?: {label, amount}[]; extra?: string}` — amounts signed as printed; `extra` = unrecognized trailing rider text, preserved verbatim | `warthog2010's Mega Darkrai ex used Dusk Raid on cheyras's Dhelmise for 440 damage. …took 220 more damage because of Darkness Weakness.` |
 | `use_move` | user's owner | `{user; move; target?; breakdown?}` — see §4 | `cheyras's Fezandipiti ex used Flip the Script.` |
 | `knockout` | **owner of the downed mon** | `{card}` | `cheyras's Dhelmise was Knocked Out!` |
 | `prize_take` | taker | `{count}` | `warthog2010 took 2 Prize cards.` |
@@ -149,7 +149,23 @@ preserved verbatim:
 B4 can therefore validate the owner's hand contents turn by turn; the opponent-visible
 subset of a stream is precisely what an agent opponent may see (D1).
 
-## 6. Known limits (tolerated, documented)
+## 6. Known limits & hardening (tolerated, documented)
+
+Hardening from the 2026-08-01 adversarial review (attack corpus committed as
+`__tests__/fixtures/adversarial/`, invariants pinned in `battleevents.test.ts`):
+
+- **Folds are adjacency-scoped**: a `Damage breakdown:` / reveal / drawn-cards
+  directive only enriches the immediately preceding compatible event; distant or
+  orphaned directives (and bullets after an unknown line) count unknown instead of
+  mutating older history.
+- **Numeric captures are capped** (≤9 digits) and any line containing a 10+ digit
+  run is unknown wholesale — payloads can never carry non-finite numbers.
+- **Attack riders are consumed exactly**: unrecognized trailing sentences after the
+  damage clause land verbatim in `attack.payload.extra`, never silently dropped;
+  a damage-clause line can never degrade into `use_move`.
+- **Concede requires a word boundary**; **lines split on LF, CRLF and lone CR**.
+
+Remaining tolerated limits:
 
 - Bullet card lists split on `', '` — a card name containing a comma would mis-split
   (none exists in the corpus or Standard today).

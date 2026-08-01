@@ -898,6 +898,25 @@ row-level result/opponent were luckily caller-supplied). Fixed by stripping the 
 nameKey (regression test on the real fixture); stored jsonb for #11 heals on re-parse —
 flagged for a post-W0 `parsed` refresh pass.
 
+## 2026-08-01 — A1 addendum: adversarial review swarm hardened the event parser
+**What:** A two-task Ringer review swarm over the finished emitter (run
+`battle-events-parser-review`, both PASS first-try, ~5 min). Worker 1 (Codex,
+adversarial): report + 17 crafted attack logs, executed against the real parser by the
+check harness — zero crashes/hangs, but five substantive findings, all fixed the same
+day: (1) fold directives were unbounded reverse-searches that could retro-mutate an
+event from another turn → now adjacency-scoped, and an unknown line clears any pending
+fold; (2) unbounded `\d+` captures could emit non-finite numbers → capped at 9 digits
+plus a wholesale 10+-digit-run line rejection; (3) attack lines swallowed arbitrary
+trailing text → unrecognized riders now preserved verbatim in `attack.payload.extra`,
+and a damage-clause line can no longer degrade into use_move; (4) `conceded` matched
+word-prefixes ("concededness") → word boundary (fixed in battlelog.ts too); (5) lone-CR
+logs collapsed to one line → split on LF|CRLF|CR (both parsers). Worker 2 (GLM 5.2,
+consistency): programmatically verified the TS union ⇔ BATTLE-EVENTS.md §3 table ⇔
+020 DDL mapping — 33/33 types matched, zero mismatches. The attack corpus is committed
+as `__tests__/fixtures/adversarial/` with an invariants test; per-log census rates on
+real logs were byte-identical before/after hardening (0.17% corpus unknown). Suite:
+85/85 pure tests.
+
 ## 2026-08-07 — the image cache now documents where every byte came from
 **Chey (chat):** *"yes, please fix and make sure we're always documenting original
 source when we add images to the cache going forward."*

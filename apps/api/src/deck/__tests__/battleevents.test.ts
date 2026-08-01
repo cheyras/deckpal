@@ -449,6 +449,109 @@ test('never throws on arbitrary text; freetext degrades to zero events at rate 1
   assert.equal(note.unknown.rate, 1);
 });
 
+// ── Hardening (adversarial review, 2026-08-01) ───────────────────────────────
+
+test('adversarial corpus: every attack file parses without violating stream invariants', () => {
+  // fixtures/adversarial/*.txt were crafted by an adversarial review swarm to
+  // break the tolerance contract (regex-metachar names, prefix-shadowing names,
+  // overflow numbers, stale folds, CR-only splits, malformed riders, …).
+  const dir = fileURLToPath(new URL('./fixtures/adversarial', import.meta.url));
+  const files = readdirSync(dir).filter((f) => f.endsWith('.txt'));
+  assert.ok(files.length >= 17);
+  for (const f of files) {
+    const p = parseBattleEvents(readFileSync(join(dir, f), 'utf8'));
+    p.events.forEach((e, i) => assert.equal(e.seq, i + 1, `${f} seq dense`));
+    let t = 0;
+    for (const e of p.events) {
+      assert.ok(e.turn >= t, `${f} turn monotonic`);
+      t = e.turn;
+      for (const v of Object.values(e.payload as Record<string, unknown>)) {
+        if (typeof v === 'number') assert.ok(Number.isSafeInteger(v), `${f} finite numeric payloads`);
+      }
+    }
+    const u = p.unknown;
+    assert.ok(u.count <= u.considered && u.rate >= 0 && u.rate <= 1, `${f} sane unknown accounting`);
+  }
+});
+
+const PREAMBLE = [
+  'Setup',
+  'Ash drew 7 cards for the opening hand.',
+  'Misty drew 7 cards for the opening hand.',
+  "Ash's Turn",
+];
+
+test('fold directives are adjacency-scoped: a distant breakdown is unknown, not a mutation', () => {
+  const log = [
+    ...PREAMBLE,
+    "Ash's Pikachu used Thunderbolt on Misty's Squirtle for 50 damage.",
+    'Ash played Potion.', // intervening event — the attack is no longer adjacent
+    '- Damage breakdown:',
+    '   • Base damage: 50 damage',
+  ].join('\n');
+  const p = parseBattleEvents(log);
+  const atk = p.events.find((e): e is Extract<BattleEvent, { type: 'attack' }> => e.type === 'attack')!;
+  assert.equal(atk.payload.breakdown, undefined); // NOT retro-attached
+  assert.equal(p.unknown.count, 2); // the orphaned directive + its bullet
+});
+
+test('an unknown line clears any pending fold — later bullets cannot enrich an older event', () => {
+  const log = [
+    ...PREAMBLE,
+    'Ash played Ultra Ball.',
+    '- Ash discarded 2 cards.',
+    'some line the parser has never seen',
+    '   • Charizard, Blastoise',
+  ].join('\n');
+  const p = parseBattleEvents(log);
+  const disc = p.events.find((e): e is Extract<BattleEvent, { type: 'discard' }> => e.type === 'discard')!;
+  assert.equal(disc.payload.cards, undefined);
+  assert.equal(p.unknown.count, 2);
+});
+
+test('absurdly large numbers make the line unknown instead of emitting non-finite payloads', () => {
+  const big = '9'.repeat(400);
+  const log = [
+    ...PREAMBLE,
+    `Ash's Pikachu used Thunderbolt on Misty's Squirtle for ${big} damage.`,
+    `Ash took ${big} Prize cards.`,
+  ].join('\n');
+  const p = parseBattleEvents(log);
+  assert.equal(p.events.filter((e) => e.type === 'attack' || e.type === 'prize_take').length, 0);
+  assert.equal(p.unknown.count, 2);
+});
+
+test('unrecognized attack riders are preserved in payload.extra, never silently dropped', () => {
+  const log = [
+    ...PREAMBLE,
+    "Ash's Pikachu used Thunderbolt on Misty's Squirtle for 50 damage. Misty's Squirtle took 20 more damage because of Lightning Weakness. Some brand new rider sentence.",
+  ].join('\n');
+  const p = parseBattleEvents(log);
+  const atk = p.events.find((e): e is Extract<BattleEvent, { type: 'attack' }> => e.type === 'attack')!;
+  assert.equal(atk.payload.damage, 50);
+  assert.deepEqual(atk.payload.modifiers, [{ amount: 20, reason: 'Lightning Weakness' }]);
+  assert.equal(atk.payload.extra, 'Some brand new rider sentence.');
+});
+
+test("a word starting with 'conceded' is not a concession", () => {
+  const log = [...PREAMBLE, 'Misty concededness is not a word.'].join('\n');
+  const p = parseBattleEvents(log);
+  assert.equal(p.events.some((e) => e.type === 'concede'), false);
+  assert.equal(p.unknown.count, 1);
+  // …and the real sentence still is one.
+  const q = parseBattleEvents([...PREAMBLE, 'Misty conceded.'].join('\n'));
+  assert.equal(q.events[q.events.length - 1]!.type, 'concede');
+});
+
+test('CR-only line endings split correctly (clipboard interchange)', () => {
+  const lf = [...PREAMBLE, 'Ash played Pikachu to the Bench.'].join('\n');
+  const cr = lf.replace(/\n/g, '\r');
+  const p = parseBattleEvents(cr);
+  assert.equal(p.events.filter((e) => e.type === 'play_to_bench').length, 1);
+  assert.equal(p.unknown.count, 0);
+  assert.equal(p.unknown.considered, 5);
+});
+
 test('unknown lines are counted with capped samples, and known lines still parse around them', () => {
   const log = [
     'Setup',

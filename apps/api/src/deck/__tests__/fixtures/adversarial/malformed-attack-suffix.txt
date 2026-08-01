@@ -1,0 +1,5 @@
+Setup
+Alice drew 7 cards for the opening hand.
+Bob drew 7 cards for the opening hand.
+Alice's Turn
+Alice's Pikachu used Zap on Bob's Squirtle for 30 damage. took bananas more damage because of Lightning Weakness.

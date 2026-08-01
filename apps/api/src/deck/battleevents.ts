@@ -121,6 +121,8 @@ export type BattleEvent = EventBase &
           damage: number;
           modifiers?: DamageModifier[];
           breakdown?: BreakdownEntry[];
+          /** Trailing sentence(s) after the damage clause that are not a recognized weakness/resistance rider — preserved verbatim, never silently dropped. */
+          extra?: string;
         };
       }
     | {
@@ -233,7 +235,7 @@ export function parseBattleEvents(rawLog: string): BattleEventParse {
   } catch {
     // Never throw on arbitrary text. Degrade honestly: no events, all-unknown.
     const considered =
-      typeof rawLog === 'string' ? rawLog.split(/\r?\n/).filter((l) => l.trim() !== '').length : 0;
+      typeof rawLog === 'string' ? rawLog.split(/\r\n|\n|\r/).filter((l) => l.trim() !== '').length : 0;
     return {
       events: [],
       players: [],
@@ -260,7 +262,9 @@ function parseInner(rawLog: string): BattleEventParse {
   };
   if (typeof rawLog !== 'string' || !rawLog.trim()) return empty;
 
-  const lines = rawLog.split(/\r?\n/).map(normalizeLine);
+  // Split on LF, CRLF and lone CR (old-Mac/clipboard interchange all occur in
+  // pasted text; a CR-only log must not collapse into one giant line).
+  const lines = rawLog.split(/\r\n|\n|\r/).map(normalizeLine);
 
   // ── Pass 1: discover player names (same heuristics as battlelog.ts) ────────
   const players: string[] = [];
@@ -314,6 +318,17 @@ function parseInner(rawLog: string): BattleEventParse {
     if (!rawLine.trim()) continue;
     considered += 1;
 
+    // No real Live line contains a 10+ digit run (damage is ≤4 digits, counts
+    // ≤2, card refs short). Rejecting such lines wholesale keeps overflowed
+    // numbers from falling through capped count-regexes into generic
+    // name-capture branches as absurd "card names" (adversarial review,
+    // 2026-08-01) — unknown is honest.
+    if (/\d{10,}/.test(rawLine)) {
+      fold = null;
+      unknown(rawLine);
+      continue;
+    }
+
     // Bullets fold into whatever a preceding directive designated.
     const bullet = rawLine.match(/^\s*•\s*(.+)$/);
     if (bullet) {
@@ -321,7 +336,7 @@ function parseInner(rawLog: string): BattleEventParse {
         const p = fold.ev.payload as { cards?: CardRef[] };
         p.cards = [...(p.cards ?? []), ...cardList(bullet[1]!)];
       } else if (fold?.kind === 'breakdown') {
-        const b = bullet[1]!.match(/^(.+?): (-?\d+) damage$/);
+        const b = bullet[1]!.match(/^(.+?): (-?\d{1,9}) damage$/);
         if (b) {
           const p = fold.ev.payload as { breakdown?: BreakdownEntry[] };
           p.breakdown = [...(p.breakdown ?? []), { label: b[1]!, amount: Number(b[2]) }];
@@ -356,25 +371,28 @@ function parseInner(rawLog: string): BattleEventParse {
     }
 
     // ── Fold directives (dash detail lines that designate a bullet target) ──
+    // Adjacency-scoped: a directive may only enrich the IMMEDIATELY preceding
+    // event (in real Live logs the detail block directly follows its cause;
+    // mulligan reveal groups 2..N have only bullets between them and their
+    // mulligan event). A distant/orphaned directive is counted unknown instead
+    // of silently mutating unrelated history (adversarial review, 2026-08-01).
     if (isSub) {
+      const last = events[events.length - 1];
       if (/^Damage breakdown:$/.test(line)) {
-        const target = [...events].reverse().find((e) => e.type === 'attack' || e.type === 'use_move');
-        if (target) fold = { ev: target, kind: 'breakdown' };
+        if (last && (last.type === 'attack' || last.type === 'use_move')) fold = { ev: last, kind: 'breakdown' };
         else unknown(rawLine);
         continue;
       }
       let m: RegExpMatchArray | null;
-      if ((m = line.match(/^(\d+) drawn cards\.$/))) {
+      if ((m = line.match(/^(\d{1,3}) drawn cards\.$/))) {
         // Detail under "drew N cards for the opening hand." — bullets (if the
         // owner's) list the hand.
-        const target = events[events.length - 1];
-        if (target && (target.type === 'opening_hand' || target.type === 'draw')) fold = { ev: target, kind: 'cards' };
+        if (last && (last.type === 'opening_hand' || last.type === 'draw')) fold = { ev: last, kind: 'cards' };
         else unknown(rawLine);
         continue;
       }
-      if (line.match(/^Cards revealed from Mulligan \d+$/)) {
-        const target = [...events].reverse().find((e) => e.type === 'mulligan');
-        if (target) fold = { ev: target, kind: 'cards' };
+      if (line.match(/^Cards revealed from Mulligan \d{1,3}$/)) {
+        if (last && last.type === 'mulligan') fold = { ev: last, kind: 'cards' };
         else unknown(rawLine);
         continue;
       }
@@ -411,7 +429,7 @@ function parseInner(rawLog: string): BattleEventParse {
       });
       continue;
     }
-    const conc = line.match(/^(.+?) conceded/);
+    const conc = line.match(/^(.+?) conceded(?:[ .!]|$)/);
     if (conc && seen.has(conc[1]!)) {
       fold = null;
       emit({ actor: conc[1]!, type: 'concede', payload: {} });
@@ -430,7 +448,7 @@ function parseInner(rawLog: string): BattleEventParse {
         });
         continue;
       }
-      if ((m = line.match(/^(?:(\d+) cards?|(.+?)) (?:was|were) discarded from (.+?)\.$/))) {
+      if ((m = line.match(/^(?:(\d{1,9}) cards?|(.+?)) (?:was|were) discarded from (.+?)\.$/))) {
         const from = boardRef(m[3]!, names);
         if (from.player) {
           const ev = emit({
@@ -449,7 +467,7 @@ function parseInner(rawLog: string): BattleEventParse {
         emit({ actor: null, type: 'activate', payload: { card: cardRef(m[1]!) } });
         continue;
       }
-      if ((m = line.match(/^(\d+) damage counters? (?:was|were) placed on (.+?) for the Special Condition (\w+)\.$/))) {
+      if ((m = line.match(/^(\d{1,9}) damage counters? (?:was|were) placed on (.+?) for the Special Condition (\w+)\.$/))) {
         fold = null;
         emit({
           actor: null,
@@ -477,24 +495,24 @@ function parseInner(rawLog: string): BattleEventParse {
           emit({ actor: n, type: 'coin_toss', payload: { won: true } });
         } else if ((m = rest.match(/^decided to go (first|second)\.$/))) {
           emit({ actor: n, type: 'go_first', payload: { order: m[1] as 'first' | 'second' } });
-        } else if ((m = rest.match(/^drew (\d+) cards for the opening hand\.$/))) {
+        } else if ((m = rest.match(/^drew (\d{1,9}) cards for the opening hand\.$/))) {
           emit({ actor: n, type: 'opening_hand', payload: { count: Number(m[1]) } });
         } else if (rest === 'took a mulligan.') {
           emit({ actor: n, type: 'mulligan', payload: { count: 1 } });
-        } else if ((m = rest.match(/^took (\d+) mulligans\.$/))) {
+        } else if ((m = rest.match(/^took (\d{1,9}) mulligans\.$/))) {
           emit({ actor: n, type: 'mulligan', payload: { count: Number(m[1]) } });
-        } else if ((m = rest.match(/^drew (\d+) more cards? because .+ took at least \d+ mulligans?\.$/))) {
+        } else if ((m = rest.match(/^drew (\d{1,9}) more cards? because .+ took at least \d+ mulligans?\.$/))) {
           emit({ actor: n, type: 'draw', payload: { count: Number(m[1]), reason: 'mulligan_bonus' } });
         }
 
         // Draws
         else if (rest === 'drew a card.') {
           emit({ actor: n, type: 'draw', payload: { count: 1, ...via(isSub) } });
-        } else if ((m = rest.match(/^drew (\d+) cards and played them to the Bench\.$/))) {
+        } else if ((m = rest.match(/^drew (\d{1,9}) cards and played them to the Bench\.$/))) {
           fold = { ev: emit({ actor: n, type: 'draw', payload: { count: Number(m[1]), to: 'bench', ...via(isSub) } }), kind: 'cards' };
         } else if ((m = rest.match(/^drew (.+?) and played it to the Bench\.$/))) {
           emit({ actor: n, type: 'draw', payload: { card: cardRef(m[1]!), to: 'bench', ...via(isSub) } });
-        } else if ((m = rest.match(/^drew (\d+) cards\.$/))) {
+        } else if ((m = rest.match(/^drew (\d{1,9}) cards\.$/))) {
           fold = { ev: emit({ actor: n, type: 'draw', payload: { count: Number(m[1]), ...via(isSub) } }), kind: 'cards' };
         } else if ((m = rest.match(/^drew (.+?)\.$/))) {
           emit({ actor: n, type: 'draw', payload: { card: cardRef(m[1]!), ...via(isSub) } });
@@ -547,7 +565,7 @@ function parseInner(rawLog: string): BattleEventParse {
         // Prizes / zone moves / turn end
         else if (rest === 'took a Prize card.') {
           emit({ actor: n, type: 'prize_take', payload: { count: 1 } });
-        } else if ((m = rest.match(/^took (\d+) Prize cards\.$/))) {
+        } else if ((m = rest.match(/^took (\d{1,9}) Prize cards\.$/))) {
           emit({ actor: n, type: 'prize_take', payload: { count: Number(m[1]) } });
         } else if (rest === 'shuffled their deck.') {
           emit({ actor: n, type: 'shuffle', payload: { zone: 'deck', ...via(isSub) } });
@@ -555,20 +573,20 @@ function parseInner(rawLog: string): BattleEventParse {
           emit({ actor: n, type: 'shuffle', payload: { zone: 'hand', ...via(isSub) } });
         } else if (rest === 'shuffled a card into their deck.') {
           emit({ actor: n, type: 'shuffle', payload: { zone: 'deck', count: 1, ...via(isSub) } });
-        } else if ((m = rest.match(/^shuffled (\d+) cards into their deck\.$/))) {
+        } else if ((m = rest.match(/^shuffled (\d{1,9}) cards into their deck\.$/))) {
           fold = { ev: emit({ actor: n, type: 'shuffle', payload: { zone: 'deck', count: Number(m[1]), ...via(isSub) } }), kind: 'cards' };
         } else if ((m = rest.match(/^shuffled (.+?) into their deck\.$/))) {
           emit({ actor: n, type: 'shuffle', payload: { zone: 'deck', card: cardRef(m[1]!), ...via(isSub) } });
-        } else if ((m = rest.match(/^discarded (\d+) cards\.$/))) {
+        } else if ((m = rest.match(/^discarded (\d{1,9}) cards\.$/))) {
           fold = { ev: emit({ actor: n, type: 'discard', payload: { count: Number(m[1]), ...via(isSub) } }), kind: 'cards' };
         } else if ((m = rest.match(/^discarded (.+?)\.$/))) {
           emit({ actor: n, type: 'discard', payload: { card: cardRef(m[1]!), ...via(isSub) } });
-        } else if ((m = rest.match(/^put (\d+) cards on the bottom of their deck\.$/))) {
+        } else if ((m = rest.match(/^put (\d{1,9}) cards on the bottom of their deck\.$/))) {
           emit({ actor: n, type: 'move_cards', payload: { to: 'deck_bottom', count: Number(m[1]), ...via(isSub) } });
         } else if ((m = rest.match(/^moved (.+?) to (their hand|their deck|the discard pile)\.$/))) {
           const dest = m[2] === 'their hand' ? 'hand' : m[2] === 'their deck' ? 'deck' : 'discard';
           const what = boardRef(m[1]!, names); // "cheyras's Sinistcha" or "cheyras's 4 cards"
-          const countM = what.card.name.match(/^(\d+) cards?$/);
+          const countM = what.card.name.match(/^(\d{1,9}) cards?$/);
           const ev = emit({
             actor: n,
             type: 'move_cards',
@@ -581,7 +599,7 @@ function parseInner(rawLog: string): BattleEventParse {
           });
           // Count-form moves are often followed by a bullet naming the cards.
           if (countM) fold = { ev, kind: 'cards' };
-        } else if ((m = rest.match(/^put (?:a|(\d+)) damage counters? on (.+?)\.$/))) {
+        } else if ((m = rest.match(/^put (?:a|(\d{1,9})) damage counters? on (.+?)\.$/))) {
           emit({
             actor: n,
             type: 'damage_counters',
@@ -603,11 +621,18 @@ function parseInner(rawLog: string): BattleEventParse {
         matched = true;
         fold = null;
 
-        if ((m = rest.match(/^(.+?) used (.+?) on (.+?) for (\d+) damage\.(.*)$/))) {
+        if ((m = rest.match(/^(.+?) used (.+?) on (.+?) for (\d{1,9}) damage\.(.*)$/))) {
+          // Consume weakness/resistance rider sentences from the suffix; any
+          // residue that is NOT a recognized rider is preserved verbatim in
+          // payload.extra rather than silently dropped (adversarial review,
+          // 2026-08-01) — the attack itself still parses.
           const modifiers: DamageModifier[] = [];
-          for (const mod of m[5]!.matchAll(/took (-?\d+) (?:more|less) damage because of (.+?)( Weakness| Resistance)\./g)) {
-            modifiers.push({ amount: Number(mod[1]), reason: `${mod[2]!}${mod[3]!}`.trim() });
-          }
+          const residue = m[5]!
+            .replace(/[^.!?]*took (-?\d{1,9}) (?:more|less) damage because of ([^.]+?)( Weakness| Resistance)\./g, (_s, amt: string, reason: string, kind: string) => {
+              modifiers.push({ amount: Number(amt), reason: `${reason}${kind}`.trim() });
+              return '';
+            })
+            .trim();
           if (!isSub) context = m[2]!;
           emit({
             actor: n,
@@ -618,9 +643,13 @@ function parseInner(rawLog: string): BattleEventParse {
               target: boardRef(m[3]!, names),
               damage: Number(m[4]),
               ...(modifiers.length ? { modifiers } : {}),
+              ...(residue ? { extra: residue } : {}),
             },
           });
-        } else if ((m = rest.match(/^(.+?) used (.+?)(?: on (.+?))?\.$/))) {
+        } else if (!/ for \d+ damage\./.test(rest) && (m = rest.match(/^(.+?) used (.+?)(?: on (.+?))?\.$/))) {
+          // The damage-clause guard keeps a malformed/overflowed attack line
+          // (which failed the capped attack regex above) from degrading into a
+          // use_move whose target swallows the clause — unknown is honest.
           if (!isSub) context = m[2]!;
           emit({
             actor: n,
@@ -647,13 +676,13 @@ function parseInner(rawLog: string): BattleEventParse {
             type: 'condition',
             payload: { target: { player: n, card: cardRef(m[1]!) }, condition: m[2]!, ...via(isSub) },
           });
-        } else if ((m = rest.match(/^(.+?) took (\d+) damage\.$/))) {
+        } else if ((m = rest.match(/^(.+?) took (\d{1,9}) damage\.$/))) {
           emit({
             actor: n,
             type: 'damage',
             payload: { target: { player: n, card: cardRef(m[1]!) }, amount: Number(m[2]), ...via(isSub) },
           });
-        } else if ((m = rest.match(/^(.+?) healed (\d+) damage\.$/))) {
+        } else if ((m = rest.match(/^(.+?) healed (\d{1,9}) damage\.$/))) {
           emit({
             actor: n,
             type: 'heal',
@@ -668,6 +697,9 @@ function parseInner(rawLog: string): BattleEventParse {
     }
     if (matched) continue;
 
+    // An unknown line invalidates any pending fold: bullets that follow text we
+    // did not understand must not enrich an older event.
+    fold = null;
     unknown(rawLine);
   }
 
