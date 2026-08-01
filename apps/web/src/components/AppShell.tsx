@@ -350,7 +350,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   // The OBS overlay is a standalone browser source: no header, no sidebar, no
   // page surface — it must render chrome-free and transparent.
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  if (pathname === '/deckscout/overlay' || pathname === '/overlay') {
+  // /foil-lab is the quarantined foil workbench (own full-screen surface,
+  // linked from nowhere) — pathname check only, no imports of foil code.
+  if (
+    pathname === '/deckscout/overlay' ||
+    pathname === '/overlay' ||
+    pathname === '/deckscout/foil-lab' ||
+    pathname === '/foil-lab'
+  ) {
     return <>{children}</>
   }
 
