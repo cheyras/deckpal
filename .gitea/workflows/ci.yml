@@ -33,6 +33,12 @@ jobs:
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile --prefer-offline
 
+      # @pokedex/db is consumed via its dist/ (main: dist/index.js) — a fresh
+      # workspace has none until it's built, and both tsc and the test suites
+      # resolve the workspace link through it.
+      - name: Build @pokedex/db
+        run: pnpm --filter @pokedex/db build
+
       - name: Typecheck all workspaces
         run: pnpm -r --workspace-concurrency=1 exec tsc --noEmit
 
