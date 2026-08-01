@@ -19,10 +19,12 @@ the lazy route in `main.tsx` and a pathname check in `AppShell.tsx`. Read
 | `foil/shader.ts` | Uniform contract, GLSL preamble (helpers), fragment `main()`, material builder. Contract changes happen here — rarely, and update this doc when they do. |
 | `foil/era-layouts.json` | Era layout spec — art-window rects per frame generation. **Data, not code.** Top-left-origin fractions measured on 600×825 cache scans. |
 | `foil/resolver.ts` | `(series, rarity, variant kind) → { patternId, scope, eraId }` heuristic + scope→mask-uniform conversion. |
-| `foil/CardViewer.tsx` | three.js scene; rAF loop pushes uniforms from a settings ref (no React re-renders per frame). |
+| `foil/CardViewer.tsx` | three.js scene; rAF loop pushes uniforms from a settings ref (no React re-renders per frame). Also exports `cardScreenRect` — the exact on-screen card rect used to align overlays. |
 | `foil/useTilt.ts` | pointer / gyro (iOS permission) / manual tilt; reduced-motion → manual. |
-| `foil/FoilLab.tsx` | The workbench page (`/pokedex/foil-lab`): card picker (owned scans only), pattern/scope overrides, mask overlay, uniform sliders, Copy-recipe-JSON. |
-| `foil/api.ts` | Self-contained read client (series → sets → owned cards → card detail). Do NOT import `lib/api.ts`. |
+| `foil/MaskEditor.tsx` | Apple-Pencil hand-mask drawing overlay (see mask-pipeline SKILL.md). |
+| `foil/FoilLab.tsx` | The workbench page (`/pokedex/foil-lab`): era-grouped card picker (owned scans only), pattern/scope overrides, mask overlay + hand-mask editing, uniform sliders, comment queue, Copy-recipe-JSON. Single column at 390px; two columns (viewer \| controls) from 700px (iPad-mini portrait) up. |
+| `foil/api.ts` | Self-contained read client (series → sets → owned cards → card detail) + the foil-lab dev surface (masks, comments). Do NOT import `lib/api.ts`. |
+| `apps/api/src/routes/foil-lab.ts` | Branch-instance-only routes (mask save/load, comments → working tree). Mounted only when `POKEDEX_FOIL_LAB=1`; inert in prod. |
 
 ## The uniform contract
 
@@ -44,6 +46,7 @@ Core uniforms (global sliders; every pattern may read them):
 | `uArtGate` | luminance gate applied by `main()`: foil shows in dark scan areas, printed ink stays readable. The cheap precursor to art-driven masks. |
 | `uSpecular` | shared white sheen band, applied by `main()` |
 | `uMask*` | layout mask uniforms — handled entirely by `main()`; patterns never mask themselves |
+| `uMaskTex` / `uMaskTexOn` | hand-mask tier: when on, `main()` samples the mask canvas's ALPHA (shader flips V; the CanvasTexture sets `flipY=false` — exactly one flip, ever) instead of the layout rect |
 | `uP0..uP3` | **yours** — per-recipe params, surfaced as labelled sliders |
 
 Preamble helpers available to every recipe: `hash21`, `hash22`, `vnoise`, `fnoise`
@@ -93,11 +96,16 @@ the scan — matching how real foil reads through ink.
 3. **Wire the resolver if a real printing uses it** — add/adjust a branch in
    `resolver.ts` so `Auto` picks it for the right `(era, rarity, kind)`. A recipe that's
    only reachable via the override dropdown is fine while tuning.
-4. **Tune on the workbench.** Dev server (`rtk pnpm --filter pokedex-web exec vite --host
-   --port 5182`, port is assigned — see `roadmap/ORCHESTRATION.md`), open
-   `/pokedex/foil-lab`, pick an owned card of the target printing, select your pattern,
-   drag sliders until it matches the reference photos, then **Copy recipe JSON** and bake
-   the tuned values back into `defaults`/`params` defaults.
+4. **Tune on the workbench.** Two dev servers (ports are assigned — `roadmap/ORCHESTRATION.md`):
+   `POKEDEX_API_PORT=3712 POKEDEX_FOIL_LAB=1 PGPOOL_MAX=1 rtk pnpm --filter pokedex-api
+   exec tsx src/index.ts` (the branch api — masks/comments write into the worktree; keep
+   PGPOOL_MAX=1, the connection budget is a hard house rule) and
+   `POKEDEX_DEV_API_PORT=3712 rtk pnpm --filter pokedex-web exec vite --host --port 5182`.
+   Open `/pokedex/foil-lab`, pick an owned card of the target printing, select your
+   pattern, drag sliders until it matches the reference photos, then **Copy recipe JSON**
+   and bake the tuned values back into `defaults`/`params` defaults. Chey's workbench
+   comments land in `issues/foil/<id>/` (report.md + context.json with the full slider
+   state) — read them before tuning a pattern he has already commented on.
 5. **Verify like the house rules demand:** Playwright screenshots at 390px and desktop
    with tilt applied (simulate pointer with `page.mouse.move` over the canvas); actually
    look at them. Two known verification traps: (a) a hot vite server that received edits
