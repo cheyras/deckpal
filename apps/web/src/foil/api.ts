@@ -46,6 +46,28 @@ export interface FoilVariant {
   quantity: number
 }
 
+/** Sidecar-v2 prior payload sent with every hand-mask save (mask-pipeline SKILL.md). */
+export interface FoilMaskPrior {
+  source: 'layout'
+  eraId: string
+  scope: string
+  rect: [number, number, number, number]
+  radius: number
+  invert: boolean
+  feather: number
+  resolverVersion: number
+}
+
+/** What the workbench knows about the saved hand mask it is displaying. */
+export interface FoilMaskMeta {
+  file: string
+  savedAt: string | null
+  /** Set when artwork aliasing answered with a sibling variant's mask. */
+  aliasOf: number | null
+  hasPrior: boolean
+  hasDiff: boolean
+}
+
 export interface FoilCardDetail {
   card: {
     cardId: string
@@ -91,25 +113,54 @@ export const foilApi = {
   // artifacts. Against prod's api these 404 — the UI treats that as "feature
   // unavailable" and hides the affordances.
 
-  /** Saved hand mask as an ImageBitmap, or null when none exists (or no dev api). */
-  getMask: async (cardId: string, variantId: number, signal?: AbortSignal): Promise<ImageBitmap | null> => {
-    const res = await fetch(`${BASE}/foil-lab/masks/${encodeURIComponent(cardId)}/${variantId}`, { signal })
+  /**
+   * Saved hand mask + its sidecar meta, or null when none exists (or no dev
+   * api). `scope` enables artwork-keyed aliasing: masks are a property of the
+   * card's scan (all variants share it), so a GET for a variant with no mask
+   * of its own resolves to a sibling variant's mask with the same recorded
+   * prior.scope — `aliasOf` says which one answered.
+   */
+  getMask: async (
+    cardId: string,
+    variantId: number,
+    scope?: string,
+    signal?: AbortSignal,
+  ): Promise<{ bitmap: ImageBitmap; meta: FoilMaskMeta } | null> => {
+    const q = scope ? `?scope=${encodeURIComponent(scope)}` : ''
+    const res = await fetch(`${BASE}/foil-lab/masks/${encodeURIComponent(cardId)}/${variantId}${q}`, { signal })
     if (!res.ok) return null
     const blob = await res.blob()
     try {
-      return await createImageBitmap(blob)
+      const bitmap = await createImageBitmap(blob)
+      const aliasOf = res.headers.get('X-Foil-Mask-Alias-Of')
+      const meta: FoilMaskMeta = {
+        file: `data/foil-masks/${cardId}/${aliasOf ?? variantId}.png`,
+        savedAt: res.headers.get('X-Foil-Mask-Saved-At'),
+        aliasOf: aliasOf ? Number(aliasOf) : null,
+        hasPrior: res.headers.get('X-Foil-Mask-Prior') === '1',
+        hasDiff: res.headers.get('X-Foil-Mask-Diff') === '1',
+      }
+      return { bitmap, meta }
     } catch {
       return null
     }
   },
 
-  putMask: async (cardId: string, variantId: number, pngDataUrl: string, width: number, height: number): Promise<void> => {
+  putMask: async (
+    cardId: string,
+    variantId: number,
+    pngDataUrl: string,
+    width: number,
+    height: number,
+    prior: FoilMaskPrior,
+  ): Promise<{ savedAt: string }> => {
     const res = await fetch(`${BASE}/foil-lab/masks/${encodeURIComponent(cardId)}/${variantId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ png: pngDataUrl, width, height }),
+      body: JSON.stringify({ png: pngDataUrl, width, height, prior }),
     })
     if (!res.ok) throw new Error(`mask save failed (HTTP ${res.status})`)
+    return res.json() as Promise<{ savedAt: string }>
   },
 
   deleteMask: async (cardId: string, variantId: number): Promise<void> => {
