@@ -19,6 +19,10 @@ export interface ViewerSettings {
   maskFeather: number
   maskInvert: boolean
   maskView: boolean
+  /** Hand-mask tier: sample the mask canvas instead of the layout rect. */
+  maskTexOn: boolean
+  /** Bump to signal the mask canvas contents changed (stroke finished). */
+  maskTexVersion: number
   /** Max card rotation in degrees at |tilt| = 1. */
   maxTiltDeg: number
 }
@@ -28,22 +32,30 @@ export function CardViewer({
   pattern,
   settingsRef,
   tiltTarget,
+  maskCanvas,
   onPointerMove,
   onPointerLeave,
   className = '',
+  children,
 }: {
   imageUrl: string | null
   pattern: FoilPattern
   settingsRef: React.RefObject<ViewerSettings>
   tiltTarget: React.RefObject<{ x: number; y: number }>
+  /** Hand-mask drawing surface (alpha = coverage); null when layout tier active. */
+  maskCanvas?: HTMLCanvasElement | null
   onPointerMove?: (e: React.PointerEvent<HTMLElement>) => void
   onPointerLeave?: () => void
   className?: string
+  /** Overlays (e.g. the mask editor), rendered above the canvas. */
+  children?: React.ReactNode
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const materialRef = useRef<THREE.ShaderMaterial | null>(null)
   const meshRef = useRef<THREE.Mesh | null>(null)
   const textureRef = useRef<THREE.Texture | null>(null)
+  const maskTexRef = useRef<THREE.CanvasTexture | null>(null)
+  const maskVersionSeen = useRef(-1)
 
   // Scene lifecycle — once.
   useEffect(() => {
@@ -114,6 +126,11 @@ export function CardViewer({
       u.uMaskFeather.value = s.maskFeather
       u.uMaskInvert.value = s.maskInvert ? 1 : 0
       u.uMaskView.value = s.maskView ? 1 : 0
+      u.uMaskTexOn.value = s.maskTexOn && maskTexRef.current ? 1 : 0
+      if (maskTexRef.current && s.maskTexVersion !== maskVersionSeen.current) {
+        maskTexRef.current.needsUpdate = true
+        maskVersionSeen.current = s.maskTexVersion
+      }
       renderer.render(scene, camera)
     }
     loop()
@@ -137,10 +154,29 @@ export function CardViewer({
     const old = materialRef.current
     const mat = buildFoilMaterial(pattern)
     if (textureRef.current) mat.uniforms.uFace.value = textureRef.current
+    if (maskTexRef.current) mat.uniforms.uMaskTex.value = maskTexRef.current
     mesh.material = mat
     materialRef.current = mat
     old?.dispose()
   }, [pattern])
+
+  // Hand-mask canvas change → (re)create the CanvasTexture.
+  useEffect(() => {
+    maskTexRef.current?.dispose()
+    maskTexRef.current = null
+    maskVersionSeen.current = -1
+    if (maskCanvas) {
+      const tex = new THREE.CanvasTexture(maskCanvas)
+      // The shader flips V explicitly (canvas is y-down); disable the GPU-side
+      // flip or the two cancel out and the mask renders upside down.
+      tex.flipY = false
+      tex.minFilter = THREE.LinearFilter
+      tex.magFilter = THREE.LinearFilter
+      maskTexRef.current = tex
+      const mat = materialRef.current
+      if (mat) mat.uniforms.uMaskTex.value = tex
+    }
+  }, [maskCanvas])
 
   // Image change → load texture.
   useEffect(() => {
@@ -166,9 +202,24 @@ export function CardViewer({
   return (
     <div
       ref={hostRef}
-      className={className}
+      className={`relative ${className}`}
       onPointerMove={onPointerMove}
       onPointerLeave={onPointerLeave}
-    />
+    >
+      {children}
+    </div>
   )
+}
+
+/**
+ * The on-screen rect (px, relative to the host) that the card face occupies at
+ * zero tilt — the exact inverse of `fit()`'s 1.16-margin projection. Used by
+ * the mask editor to align its drawing overlay with the rendered card.
+ */
+export function cardScreenRect(hostW: number, hostH: number): { left: number; top: number; width: number; height: number } {
+  // height-limited when the host is wider than the card's aspect; width-limited
+  // otherwise — min() covers both, matching fit()'s max(distH, distW).
+  const height = Math.min(hostH, hostW * CARD_ASPECT) / 1.16
+  const width = height / CARD_ASPECT
+  return { left: (hostW - width) / 2, top: (hostH - height) / 2, width, height }
 }
