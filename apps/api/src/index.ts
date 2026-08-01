@@ -33,7 +33,19 @@ import { bugsRouter } from './routes/bugs.js';
 export function createApp(): express.Express {
   const app = express();
   app.disable('x-powered-by');
-  app.use(helmet());
+  // upgrade-insecure-requests (helmet CSP default) is dropped: on plain-HTTP LAN
+  // origins (http://192.168.68.x/pokedex/) it upgrades every subresource to https,
+  // where the only 443 vhost serves the cheyrasnet cert → cert error → the JS
+  // bundle never loads (blank dark shell). Public access is real HTTPS via nginx,
+  // where the directive was a no-op anyway; all content is same-origin.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: { upgradeInsecureRequests: null },
+      },
+    }),
+  );
   app.use(cors());
   // 12mb accommodates the bug reporter's screenshot dataURL; every other route
   // posts tiny JSON, so the raised ceiling only ever matters for /bugs.
