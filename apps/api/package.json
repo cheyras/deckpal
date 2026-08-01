@@ -14,6 +14,8 @@
     "test:auth": "node --import tsx --test src/__tests__/auth.test.ts",
     "test:bugs": "node --import tsx --test src/__tests__/bugs.test.ts",
     "prove:deck": "node --import tsx src/deck/prove.ts",
+    "census:events": "node --import tsx src/deck/events-census.ts",
+    "backfill:events": "node --import tsx src/deck/backfill-events.ts",
     "scan:index": "node --import tsx src/scan/index.ts"
   },
   "dependencies": {

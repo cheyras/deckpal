@@ -5,6 +5,7 @@ import { asyncHandler, badRequest, clampInt, notFound, oneOf, str, userCache } f
 import { recordDeckChange, recordStrategyChange, type SnapshotEntry } from '../deck/versions.js';
 import { MASSENTRY_NOTE, buildUrls, meLine, tcgplayerAbbrev } from '../tcgplayer/massentry.js';
 import { parseBattleLog } from '../deck/battlelog.js';
+import { tryWriteBattleEvents } from '../deck/battleevents-db.js';
 import {
   validateDeck, resolveDeck, buildReprintOracle,
   parsePtcgl, parseMassEntry, serializeMassEntry,
@@ -1348,6 +1349,11 @@ decksRouter.post(
           notes, JSON.stringify(parsed), source, playedAt,
         ],
       );
+      // battle-intel A1: persist the normalized event stream alongside the
+      // summary jsonb. No-op until migration 020 (W0) lands (probe-gated —
+      // see battleevents-db.ts); skipped when ownership stayed ambiguous
+      // (explicit-result-only ingest) rather than mis-anchoring me/opp.
+      await tryWriteBattleEvents(client, Number(row.rows[0]!.id), rawLog, parsed.players.me);
       return { log: row.rows[0]!, attachedToVersion: version };
     });
 
