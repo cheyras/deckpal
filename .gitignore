@@ -32,6 +32,9 @@ extract/
 # committed (BSD-3, ~216 KB, static — DEX-DATA.md §B.3). Sprites are NOT here (fetched).
 data/*
 !data/pokeapi/
+# Hand-drawn foil-mask corpus (foil/main track) IS committed — ground-truth
+# artifacts, small PNGs, never card art (mask-pipeline SKILL.md).
+!data/foil-masks/
 
 # ── backups + exports (never committed; live outside the repo by default) ──
 # Defensive: if a backup/export is ever pointed inside the repo, don't commit it.
