@@ -826,3 +826,13 @@ fatal for anything needing node/pnpm. Fixed with a stable `~/.node-current` syml
 drop-in (`act_runner.service.d/path.conf`); **on node upgrades, re-point the symlink**
 (`ln -sfn ~/.nvm/versions/node/<new> ~/.node-current`). Workflow avoids JS actions
 (manual git fetch checkout) so CI has no external action-toolchain dependency.
+
+**2026-08-01 addendum — the runs weren't missing because of the legacy git host.** The debugging detour
+(debug loggers, repo diffing, a throwaway probe repo) ended at a mundane truth: five
+consecutive `rtk git push` invocations reported `ok` while actually failing with
+`fatal: no upstream branch` — the workflow files never left the machine. rtk's push filter
+plus `| tail` piping masked both the message and the exit code. Fixed with `git push -u`;
+after that, run creation was instant and CI went green on run 3 (49/49 tests; the one real
+CI catch was `@pokedex/db` needing a build step in a fresh workspace — dist/ doesn't exist
+there). **Rule: after any push that matters, verify it landed (`git ls-remote origin main`
+vs local HEAD); prefer plain `git push` over rtk for pushes.** Banked as a global memory too.
