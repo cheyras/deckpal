@@ -3,17 +3,23 @@
 // Reachable by URL only — linked from NOWHERE in the app shell (quarantine
 // rule, roadmap/plans/foil-main.md). One owned card/variant at a time, real
 // scan from the image cache, tilt-driven foil shader, and dev controls:
-// uniform sliders, pattern override, mask overlay toggle. Phone-first at
-// 390px — Chey reviews from his phone via the dev hub.
+// uniform sliders, pattern override, mask overlay toggle, Apple-Pencil hand
+// mask editing, and a comment queue. Layouts: single column at phone widths
+// (390px), two columns from iPad-mini portrait up (≥700px: viewer | controls).
+//
+// The hand-mask + comment surfaces need the BRANCH api dev instance
+// (POKEDEX_FOIL_LAB=1 on port 3712 — roadmap/ORCHESTRATION.md); against prod
+// they probe as unavailable and those affordances hide themselves.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { foilApi } from './api'
 import { PATTERNS, patternById, type FoilPattern } from './patterns'
 import { GLOBAL_DEFAULTS } from './shader'
 import { resolveFoil, maskForScope, ERAS, type FoilScope } from './resolver'
 import { useTilt } from './useTilt'
-import { CardViewer, type ViewerSettings } from './CardViewer'
+import { CardViewer, cardScreenRect, type ViewerSettings } from './CardViewer'
+import { MaskEditor, createMaskCanvas, MASK_W, MASK_H, type BrushMode, type MaskEditorHandle } from './MaskEditor'
 
 const LS_KEY = 'foil-lab:selection'
 
@@ -55,16 +61,19 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Chip({
   active,
   onClick,
+  disabled = false,
   children,
 }: {
   active: boolean
   onClick: () => void
+  disabled?: boolean
   children: React.ReactNode
 }) {
   return (
     <button
       onClick={onClick}
-      className={`shrink-0 rounded-full border px-[10px] py-[4px] text-[12px] transition-colors ${
+      disabled={disabled}
+      className={`shrink-0 rounded-full border px-[10px] py-[4px] text-[12px] transition-colors disabled:opacity-40 ${
         active
           ? 'border-action-primary bg-action-primary/15 text-action-primary'
           : 'border-border-default bg-surface-tertiary text-text-muted hover:text-text-primary'
@@ -129,6 +138,29 @@ function Select({
   )
 }
 
+function ActionBtn({
+  onClick,
+  active = false,
+  children,
+}: {
+  onClick: () => void
+  active?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-md border px-[10px] py-[6px] text-[12px] ${
+        active
+          ? 'border-action-primary bg-action-primary/15 text-action-primary'
+          : 'border-border-default bg-surface-tertiary text-text-primary hover:border-action-primary'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
 // ── The workbench ──────────────────────────────────────────────────────────
 
 export function FoilLab() {
@@ -139,6 +171,36 @@ export function FoilLab() {
   const [maskFeather, setMaskFeather] = useState(0.008)
   const [maxTiltDeg, setMaxTiltDeg] = useState(16)
   const [copied, setCopied] = useState(false)
+
+  // Hand-mask state
+  const maskCanvas = useMemo(() => createMaskCanvas(), [])
+  const [maskSource, setMaskSource] = useState<'layout' | 'hand'>('layout')
+  const [editMode, setEditMode] = useState(false)
+  const [brushMode, setBrushMode] = useState<BrushMode>('brush')
+  const [brushSize, setBrushSize] = useState(28)
+  const [allowTouch, setAllowTouch] = useState(false)
+  const [maskDirty, setMaskDirty] = useState(false)
+  const [savedMask, setSavedMask] = useState(false)
+  const [maskTexVersion, setMaskTexVersion] = useState(0)
+  const editorRef = useRef<MaskEditorHandle | null>(null)
+  const zeroTilt = useRef({ x: 0, y: 0 })
+
+  // Comments
+  const [commentOpen, setCommentOpen] = useState(false)
+  const [commentText, setCommentText] = useState('')
+  const [commentStatus, setCommentStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+
+  // Viewer host size (for aligning the mask-editor overlay with the card).
+  const viewerWrapRef = useRef<HTMLDivElement>(null)
+  const [hostSize, setHostSize] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const el = viewerWrapRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setHostSize({ w: el.clientWidth, h: el.clientHeight }))
+    ro.observe(el)
+    setHostSize({ w: el.clientWidth, h: el.clientHeight })
+    return () => ro.disconnect()
+  }, [])
 
   useEffect(() => {
     localStorage.setItem(LS_KEY, JSON.stringify(sel))
@@ -163,6 +225,8 @@ export function FoilLab() {
     queryFn: ({ signal }) => foilApi.cardDetail(sel.cardId!, signal),
     enabled: Boolean(sel.cardId),
   })
+  const devQ = useQuery({ queryKey: ['foil', 'dev-surface'], queryFn: () => foilApi.devSurface(), staleTime: Infinity })
+  const devSurface = devQ.data === true
 
   // Auto-select down the chain (prefer the classic demo: Base Set Machamp).
   useEffect(() => {
@@ -210,6 +274,36 @@ export function FoilLab() {
   const pattern = patternById(effectivePatternId)
   const mask = maskForScope(effectiveScope, resolved.eraId)
 
+  // ── Saved hand mask: load on card/variant change (beats the layout tier) ──
+  useEffect(() => {
+    if (!detail || sel.variantId == null) return
+    setEditMode(false)
+    setMaskDirty(false)
+    let cancelled = false
+    if (!devSurface) {
+      setMaskSource('layout')
+      setSavedMask(false)
+      return
+    }
+    void foilApi.getMask(detail.card.cardId, sel.variantId).then((bmp) => {
+      if (cancelled) return
+      if (bmp) {
+        const ctx = maskCanvas.getContext('2d')!
+        ctx.clearRect(0, 0, MASK_W, MASK_H)
+        ctx.drawImage(bmp, 0, 0, MASK_W, MASK_H)
+        setSavedMask(true)
+        setMaskSource('hand')
+        setMaskTexVersion((v) => v + 1)
+      } else {
+        setSavedMask(false)
+        setMaskSource('layout')
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [detail, sel.variantId, devSurface, maskCanvas])
+
   // ── Uniforms: reset on pattern change, live in state + ref ──
   const [uniforms, setUniforms] = useState<Record<string, number>>(() => seedUniforms(pattern))
   useEffect(() => {
@@ -217,6 +311,7 @@ export function FoilLab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pattern.id])
 
+  const handActive = maskSource === 'hand' || editMode
   const settingsRef = useRef<ViewerSettings>({
     uniforms,
     maskRect: mask.rect,
@@ -224,6 +319,8 @@ export function FoilLab() {
     maskFeather,
     maskInvert: mask.invert,
     maskView,
+    maskTexOn: handActive,
+    maskTexVersion,
     maxTiltDeg,
   })
   useEffect(() => {
@@ -234,11 +331,98 @@ export function FoilLab() {
       maskFeather,
       maskInvert: mask.invert,
       maskView,
-      maxTiltDeg,
+      maskTexOn: handActive,
+      maskTexVersion,
+      maxTiltDeg: editMode ? 0 : maxTiltDeg,
     }
-  }, [uniforms, mask, maskFeather, maskView, maxTiltDeg])
+  }, [uniforms, mask, maskFeather, maskView, maxTiltDeg, handActive, maskTexVersion, editMode])
 
   const setU = (k: string, v: number) => setUniforms((u) => ({ ...u, [k]: v }))
+
+  const onStrokeEnd = useCallback(() => {
+    setMaskDirty(true)
+    setMaskSource('hand')
+    setMaskTexVersion((v) => v + 1)
+  }, [])
+
+  const registerEditor = useCallback((h: MaskEditorHandle) => {
+    editorRef.current = h
+  }, [])
+
+  const startEdit = () => {
+    setEditMode(true)
+    // Editing starts from the current mask: saved hand mask if loaded,
+    // otherwise rasterize the layout prior so he refines, not restarts.
+    if (maskSource === 'layout') {
+      // defer until the editor registered its handle
+      requestAnimationFrame(() => {
+        editorRef.current?.loadLayoutRect(mask.rect, mask.invert, mask.radius)
+        setMaskSource('hand')
+        setMaskTexVersion((v) => v + 1)
+      })
+    }
+  }
+
+  const saveMask = async () => {
+    if (!detail || sel.variantId == null) return
+    try {
+      await foilApi.putMask(detail.card.cardId, sel.variantId, maskCanvas.toDataURL('image/png'), MASK_W, MASK_H)
+      setSavedMask(true)
+      setMaskDirty(false)
+    } catch {
+      /* surfaced by the dirty flag remaining */
+    }
+  }
+
+  const deleteMask = async () => {
+    if (!detail || sel.variantId == null) return
+    try {
+      await foilApi.deleteMask(detail.card.cardId, sel.variantId)
+    } catch {
+      /* ignore */
+    }
+    setSavedMask(false)
+    setMaskDirty(false)
+    setMaskSource('layout')
+    setEditMode(false)
+  }
+
+  const commentContext = (): Record<string, unknown> => ({
+    cardId: detail?.card.cardId,
+    variantId: sel.variantId,
+    variantKind: variant?.kind,
+    pattern: effectivePatternId,
+    patternOverride,
+    scope: effectiveScope,
+    era: resolved.eraId,
+    maskSource,
+    maskEditActive: editMode,
+    maskDirty,
+    savedMask,
+    tiltMode: tilt.mode,
+    uniforms,
+    maskFeather,
+    maxTiltDeg,
+    viewport: `${window.innerWidth}x${window.innerHeight}`,
+    ts: new Date().toISOString(),
+  })
+
+  const submitComment = async () => {
+    const text = commentText.trim()
+    if (!text) return
+    setCommentStatus('saving')
+    try {
+      await foilApi.postComment(text, commentContext())
+      setCommentStatus('saved')
+      setCommentText('')
+      setTimeout(() => {
+        setCommentStatus('idle')
+        setCommentOpen(false)
+      }, 900)
+    } catch {
+      setCommentStatus('error')
+    }
+  }
 
   const copyRecipe = async () => {
     const recipe = {
@@ -247,6 +431,7 @@ export function FoilLab() {
       era: resolved.eraId,
       card: detail?.card.cardId,
       variant: variant?.kind,
+      maskSource,
       uniforms,
     }
     try {
@@ -259,20 +444,49 @@ export function FoilLab() {
   }
 
   const imageUrl = detail?.card.images.high ?? null
+  const cardRect = cardScreenRect(hostSize.w, hostSize.h)
+
+  // Era-grouped picker: owned series bucketed by frame generation.
+  const eraGroups = useMemo(() => {
+    const groups: { eraId: string; label: string; series: NonNullable<typeof seriesQ.data> }[] = []
+    for (const s of seriesQ.data ?? []) {
+      const eraId = resolveFoil({ seriesSlug: s.slug, rarity: null, variantKind: null }).eraId
+      let g = groups.find((x) => x.eraId === eraId)
+      if (!g) {
+        g = { eraId, label: ERAS[eraId].label, series: [] }
+        groups.push(g)
+      }
+      g.series.push(s)
+    }
+    return groups
+  }, [seriesQ.data])
 
   return (
-    <div className="flex min-h-screen flex-col bg-surface-primary text-text-primary lg:h-screen lg:flex-row lg:overflow-hidden">
-      {/* ── Viewer ── */}
-      <div className="relative h-[52vh] shrink-0 bg-[#0b0d12] lg:h-full lg:flex-1">
+    <div className="flex min-h-screen flex-col bg-surface-primary text-text-primary min-[700px]:h-screen min-[700px]:flex-row min-[700px]:overflow-hidden">
+      {/* ── Viewer column ── */}
+      <div ref={viewerWrapRef} className="relative h-[52vh] shrink-0 bg-[#0b0d12] min-[700px]:h-full min-[700px]:flex-1">
         <CardViewer
           imageUrl={imageUrl}
           pattern={pattern}
           settingsRef={settingsRef}
-          tiltTarget={tilt.target}
-          onPointerMove={tilt.onPointerMove}
-          onPointerLeave={tilt.onPointerLeave}
+          tiltTarget={editMode ? zeroTilt : tilt.target}
+          maskCanvas={handActive ? maskCanvas : null}
+          onPointerMove={editMode ? undefined : tilt.onPointerMove}
+          onPointerLeave={editMode ? undefined : tilt.onPointerLeave}
           className="h-full w-full"
-        />
+        >
+          {editMode && cardRect.width > 0 && (
+            <MaskEditor
+              canvas={maskCanvas}
+              rect={cardRect}
+              mode={brushMode}
+              brushSize={brushSize}
+              allowTouch={allowTouch}
+              onStrokeEnd={onStrokeEnd}
+              registerHandle={registerEditor}
+            />
+          )}
+        </CardViewer>
         <div className="pointer-events-none absolute left-[12px] top-[10px] text-[12px]">
           <div className="font-semibold">{detail ? detail.card.name : 'Foil workbench'}</div>
           <div className="text-text-muted">
@@ -281,27 +495,51 @@ export function FoilLab() {
           </div>
         </div>
         <div className="pointer-events-none absolute right-[12px] top-[10px] rounded-full bg-surface-secondary/70 px-[8px] py-[2px] text-[11px] text-text-muted">
-          {tilt.mode}
-          {pattern.id !== 'none' && patternOverride === 'auto' ? ' · auto' : ''}
+          {editMode ? 'mask edit' : tilt.mode}
+          {handActive && !editMode ? ' · hand mask' : ''}
         </div>
+        {devSurface && (
+          <button
+            onClick={() => setCommentOpen(true)}
+            className="absolute bottom-[12px] left-[12px] rounded-full border border-border-default bg-surface-secondary/85 px-[12px] py-[7px] text-[12px] text-text-primary hover:border-action-primary"
+          >
+            + Comment
+          </button>
+        )}
+        {editMode && (
+          <div className="absolute bottom-[12px] right-[12px] flex gap-[6px]">
+            <ActionBtn active={brushMode === 'brush'} onClick={() => setBrushMode('brush')}>
+              Brush
+            </ActionBtn>
+            <ActionBtn active={brushMode === 'erase'} onClick={() => setBrushMode('erase')}>
+              Erase
+            </ActionBtn>
+            <ActionBtn onClick={() => editorRef.current?.undo()}>Undo</ActionBtn>
+          </div>
+        )}
       </div>
 
-      {/* ── Controls ── */}
-      <div className="flex-1 space-y-[12px] overflow-y-auto p-[12px] lg:w-[400px] lg:flex-none lg:shrink-0">
-        <Section title="Card (owned scans)">
-          <div className="mb-[8px] flex gap-[6px] overflow-x-auto pb-[2px]">
-            {(seriesQ.data ?? []).map((s) => (
-              <Chip
-                key={s.slug}
-                active={s.slug === sel.seriesSlug}
-                onClick={() =>
-                  setSel({ seriesSlug: s.slug, setId: undefined, cardId: undefined, variantId: undefined })
-                }
-              >
-                {s.name} <span className="opacity-60">{s.progress.owned}</span>
-              </Chip>
-            ))}
-          </div>
+      {/* ── Controls column ── */}
+      <div className="flex-1 space-y-[12px] overflow-y-auto p-[12px] min-[700px]:w-[360px] min-[700px]:flex-none min-[700px]:shrink-0 min-[1200px]:w-[400px]">
+        <Section title="Card (owned scans, by era)">
+          {eraGroups.map((g) => (
+            <div key={g.eraId} className="mb-[6px]">
+              <div className="mb-[4px] text-[10px] uppercase tracking-[0.06em] text-text-muted">{g.label}</div>
+              <div className="flex gap-[6px] overflow-x-auto pb-[2px]">
+                {g.series.map((s) => (
+                  <Chip
+                    key={s.slug}
+                    active={s.slug === sel.seriesSlug}
+                    onClick={() =>
+                      setSel({ seriesSlug: s.slug, setId: undefined, cardId: undefined, variantId: undefined })
+                    }
+                  >
+                    {s.name} <span className="opacity-60">{s.progress.owned}</span>
+                  </Chip>
+                ))}
+              </div>
+            </div>
+          ))}
           {setsQ.data && (
             <Select
               value={sel.setId ?? ''}
@@ -365,21 +603,79 @@ export function FoilLab() {
           </p>
         </Section>
 
-        <Section title="Mask (layout tier)">
-          <div className="mb-[8px] flex items-center gap-[6px]">
+        <Section title="Mask">
+          <div className="mb-[8px] flex flex-wrap items-center gap-[6px]">
             {(['auto', 'window', 'sheet', 'full'] as const).map((s) => (
-              <Chip key={s} active={scopeOverride === s} onClick={() => setScopeOverride(s)}>
+              <Chip
+                key={s}
+                active={!handActive && scopeOverride === s}
+                onClick={() => {
+                  setScopeOverride(s)
+                  setMaskSource('layout')
+                  setEditMode(false)
+                }}
+              >
                 {s === 'auto' ? `auto (${resolved.scope})` : s}
               </Chip>
             ))}
+            <Chip
+              active={handActive}
+              disabled={!savedMask && !maskDirty && !editMode}
+              onClick={() => setMaskSource('hand')}
+            >
+              hand
+            </Chip>
           </div>
           <label className="mb-[6px] flex items-center gap-[8px] text-[13px]">
             <input type="checkbox" checked={maskView} onChange={(e) => setMaskView(e.target.checked)} />
             Show mask overlay
           </label>
-          <Slider label="Mask feather" value={maskFeather} min={0} max={0.06} step={0.001} onChange={setMaskFeather} />
-          <p className="text-[11px] text-text-muted">
-            Era: {ERAS[resolved.eraId].label} (rects from era-layouts.json)
+          {!handActive && (
+            <Slider label="Mask feather" value={maskFeather} min={0} max={0.06} step={0.001} onChange={setMaskFeather} />
+          )}
+
+          {devSurface ? (
+            !editMode ? (
+              <div className="mb-[6px] flex flex-wrap gap-[6px]">
+                <ActionBtn onClick={startEdit}>✏️ Edit mask (Pencil)</ActionBtn>
+                {savedMask && <ActionBtn onClick={deleteMask}>Delete saved</ActionBtn>}
+              </div>
+            ) : (
+              <div className="space-y-[8px]">
+                <div className="flex flex-wrap gap-[6px]">
+                  <ActionBtn active={brushMode === 'brush'} onClick={() => setBrushMode('brush')}>
+                    Brush
+                  </ActionBtn>
+                  <ActionBtn active={brushMode === 'erase'} onClick={() => setBrushMode('erase')}>
+                    Erase
+                  </ActionBtn>
+                  <ActionBtn onClick={() => editorRef.current?.undo()}>Undo</ActionBtn>
+                  <ActionBtn onClick={() => editorRef.current?.clear()}>Clear</ActionBtn>
+                  <ActionBtn onClick={() => editorRef.current?.fill()}>Fill</ActionBtn>
+                  <ActionBtn onClick={() => editorRef.current?.loadLayoutRect(mask.rect, mask.invert, mask.radius)}>
+                    Reset to layout
+                  </ActionBtn>
+                </div>
+                <Slider label="Brush size" value={brushSize} min={4} max={120} step={1} onChange={setBrushSize} />
+                <label className="flex items-center gap-[8px] text-[13px]">
+                  <input type="checkbox" checked={allowTouch} onChange={(e) => setAllowTouch(e.target.checked)} />
+                  Allow finger drawing (Pencil + mouse only by default)
+                </label>
+                <div className="flex flex-wrap gap-[6px]">
+                  <ActionBtn onClick={saveMask}>{maskDirty ? 'Save mask ●' : 'Save mask'}</ActionBtn>
+                  <ActionBtn onClick={() => setEditMode(false)}>Done</ActionBtn>
+                </div>
+              </div>
+            )
+          ) : (
+            <p className="text-[11px] text-text-muted">
+              Hand-mask editing needs the branch api instance (port 3712) — unavailable here.
+            </p>
+          )}
+          <p className="mt-[6px] text-[11px] text-text-muted">
+            {handActive
+              ? `Hand mask ${savedMask ? '(saved)' : '(unsaved)'}${maskDirty ? ' — unsaved strokes' : ''} → data/foil-masks/`
+              : `Era: ${ERAS[resolved.eraId].label} (rects from era-layouts.json)`}
           </p>
         </Section>
 
@@ -449,9 +745,40 @@ export function FoilLab() {
         </Section>
 
         <p className="pb-[16px] text-center text-[10px] text-text-muted">
-          foil/main workbench v1 — quarantined; linked from nowhere.
+          foil/main workbench — quarantined; linked from nowhere.
         </p>
       </div>
+
+      {/* ── Comment modal ── */}
+      {commentOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-[16px] min-[700px]:items-center">
+          <div className="w-full max-w-[440px] rounded-lg border border-border-default bg-surface-secondary p-[14px]">
+            <h2 className="mb-[8px] text-[13px] font-semibold">
+              Workbench comment
+              <span className="ml-[8px] font-normal text-text-muted">
+                {detail?.card.cardId} · {variant?.displayName ?? ''} · {effectivePatternId}
+              </span>
+            </h2>
+            <textarea
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              rows={4}
+              placeholder="What's off / what to try — card, pattern, sliders and mask state are captured automatically."
+              className="w-full rounded-md border border-border-default bg-surface-tertiary p-[8px] text-[13px] text-text-primary"
+            />
+            <div className="mt-[10px] flex items-center justify-end gap-[8px]">
+              {commentStatus === 'error' && <span className="mr-auto text-[12px] text-red-400">Save failed — is the 3712 api up?</span>}
+              {commentStatus === 'saved' && <span className="mr-auto text-[12px] text-action-primary">Saved to issues/foil/ ✓</span>}
+              <ActionBtn onClick={() => setCommentOpen(false)}>Cancel</ActionBtn>
+              <ActionBtn onClick={submitComment} active>
+                {commentStatus === 'saving' ? 'Saving…' : 'Save comment'}
+              </ActionBtn>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
