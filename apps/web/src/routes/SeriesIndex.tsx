@@ -269,12 +269,20 @@ export function SeriesIndex() {
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs)
   const [savedFlash, setSavedFlash] = useState(false)
   const [showOthers, setShowOthers] = useState(false)
+  const savedFlashTimer = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (savedFlashTimer.current != null) clearTimeout(savedFlashTimer.current)
+    }
+  }, [])
 
   const savePrefs = () => {
     try {
       localStorage.setItem(PREFS_KEY, JSON.stringify(prefs))
       setSavedFlash(true)
-      window.setTimeout(() => setSavedFlash(false), 1600)
+      if (savedFlashTimer.current != null) clearTimeout(savedFlashTimer.current)
+      savedFlashTimer.current = window.setTimeout(() => setSavedFlash(false), 1600)
     } catch {
       /* storage may be unavailable (private mode); no-op */
     }

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { cardImages, q, toMajor } from '../db.js';
-import { asyncHandler, catalogCache, clampInt, oneOf, str, strList } from '../http.js';
+import { asyncHandler, badRequest, catalogCache, clampInt, oneOf, str, strList } from '../http.js';
 import { raritySortSql } from '../rarity.js';
 
 export const searchRouter: Router = Router();
@@ -13,6 +13,23 @@ const SORT_COLUMNS = {
   released: 'c.released_on',
 } as const;
 type SortKey = keyof typeof SORT_COLUMNS;
+
+function integerList(v: unknown, param: string): number[] {
+  if (v === undefined) return [];
+  const values = Array.isArray(v) ? v : [v];
+  return values.map((x) => {
+    const n = Number(x);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) throw badRequest(`${param} must be an integer`);
+    return n;
+  });
+}
+
+function optionalInteger(v: unknown, param: string): number | undefined {
+  if (v === undefined) return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) throw badRequest(`${param} must be an integer`);
+  return n;
+}
 
 interface SearchRow {
   tcgdex_id: string;
@@ -69,10 +86,10 @@ searchRouter.get(
     const rarity = strList(req.query.rarity);
     const weakness = strList(req.query.weakness);
     const resistance = strList(req.query.resistance);
-    const retreat = strList(req.query.retreat).map((x) => Number.parseInt(x, 10)).filter(Number.isFinite);
-    const hp = strList(req.query.hp).map((x) => Number.parseInt(x, 10)).filter(Number.isFinite);
-    const hpMin = str(req.query.hpMin);
-    const hpMax = str(req.query.hpMax);
+    const retreat = integerList(req.query.retreat, 'retreat');
+    const hp = integerList(req.query.hp, 'hp');
+    const hpMin = optionalInteger(req.query.hpMin, 'hpMin');
+    const hpMax = optionalInteger(req.query.hpMax, 'hpMax');
     const attack = str(req.query.attack);
     const ability = str(req.query.ability);
     const artist = strList(req.query.artist);
@@ -93,8 +110,8 @@ searchRouter.get(
     if (resistance.length) where.push(`EXISTS (SELECT 1 FROM card_matchup m WHERE m.card_id = c.id AND m.kind = 'resistance' AND m.type = ANY(${p(resistance)}))`);
     if (retreat.length) where.push(`c.retreat = ANY(${p(retreat)}::int[])`);
     if (hp.length) where.push(`c.hp = ANY(${p(hp)}::int[])`);
-    if (hpMin !== undefined && Number.isFinite(Number(hpMin))) where.push(`c.hp >= ${p(Number(hpMin))}`);
-    if (hpMax !== undefined && Number.isFinite(Number(hpMax))) where.push(`c.hp <= ${p(Number(hpMax))}`);
+    if (hpMin !== undefined) where.push(`c.hp >= ${p(hpMin)}`);
+    if (hpMax !== undefined) where.push(`c.hp <= ${p(hpMax)}`);
     if (attack) where.push(`EXISTS (SELECT 1 FROM card_attack a WHERE a.card_id = c.id AND (a.name ILIKE ${p(`%${attack}%`)} OR a.effect ILIKE $${params.length}))`);
     if (ability) where.push(`EXISTS (SELECT 1 FROM card_ability ab WHERE ab.card_id = c.id AND (ab.name ILIKE ${p(`%${ability}%`)} OR ab.effect ILIKE $${params.length}))`);
     if (artist.length) where.push(`c.illustrator = ANY(${p(artist)})`);

@@ -293,7 +293,7 @@ function TestHandModal({ deckId, onClose }: { deckId: string; onClose: () => voi
 // ── Export modal ──────────────────────────────────────────────────────────────
 function ExportModal({ deckId, onClose }: { deckId: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
-  const { data } = useQuery({ queryKey: ['export', deckId], queryFn: ({ signal }) => api.exportDeck(deckId, 'ptcgl', signal) })
+  const { data, error, refetch } = useQuery({ queryKey: ['export', deckId], queryFn: ({ signal }) => api.exportDeck(deckId, 'ptcgl', signal) })
   const copy = async () => {
     if (!data) return
     try { await navigator.clipboard.writeText(data.text); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch { /* clipboard unavailable */ }
@@ -302,8 +302,14 @@ function ExportModal({ deckId, onClose }: { deckId: string; onClose: () => void 
     <Modal title="Export to PTCG Live" onClose={onClose} wide>
       <div className="flex flex-col gap-[12px]">
         <p className="text-[13px] text-text-muted">Copy this list and paste it into Pokémon TCG Live’s deck importer.</p>
-        <textarea readOnly value={data?.text ?? 'Loading…'} rows={16}
+        <textarea readOnly value={data?.text ?? (error ? '' : 'Loading…')} rows={16}
           className="rounded-lg border border-border-default bg-surface-primary px-[14px] py-[10px] font-mono text-[13px] leading-[19px] text-text-primary" />
+        {error && (
+          <div className="flex items-center justify-between gap-[10px] text-[12px] text-amber-400">
+            <span>Couldn’t export this deck.</span>
+            <button onClick={() => void refetch()} className="rounded-full bg-surface-tertiary px-[12px] py-[6px] font-bold text-text-primary hover:bg-action-default-hover">Retry</button>
+          </div>
+        )}
         {data && data.warnings.length > 0 && (
           <div className="flex flex-col gap-[6px] rounded-lg border border-[#ff9d42]/40 bg-[#ff9d42]/10 p-[10px]">
             {data.warnings.map((w, i) => (
