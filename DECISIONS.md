@@ -861,6 +861,43 @@ crashing (regex alternation truncating `.tsx`→`.ts`; `''.splitlines()[0]` Inde
 an empty diff block), not worker failures. Test manifest checks against a synthetic
 artifact before running the swarm.
 
+## 2026-08-01 — A1 battle-events: census-derived event taxonomy, pure emitter, gated write path
+**What:** `apps/api/src/deck/battleevents.ts` — a second pure parser alongside
+battlelog.ts that turns a raw Live log into an ordered event stream (`{seq, turn, actor,
+type, payload}`), the interchange format for B4/C2/D2. Taxonomy (32 observed types + a
+synthesized `concede`) was derived from a masked-shape census of ALL 10 stored raw_logs,
+now committed verbatim as fixtures (`__tests__/fixtures/battle-logs/battle-{03..12}.txt`).
+Corpus unknown-line rate: 3/1725 (0.17%) — every unknown is human freetext (two trailing
+"Chey's notes:" lines; battle-06 is a note with no log at all and correctly parses to 0
+events at rate 1). Registry of record: `research/BATTLE-EVENTS.md` (additive-only
+post-W0). CI: `battleevents.test.ts`, 20 pure tests — exact unknown counts per fixture,
+every type covered from real excerpts, and a cross-consistency check that events agree
+with parseBattleLog on turns/prizes/KOs/result for all 9 real logs.
+**Decisions:**
+- **Two walkers, not one.** battlelog.ts is untouched (its `parsed` jsonb is a shipped
+  contract); divergence risk is held down by the cross-consistency test rather than by
+  rewriting the summary parser on top of events.
+- **Starter-list renames** (documented in BATTLE-EVENTS.md §4): `play_trainer` →
+  `play_card` and `use_ability` → `use_move`, because the underlying line shapes are
+  polysemous ("played Dudunsparce." is an ability; "used Hide 'n' Sneak." is an attack)
+  and a pure parser must not guess. `reveal`/`search` don't exist as Live lines — they
+  fold into the causing event's `cards` payload.
+- **Perspective mapping lives at the DB boundary** (battleevents-db.ts): the pure parser
+  emits screen names; the write path maps owner→`me`/other→`opp`/null→`system` per 020's
+  actor CHECK, and parser turn 0 → SQL NULL. Written against W0's actual DDL (branch
+  feat/battle-contracts @ 940e382), including the `origin`-not-`source` rename. Logs
+  whose owner can't be identified are skipped, never mis-anchored.
+- **Write path is probe-gated, not commented out:** `to_regclass('battle_events')` per
+  ingest (tx-safe, no savepoints); lights up automatically when 020 lands. Backfill
+  (`backfill:events`, dry-run default, ONE connection) refuses `--write` pre-020.
+**Bug found & fixed (pre-existing):** newer Live logs prefix every card with a printing
+id (`(me5_39) Dhelmise`); battlelog.ts's nameKey kept the prefix, so deck-overlap
+scoring matched nothing for the owner — battle #11's stored `parsed` has
+`players.me = ExtraManatee` at HIGH confidence (perspective-dependent fields flipped;
+row-level result/opponent were luckily caller-supplied). Fixed by stripping the ref in
+nameKey (regression test on the real fixture); stored jsonb for #11 heals on re-parse —
+flagged for a post-W0 `parsed` refresh pass.
+
 ## 2026-08-07 — the image cache now documents where every byte came from
 **Chey (chat):** *"yes, please fix and make sure we're always documenting original
 source when we add images to the cache going forward."*
