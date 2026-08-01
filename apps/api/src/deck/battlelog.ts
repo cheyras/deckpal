@@ -187,7 +187,12 @@ function parseInner(rawLog: string, deckCardNames: string[], playerName?: string
       continue;
     }
 
-    const win = line.match(/^(?:All Prize cards taken\.\s*)?(.+?) wins\.?$/);
+    // `<name> wins.` closes the game regardless of what sentence precedes it on
+    // the line: 'All Prize cards taken.', 'Opponent was inactive for too long.'
+    // (timeout — the battle-#8 miss), a concede notice, or nothing at all. The
+    // greedy prefix must end at sentence punctuation so the captured name stays
+    // exactly a player name.
+    const win = line.match(/^(?:.*[.!?]\s+)?(.+?) wins\.?$/);
     if (win && players.has(win[1]!)) {
       winner = win[1]!;
       continue;

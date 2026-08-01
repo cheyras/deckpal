@@ -326,12 +326,18 @@ function ExportModal({ deckId, onClose }: { deckId: string; onClose: () => void 
 }
 
 // ── Buy-missing modal ─────────────────────────────────────────────────────────
+// Deep-link-first (same UX as PurchaseSetMenu): the primary action opens the
+// TCGplayer Mass Entry cart link(s) from GET /decks/:id/massentry; the copyable
+// Mass Entry text is the fallback. Pricing still supplies the value summary and
+// the per-card missing list.
 function BuyMissingModal({ deckId, onClose }: { deckId: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
   const { data } = useQuery({ queryKey: ['pricing', deckId], queryFn: ({ signal }) => api.deckPricing(deckId, signal) })
+  const { data: me, error: meError } = useQuery({ queryKey: ['deck-massentry', deckId], queryFn: ({ signal }) => api.deckMassEntry(deckId, signal) })
   const copy = async () => {
-    if (!data) return
-    try { await navigator.clipboard.writeText(data.massEntryText); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch { /* clipboard unavailable */ }
+    const text = me?.text || data?.massEntryText
+    if (!text) return
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch { /* clipboard unavailable */ }
   }
   return (
     <Modal title="Buy Missing Cards" onClose={onClose} wide>
@@ -347,29 +353,62 @@ function BuyMissingModal({ deckId, onClose }: { deckId: string; onClose: () => v
             {data.missing.length === 0 ? (
               <div className="rounded-lg bg-surface-tertiary/60 p-[16px] text-center text-[14px] text-change-positive">You own every card in this deck!</div>
             ) : (
-              <div className="flex max-h-[360px] flex-col gap-[6px] overflow-y-auto pr-[4px]">
-                {data.missing.map((m) => (
-                  <div key={m.cardId} className="flex items-center gap-[10px] rounded-lg bg-surface-tertiary/50 p-[6px] pr-[10px]">
-                    <img src={m.image} alt={m.name} className="h-[44px] w-[31px] rounded object-cover" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-semibold text-text-primary">{m.missingQty}× {m.name}</div>
-                      <div className="text-[11px] text-text-muted">{m.setId.toUpperCase()} {m.number} · {fmtUsd(m.lineTotal)}</div>
-                    </div>
-                    {m.buyUrl && (
-                      <a href={m.buyUrl} target="_blank" rel="noreferrer" className="flex h-[32px] items-center gap-[6px] rounded-full bg-action-primary px-[12px] text-[12px] font-bold text-action-primary-text hover:bg-action-primary-hover">
-                        <Icon name="cart" size={14} /> Buy
-                      </a>
+              <>
+                {/* primary: cart deep link(s) */}
+                {me && me.urls.length > 0 && (
+                  <div className="flex flex-col gap-[8px]">
+                    {me.urls.length > 1 && (
+                      <p className="text-[12px] text-text-muted">The list is split into {me.urls.length} links — open each one; they all add to the same cart.</p>
                     )}
+                    {me.urls.map((u, i) => (
+                      <a key={u} href={u} target="_blank" rel="noreferrer"
+                        className="flex h-[44px] items-center justify-center gap-[8px] rounded-full bg-action-primary text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+                        <Icon name="cart" size={16} />
+                        {me.urls.length > 1 ? `Open TCGplayer cart — link ${i + 1} of ${me.urls.length}` : 'Fill TCGplayer cart'}
+                      </a>
+                    ))}
+                    <p className="rounded-lg bg-surface-tertiary px-[12px] py-[10px] text-[12px] leading-[17px] text-text-secondary">
+                      Tip: once the cart fills, open TCGplayer’s <span className="font-semibold text-text-primary">Cart Optimizer</span> (inside
+                      the cart) — its consolidation mode finds the fewest sellers, or a single seller with everything, so it all ships in one package.
+                    </p>
                   </div>
-                ))}
-              </div>
-            )}
-            {data.missing.length > 0 && (
-              <div className="flex justify-end">
-                <button onClick={copy} className="flex h-[40px] items-center gap-[8px] rounded-full bg-surface-tertiary px-[16px] text-[13px] font-bold text-text-primary hover:bg-action-default-hover">
-                  <Icon name={copied ? 'check' : 'copy'} size={15} /> {copied ? 'Copied!' : 'Copy TCGplayer Mass Entry'}
-                </button>
-              </div>
+                )}
+                {meError != null && <p className="text-[12px] text-amber-400">Couldn’t build the cart link — use the copy list below instead.</p>}
+                <div className="flex max-h-[300px] flex-col gap-[6px] overflow-y-auto pr-[4px]">
+                  {data.missing.map((m) => (
+                    <div key={m.cardId} className="flex items-center gap-[10px] rounded-lg bg-surface-tertiary/50 p-[6px] pr-[10px]">
+                      <img src={m.image} alt={m.name} className="h-[44px] w-[31px] rounded object-cover" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-semibold text-text-primary">{m.missingQty}× {m.name}</div>
+                        <div className="text-[11px] text-text-muted">{m.setId.toUpperCase()} {m.number} · {fmtUsd(m.lineTotal)}</div>
+                      </div>
+                      {m.buyUrl && (
+                        <a href={m.buyUrl} target="_blank" rel="noreferrer" className="flex h-[32px] items-center gap-[6px] rounded-full bg-surface-tertiary px-[12px] text-[12px] font-bold text-text-primary hover:bg-action-default-hover">
+                          <Icon name="cart" size={14} /> Buy
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {me && me.unlinkable.length > 0 && (
+                  <div className="text-[12px] leading-[18px] text-text-muted">
+                    <span className="font-semibold text-text-secondary">Not on TCGplayer ({me.unlinkable.length}):</span>{' '}
+                    {me.unlinkable.map((u) => `${u.name} ${u.setId.toUpperCase()} ${u.number}`).join(', ')} — not in the cart link, buy elsewhere.
+                  </div>
+                )}
+                {me?.warnings
+                  .filter((w) => !w.includes('no TCGplayer product')) // already rendered above
+                  .map((w) => <p key={w} className="text-[12px] text-amber-400">{w}</p>)}
+                {/* fallback: copy the Mass Entry text */}
+                <div className="flex items-center justify-between border-t border-divider-subtle pt-[10px]">
+                  <span className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Mass Entry list (fallback)</span>
+                  <button onClick={copy} className="flex items-center gap-[6px] text-[12px] font-semibold text-link hover:text-link-hover">
+                    <Icon name={copied ? 'check' : 'copy'} size={14} /> {copied ? 'Copied' : 'Copy list'}
+                  </button>
+                </div>
+                <textarea readOnly value={me?.text ?? data.massEntryText} rows={Math.min(6, data.missing.length)}
+                  className="w-full resize-none rounded-lg border border-border-default bg-surface-primary p-[10px] font-mono text-[12px] leading-[17px] text-text-secondary" />
+              </>
             )}
           </>
         )}
@@ -403,6 +442,7 @@ export function DeckBuilder() {
     qc.invalidateQueries({ queryKey: ['testhand', id] })
     qc.invalidateQueries({ queryKey: ['export', id] })
     qc.invalidateQueries({ queryKey: ['pricing', id] })
+    qc.invalidateQueries({ queryKey: ['deck-massentry', id] })
     qc.invalidateQueries({ queryKey: ['decks'] })
     // Card edits amend or bump the deck version (the auto-bump rule), so the
     // version timeline + per-version battle rollups are stale after any of them.
@@ -500,7 +540,8 @@ export function DeckBuilder() {
   const grouped = useMemo(() => {
     const cards = detail?.cards ?? []
     const q = search.q.trim().toLowerCase()
-    const filtered = q ? cards.filter((c) => c.name.toLowerCase().includes(q) || c.number.toLowerCase().includes(q)) : cards
+    const base = search.missing ? cards.filter((c) => c.owned < c.quantity) : cards
+    const filtered = q ? base.filter((c) => c.name.toLowerCase().includes(q) || c.number.toLowerCase().includes(q)) : base
     const sortFn = (a: DeckCard, b: DeckCard) => {
       if (search.sort === 'name') return a.name.localeCompare(b.name)
       if (search.sort === 'quantity') return b.quantity - a.quantity
@@ -508,8 +549,8 @@ export function DeckBuilder() {
       return (a.numberSort ?? '').localeCompare(b.numberSort ?? '')
     }
     const by = (s: DeckCard['section']) => filtered.filter((c) => c.section === s).sort(sortFn)
-    return { pokemon: by('pokemon'), trainer: by('trainer'), energy: by('energy') }
-  }, [detail, search.q, search.sort])
+    return { pokemon: by('pokemon'), trainer: by('trainer'), energy: by('energy'), shown: filtered.length }
+  }, [detail, search.q, search.sort, search.missing])
 
   return (
     <Content cap={1240}>
@@ -592,6 +633,11 @@ export function DeckBuilder() {
                 <option value="quantity">Sort: Quantity</option>
                 <option value="price">Sort: Price</option>
               </select>
+              <button onClick={() => patchSearch({ missing: !search.missing })} aria-pressed={search.missing}
+                title="Show only cards you still need copies of"
+                className={`h-[42px] rounded-lg border px-[14px] text-[13px] font-semibold ${search.missing ? 'border-action-primary bg-action-primary text-action-primary-text' : 'border-border-default bg-surface-primary text-text-secondary hover:bg-surface-tertiary'}`}>
+                Missing
+              </button>
             </div>
 
             {/* sections */}
@@ -603,6 +649,26 @@ export function DeckBuilder() {
                   <button onClick={() => setShowAdd(true)} className="mt-[4px] flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover">
                     <Icon name="plus" size={16} /> Add Cards
                   </button>
+                </div>
+              ) : grouped.shown === 0 ? (
+                // Filters composed to nothing. Distinguish "deck fully owned"
+                // (Missing on, no text filter) from "no matches".
+                <div className="flex flex-col items-center gap-[8px] rounded-xl border border-dashed border-border-default py-[40px] text-center">
+                  {search.missing && !search.q.trim() && detail.cards.every((c) => c.owned >= c.quantity) ? (
+                    <>
+                      <Icon name="check" size={32} className="text-change-positive" />
+                      <div className="text-[15px] font-bold text-text-primary">You own every card in this deck</div>
+                      <div className="text-[13px] text-text-muted">Nothing is missing — turn off the Missing filter to see the full list.</div>
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="search" size={32} className="text-icon-muted" />
+                      <div className="text-[15px] font-bold text-text-primary">No cards match</div>
+                      <div className="text-[13px] text-text-muted">
+                        {search.missing ? 'No missing cards match the current filter.' : 'Nothing in this deck matches the filter.'}
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : (
                 (['pokemon', 'trainer', 'energy'] as const).map((sec) => {
