@@ -836,3 +836,17 @@ after that, run creation was instant and CI went green on run 3 (49/49 tests; th
 CI catch was `@pokedex/db` needing a build step in a fresh workspace — dist/ doesn't exist
 there). **Rule: after any push that matters, verify it landed (`git ls-remote origin main`
 vs local HEAD); prefer plain `git push` over rtk for pushes.** Banked as a global memory too.
+
+## 2026-08-01 — helmet's `upgrade-insecure-requests` broke LAN-by-IP access
+**Symptom:** `http://10.0.0.1/pokedex/` on a phone = blank black screen (the dark app
+shell HTML renders; JS never loads). `localhost`-less devices (phones not using the Pi's
+the local DNS resolver) hit this path.
+**Cause:** `pokedex-api` serves the SPA with `helmet()` defaults, whose CSP includes
+`upgrade-insecure-requests`. On a plain-HTTP origin the browser upgrades every subresource
+to `https://10.0.0.1/...`; the only 443 vhost carries the example.invalid cert →
+`ERR_CERT_COMMON_NAME_INVALID` → no bundle. Invisible over real HTTPS (example.invalid), where
+the directive is a no-op — which is why it looked like it "worked" everywhere else.
+**Decision:** drop only that directive (`contentSecurityPolicy.directives.upgradeInsecureRequests:
+null`, `useDefaults: true` otherwise) in `apps/api/src/index.ts`. All content is same-origin
+and the public path is HTTPS via nginx regardless, so nothing is lost. Verified in a real
+browser at 390px via IP after the change.
