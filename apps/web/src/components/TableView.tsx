@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CardDetailResponse, type CardRow, type Variant } from '../lib/api'
@@ -45,6 +45,8 @@ function CounterBox({
       timer.current = null
     }
   }
+  useEffect(() => clear, [])
+
   const startPress = () => {
     longPressed.current = false
     clear()

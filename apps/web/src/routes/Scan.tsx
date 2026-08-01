@@ -221,6 +221,7 @@ export function Scan() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const guideRef = useRef<HTMLDivElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const cancelledRef = useRef(false)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const busyRef = useRef(false) // single in-flight frame scan
   const abortRef = useRef<AbortController | null>(null)
@@ -287,6 +288,10 @@ export function Scan() {
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       })
+      if (cancelledRef.current) {
+        stream.getTracks().forEach((t) => t.stop())
+        return
+      }
       streamRef.current = stream
       const video = videoRef.current
       if (!video) { stream.getTracks().forEach((t) => t.stop()); return }
@@ -306,9 +311,13 @@ export function Scan() {
 
   // Auto-start on mount when supported; always tear the stream down on unmount.
   useEffect(() => {
+    cancelledRef.current = false
     if (supportsCamera) void startCamera()
     else setCamState('unavailable')
-    return () => stopStream()
+    return () => {
+      cancelledRef.current = true
+      stopStream()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -433,24 +442,30 @@ export function Scan() {
       {/* upload preview + drop zone — shown when the live camera isn't in play */}
       {!onStage && !result && (
         <div
-          onClick={() => fileRef.current?.click()}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault()
             const file = e.dataTransfer.files?.[0]
             if (file) void runScan(file)
           }}
-          className="mt-[16px] flex min-h-[200px] cursor-pointer flex-col items-center justify-center gap-[10px] rounded-2xl border-2 border-dashed border-action-ghost-border bg-surface-secondary/50 p-[20px] text-center hover:border-border-focus"
+          className="mt-[16px] flex min-h-[200px] flex-col items-center justify-center gap-[10px] rounded-2xl border-2 border-dashed border-action-ghost-border bg-surface-secondary/50 p-[20px] text-center hover:border-border-focus"
         >
           {preview ? (
             <img src={preview} alt="Card to scan" className="max-h-[300px] rounded-lg object-contain" />
           ) : (
             <>
               <Icon name="camera" size={40} className="text-icon-muted" />
-              <div className="text-[15px] font-semibold text-text-primary">Drop an image here, or click to browse</div>
+              <div className="text-[15px] font-semibold text-text-primary">Drop an image here</div>
               <div className="text-[12px] text-text-muted">JPEG, PNG or WebP · a clear, straight-on shot works best</div>
             </>
           )}
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="rounded-full bg-surface-tertiary px-[16px] py-[8px] text-[13px] font-bold text-text-primary hover:bg-action-default-hover"
+          >
+            Browse images
+          </button>
         </div>
       )}
 

@@ -67,7 +67,11 @@ export function Profile() {
   const [showcase, setShowcase] = useState<ShowcasePick[]>(() => loadShowcase())
   const [picking, setPicking] = useState<number | null>(null)
   useEffect(() => {
-    localStorage.setItem(SHOWCASE_KEY, JSON.stringify(showcase))
+    try {
+      localStorage.setItem(SHOWCASE_KEY, JSON.stringify(showcase))
+    } catch {
+      /* storage may be unavailable (private mode); keep in-memory state */
+    }
   }, [showcase])
 
   const setSlot = (idx: number, pick: ShowcasePick | null) => {
