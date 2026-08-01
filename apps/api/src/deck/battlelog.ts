@@ -150,7 +150,8 @@ function parseInner(rawLog: string, deckCardNames: string[], playerName?: string
   const out = emptyParse();
   if (typeof rawLog !== 'string' || !rawLog.trim()) return out;
 
-  const lines = rawLog.split(/\r?\n/).map(normalizeLine);
+  // LF, CRLF and lone CR all occur in pasted/clipboard text.
+  const lines = rawLog.split(/\r\n|\n|\r/).map(normalizeLine);
 
   // ── Pass 1: discover the two player names ──────────────────────────────────
   // Turn headers are authoritative; setup lines fill in a player who never got a
@@ -207,7 +208,8 @@ function parseInner(rawLog: string, deckCardNames: string[], playerName?: string
       winner = win[1]!;
       continue;
     }
-    const conc = line.match(/^(.+?) conceded/);
+    // Word-boundary required: 'X concededness …' must not read as a concession.
+    const conc = line.match(/^(.+?) conceded(?:[ .!]|$)/);
     if (conc && players.has(conc[1]!)) {
       conceder = conc[1]!;
       continue;

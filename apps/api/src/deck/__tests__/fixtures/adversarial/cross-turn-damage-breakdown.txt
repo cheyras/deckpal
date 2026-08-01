@@ -1,0 +1,9 @@
+Setup
+Alice drew 7 cards for the opening hand.
+Bob drew 7 cards for the opening hand.
+Alice's Turn
+Alice's Pikachu used Zap on Bob's Squirtle for 30 damage.
+Alice ended their turn.
+Bob's Turn
+- Damage breakdown:
+   • Impossible late total: 999 damage

@@ -1,0 +1,8 @@
+Setup
+Alice drew 7 cards for the opening hand.
+Bob drew 7 cards for the opening hand.
+Alice's Turn
+Alice played Rare Candy.
+- - - - - - - - - - Alice evolved Pichu to Pikachu on the Bench.
+---------- Alice played Charizard to the Bench.
+   -   -   - Alice drew a card.
