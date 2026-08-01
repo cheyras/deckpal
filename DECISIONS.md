@@ -811,3 +811,18 @@ misparse can now fix it instead of reporting it upstream. SPEC §5 now 21 tools.
   one-seller/fewest-packages answer — seller choice is not link-encodable); Cards tab gained a
   Missing filter (URL state `missing`); rotom-mcp `decks include:pricing` now appends the cart
   URL(s). All verified on the built app at 428/390/1440px.
+
+## 2026-08-01 — the legacy git host is the upstream + CI on every push
+**Decided by:** user.
+**Decision:** `origin` = local the legacy git host (`http://localhost:3000/cheyras/pokedex.git`, browse via
+`localhost/git/`). CI runs on every push to main via the legacy git host Actions on the existing host-mode
+`the-original-host-pi` runner (capacity 1): typecheck all workspaces → pure deck/parser tests → api/mcp/web
+builds. **Live-DB collection/versioning tests are deliberately excluded from CI** — they hit the
+production Postgres; run them manually. No deploy step: the live app IS the working tree pushes
+originate from.
+**Gotcha fixed on the way:** the act_runner service PATH pointed at a since-upgraded nvm dir
+(`v20.18.0`, only `v20.20.2` exists) — invisible to the-original-host-api's absolute-path deploy script,
+fatal for anything needing node/pnpm. Fixed with a stable `~/.node-current` symlink + systemd
+drop-in (`act_runner.service.d/path.conf`); **on node upgrades, re-point the symlink**
+(`ln -sfn ~/.nvm/versions/node/<new> ~/.node-current`). Workflow avoids JS actions
+(manual git fetch checkout) so CI has no external action-toolchain dependency.

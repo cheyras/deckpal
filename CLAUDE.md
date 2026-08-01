@@ -33,9 +33,13 @@ Data lives in host **Postgres**, database `pokedex`. Runs behind nginx at `http:
   (no restart) and an **api** change needs `pnpm --filter pokedex-api build && pm2 restart pokedex-api`.
   Health: `curl -s http://127.0.0.1/pokedex/api/health`. The deployed app runs from **this
   working tree** — there is no separate release step.
-- **Git:** commits go on `main` (no remote configured; don't push without asking). Identity is
-  automatic (`cheyras`). `DECISIONS.md` is the running audit trail — **append a dated entry for
-  any non-trivial decision or gotcha**; it's the single most useful file here.
+- **Git:** commits go on `main`; upstream is the local the legacy git host —
+  `origin http://localhost:3000/cheyras/pokedex.git` (browse at `http://localhost/git/cheyras/pokedex`).
+  Push after committing; every push to main runs **CI** (`.github-legacy/workflows/ci.yml` on the
+  host-mode `the-original-host-pi` runner: typecheck all workspaces, pure deck/parser tests, api+mcp+web
+  builds — live-DB tests are deliberately excluded). Identity is automatic (`cheyras`).
+  `DECISIONS.md` is the running audit trail — **append a dated entry for any non-trivial
+  decision or gotcha**; it's the single most useful file here.
 - **Verify in a browser.** For any UI change, screenshot desktop + 390px and actually look.
   Playwright is at `~/amazon-mcp/node_modules` (CommonJS: `const {chromium}=require('…/playwright')`);
   one chromium at a time, `--no-sandbox --disable-dev-shm-usage`, close in `finally`. The box's
