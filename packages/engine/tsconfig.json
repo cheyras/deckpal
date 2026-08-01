@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "comment": "Vendored code (see README.md) compiles under its native strictness: the repo's noUncheckedIndexedAccess/noImplicitOverride are relaxed here only. New engine code (B2+) should keep files it touches clean against them.",
+  "compilerOptions": {
+    "outDir": "dist",
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": false
+  },
+  "include": ["src", "test"],
+  "exclude": ["node_modules", "dist"]
+}

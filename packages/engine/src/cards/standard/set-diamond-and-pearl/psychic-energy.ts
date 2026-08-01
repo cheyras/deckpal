@@ -1,0 +1,11 @@
+import { CardType, EnergyCard } from '../../../common';
+
+export class PsychicEnergy extends EnergyCard {
+  public provides: CardType[] = [CardType.PSYCHIC];
+
+  public set: string = 'DP';
+
+  public name = 'Psychic Energy';
+
+  public fullName = 'Psychic Energy EVO';
+}
