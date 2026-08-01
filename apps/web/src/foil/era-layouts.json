@@ -20,7 +20,7 @@
       "measuredOn": "base1-8 (Machamp, 1st Ed. Shadowless) 600x825",
       "artWindow": { "x": 0.103, "y": 0.102, "w": 0.802, "h": 0.418 },
       "artWindowRadius": 0.004,
-      "notes": "Gold-bevel art box below the name bar. WOTC holo rares foil the full art window background (Starlight cosmos foil). No reverse holos before Legendary Collection."
+      "notes": "Gold-bevel art box below the name bar. WOTC holo `window` scope = art-window rect MINUS the subject silhouette — the Starlight sheet sits behind the illustration background only (codified observation, n=1: data/foil-masks/codified/wotc.md; not expressible as a rect — tier-2 work item, uArtGate approximates it meanwhile). No reverse holos before Legendary Collection."
     },
     "modern-swsh": {
       "label": "Sword & Shield 2020–2022",

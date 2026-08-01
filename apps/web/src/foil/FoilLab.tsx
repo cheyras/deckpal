@@ -13,10 +13,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { foilApi } from './api'
+import { foilApi, type FoilMaskMeta } from './api'
 import { PATTERNS, patternById, type FoilPattern } from './patterns'
 import { GLOBAL_DEFAULTS } from './shader'
-import { resolveFoil, maskForScope, ERAS, type FoilScope } from './resolver'
+import { resolveFoil, maskForScope, ERAS, RESOLVER_VERSION, type FoilScope } from './resolver'
 import { useTilt } from './useTilt'
 import { CardViewer, cardScreenRect, type ViewerSettings } from './CardViewer'
 import { MaskEditor, createMaskCanvas, MASK_W, MASK_H, type BrushMode, type MaskEditorHandle } from './MaskEditor'
@@ -181,6 +181,8 @@ export function FoilLab() {
   const [allowTouch, setAllowTouch] = useState(false)
   const [maskDirty, setMaskDirty] = useState(false)
   const [savedMask, setSavedMask] = useState(false)
+  /** Sidecar meta of the hand mask on screen (null = none / layout tier). */
+  const [maskMeta, setMaskMeta] = useState<FoilMaskMeta | null>(null)
   const [maskTexVersion, setMaskTexVersion] = useState(0)
   const editorRef = useRef<MaskEditorHandle | null>(null)
   const zeroTilt = useRef({ x: 0, y: 0 })
@@ -283,26 +285,31 @@ export function FoilLab() {
     if (!devSurface) {
       setMaskSource('layout')
       setSavedMask(false)
+      setMaskMeta(null)
       return
     }
-    void foilApi.getMask(detail.card.cardId, sel.variantId).then((bmp) => {
+    // Artwork-keyed lookup: pass the variant's resolved scope so a sibling
+    // variant's mask on the same scan can answer (aliasOf in the meta).
+    void foilApi.getMask(detail.card.cardId, sel.variantId, resolved.scope).then((r) => {
       if (cancelled) return
-      if (bmp) {
+      if (r) {
         const ctx = maskCanvas.getContext('2d')!
         ctx.clearRect(0, 0, MASK_W, MASK_H)
-        ctx.drawImage(bmp, 0, 0, MASK_W, MASK_H)
+        ctx.drawImage(r.bitmap, 0, 0, MASK_W, MASK_H)
         setSavedMask(true)
+        setMaskMeta(r.meta)
         setMaskSource('hand')
         setMaskTexVersion((v) => v + 1)
       } else {
         setSavedMask(false)
+        setMaskMeta(null)
         setMaskSource('layout')
       }
     })
     return () => {
       cancelled = true
     }
-  }, [detail, sel.variantId, devSurface, maskCanvas])
+  }, [detail, sel.variantId, devSurface, maskCanvas, resolved.scope])
 
   // ── Uniforms: reset on pattern change, live in state + ref ──
   const [uniforms, setUniforms] = useState<Record<string, number>>(() => seedUniforms(pattern))
@@ -366,9 +373,36 @@ export function FoilLab() {
   const saveMask = async () => {
     if (!detail || sel.variantId == null) return
     try {
-      await foilApi.putMask(detail.card.cardId, sel.variantId, maskCanvas.toDataURL('image/png'), MASK_W, MASK_H)
+      // Sidecar v2: every save records the starting prior — the deterministic
+      // layout-rule output for this card/variant — so the server can persist
+      // the prior render + hand-vs-prior diff next to the mask (the corpus
+      // carries what the rule got wrong, not just the human's answer).
+      const saved = await foilApi.putMask(
+        detail.card.cardId,
+        sel.variantId,
+        maskCanvas.toDataURL('image/png'),
+        MASK_W,
+        MASK_H,
+        {
+          source: 'layout',
+          eraId: resolved.eraId,
+          scope: effectiveScope,
+          rect: mask.rect,
+          radius: mask.radius,
+          invert: mask.invert,
+          feather: maskFeather,
+          resolverVersion: RESOLVER_VERSION,
+        },
+      )
       setSavedMask(true)
       setMaskDirty(false)
+      setMaskMeta({
+        file: `data/foil-masks/${detail.card.cardId}/${sel.variantId}.png`,
+        savedAt: saved.savedAt,
+        aliasOf: null,
+        hasPrior: true,
+        hasDiff: true,
+      })
     } catch {
       /* surfaced by the dirty flag remaining */
     }
@@ -383,6 +417,7 @@ export function FoilLab() {
     }
     setSavedMask(false)
     setMaskDirty(false)
+    setMaskMeta(null)
     setMaskSource('layout')
     setEditMode(false)
   }
@@ -399,6 +434,16 @@ export function FoilLab() {
     maskEditActive: editMode,
     maskDirty,
     savedMask,
+    // Comment↔mask linkage (automatic): the exact saved mask state this
+    // comment describes — file, savedAt, alias source, prior/diff presence.
+    ...(maskMeta
+      ? {
+          maskFile: maskMeta.file,
+          maskSavedAt: maskMeta.savedAt,
+          maskAliasOf: maskMeta.aliasOf,
+          maskHasPriorDiff: maskMeta.hasPrior && maskMeta.hasDiff,
+        }
+      : {}),
     tiltMode: tilt.mode,
     uniforms,
     maskFeather,
@@ -674,7 +719,9 @@ export function FoilLab() {
           )}
           <p className="mt-[6px] text-[11px] text-text-muted">
             {handActive
-              ? `Hand mask ${savedMask ? '(saved)' : '(unsaved)'}${maskDirty ? ' — unsaved strokes' : ''} → data/foil-masks/`
+              ? `Hand mask ${savedMask ? '(saved)' : '(unsaved)'}${maskDirty ? ' — unsaved strokes' : ''}${
+                  maskMeta?.aliasOf != null ? ` — same-artwork alias of variant ${maskMeta.aliasOf}` : ''
+                } → data/foil-masks/`
               : `Era: ${ERAS[resolved.eraId].label} (rects from era-layouts.json)`}
           </p>
         </Section>
