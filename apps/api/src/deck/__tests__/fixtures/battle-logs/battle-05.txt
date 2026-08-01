@@ -1,0 +1,224 @@
+Setup
+mattlromo chose tails for the opening coin flip.
+cheyras won the coin toss.
+cheyras decided to go first.
+mattlromo drew 7 cards for the opening hand.
+- 7 drawn cards.
+cheyras drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (me2-5_184) Buddy-Buddy Poffin, (me4_80) Prism Tower, (me5_34) Banette, (me5_39) Dhelmise, (me5_5) Poltchageist, (me3_88) Telepathic Psychic Energy, (me5_39) Dhelmise
+mattlromo played (zsv10-5_6) Petilil to the Active Spot.
+cheyras played (me5_5) Poltchageist to the Active Spot.
+cheyras played (me5_39) Dhelmise to the Bench.
+
+cheyras's Turn
+cheyras drew (me5_78) Gwynn.
+cheyras attached (me3_88) Telepathic Psychic Energy to (me5_5) Poltchageist in the Active Spot.
+cheyras played (me4_80) Prism Tower to the Stadium spot.
+cheyras ended their turn.
+
+mattlromo's Turn
+mattlromo drew a card.
+mattlromo played (sv6_143) Bug Catching Set.
+- mattlromo drew 2 cards.
+   • (me5_85) Fomantis, (me5_4) Lurantis ex
+- mattlromo shuffled their deck.
+mattlromo played (me5_85) Fomantis to the Bench.
+mattlromo attached (mee_1) Basic Grass Energy to (me5_85) Fomantis on the Bench.
+mattlromo ended their turn.
+
+cheyras's Turn
+cheyras drew (sve_5) Basic Psychic Energy.
+cheyras played (me5_78) Gwynn.
+- cheyras discarded (me5_34) Banette.
+- cheyras drew 3 cards.
+   • (sve_5) Basic Psychic Energy, (me2-5_184) Buddy-Buddy Poffin, (me1_130) Switch
+cheyras attached (sve_5) Basic Psychic Energy to (me5_39) Dhelmise on the Bench.
+cheyras played Prism Tower.
+- cheyras discarded 2 cards.
+   • (me2-5_184) Buddy-Buddy Poffin, (me5_39) Dhelmise
+- cheyras drew (me5_5) Poltchageist.
+cheyras played (me2-5_184) Buddy-Buddy Poffin.
+- cheyras drew 2 cards and played them to the Bench.
+   • (me5_33) Shuppet, (me5_33) Shuppet
+- cheyras shuffled their deck.
+cheyras's (me5_5) Poltchageist used Furtive Drop.
+- cheyras put a damage counter on cheyras's (zsv10-5_6) Petilil.
+
+mattlromo's Turn
+mattlromo drew a card.
+mattlromo evolved (me5_85) Fomantis to (me5_4) Lurantis ex on the Bench.
+mattlromo attached (me2-5_181) Air Balloon to (zsv10-5_6) Petilil in the Active Spot.
+mattlromo retreated (zsv10-5_6) Petilil to the Bench.
+mattlromo's (me5_4) Lurantis ex is now in the Active Spot.
+mattlromo played (sv10_10_ph) Shaymin to the Bench.
+mattlromo ended their turn.
+
+cheyras's Turn
+cheyras drew (me3_88) Telepathic Psychic Energy.
+cheyras attached (me3_88) Telepathic Psychic Energy to (me5_33) Shuppet on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- cheyras drew 2 cards and played them to the Bench.
+   • (me5_33) Shuppet, (me5_39) Dhelmise
+- cheyras shuffled their deck.
+cheyras played (me1_130) Switch.
+- cheyras's (me5_33) Shuppet was switched with cheyras's (me5_5) Poltchageist to become the Active Pokémon.
+cheyras's (me5_33) Shuppet is now in the Active Spot.
+cheyras ended their turn.
+
+mattlromo's Turn
+mattlromo drew a card.
+mattlromo attached (me3_86) Growing Grass Energy to (me5_4) Lurantis ex in the Active Spot.
+mattlromo's (me5_4) Lurantis ex used Leaf Guard on cheyras’s (me5_33) Shuppet for 140 damage.
+cheyras's (me5_33) Shuppet was Knocked Out!
+mattlromo took a Prize card.
+A card was added to mattlromo's hand.
+cheyras's (me5_33) Shuppet is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew (me5_78) Gwynn.
+cheyras played (me5_78) Gwynn.
+- cheyras discarded (me5_5) Poltchageist.
+- cheyras drew 3 cards.
+   • (me5_5) Poltchageist, (zsv10-5_79) Air Balloon, (me1_131) Ultra Ball
+cheyras attached (zsv10-5_79) Air Balloon to (me5_33) Shuppet in the Active Spot.
+cheyras played (me1_131) Ultra Ball.
+- cheyras discarded 2 cards.
+   • (sve_5) Basic Psychic Energy, (me5_5) Poltchageist
+- cheyras drew (sv6-5_38) Fezandipiti ex.
+- cheyras shuffled their deck.
+cheyras played (sv6-5_38) Fezandipiti ex to the Bench.
+cheyras retreated (me5_33) Shuppet to the Bench.
+cheyras's (me5_39) Dhelmise is now in the Active Spot.
+cheyras's (me5_39) Dhelmise used Vengeful Anchor on mattlromo’s (me5_4) Lurantis ex for 120 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • (Attack) Leaf Guard: -50 damage
+   • 4 discarded Pokémon: 140 damage
+   • Total damage: 120 damage
+
+
+mattlromo's Turn
+mattlromo drew a card.
+mattlromo's (me5_4) Lurantis ex used Leaf Guard on cheyras’s (me5_39) Dhelmise for 140 damage.
+cheyras's (me5_39) Dhelmise was Knocked Out!
+(sve_5) Basic Psychic Energy was discarded from cheyras's (me5_39) Dhelmise.
+mattlromo took a Prize card.
+A card was added to mattlromo's hand.
+cheyras's (me5_33) Shuppet is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew (me3_88) Telepathic Psychic Energy.
+cheyras attached (me3_88) Telepathic Psychic Energy to (me5_39) Dhelmise on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- cheyras shuffled their deck.
+cheyras's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- cheyras drew 3 cards.
+   • (me1_114) Boss's Orders, (me5_34) Banette, (me5_6) Sinistcha
+cheyras evolved (me5_33) Shuppet to (me5_34) Banette on the Bench.
+cheyras retreated (me5_33) Shuppet to the Bench.
+cheyras's (me5_34) Banette is now in the Active Spot.
+cheyras evolved (me5_5) Poltchageist to (me5_6) Sinistcha on the Bench.
+cheyras played (me1_114) Boss's Orders.
+- mattlromo's (sv10_10_ph) Shaymin was switched with mattlromo's (me5_4) Lurantis ex to become the Active Pokémon.
+mattlromo's (sv10_10_ph) Shaymin is now in the Active Spot.
+cheyras's (me5_34) Banette used Puppet Pull on mattlromo’s (sv10_10_ph) Shaymin for 80 damage.
+- cheyras drew (me5_34) Banette.
+- cheyras shuffled their deck.
+mattlromo's (sv10_10_ph) Shaymin was Knocked Out!
+cheyras took a Prize card.
+(me5_33) Shuppet was added to cheyras's hand.
+mattlromo's (me5_4) Lurantis ex is now in the Active Spot.
+
+mattlromo's Turn
+mattlromo drew a card.
+mattlromo's (me5_4) Lurantis ex used Leaf Guard on cheyras’s (me5_34) Banette for 140 damage.
+cheyras's (me5_34) Banette was Knocked Out!
+- 2 cards were discarded from cheyras's (me5_34) Banette.
+   • (me3_88) Telepathic Psychic Energy, (me5_33) Shuppet
+mattlromo took a Prize card.
+A card was added to mattlromo's hand.
+cheyras's (me5_39) Dhelmise is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew (me1_131) Ultra Ball.
+cheyras evolved (me5_33) Shuppet to (me5_34) Banette on the Bench.
+cheyras's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- cheyras drew 3 cards.
+   • (me3_81) Poké Pad, (me1_131) Ultra Ball, (sv8-5_101) Buddy-Buddy Poffin
+cheyras played (sv8-5_101) Buddy-Buddy Poffin.
+- cheyras drew (me5_5) Poltchageist and played it to the Bench.
+- cheyras shuffled their deck.
+cheyras played (me3_81) Poké Pad.
+- cheyras drew (me5_6) Sinistcha.
+- cheyras shuffled their deck.
+cheyras's (me5_39) Dhelmise used Vengeful Anchor on mattlromo’s (me5_4) Lurantis ex for 120 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • (Attack) Leaf Guard: -50 damage
+   • 6 discarded Pokémon: 140 damage
+   • Total damage: 120 damage
+
+
+mattlromo's Turn
+mattlromo drew a card.
+mattlromo played (me2-5_213) Ultra Ball.
+- mattlromo discarded 2 cards.
+   • (me5_4) Lurantis ex, (me3_76) Judge
+- mattlromo drew (rsv10-5_1) Sewaddle.
+- mattlromo shuffled their deck.
+mattlromo played (rsv10-5_1) Sewaddle to the Bench.
+mattlromo played (me4_120) AZ's Tranquility.
+- mattlromo's (zsv10-5_6) Petilil was switched with mattlromo's (me5_4) Lurantis ex to become the Active Pokémon.
+- mattlromo's (me5_4) Lurantis ex healed 80 damage.
+mattlromo's (zsv10-5_6) Petilil is now in the Active Spot.
+mattlromo retreated (zsv10-5_6) Petilil to the Bench.
+mattlromo's (me5_4) Lurantis ex is now in the Active Spot.
+mattlromo's (me5_4) Lurantis ex used Leaf Guard on cheyras’s (me5_39) Dhelmise for 140 damage.
+cheyras's (me5_39) Dhelmise was Knocked Out!
+(me3_88) Telepathic Psychic Energy was discarded from cheyras's (me5_39) Dhelmise.
+mattlromo took a Prize card.
+A card was added to mattlromo's hand.
+cheyras's (me5_6) Sinistcha is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew (me5_78) Gwynn.
+cheyras's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- cheyras drew 3 cards.
+   • (me3_88) Telepathic Psychic Energy, (sv8-5_101) Buddy-Buddy Poffin, (sve_5) Basic Psychic Energy
+cheyras attached (me3_88) Telepathic Psychic Energy to (me5_34) Banette on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- cheyras shuffled their deck.
+cheyras evolved (me5_5) Poltchageist to (me5_6) Sinistcha on the Bench.
+cheyras played (me1_131) Ultra Ball.
+- cheyras discarded 2 cards.
+   • (sv8-5_101) Buddy-Buddy Poffin, (me1_131) Ultra Ball
+- cheyras shuffled their deck.
+cheyras's (me5_6) Sinistcha used Matcha Spin.
+- cheyras put 4 damage counters on cheyras's (me5_4) Lurantis ex.
+- cheyras put 4 damage counters on cheyras's (rsv10-5_1) Sewaddle.
+- cheyras put 4 damage counters on cheyras's (zsv10-5_6) Petilil.
+
+mattlromo's Turn
+mattlromo drew a card.
+mattlromo evolved (zsv10-5_6) Petilil to (sv9_7) Lilligant on the Bench.
+mattlromo evolved (rsv10-5_1) Sewaddle to (rsv10-5_2) Swadloon on the Bench.
+mattlromo's (rsv10-5_2) Swadloon used Healing Leaves.
+- mattlromo's (me5_4) Lurantis ex healed 20 damage.
+mattlromo played (me2-5_183) Boss's Orders.
+- cheyras's (sv6-5_38) Fezandipiti ex was switched with cheyras's (me5_6) Sinistcha to become the Active Pokémon.
+cheyras's (sv6-5_38) Fezandipiti ex is now in the Active Spot.
+mattlromo's (me5_4) Lurantis ex used Lively Cutter on cheyras’s (sv6-5_38) Fezandipiti ex for 280 damage.
+- Damage breakdown:
+   • Base damage: 60 damage
+   • (Ability) Sunny Day: 20 damage
+   • Was healed: 200 damage
+   • Total damage: 280 damage
+
+cheyras's (sv6-5_38) Fezandipiti ex was Knocked Out!
+mattlromo took 2 Prize cards.
+A card was added to mattlromo's hand.
+A card was added to mattlromo's hand.
+Opponent took all of their Prize cards. mattlromo wins.
+
+Chey’s notes: that lurantis ex was just a piece of work! Total tank, could not kill that thing. It could one-shot every single pokemon in my deck.

@@ -1,0 +1,247 @@
+Setup
+CJW9298 chose tails for the opening coin flip.
+cheyras won the coin toss.
+cheyras decided to go first.
+CJW9298 drew 7 cards for the opening hand.
+- 7 drawn cards.
+cheyras drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • Shuppet, Special Red Card, Ultra Ball, Telepathic Psychic Energy, Basic Psychic Energy, Night Stretcher, Prism Tower
+CJW9298 played Froakie to the Active Spot.
+cheyras played Shuppet to the Active Spot.
+
+cheyras's Turn
+cheyras drew Buddy-Buddy Poffin.
+cheyras played Prism Tower to the Stadium spot.
+cheyras attached Telepathic Psychic Energy to Shuppet in the Active Spot.
+Telepathic Psychic Energy was activated.
+- cheyras drew 2 cards and played them to the Bench.
+   • Shuppet, Shuppet
+- cheyras shuffled their deck.
+cheyras ended their turn.
+
+CJW9298's Turn
+CJW9298 drew a card.
+CJW9298 played Poké Pad.
+- CJW9298 drew Budew.
+- CJW9298 shuffled their deck.
+CJW9298 played Budew to the Bench.
+CJW9298 attached Basic Water Energy to Froakie in the Active Spot.
+CJW9298 played Buddy-Buddy Poffin.
+- CJW9298 drew 2 cards and played them to the Bench.
+   • Staryu, Froakie
+- CJW9298 shuffled their deck.
+CJW9298 played Judge.
+- CJW9298 shuffled 3 cards into their deck.
+- CJW9298 shuffled 5 cards into their deck.
+   • Special Red Card, Ultra Ball, Basic Psychic Energy, Night Stretcher, Buddy-Buddy Poffin
+- CJW9298 drew 4 cards.
+- CJW9298 drew 4 cards.
+   • Fezandipiti ex, Special Red Card, Night Stretcher, Gwynn
+CJW9298 retreated Froakie to the Bench.
+- Basic Water Energy was discarded from CJW9298's Froakie.
+CJW9298's Budew is now in the Active Spot.
+CJW9298's Budew used Itchy Pollen on cheyras’s Shuppet for 10 damage.
+
+cheyras's Turn
+cheyras drew Banette.
+cheyras evolved Shuppet to Banette in the Active Spot.
+cheyras played Fezandipiti ex to the Bench.
+cheyras's Banette used Puppet Pull on CJW9298’s Budew for 80 damage.
+- cheyras drew Poltchageist.
+- cheyras shuffled their deck.
+CJW9298's Budew was Knocked Out!
+cheyras took a Prize card.
+Basic Psychic Energy was added to cheyras's hand.
+CJW9298's Staryu is now in the Active Spot.
+
+CJW9298's Turn
+CJW9298 drew a card.
+CJW9298 attached Basic Water Energy to Staryu in the Active Spot.
+CJW9298 played Lillie's Determination.
+- CJW9298 shuffled 3 cards into their deck.
+- CJW9298 drew 8 cards.
+CJW9298 played Surfing Beach to the Stadium spot.
+- CJW9298 discarded Prism Tower.
+CJW9298 evolved Staryu to Mega Starmie ex in the Active Spot.
+CJW9298 evolved Froakie to Frogadier on the Bench.
+CJW9298's Mega Starmie ex used Jetting Blow on cheyras’s Banette for 120 damage.
+- cheyras's Shuppet took 50 damage.
+cheyras's Banette was Knocked Out!
+- 2 cards were discarded from cheyras's Banette.
+   • Telepathic Psychic Energy, Shuppet
+cheyras's Shuppet was Knocked Out!
+CJW9298 took 2 Prize cards.
+A card was added to CJW9298's hand.
+A card was added to CJW9298's hand.
+cheyras's Shuppet is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew Poltchageist.
+cheyras played Gwynn.
+- cheyras discarded 2 cards.
+   • Poltchageist, Poltchageist
+- cheyras drew 6 cards.
+   • Poltchageist, Dhelmise, Prism Tower, Special Red Card, Ultra Ball, Buddy-Buddy Poffin
+cheyras played Dhelmise to the Bench.
+cheyras's Fezandipiti ex used Flip the Script.
+- cheyras drew 3 cards.
+   • Switch, Basic Psychic Energy, Buddy-Buddy Poffin
+cheyras played Night Stretcher.
+- cheyras moved cheyras's Banette to their hand.
+cheyras attached Basic Psychic Energy to Dhelmise on the Bench.
+cheyras played Buddy-Buddy Poffin.
+- cheyras drew Shuppet and played it to the Bench.
+- cheyras shuffled their deck.
+cheyras evolved Shuppet to Banette in the Active Spot.
+cheyras played Buddy-Buddy Poffin.
+- cheyras shuffled their deck.
+cheyras played Switch.
+- cheyras's Dhelmise was switched with cheyras's Banette to become the Active Pokémon.
+cheyras's Dhelmise is now in the Active Spot.
+cheyras's Dhelmise used Vengeful Anchor on CJW9298’s Mega Starmie ex for 170 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 4 discarded Pokémon: 140 damage
+   • Total damage: 170 damage
+
+
+CJW9298's Turn
+CJW9298 drew a card.
+CJW9298 evolved Frogadier to Mega Greninja ex on the Bench.
+CJW9298 played Meowth ex to the Bench.
+CJW9298's Meowth ex used Last-Ditch Catch.
+- CJW9298 drew Hilda.
+- CJW9298 shuffled their deck.
+CJW9298 played Hilda.
+- CJW9298 drew 2 cards.
+   • Frogadier, Neo Upper Energy
+- CJW9298 shuffled their deck.
+CJW9298 evolved Froakie to Frogadier on the Bench.
+CJW9298 attached Neo Upper Energy to Mega Greninja ex on the Bench.
+CJW9298 played Surfing Beach.
+- CJW9298's Mega Greninja ex was switched with CJW9298's Mega Starmie ex to become the Active Pokémon.
+CJW9298's Mega Greninja ex is now in the Active Spot.
+CJW9298's Mega Greninja ex used Mortal Shuriken.
+- CJW9298 discarded Basic Water Energy.
+cheyras's Shuppet used Hide 'n' Sneak.
+- Effects of Mortal Shuriken did not affect Shuppet.
+cheyras's Banette used Hide 'n' Sneak.
+- Effects of Mortal Shuriken did not affect Banette.
+CJW9298's Mega Greninja ex used Ninja Spinner on cheyras’s Dhelmise for 200 damage.
+- Damage breakdown:
+   • Base damage: 120 damage
+   • Total damage: 200 damage
+
+- CJW9298 moved CJW9298's Neo Upper Energy to their hand.
+cheyras's Dhelmise was Knocked Out!
+Basic Psychic Energy was discarded from cheyras's Dhelmise.
+CJW9298 took a Prize card.
+A card was added to CJW9298's hand.
+cheyras's Banette is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew Basic Psychic Energy.
+cheyras played Special Red Card.
+- CJW9298 shuffled their hand.
+- cheyras put 7 cards on the bottom of their deck.
+- cheyras drew 3 cards.
+cheyras played Poltchageist to the Bench.
+cheyras's Fezandipiti ex used Flip the Script.
+- cheyras drew 3 cards.
+   • Dhelmise, Poké Pad, Secret Box
+cheyras played Dhelmise to the Bench.
+cheyras attached Basic Psychic Energy to Banette in the Active Spot.
+cheyras played Poké Pad.
+- cheyras drew Sinistcha.
+- cheyras shuffled their deck.
+cheyras played Secret Box.
+- cheyras discarded 3 cards.
+   • Special Red Card, Sinistcha, Basic Psychic Energy
+- cheyras drew 4 cards.
+   • Switch, Air Balloon, Boss's Orders, Prism Tower
+- cheyras shuffled their deck.
+cheyras attached Air Balloon to Banette in the Active Spot.
+cheyras played Prism Tower to the Stadium spot.
+- cheyras discarded Surfing Beach.
+cheyras played Prism Tower.
+- cheyras discarded 2 cards.
+   • Ultra Ball, Prism Tower
+- cheyras drew Poké Pad.
+cheyras played Poké Pad.
+- cheyras drew Dhelmise.
+- cheyras shuffled their deck.
+cheyras played Dhelmise to the Bench.
+cheyras played Boss's Orders.
+- CJW9298's Mega Starmie ex was switched with CJW9298's Mega Greninja ex to become the Active Pokémon.
+CJW9298's Mega Starmie ex is now in the Active Spot.
+cheyras's Banette used Puppet Pull on CJW9298’s Mega Starmie ex for 80 damage.
+- cheyras drew Telepathic Psychic Energy.
+- cheyras shuffled their deck.
+
+CJW9298's Turn
+CJW9298 drew a card.
+CJW9298 attached Basic Water Energy to Mega Greninja ex on the Bench.
+CJW9298 played Prism Tower.
+- cheyras moved CJW9298's 2 cards to the discard pile.
+   • Rare Candy, Froakie
+- cheyras drew a card.
+CJW9298 attached Air Balloon to Mega Greninja ex on the Bench.
+CJW9298's Mega Starmie ex used Jetting Blow on cheyras’s Banette for 120 damage.
+- cheyras's Poltchageist took 50 damage.
+cheyras's Banette was Knocked Out!
+- 3 cards were discarded from cheyras's Banette.
+   • Basic Psychic Energy, Shuppet, Air Balloon
+cheyras's Poltchageist was Knocked Out!
+CJW9298 took 2 Prize cards.
+A card was added to CJW9298's hand.
+A card was added to CJW9298's hand.
+cheyras's Dhelmise is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew Ultra Ball.
+cheyras attached Telepathic Psychic Energy to Dhelmise in the Active Spot.
+Telepathic Psychic Energy was activated.
+- cheyras drew Dhelmise and played it to the Bench.
+- cheyras shuffled their deck.
+cheyras's Fezandipiti ex used Flip the Script.
+- cheyras drew 3 cards.
+   • Sinistcha, Ultra Ball, Basic Psychic Energy
+cheyras played Prism Tower.
+- cheyras discarded 2 cards.
+   • Ultra Ball, Ultra Ball
+- cheyras drew Buddy-Buddy Poffin.
+cheyras's Dhelmise used Vengeful Anchor on CJW9298’s Mega Starmie ex for 170 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 8 discarded Pokémon: 140 damage
+   • Total damage: 170 damage
+
+CJW9298's Mega Starmie ex was Knocked Out!
+- 2 cards were discarded from CJW9298's Mega Starmie ex.
+   • Basic Water Energy, Staryu
+cheyras took 3 Prize cards.
+Lillie's Determination was added to cheyras's hand.
+Air Balloon was added to cheyras's hand.
+Gwynn was added to cheyras's hand.
+CJW9298's Mega Greninja ex is now in the Active Spot.
+
+CJW9298's Turn
+CJW9298 drew a card.
+CJW9298 played Energy Retrieval.
+- CJW9298 moved CJW9298's 2 cards to their hand.
+   • Basic Water Energy, Basic Water Energy
+CJW9298 attached Basic Water Energy to Mega Greninja ex in the Active Spot.
+CJW9298's Mega Greninja ex used Mortal Shuriken.
+- CJW9298 discarded Basic Water Energy.
+- CJW9298 put 6 damage counters on CJW9298's Dhelmise.
+cheyras's Shuppet used Hide 'n' Sneak.
+- Effects of Mortal Shuriken did not affect Shuppet.
+CJW9298's Mega Greninja ex used Ninja Spinner on cheyras’s Dhelmise for 120 damage.
+cheyras's Dhelmise was Knocked Out!
+Telepathic Psychic Energy was discarded from cheyras's Dhelmise.
+CJW9298 took a Prize card.
+A card was added to CJW9298's hand.
+Opponent took all of their Prize cards. CJW9298 wins.
+
+Chey’s notes: This one ended up way more tricky than I was expecting in the beginning. He just whittled me down and that starmie double damage both to active and bench was rough to reckon with. Had my dhelmise survived that last greninja attack, my next move would have taken the game.

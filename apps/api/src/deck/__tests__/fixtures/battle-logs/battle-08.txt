@@ -1,0 +1,143 @@
+Setup
+cheyras chose heads for the opening coin flip.
+cheyras won the coin toss.
+cheyras decided to go first.
+cheyras drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • Basic Psychic Energy, Boss's Orders, Special Red Card, Poké Pad, Shuppet, Shuppet, Buddy-Buddy Poffin
+Poke1111player drew 7 cards for the opening hand.
+- 7 drawn cards.
+cheyras played Shuppet to the Active Spot.
+cheyras played Shuppet to the Bench.
+Poke1111player played Gligar to the Active Spot.
+Poke1111player played Solrock to the Bench.
+
+cheyras's Turn
+cheyras drew Boss's Orders.
+cheyras played Poké Pad.
+- cheyras drew Banette.
+- cheyras shuffled their deck.
+cheyras attached Basic Psychic Energy to Shuppet in the Active Spot.
+cheyras played Buddy-Buddy Poffin.
+- cheyras drew 2 cards and played them to the Bench.
+   • Shuppet, Poltchageist
+- cheyras shuffled their deck.
+cheyras ended their turn.
+
+Poke1111player's Turn
+Poke1111player drew a card.
+Poke1111player played Fighting Gong.
+- Poke1111player drew Lunatone.
+- Poke1111player shuffled their deck.
+Poke1111player played Lunatone to the Bench.
+Poke1111player attached Basic Fighting Energy to Gligar in the Active Spot.
+Poke1111player's Lunatone used Lunar Cycle.
+- Poke1111player discarded Basic Fighting Energy.
+- Poke1111player drew 3 cards.
+Poke1111player played Glimmet to the Bench.
+Poke1111player's Gligar used Poison Jab on cheyras's Shuppet for 0 damage. cheyras's Shuppet took -10 less damage because of Fighting Resistance.
+- Damage breakdown:
+   • Base damage: 10 damage
+   • Resistance to Fighting: -10 damage
+   • Total damage: 0 damage
+
+cheyras's Shuppet used Hide 'n' Sneak.
+- Effects of Poison Jab did not affect Shuppet.
+
+cheyras's Turn
+cheyras drew Banette.
+cheyras evolved Shuppet to Banette in the Active Spot.
+cheyras played Boss's Orders.
+- Poke1111player's Lunatone was switched with Poke1111player's Gligar to become the Active Pokémon.
+Poke1111player's Lunatone is now in the Active Spot.
+cheyras's Banette used Puppet Pull on Poke1111player's Lunatone for 80 damage.
+- cheyras drew Fezandipiti ex.
+- cheyras shuffled their deck.
+
+Poke1111player's Turn
+Poke1111player drew a card.
+Poke1111player attached Basic Fighting Energy to Glimmet on the Bench.
+Poke1111player ended their turn.
+
+cheyras's Turn
+cheyras drew Poké Pad.
+cheyras played Poké Pad.
+- cheyras drew Dhelmise.
+- cheyras shuffled their deck.
+cheyras played Dhelmise to the Bench.
+cheyras played Fezandipiti ex to the Bench.
+cheyras evolved Shuppet to Banette on the Bench.
+cheyras's Banette used Puppet Pull on Poke1111player's Lunatone for 80 damage.
+- cheyras drew Lillie's Determination.
+- cheyras shuffled their deck.
+Poke1111player's Lunatone was Knocked Out!
+cheyras took a Prize card.
+Buddy-Buddy Poffin was added to cheyras's hand.
+Poke1111player's Glimmet is now in the Active Spot.
+
+Poke1111player's Turn
+Poke1111player drew a card.
+Poke1111player played Poké Pad.
+- Poke1111player drew Clefairy.
+- Poke1111player shuffled their deck.
+Poke1111player played Clefairy to the Bench.
+Poke1111player attached Telepathic Psychic Energy to Clefairy on the Bench.
+Telepathic Psychic Energy was activated.
+- Poke1111player drew 2 cards and played them to the Bench.
+   • Jynx, Latias ex
+- Poke1111player shuffled their deck.
+Poke1111player retreated Glimmet to the Bench.
+Poke1111player's Gligar is now in the Active Spot.
+Poke1111player's Gligar used Poison Jab on cheyras's Banette for 0 damage. cheyras's Banette took -10 less damage because of Fighting Resistance.
+- Damage breakdown:
+   • Base damage: 10 damage
+   • Resistance to Fighting: -10 damage
+   • Total damage: 0 damage
+
+cheyras's Banette used Hide 'n' Sneak.
+- Effects of Poison Jab did not affect Banette.
+
+cheyras's Turn
+cheyras drew Poké Pad.
+cheyras played Poké Pad.
+- cheyras drew Sinistcha.
+- cheyras shuffled their deck.
+cheyras evolved Poltchageist to Sinistcha on the Bench.
+cheyras played Boss's Orders.
+- Poke1111player's Latias ex was switched with Poke1111player's Gligar to become the Active Pokémon.
+Poke1111player's Latias ex is now in the Active Spot.
+cheyras's Banette used Puppet Pull on Poke1111player's Latias ex for 80 damage.
+- cheyras drew Telepathic Psychic Energy.
+- cheyras shuffled their deck.
+
+Poke1111player's Turn
+Poke1111player drew a card.
+Poke1111player didn't take an action in time.
+
+cheyras's Turn
+cheyras drew Poltchageist.
+cheyras attached Telepathic Psychic Energy to Dhelmise on the Bench.
+cheyras's Banette used Puppet Pull on Poke1111player's Latias ex for 80 damage.
+- cheyras drew Gwynn.
+- cheyras shuffled their deck.
+
+Poke1111player's Turn
+Poke1111player drew a card.
+Poke1111player didn't take an action in time.
+
+cheyras's Turn
+cheyras drew Shuppet.
+cheyras played Gwynn.
+- cheyras discarded 2 cards.
+   • Shuppet, Poltchageist
+- cheyras drew 6 cards.
+   • Switch, Ultra Ball, Ultra Ball, Dhelmise, Basic Psychic Energy, Telepathic Psychic Energy
+cheyras attached Telepathic Psychic Energy to Banette on the Bench.
+cheyras's Banette used Puppet Pull on Poke1111player's Latias ex for 80 damage.
+- cheyras drew Telepathic Psychic Energy.
+- cheyras shuffled their deck.
+Poke1111player's Latias ex was Knocked Out!
+cheyras took 2 Prize cards.
+Sinistcha was added to cheyras's hand.
+Banette was added to cheyras's hand.
+Opponent was inactive for too long. PlayerA wins.
