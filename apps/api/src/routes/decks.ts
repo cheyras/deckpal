@@ -3,6 +3,7 @@ import type pg from 'pg';
 import { cardImages, defaultUserId, pool, q, q1, toMajor, tcgplayerUrl, withTx } from '../db.js';
 import { asyncHandler, badRequest, clampInt, notFound, oneOf, str, userCache } from '../http.js';
 import { recordDeckChange, recordStrategyChange, type SnapshotEntry } from '../deck/versions.js';
+import { MASSENTRY_NOTE, buildUrls, meLine, tcgplayerAbbrev } from '../tcgplayer/massentry.js';
 import { parseBattleLog } from '../deck/battlelog.js';
 import {
   validateDeck, resolveDeck, buildReprintOracle,
@@ -142,6 +143,7 @@ interface DeckRow {
   tcgplayer_product_id: number | null;
   tcgplayer_printing: string | null;
   tcgplayer_mass_entry: string | null;
+  set_group_id: number | null; // card_set.tcgplayer_group_id → Mass Entry set code
 }
 
 interface DeckMeta {
@@ -164,7 +166,7 @@ const DECK_CARD_SELECT = `
          c.tcgdex_id, c.local_id, c.local_id_numeric, c.number_sort, c.name, c.name_normalized,
          c.category, c.stage, c.suffix, c.trainer_type, c.energy_type, c.hp, c.retreat,
          c.regulation_mark, c.evolve_from, c.released_on, c.rarity, c.illustrator,
-         s.tcgdex_id AS set_tcgdex_id, s.name AS set_name,
+         s.tcgdex_id AS set_tcgdex_id, s.name AS set_name, s.tcgplayer_group_id AS set_group_id,
          ser.tcgdex_id AS series_tcgdex_id, ser.slug AS series_slug,
          price.market_minor, price.currency_code,
          owned.owned_qty,
@@ -814,6 +816,27 @@ decksRouter.get(
   }),
 );
 
+/**
+ * Mass Entry set code per deck row. Deck cards span many sets, so this resolves
+ * card_set.tcgplayer_group_id → TCGplayer abbreviation per distinct group (the
+ * shared 24h in-process cache makes the per-row awaits one fetch at most).
+ */
+async function deckSetCodes(rows: DeckRow[]): Promise<Map<number, string | null>> {
+  const codes = new Map<number, string | null>();
+  for (const r of rows) {
+    if (r.set_group_id !== null && !codes.has(r.set_group_id)) {
+      codes.set(r.set_group_id, await tcgplayerAbbrev(r.set_group_id));
+    }
+  }
+  return codes;
+}
+
+/** One deck row's Mass Entry line for `qty` copies (token > composed > bare name). */
+function deckMeLine(r: DeckRow, qty: number, codes: Map<number, string | null>): string {
+  const setCode = r.set_group_id !== null ? (codes.get(r.set_group_id) ?? null) : null;
+  return meLine(qty, r.name, r.tcgplayer_mass_entry, setCode, r.local_id);
+}
+
 // ── GET /decks/:id/pricing — per-card + total, and the "buy missing" list ─────
 decksRouter.get(
   '/:id/pricing',
@@ -823,6 +846,7 @@ decksRouter.get(
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const { rows } = await loadRows(deckId, userId);
+    const setCodes = await deckSetCodes(rows);
 
     let totalMinor = 0;
     let ownedMinor = 0;
@@ -854,9 +878,10 @@ decksRouter.get(
         const lineMinor = (r.market_minor ?? 0) * missingQty;
         missingMinor += lineMinor;
         const buyUrl = tcgplayerUrl(r.tcgplayer_url, r.tcgplayer_product_id, r.tcgplayer_printing);
-        const massEntry = r.tcgplayer_mass_entry
-          ? `${missingQty}${r.tcgplayer_mass_entry.replace(/^\d+/, '')}`
-          : `${missingQty} ${r.name}`;
+        // Shared Mass Entry vocabulary (../tcgplayer/massentry.ts): stored token
+        // first, else `qty Name [CODE] number`; bare name only as last resort
+        // (a bare line matches any set and Mass Entry may reject ambiguous ones).
+        const massEntry = deckMeLine(r, missingQty, setCodes);
         return {
           cardId: r.tcgdex_id,
           name: r.name,
@@ -881,6 +906,66 @@ decksRouter.get(
       cards,
       missing,
       massEntryText: missing.map((m) => m.massEntry).join('\n'),
+    });
+  }),
+);
+
+// ── GET /decks/:id/massentry — TCGplayer cart deep link(s) for the missing cards ──
+// Same missing math as /pricing (deck_card quantity minus owned across all
+// variants), same line/URL machinery as GET /sets/:setId/massentry
+// (../tcgplayer/massentry.ts). Cards with no TCGplayer identity are returned
+// as `unlinkable`, never silently dropped.
+decksRouter.get(
+  '/:id/massentry',
+  asyncHandler(async (req, res) => {
+    const deckId = parseDeckId(String(req.params.id));
+    const userId = await defaultUserId();
+    const meta = await loadMeta(deckId, userId);
+    if (!meta) throw notFound(`No deck '${deckId}'`);
+    const { rows } = await loadRows(deckId, userId);
+    const setCodes = await deckSetCodes(rows);
+
+    const lines: string[] = [];
+    const unlinkable: Array<{ name: string; number: string; setId: string; variant: string | null }> = [];
+    let items = 0;
+    let noSetCode = 0;
+    for (const r of rows) {
+      const missingQty = Math.max(0, r.quantity - Number(r.owned_qty));
+      if (missingQty === 0) continue;
+      const linkable = r.tcgplayer_product_id !== null || r.tcgplayer_mass_entry !== null;
+      if (!linkable) {
+        // `variant` mirrors the set endpoint's unlinkable shape; deck rows are
+        // variant-agnostic so it is always null here.
+        unlinkable.push({ name: r.name, number: r.local_id, setId: r.set_tcgdex_id, variant: null });
+        continue;
+      }
+      const setCode = r.set_group_id !== null ? (setCodes.get(r.set_group_id) ?? null) : null;
+      if (!r.tcgplayer_mass_entry && !setCode) noSetCode += 1;
+      lines.push(meLine(missingQty, r.name, r.tcgplayer_mass_entry, setCode, r.local_id));
+      items += missingQty;
+    }
+
+    const urls = buildUrls(lines);
+    const warnings: string[] = [];
+    if (noSetCode > 0) {
+      warnings.push(
+        `TCGplayer set code unavailable for ${noSetCode} card(s) — those lines carry the card name only and may match printings from other sets.`,
+      );
+    }
+    if (unlinkable.length > 0) {
+      warnings.push(`${unlinkable.length} needed card(s) have no TCGplayer product and are not in the cart link.`);
+    }
+
+    userCache(res);
+    res.json({
+      deck: { id: meta.id, name: meta.name },
+      needed: { cards: lines.length, items, unlinkable: unlinkable.length },
+      lines,
+      text: lines.join('\n'),
+      urls, // ordered; open each in the logged-in browser — all add to one cart
+      unlinkable,
+      warnings,
+      note: MASSENTRY_NOTE,
     });
   }),
 );

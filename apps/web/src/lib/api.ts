@@ -538,6 +538,18 @@ export interface DeckPricing {
   missing: MissingCard[]
   massEntryText: string
 }
+// GET /decks/:id/massentry — TCGplayer cart deep links for the missing cards
+// (same shape family as GET /sets/:setId/massentry).
+export interface DeckMassEntry {
+  deck: { id: string; name: string }
+  needed: { cards: number; items: number; unlinkable: number }
+  lines: string[]
+  text: string
+  urls: string[]
+  unlinkable: { name: string; number: string; setId: string; variant: string | null }[]
+  warnings: string[]
+  note: string
+}
 export interface CreateDeckBody {
   name: string
   formatCode?: DeckFormat
@@ -881,6 +893,7 @@ export const api = {
   testHand: (id: string, seed?: number, signal?: AbortSignal) =>
     get<TestHand>(`/decks/${encodeURIComponent(id)}/testhand${seed !== undefined ? `?seed=${seed}` : ''}`, signal),
   deckPricing: (id: string, signal?: AbortSignal) => get<DeckPricing>(`/decks/${encodeURIComponent(id)}/pricing`, signal),
+  deckMassEntry: (id: string, signal?: AbortSignal) => get<DeckMassEntry>(`/decks/${encodeURIComponent(id)}/massentry`, signal),
 
   // Deck intelligence — strategy guide, version history, battle logs.
   // Strategy edits never bump the version; null / '' clears the guide.

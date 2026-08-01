@@ -220,6 +220,9 @@ keep game-specific specifics in `PKMN-SYNC-RUNBOOK.md` / the slot's `image-slots
 - A missing set symbol/logo isn't always a warming gap — whole set *families* (promos, basic-energy,
   licensed tie-ins) have no per-set mark at the source. Prefer a **UI fallback ladder** (authored
   family SVG → derived acronym from the set code → neutral placeholder) over warming a nonexistent asset.
+- Promo/odd cards can carry **non-numeric collector numbers that differ across sources** (one
+  source's `MEW` is another's `001`) — when the number crosswalk misses, fall back to a
+  normalized-**name** match before declaring the card absent.
 
 ## Definition of done (adding a TCG, or a refresh)
 
