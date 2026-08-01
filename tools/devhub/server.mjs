@@ -22,19 +22,14 @@ const PORT = Number(process.env.DEVHUB_PORT ?? 3999);
 const REG = join(homedir(), '.pokedex-devhub', 'surfaces.json');
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-const PROD = {
-  branch: 'main (prod)',
-  label: 'Pokédex (live)',
-  pinned: true,
-  pages: [{ name: 'App', url: 'http://the.grid/pokedex/' }],
-};
-
+// Dev surfaces only — no pinned prod entry (removed 2026-08-01: the.grid doesn't
+// resolve for raw-IP visitors, and the hub's job is in-flight work, not the live app).
 function loadSurfaces() {
   try {
     const list = JSON.parse(readFileSync(REG, 'utf8')).surfaces ?? [];
-    return [PROD, ...list.filter((s) => !s.pinned)];
+    return list.filter((s) => !s.pinned);
   } catch {
-    return [PROD];
+    return [];
   }
 }
 

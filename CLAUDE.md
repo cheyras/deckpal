@@ -66,7 +66,7 @@ floating ◐ switcher is auto-injected into every Vite **dev** server (dev-only 
   link that 404s from Chey's phone is worse than no link:
   `curl -s -X POST http://127.0.0.1:3999/unregister -d '{"branch":"foil/main"}'`
 - Registry lives at `~/.pokedex-devhub/surfaces.json` (shared across worktrees, not in git);
-  the live app is pinned automatically. Don't register prod, backend-only branches, or
+  the menu lists dev surfaces only (no prod entry — removed 2026-08-01). Don't register prod, backend-only branches, or
   servers you're about to kill. LAN-only by construction — never add an nginx route to :3999.
 
 ## Hard rules & gotchas (learned the hard way — see DECISIONS.md)
