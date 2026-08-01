@@ -233,7 +233,8 @@ collectionRouter.post(
   '/cards/:cardId/have',
   asyncHandler(async (req, res) => {
     const body = req.body ?? {};
-    const have = Boolean(body.have);
+    if (typeof body.have !== 'boolean') throw badRequest('have must be a boolean');
+    const have = body.have;
     const source = parseSource(body.source);
     const note = parseNote(body.note);
     const cardTcgdexId = String(req.params.cardId);

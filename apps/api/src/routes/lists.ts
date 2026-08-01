@@ -39,6 +39,7 @@ const VIS = ['private', 'public'] as const;
 const NAME_MAX = 120;
 const DESC_MAX = 2000;
 const NOTE_MAX = 500;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function parseName(v: unknown): string {
   const s = typeof v === 'string' ? v.trim() : '';
@@ -56,7 +57,7 @@ function parseOptText(v: unknown, max: number, field: string): string | null {
 }
 function parseListId(v: string): string {
   // uuid PK; validate shape so a junk id is a clean 404-ish rather than a pg error.
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) {
+  if (!UUID_RE.test(v)) {
     throw notFound(`No list '${v}'`);
   }
   return v;
@@ -404,6 +405,15 @@ listsRouter.patch(
     const listId = parseListId(String(req.params.id));
     const userId = await defaultUserId();
     const body = req.body ?? {};
+    let order: string[] | undefined;
+    if (body.itemOrder !== undefined) {
+      if (!Array.isArray(body.itemOrder)
+        || body.itemOrder.some((x: unknown) => typeof x !== 'string' || !UUID_RE.test(x))
+        || new Set(body.itemOrder).size !== body.itemOrder.length) {
+        throw badRequest('itemOrder must be an array of unique UUID strings');
+      }
+      order = body.itemOrder;
+    }
 
     await withTx(async (client: pg.PoolClient) => {
       const existing = await client.query<{ id: string; kind: Kind }>(
@@ -444,24 +454,24 @@ listsRouter.patch(
       // Reorder: itemOrder is the full ordered array of itemIds. Rewrite positions
       // 0..n-1. Two-phase (offset then final) to dodge the (list_id, position)
       // ordering churn without a unique-violation window.
-      if (Array.isArray(body.itemOrder)) {
-        const order: string[] = body.itemOrder.filter((x: unknown): x is string => typeof x === 'string');
+      if (order) {
         if (order.length) {
           await client.query(
             `UPDATE list_item SET position = position + 1000000 WHERE list_id = $1 AND user_id = $2`,
             [listId, userId],
           );
-          for (let i = 0; i < order.length; i++) {
-            await client.query(
-              `UPDATE list_item SET position = $3 WHERE id = $4 AND list_id = $1 AND user_id = $2`,
-              [listId, userId, i, order[i]],
-            );
-          }
+          await client.query(
+            `UPDATE list_item li
+                SET position = o.ord - 1
+               FROM unnest($3::uuid[]) WITH ORDINALITY AS o(id, ord)
+              WHERE li.id = o.id AND li.list_id = $1 AND li.user_id = $2`,
+            [listId, userId, order],
+          );
           // Any items not named in itemOrder keep a high position (appended after).
         }
       }
       // Always bump updated_at when a reorder happened even if no column set.
-      if (!sets.length && Array.isArray(body.itemOrder)) {
+      if (!sets.length && order) {
         await client.query(`UPDATE card_list SET updated_at = now() WHERE id = $1 AND user_id = $2`, [listId, userId]);
       }
     });
@@ -512,7 +522,8 @@ listsRouter.post(
       let position = posRow.rows[0]?.next ?? 0;
       if (body.position !== undefined) {
         const p = Number(body.position);
-        if (Number.isInteger(p) && p >= 0) position = p;
+        if (!Number.isInteger(p) || p < 0) throw badRequest('position must be a non-negative integer');
+        position = p;
       }
 
       let insertedId: string | null = null;
