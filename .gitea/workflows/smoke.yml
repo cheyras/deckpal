@@ -1,0 +1,11 @@
+name: Smoke
+on:
+  push:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: thegrid-pi
+    steps:
+      - name: Echo
+        run: echo "actions alive on $(hostname) as $(whoami)"
