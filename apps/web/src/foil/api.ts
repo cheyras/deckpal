@@ -85,4 +85,61 @@ export const foilApi = {
 
   cardDetail: (cardId: string, signal?: AbortSignal): Promise<FoilCardDetail> =>
     get<FoilCardDetail>(`/cards/${encodeURIComponent(cardId)}`, signal),
+
+  // ── foil-lab dev surface (branch api instance only; POKEDEX_FOIL_LAB=1) ──
+  // Hand masks + workbench comments land in the WORKING TREE as committed
+  // artifacts. Against prod's api these 404 — the UI treats that as "feature
+  // unavailable" and hides the affordances.
+
+  /** Saved hand mask as an ImageBitmap, or null when none exists (or no dev api). */
+  getMask: async (cardId: string, variantId: number, signal?: AbortSignal): Promise<ImageBitmap | null> => {
+    const res = await fetch(`${BASE}/foil-lab/masks/${encodeURIComponent(cardId)}/${variantId}`, { signal })
+    if (!res.ok) return null
+    const blob = await res.blob()
+    try {
+      return await createImageBitmap(blob)
+    } catch {
+      return null
+    }
+  },
+
+  putMask: async (cardId: string, variantId: number, pngDataUrl: string, width: number, height: number): Promise<void> => {
+    const res = await fetch(`${BASE}/foil-lab/masks/${encodeURIComponent(cardId)}/${variantId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ png: pngDataUrl, width, height }),
+    })
+    if (!res.ok) throw new Error(`mask save failed (HTTP ${res.status})`)
+  },
+
+  deleteMask: async (cardId: string, variantId: number): Promise<void> => {
+    const res = await fetch(`${BASE}/foil-lab/masks/${encodeURIComponent(cardId)}/${variantId}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`mask delete failed (HTTP ${res.status})`)
+  },
+
+  postComment: async (text: string, context: Record<string, unknown>): Promise<{ id: string }> => {
+    const res = await fetch(`${BASE}/foil-lab/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, context }),
+    })
+    if (!res.ok) throw new Error(`comment save failed (HTTP ${res.status})`)
+    return res.json() as Promise<{ id: string }>
+  },
+
+  /** Probe: is the foil-lab dev surface mounted on this api? */
+  devSurface: async (): Promise<boolean> => {
+    // A GET for a definitely-invalid id: 400/404 from the router = mounted;
+    // the generic api 404 shape also returns 404 — distinguish via header? Keep
+    // it simple: any response other than the api-wide not_found body means
+    // mounted. Cheapest reliable probe: a mask GET that 404s with our message.
+    try {
+      const res = await fetch(`${BASE}/foil-lab/masks/probe/0`)
+      if (res.status === 400) return true // router's id validation answered
+      const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
+      return Boolean(body?.error?.message?.includes('hand mask'))
+    } catch {
+      return false
+    }
+  },
 }
