@@ -104,7 +104,7 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
   (`card_variant.is_primary`); "set absolute quantity" on a card where the user owns multiple
   variants and no variant was given → refuse with the owned-variant list.
 
-## 5. Tool surface (21 tools + 1 resource)
+## 5. Tool surface (23 tools + 1 resource; #22–23 in §5b)
 
 ### Reads — direct SQL (`readOnlyHint: true`)
 
@@ -231,6 +231,40 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
 
 - **`collection://summary`** — same payload as `collection_summary` (text), so clients can pull
   context without a tool round-trip.
+
+## 5b. Battle synthesis — A2 · feat/battle-synthesis (2026-08-01; gated on migration 020)
+
+Chat-driven synthesis per `BATTLE-INTEL-SPEC.md` §3 Wave 1 A2 (a co-hosted app pattern: Claude in
+chat reads via MCP, synthesizes, writes back; the server's only intelligence is archetype
+normalization + local-ollama embedding — **no server-side LLM**). Both tools live in
+`src/tools/synthesis.ts`; pure logic (normalization, narrative bounds, merge semantics) in
+`src/synthesis.ts`; embedding client (`POST http://127.0.0.1:11434/v1/embeddings`,
+`nomic-embed-text`, 768-dim, env overrides `POKEDEX_OLLAMA_BASE`/`POKEDEX_EMBED_MODEL`) in
+`src/ollama.ts`. The narrative rubric is pinned by `.claude/skills/battle-synthesis/SKILL.md`.
+
+22. **`synthesis_queue`** — `{ deck_id?, log_id?, include_raw? = true, page?, page_size? }`.
+    `readOnlyHint: true`. Logs missing narrative / canonical archetypes / embedding, oldest
+    first, with stored fields + parsed summary + raw log per entry (default `page_size` 3 with
+    raw, 20 without — raw logs are huge, §7 budgets). Footer states corpus totals and what's
+    missing; empty state is explicit. `log_id` shows one log even when finished (re-synthesis).
+23. **`save_synthesis`** — `{ log_id, narrative?, my_archetype?, opp_archetype?, tags?,
+    key_cards?, ai_generated? = true, dry_run? = true }`. Omitted fields keep stored values
+    (partial correction / embedding retry); the merged record must be complete. Narrative
+    ~150–300 words (hard bounds 50/500; ≤4000 chars). Archetypes accept slug/alias/display
+    name, stored as canonical `archetype.slug` — unknown labels rejected with suggestions,
+    never invented. Commit updates `battle_log` (structured fields + narrative + `source`
+    stamp: `rotom-mcp`, or `user` when `ai_generated: false` — the a co-hosted app ai_generated
+    discipline riding 019's writer-attribution column) then embeds into `battle_memories`
+    (upsert on `(log_id, kind='narrative')` — idempotent re-synthesis). **Ollama down =
+    honest pending**: battle_log saves, no memory row is written (`embedding` is NOT NULL
+    there), the queue keeps reporting `needs: embedding`, and a later `save_synthesis
+    { log_id }` re-embeds. Never a silent null.
+
+**Deviation from §3's hybrid rule (writes via API), deliberate:** synthesis writes direct
+SQL. The fields are an MCP-only surface (no web UI writes them, so there is no API write
+logic to single-source), and the embedding client belongs beside the MCP process. Recorded
+in DECISIONS.md 2026-08-01. Pre-migration-020 both tools catch `undefined_table/column` and
+return an honest "schema not applied yet" error instead of throwing.
 
 ## 6. Migration 018 + API attribution (prerequisite for 6/14)
 

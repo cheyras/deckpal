@@ -12,6 +12,7 @@ import { registerListTools } from './tools/lists.js';
 import { registerLoggingTools } from './tools/logging.js';
 import { registerShoppingTools } from './tools/shopping.js';
 import { registerStatusTools } from './tools/status.js';
+import { registerSynthesisTools } from './tools/synthesis.js';
 
 const pkg = createRequire(import.meta.url)('../package.json') as { version: string };
 
@@ -49,6 +50,7 @@ export function buildServer(ctx: Ctx): McpServer {
   registerCatalogTools(server, ctx);
   registerDeckTools(server, ctx);
   registerDeckIntelTools(server, ctx);
+  registerSynthesisTools(server, ctx);
   registerListTools(server, ctx);
   registerLoggingTools(server, ctx);
   registerShoppingTools(server, ctx);

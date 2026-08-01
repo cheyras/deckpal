@@ -861,6 +861,41 @@ crashing (regex alternation truncating `.tsx`→`.ts`; `''.splitlines()[0]` Inde
 an empty diff block), not worker failures. Test manifest checks against a synthetic
 artifact before running the swarm.
 
+## 2026-08-01 — A2 battle synthesis: chat-driven tools, direct-SQL writes, honest-pending embeddings
+**Branch:** feat/battle-synthesis (Wave 1 A2; gated on W0's migration 020 merging).
+**What shipped:** `synthesis_queue` (read: logs missing narrative/archetypes/embedding, raw +
+parsed inline, paged small because raw logs are huge) and `save_synthesis` (write, dry-run
+defaulted) in `apps/mcp/src/tools/synthesis.ts`; pure logic in `src/synthesis.ts` (16 pure
+tests, wired into CI as a new step); ollama client in `src/ollama.ts`; narrative rubric in
+`.claude/skills/battle-synthesis/SKILL.md`; SPEC.md §5b documents tools #22–23.
+**Decisions:**
+- **Direct SQL for synthesis writes** — a deliberate deviation from SPEC §3's
+  writes-go-through-the-API rule. The synthesis fields are an MCP-only surface (no web UI
+  writes them, so there is no API-side write logic to single-source) and the ollama client
+  belongs beside the mcp process. Parameterized SQL on the existing single-connection pool;
+  connection budget untouched.
+- **Written against W0's ACTUAL DDL** (feat/battle-contracts @ 940e382, unmerged): game
+  provenance is `battle_log.origin` (NOT `source`, which stays 019 writer attribution);
+  archetypes are FK-enforced canonical slugs via `archetype` + `archetype_alias` (tool
+  accepts slug/alias/display name, rejects unknowns with trigram-ranked suggestions —
+  never invents); `battle_memories.embedding` is NOT NULL with UNIQUE (log_id, kind), so
+  **"embedding pending" = absence of the memory row**, not a NULL — ollama-down leaves the
+  battle_log save intact and the queue honestly reporting `needs: embedding`; re-save with
+  just log_id re-embeds. Idempotent re-synthesis = upsert on (log_id, kind='narrative').
+- **ai_generated discipline rides `battle_log.source`** (per 020's narrative column
+  comment): `save_synthesis(ai_generated: true)` (default) stamps `rotom-mcp`; `false`
+  (user-verbatim narrative) stamps `user`. The `user` label is new — flagged for W0/A3
+  review rather than silently invented elsewhere.
+- **Pre-020 behavior:** both tools catch undefined_table/undefined_column (42P01/42703)
+  and return "schema not applied yet — nothing read or written" instead of a raw pg error.
+- **Ollama endpoint verified against reality** (not assumed): Ringer one-task probe
+  (battle-synthesis-ollama-probe, PASS first try, $0 on nemotron-free) — POST
+  127.0.0.1:11434/v1/embeddings with nomic-embed-text returns HTTP 200, 768 finite dims;
+  validator checked the raw body, spot-checked by hand.
+**Remaining (post-W0-merge):** rebase once 020 lands on main, then the done gate — every
+stored log synthesized via a real chat session using the SKILL, embeddings present,
+re-synthesis verified idempotent against the live DB.
+
 ## 2026-08-07 — the image cache now documents where every byte came from
 **Chey (chat):** *"yes, please fix and make sure we're always documenting original
 source when we add images to the cache going forward."*
