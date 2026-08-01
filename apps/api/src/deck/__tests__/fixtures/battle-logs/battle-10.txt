@@ -1,0 +1,111 @@
+Setup
+cheyras chose tails for the opening coin flip.
+xTheWizardx won the coin toss.
+xTheWizardx decided to go second.
+cheyras drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (me5_34) Banette, (me1_119) Lillie's Determination, (me5_34) Banette, (me3_88) Telepathic Psychic Energy, (me5_78) Gwynn, (me5_5) Poltchageist, (me4_80) Prism Tower
+xTheWizardx drew 7 cards for the opening hand.
+- 7 drawn cards.
+xTheWizardx took a mulligan.
+- Cards revealed from Mulligan 1
+   • (rsv10-5_84) Hilda, (sv5_154) Maximum Belt, (sve_14_ph) Basic Fighting Energy, (sv9_78_ph) Piloswine, (me2_88) Dizzying Valley, (me1_150) Steelix, (sve_19_ph) Basic Water Energy
+xTheWizardx took 5 mulligans.
+- Cards revealed from Mulligan 2
+   • (me4_89) Frogadier, (sv9_78_ph) Piloswine, (mebsp_12) Mega Lucario ex, (me3_72) Energy Search, (sv7_133) Crispin, (rsv10-5_84) Hilda, (rsv10-5_84) Hilda
+- Cards revealed from Mulligan 3
+   • (sve_14_ph) Basic Fighting Energy, (sve_14_ph) Basic Fighting Energy, (sve_19_ph) Basic Water Energy, (me2_87) Dawn, (me4_120) AZ's Tranquility, (rsv10-5_84) Hilda, (me1_119) Lillie's Determination
+- Cards revealed from Mulligan 4
+   • (sve_14_ph) Basic Fighting Energy, (sv8_179) Lisia's Appeal, (me3_113) Poké Pad, (me4_120) AZ's Tranquility, (sve_19_ph) Basic Water Energy, (sv5_154) Maximum Belt, (me4_89) Frogadier
+- Cards revealed from Mulligan 5
+   • (sv8_179) Lisia's Appeal, (sv7_133) Crispin, (me5_73_ph) Antique Skull Fossil, (sv9_78_ph) Piloswine, (me2_87) Dawn, (sve_19_ph) Basic Water Energy, (me5_100) Rampardos ex
+cheyras drew 5 more cards because xTheWizardx took at least 1 mulligan.
+- cheyras drew 5 cards.
+   • (me1_131) Ultra Ball, (me5_39) Dhelmise, (me5_78) Gwynn, (me5_78) Gwynn, (me5_33) Shuppet
+cheyras played (me5_5) Poltchageist to the Active Spot.
+xTheWizardx played (me2-5_288) Fezandipiti ex to the Active Spot.
+
+cheyras's Turn
+cheyras drew (me4_80) Prism Tower.
+cheyras played (me4_80) Prism Tower to the Stadium spot.
+cheyras played (me5_33) Shuppet to the Bench.
+cheyras attached (me3_88) Telepathic Psychic Energy to (me5_33) Shuppet on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- cheyras drew 2 cards and played them to the Bench.
+   • (me5_39) Dhelmise, (me5_33) Shuppet
+- cheyras shuffled their deck.
+cheyras played (me1_131) Ultra Ball.
+- cheyras discarded 2 cards.
+   • (me5_34) Banette, (me4_80) Prism Tower
+- cheyras drew (sv6-5_38) Fezandipiti ex.
+- cheyras shuffled their deck.
+cheyras played (sv6-5_38) Fezandipiti ex to the Bench.
+cheyras ended their turn.
+
+xTheWizardx's Turn
+xTheWizardx drew a card.
+xTheWizardx played (rsv10-5_84) Hilda.
+- xTheWizardx drew 2 cards.
+   • (me1_150) Steelix, (sve_19_ph) Basic Water Energy
+- xTheWizardx shuffled their deck.
+xTheWizardx attached (sve_19_ph) Basic Water Energy to (me2-5_288) Fezandipiti ex in the Active Spot.
+xTheWizardx played (me3_72) Energy Search.
+- xTheWizardx drew (sve_14_ph) Basic Fighting Energy.
+- xTheWizardx shuffled their deck.
+xTheWizardx ended their turn.
+
+cheyras's Turn
+cheyras drew (sv8-5_101) Buddy-Buddy Poffin.
+cheyras evolved (me5_33) Shuppet to (me5_34) Banette on the Bench.
+cheyras played Prism Tower.
+- cheyras discarded 2 cards.
+   • (sv8-5_101) Buddy-Buddy Poffin, (me5_78) Gwynn
+- cheyras drew (sv6-5_61) Night Stretcher.
+cheyras played (me5_39) Dhelmise to the Bench.
+cheyras played (me1_119) Lillie's Determination.
+- cheyras shuffled 3 cards into their deck.
+   • (me5_78) Gwynn, (me5_78) Gwynn, (sv6-5_61) Night Stretcher
+- cheyras drew 8 cards.
+   • (zsv10-5_79) Air Balloon, (me1_119) Lillie's Determination, (me5_34) Banette, (me5_33) Shuppet, (me1_131) Ultra Ball, (sv6-5_61) Night Stretcher, (me1_131) Ultra Ball, (me1_119) Lillie's Determination
+cheyras attached (zsv10-5_79) Air Balloon to (me5_5) Poltchageist in the Active Spot.
+cheyras retreated (me5_5) Poltchageist to the Bench.
+cheyras's (me5_34) Banette is now in the Active Spot.
+cheyras evolved (me5_33) Shuppet to (me5_34) Banette on the Bench.
+cheyras played (me1_131) Ultra Ball.
+- cheyras discarded 2 cards.
+   • (me5_33) Shuppet, (sv6-5_61) Night Stretcher
+- cheyras drew (me5_5) Poltchageist.
+- cheyras shuffled their deck.
+cheyras's (me5_34) Banette used Puppet Pull on xTheWizardx's (me2-5_288) Fezandipiti ex for 80 damage.
+- cheyras drew (me3_88) Telepathic Psychic Energy.
+- cheyras shuffled their deck.
+
+xTheWizardx's Turn
+xTheWizardx drew a card.
+xTheWizardx didn't take an action in time.
+
+cheyras's Turn
+cheyras drew (me5_78) Gwynn.
+cheyras played (me5_78) Gwynn.
+- cheyras discarded (me5_5) Poltchageist.
+- cheyras drew 3 cards.
+   • (me4_82) Special Red Card, (me5_6) Sinistcha, (me1_130) Switch
+cheyras attached (me3_88) Telepathic Psychic Energy to (me5_39) Dhelmise on the Bench.
+cheyras's (me5_34) Banette used Puppet Pull on xTheWizardx's (me2-5_288) Fezandipiti ex for 80 damage.
+- cheyras drew (me5_5) Poltchageist.
+- cheyras shuffled their deck.
+
+xTheWizardx's Turn
+xTheWizardx drew a card.
+xTheWizardx didn't take an action in time.
+
+cheyras's Turn
+cheyras drew (me1_131) Ultra Ball.
+cheyras evolved (me5_5) Poltchageist to (me5_6) Sinistcha on the Bench.
+cheyras's (me5_34) Banette used Puppet Pull on xTheWizardx's (me2-5_288) Fezandipiti ex for 80 damage.
+xTheWizardx's (me2-5_288) Fezandipiti ex was Knocked Out!
+(sve_19_ph) Basic Water Energy was discarded from xTheWizardx's (me2-5_288) Fezandipiti ex.
+cheyras took 2 Prize cards.
+(me3_81) Poké Pad was added to cheyras's hand.
+(sv6_163) Secret Box was added to cheyras's hand.
+No Benched Pokémon for backup. PlayerA wins.

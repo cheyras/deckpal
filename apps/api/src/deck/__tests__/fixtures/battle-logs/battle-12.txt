@@ -1,0 +1,215 @@
+Setup
+warthog2010 chose heads for the opening coin flip.
+warthog2010 won the coin toss.
+warthog2010 decided to go first.
+warthog2010 drew 7 cards for the opening hand.
+- 7 drawn cards.
+cheyras drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (me2-5_184) Buddy-Buddy Poffin, (sv6-5_38) Fezandipiti ex, (me1_114) Boss's Orders, (me5_6) Sinistcha, (me3_88) Telepathic Psychic Energy, (me5_39) Dhelmise, (me4_82) Special Red Card
+warthog2010 played (sv8-5_163) Pecharunt ex to the Active Spot.
+cheyras played (me5_39) Dhelmise to the Active Spot.
+cheyras played (sv6-5_38) Fezandipiti ex to the Bench.
+
+warthog2010's Turn
+warthog2010 drew a card.
+warthog2010 played (me5_116) Mega Darkrai ex to the Bench.
+warthog2010 attached (mee_7) Basic Darkness Energy to (me5_116) Mega Darkrai ex on the Bench.
+warthog2010 played (me2-5_198) Poké Pad.
+- warthog2010 drew (me2_60) Carvanha.
+- warthog2010 shuffled their deck.
+warthog2010 played (me2_60) Carvanha to the Bench.
+warthog2010 ended their turn.
+
+cheyras's Turn
+cheyras drew (me5_6) Sinistcha.
+cheyras played (me2-5_184) Buddy-Buddy Poffin.
+- cheyras drew 2 cards and played them to the Bench.
+   • (me5_33) Shuppet, (me5_5) Poltchageist
+- cheyras shuffled their deck.
+cheyras attached (me3_88) Telepathic Psychic Energy to (me5_39) Dhelmise in the Active Spot.
+(me3_88) Telepathic Psychic Energy was activated.
+- cheyras drew (me5_39) Dhelmise and played it to the Bench.
+- cheyras shuffled their deck.
+cheyras's (me5_39) Dhelmise used Vengeful Anchor on warthog2010's (sv8-5_163) Pecharunt ex for 30 damage.
+
+warthog2010's Turn
+warthog2010 drew a card.
+warthog2010 played (me3_48_ph) Gastly to the Bench.
+warthog2010 attached (mee_7) Basic Darkness Energy to (me5_116) Mega Darkrai ex on the Bench.
+warthog2010 attached (swsh1_213) Air Balloon to (sv8-5_163) Pecharunt ex in the Active Spot.
+warthog2010 retreated (sv8-5_163) Pecharunt ex to the Bench.
+warthog2010's (me5_116) Mega Darkrai ex is now in the Active Spot.
+warthog2010's (me5_116) Mega Darkrai ex used Dusk Raid on cheyras's (me5_39) Dhelmise for 440 damage. cheyras's (me5_39) Dhelmise took 220 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • Base damage: 110 damage
+   • 3 damage counters: 110 damage
+   • Weakness to Darkness: 220 damage
+   • Total damage: 440 damage
+
+cheyras's (me5_39) Dhelmise was Knocked Out!
+(me3_88) Telepathic Psychic Energy was discarded from cheyras's (me5_39) Dhelmise.
+warthog2010 took a Prize card.
+A card was added to warthog2010's hand.
+cheyras's (me5_5) Poltchageist is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew (me4_82) Special Red Card.
+cheyras's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- cheyras drew 3 cards.
+   • (me4_80) Prism Tower, (me5_78) Gwynn, (me5_78) Gwynn
+cheyras played (me5_78) Gwynn.
+- cheyras discarded 2 cards.
+   • (me5_6) Sinistcha, (me5_6) Sinistcha
+- cheyras drew 6 cards.
+   • (me5_78) Gwynn, (me3_81) Poké Pad, (sve_5) Basic Psychic Energy, (sve_5) Basic Psychic Energy, (me5_5) Poltchageist, (sv8-5_101) Buddy-Buddy Poffin
+cheyras played (sv8-5_101) Buddy-Buddy Poffin.
+- cheyras drew 2 cards and played them to the Bench.
+   • (me5_33) Shuppet, (me5_5) Poltchageist
+- cheyras shuffled their deck.
+cheyras played (me4_80) Prism Tower to the Stadium spot.
+cheyras played Prism Tower.
+- cheyras discarded 2 cards.
+   • (me5_5) Poltchageist, (me5_78) Gwynn
+- cheyras drew (me5_33) Shuppet.
+cheyras played (me3_81) Poké Pad.
+- cheyras drew (me5_33) Shuppet.
+- cheyras shuffled their deck.
+cheyras ended their turn.
+
+warthog2010's Turn
+warthog2010 drew a card.
+warthog2010 played (me2_67_ph) Toxel to the Bench.
+warthog2010 played (sv2_265) Boss's Orders.
+- cheyras's (me5_39) Dhelmise was switched with cheyras's (me5_5) Poltchageist to become the Active Pokémon.
+cheyras's (me5_39) Dhelmise is now in the Active Spot.
+warthog2010's (me5_116) Mega Darkrai ex used Dusk Raid on cheyras's (me5_39) Dhelmise for 440 damage. cheyras's (me5_39) Dhelmise took 220 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • Base damage: 110 damage
+   • 3 damage counters: 110 damage
+   • Weakness to Darkness: 220 damage
+   • Total damage: 440 damage
+
+cheyras's (me5_39) Dhelmise was Knocked Out!
+warthog2010 took a Prize card.
+A card was added to warthog2010's hand.
+cheyras's (me5_5) Poltchageist is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew (sve_5) Basic Psychic Energy.
+cheyras's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- cheyras drew 3 cards.
+   • (sv8-5_101) Buddy-Buddy Poffin, (me1_114) Boss's Orders, (zsv10-5_79) Air Balloon
+cheyras played (me5_78) Gwynn.
+- cheyras discarded 2 cards.
+   • (me5_33) Shuppet, (me5_33) Shuppet
+- cheyras drew 6 cards.
+   • (sve_5) Basic Psychic Energy, (me3_88) Telepathic Psychic Energy, (me3_88) Telepathic Psychic Energy, (me5_78) Gwynn, (sv6-5_61) Night Stretcher, (zsv10-5_79) Air Balloon
+cheyras played (sv6-5_61) Night Stretcher.
+- cheyras moved cheyras's (me5_6) Sinistcha to their hand.
+cheyras evolved (me5_5) Poltchageist to (me5_6) Sinistcha in the Active Spot.
+cheyras attached (me3_88) Telepathic Psychic Energy to (me5_6) Sinistcha in the Active Spot.
+cheyras attached (zsv10-5_79) Air Balloon to (me5_6) Sinistcha in the Active Spot.
+cheyras retreated (me5_6) Sinistcha to the Bench.
+cheyras's (me5_5) Poltchageist is now in the Active Spot.
+cheyras played Prism Tower.
+- cheyras discarded 2 cards.
+   • (sv8-5_101) Buddy-Buddy Poffin, (sve_5) Basic Psychic Energy
+- cheyras drew (me1_130) Switch.
+cheyras ended their turn.
+
+warthog2010's Turn
+warthog2010 drew a card.
+warthog2010 attached (mee_7) Basic Darkness Energy to (me2_60) Carvanha on the Bench.
+warthog2010 played (sv2_265) Boss's Orders.
+- cheyras's (sv6-5_38) Fezandipiti ex was switched with cheyras's (me5_5) Poltchageist to become the Active Pokémon.
+cheyras's (sv6-5_38) Fezandipiti ex is now in the Active Spot.
+warthog2010's (me5_116) Mega Darkrai ex used Dusk Raid on cheyras's (sv6-5_38) Fezandipiti ex for 220 damage.
+- Damage breakdown:
+   • Base damage: 110 damage
+   • 3 damage counters: 110 damage
+   • Total damage: 220 damage
+
+cheyras's (sv6-5_38) Fezandipiti ex was Knocked Out!
+warthog2010 took 2 Prize cards.
+A card was added to warthog2010's hand.
+A card was added to warthog2010's hand.
+cheyras's (me5_6) Sinistcha is now in the Active Spot.
+
+cheyras's Turn
+cheyras drew (me5_5) Poltchageist.
+cheyras played (me1_114) Boss's Orders.
+- warthog2010's (me3_48_ph) Gastly was switched with warthog2010's (me5_116) Mega Darkrai ex to become the Active Pokémon.
+warthog2010's (me3_48_ph) Gastly is now in the Active Spot.
+cheyras attached (me3_88) Telepathic Psychic Energy to (me5_33) Shuppet on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- cheyras drew 2 cards and played them to the Bench.
+   • (me5_39) Dhelmise, (me5_39) Dhelmise
+- cheyras shuffled their deck.
+cheyras played (me4_82) Special Red Card.
+- warthog2010 shuffled their hand.
+- cheyras put 4 cards on the bottom of their deck.
+- cheyras drew 3 cards.
+cheyras ended their turn.
+
+warthog2010's Turn
+warthog2010 drew a card.
+warthog2010's (sv8-5_163) Pecharunt ex used Subjugating Chains.
+- warthog2010's (me5_116) Mega Darkrai ex was switched with warthog2010's (me3_48_ph) Gastly to become the Active Pokémon.
+- warthog2010's (me5_116) Mega Darkrai ex is now Poisoned.
+warthog2010's (me5_116) Mega Darkrai ex is now in the Active Spot.
+warthog2010 attached (mee_7) Basic Darkness Energy to (me5_116) Mega Darkrai ex in the Active Spot.
+warthog2010 played (sv2_265) Boss's Orders.
+- cheyras's (me5_39) Dhelmise was switched with cheyras's (me5_6) Sinistcha to become the Active Pokémon.
+cheyras's (me5_39) Dhelmise is now in the Active Spot.
+warthog2010's (me5_116) Mega Darkrai ex used Dusk Raid on cheyras's (me5_39) Dhelmise for 440 damage. cheyras's (me5_39) Dhelmise took 220 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • Base damage: 110 damage
+   • 3 damage counters: 110 damage
+   • Weakness to Darkness: 220 damage
+   • Total damage: 440 damage
+
+cheyras's (me5_39) Dhelmise was Knocked Out!
+warthog2010 took a Prize card.
+A card was added to warthog2010's hand.
+cheyras's (me5_39) Dhelmise is now in the Active Spot.
+
+Pokémon Checkup
+1 damage counter was placed on warthog2010's (me5_116) Mega Darkrai ex for the Special Condition Poisoned.
+
+cheyras's Turn
+cheyras drew (me1_119) Lillie's Determination.
+cheyras attached (sve_5) Basic Psychic Energy to (me5_39) Dhelmise in the Active Spot.
+cheyras's (me5_39) Dhelmise used Vengeful Anchor on warthog2010's (me5_116) Mega Darkrai ex for 170 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 4 discarded Pokémon: 140 damage
+   • Total damage: 170 damage
+
+
+Pokémon Checkup
+1 damage counter was placed on warthog2010's (me5_116) Mega Darkrai ex for the Special Condition Poisoned.
+
+warthog2010's Turn
+warthog2010 drew a card.
+warthog2010 played (me1_171) Mega Signal.
+- warthog2010 drew (me2_127) Mega Sharpedo ex.
+- warthog2010 shuffled their deck.
+warthog2010 evolved (me2_60) Carvanha to (me2_127) Mega Sharpedo ex on the Bench.
+warthog2010 attached (mee_7) Basic Darkness Energy to (me2_127) Mega Sharpedo ex on the Bench.
+warthog2010's (sv8-5_163) Pecharunt ex used Subjugating Chains.
+- warthog2010's (me2_127) Mega Sharpedo ex was switched with warthog2010's (me5_116) Mega Darkrai ex to become the Active Pokémon.
+- warthog2010's (me2_127) Mega Sharpedo ex is now Poisoned.
+warthog2010's (me2_127) Mega Sharpedo ex is now in the Active Spot.
+warthog2010's (me2_127) Mega Sharpedo ex used Greedy Fang on cheyras's (me5_39) Dhelmise for 140 damage. cheyras's (me5_39) Dhelmise took 70 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • Base damage: 70 damage
+   • Weakness to Darkness: 70 damage
+   • Total damage: 140 damage
+
+- warthog2010 drew 2 cards.
+cheyras's (me5_39) Dhelmise was Knocked Out!
+(sve_5) Basic Psychic Energy was discarded from cheyras's (me5_39) Dhelmise.
+warthog2010 took a Prize card.
+A card was added to warthog2010's hand.
+Opponent took all of their Prize cards. warthog2010 wins.

@@ -54,9 +54,19 @@ function normalizeLine(line: string): string {
   return line.replace(/[’‘]/g, "'").replace(/\s+$/, '');
 }
 
-/** Case-insensitive name key for overlap scoring ("Boss's Orders" ≡ "boss's orders"). */
+/**
+ * Case-insensitive name key for overlap scoring ("Boss's Orders" ≡ "boss's
+ * orders"). Newer Live logs prefix card mentions with a printing id —
+ * "(me5_39) Dhelmise" — which must not defeat the match against plain deck
+ * names (it did: battle #11's owner was mis-identified at 'high' confidence
+ * before this strip; see DECISIONS.md 2026-08-01).
+ */
 function nameKey(s: string): string {
-  return s.replace(/[’‘]/g, "'").trim().toLowerCase();
+  return s
+    .replace(/^\([A-Za-z0-9.-]+_[A-Za-z0-9_-]+\)\s*/, '')
+    .replace(/[’‘]/g, "'")
+    .trim()
+    .toLowerCase();
 }
 
 /** Per-player accumulator while walking the log. */
