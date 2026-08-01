@@ -25,6 +25,7 @@ export interface FoilSet {
   setId: string
   name: string
   releasedOn: string | null
+  cardCountTotal: number
   progress: { complete: { owned: number; total: number } }
 }
 
@@ -68,6 +69,31 @@ export interface FoilMaskMeta {
   hasDiff: boolean
 }
 
+/** One page of a set's card list (the strip is paged — promo sets run 300+). */
+export interface FoilCardPage {
+  cards: FoilCardRow[]
+  page: number
+  pageCount: number
+  total: number
+}
+
+/** A full-catalog name-search hit (GET /search). */
+export interface FoilSearchHit {
+  cardId: string
+  number: string
+  name: string
+  rarity: string | null
+  set: { setId: string; name: string }
+  images: { low: string; high: string }
+}
+
+export interface FoilSearchPage {
+  hits: FoilSearchHit[]
+  page: number
+  pageCount: number
+  total: number
+}
+
 export interface FoilCardDetail {
   card: {
     cardId: string
@@ -84,25 +110,42 @@ export interface FoilCardDetail {
 // ── Fetchers ───────────────────────────────────────────────────
 
 export const foilApi = {
-  // Series with at least one owned card (the workbench only shows owned scans).
-  ownedSeries: async (signal?: AbortSignal): Promise<FoilSeries[]> => {
+  // The picker browses the FULL catalog (Chey: "I'm never gonna own all the
+  // cards, and I wanna have them at least somewhat accurate"); ownedOnly=true
+  // narrows every tier to owned, which is the original workbench behavior.
+
+  // Series list — full catalog, or only series with at least one owned card.
+  series: async (ownedOnly: boolean, signal?: AbortSignal): Promise<FoilSeries[]> => {
     const d = await get<{ series: FoilSeries[] }>('/series', signal)
-    return d.series.filter((s) => s.progress.owned > 0)
+    return ownedOnly ? d.series.filter((s) => s.progress.owned > 0) : d.series
   },
 
-  // Sets in a series with at least one owned card.
-  ownedSets: async (seriesSlug: string, signal?: AbortSignal): Promise<FoilSet[]> => {
+  // Sets in a series — full catalog, or only sets with at least one owned card.
+  sets: async (seriesSlug: string, ownedOnly: boolean, signal?: AbortSignal): Promise<FoilSet[]> => {
     const d = await get<{ sets: FoilSet[] }>(`/series/${encodeURIComponent(seriesSlug)}`, signal)
-    return d.sets.filter((s) => s.progress.complete.owned > 0)
+    return ownedOnly ? d.sets.filter((s) => s.progress.complete.owned > 0) : d.sets
   },
 
-  // Owned cards in a set (own=have narrows to owned; 250 covers any real set page-1).
-  ownedCards: async (setId: string, signal?: AbortSignal): Promise<FoilCardRow[]> => {
-    const d = await get<{ cards: FoilCardRow[] }>(
-      `/sets/${encodeURIComponent(setId)}?own=have&pageSize=250`,
+  // One page of a set's cards (paged — the connection-budget rule: never pull a
+  // whole large set in one shot; 250 is the api's max pageSize and covers most
+  // sets in a single page, promo sets append pages via the strip's More chip).
+  cards: async (setId: string, ownedOnly: boolean, page: number, signal?: AbortSignal): Promise<FoilCardPage> => {
+    const own = ownedOnly ? '&own=have' : ''
+    const d = await get<{ cards: FoilCardRow[]; pagination: { page: number; pageCount: number; total: number } }>(
+      `/sets/${encodeURIComponent(setId)}?pageSize=250&page=${page}${own}`,
       signal,
     )
-    return d.cards
+    return { cards: d.cards, page: d.pagination.page, pageCount: d.pagination.pageCount, total: d.pagination.total }
+  },
+
+  // Full-catalog card-name/number search (always the whole catalog — the point
+  // of search is to reach cards the browse filters would hide).
+  search: async (text: string, page: number, signal?: AbortSignal): Promise<FoilSearchPage> => {
+    const d = await get<{ cards: FoilSearchHit[]; pagination: { page: number; pageCount: number; total: number } }>(
+      `/search?q=${encodeURIComponent(text)}&pageSize=60&page=${page}`,
+      signal,
+    )
+    return { hits: d.cards, page: d.pagination.page, pageCount: d.pagination.pageCount, total: d.pagination.total }
   },
 
   cardDetail: (cardId: string, signal?: AbortSignal): Promise<FoilCardDetail> =>
