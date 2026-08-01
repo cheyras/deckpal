@@ -45,6 +45,30 @@ Data lives in host **Postgres**, database `pokedex`. Runs behind nginx at `http:
   one chromium at a time, `--no-sandbox --disable-dev-shm-usage`, close in `finally`. The box's
   pre-existing `:9222` chromium is NOT yours.
 
+## Dev hub (phone-first review of in-flight work)
+
+One LAN-only menu of every running dev surface: **http://localhost:3999** (or
+`http://10.0.0.1:3999` from devices without the Pi's DNS). Runs under pm2 as
+`legacy-dev-hub-legacy` (`tools/dev-hub-legacy/`); Chey reviews worktree UI from his phone through it. A
+floating ◐ switcher is auto-injected into every Vite **dev** server (dev-only plugin in
+`apps/web/vite.config.ts`) to jump between surfaces; prod builds are untouched.
+
+- **Add an entry when** you start a dev server Chey should be able to see — i.e. your branch
+  has a UI surface and the server is running LAN-visible (`vite --host --port <assigned
+  port>` — ports are **assigned** in `roadmap/ORCHESTRATION.md`, don't improvise):
+  ```bash
+  curl -s -X POST http://127.0.0.1:3999/register -H 'content-type: application/json' -d \
+    '{"branch":"foil/main","label":"Foil workbench","port":5182,
+      "pages":[{"name":"Workbench","path":"/pokedex/foil-lab"}]}'
+  ```
+  Re-POST with the same `branch` to update (it upserts). List real pages, not every route.
+- **Remove an entry when** its dev server stops or the worktree is retired/merged — a menu
+  link that 404s from Chey's phone is worse than no link:
+  `curl -s -X POST http://127.0.0.1:3999/unregister -d '{"branch":"foil/main"}'`
+- Registry lives at `~/.legacy-dev-hub-legacy/surfaces.json` (shared across worktrees, not in git);
+  the live app is pinned automatically. Don't register prod, backend-only branches, or
+  servers you're about to kill. LAN-only by construction — never add an nginx route to :3999.
+
 ## Hard rules & gotchas (learned the hard way — see DECISIONS.md)
 
 - **Postgres connection budget is 4** (API 2, sync 1, mcp 1) — it shares the host cluster with
