@@ -24,7 +24,7 @@ the lazy route in `main.tsx` and a pathname check in `AppShell.tsx`. Read
 | `foil/MaskEditor.tsx` | Apple-Pencil hand-mask drawing overlay (see mask-pipeline SKILL.md). |
 | `foil/FoilLab.tsx` | The workbench page (`/pokedex/foil-lab`): era-grouped card picker (owned scans only), pattern/scope overrides, mask overlay + hand-mask editing, uniform sliders, comment queue, Copy-recipe-JSON. Single column at 390px; two columns (viewer \| controls) from 700px (iPad-mini portrait) up. |
 | `foil/api.ts` | Self-contained read client (series → sets → owned cards → card detail) + the foil-lab dev surface (masks, comments). Do NOT import `lib/api.ts`. |
-| `apps/api/src/routes/foil-lab.ts` | Branch-instance-only routes (mask save/load, comments → working tree). Mounted only when `POKEDEX_FOIL_LAB=1`; inert in prod. |
+| `apps/api/src/routes/foil-lab.ts` | Branch-instance-only routes (mask save/load with sidecar v2 prior+diff artifacts, artwork-keyed alias lookup, comments → working tree). Mounted only when `POKEDEX_FOIL_LAB=1`; inert in prod. Artifact generation: `apps/api/src/foil/mask-artifacts.ts` + pure-JS `png.ts`. |
 
 ## The uniform contract
 
@@ -124,6 +124,23 @@ Remaining for `foil/patterns`: Tinsel, Sheen (distinct from SV default), Water W
 Crosshatch, Pixel/Confetti, SWSH reverse (vertical-bar sheet), mirror variants, and
 texture-embossed illustration-rare relief (hardest — do it last; needs normal-map-style
 relief, likely a contract extension).
+
+## Per-pattern field notes (distilled from resolved workbench comments)
+
+Chey's workbench comments (`issues/foil/<id>/`) are corpus: when one is resolved, its
+insight is distilled here (mask-pipeline SKILL, "Codify" step 6) so the next agent
+tunes from his eye, not from scratch. Read the full comment before touching a pattern
+that has one.
+
+- **Starlight** (`issues/foil/2026-08-01_22-40-03-629_ftoz71`, resolved): real WOTC
+  Starlight is LAYERED — star layers shift left/right *against each other* with tilt (a
+  parallax 3-D quality), star shapes are a MIX of crisp glyph-like sparkles and soft
+  blurry ones living on different depth layers, and star brightness breathes smoothly —
+  binary appear/disappear reads wrong. Implemented as three `starLayer()` passes at
+  opposing parallax offsets (back = soft blobs moving against tilt, front = crisp
+  glyphs moving with it), per-cell existence culling so the field reads as
+  constellation not confetti, and a floor+wide-lobe visibility curve (`0.18 + 0.82 *
+  pow(cos, 5)`) instead of a `pow(cos, 28)` blink. `uP1` is parallax depth.
 
 ## Masks
 
