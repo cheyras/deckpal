@@ -1,0 +1,42 @@
+{
+  "$doc": [
+    "Era layout spec v1 — DATA, NOT CODE (roadmap/plans/foil-main.md).",
+    "Rects are fractions of the card face, measured on 600x825 cache scans,",
+    "origin TOP-LEFT (matches image space; the shader converts to UV y-up).",
+    "artWindow = the illustration box inside the frame. holoZone semantics:",
+    "  window = foil fills the art window (classic holo rares),",
+    "  sheet  = foil fills everything EXCEPT the art window (reverse holo),",
+    "  full   = foil covers the whole face (full-art / etched / ex rarities).",
+    "cornerRadius = physical card corner, fraction of card WIDTH (~3mm/63mm).",
+    "This file is the layout-driven coarse mask tier only; art-driven masks",
+    "are a later foil/masks sub-branch (see .claude/skills/mask-pipeline)."
+  ],
+  "cardAspect": [245, 337],
+  "cornerRadius": 0.047,
+  "eras": {
+    "wotc": {
+      "label": "WOTC 1999–2003 (Base–Skyridge)",
+      "seriesSlugs": ["base", "gym", "neo", "ecard"],
+      "measuredOn": "base1-8 (Machamp, 1st Ed. Shadowless) 600x825",
+      "artWindow": { "x": 0.103, "y": 0.102, "w": 0.802, "h": 0.418 },
+      "artWindowRadius": 0.004,
+      "notes": "Gold-bevel art box below the name bar. WOTC holo rares foil the full art window background (Starlight cosmos foil). No reverse holos before Legendary Collection."
+    },
+    "modern-swsh": {
+      "label": "Sword & Shield 2020–2022",
+      "seriesSlugs": ["sword-shield"],
+      "measuredOn": "approximation — borrows modern-sv rects; re-measure when SWSH work starts",
+      "artWindow": { "x": 0.075, "y": 0.158, "w": 0.85, "h": 0.315 },
+      "artWindowRadius": 0.006,
+      "notes": "Frame proportions close enough to SV for the coarse tier; SWSH reverse sheet uses vertical bar texture (different pattern, same sheet zone)."
+    },
+    "modern-sv": {
+      "label": "Scarlet & Violet 2023– (incl. Mega Evolution 2025–)",
+      "seriesSlugs": ["scarlet-violet", "mega-evolution"],
+      "measuredOn": "me04-007 (Chesnaught) 600x825",
+      "artWindow": { "x": 0.075, "y": 0.158, "w": 0.85, "h": 0.315 },
+      "artWindowRadius": 0.006,
+      "notes": "Silver-border frame; art box runs from below the name bar to the species strip. Holo rares foil the art window; SV reverse sheet carries Poke Ball stamp texture over the body; ex / Illustration rare / Special illustration rare / Hyper rare are full-face foil."
+    }
+  }
+}
