@@ -1485,6 +1485,12 @@ CREATE TABLE deck_card (
 
 ## 8.7 Deck intelligence — versions, battle logs, strategy (migration 019)
 
+> **Superseded in part by §8.8 (migration 020):** `battle_log`'s deck anchor
+> (`deck_id`, `deck_version`) and `raw_log` are now nullable (relaxation rules
+> below), and the table gained provenance + synthesis fields. The DDL in this
+> section is 019's original shape, kept for the version/auto-bump semantics,
+> which are unchanged.
+
 Decks accumulate battle-tested knowledge over time: a markdown **strategy guide**,
 pasted **PTCG Live battle logs**, and a **version history** so logs attach to the
 list they were actually played with. `deck_card` stays the live working list every
@@ -1551,6 +1557,160 @@ and log rows say who wrote them. `battle_log.result` is nullable on purpose: a
 truncated paste with no win/concede line stores as undetermined rather than
 guessing, and the API refuses (400) only when it can identify neither the deck
 owner nor an explicit result.
+
+## 8.8 Battle intelligence — events, archetypes, memories (migration 020)
+
+The Wave-0 contracts for the battle-intel roadmap (`BATTLE-INTEL-SPEC.md`).
+One migration, five concerns: the `battle_log` relaxation for non-owned games,
+the `battle_events` interchange stream, the archetype registry, the engine/sim
+ledger tables, and the pgvector knowledge layer.
+
+**⚠ pgvector is NOT a trusted extension** (unlike `pg_trgm`): the `pokedex`
+role cannot `CREATE EXTENSION vector` itself. One-time superuser pre-step on
+any fresh database before migrating:
+`sudo -u postgres psql -d pokedex -c 'CREATE EXTENSION IF NOT EXISTS vector'` —
+after which 020's `CREATE EXTENSION IF NOT EXISTS` is a no-op.
+
+### battle_log relaxation (one table for every game provenance — LOCKED)
+
+`battle_log` stays **one table** for own, shared, simulated, and agent games —
+provenance is a filter, not a schema split (full rationale in the 020 migration
+header). Changes to 019's shape:
+
+```sql
+ALTER TABLE battle_log
+  ALTER COLUMN deck_id DROP NOT NULL,        -- nullable TOGETHER with…
+  ALTER COLUMN deck_version DROP NOT NULL,   -- …this (battle_log_deck_pair CHECK)
+  ALTER COLUMN raw_log DROP NOT NULL,        -- sim/agent games are events-only
+  ADD COLUMN format_code TEXT REFERENCES format(code),   -- for deckless rows
+  ADD COLUMN origin TEXT NOT NULL DEFAULT 'own_game'
+      CHECK (origin IN ('own_game','shared','simulated','agent_match')),
+  ADD COLUMN my_archetype  TEXT REFERENCES archetype(slug) ON UPDATE CASCADE,
+  ADD COLUMN opp_archetype TEXT REFERENCES archetype(slug) ON UPDATE CASCADE,
+  ADD COLUMN tags      TEXT[] NOT NULL DEFAULT '{}',     -- cap 32
+  ADD COLUMN key_cards TEXT[] NOT NULL DEFAULT '{}',     -- cap 16, card NAMES
+  ADD COLUMN narrative TEXT,                             -- ≤4000 chars (A2)
+  ADD CONSTRAINT battle_log_deck_pair
+      CHECK ((deck_id IS NULL) = (deck_version IS NULL)),
+  ADD CONSTRAINT battle_log_raw_or_engine
+      CHECK (raw_log IS NOT NULL OR origin IN ('simulated','agent_match'));
+```
+
+- **`origin` vs `source` — read this twice.** The spec named the provenance
+  column "source", but 019 had already shipped `battle_log.source` as *writer
+  attribution* (`web`/`rotom-mcp`/`backfill`, §9 shape) and deployed code
+  writes it. Code wins: **game provenance is `origin`** (`own_game | shared |
+  simulated | agent_match`, default `own_game`); `source` stays "who wrote the
+  row". Every downstream plan that says `source: simulated` means `origin`.
+- The pair-CHECK exists because composite FKs are `MATCH SIMPLE`: one NULL in
+  `(deck_id, deck_version)` would silently skip FK enforcement. A log has a
+  full deck anchor or none.
+- `raw_log` may be NULL only for engine-generated games (`simulated`,
+  `agent_match`) — no fake Live text is ever fabricated; pasted games ARE
+  their raw log.
+- Rows stay perspective-anchored regardless of origin: `result`/`opponent`/
+  `my_archetype` read from "my side"; for sims that side is the subject deck.
+
+### battle_events — the interchange stream
+
+Parser (A1) → engine validation (B4) → sim output (C2) → replay (D2) all speak
+this format:
+
+```sql
+CREATE TABLE battle_events (
+  log_id  BIGINT   NOT NULL REFERENCES battle_log(id) ON DELETE CASCADE,
+  seq     INTEGER  NOT NULL CHECK (seq >= 1),      -- total order within a log
+  turn    SMALLINT CHECK (turn >= 1),              -- NULL = pre-game/setup
+  actor   TEXT     NOT NULL CHECK (actor IN ('me','opp','system')),
+  type    TEXT     NOT NULL CHECK (type ~ '^[a-z][a-z0-9_]{1,63}$'),
+  payload JSONB    NOT NULL DEFAULT '{}'::jsonb,
+  PRIMARY KEY (log_id, seq)                        -- doubles as the replay read path
+);
+```
+
+**Starter type taxonomy** (ADDITIVE-ONLY after W0's merge; A1's census refines
+payload shapes, never repurposes a type — `type` is regex-checked, not
+enum-checked, so additions need no migration): `coin_toss`, `go_first`,
+`opening_hand`, `mulligan` (setup, NULL turn) · `turn_start`, `draw`,
+`play_to_bench`, `play_to_active`, `play_trainer`, `play_stadium`, `evolve`,
+`attach`, `use_ability`, `attack` (payload: name/target/damage), `knockout`,
+`prize_take`, `promote`, `retreat`, `shuffle`, `reveal`, `search`, `end_turn` ·
+`game_end` (payload: outcome `win|concede|timeout`, winner). `actor` = `me`
+(the perspective player), `opp`, or `system` (neutral events); player display
+names live in payloads.
+
+### Archetype registry + the matchup grouping rule
+
+`opponent_deck` is freetext (Ground Truth #4); structured stats need canonical
+labels first:
+
+```sql
+CREATE TABLE archetype (
+  slug TEXT PRIMARY KEY CHECK (slug ~ '^[a-z0-9][a-z0-9-]{0,79}$'),  -- canonical
+  name TEXT NOT NULL,          -- display: 'Dragapult ex / Dusknoir'
+  notes TEXT, source TEXT NOT NULL DEFAULT 'web', created_at TIMESTAMPTZ …
+);
+CREATE TABLE archetype_alias (
+  alias TEXT PRIMARY KEY,      -- stored normalized: lower(trim), ws collapsed
+  archetype_slug TEXT NOT NULL REFERENCES archetype(slug)
+                 ON UPDATE CASCADE ON DELETE CASCADE
+);
+```
+
+**Grouping rule (the contract `matchup_stats` implements):** normalize input
+(lower/trim/collapse whitespace) → look up as a slug, then as an alias → on
+match store the canonical slug on `battle_log.my_archetype`/`opp_archetype`
+(FK-enforced); on miss the field stays NULL and groups as **`unclassified`** —
+reported, never silently dropped. Registering the archetype and re-running
+synthesis heals old rows. Merging archetypes = repoint rows to the survivor,
+demote the losing slug to an alias. Slug renames cascade (`ON UPDATE CASCADE`).
+
+### Ledger tables: card_impls, gauntlet_decks
+
+```sql
+CREATE TABLE card_impls (          -- engine card-behavior ledger (B3 maintains)
+  card_id BIGINT PRIMARY KEY REFERENCES card(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK (status IN ('implemented','partial','stub','blocked')),
+  impl_ref TEXT, notes TEXT, source TEXT …, created_at …, updated_at …
+);
+CREATE TABLE gauntlet_decks (      -- meta decks = ordinary decks + provenance (C1)
+  deck_id UUID PRIMARY KEY REFERENCES deck(id) ON DELETE CASCADE,
+  archetype_slug TEXT REFERENCES archetype(slug) ON UPDATE CASCADE,
+  source_url TEXT NOT NULL, source_site TEXT NOT NULL DEFAULT 'limitless',
+  meta JSONB NOT NULL DEFAULT '{}', fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+Reprint equivalence for `card_impls` resolves at **query time** via
+`card.playable_fingerprint`: `impl_gaps` (C1) treats a card as covered when any
+card sharing its fingerprint is `implemented`. A gauntlet deck's card list is
+an ordinary `deck`/`deck_card`; this table only marks provenance + staleness.
+
+### battle_memories — the semantic knowledge layer (pgvector)
+
+```sql
+CREATE TABLE battle_memories (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  log_id BIGINT NOT NULL REFERENCES battle_log(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'narrative',
+  content TEXT NOT NULL CHECK (char_length(content) <= 8000),
+  embedding vector(768) NOT NULL,      -- nomic-embed-text via local ollama
+  model TEXT NOT NULL DEFAULT 'nomic-embed-text',
+  created_at …, updated_at …,
+  UNIQUE (log_id, kind)                -- re-synthesis UPSERTs here (idempotent)
+);
+CREATE INDEX battle_memories_embedding_hnsw
+  ON battle_memories USING hnsw (embedding vector_cosine_ops);
+```
+
+A2 writes narratives + embeddings through the chat-synthesis path;
+`battle_search` (A3) embeds query text with the **same model** and ranks by
+cosine (`embedding <=> $1`). `model` is recorded because changing it means
+re-embedding the table. Simulated games embed sampled, not exhaustively (C2's
+call). Naming note: the four spec-named tables (`battle_events`, `card_impls`,
+`gauntlet_decks`, `battle_memories`) keep the spec's plural spelling verbatim —
+they are the cross-branch vocabulary — a deliberate deviation from this
+schema's singular convention (see DECISIONS.md 2026-08-01).
 
 
 # 9. Collection, goals, and progress

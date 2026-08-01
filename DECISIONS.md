@@ -861,6 +861,52 @@ crashing (regex alternation truncating `.tsx`→`.ts`; `''.splitlines()[0]` Inde
 an empty diff block), not worker failures. Test manifest checks against a synthetic
 artifact before running the swarm.
 
+## 2026-08-01 — W0 battle-intel contracts: migration 020 (feat/battle-contracts)
+**Decided by:** agent (W0 branch), per BATTLE-INTEL-SPEC.md §3 Wave 0 / Ground Truths #3–#6.
+**What shipped:** `packages/db/src/migrations/020_battle_intelligence.sql` — the shared
+schema vocabulary the A/B/C/D battle branches build on. Scratch-verified end-to-end
+(full 001→020 chain on a throwaway DB as the `pokedex` role + 18-case constraint smoke
+test); **NOT yet applied to the live DB** — see the pgvector gotcha below.
+- **One-table decision (spec asked for written rationale):** `battle_log` stays one
+  table for all game provenances rather than a separate corpus table. Downstream tools
+  (battle_search, matchup_stats, coach, replay) want one query surface with provenance
+  as a filter; rows are perspective-anchored either way; and the only real difference
+  for non-owned games is the missing deck anchor — which is a nullable-pair FK
+  (`CHECK ((deck_id IS NULL) = (deck_version IS NULL))` closes the MATCH SIMPLE hole),
+  not a new table. "Sim vs real never silently merged" is enforced in the reporting
+  layer, not by physical separation.
+- **⚠ `origin`, not `source` (spec deviation, code wins):** the spec's provenance
+  column ("source: own_game|shared|simulated|agent_match") collided with 019's shipped
+  `battle_log.source` = writer attribution (`web`/`rotom-mcp`, §9 shape, written by
+  deployed API+MCP). Game provenance is therefore **`battle_log.origin`** (default
+  `own_game`). Every downstream plan that says `source: simulated` means `origin`.
+- `raw_log` nullable only for engine games (`CHECK (raw_log IS NOT NULL OR origin IN
+  ('simulated','agent_match'))`) — no fake Live text, but pasted games ARE their log.
+- **Archetype registry** (`archetype` slug PK + `archetype_alias`, ON UPDATE CASCADE)
+  with the matchup grouping rule documented in SCHEMA.md §8.8: normalize → slug/alias
+  lookup → FK'd canonical on `my_archetype`/`opp_archetype`; miss = NULL = grouped as
+  `unclassified`, never dropped.
+- **`battle_events`** `(log_id, seq)` PK, `actor ∈ me|opp|system`, `type` regex-checked
+  (NOT enum) so A1's census extends the additive-only taxonomy without a migration.
+- **`card_impls`** keyed on `card.id`; reprint equivalence resolves at query time via
+  `card.playable_fingerprint`. **`gauntlet_decks`** = deck_id PK + provenance (decks
+  themselves are ordinary decks). **`battle_memories`** `vector(768)` (nomic-embed-text)
+  + HNSW cosine index, `UNIQUE (log_id, kind)` making re-synthesis idempotent.
+- Naming: the four spec-named tables keep the spec's **plural** names verbatim (they're
+  the cross-branch vocabulary) despite the schema's singular convention. Deliberate.
+**Gotcha — pgvector is NOT trusted:** unlike `pg_trgm`, `vector.control` (0.8.0, PG17)
+has no `trusted` flag, so the `pokedex` role gets `permission denied to create extension
+"vector"`. One-time superuser pre-step required per fresh DB **before** migrating:
+`sudo -u postgres psql -d pokedex -c 'CREATE EXTENSION IF NOT EXISTS vector'` — then
+020's `CREATE EXTENSION IF NOT EXISTS` no-ops. This is why 020 is not applied live yet:
+the pre-step is a superuser act the branch agent deliberately didn't run (no shared-infra
+escalation). The migration itself is strictly additive/relaxing — deployed 019-era code
+inserts/reads are unaffected (verified against apps/api decks.ts + mcp tools) — so
+merge-time order is: pre-step (Chey or with his OK) → `pnpm --filter @pokedex/db migrate`.
+**OPEN QUESTION for Chey (blocks merge, not build — Ground Truth #6):** does a future
+sim/synthesis worker (C2 runner) get a +1 on the Postgres connection budget (4 → 5), or
+must it batch on an existing slot's cadence? Record the answer here when given.
+
 ## 2026-08-07 — the image cache now documents where every byte came from
 **Chey (chat):** *"yes, please fix and make sure we're always documenting original
 source when we add images to the cache going forward."*
