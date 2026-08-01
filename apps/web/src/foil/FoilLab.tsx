@@ -1,8 +1,10 @@
 // foil/FoilLab.tsx — the quarantined foil tuning workbench (/pokedex/foil-lab).
 //
 // Reachable by URL only — linked from NOWHERE in the app shell (quarantine
-// rule, roadmap/plans/foil-main.md). One owned card/variant at a time, real
-// scan from the image cache, tilt-driven foil shader, and dev controls:
+// rule, roadmap/plans/foil-main.md). One card/variant at a time — ANY card in
+// the catalog, owned or not (Owned-only is a filter toggle; scans come from
+// the app-wide image cache either way), real scan from the image cache,
+// tilt-driven foil shader, and dev controls:
 // uniform sliders, pattern override, mask overlay toggle, Apple-Pencil hand
 // mask editing, and a comment queue. Layouts: single column at phone widths
 // (390px), two columns from iPad-mini portrait up (≥700px: viewer | controls).
@@ -12,8 +14,8 @@
 // they probe as unavailable and those affordances hide themselves.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { foilApi, type FoilMaskMeta } from './api'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { foilApi, type FoilMaskMeta, type FoilVariant } from './api'
 import { PATTERNS, patternById, type FoilPattern } from './patterns'
 import { GLOBAL_DEFAULTS } from './shader'
 import { resolveFoil, maskForScope, ERAS, RESOLVER_VERSION, type FoilScope } from './resolver'
@@ -22,6 +24,7 @@ import { CardViewer, cardScreenRect, type ViewerSettings } from './CardViewer'
 import { MaskEditor, createMaskCanvas, MASK_W, MASK_H, type BrushMode, type MaskEditorHandle } from './MaskEditor'
 
 const LS_KEY = 'foil-lab:selection'
+const LS_OWNED_KEY = 'foil-lab:owned-only'
 
 interface Selection {
   seriesSlug?: string
@@ -165,6 +168,11 @@ function ActionBtn({
 
 export function FoilLab() {
   const [sel, setSel] = useState<Selection>(loadSelection)
+  // Owned-only picker filter (default ON = the original owned-scans workbench).
+  const [ownedOnly, setOwnedOnly] = useState(() => localStorage.getItem(LS_OWNED_KEY) !== '0')
+  // Full-catalog name search (input is live; the query string is debounced).
+  const [searchText, setSearchText] = useState('')
+  const [searchQ, setSearchQ] = useState('')
   const [patternOverride, setPatternOverride] = useState<string>('auto')
   const [scopeOverride, setScopeOverride] = useState<'auto' | FoilScope>('auto')
   const [maskView, setMaskView] = useState(false)
@@ -207,21 +215,51 @@ export function FoilLab() {
   useEffect(() => {
     localStorage.setItem(LS_KEY, JSON.stringify(sel))
   }, [sel])
+  useEffect(() => {
+    localStorage.setItem(LS_OWNED_KEY, ownedOnly ? '1' : '0')
+  }, [ownedOnly])
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQ(searchText.trim()), 250)
+    return () => clearTimeout(t)
+  }, [searchText])
+  const searching = searchQ.length >= 2
 
   const tilt = useTilt()
 
-  // ── Data: owned series → owned sets → owned cards → card detail ──
-  const seriesQ = useQuery({ queryKey: ['foil', 'series'], queryFn: ({ signal }) => foilApi.ownedSeries(signal) })
+  // ── Data: series → sets → cards (each owned-filtered or full catalog) ──
+  const seriesQ = useQuery({
+    queryKey: ['foil', 'series', ownedOnly],
+    queryFn: ({ signal }) => foilApi.series(ownedOnly, signal),
+  })
   const setsQ = useQuery({
-    queryKey: ['foil', 'sets', sel.seriesSlug],
-    queryFn: ({ signal }) => foilApi.ownedSets(sel.seriesSlug!, signal),
+    queryKey: ['foil', 'sets', sel.seriesSlug, ownedOnly],
+    queryFn: ({ signal }) => foilApi.sets(sel.seriesSlug!, ownedOnly, signal),
     enabled: Boolean(sel.seriesSlug),
   })
-  const cardsQ = useQuery({
-    queryKey: ['foil', 'cards', sel.setId],
-    queryFn: ({ signal }) => foilApi.ownedCards(sel.setId!, signal),
+  // Paged (promo sets run 300+ cards; the strip appends pages via a More chip).
+  const cardsQ = useInfiniteQuery({
+    queryKey: ['foil', 'cards', sel.setId, ownedOnly],
+    queryFn: ({ pageParam, signal }) => foilApi.cards(sel.setId!, ownedOnly, pageParam, signal),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.page < last.pageCount ? last.page + 1 : undefined),
     enabled: Boolean(sel.setId),
   })
+  const cards = useMemo(() => cardsQ.data?.pages.flatMap((p) => p.cards) ?? [], [cardsQ.data])
+  const cardsTotal = cardsQ.data?.pages[0]?.total ?? 0
+  // Full-catalog search — deliberately ignores Owned-only (search exists to
+  // reach cards the browse filters would hide).
+  const searchResultsQ = useInfiniteQuery({
+    queryKey: ['foil', 'search', searchQ],
+    queryFn: ({ pageParam, signal }) => foilApi.search(searchQ, pageParam, signal),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.page < last.pageCount ? last.page + 1 : undefined),
+    enabled: searching,
+  })
+  const searchHits = useMemo(
+    () => searchResultsQ.data?.pages.flatMap((p) => p.hits) ?? [],
+    [searchResultsQ.data],
+  )
+  const searchTotal = searchResultsQ.data?.pages[0]?.total ?? 0
   const detailQ = useQuery({
     queryKey: ['foil', 'card', sel.cardId],
     queryFn: ({ signal }) => foilApi.cardDetail(sel.cardId!, signal),
@@ -230,7 +268,9 @@ export function FoilLab() {
   const devQ = useQuery({ queryKey: ['foil', 'dev-surface'], queryFn: () => foilApi.devSurface(), staleTime: Infinity })
   const devSurface = devQ.data === true
 
-  // Auto-select down the chain (prefer the classic demo: Base Set Machamp).
+  // Auto-select down the chain, but ONLY into empty slots (prefer the classic
+  // demo: Base Set Machamp). A selection that isn't in the current browse list
+  // (picked via search, or hidden by Owned-only) is preserved, never clobbered.
   useEffect(() => {
     if (!sel.seriesSlug && seriesQ.data?.length) {
       const base = seriesQ.data.find((s) => s.slug === 'base')
@@ -238,23 +278,37 @@ export function FoilLab() {
     }
   }, [seriesQ.data, sel.seriesSlug])
   useEffect(() => {
-    if (sel.seriesSlug && setsQ.data?.length && !setsQ.data.some((s) => s.setId === sel.setId)) {
+    if (sel.seriesSlug && setsQ.data?.length && !sel.setId) {
       const base1 = setsQ.data.find((s) => s.setId === 'base1')
       setSel((p) => ({ ...p, setId: (base1 ?? setsQ.data[0]).setId, cardId: undefined, variantId: undefined }))
     }
   }, [setsQ.data, sel.seriesSlug, sel.setId])
   useEffect(() => {
-    if (sel.setId && cardsQ.data?.length && !cardsQ.data.some((c) => c.cardId === sel.cardId)) {
-      const machamp = cardsQ.data.find((c) => c.cardId === 'base1-8')
-      setSel((p) => ({ ...p, cardId: (machamp ?? cardsQ.data[0]).cardId, variantId: undefined }))
+    if (sel.setId && cards.length && !sel.cardId) {
+      const machamp = cards.find((c) => c.cardId === 'base1-8')
+      setSel((p) => ({ ...p, cardId: (machamp ?? cards[0]).cardId, variantId: undefined }))
     }
-  }, [cardsQ.data, sel.setId, sel.cardId])
+  }, [cards, sel.setId, sel.cardId])
+  // Keep the browse chain pointed at the shown card's home (a search pick can
+  // jump to any set/series in the catalog).
+  useEffect(() => {
+    const d = detailQ.data
+    if (!d) return
+    setSel((p) =>
+      p.cardId === d.card.cardId && (p.seriesSlug !== d.card.series.slug || p.setId !== d.card.set.setId)
+        ? { ...p, seriesSlug: d.card.series.slug, setId: d.card.set.setId }
+        : p,
+    )
+  }, [detailQ.data])
   useEffect(() => {
     const vs = detailQ.data?.variants
     if (vs?.length && !vs.some((v) => v.variantId === sel.variantId)) {
-      const ownedHolo = vs.find((v) => v.quantity > 0 && v.kind.toLowerCase().includes('holo'))
-      const owned = vs.find((v) => v.quantity > 0)
-      setSel((p) => ({ ...p, variantId: (ownedHolo ?? owned ?? vs[0]).variantId }))
+      // Owned holo > any owned > any holo (unowned cards list their catalog
+      // variants; the foil-bearing kind is the interesting default) > first.
+      const holo = (v: FoilVariant) => v.kind.toLowerCase().includes('holo')
+      const pick =
+        vs.find((v) => v.quantity > 0 && holo(v)) ?? vs.find((v) => v.quantity > 0) ?? vs.find(holo) ?? vs[0]
+      setSel((p) => ({ ...p, variantId: pick.variantId }))
     }
   }, [detailQ.data, sel.variantId])
 
@@ -491,20 +545,29 @@ export function FoilLab() {
   const imageUrl = detail?.card.images.high ?? null
   const cardRect = cardScreenRect(hostSize.w, hostSize.h)
 
-  // Era-grouped picker: owned series bucketed by frame generation.
+  // Era-grouped picker: series bucketed by frame generation. Series with no
+  // era-layouts.json mapping get an honest "other" bucket rather than being
+  // silently lumped under the SV header (the resolver still falls back to
+  // modern-sv rects for them — that's the layout prior, not the grouping).
+  const mappedSlugs = useMemo(() => new Set(Object.values(ERAS).flatMap((e) => e.seriesSlugs)), [])
   const eraGroups = useMemo(() => {
     const groups: { eraId: string; label: string; series: NonNullable<typeof seriesQ.data> }[] = []
     for (const s of seriesQ.data ?? []) {
-      const eraId = resolveFoil({ seriesSlug: s.slug, rarity: null, variantKind: null }).eraId
+      const mapped = mappedSlugs.has(s.slug)
+      const eraId = mapped ? resolveFoil({ seriesSlug: s.slug, rarity: null, variantKind: null }).eraId : 'other'
       let g = groups.find((x) => x.eraId === eraId)
       if (!g) {
-        g = { eraId, label: ERAS[eraId].label, series: [] }
+        g = {
+          eraId,
+          label: mapped ? ERAS[eraId as keyof typeof ERAS].label : 'Other eras (no layout spec yet — SV rects)',
+          series: [],
+        }
         groups.push(g)
       }
       g.series.push(s)
     }
     return groups
-  }, [seriesQ.data])
+  }, [seriesQ.data, mappedSlugs])
 
   return (
     <div className="flex min-h-screen flex-col bg-surface-primary text-text-primary min-[700px]:h-screen min-[700px]:flex-row min-[700px]:overflow-hidden">
@@ -566,58 +629,142 @@ export function FoilLab() {
 
       {/* ── Controls column ── */}
       <div className="flex-1 space-y-[12px] overflow-y-auto p-[12px] min-[700px]:w-[360px] min-[700px]:flex-none min-[700px]:shrink-0 min-[1200px]:w-[400px]">
-        <Section title="Card (owned scans, by era)">
-          {eraGroups.map((g) => (
-            <div key={g.eraId} className="mb-[6px]">
-              <div className="mb-[4px] text-[10px] uppercase tracking-[0.06em] text-text-muted">{g.label}</div>
-              <div className="flex gap-[6px] overflow-x-auto pb-[2px]">
-                {g.series.map((s) => (
-                  <Chip
-                    key={s.slug}
-                    active={s.slug === sel.seriesSlug}
-                    onClick={() =>
-                      setSel({ seriesSlug: s.slug, setId: undefined, cardId: undefined, variantId: undefined })
-                    }
-                  >
-                    {s.name} <span className="opacity-60">{s.progress.owned}</span>
-                  </Chip>
-                ))}
-              </div>
-            </div>
-          ))}
-          {setsQ.data && (
-            <Select
-              value={sel.setId ?? ''}
-              onChange={(v) => setSel((p) => ({ ...p, setId: v, cardId: undefined, variantId: undefined }))}
-            >
-              {setsQ.data.map((s) => (
-                <option key={s.setId} value={s.setId}>
-                  {s.name} ({s.progress.complete.owned} owned)
-                </option>
-              ))}
-            </Select>
-          )}
-          <div className="mt-[8px] flex gap-[8px] overflow-x-auto pb-[4px]">
-            {(cardsQ.data ?? []).map((c) => (
-              <button
-                key={c.cardId}
-                onClick={() => setSel((p) => ({ ...p, cardId: c.cardId, variantId: undefined }))}
-                className={`w-[64px] shrink-0 overflow-hidden rounded-[5px] border-2 ${
-                  c.cardId === sel.cardId ? 'border-action-primary' : 'border-transparent'
-                }`}
-                title={`${c.name} #${c.number}`}
-              >
-                <img
-                  src={c.images.low}
-                  alt={c.name}
-                  loading="lazy"
-                  className="block w-full"
-                  style={{ aspectRatio: '245 / 337' }}
-                />
-              </button>
-            ))}
-            {cardsQ.isLoading && <span className="text-[12px] text-text-muted">loading…</span>}
+        <Section title={ownedOnly ? 'Card (owned, by era)' : 'Card (full catalog, by era)'}>
+          <div className="mb-[8px] flex items-center gap-[8px]">
+            <input
+              type="search"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="Search all cards…"
+              className="min-w-0 flex-1 rounded-md border border-border-default bg-surface-tertiary px-[8px] py-[6px] text-[13px] text-text-primary placeholder:text-text-muted"
+            />
+            <Chip active={ownedOnly} onClick={() => setOwnedOnly((o) => !o)}>
+              Owned only
+            </Chip>
           </div>
+          {searching ? (
+            <div>
+              <div className="max-h-[300px] space-y-[2px] overflow-y-auto">
+                {searchHits.map((h) => (
+                  <button
+                    key={h.cardId}
+                    onClick={() => {
+                      setSel((p) => ({ ...p, cardId: h.cardId, variantId: undefined }))
+                      setSearchText('')
+                    }}
+                    className={`flex w-full items-center gap-[8px] rounded-md px-[4px] py-[3px] text-left hover:bg-surface-tertiary ${
+                      h.cardId === sel.cardId ? 'bg-action-primary/10' : ''
+                    }`}
+                  >
+                    <img
+                      src={h.images.low}
+                      alt=""
+                      loading="lazy"
+                      className="w-[30px] shrink-0 rounded-[2px]"
+                      style={{ aspectRatio: '245 / 337' }}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] text-text-primary">{h.name}</span>
+                      <span className="block truncate text-[11px] text-text-muted">
+                        {h.set.name} · #{h.number}
+                        {h.rarity ? ` · ${h.rarity}` : ''}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+                {searchResultsQ.isLoading && <p className="py-[6px] text-[12px] text-text-muted">searching…</p>}
+                {!searchResultsQ.isLoading && searchHits.length === 0 && (
+                  <p className="py-[6px] text-[12px] text-text-muted">No catalog match for “{searchQ}”.</p>
+                )}
+                {searchResultsQ.hasNextPage && (
+                  <button
+                    onClick={() => void searchResultsQ.fetchNextPage()}
+                    className="w-full rounded-md border border-border-default py-[6px] text-[12px] text-text-muted hover:border-action-primary"
+                  >
+                    {searchResultsQ.isFetchingNextPage ? 'loading…' : `More (${searchTotal - searchHits.length} left)`}
+                  </button>
+                )}
+              </div>
+              {searchHits.length > 0 && (
+                <p className="mt-[6px] text-[11px] text-text-muted">
+                  {searchTotal} match{searchTotal === 1 ? '' : 'es'} in the whole catalog (ignores Owned only)
+                </p>
+              )}
+            </div>
+          ) : (
+            <>
+              {eraGroups.map((g) => (
+                <div key={g.eraId} className="mb-[6px]">
+                  <div className="mb-[4px] text-[10px] uppercase tracking-[0.06em] text-text-muted">{g.label}</div>
+                  <div className="flex gap-[6px] overflow-x-auto pb-[2px]">
+                    {g.series.map((s) => (
+                      <Chip
+                        key={s.slug}
+                        active={s.slug === sel.seriesSlug}
+                        onClick={() =>
+                          setSel({ seriesSlug: s.slug, setId: undefined, cardId: undefined, variantId: undefined })
+                        }
+                      >
+                        {s.name}
+                        {ownedOnly && <span className="ml-[4px] opacity-60">{s.progress.owned}</span>}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {setsQ.data && (
+                <Select
+                  value={sel.setId ?? ''}
+                  onChange={(v) => setSel((p) => ({ ...p, setId: v, cardId: undefined, variantId: undefined }))}
+                >
+                  {sel.setId && !setsQ.data.some((s) => s.setId === sel.setId) && (
+                    <option value={sel.setId}>{detail?.card.set.name ?? sel.setId} (outside filter)</option>
+                  )}
+                  {setsQ.data.map((s) => (
+                    <option key={s.setId} value={s.setId}>
+                      {s.name} ({ownedOnly ? `${s.progress.complete.owned} owned` : `${s.cardCountTotal} cards`})
+                    </option>
+                  ))}
+                </Select>
+              )}
+              <div className="mt-[8px] flex gap-[8px] overflow-x-auto pb-[4px]">
+                {cards.map((c) => (
+                  <button
+                    key={c.cardId}
+                    onClick={() => setSel((p) => ({ ...p, cardId: c.cardId, variantId: undefined }))}
+                    className={`relative w-[64px] shrink-0 overflow-hidden rounded-[5px] border-2 ${
+                      c.cardId === sel.cardId ? 'border-action-primary' : 'border-transparent'
+                    }`}
+                    title={`${c.name} #${c.number}`}
+                  >
+                    <img
+                      src={c.images.low}
+                      alt={c.name}
+                      loading="lazy"
+                      className="block w-full"
+                      style={{ aspectRatio: '245 / 337' }}
+                    />
+                    {!ownedOnly && c.ownership.totalQuantity > 0 && (
+                      <span
+                        className="absolute right-[3px] top-[3px] h-[8px] w-[8px] rounded-full bg-action-primary ring-1 ring-black/40"
+                        title="owned"
+                      />
+                    )}
+                  </button>
+                ))}
+                {cardsQ.hasNextPage && (
+                  <button
+                    onClick={() => void cardsQ.fetchNextPage()}
+                    className="flex w-[64px] shrink-0 items-center justify-center rounded-[5px] border border-border-default text-[12px] text-text-muted hover:border-action-primary"
+                    style={{ aspectRatio: '245 / 337' }}
+                  >
+                    {cardsQ.isFetchingNextPage ? '…' : `+${cardsTotal - cards.length}`}
+                  </button>
+                )}
+                {cardsQ.isLoading && <span className="text-[12px] text-text-muted">loading…</span>}
+              </div>
+            </>
+          )}
           {detail && (
             <div className="mt-[8px] flex flex-wrap gap-[6px]">
               {detail.variants.map((v) => (
