@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -210,6 +210,20 @@ const overlayRoute = createRoute({
   component: Overlay,
 })
 
+// Quarantined foil workbench (foil/main track) — reachable by URL only,
+// linked from NOWHERE in the app shell, zero imports to/from collection
+// views. Lazy so the three.js + shader chunk stays out of the main bundle.
+const FoilLab = lazy(() => import('./foil/FoilLab').then((m) => ({ default: m.FoilLab })))
+const foilLabRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/foil-lab',
+  component: () => (
+    <Suspense fallback={null}>
+      <FoilLab />
+    </Suspense>
+  ),
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   authRoute,
@@ -229,6 +243,7 @@ const routeTree = rootRoute.addChildren([
   scanRoute,
   searchRoute,
   overlayRoute,
+  foilLabRoute,
 ])
 
 const router = createRouter({
@@ -243,13 +258,20 @@ declare module '@tanstack/react-router' {
   }
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
-  </StrictMode>,
-)
-
-// Register the service worker + request persistent storage (iOS-eviction guard).
-registerPwa()
+// Guard against double entry evaluation (dev-only Vite HMR footgun: after an
+// edit invalidates this entry on a hot server, a fresh load can execute
+// main.tsx twice — bare URL + ?t= URL — mounting two React roots side by
+// side; observed 2026-08-01 on the foil workbench). Prod executes once.
+const w = window as unknown as { __pokedexRootMounted?: boolean }
+if (!w.__pokedexRootMounted) {
+  w.__pokedexRootMounted = true
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </StrictMode>,
+  )
+  // Register the service worker + request persistent storage (iOS-eviction guard).
+  registerPwa()
+}
