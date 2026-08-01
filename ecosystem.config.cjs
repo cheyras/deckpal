@@ -56,6 +56,19 @@ module.exports = {
       watch: false,
     },
     {
+      name: 'pokedex-devhub',
+      script: 'tools/devhub/server.mjs',
+      cwd: '/home/cheyras/pokedex',
+      interpreter: '/usr/bin/node',
+      // LAN-only dev-surface hub on :3999 (ufw admits LAN; router forwards only 80/443,
+      // nginx has no route here — keep it that way). No DB, no deps.
+      env: { NODE_ENV: 'production', DEVHUB_PORT: 3999 },
+      exec_mode: 'fork',
+      max_memory_restart: '100M',
+      autorestart: true,
+      watch: false,
+    },
+    {
       name: 'pokedex-sync',
       script: 'dist/index.js',
       cwd: '/home/cheyras/pokedex/apps/sync',
