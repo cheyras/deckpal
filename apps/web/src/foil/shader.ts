@@ -22,6 +22,9 @@
 //     uMaskFeather float      mask edge softness
 //     uMaskInvert  float      0 = inside rect, 1 = outside (reverse holo)
 //     uMaskView    float      1 = debug-tint the masked zone red
+//   Mask (hand-drawn tier; beats the layout tier when present)
+//     uMaskTex     sampler2D  hand-drawn mask, ALPHA channel = foil coverage
+//     uMaskTexOn   float      1 = sample uMaskTex instead of the layout rect
 //   Pattern params (recipe-owned; labelled sliders in the workbench)
 //     uP0..uP3     float      meaning defined per recipe in patterns.ts
 //
@@ -79,6 +82,8 @@ uniform float uMaskRadius;
 uniform float uMaskFeather;
 uniform float uMaskInvert;
 uniform float uMaskView;
+uniform sampler2D uMaskTex;
+uniform float uMaskTexOn;
 uniform float uP0;
 uniform float uP1;
 uniform float uP2;
@@ -142,8 +147,15 @@ void main() {
   float a = cardAlpha(uv);
   if (a <= 0.001) discard;
   vec4 face = texture2D(uFace, uv);
-  float m = rectMask(uv, uMaskRect, uMaskRadius, uMaskFeather);
-  m = mix(m, 1.0 - m, uMaskInvert);
+  float m;
+  if (uMaskTexOn > 0.5) {
+    // Hand-drawn mask: alpha = coverage, absolute (no invert). The canvas is
+    // drawn in image space (y down), so flip V.
+    m = texture2D(uMaskTex, vec2(uv.x, 1.0 - uv.y)).a;
+  } else {
+    m = rectMask(uv, uMaskRect, uMaskRadius, uMaskFeather);
+    m = mix(m, 1.0 - m, uMaskInvert);
+  }
   // Luminance gate: holo sheet shows where the scan is dark (foil background),
   // printed ink stays readable. uArtGate = 0 disables (reverse sheets are light).
   float faceLum = dot(face.rgb, vec3(0.299, 0.587, 0.114));
@@ -155,6 +167,16 @@ void main() {
   gl_FragColor = vec4(col, a);
 }
 `
+
+// 1×1 opaque white fallback so uMaskTex is always a valid sampler.
+let white: THREE.DataTexture | null = null
+function whiteTexture(): THREE.DataTexture {
+  if (!white) {
+    white = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1)
+    white.needsUpdate = true
+  }
+  return white
+}
 
 export function buildFoilMaterial(pattern: FoilPattern): THREE.ShaderMaterial {
   const uniforms: Record<string, THREE.IUniform> = {
@@ -173,6 +195,8 @@ export function buildFoilMaterial(pattern: FoilPattern): THREE.ShaderMaterial {
     uMaskFeather: { value: 0.008 },
     uMaskInvert: { value: 0 },
     uMaskView: { value: 0 },
+    uMaskTex: { value: whiteTexture() },
+    uMaskTexOn: { value: 0 },
     uP0: { value: 0 },
     uP1: { value: 0 },
     uP2: { value: 0 },
