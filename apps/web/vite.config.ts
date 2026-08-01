@@ -3,6 +3,27 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Dev-only: load the dev-hub floating surface switcher (tools/dev-hub-legacy) from port 3999
+// on whatever host the page was opened from. apply:'serve' keeps prod builds untouched.
+const dev-hub-legacySwitcher = () => ({
+  name: 'dev-hub-legacy-switcher',
+  apply: 'serve' as const,
+  transformIndexHtml() {
+    return [
+      {
+        tag: 'script',
+        injectTo: 'head' as const,
+        children:
+          "var s=document.createElement('script');s.src='http://'+location.hostname+':3999/switcher.js';s.defer=true;document.head.appendChild(s);",
+      },
+    ];
+  },
+});
+
+// Worktree branches that change the API run their own instance and point the dev
+// proxy at it via POKEDEX_DEV_API_PORT (see roadmap/ORCHESTRATION.md port table).
+const devApiPort = process.env.POKEDEX_DEV_API_PORT ?? '3700';
+
 // Sub-path deploy: served at /pokedex/ behind nginx (see ARCHITECTURE §4).
 // Trailing slash on base is required. Router basepath is /pokedex (no slash).
 export default defineConfig({
@@ -10,6 +31,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    dev-hub-legacySwitcher(),
     // PWA — injectManifest (hand-written src/sw.ts) so we control the the SSO gate
     // JSON guard, network-only mutations, and the LRU image cap (FRONTEND.md §C.2).
     // start_url/scope inherit base ('/pokedex/'); the SW is emitted at
@@ -50,7 +72,7 @@ export default defineConfig({
     port: 5199,
     proxy: {
       // Dev-only: proxy API + image service so the app talks to /pokedex/... same-origin.
-      '/pokedex/api': 'http://127.0.0.1:3700',
+      '/pokedex/api': `http://127.0.0.1:${devApiPort}`,
       '/pokedex/images': 'http://127.0.0.1:3701',
     },
   },
