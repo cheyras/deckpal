@@ -1,0 +1,32 @@
+import {
+  Effect,
+  State,
+  StoreLike,
+  TrainerCard,
+  TrainerEffect,
+  TrainerType,
+} from '../../../common';
+import { commonTrainers } from '../../common';
+
+
+export class Switch extends TrainerCard {
+  public trainerType: TrainerType = TrainerType.ITEM;
+
+  public set: string = 'BW';
+
+  public name: string = 'Switch';
+
+  public fullName: string = 'Switch SSH';
+
+  public text: string = 'Switch your Active Pokémon with 1 of your Benched Pokémon.';
+
+  public reduceEffect(store: StoreLike, state: State, effect: Effect): State {
+    const switchItem = commonTrainers.switchItem(this, store, state, effect);
+    
+    if (effect instanceof TrainerEffect && effect.trainerCard === this) {
+      switchItem.playCard(effect);
+    }
+
+    return state;
+  }
+}

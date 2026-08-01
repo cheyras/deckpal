@@ -1,0 +1,22 @@
+{
+  "name": "@pokedex/engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pokemon TCG rules engine + bot, vendored from keeshii/ryuu-play (MIT) — see README.md",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "pako": "^2.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pako": "^2.0.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

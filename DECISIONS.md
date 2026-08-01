@@ -861,6 +861,47 @@ crashing (regex alternation truncating `.tsx`→`.ts`; `''.splitlines()[0]` Inde
 an empty diff block), not worker failures. Test manifest checks against a synthetic
 artifact before running the swarm.
 
+## 2026-08-01 — B1: fork RyuuPlay (`@ptcg/common` + SimpleBot) as `packages/engine` — not greenfield
+**Question:** the battle-intel rules engine (spec §3 B1): fork `keeshii/ryuu-play` or build
+greenfield? Greenfield was the named over-engineering risk; the bar for it was "a state
+model that fights modern mechanics badly", not aesthetics.
+**Evaluation (firsthand, clone @ `9cd20b6`):** the core is ~150 files of framework-free
+strict TypeScript with ONE runtime dep (pako, replay encoder only). The state model is a
+redux-style store whose `Effect` objects are offered to every card in play/hand/deck/
+discard before default handling, with `preventDefault` — i.e. a real replacement-effect
+system, which is exactly the surface modern Abilities/Tools/Stadiums modify. Choices are
+prompt objects with validate/rollback (illegal actions can never corrupt state);
+generators script multi-step effects; ALL randomness flows through prompts (seeded
+determinism for C2 is one arbiter injection away); hidden zones are modeled
+(`isSecret`/`isPublic` — matches Ground Truth #7); multi-prize KOs are already
+parameterized (`KnockOutEffect.prizeCount`, DP `POKEMON_EX` tag adds +1); Ace-Spec
+singleton deck rule already enforced; per-format `Rules` toggles already cover 2 of the
+3 modern first-turn rules; dynamic bench size (Area Zero shape) exists; SimpleBot
+simulates candidate actions on a cloned headless Simulator and scores them with
+configurable weights. Card behavior is imperative TS (`reduceEffect` overrides) with a
+folder of reusable parameterized templates — B3's DSL prior art, as predicted.
+**Decision: fork.** Every gap found is additive (modern tag taxonomy + 2/3-prize
+handlers, first-turn-attack rule flag, modern burn semantics, seeded arbiter, turn-window
+marker helpers, per-player bench size) — none structural. The full list with card-text
+citations is `roadmap/engine-gap-analysis.md` (B2's requirements doc). Greenfield would
+re-derive ~1,400 lines of proven turn-loop/prompt/rollback machinery for zero mechanical
+advantage.
+**Vendoring:** `packages/engine` (`@pokedex/engine`, private) = upstream `common` →
+`src/common`, `simple-bot` → `src/bot`, `sets` → `src/cards` (kept intact as DSL prior
+art + smoke-test material). Discarded: Angular client, Cordova shell, lobby server (the
+only TypeORM/SQLite user — the game core has no persistence to strip), avatars/scans/
+docker. `@progress/pako-esm` swapped for plain `pako` (ESM-only dep inside a CJS package).
+The package is deliberately **CommonJS** under the repo's `module: Node16`: upstream's
+~1,000 files use extensionless relative imports, legal in CJS mode — ESM would mean
+rewriting every import for zero runtime benefit. Repo-strictness deltas
+(`noUncheckedIndexedAccess`, `noImplicitOverride`) are relaxed in the package tsconfig
+only — vendored code compiles under its native strictness; B2+ tightens as it touches
+files. Upstream LICENSE (MIT, keeshii) preserved in-package with origin + commit in the
+README. Core specs ported jasmine → `node:test` (repo convention); upstream's ~119
+DP-era card-implementation specs intentionally not vendored (card sources are the prior
+art; B3 replaces the impl layer). Smoke test: a full legal game of vanilla basics plays
+to completion under SimpleBot, pure, in CI.
+
 ## 2026-08-07 — the image cache now documents where every byte came from
 **Chey (chat):** *"yes, please fix and make sure we're always documenting original
 source when we add images to the cache going forward."*
