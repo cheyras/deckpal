@@ -74,7 +74,7 @@ function cardPath(t: Target, quality: string): string {
 }
 
 async function fetchTargets(pool: pg.Pool, args: Args): Promise<Target[]> {
-  const params: unknown[] = [args.quality];
+  const params: unknown[] = [];
   let sql = `
     SELECT c.id AS card_id, ser.tcgdex_id AS serie, cs.tcgdex_id AS set, c.local_id
       FROM card c
@@ -82,8 +82,12 @@ async function fetchTargets(pool: pg.Pool, args: Args): Promise<Target[]> {
       JOIN series ser  ON ser.id = cs.series_id`;
   const where: string[] = [];
   if (!args.force) {
-    // resumable: only cards without a hash for this quality
-    sql += `\n LEFT JOIN card_image_phash ph ON ph.card_id = c.id AND ph.quality = $1`;
+    // resumable: only cards without a CURRENT-ALGO hash for this quality
+    // (an algo bump re-hashes everything even without --force)
+    params.push(args.quality);
+    sql += `\n LEFT JOIN card_image_phash ph ON ph.card_id = c.id AND ph.quality = $${params.length}`;
+    params.push(ALGO);
+    sql += ` AND ph.algo = $${params.length}`;
     where.push('ph.card_id IS NULL');
   }
   if (args.sets.length) {

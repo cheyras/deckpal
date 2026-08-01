@@ -88,6 +88,13 @@ interface Pricing {
   massEntryText: string;
 }
 
+/** GET /decks/:id/massentry — only what pricingLines renders. */
+interface DeckMassEntry {
+  urls: string[];
+  unlinkable: { name: string; number: string; setId: string }[];
+  warnings: string[];
+}
+
 interface TestHand {
   seed: number;
   deckSize: number;
@@ -145,8 +152,8 @@ function validationLines(v: Validation): string[] {
   return lines;
 }
 
-/** The gap analysis (SPEC §5 #8): owned vs needed, cost to close, mass-entry lines. */
-function pricingLines(p: Pricing, cards: DeckCardRow[]): string[] {
+/** The gap analysis (SPEC §5 #8): owned vs needed, cost to close, mass-entry lines + cart links. */
+function pricingLines(p: Pricing, cards: DeckCardRow[], me: DeckMassEntry | null): string[] {
   const lines = [
     `pricing (${p.currency}): deck total ${usd(p.totalUsd)} · owned value ${usd(p.ownedValueUsd)} · cost to close ${usd(p.missingValueUsd)}`,
   ];
@@ -176,6 +183,23 @@ function pricingLines(p: Pricing, cards: DeckCardRow[]): string[] {
   if (p.massEntryText) {
     lines.push('TCGplayer mass-entry lines:');
     for (const l of p.massEntryText.split('\n')) lines.push(`  ${l}`);
+  }
+  if (me && me.urls.length > 0) {
+    lines.push(
+      me.urls.length > 1
+        ? `TCGplayer cart links — user opens ALL ${me.urls.length} in their logged-in browser (each adds to the same cart):`
+        : 'TCGplayer cart link — user opens it in their logged-in browser:',
+    );
+    for (const u of me.urls) lines.push(`  ${u}`);
+    if (me.unlinkable.length > 0) {
+      lines.push(
+        `  not on TCGplayer (excluded from links): ${me.unlinkable.map((u) => `${u.name} ${u.setId} ${u.number}`).join(', ')}`,
+      );
+    }
+    for (const w of me.warnings) lines.push(`  warning: ${w}`);
+    lines.push(
+      "  tip: after the cart fills, TCGplayer's Cart Optimizer (inside the cart) can consolidate to the fewest sellers — or one seller with everything — for a single package.",
+    );
   }
   return lines;
 }
@@ -293,7 +317,8 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
         'strategy-guide presence, battle-log count — plus any requested includes: cards (the deck ' +
         'list with owned counts), validate (format-legality violations), pricing (the ' +
         'buy-the-missing-cards gap analysis: owned vs needed per card, cost to close, TCGplayer ' +
-        'mass-entry lines), testhand (a sample opening hand). Read-only. To create or edit a deck ' +
+        'mass-entry lines + cart deep link(s) the user can open to pre-fill a TCGplayer cart), ' +
+        'testhand (a sample opening hand). Read-only. To create or edit a deck ' +
         'use save_deck; to delete use delete_deck. Deck intelligence has its own tools: ' +
         'deck_strategy (the full strategy guide), battle_logs (game results per version), ' +
         'deck_history (version timeline, snapshots, revert).',
@@ -358,7 +383,15 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
         }
         if (want.has('pricing')) {
           const p = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/pricing`)) as Pricing;
-          lines.push(...pricingLines(p, detail.cards));
+          // Cart deep links are additive — a massentry failure (e.g. TCGCSV
+          // unreachable) must not sink the whole gap analysis.
+          let me: DeckMassEntry | null = null;
+          try {
+            me = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/massentry`)) as DeckMassEntry;
+          } catch {
+            /* links omitted; the mass-entry text above still works */
+          }
+          lines.push(...pricingLines(p, detail.cards, me));
         }
         if (want.has('testhand')) {
           const t = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/testhand`)) as TestHand;

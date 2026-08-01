@@ -181,8 +181,8 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       >
         <BrandMark size={33} />
         {!collapsed && (
-          <span className="flex-1 text-[22px] font-extrabold tracking-tight text-text-primary">
-            pokedex
+          <span className="flex-1">
+            <span className="brand-wordmark text-[21px] leading-none">Pokédex</span>
           </span>
         )}
         <button
@@ -214,7 +214,7 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
   if (!open) return null
-  const top = 'calc(99px + env(safe-area-inset-top))'
+  const top = 'calc(64px + env(safe-area-inset-top))'
   return (
     <>
       {/* tap-anywhere-outside backdrop */}
@@ -265,7 +265,7 @@ function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: bo
         paddingRight: 'env(safe-area-inset-right)',
       }}
     >
-      <div className="flex h-[99px] items-center gap-[12px] px-[16px] nav:h-[78px] nav:px-[24px]">
+      <div className="flex h-[64px] items-center gap-[12px] px-[16px] nav:h-[78px] nav:px-[24px]">
         {/* mobile: burger + brand */}
         <button
           onClick={onBurger}
@@ -274,8 +274,9 @@ function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: bo
         >
           <Icon name={drawerOpen ? 'close' : 'menu'} size={24} />
         </button>
-        <span className="flex items-center gap-[8px] nav:hidden">
+        <span className="flex min-w-0 items-center gap-[8px] nav:hidden">
           <BrandMark size={30} />
+          <span className="brand-wordmark text-[18px] leading-none">Pokédex</span>
         </span>
 
         {/* search input — desktop full, mobile circular button */}
@@ -340,10 +341,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Header onBurger={() => setDrawerOpen((o) => !o)} drawerOpen={drawerOpen} />
       <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
       <main className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
-        <div className="app-content pt-[99px] nav:pt-[78px]">{children}</div>
+        <div className="app-content pt-[64px] nav:pt-[78px]">{children}</div>
       </main>
       {/* Fixed sidebar occupies the left rail at ≥1068; offset main + header to match. */}
-      <style>{`.app-content{padding-top:calc(99px + env(safe-area-inset-top))}@media (min-width:1068px){.app-main{margin-left:${sidebarW}px}.app-header{left:${sidebarW}px}.app-content{padding-top:78px}}`}</style>
+      <style>{`.app-content{padding-top:calc(64px + env(safe-area-inset-top))}@media (min-width:1068px){.app-main{margin-left:${sidebarW}px}.app-header{left:${sidebarW}px}.app-content{padding-top:78px}}`}</style>
       <PwaUi />
     </div>
   )

@@ -19,15 +19,24 @@ import { fmtNumber } from '../lib/format'
 const FRAME_MS = 700 // how often we grab + send a frame while live
 const STABLE_FRAMES = 2 // identical confident matches in a row before we commit
 const CARD_ASPECT = 63 / 88 // TCG card width:height — the guide + capture aspect
+// Capture MARGIN beyond the guide (each dimension, total). A card that's tilted
+// or a touch outside the brackets gets clipped by an exact-guide crop, and no
+// server-side probe can recover pixels that were never sent — a 4°-tilted card
+// filling the guide already overflows it. The server trims the extra background
+// away and probes rotations, so loose framing costs nothing (measured: exact-
+// guide crop of an overflowing card ~81% top-1; margin+trim ~98%).
+const CAPTURE_MARGIN = 1.14
 
 function confidencePct(c: number): number {
   return Math.round(c * 100)
 }
 
-// Crop the live video frame to exactly the on-screen alignment guide, mapping
-// through the <video>'s object-fit:cover scaling so what the user frames is what
-// we hash. Returns a JPEG blob (background excluded → the server's whole-frame
-// hash matches full-bleed art directly). Null until the stream has real pixels.
+// Crop the live video frame to the on-screen alignment guide plus a small
+// margin, mapping through the <video>'s object-fit:cover scaling so what the
+// user frames is what we hash. The margin keeps a tilted or slightly-misplaced
+// card fully inside the sent frame; the server's background trim + rotation
+// probes take it from there. Returns a JPEG blob; null until the stream has
+// real pixels.
 async function captureGuide(video: HTMLVideoElement, guide: HTMLElement): Promise<Blob | null> {
   const VW = video.videoWidth
   const VH = video.videoHeight
@@ -41,11 +50,13 @@ async function captureGuide(video: HTMLVideoElement, guide: HTMLElement): Promis
   const dispH = VH * s
   const originX = vr.left + (vr.width - dispW) / 2 // css-x of the video's source (0,0)
   const originY = vr.top + (vr.height - dispH) / 2
-  // Guide rect back into source-video pixels.
-  const sx = Math.max(0, (gr.left - originX) / s)
-  const sy = Math.max(0, (gr.top - originY) / s)
-  const sw = Math.min(VW - sx, gr.width / s)
-  const sh = Math.min(VH - sy, gr.height / s)
+  // Guide rect, margin-expanded about its centre, back into source-video pixels.
+  const mw = (gr.width * (CAPTURE_MARGIN - 1)) / 2
+  const mh = (gr.height * (CAPTURE_MARGIN - 1)) / 2
+  const sx = Math.max(0, (gr.left - mw - originX) / s)
+  const sy = Math.max(0, (gr.top - mh - originY) / s)
+  const sw = Math.min(VW - sx, (gr.width + 2 * mw) / s)
+  const sh = Math.min(VH - sy, (gr.height + 2 * mh) / s)
   if (sw < 8 || sh < 8) return null
   const outW = 480
   const outH = Math.round((outW * sh) / sw)
@@ -360,7 +371,7 @@ export function Scan() {
       </div>
       <p className="mb-[20px] max-w-[560px] text-[14px] leading-[21px] text-text-muted">
         Line a card up inside the frame and hold steady — we match it against the{' '}
-        {result ? result.indexSize.toLocaleString() : '21,828'}-card catalog by perceptual hash and add it to your
+        {result ? result.indexSize.toLocaleString() : '22,770'}-card catalog by perceptual hash and add it to your
         collection in one tap. No shutter button; it triggers on its own.
       </p>
 

@@ -195,6 +195,29 @@ button {
   outline-offset: 2px;
 }
 
+/* App logotype — "Pokédex" in the top chrome. Live text, series-logo inspired:
+   heavy weight + slight forward skew, yellow→gold gradient (action-primary family)
+   clipped to the glyphs, and a layered drop-shadow for the chunky outlined depth.
+   drop-shadow (not text-shadow) so the shadow tracks the gradient-clipped glyphs. */
+.brand-wordmark {
+  display: inline-block;
+  font-weight: 900;
+  letter-spacing: -0.015em;
+  transform: skewX(-6deg);
+  background: linear-gradient(
+    180deg,
+    #fff3a6 0%,
+    var(--color-action-primary-strong) 34%,
+    var(--color-action-primary) 62%,
+    #eda921 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 1px 0 rgb(0 0 0 / 0.55)) drop-shadow(0 2px 5px rgb(0 0 0 / 0.35));
+  user-select: none;
+}
+
 /* Thin scrollbars on horizontal chip rows */
 .scroll-x {
   overflow-x: auto;

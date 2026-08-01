@@ -107,6 +107,34 @@ test('a "conceded" ending resolves the result without a wins line', () => {
   assert.equal(loss.result, 'loss');
 });
 
+test('a timeout ending ("Opponent was inactive for too long. X wins.") resolves the result', () => {
+  // Real ending from battle #8 — the wins sentence carries a non-prize prefix.
+  const log = [
+    'Setup',
+    'Ash drew 7 cards for the opening hand.',
+    'Misty drew 7 cards for the opening hand.',
+    "Ash's Turn",
+    'Ash played Pikachu to the Bench.',
+    "Misty didn't take an action in time.",
+    'Opponent was inactive for too long. Ash wins.',
+  ].join('\n');
+  const win = parseBattleLog(log, ['Pikachu'], 'Ash');
+  assert.equal(win.result, 'win');
+  const loss = parseBattleLog(log, [], 'Misty');
+  assert.equal(loss.result, 'loss');
+});
+
+test('a wins line never matches a non-player name from the sentence prefix', () => {
+  const log = [
+    'Setup',
+    'Ash drew 7 cards for the opening hand.',
+    'Misty drew 7 cards for the opening hand.',
+    'Somebody says Brock wins.',
+  ].join('\n');
+  const p = parseBattleLog(log, ['Pikachu'], 'Ash');
+  assert.equal(p.result, null);
+});
+
 test('no win/concede line → result null (tie or truncated log)', () => {
   const truncated = FIXTURE.split('\n').slice(0, 100).join('\n');
   const p = parseBattleLog(truncated, DECK_NAMES);

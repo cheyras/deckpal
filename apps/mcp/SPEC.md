@@ -105,7 +105,7 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
   (`card_variant.is_primary`); "set absolute quantity" on a card where the user owns multiple
   variants and no variant was given → refuse with the owned-variant list.
 
-## 5. Tool surface (19 tools + 1 resource)
+## 5. Tool surface (21 tools + 1 resource)
 
 ### Reads — direct SQL (`readOnlyHint: true`)
 
@@ -153,8 +153,10 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    No id: deck index (id, name, format, version, card count, battle record). With id: deck +
    an intelligence headline (W/L record, battle-log count, strategy-guide presence as first
    heading + char count) + requested includes. `pricing` include **is the gap analysis**:
-   per-card owned vs needed, missing list with cost to close and TCGplayer mass-entry lines
-   (the API computes all of it).
+   per-card owned vs needed, missing list with cost to close, TCGplayer mass-entry lines,
+   plus the cart deep link(s) from `GET /decks/:id/massentry` (one line per URL — the user
+   opens them; each adds to the same cart) and the Cart Optimizer consolidation tip
+   (the API computes all of it; link failure degrades to lines-only).
 9. **`save_deck`** — `{ deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
    version_note?, dry_run? = true }`. Create (POST /decks, or POST /decks/import when
    `ptcgl_text` given), rename (PATCH), and reconcile the card list to `cards` via the
@@ -185,7 +187,7 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
 
 ### Deck intelligence — via pokedex-api (migration 019; semantics in §6b)
 
-Numbered 15–18 so the earlier `§5 #N` references in code comments stay stable. All four live in
+Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable. All six live in
 `src/tools/deckIntel.ts`; writes carry `source: 'rotom-mcp'`.
 
 15. **`deck_strategy`** — `{ deck_id, markdown? }`. Omit `markdown` → the full guide. Provide it →
@@ -209,10 +211,18 @@ Numbered 15–18 so the earlier `§5 #N` references in code comments stay stable
     dry run fetches the target and current snapshots itself and prints the exact diff (and
     whether the revert will bump or amend) before anything is written. Non-destructive by
     design — history is never deleted — hence `destructiveHint: false`.
+19. **`edit_battle_log`** — `{ deck_id, log_id, result?|null, opponent?|null, opponent_deck?|null,
+    notes?|null, played_at? }`. `PATCH /decks/:id/logs/:logId` — classification-only corrections
+    (e.g. the parser left NO RESULT on a non-standard ending); raw log + attached version are
+    immutable; nulls clear (not `played_at`); per-version records recompute immediately. Added
+    2026-07-31 after an agent had no way to correct a timeout-win misparse (battle #8).
+20. **`delete_battle_log`** — `{ deck_id, log_id, dry_run? = true }`. `DELETE
+    /decks/:id/logs/:logId` for duplicate/wrong-deck pastes; dry-run gated,
+    `destructiveHint: true`, not undoable — descriptions steer corrections to edit_battle_log.
 
 ### Shopping — via pokedex-api (`readOnlyHint: true`)
 
-19. **`set_cart`** — `{ set_id, goal? = default goal, finishes? }`. Thin wrapper over
+21. **`set_cart`** — `{ set_id, goal? = default goal, finishes? }`. Thin wrapper over
     `GET /sets/:setId/massentry` (single source of Mass Entry link generation, shared with the
     web UI's Purchase Set button): TCGplayer Mass Entry deep link(s) + plain-text list for
     everything still needed to finish a set. Builds links only — never buys anything; the user

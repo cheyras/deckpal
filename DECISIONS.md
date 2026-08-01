@@ -775,3 +775,39 @@ instead of ping-ponging. Verified in-browser via Playwright with a faithful ngin
 (intercepted 302→portal-HTML): app lands on `/authelia/?rd=…`; and an SW-controlled page
 demonstrably escapes to the network for /authelia/. Note: installed PWAs pick this up after
 the next SW update prompt is accepted.
+
+## 2026-07-31 — Battle-log parser: a wins line can carry any sentence prefix + agents can now correct logs
+**Decided by:** agent, after a field report from an MCP-using agent (battle #8).
+**Bug:** the parser's win regex accepted only `All Prize cards taken. <name> wins.` — a timeout
+ending (`Opponent was inactive for too long. PlayerA wins.`) captured the whole sentence as the
+"name" and left result NULL, silently skewing the deck record. **Fix:** the prefix is now any
+sentence ending in punctuation (`/^(?:.*[.!?]\s+)?(.+?) wins\.?$/`) with the captured name still
+validated against the two known players (a prefix can never leak into the name). Regression
+tests added; battle #8 healed by re-running the fixed parser over stored raw logs (one-off
+script, result+parsed updated → 3W–3L). **Lesson:** endings vary (prizes, concede, timeout);
+validate-against-known-names is what makes a loose match safe.
+**Tooling gap closed:** rotom-mcp gained `edit_battle_log` (classification-only PATCH; raw log +
+version immutable; nulls clear) and `delete_battle_log` (dry-run gated) — an agent that spots a
+misparse can now fix it instead of reporting it upstream. SPEC §5 now 21 tools.
+
+## 2026-07-31 — Issues pass + deck buy-missing overhaul (deep links, Missing filter)
+**Decided by:** user (reports), agents (fixes).
+- **Mobile chrome 99px → 64px** (AppShell, 4 synced spots) + **"Pokédex" gradient wordmark**
+  (live text, `.brand-wordmark`) in mobile header + desktop sidebar (issues r6q59q, zlfrqp).
+- **Scanner accuracy** (issue lqyure): measured root causes — dHash's zero rotation tolerance
+  (4° = 40% top-1, still confidently wrong → client auto-locked bad matches) + client cropping
+  exactly to the guide box. Fix: single index+query hash pipeline (`dhash8v2`), ~33 geometric
+  probe candidates at query time, 14% client capture margin, CONFIDENT_MAX 12→9. Benchmark
+  (150 cards × 10 phone-degradation scenes, live /scan): mean top-1 73%→95%. Full re-index.
+  **Invariant: index and query must share one exact hash pipeline** — mixing ImageMagick's
+  direct hash with JS-resampled probes carried a 3-19-bit noise floor.
+- **Deck buy-missing** (user report with TCGplayer rejection screenshot): deck pricing emitted
+  bare `3 Banette` Mass Entry lines whenever the stored tcgplayer_mass_entry token was NULL —
+  TCGplayer rejects bare names in practice (its help doc claims they're fine; reality wins).
+  Extracted the set route's builder into shared `apps/api/src/tcgplayer/massentry.ts`
+  (TCGCSV abbrev vocabulary, `qty Name [CODE] number`, ~1800-char URL chunking); new
+  `GET /decks/:id/massentry`; BuyMissingModal is deep-link-first ("Fill TCGplayer cart") with
+  a Cart Optimizer consolidation tip (TCGplayer's own optimizer is the sanctioned
+  one-seller/fewest-packages answer — seller choice is not link-encodable); Cards tab gained a
+  Missing filter (URL state `missing`); rotom-mcp `decks include:pricing` now appends the cart
+  URL(s). All verified on the built app at 428/390/1440px.

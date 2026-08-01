@@ -274,7 +274,7 @@ export function registerDeckIntelTools(server: McpServer, ctx: Ctx): void {
         'accumulate. Parser-derived fields fill anything you omit. If the parser cannot tell which ' +
         'player owns this deck it returns an error asking for player_name (the exact screen name in ' +
         'the log) or an explicit result — retry with one of those. Read logs back with battle_logs; ' +
-        'this tool never edits or deletes existing logs.',
+        'to correct or remove an existing entry use edit_battle_log / delete_battle_log.',
       inputSchema: z.object({
         deck_id: z.string().describe('Deck UUID (from the decks index).'),
         log: z.string().max(50000).describe('The raw PTCG Live battle log text, pasted verbatim (max 50000 chars).'),
@@ -585,6 +585,90 @@ export function registerDeckIntelTools(server: McpServer, ctx: Ctx): void {
         return ok(lines.join('\n'));
       } catch (err) {
         return fail(`deck_history failed: ${(err as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    'edit_battle_log',
+    {
+      title: 'Correct a battle log entry',
+      description:
+        "Fix a battle log's metadata after the fact: result (e.g. the parser missed a " +
+        'non-standard ending and left NO RESULT), opponent name, opponent-deck label, notes, or ' +
+        'played_at. The raw log text and the version it attaches to are immutable — this edits ' +
+        'classification only, and per-version win/loss records recompute from it immediately. ' +
+        'Passing null clears a field (not played_at). To remove an entry entirely use ' +
+        'delete_battle_log; to add one use add_battle_log.',
+      inputSchema: z.object({
+        deck_id: z.string().describe('Deck UUID (from the decks index).'),
+        log_id: z.number().int().positive().describe('Battle log id (the #N from battle_logs).'),
+        result: z
+          .enum(['win', 'loss', 'tie'])
+          .nullable()
+          .optional()
+          .describe("Corrected result from the deck owner's perspective; null clears it back to NO RESULT."),
+        opponent: z.string().max(100).nullable().optional().describe("Opponent's screen name; null clears."),
+        opponent_deck: z.string().max(200).nullable().optional().describe("Archetype label, e.g. 'Dragapult ex / Dusknoir'; null clears."),
+        notes: z.string().max(2000).nullable().optional().describe('Replacement notes; null clears.'),
+        played_at: z.string().optional().describe('Corrected ISO-8601 played-at timestamp.'),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ deck_id, log_id, result, opponent, opponent_deck, notes, played_at }) => {
+      try {
+        const body: Record<string, unknown> = {};
+        if (result !== undefined) body.result = result;
+        if (opponent !== undefined) body.opponent = opponent;
+        if (opponent_deck !== undefined) body.opponentDeck = opponent_deck;
+        if (notes !== undefined) body.notes = notes;
+        if (played_at !== undefined) body.playedAt = played_at;
+        if (Object.keys(body).length === 0) return fail('edit_battle_log: pass at least one field to change.');
+        const res = (await ctx.api.send('PATCH', `${deckPath(deck_id)}/logs/${log_id}`, body)) as { log: LogFull };
+        const l = res.log;
+        const totals = (await ctx.api.get(`${deckPath(deck_id)}/logs?version=${l.deckVersion}&pageSize=1`)) as LogsPayload;
+        return ok(
+          [
+            `Updated battle #${l.id} (v${l.deckVersion}).`,
+            row(matchup(l), l.turns != null ? `${l.turns} turns` : null, l.prizes ? `prizes ${l.prizes.me}-${l.prizes.opponent}` : null),
+            `v${l.deckVersion} record now: ${winLoss(totals.totals)} (${totals.totals.total} log(s))`,
+          ].join('\n'),
+        );
+      } catch (err) {
+        return fail(`edit_battle_log failed: ${(err as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    'delete_battle_log',
+    {
+      title: 'Delete a battle log entry',
+      description:
+        'Permanently remove one battle log from a deck (e.g. a duplicate paste or a log attached ' +
+        "to the wrong deck). The deck, its versions, and other logs are untouched; the version's " +
+        'win/loss record recomputes without it. Defaults to a dry run describing what would be ' +
+        'deleted; re-run with dry_run: false to delete. To fix a wrong result/opponent instead, ' +
+        'use edit_battle_log — deletion is not undoable.',
+      inputSchema: z.object({
+        deck_id: z.string().describe('Deck UUID (from the decks index).'),
+        log_id: z.number().int().positive().describe('Battle log id (the #N from battle_logs).'),
+        dry_run: z.boolean().default(true).describe('true (default): only report what would be deleted. false: delete.'),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    },
+    async ({ deck_id, log_id, dry_run }) => {
+      try {
+        const res = (await ctx.api.get(`${deckPath(deck_id)}/logs/${log_id}`)) as { log: LogFull };
+        const l = res.log;
+        const what = row(`battle #${l.id}`, `v${l.deckVersion}`, matchup(l), day(l.playedAt));
+        if (dry_run) {
+          return ok(`DRY RUN — nothing deleted. Would delete ${what}.\nRe-run with dry_run: false to delete.`);
+        }
+        await ctx.api.send('DELETE', `${deckPath(deck_id)}/logs/${log_id}`);
+        return ok(`Deleted ${what}.`);
+      } catch (err) {
+        return fail(`delete_battle_log failed: ${(err as Error).message}`);
       }
     },
   );

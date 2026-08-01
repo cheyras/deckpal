@@ -36,7 +36,7 @@ Serving is defined by `apps/images/src/{layout,index}.ts` — a new slot must ad
 - Cardinality: per-card × quality
 - Cache path: `<CACHE_ROOT>/images/<lang>/<serie>/<set>/<localId>.<low|high>.webp`  →  served: `GET /pokedex/images/<lang>/<serie>/<set>/<localId>/<low|high>.webp`
 - Format: webp; tiers: **low** (grid + scanner dHash) + **high** (detail).
-- Sourcing: primary the catalog CDN (Pokémon: `assets.tcgdex.net/<lang>/<serie>/<set>/<localId>/<q>.webp`) → fallback pkmn.gg signed URLs from `[redacted host]/…/v1/card/<set>` (`largeImageUrl`→high, `thumbImageUrl`→low). Enumerate from the `card` table (NOT the source manifest — it omits sets). See `apps/images/src/warmer.ts` + `scripts/warm-from-pkmn.mjs`.
+- Sourcing: primary the catalog CDN (Pokémon: `assets.tcgdex.net/<lang>/<serie>/<set>/<localId>/<q>.webp`) → fallback pkmn.gg signed URLs from `[redacted host]/…/v1/card/<set>` (`largeImageUrl`→high, `thumbImageUrl`→low — these are **card-level** fields on each card object, NOT inside `variantMap`; pkmn card `number` can be non-numeric and differ from our `local_id`, e.g. `MEW` vs `001` for miscp — match by name then). Enumerate from the `card` table (NOT the source manifest — it omits sets). See `apps/images/src/warmer.ts` + `scripts/warm-from-pkmn.mjs`.
 - Optimization: two tiers; LRU cap + evictor on `high` (`apps/images/src/evict.ts`).
 - Verify: `curl` served URL → HTTP 200, real bytes (not the ~1 KB placeholder); count `find … -size +2k`.
 - Game-specific: no.

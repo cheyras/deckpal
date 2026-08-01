@@ -372,6 +372,56 @@ Metadata only — the raw log and its version attachment are immutable. Explicit
 
 ---
 
+## TCGplayer Mass Entry — cart deep links
+
+Both endpoints share one builder (`apps/api/src/tcgplayer/massentry.ts`): line
+grammar `<qty> <name> [<CODE>] <number>` (research/DECK-FORMATS.md §1.9 — a
+stored per-variant `tcgplayer_mass_entry` token wins, else the line is composed
+from TCGplayer's set-abbreviation vocabulary fetched from TCGCSV groups, 24h
+in-process cache; bare `<qty> <name>` only as last resort), collector numbers
+with leading zeros stripped, and the `c=` payload chunked at ~1800 encoded
+chars into an **ordered list of URLs** — opening each adds to the same cart.
+Printing and condition can never be preselected by link (chosen on TCGplayer's
+page); the response's `note` says so. Cards/variants with no TCGplayer product
+are returned in `unlinkable`, never silently dropped.
+
+### GET /pokedex/api/sets/:setId/massentry
+Cart link(s) for every card still needed to finish the set.
+Query: `goal` = `complete` (default) | `master` | `grandmaster`; `finish`
+(repeatable, master/grandmaster only) = `normal`|`reverse`|`holo`|`lenticular`|`metal`.
+```json
+{ "set": { "setId": "me05", "name": "Pitch Black" }, "goal": "complete",
+  "finishes": null, "setCode": "PBL",
+  "needed": { "cards": 81, "items": 81, "unlinkable": 0 },
+  "lines": [ "1 Lurantis ex [PBL] 4", … ],
+  "text": "1 Lurantis ex [PBL] 4\n…",
+  "urls": [ "https://www.tcgplayer.com/massentry?productline=Pokemon&c=…" ],
+  "unlinkable": [ { "name": "…", "number": "…", "variant": "…" } ],
+  "warnings": [], "note": "Printing … Mass Entry page." }
+```
+
+### GET /pokedex/api/decks/:id/massentry
+Cart link(s) for the deck's **missing** cards — same math as `/decks/:id/pricing`
+(`deck_card.quantity` minus owned copies across all variants of the print).
+```json
+{ "deck": { "id": "47333f45-…", "name": "Hide 'n' Sneak (Dhelmise)" },
+  "needed": { "cards": 7, "items": 23, "unlinkable": 0 },
+  "lines": [ "3 Banette [PBL] 34", "4 Telepathic Psychic Energy [POR] 88", … ],
+  "text": "3 Banette [PBL] 34\n…",
+  "urls": [ "https://www.tcgplayer.com/massentry?productline=Pokemon&c=…" ],
+  "unlinkable": [ { "name": "…", "number": "…", "setId": "…", "variant": null } ],
+  "warnings": [], "note": "…" }
+```
+`/decks/:id/pricing`'s per-missing-card `massEntry` field and `massEntryText`
+use the same line vocabulary (pricing keeps a bare-name line for unlinkable
+cards so its text lists everything; the cart URLs here carry linkable lines only).
+
+Tip surfaced by the UI/MCP, not the API: after the cart fills, TCGplayer's own
+**Cart Optimizer** (inside the cart) has a consolidation mode that finds the
+fewest sellers — or one seller with everything — so it ships in one package.
+
+---
+
 ## Data gaps found while building (real, not fabricated)
 - **`subType` / `tags` vocabularies are empty** — `card_subtype` and `card_tag`
   have 0 rows; the subtype/tag filters return nothing until imported. All other 11
