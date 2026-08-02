@@ -126,9 +126,9 @@ flat tinted floor over it.
    --filter pokedex-web build`), commit on a `foil/*` sub-branch, merge to `foil/main`
    only. Append a DECISIONS.md entry if you learned something non-obvious.
 
-## Taxonomy status (research/foil-patterns.md — the canonical 39 types)
+## Taxonomy status (research/foil-patterns.md — 43 canonical types: 39 video + §40–43 vocab)
 
-The dropdown carries ALL 39 video taxonomy types plus `none` and `reverse-sheet`.
+The dropdown carries ALL 43 taxonomy types plus `none` and `reverse-sheet`.
 Implemented recipes after the R1 wave (2026-08-02): **Starlight** (#1; #24 Starlight II at
 parallax 0), **Cosmos** (#2 — label is Cosmos only; "Galaxy" is Bulbapedia's synonym for
 *Starlight*), the **sheen family** — ONE generator (`sheenGlsl`) at four rotations + stripe
@@ -144,11 +144,14 @@ recipes** (2026-08-02): `mirror` (#4), `rainbow-mirror` (#5), `vertical-sheen-ra
 (#13) — the dark-mirror family on uDarken — `energy-symbols` (#7), `pinwheel` (#10),
 `ex-emerald` (#11), `pokeball-hologram` (#12), `cosmos-ii-pixel` (#15), `tinsel` (#17),
 `prism` (#23), `water-web` (#25), `radiant-collection-dots` (#32), `crosshatch` (#35) —
-**34 of the 39 taxonomy types are real** (30 hold match verdicts; nays: starlight,
-energy-symbols, pokeball-hologram, radiant-collection-dots — see verification doc R2
-recipe-wave section). The 5 remaining approx types have no catalog exemplar
-(big-glitter, sequin, tcg-classic, acid-wash, disco — the R3 list). To ship a real
-recipe: write the GLSL, flip the entry to `implemented: true`, drop `approxVia`.
+and the **four R2b vocabulary recipes** (2026-08-02): `gold-secret` (§40),
+`vstar-pearl` (§41), `shiny-vault` (§42), `detective-pikachu` (§43) —
+**38 of the 43 taxonomy types are real** (34 hold match verdicts — all four R2b
+recipes match; standing nays: starlight, energy-symbols, pokeball-hologram,
+radiant-collection-dots — see verification doc R2 + R2b sections). The 5 remaining
+approx types have no catalog exemplar (big-glitter, sequin, tcg-classic, acid-wash,
+disco — the R3 list). To ship a real recipe: write the GLSL, flip the entry to
+`implemented: true`, drop `approxVia`.
 
 ## Per-pattern field notes (distilled from resolved workbench comments)
 
@@ -340,6 +343,47 @@ Distilled lessons:
   both left the first GLSL pass as sparse night skies (tight windows + low floors)
   and were fixed from blank-card renders before any Gemini spend; cosmos-ii-pixel
   then scored a clean 20/20 on round 1.
+
+### R2b vocabulary wave (2026-08-02) — the four §40–43 recipes
+
+Full verdict table in `research/foil-verification.md` (R2b section). Distilled:
+
+- **A warm-locked field means NOT calling hueRamp for the field.** gold-secret's
+  gold body uses a private 2-stop `goldRamp()`; `hueRamp`/`uSat` only paint the
+  chromatic glitter pops. Pinning hue via uniforms (uHueSpread 0) would still let
+  canon/override sliders re-rainbow the field — structural locks belong in GLSL,
+  slider-reachable styling in uniforms.
+- **`uFace` in a pattern is legal exactly once: detective-pikachu.** The recipe's
+  identity is beam × photo LUMINANCE (bright smoke/fire volumes catch the sheen
+  first) — the inverse of `uArtGate`, which gates on darkness. It samples
+  `texture2D(uFace, uv)` inside `foilPattern()` as a documented contract
+  exception. It scored a clean 20/20 first try. Corollary: photo-coupled patterns
+  render near-BLACK on the canon lab's blank dark base by design — eyeball them on
+  the real scan, not the blank card.
+- **Near-white substrates need uDarken even when the reference "stays light".**
+  The R2 rule (don't darken a light-silver substrate) has a boundary case: vstar
+  pearl (uDarken 0.3) and shiny-vault (0.15) are near-WHITE interference foils
+  whose fields visibly dim/tint off-flash — without the term, the entire treatment
+  is illegible over a bright scan (shiny-vault round 0 rendered as the plain
+  card). Distinguish "light silver metallic" (pokeball-masterball — leave at 0)
+  from "white interference pearl" (darken mildly).
+- **Legibility fixes overshoot; expect a two-step.** shiny-vault's band gain went
+  0.45 (invisible) → 0.95 (judged "overly intense") → 0.62 + a WHITE lift riding
+  the band. When a pastel treatment needs more presence, add whiteness with the
+  color, not more chroma.
+- **Amplifier glyphs ≠ glitter pops.** The shiny-vault sparkle glyphs are keyed to
+  the band position at the glyph (`bandEnv` at that uv), NOT to per-cell random
+  alignment windows — the reference glyphs never pop independently, they catch
+  the passing sheen. The judge still wants their peak whiteness lower (residual).
+- **Scope now travels with assignment rows (resolver v5).** A winning row's
+  `scope` field overrides the kind/rarity-computed scope; the cls-'normal' tier
+  honors it too (default 'full'). This is how baby shinies render window-scope
+  despite 'Shiny rare' being a FULL_FOIL rarity, and det1 renders window despite
+  'ultra rare'. Regenerate `assignments-index.json` after editing rows.
+- **Judging against the exact same card is gold.** Three of the four references
+  show the very card we render (det1-5 scored 20/20; identity friction was zero).
+  When choosing corpus footage for future patterns, prefer a demo of a card that
+  is IN the catalog.
 
 ## Masks
 
