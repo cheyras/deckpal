@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "cracked-ice",
+  "savedAt": "2026-08-02T19:34:02.516Z",
+  "uniforms": {
+    "uIntensity": 0.86,
+    "uScale": 1.45,
+    "uHueShift": 0.5,
+    "uHueSpread": 0.7,
+    "uSat": 0.85,
+    "uArtGate": 0.45,
+    "uSpecular": 0.4,
+    "uDarken": 0.64,
+    "uP0": 9.5,
+    "uP1": 0.55,
+    "uP2": 0,
+    "uP3": 0.5
+  }
+}

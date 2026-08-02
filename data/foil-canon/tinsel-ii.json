@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "tinsel-ii",
+  "savedAt": "2026-08-02T22:11:56.603Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 0.5,
+    "uHueShift": 0.08,
+    "uHueSpread": 0.6,
+    "uSat": 0.5,
+    "uArtGate": 0,
+    "uSpecular": 0.35,
+    "uDarken": 0.4,
+    "uP0": 2,
+    "uP1": 2.3,
+    "uP2": 0.45,
+    "uP3": 1.8
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "diagonal-sheen-right",
+  "savedAt": "2026-08-02T19:24:35.914Z",
+  "uniforms": {
+    "uIntensity": 0.9,
+    "uScale": 0.3,
+    "uHueShift": 0.55,
+    "uHueSpread": 0.6,
+    "uSat": 0.65,
+    "uArtGate": 0.35,
+    "uSpecular": 0.35,
+    "uDarken": 0,
+    "uP0": 12,
+    "uP1": 0.9,
+    "uP2": 0,
+    "uP3": 1
+  }
+}
