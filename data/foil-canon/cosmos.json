@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "cosmos",
+  "savedAt": "2026-08-02T16:52:45.030Z",
+  "uniforms": {
+    "uIntensity": 0.9,
+    "uScale": 1,
+    "uHueShift": 0.14,
+    "uHueSpread": 0.36,
+    "uSat": 0.85,
+    "uArtGate": 0.4,
+    "uSpecular": 0.3,
+    "uDarken": 0.2,
+    "uP0": 1.15,
+    "uP1": 0.2,
+    "uP2": 1.85,
+    "uP3": 0.9
+  }
+}
