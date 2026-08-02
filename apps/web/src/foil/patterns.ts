@@ -43,7 +43,7 @@ export interface PatternParam {
 
 type CoreDefaults = Partial<
   Record<
-    'uIntensity' | 'uScale' | 'uHueShift' | 'uHueSpread' | 'uSat' | 'uArtGate' | 'uSpecular',
+    'uIntensity' | 'uScale' | 'uHueShift' | 'uHueSpread' | 'uSat' | 'uArtGate' | 'uSpecular' | 'uDarken',
     number
   >
 >
@@ -640,6 +640,17 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 // voronoi polygon mosaic (each facet a flat mirror sampling a slightly
 // different hue), plus a large static Poké Ball watermark OVERPRINT (texture +
 // ink per the video's layer diagram — modulates, does not emboss).
+// R2 blend-model rebuild (2026-08-02): the reference (Professor's Research,
+// Prismatic Evolutions reverse) is a DARK MIRROR at most angles — pale
+// silver-gray body, mosaic near-invisible — with a broad rainbow flash lobe
+// sweeping through as the card tilts; inside the lobe the polygon facets read
+// as discrete flat mirrors at slightly different hues, and the big Poké Ball
+// watermark reads DARKER than its surround (it is ink/texture OVERPRINTED on
+// the foil — it absorbs, color-shifting in tandem with the mosaic). All three
+// reads were unrenderable under screen-only blending over the near-white card
+// body; uDarken (defaults) carries the dark-mirror base, the lobe carries the
+// flash, and the watermark is a SUPPRESSION of the additive layer, not an
+// added plate.
 const PRISMATIC_POKEBALL_GLSL = `
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x + tilt.y * 0.8;
@@ -656,31 +667,35 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
     else if (d < second) { second = d; }
   }
   vec2 rnd = hash22(bid);
-  // r1 round-3 (round-2 verdict 2/2/2/2: watermark "barely visible", wants
-  // per-polygon DISTINCT contrasting colors + deeper tones): the facet hue
-  // is now dominated by the per-facet random offset (positional gradient
-  // demoted), the flash window is keyed per-facet and abrupt, colors are
-  // gamma-deepened away from pastel, and the ball watermark is drawn as a
-  // THICK complementary-hue plate, not thin lines.
-  float hue = uHueShift + uHueSpread * (uv.x * 0.18 + uv.y * 0.14 + 0.9 * sweep) + (rnd.y - 0.5) * uP2;
-  float flash = smoothstep(0.45, 0.85, 0.5 + 0.5 * cos(TAU * (0.85 * rnd.x + 0.55 * sweep)));
-  float lum = 0.12 + 1.15 * flash;
-  // deepen away from pastel: gamma-boost the ramp color (1.4 — 1.7 at gain
-  // 1.8 clipped to neon over the bright card body, round-3 verdict)
-  vec3 fcol = pow(hueRamp(hue), vec3(1.4)) * 1.15;
-  // bright facet seams (shattered-glass definition)
+  // broad rainbow flash lobe sweeping across the card with tilt — the
+  // rainbow-mirror base layer. Outside the lobe the body stays the darkened
+  // substrate (uDarken) with only a faint metallic floor.
+  float ph = uv.y * 0.8 + uv.x * 0.35 - sweep * 1.25;
+  float lobe = pow(max(0.0, cos(PI * clamp(ph, -1.0, 1.0))), 2.0);
+  // facet-quantized flash: each cell is a flat mirror with its own threshold —
+  // the lobe edge breaks into discrete polygons, but the window is wide and
+  // the jitter modest so the lobe interior stays a CONTINUOUS gradient
+  // (eyeball round 1: tight window + big jitter read as lit/unlit confetti)
+  float glint = smoothstep(0.18, 0.72, lobe + (rnd.x - 0.5) * 0.35);
+  float hue = uHueShift + uHueSpread * (uv.y * 0.5 + uv.x * 0.2 + 0.75 * sweep) + (rnd.y - 0.5) * uP2;
+  vec3 fcol = pow(hueRamp(hue), vec3(1.3));
+  // facet seams — visible inside the flash (shattered-glass definition)
   float edge = smoothstep(0.10, 0.02, sqrt(second) - sqrt(best));
-  vec3 base = fcol * lum + edge * fcol * (0.3 + 0.5 * flash);
-  // static Poké Ball watermark overprint (big, centered) — thick plate
+  vec3 base = fcol * (0.05 + 0.45 * lobe + 0.85 * glint) + edge * fcol * (0.10 + 0.45 * glint);
+  // faint metallic floor so the dark mirror reads silver, not void
+  base += vec3(0.055) * (1.0 - lobe);
+  // Poké Ball watermark = ink OVERPRINT above the foil: it ABSORBS — a
+  // filled silhouette (disc + belt + button ring) that suppresses the
+  // additive layer, so it reads darker inside the flash and vanishes with
+  // the mirror at dark angles, hue-shifting in tandem with its surround.
   vec2 bp = (uv - vec2(0.5, uP1)) * vec2(1.0, CARD_ASPECT);
   float d2 = length(bp);
-  float rball = 0.30;
-  float outline = smoothstep(0.055, 0.030, abs(d2 - rball));
-  float belt = smoothstep(0.048, 0.024, abs(bp.y)) * step(d2, rball + 0.02);
-  float button = smoothstep(0.10, 0.06, d2);
-  float wm = clamp(outline + belt + button, 0.0, 1.0);
-  vec3 wmCol = pow(hueRamp(hue + 0.5), vec3(1.5)) * 1.25;
-  base = mix(base, wmCol * (0.75 + 0.5 * flash), wm * 0.95);
+  float rball = 0.33;
+  float disc = smoothstep(rball + 0.012, rball - 0.012, d2);
+  float belt = smoothstep(0.055, 0.030, abs(bp.y)) * disc;
+  float ring = smoothstep(0.015, 0.006, abs(d2 - 0.105)) * disc;
+  float suppress = 1.0 - disc * 0.35 - max(belt, ring) * 0.30;
+  base *= clamp(suppress, 0.25, 1.0);
   return base * uP3;
 }`
 
@@ -1224,8 +1239,13 @@ export const PATTERNS: FoilPattern[] = [
     usedOn: 'Black Bolt & White Flare (2025) only.',
     glsl: TINSEL_II_GLSL,
     // hueShift 0.08: the lit band on the reference reads coppery-orange, not
-    // blue-purple (eyeball round 1 against the Thundurus/Metal Energy frames)
-    defaults: { uIntensity: 1.0, uScale: 1.0, uHueShift: 0.08, uHueSpread: 0.6, uSat: 0.5, uArtGate: 0.0, uSpecular: 0.35 },
+    // blue-purple (eyeball round 1 against the Thundurus/Metal Energy frames).
+    // uDarken 0.4 (R2 blend-model opt-in): the reference static is DARK broken
+    // lines between iridescent ones — under screen-only blending the gaps
+    // between lines stayed the near-white card body and the static plateaued
+    // at "fine bright brushed metal" (three R1 rounds, static_appearance 2).
+    // Darkening the substrate makes the un-lit gaps the dark half of the static.
+    defaults: { uIntensity: 1.0, uScale: 1.0, uHueShift: 0.08, uHueSpread: 0.6, uSat: 0.5, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.4 },
     params: [
       { key: 'uP0', label: 'Line density', min: 0.5, max: 4, step: 0.1, default: 2.0 },
       { key: 'uP1', label: 'Sheen travel', min: 0, max: 4, step: 0.05, default: 1.5 },
@@ -1342,27 +1362,35 @@ export const PATTERNS: FoilPattern[] = [
     ],
     implemented: true,
   },
-  // #31 — real recipe 2026-08-02 (R1): facet-quantized rainbow mirror + ball
-  // watermark OVERPRINT (per the video's layer diagram: ink over foil).
+  // #31 — real recipe 2026-08-02 (R1); rebuilt same day on the R2 blend-model
+  // term (dark mirror base via uDarken + facet-quantized flash lobe + ball
+  // watermark as ink-overprint SUPPRESSION, per the video's layer diagram).
   {
     id: 'prismatic-pokeball',
     label: 'Prismatic pokeball',
     taxonomy: 'Polygon mosaic + ball watermark OVER rainbow-mirror (overprint)',
     usedOn: 'Prismatic Evolutions poke-ball reverses.',
     glsl: PRISMATIC_POKEBALL_GLSL,
-    // uSat 1.0 + gain 1.8 (round 2): the screen blend over the bright card
-    // body washed the round-1 mosaic to a faint pastel tint
-    defaults: { uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 1.0, uSat: 1.0, uArtGate: 0.0, uSpecular: 0.4 },
+    // uDarken 0.5: the reference body is a pale-to-dark gray mirror at most
+    // angles — the R1 screen-only recipe could not darken the near-white
+    // Prismatic Evolutions body at all (structural nay, best 8/20).
+    // uDarken 0.6: at 0.5 the flash screen-blended over a still-mid-gray body
+    // and washed pastel; the reference flash is vivid BECAUSE the base is dark
+    defaults: { uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 1.0, uSat: 0.85, uArtGate: 0.0, uSpecular: 0.25, uDarken: 0.6 },
     params: [
-      { key: 'uP0', label: 'Facet density', min: 3, max: 16, step: 0.5, default: 9 },
+      // 13: reference cells are 1/15–1/10 card width; the R1 default 9 judged
+      // "significantly larger and less dense than the reference"
+      { key: 'uP0', label: 'Facet density', min: 3, max: 24, step: 0.5, default: 13 },
       // 0.30: at 0.45 the ball watermark sat almost entirely behind the art
       // window, which the REVERSE mask cuts out — on the exemplar card the
       // judge never saw it ("watermark completely missing", round 3). The
       // physical ball is card-centered, but the render must put its visible
       // mass on the foiled body.
       { key: 'uP1', label: 'Ball center Y', min: 0.2, max: 0.8, step: 0.01, default: 0.3 },
-      { key: 'uP2', label: 'Facet scatter', min: 0, max: 1, step: 0.02, default: 0.4 },
-      { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.5 },
+      // 0.25: adjacent facets sample SLIGHTLY different hues (vision spec);
+      // 0.4 jumped whole spectrum bands between neighbors
+      { key: 'uP2', label: 'Facet scatter', min: 0, max: 1, step: 0.02, default: 0.25 },
+      { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.3 },
     ],
     implemented: true,
   },
