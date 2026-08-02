@@ -1,27 +1,34 @@
-// foil/FoilLab.tsx — the quarantined foil tuning workbench (/pokedex/foil-lab).
+// foil/FoilLab.tsx — surface B of the workbench split (/pokedex/foil-lab):
+// the CARD ADJUSTMENT surface (issues/foil/2026-08-02_12-59-52-368_4aq756).
+//
+// Card-to-card differences ONLY: per-card mask work (hand masks, layout
+// masks, artwork-keyed aliasing), per-card uniform overrides layered on top
+// of the canon pattern defaults, and the comment queue. The canonical
+// pattern recipes themselves are locked on surface A — the canon lab at
+// /pokedex/foil-lab/canon (CanonLab.tsx) — and load here as the slider
+// baseline (foil/canon.ts explains the layering).
 //
 // Reachable by URL only — linked from NOWHERE in the app shell (quarantine
 // rule, roadmap/plans/foil-main.md). One card/variant at a time — ANY card in
 // the catalog, owned or not (Owned-only is a filter toggle; scans come from
-// the app-wide image cache either way), real scan from the image cache,
-// tilt-driven foil shader, and dev controls:
-// uniform sliders, pattern override, mask overlay toggle, Apple-Pencil hand
-// mask editing, and a comment queue. Layouts: single column at phone widths
-// (390px), two columns from iPad-mini portrait up (≥700px: viewer | controls).
+// the app-wide image cache either way). Layouts: single column at phone
+// widths (390px), two columns from iPad-mini portrait up (≥700px: viewer |
+// controls).
 //
-// The hand-mask + comment surfaces need the BRANCH api dev instance
-// (POKEDEX_FOIL_LAB=1 on port 3712 — roadmap/ORCHESTRATION.md); against prod
-// they probe as unavailable and those affordances hide themselves.
+// The mask/override/comment surfaces need the BRANCH api dev instance
+// (POKEDEX_FOIL_LAB=1 — roadmap/ORCHESTRATION.md); against prod they probe
+// as unavailable and those affordances hide themselves.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { foilApi, type FoilMaskMeta, type FoilVariant } from './api'
-import { PATTERNS, patternById, type FoilPattern } from './patterns'
-import { GLOBAL_DEFAULTS } from './shader'
+import { PATTERNS, patternById, canonicalPatternId } from './patterns'
+import { canonBaseline, canonFor, sparseDiff } from './canon'
 import { resolveFoil, maskForScope, ERAS, RESOLVER_VERSION, type FoilScope } from './resolver'
 import { useTilt } from './useTilt'
 import { CardViewer, cardScreenRect, type ViewerSettings } from './CardViewer'
 import { MaskEditor, createMaskCanvas, MASK_W, MASK_H, type BrushMode, type MaskEditorHandle } from './MaskEditor'
+import { ActionBtn, Chip, Section, Select, Slider, SurfaceTabs } from './ui'
 
 const LS_KEY = 'foil-lab:selection'
 const LS_OWNED_KEY = 'foil-lab:owned-only'
@@ -41,132 +48,13 @@ function loadSelection(): Selection {
   }
 }
 
-function seedUniforms(pattern: FoilPattern): Record<string, number> {
-  const u: Record<string, number> = { ...GLOBAL_DEFAULTS }
-  for (const [k, v] of Object.entries(pattern.defaults)) u[k] = v as number
-  for (const p of pattern.params) u[p.key] = p.default
-  return u
-}
-
-// ── Small UI atoms (self-contained; no imports from ../components) ─────────
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-lg border border-border-default bg-surface-secondary p-[12px]">
-      <h2 className="mb-[10px] text-[11px] font-bold uppercase tracking-[0.08em] text-text-muted">
-        {title}
-      </h2>
-      {children}
-    </section>
-  )
-}
-
-function Chip({
-  active,
-  onClick,
-  disabled = false,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  disabled?: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`shrink-0 rounded-full border px-[10px] py-[4px] text-[12px] transition-colors disabled:opacity-40 ${
-        active
-          ? 'border-action-primary bg-action-primary/15 text-action-primary'
-          : 'border-border-default bg-surface-tertiary text-text-muted hover:text-text-primary'
-      }`}
-    >
-      {children}
-    </button>
-  )
-}
-
-function Slider({
-  label,
-  value,
-  min,
-  max,
-  step,
-  onChange,
-}: {
-  label: string
-  value: number
-  min: number
-  max: number
-  step: number
-  onChange: (v: number) => void
-}) {
-  return (
-    <label className="mb-[8px] block">
-      <span className="mb-[2px] flex justify-between text-[12px]">
-        <span className="text-text-muted">{label}</span>
-        <span className="tabular-nums text-text-primary">{value.toFixed(2)}</span>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-[var(--color-action-primary)]"
-      />
-    </label>
-  )
-}
-
-function Select({
-  value,
-  onChange,
-  children,
-}: {
-  value: string
-  onChange: (v: string) => void
-  children: React.ReactNode
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-md border border-border-default bg-surface-tertiary px-[8px] py-[6px] text-[13px] text-text-primary"
-    >
-      {children}
-    </select>
-  )
-}
-
-function ActionBtn({
-  onClick,
-  active = false,
-  children,
-}: {
-  onClick: () => void
-  active?: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-md border px-[10px] py-[6px] text-[12px] ${
-        active
-          ? 'border-action-primary bg-action-primary/15 text-action-primary'
-          : 'border-border-default bg-surface-tertiary text-text-primary hover:border-action-primary'
-      }`}
-    >
-      {children}
-    </button>
-  )
-}
+// UI atoms + seedUniforms moved to foil/ui.tsx and foil/canon.ts for the
+// workbench split — both surfaces share them.
 
 // ── The workbench ──────────────────────────────────────────────────────────
 
 export function FoilLab() {
+  const queryClient = useQueryClient()
   const [sel, setSel] = useState<Selection>(loadSelection)
   // Owned-only picker filter (default ON = the original owned-scans workbench).
   const [ownedOnly, setOwnedOnly] = useState(() => localStorage.getItem(LS_OWNED_KEY) !== '0')
@@ -267,6 +155,14 @@ export function FoilLab() {
   })
   const devQ = useQuery({ queryKey: ['foil', 'dev-surface'], queryFn: () => foilApi.devSurface(), staleTime: Infinity })
   const devSurface = devQ.data === true
+  // Canon pattern defaults (locked on surface A) — the slider baseline here.
+  const canonQ = useQuery({ queryKey: ['foil', 'canon'], queryFn: ({ signal }) => foilApi.getCanon(signal) })
+  // Saved per-card overrides for the selected card/variant (sparse vs canon).
+  const overrideQ = useQuery({
+    queryKey: ['foil', 'override', sel.cardId, sel.variantId],
+    queryFn: ({ signal }) => foilApi.getOverride(sel.cardId!, sel.variantId!, signal),
+    enabled: devSurface && Boolean(sel.cardId) && sel.variantId != null,
+  })
 
   // Auto-select down the chain, but ONLY into empty slots (prefer the classic
   // demo: Base Set Machamp). A selection that isn't in the current browse list
@@ -369,12 +265,62 @@ export function FoilLab() {
     }
   }, [detail, sel.variantId, devSurface, maskCanvas, resolved.scope])
 
-  // ── Uniforms: reset on pattern change, live in state + ref ──
-  const [uniforms, setUniforms] = useState<Record<string, number>>(() => seedUniforms(pattern))
+  // ── Uniforms: canon baseline + saved card overrides, live in state + ref ──
+  // Layering (foil/canon.ts): code defaults < canon file < per-card override
+  // < live sliders. Reseed ONLY when the seed key changes (pattern, canon
+  // save, card/variant, override save) — background refetches with identical
+  // data never clobber in-progress slider tweaks.
+  const canon = canonFor(canonQ.data ?? undefined, pattern.id)
+  const baseline = useMemo(() => canonBaseline(pattern, canon), [pattern, canon])
+  const override =
+    overrideQ.data && canonicalPatternId(overrideQ.data.patternId) === pattern.id ? overrideQ.data : null
+  const [uniforms, setUniforms] = useState<Record<string, number>>(() => canonBaseline(pattern, undefined))
+  const seedKey = `${pattern.id}|${canon?.savedAt ?? 'code'}|${sel.cardId ?? ''}|${sel.variantId ?? ''}|${override?.savedAt ?? 'none'}`
+  const lastSeed = useRef<string | null>(null)
   useEffect(() => {
-    setUniforms(seedUniforms(pattern))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pattern.id])
+    if (lastSeed.current === seedKey) return
+    lastSeed.current = seedKey
+    setUniforms({ ...baseline, ...(override?.uniforms ?? {}) })
+  }, [seedKey, baseline, override])
+
+  // Sparse live diff vs the canon baseline — what "Save card overrides" writes.
+  const overrideDiff = useMemo(() => sparseDiff(uniforms, baseline), [uniforms, baseline])
+  const overrideDiffKeys = Object.keys(overrideDiff)
+  const [overrideStatus, setOverrideStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+
+  const saveOverrides = async () => {
+    if (!detail || sel.variantId == null) return
+    setOverrideStatus('saving')
+    try {
+      if (overrideDiffKeys.length === 0) {
+        // Sliders match canon — an override file would say nothing; remove it.
+        if (override) await foilApi.deleteOverride(detail.card.cardId, sel.variantId)
+      } else {
+        await foilApi.putOverride(detail.card.cardId, sel.variantId, {
+          patternId: pattern.id,
+          patternOverride: patternOverride === 'auto' ? null : canonicalPatternId(patternOverride),
+          uniforms: overrideDiff,
+          baseline: { canonSavedAt: canon?.savedAt ?? null },
+        })
+      }
+      await queryClient.invalidateQueries({ queryKey: ['foil', 'override', sel.cardId, sel.variantId] })
+      setOverrideStatus('saved')
+      setTimeout(() => setOverrideStatus('idle'), 1500)
+    } catch {
+      setOverrideStatus('error')
+    }
+  }
+
+  const removeOverrides = async () => {
+    if (!detail || sel.variantId == null) return
+    try {
+      await foilApi.deleteOverride(detail.card.cardId, sel.variantId)
+      await queryClient.invalidateQueries({ queryKey: ['foil', 'override', sel.cardId, sel.variantId] })
+      setUniforms({ ...baseline })
+    } catch {
+      setOverrideStatus('error')
+    }
+  }
 
   const handActive = maskSource === 'hand' || editMode
   const settingsRef = useRef<ViewerSettings>({
@@ -481,8 +427,14 @@ export function FoilLab() {
   }
 
   const commentContext = (): Record<string, unknown> => ({
+    surface: 'card-adjust',
     cardId: detail?.card.cardId,
     variantId: sel.variantId,
+    // Canon/override linkage: which canon save the sliders were baselined on,
+    // and whether saved card overrides were active.
+    canonSavedAt: canon?.savedAt ?? null,
+    overrideSavedAt: override?.savedAt ?? null,
+    overrideDirtyKeys: overrideDiffKeys,
     variantKind: variant?.kind,
     pattern: effectivePatternId,
     patternOverride,
@@ -633,6 +585,8 @@ export function FoilLab() {
 
       {/* ── Controls column ── */}
       <div className="flex-1 space-y-[12px] overflow-y-auto p-[12px] min-[700px]:w-[360px] min-[700px]:flex-none min-[700px]:shrink-0 min-[1200px]:w-[400px]">
+        <SurfaceTabs active="card" />
+
         <Section title={ownedOnly ? 'Card (owned, by era)' : 'Card (full catalog, by era)'}>
           <div className="mb-[8px] flex items-center gap-[8px]">
             <input
@@ -820,6 +774,11 @@ export function FoilLab() {
                 : 'Guess: era heuristic — no cited usage row for this set/class.'}
             </p>
           )}
+          <p className="mt-[4px] text-[11px] leading-[15px] text-text-muted">
+            {canon
+              ? `Canon: locked ${new Date(canon.savedAt).toLocaleDateString()} — data/foil-canon/${pattern.id}.json`
+              : 'Canon: none saved — recipe code defaults. Lock this pattern on the Canon patterns tab.'}
+          </p>
         </Section>
 
         <Section title="Mask">
@@ -937,14 +896,14 @@ export function FoilLab() {
           <Slider label="Max card tilt (deg)" value={maxTiltDeg} min={0} max={35} step={1} onChange={setMaxTiltDeg} />
         </Section>
 
-        <Section title="Foil uniforms">
-          <Slider label="Intensity" value={uniforms.uIntensity ?? 1} min={0} max={2} step={0.02} onChange={(v) => setU('uIntensity', v)} />
-          <Slider label="Pattern scale" value={uniforms.uScale ?? 1} min={0.25} max={3} step={0.05} onChange={(v) => setU('uScale', v)} />
-          <Slider label="Hue shift" value={uniforms.uHueShift ?? 0.5} min={0} max={1} step={0.01} onChange={(v) => setU('uHueShift', v)} />
-          <Slider label="Hue spread" value={uniforms.uHueSpread ?? 0.5} min={0} max={1.5} step={0.01} onChange={(v) => setU('uHueSpread', v)} />
-          <Slider label="Color saturation" value={uniforms.uSat ?? 0.8} min={0} max={1} step={0.01} onChange={(v) => setU('uSat', v)} />
-          <Slider label="Art gate (dark areas)" value={uniforms.uArtGate ?? 0} min={0} max={1} step={0.01} onChange={(v) => setU('uArtGate', v)} />
-          <Slider label="Specular sheen" value={uniforms.uSpecular ?? 0.4} min={0} max={1.5} step={0.02} onChange={(v) => setU('uSpecular', v)} />
+        <Section title="Foil uniforms (this card vs canon)">
+          <Slider label="Intensity" value={uniforms.uIntensity ?? 1} min={0} max={2} step={0.02} marked={overrideDiffKeys.includes('uIntensity')} onChange={(v) => setU('uIntensity', v)} />
+          <Slider label="Pattern scale" value={uniforms.uScale ?? 1} min={0.25} max={3} step={0.05} marked={overrideDiffKeys.includes('uScale')} onChange={(v) => setU('uScale', v)} />
+          <Slider label="Hue shift" value={uniforms.uHueShift ?? 0.5} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uHueShift')} onChange={(v) => setU('uHueShift', v)} />
+          <Slider label="Hue spread" value={uniforms.uHueSpread ?? 0.5} min={0} max={1.5} step={0.01} marked={overrideDiffKeys.includes('uHueSpread')} onChange={(v) => setU('uHueSpread', v)} />
+          <Slider label="Color saturation" value={uniforms.uSat ?? 0.8} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uSat')} onChange={(v) => setU('uSat', v)} />
+          <Slider label="Art gate (dark areas)" value={uniforms.uArtGate ?? 0} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uArtGate')} onChange={(v) => setU('uArtGate', v)} />
+          <Slider label="Specular sheen" value={uniforms.uSpecular ?? 0.4} min={0} max={1.5} step={0.02} marked={overrideDiffKeys.includes('uSpecular')} onChange={(v) => setU('uSpecular', v)} />
           {pattern.params.length > 0 && <div className="my-[8px] border-t border-border-default" />}
           {pattern.params.map((p) => (
             <Slider
@@ -954,9 +913,35 @@ export function FoilLab() {
               min={p.min}
               max={p.max}
               step={p.step}
+              marked={overrideDiffKeys.includes(p.key)}
               onChange={(v) => setU(p.key, v)}
             />
           ))}
+          <div className="my-[8px] border-t border-border-default" />
+          <p className="mb-[6px] text-[11px] leading-[15px] text-text-muted">
+            {overrideDiffKeys.length > 0
+              ? `${overrideDiffKeys.length} uniform${overrideDiffKeys.length === 1 ? '' : 's'} differ${overrideDiffKeys.length === 1 ? 's' : ''} from canon (dotted)`
+              : 'Sliders match the canon baseline.'}
+            {override
+              ? ` · saved overrides ${new Date(override.savedAt).toLocaleDateString()} (${Object.keys(override.uniforms).length}) → data/foil-overrides/`
+              : ''}
+          </p>
+          {devSurface && (
+            <div className="mb-[6px] flex flex-wrap gap-[6px]">
+              <ActionBtn onClick={saveOverrides} disabled={overrideDiffKeys.length === 0 && !override}>
+                {overrideStatus === 'saving'
+                  ? 'Saving…'
+                  : overrideStatus === 'saved'
+                    ? 'Saved ✓'
+                    : `Save card overrides${overrideDiffKeys.length > 0 ? ' ●' : ''}`}
+              </ActionBtn>
+              <ActionBtn onClick={() => setUniforms({ ...baseline })}>Reset to canon</ActionBtn>
+              {override && <ActionBtn onClick={removeOverrides}>Delete saved</ActionBtn>}
+            </div>
+          )}
+          {overrideStatus === 'error' && (
+            <p className="mb-[6px] text-[12px] text-red-400">Override save failed — is the branch api up?</p>
+          )}
           <button
             onClick={copyRecipe}
             className="mt-[6px] w-full rounded-md border border-border-default bg-surface-tertiary py-[8px] text-[13px] text-text-primary hover:border-action-primary"
@@ -966,7 +951,7 @@ export function FoilLab() {
         </Section>
 
         <p className="pb-[16px] text-center text-[10px] text-text-muted">
-          foil/main workbench — quarantined; linked from nowhere.
+          card adjustment surface — per-card masks + overrides; canon patterns live on the Canon tab.
         </p>
       </div>
 
