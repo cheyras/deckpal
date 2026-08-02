@@ -26,6 +26,10 @@ it) / 6 patterns not judged (below).** Sum column dims: S/T/L/C = static/tilt/la
 **Superseded 2026-08-02 by the R0 re-tune wave (section below): 8 of the 9 implemented
 recipes now match; only `starlight` remains nay (11/20 best-of-3, still-frame parallax
 blindness — see R0 notes). Gap-fallback rows are unchanged W2 results.**
+**Superseded again 2026-08-02 by the R1 recipe wave (section below): the twelve owned-era
+gap patterns got dedicated recipes — 10 of 12 match. Running total: 18 of 21 implemented
+taxonomy types hold a match verdict; nay: `starlight` (parallax judge-blindness),
+`tinsel-ii` (static plateau), `prismatic-pokeball` (blend-model limit).**
 
 ## Verdict table
 
@@ -171,6 +175,68 @@ Round-by-round honesty notes:
   blind here; also consider the "milky/cloudy field" note (needs a shared-GLSL wash
   change, deferred to avoid invalidating starlight-ii's banked 20/20).
 
+## R1 recipe wave results (2026-08-02, foil/main R1 agent)
+
+Chey's workbench comment (`issues/foil/2026-08-02_12-52-40-538_dml369`): *"Let's do
+another pass developing out the rest of the missing holofoil patterns that are currently
+just approximations."* — the twelve owned-era gap patterns from the Wave-R1 plan above
+got dedicated recipes (patterns.ts R1 section), each authored from the corpus keyframes +
+the shader notes in `research/foil-patterns.md`, eyeballed in the canon lab against the
+reference clip, then judged with the same pipeline as W2/R0 (same judge, prompt
+guardrails, validator; exemplar cards identical to W2 — `frames/<p>/capture.json`).
+Round-1 canon-lab eyeballing caught and fixed 7 issues before any Gemini spend (band
+flying off-card, washed-out glyphs, blue tinsel, flat facet luminance, 5-band starfoil,
+sparse ace-spec clusters, dim radiant floor).
+
+**Scoreline: 10 of 12 match.** Verdicts under `verify-<p>-r1/-r2/-r3/`.
+
+| Pattern | Rounds (sum/20) | Final S/T/L/C | Honest residuals |
+|---|---|---|---|
+| `fireworks` | 18 yay (1 round) | 5/4/5/4 | sweep band could be tighter; burst intensity too uniformly saturated |
+| `ace-spec` | 18 yay (1) | 4/5/5/4 | grid lines a hair thick; colors more opaque than the metallic reference |
+| `energy-symbols-ii` | 15 yay (1) | 4/4/4/3 | colors too neon vs the muted blended reference; glyphs are stylized SDFs (crescent/flame/star/leaf), not the true 9-icon set — an icon atlas is a shader-contract change, deferred |
+| `rainbow-glitter-sheen` | 11 → 16 yay (2) | 4/4/4/4 | judge still calls the chevron "straight" on the busy me01 card (the V is unambiguous on the blank-card lab render); glitter slightly coarse |
+| `ex-starfoil` | 13 yay (1) | 3/4/3/3 | stars too uniform/speck-like, should take band color harder; band could be sharper |
+| `prismatic-pokeball` | 6 → 8 → 5 **nay** | 1/2/1/1 (r3) | **structural**: the ball watermark + mosaic live largely on the near-white card body, and the shared screen-only blend cannot darken — real rainbow-mirror foil reads as a dark mirror at most angles. Needs a darkening/tint term in the shared blend model (main() change, all patterns affected — Chey's call). Post-cap eyeball fix shipped (ball moved onto the visible body at uP1 0.30, neon tamed) but NOT re-judged; scores above are the judged rounds. |
+| `tinsel-ii` | 12 → 14 → 14 **nay** | 2/4/4/4 | static_appearance plateaued at 2 across three static treatments (jittered lines → 2 systems → 3 noise-wavered systems): judge wants denser/darker/more broken static than a procedural line field is giving; motion/layer/color all pass. Candidate for a texture-based static or Chey's eye. |
+| `cosmos-iii-smooth` | 19 yay (1) | 5/4/5/5 | specular band slightly broad |
+| `pokeball-masterball` | 17 yay (1) | 5/4/4/4 | specular a bit broad; slightly pastel. Master Ball styling is a uP1 toggle, unjudged (no English master-ball corpus clip) |
+| `radiant` | 20 yay (1) | 5/5/5/5 | none |
+| `rainbow-glitter` | 20 yay (1) | 5/5/5/5 | none |
+| `confetti` | 7 → 14 yay (2) | 3/4/4/3 | density/size still a touch off; colors a touch pastel |
+
+All twelve entries flipped `implemented: true`, `approxVia` labels dropped, slugs stable
+(no alias changes). Dropdown grouping updates automatically (it filters on
+`implemented`). The remaining approx fallbacks are the R2/R3 lists below.
+
+### R0-residual outcomes (same session)
+
+- **starlight + starlight-ii milky-wash change (shared GLSL, changed TOGETHER and both
+  re-judged, twice).** The wash is now a desaturated cool "milky cloud" (hue whisper
+  0.35, noise-product structure) instead of a pastel rainbow field. `starlight-ii`:
+  19/20 yay after the wash change, then a clean **20/20** after the round-3 layer-curve
+  change — the bank held through both shared-GLSL edits. `starlight`: still **nay** —
+  9/20 (r2 config) → **11/20** (r3: persistent dim back layer for trackability + front
+  pops sharpened + parallax 2.4 → 3.0), equal to R0's best. This round judged from a
+  16-frame fine sweep (x −0.45…+0.45, adjacent frames 0.06 apart,
+  `jobs/starlight-r1-fine.json`) with an explicit track-stars-across-adjacent-frames
+  instruction — layer_character still scored 1 ("completely flat"). True video-file
+  judging isn't available through the OpenRouter image API; the 16-frame variant was
+  the practical maximum. **My own eyes on the live renderer and on adjacent fine-sweep
+  frames: the three layers demonstrably shift against each other (~13% card-width
+  relative shift across the sweep at uP1 3.0).** Recommendation: accept still-frame
+  scoring as structurally blind here; this is Chey's eye's call now.
+- **cracked-ice shard geometry (queued from R0): DONE, re-judged 14/20 yay** (3/4/4/3).
+  Per-seed anisotropic voronoi metric — random axis + elongation (`1 + 2.6·h²`),
+  per-seed euclidean/L1 blend so corners stay angular — replaces the uniform cell
+  field; the mix of long thin slivers + small compact shards now matches the
+  shattered-glass reference by eye. Residual: judge wants smaller/denser shards and
+  more intra-shard color variation.
+- **Minor R0 residuals NOT attempted (deliberate):** diag-left in-band color lines and
+  striped-vertical-sheen stripe fineness both sit on patterns holding yay verdicts;
+  cosmetic sharpening would invalidate banked verdicts for marginal gain. Left for a
+  wave that touches those sheets anyway.
+
 ## Patterns not judged in this run — honest skip list
 
 Verification requires a real catalog scan to render. Six of the 39 corpus patterns have
@@ -208,22 +274,22 @@ recipes and mostly sit on owned cards.
 | R0.5 | `cracked-ice` | Theme decks DP→SWSH | 10/20 | Chey-arbitrated: drop/attenuate intra-shard grain, solid saturated shard flashes |
 | R0.6 | `starlight-ii` | XY (Evolutions) | 13/20 | Sharper starbursts, saturation up, tighter activation (layer character already 5) |
 
-### Wave R1 — new recipes on owned eras (SV/Mega + WOTC + SWSH)
+### Wave R1 — new recipes on owned eras (SV/Mega + WOTC + SWSH) — **DONE 2026-08-02, results below**
 
 | # | Recipe | Era (owned signal) | Score sum | Notes |
 |---|---|---|---|---|
-| R1.1 | `fireworks` | WOTC reverses (Legendary Collection) | 1/20 | Worst score on an owned-adjacent era; radial burst streaks |
-| R1.2 | `ace-spec` | SV ACE SPEC cards (owned SV) | 2/20 | Distinctive pink-sheet sparkle |
-| R1.3 | `energy-symbols-ii` | EX→SV/Mega energy holos | 2/20 | Symbol-shaped die-cut layer |
-| R1.4 | `rainbow-glitter-sheen` | **Mega Evolution ex holos (me01 — 139 owned)** | 4/20 | The current Mega-era chase look |
-| R1.5 | `ex-starfoil` | SV ex (151, owned SV) | 5/20 | Star-punched foil |
-| R1.6 | `prismatic-pokeball` | Prismatic Evolutions (owned SV) | 6/20 | Pokeball die-cut + prism field |
-| R1.7 | `tinsel-ii` | Black Bolt / White Flare (owned SV) | 6/20 | Fine vertical tinsel strands |
-| R1.8 | `cosmos-iii-smooth` | SVE energy reverses (owned SV) | 7/20 | HD smooth cosmos orbs |
-| R1.9 | `pokeball-masterball` | SV pokeball/masterball reverses | 9/20 | Fallback already lands 3s on tilt/color; stamp grid exists in `reverse-sheet` |
-| R1.10 | `radiant` | SWSH Radiant cards (3 SWSH owned) | 4/20 | Criss-cross metallic lattice |
-| R1.11 | `rainbow-glitter` | SWSH rainbow rares | 5/20 | Dense pastel glitter over painted art |
-| R1.12 | `confetti` | Promo cross-era (McDonald's etc.) | 5/20 | Chunky sparse confetti flakes |
+| R1.1 | `fireworks` | WOTC reverses (Legendary Collection) | 1/20 → **18/20 yay** | Worst score on an owned-adjacent era; radial burst streaks |
+| R1.2 | `ace-spec` | SV ACE SPEC cards (owned SV) | 2/20 → **18/20 yay** | Distinctive pink-sheet sparkle |
+| R1.3 | `energy-symbols-ii` | EX→SV/Mega energy holos | 2/20 → **15/20 yay** | Symbol-shaped die-cut layer |
+| R1.4 | `rainbow-glitter-sheen` | **Mega Evolution ex holos (me01 — 139 owned)** | 4/20 → **16/20 yay** | The current Mega-era chase look |
+| R1.5 | `ex-starfoil` | SV ex (151, owned SV) | 5/20 → **13/20 yay** | Star-punched foil |
+| R1.6 | `prismatic-pokeball` | Prismatic Evolutions (owned SV) | 6/20 → **8/20 nay (best of 3)** | Pokeball die-cut + prism field; blend-model limit |
+| R1.7 | `tinsel-ii` | Black Bolt / White Flare (owned SV) | 6/20 → **14/20 nay (static 2)** | Fine horizontal tinsel static |
+| R1.8 | `cosmos-iii-smooth` | SVE energy reverses (owned SV) | 7/20 → **19/20 yay** | HD smooth cosmos orbs |
+| R1.9 | `pokeball-masterball` | SV pokeball/masterball reverses | 9/20 → **17/20 yay** | True ball SDF + Master Ball toggle |
+| R1.10 | `radiant` | SWSH Radiant cards (3 SWSH owned) | 4/20 → **20/20 yay** | Criss-cross metallic lattice |
+| R1.11 | `rainbow-glitter` | SWSH rainbow rares | 5/20 → **20/20 yay** | Dense glitter over rainbow mirror |
+| R1.12 | `confetti` | Promo cross-era (McDonald's etc.) | 5/20 → **14/20 yay** | Irregular snapping voronoi flakes |
 
 ### Wave R2 — new recipes on unowned eras (severity order)
 
@@ -252,7 +318,9 @@ animation inferred, Medium confidence — prototype flag in the workbench dropdo
 
 - Re-run everything: `cd ~/ringer && ./ringer.py run ~/.legacy-dev-hub-legacy/foil-verify/manifest.json`
   (33 tasks; `manifest-resume.json` = the 31-task crash-resume variant; `manifest-dsl-v2.json`
-  = the one-task re-judge).
+  = the one-task re-judge; `manifest-r1/r2/r3.json` = the R1-wave rounds — r1 jobs are
+  `jobs/<pattern>-r1.json` with the implemented-recipe wording, `jobs/starlight-r1-fine.json`
+  is the 16-frame fine-sweep starlight judge).
 - Re-capture a pattern's sweep: drive the workbench at `:5182/pokedex/foil-lab` with
   Playwright — pick the exemplar card, force the pattern in the dropdown, Manual tilt,
   8 frames x = −0.9…0.9 / y = 0.6·x, screenshot the canvas (crop DOM overlays out).
