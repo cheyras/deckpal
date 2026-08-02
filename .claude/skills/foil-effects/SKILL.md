@@ -18,7 +18,7 @@ the lazy route in `main.tsx` and a pathname check in `AppShell.tsx`. Read
 | `foil/patterns.ts` | **The pattern library.** The FULL 39-type taxonomy from `research/foil-patterns.md`: implemented recipes (`implemented: true`) plus every remaining type rendering via its nearest recipe with an honest `approxVia` label. Also `PATTERN_ALIASES` — old slugs (e.g. `sv-holo` → `vertical-sheen`) resolve forever; never orphan corpus data (sidecars, comment context.json, Copy-recipe JSON). You will usually only touch this. |
 | `foil/shader.ts` | Uniform contract, GLSL preamble (helpers), fragment `main()`, material builder. Contract changes happen here — rarely, and update this doc when they do. |
 | `foil/era-layouts.json` | Era layout spec — art-window rects per frame generation. **Data, not code.** Top-left-origin fractions measured on 600×825 cache scans. |
-| `foil/resolver.ts` | v2: `(series, set, rarity, variant kind) → { patternId, scope, eraId, guess }`. The base pattern guess reads the CITED usage table (`foil/usage-index.json`, derived from `research/foil-pattern-usage.json` by `tools/foil/build-usage-index.mjs` — regenerate after editing the research file, never hand-edit the index). Set-name match → era/series token match → era-default heuristics; `guess` carries match level + confidence + citation hosts for the UI. Scope→mask-uniform conversion unchanged. |
+| `foil/resolver.ts` | v4: `(series, set, card, rarity, variant kind) → { patternId, scope, eraId, guess }`. Tiers: cited per-card/facet/set ASSIGNMENT rows (`foil/assignments-index.json` from `research/foil-card-assignments.json` via `tools/foil/build-assignments-index.mjs`) > the v2 usage table (`foil/usage-index.json` from `research/foil-pattern-usage.json` via `build-usage-index.mjs`) > era heuristics — regenerate indexes after editing the research files, never hand-edit them. v4 addition: card-level `cls: 'normal'` rows are consulted before the scope-none early return, so subset cards the catalog declares plain but which physically carry foil (RC commons' dot overprint) resolve scope `full`. `guess` carries match level + confidence + citation hosts for the UI. |
 | `foil/CardViewer.tsx` | three.js scene; rAF loop pushes uniforms from a settings ref (no React re-renders per frame). Also exports `cardScreenRect` — the exact on-screen card rect used to align overlays. |
 | `foil/useTilt.ts` | pointer / gyro (iOS permission) / manual tilt; reduced-motion → manual. |
 | `foil/MaskEditor.tsx` | Apple-Pencil hand-mask drawing overlay (see mask-pipeline SKILL.md). |
@@ -135,16 +135,20 @@ parallax 0), **Cosmos** (#2 — label is Cosmos only; "Galaxy" is Bulbapedia's s
 option: `vertical-sheen` (#14, ex-`sv-holo`), `horizontal-sheen` (#21, the TRUE SV default /
 Bulbapedia "Mirage"), `diagonal-sheen-right` (#19, "/"), `diagonal-sheen-left` (#20, "\\"),
 `striped-vertical-sheen` (#22, "Line") — **Reverse sheet** (coarse ring+dot tier, kept),
-**Cracked Ice** (#9, now with the anisotropic shattered-glass metric), and the **twelve R1
+**Cracked Ice** (#9, now with the anisotropic shattered-glass metric), the **twelve R1
 recipes**: `fireworks` (#3), `energy-symbols-ii` (#8), `cosmos-iii-smooth` (#16),
 `tinsel-ii` (#18), `radiant` (#26), `rainbow-glitter` (#27), `rainbow-glitter-sheen` (#28),
 `ace-spec` (#29), `pokeball-masterball` (#30, true ball SDF + Master Ball toggle on uP1),
-`prismatic-pokeball` (#31), `ex-starfoil` (#33), `confetti` (#37) — 21 of the 39 taxonomy
-types are real. Everything else renders via its nearest recipe with `implemented: false` +
-`approxVia` and is labeled "approx via …" in the UI — unimplemented ≠ hidden; taxonomy
-leads. To ship a real recipe: write the GLSL, flip the entry to `implemented: true`, drop
-`approxVia`. Gap priorities live in `research/foil-patterns.md` "Implementation gap
-summary" and `research/foil-verification.md` (recipe-wave plan — R2 is next).
+`prismatic-pokeball` (#31), `ex-starfoil` (#33), `confetti` (#37), and the **thirteen R2
+recipes** (2026-08-02): `mirror` (#4), `rainbow-mirror` (#5), `vertical-sheen-rainbow`
+(#13) — the dark-mirror family on uDarken — `energy-symbols` (#7), `pinwheel` (#10),
+`ex-emerald` (#11), `pokeball-hologram` (#12), `cosmos-ii-pixel` (#15), `tinsel` (#17),
+`prism` (#23), `water-web` (#25), `radiant-collection-dots` (#32), `crosshatch` (#35) —
+**34 of the 39 taxonomy types are real** (30 hold match verdicts; nays: starlight,
+energy-symbols, pokeball-hologram, radiant-collection-dots — see verification doc R2
+recipe-wave section). The 5 remaining approx types have no catalog exemplar
+(big-glitter, sequin, tcg-classic, acid-wash, disco — the R3 list). To ship a real
+recipe: write the GLSL, flip the entry to `implemented: true`, drop `approxVia`.
 
 ## Per-pattern field notes (distilled from resolved workbench comments)
 
@@ -296,6 +300,46 @@ recipe authors:
   render is actually different (frames diff, GLSL diff) and re-judge; two patterns
   (diagonal-sheen-right slope claim AGAIN, pokeball-masterball) failed twice on
   pixel-identical renders and keep their banked verdicts on geometry-proof grounds.
+
+### R2 recipe wave (2026-08-02) — thirteen recipes, unowned eras + RC dots
+
+Full verdict table in `research/foil-verification.md` (R2 recipe-wave section).
+Distilled lessons:
+
+- **GLSL glyph scaling: `p = f / k` renders the glyph at size ∝ k, not 1/k.** The
+  energy-symbols "make them bigger" tune DIVIDED by a smaller k twice and shrank the
+  icons both times — the judge's "3-4x too small" was geometric truth across two
+  rounds. When resizing SDF glyphs, sanity-check the rendered size against the cell
+  in the canon lab before re-judging.
+- **uDarken over a WINDOW mask is visible as a rectangle when the art bleeds past
+  the era rect.** Cyclone Energy's vortex runs nearly full-card; window-scoped
+  uDarken 0.3 read as "a dark rectangular mask over the top half" (verified on
+  frames). Strong uDarken needs the mask to match the FOIL's true extent — a
+  per-card art-extent mask (mask-pipeline item), not an era rect. Until then keep
+  uDarken mild on window-scope patterns whose exemplar art overflows the rect.
+- **Art gate vs dark-gap references: use uDarken, not uArtGate.** Three EX-era
+  window foils (energy-symbols, ex-emerald, pokeball-hologram) have references with
+  DARK gaps/fields, but gating the pattern to dark scan areas erased it over light
+  exemplar scans — the dark gaps are the darkened SUBSTRATE (uDarken 0.25-0.35 +
+  gate ≤ 0.15), not scan luminance.
+- **Ball glyphs need circle + thin belt + BUTTON.** A disc with a belt reads as
+  "⊖"/an e-reader "e" (judge, correctly). The center button at ~1.2 gain is what
+  makes a small SDF read as a Poké Ball.
+- **Judge-consistency ≠ judge-correctness.** radiant-collection-dots' "dots are
+  completely static" note survived a re-roll on identical frames, yet is pixel-false
+  (30%+ of bright pixels toggle every adjacent frame; population swells 20k→29k→21k
+  through the flash). A consistent wrong note usually means the judge anchored on a
+  different failure (here: soft snow-like dot styling + shape windows swamped by the
+  busy RC29 full-art scan) — read the WHOLE verdict before spending a round on the
+  loudest claim. Exemplar choice matters: a sparser RC card may judge better.
+- **Parallax stills-blindness now has two data points** (starlight, and
+  pokeball-hologram — the same layered machinery with ball glyphs). Expect any
+  true-hologram pattern to cap at nay under still-frame judging; the layers
+  verifiably shift in the live renderer.
+- **Round-1 eyeballing keeps paying**: cosmos-ii-pixel and radiant-collection-dots
+  both left the first GLSL pass as sparse night skies (tight windows + low floors)
+  and were fixed from blank-card renders before any Gemini spend; cosmos-ii-pixel
+  then scored a clean 20/20 on round 1.
 
 ## Masks
 
