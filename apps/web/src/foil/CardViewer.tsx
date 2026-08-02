@@ -187,7 +187,16 @@ export function CardViewer({
         tex.dispose()
         return
       }
-      tex.colorSpace = THREE.SRGBColorSpace
+      // Deliberately NOT SRGBColorSpace: that uploads as SRGB8_ALPHA8 and the
+      // hardware decodes to LINEAR at sample time, but our ShaderMaterial
+      // writes gl_FragColor raw (three only appends the linear->sRGB
+      // colorspace_fragment chunk to built-in materials) — the scan rendered
+      // in linear values displayed as sRGB, darkening every midtone (measured
+      // flat 184 -> 123, exactly the sRGB->linear curve; issue ls9u0y). The
+      // whole foil compositing model (screenBlend, hueRamp, art-gate
+      // thresholds) is authored in DISPLAY space, so sample the scan
+      // undecoded: pattern=none now matches the flat <img> pixel-for-pixel.
+      tex.colorSpace = THREE.NoColorSpace
       tex.anisotropy = 4
       textureRef.current?.dispose()
       textureRef.current = tex
