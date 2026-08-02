@@ -218,10 +218,11 @@ export function FoilLab() {
         seriesSlug: detail?.card.series.slug ?? sel.seriesSlug ?? '',
         rarity: detail?.card.rarity ?? null,
         variantKind: variant?.kind ?? null,
-        // Set + card identity feed the cited usage-table lookup (v2 resolver).
+        // Set + card identity feed the cited assignment/usage lookups (v3 resolver).
         setId: detail?.card.set.setId ?? sel.setId ?? null,
         setName: detail?.card.set.name ?? null,
         cardName: detail?.card.name ?? null,
+        cardId: detail?.card.cardId ?? sel.cardId ?? null,
       }),
     [detail, variant, sel.seriesSlug, sel.setId],
   )
