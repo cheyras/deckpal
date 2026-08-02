@@ -322,8 +322,12 @@ export function FoilLab() {
         seriesSlug: detail?.card.series.slug ?? sel.seriesSlug ?? '',
         rarity: detail?.card.rarity ?? null,
         variantKind: variant?.kind ?? null,
+        // Set + card identity feed the cited usage-table lookup (v2 resolver).
+        setId: detail?.card.set.setId ?? sel.setId ?? null,
+        setName: detail?.card.set.name ?? null,
+        cardName: detail?.card.name ?? null,
       }),
-    [detail, variant, sel.seriesSlug],
+    [detail, variant, sel.seriesSlug, sel.setId],
   )
   const effectivePatternId = patternOverride === 'auto' ? resolved.patternId : patternOverride
   const effectiveScope = scopeOverride === 'auto' ? resolved.scope : scopeOverride
@@ -784,15 +788,38 @@ export function FoilLab() {
         <Section title="Pattern">
           <Select value={patternOverride} onChange={setPatternOverride}>
             <option value="auto">Auto — {patternById(resolved.patternId).label}</option>
-            {PATTERNS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
+            <optgroup label="Implemented recipes">
+              {PATTERNS.filter((p) => p.implemented).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Recipe gap — nearest-recipe fallback">
+              {PATTERNS.filter((p) => !p.implemented).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label} — approx via {p.approxVia}
+                </option>
+              ))}
+            </optgroup>
           </Select>
           <p className="mt-[6px] text-[11px] leading-[15px] text-text-muted">
             {pattern.taxonomy} — {pattern.usedOn}
           </p>
+          {!pattern.implemented && (
+            <p className="mt-[4px] text-[11px] leading-[15px] text-amber-500/90">
+              No faithful recipe yet — rendering an approximation via {pattern.approxVia}.
+            </p>
+          )}
+          {patternOverride === 'auto' && resolved.patternId !== 'none' && (
+            <p className="mt-[4px] text-[11px] leading-[15px] text-text-muted">
+              {resolved.guess.confidence
+                ? `Guess: ${resolved.guess.match}-level citation, ${resolved.guess.confidence} confidence (${resolved.guess.sources.join(', ')})${
+                    resolved.guess.era ? ` — ${resolved.guess.era}${resolved.guess.years ? ` ${resolved.guess.years}` : ''}` : ''
+                  }`
+                : 'Guess: era heuristic — no cited usage row for this set/class.'}
+            </p>
+          )}
         </Section>
 
         <Section title="Mask">
