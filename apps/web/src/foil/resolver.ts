@@ -1,37 +1,49 @@
-// foil/resolver.ts — v2 resolver:
-//   (series, set, rarity, variant kind) → { patternId, scope, eraId, guess }
+// foil/resolver.ts — v3 resolver:
+//   (series, set, card, rarity, variant kind) → { patternId, scope, eraId, guess }
 //
-// v2 (2026-08-02): the base pattern guess now comes from the CITED usage table
-// research/foil-pattern-usage.json (113 rows, 7 Ringer research lanes),
-// bundled as the trimmed derived index `usage-index.json` (regenerate with
-// tools/foil/build-usage-index.mjs). Matching is set-name-exact first, then
-// era/series token fallback, then the era-default heuristics; the winning
-// row's confidence + citations ride along in `guess` so the workbench can say
-// WHY it picked a pattern. Mislabel corrections from the research are baked
-// into the heuristics too: starlight is Base/Jungle/Fossil ONLY (Base Set 2 →
-// Call of Legends holos are cosmos), and the SV-era default is the HORIZONTAL
-// sheen, not the vertical one the old `sv-holo` slug rendered.
+// v3 (2026-08-02): per-card/per-set ASSIGNMENTS from the cited research file
+// research/foil-card-assignments.json (Ringer swarm `foil-card-assignments`,
+// bundled as the trimmed `assignments-index.json`, regenerate with
+// tools/foil/build-assignments-index.mjs) now outrank the v2 era usage table.
+// Highest-specificity wins: explicit cardIds row > catalog-declared variant
+// foil facet (e.g. `holo-foil-cosmos` → cosmos) > set+kind/rarity row > set
+// row > v2 usage table (set-name match, then era/series token) > era-default
+// heuristics. The winning row's confidence + citations ride along in `guess`
+// so the workbench can say WHY it picked a pattern.
 //
-// The index is bundled with the (lazy-loaded) foil-lab chunk — resolution is
-// synchronous, in-memory, and cached with the JS bundle.
+// v2 semantics kept underneath: starlight is Base/Jungle/Fossil ONLY (Base
+// Set 2 → Call of Legends holos are cosmos), SV default is the HORIZONTAL
+// sheen, 'mirror' reverse rows are penalized as ink-design evidence.
+//
+// The indexes are bundled with the (lazy-loaded) foil-lab chunk — resolution
+// is synchronous, in-memory, and cached with the JS bundle.
 
 import layouts from './era-layouts.json'
 import usageIndex from './usage-index.json'
+import assignIndex from './assignments-index.json'
 import { canonicalPatternId, patternById } from './patterns'
 
 // Bumped whenever the resolver heuristics or era-layouts data change meaning.
 // Recorded in every hand-mask sidecar's prior so the corpus states which rule
 // version it was diffed against (mask-pipeline SKILL.md, "Sidecar v2").
+// v3: assignment-table tier (card/facet/set rows) above the v2 usage table;
+//     variants whose kind declares a foil facet on a NORMAL print (e.g.
+//     normal-foil-galaxy) are now scope 'window' instead of 'none';
+//     era-layouts: 'e-card'/'legendary-collection' correctly map to the wotc
+//     frame (they previously fell through to modern-sv rects + heuristics).
 // v2: usage-table-driven pattern guesses + vintage starlight/cosmos split.
-// (Mask SCOPE semantics are unchanged from v1 — same rects, same zones.)
-export const RESOLVER_VERSION = 2
+export const RESOLVER_VERSION = 3
 
 export type FoilScope = 'window' | 'sheet' | 'full' | 'none'
 
 /** Why the resolver guessed this pattern — surfaced in the workbench UI. */
 export interface FoilGuess {
-  /** 'set' = cited row names this exact set; 'series' = era-level row; 'heuristic' = era default. */
-  match: 'set' | 'series' | 'heuristic'
+  /**
+   * 'card' = cited row names this exact card; 'facet' = the catalog variant
+   * kind itself declares the foil (cited mapping); 'set' = cited row names
+   * this exact set; 'series' = era-level row; 'heuristic' = era default.
+   */
+  match: 'card' | 'facet' | 'set' | 'series' | 'heuristic'
   confidence: 'high' | 'medium' | 'low' | null
   /** Citation hostnames from the winning row (empty for heuristics). */
   sources: string[]
@@ -122,6 +134,116 @@ const SERIES_TOKENS: Record<string, string[]> = {
 }
 
 const CONF_RANK = { high: 2, medium: 1, low: 0 } as const
+
+// ── Assignment-table lookup (v3 — research/foil-card-assignments.json) ──────
+
+type AssignCls = 'holo' | 'reverse' | 'full-foil' | 'normal+facet'
+
+interface AssignRow {
+  p: string
+  setIds: string[]
+  cls: string
+  rar: string[] | null
+  kinds: string[] | null
+  cards: string[] | null
+  conf: 'high' | 'medium' | 'low'
+  src: string[]
+}
+
+const ASSIGN_ROWS = assignIndex.rows as AssignRow[]
+const ASSIGN_FACETS = assignIndex.facets as Record<
+  string,
+  { p: string; conf: 'high' | 'medium' | 'low'; src: string[] }
+>
+
+const ASSIGN_BY_SET = new Map<string, AssignRow[]>()
+for (const row of ASSIGN_ROWS) {
+  for (const s of row.setIds) {
+    const list = ASSIGN_BY_SET.get(s)
+    if (list) list.push(row)
+    else ASSIGN_BY_SET.set(s, [row])
+  }
+}
+
+/**
+ * The explicit foil facet a catalog variant kind declares, if any —
+ * `holo-foil-cosmos` → 'cosmos', `normal-foil-galaxy-stamp-1st-edition` →
+ * 'galaxy', plain `holo`/`reverse` → null. Same rule the assignment research
+ * clustering used.
+ */
+function kindFacet(kind: string): string | null {
+  return kind.match(/foil-([a-z0-9-]+?)(?:-stamp-.*)?$/)?.[1] ?? null
+}
+
+/** The assignment class of a variant — mirrors the scope rules. */
+function assignCls(input: { isReverse: boolean; isFullFoil: boolean; isHolo: boolean; facet: string | null }): AssignCls | null {
+  if (input.isReverse) return 'reverse'
+  if (input.isFullFoil) return 'full-foil'
+  if (input.isHolo) return 'holo'
+  if (input.facet) return 'normal+facet'
+  return null
+}
+
+function lookupAssignment(input: {
+  setId: string | null
+  cardId: string | null
+  kind: string
+  rarity: string
+  cls: AssignCls
+  facet: string | null
+}): { row: { p: string; conf: 'high' | 'medium' | 'low'; src: string[] }; match: 'card' | 'facet' | 'set' } | null {
+  type Hit = {
+    p: string
+    conf: 'high' | 'medium' | 'low'
+    src: string[]
+    match: 'card' | 'facet' | 'set'
+    score: number
+    penalty: number
+    breadth: number
+  }
+  const hits: Hit[] = []
+  // Same research known-gap as the v2 tier: 'mirror' claims about REVERSES are
+  // often ink-design (not foil-sheet) evidence — any non-mirror row of the
+  // same specificity beats them.
+  const penaltyOf = (p: string): number => (input.cls === 'reverse' && p === 'mirror' ? 1 : 0)
+  if (input.setId) {
+    for (const row of ASSIGN_BY_SET.get(input.setId) ?? []) {
+      if (row.cls !== input.cls) continue
+      if (row.rar && !row.rar.some((r) => input.rarity.includes(r))) continue
+      if (row.kinds && !row.kinds.includes(input.kind)) continue
+      if (row.cards && !(input.cardId && row.cards.includes(input.cardId))) continue
+      // Specificity: explicit card list (9) > explicit kind list (7) > facet (6) > rarity filter (3) > bare set (1).
+      const score = (row.cards ? 8 : 0) + (row.kinds ? 6 : 0) + (row.rar ? 2 : 0) + 1
+      hits.push({
+        p: row.p,
+        conf: row.conf,
+        src: row.src,
+        match: row.cards ? 'card' : 'set',
+        score,
+        penalty: penaltyOf(row.p),
+        breadth: row.setIds.length,
+      })
+    }
+  }
+  // Catalog-declared facet mapping: beats set/rarity rows, loses to explicit
+  // card rows and explicit kind selectors (score 6, between rar's 3 and kinds' 7).
+  if (input.facet) {
+    const f = ASSIGN_FACETS[input.facet]
+    if (f) hits.push({ p: f.p, conf: f.conf, src: f.src, match: 'facet', score: 6, penalty: penaltyOf(f.p), breadth: 1 })
+  }
+  if (hits.length === 0) return null
+  hits.sort(
+    (a, b) =>
+      b.score - a.score ||
+      a.penalty - b.penalty ||
+      CONF_RANK[b.conf] - CONF_RANK[a.conf] ||
+      b.src.length - a.src.length ||
+      // narrower claims (fewer sets) beat era-wide ones on full ties
+      a.breadth - b.breadth,
+  )
+  const best = hits[0]
+  return { row: { p: best.p, conf: best.conf, src: best.src }, match: best.match }
+}
 
 /**
  * The applies_to classes this variant could fall under, in preference order —
@@ -236,30 +358,56 @@ export function resolveFoil(input: {
   seriesSlug: string
   rarity: string | null
   variantKind: string | null
-  /** Catalog set id (e.g. base1) — enables the vintage starlight/cosmos split. */
+  /** Catalog set id (e.g. base1) — enables assignment rows + the vintage starlight/cosmos split. */
   setId?: string | null
   /** Catalog set display name — enables set-level usage-table matches. */
   setName?: string | null
   /** Card display name — energy-card detection for the usage table. */
   cardName?: string | null
+  /** Catalog card id (e.g. base4-2) — enables card-level assignment rows. */
+  cardId?: string | null
 }): FoilRecipeRef {
   const eraId = ERA_BY_SERIES[input.seriesSlug] ?? 'modern-sv'
   const kind = (input.variantKind ?? '').toLowerCase()
   const rarity = (input.rarity ?? '').toLowerCase()
   const setName = input.setName ?? null
 
-  // Scope comes from the variant class alone (same rules as v1).
+  // Scope comes from the variant class alone (v3: a foil facet on an
+  // otherwise-normal print — e.g. normal-foil-galaxy theme-deck prints —
+  // is a real art-window foil, not 'none' as in v1/v2).
+  const facet = kindFacet(kind)
   const isReverse = kind.includes('reverse')
   const isFullFoil = FULL_FOIL_RARITIES.some((r) => rarity.includes(r))
   const isHolo = kind.includes('holo')
-  const scope: FoilScope = isReverse ? 'sheet' : isFullFoil ? 'full' : isHolo ? 'window' : 'none'
+  const scope: FoilScope = isReverse ? 'sheet' : isFullFoil ? 'full' : isHolo || facet ? 'window' : 'none'
 
   // Plain printing: no foil, no guess to make.
   if (scope === 'none') {
     return { patternId: 'none', scope, eraId, guess: NO_GUESS }
   }
 
-  // 1) Cited usage table — highest-confidence matching row wins.
+  // 1) Assignment table (v3) — per-card, per-facet, and per-set cited rows.
+  const cls = assignCls({ isReverse, isFullFoil, isHolo, facet })
+  if (cls) {
+    const hit = lookupAssignment({
+      setId: input.setId ?? null,
+      cardId: input.cardId ?? null,
+      kind,
+      rarity,
+      cls,
+      facet,
+    })
+    if (hit && patternById(hit.row.p).id !== 'none') {
+      return {
+        patternId: canonicalPatternId(hit.row.p),
+        scope,
+        eraId,
+        guess: { match: hit.match, confidence: hit.row.conf, sources: hit.row.src, era: null, years: null },
+      }
+    }
+  }
+
+  // 2) Cited usage table (v2) — highest-confidence matching row wins.
   const classes = applicableClasses({
     kind,
     rarity,
@@ -282,7 +430,7 @@ export function resolveFoil(input: {
     }
   }
 
-  // 2) Era-default heuristics.
+  // 3) Era-default heuristics.
   const patternId = isReverse ? 'reverse-sheet' : heuristicHolo(input.seriesSlug, input.setId ?? null, eraId)
   return { patternId, scope, eraId, guess: NO_GUESS }
 }
