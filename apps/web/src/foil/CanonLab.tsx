@@ -5,7 +5,7 @@
 // itself over a blank card base — rendered NEXT TO the real reference clip of
 // the pattern being tilted (research/foil-video-reference/<slug>/clip.webm +
 // 8 keyframes, streamed by the branch api). Purpose-built for locking down the
-// CANONICAL recipe of each of the 39 pattern types: full pattern vocabulary,
+// CANONICAL recipe of each of the 43 pattern types: full pattern vocabulary,
 // tuning sliders, tilt (pointer / gyro / deterministic manual), and Save canon
 // → data/foil-canon/<patternId>.json (a full uniform snapshot that replaces
 // the code defaults as the baseline on both surfaces; see foil/canon.ts).
@@ -270,7 +270,8 @@ export function CanonLab() {
               </div>
               <p className="mt-[6px] text-[10px] leading-[14px] text-text-muted">
                 Reference: one real tilt sweep{borrowed ? ` (borrowed from ${slug} — nearest physical sheet)` : ''} ·
-                “All 39 Pokemon Card Holo Patterns Explained”, Sleeve No Card Behind (research/foil-video-reference/).
+                collector tilt footage credited in research/foil-video-reference/{slug}/notes.md (main corpus:
+                “All 39 Pokemon Card Holo Patterns Explained”, Sleeve No Card Behind).
               </p>
             </div>
           ) : (

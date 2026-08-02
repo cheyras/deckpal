@@ -1,6 +1,7 @@
-// foil/patterns.ts — the pattern library: the FULL 39-type holofoil taxonomy
-// (research/foil-patterns.md — canonical, reconciled from the Sleeve No Card
-// Behind video + Bulbapedia + the vision pass), each type rendered by one of
+// foil/patterns.ts — the pattern library: the FULL 43-type holofoil taxonomy
+// (research/foil-patterns.md — canonical: the 39 video types + the §40–43
+// vocabulary extensions, reconciled from the Sleeve No Card Behind video +
+// Bulbapedia + the vision pass), each type rendered by one of
 // the implemented shader recipes. Types whose physical process has a faithful
 // recipe are `implemented: true`; every other type renders via its NEAREST
 // implemented recipe and says so (`approxVia`) — taxonomy leads, honest
@@ -34,6 +35,8 @@
 //   vertical-sheen-rainbow (the dark-mirror family, on uDarken),
 //   pokeball-hologram, prism, water-web, energy-symbols, pinwheel,
 //   ex-emerald, tinsel, cosmos-ii-pixel, crosshatch, radiant-collection-dots
+//   R2b wave (2026-08-02) — the four §40–43 vocabulary-extension types:
+//   gold-secret, vstar-pearl, shiny-vault, detective-pikachu
 
 export interface PatternParam {
   /** Which uniform this slider drives: 'uP0' | 'uP1' | 'uP2' | 'uP3'. */
@@ -1310,6 +1313,210 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   return acc * uP3;
 }`
 
+// ── Vocabulary-extension recipes (2026-08-02 R2b) — §40–43 of
+// research/foil-patterns.md, the four types the vocab lane added because they
+// drive most of the assignment-swarm residuals. Authored from the corpus
+// keyframes + gemini-spec.md rubrics under research/foil-video-reference/
+// {gold-secret,vstar-pearl,shiny-vault,detective-pikachu}/, eyeballed in the
+// canon lab against each reference clip before judging.
+
+// #40 Gold secret — full-face gold metallic foil (borders, text boxes,
+// background) with fine glitter grain; SWSH era adds embossed radial burst
+// rays from the bottom center. The FIELD is warm-locked (pale straw ↔
+// saturated amber — never full-spectrum); a broad specular bloom travels with
+// tilt, grains twinkle inside it, and a subset of glints flash CHROMATIC
+// (pink/green/blue — verified frames 3–5). rainbow-glitter machinery with the
+// hue ramp collapsed to a 2-stop gold band; hueRamp only paints the pops.
+const GOLD_SECRET_GLSL = `
+// warm 2-stop gold ramp — the field never leaves gold (§40: warm-locked)
+vec3 goldRamp(float t) {
+  t = clamp(t, 0.0, 1.0);
+  return mix(vec3(0.62, 0.48, 0.20), vec3(1.08, 0.82, 0.30), t);
+}
+vec3 foilPattern(vec2 uv, vec2 tilt) {
+  float sweep = tilt.x + tilt.y * 0.6;
+  vec2 p = uv * vec2(1.0, CARD_ASPECT);
+  // broad specular bloom traveling WITH tilt (spec: glare bottom -> center ->
+  // left edge across the frames)
+  vec2 lc = vec2(0.5, 0.5) + tilt * (0.42 * uP1);
+  vec2 d = (uv - lc) * vec2(1.0, CARD_ASPECT * 0.9);
+  float lobe = exp(-dot(d, d) * 5.5);
+  // fine sand-blasted grain (two octaves so it never reads as flat tint)
+  float grain = 0.75 + 0.5 * (vnoise(p * 160.0 * uScale) - 0.5)
+              + 0.25 * (vnoise(p * 90.0 * uScale) - 0.5);
+  // field: pale straw at rest, saturated amber inside the bloom, white-gold core
+  vec3 field = goldRamp(0.25 + 0.75 * lobe) * (0.30 + 0.85 * lobe) * grain;
+  field = mix(field, vec3(1.05, 0.98, 0.82), 0.35 * lobe * lobe);
+  // embossed radial burst rays from the bottom center (SWSH-era; uP2 0 = the
+  // flatter SM-era golds). Rays are STATIC — only their contrast moves: they
+  // ignite inside the bloom and stay subtle outside (spec: line modulation).
+  vec2 rp = (uv - vec2(0.5, 0.10)) * vec2(1.0, CARD_ASPECT);
+  float ang = atan(rp.y, rp.x);
+  float rays = pow(0.5 + 0.5 * sin(ang * 36.0 + 0.7), 3.0);
+  float rmask = smoothstep(0.05, 0.25, length(rp));
+  field += rays * rmask * goldRamp(0.6 + 0.4 * lobe) * uP2 * (0.10 + 0.85 * lobe);
+  // glitter glints: twinkle in place, brightest inside the bloom; ~28% flash
+  // chromatic, the rest stay warm white-gold
+  vec3 glints = vec3(0.0);
+  for (int i = 0; i < 2; i++) {
+    float fi = float(i);
+    vec2 g = p * (110.0 + fi * 70.0) * uP0 * uScale + fi * 7.3;
+    vec2 id = floor(g);
+    vec2 f = fract(g) - 0.5;
+    vec2 rnd = hash22(id + fi * 13.1);
+    float exists = step(rnd.x, 0.30);
+    vec2 n = normalize(rnd - 0.5 + 1e-4);
+    float align = dot(n, tilt) * 2.2 - (rnd.x - 0.5) * 2.0;
+    float on = pow(max(0.0, 1.0 - abs(align)), 7.0);
+    float dm = smoothstep(0.30, 0.08, length(f - (rnd - 0.5) * 0.4));
+    float chrom = step(0.72, fract(rnd.y * 7.7));
+    vec3 col = mix(vec3(1.0, 0.94, 0.75), hueRamp(rnd.y + 0.4 * sweep), chrom);
+    glints += exists * dm * on * col * (0.35 + 1.1 * lobe);
+  }
+  return (field + glints) * uP3;
+}`
+
+// #41 VSTAR pearl — near-WHITE pearlescent full face (etched), gold accents:
+// a broad diagonal iridescent wash sweeps the pearl body (pink/gold DOMINANT,
+// full spectrum passing at the trailing edges — Gemini pass + frames agree);
+// the frame lines flash narrow rainbow streaks; sparse fine etch glints.
+// Built on uDarken from day one (the near-white body is exactly the
+// screen-blend limit that originally failed prismatic-pokeball).
+const VSTAR_PEARL_GLSL = `
+vec3 foilPattern(vec2 uv, vec2 tilt) {
+  float sweep = tilt.x + tilt.y * 0.6;
+  vec2 p = uv * vec2(1.0, CARD_ASPECT);
+  // broad diagonal wash traveling with tilt; hue varies ACROSS the band so
+  // pink/gold lead and the rest of the spectrum trails through
+  vec2 nrm = vec2(0.7071, 0.7071);
+  float x = dot(uv - 0.5, nrm) - sweep * uP1 * 0.28;
+  float env = exp(-x * x / max(uP0, 1e-3));
+  vec3 wash = hueRamp(uHueShift + x * uP2);
+  // warm pearl bias — pull the wash toward pink/gold without deleting the
+  // passing spectrum (mix, not clamp). 0.5 (eyeball round 1: at 0.35 the
+  // blank-card wash read as a full neon rainbow; the reference is warm-led).
+  wash = mix(wash, wash * vec3(1.12, 0.92, 0.78) + vec3(0.10, 0.04, 0.0), 0.5);
+  // milky pearl floor: near-white shimmer with a whisper of iridescence
+  float n = fnoise(p * 3.0 * uScale + tilt * 0.9);
+  vec3 pearl = mix(vec3(1.0, 0.99, 0.96), hueRamp(uHueShift + n * 0.8 + 0.3 * sweep), 0.18)
+             * (0.16 + 0.10 * n);
+  // frame-line rainbow streaks: narrow saturated flashes hugging the border.
+  // Floor 0.08 (eyeball round 1: 0.25 lit the whole perimeter as a rainbow
+  // ring — the reference flashes SEGMENTS of frame line, not the full ring).
+  float ed = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y) * CARD_ASPECT);
+  float border = smoothstep(0.065, 0.045, ed) * smoothstep(0.006, 0.018, ed);
+  vec3 streak = hueRamp(uHueShift + (uv.x + uv.y) * 2.2 + sweep * 0.9) * border
+              * (0.08 + 1.1 * pow(0.5 + 0.5 * cos(TAU * ((uv.x - uv.y) * 3.0 + sweep * 1.4)), 5.0));
+  // sparse fine etch glints (Low confidence at 360p — kept subtle)
+  vec2 g = p * 130.0 * uScale;
+  vec2 id = floor(g);
+  vec2 f = fract(g) - 0.5;
+  vec2 rnd = hash22(id + 3.7);
+  float exists = step(rnd.x, 0.22);
+  float on = pow(max(0.0, 1.0 - abs(dot(normalize(rnd - 0.5 + 1e-4), tilt) * 2.3 - (rnd.x - 0.5) * 2.0)), 8.0);
+  float glint = exists * smoothstep(0.26, 0.08, length(f - (rnd - 0.5) * 0.4)) * on;
+  return (pearl + wash * env * 1.2 + streak * uP2 * 0.3 + vec3(glint) * 0.5) * uP3;
+}`
+
+// #42 Shiny vault — silvery-white TEXTURED field scattered with printed
+// shiny-sparkle GLYPHS (the games' 4-point flares + diamond outlines) around
+// the subject; a soft diagonal iridescent band sweeps the silver while the
+// glyphs act as localized AMPLIFIERS — popping bright and saturated as the
+// band crosses them; glyphs never move (no parallax). Paler and more silvery
+// than rainbow-glitter's field. Scope per printing: window on baby shinies,
+// full face on shiny GX/full-arts (resolver assignment rows carry it).
+const SHINY_VAULT_GLSL = `
+// large soft 4-point flare: dense core + tapering arms (spec: arm-to-arm span
+// ~15-20% of card width on the big population)
+float svFlare(vec2 sp, float arm) {
+  float core = exp(-dot(sp, sp) * 90.0);
+  float a = pow(max(0.0, 1.0 - abs(sp.x) / arm), 2.4) * pow(max(0.0, 1.0 - abs(sp.y) / (arm * 0.22)), 2.0);
+  float b = pow(max(0.0, 1.0 - abs(sp.y) / arm), 2.4) * pow(max(0.0, 1.0 - abs(sp.x) / (arm * 0.22)), 2.0);
+  return core * 1.2 + a + b;
+}
+float svDiamond(vec2 sp, float r) {
+  return smoothstep(0.035, 0.012, abs(abs(sp.x) + abs(sp.y) - r));
+}
+vec3 foilPattern(vec2 uv, vec2 tilt) {
+  float sweep = tilt.x + tilt.y * 0.6;
+  vec2 p = uv * vec2(1.0, CARD_ASPECT);
+  // soft diagonal iridescent band over the silver (low-intensity — the field
+  // stays pale; cyan/blue edge tints per the Ho-Oh frames)
+  float across = dot(uv - 0.5, vec2(0.7071, 0.7071)) + 0.5;
+  float bandEnv = pow(0.5 + 0.5 * cos(PI * clamp((across - 0.5) * 2.0 - sweep * uP1, -1.0, 1.0)), 2.0);
+  vec3 bandCol = hueRamp(uHueShift + (across - 0.5) * 1.8 + 0.35 * sweep);
+  // silvery-white textured field (emboss texture, incl. the border on babies).
+  // Band gain 0.62 (round 2): 0.45 was illegible over the bright GX scan,
+  // 0.95 judged "overly intense and saturated" — the reference sweep is a
+  // soft pastel tint over a silvery-white base. Split the difference and let
+  // a white lift ride the band so it pales instead of saturating.
+  float tex = fnoise(p * 26.0 * uScale);
+  vec3 field = vec3(0.14, 0.145, 0.155) * (0.8 + 0.5 * tex)
+             + (bandCol * 0.62 + vec3(0.18)) * bandEnv;
+  // fine pale glitter — finer and paler than rainbow-glitter's
+  vec2 gg = p * 130.0 * uScale;
+  vec2 gid = floor(gg);
+  vec2 gf = fract(gg) - 0.5;
+  vec2 grnd = hash22(gid + 21.3);
+  float gex = step(grnd.x, 0.28);
+  float gon = pow(max(0.0, 1.0 - abs(dot(normalize(grnd - 0.5 + 1e-4), tilt) * 2.4 - (grnd.x - 0.5) * 2.0)), 7.0);
+  vec3 glit = gex * gon * smoothstep(0.28, 0.08, length(gf - (grnd - 0.5) * 0.4))
+            * mix(vec3(1.0), hueRamp(grnd.y), 0.35) * (0.45 + 0.9 * bandEnv);
+  // sparkle glyphs: two fixed sparse populations (flares + diamond outlines),
+  // keyed to the band position at the glyph — amplifiers, not random poppers
+  vec3 glyphs = vec3(0.0);
+  for (int i = 0; i < 2; i++) {
+    float fi = float(i);
+    float sc = uP0 * (3.2 + fi * 2.6) * uScale;
+    vec2 g = p * sc + fi * 11.7;
+    vec2 id = floor(g);
+    vec2 f = fract(g) - 0.5;
+    vec2 rnd = hash22(id + fi * 5.3);
+    float exists = step(rnd.x, 0.38);
+    vec2 sp = f - (rnd - 0.5) * 0.45;
+    float kind = fract(rnd.y * 3.3);
+    float shape = kind < 0.62 ? svFlare(sp, 0.42) : svDiamond(sp, 0.16 + 0.10 * rnd.x);
+    // amp 1.5 + color mix 0.55 (round 2: glyphs "flare too sharply like
+    // emissive lights" — they are printed amplifiers of the base sheen, so
+    // they take MORE white and LESS gain than a glitter pop would)
+    float amp = 0.15 + 1.5 * bandEnv * (0.6 + 0.4 * fract(rnd.y * 5.7));
+    vec3 gcol = mix(vec3(1.0), hueRamp(uHueShift + rnd.y * 0.5 + (across - 0.5) * 1.8 + 0.35 * sweep), 0.55);
+    glyphs += exists * shape * amp * gcol * ((i == 0) ? 1.0 : 0.7);
+  }
+  return (field + glit + glyphs * uP2) * uP3;
+}`
+
+// #43 Detective Pikachu — photographic movie stills printed translucently
+// over a SMOOTH high-gloss foil (art-window scope): broad soft diagonal beams
+// sweep the window and the photo's smoke/fire volumes brighten as the sheen
+// passes THROUGH them. Source-checked: the "raised/shattered" folklore was
+// rejected — the footage shows smooth beams (§43 flags).
+// CONTRACT EXCEPTION (deliberate, documented in the foil-effects SKILL): this
+// recipe samples uFace. Its identity is foil-through-photo-ink — beam
+// intensity × art LUMINANCE — and no core uniform expresses that (uArtGate
+// gates on darkness, the exact inverse).
+const DETECTIVE_PIKACHU_GLSL = `
+vec3 foilPattern(vec2 uv, vec2 tilt) {
+  vec2 nrm = vec2(0.7071, -0.7071);
+  vec2 tng = vec2(0.7071, 0.7071);
+  vec2 pc = (uv - 0.5) * vec2(1.0, CARD_ASPECT);
+  float across = dot(pc, nrm) + 0.5;
+  float along = dot(pc, tng) + 0.5;
+  float sweep = dot(tilt, nrm) * 1.2 + dot(tilt, tng) * 0.35;
+  float x = across * uP0 * uScale + sweep * uP1;
+  // broad soft beam — spec: a single band spans 30-50% of the window, no fine
+  // lines, no particles
+  float beam = pow(0.5 + 0.5 * sin(TAU * x), 2.0);
+  // smooth spectrum across the beam width; mild fringing at the edges
+  vec3 col = hueRamp(uHueShift + uHueSpread * (x * 0.85 + 0.15 * along));
+  // photo-luminance coupling: bright smoke/fire volumes catch the beam first
+  float lum = dot(texture2D(uFace, uv).rgb, vec3(0.299, 0.587, 0.114));
+  float photo = mix(1.0, smoothstep(0.08, 0.75, lum) * 1.35, uP2);
+  // faint polished-silver floor so the window reads foiled off-beam
+  float floorv = 0.06 * (0.6 + 0.4 * lum);
+  return (vec3(floorv) + col * beam) * photo * uP3;
+}`
+
 // ── Helpers to derive per-slug variants of a recipe ─────────────────────────
 
 const tuneParams = (
@@ -2016,6 +2223,98 @@ export const PATTERNS: FoilPattern[] = [
     params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 14, uP1: 3, uP2: 0 }),
     implemented: false,
     approxVia: 'Cracked Ice',
+  },
+
+  // ── Vocabulary extensions (§40–43, foil/vocab lane; recipes 2026-08-02 R2b) ──
+
+  // #40 — real recipe 2026-08-02 (R2b): warm-locked gold field + chromatic
+  // glitter pops + SWSH radial burst rays (uP2 0 approximates SM-era flat golds).
+  {
+    id: 'gold-secret',
+    label: 'Gold secret',
+    taxonomy: 'Full-face gold metallic foil, glitter grain, warm-locked hue travel',
+    usedOn:
+      'Gold Secret/Hyper Rares: SM gold items/stadiums/energies/GX, SWSH gold V/VMAX/items, SV + Mega gold Hyper Rares (the catalog "gold" facet).',
+    glsl: GOLD_SECRET_GLSL,
+    // uSat only paints the chromatic glitter pops — the field ignores hueRamp
+    // by construction (warm-locked). uArtGate 0: the gold covers everything;
+    // art elements keep printed color because the scan carries them.
+    defaults: { uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.0, uSat: 0.9, uArtGate: 0.0, uSpecular: 0.25, uDarken: 0.0 },
+    params: [
+      { key: 'uP0', label: 'Grain density', min: 0.4, max: 3, step: 0.05, default: 1.0 },
+      { key: 'uP1', label: 'Bloom travel', min: 0, max: 2, step: 0.05, default: 1.0 },
+      { key: 'uP2', label: 'Burst rays (SWSH)', min: 0, max: 2, step: 0.05, default: 0.9 },
+      { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.2 },
+    ],
+    implemented: true,
+  },
+  // #41 — real recipe 2026-08-02 (R2b): pearl body on uDarken from day one
+  // (near-white substrate = the prismatic-pokeball screen-blend limit).
+  {
+    id: 'vstar-pearl',
+    label: 'VSTAR pearl',
+    taxonomy: 'Etched white pearlescent full face, diagonal pink/gold iridescent wash',
+    usedOn:
+      'Regular-print VSTAR cards, Brilliant Stars → Crown Zenith (rainbow/gold VSTAR prints are rainbow-glitter / gold-secret, NOT this).',
+    glsl: VSTAR_PEARL_GLSL,
+    // uHueShift 0.93: hueRamp there is pink/gold — the wash center; the band
+    // hue-span (uP2) lets the full spectrum trail through. uDarken 0.3: the
+    // pearl body is near-white; without substrate attenuation the wash washes
+    // out exactly like pre-rebuild prismatic-pokeball.
+    defaults: { uIntensity: 1.0, uScale: 1.0, uHueShift: 0.93, uHueSpread: 0.6, uSat: 0.75, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.3 },
+    params: [
+      { key: 'uP0', label: 'Wash width', min: 0.005, max: 0.2, step: 0.005, default: 0.05 },
+      { key: 'uP1', label: 'Wash travel', min: 0, max: 4, step: 0.05, default: 1.6 },
+      // 1.4 (eyeball round 1): 2.2 spread the full spectrum across the wash at
+      // once — the reference leads pink/gold with green/blue only trailing
+      { key: 'uP2', label: 'Hue span', min: 0, max: 6, step: 0.1, default: 1.4 },
+      { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.2 },
+    ],
+    implemented: true,
+  },
+  // #42 — real recipe 2026-08-02 (R2b): confetti-family silver field + the
+  // missing piece — printed sparkle GLYPHS as band-keyed localized amplifiers.
+  {
+    id: 'shiny-vault',
+    label: 'Shiny vault',
+    taxonomy: 'Silvery-white textured foil + printed shiny-sparkle glyph burst',
+    usedOn:
+      'Hidden Fates Shiny Vault, Shining Fates Shiny Vault, Paldean Fates shinies; Shining Legends precursor (subject-scoped, low conf).',
+    glsl: SHINY_VAULT_GLSL,
+    // uSat 0.6: the field is explicitly paler/more silvery than
+    // rainbow-glitter. uDarken 0.18 (capture round 1): the substrate is a
+    // near-WHITE interference foil — the reference field visibly dims and
+    // takes cyan/gray tints away from the flash, and over the bright GX scan
+    // a screen-only blend rendered the whole treatment illegible (the same
+    // near-white-substrate physics as vstar-pearl, kept milder because the
+    // field stays light).
+    // uSat 0.5 (round 2: "reduce the saturation ... soft pastel rainbow tints").
+    defaults: { uIntensity: 1.0, uScale: 1.0, uHueShift: 0.55, uHueSpread: 0.6, uSat: 0.5, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.15 },
+    params: [
+      // 1.4: big-flare span ≈ 19% of card width (spec: 15–20%)
+      { key: 'uP0', label: 'Glyph density', min: 0.6, max: 3, step: 0.05, default: 1.4 },
+      { key: 'uP1', label: 'Sheen travel', min: 0, max: 4, step: 0.05, default: 1.3 },
+      { key: 'uP2', label: 'Glyph gain', min: 0, max: 3, step: 0.05, default: 1.2 },
+      { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.1 },
+    ],
+    implemented: true,
+  },
+  // #43 — real recipe 2026-08-02 (R2b): diagonal-sheen base + photo-luminance
+  // beam coupling (samples uFace — the documented contract exception).
+  {
+    id: 'detective-pikachu',
+    label: 'Detective Pikachu',
+    taxonomy: 'Smooth high-gloss sheen under translucent photographic art (window)',
+    usedOn: 'Detective Pikachu (det1, 2019) — all 18 cards; the only all-holo movie set.',
+    glsl: DETECTIVE_PIKACHU_GLSL,
+    defaults: { uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.9, uSat: 0.9, uArtGate: 0.0, uSpecular: 0.3, uDarken: 0.0 },
+    params: [
+      { key: 'uP0', label: 'Beam count', min: 0.5, max: 6, step: 0.1, default: 1.2 },
+      { key: 'uP1', label: 'Beam travel', min: 0, max: 4, step: 0.05, default: 1.5 },
+      { key: 'uP2', label: 'Photo coupling', min: 0, max: 1, step: 0.02, default: 0.85 },
+      { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.1 },
+    ],
+    implemented: true,
   },
 ]
 
