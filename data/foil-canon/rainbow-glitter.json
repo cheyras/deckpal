@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "rainbow-glitter",
+  "savedAt": "2026-08-02T22:17:22.710Z",
+  "uniforms": {
+    "uIntensity": 0.8,
+    "uScale": 0.5,
+    "uHueShift": 0.5,
+    "uHueSpread": 1.17,
+    "uSat": 1,
+    "uArtGate": 0,
+    "uSpecular": 0.5,
+    "uDarken": 0,
+    "uP0": 2.5,
+    "uP1": 2.2,
+    "uP2": 2.1,
+    "uP3": 1.05
+  }
+}
