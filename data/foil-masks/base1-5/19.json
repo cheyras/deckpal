@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "cardId": "base1-5",
+  "variantId": 19,
+  "artworkKey": "base1-5",
+  "width": 490,
+  "height": 674,
+  "channel": "alpha",
+  "derivation_method": "hand",
+  "savedAt": "2026-08-02T16:37:41.457Z",
+  "prior": {
+    "source": "layout",
+    "eraId": "wotc",
+    "scope": "window",
+    "rect": [
+      0.103,
+      0.48000000000000004,
+      0.802,
+      0.418
+    ],
+    "radius": 0.004,
+    "invert": false,
+    "feather": 0.008,
+    "resolverVersion": 4
+  },
+  "priorPng": "19.prior.png",
+  "diffPng": "19.diff.png",
+  "diff": {
+    "addedPx": 4,
+    "removedPx": 51384,
+    "unchangedPx": 59047,
+    "agreement": 0.5347
+  }
+}
