@@ -15,10 +15,10 @@ the lazy route in `main.tsx` and a pathname check in `AppShell.tsx`. Read
 
 | File | What |
 |---|---|
-| `foil/patterns.ts` | **The pattern library.** One recipe per physical foil process. You will usually only touch this. |
+| `foil/patterns.ts` | **The pattern library.** The FULL 39-type taxonomy from `research/foil-patterns.md`: implemented recipes (`implemented: true`) plus every remaining type rendering via its nearest recipe with an honest `approxVia` label. Also `PATTERN_ALIASES` — old slugs (e.g. `sv-holo` → `vertical-sheen`) resolve forever; never orphan corpus data (sidecars, comment context.json, Copy-recipe JSON). You will usually only touch this. |
 | `foil/shader.ts` | Uniform contract, GLSL preamble (helpers), fragment `main()`, material builder. Contract changes happen here — rarely, and update this doc when they do. |
 | `foil/era-layouts.json` | Era layout spec — art-window rects per frame generation. **Data, not code.** Top-left-origin fractions measured on 600×825 cache scans. |
-| `foil/resolver.ts` | `(series, rarity, variant kind) → { patternId, scope, eraId }` heuristic + scope→mask-uniform conversion. |
+| `foil/resolver.ts` | v2: `(series, set, rarity, variant kind) → { patternId, scope, eraId, guess }`. The base pattern guess reads the CITED usage table (`foil/usage-index.json`, derived from `research/foil-pattern-usage.json` by `tools/foil/build-usage-index.mjs` — regenerate after editing the research file, never hand-edit the index). Set-name match → era/series token match → era-default heuristics; `guess` carries match level + confidence + citation hosts for the UI. Scope→mask-uniform conversion unchanged. |
 | `foil/CardViewer.tsx` | three.js scene; rAF loop pushes uniforms from a settings ref (no React re-renders per frame). Also exports `cardScreenRect` — the exact on-screen card rect used to align overlays. |
 | `foil/useTilt.ts` | pointer / gyro (iOS permission) / manual tilt; reduced-motion → manual. |
 | `foil/MaskEditor.tsx` | Apple-Pencil hand-mask drawing overlay (see mask-pipeline SKILL.md). |
@@ -116,14 +116,21 @@ the scan — matching how real foil reads through ink.
    --filter pokedex-web build`), commit on a `foil/*` sub-branch, merge to `foil/main`
    only. Append a DECISIONS.md entry if you learned something non-obvious.
 
-## Taxonomy status (Bulbapedia "Holofoil")
+## Taxonomy status (research/foil-patterns.md — the canonical 39 types)
 
-Shipped v1 (eras Chey owns): **Starlight** (WOTC), **Cosmos/Galaxy**, **SV default holo**
-(sheen/vertical-beam), **Reverse sheet (SV)**, **Cracked Ice**, plus `none`.
-Remaining for `foil/patterns`: Tinsel, Sheen (distinct from SV default), Water Web, Line,
-Crosshatch, Pixel/Confetti, SWSH reverse (vertical-bar sheet), mirror variants, and
-texture-embossed illustration-rare relief (hardest — do it last; needs normal-map-style
-relief, likely a contract extension).
+The dropdown carries ALL 39 video taxonomy types plus `none` and `reverse-sheet`.
+Implemented recipes: **Starlight** (#1; #24 Starlight II at parallax 0), **Cosmos** (#2 —
+label is Cosmos only; "Galaxy" is Bulbapedia's synonym for *Starlight*), the **sheen
+family** — ONE generator (`sheenGlsl`) at four rotations + stripe option: `vertical-sheen`
+(#14, ex-`sv-holo`), `horizontal-sheen` (#21, the TRUE SV default / Bulbapedia "Mirage"),
+`diagonal-sheen-right` (#19, "/"), `diagonal-sheen-left` (#20, "\\"),
+`striped-vertical-sheen` (#22, "Line") — **Reverse sheet** (≈ #30 pokeball-masterball,
+ring+dot coarse tier), and **Cracked Ice** (#9). Everything else renders via its nearest
+recipe with `implemented: false` + `approxVia` and is labeled "approx via …" in the UI —
+unimplemented ≠ hidden; taxonomy leads. To ship a real recipe: write the GLSL, flip the
+entry to `implemented: true`, drop `approxVia`. Gap priorities live in
+`research/foil-patterns.md` "Implementation gap summary" and
+`research/foil-verification.md` (recipe-wave plan).
 
 ## Per-pattern field notes (distilled from resolved workbench comments)
 
