@@ -11,9 +11,10 @@
   "Several lanes mapped era reverse holos to 'mirror' where the video's interlude says the underlying foil is often the vertical/diagonal sheen sheet with different ink masks - resolver should treat 'mirror' reverse rows as ink-design, not foil-pattern, evidence.",
   "Japanese and other-language printings are out of scope (English TCG only).",
   "Confidence 'high' means 2+ independent sources agreed; it is still collector-community evidence, not manufacturer data.",
-  "wotc lane's e-series reverse-holo='mirror' row conflicts with the video + corpus frames (rainbow-mirror); both rows present, see each row's conflicts field."
+  "wotc lane's e-series reverse-holo='mirror' row conflicts with the video + corpus frames (rainbow-mirror); both rows present, see each row's conflicts field.",
+  "2026-08-02 vocab extensions: gold-secret / vstar-pearl / shiny-vault / detective-pikachu rows added (foil/vocab lane). These slugs are NOT in the 39-pattern video; specs in foil-patterns.md sections 40-43. Catalog secret-rare and ultra-rare buckets still need facet/rarity splits before the gold and VSTAR rows can land per-card (see each row's conflicts)."
  ],
- "row_count": 113,
+ "row_count": 122,
  "rows": [
   {
    "pattern": "tinsel",
@@ -3198,6 +3199,236 @@
    ],
    "conflicts": "The wotc research lane classified the same e-series reverses as plain 'mirror' (flat, patternless). Corpus frames of Crystal Energy (Aquapolis reverse) show clear sweeping rainbow bands, supporting rainbow-mirror; plain mirror shows no hue at any angle. Both rows kept.",
    "lane": "editorial-synthesis"
+  },
+  {
+   "pattern": "gold-secret",
+   "lane": "vocab-extensions",
+   "scope": {
+    "era": "Sun & Moon",
+    "series": "SM",
+    "years": "2017-2019",
+    "applies_to": "gold-secret-rare"
+   },
+   "claim": "SM-era gold Secret Rares (gold item cards from Sun & Moon Guardians Rising onward, gold stadiums and energies in Unified Minds) carry a full-face gold foil treatment distinct from the rainbow hyper rares.",
+   "confidence": "medium",
+   "sources": [
+    {
+     "url": "https://youtu.be/TjlU_WKhS8w",
+     "quote": "item cards [got] a full art treatment with gold foil from top to bottom ... they'd also extend this gold art treatment to stadium cards as well and even the energy went gold"
+    },
+    {
+     "url": "https://sleevenocardbehind.com/gold-pokemon-cards-everything-you-need-to-know/",
+     "quote": "special embossed gold holofoil cards ... Gold cards fall into the 'secret rare' category, appearing in every set as booster pack pulls"
+    }
+   ],
+   "conflicts": "Era-wide claim (video + collector article, no per-set source); catalog 'secret rare' buckets mix rainbow and gold treatments - split via the 'gold' facet or rarity strings, not this row alone."
+  },
+  {
+   "pattern": "gold-secret",
+   "lane": "vocab-extensions",
+   "scope": {
+    "era": "Sword & Shield",
+    "series": "SWSH",
+    "years": "2020-2023",
+    "applies_to": "gold-secret-rare"
+   },
+   "claim": "SWSH-era gold Secret Rares (gold V/VMAX/item cards, e.g. Shining Fates gold Zacian/Zamazenta, Darkness Ablaze gold Turbopatch) make the entire card gold - background, text boxes, borders - over a fine glitter-grain foil with embossed radial rays behind the subject.",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://youtu.be/TjlU_WKhS8w",
+     "quote": "sword and shield continues to dish out the gold. the pattern this time around makes the entire card gold - background, text boxes, empty space"
+    },
+    {
+     "url": "https://sleevenocardbehind.com/gold-pokemon-cards-everything-you-need-to-know/",
+     "quote": "special embossed gold holofoil cards"
+    },
+    {
+     "url": "https://youtu.be/8CvE7sXbJOo",
+     "quote": "(corpus tilt footage: Turbopatch, Darkness Ablaze 200/189 - gold face, glitter grain, radial burst rays, warm-locked hue travel)"
+    }
+   ],
+   "conflicts": "Catalog 'secret rare' buckets in swsh1-swsh6 mix Rainbow Rare (rainbow-glitter) and gold Secret Rare - the resolver must split them by the 'gold' facet or rarity string before this row lands per-card."
+  },
+  {
+   "pattern": "gold-secret",
+   "lane": "vocab-extensions",
+   "scope": {
+    "era": "Scarlet & Violet / Mega",
+    "series": "SV",
+    "years": "2023-2026",
+    "applies_to": "hyper-rare-gold"
+   },
+   "claim": "SV-era gold Hyper Rares (and the Mega-era gold cards) continue the gold-foil treatment with heavier etch/emboss; the catalog's 'gold' facet (134 cards across SWSH/SV/Mega per the assignments enumeration) identifies them exactly.",
+   "confidence": "medium",
+   "sources": [
+    {
+     "url": "https://sleevenocardbehind.com/gold-pokemon-cards-everything-you-need-to-know/",
+     "quote": "Gold cards fall into the 'secret rare' category, appearing in every set as booster pack pulls with extremely low pull rates."
+    },
+    {
+     "url": "https://bleedingcool.com/games/a-holographic-history-of-the-pokemon-tcg-gold-shiny-pokemon/",
+     "quote": "(series article on gold Shiny Pokemon cards - gold treatment continuity across eras)"
+    }
+   ],
+   "conflicts": "Emboss-depth differences per era are collector claims; corpus footage covers SWSH only."
+  },
+  {
+   "pattern": "vstar-pearl",
+   "lane": "vocab-extensions",
+   "scope": {
+    "era": "Sword & Shield",
+    "series": "SWSH",
+    "sets": [
+     "Brilliant Stars",
+     "Astral Radiance",
+     "Pokémon GO",
+     "Lost Origin",
+     "Silver Tempest",
+     "Crown Zenith"
+    ],
+    "years": "2022-2023",
+    "applies_to": "vstar-regular-print"
+   },
+   "claim": "Regular-print Pokemon VSTAR cards use an etched white pearlescent full-face foil with gold accents and a golden aura around the subject; under tilt a broad diagonal iridescent wash (pink/gold dominant) sweeps the pearl body.",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_VSTAR_(TCG)",
+     "quote": "Pokémon VSTAR cards have a white, pearlescent border with gold accents, in contrast to Pokémon V's black border and white accents."
+    },
+    {
+     "url": "https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_VSTAR_(TCG)",
+     "quote": "All Pokémon VSTAR cards are etched, including the Regular prints. All Regular prints of Pokémon VSTAR depict the Pokémon surrounded by a golden aura."
+    },
+    {
+     "url": "https://youtu.be/wRDwJyv-aP8",
+     "quote": "(corpus tilt footage: Arceus VSTAR, Brilliant Stars 123/172)"
+    }
+   ],
+   "conflicts": "Catalog 'ultra rare' buckets lump V / VMAX / VSTAR (swsh9-swsh12.5 residuals) - needs the VSTAR rarity/kind split. Rainbow-rare and gold VSTAR prints are rainbow-glitter / gold-secret, not this pattern."
+  },
+  {
+   "pattern": "shiny-vault",
+   "lane": "vocab-extensions",
+   "scope": {
+    "era": "Sun & Moon",
+    "series": "SM",
+    "sets": [
+     "Hidden Fates",
+     "Hidden Fates Shiny Vault"
+    ],
+    "years": "2019",
+    "applies_to": "shiny-vault-subset"
+   },
+   "claim": "Hidden Fates Shiny Vault cards (94: baby shinies + shiny GX/full-arts) use a textured silvery-white foil with a printed burst of shiny-sparkle glyphs around the subject; baby shinies are art-window scope (texture extends to the border), shiny full-arts are full-face.",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://bleedingcool.com/games/a-holographic-history-of-the-pokemon-tcg-baby-shiny-pokemon/",
+     "quote": "textured, silver foil with a burst of sparkles that recreates the in-game animation of encountering a Shiny ... even the border area of the card has a tactile difference to a smooth common card"
+    },
+    {
+     "url": "https://bleedingcool.com/games/a-holographic-history-of-the-pokemon-tcg-shiny-pokemon-gx/",
+     "quote": "The background of these cards is pure textured, white foil which takes on a silvery look when it hits the light."
+    },
+    {
+     "url": "https://youtu.be/_cyddOc1SMU",
+     "quote": "Both card designs are textured and feature the sparkles around the Pokémon (19:16; corpus tilt footage 19:18-19:26: Shiny Buzzwole SV24 + Shiny Ho-Oh GX SV50)"
+    }
+   ]
+  },
+  {
+   "pattern": "shiny-vault",
+   "lane": "vocab-extensions",
+   "scope": {
+    "era": "Sword & Shield",
+    "series": "SWSH",
+    "sets": [
+     "Shining Fates",
+     "Shining Fates Shiny Vault"
+    ],
+    "years": "2021",
+    "applies_to": "shiny-vault-subset"
+   },
+   "claim": "Shining Fates Shiny Vault cards (122 shiny prints) continue the Hidden Fates treatment with brighter yellow sparkles and a reddish-purple streak effect surrounding the Pokemon.",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://bleedingcool.com/games/a-holographic-history-of-the-pokemon-tcg-baby-shiny-pokemon/",
+     "quote": "Hidden Fates versions feature more subtle, paler sparkles [while Shining Fates has] much brighter, yellow sparkles [and] a reddish-purple streak effect surrounding the Pokémon to enhance the burst of sparkles"
+    }
+   ],
+   "conflicts": "Brighter-sparkle variant of the same slug; if per-set tuning is wanted it is a uniform tweak, not a new type."
+  },
+  {
+   "pattern": "shiny-vault",
+   "lane": "vocab-extensions",
+   "scope": {
+    "era": "Scarlet & Violet",
+    "series": "SV",
+    "sets": [
+     "Paldean Fates"
+    ],
+    "years": "2024",
+    "applies_to": "shiny-rare"
+   },
+   "claim": "Paldean Fates shiny cards continue the baby-shiny sparkle treatment and add holo borders.",
+   "confidence": "medium",
+   "sources": [
+    {
+     "url": "https://youtu.be/_cyddOc1SMU",
+     "quote": "Some of the baby shinies are really cool, like Snorlax ... and holo borders that add that extra bit of sparkle. (26:32-26:59)"
+    }
+   ]
+  },
+  {
+   "pattern": "shiny-vault",
+   "lane": "vocab-extensions",
+   "scope": {
+    "era": "Sun & Moon",
+    "series": "SM",
+    "sets": [
+     "Shining Legends"
+    ],
+    "years": "2017",
+    "applies_to": "shining-pokemon"
+   },
+   "claim": "Shining Legends' Shining Pokemon are the SM-era precursor of the shiny sparkle treatment: the Pokemon itself is rendered in textured, gleaming foil (subject-scoped, unlike the Shiny Vault's field treatment).",
+   "confidence": "low",
+   "sources": [
+    {
+     "url": "https://bleedingcool.com/games/a-holographic-history-of-the-pokemon-tcg-shining-pokemon/",
+     "quote": "The set reintroduced Shiny Pokémon by rendering the Pokémon itself [in] textured, gleaming foil."
+    }
+   ],
+   "conflicts": "Subject-scoped variant kept on the shiny-vault slug at low confidence rather than minted as its own type; revisit if footage shows a materially different animation."
+  },
+  {
+   "pattern": "detective-pikachu",
+   "lane": "vocab-extensions",
+   "scope": {
+    "era": "Sun & Moon",
+    "series": "SM",
+    "sets": [
+     "Detective Pikachu"
+    ],
+    "years": "2019",
+    "applies_to": "all-holo-set"
+   },
+   "claim": "All 18 cards of the English Detective Pikachu set are holofoil: photographic movie-still art printed translucently over a smooth high-gloss foil, art-window scope; under tilt, broad soft diagonal beams sweep and the photo's smoke/fire volumes light up through them.",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://bulbapedia.bulbagarden.net/wiki/Detective_Pikachu_(TCG)",
+     "quote": "Each booster pack contained four Holofoil cards."
+    },
+    {
+     "url": "https://youtu.be/WjuDazguHnE",
+     "quote": "(corpus tilt footage: Charizard det1 5/18)"
+    }
+   ],
+   "conflicts": "The Japanese Movie Special Pack (smp2) prints its Commons/Uncommons as Mirror Holofoil (Bulbapedia) - a different treatment, out of this row's scope. The assignments-lane residual's 'thick shattered/raised foil' description is unsourced; footage shows smooth beams."
   }
  ]
 }
