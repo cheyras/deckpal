@@ -29,6 +29,19 @@ import { decodePng, diffMask, parsePrior, rasterizePriorAlpha, renderPriorPng, t
  *    the in-app bug reporter's shape (routes/bugs.ts) but nested one level
  *    deeper so the fix-issues sweep over issues/<id>/report.md never picks
  *    them up; they're tuning observations for bulk triage, not bugs.
+ * 3. Canon pattern defaults — `data/foil-canon/<patternId>.json`. The canon
+ *    lab (surface A of the workbench split, /pokedex/foil-lab/canon) locks
+ *    down THE canonical look of each holofoil pattern against the video
+ *    reference corpus. A canon file is a FULL uniform snapshot; when present
+ *    it replaces the recipe's code defaults as the baseline on both surfaces.
+ * 4. Per-card overrides — `data/foil-overrides/<cardId>/<variantId>.json`.
+ *    The card surface saves a SPARSE uniform diff relative to the canon
+ *    baseline (card-to-card differences only; untouched uniforms keep
+ *    tracking canon as it evolves).
+ * 5. Reference media — GET-only streaming of the committed
+ *    `research/foil-video-reference/<pattern>/` mini-clips + keyframes so the
+ *    canon lab can play the real tilt clip next to the bare pattern render.
+ *    Dev-instance only (env gate) — nothing ships into prod builds.
  */
 export const foilLabRouter: Router = Router();
 
@@ -44,6 +57,9 @@ function repoRoot(): string {
 }
 const MASKS_DIR = join(repoRoot(), 'data', 'foil-masks');
 const COMMENTS_DIR = join(repoRoot(), 'issues', 'foil');
+const CANON_DIR = join(repoRoot(), 'data', 'foil-canon');
+const OVERRIDES_DIR = join(repoRoot(), 'data', 'foil-overrides');
+const REFERENCE_DIR = join(repoRoot(), 'research', 'foil-video-reference');
 
 // Path-traversal guards: card ids are catalog ids (e.g. base1-8, me04.5-12),
 // variant ids are integers. Reject anything else outright.
@@ -333,5 +349,245 @@ foilLabRouter.post(
     // Full machine-readable context (incl. every uniform value) for bulk triage.
     await writeFile(join(dir, 'context.json'), JSON.stringify(context, null, 2) + '\n', 'utf8');
     res.status(201).json({ id, saved: `issues/foil/${id}/` });
+  }),
+);
+
+// ── Canon pattern defaults (surface A: the canon lab) ──────────────────────
+//
+// data/foil-canon/<patternId>.json — a FULL uniform snapshot ("this is what
+// the pattern looks like, period"), versionable in-repo. When a canon file
+// exists it replaces the recipe's code defaults as the baseline; deleting it
+// falls back to code. Pattern re-tunes in patterns.ts (the R0 lane) stay
+// meaningful for patterns Chey hasn't locked yet.
+
+const PATTERN_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const UNIFORM_KEY_RE = /^u[A-Za-z0-9]{1,31}$/;
+const MAX_NOTE = 2_000;
+
+function validPatternId(raw: unknown): string {
+  const p = str(raw);
+  if (!p || !PATTERN_ID_RE.test(p)) throw badRequest('Invalid patternId.');
+  return p;
+}
+
+/** Uniform maps come from sliders — finite numbers keyed like uniforms, or 400. */
+function parseUniforms(raw: unknown, { allowEmpty }: { allowEmpty: boolean }): Record<string, number> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw badRequest('uniforms must be an object.');
+  const entries = Object.entries(raw as Record<string, unknown>);
+  if (entries.length > 64) throw badRequest('Too many uniforms.');
+  if (!allowEmpty && entries.length === 0) throw badRequest('uniforms is empty.');
+  const out: Record<string, number> = {};
+  for (const [k, v] of entries) {
+    if (!UNIFORM_KEY_RE.test(k)) throw badRequest(`Bad uniform key: ${k}`);
+    if (typeof v !== 'number' || !Number.isFinite(v)) throw badRequest(`Uniform ${k} must be a finite number.`);
+    out[k] = v;
+  }
+  return out;
+}
+
+interface CanonEntry {
+  version: 1;
+  patternId: string;
+  savedAt: string;
+  uniforms: Record<string, number>;
+  note?: string;
+}
+
+foilLabRouter.get(
+  '/canon',
+  asyncHandler(async (_req, res) => {
+    const patterns: Record<string, CanonEntry> = {};
+    let files: string[] = [];
+    try {
+      files = await readdir(CANON_DIR);
+    } catch {
+      /* no canon saved yet */
+    }
+    for (const f of files) {
+      const m = /^([a-z0-9][a-z0-9-]{0,63})\.json$/.exec(f);
+      if (!m) continue;
+      try {
+        const entry = JSON.parse(await readFile(join(CANON_DIR, f), 'utf8')) as CanonEntry;
+        patterns[m[1]!] = entry;
+      } catch {
+        /* unreadable file — skip rather than 500 the whole index */
+      }
+    }
+    res.setHeader('Cache-Control', 'no-store'); // editing surface — never stale
+    res.json({ patterns });
+  }),
+);
+
+foilLabRouter.put(
+  '/canon/:patternId',
+  asyncHandler(async (req, res) => {
+    const patternId = validPatternId(req.params.patternId);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const uniforms = parseUniforms(body.uniforms, { allowEmpty: false });
+    const note = str(body.note)?.trim();
+    if (note && note.length > MAX_NOTE) throw badRequest('note too long.');
+    const entry: CanonEntry = {
+      version: 1,
+      patternId,
+      savedAt: new Date().toISOString(),
+      uniforms,
+      ...(note ? { note } : {}),
+    };
+    mkdirSync(CANON_DIR, { recursive: true });
+    await writeFile(join(CANON_DIR, `${patternId}.json`), JSON.stringify(entry, null, 2) + '\n', 'utf8');
+    res.json({ saved: `data/foil-canon/${patternId}.json`, ...entry });
+  }),
+);
+
+foilLabRouter.delete(
+  '/canon/:patternId',
+  asyncHandler(async (req, res) => {
+    const patternId = validPatternId(req.params.patternId);
+    let removed = false;
+    try {
+      await unlink(join(CANON_DIR, `${patternId}.json`));
+      removed = true;
+    } catch {
+      /* absent is fine */
+    }
+    res.json({ removed });
+  }),
+);
+
+// ── Per-card overrides (surface B: the card adjustment surface) ────────────
+//
+// data/foil-overrides/<cardId>/<variantId>.json — SPARSE uniform values that
+// differ from the canon baseline for this card/variant, plus which pattern
+// they tune. Untouched uniforms keep tracking canon as it evolves.
+
+interface OverrideEntry {
+  version: 1;
+  cardId: string;
+  variantId: number;
+  /** The effective pattern these overrides tune (canonical id). */
+  patternId: string;
+  /** Explicit dropdown override at save time, or null when Auto resolved it. */
+  patternOverride: string | null;
+  savedAt: string;
+  uniforms: Record<string, number>;
+  /** Provenance: which canon save (if any) the sparse diff was taken against. */
+  baseline: { canonSavedAt: string | null };
+}
+
+function overridePath(cardId: string, variantId: string): string {
+  return join(OVERRIDES_DIR, cardId, `${variantId}.json`);
+}
+
+foilLabRouter.get(
+  '/overrides/:cardId/:variantId',
+  asyncHandler(async (req, res) => {
+    const { cardId, variantId } = validIds(req.params.cardId, req.params.variantId);
+    let entry: OverrideEntry;
+    try {
+      entry = JSON.parse(await readFile(overridePath(cardId, variantId), 'utf8')) as OverrideEntry;
+    } catch {
+      throw notFound('No card overrides for this card/variant.');
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(entry);
+  }),
+);
+
+foilLabRouter.put(
+  '/overrides/:cardId/:variantId',
+  asyncHandler(async (req, res) => {
+    const { cardId, variantId } = validIds(req.params.cardId, req.params.variantId);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const patternId = validPatternId(body.patternId);
+    // Sparse map — empty means "no differences": that's a DELETE, not a save.
+    const uniforms = parseUniforms(body.uniforms, { allowEmpty: false });
+    const rawPo = str(body.patternOverride);
+    const patternOverride = rawPo && rawPo !== 'auto' ? validPatternId(rawPo) : null;
+    const baselineRaw = (body.baseline ?? {}) as Record<string, unknown>;
+    const canonSavedAt = str(baselineRaw.canonSavedAt) ?? null;
+    const entry: OverrideEntry = {
+      version: 1,
+      cardId,
+      variantId: Number(variantId),
+      patternId,
+      patternOverride,
+      savedAt: new Date().toISOString(),
+      uniforms,
+      baseline: { canonSavedAt },
+    };
+    mkdirSync(join(OVERRIDES_DIR, cardId), { recursive: true });
+    await writeFile(overridePath(cardId, variantId), JSON.stringify(entry, null, 2) + '\n', 'utf8');
+    res.json({ saved: `data/foil-overrides/${cardId}/${variantId}.json`, ...entry });
+  }),
+);
+
+foilLabRouter.delete(
+  '/overrides/:cardId/:variantId',
+  asyncHandler(async (req, res) => {
+    const { cardId, variantId } = validIds(req.params.cardId, req.params.variantId);
+    let removed = false;
+    try {
+      await unlink(overridePath(cardId, variantId));
+      removed = true;
+    } catch {
+      /* absent is fine */
+    }
+    res.json({ removed });
+  }),
+);
+
+// ── Reference media (canon lab: the real tilt clip beside the render) ──────
+//
+// Streams committed research/foil-video-reference/<pattern>/ assets. GET-only,
+// whitelisted filenames, res.sendFile (Range support — iOS Safari refuses
+// <video> sources served without byte ranges). Never copies media anywhere.
+
+const REFERENCE_FILE_RE = /^(clip\.webm|frame-0[1-8]\.jpg)$/;
+
+foilLabRouter.get(
+  '/reference',
+  asyncHandler(async (_req, res) => {
+    const patterns: Record<string, { clip: boolean; frames: number }> = {};
+    let dirs: string[] = [];
+    try {
+      dirs = await readdir(REFERENCE_DIR);
+    } catch {
+      /* corpus missing in this checkout */
+    }
+    for (const d of dirs) {
+      if (!PATTERN_ID_RE.test(d)) continue; // skips pipeline/, _interlude…, README.md
+      let files: string[];
+      try {
+        files = await readdir(join(REFERENCE_DIR, d));
+      } catch {
+        continue;
+      }
+      patterns[d] = {
+        clip: files.includes('clip.webm'),
+        frames: files.filter((f) => /^frame-0[1-8]\.jpg$/.test(f)).length,
+      };
+    }
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.json({ patterns });
+  }),
+);
+
+foilLabRouter.get(
+  '/reference/:pattern/:file',
+  asyncHandler(async (req, res) => {
+    const pattern = validPatternId(req.params.pattern);
+    const file = str(req.params.file);
+    if (!file || !REFERENCE_FILE_RE.test(file)) throw badRequest('Invalid reference file.');
+    const abs = join(REFERENCE_DIR, pattern, file);
+    if (!existsSync(abs)) throw notFound('No such reference asset.');
+    res.setHeader('Cache-Control', 'private, max-age=3600'); // committed media — stable
+    await new Promise<void>((resolve, reject) => {
+      res.sendFile(abs, (err) => {
+        // A client abort mid-stream (video scrubbing) surfaces here after
+        // headers are gone — swallow it; only pre-send failures are real.
+        if (err && !res.headersSent) reject(err);
+        else resolve();
+      });
+    });
   }),
 );
