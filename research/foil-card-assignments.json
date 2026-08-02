@@ -3,7 +3,8 @@
  "method": "18-lane Ringer research swarm 'foil-card-assignments' (opencode workers on z-ai/glm-5.2; one exploration lane pop-series auditioned poolside/laguna-s-2.1:free, which produced no artifact and was rerun to a first-try PASS on glm-5.2; the pi also died mid-run once - 17 banked PASSing lanes were reused untouched and only the missing lane was rerun under the same run_name). Input: full-catalog enumeration via the branch read api (:3712) - 20,964 cards / 37,627 variants clustered into 335 (set x variant-class) clusters, of which 175 resolved WITHOUT a set-level high-confidence citation under resolver v2 (series-token or heuristic fallbacks, or low/medium rows). Each lane received its clusters (card counts, rarity + variant-kind breakdowns, catalog-declared foil facets, current resolver guess), the 41-slug vocabulary, and the existing cited usage rows for its sets, then researched collector sources (Bulbapedia set pages + Holofoil article, insights.collexy.com holofoil database insights, marketplace terminology; forum evidence capped at low confidence). Every lane passed an executed validator (schema, selector-vs-catalog integrity, per-cluster coverage-or-residual, citation presence) plus orchestrator review with spot-checked citations. The facet-map lane maps the catalog's explicit per-variant foil facet codes (holo-foil-cosmos, reverse-foil-masterball, normal-foil-galaxy, ...) to pattern slugs - these are per-VARIANT assignments the catalog itself declares. Confidence 'high' = 2+ independent sources; this remains collector-community evidence, not manufacturer data.",
  "selector_semantics": {
   "facet_rows": "catalog-wide: a variant kind that declares an explicit foil finish (holo-foil-cosmos -> facet cosmos) maps to a pattern slug; in the resolver this outranks set rows and loses to explicit cardIds rows and variantKinds selectors.",
-  "rows": "sel joins on catalog ids: setIds + cls (holo|reverse|full-foil|normal+facet), optional rarities (case-insensitive substring match on the card rarity), variantKinds (exact kind codes), cardIds (exact card tcgdex ids). Most specific match wins: cardIds > variantKinds > facet row > rarities > bare set. Anything unmatched falls through to the v2 usage table, then era heuristics."
+  "rows": "sel joins on catalog ids: setIds + cls (holo|reverse|full-foil|normal+facet), optional rarities (case-insensitive substring match on the card rarity), variantKinds (exact kind codes), cardIds (exact card tcgdex ids). Most specific match wins: cardIds > variantKinds > facet row > rarities > bare set. Anything unmatched falls through to the v2 usage table, then era heuristics.",
+  "scope": "optional per-row override of the resolver's computed scope ('window' | 'full' | 'sheet'). Added 2026-08-02 (R2b) for treatments whose physical extent the variant kind/rarity cannot express: baby shinies are window-scope despite full-foil rarities, VSTAR pearls are full-face despite plain holo kinds, det1 holos are window-scope despite 'ultra rare' full-foil rarities. Absent = keep the computed scope."
  },
  "known_residuals": [
   {
@@ -39,12 +40,14 @@
   {
    "lane": "facet-map",
    "facet": "gold",
-   "reason": "No vocabulary slug faithfully models the gold Secret/Hyper-rare gold foil. The 134 'gold' cards (88 Secret Rare, 44 Hyper rare, 2 Mega Hyper Rare) across SWSH/SV/Mega use a gold metallic foil with rainbow/texture accents that is distinct from every 41-slug entry: 'mirror' is plain silver with no hue, 'rainbow-glitter' is the rainbow-rare glitter-over-rainbow-mirror, and no gold-specific recipe exists. Needs a dedicated gold-rare foil investigation (and likely a new vocabulary slug) before a defensible facet mapping can be emitted."
+   "reason": "No vocabulary slug faithfully models the gold Secret/Hyper-rare gold foil. The 134 'gold' cards (88 Secret Rare, 44 Hyper rare, 2 Mega Hyper Rare) across SWSH/SV/Mega use a gold metallic foil with rainbow/texture accents that is distinct from every 41-slug entry: 'mirror' is plain silver with no hue, 'rainbow-glitter' is the rainbow-rare glitter-over-rainbow-mirror, and no gold-specific recipe exists. Needs a dedicated gold-rare foil investigation (and likely a new vocabulary slug) before a defensible facet mapping can be emitted.",
+   "resolved": "2026-08-02 R2b: gold-secret slug implemented; facet row gold → gold-secret added."
   },
   {
    "lane": "facet-map",
    "facet": "gold-jumbo",
-   "reason": "No vocabulary slug models the gold Hyper-rare gold foil on the jumbo-size axis. The single 'gold-jumbo' catalog card (sv03.5-205, the 151 set Hyper rare jumbo, foil=gold) is the jumbo form of the same unmodelled gold-rare finish as the standard 'gold' facet; size does not change the foil pattern, but no 41-slug entry (gold-specific or otherwise) faithfully represents the gold metallic secret/hyper-rare treatment. Resolved together with the 'gold' facet via a dedicated gold-rare investigation and a likely new vocabulary slug."
+   "reason": "No vocabulary slug models the gold Hyper-rare gold foil on the jumbo-size axis. The single 'gold-jumbo' catalog card (sv03.5-205, the 151 set Hyper rare jumbo, foil=gold) is the jumbo form of the same unmodelled gold-rare finish as the standard 'gold' facet; size does not change the foil pattern, but no 41-slug entry (gold-specific or otherwise) faithfully represents the gold metallic secret/hyper-rare treatment. Resolved together with the 'gold' facet via a dedicated gold-rare investigation and a likely new vocabulary slug.",
+   "resolved": "2026-08-02 R2b: facet row gold-jumbo → gold-secret added."
   },
   {
    "lane": "sm-fullfoil",
@@ -62,7 +65,8 @@
    "lane": "sm-fullfoil",
    "setId": "sma",
    "cls": "full-foil",
-   "reason": "Shiny Vault subset (n=94) is entirely shiny-glitter full-foil; Bulbapedia has no named holofoil-pattern slug for the shiny treatment and the vocabulary file was not provisioned, so the correct slug cannot be confirmed."
+   "reason": "Shiny Vault subset (n=94) is entirely shiny-glitter full-foil; Bulbapedia has no named holofoil-pattern slug for the shiny treatment and the vocabulary file was not provisioned, so the correct slug cannot be confirmed.",
+   "resolved": "2026-08-02 R2b: shiny-vault slug implemented; three cardIds rows (51 babies window / 35 GX full / 8 golds → gold-secret)."
   },
   {
    "lane": "sm-fullfoil",
@@ -80,7 +84,8 @@
    "lane": "sm-fullfoil",
    "setId": "det1",
    "cls": "full-foil",
-   "reason": "Detective Pikachu (n=4) uses a distinctive thick 'shattered/raised' foil unique to the set; no Bulbapedia named holofoil-pattern slug applies and the vocabulary file (which likely has a dedicated det1 slug) was not provisioned, so the pattern id cannot be confirmed."
+   "reason": "Detective Pikachu (n=4) uses a distinctive thick 'shattered/raised' foil unique to the set; no Bulbapedia named holofoil-pattern slug applies and the vocabulary file (which likely has a dedicated det1 slug) was not provisioned, so the pattern id cannot be confirmed.",
+   "resolved": "2026-08-02 R2b: detective-pikachu slug implemented (the 'shattered/raised' description was source-checked and rejected — smooth gloss); ultra-rare row + cls-normal row cover all 18 cards, window scope."
   },
   {
    "lane": "sm-fullfoil",
@@ -230,37 +235,43 @@
    "lane": "swsh-fullfoil-2",
    "setId": "swsh9",
    "cls": "full-foil",
-   "reason": "Brilliant Stars 'ultra rare' lumps Pokemon V, VMAX and VSTAR, which use three DIFFERENT foils (VMAX = rainbow-glitter per video; VSTAR = distinct star-foil; plain V = unconfirmed). No finer rarity string is available, so the bucket cannot be split; no Radiant in this set."
+   "reason": "Brilliant Stars 'ultra rare' lumps Pokemon V, VMAX and VSTAR, which use three DIFFERENT foils (VMAX = rainbow-glitter per video; VSTAR = distinct star-foil; plain V = unconfirmed). No finer rarity string is available, so the bucket cannot be split; no Radiant in this set.",
+   "resolved": "2026-08-02 R2b (partial): the VSTAR portion is now split out by the dedicated 'Holo Rare VSTAR' rarity string → vstar-pearl; the V/VMAX lumping stands."
   },
   {
    "lane": "swsh-fullfoil-2",
    "setId": "swsh10",
    "cls": "full-foil",
-   "reason": "Astral Radiance 'ultra rare' lumps Pokemon V, VMAX and VSTAR with DIFFERENT foils (VMAX = rainbow-glitter per video; VSTAR = star-foil; plain V = unconfirmed). No finer rarity string is available, so the bucket cannot be split. Radiant and secret-rare parts are resolved in rows."
+   "reason": "Astral Radiance 'ultra rare' lumps Pokemon V, VMAX and VSTAR with DIFFERENT foils (VMAX = rainbow-glitter per video; VSTAR = star-foil; plain V = unconfirmed). No finer rarity string is available, so the bucket cannot be split. Radiant and secret-rare parts are resolved in rows.",
+   "resolved": "2026-08-02 R2b (partial): the VSTAR portion is now split out by the dedicated 'Holo Rare VSTAR' rarity string → vstar-pearl; the V/VMAX lumping stands."
   },
   {
    "lane": "swsh-fullfoil-2",
    "setId": "swsh11",
    "cls": "full-foil",
-   "reason": "Lost Origin 'ultra rare' lumps Pokemon V, VMAX and VSTAR with DIFFERENT foils (VMAX = rainbow-glitter per video; VSTAR = star-foil; plain V = unconfirmed). No finer rarity string is available, so the bucket cannot be split. Radiant and secret-rare parts are resolved in rows."
+   "reason": "Lost Origin 'ultra rare' lumps Pokemon V, VMAX and VSTAR with DIFFERENT foils (VMAX = rainbow-glitter per video; VSTAR = star-foil; plain V = unconfirmed). No finer rarity string is available, so the bucket cannot be split. Radiant and secret-rare parts are resolved in rows.",
+   "resolved": "2026-08-02 R2b (partial): the VSTAR portion is now split out by the dedicated 'Holo Rare VSTAR' rarity string → vstar-pearl; the V/VMAX lumping stands."
   },
   {
    "lane": "swsh-fullfoil-2",
    "setId": "swsh12",
    "cls": "full-foil",
-   "reason": "Silver Tempest 'ultra rare' lumps Pokemon V, VMAX and VSTAR with DIFFERENT foils (VMAX = rainbow-glitter per video; VSTAR = star-foil; plain V = unconfirmed). No finer rarity string is available, so the bucket cannot be split. Radiant and secret-rare parts are resolved in rows."
+   "reason": "Silver Tempest 'ultra rare' lumps Pokemon V, VMAX and VSTAR with DIFFERENT foils (VMAX = rainbow-glitter per video; VSTAR = star-foil; plain V = unconfirmed). No finer rarity string is available, so the bucket cannot be split. Radiant and secret-rare parts are resolved in rows.",
+   "resolved": "2026-08-02 R2b (partial): the VSTAR portion is now split out by the dedicated 'Holo Rare VSTAR' rarity string → vstar-pearl; the V/VMAX lumping stands."
   },
   {
    "lane": "swsh-fullfoil-2",
    "setId": "swsh12.5",
    "cls": "full-foil",
-   "reason": "Crown Zenith 'ultra rare' lumps Pokemon V, VMAX and VSTAR with DIFFERENT foils (VMAX = rainbow-glitter per video; VSTAR = star-foil; plain V = unconfirmed). No finer rarity string is available, so the bucket cannot be split. Radiant and secret-rare parts are resolved in rows; the GG alt-art subset is also lumped here."
+   "reason": "Crown Zenith 'ultra rare' lumps Pokemon V, VMAX and VSTAR with DIFFERENT foils (VMAX = rainbow-glitter per video; VSTAR = star-foil; plain V = unconfirmed). No finer rarity string is available, so the bucket cannot be split. Radiant and secret-rare parts are resolved in rows; the GG alt-art subset is also lumped here.",
+   "resolved": "2026-08-02 R2b (partial): the VSTAR portion is now split out by the dedicated 'Holo Rare VSTAR' rarity string → vstar-pearl; the V/VMAX lumping stands."
   },
   {
    "lane": "swsh-fullfoil-2",
    "setId": "swsh4.5sv",
    "cls": "full-foil",
-   "reason": "Shining Fates Shiny Vault (122 'shiny' prints): Bulbapedia describes only a 'special embossed Holofoil treatment' on the etched Shiny cards and names NO discrete pattern; the SNCB 39-pattern video does not demo a Shiny Vault card. Era-default rainbow-glitter is plausible but unverified; no confident vocabulary mapping without a tilt video of an SV## card."
+   "reason": "Shining Fates Shiny Vault (122 'shiny' prints): Bulbapedia describes only a 'special embossed Holofoil treatment' on the etched Shiny cards and names NO discrete pattern; the SNCB 39-pattern video does not demo a Shiny Vault card. Era-default rainbow-glitter is plausible but unverified; no confident vocabulary mapping without a tilt video of an SV## card.",
+   "resolved": "2026-08-02 R2b: shiny-vault rows added (104 babies window / 18 V+VMAX+shiny-Eternatus full)."
   },
   {
    "lane": "swsh-galleries",
@@ -354,9 +365,11 @@
   "swsh-fullfoil-2",
   "swsh-galleries",
   "wotc-gaps",
-  "xy-special"
+  "xy-special",
+  "r2-subset-commons",
+  "r2b-vocab-wiring"
  ],
- "row_count": 113,
+ "row_count": 123,
  "facet_rows": [
   {
    "facet": "cosmos",
@@ -751,6 +764,41 @@
    ],
    "conflicts": "The catalog lists the SAME dpp-DP26/DP27 jumbo cards under BOTH 'cracked-ice-jumbo' and 'mirror-jumbo' (two variantId entries on one physical card), so the catalog foil tag is internally inconsistent for these two promos. No source describes the dpp DP26/DP27 jumbo prints specifically; the cracked-ice mapping follows the catalog foil tag plus Bulbapedia's note that Cracked Ice appears on Platinum-onward promos. A scan check is recommended.",
    "lane": "facet-map"
+  },
+  {
+   "facet": "gold",
+   "pattern": "gold-secret",
+   "claim": "The gold Secret/Hyper Rare full-face gold foil (foil-patterns.md §40). The catalog's 'gold' facet (134 cards: 88 Secret Rare, 44 Hyper rare, 2 Mega Hyper Rare across SWSH/SV/Mega, kind holo-foil-gold) identifies the treatment exactly — this retires the facet-map residual that predated the vocabulary slug.",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://sleevenocardbehind.com/gold-pokemon-cards-everything-you-need-to-know/",
+     "quote": "special embossed gold holofoil cards ... Gold cards fall into the 'secret rare' category, appearing in every set as booster pack pulls"
+    },
+    {
+     "url": "https://youtu.be/TjlU_WKhS8w",
+     "quote": "sword and shield continues to dish out the gold. the pattern this time around makes the entire card gold - background, text boxes, empty space"
+    },
+    {
+     "url": "https://youtu.be/8CvE7sXbJOo",
+     "quote": "(corpus tilt footage: Turbopatch, Darkness Ablaze 200/189 - gold face, glitter grain, radial burst rays, warm-locked hue travel)"
+    }
+   ],
+   "conflicts": "One collateral card: sv03.5-205's metal-foil-gold variant also parses to facet 'gold' (kindFacet strips only the prefix). Metal cards are a different product (§40 flags them out of scope), but a single gold-rendered metal card is a smaller wrong than 134 gold cards rendering rainbow-glitter; revisit if a metal slug is ever minted.",
+   "lane": "r2b-vocab-wiring"
+  },
+  {
+   "facet": "gold-jumbo",
+   "pattern": "gold-secret",
+   "claim": "The single 'gold-jumbo' catalog card (sv03.5-205, the 151 Hyper rare jumbo) is the jumbo form of the same gold-rare finish; size does not change the foil pattern. Retires the gold-jumbo facet residual.",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://sleevenocardbehind.com/gold-pokemon-cards-everything-you-need-to-know/",
+     "quote": "special embossed gold holofoil cards ... Gold cards fall into the 'secret rare' category, appearing in every set as booster pack pulls"
+    }
+   ],
+   "lane": "r2b-vocab-wiring"
   }
  ],
  "rows": [
@@ -4066,6 +4114,496 @@
     }
    ],
    "lane": "r2-subset-commons"
+  },
+  {
+   "pattern": "shiny-vault",
+   "sel": {
+    "setIds": [
+     "sma"
+    ],
+    "cls": "full-foil",
+    "rarities": null,
+    "variantKinds": null,
+    "cardIds": [
+     "sma-SV38",
+     "sma-SV39",
+     "sma-SV1",
+     "sma-SV10",
+     "sma-SV11",
+     "sma-SV12",
+     "sma-SV13",
+     "sma-SV14",
+     "sma-SV15",
+     "sma-SV16",
+     "sma-SV17",
+     "sma-SV18",
+     "sma-SV19",
+     "sma-SV2",
+     "sma-SV20",
+     "sma-SV21",
+     "sma-SV22",
+     "sma-SV23",
+     "sma-SV24",
+     "sma-SV25",
+     "sma-SV26",
+     "sma-SV27",
+     "sma-SV28",
+     "sma-SV29",
+     "sma-SV3",
+     "sma-SV30",
+     "sma-SV31",
+     "sma-SV32",
+     "sma-SV33",
+     "sma-SV34",
+     "sma-SV35",
+     "sma-SV36",
+     "sma-SV37",
+     "sma-SV4",
+     "sma-SV40",
+     "sma-SV41",
+     "sma-SV42",
+     "sma-SV43",
+     "sma-SV44",
+     "sma-SV45",
+     "sma-SV5",
+     "sma-SV6",
+     "sma-SV7",
+     "sma-SV8",
+     "sma-SV81",
+     "sma-SV82",
+     "sma-SV83",
+     "sma-SV84",
+     "sma-SV85",
+     "sma-SV86",
+     "sma-SV9"
+    ]
+   },
+   "scope": "window",
+   "claim": "Hidden Fates Shiny Vault baby shinies (51 non-GX 'Shiny rare' cards): silvery-white textured foil + sparkle-glyph burst in the classic art window (emboss extends to the border, but the FOIL treatment is window-scoped). Catalog declares kind normal + rarity Shiny rare → computed scope full; the scope override narrows to window. CardIds enumerated from the catalog (rarity='Shiny rare', name without GX).",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://bleedingcool.com/games/a-holographic-history-of-the-pokemon-tcg-baby-shiny-pokemon/",
+     "quote": "textured, silver foil with a burst of sparkles that recreates the in-game animation of encountering a Shiny ... even the border area of the card has a tactile difference to a smooth common card"
+    },
+    {
+     "url": "https://youtu.be/_cyddOc1SMU",
+     "quote": "Both card designs are textured and feature the sparkles around the Pokémon (19:16; corpus tilt footage 19:18-19:26: Shiny Buzzwole SV24 + Shiny Ho-Oh GX SV50)"
+    }
+   ],
+   "lane": "r2b-vocab-wiring"
+  },
+  {
+   "pattern": "shiny-vault",
+   "sel": {
+    "setIds": [
+     "sma"
+    ],
+    "cls": "full-foil",
+    "rarities": null,
+    "variantKinds": null,
+    "cardIds": [
+     "sma-SV58",
+     "sma-SV46",
+     "sma-SV47",
+     "sma-SV48",
+     "sma-SV49",
+     "sma-SV50",
+     "sma-SV51",
+     "sma-SV52",
+     "sma-SV53",
+     "sma-SV54",
+     "sma-SV55",
+     "sma-SV56",
+     "sma-SV57",
+     "sma-SV59",
+     "sma-SV60",
+     "sma-SV61",
+     "sma-SV62",
+     "sma-SV63",
+     "sma-SV64",
+     "sma-SV65",
+     "sma-SV66",
+     "sma-SV67",
+     "sma-SV68",
+     "sma-SV69",
+     "sma-SV70",
+     "sma-SV71",
+     "sma-SV72",
+     "sma-SV73",
+     "sma-SV74",
+     "sma-SV75",
+     "sma-SV76",
+     "sma-SV77",
+     "sma-SV78",
+     "sma-SV79",
+     "sma-SV80"
+    ]
+   },
+   "scope": "full",
+   "claim": "Hidden Fates Shiny Vault shiny GX full-arts (35 'Shiny rare' GX cards): the same treatment at full-face scope. CardIds enumerated from the catalog (rarity='Shiny rare', GX names).",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://bleedingcool.com/games/a-holographic-history-of-the-pokemon-tcg-shiny-pokemon-gx/",
+     "quote": "The background of these cards is pure textured, white foil which takes on a silvery look when it hits the light."
+    },
+    {
+     "url": "https://youtu.be/_cyddOc1SMU",
+     "quote": "Both card designs are textured and feature the sparkles around the Pokémon (19:16; corpus tilt footage 19:18-19:26: Shiny Buzzwole SV24 + Shiny Ho-Oh GX SV50)"
+    }
+   ],
+   "lane": "r2b-vocab-wiring"
+  },
+  {
+   "pattern": "gold-secret",
+   "sel": {
+    "setIds": [
+     "sma"
+    ],
+    "cls": "full-foil",
+    "rarities": null,
+    "variantKinds": null,
+    "cardIds": [
+     "sma-SV87",
+     "sma-SV88",
+     "sma-SV89",
+     "sma-SV90",
+     "sma-SV91",
+     "sma-SV92",
+     "sma-SV93",
+     "sma-SV94"
+    ]
+   },
+   "scope": "full",
+   "claim": "Hidden Fates Shiny Vault Secret Rares SV87-SV94 (4 gold stadiums: Aether Paradise Conservation Area, Brooklet Hill, Mt. Coronet, Shrine of Punishment; 4 gold Tapu GX) are SM-era gold Secret Rares, NOT the shiny treatment — split out by cardId so the shiny-vault rows can't over-cover them.",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://sleevenocardbehind.com/gold-pokemon-cards-everything-you-need-to-know/",
+     "quote": "special embossed gold holofoil cards ... Gold cards fall into the 'secret rare' category, appearing in every set as booster pack pulls"
+    },
+    {
+     "url": "https://youtu.be/TjlU_WKhS8w",
+     "quote": "item cards [got] a full art treatment with gold foil from top to bottom ... they'd also extend this gold art treatment to stadium cards as well"
+    }
+   ],
+   "lane": "r2b-vocab-wiring"
+  },
+  {
+   "pattern": "shiny-vault",
+   "sel": {
+    "setIds": [
+     "swsh4.5sv"
+    ],
+    "cls": "full-foil",
+    "rarities": null,
+    "variantKinds": null,
+    "cardIds": [
+     "swsh4.5sv-SV001",
+     "swsh4.5sv-SV002",
+     "swsh4.5sv-SV003",
+     "swsh4.5sv-SV004",
+     "swsh4.5sv-SV005",
+     "swsh4.5sv-SV006",
+     "swsh4.5sv-SV007",
+     "swsh4.5sv-SV008",
+     "swsh4.5sv-SV009",
+     "swsh4.5sv-SV010",
+     "swsh4.5sv-SV011",
+     "swsh4.5sv-SV012",
+     "swsh4.5sv-SV013",
+     "swsh4.5sv-SV014",
+     "swsh4.5sv-SV015",
+     "swsh4.5sv-SV016",
+     "swsh4.5sv-SV017",
+     "swsh4.5sv-SV018",
+     "swsh4.5sv-SV019",
+     "swsh4.5sv-SV020",
+     "swsh4.5sv-SV021",
+     "swsh4.5sv-SV022",
+     "swsh4.5sv-SV023",
+     "swsh4.5sv-SV024",
+     "swsh4.5sv-SV025",
+     "swsh4.5sv-SV026",
+     "swsh4.5sv-SV027",
+     "swsh4.5sv-SV028",
+     "swsh4.5sv-SV029",
+     "swsh4.5sv-SV030",
+     "swsh4.5sv-SV031",
+     "swsh4.5sv-SV032",
+     "swsh4.5sv-SV033",
+     "swsh4.5sv-SV034",
+     "swsh4.5sv-SV035",
+     "swsh4.5sv-SV036",
+     "swsh4.5sv-SV037",
+     "swsh4.5sv-SV038",
+     "swsh4.5sv-SV039",
+     "swsh4.5sv-SV040",
+     "swsh4.5sv-SV041",
+     "swsh4.5sv-SV042",
+     "swsh4.5sv-SV043",
+     "swsh4.5sv-SV044",
+     "swsh4.5sv-SV045",
+     "swsh4.5sv-SV046",
+     "swsh4.5sv-SV047",
+     "swsh4.5sv-SV048",
+     "swsh4.5sv-SV049",
+     "swsh4.5sv-SV050",
+     "swsh4.5sv-SV051",
+     "swsh4.5sv-SV052",
+     "swsh4.5sv-SV053",
+     "swsh4.5sv-SV054",
+     "swsh4.5sv-SV055",
+     "swsh4.5sv-SV056",
+     "swsh4.5sv-SV057",
+     "swsh4.5sv-SV058",
+     "swsh4.5sv-SV059",
+     "swsh4.5sv-SV060",
+     "swsh4.5sv-SV061",
+     "swsh4.5sv-SV062",
+     "swsh4.5sv-SV063",
+     "swsh4.5sv-SV064",
+     "swsh4.5sv-SV065",
+     "swsh4.5sv-SV066",
+     "swsh4.5sv-SV067",
+     "swsh4.5sv-SV068",
+     "swsh4.5sv-SV069",
+     "swsh4.5sv-SV070",
+     "swsh4.5sv-SV071",
+     "swsh4.5sv-SV072",
+     "swsh4.5sv-SV073",
+     "swsh4.5sv-SV074",
+     "swsh4.5sv-SV075",
+     "swsh4.5sv-SV076",
+     "swsh4.5sv-SV077",
+     "swsh4.5sv-SV078",
+     "swsh4.5sv-SV079",
+     "swsh4.5sv-SV080",
+     "swsh4.5sv-SV081",
+     "swsh4.5sv-SV082",
+     "swsh4.5sv-SV083",
+     "swsh4.5sv-SV084",
+     "swsh4.5sv-SV085",
+     "swsh4.5sv-SV086",
+     "swsh4.5sv-SV087",
+     "swsh4.5sv-SV088",
+     "swsh4.5sv-SV089",
+     "swsh4.5sv-SV090",
+     "swsh4.5sv-SV091",
+     "swsh4.5sv-SV092",
+     "swsh4.5sv-SV093",
+     "swsh4.5sv-SV094",
+     "swsh4.5sv-SV095",
+     "swsh4.5sv-SV096",
+     "swsh4.5sv-SV097",
+     "swsh4.5sv-SV098",
+     "swsh4.5sv-SV099",
+     "swsh4.5sv-SV100",
+     "swsh4.5sv-SV101",
+     "swsh4.5sv-SV102",
+     "swsh4.5sv-SV103",
+     "swsh4.5sv-SV104"
+    ]
+   },
+   "scope": "window",
+   "claim": "Shining Fates Shiny Vault baby shinies (104 'Shiny rare' cards): the Hidden Fates treatment continued with brighter yellow sparkles + a reddish-purple streak (a uniform tweak on the same slug, not a new type). Window scope, same reasoning as sma.",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://bleedingcool.com/games/a-holographic-history-of-the-pokemon-tcg-baby-shiny-pokemon/",
+     "quote": "Hidden Fates versions feature more subtle, paler sparkles [while Shining Fates has] much brighter, yellow sparkles [and] a reddish-purple streak effect surrounding the Pokémon"
+    }
+   ],
+   "lane": "r2b-vocab-wiring"
+  },
+  {
+   "pattern": "shiny-vault",
+   "sel": {
+    "setIds": [
+     "swsh4.5sv"
+    ],
+    "cls": "full-foil",
+    "rarities": null,
+    "variantKinds": null,
+    "cardIds": [
+     "swsh4.5sv-SV105",
+     "swsh4.5sv-SV106",
+     "swsh4.5sv-SV107",
+     "swsh4.5sv-SV108",
+     "swsh4.5sv-SV109",
+     "swsh4.5sv-SV110",
+     "swsh4.5sv-SV111",
+     "swsh4.5sv-SV112",
+     "swsh4.5sv-SV113",
+     "swsh4.5sv-SV114",
+     "swsh4.5sv-SV115",
+     "swsh4.5sv-SV116",
+     "swsh4.5sv-SV117",
+     "swsh4.5sv-SV118",
+     "swsh4.5sv-SV119",
+     "swsh4.5sv-SV120",
+     "swsh4.5sv-SV121",
+     "swsh4.5sv-SV122"
+    ]
+   },
+   "scope": "full",
+   "claim": "Shining Fates Shiny Vault V/VMAX full-arts (16 'Shiny rare V'/'Shiny rare VMAX') plus the two 'Secret Rare' shiny Eternatus V/VMAX (SV121/SV122 — the black shiny chase cards, shiny treatment not gold): full-face scope. CardIds enumerated from the catalog.",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://bleedingcool.com/games/a-holographic-history-of-the-pokemon-tcg-shiny-pokemon-gx/",
+     "quote": "The background of these cards is pure textured, white foil which takes on a silvery look when it hits the light."
+    }
+   ],
+   "conflicts": "SV121/SV122 carry catalog rarity 'Secret Rare', which usually means gold — verified by name (shiny Eternatus V/VMAX) that these are the black shiny prints, not golds.",
+   "lane": "r2b-vocab-wiring"
+  },
+  {
+   "pattern": "shiny-vault",
+   "sel": {
+    "setIds": [
+     "sv04.5"
+    ],
+    "cls": "full-foil",
+    "rarities": [
+     "shiny rare"
+    ],
+    "variantKinds": null,
+    "cardIds": null
+   },
+   "scope": "window",
+   "claim": "Paldean Fates baby shinies (120 'Shiny rare') continue the sparkle treatment with holo borders; window scope (the era rect approximates it — the added holo border is a residual the layout tier can't express).",
+   "confidence": "medium",
+   "sources": [
+    {
+     "url": "https://youtu.be/_cyddOc1SMU",
+     "quote": "Some of the baby shinies are really cool, like Snorlax ... and holo borders that add that extra bit of sparkle. (26:32-26:59)"
+    }
+   ],
+   "lane": "r2b-vocab-wiring"
+  },
+  {
+   "pattern": "shiny-vault",
+   "sel": {
+    "setIds": [
+     "sv04.5"
+    ],
+    "cls": "full-foil",
+    "rarities": [
+     "shiny ultra rare"
+    ],
+    "variantKinds": null,
+    "cardIds": null
+   },
+   "scope": "full",
+   "claim": "Paldean Fates shiny ex full-arts (12 'Shiny Ultra Rare'): full-face shiny treatment.",
+   "confidence": "medium",
+   "sources": [
+    {
+     "url": "https://youtu.be/_cyddOc1SMU",
+     "quote": "(same chapter — the SV-era shiny continuation)"
+    }
+   ],
+   "lane": "r2b-vocab-wiring"
+  },
+  {
+   "pattern": "vstar-pearl",
+   "sel": {
+    "setIds": [
+     "swsh9",
+     "swsh10",
+     "swsh10.5",
+     "swsh11",
+     "swsh12",
+     "swsh12.5"
+    ],
+    "cls": "holo",
+    "rarities": [
+     "holo rare vstar"
+    ],
+    "variantKinds": null,
+    "cardIds": null
+   },
+   "scope": "full",
+   "claim": "Regular-print VSTAR cards (catalog rarity 'Holo Rare VSTAR', kinds holo/holo-jumbo) use the etched white pearlescent full-face foil with gold accents — full-face scope despite the plain holo kind (the scope override carries it). Rainbow/gold VSTAR prints have rarity 'Secret Rare' and are NOT selected.",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_VSTAR_(TCG)",
+     "quote": "Pokémon VSTAR cards have a white, pearlescent border with gold accents ... All Pokémon VSTAR cards are etched, including the Regular prints. All Regular prints of Pokémon VSTAR depict the Pokémon surrounded by a golden aura."
+    },
+    {
+     "url": "https://youtu.be/wRDwJyv-aP8",
+     "quote": "(corpus tilt footage: Arceus VSTAR, Brilliant Stars 123/172)"
+    }
+   ],
+   "lane": "r2b-vocab-wiring"
+  },
+  {
+   "pattern": "detective-pikachu",
+   "sel": {
+    "setIds": [
+     "det1"
+    ],
+    "cls": "full-foil",
+    "rarities": [
+     "ultra rare"
+    ],
+    "variantKinds": null,
+    "cardIds": null
+   },
+   "scope": "window",
+   "claim": "Detective Pikachu 'Ultra Rare' cards (Charizard det1-5, Greninja det1-9, Mewtwo det1-12, Ditto det1-17): the same movie-still-over-smooth-gloss window foil as the rest of the set — window scope despite the full-foil rarity label.",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://bulbapedia.bulbagarden.net/wiki/Detective_Pikachu_(TCG)",
+     "quote": "Each booster pack contained four Holofoil cards."
+    },
+    {
+     "url": "https://youtu.be/WjuDazguHnE",
+     "quote": "(corpus tilt footage: Charizard det1 5/18)"
+    }
+   ],
+   "lane": "r2b-vocab-wiring"
+  },
+  {
+   "pattern": "detective-pikachu",
+   "sel": {
+    "setIds": [
+     "det1"
+    ],
+    "cls": "normal",
+    "rarities": null,
+    "variantKinds": null,
+    "cardIds": [
+     "det1-1",
+     "det1-2",
+     "det1-3",
+     "det1-4",
+     "det1-6",
+     "det1-7",
+     "det1-8",
+     "det1-10",
+     "det1-11",
+     "det1-13",
+     "det1-14",
+     "det1-15",
+     "det1-16",
+     "det1-18"
+    ]
+   },
+   "scope": "window",
+   "claim": "The 14 Common/Rare Detective Pikachu cards are declared kind normal by the catalog, but every card in the 18-card set is holofoil (all-holo movie set) — card-level normal-class row so they stop rendering flat.",
+   "confidence": "high",
+   "sources": [
+    {
+     "url": "https://bulbapedia.bulbagarden.net/wiki/Detective_Pikachu_(TCG)",
+     "quote": "Each booster pack contained four Holofoil cards."
+    }
+   ],
+   "lane": "r2b-vocab-wiring"
   }
  ]
 }
