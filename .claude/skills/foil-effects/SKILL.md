@@ -48,6 +48,7 @@ Core uniforms (global sliders; every pattern may read them):
 | `uSat` | rainbow saturation, applied **inside** `hueRamp()` (0 = silver) |
 | `uArtGate` | luminance gate applied by `main()`: foil shows in dark scan areas, printed ink stays readable. The cheap precursor to art-driven masks. |
 | `uSpecular` | shared white sheen band, applied by `main()` |
+| `uDarken` | mirror-substrate attenuation, applied by `main()` (2026-08-02 R2 blend-model term, default **0 = exact legacy render**). Physically: mirror foil sits between the printed body and the viewer; at non-flash angles it reflects the (mostly dark) environment instead of diffusing, so the scan is multiplied by `1 - uDarken * mask * gate` — the SAME coverage field the additive layer uses — before the foil screen-blends on top. Opt in per recipe via `defaults`; recipes may also read it (e.g. an ink overprint that suppresses the additive layer). Absent key in canon/override/sidecar JSON = 0 = no effect. |
 | `uMask*` | layout mask uniforms — handled entirely by `main()`; patterns never mask themselves |
 | `uMaskTex` / `uMaskTexOn` | hand-mask tier: when on, `main()` samples the mask canvas's ALPHA (shader flips V; the CanvasTexture sets `flipY=false` — exactly one flip, ever) instead of the layout rect |
 | `uP0..uP3` | **yours** — per-recipe params, surfaced as labelled sliders |
@@ -57,9 +58,15 @@ Preamble helpers available to every recipe: `hash21`, `hash22`, `vnoise`, `fnois
 plus constants `PI`, `TAU`, `CARD_ASPECT` (h/w ≈ 1.3755). For isotropic patterns multiply
 uv by `vec2(1.0, CARD_ASPECT)` so cells aren't stretched.
 
-Blend model (in `main()`): `screenBlend(scan, clamp(foil * uIntensity * mask * gate, 0, 1))`
-then `+ uSpecular * sheen`. Screen blending means foil **lightens**; it can never darken
-the scan — matching how real foil reads through ink.
+Blend model (in `main()`): `body = scan * (1 - uDarken * mask * gate)`, then
+`screenBlend(body, clamp(foil * uIntensity * mask * gate, 0, 1))`, then
+`+ uSpecular * sheen`. With `uDarken = 0` (the default, and every pre-R2 recipe) the
+additive layer can only **lighten** — physically honest for foil under ink. Recipes whose
+real-world substrate is a DARK mirror at most angles (rainbow-mirror family, Prismatic
+Evolutions reverses, dark broken static) opt into `uDarken > 0`: the darkened substrate is
+what makes dark-mirror looks and ink-overprint watermarks (drawn as *suppression* of the
+additive layer) renderable at all. Tinting a darkened substrate = the pattern adds a dim
+flat tinted floor over it.
 
 ## Adding a pattern (worked example: Crosshatch)
 
@@ -250,6 +257,45 @@ for the next recipe author:
   frames at x = −0.45…+0.45 so adjacent frames differ by 0.06 tilt, with the prompt
   telling the judge to TRACK stars across adjacent frames. Reuse it for any pattern
   whose signature is parallax/motion rather than texture.
+
+### R2 blend-model wave (2026-08-02) — the uDarken term, and how to use it
+
+Full results in `research/foil-verification.md` (R2 section). Canonical guidance for
+recipe authors:
+
+- **What it is.** `uDarken` (core uniform, global default 0) attenuates the scan by
+  `1 - uDarken * mask * gate` BEFORE the additive foil screen-blends. Physical reading:
+  the foil layer is a mirror between the printed body and the viewer — at non-flash
+  angles it reflects the (dark) environment instead of diffusing, so the substrate seen
+  through it is darkened across exactly the coverage field the additive layer lights.
+  It is ONE shared term in `main()`; patterns opt in via `defaults`, never by darkening
+  inside `foilPattern()`.
+- **When to use it: the reference substrate is dark at most angles.** Rainbow-mirror
+  family (dark mirror between flashes), dark broken static (tinsel-ii), ink-overprint
+  watermarks. When the reference substrate stays LIGHT silver (pokeball-masterball,
+  confetti), uDarken is physically wrong even though it would "add saturation" — don't
+  reach for it as a color-grading knob.
+- **What it unlocked.** prismatic-pokeball nay → 17/20 yay: dark-mirror base
+  (uDarken 0.6) + broad flash lobe + facet quantization + the ball watermark as
+  ink-overprint SUPPRESSION (`base *= 1 - wm * k`) — an overprint absorbs, so it reads
+  darker inside the flash and vanishes at dark angles. Suppression-over-darkened-base is
+  the general recipe for anything printed ON TOP of foil. tinsel-ii nay → 16/20 yay from
+  the one-line opt-in (uDarken 0.4): the dark half of "static" is the darkened gaps
+  between additive lines.
+- **Saturation physics.** Screen-blending saturated color over a mid-gray body washes
+  pastel; over a properly dark base the same additive layer reads vivid. If a
+  dark-substrate pattern reads pastel, raise uDarken before raising gain (prismatic
+  went 0.5 → 0.6 for exactly this).
+- **Tint.** A tinted dark substrate = uDarken + the pattern adding a dim flat tinted
+  floor (e.g. `vec3(0.055) * (1.0 - lobe)` keeps prismatic's dark state metallic-silver
+  rather than void-black).
+- **Compatibility is absolute.** uDarken=0 is bit-identical to the pre-R2 composite;
+  absent keys in canon/override/sidecar JSON mean 0. The 21-pattern regression sweep
+  (provably identical renders) measured judge noise at ±3–6 points per roll and ran
+  colder than earlier batches — before believing any future "regression", check the
+  render is actually different (frames diff, GLSL diff) and re-judge; two patterns
+  (diagonal-sheen-right slope claim AGAIN, pokeball-masterball) failed twice on
+  pixel-identical renders and keep their banked verdicts on geometry-proof grounds.
 
 ## Masks
 
