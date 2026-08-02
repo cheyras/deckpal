@@ -22,7 +22,7 @@ for section in ["cards shown", "static appearance", "tilt animation",
     if section not in low:
         errors.append(f"missing required section: {section}")
 
-frames = set(re.findall(r"frame[s]?\s*#?(\d)", low))
+frames = set(re.findall(r"frame[s]?\s*#?(\d+)", low))
 if len(frames) < 4:
     errors.append(f"only {len(frames)} distinct frame references (need >=4) — claims must cite frames")
 
