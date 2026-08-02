@@ -36,6 +36,10 @@ const hosts = (sources) => [
 // The resolver consults these rows before its scope-none early return.
 const CLASSES = new Set(['holo', 'reverse', 'full-foil', 'normal+facet', 'normal']);
 const CONF = new Set(['high', 'medium', 'low']);
+// Per-row scope override (R2b, 2026-08-02): treatments whose physical extent
+// the variant kind/rarity cannot express (baby shinies = window despite a
+// full-foil rarity; VSTAR pearl = full face despite a plain holo kind).
+const SCOPES = new Set(['window', 'full', 'sheet']);
 
 const facets = {};
 for (const r of src.facet_rows) {
@@ -55,6 +59,8 @@ const rows = src.rows.map((r, i) => {
       `rows[${i}]: cls 'normal' rows must name explicit cardIds — they override the ` +
         `catalog's no-foil declaration and must never claim whole sets`,
     );
+  if (r.scope !== undefined && !SCOPES.has(r.scope))
+    throw new Error(`rows[${i}]: bad scope ${r.scope}`);
   return {
     p: r.pattern,
     setIds: r.sel.setIds,
@@ -62,6 +68,7 @@ const rows = src.rows.map((r, i) => {
     rar: r.sel.rarities?.map((x) => x.toLowerCase()) ?? null,
     kinds: r.sel.variantKinds ?? null,
     cards: r.sel.cardIds ?? null,
+    sc: r.scope ?? null,
     conf: r.confidence,
     src: hosts(r.sources),
   };

@@ -55,7 +55,9 @@ const withAliases = (names) => {
 
 const rows = src.rows.map((r) => ({
   p: r.pattern,
-  sets: withAliases(r.scope.sets),
+  // Era-wide rows (e.g. the vocab lane's gold-secret claims) name no sets —
+  // they match through the series-key fallback only.
+  sets: withAliases(r.scope.sets ?? []),
   // One searchable key for series-level fallback: the lane's era + series
   // strings, normalized (the resolver token-matches against this).
   sk: norm(`${r.scope.series} ${r.scope.era}`),
