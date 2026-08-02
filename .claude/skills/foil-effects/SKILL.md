@@ -122,18 +122,22 @@ the scan — matching how real foil reads through ink.
 ## Taxonomy status (research/foil-patterns.md — the canonical 39 types)
 
 The dropdown carries ALL 39 video taxonomy types plus `none` and `reverse-sheet`.
-Implemented recipes: **Starlight** (#1; #24 Starlight II at parallax 0), **Cosmos** (#2 —
-label is Cosmos only; "Galaxy" is Bulbapedia's synonym for *Starlight*), the **sheen
-family** — ONE generator (`sheenGlsl`) at four rotations + stripe option: `vertical-sheen`
-(#14, ex-`sv-holo`), `horizontal-sheen` (#21, the TRUE SV default / Bulbapedia "Mirage"),
-`diagonal-sheen-right` (#19, "/"), `diagonal-sheen-left` (#20, "\\"),
-`striped-vertical-sheen` (#22, "Line") — **Reverse sheet** (≈ #30 pokeball-masterball,
-ring+dot coarse tier), and **Cracked Ice** (#9). Everything else renders via its nearest
-recipe with `implemented: false` + `approxVia` and is labeled "approx via …" in the UI —
-unimplemented ≠ hidden; taxonomy leads. To ship a real recipe: write the GLSL, flip the
-entry to `implemented: true`, drop `approxVia`. Gap priorities live in
-`research/foil-patterns.md` "Implementation gap summary" and
-`research/foil-verification.md` (recipe-wave plan).
+Implemented recipes after the R1 wave (2026-08-02): **Starlight** (#1; #24 Starlight II at
+parallax 0), **Cosmos** (#2 — label is Cosmos only; "Galaxy" is Bulbapedia's synonym for
+*Starlight*), the **sheen family** — ONE generator (`sheenGlsl`) at four rotations + stripe
+option: `vertical-sheen` (#14, ex-`sv-holo`), `horizontal-sheen` (#21, the TRUE SV default /
+Bulbapedia "Mirage"), `diagonal-sheen-right` (#19, "/"), `diagonal-sheen-left` (#20, "\\"),
+`striped-vertical-sheen` (#22, "Line") — **Reverse sheet** (coarse ring+dot tier, kept),
+**Cracked Ice** (#9, now with the anisotropic shattered-glass metric), and the **twelve R1
+recipes**: `fireworks` (#3), `energy-symbols-ii` (#8), `cosmos-iii-smooth` (#16),
+`tinsel-ii` (#18), `radiant` (#26), `rainbow-glitter` (#27), `rainbow-glitter-sheen` (#28),
+`ace-spec` (#29), `pokeball-masterball` (#30, true ball SDF + Master Ball toggle on uP1),
+`prismatic-pokeball` (#31), `ex-starfoil` (#33), `confetti` (#37) — 21 of the 39 taxonomy
+types are real. Everything else renders via its nearest recipe with `implemented: false` +
+`approxVia` and is labeled "approx via …" in the UI — unimplemented ≠ hidden; taxonomy
+leads. To ship a real recipe: write the GLSL, flip the entry to `implemented: true`, drop
+`approxVia`. Gap priorities live in `research/foil-patterns.md` "Implementation gap
+summary" and `research/foil-verification.md` (recipe-wave plan — R2 is next).
 
 ## Per-pattern field notes (distilled from resolved workbench comments)
 
@@ -208,6 +212,44 @@ score table in `research/foil-verification.md` (R0 section). Distilled lessons:
   starlight-only defaults (uP1/uP2/uP3/uSat), and II's uP2 was pinned explicitly.
   Before touching a SHARED GLSL body, list which patterns' verdicts it would
   invalidate and either re-judge them too or don't touch it.
+
+### R1 recipe wave (2026-08-02) — twelve new recipes, what the judge rewarded
+
+Full verdict table in `research/foil-verification.md` (R1 section). Distilled lessons
+for the next recipe author:
+
+- **Structure first, styling second — again.** 8 of 12 recipes passed on round 1
+  because the MACRO structure was right (burst field, square lattice, ball stamps,
+  segmented criss-cross, glitter-over-mirror). Every round-1 failure was a macro-
+  structure miss, not a styling miss: the chevron band had left the card at sweep
+  extremes ("straight diagonal band"), the watermark was invisible, scanlines too
+  regular, flakes 5-10x too big. Eyeball the BLANK-CARD canon lab render against the
+  clip before ever burning a Gemini round — three of the four round-1 failures were
+  visible there in hindsight.
+- **Shaped features must survive the WHOLE sweep.** A moving feature tuned to look
+  right at rest can exit the card at |tilt| ≥ 0.7 and the 8-frame judge then never
+  sees it (rainbow-glitter-sheen round 1). Check the extreme frames, not the pretty
+  middle ones.
+- **Screen blend over a bright card body eats color.** Reverse-sheet patterns
+  (prismatic-pokeball) need gain ~1.8, uSat 1.0, and gamma-deepened ramp colors
+  (`pow(hueRamp(h), vec3(1.7))`) before they read as saturated foil rather than a
+  pastel tint — the same amplitude that would blow out a dark WOTC window is barely
+  visible over a light silver body.
+- **"Uniform" is the judge's favorite complaint.** Grids and scanlines need jitter on
+  EVERY axis they repeat on: per-line position jitter + cubic thickness variance +
+  noise-wavered line coordinates (tinsel-ii needed all three plus a third density
+  octave before the static read as chaotic). Per-seed anisotropic voronoi metrics
+  (random axis + elongation, euclidean/L1 blend for angular corners) fixed the same
+  complaint for cracked-ice shard geometry.
+- **Procedural SDF glyphs pass for icon fields at video resolution.** energy-symbols-ii
+  went 15/20 yay with crescent/flame/star/leaf SDFs — no icon atlas needed at 480p
+  reference fidelity. The honest residual (colors too neon vs the reference's muted
+  blend) is a tuning note, not an architecture gap.
+- **The 16-frame fine-sweep variant exists for motion cues** (`capture-sweep16.js` in
+  the session scratchpad pattern, `jobs/starlight-r1-fine.json`): 16 consecutive
+  frames at x = −0.45…+0.45 so adjacent frames differ by 0.06 tilt, with the prompt
+  telling the judge to TRACK stars across adjacent frames. Reuse it for any pattern
+  whose signature is parallax/motion rather than texture.
 
 ## Masks
 
