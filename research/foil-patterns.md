@@ -375,17 +375,22 @@ Bulbapedia: (Tinsel). **Nearest recipe: none — gap (shares #17's machinery).**
 ## 19. Diagonal sheen (right) — `diagonal-sheen-right` (15:12)
 Bulbapedia: Sheen. **Nearest recipe: `sv-holo` rotated — gap is one rotation uniform.**
 - **Demo:** Moltres EX pack version vs Battle Arena deck variant side-by-side, raw diagonal sheet.
-- **Static:** smooth full-face sheen band angled diagonally, rising left→right ("/")
-  *(verified from frame-02; Gemini's "\" orientation claim is wrong)*.
+- **Static:** smooth full-face sheen band angled diagonally, FALLING left→right ("\")
+  *(SLOPE CORRECTED 2026-08-02 R3: the earlier "verified from frame-02" claim was made
+  against a raw sheet held rotated in-hand — apparent slope confounded by hand rotation;
+  the upright-sheet frames 03/05 unambiguously show "\", and Chey confirmed against the
+  physical reference. Gemini's "\" claim was RIGHT all along.)*
 - **Tilt:** band translates perpendicular to its axis; spectrum order preserved; no particles.
 - **Usage:** first as SECRET deck-exclusive variants (Battle Arena Moltres EX); then default
   holo for XY-era sets. JP cards' diagonal runs bottom-left→top-right per Bulbapedia.
-- **Flags:** ⚠ Gemini orientation contradiction (both diagonal specs claimed the same slope).
+- **Flags:** ⚠ resolved 2026-08-02 R3 — the "Gemini orientation contradiction" flag was our
+  frame-reading error, not a Gemini hallucination (see DECISIONS "the diagonal swap").
 
 ## 20. Diagonal sheen (left) — `diagonal-sheen-left` (15:34)
 Bulbapedia: Sheen. **Nearest recipe: `sv-holo` rotated — gap is one rotation uniform.**
 - **Demo:** mirrored raw sheet, Fomantis + Alolan Diglett (SM reverses).
-- **Static/Tilt:** mirror image of #19 — band falls left→right ("\") *(verified frame-03)*;
+- **Static/Tilt:** mirror image of #19 — band RISES left→right ("/") *(SLOPE CORRECTED
+  2026-08-02 R3; upright-sheet frames 04/06 are unambiguous — see #19)*;
   same smooth translation behavior, applied as SM-era reverse sheet.
 - **Usage:** Sun & Moon series reverse holos, heavily.
 - **Flags:** as #19.
