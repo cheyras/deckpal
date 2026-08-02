@@ -317,8 +317,14 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 // beam floods them to white; the barcode lines + band carry the travel.
 const SHEEN_V_BARCODE = sheenGlsl({ nx: 1, ny: 0, barcode: true, beam: 0.3 }) // the HGSS–XY vertical "barcode" sheet
 const SHEEN_H = sheenGlsl({ nx: 0, ny: 1 }) // horizontal band, travels with tilt.y — 20/20 verified, untouched
-const SHEEN_DR = sheenGlsl({ nx: 0.7071, ny: -0.7071, sharp: 3.0, beam: 0.55 }) // band rises "/" (verified frame-02)
-const SHEEN_DL = sheenGlsl({ nx: 0.7071, ny: 0.7071, sharp: 3.0, beam: 0.55 }) // band falls "\" (verified frame-03)
+// SLOPE CORRECTION (2026-08-02 R3, Chey's octrck/epgakd comments): right = "\"
+// (falls left→right), left = "/" (rises). The original harvest had these
+// mirrored — its "verified frame-02" check was made against a raw sheet held
+// ROTATED in-hand (apparent slope confounded); the upright-sheet frames
+// (right/frame-03, left/frame-04..06) are unambiguous. Gemini's slope
+// complaints, twice dismissed as hallucination, were correct.
+const SHEEN_DR = sheenGlsl({ nx: 0.7071, ny: 0.7071, sharp: 3.0, beam: 0.55 }) // band falls "\" (right/frame-03, -05)
+const SHEEN_DL = sheenGlsl({ nx: 0.7071, ny: -0.7071, sharp: 3.0, beam: 0.55 }) // band rises "/" (left/frame-04, -06)
 const SHEEN_V_STRIPED = sheenGlsl({ nx: 1, ny: 0, stripes: true })
 
 const SHEEN_DEFAULTS: CoreDefaults = {
@@ -1617,12 +1623,12 @@ export const PATTERNS: FoilPattern[] = [
     implemented: true,
   },
 
-  // #19 — band rises "/" (verified from corpus frames; Gemini's slope claim
-  // was wrong — research/foil-patterns.md conflicts).
+  // #19 — band falls "\" (R3 slope correction — see SHEEN_DR note; Gemini's
+  // slope claim was RIGHT and the original frame check was wrong).
   {
     id: 'diagonal-sheen-right',
     label: 'Diagonal sheen right (XY)',
-    taxonomy: 'Sheen — diagonal rotation, band rises "/"',
+    taxonomy: 'Sheen — diagonal rotation, band falls "\\"',
     usedOn: 'Battle Arena deck secret variants, then the XY-era default holo.',
     glsl: SHEEN_DR,
     // specular tamed with the diffuse fix landed: the center was blowing out
@@ -1634,11 +1640,11 @@ export const PATTERNS: FoilPattern[] = [
     implemented: true,
   },
 
-  // #20 — mirror rotation, band falls "\".
+  // #20 — mirror rotation, band rises "/" (R3 slope correction).
   {
     id: 'diagonal-sheen-left',
     label: 'Diagonal sheen left (SM reverses)',
-    taxonomy: 'Sheen — diagonal rotation, band falls "\\"',
+    taxonomy: 'Sheen — diagonal rotation, band rises "/"',
     usedOn: 'Sun & Moon series reverse holos, heavily.',
     glsl: SHEEN_DL,
     defaults: { ...SHEEN_DEFAULTS, uSpecular: 0.35 },
