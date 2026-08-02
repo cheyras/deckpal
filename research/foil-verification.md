@@ -37,6 +37,13 @@ the judge's real single-roll variance); `prismatic-pokeball` was rebuilt on the 
 (17/20 yay — the structural nay is resolved) and `tinsel-ii` opted in (16/20 yay — the
 static plateau broke). Running total: 20 of 21 implemented taxonomy types hold a match
 verdict; the sole nay is `starlight` (still-frame parallax blindness — Chey's eye owns it).**
+**Superseded again 2026-08-02 by the R2 recipe wave (section below): the twelve
+unowned-era gap patterns plus `radiant-collection-dots` (its first-ever capture — the
+mis-skip finding) got dedicated recipes; 10 of 13 match. Running total: 30 of 34
+implemented taxonomy types hold a match verdict (34 of 39 types have real recipes);
+nays: `starlight`, `energy-symbols` (icon-atlas limit), `pokeball-hologram` (parallax
+stills-blindness + light-scan overlay), `radiant-collection-dots` (dot styling; the
+judge's "completely static" note is pixel-refuted — see the section).**
 
 ## Verdict table
 
@@ -330,6 +337,50 @@ their references show LIGHT silver substrates (not dark mirrors) — spending ba
 verdicts on cosmetic saturation via a physically-wrong darkening would be exactly the
 sprawl the R0/R1 discipline forbids.
 
+## R2 recipe wave results (2026-08-02, foil/main R2 agent)
+
+Wave R2 of the plan below: dedicated recipes for the twelve unowned-era gap patterns
+PLUS `radiant-collection-dots` (exemplars were in the catalog all along — the W2
+mis-skip finding; this is its first-ever capture and verdict). Same pipeline as
+W2/R0/R1 (same judge, guardrails, validator; jobs `jobs/<p>-r2.json` with the
+implemented-recipe wording; runs `verify-<p>-r2w/-r2w2/-r2w3`). Pre-R2 gap-fallback
+frames archived at `frames/<p>/pre-r2/`; every capture now writes `capture.json`.
+Exemplar cards identical to W2 except variants pinned where W2 didn't record them —
+notably ex-emerald judged on ex9-40's *set-logo-stamped holo* variant (window scope;
+the catalog has no reverse variant for it, and the reference frames show the stamped
+window print). The dark-mirror family (mirror / rainbow-mirror /
+vertical-sheen-rainbow) rides `uDarken` (0.5 / 0.45 / 0.3) per the blend-model wave's
+physics; round 2 extended it to energy-symbols (0.35, dark unreflective gaps),
+ex-emerald (0.25), tinsel (0.35, dark broken field).
+
+**Scoreline: 10 of 13 match.**
+
+| Pattern | Rounds (sum/20) | Final S/T/L/C | Honest residuals |
+|---|---|---|---|
+| `mirror` | 20 yay (1) | 5/5/5/5 | none — uDarken dark-environment base + traveling blob + fbm sheet waviness |
+| `rainbow-mirror` | 19 yay (1) | 5/5/5/4 | blotches slightly more saturated/defined than the reference's softer wash |
+| `vertical-sheen-rainbow` | 20 yay (1) | 5/5/5/5 | none |
+| `crosshatch` | 20 yay (1) | 5/5/5/5 | none |
+| `cosmos-ii-pixel` | 20 yay (1) | 5/5/5/5 | none (round-0 eyeball fix: night-sky → silvery speck field before judging) |
+| `pinwheel` | 17 yay (1) | 4/4/5/4 | contrast slightly low vs the zh-CN revival's vivid cells |
+| `water-web` | 18 yay (1) | 4/5/5/4 | highlight ridges slightly softer/wider than reference |
+| `prism` | 14 yay (1) | 3/4/4/3 | cells read diamond (45°) + slightly large; inactive cells too dark vs the ref's bright field |
+| `tinsel` | 14 yay (1) | 3/4/3/4 | dashes too long/thick/sparse vs the fine dense speckle; sharpen toward specks |
+| `ex-emerald` | 4 → 9 → 14 yay (3) | 3/4/3/4 | icon lines a hair thick/opaque; icons visible outside the band. Round-1 nay was REAL (verified on frames): art gate erased band+icons over the light Swalot scan — fixed with uDarken 0.25 + gate 0.1 + ball restyle (round-2 balls read as "e" logos) |
+| `energy-symbols` | 11 → 7 → 8 **nay** | 1/2/2/3 (r3) | judge demands the actual 9-icon energy set — same icon-atlas contract change energy-symbols-ii deferred; also wants darker unlit state. NOTE: rounds 1-2 shrank glyphs by mistake (p = f/k scales size ∝ k, not 1/k — see field notes); r3 config is the best by eye |
+| `pokeball-hologram` | 6 → 5 → 4 **nay** | 1/1/1/1 (r3) | structural pair: (a) parallax is a motion cue — same stills-blindness as starlight (its sibling machinery); (b) the Cyclone Energy art bleeds past the era-layout window rect, so window-scoped uDarken read as "a dark rectangular mask" (r2, verified) — per-card art-extent masking is a mask-pipeline item. Judge also wants solid shaded 3-D spheres |
+| `radiant-collection-dots` | 6 → 4 → 3 **nay** + re-roll 4 | 1/0/1/1 (r3) | **"dots completely static" is pixel-refuted**: 30%+ of sampled bright pixels toggle between EVERY adjacent frame and the bright population swells 20k→29k→21k as the flash window crosses (frames 5-7). Re-rolled once on identical frames per the variance discipline: 4/20, same notes — consistent judge, honest nay. Real residuals: dots read soft/snow-like vs sharp metallic glints; the shape-window layer is swamped by the dense RC29 full-art scan (visible clearly on the blank-card lab render); the scan itself carries the PRINTED dot texture, double-counting. A sparser RC exemplar (e.g. bw11-RC1) may judge better |
+
+All thirteen entries are `implemented: true` with `approxVia` dropped — they are real
+dedicated recipes; the three nays are recorded against them honestly (same precedent
+as starlight). The plain smooth `SHEEN_V` generator was removed from patterns.ts (its
+last users were these fallbacks).
+
+**Round-1 eyeball catches (before any Gemini spend):** cosmos-ii-pixel and
+radiant-collection-dots both initially rendered as sparse night-sky specks (activation
+windows too tight + floors too low — fixed pre-judge); energy-symbols' star glyph was
+invisible next to filled glyphs (boosted).
+
 ## Patterns not judged in this run — honest skip list
 
 Verification requires a real catalog scan to render. Six of the 39 corpus patterns have
@@ -337,7 +388,7 @@ no verification row:
 
 | Pattern | Why | Catalog status (checked 2026-08-02 against the live catalog) |
 |---|---|---|
-| `radiant-collection-dots` | **Skipped, but its exemplars ARE in the catalog** (Generations `g1-RC1…RC32`, e.g. Pikachu g1-RC29; Legendary Treasures RC also present). The pre-crash W2 lane skipped it; nothing blocks a capture. | **In catalog — first candidate for the next verification pass.** |
+| `radiant-collection-dots` | **Skipped, but its exemplars ARE in the catalog** (Generations `g1-RC1…RC32`, e.g. Pikachu g1-RC29; Legendary Treasures RC also present). The pre-crash W2 lane skipped it; nothing blocks a capture. | **Resolved 2026-08-02 (R2 recipe wave): captured on g1-RC29 and judged — see the R2 recipe-wave section.** |
 | `big-glitter` | Video exemplar is the e-series *oversized gold box topper* (Scizor); no such product card exists in the catalog. | Not in catalog. |
 | `sequin` | General Mills cereal-box promos only; no General Mills promo set in the catalog (McDonald's sets exist, General Mills does not). | Not in catalog. |
 | `tcg-classic` | Pokémon TCG Classic (2023 premium decks); no such set in the catalog (only "Celebrations Classic Collection" matches the word, different product). | Not in catalog. |
@@ -384,27 +435,29 @@ recipes and mostly sit on owned cards.
 | R1.11 | `rainbow-glitter` | SWSH rainbow rares | 5/20 → **20/20 yay** | Dense glitter over rainbow mirror |
 | R1.12 | `confetti` | Promo cross-era (McDonald's etc.) | 5/20 → **14/20 yay** | Irregular snapping voronoi flakes |
 
-### Wave R2 — new recipes on unowned eras (severity order)
+### Wave R2 — new recipes on unowned eras (severity order) — **DONE 2026-08-02, results above**
 
 | # | Recipe | Era | Score sum |
 |---|---|---|---|
-| R2.1 | `pokeball-hologram` | EX era (Unseen Forces etc.) | 1/20 |
-| R2.2 | `prism` | Pre-WOTC JP / XY BREAK | 1/20 |
-| R2.3 | `water-web` | Sun & Moon standard holo | 1/20 |
-| R2.4 | `energy-symbols` | WOTC/EX energy holos | 3/20 |
-| R2.5 | `pinwheel` | EX era (Deoxys etc.) | 3/20 |
-| R2.6 | `tinsel` | Black & White standard holo | 4/20 |
-| R2.7 | `cosmos-ii-pixel` | Call of Legends / BW promos | 4/20 |
-| R2.8 | `ex-emerald` | EX Emerald | 5/20 |
-| R2.9 | `crosshatch` | League promos, cross-era | 6/20 |
-| R2.10 | `rainbow-mirror` | e-Card reverses | 9/20 (fallback layer already 4) |
-| R2.11 | `vertical-sheen-rainbow` | EX era | 11/20 (fallback tilt/layer already 4) |
-| R2.12 | `mirror` | Neo/e-Card/EX reverses | 13/20 (closest fallback of all — polish job) |
+| R2.1 | `pokeball-hologram` | EX era (Unseen Forces etc.) | 1/20 → **6/20 nay (best of 3)** |
+| R2.2 | `prism` | Pre-WOTC JP / XY BREAK | 1/20 → **14/20 yay** |
+| R2.3 | `water-web` | Sun & Moon standard holo | 1/20 → **18/20 yay** |
+| R2.4 | `energy-symbols` | WOTC/EX energy holos | 3/20 → **11/20 nay (best of 3)** |
+| R2.5 | `pinwheel` | EX era (Deoxys etc.) | 3/20 → **17/20 yay** |
+| R2.6 | `tinsel` | Black & White standard holo | 4/20 → **14/20 yay** |
+| R2.7 | `cosmos-ii-pixel` | Call of Legends / BW promos | 4/20 → **20/20 yay** |
+| R2.8 | `ex-emerald` | EX Emerald | 5/20 → **14/20 yay (3 rounds)** |
+| R2.9 | `crosshatch` | League promos, cross-era | 6/20 → **20/20 yay** |
+| R2.10 | `rainbow-mirror` | e-Card reverses | 9/20 → **19/20 yay** |
+| R2.11 | `vertical-sheen-rainbow` | EX era | 11/20 → **20/20 yay** |
+| R2.12 | `mirror` | Neo/e-Card/EX reverses | 13/20 → **20/20 yay** |
+
+(`radiant-collection-dots`, pulled forward from the R3 list per the skip-list finding:
+first-ever verdict, 6/20 nay best of 3 + re-roll — see the R2 recipe-wave section.)
 
 ### Wave R3 — no catalog exemplar (build to corpus frames only, verify by eye)
 
-`radiant-collection-dots` (capture + judge FIRST — exemplars are in the catalog, see skip
-list), then `big-glitter`, `sequin`, `tcg-classic`, `acid-wash`; `disco` last (prototype,
+`big-glitter`, `sequin`, `tcg-classic`, `acid-wash`; `disco` last (prototype,
 animation inferred, Medium confidence — prototype flag in the workbench dropdown).
 
 ## Reproduction
@@ -413,7 +466,10 @@ animation inferred, Medium confidence — prototype flag in the workbench dropdo
   (33 tasks; `manifest-resume.json` = the 31-task crash-resume variant; `manifest-dsl-v2.json`
   = the one-task re-judge; `manifest-r1/r2/r3.json` = the R1-wave rounds — r1 jobs are
   `jobs/<pattern>-r1.json` with the implemented-recipe wording, `jobs/starlight-r1-fine.json`
-  is the 16-frame fine-sweep starlight judge).
+  is the 16-frame fine-sweep starlight judge; `manifest-bm/bm2/bmr1.json` = the blend-model
+  regression + rebuild rounds; `manifest-r2w/r2w2/r2w3/r2w3b.json` = the R2 recipe-wave
+  rounds — jobs are `jobs/<pattern>-r2.json`, r2w3b is the radiant-collection-dots
+  identical-frames re-roll).
 - Re-capture a pattern's sweep: drive the workbench at `:5182/pokedex/foil-lab` with
   Playwright — pick the exemplar card, force the pattern in the dropdown, Manual tilt,
   8 frames x = −0.9…0.9 / y = 0.6·x, screenshot the canvas (crop DOM overlays out).
