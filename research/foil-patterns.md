@@ -4,6 +4,10 @@ The per-pattern reference for the foil shader library (`apps/web/src/foil/`). On
 pattern the reference video distinguishes — **39 patterns**, each with a stable slug, a corpus
 dir under `research/foil-video-reference/<slug>/` (8 keyframes + clip + notes + Gemini vision
 spec), and shader notes written against the uniform contract in `apps/web/src/foil/shader.ts`.
+**Plus 4 vocabulary extensions** (2026-08-02, `foil/vocab` lane — patterns 40–43 below):
+treatments the 39-pattern video does not cover but the assignment-swarm residuals demanded —
+`gold-secret`, `vstar-pearl`, `shiny-vault`, `detective-pikachu`. Same corpus layout; sources
+are per-type (named in each section + each corpus dir's notes.md) rather than the single video.
 
 Sources, in trust order:
 1. **The video**: [All 39 Pokemon Card Holo Patterns Explained](https://youtu.be/wQ2TvnHVdys)
@@ -632,6 +636,140 @@ No Bulbapedia name. **Nearest recipe: none — gap.**
   (CGC / ex-WOTC employees).
 - **Flags:** ⚠ no true tilt demo exists (prototype b-roll only); animation is inferred across
   cuts, Medium confidence.
+
+---
+
+# Vocabulary extensions (2026-08-02, foil/vocab lane)
+
+Four treatments with NO slug in the 39-type video taxonomy, added because they drive most of
+the 55 assignment-swarm residuals (see `foil-card-assignments.json` → `known_residuals`).
+Sources per type; "Nearest recipe" here refers to the **post-R1 21-recipe implemented set**
+(see `foil-verification.md`), not the 5-recipe starter library the sections above reference.
+Corpus footage is from collector tilt videos (credited in each dir's notes.md + the corpus
+README) — Sleeve No Card Behind's shiny-history video covers shiny-vault; no SNCB tilt
+footage exists for the other three, so other creators' showcase footage is used.
+
+## 40. Gold secret — `gold-secret`
+No Bulbapedia holofoil name (rarity pages only). **Nearest recipe: `rainbow-glitter`
+(implemented) with the hue ramp collapsed to a warm gold band — gap is the hue lock + ray
+mask.**
+- **Demo cards:** Turbopatch (Darkness Ablaze 200/189, gold Secret Rare; German print) —
+  corpus tilt footage by M W C G. Written sources: SNCB "Gold Pokémon Cards" article
+  ("special embossed gold holofoil cards"), TCA Gaming holo-history video (SM golds: "full
+  art treatment with gold foil from top to bottom"; SWSH: "makes the entire card gold —
+  background, text boxes, empty space").
+- **Static:** the whole face — borders, text boxes, background — is gold metallic foil
+  carrying a dense fine glitter grain (~0.5–1% card width); SWSH gold items add embossed
+  radial burst rays behind the subject *(verified on frames)*. Art elements keep printed
+  color (the Turbopatch energy wheel reads full-color against the gold).
+- **Tilt:** the face swings pale straw-gold → saturated amber as a broad specular bloom
+  sweeps; glitter grains twinkle inside the bloom, and individual glints flash CHROMATIC
+  (pink/green/blue points — Gemini pass, confirmed on frames 3–5's bottom-right cluster);
+  **the FIELD itself stays warm-locked — no full-spectrum band travel** *(verified: every
+  frame stays gold; only intensity + warmth move, sparkle pops excepted)*.
+- **Layers:** gold-tinted metallized foil → glitter micro-emboss (+ radial etch on SWSH) →
+  translucent inks for art elements; SV-era Hyper Rares deepen the emboss (heavier etch
+  lines), SM-era golds are smoother/flatter.
+- **Shader:** `rainbow-glitter` machinery — glitter hash + smooth base — but hueRamp
+  replaced by a 2-stop gold ramp (`uHueShift` pinned, `uHueSpread`≈0), broad high-gain
+  specular bloom, full-face mask incl. borders; optional radial ray SDF for SWSH items.
+  Gold body is mid-tone, so the screen-only blend limit does NOT bite here.
+- **Usage:** gold Secret Rares SM era (items/energies/gold GX), SWSH gold Secret/Hyper
+  (V/VMAX/items), SV-era gold Hyper Rares, Mega-era gold — the catalog's 134 'gold'-facet
+  cards + gold rarity classes. Celebrations gold METAL cards are a different product
+  (out of scope).
+- **Flags:** ⚠ per-era emboss differences (SM flat vs SV heavy etch) are written-source
+  claims, not verified from footage — corpus demo is SWSH only.
+
+## 41. VSTAR pearl — `vstar-pearl`
+No Bulbapedia holofoil name (described on the VSTAR rarity page). **Nearest recipe:
+`rainbow-glitter-sheen` (implemented) desaturated + warm-biased — gap is the pearl base +
+etch glint.**
+- **Demo cards:** Arceus VSTAR (Brilliant Stars 123/172, regular print) — corpus tilt
+  footage by Ant's Collectables. Written source: Bulbapedia Pokémon VSTAR (TCG): "white,
+  pearlescent border with gold accents", "All Pokémon VSTAR cards are etched, including
+  the Regular prints. All Regular prints … depict the Pokémon surrounded by a golden aura."
+- **Static:** near-white pearlescent full face with gold accents; golden aura behind the
+  subject; the VSTAR Power box is the one dark anchor (black band with a bright central
+  star). Etched surface texture (physical relief).
+- **Tilt:** a broad diagonal iridescent wash sweeps the pearl body — pink/gold dominate but
+  the full spectrum passes (green→blue trailing edges; Gemini pass + frames agree); the
+  frame lines flash narrow rainbow streaks; the golden aura is semi-transparent and glows
+  hardest as the wash crosses the subject *(verified across frames)*. Smooth continuous
+  translation — no popping sparkles legible at 360p.
+- **Layers:** white pearlescent (interference) foil full-face → etch relief → translucent
+  inks; gold accents printed.
+- **Shader:** `rainbow-glitter-sheen`'s shaped band over a desaturated warm ramp; low
+  `uSat`, warm `uHueShift`; sparse fine glint layer for the etch. **Known risk: the body is
+  near-white and a screen-only blend can't darken — the structural limit that originally
+  failed `prismatic-pokeball`. (Update while this lane was in flight: foil/main R2
+  (3f87d58) shipped a `uDarken` blend term and flipped prismatic-pokeball to yay — the
+  vstar-pearl recipe should build on that term from day one.)**
+- **Usage:** regular-print VSTAR cards, Brilliant Stars → Crown Zenith (swsh9, swsh10,
+  swsh10.5 GO, swsh11, swsh12, swsh12.5). Rainbow-rare and gold VSTAR prints are
+  `rainbow-glitter` / `gold-secret`, NOT this.
+- **Flags:** ⚠ fine etch-glint behavior not resolvable in 360p footage (Low confidence);
+  ⚠ screen-blend limit flagged above.
+
+## 42. Shiny vault — `shiny-vault`
+No Bulbapedia holofoil name. **Nearest recipe: `confetti` (implemented) desaturated to
+silver — gap is the sparkle-glyph overlay + pale pastel iridescence.**
+- **Demo cards:** Shiny Buzzwole (Hidden Fates SV24/SV94, baby shiny) + Shiny Ho-Oh GX
+  (SV50/SV94, shiny full-art GX) — corpus tilt footage from **Sleeve No Card Behind**'s
+  "The Entire History of Shiny Pokémon Cards" (19:18–19:26, split-screen demo). Written
+  sources: Bleeding Cool holo-history series ("textured, silver foil with a burst of
+  sparkles that recreates the in-game animation of encountering a Shiny"; shiny GX: "pure
+  textured, white foil which takes on a silvery look when it hits the light").
+- **Static:** silvery-white textured foil field scattered with printed shiny-sparkle
+  glyphs — the games' 4-point stars and diamond outlines — bursting around the subject
+  *(verified: glyphs legible on both frames' halves)*. Baby shinies: art window (but the
+  emboss texture extends to the border — "even the border area … has a tactile
+  difference"); shiny full-arts: whole face.
+- **Tilt:** a soft diagonal iridescent sheen sweeps the silver field (cyan/blue edge tints
+  observed on Ho-Oh; the Gemini pass reads it as a low-intensity rainbow band) while the
+  sparkle glyphs act as localized amplifiers — they pop bright and saturated as the band
+  crosses them; glyphs never move (no parallax). Overall the card stays paler and more
+  silvery than `rainbow-glitter`'s saturated field *(verified)*.
+- **Layers:** white/silver interference foil → emboss texture (incl. border) → white-ink
+  sparkle-glyph overprint → translucent art inks.
+- **Shader:** `confetti` machinery at low `uSat` (silver flakes, pastel hue whisper) + a
+  sparse sparkle-glyph SDF layer (4-point star + diamond outline) that pops on tilt
+  alignment; per-product scope mask (window vs full face).
+- **Usage:** Hidden Fates Shiny Vault (sma, 94 cards), Shining Fates Shiny Vault
+  (swsh4.5sv, 122 — brighter yellow sparkles + a reddish-purple streak around the
+  subject), Paldean Fates shinies (SV era, holo borders), precursor: Shining Legends
+  (sm3.5) Shining Pokémon ("textured, gleaming foil" on the subject).
+- **Flags:** ⚠ Hidden-vs-Shining Fates sparkle differences are written-source claims
+  (corpus footage is Hidden Fates only); ⚠ Shining Legends precursor treatment differs
+  (subject-scoped) — kept on this slug at lower confidence rather than minted as its own
+  type.
+
+## 43. Detective Pikachu — `detective-pikachu`
+No Bulbapedia holofoil name. **Nearest recipe: `diagonal-sheen-right` (implemented),
+art-window scope — gap is the photo-texture modulation.**
+- **Demo cards:** Charizard (Detective Pikachu det1 5/18) — corpus tilt footage by
+  Pokemon Holo (single-card showcase). Written source: Bulbapedia Detective Pikachu (TCG)
+  ("Each booster pack contained four Holofoil cards"; 18-card English set, March 2019;
+  the art is film stills rendered by the movie's VFX studios).
+- **Static:** photographic movie-still artwork printed translucently over a smooth
+  high-gloss foil, art-window scope in the standard SM yellow-border frame; no discrete
+  pattern elements — the foil reads as polished silver under the photo *(verified)*.
+- **Tilt:** broad soft iridescent beams (diagonal in the corpus frames) sweep the art
+  window; the photo's smoke/fire volumes brighten and dim as the sheen passes THROUGH
+  them — the foil character follows the photographic texture, a smoky/liquid look unique
+  to this set *(verified across frames)*; mild rainbow fringing at beam edges.
+- **Layers:** smooth high-gloss foil (sheen-family sheet) → translucent photographic CMYK
+  → opaque frame inks. The distinctive look is the PHOTO ink, not a patterned foil.
+- **Shader:** `diagonal-sheen-right` base (window scope) + luminance-keyed modulation of
+  the scan (beam intensity × art luminance, so bright smoke volumes catch the beam first);
+  slight beam softening; no particles.
+- **Usage:** Detective Pikachu (det1) — all 18 cards; the only all-holo movie set. The
+  Japanese smp2 equivalent prints commons/uncommons as Mirror Holofoil (different
+  treatment, separate rows if ever cataloged).
+- **Flags:** ⚠ the assignment-lane residual called this "thick 'shattered/raised' foil" —
+  no source found for "shattered", and the footage shows smooth beams, not facets; the
+  raised/heavy-stock feel is collector anecdote, unverified. Recorded honestly rather
+  than propagated.
 
 ---
 
