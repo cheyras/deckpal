@@ -26,13 +26,19 @@ import { canonicalPatternId, patternById } from './patterns'
 // Bumped whenever the resolver heuristics or era-layouts data change meaning.
 // Recorded in every hand-mask sidecar's prior so the corpus states which rule
 // version it was diffed against (mask-pipeline SKILL.md, "Sidecar v2").
+// v4 (2026-08-02 R2): card-level assignment rows with cls 'normal' are
+//     consulted BEFORE the scope-none early return — subset cards the
+//     catalog declares as plain prints but which physically carry a foil
+//     treatment (Radiant Collection commons: dot overprint, no aluminum)
+//     now resolve their subset's pattern with scope 'full' instead of
+//     rendering flat. Data-gated: only rows that name the exact cardId.
 // v3: assignment-table tier (card/facet/set rows) above the v2 usage table;
 //     variants whose kind declares a foil facet on a NORMAL print (e.g.
 //     normal-foil-galaxy) are now scope 'window' instead of 'none';
 //     era-layouts: 'e-card'/'legendary-collection' correctly map to the wotc
 //     frame (they previously fell through to modern-sv rects + heuristics).
 // v2: usage-table-driven pattern guesses + vintage starlight/cosmos split.
-export const RESOLVER_VERSION = 3
+export const RESOLVER_VERSION = 4
 
 export type FoilScope = 'window' | 'sheet' | 'full' | 'none'
 
@@ -381,8 +387,24 @@ export function resolveFoil(input: {
   const isHolo = kind.includes('holo')
   const scope: FoilScope = isReverse ? 'sheet' : isFullFoil ? 'full' : isHolo || facet ? 'window' : 'none'
 
-  // Plain printing: no foil, no guess to make.
+  // Plain printing: no foil — UNLESS a card-level 'normal'-class assignment
+  // row overrides the catalog's declaration (v4: subset cards like Radiant
+  // Collection commons carry a physical overprint the catalog can't express;
+  // the builder guarantees these rows name explicit cardIds).
   if (scope === 'none') {
+    if (input.setId && input.cardId) {
+      for (const row of ASSIGN_BY_SET.get(input.setId) ?? []) {
+        if (row.cls !== 'normal') continue
+        if (!row.cards || !row.cards.includes(input.cardId)) continue
+        if (patternById(row.p).id === 'none') continue
+        return {
+          patternId: canonicalPatternId(row.p),
+          scope: 'full',
+          eraId,
+          guess: { match: 'card', confidence: row.conf, sources: row.src, era: null, years: null },
+        }
+      }
+    }
     return { patternId: 'none', scope, eraId, guess: NO_GUESS }
   }
 
