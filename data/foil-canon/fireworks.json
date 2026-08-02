@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "fireworks",
+  "savedAt": "2026-08-02T19:36:01.461Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 1,
+    "uHueShift": 0,
+    "uHueSpread": 0.75,
+    "uSat": 0.9,
+    "uArtGate": 0,
+    "uSpecular": 0.3,
+    "uDarken": 0,
+    "uP0": 3,
+    "uP1": 1.75,
+    "uP2": 0,
+    "uP3": 1
+  }
+}

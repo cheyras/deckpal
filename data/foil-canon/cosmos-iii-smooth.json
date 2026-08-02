@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "cosmos-iii-smooth",
+  "savedAt": "2026-08-02T22:03:23.110Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 0.85,
+    "uHueShift": 0.76,
+    "uHueSpread": 1.4,
+    "uSat": 0.7,
+    "uArtGate": 0.2,
+    "uSpecular": 0.45,
+    "uDarken": 0,
+    "uP0": 1.3,
+    "uP1": 0.25,
+    "uP2": 0,
+    "uP3": 1.2
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "mirror",
+  "savedAt": "2026-08-02T19:37:37.831Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 0.5,
+    "uHueShift": 0.4,
+    "uHueSpread": 0,
+    "uSat": 0,
+    "uArtGate": 0,
+    "uSpecular": 0.58,
+    "uDarken": 0.5,
+    "uP0": 7,
+    "uP1": 0.55,
+    "uP2": 0.25,
+    "uP3": 1
+  }
+}
