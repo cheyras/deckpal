@@ -78,6 +78,15 @@ export const canonicalPatternId = (id: string): string => PATTERN_ALIASES[id] ??
 
 // ── Recipe GLSL bodies ──────────────────────────────────────────────────────
 
+// R0 re-tune 2026-08-02 (Chey's ruling: chase Gemini's notes INTO the
+// parallax rework, don't revert it). The 3-layer opposing-parallax
+// architecture + glyph/blur population mix are untouched; what changed:
+// tighter visibility lobe (pow 5 -> 9, floor 0.18 -> 0.08) so stars POP with
+// a narrow activation window instead of breathing lazily; sharper glyph
+// cores + narrower flare arms; blobs shrunk so even soft stars stay small;
+// star color much more saturated (mix toward hueRamp 0.4 -> 0.72+); the
+// galaxy wash default halved — the reference field is near-black between
+// stars, the wash was reading as a continuous pastel noise field.
 const STARLIGHT_GLSL = `
 vec3 starLayer(vec2 uv, float scale, float seed, vec2 par, float softBias, float sweep) {
   vec2 p = (uv + par) * vec2(1.0, CARD_ASPECT) * scale;
@@ -90,19 +99,20 @@ vec3 starLayer(vec2 uv, float scale, float seed, vec2 par, float softBias, float
   vec2 sp = f - (rnd - 0.5) * 0.6;
   float d = length(sp);
   float phase = fract(rnd.x * 7.13 + rnd.y * 3.71 + seed * 0.173);
-  // smooth angular visibility: wide lobe over a floor — stars brighten and
-  // dim as the card turns; they never pop in or out. The pow keeps only a
-  // few near peak at any one angle.
-  float vis = 0.18 + 0.82 * pow(0.5 + 0.5 * cos(TAU * phase + sweep * 2.6), 5.0);
+  // tight angular lobe over a small floor: stars pop hard near their phase
+  // peak but never binary-blink (the floor keeps a faint presence so the
+  // parallax shift stays readable between pops)
+  float vis = 0.08 + 0.92 * pow(0.5 + 0.5 * cos(TAU * phase + sweep * 2.6), 9.0);
   // population mix: glyph-crisp vs blurry, biased per layer, varied per star
   float soft = clamp(softBias + (rnd.y - 0.5) * 0.55, 0.0, 1.0);
-  float core = smoothstep(0.13, 0.03, d);
-  float flare = pow(max(0.0, 1.0 - abs(sp.x) * 9.0), 3.0) * pow(max(0.0, 1.0 - abs(sp.y) * 2.8), 3.0)
-              + pow(max(0.0, 1.0 - abs(sp.y) * 9.0), 3.0) * pow(max(0.0, 1.0 - abs(sp.x) * 2.8), 3.0);
-  float glyph = core + flare * 0.6;
-  float blob = 0.9 * exp(-d * d * 13.0);
+  float core = smoothstep(0.09, 0.02, d);
+  float flare = pow(max(0.0, 1.0 - abs(sp.x) * 12.0), 3.0) * pow(max(0.0, 1.0 - abs(sp.y) * 4.5), 3.0)
+              + pow(max(0.0, 1.0 - abs(sp.y) * 12.0), 3.0) * pow(max(0.0, 1.0 - abs(sp.x) * 4.5), 3.0);
+  float glyph = core + flare * 0.85;
+  float blob = 0.85 * exp(-d * d * 24.0);
   float shape = mix(glyph, blob, soft);
-  vec3 col = mix(vec3(1.0), hueRamp(rnd.y + 0.3 * sweep + seed * 0.21), 0.4 + 0.2 * soft);
+  // saturated discrete flashes — near-full hueRamp color, metallic not pastel
+  vec3 col = mix(vec3(1.0), hueRamp(rnd.y + 0.3 * sweep + seed * 0.21), 0.72 + 0.22 * soft);
   return exists * shape * vis * col;
 }
 
@@ -118,9 +128,9 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   float dens = uP0 * uScale;
   float par = 0.028 * uP1;
   vec3 stars =
-      starLayer(uv, dens * 0.75, 11.0, tilt * (-par * 1.6), 0.95, sweep) * 0.70
-    + starLayer(uv, dens * 1.00, 23.0, tilt * (par * 0.2), 0.55, sweep) * 0.85
-    + starLayer(uv, dens * 1.30, 37.0, tilt * (par * 1.8), 0.10, sweep);
+      starLayer(uv, dens * 0.75, 11.0, tilt * (-par * 1.6), 0.75, sweep) * 0.70
+    + starLayer(uv, dens * 1.00, 23.0, tilt * (par * 0.2), 0.45, sweep) * 0.85
+    + starLayer(uv, dens * 1.30, 37.0, tilt * (par * 1.8), 0.05, sweep);
   return wash + stars * uP3 * 0.55;
 }`
 
@@ -129,37 +139,66 @@ const STARLIGHT_DEFAULTS: CoreDefaults = {
   uScale: 1.0,
   uHueShift: 0.62,
   uHueSpread: 0.65,
-  uSat: 0.7,
+  uSat: 0.9,
   uArtGate: 0.75,
   uSpecular: 0.25,
 }
 
 const STARLIGHT_PARAMS: PatternParam[] = [
-  { key: 'uP0', label: 'Star density', min: 8, max: 80, step: 1, default: 26 },
+  { key: 'uP0', label: 'Star density', min: 8, max: 80, step: 1, default: 24 },
   { key: 'uP1', label: 'Parallax depth', min: 0, max: 3, step: 0.05, default: 1.2 },
-  { key: 'uP2', label: 'Galaxy wash', min: 0, max: 2, step: 0.05, default: 1.0 },
-  { key: 'uP3', label: 'Star gain', min: 0, max: 4, step: 0.05, default: 2.2 },
+  { key: 'uP2', label: 'Galaxy wash', min: 0, max: 2, step: 0.05, default: 0.45 },
+  { key: 'uP3', label: 'Star gain', min: 0, max: 4, step: 0.05, default: 3.0 },
 ]
 
+// Re-tuned 2026-08-02 (R0 wave, Gemini verification 1/1/2/1): the old recipe
+// lit a dense wall of large saturated orbs at every tilt; the reference
+// (Base Set 2 Pidgeot demo) shows a DARK field where sparse orb clusters
+// brighten IN PLACE inside a narrow activation window, plus tiny spectral
+// pinprick twinkles. Orbs are smaller/denser, mostly near-invisible; cluster
+// activation is low-freq noise over cell ids so neighbors pop together.
 const COSMOS_GLSL = `
+// tiny 4-point cross glyph centered on sp (cell-local coords)
+float cosmosCross(vec2 sp, float w) {
+  float a = pow(max(0.0, 1.0 - abs(sp.x) / w), 3.0) * pow(max(0.0, 1.0 - abs(sp.y) / (w * 0.28)), 3.0);
+  float b = pow(max(0.0, 1.0 - abs(sp.y) / w), 3.0) * pow(max(0.0, 1.0 - abs(sp.x) / (w * 0.28)), 3.0);
+  return a + b;
+}
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x + tilt.y * 0.6;
   vec3 acc = vec3(0.0);
+  // solid orb layers over a dark field — most orbs sit near-invisible; a
+  // cluster brightens in place when its facet phase aligns with the tilt.
   for (int i = 0; i < 3; i++) {
     float fi = float(i);
-    float sc = (5.0 + fi * 4.5) * uP0 * uScale;
+    float sc = (9.0 + fi * 6.5) * uP0 * uScale;
     vec2 g = uv * vec2(1.0, CARD_ASPECT) * sc + hash22(vec2(fi * 3.1, fi + 11.0)) * 17.0;
     vec2 id = floor(g);
     vec2 f = fract(g) - 0.5;
     vec2 rnd = hash22(id + fi * 13.7);
-    float r = 0.30 + 0.22 * rnd.x;
-    float d = length(f - (rnd - 0.5) * 0.30);
-    float disc = smoothstep(r, r - 0.16, d);
-    float hue = uHueShift + uHueSpread * (rnd.y + 0.75 * sweep + fi * 0.11);
-    float lum = 0.30 + 0.70 * pow(max(0.0, cos(TAU * (rnd.x + sweep * uP1))), 6.0);
-    acc += disc * hueRamp(hue) * lum;
+    float r = 0.14 + 0.16 * rnd.x;
+    float d = length(f - (rnd - 0.5) * 0.4);
+    float disc = smoothstep(r, r - 0.08, d);
+    // cluster phase: low-freq spatial noise over cell ids -> neighboring
+    // orbs light TOGETHER; per-orb nudge keeps edges ragged
+    float phase = vnoise(id * 0.31 + fi * 7.7) * 1.6 + rnd.y * 0.22;
+    float win = pow(max(0.0, cos(TAU * (phase + sweep * uP1))), 22.0);
+    float hue = uHueShift + uHueSpread * (rnd.y + 0.4 * sweep + fi * 0.13);
+    acc += disc * hueRamp(hue) * (0.055 + 1.5 * win);
   }
-  return acc * 0.5 * uP3;
+  acc *= 0.5 * uP3;
+  // pinprick twinkles: tiny 4-point crosses flashing individually in very
+  // tight windows — the sparse spectral points the reference shows
+  vec2 g = uv * vec2(1.0, CARD_ASPECT) * 30.0 * uScale;
+  vec2 id = floor(g);
+  vec2 f = fract(g) - 0.5;
+  vec2 rnd = hash22(id + 51.3);
+  float exists = step(rnd.x, 0.42);
+  vec2 sp = f - (rnd - 0.5) * 0.55;
+  float win = pow(max(0.0, cos(TAU * (rnd.y * 3.17 + sweep * uP1 * 1.35))), 34.0);
+  vec3 col = mix(vec3(1.0), hueRamp(uHueShift + uHueSpread * (rnd.x * 2.1 + 0.3 * sweep)), 0.55);
+  acc += exists * cosmosCross(sp, 0.42) * win * col * uP2;
+  return acc;
 }`
 
 const COSMOS_DEFAULTS: CoreDefaults = {
@@ -167,7 +206,7 @@ const COSMOS_DEFAULTS: CoreDefaults = {
   uScale: 1.0,
   uHueShift: 0.0,
   uHueSpread: 0.5,
-  uSat: 0.75,
+  uSat: 0.85,
   uArtGate: 0.5,
   uSpecular: 0.3,
 }
@@ -175,8 +214,8 @@ const COSMOS_DEFAULTS: CoreDefaults = {
 const COSMOS_PARAMS: PatternParam[] = [
   { key: 'uP0', label: 'Bubble scale', min: 0.4, max: 3, step: 0.05, default: 1.0 },
   { key: 'uP1', label: 'Shimmer rate', min: 0.2, max: 4, step: 0.05, default: 1.1 },
-  { key: 'uP2', label: '(unused)', min: 0, max: 1, step: 0.01, default: 0 },
-  { key: 'uP3', label: 'Bubble gain', min: 0, max: 3, step: 0.05, default: 1.3 },
+  { key: 'uP2', label: 'Twinkle gain', min: 0, max: 3, step: 0.05, default: 1.2 },
+  { key: 'uP3', label: 'Bubble gain', min: 0, max: 3, step: 0.05, default: 1.1 },
 ]
 
 /**
@@ -187,7 +226,17 @@ const COSMOS_PARAMS: PatternParam[] = [
  * of tilt along that normal. `stripes` multiplies in the fine continuous
  * stripe texture of the SWSH "Line" foil.
  */
-function sheenGlsl(o: { nx: number; ny: number; stripes?: boolean }): string {
+function sheenGlsl(o: {
+  nx: number
+  ny: number
+  stripes?: boolean
+  /** Band exponent — higher = sharper, more CD-like lines (default 1.6). */
+  sharp?: number
+  /** Broad-beam gain (default 0.75; diagonals tamed to fight center blow-out). */
+  beam?: number
+  /** Barcode field: thin sharp spectral lines of varying width (vertical sheet). */
+  barcode?: boolean
+}): string {
   return `
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   vec2 nrm = vec2(${o.nx.toFixed(4)}, ${o.ny.toFixed(4)}); // band normal (rotation of the sheet)
@@ -198,24 +247,46 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = dot(tilt, nrm) * 1.2 + dot(tilt, tng) * 0.35;
   float x = across * uP0 * uScale + sweep * uP1;
   float wobble = sin(along * 7.0 + sweep * 2.2) * uP2;
-  float band = pow(0.5 + 0.5 * sin(TAU * x + wobble), 1.6);
+  float band = pow(0.5 + 0.5 * sin(TAU * x + wobble), ${(o.sharp ?? 1.6).toFixed(2)});
   vec3 col = hueRamp(uHueShift + uHueSpread * (x * 0.30 + along * 0.18 + 0.25 * sweep));
   // broad moving beam
   float beam = pow(0.5 + 0.5 * cos(PI * (across * 1.4 + along * 0.5 - sweep * 1.1)), 4.0);
   vec3 beamCol = hueRamp(uHueShift + 0.5 * uHueSpread * (along - 0.3 * sweep) + 0.07);
   ${
     o.stripes
-      ? 'float stripe = 0.30 + 0.70 * pow(0.5 + 0.5 * sin(TAU * across * 90.0 * uScale), 0.8);'
+      ? // R0: finer + more blended than the original 90.0/0.30 (verdict: stripes
+        // slightly too thick/distinct vs the reference's fine texture)
+        'float stripe = 0.40 + 0.60 * pow(0.5 + 0.5 * sin(TAU * across * 130.0 * uScale), 0.8);'
       : 'float stripe = 1.0;'
   }
-  return (band * 0.55 * col + beam * 0.75 * beamCol) * uP3 * stripe;
+  ${
+    o.barcode
+      ? `
+  // barcode (R0, verdict "multiple sharp vertical lines of varying widths"):
+  // thin spectral lines with per-line random width/offset/brightness riding
+  // the same grating coordinate — several visible at once, sliding with the
+  // sweep like CD grooves; a floor keeps most lines faintly present.
+  float gx = across * uP0 * 3.0 * uScale + sweep * uP1 * 1.35;
+  vec2 brnd = hash22(vec2(floor(gx), 7.0));
+  float bw = mix(0.03, 0.16, brnd.y * brnd.y);
+  float lf = fract(gx) - 0.5 - (brnd.x - 0.5) * 0.5;
+  float bline = smoothstep(bw, bw * 0.35, abs(lf));
+  float bon = 0.25 + 0.75 * pow(0.5 + 0.5 * cos(TAU * (brnd.x * 5.7 + sweep * 1.9)), 3.0);
+  float bc = bline * bon;
+  vec3 bcCol = hueRamp(uHueShift + uHueSpread * (lf * 2.2 + brnd.y + 0.35 * sweep));`
+      : 'float bc = 0.0; vec3 bcCol = vec3(0.0);'
+  }
+  return (band * 0.55 * col + beam * ${(o.beam ?? 0.75).toFixed(2)} * beamCol + bc * 0.9 * bcCol) * uP3 * stripe;
 }`
 }
 
-const SHEEN_V = sheenGlsl({ nx: 1, ny: 0 }) // vertical bands, travel with tilt.x
-const SHEEN_H = sheenGlsl({ nx: 0, ny: 1 }) // horizontal band, travels with tilt.y
-const SHEEN_DR = sheenGlsl({ nx: 0.7071, ny: -0.7071 }) // band rises "/" (verified frame-02)
-const SHEEN_DL = sheenGlsl({ nx: 0.7071, ny: 0.7071 }) // band falls "\" (verified frame-03)
+const SHEEN_V = sheenGlsl({ nx: 1, ny: 0 }) // plain vertical sheet — kept smooth for the mirror/rainbow-mirror fallbacks
+// beam 0.3: the HGSS-era exemplar scans are light watercolor art — the broad
+// beam floods them to white; the barcode lines + band carry the travel.
+const SHEEN_V_BARCODE = sheenGlsl({ nx: 1, ny: 0, barcode: true, beam: 0.3 }) // the HGSS–XY vertical "barcode" sheet
+const SHEEN_H = sheenGlsl({ nx: 0, ny: 1 }) // horizontal band, travels with tilt.y — 20/20 verified, untouched
+const SHEEN_DR = sheenGlsl({ nx: 0.7071, ny: -0.7071, sharp: 3.0, beam: 0.55 }) // band rises "/" (verified frame-02)
+const SHEEN_DL = sheenGlsl({ nx: 0.7071, ny: 0.7071, sharp: 3.0, beam: 0.55 }) // band falls "\" (verified frame-03)
 const SHEEN_V_STRIPED = sheenGlsl({ nx: 1, ny: 0, stripes: true })
 
 const SHEEN_DEFAULTS: CoreDefaults = {
@@ -289,12 +360,14 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   vec2 facetN = normalize(rnd - 0.5 + 1e-4);
   float align = dot(facetN, tilt) * uP1 - (rnd.x - 0.5) * 1.3;
   float glint = pow(max(0.0, 1.0 - abs(align)), 7.0);
-  // micro-grain inside a flashing facet — a hot shard glitters, it doesn't flood
-  glint *= 0.5 + 0.5 * fnoise(uv * 90.0 * uScale + rnd * 7.0);
+  // R0 re-tune 2026-08-02: the authored intra-shard micro-grain
+  // (glint *= fnoise) was flagged by verification and removed per Chey's
+  // accuracy ruling — reference facets are SMOOTH clean mirrors; a hot
+  // shard flashes as one solid saturated plane, edge to edge.
   float edge = smoothstep(0.09, 0.0, sqrt(second) - sqrt(best));
   float hue = uHueShift + uHueSpread * (rnd.y + 0.5 * (tilt.x + tilt.y));
-  // glints whiten toward their peak — a hot facet reads as light, not dye
-  vec3 col = mix(hueRamp(hue), vec3(1.0), 0.65 * glint);
+  // whiten only mildly at peak — the flash should stay a COLOR, not blow out
+  vec3 col = mix(hueRamp(hue), vec3(1.0), 0.35 * glint);
   return col * (0.12 + glint * uP3) + edge * vec3(0.9) * uP2 * (0.3 + glint);
 }`
 
@@ -303,7 +376,7 @@ const CRACKED_ICE_DEFAULTS: CoreDefaults = {
   uScale: 1.0,
   uHueShift: 0.5,
   uHueSpread: 0.7,
-  uSat: 0.65,
+  uSat: 0.75,
   uArtGate: 0.45,
   uSpecular: 0.4,
 }
@@ -361,9 +434,14 @@ export const PATTERNS: FoilPattern[] = [
     label: 'Starlight II (Evolutions)',
     taxonomy: 'Starlight II — flat single-plane star foil (no parallax)',
     usedOn: 'XY Evolutions (2016, 20th-anniversary Base Set homage).',
+    // R0 re-tune: verdict 2/3/5/3 asked for sharper starbursts + saturation
+    // up + tighter activation — the shared GLSL re-tune delivers all three;
+    // uSat/uP3 pushed slightly past base (Evolutions pops bolder).
+    // uArtGate lowered vs base starlight: the Evolutions holo field is
+    // mid-orange, not WOTC-dark — at 0.75 the gate halved every star.
     glsl: STARLIGHT_GLSL,
-    defaults: { ...STARLIGHT_DEFAULTS, uSat: 0.8 },
-    params: tuneParams(STARLIGHT_PARAMS, { uP1: 0, uP3: 2.8 }),
+    defaults: { ...STARLIGHT_DEFAULTS, uSat: 0.95, uArtGate: 0.45 },
+    params: tuneParams(STARLIGHT_PARAMS, { uP1: 0, uP3: 3.2 }),
     implemented: true,
   },
 
@@ -389,8 +467,8 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Sheen — vertical linear-grating sheet',
     usedOn:
       'The long-running default holo: HGSS era through Platinum, Call of Legends, BW, into XY; also the raw sheet under many reverse designs.',
-    glsl: SHEEN_V,
-    defaults: SHEEN_DEFAULTS,
+    glsl: SHEEN_V_BARCODE,
+    defaults: { ...SHEEN_DEFAULTS, uArtGate: 0.5 },
     params: SHEEN_PARAMS,
     implemented: true,
   },
@@ -416,8 +494,12 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Sheen — diagonal rotation, band rises "/"',
     usedOn: 'Battle Arena deck secret variants, then the XY-era default holo.',
     glsl: SHEEN_DR,
-    defaults: SHEEN_DEFAULTS,
-    params: tuneParams(SHEEN_PARAMS, { uP0: 2, uP1: 2.0 }),
+    // specular tamed with the diffuse fix landed: the center was blowing out
+    // to white over bright full-art scans (verdict color_travel note).
+    defaults: { ...SHEEN_DEFAULTS, uSpecular: 0.35 },
+    // uP0 2 -> 7 (2026-08-02 R0): same physical sheet as the fixed left
+    // diagonal — several narrow parallel bands, not one broad wash.
+    params: tuneParams(SHEEN_PARAMS, { uP0: 7, uP1: 2.0 }),
     implemented: true,
   },
 
@@ -428,10 +510,11 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Sheen — diagonal rotation, band falls "\\"',
     usedOn: 'Sun & Moon series reverse holos, heavily.',
     glsl: SHEEN_DL,
-    defaults: SHEEN_DEFAULTS,
+    defaults: { ...SHEEN_DEFAULTS, uSpecular: 0.35 },
     // uP0 2 → 7 after Gemini verification (2026-08-02): the reference sheet
     // shows several narrow parallel bands; at 2 the render read as one broad
-    // diffuse wash. Right-diagonal kept at 2 pending its own re-judge.
+    // diffuse wash. R0 added sharp: 3.0 to the generator for both diagonals —
+    // the residual "bands softer than the sheet's CD lines" note.
     params: tuneParams(SHEEN_PARAMS, { uP0: 7, uP1: 2.0 }),
     implemented: true,
   },
