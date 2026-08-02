@@ -67,6 +67,22 @@ yt-dlp + the scratchpad tooling recorded in DECISIONS.md.
 | [Acid wash](acid-wash/) | 24:29 | Pokemon League promos around 2006; energy cards only; short-lived and hard to find. |
 | [Disco](disco/) | 25:02 | NEVER officially released - late-'90s factory test pattern; authenticated prototypes exist (CGC / ex-WOTC employees). |
 
+## Vocabulary extensions (2026-08-02, foil/vocab lane)
+
+Four treatments the 39-pattern video does not cover, added for the assignment-swarm
+residuals (specs: `../foil-patterns.md` §40-43). Same per-dir layout; frames/clips are
+from OTHER creators' tilt footage — full credit to each, go watch their videos:
+
+| Pattern | Source footage | Creator |
+|---|---|---|
+| [Gold secret](gold-secret/) | [Pokemon TCG Showcase I review Turbopatch Gold Secretrare 200/189 Darkness Ablaze](https://youtu.be/8CvE7sXbJOo) | **M W C G** (YouTube) |
+| [VSTAR pearl](vstar-pearl/) | [Pulling Arceus Vstar 123/172 from Brilliant Stars Pokemon TCG](https://youtu.be/wRDwJyv-aP8) | **Ant's Collectables** (YouTube) |
+| [Shiny vault](shiny-vault/) | [The Entire History of Shiny Pokémon Cards](https://youtu.be/_cyddOc1SMU) (18:19-19:30) | **Sleeve No Card Behind** — same creator as the 39-pattern video |
+| [Detective Pikachu](detective-pikachu/) | [Charizard 5/18 - Pokemon Detective Pikachu](https://youtu.be/WjuDazguHnE) | **Pokemon Holo** (YouTube) |
+
+Their `gemini-spec.md` files were produced by the same `pipeline/` rubric
+(`pipeline/jobs/<slug>-vocab.json`); source videos are NOT committed (media budget).
+
 ## Synthesis documents
 
 - `../foil-patterns.md` - canonical per-pattern animation/shader specs (video + Bulbapedia reconciled)
