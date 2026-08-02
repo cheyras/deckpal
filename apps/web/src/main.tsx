@@ -213,6 +213,9 @@ const overlayRoute = createRoute({
 // Quarantined foil workbench (foil/main track) — reachable by URL only,
 // linked from NOWHERE in the app shell, zero imports to/from collection
 // views. Lazy so the three.js + shader chunk stays out of the main bundle.
+// Split into two surfaces (2026-08-02, issues/foil/…_4aq756):
+//   /foil-lab       — card adjustment (per-card masks + overrides + comments)
+//   /foil-lab/canon — canon pattern lab (bare pattern vs the reference clip)
 const FoilLab = lazy(() => import('./foil/FoilLab').then((m) => ({ default: m.FoilLab })))
 const foilLabRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -220,6 +223,16 @@ const foilLabRoute = createRoute({
   component: () => (
     <Suspense fallback={null}>
       <FoilLab />
+    </Suspense>
+  ),
+})
+const CanonLab = lazy(() => import('./foil/CanonLab').then((m) => ({ default: m.CanonLab })))
+const foilCanonLabRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/foil-lab/canon',
+  component: () => (
+    <Suspense fallback={null}>
+      <CanonLab />
     </Suspense>
   ),
 })
@@ -244,6 +257,7 @@ const routeTree = rootRoute.addChildren([
   searchRoute,
   overlayRoute,
   foilLabRoute,
+  foilCanonLabRoute,
 ])
 
 const router = createRouter({

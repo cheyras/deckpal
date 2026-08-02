@@ -35,6 +35,10 @@ data/*
 # Hand-drawn foil-mask corpus (foil/main track) IS committed — ground-truth
 # artifacts, small PNGs, never card art (mask-pipeline SKILL.md).
 !data/foil-masks/
+# Canon pattern defaults + per-card overrides (foil workbench split) ARE
+# committed — tiny JSON, the locked-down recipe truth (routes/foil-lab.ts).
+!data/foil-canon/
+!data/foil-overrides/
 
 # ── backups + exports (never committed; live outside the repo by default) ──
 # Defensive: if a backup/export is ever pointed inside the repo, don't commit it.
