@@ -133,7 +133,7 @@ Implemented recipes after the R1 wave (2026-08-02): **Starlight** (#1; #24 Starl
 parallax 0), **Cosmos** (#2 — label is Cosmos only; "Galaxy" is Bulbapedia's synonym for
 *Starlight*), the **sheen family** — ONE generator (`sheenGlsl`) at four rotations + stripe
 option: `vertical-sheen` (#14, ex-`sv-holo`), `horizontal-sheen` (#21, the TRUE SV default /
-Bulbapedia "Mirage"), `diagonal-sheen-right` (#19, "/"), `diagonal-sheen-left` (#20, "\\"),
+Bulbapedia "Mirage"), `diagonal-sheen-right` (#19, "\\"), `diagonal-sheen-left` (#20, "/" — slopes CORRECTED 2026-08-02 R3, see field notes),
 `striped-vertical-sheen` (#22, "Line") — **Reverse sheet** (coarse ring+dot tier, kept),
 **Cracked Ice** (#9, now with the anisotropic shattered-glass metric), the **twelve R1
 recipes**: `fireworks` (#3), `energy-symbols-ii` (#8), `cosmos-iii-smooth` (#16),
