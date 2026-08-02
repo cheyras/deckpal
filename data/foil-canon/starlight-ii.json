@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "starlight-ii",
+  "savedAt": "2026-08-02T19:14:54.117Z",
+  "uniforms": {
+    "uIntensity": 1.1,
+    "uScale": 1,
+    "uHueShift": 0.62,
+    "uHueSpread": 0.65,
+    "uSat": 0.95,
+    "uArtGate": 0.45,
+    "uSpecular": 0.25,
+    "uDarken": 0,
+    "uP0": 24,
+    "uP1": 0.1,
+    "uP2": 0.45,
+    "uP3": 3.2
+  }
+}

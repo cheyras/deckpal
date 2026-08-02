@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "big-glitter",
+  "savedAt": "2026-08-02T22:32:20.352Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 3,
+    "uHueShift": 0.5,
+    "uHueSpread": 0.7,
+    "uSat": 0.85,
+    "uArtGate": 0.45,
+    "uSpecular": 0.4,
+    "uDarken": 0,
+    "uP0": 18,
+    "uP1": 3.2,
+    "uP2": 0,
+    "uP3": 0.55
+  }
+}

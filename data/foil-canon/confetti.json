@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "confetti",
+  "savedAt": "2026-08-02T22:25:25.728Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 1,
+    "uHueShift": 0.22,
+    "uHueSpread": 0.32,
+    "uSat": 1,
+    "uArtGate": 0,
+    "uSpecular": 0.35,
+    "uDarken": 0,
+    "uP0": 54,
+    "uP1": 0.5,
+    "uP2": 0,
+    "uP3": 1.5
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "water-web",
+  "savedAt": "2026-08-02T22:14:28.186Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 0.9,
+    "uHueShift": 0.25,
+    "uHueSpread": 0.67,
+    "uSat": 0.9,
+    "uArtGate": 0.45,
+    "uSpecular": 0.3,
+    "uDarken": 0,
+    "uP0": 2.5,
+    "uP1": 0.15,
+    "uP2": 2,
+    "uP3": 1.2
+  }
+}
