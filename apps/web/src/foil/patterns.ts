@@ -427,7 +427,10 @@ export const PATTERNS: FoilPattern[] = [
     usedOn: 'Sun & Moon series reverse holos, heavily.',
     glsl: SHEEN_DL,
     defaults: SHEEN_DEFAULTS,
-    params: tuneParams(SHEEN_PARAMS, { uP0: 2, uP1: 2.0 }),
+    // uP0 2 → 7 after Gemini verification (2026-08-02): the reference sheet
+    // shows several narrow parallel bands; at 2 the render read as one broad
+    // diffuse wash. Right-diagonal kept at 2 pending its own re-judge.
+    params: tuneParams(SHEEN_PARAMS, { uP0: 7, uP1: 2.0 }),
     implemented: true,
   },
 
