@@ -1,7 +1,11 @@
-// foil/patterns.ts — the pattern library: one ShaderMaterial recipe per
-// physical foil process. Taxonomy per Bulbapedia "Holofoil" + the Collexy
-// "Database Insight: Holofoil" series. Adding a pattern = adding one entry
-// here; the full contract lives in .claude/skills/foil-effects/SKILL.md.
+// foil/patterns.ts — the pattern library: the FULL 39-type holofoil taxonomy
+// (research/foil-patterns.md — canonical, reconciled from the Sleeve No Card
+// Behind video + Bulbapedia + the vision pass), each type rendered by one of
+// the implemented shader recipes. Types whose physical process has a faithful
+// recipe are `implemented: true`; every other type renders via its NEAREST
+// implemented recipe and says so (`approxVia`) — taxonomy leads, honest
+// fallback labeling follows. Adding a real recipe = writing its GLSL and
+// flipping the types it faithfully models to implemented.
 //
 // Each recipe supplies a GLSL function body:
 //   vec3 foilPattern(vec2 uv, vec2 tilt)
@@ -12,12 +16,16 @@
 // (linear-ish RGB, 0..~1.5), later masked, gained by uIntensity, and
 // screen-blended over the scan by the shared fragment main().
 //
-// Starter set v1 = the eras Chey actually owns (collection checked
-// 2026-08-01: Base/WOTC 176, Scarlet & Violet 68, Mega Evolution 139):
-// Starlight (WOTC holo), Cosmos, SV default holo, SV reverse sheet,
-// Cracked Ice. The remaining taxonomy (Tinsel, Sheen, Water Web, Line,
-// Crosshatch, Pixel/Confetti, texture-embossed relief last) lands on the
-// foil/patterns sub-branch against this same contract.
+// Implemented recipe families:
+//   starlight    — parallax star layers (#1 Starlight; #24 Starlight II at parallax 0)
+//   cosmos       — staggered disc "bubbles" (#2 Cosmos; coarse for #15/#16)
+//   sheen        — linear-grating band foil, ONE generator at four rotations +
+//                  an optional stripe texture (#14 vertical, #21 horizontal =
+//                  the TRUE SV default, #19/#20 diagonals, #22 striped/Line).
+//                  research/foil-patterns.md: the sheen family is one physical
+//                  sheet mounted at different rotations.
+//   reverse-sheet— mirror sheet + stamped emblem grid (≈ #30 pokeball-masterball)
+//   cracked-ice  — voronoi facet activation (#9; machinery seeds glitter/facet types)
 
 export interface PatternParam {
   /** Which uniform this slider drives: 'uP0' | 'uP1' | 'uP2' | 'uP3'. */
@@ -29,52 +37,48 @@ export interface PatternParam {
   default: number
 }
 
+type CoreDefaults = Partial<
+  Record<
+    'uIntensity' | 'uScale' | 'uHueShift' | 'uHueSpread' | 'uSat' | 'uArtGate' | 'uSpecular',
+    number
+  >
+>
+
 export interface FoilPattern {
   id: string
   label: string
-  /** Bulbapedia/Collexy taxonomy name this recipe models. */
+  /** Canonical taxonomy name (video + Bulbapedia) this entry models. */
   taxonomy: string
   /** Human note: which physical printings use this process. */
   usedOn: string
   /** GLSL body defining `vec3 foilPattern(vec2 uv, vec2 tilt)`. */
   glsl: string
   /** Core-uniform defaults this recipe tunes away from the global defaults. */
-  defaults: Partial<
-    Record<
-      'uIntensity' | 'uScale' | 'uHueShift' | 'uHueSpread' | 'uSat' | 'uArtGate' | 'uSpecular',
-      number
-    >
-  >
+  defaults: CoreDefaults
   params: PatternParam[]
+  /** True when the recipe faithfully models this physical process. */
+  implemented: boolean
+  /** For unimplemented types: label of the implemented recipe standing in. */
+  approxVia?: string
 }
 
-export const PATTERNS: FoilPattern[] = [
-  {
-    id: 'none',
-    label: 'None (plain card)',
-    taxonomy: '—',
-    usedOn: 'Non-holo printings; baseline for eyeballing the scan itself.',
-    glsl: `vec3 foilPattern(vec2 uv, vec2 tilt) { return vec3(0.0); }`,
-    defaults: { uIntensity: 0.0, uSpecular: 0.12 },
-    params: [],
-  },
+// ── Slug migration (MIGRATION DISCIPLINE — never orphan corpus data) ────────
+// Old ids keep resolving forever: saved-mask sidecars, workbench-comment
+// context.json files, Copy-recipe JSON snippets, and localStorage prefs may
+// all reference them. Never repurpose an old id for a different pattern.
+//   sv-holo → vertical-sheen  (2026-08-02: the recipe always rendered vertical
+//   bands — that is the Platinum/HGSS→XY default, NOT the SV default; SV's
+//   default holo is the HORIZONTAL sheen. See research/foil-patterns.md
+//   "Library mislabel corrections".)
+export const PATTERN_ALIASES: Record<string, string> = {
+  'sv-holo': 'vertical-sheen',
+}
 
-  {
-    id: 'starlight',
-    label: 'Starlight (WOTC)',
-    taxonomy: 'Starlight / "cosmos" star-field foil',
-    usedOn: 'WOTC holo rares 1999–2003 (Base–Skyridge) — art-window foil.',
-    // Reworked 2026-08-01 from Chey's workbench comment (issues/foil/
-    // 2026-08-01_22-40-03-629_ftoz71): real WOTC Starlight has a layered
-    // parallax 3-D quality — star layers shift left/right AGAINST each other
-    // as the card tilts — and the stars are a MIX of crisp glyph-like
-    // sparkles and soft blurry ones living on different layers. Brightness
-    // breathes smoothly (floor + wide lobe), never binary blink.
-    //
-    // Three depth layers over the rainbow wash: back layer (soft blurry dots)
-    // offsets opposite the tilt, front layer (crisp glyphs) offsets with it,
-    // mid layer barely moves — the relative shift is what reads as depth.
-    glsl: `
+export const canonicalPatternId = (id: string): string => PATTERN_ALIASES[id] ?? id
+
+// ── Recipe GLSL bodies ──────────────────────────────────────────────────────
+
+const STARLIGHT_GLSL = `
 vec3 starLayer(vec2 uv, float scale, float seed, vec2 par, float softBias, float sweep) {
   vec2 p = (uv + par) * vec2(1.0, CARD_ASPECT) * scale;
   vec2 id = floor(p);
@@ -118,34 +122,26 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
     + starLayer(uv, dens * 1.00, 23.0, tilt * (par * 0.2), 0.55, sweep) * 0.85
     + starLayer(uv, dens * 1.30, 37.0, tilt * (par * 1.8), 0.10, sweep);
   return wash + stars * uP3 * 0.55;
-}`,
-    defaults: {
-      uIntensity: 1.1,
-      uScale: 1.0,
-      uHueShift: 0.62,
-      uHueSpread: 0.65,
-      uSat: 0.7,
-      uArtGate: 0.75,
-      uSpecular: 0.25,
-    },
-    params: [
-      { key: 'uP0', label: 'Star density', min: 8, max: 80, step: 1, default: 26 },
-      { key: 'uP1', label: 'Parallax depth', min: 0, max: 3, step: 0.05, default: 1.2 },
-      { key: 'uP2', label: 'Galaxy wash', min: 0, max: 2, step: 0.05, default: 1.0 },
-      { key: 'uP3', label: 'Star gain', min: 0, max: 4, step: 0.05, default: 2.2 },
-    ],
-  },
+}`
 
-  {
-    id: 'cosmos',
-    label: 'Cosmos / Galaxy',
-    taxonomy: 'Cosmos ("bubbles") foil',
-    usedOn: 'Post-WOTC classic holo sheet: EX–SM era rares, theme decks, many promos.',
-    // Three staggered layers of soft discs ("bubbles") at different scales.
-    // Each disc carries its own hue and its own tilt phase, so the field
-    // shimmers as overlapping circles of shifting color — the classic
-    // cosmos look.
-    glsl: `
+const STARLIGHT_DEFAULTS: CoreDefaults = {
+  uIntensity: 1.1,
+  uScale: 1.0,
+  uHueShift: 0.62,
+  uHueSpread: 0.65,
+  uSat: 0.7,
+  uArtGate: 0.75,
+  uSpecular: 0.25,
+}
+
+const STARLIGHT_PARAMS: PatternParam[] = [
+  { key: 'uP0', label: 'Star density', min: 8, max: 80, step: 1, default: 26 },
+  { key: 'uP1', label: 'Parallax depth', min: 0, max: 3, step: 0.05, default: 1.2 },
+  { key: 'uP2', label: 'Galaxy wash', min: 0, max: 2, step: 0.05, default: 1.0 },
+  { key: 'uP3', label: 'Star gain', min: 0, max: 4, step: 0.05, default: 2.2 },
+]
+
+const COSMOS_GLSL = `
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x + tilt.y * 0.6;
   vec3 acc = vec3(0.0);
@@ -164,55 +160,82 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
     acc += disc * hueRamp(hue) * lum;
   }
   return acc * 0.5 * uP3;
-}`,
-    defaults: { uIntensity: 0.95, uScale: 1.0, uHueShift: 0.0, uHueSpread: 0.5, uSat: 0.75, uArtGate: 0.5, uSpecular: 0.3 },
-    params: [
-      { key: 'uP0', label: 'Bubble scale', min: 0.4, max: 3, step: 0.05, default: 1.0 },
-      { key: 'uP1', label: 'Shimmer rate', min: 0.2, max: 4, step: 0.05, default: 1.1 },
-      { key: 'uP2', label: '(unused)', min: 0, max: 1, step: 0.01, default: 0 },
-      { key: 'uP3', label: 'Bubble gain', min: 0, max: 3, step: 0.05, default: 1.3 },
-    ],
-  },
+}`
 
-  {
-    id: 'sv-holo',
-    label: 'SV default holo',
-    taxonomy: 'Sheen / vertical-beam foil (modern default)',
-    usedOn: 'SV + Mega Evolution holo rares and ex full-face foil (coarse tier).',
-    // Smooth iridescent vertical bands that drift laterally with tilt, over
-    // a broad diagonal light beam. Modern default holo is much smoother than
-    // vintage — hue changes are wide and liquid, no discrete sparkle.
-    glsl: `
+const COSMOS_DEFAULTS: CoreDefaults = {
+  uIntensity: 0.95,
+  uScale: 1.0,
+  uHueShift: 0.0,
+  uHueSpread: 0.5,
+  uSat: 0.75,
+  uArtGate: 0.5,
+  uSpecular: 0.3,
+}
+
+const COSMOS_PARAMS: PatternParam[] = [
+  { key: 'uP0', label: 'Bubble scale', min: 0.4, max: 3, step: 0.05, default: 1.0 },
+  { key: 'uP1', label: 'Shimmer rate', min: 0.2, max: 4, step: 0.05, default: 1.1 },
+  { key: 'uP2', label: '(unused)', min: 0, max: 1, step: 0.01, default: 0 },
+  { key: 'uP3', label: 'Bubble gain', min: 0, max: 3, step: 0.05, default: 1.3 },
+]
+
+/**
+ * The sheen family — ONE generator, rotated per slug. Per the research the
+ * physical product is the same smooth linear-grating sheet mounted at four
+ * rotations; `nrm` is the band NORMAL (the direction the bands travel) in
+ * aspect-corrected card space, and the band sweep is driven by the component
+ * of tilt along that normal. `stripes` multiplies in the fine continuous
+ * stripe texture of the SWSH "Line" foil.
+ */
+function sheenGlsl(o: { nx: number; ny: number; stripes?: boolean }): string {
+  return `
 vec3 foilPattern(vec2 uv, vec2 tilt) {
-  float sweep = tilt.x * 1.2 + tilt.y * 0.35;
-  float x = uv.x * uP0 * uScale + sweep * uP1;
-  float wobble = sin(uv.y * 7.0 + sweep * 2.2) * uP2;
-  float band = 0.5 + 0.5 * sin(TAU * x + wobble);
-  band = pow(band, 1.6);
-  vec3 col = hueRamp(uHueShift + uHueSpread * (x * 0.30 + uv.y * 0.18 + 0.25 * sweep));
+  vec2 nrm = vec2(${o.nx.toFixed(4)}, ${o.ny.toFixed(4)}); // band normal (rotation of the sheet)
+  vec2 tng = vec2(-nrm.y, nrm.x);                          // along the bands
+  vec2 p = (uv - 0.5) * vec2(1.0, CARD_ASPECT);
+  float across = dot(p, nrm) + 0.5;
+  float along = dot(p, tng) + 0.5;
+  float sweep = dot(tilt, nrm) * 1.2 + dot(tilt, tng) * 0.35;
+  float x = across * uP0 * uScale + sweep * uP1;
+  float wobble = sin(along * 7.0 + sweep * 2.2) * uP2;
+  float band = pow(0.5 + 0.5 * sin(TAU * x + wobble), 1.6);
+  vec3 col = hueRamp(uHueShift + uHueSpread * (x * 0.30 + along * 0.18 + 0.25 * sweep));
   // broad moving beam
-  float beam = pow(0.5 + 0.5 * cos(PI * (uv.x * 1.4 + uv.y * 0.5 - sweep * 1.1)), 4.0);
-  vec3 beamCol = hueRamp(uHueShift + 0.5 * uHueSpread * (uv.y - 0.3 * sweep) + 0.07);
-  return (band * 0.55 * col + beam * 0.75 * beamCol) * uP3;
-}`,
-    defaults: { uIntensity: 0.9, uScale: 1.0, uHueShift: 0.55, uHueSpread: 0.6, uSat: 0.65, uArtGate: 0.35, uSpecular: 0.5 },
-    params: [
-      { key: 'uP0', label: 'Band count', min: 1, max: 14, step: 0.5, default: 5 },
-      { key: 'uP1', label: 'Band drift', min: 0, max: 4, step: 0.05, default: 1.6 },
-      { key: 'uP2', label: 'Band wobble', min: 0, max: 3, step: 0.05, default: 0.8 },
-      { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.0 },
-    ],
-  },
+  float beam = pow(0.5 + 0.5 * cos(PI * (across * 1.4 + along * 0.5 - sweep * 1.1)), 4.0);
+  vec3 beamCol = hueRamp(uHueShift + 0.5 * uHueSpread * (along - 0.3 * sweep) + 0.07);
+  ${
+    o.stripes
+      ? 'float stripe = 0.30 + 0.70 * pow(0.5 + 0.5 * sin(TAU * across * 90.0 * uScale), 0.8);'
+      : 'float stripe = 1.0;'
+  }
+  return (band * 0.55 * col + beam * 0.75 * beamCol) * uP3 * stripe;
+}`
+}
 
-  {
-    id: 'reverse-sheet',
-    label: 'Reverse sheet (SV)',
-    taxonomy: 'Mirror / reverse-holo stamped sheet',
-    usedOn: 'SV + Mega Evolution reverse holos — foil covers the body, not the art.',
-    // Mirror sheet shimmer + a staggered grid of stamped emblems (SV uses
-    // Poke Ball stamps; a ring+dot reads right at this tier). Emblems pick
-    // up hue individually; the sheet between them does a broad mirror sweep.
-    glsl: `
+const SHEEN_V = sheenGlsl({ nx: 1, ny: 0 }) // vertical bands, travel with tilt.x
+const SHEEN_H = sheenGlsl({ nx: 0, ny: 1 }) // horizontal band, travels with tilt.y
+const SHEEN_DR = sheenGlsl({ nx: 0.7071, ny: -0.7071 }) // band rises "/" (verified frame-02)
+const SHEEN_DL = sheenGlsl({ nx: 0.7071, ny: 0.7071 }) // band falls "\" (verified frame-03)
+const SHEEN_V_STRIPED = sheenGlsl({ nx: 1, ny: 0, stripes: true })
+
+const SHEEN_DEFAULTS: CoreDefaults = {
+  uIntensity: 0.9,
+  uScale: 1.0,
+  uHueShift: 0.55,
+  uHueSpread: 0.6,
+  uSat: 0.65,
+  uArtGate: 0.35,
+  uSpecular: 0.5,
+}
+
+const SHEEN_PARAMS: PatternParam[] = [
+  { key: 'uP0', label: 'Band count', min: 1, max: 14, step: 0.5, default: 5 },
+  { key: 'uP1', label: 'Band drift', min: 0, max: 4, step: 0.05, default: 1.6 },
+  { key: 'uP2', label: 'Band wobble', min: 0, max: 3, step: 0.05, default: 0.8 },
+  { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.0 },
+]
+
+const REVERSE_SHEET_GLSL = `
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x + tilt.y * 0.8;
   vec2 g = uv * vec2(1.0, CARD_ASPECT) * uP0 * uScale;
@@ -229,25 +252,26 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sheetPh = uv.x * 0.55 + uv.y * 0.35 + sweep * 0.9;
   vec3 sheet = hueRamp(uHueShift + uHueSpread * sheetPh) * (0.22 + 0.18 * pow(0.5 + 0.5 * cos(TAU * sheetPh), 2.0));
   return sheet * uP2 + emb * hueRamp(embHue) * embLum * uP3;
-}`,
-    defaults: { uIntensity: 1.0, uScale: 1.0, uHueShift: 0.1, uHueSpread: 0.45, uSat: 0.6, uArtGate: 0.0, uSpecular: 0.55 },
-    params: [
-      { key: 'uP0', label: 'Stamp density', min: 3, max: 30, step: 0.5, default: 11 },
-      { key: 'uP1', label: '(unused)', min: 0, max: 1, step: 0.01, default: 0 },
-      { key: 'uP2', label: 'Sheet gain', min: 0, max: 3, step: 0.05, default: 1.0 },
-      { key: 'uP3', label: 'Stamp gain', min: 0, max: 3, step: 0.05, default: 1.2 },
-    ],
-  },
+}`
 
-  {
-    id: 'cracked-ice',
-    label: 'Cracked Ice',
-    taxonomy: 'Cracked Ice faceted foil',
-    usedOn: 'Theme-deck / League promo holos (BW–SWSH era); great facet stress-test.',
-    // Voronoi facets, each with its own pseudo-normal: a facet flashes when
-    // the tilt vector aligns with its orientation, so shards ignite one at a
-    // time as the card turns. Edges get a thin bright seam.
-    glsl: `
+const REVERSE_SHEET_DEFAULTS: CoreDefaults = {
+  uIntensity: 1.0,
+  uScale: 1.0,
+  uHueShift: 0.1,
+  uHueSpread: 0.45,
+  uSat: 0.6,
+  uArtGate: 0.0,
+  uSpecular: 0.55,
+}
+
+const REVERSE_SHEET_PARAMS: PatternParam[] = [
+  { key: 'uP0', label: 'Stamp density', min: 3, max: 30, step: 0.5, default: 11 },
+  { key: 'uP1', label: '(unused)', min: 0, max: 1, step: 0.01, default: 0 },
+  { key: 'uP2', label: 'Sheet gain', min: 0, max: 3, step: 0.05, default: 1.0 },
+  { key: 'uP3', label: 'Stamp gain', min: 0, max: 3, step: 0.05, default: 1.2 },
+]
+
+const CRACKED_ICE_GLSL = `
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   vec2 g = uv * vec2(1.0, CARD_ASPECT) * uP0 * uScale;
   vec2 id = floor(g);
@@ -272,16 +296,550 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   // glints whiten toward their peak — a hot facet reads as light, not dye
   vec3 col = mix(hueRamp(hue), vec3(1.0), 0.65 * glint);
   return col * (0.12 + glint * uP3) + edge * vec3(0.9) * uP2 * (0.3 + glint);
-}`,
-    defaults: { uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.7, uSat: 0.65, uArtGate: 0.45, uSpecular: 0.4 },
-    params: [
-      { key: 'uP0', label: 'Facet density', min: 2, max: 20, step: 0.5, default: 7 },
-      { key: 'uP1', label: 'Flash rate', min: 0.2, max: 5, step: 0.05, default: 2.2 },
-      { key: 'uP2', label: 'Edge seams', min: 0, max: 1.5, step: 0.05, default: 0.35 },
-      { key: 'uP3', label: 'Facet gain', min: 0, max: 3, step: 0.05, default: 1.1 },
-    ],
+}`
+
+const CRACKED_ICE_DEFAULTS: CoreDefaults = {
+  uIntensity: 1.0,
+  uScale: 1.0,
+  uHueShift: 0.5,
+  uHueSpread: 0.7,
+  uSat: 0.65,
+  uArtGate: 0.45,
+  uSpecular: 0.4,
+}
+
+const CRACKED_ICE_PARAMS: PatternParam[] = [
+  { key: 'uP0', label: 'Facet density', min: 2, max: 20, step: 0.5, default: 7 },
+  { key: 'uP1', label: 'Flash rate', min: 0.2, max: 5, step: 0.05, default: 2.2 },
+  { key: 'uP2', label: 'Edge seams', min: 0, max: 1.5, step: 0.05, default: 0.35 },
+  { key: 'uP3', label: 'Facet gain', min: 0, max: 3, step: 0.05, default: 1.1 },
+]
+
+// ── Helpers to derive per-slug variants of a recipe ─────────────────────────
+
+const tuneParams = (
+  params: PatternParam[],
+  o: Partial<Record<'uP0' | 'uP1' | 'uP2' | 'uP3', number>>,
+): PatternParam[] => params.map((p) => (o[p.key] !== undefined ? { ...p, default: o[p.key]! } : p))
+
+// ── The library: none + implemented recipes + the rest of the 39 types ──────
+// Order: `none`, implemented (video number in comment), then approximations
+// in video order. The dropdown groups by `implemented`.
+
+export const PATTERNS: FoilPattern[] = [
+  {
+    id: 'none',
+    label: 'None (plain card)',
+    taxonomy: '—',
+    usedOn: 'Non-holo printings; baseline for eyeballing the scan itself.',
+    glsl: `vec3 foilPattern(vec2 uv, vec2 tilt) { return vec3(0.0); }`,
+    defaults: { uIntensity: 0.0, uSpecular: 0.12 },
+    params: [],
+    implemented: true,
+  },
+
+  // #1 — reworked 2026-08-01 from Chey's workbench comment (issues/foil/
+  // 2026-08-01_22-40-03-629_ftoz71): layered parallax, glyph/blur star mix,
+  // smooth breathing. See foil-effects SKILL field notes.
+  {
+    id: 'starlight',
+    label: 'Starlight (WOTC)',
+    taxonomy: 'Starlight (syn. Galaxy) — WOTC multi-depth star hologram',
+    usedOn: 'Base Set, Jungle, Fossil holo rares — international printings only (JP Base-era used cosmos).',
+    glsl: STARLIGHT_GLSL,
+    defaults: STARLIGHT_DEFAULTS,
+    params: STARLIGHT_PARAMS,
+    implemented: true,
+  },
+
+  // #24 — the XY Evolutions Base homage: same star field, flat single-plane
+  // foil (NO parallax), bolder pops. Starlight recipe at parallax 0.
+  {
+    id: 'starlight-ii',
+    label: 'Starlight II (Evolutions)',
+    taxonomy: 'Starlight II — flat single-plane star foil (no parallax)',
+    usedOn: 'XY Evolutions (2016, 20th-anniversary Base Set homage).',
+    glsl: STARLIGHT_GLSL,
+    defaults: { ...STARLIGHT_DEFAULTS, uSat: 0.8 },
+    params: tuneParams(STARLIGHT_PARAMS, { uP1: 0, uP3: 2.8 }),
+    implemented: true,
+  },
+
+  // #2 — label fixed 2026-08-02: "Galaxy" is Bulbapedia's synonym for
+  // STARLIGHT, not cosmos (see research/foil-patterns.md mislabels).
+  {
+    id: 'cosmos',
+    label: 'Cosmos',
+    taxonomy: 'Cosmos ("bubbles") foil',
+    usedOn:
+      'The most-used pattern in TCG history: English Base Set 2 → Call of Legends standard holos, JP Base-era holos, decades of promos.',
+    glsl: COSMOS_GLSL,
+    defaults: COSMOS_DEFAULTS,
+    params: COSMOS_PARAMS,
+    implemented: true,
+  },
+
+  // #14 — renamed from `sv-holo` 2026-08-02 (alias kept): these vertical
+  // bands are the Platinum/HGSS→XY default, not SV's.
+  {
+    id: 'vertical-sheen',
+    label: 'Vertical sheen (HGSS–XY)',
+    taxonomy: 'Sheen — vertical linear-grating sheet',
+    usedOn:
+      'The long-running default holo: HGSS era through Platinum, Call of Legends, BW, into XY; also the raw sheet under many reverse designs.',
+    glsl: SHEEN_V,
+    defaults: SHEEN_DEFAULTS,
+    params: SHEEN_PARAMS,
+    implemented: true,
+  },
+
+  // #21 — the TRUE SV-era default (Bulbapedia "Mirage"): horizontal band
+  // traveling vertically with pitch.
+  {
+    id: 'horizontal-sheen',
+    label: 'Horizontal sheen (SV default)',
+    taxonomy: 'Sheen — horizontal rotation (Bulbapedia "Mirage")',
+    usedOn: 'The default holo of Scarlet & Violet AND the Mega-era standard holos.',
+    glsl: SHEEN_H,
+    defaults: SHEEN_DEFAULTS,
+    params: tuneParams(SHEEN_PARAMS, { uP0: 2, uP1: 2.2 }),
+    implemented: true,
+  },
+
+  // #19 — band rises "/" (verified from corpus frames; Gemini's slope claim
+  // was wrong — research/foil-patterns.md conflicts).
+  {
+    id: 'diagonal-sheen-right',
+    label: 'Diagonal sheen right (XY)',
+    taxonomy: 'Sheen — diagonal rotation, band rises "/"',
+    usedOn: 'Battle Arena deck secret variants, then the XY-era default holo.',
+    glsl: SHEEN_DR,
+    defaults: SHEEN_DEFAULTS,
+    params: tuneParams(SHEEN_PARAMS, { uP0: 2, uP1: 2.0 }),
+    implemented: true,
+  },
+
+  // #20 — mirror rotation, band falls "\".
+  {
+    id: 'diagonal-sheen-left',
+    label: 'Diagonal sheen left (SM reverses)',
+    taxonomy: 'Sheen — diagonal rotation, band falls "\\"',
+    usedOn: 'Sun & Moon series reverse holos, heavily.',
+    glsl: SHEEN_DL,
+    defaults: SHEEN_DEFAULTS,
+    params: tuneParams(SHEEN_PARAMS, { uP0: 2, uP1: 2.0 }),
+    implemented: true,
+  },
+
+  // #22 — SWSH "Line": fine continuous vertical stripes under a sweeping band.
+  {
+    id: 'striped-vertical-sheen',
+    label: 'Striped vertical sheen (SWSH)',
+    taxonomy: 'Sheen + stripe texture (Bulbapedia "Line")',
+    usedOn: 'Sword & Shield series regular holos; some Trick or Trade.',
+    glsl: SHEEN_V_STRIPED,
+    defaults: SHEEN_DEFAULTS,
+    params: tuneParams(SHEEN_PARAMS, { uP0: 3, uP1: 1.8 }),
+    implemented: true,
+  },
+
+  // Coarse-tier reverse sheet. NOTE: the ring+dot stamp grid most closely
+  // matches #30 pokeball-masterball (Black Bolt/White Flare) / the SV pokeball
+  // reverse stamps; most PRE-SV reverses are actually un-stamped sheen or
+  // rainbow-mirror sheets with different ink masks (see the research
+  // interlude) — this recipe is the stamped-sheet look specifically.
+  {
+    id: 'reverse-sheet',
+    label: 'Reverse sheet (stamped)',
+    taxonomy: 'Mirror sheet + stamped emblem grid (≈ pokeball-masterball)',
+    usedOn: 'SV + Mega Evolution reverse holos — foil covers the body, not the art.',
+    glsl: REVERSE_SHEET_GLSL,
+    defaults: REVERSE_SHEET_DEFAULTS,
+    params: REVERSE_SHEET_PARAMS,
+    implemented: true,
+  },
+
+  // #9
+  {
+    id: 'cracked-ice',
+    label: 'Cracked Ice',
+    taxonomy: 'Cracked Ice (syn. Broken Glass, Shards) faceted foil',
+    usedOn: 'Skyridge box toppers, FRLG bird promos, POP series; THE theme-deck holo DP→SWSH.',
+    glsl: CRACKED_ICE_GLSL,
+    defaults: CRACKED_ICE_DEFAULTS,
+    params: CRACKED_ICE_PARAMS,
+    implemented: true,
+  },
+
+  // ── Unimplemented types — honest nearest-recipe fallbacks (video order) ──
+  // Each renders via the named implemented recipe with tuned defaults; the
+  // dropdown labels them "approx via …". Recipe waves flip these to real
+  // implementations (research/foil-patterns.md "Implementation gap summary").
+
+  // #3
+  {
+    id: 'fireworks',
+    label: 'Fireworks',
+    taxonomy: 'Radial-grating burst foil (full face, art included)',
+    usedOn: "Legendary Collection (2002) parallel set only — the TCG's first reverse set.",
+    glsl: COSMOS_GLSL,
+    defaults: { ...COSMOS_DEFAULTS, uArtGate: 0.0, uHueSpread: 0.8 },
+    params: tuneParams(COSMOS_PARAMS, { uP0: 0.5, uP3: 2.0 }),
+    implemented: false,
+    approxVia: 'Cosmos',
+  },
+  // #4
+  {
+    id: 'mirror',
+    label: 'Mirror',
+    taxonomy: 'Plain aluminum mirror foil — no pattern, no hue shift',
+    usedOn: 'Neo Shining subjects; the raw base stock under many later patterns.',
+    glsl: SHEEN_V,
+    defaults: { ...SHEEN_DEFAULTS, uSat: 0.05, uSpecular: 1.0, uArtGate: 0.0 },
+    params: tuneParams(SHEEN_PARAMS, { uP0: 1, uP2: 0, uP3: 0.5 }),
+    implemented: false,
+    approxVia: 'Vertical sheen',
+  },
+  // #5
+  {
+    id: 'rainbow-mirror',
+    label: 'Rainbow mirror',
+    taxonomy: 'Smooth unembossed holographic film — broad continuous bands',
+    usedOn: 'e-series (Expedition→Skyridge) reverses; staple base sheet ever since.',
+    glsl: SHEEN_V,
+    defaults: { ...SHEEN_DEFAULTS, uHueSpread: 0.9, uSpecular: 0.8, uArtGate: 0.0 },
+    params: tuneParams(SHEEN_PARAMS, { uP0: 1, uP1: 2.4, uP2: 0 }),
+    implemented: false,
+    approxVia: 'Vertical sheen',
+  },
+  // #6
+  {
+    id: 'big-glitter',
+    label: 'Big glitter',
+    taxonomy: 'Dense embossed dot-facet glitter foil',
+    usedOn: 'Once: e-series oversized box toppers (manufacturer stock).',
+    glsl: CRACKED_ICE_GLSL,
+    defaults: CRACKED_ICE_DEFAULTS,
+    params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 18, uP1: 3.2, uP2: 0 }),
+    implemented: false,
+    approxVia: 'Cracked Ice',
+  },
+  // #7
+  {
+    id: 'energy-symbols',
+    label: 'Energy symbols',
+    taxonomy: 'Energy-glyph foil field (needs an icon atlas — gap)',
+    usedOn: 'EX Hidden Legends — the first bespoke Pokémon-designed pattern.',
+    glsl: COSMOS_GLSL,
+    defaults: { ...COSMOS_DEFAULTS, uArtGate: 0.6 },
+    params: tuneParams(COSMOS_PARAMS, { uP0: 1.8 }),
+    implemented: false,
+    approxVia: 'Cosmos',
+  },
+  // #8
+  {
+    id: 'energy-symbols-ii',
+    label: 'Energy symbols II',
+    taxonomy: 'Scattered multi-size energy glyphs + sparkle dots (gap)',
+    usedOn: 'EX FireRed & LeafGreen.',
+    glsl: COSMOS_GLSL,
+    defaults: { ...COSMOS_DEFAULTS, uArtGate: 0.6 },
+    params: tuneParams(COSMOS_PARAMS, { uP0: 1.4 }),
+    implemented: false,
+    approxVia: 'Cosmos',
+  },
+  // #10
+  {
+    id: 'pinwheel',
+    label: 'Pinwheel',
+    taxonomy: 'Square grid of radial-wedge pinwheel cells (gap)',
+    usedOn: 'EX Deoxys reverses; revived on simplified-Chinese sets.',
+    glsl: CRACKED_ICE_GLSL,
+    defaults: CRACKED_ICE_DEFAULTS,
+    params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 10, uP2: 0.2 }),
+    implemented: false,
+    approxVia: 'Cracked Ice',
+  },
+  // #11
+  {
+    id: 'ex-emerald',
+    label: 'EX Emerald',
+    taxonomy: 'Poké Ball / starburst icons + vertical rainbow band (gap)',
+    usedOn: 'EX Emerald reverses only.',
+    glsl: SHEEN_V,
+    defaults: SHEEN_DEFAULTS,
+    params: tuneParams(SHEEN_PARAMS, { uP0: 1, uP1: 2.2 }),
+    implemented: false,
+    approxVia: 'Vertical sheen',
+  },
+  // #12
+  {
+    id: 'pokeball-hologram',
+    label: 'Pokeball hologram',
+    taxonomy: 'TRUE multi-depth Poké Ball hologram (parallax; gap)',
+    usedOn: 'EX Unseen Forces.',
+    glsl: STARLIGHT_GLSL,
+    defaults: STARLIGHT_DEFAULTS,
+    params: tuneParams(STARLIGHT_PARAMS, { uP0: 12, uP1: 2.4 }),
+    implemented: false,
+    approxVia: 'Starlight',
+  },
+  // #13
+  {
+    id: 'vertical-sheen-rainbow',
+    label: 'Vertical sheen rainbow',
+    taxonomy: 'Mirror foil + ONE soft vertical rainbow band (the sheen debut)',
+    usedOn: 'A few EX-era sets after Unseen Forces (e.g. EX Crystal Guardians).',
+    glsl: SHEEN_V,
+    defaults: { ...SHEEN_DEFAULTS, uSpecular: 0.7 },
+    params: tuneParams(SHEEN_PARAMS, { uP0: 1, uP2: 0 }),
+    implemented: false,
+    approxVia: 'Vertical sheen',
+  },
+  // #15
+  {
+    id: 'cosmos-ii-pixel',
+    label: 'Cosmos II (pixel)',
+    taxonomy: 'Denser silvery cosmos + pixel-speck twinkle field (partial gap)',
+    usedOn: 'Platinum onward; THE default promo pattern (tins, blisters); SV cosmos borders.',
+    glsl: COSMOS_GLSL,
+    defaults: { ...COSMOS_DEFAULTS, uSat: 0.55 },
+    params: tuneParams(COSMOS_PARAMS, { uP0: 2.2 }),
+    implemented: false,
+    approxVia: 'Cosmos',
+  },
+  // #16
+  {
+    id: 'cosmos-iii-smooth',
+    label: 'Cosmos III (smooth/HD)',
+    taxonomy: 'Smooth-disc cosmos + sweeping specular band (partial gap)',
+    usedOn: 'Legendary Treasures onward; modern promos ship pixel OR smooth.',
+    glsl: COSMOS_GLSL,
+    defaults: { ...COSMOS_DEFAULTS, uSpecular: 0.5 },
+    params: tuneParams(COSMOS_PARAMS, { uP0: 1.6, uP1: 0.8 }),
+    implemented: false,
+    approxVia: 'Cosmos',
+  },
+  // #17
+  {
+    id: 'tinsel',
+    label: 'Tinsel',
+    taxonomy: 'Fine horizontal striations with sliding bright dashes (gap)',
+    usedOn: 'BW (2011) regular holos through Legendary Treasures; BW ACE SPECs.',
+    glsl: SHEEN_H,
+    defaults: SHEEN_DEFAULTS,
+    params: tuneParams(SHEEN_PARAMS, { uP0: 12, uP1: 2.4, uP2: 1.6 }),
+    implemented: false,
+    approxVia: 'Horizontal sheen',
+  },
+  // #18
+  {
+    id: 'tinsel-ii',
+    label: 'Tinsel II',
+    taxonomy: 'Denser darker chaotic tinsel, full face (gap)',
+    usedOn: 'Black Bolt & White Flare (2025) only.',
+    glsl: SHEEN_H,
+    defaults: { ...SHEEN_DEFAULTS, uSat: 0.5, uArtGate: 0.0 },
+    params: tuneParams(SHEEN_PARAMS, { uP0: 14, uP1: 2.0, uP2: 2.0 }),
+    implemented: false,
+    approxVia: 'Horizontal sheen',
+  },
+  // #23
+  {
+    id: 'prism',
+    label: 'Prism',
+    taxonomy: 'Rigid micro-grid of hue-cycling square cells (gap)',
+    usedOn: 'Carddass prism stickers (1996, pre-TCG); XY BREAK cards only in the TCG.',
+    glsl: CRACKED_ICE_GLSL,
+    defaults: CRACKED_ICE_DEFAULTS,
+    params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 20, uP1: 3.5, uP2: 0 }),
+    implemented: false,
+    approxVia: 'Cracked Ice',
+  },
+  // #25
+  {
+    id: 'water-web',
+    label: 'Water web',
+    taxonomy: 'Organic rippling-liquid contours, colors flow along ridges (gap)',
+    usedOn: 'Sun & Moon standard holos + GX cards (through Cosmic Eclipse).',
+    glsl: SHEEN_V,
+    defaults: { ...SHEEN_DEFAULTS, uHueSpread: 0.8 },
+    params: tuneParams(SHEEN_PARAMS, { uP0: 2, uP2: 3 }),
+    implemented: false,
+    approxVia: 'Vertical sheen',
+  },
+  // #26
+  {
+    id: 'radiant',
+    label: 'Radiant',
+    taxonomy: 'Diagonal criss-cross diamond grid, segmented lines (gap)',
+    usedOn: 'Radiant-rarity cards, SWSH Astral Radiance onward; full face.',
+    glsl: CRACKED_ICE_GLSL,
+    defaults: { ...CRACKED_ICE_DEFAULTS, uArtGate: 0.0 },
+    params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 9, uP2: 1.5, uP3: 0.4 }),
+    implemented: false,
+    approxVia: 'Cracked Ice',
+  },
+  // #27
+  {
+    id: 'rainbow-glitter',
+    label: 'Rainbow glitter',
+    taxonomy: 'Fine glitter over a rainbow-mirror base (gap)',
+    usedOn: 'SWSH VMAX / rainbow ("hyper") rares and more.',
+    glsl: CRACKED_ICE_GLSL,
+    defaults: { ...CRACKED_ICE_DEFAULTS, uHueSpread: 0.9, uArtGate: 0.0 },
+    params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 20, uP1: 4, uP2: 0 }),
+    implemented: false,
+    approxVia: 'Cracked Ice',
+  },
+  // #28
+  {
+    id: 'rainbow-glitter-sheen',
+    label: 'Rainbow glitter sheen',
+    taxonomy: 'Glitter + shaped directional band base (gap)',
+    usedOn: 'Mega-era Mega EX cards and others.',
+    glsl: CRACKED_ICE_GLSL,
+    defaults: { ...CRACKED_ICE_DEFAULTS, uHueSpread: 0.9, uSpecular: 0.8, uArtGate: 0.0 },
+    params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 20, uP1: 4, uP2: 0 }),
+    implemented: false,
+    approxVia: 'Cracked Ice',
+  },
+  // #29
+  {
+    id: 'ace-spec',
+    label: 'Ace spec (SV)',
+    taxonomy: 'Bold diagonal diamond grid with cross motifs (gap)',
+    usedOn: 'SV-era ACE SPEC cards only (BW ACE SPECs used tinsel).',
+    glsl: CRACKED_ICE_GLSL,
+    defaults: { ...CRACKED_ICE_DEFAULTS, uArtGate: 0.0 },
+    params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 9, uP2: 1.2, uP3: 0.6 }),
+    implemented: false,
+    approxVia: 'Cracked Ice',
+  },
+  // #30 — the implemented reverse-sheet recipe IS this look, coarse-tier
+  // (ring+dot stamps, not a true ball SDF — that upgrade is a recipe-wave item).
+  {
+    id: 'pokeball-masterball',
+    label: 'Pokeball / masterball',
+    taxonomy: 'Staggered Poké/Master Ball stamp grid on mirror sheet',
+    usedOn: "Black Bolt & White Flare (2025) brought JP's ball reverses to English.",
+    glsl: REVERSE_SHEET_GLSL,
+    defaults: REVERSE_SHEET_DEFAULTS,
+    params: REVERSE_SHEET_PARAMS,
+    implemented: false,
+    approxVia: 'Reverse sheet',
+  },
+  // #31
+  {
+    id: 'prismatic-pokeball',
+    label: 'Prismatic pokeball',
+    taxonomy: 'Polygon mosaic + ball watermark OVER rainbow-mirror (overprint; gap)',
+    usedOn: 'Prismatic Evolutions poke-ball reverses.',
+    glsl: CRACKED_ICE_GLSL,
+    defaults: { ...CRACKED_ICE_DEFAULTS, uHueSpread: 1.0, uArtGate: 0.0 },
+    params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 12, uP1: 3 }),
+    implemented: false,
+    approxVia: 'Cracked Ice',
+  },
+  // #32
+  {
+    id: 'radiant-collection-dots',
+    label: 'Radiant Collection dots',
+    taxonomy: 'Dot overprint ABOVE ink + white-ink windows on mirror (gap)',
+    usedOn: 'Radiant Collection subsets (Legendary Treasures, Generations).',
+    glsl: COSMOS_GLSL,
+    defaults: { ...COSMOS_DEFAULTS, uArtGate: 0.0 },
+    params: tuneParams(COSMOS_PARAMS, { uP0: 2.5 }),
+    implemented: false,
+    approxVia: 'Cosmos',
+  },
+  // #33
+  {
+    id: 'ex-starfoil',
+    label: 'ex starfoil (SV ex)',
+    taxonomy: 'Dense star overprint over a diagonal-sheen base (gap)',
+    usedOn: 'SV-era ex cards (full face, "almost triple printed").',
+    glsl: STARLIGHT_GLSL,
+    defaults: { ...STARLIGHT_DEFAULTS, uArtGate: 0.0 },
+    params: tuneParams(STARLIGHT_PARAMS, { uP0: 60, uP1: 0, uP2: 0.4 }),
+    implemented: false,
+    approxVia: 'Starlight',
+  },
+  // #34
+  {
+    id: 'sequin',
+    label: 'Sequin',
+    taxonomy: 'Densely packed snapping sequin discs (gap)',
+    usedOn: 'General Mills cereal-box promos only (SM + SWSH waves).',
+    glsl: CRACKED_ICE_GLSL,
+    defaults: CRACKED_ICE_DEFAULTS,
+    params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 20, uP1: 4.5, uP2: 0 }),
+    implemented: false,
+    approxVia: 'Cracked Ice',
+  },
+  // #35
+  {
+    id: 'crosshatch',
+    label: 'Crosshatch',
+    taxonomy: 'Fine woven diagonal line grid under a sweeping band (gap)',
+    usedOn: 'Play! Pokémon / League promos exclusively.',
+    glsl: SHEEN_V_STRIPED,
+    defaults: SHEEN_DEFAULTS,
+    params: tuneParams(SHEEN_PARAMS, { uP0: 2, uP1: 1.8 }),
+    implemented: false,
+    approxVia: 'Striped vertical sheen',
+  },
+  // #36
+  {
+    id: 'tcg-classic',
+    label: 'TCG Classic',
+    taxonomy: 'Micro-glitter grain + scattered stars under a rainbow band (gap)',
+    usedOn: 'Pokémon TCG Classic (2023 premium decks) only — every card holo.',
+    glsl: CRACKED_ICE_GLSL,
+    defaults: { ...CRACKED_ICE_DEFAULTS, uHueSpread: 0.85 },
+    params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 20, uP1: 3.5, uP2: 0, uP3: 1.4 }),
+    implemented: false,
+    approxVia: 'Cracked Ice',
+  },
+  // #37
+  {
+    id: 'confetti',
+    label: 'Confetti',
+    taxonomy: 'Irregular small flakes, chaotic pops (Bulbapedia "Pixel"; gap)',
+    usedOn: 'Celebrations (25th anniv.) and EVERY English McDonald\'s promo set.',
+    glsl: CRACKED_ICE_GLSL,
+    defaults: CRACKED_ICE_DEFAULTS,
+    params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 16, uP1: 3.8, uP2: 0 }),
+    implemented: false,
+    approxVia: 'Cracked Ice',
+  },
+  // #38
+  {
+    id: 'acid-wash',
+    label: 'Acid wash',
+    taxonomy: 'Mottled etched-metal texture with soft iridescent washes (gap)',
+    usedOn: 'Pokémon League promos ~2006, energy cards only.',
+    glsl: SHEEN_H,
+    defaults: { ...SHEEN_DEFAULTS, uSat: 0.5 },
+    params: tuneParams(SHEEN_PARAMS, { uP0: 2, uP2: 3, uP3: 0.8 }),
+    implemented: false,
+    approxVia: 'Horizontal sheen',
+  },
+  // #39
+  {
+    id: 'disco',
+    label: 'Disco (prototype)',
+    taxonomy: 'Strict square mosaic, per-cell hue cycling (gap)',
+    usedOn: 'Never released — late-90s factory test pattern (authenticated prototypes).',
+    glsl: CRACKED_ICE_GLSL,
+    defaults: CRACKED_ICE_DEFAULTS,
+    params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 14, uP1: 3, uP2: 0 }),
+    implemented: false,
+    approxVia: 'Cracked Ice',
   },
 ]
 
-export const patternById = (id: string): FoilPattern =>
-  PATTERNS.find((p) => p.id === id) ?? PATTERNS[0]
+export const patternById = (id: string): FoilPattern => {
+  const canonical = canonicalPatternId(id)
+  return PATTERNS.find((p) => p.id === canonical) ?? PATTERNS[0]
+}
