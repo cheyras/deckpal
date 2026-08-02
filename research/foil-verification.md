@@ -104,7 +104,7 @@ standing nays are unchanged from R2.**
   sheet at 90°; the pre-fix left (1/1/1/1) vs right (4/5/5/3) split is exemplar choice,
   not rotation: the right render is a busy full-art Moltres-EX that hides band structure;
   the left render is a flat green Fomantis reverse where the single broad band was
-  glaring. Slope itself was verified correct in both ("/" right, "\" left).
+  glaring. Slope itself was verified correct in both ("/" right, "\" left). **[SUPERSEDED 2026-08-03 — R3 slope correction: that "verification" was made against a hand-rotated sheet frame; the true slopes are right="\\", left="/" and the renders WERE mirrored. See the R3 section + DECISIONS "the diagonal swap".]**
 - **Cheap fix applied — `diagonal-sheen-left` uP0 2 → 7** (band count; one uniform
   default in `patterns.ts`). Before: 1/1/1/1 nay ("one broad diffuse wash"). After
   re-capture + re-judge: 5/5/5/5 yay. Honest caveat: straight 5s flatter the fix — to my
@@ -178,7 +178,7 @@ Round-by-round honesty notes:
   W2 5/5/5/5 verdict; the R0 changes (sharp/beam/specular) cannot rotate the sheet.
   Re-judged unchanged: 5/5/5/4 yay, with the same judge now calling the orientation
   "correct". Lesson re-confirmed: never act on a Gemini slope claim without eyes on
-  frames.
+  frames. **[SUPERSEDED 2026-08-03: the geometry check only proved render-matches-comment; the slug-to-reality mapping itself was mirrored, and these repeated slope claims were CORRECT. See the R3 section.]**
 - **horizontal-sheen + striped-vertical-sheen re-verified post-diffuse-fix** (their W2
   yays were earned on darker renders): 20/20 and 19/20 — no regression from the
   brighter base or the stripe-fineness tweak (90 → 130, more blended).
@@ -310,7 +310,7 @@ than the R0/R1 batch (five 20/20s dropped to 14–16 while keeping match). Two p
 failed twice on identical pixels and are recorded as **unstable verdicts, not
 regressions**: (a) `diagonal-sheen-right` — both nays cite ONLY the mirrored-slope claim,
 the documented Gemini failure mode; the band normal is provably unchanged from the 20/20
-config and the busy Moltres-EX exemplar hides band structure (the W2-documented context
+config **[SUPERSEDED 2026-08-03 — the slope claims were right; see R3]** and the busy Moltres-EX exemplar hides band structure (the W2-documented context
 for exactly this hallucination). (b) `pokeball-masterball` — styling complaints
 ("static gradient", "broad wash") on renders pixel-equivalent to the 17/20 config; its
 banked yay was itself a single roll. Both keep their banked match verdicts on
@@ -528,3 +528,73 @@ animation inferred, Medium confidence — prototype flag in the workbench dropdo
 - `report.py` in the run dir predates the crash and expects a lost
   `~/.legacy-dev-hub-legacy/verify-manifest.json`; `verdicts-summary.json` (written by the
   finisher) supersedes it.
+
+## R3 — the sheen-family rework against Chey's canon-lab critique (2026-08-03)
+
+Chey ran a full canon-lab pass against the reference clips (issues/foil/…_6cbxdt, _tzappu,
+_octrck, _z7s2ng, _epgakd, _b4he65, _4xcudx, _k2y7sq). **His eye is ground truth — his
+notes were folded verbatim into every judge prompt as the acceptance criteria.**
+
+**The diagonal swap (Task 0).** His report that diagonal-sheen-right/left render each
+other's slope is CORRECT — the harvest-time slug-to-slope mapping was mirrored, and the
+"geometry proof" used to dismiss Gemini's three separate slope complaints only ever
+proved render-matches-code-comment, not slug-matches-reality. Upright-sheet frames
+(right/frame-03, -05; left/frame-04, -06 — 3x-upscaled, plus before/after renders in
+~/.legacy-dev-hub-legacy/foil-shots/r3-sheen/swap-evidence/) are unambiguous: **right = "\",
+left = "/"**. Fixed by swapping the generators' angle assignment (slugs keep their
+taxonomy meaning); canon files carry only orientation-agnostic uniforms, and nothing
+else in the corpus encodes slope. The W2/R0/R2 sections' slope statements above carry
+SUPERSEDED annotations. Full post-mortem: DECISIONS "the diagonal swap".
+
+**The rework (Task 1).** `sheenGlsl` is now a STREAK-FIELD generator (two interleaved
+sparse layers): irregular spacing/width, per-streak lean that follows card tilt
+(crisscross; converging pairs terminate at their meeting point), stretched-ellipse
+taper, and hue running ALONG each strip as well as across (each strip its own rainbow).
+`striped-vertical-sheen` got a dedicated body from the R3 Gemini re-spec
+(corpus gemini-spec-r3.md — run with Chey's b4he65 description embedded; both rolls
+confirm his two claims): fine stripes on a subtle fan converging below the card, lit in
+GROUPS by a wide activation window (+ a fainter second diffraction order) sweeping with
+tilt — the moving window over the fan IS his "pivot toward each other toward the
+bottom", and the fan pivot rides pitch so convergence animates. `ex-starfoil` rebased on
+the reworked diagonal base ("/" per its own footage — unaffected by the swap) plus a
+fine sharp CD-line layer feeding star ignition. `vstar-pearl` rebuilt from the
+horizontal-sheen streak field (pearl floor / warm bias / border streaks / uDarken kept).
+
+**Verdicts (same pipeline: 8-frame exemplar sweeps, google/gemini-3.1-pro-preview,
+check_verdict.py executed; jobs jobs/<p>-r3s*.json, manifests manifest-r3s{,2,3}.json,
+tasks verify-<p>-r3s{,2,3}):**
+
+| pattern | rounds | final |
+|---|---|---|
+| vertical-sheen | 1 | **20/20 yay** |
+| diagonal-sheen-right | 1 | **20/20 yay** (slope corrected — the judge that "hallucinated" this three times agrees at last) |
+| diagonal-sheen-left | 1 | **20/20 yay** |
+| vstar-pearl | 1 | **20/20 yay** |
+| striped-vertical-sheen | 2 (r1: stripes too thick/sparse) | **20/20 yay** |
+| ex-starfoil | 2 (r1: streaks too soft, stars not igniting) | **20/20 yay** |
+| horizontal-sheen | 3 (r1: field invisible over the bright scan; r2: lean/taper/hue-along imperceptible at old factors) | **20/20 yay** |
+
+All three multi-round failures were confirmed against the frames by eye before tuning —
+none was judge noise.
+
+**Legibility physics recurred (3rd data point after prismatic-pokeball and the R2
+window foils):** saturated streaks over BRIGHT scans are unrenderable under screen-only
+blending — striped (uDarken 0 → 0.32), horizontal (0 → 0.32), ex-starfoil (defaults
+0.2) all needed the mirror-substrate term; raw gain just clips to white (pow the ramp
+to deepen color instead).
+
+**Canon migrations (Chey's saved canons are FULL snapshots — recipe-default changes
+don't reach them, so the values were migrated in-place; everything else preserved):**
+striped-vertical-sheen uDarken 0 → 0.32; horizontal-sheen uDarken 0 → 0.32. All other
+sheen canon values carry over unchanged (mean spacing is still uP0 × uScale; uP2 wobble
+kept its meaning and stays 0 in his canons).
+
+**Residuals:** (a) me01-034 (Kyogre, Mega Evolution) resolves a mask with ~zero foil
+coverage under Auto — the horizontal-sheen R3 sweeps forced scope full (recorded in
+capture.json; the pre-R3 20/20 was largely judging the mask-independent specular wash).
+Needs an assignment/mask look outside this lane. (b) striped's lit groups are still
+less color-saturated than the reference's deepest greens/reds at 360p — judged match;
+Chey's canon sliders (uSat/uDarken) are the tuning surface. (c) validate_spec.py
+frame-citation regex fixed (\d → \d+) — it undercounted two-digit frame numbers and
+failed an honest worker; run records for spec-striped-vertical-sheen-r3 show FAIL with
+the artifact genuinely valid (re-validated PASS post-fix).
