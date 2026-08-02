@@ -16,6 +16,12 @@
 //                             scan (WOTC holo backgrounds are dark; printed ink
 //                             stays readable). Cheap precursor to art-driven masks.
 //     uSpecular    float      white sheen band gain (paper/foil gloss)
+//     uDarken      float      mirror-substrate attenuation (0 = legacy, opt-in
+//                             per recipe): fraction of the diffuse scan absorbed
+//                             by the foil layer across the SAME coverage field
+//                             (mask x gate) the additive layer uses — real
+//                             mirror foil is dark at most angles; the pattern's
+//                             flash screen-blends back on top
 //   Mask (layout-driven coarse tier; from era-layouts.json via resolver)
 //     uMaskRect    vec4       x,y,w,h in UV (y UP — converted from layout data)
 //     uMaskRadius  float      rect corner radius (UV of width)
@@ -28,9 +34,11 @@
 //   Pattern params (recipe-owned; labelled sliders in the workbench)
 //     uP0..uP3     float      meaning defined per recipe in patterns.ts
 //
-// Blend model: foil = foilPattern(uv, tilt) * mask * uIntensity, screen-
-// blended over the scan, plus a shared specular sweep. Card corners are
-// rounded via alpha from a rounded-rect SDF.
+// Blend model: body = scan * (1 - uDarken * mask * gate) — the substrate seen
+// through the mirror layer — then foil = foilPattern(uv, tilt) * mask * gate *
+// uIntensity screen-blended over it, plus a shared specular sweep. uDarken
+// defaults to 0, which reproduces the original screen-only model exactly.
+// Card corners are rounded via alpha from a rounded-rect SDF.
 
 import * as THREE from 'three'
 import type { FoilPattern } from './patterns'
@@ -46,6 +54,7 @@ export const GLOBAL_DEFAULTS = {
   uSat: 0.8,
   uArtGate: 0.0,
   uSpecular: 0.4,
+  uDarken: 0.0,
 } as const
 
 export type CoreUniform = keyof typeof GLOBAL_DEFAULTS
@@ -77,6 +86,7 @@ uniform float uHueSpread;
 uniform float uSat;
 uniform float uArtGate;
 uniform float uSpecular;
+uniform float uDarken;
 uniform vec4 uMaskRect;
 uniform float uMaskRadius;
 uniform float uMaskFeather;
@@ -160,8 +170,14 @@ void main() {
   // printed ink stays readable. uArtGate = 0 disables (reverse sheets are light).
   float faceLum = dot(face.rgb, vec3(0.299, 0.587, 0.114));
   float gate = mix(1.0, smoothstep(0.82, 0.22, faceLum), uArtGate);
+  // Mirror-substrate darkening (uDarken, default 0 = exact legacy render):
+  // real mirror foil is DARK at most angles — the layer reflects the (mostly
+  // dark) environment instead of diffusing light, so the printed body seen
+  // through the foil is attenuated across the SAME coverage field (m * gate)
+  // the additive layer uses. The pattern's flash screen-blends back on top.
+  vec3 body = face.rgb * (1.0 - uDarken * m * gate);
   vec3 foil = foilPattern(uv, uTilt) * uIntensity * m * gate;
-  vec3 col = screenBlend(face.rgb, clamp(foil, 0.0, 1.0));
+  vec3 col = screenBlend(body, clamp(foil, 0.0, 1.0));
   col += uSpecular * sheen(uv, uTilt) * (0.12 + 0.88 * m);
   if (uMaskView > 0.5) col = mix(col, vec3(1.0, 0.15, 0.2), 0.40 * m);
   gl_FragColor = vec4(col, a);
@@ -190,6 +206,7 @@ export function buildFoilMaterial(pattern: FoilPattern): THREE.ShaderMaterial {
     uSat: { value: GLOBAL_DEFAULTS.uSat },
     uArtGate: { value: GLOBAL_DEFAULTS.uArtGate },
     uSpecular: { value: GLOBAL_DEFAULTS.uSpecular },
+    uDarken: { value: GLOBAL_DEFAULTS.uDarken },
     uMaskRect: { value: new THREE.Vector4(0, 0, 1, 1) },
     uMaskRadius: { value: 0.01 },
     uMaskFeather: { value: 0.008 },
