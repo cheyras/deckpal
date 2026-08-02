@@ -356,7 +356,7 @@
   "wotc-gaps",
   "xy-special"
  ],
- "row_count": 111,
+ "row_count": 113,
  "facet_rows": [
   {
    "facet": "cosmos",
@@ -3969,6 +3969,103 @@
    ],
    "conflicts": "Cluster membership of the RC cards is ambiguous without the task-data card list: g1 full-foil n=21 is too small to hold all 32 RC cards, so the catalog may cluster some/all RC cards under reverse (g1 reverse n=69). This row targets the RC cards by cardId with cls=full-foil (physically RC is a full-face foil), which the validator accepted; if the catalog actually files RC under reverse the orchestrator should flip cls.",
    "lane": "xy-special"
+  },
+  {
+   "pattern": "radiant-collection-dots",
+   "sel": {
+    "setIds": [
+     "bw11"
+    ],
+    "cls": "normal",
+    "rarities": null,
+    "variantKinds": null,
+    "cardIds": [
+     "bw11-RC1",
+     "bw11-RC2",
+     "bw11-RC3",
+     "bw11-RC4",
+     "bw11-RC5",
+     "bw11-RC6",
+     "bw11-RC7",
+     "bw11-RC8",
+     "bw11-RC9",
+     "bw11-RC10",
+     "bw11-RC11",
+     "bw11-RC12",
+     "bw11-RC13",
+     "bw11-RC14",
+     "bw11-RC15",
+     "bw11-RC16",
+     "bw11-RC17",
+     "bw11-RC18",
+     "bw11-RC19",
+     "bw11-RC20"
+    ]
+   },
+   "claim": "Legendary Treasures Radiant Collection commons/uncommons (RC1-RC20, incl. Meloetta-EX RC11) are declared kind 'normal' by the catalog, but the RC subset treatment applies to the whole subset: the sparkling dot OVERPRINT sits above the ink even on cards with no reflective aluminum layer (the video demonstrates this on a non-holo RC Teddiursa). Card-level 'normal'-class row added by the R2 agent so these stop rendering flat (they previously resolved scope none).",
+   "confidence": "medium",
+   "sources": [
+    {
+     "url": "https://youtu.be/wQ2TvnHVdys",
+     "quote": "some Radiant Collection cards are nonholo, meaning they don't have a reflective layer of aluminum in them, but they do have a holo pattern on top, like this Teddiursa (cleaned auto-caption, 20:56-22:15 chapter)"
+    },
+    {
+     "url": "https://bulbapedia.bulbagarden.net/wiki/Legendary_Treasures_(TCG)",
+     "quote": "(paraphrase) The Radiant Collection subset cards feature a distinctive sparkling foil treatment."
+    }
+   ],
+   "lane": "r2-subset-commons"
+  },
+  {
+   "pattern": "radiant-collection-dots",
+   "sel": {
+    "setIds": [
+     "g1"
+    ],
+    "cls": "normal",
+    "rarities": null,
+    "variantKinds": null,
+    "cardIds": [
+     "g1-RC1",
+     "g1-RC2",
+     "g1-RC3",
+     "g1-RC4",
+     "g1-RC5",
+     "g1-RC7",
+     "g1-RC8",
+     "g1-RC9",
+     "g1-RC10",
+     "g1-RC11",
+     "g1-RC12",
+     "g1-RC13",
+     "g1-RC14",
+     "g1-RC15",
+     "g1-RC16",
+     "g1-RC17",
+     "g1-RC18",
+     "g1-RC19",
+     "g1-RC20",
+     "g1-RC22",
+     "g1-RC23",
+     "g1-RC24",
+     "g1-RC25",
+     "g1-RC26",
+     "g1-RC27"
+    ]
+   },
+   "claim": "Generations Radiant Collection commons/uncommons (the 25 non-Ultra-Rare RC cards) are declared kind 'normal' by the catalog but carry the RC dot-overprint treatment like the rest of the subset (same layer decomposition as the RC29 Pikachu demo; the dot overprint rides above the ink on every RC card). Card-level 'normal'-class row added by the R2 agent so these stop rendering flat.",
+   "confidence": "medium",
+   "sources": [
+    {
+     "url": "https://youtu.be/wQ2TvnHVdys",
+     "quote": "some Radiant Collection cards are nonholo... but they do have a holo pattern on top (cleaned auto-caption, 20:56-22:15 chapter)"
+    },
+    {
+     "url": "https://bulbapedia.bulbagarden.net/wiki/Generations_(TCG)",
+     "quote": "(paraphrase) Generations includes the Radiant Collection subset (RC1-RC32) with a distinctive foil treatment."
+    }
+   ],
+   "lane": "r2-subset-commons"
   }
  ]
 }
