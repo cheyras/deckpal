@@ -23,21 +23,24 @@ The interesting rows are: implemented recipes that fail, and gap fallbacks that 
 
 **Scoreline: 4 yay / 30 nay (counting diagonal-sheen-left's post-fix re-judge; 3/30 before
 it) / 6 patterns not judged (below).** Sum column dims: S/T/L/C = static/tilt/layer/color.
+**Superseded 2026-08-02 by the R0 re-tune wave (section below): 8 of the 9 implemented
+recipes now match; only `starlight` remains nay (11/20 best-of-3, still-frame parallax
+blindness — see R0 notes). Gap-fallback rows are unchanged W2 results.**
 
 ## Verdict table
 
 | Pattern | Exemplar card | Judged as | Match | S/T/L/C | Key discrepancies | Frames |
 |---|---|---|---|---|---|---|
-| `cosmos` | Pidgeot — Base Set 2 (base4-14) | implemented | nay | 1/1/2/1 | color_travel; static_appearance; tilt_motion | `frames/cosmos/` |
-| `cracked-ice` | Raichu — Stormfront (dp7-8) | implemented | nay | 2/3/3/2 | color_travel; static_appearance | `frames/cracked-ice/` |
-| `diagonal-sheen-left` | Fomantis — Sun & Moon (sm1-14) | implemented | nay | 1/1/1/1 | color_travel; static_appearance; tilt_motion | `frames/diagonal-sheen-left/` |
-| `diagonal-sheen-left-v2` | Fomantis — Sun & Moon (sm1-14) | implemented | **yay** | 5/5/5/5 | none | `frames/diagonal-sheen-left-v2/` |
-| `diagonal-sheen-right` | Moltres-EX — Plasma Storm (bw8-14) | implemented | **yay** | 4/5/5/3 | color_travel | `frames/diagonal-sheen-right/` |
-| `horizontal-sheen` | Kyogre — Mega Evolution (me01-034) | implemented | **yay** | 5/5/5/5 | none | `frames/horizontal-sheen/` |
-| `starlight` | Blastoise — Base Set (base1-2) | implemented | nay | 2/2/2/2 | color_travel; layer_character; static_appearance; tilt_motion | `frames/starlight/` |
-| `starlight-ii` | Charizard — Evolutions (xy12-11) | implemented | nay | 2/3/5/3 | color_travel; static_appearance; tilt_motion | `frames/starlight-ii/` |
-| `striped-vertical-sheen` | Leon — Vivid Voltage (swsh4-154) | implemented | **yay** | 4/5/5/4 | static_appearance | `frames/striped-vertical-sheen/` |
-| `vertical-sheen` | Ninetales — HeartGold SoulSilver (hgss1-7) | implemented | nay | 2/4/4/3 | static_appearance | `frames/vertical-sheen/` |
+| `cosmos` | Pidgeot — Base Set 2 (base4-14) | implemented | nay → **yay** (R0) | 1/1/2/1 → 4/5/5/5 | was: color_travel; static_appearance; tilt_motion — R0 rewrite fixed all three | `frames/cosmos/` |
+| `cracked-ice` | Raichu — Stormfront (dp7-8) | implemented | nay → **yay** (R0, 2 rounds) | 2/3/3/2 → 3/4/4/4 | residual: shard geometry too uniform/gappy vs shattered glass (Voronoi limit — R1) | `frames/cracked-ice/` |
+| `diagonal-sheen-left` | Fomantis — Sun & Moon (sm1-14) | implemented | nay → **yay** (W2 fix, held through R0) | 1/1/1/1 → 5/5/5/5 → 5/5/5/4 (R0 sharp bands) | residual: in-band color lines could be sharper | `frames/diagonal-sheen-left/` |
+| `diagonal-sheen-left-v2` | Fomantis — Sun & Moon (sm1-14) | implemented | **yay** | 5/5/5/5 | none (W2 re-judge of the uP0 fix; superseded by the R0 row above) | `frames/diagonal-sheen-left-v2/` |
+| `diagonal-sheen-right` | Moltres-EX — Plasma Storm (bw8-14) | implemented | **yay** (held, improved) | 4/5/5/3 → 5/5/5/5 | none — uP0 2→7 + blow-out tame cleared the color_travel note | `frames/diagonal-sheen-right/` |
+| `horizontal-sheen` | Kyogre — Mega Evolution (me01-034) | implemented | **yay** (re-verified post-diffuse-fix) | 5/5/5/5 → 5/5/5/5 | none | `frames/horizontal-sheen/` |
+| `starlight` | Blastoise — Base Set (base1-2) | implemented | nay (best of 3 R0 rounds: 11/20) | 2/2/2/2 → 3/3/2/3 | residual: still-frame judging can't see the parallax (see R0 notes); milky field texture | `frames/starlight/` |
+| `starlight-ii` | Charizard — Evolutions (xy12-11) | implemented | nay → **yay** (R0, 2 rounds) | 2/3/5/3 → 5/5/5/5 | none | `frames/starlight-ii/` |
+| `striped-vertical-sheen` | Leon — Vivid Voltage (swsh4-154) | implemented | **yay** (held) | 4/5/5/4 → 4/5/5/5 | stripes still a hair thicker than reference | `frames/striped-vertical-sheen/` |
+| `vertical-sheen` | Ninetales — HeartGold SoulSilver (hgss1-7) | implemented | nay → **yay** (R0) | 2/4/4/3 → 5/5/5/5 | none — barcode line field landed | `frames/vertical-sheen/` |
 | `ace-spec` | Grand Tree — Stellar Crown (sv07-136) | gap fallback | nay | 0/0/1/1 | layer_character; static_appearance; tilt_motion | `frames/ace-spec/` |
 | `confetti` | Bulbasaur — McDonald's Collection 2021 (2021swsh-1) | gap fallback | nay | 1/1/1/2 | layer_character; static_appearance; tilt_motion | `frames/confetti/` |
 | `cosmos-ii-pixel` | Pachirisu — Call of Legends (col1-18) | gap fallback | nay | 1/1/1/1 | color_travel; static_appearance; tilt_motion | `frames/cosmos-ii-pixel/` |
@@ -102,6 +105,71 @@ it) / 6 patterns not judged (below).** Sum column dims: S/T/L/C = static/tilt/la
   layer/color (needs sharper static texture), `rainbow-mirror` 4 on layer,
   `vertical-sheen-rainbow` 4/4 on tilt/layer, `pokeball-masterball` 3/3 on tilt/color.
   Their dedicated recipes start from a decent base.
+
+## R0 re-tune results (2026-08-02, foil/main R0 agent)
+
+Chey's ruling after reviewing the W2 verdicts: *"Gemini is right about starlight — the
+overall effect is good but it isn't totally accurate yet. Chase Gemini's notes on
+everything"* — which unblocked aggressive re-tuning of every implemented recipe
+(starlight's parallax architecture preserved, per the same ruling).
+
+**Prerequisite fix that invalidated all W2 captures:** the diffuse-darkening bug
+(issue `ls9u0y`) — the scan texture was sRGB-decoded by the GPU but the ShaderMaterial
+never re-encoded, so every card rendered its artwork in linear values (midtones crushed:
+flat 184 → 123). Fixed by sampling the scan undecoded (`NoColorSpace`, CardViewer.tsx);
+pattern `none` at rest is now pixel-comparable to the flat view (mean abs luma diff
+44.55 → 2.16). All R0 captures and verdicts are post-fix; W2 render frames were
+systematically darker than the shipped renderer.
+
+**Scoreline after R0: 8 of 9 judged implemented recipes match** (was 4). Verdicts under
+`verify-<pattern>-r0*/`; same judge, prompt guardrails, and validator as W2.
+
+Round-by-round honesty notes:
+
+- **cosmos 5/20 → 19/20 (1 round).** Full activation-model rewrite: dark field, smaller
+  denser orbs mostly near-invisible, cluster pops via low-freq noise over cell ids,
+  pinprick 4-point twinkles.
+- **vertical-sheen 13/20 → 20/20 (1 round + 2 capture iterations).** New `barcode`
+  generator option: thin sharp spectral lines of per-line random width/offset/brightness.
+  First capture flooded white over the light HGSS watercolor scan — beam gain cut twice
+  (0.75 → 0.5 → 0.3) + art gate 0.35 → 0.5 before judging.
+- **starlight-ii 13/20 → 19/20 → 20/20 (2 rounds).** Shared-GLSL sharpening (below) plus
+  art gate 0.75 → 0.45 (the Evolutions field is mid-orange, not WOTC-dark; the gate was
+  halving every star). Round-2 GLSL changes (longer thin arms, 8-point subset) took it to
+  a clean 20/20. Its uP2 was pinned at 0.45 afterwards so base-starlight default drift
+  can't silently change what the verdict certified.
+- **cracked-ice 10/20 → 6/20 → 15/20 yay (2 rounds).** Removing the authored intra-shard
+  grain per the ruling initially made things WORSE: full-amplitude solid flashes read as
+  "flat opaque pastel stickers obscuring the artwork" (r0 verdict). The actual fix was
+  amplitude: facet gain 1.1 → 0.55 so the art stays visible through a flash, plus
+  smaller shards (density 7 → 10) and less whitening at peak. Residual (static 3):
+  Voronoi shards are too uniform/gappy vs the reference's shattered-glass mix of long
+  thin + tiny triangular shards — a geometry upgrade, queued for R1.
+- **diagonal-sheen-right 17/20 → 20/20.** The queued uP0 2 → 7 sheet-consistency bump +
+  sharp 3.0 + beam/specular tames cleared its center-blow-out note.
+- **diagonal-sheen-left 20/20 → 15/20 nay → 19/20 yay (judge noise, documented).** The
+  r0 verdict's ONLY complaint was that the band slope is mirrored — the documented
+  Gemini diagonal-slope failure mode (see W2 notes + DECISIONS). Geometry check:
+  `nrm=(0.7071,0.7071)` puts band lines along (−1,1) = "\" falling, unchanged from the
+  W2 5/5/5/5 verdict; the R0 changes (sharp/beam/specular) cannot rotate the sheet.
+  Re-judged unchanged: 5/5/5/4 yay, with the same judge now calling the orientation
+  "correct". Lesson re-confirmed: never act on a Gemini slope claim without eyes on
+  frames.
+- **horizontal-sheen + striped-vertical-sheen re-verified post-diffuse-fix** (their W2
+  yays were earned on darker renders): 20/20 and 19/20 — no regression from the
+  brighter base or the stripe-fineness tweak (90 → 130, more blended).
+- **starlight 8/20 → 6/20 → 8/20 → 11/20 nay after 3 rounds — honest residual.** What
+  moved: longer thin-armed 4-point glyphs + an 8-point-burst subset, tighter pop lobe
+  (pow 5 → 11, floor 0.18 → 0.04), near-full-saturation star color, wash re-balanced,
+  parallax depth default 1.2 → 2.4, star gain 2.2 → 3.6. The stuck dimension is
+  layer_character ("no 3D parallax"): parallax is a MOTION cue judged from 8 stills —
+  layers demonstrably shift against each other in the live renderer (Chey's hand-tuned
+  architecture, verified by eye), but with the tight activation window Gemini demanded,
+  individual stars can't be tracked frame-to-frame, so the stills read flat. The two
+  notes fight each other. Recommendation for R1: judge starlight from a short video
+  clip (the pipeline's clip.webm pattern) or accept still-frame scoring as structurally
+  blind here; also consider the "milky/cloudy field" note (needs a shared-GLSL wash
+  change, deferred to avoid invalidating starlight-ii's banked 20/20).
 
 ## Patterns not judged in this run — honest skip list
 

@@ -149,6 +149,63 @@ that has one.
   constellation not confetti, and a floor+wide-lobe visibility curve (`0.18 + 0.82 *
   pow(cos, 5)`) instead of a `pow(cos, 28)` blink. `uP1` is parallax depth.
 
+### R0 re-tune wave (2026-08-02) — what moved each Gemini score
+
+Chey's ruling ("chase Gemini's notes on everything") unlocked GLSL changes; full
+score table in `research/foil-verification.md` (R0 section). Distilled lessons:
+
+- **Fix the compositing base before trusting ANY visual judgment.** The scan texture
+  was sRGB-decoded by the GPU (`SRGBColorSpace` upload) but the ShaderMaterial never
+  re-encoded — every card's artwork rendered in linear values (flat 184 → render 123,
+  the exact sRGB→linear curve). three.js only appends `colorspace_fragment` to
+  BUILT-IN materials; a ShaderMaterial writing `gl_FragColor` raw must either
+  re-encode or sample undecoded. This renderer's whole blend model (screenBlend,
+  hueRamp, art-gate thresholds) is authored in DISPLAY space, so the fix is
+  `tex.colorSpace = NoColorSpace` (CardViewer.tsx) — pattern `none` at rest is now
+  pixel-comparable to the flat `<img>` (mean |Δluma| 2.16, resampling noise). Every
+  recipe tuned before this fix was tuned against a darker base.
+- **Cosmos (5/20 → 19/20): activation window beats element styling.** The wall-of-orbs
+  failure wasn't orb art, it was every orb being lit at once. Dark field + narrow
+  window (`pow(cos, 22)`) + tiny floor (0.055) + CLUSTER activation (low-freq `vnoise`
+  over cell ids so neighbors pop together, per-orb nudge for ragged edges) is what
+  made it read real. Pinprick 4-point twinkles on a separate high-freq grid sell the
+  "spectral points" the video shows.
+- **Sheen family: the generator now takes per-slug options** (`sharp` band exponent,
+  `beam` gain, `barcode`). vertical-sheen (13→20) is the `barcode` variant: thin
+  spectral lines with per-line random width/offset/brightness. Keep `SHEEN_V` (plain)
+  separate — mirror/rainbow-mirror fallbacks are explicitly smooth sheets. Over LIGHT
+  scans (HGSS watercolor) the broad beam floods to white: beam 0.3 + art gate 0.5
+  there. Diagonals: sharp 3.0, beam 0.55, specular 0.35 killed the center blow-out;
+  uP0 7 on BOTH diagonals (same physical sheet).
+- **Cracked-ice (10→15 yay, via a 6 detour): amplitude IS opacity.** Removing the
+  intra-shard grain at full flash amplitude turned facets into "flat pastel stickers
+  obscuring the artwork" — screen-blend clamping reads as opacity. Facet gain 0.55
+  keeps the art visible THROUGH a flash, which is what makes it read as foil, not
+  overlay. Residual: uniform Voronoi cells vs the reference's long-thin + tiny-triangle
+  shatter mix (R1 geometry item).
+- **Starlight (8 → 11, still nay after 3 rounds): stills can't score parallax.** The
+  judge's two asks — tighter pop windows AND visible layer parallax — fight each other
+  in an 8-frame sweep: tight windows mean no star survives frame-to-frame, so nothing
+  can be tracked shifting. The parallax is real in motion (verify by eye in the
+  browser). If R1 needs the yay, judge from a video clip; don't revert the pop
+  tightening to game the stills. Glyph craft that DID score: long THIN arms
+  (along-axis reach ~0.29 of cell, across ~0.07 — `1-|sp|*3.5` × `1-|sp|*14`), an
+  8-point subset via 45°-rotated arms on `step(0.6, hash)`, near-full hueRamp color
+  (mix 0.85+). Note the first sharpening pass made arms NARROWER but also SHORTER
+  (both k factors up) and Gemini called the stars "too small and uniform" — arm LENGTH
+  and arm WIDTH are separate dials; shrink only width.
+- **Judge-noise discipline: geometry precedes verdicts.** diagonal-sheen-left dropped
+  20/20 → 15/20 purely on a mirrored-slope claim — the DOCUMENTED Gemini failure mode.
+  The band normal in the GLSL had not changed; re-judging the identical frames returned
+  19/20 with the slope called "correct". When the only discrepancy contradicts code
+  geometry you can prove, re-judge before re-tuning — and never "fix" a slope on a
+  verdict's word alone.
+- **Banked verdicts pin shared code.** starlight-ii's 20/20 rides `STARLIGHT_GLSL` +
+  inherited defaults. After banking it, base-starlight tuning had to stay in
+  starlight-only defaults (uP1/uP2/uP3/uSat), and II's uP2 was pinned explicitly.
+  Before touching a SHARED GLSL body, list which patterns' verdicts it would
+  invalidate and either re-judge them too or don't touch it.
+
 ## Masks
 
 Patterns never mask themselves — `main()` applies the layout-tier mask (see
