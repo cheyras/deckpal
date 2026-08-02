@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "reverse-sheet",
+  "savedAt": "2026-08-02T19:31:17.866Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 1,
+    "uHueShift": 0.1,
+    "uHueSpread": 1.12,
+    "uSat": 0.6,
+    "uArtGate": 0,
+    "uSpecular": 0.42,
+    "uDarken": 0,
+    "uP0": 5.5,
+    "uP1": 0,
+    "uP2": 1,
+    "uP3": 1.2
+  }
+}

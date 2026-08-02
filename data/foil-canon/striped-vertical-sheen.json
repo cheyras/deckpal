@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "striped-vertical-sheen",
+  "savedAt": "2026-08-02T19:28:35.781Z",
+  "uniforms": {
+    "uIntensity": 0.9,
+    "uScale": 1,
+    "uHueShift": 0.55,
+    "uHueSpread": 0.6,
+    "uSat": 0.65,
+    "uArtGate": 0.35,
+    "uSpecular": 0.5,
+    "uDarken": 0,
+    "uP0": 6,
+    "uP1": 1.45,
+    "uP2": 0.05,
+    "uP3": 1
+  }
+}

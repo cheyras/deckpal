@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "radiant",
+  "savedAt": "2026-08-02T22:16:07.890Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 0.5,
+    "uHueShift": 0.12,
+    "uHueSpread": 0.61,
+    "uSat": 0.8,
+    "uArtGate": 0,
+    "uSpecular": 0.34,
+    "uDarken": 0,
+    "uP0": 11,
+    "uP1": 0,
+    "uP2": 9,
+    "uP3": 1
+  }
+}
