@@ -26,6 +26,15 @@ import { canonicalPatternId, patternById } from './patterns'
 // Bumped whenever the resolver heuristics or era-layouts data change meaning.
 // Recorded in every hand-mask sidecar's prior so the corpus states which rule
 // version it was diffed against (mask-pipeline SKILL.md, "Sidecar v2").
+// v5 (2026-08-02 R2b): assignment rows may carry a per-row `sc` scope
+//     override ('window' | 'full' | 'sheet') applied when the row wins —
+//     treatments whose physical extent kind/rarity cannot express: baby
+//     shinies are window-scope despite full-foil rarities, VSTAR pearls are
+//     full-face despite plain holo kinds, det1 holos are window-scope
+//     despite 'ultra rare'. The cls-'normal' tier honors it too (falls back
+//     to 'full' as in v4). Also: the four §40–43 vocabulary slugs
+//     (gold-secret / vstar-pearl / shiny-vault / detective-pikachu) are now
+//     wired via facet rows (gold, gold-jumbo) + set/card rows.
 // v4 (2026-08-02 R2): card-level assignment rows with cls 'normal' are
 //     consulted BEFORE the scope-none early return — subset cards the
 //     catalog declares as plain prints but which physically carry a foil
@@ -38,7 +47,7 @@ import { canonicalPatternId, patternById } from './patterns'
 //     era-layouts: 'e-card'/'legendary-collection' correctly map to the wotc
 //     frame (they previously fell through to modern-sv rects + heuristics).
 // v2: usage-table-driven pattern guesses + vintage starlight/cosmos split.
-export const RESOLVER_VERSION = 4
+export const RESOLVER_VERSION = 5
 
 export type FoilScope = 'window' | 'sheet' | 'full' | 'none'
 
@@ -152,6 +161,8 @@ interface AssignRow {
   rar: string[] | null
   kinds: string[] | null
   cards: string[] | null
+  /** v5: per-row scope override — null keeps the computed scope. */
+  sc: FoilScope | null
   conf: 'high' | 'medium' | 'low'
   src: string[]
 }
@@ -197,12 +208,17 @@ function lookupAssignment(input: {
   rarity: string
   cls: AssignCls
   facet: string | null
-}): { row: { p: string; conf: 'high' | 'medium' | 'low'; src: string[] }; match: 'card' | 'facet' | 'set' } | null {
+}): {
+  row: { p: string; conf: 'high' | 'medium' | 'low'; src: string[] }
+  match: 'card' | 'facet' | 'set'
+  sc: FoilScope | null
+} | null {
   type Hit = {
     p: string
     conf: 'high' | 'medium' | 'low'
     src: string[]
     match: 'card' | 'facet' | 'set'
+    sc: FoilScope | null
     score: number
     penalty: number
     breadth: number
@@ -225,6 +241,7 @@ function lookupAssignment(input: {
         conf: row.conf,
         src: row.src,
         match: row.cards ? 'card' : 'set',
+        sc: row.sc ?? null,
         score,
         penalty: penaltyOf(row.p),
         breadth: row.setIds.length,
@@ -235,7 +252,8 @@ function lookupAssignment(input: {
   // card rows and explicit kind selectors (score 6, between rar's 3 and kinds' 7).
   if (input.facet) {
     const f = ASSIGN_FACETS[input.facet]
-    if (f) hits.push({ p: f.p, conf: f.conf, src: f.src, match: 'facet', score: 6, penalty: penaltyOf(f.p), breadth: 1 })
+    if (f)
+      hits.push({ p: f.p, conf: f.conf, src: f.src, match: 'facet', sc: null, score: 6, penalty: penaltyOf(f.p), breadth: 1 })
   }
   if (hits.length === 0) return null
   hits.sort(
@@ -248,7 +266,7 @@ function lookupAssignment(input: {
       a.breadth - b.breadth,
   )
   const best = hits[0]
-  return { row: { p: best.p, conf: best.conf, src: best.src }, match: best.match }
+  return { row: { p: best.p, conf: best.conf, src: best.src }, match: best.match, sc: best.sc }
 }
 
 /**
@@ -399,7 +417,7 @@ export function resolveFoil(input: {
         if (patternById(row.p).id === 'none') continue
         return {
           patternId: canonicalPatternId(row.p),
-          scope: 'full',
+          scope: row.sc ?? 'full',
           eraId,
           guess: { match: 'card', confidence: row.conf, sources: row.src, era: null, years: null },
         }
@@ -422,7 +440,9 @@ export function resolveFoil(input: {
     if (hit && patternById(hit.row.p).id !== 'none') {
       return {
         patternId: canonicalPatternId(hit.row.p),
-        scope,
+        // v5: a winning row may override the computed scope (baby shinies
+        // window despite full-foil rarity, VSTAR full despite holo kind).
+        scope: hit.sc ?? scope,
         eraId,
         guess: { match: hit.match, confidence: hit.row.conf, sources: hit.row.src, era: null, years: null },
       }
