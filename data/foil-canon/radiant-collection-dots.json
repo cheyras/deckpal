@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "radiant-collection-dots",
+  "savedAt": "2026-08-02T22:22:37.278Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 1,
+    "uHueShift": 0.1,
+    "uHueSpread": 0.8,
+    "uSat": 1,
+    "uArtGate": 0,
+    "uSpecular": 0.3,
+    "uDarken": 0,
+    "uP0": 1,
+    "uP1": 1.1,
+    "uP2": 1.2,
+    "uP3": 1.2
+  }
+}

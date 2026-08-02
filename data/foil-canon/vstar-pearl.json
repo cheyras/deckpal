@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "vstar-pearl",
+  "savedAt": "2026-08-02T22:29:05.396Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 0.35,
+    "uHueShift": 0.71,
+    "uHueSpread": 0.6,
+    "uSat": 0.81,
+    "uArtGate": 0,
+    "uSpecular": 0.35,
+    "uDarken": 0.3,
+    "uP0": 0.04,
+    "uP1": 1.6,
+    "uP2": 1.4,
+    "uP3": 1.2
+  }
+}

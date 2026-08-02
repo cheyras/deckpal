@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "cosmos-ii-pixel",
+  "savedAt": "2026-08-02T19:50:42.145Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 1,
+    "uHueShift": 0.12,
+    "uHueSpread": 0.9,
+    "uSat": 0.55,
+    "uArtGate": 0.5,
+    "uSpecular": 0.35,
+    "uDarken": 0,
+    "uP0": 0.7,
+    "uP1": 0.2,
+    "uP2": 0.5,
+    "uP3": 1.25
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "sequin",
+  "savedAt": "2026-08-02T22:33:12.747Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 1,
+    "uHueShift": 0.5,
+    "uHueSpread": 0.7,
+    "uSat": 0.85,
+    "uArtGate": 0.45,
+    "uSpecular": 0.4,
+    "uDarken": 0,
+    "uP0": 20,
+    "uP1": 4.5,
+    "uP2": 0,
+    "uP3": 0.55
+  }
+}
