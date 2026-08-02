@@ -16,7 +16,7 @@
   "eras": {
     "wotc": {
       "label": "WOTC 1999–2003 (Base–Skyridge)",
-      "seriesSlugs": ["base", "gym", "neo", "ecard"],
+      "seriesSlugs": ["base", "gym", "neo", "e-card", "legendary-collection"],
       "measuredOn": "base1-8 (Machamp, 1st Ed. Shadowless) 600x825",
       "artWindow": { "x": 0.103, "y": 0.102, "w": 0.802, "h": 0.418 },
       "artWindowRadius": 0.004,
