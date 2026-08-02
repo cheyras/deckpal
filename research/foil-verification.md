@@ -44,6 +44,12 @@ implemented taxonomy types hold a match verdict (34 of 39 types have real recipe
 nays: `starlight`, `energy-symbols` (icon-atlas limit), `pokeball-hologram` (parallax
 stills-blindness + light-scan overlay), `radiant-collection-dots` (dot styling; the
 judge's "completely static" note is pixel-refuted — see the section).**
+**Superseded again 2026-08-02 by the R2b vocabulary wave (section below): the four
+§40–43 vocabulary-extension types (`gold-secret`, `vstar-pearl`, `shiny-vault`,
+`detective-pikachu`) got dedicated recipes judged against their own corpus dirs —
+**all four match** (shiny-vault on round 2). Running total: **34 of 38 implemented
+taxonomy types hold a match verdict (38 of 43 types have real recipes)**; the four
+standing nays are unchanged from R2.**
 
 ## Verdict table
 
@@ -380,6 +386,51 @@ last users were these fallbacks).
 radiant-collection-dots both initially rendered as sparse night-sky specks (activation
 windows too tight + floors too low — fixed pre-judge); energy-symbols' star glyph was
 invisible next to filled glyphs (boosted).
+
+## R2b vocabulary wave results (2026-08-02, foil/main R2b agent)
+
+The final lane of the wave: dedicated recipes for the four §40–43 vocabulary-extension
+types the vocab lane added (research-only) same day. Each was judged against its OWN
+corpus dir (`research/foil-video-reference/<slug>/` — collector tilt footage credited in
+each notes.md; only shiny-vault comes from the SNCB corpus video). Same pipeline as
+W2→R2 (same judge `google/gemini-3.1-pro-preview`, guardrails, `check_verdict.py`;
+jobs `jobs/<p>-r2b.json`, runs `verify-<p>-r2b/` + `-r2b2/`; every capture wrote
+`capture.json`). Three of the four references show the EXACT card we rendered (gold:
+the German print of the same card) — a first for the corpus; the shiny-vault reference
+is the split-screen baby+GX demo and the job prompt binds our render to the right-hand
+GX. All exemplars resolve through the resolver's **Auto** path (no forced pattern —
+the new v5 wiring was part of what the captures verified).
+
+**Scoreline: 4 of 4 match.**
+
+| Pattern | Exemplar | Rounds (sum/20) | Final S/T/L/C | Honest residuals |
+|---|---|---|---|---|
+| `gold-secret` | Turbo Patch — Darkness Ablaze (swsh3-200, gold) | 19 yay (1) | 4/5/5/5 | sunburst rays slightly sharper/higher-contrast than the reference's soft embossing |
+| `vstar-pearl` | Arceus VSTAR — Brilliant Stars (swsh9-123) | 13 yay (1) | 3/4/3/3 | wash still more saturated than the pastel reference; no etched micro-texture (normal-map-class gap); wash reads slightly opaque/flat over the pearl |
+| `shiny-vault` | Shiny Ho-Oh GX — Hidden Fates SV (sma-SV50) | 11 → 16 yay (2) | 4/5/3/4 | glyph flares still a touch too white-hot at peak ("printed foil, not glowing light sources"); round-1 nay was real over-saturation from the round-0 legibility fix |
+| `detective-pikachu` | Charizard — Detective Pikachu (det1-5) | 20 yay (1) | 5/5/5/5 | none — the photo-luminance beam coupling (recipe samples uFace, the documented contract exception) is what sold it |
+
+Round-0 eyeball catches (before any Gemini spend): vstar-pearl's wash rendered as a
+full neon rainbow with a lit border ring (warm bias 0.35 → 0.5, hue span 2.2 → 1.4,
+border floor 0.25 → 0.08); shiny-vault's whole treatment was ILLEGIBLE over the bright
+GX scan (band gain 0.45 → the round-1 0.95, which then overshot → 0.62 + white lift;
+uDarken 0.15 justified by the reference's visibly dimming near-white field — the same
+substrate physics as vstar-pearl, deliberately milder); detective-pikachu renders
+near-black on the canon lab's dark blank base BY DESIGN (photo-coupled — judge it on
+the real scan).
+
+**Resolver v5 shipped with this wave** (the wiring the verdicts rode on): assignment
+rows may carry a per-row `scope` override; new cited rows land the four slugs —
+facet `gold`/`gold-jumbo` → gold-secret (134-card facet, retires both facet residuals;
+1-card collateral: sv03.5-205's metal variant), sma split 51 baby (window) / 35 GX
+(full) / 8 gold Secret Rares (→ gold-secret, they were never shinies), swsh4.5sv split
+104 baby / 18 V+VMAX incl. the black shiny Eternatus pair (rarity says 'Secret Rare',
+name-verified as shinies not golds), sv04.5 by the clean 'Shiny rare' vs 'Shiny Ultra
+Rare' rarity split, VSTAR by the dedicated 'Holo Rare VSTAR' rarity string (rainbow/
+gold VSTARs are 'Secret Rare' and excluded), det1 via an ultra-rare row + a
+cls-'normal' cardIds row (all 18 cards, window scope). Usage-index recompile fixed en
+route: the vocab lane's era-wide gold rows have no `scope.sets` and crashed
+`build-usage-index.mjs` (now tolerated; 113 → 122 rows).
 
 ## Patterns not judged in this run — honest skip list
 
