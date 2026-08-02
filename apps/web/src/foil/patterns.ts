@@ -332,8 +332,10 @@ export const PATTERNS: FoilPattern[] = [
     label: 'None (plain card)',
     taxonomy: '—',
     usedOn: 'Non-holo printings; baseline for eyeballing the scan itself.',
+    // uSpecular 0: "none" is the pixel-comparable baseline against the flat
+    // scan (issue ls9u0y) — even a 0.12 sheen adds a corner glow at rest.
     glsl: `vec3 foilPattern(vec2 uv, vec2 tilt) { return vec3(0.0); }`,
-    defaults: { uIntensity: 0.0, uSpecular: 0.12 },
+    defaults: { uIntensity: 0.0, uSpecular: 0.0 },
     params: [],
     implemented: true,
   },
