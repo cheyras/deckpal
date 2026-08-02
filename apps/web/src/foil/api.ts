@@ -59,6 +59,36 @@ export interface FoilMaskPrior {
   resolverVersion: number
 }
 
+/** Canon pattern defaults — data/foil-canon/<patternId>.json (surface A). */
+export interface FoilCanonEntry {
+  version: 1
+  patternId: string
+  savedAt: string
+  /** FULL uniform snapshot — replaces recipe code defaults as the baseline. */
+  uniforms: Record<string, number>
+  note?: string
+}
+
+/** Per-card override — data/foil-overrides/<cardId>/<variantId>.json (surface B). */
+export interface FoilOverrideEntry {
+  version: 1
+  cardId: string
+  variantId: number
+  /** The effective pattern these overrides tune (canonical id). */
+  patternId: string
+  /** Explicit dropdown override at save time; null = Auto resolved it. */
+  patternOverride: string | null
+  savedAt: string
+  /** SPARSE — only uniforms that differ from the canon baseline. */
+  uniforms: Record<string, number>
+  baseline: { canonSavedAt: string | null }
+}
+
+/** Which video-reference assets exist per pattern dir (GET /reference). */
+export interface FoilReferenceIndex {
+  patterns: Record<string, { clip: boolean; frames: number }>
+}
+
 /** What the workbench knows about the saved hand mask it is displaying. */
 export interface FoilMaskMeta {
   file: string
@@ -220,6 +250,91 @@ export const foilApi = {
     if (!res.ok) throw new Error(`comment save failed (HTTP ${res.status})`)
     return res.json() as Promise<{ id: string }>
   },
+
+  // ── Canon pattern defaults (surface A — the canon lab) ──
+
+  /** All saved canon files, keyed by patternId. Null when no dev api. */
+  getCanon: async (signal?: AbortSignal): Promise<Record<string, FoilCanonEntry> | null> => {
+    try {
+      const res = await fetch(`${BASE}/foil-lab/canon`, { signal })
+      if (!res.ok) return null
+      const d = (await res.json()) as { patterns: Record<string, FoilCanonEntry> }
+      return d.patterns
+    } catch {
+      return null
+    }
+  },
+
+  putCanon: async (patternId: string, uniforms: Record<string, number>, note?: string): Promise<FoilCanonEntry> => {
+    const res = await fetch(`${BASE}/foil-lab/canon/${encodeURIComponent(patternId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uniforms, ...(note ? { note } : {}) }),
+    })
+    if (!res.ok) throw new Error(`canon save failed (HTTP ${res.status})`)
+    return res.json() as Promise<FoilCanonEntry>
+  },
+
+  deleteCanon: async (patternId: string): Promise<void> => {
+    const res = await fetch(`${BASE}/foil-lab/canon/${encodeURIComponent(patternId)}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`canon delete failed (HTTP ${res.status})`)
+  },
+
+  // ── Per-card overrides (surface B — the card adjustment surface) ──
+
+  /** Saved overrides for a card/variant, or null (none saved / no dev api). */
+  getOverride: async (cardId: string, variantId: number, signal?: AbortSignal): Promise<FoilOverrideEntry | null> => {
+    try {
+      const res = await fetch(`${BASE}/foil-lab/overrides/${encodeURIComponent(cardId)}/${variantId}`, { signal })
+      if (!res.ok) return null
+      return (await res.json()) as FoilOverrideEntry
+    } catch {
+      return null
+    }
+  },
+
+  putOverride: async (
+    cardId: string,
+    variantId: number,
+    body: {
+      patternId: string
+      patternOverride: string | null
+      uniforms: Record<string, number>
+      baseline: { canonSavedAt: string | null }
+    },
+  ): Promise<FoilOverrideEntry> => {
+    const res = await fetch(`${BASE}/foil-lab/overrides/${encodeURIComponent(cardId)}/${variantId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error(`override save failed (HTTP ${res.status})`)
+    return res.json() as Promise<FoilOverrideEntry>
+  },
+
+  deleteOverride: async (cardId: string, variantId: number): Promise<void> => {
+    const res = await fetch(`${BASE}/foil-lab/overrides/${encodeURIComponent(cardId)}/${variantId}`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) throw new Error(`override delete failed (HTTP ${res.status})`)
+  },
+
+  // ── Reference corpus (canon lab: real tilt clips + keyframes) ──
+
+  /** Which patterns have clips/frames on disk. Null when no dev api. */
+  referenceIndex: async (signal?: AbortSignal): Promise<FoilReferenceIndex | null> => {
+    try {
+      const res = await fetch(`${BASE}/foil-lab/reference`, { signal })
+      if (!res.ok) return null
+      return (await res.json()) as FoilReferenceIndex
+    } catch {
+      return null
+    }
+  },
+
+  /** URL for a committed reference asset (streams from the dev api). */
+  referenceUrl: (slug: string, file: string): string =>
+    `${BASE}/foil-lab/reference/${encodeURIComponent(slug)}/${file}`,
 
   /** Probe: is the foil-lab dev surface mounted on this api? */
   devSurface: async (): Promise<boolean> => {
