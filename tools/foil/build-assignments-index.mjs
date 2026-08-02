@@ -30,7 +30,11 @@ const hosts = (sources) => [
   ...new Set(sources.map((s) => new URL(s.url).hostname.replace(/^www\./, ''))),
 ];
 
-const CLASSES = new Set(['holo', 'reverse', 'full-foil', 'normal+facet']);
+// 'normal' (R2, 2026-08-02): a card-level-ONLY class for subset cards the
+// catalog declares as plain prints but which physically carry a foil
+// treatment (e.g. Radiant Collection commons — dot overprint, no aluminum).
+// The resolver consults these rows before its scope-none early return.
+const CLASSES = new Set(['holo', 'reverse', 'full-foil', 'normal+facet', 'normal']);
 const CONF = new Set(['high', 'medium', 'low']);
 
 const facets = {};
@@ -46,6 +50,11 @@ const rows = src.rows.map((r, i) => {
   if (!CLASSES.has(r.sel.cls)) throw new Error(`rows[${i}]: bad cls ${r.sel.cls}`);
   if (!Array.isArray(r.sel.setIds) || r.sel.setIds.length === 0)
     throw new Error(`rows[${i}]: empty setIds`);
+  if (r.sel.cls === 'normal' && (!Array.isArray(r.sel.cardIds) || r.sel.cardIds.length === 0))
+    throw new Error(
+      `rows[${i}]: cls 'normal' rows must name explicit cardIds — they override the ` +
+        `catalog's no-foil declaration and must never claim whole sets`,
+    );
   return {
     p: r.pattern,
     setIds: r.sel.setIds,
