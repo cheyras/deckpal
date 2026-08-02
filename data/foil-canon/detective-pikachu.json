@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "detective-pikachu",
+  "savedAt": "2026-08-02T22:31:54.653Z",
+  "uniforms": {
+    "uIntensity": 1.64,
+    "uScale": 1,
+    "uHueShift": 0.5,
+    "uHueSpread": 0.9,
+    "uSat": 0.9,
+    "uArtGate": 0,
+    "uSpecular": 0.3,
+    "uDarken": 0,
+    "uP0": 1.2,
+    "uP1": 1.5,
+    "uP2": 0.85,
+    "uP3": 1.1
+  }
+}

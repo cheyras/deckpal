@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "patternId": "ex-emerald",
+  "savedAt": "2026-08-02T19:44:41.628Z",
+  "uniforms": {
+    "uIntensity": 0.28,
+    "uScale": 1,
+    "uHueShift": 0.3,
+    "uHueSpread": 0.68,
+    "uSat": 0.8,
+    "uArtGate": 0.1,
+    "uSpecular": 0.35,
+    "uDarken": 0.25,
+    "uP0": 6,
+    "uP1": 1,
+    "uP2": 0.5,
+    "uP3": 1.6
+  }
+}
