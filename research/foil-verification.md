@@ -30,6 +30,13 @@ blindness — see R0 notes). Gap-fallback rows are unchanged W2 results.**
 gap patterns got dedicated recipes — 10 of 12 match. Running total: 18 of 21 implemented
 taxonomy types hold a match verdict; nay: `starlight` (parallax judge-blindness),
 `tinsel-ii` (static plateau), `prismatic-pokeball` (blend-model limit).**
+**Superseded again 2026-08-02 by the R2 blend-model wave (section below): the shared
+composite gained an opt-in substrate-darkening term (`uDarken`, default 0 = exact legacy
+render); a full 21-pattern regression sweep confirmed no true regressions (and measured
+the judge's real single-roll variance); `prismatic-pokeball` was rebuilt on the term
+(17/20 yay — the structural nay is resolved) and `tinsel-ii` opted in (16/20 yay — the
+static plateau broke). Running total: 20 of 21 implemented taxonomy types hold a match
+verdict; the sole nay is `starlight` (still-frame parallax blindness — Chey's eye owns it).**
 
 ## Verdict table
 
@@ -236,6 +243,92 @@ All twelve entries flipped `implemented: true`, `approxVia` labels dropped, slug
   striped-vertical-sheen stripe fineness both sit on patterns holding yay verdicts;
   cosmetic sharpening would invalidate banked verdicts for marginal gain. Left for a
   wave that touches those sheets anyway.
+
+## R2 blend-model wave results (2026-08-02, foil/main BLEND-MODEL agent)
+
+**The term.** R1 identified screen-only blending as a structural limit (prismatic-pokeball
+nay: a watermark/mosaic over the near-white Prismatic Evolutions body is unrenderable when
+foil can only lighten — real rainbow-mirror foil is a DARK mirror at most angles). The
+shared composite (`shader.ts main()`) gained ONE opt-in term, `uDarken` (0..1, global
+default 0): `body = scan * (1 - uDarken * mask * gate)` before the additive foil layer
+screen-blends on top. Physically: mirror foil interposed between the printed body and the
+viewer reflects the (mostly dark) environment at non-flash angles instead of diffusing, so
+the substrate is attenuated across the SAME coverage field (mask × art-gate) the additive
+layer uses; the pattern's flash adds the reflective light back. `uDarken = 0` is exactly
+the legacy render (`1 − 0·x ≡ 1`), absent keys in canon/override/sidecar JSON seed 0, and
+no pre-R2 recipe sets it — so all banked verdicts rode on provably identical pixels.
+
+**Regression sweep: all 21 implemented recipes re-captured (same exemplar cards, same
+deterministic sweeps, `frames/<p>/` — pre-change frames archived at `frames/<p>/pre-bm/`)
+and re-judged with the identical job files (`verify-<p>-bm/`, re-judges `-bm2/`).
+No true regressions** — render identity was proven independently of the judge (zero GLSL
+delta outside `prismatic-pokeball`, whose capture predated its rebuild; one capture
+byte-identical to its pre-change twin (cosmos f01); pixel-level eyeball comparisons
+indistinguishable, remaining frame diffs are uTime ambient-drift phase only).
+
+| Pattern | Banked | bm sweep | Re-judge | Disposition |
+|---|---|---|---|---|
+| starlight | 11 N | 11 N | — | holds (parallax judge-blindness unchanged) |
+| starlight-ii | 20 Y | 20 Y | — | holds |
+| cosmos | 19 Y | 19 Y | — | holds |
+| vertical-sheen | 20 Y | 19 Y | — | holds (noise −1) |
+| horizontal-sheen | 20 Y | 20 Y | — | holds |
+| diagonal-sheen-right | 20 Y | 14 N | 12 N | **judge-noise, verdict unstable** (below) |
+| diagonal-sheen-left | 19 Y | 20 Y | — | holds (+1) |
+| striped-vertical-sheen | 19 Y | 20 Y | — | holds (+1) |
+| cracked-ice | 14 Y | 16 Y | — | holds (+2) |
+| fireworks | 18 Y | 20 Y | — | holds (+2) |
+| ace-spec | 18 Y | 14 Y | — | holds (match kept; noise −4) |
+| energy-symbols-ii | 15 Y | 20 Y | — | holds (+5!) |
+| rainbow-glitter-sheen | 16 Y | 11 N | 14 Y | noise — rebounded to match on identical frames |
+| ex-starfoil | 13 Y | 16 Y | — | holds (+3) |
+| prismatic-pokeball | 5 N | 11 N | — | pre-rebuild roll; superseded by the rebuild (below) |
+| tinsel-ii | 14 N | 14 N | — | pre-opt-in roll; superseded (below) |
+| cosmos-iii-smooth | 19 Y | 16 Y | — | holds (match kept; noise −3) |
+| pokeball-masterball | 17 Y | 12 N | 10 N | **judge-noise, verdict unstable** (below) |
+| radiant | 20 Y | 14 Y | 15 Y | holds (match kept both rolls) |
+| rainbow-glitter | 20 Y | 12 Y | 16 Y | holds (match kept both rolls) |
+| confetti | 14 Y | 12 Y | — | holds (match kept; noise −2) |
+
+**Honesty findings on judge variance.** Because the renders were provably identical, this
+sweep is also a measurement of Gemini's single-roll noise: ±3–6 points on identical
+inputs, larger than previously assumed, and this batch's rolls ran systematically colder
+than the R0/R1 batch (five 20/20s dropped to 14–16 while keeping match). Two patterns
+failed twice on identical pixels and are recorded as **unstable verdicts, not
+regressions**: (a) `diagonal-sheen-right` — both nays cite ONLY the mirrored-slope claim,
+the documented Gemini failure mode; the band normal is provably unchanged from the 20/20
+config and the busy Moltres-EX exemplar hides band structure (the W2-documented context
+for exactly this hallucination). (b) `pokeball-masterball` — styling complaints
+("static gradient", "broad wash") on renders pixel-equivalent to the 17/20 config; its
+banked yay was itself a single roll. Both keep their banked match verdicts on
+geometry-proof grounds; single-roll scores on these two should not be over-read in either
+direction. Flagged for Chey's eye as the real arbiter.
+
+**prismatic-pokeball rebuilt on the term: nay → 17/20 yay (1 judged round).**
+`verify-prismatic-pokeball-bmr1/`. Rebuild (defaults `uDarken` 0.6): dark-mirror base;
+broad rainbow flash lobe sweeping with tilt; voronoi facets quantize the lobe edge
+(wide window + modest jitter — a tight window read as lit/unlit confetti in eyeball
+round 1); facet density 9 → 13 (reference cells are 1/15–1/10 card width); ball
+watermark rebuilt as ink-overprint SUPPRESSION of the additive layer (filled disc +
+belt + button ring, factor ~0.65/0.70) — it reads darker inside the flash and vanishes
+into the mirror at dark angles, hue-shifting in tandem with its surround, exactly the
+reference behavior. Judge: watermark "present and correctly positioned", mosaic
+"excellently captures". R1's post-cap unjudged cosmetic fix (ball center Y 0.30) is
+folded in and now judged. Residuals: watermark could carry subtle physical texture;
+extreme-tilt saturation slightly more uniform than the reference's metallic contrast.
+
+**tinsel-ii opted in: nay → 16/20 yay (1 round).** `verify-tinsel-ii-bmr1/`. One-line
+opt-in (`uDarken` 0.4, GLSL untouched): the reference static is DARK broken lines
+between iridescent ones; under screen-only blending the gaps stayed near-white card
+body, which is why three R1 static treatments plateaued at static_appearance 2.
+Darkened gaps broke the plateau (static 3, layer 5). Residual: judge still wants more
+line thickness/opacity chaos.
+
+**Cheap wins deliberately NOT taken:** `pokeball-masterball` and `confetti` carry mild
+"pastel/washed" notes that `uDarken` could address, but both hold match verdicts and
+their references show LIGHT silver substrates (not dark mirrors) — spending banked
+verdicts on cosmetic saturation via a physically-wrong darkening would be exactly the
+sprawl the R0/R1 discipline forbids.
 
 ## Patterns not judged in this run — honest skip list
 

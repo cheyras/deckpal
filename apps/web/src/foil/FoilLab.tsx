@@ -905,6 +905,7 @@ export function FoilLab() {
           <Slider label="Color saturation" value={uniforms.uSat ?? 0.8} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uSat')} onChange={(v) => setU('uSat', v)} />
           <Slider label="Art gate (dark areas)" value={uniforms.uArtGate ?? 0} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uArtGate')} onChange={(v) => setU('uArtGate', v)} />
           <Slider label="Specular sheen" value={uniforms.uSpecular ?? 0.4} min={0} max={1.5} step={0.02} marked={overrideDiffKeys.includes('uSpecular')} onChange={(v) => setU('uSpecular', v)} />
+          <Slider label="Mirror darken (substrate)" value={uniforms.uDarken ?? 0} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uDarken')} onChange={(v) => setU('uDarken', v)} />
           {pattern.params.length > 0 && <div className="my-[8px] border-t border-border-default" />}
           {pattern.params.map((p) => (
             <Slider
