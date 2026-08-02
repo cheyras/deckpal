@@ -385,6 +385,47 @@ Full verdict table in `research/foil-verification.md` (R2b section). Distilled:
   When choosing corpus footage for future patterns, prefer a demo of a card that
   is IN the catalog.
 
+- **External ground truth outranks internal proofs (the R3 diagonal swap — read
+  this before dismissing ANY consistent external claim as hallucination).** Both
+  diagonal sheens rendered each other's slope for a full day of waves. Gemini
+  reported the mirrored slope THREE times; each report was dismissed via a
+  geometry proof (band normal provably renders "/"), and the dismissal was even
+  codified as "the documented slope-misID failure mode". The proof was sound but
+  proved the wrong thing: render-matches-code-comment, not slug-matches-reality —
+  the harvest had anchored the slope on a frame where the raw sheet was held
+  ROTATED in-hand. Chey's one look at the physical reference settled it. Rules
+  distilled: (1) an internal-consistency proof can never clear a claim about the
+  MAPPING to reality; (2) verify slope/orientation claims only on frames where
+  the sheet/card is upright, and cite the frame numbers in the code comment;
+  (3) a claim that stays CONSISTENT across re-rolls and rounds is signal — the
+  documented-hallucination label must be re-earned against ground truth each
+  time it is applied, or it becomes a self-sealing dismissal.
+- **The sheen family is a STREAK FIELD, not a grating (R3, Chey's canon-lab
+  critique).** Real sheen sheets read as individual finite streaks: irregular
+  spacing/width (per-cell hash + existence drop), per-streak lean that follows
+  tangential tilt with opposite bias per layer (crisscross; a streak shearing
+  out of its grating cell terminates — converging pairs "come to a point" for
+  free), stretched-ellipse envelopes along the band, and hue advancing ALONG
+  each strip as well as across (each strip its own rainbow). Keep uniform
+  semantics stable when swapping a generator's internals: same uP0×uScale mean
+  spacing, same drift/gain meanings — Chey's canons must carry over unchanged.
+- **Canon files are FULL uniform snapshots — a recipe-default change never
+  reaches a canon'd pattern.** If a rework needs a new default (e.g. uDarken for
+  legibility), migrate the canon value in-place and record it in DECISIONS;
+  otherwise the fix silently applies only to canon-less patterns.
+- **Bright-substrate legibility, third confirmation (striped/horizontal/
+  ex-starfoil R3):** saturated streaks over a bright scan are unrenderable
+  screen-only — add uDarken (0.2–0.35) and deepen color with pow on the hue
+  ramp; raw gain just clips to white through the fragment clamp.
+- **Low-frequency streak fields go blank without a fill variant.** At ~2 grating
+  cells on-card, existence drops + envelope taper leave whole tilt ranges empty
+  (a REAL judge nay, not noise). Scope the fix per-slug (fill option) so
+  passed patterns' GLSL stays byte-identical and their verdicts stay banked.
+- **Grouped-reveal windows must be sized in the pattern's own coordinate.** The
+  striped fan's on-card angular range is ±~0.10 rad; a window clamp of ±0.16
+  parked the lit group off-face at strong tilt. Derive window travel from the
+  visible coordinate range, not from the tilt range.
+
 ## Masks
 
 Patterns never mask themselves — `main()` applies the layout-tier mask (see
