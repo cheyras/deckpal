@@ -31,6 +31,15 @@ export interface MaskPrior {
   feather: number;
   /** Version of apps/web/src/foil/resolver.ts that produced this. */
   resolverVersion: number;
+  /**
+   * Optional provenance (foil/mask-refine): the hand-adjusted window geometry
+   * in effect when the mask was saved/flattened. The prior PNG + diff are
+   * ALWAYS rendered from `rect` (the deterministic rule output) so
+   * `diff.agreement` keeps scoring the rule against the human — this field
+   * only records the human's geometry correction. Absent on legacy sidecars
+   * and on saves with no adjusted window; readers must treat it as optional.
+   */
+  window?: { rect: [number, number, number, number]; radius: number };
 }
 
 export interface DiffStats {
@@ -149,14 +158,27 @@ export function parsePrior(raw: unknown): MaskPrior {
     if (!Number.isFinite(n)) throw new Error('prior has non-finite number');
     return n;
   };
+  const parseRect = (raw: unknown, what: string): [number, number, number, number] => {
+    if (!Array.isArray(raw) || raw.length !== 4) throw new Error(`${what} must be [x,y,w,h]`);
+    const rect = raw.map(num) as [number, number, number, number];
+    for (const v of rect) if (v < -0.5 || v > 1.5) throw new Error(`${what} out of range`);
+    return rect;
+  };
   const scope = String(p.scope);
   if (!['window', 'sheet', 'full', 'none'].includes(scope)) throw new Error('prior.scope invalid');
-  const rectRaw = p.rect;
-  if (!Array.isArray(rectRaw) || rectRaw.length !== 4) throw new Error('prior.rect must be [x,y,w,h]');
-  const rect = rectRaw.map(num) as [number, number, number, number];
-  for (const v of rect) if (v < -0.5 || v > 1.5) throw new Error('prior.rect out of range');
+  const rect = parseRect(p.rect, 'prior.rect');
   const eraId = String(p.eraId ?? '');
   if (!/^[a-z0-9-]{1,32}$/.test(eraId)) throw new Error('prior.eraId invalid');
+  // Optional adjusted-window provenance — absent stays absent (legacy saves);
+  // present-but-junk is a hard error, same discipline as the rest of the prior.
+  let window: MaskPrior['window'];
+  if (p.window !== undefined && p.window !== null) {
+    const w = p.window as Record<string, unknown>;
+    window = {
+      rect: parseRect(w.rect, 'prior.window.rect'),
+      radius: Math.min(Math.max(num(w.radius), 0), 0.5),
+    };
+  }
   return {
     source: 'layout',
     eraId,
@@ -166,6 +188,7 @@ export function parsePrior(raw: unknown): MaskPrior {
     invert: Boolean(p.invert),
     feather: Math.min(Math.max(num(p.feather), 0), 0.25),
     resolverVersion: Math.round(num(p.resolverVersion)),
+    ...(window ? { window } : {}),
   };
 }
 
