@@ -508,6 +508,14 @@ const SHEEN_PARAMS: PatternParam[] = [
   { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.0 },
 ]
 
+// R3-GLYPH (2026-08-03, Chey q1ay7h): "no rainbow Sheen anywhere, but on the
+// glyphs themselves, and the glyphs have a little bit of a noisy texture" —
+// the sheet between stamps is now a NEUTRAL silver sweep (hueRamp only paints
+// the stamps), and per-stamp fbm grain rides the stamp luminance (uP1, the
+// previously-unused slot). Glyph slot: he will provide the real emblem SVG —
+// research/foil-glyphs/reverse-sheet/glyph.svg replaces the procedural
+// ring+dot automatically (uGlyphOn); multiple files become a random-per-cell
+// stamp mix.
 const REVERSE_SHEET_GLSL = `
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x + tilt.y * 0.8;
@@ -515,16 +523,24 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   g.x += mod(floor(g.y), 2.0) * 0.5;   // stagger rows
   vec2 id = floor(g);
   vec2 f = fract(g) - 0.5;
-  float d = length(f);
-  float ring = smoothstep(0.335, 0.295, d) - smoothstep(0.235, 0.195, d);
-  float dotc = smoothstep(0.10, 0.05, d);
-  float emb = clamp(ring + dotc, 0.0, 1.0);
+  float emb;
+  if (uGlyphOn > 0.5) {
+    float idx = floor(hash21(id + 9.1) * uGlyphCount);
+    emb = glyphTex(idx, f / 0.92).a;   // p = f/k: rendered stamp size is 92% of the cell
+  } else {
+    float d = length(f);
+    float ring = smoothstep(0.335, 0.295, d) - smoothstep(0.235, 0.195, d);
+    float dotc = smoothstep(0.10, 0.05, d);
+    emb = clamp(ring + dotc, 0.0, 1.0);
+  }
+  // noisy stamp texture (q1ay7h) — grain lives ON the glyphs, never the sheet
+  float grain = mix(1.0, clamp(0.45 + 1.1 * fnoise(g * 14.0), 0.0, 1.4), uP1);
   float embHue = uHueShift + uHueSpread * (hash21(id) * 0.30 + uv.x * 0.35 + uv.y * 0.25 + 0.85 * sweep);
   float embLum = 0.45 + 0.55 * pow(max(0.0, cos(TAU * (hash21(id + 3.7) + sweep * 0.9))), 4.0);
-  // mirror sheet between stamps — smooth metallic sweep
+  // mirror sheet between stamps — NEUTRAL metallic sweep, no rainbow (q1ay7h)
   float sheetPh = uv.x * 0.55 + uv.y * 0.35 + sweep * 0.9;
-  vec3 sheet = hueRamp(uHueShift + uHueSpread * sheetPh) * (0.22 + 0.18 * pow(0.5 + 0.5 * cos(TAU * sheetPh), 2.0));
-  return sheet * uP2 + emb * hueRamp(embHue) * embLum * uP3;
+  float sheet = 0.16 + 0.14 * pow(0.5 + 0.5 * cos(TAU * sheetPh), 2.0);
+  return vec3(sheet) * uP2 + emb * grain * hueRamp(embHue) * embLum * uP3;
 }`
 
 const REVERSE_SHEET_DEFAULTS: CoreDefaults = {
@@ -539,7 +555,7 @@ const REVERSE_SHEET_DEFAULTS: CoreDefaults = {
 
 const REVERSE_SHEET_PARAMS: PatternParam[] = [
   { key: 'uP0', label: 'Stamp density', min: 3, max: 30, step: 0.5, default: 11 },
-  { key: 'uP1', label: '(unused)', min: 0, max: 1, step: 0.01, default: 0 },
+  { key: 'uP1', label: 'Glyph grain', min: 0, max: 1, step: 0.02, default: 0.6 },
   { key: 'uP2', label: 'Sheet gain', min: 0, max: 3, step: 0.05, default: 1.0 },
   { key: 'uP3', label: 'Stamp gain', min: 0, max: 3, step: 0.05, default: 1.2 },
 ]
@@ -657,6 +673,11 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 // hues over a dark-silver field with a faint connecting grid; clusters of
 // squares form the plus/cross motifs (low-freq co-selection); a rainbow
 // gradient flows diagonally across the line-work.
+// R3-GLYPH (2026-08-03, Chey 1ckdc2 + ulxj32): "the diamond shapes grow and
+// shrink in size with tilt" + "a touch of blur to them too" — each square's
+// ring size breathes on its own tilt phase (uP2 amplitude; the phase is the
+// same one driving its brightness, so a square swells as it lights), and the
+// ring edge is softened, softest when swollen (defocus read).
 const ACE_SPEC_GLSL = `
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x * 0.8 + tilt.y * 0.6;
@@ -677,9 +698,18 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
     // (0.52: the sheet is busier than the first render's sparse clusters)
     float on = step(0.52, vnoise(id * 0.55 + float(i) * 3.7) * 0.65 + rnd.x * 0.35);
     float b = max(abs(f.x), abs(f.y));
-    float ring = smoothstep(0.075, 0.03, abs(b - 0.33));
+    // per-square tilt phase drives brightness AND size together (1ckdc2)
+    float ph = 0.5 + 0.5 * cos(TAU * (rnd.x + sweep * uP1));
+    float size = 0.33 * (1.0 + uP2 * (ph - 0.5));
+    // touch of blur (ulxj32) — two-step: round 1 (w to 0.10) judged "far too
+    // thick and glowing", round 2 (w to 0.064) judged "perfectly sharp";
+    // settled in between — visibly soft, still thin
+    float w = 0.046 + 0.034 * ph;
+    float ring = smoothstep(w, w * 0.18, abs(b - size));
     float hue = uHueShift + uHueSpread * (rnd.y * 0.6 + 0.28 * (uv.x + uv.y) + 0.85 * sweep);
-    float lum = 0.30 + 0.70 * pow(0.5 + 0.5 * cos(TAU * (rnd.x + sweep * uP1)), 2.0);
+    // floor 0.22 (round 2): off-phase squares fade further so the lit
+    // clusters keep their cross-motif contrast
+    float lum = 0.22 + 0.78 * ph * ph;
     acc += on * ring * hueRamp(hue) * lum * ((i == 0) ? 1.0 : 0.85);
   }
   return acc * uP3;
@@ -687,8 +717,17 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 
 // #8 Energy symbols II — scattered energy-glyph field: procedural SDF glyphs
 // (crescent / flame / 4-point star / leaf) at varied size + rotation with
-// sparkle dots between them; glyphs are FIXED, a broad illumination sweet-spot
-// sweeps across while the whole field hue-rotates smoothly.
+// sparkle dots between them; glyphs are FIXED.
+// R3-GLYPH (2026-08-03, Chey pta96a): "the energy symbols aren't in a grid,
+// they're more sporadically placed … roughly half of them are hardly visible
+// at any given time" (and they swap, per his y853aj note on energy-symbols
+// which this one shares). Placement keeps the jittered/culled scatter; the
+// old broad sweet-spot + gentle pop is replaced by two interleaved BANKS with
+// random membership per glyph — one bank near-invisible while the other is
+// lit, swapping as tilt progresses (uP1 = swap rate; small per-glyph phase
+// jitter keeps the swap sporadic, not synchronized). Glyph slot: his real
+// icon SVGs (research/foil-glyphs/energy-symbols-ii/, falling back to the
+// energy-symbols atlas) replace the procedural SDFs automatically.
 const ENERGY_II_GLSL = `
 float esCircle(vec2 p, float r) { return smoothstep(r, r - 0.05, length(p)); }
 float esMoon(vec2 p) {
@@ -718,17 +757,26 @@ vec3 glyphLayer(vec2 uv, float scale, float seed, float sweep) {
   mat2 rot = mat2(cos(angb), -sin(angb), sin(angb), cos(angb));
   // per-glyph size jitter (~2-8% card width across the two layers)
   vec2 p = rot * (f - (rnd - 0.5) * 0.35) / (0.55 + 0.9 * fract(rnd.x * 7.7));
-  float kind = fract(rnd.y * 5.13);
-  float glyph = kind < 0.25 ? esMoon(p)
-              : kind < 0.50 ? esFlame(p)
-              : kind < 0.75 ? esStar(p)
-              : esLeaf(p);
-  // broad sweeping sweet-spot + gentle per-glyph pop (floors high: the
-  // reference field reads printed-bright everywhere, eyeball round 1)
-  float env = 0.45 + 0.55 * pow(0.5 + 0.5 * cos(PI * clamp(uv.x * 1.4 - 0.7 - sweep * 1.5, -1.0, 1.0)), 2.0);
-  float pop = 0.6 + 0.4 * pow(0.5 + 0.5 * cos(TAU * rnd.x + sweep * 2.4), 3.0);
+  float glyph;
+  if (uGlyphOn > 0.5) {
+    float idx = floor(fract(rnd.y * 5.13) * uGlyphCount);
+    glyph = glyphTex(idx, p).a;
+  } else {
+    float kind = fract(rnd.y * 5.13);
+    glyph = kind < 0.25 ? esMoon(p)
+          : kind < 0.50 ? esFlame(p)
+          : kind < 0.75 ? esStar(p)
+          : esLeaf(p);
+  }
+  // two interleaved visibility banks (pta96a): random membership, one bank
+  // near-invisible while the other is lit; banks SWAP as tilt progresses,
+  // per-glyph phase jitter keeps the handoff sporadic
+  float bank = step(0.5, hash21(id + seed + 4.2));
+  float ph = TAU * sweep * uP1 * 0.45 + PI * bank + (rnd.x - 0.5) * 1.3;
+  float vis = 0.5 + 0.5 * cos(ph);
+  float lum = 0.06 + 0.94 * pow(vis, 2.6);
   float hue = uHueShift + uHueSpread * (rnd.y + 0.25 * (uv.x + uv.y) + 0.9 * sweep);
-  return exists * glyph * env * pop * hueRamp(hue);
+  return exists * glyph * lum * hueRamp(hue);
 }
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x + tilt.y * 0.6;
@@ -899,13 +947,14 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 // Prismatic Evolutions reverse) is a DARK MIRROR at most angles — pale
 // silver-gray body, mosaic near-invisible — with a broad rainbow flash lobe
 // sweeping through as the card tilts; inside the lobe the polygon facets read
-// as discrete flat mirrors at slightly different hues, and the big Poké Ball
-// watermark reads DARKER than its surround (it is ink/texture OVERPRINTED on
-// the foil — it absorbs, color-shifting in tandem with the mosaic). All three
-// reads were unrenderable under screen-only blending over the near-white card
-// body; uDarken (defaults) carries the dark-mirror base, the lobe carries the
-// flash, and the watermark is a SUPPRESSION of the additive layer, not an
-// added plate.
+// as discrete flat mirrors at slightly different hues. The mosaic + dark body
+// were unrenderable under screen-only blending over the near-white card body;
+// uDarken (defaults) carries the dark-mirror base, the lobe carries the flash.
+// The big Poké Ball watermark: the R2 build modeled it as ink-overprint
+// SUPPRESSION (darker inside the flash) — Chey's hjwcss comment overruled
+// that from the physical card: "the ball shouldn't darken, it just catches
+// light differently". R3-GLYPH models it as a light-RESPONSE region: same
+// facet field, phase-offset flash lobe + shifted hue inside the ball.
 const PRISMATIC_POKEBALL_GLSL = `
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x + tilt.y * 0.8;
@@ -939,18 +988,59 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   vec3 base = fcol * (0.05 + 0.45 * lobe + 0.85 * glint) + edge * fcol * (0.10 + 0.45 * glint);
   // faint metallic floor so the dark mirror reads silver, not void
   base += vec3(0.055) * (1.0 - lobe);
-  // Poké Ball watermark = ink OVERPRINT above the foil: it ABSORBS — a
-  // filled silhouette (disc + belt + button ring) that suppresses the
-  // additive layer, so it reads darker inside the flash and vanishes with
-  // the mirror at dark angles, hue-shifting in tandem with its surround.
+  // Poké Ball watermark, R3-GLYPH rework (Chey hjwcss): "the ball shouldn't
+  // darken, it just catches light differently" — the R2 overprint SUPPRESSION
+  // is gone. Inside the ball the SAME facet field answers a phase-offset
+  // flash lobe with a shifted hue: the ball flashes at different tilt angles
+  // than its surround (visible as a hue/timing discontinuity, never a
+  // luminance subtraction — equal brightness model inside and out). Interior
+  // detail (belt/button procedurally, or the glyph's own shading when his
+  // real ball SVG lands in research/foil-glyphs/prismatic-pokeball/) offsets
+  // the phase further so the ball's structure reads through light response.
   vec2 bp = (uv - vec2(0.5, uP1)) * vec2(1.0, CARD_ASPECT);
-  float d2 = length(bp);
   float rball = 0.33;
-  float disc = smoothstep(rball + 0.012, rball - 0.012, d2);
-  float belt = smoothstep(0.055, 0.030, abs(bp.y)) * disc;
-  float ring = smoothstep(0.015, 0.006, abs(d2 - 0.105)) * disc;
-  float suppress = 1.0 - disc * 0.35 - max(belt, ring) * 0.30;
-  base *= clamp(suppress, 0.25, 1.0);
+  float cover; float detail;
+  if (uGlyphOn > 0.5) {
+    vec4 gt = glyphTex(0.0, bp / (2.2 * rball));
+    cover = gt.a;
+    detail = dot(gt.rgb, vec3(0.299, 0.587, 0.114)); // glyph shading = response detail
+  } else {
+    float d2 = length(bp);
+    cover = smoothstep(rball + 0.012, rball - 0.012, d2);
+    float belt = smoothstep(0.055, 0.030, abs(bp.y)) * cover;
+    float ring = smoothstep(0.015, 0.006, abs(d2 - 0.105)) * cover;
+    detail = max(belt, ring);
+  }
+  // the ball BODY shares the surround's exact flash envelope (zero phase
+  // offset — eyeball rounds 1-2: any body-level offset displaces the band and
+  // re-creates the darkening he vetoed at the band edges); "catches light
+  // differently" is carried by a hue shift + a crunchier facet quantization,
+  // and only the interior DETAIL (belt/button, or his glyph's shading) leads
+  // the phase slightly so the ball's structure shimmers through the flash.
+  float ph2 = ph + detail * 0.12;
+  float lobe2 = pow(max(0.0, cos(PI * clamp(ph2, -1.0, 1.0))), 2.0);
+  float glint2 = smoothstep(0.18, 0.72, lobe2 + (rnd.x - 0.5) * 0.35);
+  // small hue lean + a WHITE mix: a big hue offset (0.12, rounds 2-3) lands
+  // yellow->magenta, and a saturated magenta can never reach yellow's
+  // luminance through the screen-blend clamp — it perceptually darkens no
+  // matter how it is luminance-"matched". The physical watermark is a
+  // smoother varnish: its response is PALER/shinier, so mix toward white
+  // (whiteness with color, the shiny-vault lesson), never darker.
+  vec3 fcol2 = mix(pow(hueRamp(hue + 0.05 + detail * 0.08), vec3(1.3)), vec3(1.0), 0.24 + 0.10 * detail);
+  vec3 ballBase = fcol2 * (0.05 + 0.45 * lobe2 + 0.85 * glint2) + edge * fcol2 * (0.10 + 0.45 * glint2);
+  ballBase += vec3(0.055) * (1.0 - lobe2);
+  base = mix(base, ballBase, cover);
+  // round 3 ("ball too faint, needs to catch light distinctly WITHOUT
+  // darkening"): the ball is a smoother plane than the facet mosaic, so its
+  // own flash is COHERENT — a unified bright plane flash riding slightly
+  // behind the mosaic lobe, purely additive (can only brighten), with the
+  // belt/button detail popping hardest inside it. The solid filled ball
+  // reads exactly during this flash and blends back into the mosaic outside.
+  float planeFlash = pow(max(0.0, cos(PI * clamp(ph + 0.30, -1.0, 1.0))), 6.0);
+  // 0.42/0.10 (eyeball): at 0.75/0.28 the flash clipped to a structureless
+  // white blob — the coherent flash should read as a pale unified plane with
+  // the belt/button still legible through it
+  base += cover * planeFlash * (fcol2 * 0.42 + vec3(0.10)) * (1.0 + 0.45 * detail);
   return base * uP3;
 }`
 
@@ -1309,6 +1399,15 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 // #7 Energy symbols — the first bespoke Pokémon pattern (Hidden Legends):
 // uniform-size energy glyphs in a near-grid over DARK unreflective gaps; a
 // strong left-to-right hue progression sweeps across the fixed symbols.
+// R3-GLYPH (2026-08-03, Chey y853aj): "every other glyph in like a
+// checkerboard pattern — one will be brighter than the next, the next one
+// almost invisible, and as the invisible ones become visible, the ones that
+// were visible before become almost invisible" — the old broad env + gentle
+// per-glyph pop is replaced by a strict cell-parity CHECKERBOARD phase: the
+// two banks alternate bright/near-invisible and SWAP as tilt progresses
+// (uP1 = swap rate, uP2 = the near-invisible floor). Glyph slot: his real
+// 9-icon set (research/foil-glyphs/energy-symbols/glyph-1..9.svg) replaces
+// the stylized SDFs automatically — the atlas the R2 wave deferred.
 const ENERGY_I_GLSL = `
 float e1Circle(vec2 p, float r) { return smoothstep(r, r - 0.07, length(p)); }
 float e1Moon(vec2 p) {
@@ -1344,18 +1443,31 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   // factor — which SHRINKS the rendered glyph (p = f/k ⇒ size ∝ k). The
   // judge's "3-4x too small" was geometric truth. k = 1.25 fills the cell.
   vec2 p = (f - (rnd - 0.5) * 0.10) / 1.25;
-  float kind = fract(rnd.y * 4.77);
-  // star boosted 1.6x: thin arms otherwise read dimmer than the filled glyphs
-  float glyph = kind < 0.2 ? e1Moon(p)
-              : kind < 0.4 ? e1Flame(p)
-              : kind < 0.6 ? clamp(e1Star(p) * 1.6, 0.0, 1.0)
-              : kind < 0.8 ? e1Fist(p)
-              : e1Leaf(p);
+  float glyph;
+  if (uGlyphOn > 0.5) {
+    float idx = floor(fract(rnd.y * 4.77) * uGlyphCount);
+    glyph = glyphTex(idx, p).a;
+  } else {
+    float kind = fract(rnd.y * 4.77);
+    // star boosted 1.6x: thin arms otherwise read dimmer than the filled glyphs
+    glyph = kind < 0.2 ? e1Moon(p)
+          : kind < 0.4 ? e1Flame(p)
+          : kind < 0.6 ? clamp(e1Star(p) * 1.6, 0.0, 1.0)
+          : kind < 0.8 ? e1Fist(p)
+          : e1Leaf(p);
+  }
   // strong spatial hue progression + sweep travel (verified on the frames)
   float hue = uHueShift + uHueSpread * (uv.x * 0.9 + 0.25 * uv.y + 0.85 * sweep);
-  float env = uP2 + (1.0 - uP2) * pow(0.5 + 0.5 * cos(PI * clamp(uv.x * 1.6 - 0.8 - sweep * uP1, -1.0, 1.0)), 2.0);
-  float pop = 0.55 + 0.45 * pow(0.5 + 0.5 * cos(TAU * rnd.y + sweep * 2.0), 4.0);
-  return exists * glyph * hueRamp(hue) * env * pop * uP3;
+  // checkerboard visibility (y853aj): cell parity splits the grid into two
+  // banks; one bright while the other sits at the uP2 floor, swapping as the
+  // tilt phase advances. Round 3: SQUARE-wave banks (smoothstep on the cosine
+  // sign) so the on/off contrast holds at every tilt instead of washing out
+  // mid-phase, plus a white lift riding the lit bank — dark-hued lit glyphs
+  // (blue/olive on the ramp) otherwise read as dim and blur the checkerboard.
+  float parity = mod(id.x + id.y, 2.0);
+  float sq = smoothstep(-0.3, 0.3, cos(TAU * sweep * uP1 * 0.5 + PI * parity));
+  float lum = uP2 + (1.0 - uP2) * sq;
+  return exists * glyph * (hueRamp(hue) * lum + vec3(0.28) * sq) * uP3;
 }`
 
 // #10 Pinwheel — strict square grid; each cell a pinwheel of radial wedges
@@ -1534,8 +1646,8 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 
 // #32 Radiant Collection dots — NOT a unique foil (the video's layer-decomp
 // worked example): a shiny dot OVERPRINT sits ABOVE the ink (dots visible over
-// everything, dull gray when unlit), while the white-ink shape windows flash
-// together as one flat mirror. Dots snap like glitter; no hue-band travel.
+// everything, dull gray when unlit), while the white-ink shape windows catch a
+// traveling rainbow band (R3-GLYPH, Chey xbvqk2). Dots snap like glitter.
 const RC_DOTS_GLSL = `
 vec3 rcDots(vec2 uv, float scale, float seed, float sweep, float snap) {
   vec2 g = uv * vec2(1.0, CARD_ASPECT) * scale;
@@ -1544,17 +1656,20 @@ vec3 rcDots(vec2 uv, float scale, float seed, float sweep, float snap) {
   vec2 rnd = hash22(id + seed);
   float exists = step(rnd.x, 0.42);
   vec2 sp = f - (rnd - 0.5) * 0.55;
-  float r = 0.16 + 0.14 * fract(rnd.y * 5.3);
-  float dotm = smoothstep(r, r * 0.55, length(sp));
+  // r3g round 2 ("solid opaque white circles" — consistent styling residual
+  // since R2): smaller radii + more chroma + a sub-clip peak so a lit dot
+  // reads as a colored glint, not a white sticker dot
+  float r = 0.12 + 0.11 * fract(rnd.y * 5.3);
+  float dotm = smoothstep(r, r * 0.5, length(sp));
   // glitter snap — window wide enough that MANY dots ride lit at once
   // (eyeball round 1: pow 22 + tiny radii read as sparse night-sky specks;
   // the reference face carries a dense population of visible glints)
   float on = pow(max(0.0, cos(TAU * (rnd.y * 3.7 + sweep * snap))), 9.0);
-  vec3 col = mix(vec3(1.0), hueRamp(uHueShift + rnd.x * uHueSpread), 0.30);
-  return exists * dotm * (vec3(0.10) + col * on * 1.5);
+  vec3 col = mix(vec3(1.0), hueRamp(uHueShift + rnd.x * uHueSpread), 0.55);
+  return exists * dotm * (vec3(0.10) + col * on * 1.15);
 }
 // the white-ink shape windows: scattered star / heart-ish / bolt-ish glyphs
-// exposing the mirror beneath — they flash together as ONE flat plane
+// exposing the mirror beneath — lit by the traveling rainbow band (xbvqk2)
 float rcStar(vec2 p) {
   float a = pow(max(0.0, 1.0 - abs(p.x) * 3.0), 2.0) * pow(max(0.0, 1.0 - abs(p.y) * 7.0), 2.0);
   float b = pow(max(0.0, 1.0 - abs(p.y) * 3.0), 2.0) * pow(max(0.0, 1.0 - abs(p.x) * 7.0), 2.0);
@@ -1565,11 +1680,24 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   vec3 acc = rcDots(uv, 34.0 * uP0 * uScale, 3.0, sweep, uP1)
            + rcDots(uv, 58.0 * uP0 * uScale, 11.0, sweep + 0.4, uP1) * 0.8;
   // shape-window layer (rounds 2-3 — verdict: "missing the white-ink shape
-  // windows"): star + disc glyphs, ALL flashing in the same window (they are
-  // one mirror plane), dull mirror-gray otherwise. Round 3: grid 11 → 6.5 —
-  // at 11 the glyphs were dot-sized and vanished into the dot field; the
-  // reference windows are ~1/12 card width, clearly bigger than the dots.
-  float flash = pow(max(0.0, 1.0 - abs(tilt.x * 0.9 + tilt.y * 0.6 - 0.15)), 5.0);
+  // windows"): star + disc glyphs. Round 3: grid 11 → 6.5 — at 11 the glyphs
+  // were dot-sized and vanished into the dot field; the reference windows are
+  // ~1/12 card width, clearly bigger than the dots.
+  // R3-GLYPH (2026-08-03, Chey xbvqk2): "these shapes should catch a band of
+  // rainbow light, just visible where the band hits the shapes — they
+  // shouldn't just be white" — the old all-at-once white flash is replaced by
+  // a traveling RAINBOW BAND evaluated per-pixel: a shape lights only where
+  // the band crosses it (a band edge lights half a star), colored by where in
+  // the band it sits; off-band the shapes stay dull mirror-gray.
+  float bandPh = (uv.x * 0.8 + uv.y * 0.5 - 0.65) - (tilt.x * 0.7 + tilt.y * 0.5);
+  // width 2.0 / pow 2 (round 3): at 3.2/pow3 the band was so narrow that
+  // most sweep frames lit almost NO shapes — the blank-card check read as
+  // "plain white/silver windows"; the band should visit generously while
+  // staying a band
+  float bandEnv = pow(max(0.0, cos(PI * clamp(bandPh * 2.0, -1.0, 1.0))), 2.0);
+  // pow-deepened band color (bright-substrate legibility rule): screen-blend
+  // over the busy RC art washes an un-deepened ramp to pastel
+  vec3 bandCol = pow(hueRamp(uHueShift + uHueSpread * (bandPh * 2.4 + 0.5)), vec3(1.35));
   vec2 g = uv * vec2(1.0, CARD_ASPECT) * 6.5 * uScale;
   vec2 id = floor(g);
   vec2 f = fract(g) - 0.5;
@@ -1579,7 +1707,7 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   float glyph = (fract(rnd.y * 3.9) < 0.6)
     ? rcStar(sp * (1.1 + 0.6 * rnd.y))
     : smoothstep(0.14, 0.08, length(sp));
-  acc += exists * glyph * vec3(1.0, 0.99, 0.96) * (0.07 + flash * 1.7) * uP2;
+  acc += exists * glyph * (vec3(0.07) + bandCol * bandEnv * 1.7) * uP2;
   return acc * uP3;
 }`
 
@@ -2074,10 +2202,10 @@ export const PATTERNS: FoilPattern[] = [
     implemented: false,
     approxVia: 'Cracked Ice',
   },
-  // #7 — real recipe 2026-08-02 (R2): uniform-size glyph grid, dark gaps,
-  // left-to-right hue progression. Honest residual: glyphs are stylized SDFs
-  // (moon/flame/star/fist/leaf), not the true 9-icon set (atlas = contract
-  // change, same deferral as energy-symbols-ii).
+  // #7 — real recipe 2026-08-02 (R2); R3-GLYPH 2026-08-03 (Chey y853aj):
+  // checkerboard bright/near-invisible glyph banks that swap with tilt.
+  // Glyph slot: research/foil-glyphs/energy-symbols/ (his real 9-icon set —
+  // the atlas the R2 wave deferred) replaces the stylized SDFs when dropped.
   {
     id: 'energy-symbols',
     label: 'Energy symbols',
@@ -2091,15 +2219,22 @@ export const PATTERNS: FoilPattern[] = [
     defaults: { uIntensity: 1.0, uScale: 1.0, uHueShift: 0.15, uHueSpread: 0.7, uSat: 1.0, uArtGate: 0.15, uSpecular: 0.25, uDarken: 0.35 },
     params: [
       { key: 'uP0', label: 'Symbol density', min: 6, max: 22, step: 0.5, default: 10 },
-      { key: 'uP1', label: 'Sweep rate', min: 0.2, max: 4, step: 0.05, default: 1.4 },
-      { key: 'uP2', label: 'Light floor', min: 0, max: 1, step: 0.02, default: 0.3 },
+      // 0.8 (round 2): at 1.4 the checkerboard cycles ~1.7x across a full
+      // tilt sweep — sampled frames alias into "random variation"; 0.8 gives
+      // ONE clean bank swap edge-to-edge
+      { key: 'uP1', label: 'Swap rate', min: 0.2, max: 4, step: 0.05, default: 0.8 },
+      // 0.07 (R3-GLYPH): the off-bank is "almost invisible" (y853aj) — the old
+      // 0.3 floor kept every glyph clearly lit
+      { key: 'uP2', label: 'Faint floor', min: 0, max: 1, step: 0.02, default: 0.07 },
       { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.8 },
     ],
     implemented: true,
   },
-  // #8 — real recipe 2026-08-02 (R1): procedural SDF glyph field. Honest
-  // residual: glyphs are stylized crescent/flame/star/leaf SDFs, not the
-  // exact 9-type energy icon set (a true icon atlas is a contract change).
+  // #8 — real recipe 2026-08-02 (R1); R3-GLYPH 2026-08-03 (Chey pta96a):
+  // sporadic placement kept, visibility now two random-membership banks —
+  // roughly half hardly visible at any time, swapping with tilt. Glyph slot:
+  // research/foil-glyphs/energy-symbols-ii/ (falls back to the shared
+  // energy-symbols atlas) replaces the stylized SDFs when dropped.
   {
     id: 'energy-symbols-ii',
     label: 'Energy symbols II',
@@ -2109,7 +2244,7 @@ export const PATTERNS: FoilPattern[] = [
     defaults: { uIntensity: 1.0, uScale: 1.0, uHueShift: 0.3, uHueSpread: 0.7, uSat: 0.9, uArtGate: 0.35, uSpecular: 0.3 },
     params: [
       { key: 'uP0', label: 'Glyph density', min: 1, max: 6, step: 0.1, default: 2.6 },
-      { key: 'uP1', label: 'Twinkle rate', min: 0.2, max: 4, step: 0.05, default: 1.4 },
+      { key: 'uP1', label: 'Swap rate', min: 0.2, max: 4, step: 0.05, default: 1.4 },
       { key: 'uP2', label: 'Dot gain', min: 0, max: 3, step: 0.05, default: 1.1 },
       { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.6 },
     ],
@@ -2359,7 +2494,8 @@ export const PATTERNS: FoilPattern[] = [
     ],
     implemented: true,
   },
-  // #29 — real recipe 2026-08-02 (R1): 45° square-ring lattice w/ cross motifs.
+  // #29 — real recipe 2026-08-02 (R1); R3-GLYPH 2026-08-03 (Chey 1ckdc2 +
+  // ulxj32): diamonds grow/shrink with tilt (uP2 size pulse) + soft edges.
   {
     id: 'ace-spec',
     label: 'Ace spec (SV)',
@@ -2370,7 +2506,8 @@ export const PATTERNS: FoilPattern[] = [
     params: [
       { key: 'uP0', label: 'Grid density', min: 4, max: 18, step: 0.5, default: 9 },
       { key: 'uP1', label: 'Cycle rate', min: 0.2, max: 4, step: 0.05, default: 1.3 },
-      { key: 'uP2', label: '(unused)', min: 0, max: 1, step: 0.01, default: 0 },
+      // ±size swing on each square's own tilt phase (1ckdc2); 0.5 = ±25%
+      { key: 'uP2', label: 'Size pulse', min: 0, max: 1, step: 0.02, default: 0.5 },
       { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.1 },
     ],
     implemented: true,
@@ -2393,12 +2530,16 @@ export const PATTERNS: FoilPattern[] = [
     implemented: true,
   },
   // #31 — real recipe 2026-08-02 (R1); rebuilt same day on the R2 blend-model
-  // term (dark mirror base via uDarken + facet-quantized flash lobe + ball
-  // watermark as ink-overprint SUPPRESSION, per the video's layer diagram).
+  // term (dark mirror base via uDarken + facet-quantized flash lobe).
+  // R3-GLYPH 2026-08-03 (Chey hjwcss): the ball watermark no longer darkens —
+  // it "catches light differently" (phase-offset flash + shifted hue inside
+  // the ball, equal-brightness model). Glyph slot: his better ball SVG at
+  // research/foil-glyphs/prismatic-pokeball/glyph.svg replaces the hand-rolled
+  // disc/belt/ring silhouette automatically.
   {
     id: 'prismatic-pokeball',
     label: 'Prismatic pokeball',
-    taxonomy: 'Polygon mosaic + ball watermark OVER rainbow-mirror (overprint)',
+    taxonomy: 'Polygon mosaic + ball watermark catching light differently over rainbow-mirror',
     usedOn: 'Prismatic Evolutions poke-ball reverses.',
     glsl: PRISMATIC_POKEBALL_GLSL,
     // uDarken 0.5: the reference body is a pale-to-dark gray mirror at most
@@ -2424,7 +2565,10 @@ export const PATTERNS: FoilPattern[] = [
     ],
     implemented: true,
   },
-  // #32 — real recipe 2026-08-02 (R2): dot overprint + window flash.
+  // #32 — real recipe 2026-08-02 (R2): dot overprint + shape windows.
+  // R3-GLYPH 2026-08-03 (Chey xbvqk2): the shape windows catch a traveling
+  // RAINBOW BAND (lit only where the band crosses them), not a uniform white
+  // flash — this was the standing R2 nay's real fix, named by his note.
   {
     id: 'radiant-collection-dots',
     label: 'Radiant Collection dots',
