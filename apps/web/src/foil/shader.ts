@@ -31,6 +31,24 @@
 //                             (Chey, 2026-08-03, modern reverse holos). Neutral
 //                             over silver/white, so blank-card canon renders
 //                             are unaffected at any value.
+//     uInkGuard    float      ink protection (R4-COMPOSITE 2026-08-03; 0 =
+//                             exact legacy composite, default 1): scales the
+//                             ink-density estimates (inkDark: darker than the
+//                             LOCAL field average — text/linework; inkColor:
+//                             scan chroma — saturated print). Dense ink sits
+//                             ON TOP of the foil layer, so it (a) blocks the
+//                             flash + specular (text never screen-lifts into
+//                             illegibility) and (b) is exempt from the uDarken
+//                             substrate attenuation (ink diffuses normally —
+//                             printed color is never muted). Both estimates
+//                             are exactly 0 on any flat blank base, so canon-
+//                             lab renders are untouched at ANY value.
+//     uInkPop      float      metallic chroma pop (R4-COMPOSITE; 0 = legacy):
+//                             over colored ink the flash also pumps the ink's
+//                             own chroma, so colors read MORE saturated and
+//                             metallic under the flash instead of washing
+//                             toward white. Rides the inkColor estimate, so
+//                             inert on blank/neutral bases and at uInkGuard 0.
 //   Mask (layout-driven coarse tier; from era-layouts.json via resolver)
 //     uMaskRect    vec4       x,y,w,h in UV (y UP — converted from layout data)
 //     uMaskRadius  float      rect corner radius (UV of width)
@@ -56,13 +74,23 @@
 //                             per-card burst origin; old canon snapshots
 //                             simply lack the keys and inherit code defaults)
 //
-// Blend model: body = scan * (1 - uDarken * mask * gate) — the substrate seen
-// through the mirror layer — then foil = foilPattern(uv, tilt) * mask * gate *
-// uIntensity, multiplied by the ink tint (uTint: luminance-normalized scan
-// chroma squared — the double ink pass of a real mirror reflection) and
-// screen-blended over it, plus a shared specular sweep (also ink-tinted within
-// the mask). uDarken and uTint default to 0, which reproduces the original
-// screen-only model exactly. Card corners are rounded via a rounded-rect SDF.
+// Blend model (R4-COMPOSITE): the core invariant is that foil ADDS pop — it
+// must never lift dark ink into illegibility nor mute printed color. main()
+// estimates ink density from the scan (inkDark = relative darkness vs an
+// 8-tap local field average; inkColor = chroma), then:
+//   body  = scan * (1 - uDarken * mask * gate * (1 - ink))   — substrate
+//           darkening lives on the LOW-INK field only
+//   foil  = foilPattern * uIntensity * mask * gate * (1 - inkDark)
+//           tinted by mix(1, tint², max(uTint, inkColor) * mask * gate) where
+//           tint = luminance-normalized scan chroma (double ink pass), then
+//           screen-blended over body
+//   pop   = + (scan - lum) * uInkPop * inkColor * flashLum  — flash saturates
+//           colored ink instead of washing it
+//   spec  = shared specular sweep, shielded by inkDark and ink-tinted
+// uDarken/uTint/uInkGuard/uInkPop at 0 reproduce the original screen-only
+// model exactly; both ink estimates are exactly 0 on flat blank bases, so the
+// canon lab is untouched at any knob value. Card corners are rounded via a
+// rounded-rect SDF.
 
 import * as THREE from 'three'
 import type { FoilPattern } from './patterns'
@@ -80,6 +108,8 @@ export const GLOBAL_DEFAULTS = {
   uSpecular: 0.4,
   uDarken: 0.0,
   uTint: 0.0,
+  uInkGuard: 1.0,
+  uInkPop: 0.5,
 } as const
 
 export type CoreUniform = keyof typeof GLOBAL_DEFAULTS
@@ -113,6 +143,8 @@ uniform float uArtGate;
 uniform float uSpecular;
 uniform float uDarken;
 uniform float uTint;
+uniform float uInkGuard;
+uniform float uInkPop;
 uniform vec4 uMaskRect;
 uniform float uMaskRadius;
 uniform float uMaskFeather;
@@ -217,27 +249,71 @@ void main() {
   // printed ink stays readable. uArtGate = 0 disables (reverse sheets are light).
   float faceLum = dot(face.rgb, vec3(0.299, 0.587, 0.114));
   float gate = mix(1.0, smoothstep(0.82, 0.22, faceLum), uArtGate);
+  // ── Ink-density estimate (R4-COMPOSITE 2026-08-03, Chey 7rtnzx + 19mo4l) ──
+  // On a real card the printed ink sits ON TOP of / interleaved with the foil
+  // layer: ink-dense pixels show the foil weakly and keep their own diffuse
+  // color; the mirror/flash owns only the low-ink field. Two estimates, both
+  // EXACTLY zero on any flat blank base (the canon lab's tones — including the
+  // dark and slightly-tinted grays — measure 0 by construction):
+  //   inkDark  — darker than the LOCAL 8-tap field average (text, linework,
+  //              dark art detail). Relative: flat tone ⇒ avg == face ⇒ 0.
+  //   inkColor — saturated printed color. Absolute chroma with a 0.12 floor
+  //              (the lab's tinted grays peak at ~0.06).
+  // uInkGuard scales both; 0 = the exact legacy composite.
+  vec3 nb;
+  {
+    vec2 r1 = vec2(0.011, 0.011 / CARD_ASPECT);           // inner ring (diagonals)
+    vec2 r2 = vec2(0.028, 0.028 / CARD_ASPECT);           // outer ring (cross)
+    nb  = texture2D(uFace, uv + r1).rgb + texture2D(uFace, uv - r1).rgb
+        + texture2D(uFace, uv + vec2(r1.x, -r1.y)).rgb + texture2D(uFace, uv - vec2(r1.x, -r1.y)).rgb;
+    nb += texture2D(uFace, uv + vec2(r2.x, 0.0)).rgb + texture2D(uFace, uv - vec2(r2.x, 0.0)).rgb
+        + texture2D(uFace, uv + vec2(0.0, r2.y)).rgb + texture2D(uFace, uv - vec2(0.0, r2.y)).rgb;
+    nb *= 0.125;
+  }
+  float nbLum = dot(nb, vec3(0.299, 0.587, 0.114));
+  float chroma = max(face.r, max(face.g, face.b)) - min(face.r, min(face.g, face.b));
+  float inkDark = uInkGuard * smoothstep(0.045, 0.30, nbLum - faceLum);
+  float inkColor = uInkGuard * smoothstep(0.12, 0.55, chroma) * (1.0 - inkDark);
+  float inkBody = clamp(inkDark + 0.85 * inkColor, 0.0, 1.0);
   // Mirror-substrate darkening (uDarken, default 0 = exact legacy render):
   // real mirror foil is DARK at most angles — the layer reflects the (mostly
   // dark) environment instead of diffusing light, so the printed body seen
   // through the foil is attenuated across the SAME coverage field (m * gate)
-  // the additive layer uses. The pattern's flash screen-blends back on top.
-  vec3 body = face.rgb * (1.0 - uDarken * m * gate);
-  vec3 foil = foilPattern(uv, uTilt) * uIntensity * m * gate;
+  // the additive layer uses. R4: attenuation lives on the LOW-INK field only —
+  // ink on top of the mirror diffuses normally, so printed color and text are
+  // never muted by the substrate (Chey 19mo4l: "holofoils add pop, they
+  // shouldn't ever diminish the colors of the actual ink").
+  vec3 body = face.rgb * (1.0 - uDarken * m * gate * (1.0 - inkBody));
+  // Foil flash: dark ink blocks it — screen-blending a bright flash over dark
+  // text lifts it toward illegibility (Chey 7rtnzx: mirror "blows out the
+  // darks/text"). Colored ink transmits it, tinted below.
+  vec3 foil = foilPattern(uv, uTilt) * uIntensity * m * gate * (1.0 - inkDark);
   // Metallic ink tint (uTint, default 0 = exact legacy render): a mirror
   // foil's flash crosses the printed ink twice, so over colored art it takes
   // the ink's OWN color — screen-blending achromatic light instead compresses
   // chroma and reads dull/grayish (Chey, 2026-08-03, modern reverses). The
   // tint is the luminance-normalized scan chroma, squared for the double
   // pass; it is neutral (1,1,1) over silver/white, so blank-card canon-lab
-  // appearance is untouched at ANY uTint. Applied over the same coverage
+  // appearance is untouched at ANY uTint. R4 generalizes the strength to
+  // max(uTint, inkColor): saturated print always colors its own flash, even
+  // in recipes that never opted into uTint. Applied over the same coverage
   // field (m * gate) as the foil layer, and to the shared specular within
   // the mask so the gloss goes art-metallic too instead of washing white.
   vec3 tint = face.rgb / max(faceLum, 0.06);
   tint /= max(max(tint.r, max(tint.g, tint.b)), 1.0); // chroma direction only, no gain
-  vec3 inkTint = mix(vec3(1.0), tint * tint, uTint * m * gate);
-  vec3 col = screenBlend(body, clamp(foil, 0.0, 1.0) * inkTint);
-  col += uSpecular * sheen(uv, uTilt) * (0.12 + 0.88 * m) * mix(vec3(1.0), tint * tint, uTint * m);
+  vec3 inkTint = mix(vec3(1.0), tint * tint, max(uTint, inkColor) * m * gate);
+  vec3 flash = clamp(foil, 0.0, 1.0) * inkTint;
+  vec3 col = screenBlend(body, flash);
+  // Metallic chroma pop (uInkPop): over colored ink the flash also pumps the
+  // ink's own chroma — background colors read MORE saturated and metallic
+  // under the flash, never washed out (the R4 invariant, both comments).
+  float flashLum = dot(flash, vec3(0.299, 0.587, 0.114));
+  col += (face.rgb - vec3(faceLum)) * (uInkPop * 1.25 * inkColor * flashLum);
+  // Shared specular: shielded by dark ink (text stays crisp at every tilt
+  // angle — a white sweep over a text box was the other half of 7rtnzx) and
+  // ink-tinted like the flash.
+  col += uSpecular * sheen(uv, uTilt) * (0.12 + 0.88 * m) * (1.0 - 0.85 * inkDark)
+       * mix(vec3(1.0), tint * tint, max(uTint, inkColor) * m);
   if (uMaskView > 0.5) col = mix(col, vec3(1.0, 0.15, 0.2), 0.40 * m);
   gl_FragColor = vec4(col, a);
 }
@@ -277,6 +353,8 @@ export function buildFoilMaterial(pattern: FoilPattern): THREE.ShaderMaterial {
     uSpecular: { value: GLOBAL_DEFAULTS.uSpecular },
     uDarken: { value: GLOBAL_DEFAULTS.uDarken },
     uTint: { value: GLOBAL_DEFAULTS.uTint },
+    uInkGuard: { value: GLOBAL_DEFAULTS.uInkGuard },
+    uInkPop: { value: GLOBAL_DEFAULTS.uInkPop },
     uMaskRect: { value: new THREE.Vector4(0, 0, 1, 1) },
     uMaskRadius: { value: 0.01 },
     uMaskFeather: { value: 0.008 },
