@@ -46,8 +46,13 @@ data/foil-masks/<cardId>/<variantId>.json       # sidecar v2
 Sidecar v2 fields: `version: 2`, ids, `artworkKey` (= cardId, see below), dims,
 `channel: "alpha"`, `derivation_method: "hand"`, `savedAt`, `prior { source: "layout",
 eraId, scope, rect (UV y-up, maskForScope output), radius, invert, feather,
-resolverVersion }`, `priorPng`, `diffPng`, and `diff { addedPx, removedPx, unchangedPx,
-agreement }` (agreement = Jaccard of hand vs prior foil pixels; foil = alpha ≥ 128).
+resolverVersion, window? }`, `priorPng`, `diffPng`, and `diff { addedPx, removedPx,
+unchangedPx, agreement }` (agreement = Jaccard of hand vs prior foil pixels; foil =
+alpha ≥ 128). `prior.rect` is ALWAYS the deterministic era-rule output — never the
+adjusted window — so `agreement` keeps scoring the rule against the human. The
+OPTIONAL `prior.window { rect, radius }` (foil/mask-refine, 2026-08-03) records the
+hand-adjusted window geometry in effect at save/flatten time; it is absent on legacy
+sidecars and on saves with no adjustment — readers must treat it as optional.
 
 The PUT route (`apps/api/src/routes/foil-lab.ts`, mounted only under
 `POKEDEX_FOIL_LAB=1`, port 3712) renders the prior and computes the diff **server-side**
@@ -102,6 +107,26 @@ button + free text stays the whole UI; the linkage means "here's why I changed t
 mechanically joined to the exact mask state it describes. Comments are corpus: resolved
 comments stay in place with `status: resolved` + a short resolution note appended —
 never edit Chey's words.
+
+## Tier 1.5 — adjusted window geometry (SHIPPED, foil/mask-refine)
+
+The pre-flatten stage of Chey's "handles → flatten → refine" workflow: on the
+Card-adjust surface, a layout-tier window/sheet card gets draggable corner/edge
+handles (`foil/WindowEditor.tsx`) that reshape the era rect per card. Persisted as
+`data/foil-windows/<cardId>/<variantId>.json` (v1: rect UV y-up + radius + invert +
+scope/eraId + `base` = the era rule it adjusted, with resolverVersion; committed,
+`.gitignore` re-include like overrides). While no hand mask exists, the layout tier
+renders the adjusted rect instead of the era rect. **Artwork-keyed but
+scope-agnostic**: the window box is a property of the scan (a sheet is the same box
+inverted), so GET `/foil-lab/windows/:cardId/:variantId` aliases to any sibling
+variant's geometry, newest savedAt first. Saving geometry that equals the era rule
+deletes the file. **Flatten** rasterizes the adjusted rounded rect
+(`rasterizeWindowRect`, shared with `loadLayoutRect` — pixel-identical bakes), saves
+through the standard hand-mask PUT (prior = era rule, `prior.window` = the
+adjustment), and opens the paint editor — from then on the card is an ordinary
+hand-masked card. Corpus value: geometry corrections appear in the diff as rule
+error, and `prior.window` says exactly which rect the human chose — direct input for
+codifying missing era rects (SM era has none; baby shinies/det1 borrow modern-sv).
 
 ## Codify — the ritual that turns corpus into rules
 
