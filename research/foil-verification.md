@@ -598,3 +598,85 @@ Chey's canon sliders (uSat/uDarken) are the tuning surface. (c) validate_spec.py
 frame-citation regex fixed (\d → \d+) — it undercounted two-digit frame numbers and
 failed an honest worker; run records for spec-striped-vertical-sheen-r3 show FAIL with
 the artifact genuinely valid (re-validated PASS post-fix).
+
+## R3-MOTION — the point/holo motion models against Chey's canon-lab critique (2026-08-03)
+
+Chey's second canon-lab pass hit the MOTION models (issues/foil/…_5ondob starlight,
+_kizcvc starlight-ii, _lycjpc cosmos, _t5tn2h + _of3ucf radiant, _4785ju
+rainbow-glitter-sheen). **His eye is ground truth — his verbatim notes were folded into
+every judge prompt as acceptance criteria on top of the canonical specs.**
+
+**The reworks (all in `patterns.ts`, slider semantics preserved, his canons intact
+except one recorded migration):**
+
+- **starlight** (+ **starlight-ii** via the shared GLSL): (a) top-to-bottom HUE BANDING
+  — star + wash color runs through soft-quantized bands stacked down the card
+  (`bandHueAt`), migrating with pitch. The mapping is derived so his canon
+  (uHueShift 0.62 / uHueSpread 0.6) reproduces the reference band ORDER on the R→B→G
+  cosine ramp: blue top → green mid → red/orange bottom. (Round-2 fix: the first
+  mapping landed green-top/blue-mid — caught by the judge, confirmed against the ramp
+  math, not just taken on faith.) (b) AXIS-SPLIT tilt: vertical tilt slides the whole
+  field (global shift `vec2(0.016·tx, 0.10·ty)`, all three layers), horizontal drives
+  the per-star random fade (`fade = tx + 0.18·ty`); the uP1 opposing-parallax offsets
+  ride on top unchanged — his hand-tuned depth survives.
+- **cosmos**: whole-field slide (`uv + tilt·0.085`, slightly deeper per layer) + PER-DOT
+  random response — each orb owns two independent random tilt directions (one for its
+  brightness window, one for its hue), so either tilt axis can light or recolor any
+  given dot; the shared sweep axis is gone; cluster activation preserved. At tilt 0 the
+  render is unchanged — his 16:52 canon appearance holds exactly.
+- **radiant**: HOLOGRAM stepping — the lattice occupies discrete positions (half a cell
+  per step, stepped up/down the card), pitch-dominant drive picks the step, adjacent
+  steps CROSSFADE (~60% hold / 40% fade after round 2 tightened it from 24/76). uP1 (was
+  an unused placeholder) is now **Hologram travel**; grid width jitter raised ~45%
+  (his "grid lines are a bit thicker too"). **Canon migration: radiant.json uP1 0 → 2.2**
+  (0 was the dead placeholder value; static appearance at rest is unchanged, and 0 would
+  have frozen the requested motion).
+- **rainbow-glitter-sheen**: he couldn't articulate the delta, so a dedicated Gemini
+  **delta-articulation pass** ran FIRST (task `delta-rainbow-glitter-sheen`, job
+  `jobs/rainbow-glitter-sheen-delta.json`, validator `check_delta.py` — articulation
+  only, no verdict), on fresh canon-lab blank-silver sweeps
+  (`frames/rainbow-glitter-sheen-canon-pre/`) vs the raw-sheet corpus frames. Its
+  articulation was pixel-verified by eye (two claims discounted as exaggerated: "glitter
+  does not twinkle" / "lacks specular entirely" — both exist, both perceptually
+  invisible, which was itself the signal). The plain-words delta: **wide soft pastel
+  wash over flat matte grey with sparse white glitter, vs a narrow laser-saturated
+  striped chevron (with a fainter repeat) over bright silver packed with colored
+  twinkling glitter.** Fixes: band sigma 0.010→0.0035, hue traversal 5×→9×, pow-deepened
+  primaries at LOW gain, ±0.8 repeats at 0.38 gain, chevron angle default 1.3→1.9,
+  denser/finer/colored glitter with an always-on dim population, silver floor up,
+  **uDarken 0 → 0.4** (4th data point of the legibility physics). Gemini had also missed
+  the repeat chevron — my eye added it from reference frame 1.
+
+**Verdicts (fine 16-frame sweeps for starlight/starlight-ii/cosmos/radiant — adjacent
+frames 0.06 apart with track-the-elements instructions; standard 8-frame for
+rainbow-glitter-sheen; jobs `jobs/<p>-r3m*.json`, manifests `manifest-r3m{,2,3}.json`):**
+
+| pattern | rounds | judge | my eye (live renderer + adjacent frames) |
+|---|---|---|---|
+| starlight | 2 (r1 nay 8/20: band order genuinely wrong + window-scope framing) | **17/20 yay — the first starlight yay ever; the standing parallax nay is broken** | banding order matches reference after fix; field slides with pitch; stars fade with yaw ✓ |
+| starlight-ii | 1 | **20/20 yay** | banding + flat-field slide + random fade ✓ |
+| cosmos | 1 | **20/20 yay** | field slides; dots light/recolor individually ✓ |
+| radiant | 3 (r2 tightened hold, r3 identical-frames re-roll) | **nay 13/20 — judge-blind (see below)** | discrete positions + crossfade confirmed at pixel level ✓ |
+| rainbow-glitter-sheen | 1 (after the delta pass) | **19/20 yay** | matches reference frame 1 closely; residual: arms straight vs slightly curved |
+
+**Radiant honesty note (flag for Chey):** all three rounds returned the same
+tilt_motion-2 claim, "the grid slides continuously … rather than crossfading between
+discrete positions". The frames pixel-refute it: cropped adjacent fine-sweep frames
+(04/05/06) show line positions CONSTANT while opacities crossfade, then the lattice at a
+new discrete half-cell offset. A crossfade between two interleaved gratings is
+indistinguishable from a slide in stills — the same still-frame motion blindness class
+as starlight's parallax (which took the fine-sweep protocol + axis-split rework to
+break). Chey's live tilt on the canon lab is the tiebreak; the recipe implements his
+sentence literally.
+
+**Starlight residuals (his sliders, not code):** the judge's remaining static note
+(field could be milkier) is the Galaxy-wash gain uP2 (his canon has 0.4 of max 2); star
+density/size notes conflict with his hand-saved uP0 24 — owner's canon outranks the
+judge on aesthetics.
+
+**Capture notes:** exemplars and pipeline identical to prior waves (starlight base1-2
+v7, starlight-ii xy12-11 v17058 scope window, cosmos base4-14 v826, radiant
+swsh10.5-004 v24829, rainbow-glitter-sheen me01-003 v34747). Pre-R3M frames archived at
+`frames/starlight-fine-pre-r3m/` and `frames/rainbow-glitter-sheen/pre-r3m/`. New fine
+dirs: `starlight-ii-fine/`, `cosmos-fine/`, `radiant-fine/`. Gate shots:
+`~/.legacy-dev-hub-legacy/foil-shots/r3-motion/` (desktop + 390 per pattern).
