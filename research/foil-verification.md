@@ -748,3 +748,88 @@ radiant-collection-dots g1-RC29 v16720); pre-wave frames archived `frames/<p>/pr
 New canon-lab blank sweeps: `frames/reverse-sheet-canon-r3g/`,
 `frames/energy-symbols-canon-r3g/`, `frames/radiant-collection-dots-canon-r3g/`.
 Gate shots: `~/.legacy-dev-hub-legacy/foil-shots/r3-glyph/` (desktop + 390 per pattern).
+
+## R3-MISC — Chey's remaining canon-lab comments + the reverse-holo ink-tint fix (2026-08-03)
+
+Chey's third canon-lab pass covered everything the sheen/motion/glyph lanes didn't
+(issues …_iw6wcc cracked-ice, _j8zhas fireworks, _bwjkon rainbow-mirror, _fwqs1d
+cosmos-ii-pixel, _lu0eeo tinsel-ii, _rmrib7 prism, _1hv1vw crosshatch, _ose15g
+gold-secret, _j0ay7m sequin, _qghnf9 tcg-classic, _xtcy7h acid-wash, _b76x5s disco),
+plus one chat report with no issue file — the reverse-holo compositing defect (below).
+**His eye is ground truth — verbatim notes were the acceptance criteria in every judge
+prompt.**
+
+### The reverse-holo ink-tint fix (`uTint` — highest-priority item)
+
+Chey, verbatim (chat, 2026-08-02): *"On modern reverse holofoils, I'm seeing that the
+way the mirror foil pattern is applied to the color artwork just makes it dull and
+grayish, rather than making the color look metallic."*
+
+**Root cause** (shared composite, `shader.ts` main()): the foil layer screen-blends an
+essentially ACHROMATIC light over the scan. Screen with white/silver raises all three
+channels equally, compressing chroma — a saturated red body lands at pastel pink, and
+with `uDarken` attenuating the body first the result is exactly "dull and grayish". The
+shared `uSpecular` white sheen does the same. **Physics:** a mirror foil's flash crosses
+the printed ink twice, so over colored art the flash carries the ink's own color —
+saturated, art-tinted metal.
+
+**Fix:** new core uniform `uTint` (default 0 = bit-exact legacy). main() multiplies the
+clamped foil layer and the in-mask specular by `mix(1, tint², uTint·mask·gate)` where
+`tint` = luminance-normalized scan chroma capped at 1 (chroma direction, no gain; tint²
+= the double ink pass). Neutral over silver/white — blank-card canon renders are
+IDENTICAL at any value, so no canon-lab appearance moved and no canon migration was
+needed for it. Opted in by the reverse-family recipes: mirror/rainbow-mirror/
+reverse-sheet/pokeball-masterball 0.7, energy-symbols/energy-symbols-ii/pinwheel 0.6,
+fireworks/disco 0.5, prism 0.4. uP4/uP5 param slots were added in the same contract
+change (first user: gold-secret's burst origin).
+
+**Verified before/after by eye at 5 tilt angles on 3 modern reverses** (uTint slider 0
+vs default, same build — frames `frames/tint-*-{pre,post}/`, headline shots in
+`~/.legacy-dev-hub-legacy/foil-shots/r3-misc/`):
+
+| card | variant | pattern | before → after |
+|---|---|---|---|
+| Victini sv10.5b-012 | Poke Ball reverse (34018) | pokeball-masterball | the flash bleached the orange body to illegible white-gray → the same flash reads warm orange-gold metal, stamps intact |
+| Crystal Energy ecard2-146 | reverse (4940) | rainbow-mirror | yellow border washed to cream under the spotlight → border stays deep metallic gold, bands still travel |
+| Pineco sv02-004 | reverse (27016) | energy-symbols-ii | glyph pops whitish-pastel over the green body → pops read green-tinted, body keeps saturation (subtlest of the three — the glyph layer is low-gain) |
+
+NOTE: exemplar-surface appearance of the reverse-family patterns changed AFTER their
+earlier banked verdicts by design (this is the requested fix); canon-lab surfaces are
+untouched. The A/B frames above are the evidence trail.
+
+### Verdicts (canon-lab blank-silver 8-frame sweeps vs the corpus references — the same
+surface Chey reviewed on; jobs `jobs/<p>-r3x*.json`, manifests `manifest-r3x{,2,3,3b}.json`,
+google/gemini-3.1-pro-preview, check_verdict.py executed):
+
+| pattern | his note (distilled) | mechanism | rounds | final |
+|---|---|---|---|---|
+| cracked-ice | simpler/triangular facets; ~half invisible at any tilt | jittered-vertex triangulated grid (3×3 containing-quad search) + 50%-duty binary visibility gate per facet | 1 | **16/20 yay** |
+| fireworks | grid-based bursts; hue emanates from burst centers with tilt direction | single lattice (jitter = uP2, canon 0 = perfect grid); radial hue rings, phase rides sweep | 1 | **13/20 yay** |
+| rainbow-mirror | "just like the mirror one except the spotlight has hue banding" | mirror machinery + hue-banded traveling spotlight (white core, banded fringe); blotch model superseded | 2 (r1 5/20 "rainbow bullseye" — spot tightened, core whitened) | **14/20 yay** |
+| tinsel-ii | lines mostly silvery; vertical rainbow band; band invisible outside lines | silver line color everywhere; gaussian vertical band recolors line-work only | 1 | **18/20 yay** |
+| prism | "more like pinwheel with some differences" | pinwheel grid 3× finer, solid facets, per-cell random hue phase, in-region twinkle (delta pass: delta-prism-vs-pinwheel) | 3 (r1 gloss wash, r2 sparse/pastel) | **16/20 yay** |
+| cosmos-ii-pixel | circles/diamonds need pixelated edges | SDF at quantized pixel centers (16/cell) + hard step | 1 | **20/20 yay** |
+| crosshatch | lines too thick | width range 0.10-0.30 → 0.04-0.12 | 1 | **14/20 yay** |
+| gold-secret | burst origin per card (default center); grain holographic, not static | uP4/uP5 origin sliders + per-card overrides; grain twinkle phase driven by tilt | 1 | **16/20 yay** |
+| sequin | not cracked-ice; glyph-family like energy icons | dedicated recipe: sparse popping sequin glints (energy-icons machinery) + R3-GLYPH atlas slot | 1 | **16/20 yay** |
+| tcg-classic | flatter starlight mixed with rainbow-glitter | dedicated recipe: flat star layer + dense rainbow-glitter + vivid traveling rainbow band | 3 + ink-scope re-roll | **17/20 yay** |
+| acid-wash | more like water-web than horizontal-sheen | dedicated recipe: warped blotch topography + soft migrating washes + uDarken 0.3 | 1 | **14/20 yay** |
+| disco | like galaxy, all circles, homogeneous, perfect grid | dedicated recipe: strict disc lattice + starlight-family per-disc ignition | 1 | **16/20 yay** |
+
+**12/12 final yay.** All four former no-catalog-exemplar approximations (sequin,
+tcg-classic, acid-wash, disco) now carry dedicated `implemented: true` recipes judged
+bare-pattern against their corpus clips — zero `approxVia` fallbacks remain in the
+library.
+
+**tcg-classic honesty note:** the round-3 nay penalized the deep cyan of the reference
+card's printed INK — absent by construction on the blank-silver render. One
+identical-frames re-roll with the ink-scope stated (the R3-MOTION starlight
+window-scope remedy) flipped it 12/20 → 17/20 with the same recipe. Recorded as the
+2nd data point of the reference-scope confusion class.
+
+**Capture notes:** all sweeps via the R3-MISC Playwright driver (canon lab: pattern
+select → silver tone → manual tilt, 8 frames x = −0.9…0.9, y = 0.6x; card surface:
+localStorage-seeded selection, Auto pattern, Ink-tint slider forced to 0 for the A/B
+"before"). Frames: `frames/<p>-r3x/` (re-captured in place per round after each judge
+completed), `frames/prism-clipx/` (prism corpus clip re-extraction — keyframes 3-7 of
+the harvest are the creator talking; the tilt demo lives in the clip's first 1.5 s).
