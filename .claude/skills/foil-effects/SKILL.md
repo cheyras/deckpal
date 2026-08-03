@@ -49,10 +49,11 @@ Core uniforms (global sliders; every pattern may read them):
 | `uArtGate` | luminance gate applied by `main()`: foil shows in dark scan areas, printed ink stays readable. The cheap precursor to art-driven masks. |
 | `uSpecular` | shared white sheen band, applied by `main()` |
 | `uDarken` | mirror-substrate attenuation, applied by `main()` (2026-08-02 R2 blend-model term, default **0 = exact legacy render**). Physically: mirror foil sits between the printed body and the viewer; at non-flash angles it reflects the (mostly dark) environment instead of diffusing, so the scan is multiplied by `1 - uDarken * mask * gate` — the SAME coverage field the additive layer uses — before the foil screen-blends on top. Opt in per recipe via `defaults`; recipes may also read it (e.g. an ink overprint that suppresses the additive layer). Absent key in canon/override/sidecar JSON = 0 = no effect. |
+| `uTint` | **metallic ink tint**, applied by `main()` (2026-08-03 R3-MISC blend-model term, default **0 = exact legacy render**). Physically: a mirror foil's flash crosses the printed ink twice, so over colored art the flash carries the ink's OWN color — screen-blending achromatic light instead compresses chroma and reads dull/grayish (Chey's modern-reverse complaint). `main()` multiplies the clamped foil layer (and the shared specular, within the mask) by `mix(1, tint², uTint · mask · gate)` where `tint` = luminance-normalized scan chroma (capped ≤ 1 — chroma direction only, no gain). Neutral over silver/white, so blank-card canon-lab renders are IDENTICAL at any value — tune it on real card scans, not in the lab. Opted in by the reverse-family recipes (mirror 0.7, rainbow-mirror 0.7, reverse-sheet 0.7, pokeball-masterball 0.7, energy-symbols 0.6, energy-symbols-ii 0.6, pinwheel 0.6, fireworks 0.5, prism 0.4, disco 0.5). |
 | `uMask*` | layout mask uniforms — handled entirely by `main()`; patterns never mask themselves |
 | `uMaskTex` / `uMaskTexOn` | hand-mask tier: when on, `main()` samples the mask canvas's ALPHA (shader flips V; the CanvasTexture sets `flipY=false` — exactly one flip, ever) instead of the layout rect |
 | `uGlyphTex` / `uGlyphOn` / `uGlyphCount` / `uGlyphCols` | **glyph slot** (R3-GLYPH 2026-08-03): rasterized atlas of Chey's real glyph artwork from `research/foil-glyphs/<slug>/` (see its README for the drop contract). Driven by CardViewer's auto-pickup poll via `foil/glyphs.ts`, never by sliders or canon files. Recipes with a slot branch on `uGlyphOn` and sample via the preamble helper `glyphTex(idx, p)` (p glyph-local, y up, box \|p\| ≤ 0.5, returns rgba·inside; a = coverage, rgb luminance = optional interior detail). `uGlyphOn = 0` (no assets / prod) = the recipe's procedural fallback glyphs, bit-for-bit the shipped look. Slot registry: `GLYPH_SLOTS` in glyphs.ts (reverse-sheet, energy-symbols, energy-symbols-ii — shares energy-symbols' atlas, prismatic-pokeball). |
-| `uP0..uP3` | **yours** — per-recipe params, surfaced as labelled sliders |
+| `uP0..uP5` | **yours** — per-recipe params, surfaced as labelled sliders (uP4/uP5 added R3-MISC 2026-08-03 for recipes that outgrow four params — first user: gold-secret's per-card burst origin. Old canon snapshots simply lack the keys and inherit code defaults.) |
 
 Preamble helpers available to every recipe: `hash21`, `hash22`, `vnoise`, `fnoise`
 (3-octave fbm), `hueRamp(t)` (uSat-aware cosine rainbow), `screenBlend`, `sdRoundRect`,
@@ -60,8 +61,10 @@ plus constants `PI`, `TAU`, `CARD_ASPECT` (h/w ≈ 1.3755). For isotropic patter
 uv by `vec2(1.0, CARD_ASPECT)` so cells aren't stretched.
 
 Blend model (in `main()`): `body = scan * (1 - uDarken * mask * gate)`, then
-`screenBlend(body, clamp(foil * uIntensity * mask * gate, 0, 1))`, then
-`+ uSpecular * sheen`. With `uDarken = 0` (the default, and every pre-R2 recipe) the
+`screenBlend(body, clamp(foil * uIntensity * mask * gate, 0, 1) * inkTint)`, then
+`+ uSpecular * sheen * inkTint'` — where `inkTint = mix(1, tint², uTint · mask · gate)`
+is the R3-MISC metallic ink tint (see the `uTint` row; 0 = legacy). With `uDarken = 0`
+(the default, and every pre-R2 recipe) the
 additive layer can only **lighten** — physically honest for foil under ink. Recipes whose
 real-world substrate is a DARK mirror at most angles (rainbow-mirror family, Prismatic
 Evolutions reverses, dark broken static) opt into `uDarken > 0`: the darkened substrate is
@@ -469,6 +472,36 @@ Full verdict table in `research/foil-verification.md` (R2b section). Distilled:
   sweep frames lighting NOTHING — after narrowing an envelope, re-check what
   fraction of the sweep actually lights features (same family as the R3
   grouped-reveal window lesson).
+
+- **R3-MISC field notes (2026-08-03).** (1) **Achromatic light over colored art
+  is the "dull and grayish" failure mode:** screen-blending white/silver foil
+  raises all three channels equally and compresses chroma — a saturated red
+  lands at pastel pink, worse with `uDarken` attenuating the body first. The
+  physical model is a DOUBLE ink pass: reflected flash × (luminance-normalized
+  scan chroma)² — that's the `uTint` term, and it turns the same flash into
+  saturated art-colored metal (before/after: Victini sv10.5b-012 ball reverse).
+  It is exactly neutral on the blank canon-lab card, so canon appearance never
+  moves — which also means you CANNOT see it in the lab; verify on card scans.
+  (2) **A canon value can encode a dead recipe's structure:** fireworks' canon
+  uP0 3 was saved when TWO overlapping burst octaves doubled effective density;
+  the single-lattice rework at uP0 3 was visibly sparser than his saved look —
+  migrated 3 → 4.5. When a rework changes recipe STRUCTURE (layer counts,
+  octaves), re-derive what each canon value achieved visually, don't carry the
+  number. (3) **Jittered-vertex triangulation needs a containing-quad search:**
+  classifying a pixel by `floor()` cell draws the straight lattice back into
+  the shards (jittered quads don't align with cells) — search the 3×3
+  neighborhood for the quad that contains the point. (4) **"Roughly half
+  invisible at any tilt" is a 50%-duty binary gate** (`smoothstep` over
+  `sin(TAU·phase + dot(axis, tilt)·k)`), not a deeper visibility curve — the
+  same machinery generalizes to any "population swaps with tilt" note.
+  (5) **Pixelated stamp edges need ~6-8 quantization steps across the
+  silhouette** — quantize the shape-local coord and use a HARD step; at ~3
+  steps every silhouette collapses into a plain square. (6) For a "more like X
+  than Y" redirect with NO catalog exemplar, run the corpus-vs-corpus
+  articulation pass first (prism vs pinwheel here): reference-vs-reference
+  deltas are shader-actionable and cheap, and the four no-exemplar rebuilds
+  (sequin/tcg-classic/acid-wash/disco) all reuse existing family machinery
+  rather than inventing new looks.
 
 ## Masks
 
