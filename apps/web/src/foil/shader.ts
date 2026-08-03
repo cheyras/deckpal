@@ -22,6 +22,15 @@
 //                             (mask x gate) the additive layer uses — real
 //                             mirror foil is dark at most angles; the pattern's
 //                             flash screen-blends back on top
+//     uTint        float      metallic ink tint (0 = legacy, opt-in per recipe):
+//                             how much the foil flash carries the printed ink's
+//                             OWN color. Mirror-reflected light crosses the ink
+//                             layer twice, so over colored art the flash reads
+//                             saturated art-colored metal — screen-blending
+//                             achromatic light instead grays the art out
+//                             (Chey, 2026-08-03, modern reverse holos). Neutral
+//                             over silver/white, so blank-card canon renders
+//                             are unaffected at any value.
 //   Mask (layout-driven coarse tier; from era-layouts.json via resolver)
 //     uMaskRect    vec4       x,y,w,h in UV (y UP — converted from layout data)
 //     uMaskRadius  float      rect corner radius (UV of width)
@@ -41,13 +50,19 @@
 //     uGlyphCount  float      number of glyphs in the atlas (1..16)
 //     uGlyphCols   float      atlas grid columns (square grid)
 //   Pattern params (recipe-owned; labelled sliders in the workbench)
-//     uP0..uP3     float      meaning defined per recipe in patterns.ts
+//     uP0..uP5     float      meaning defined per recipe in patterns.ts
+//                             (uP4/uP5 added R3-MISC 2026-08-03 for recipes
+//                             that outgrew four params — e.g. gold-secret's
+//                             per-card burst origin; old canon snapshots
+//                             simply lack the keys and inherit code defaults)
 //
 // Blend model: body = scan * (1 - uDarken * mask * gate) — the substrate seen
 // through the mirror layer — then foil = foilPattern(uv, tilt) * mask * gate *
-// uIntensity screen-blended over it, plus a shared specular sweep. uDarken
-// defaults to 0, which reproduces the original screen-only model exactly.
-// Card corners are rounded via alpha from a rounded-rect SDF.
+// uIntensity, multiplied by the ink tint (uTint: luminance-normalized scan
+// chroma squared — the double ink pass of a real mirror reflection) and
+// screen-blended over it, plus a shared specular sweep (also ink-tinted within
+// the mask). uDarken and uTint default to 0, which reproduces the original
+// screen-only model exactly. Card corners are rounded via a rounded-rect SDF.
 
 import * as THREE from 'three'
 import type { FoilPattern } from './patterns'
@@ -64,10 +79,11 @@ export const GLOBAL_DEFAULTS = {
   uArtGate: 0.0,
   uSpecular: 0.4,
   uDarken: 0.0,
+  uTint: 0.0,
 } as const
 
 export type CoreUniform = keyof typeof GLOBAL_DEFAULTS
-export type ParamUniform = 'uP0' | 'uP1' | 'uP2' | 'uP3'
+export type ParamUniform = 'uP0' | 'uP1' | 'uP2' | 'uP3' | 'uP4' | 'uP5'
 
 const VERT = /* glsl */ `
 varying vec2 vUv;
@@ -96,6 +112,7 @@ uniform float uSat;
 uniform float uArtGate;
 uniform float uSpecular;
 uniform float uDarken;
+uniform float uTint;
 uniform vec4 uMaskRect;
 uniform float uMaskRadius;
 uniform float uMaskFeather;
@@ -111,6 +128,8 @@ uniform float uP0;
 uniform float uP1;
 uniform float uP2;
 uniform float uP3;
+uniform float uP4;
+uniform float uP5;
 
 float hash21(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
@@ -205,8 +224,20 @@ void main() {
   // the additive layer uses. The pattern's flash screen-blends back on top.
   vec3 body = face.rgb * (1.0 - uDarken * m * gate);
   vec3 foil = foilPattern(uv, uTilt) * uIntensity * m * gate;
-  vec3 col = screenBlend(body, clamp(foil, 0.0, 1.0));
-  col += uSpecular * sheen(uv, uTilt) * (0.12 + 0.88 * m);
+  // Metallic ink tint (uTint, default 0 = exact legacy render): a mirror
+  // foil's flash crosses the printed ink twice, so over colored art it takes
+  // the ink's OWN color — screen-blending achromatic light instead compresses
+  // chroma and reads dull/grayish (Chey, 2026-08-03, modern reverses). The
+  // tint is the luminance-normalized scan chroma, squared for the double
+  // pass; it is neutral (1,1,1) over silver/white, so blank-card canon-lab
+  // appearance is untouched at ANY uTint. Applied over the same coverage
+  // field (m * gate) as the foil layer, and to the shared specular within
+  // the mask so the gloss goes art-metallic too instead of washing white.
+  vec3 tint = face.rgb / max(faceLum, 0.06);
+  tint /= max(max(tint.r, max(tint.g, tint.b)), 1.0); // chroma direction only, no gain
+  vec3 inkTint = mix(vec3(1.0), tint * tint, uTint * m * gate);
+  vec3 col = screenBlend(body, clamp(foil, 0.0, 1.0) * inkTint);
+  col += uSpecular * sheen(uv, uTilt) * (0.12 + 0.88 * m) * mix(vec3(1.0), tint * tint, uTint * m);
   if (uMaskView > 0.5) col = mix(col, vec3(1.0, 0.15, 0.2), 0.40 * m);
   gl_FragColor = vec4(col, a);
 }
@@ -245,6 +276,7 @@ export function buildFoilMaterial(pattern: FoilPattern): THREE.ShaderMaterial {
     uArtGate: { value: GLOBAL_DEFAULTS.uArtGate },
     uSpecular: { value: GLOBAL_DEFAULTS.uSpecular },
     uDarken: { value: GLOBAL_DEFAULTS.uDarken },
+    uTint: { value: GLOBAL_DEFAULTS.uTint },
     uMaskRect: { value: new THREE.Vector4(0, 0, 1, 1) },
     uMaskRadius: { value: 0.01 },
     uMaskFeather: { value: 0.008 },
@@ -260,6 +292,8 @@ export function buildFoilMaterial(pattern: FoilPattern): THREE.ShaderMaterial {
     uP1: { value: 0 },
     uP2: { value: 0 },
     uP3: { value: 0 },
+    uP4: { value: 0 },
+    uP5: { value: 0 },
   }
   for (const [k, v] of Object.entries(pattern.defaults)) uniforms[k].value = v
   for (const p of pattern.params) uniforms[p.key].value = p.default
