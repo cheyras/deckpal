@@ -833,3 +833,41 @@ localStorage-seeded selection, Auto pattern, Ink-tint slider forced to 0 for the
 "before"). Frames: `frames/<p>-r3x/` (re-captured in place per round after each judge
 completed), `frames/prism-clipx/` (prism corpus clip re-extraction — keyframes 3-7 of
 the harvest are the creator talking; the tilt demo lives in the clip's first 1.5 s).
+
+## R4-COMPOSITE — the ink-density composite invariant (2026-08-03)
+
+Chey's two me05 comments (7rtnzx mirror-reverse "blows out the darks/text",
+19mo4l holo "just darkens/muddies the colors") were ruled a CORE COMPOSITE
+INVARIANT, not per-card bugs: **foil adds pop — it must never lift dark ink
+into illegibility nor mute printed color.** `main()` now estimates ink density
+from the scan (inkDark = relative darkness vs an 8-tap local field average;
+inkColor = chroma) and gates the composite: dark ink blocks flash + specular,
+all ink is exempt from uDarken substrate attenuation, colored ink auto-tints
+its flash (max(uTint, inkColor)) and gets a chroma pop (uInkPop). Knobs:
+uInkGuard 1 / uInkPop 0.5, both 0 = bit-exact legacy. Full contract in the
+foil-effects SKILL (blend-model section + R4 field notes).
+
+**Blank-card zero-delta (the ink-gating proof):** canon-lab pairs
+(default knobs vs both-zero) for mirror (dark + silver tones), cosmos,
+horizontal-sheen — ImageMagick `compare -metric AE` **0 on all four**, with a
+same-settings control pair also AE 0 proving the harness is frame-exact
+(frame-stepped rAF stub + frozen performance.now + easing run to its float64
+fixpoint; a wall-clock control pair diffs ~15k px of 1-LSB noise, so naive
+screenshot pairs cannot prove identity). Gemini sanity pass
+(`verify-r4-composite-zero-delta`, jobs/r4-composite-zero-delta.json):
+all three pairs "identical: true". Shots:
+`~/.legacy-dev-hub-legacy/foil-shots/r4-composite/canon-zero-delta/`.
+
+**On-card sample (eyeballed, before = knobs 0 / after = defaults; 3 tilts,
+390px + desktop, `~/.legacy-dev-hub-legacy/foil-shots/r4-composite/`):**
+
+| Card | Read |
+|---|---|
+| me05-001 Tropius mirror reverse (7rtnzx) | before: flash erases the attack text; after: every line crisp, green field still flashes metallic |
+| me05-008 Mega Delphox holo (19mo4l) | before: whole card muddied, text washed; after: yellows/oranges vivid, text crisp, sheen alive in low-ink field |
+| sv10.5b-012 Victini reverse (uTint flagship) | subtle — already tint-protected; slightly deeper orange, flavor text crisper |
+| sv02-004 Pineco reverse | subtle saturation gain, small text crisper |
+| sv03-136 Darkrai reverse (dark art, heavy text) | richer teal, white text untouched (light ink is not inkDark), no blowout |
+| sv01-060 Cetitan reverse (white body) | washed body text now legible; pale field keeps full mirror behavior |
+| base1-8 Machamp WOTC holo (hand mask) | holo field richer, dark linework crisper, starfield intact |
+| sv10.5w-169 Hydreigon ex SIR (dark full-art) | biggest save: before is a wall of white streaks, after the name/ability/attacks read cleanly with streaks over low-ink areas |

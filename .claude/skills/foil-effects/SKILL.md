@@ -50,6 +50,8 @@ Core uniforms (global sliders; every pattern may read them):
 | `uSpecular` | shared white sheen band, applied by `main()` |
 | `uDarken` | mirror-substrate attenuation, applied by `main()` (2026-08-02 R2 blend-model term, default **0 = exact legacy render**). Physically: mirror foil sits between the printed body and the viewer; at non-flash angles it reflects the (mostly dark) environment instead of diffusing, so the scan is multiplied by `1 - uDarken * mask * gate` — the SAME coverage field the additive layer uses — before the foil screen-blends on top. Opt in per recipe via `defaults`; recipes may also read it (e.g. an ink overprint that suppresses the additive layer). Absent key in canon/override/sidecar JSON = 0 = no effect. |
 | `uTint` | **metallic ink tint**, applied by `main()` (2026-08-03 R3-MISC blend-model term, default **0 = exact legacy render**). Physically: a mirror foil's flash crosses the printed ink twice, so over colored art the flash carries the ink's OWN color — screen-blending achromatic light instead compresses chroma and reads dull/grayish (Chey's modern-reverse complaint). `main()` multiplies the clamped foil layer (and the shared specular, within the mask) by `mix(1, tint², uTint · mask · gate)` where `tint` = luminance-normalized scan chroma (capped ≤ 1 — chroma direction only, no gain). Neutral over silver/white, so blank-card canon-lab renders are IDENTICAL at any value — tune it on real card scans, not in the lab. Opted in by the reverse-family recipes (mirror 0.7, rainbow-mirror 0.7, reverse-sheet 0.7, pokeball-masterball 0.7, energy-symbols 0.6, energy-symbols-ii 0.6, pinwheel 0.6, fireworks 0.5, prism 0.4, disco 0.5). |
+| `uInkGuard` | **ink protection**, applied by `main()` (2026-08-03 R4-COMPOSITE core-invariant term, default **1**; **0 = exact legacy composite**). `main()` estimates ink density from the scan — `inkDark` = how much darker the pixel is than its LOCAL 8-tap field average (text, linework, dark detail; relative by construction, so any flat blank base measures exactly 0) and `inkColor` = scan chroma above a 0.12 floor (saturated print; the lab's slightly-tinted gray tones peak ~0.06 = still 0). uInkGuard scales both. Dense ink sits ON TOP of the physical foil, so: dark ink blocks the additive flash and the shared specular (text never screen-lifts into illegibility), and ink (dark or colored) is exempt from `uDarken` substrate attenuation (ink diffuses normally — printed color is never muted). Blank-card canon renders are pixel-identical at ANY value (proven by the R4 frame-stepped zero-delta harness). |
+| `uInkPop` | **metallic chroma pop**, applied by `main()` (R4-COMPOSITE, default **0.5**; **0 = legacy**): over colored ink the flash also pumps the ink's own chroma — `+ (scan − lum) · uInkPop · 1.25 · inkColor · flashLum` — so colors read MORE saturated and metallic under the flash instead of washing toward white. Rides `inkColor`, so inert on blank/neutral bases and whenever `uInkGuard` is 0. |
 | `uMask*` | layout mask uniforms — handled entirely by `main()`; patterns never mask themselves |
 | `uMaskTex` / `uMaskTexOn` | hand-mask tier: when on, `main()` samples the mask canvas's ALPHA (shader flips V; the CanvasTexture sets `flipY=false` — exactly one flip, ever) instead of the layout rect |
 | `uGlyphTex` / `uGlyphOn` / `uGlyphCount` / `uGlyphCols` | **glyph slot** (R3-GLYPH 2026-08-03): rasterized atlas of Chey's real glyph artwork from `research/foil-glyphs/<slug>/` (see its README for the drop contract). Driven by CardViewer's auto-pickup poll via `foil/glyphs.ts`, never by sliders or canon files. Recipes with a slot branch on `uGlyphOn` and sample via the preamble helper `glyphTex(idx, p)` (p glyph-local, y up, box \|p\| ≤ 0.5, returns rgba·inside; a = coverage, rgb luminance = optional interior detail). `uGlyphOn = 0` (no assets / prod) = the recipe's procedural fallback glyphs, bit-for-bit the shipped look. Slot registry: `GLYPH_SLOTS` in glyphs.ts (reverse-sheet, energy-symbols, energy-symbols-ii — shares energy-symbols' atlas, prismatic-pokeball). |
@@ -60,17 +62,37 @@ Preamble helpers available to every recipe: `hash21`, `hash22`, `vnoise`, `fnois
 plus constants `PI`, `TAU`, `CARD_ASPECT` (h/w ≈ 1.3755). For isotropic patterns multiply
 uv by `vec2(1.0, CARD_ASPECT)` so cells aren't stretched.
 
-Blend model (in `main()`): `body = scan * (1 - uDarken * mask * gate)`, then
-`screenBlend(body, clamp(foil * uIntensity * mask * gate, 0, 1) * inkTint)`, then
-`+ uSpecular * sheen * inkTint'` — where `inkTint = mix(1, tint², uTint · mask · gate)`
-is the R3-MISC metallic ink tint (see the `uTint` row; 0 = legacy). With `uDarken = 0`
-(the default, and every pre-R2 recipe) the
-additive layer can only **lighten** — physically honest for foil under ink. Recipes whose
-real-world substrate is a DARK mirror at most angles (rainbow-mirror family, Prismatic
-Evolutions reverses, dark broken static) opt into `uDarken > 0`: the darkened substrate is
-what makes dark-mirror looks and ink-overprint watermarks (drawn as *suppression* of the
-additive layer) renderable at all. Tinting a darkened substrate = the pattern adds a dim
-flat tinted floor over it.
+Blend model (in `main()`, R4-COMPOSITE 2026-08-03). **The composite contract /
+core invariant: foil ADDS pop — it must never lift dark ink or text into
+illegibility, and it must never darken, mute, or muddy the printed ink's colors**
+(Chey, issues 7rtnzx + 19mo4l). Physical model: on a real card the ink layer sits
+on top of / interleaved with the foil, so ink-dense areas show the foil weakly and
+keep their own diffuse color; the mirror/flash owns only the low-ink field.
+`main()` estimates ink density from the scan (`inkDark` relative-darkness +
+`inkColor` chroma — see the `uInkGuard` row) and composites:
+
+- `body = scan * (1 - uDarken * mask * gate * (1 - ink))` — substrate darkening
+  on the low-ink field only (`ink = clamp(inkDark + 0.85·inkColor, 0, 1)`)
+- `foil = foilPattern * uIntensity * mask * gate * (1 - inkDark)` — dark ink
+  blocks the flash
+- `screenBlend(body, clamp(foil, 0, 1) * inkTint)` where
+  `inkTint = mix(1, tint², max(uTint, inkColor) · mask · gate)` — colored ink
+  always tints its own flash (uTint remains the per-recipe floor)
+- `+ (scan − lum) · uInkPop · 1.25 · inkColor · flashLum` — the chroma pop:
+  flash saturates colored ink instead of whitening it
+- `+ uSpecular * sheen * (0.12 + 0.88·mask) * (1 − 0.85·inkDark) * inkTint'` —
+  the gloss sweep is shielded over dark ink, so text stays crisp at every angle
+
+With `uDarken = 0` (the default, and every pre-R2 recipe) the additive layer can
+only **lighten**. Recipes whose real-world substrate is a DARK mirror at most
+angles (rainbow-mirror family, Prismatic Evolutions reverses, dark broken static)
+opt into `uDarken > 0`: the darkened substrate is what makes dark-mirror looks and
+ink-overprint watermarks (drawn as *suppression* of the additive layer) renderable
+at all — R4 reconciles this with the invariant by scoping the darkening to the
+foil-visible field: the mirror IS dark at off angles, but only where you can
+actually see the mirror. `uDarken`, `uTint`, `uInkGuard`, and `uInkPop` at 0
+reproduce the original screen-only composite exactly; both ink estimates are
+exactly 0 on flat blank bases, so the canon lab never moves at any knob value.
 
 ## Adding a pattern (worked example: Crosshatch)
 
@@ -502,6 +524,29 @@ Full verdict table in `research/foil-verification.md` (R2b section). Distilled:
   deltas are shader-actionable and cheap, and the four no-exemplar rebuilds
   (sequin/tcg-classic/acid-wash/disco) all reuse existing family machinery
   rather than inventing new looks.
+
+- **R4-COMPOSITE field notes (2026-08-03).** (1) **The ink-density estimate must
+  be RELATIVE (local contrast), not absolute:** the canon lab's blank bases
+  include near-black tones (`#171921`), so "dark pixel = ink" would kill blank
+  renders. `inkDark` compares each pixel to an 8-tap two-ring local average
+  (radii 0.011/0.028 UV, aspect-corrected) — flat base ⇒ average == pixel ⇒
+  exactly 0. Chroma can stay absolute because every lab tone is near-neutral
+  (max chroma 0.06 < the 0.12 floor). Mip/LOD bias was rejected: GLSL ES 1.00
+  under WebGL2 has no fragment `textureLod`, and mip radius varies with
+  on-screen size — fixed UV taps are resolution-independent card-space units.
+  (2) **Proving "pixel-identical" through a live viewer needs a frame-stepped
+  clock:** with real rAF, the tilt easing (`x += (t−x)·0.12`) never visibly
+  settles — a residual of 2e-5 tilt still flips hundreds of 1-LSB pixels along
+  pattern band edges, and a same-settings control pair 1s apart diffed 15k px.
+  The zero-delta harness stubs `requestAnimationFrame`, freezes
+  `performance.now` (uTime), steps ~300 frames to the easing's float64
+  underflow fixpoint, and screenshots via `page.screenshot({clip})` (element
+  screenshots wait on real rAF for their stability check and hang against the
+  stub). Control pair AE 0 first, then judge the knob pair. (3) **uDarken vs
+  the invariant:** both are true — mirror foil is dark at off angles AND ink
+  must never be muted — because the darkening belongs to the FOIL-VISIBLE
+  field. Scope substrate attenuation by `(1 − ink)`; don't weaken canon uDarken
+  values.
 
 ## Masks
 
