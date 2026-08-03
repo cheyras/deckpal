@@ -27,7 +27,8 @@ import { canonBaseline, canonFor, sparseDiff } from './canon'
 import { resolveFoil, maskForScope, ERAS, RESOLVER_VERSION, type FoilScope } from './resolver'
 import { useTilt } from './useTilt'
 import { CardViewer, cardScreenRect, type ViewerSettings } from './CardViewer'
-import { MaskEditor, createMaskCanvas, MASK_W, MASK_H, type BrushMode, type MaskEditorHandle } from './MaskEditor'
+import { MaskEditor, createMaskCanvas, MASK_W, MASK_H, MASK_TINT, type BrushMode, type MaskEditorHandle } from './MaskEditor'
+import { WindowEditor, rasterizeWindowRect, type WindowGeom } from './WindowEditor'
 import { ActionBtn, Chip, Section, Select, Slider, SurfaceTabs } from './ui'
 
 const LS_KEY = 'foil-lab:selection'
@@ -47,6 +48,9 @@ function loadSelection(): Selection {
     return {}
   }
 }
+
+const fmtRect = (r?: [number, number, number, number]): string =>
+  r ? r.map((v) => v.toFixed(3)).join(' / ') : '—'
 
 // UI atoms + seedUniforms moved to foil/ui.tsx and foil/canon.ts for the
 // workbench split — both surfaces share them.
@@ -82,6 +86,15 @@ export function FoilLab() {
   const [maskTexVersion, setMaskTexVersion] = useState(0)
   const editorRef = useRef<MaskEditorHandle | null>(null)
   const zeroTilt = useRef({ x: 0, y: 0 })
+
+  // Adjusted-window state (foil/mask-refine): handles on the layout window
+  // rect, persisted pre-flatten as data/foil-windows/<cardId>/<variantId>.json.
+  const [adjustMode, setAdjustMode] = useState(false)
+  const [winGeom, setWinGeom] = useState<WindowGeom | null>(null)
+  const [winSaved, setWinSaved] = useState<{ savedAt: string; aliasOf: number | null } | null>(null)
+  const [winDirty, setWinDirty] = useState(false)
+  const [winStatus, setWinStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const preAdjustMaskView = useRef(false)
 
   // Comments
   const [commentOpen, setCommentOpen] = useState(false)
@@ -229,7 +242,19 @@ export function FoilLab() {
   const effectivePatternId = patternOverride === 'auto' ? resolved.patternId : patternOverride
   const effectiveScope = scopeOverride === 'auto' ? resolved.scope : scopeOverride
   const pattern = patternById(effectivePatternId)
-  const mask = maskForScope(effectiveScope, resolved.eraId)
+  // layoutMask = the DETERMINISTIC era-rule output (always the sidecar prior);
+  // mask = what the viewer/editor actually uses — an adjusted window geometry
+  // replaces the era rect for window/sheet scopes (sheet = same box, inverted).
+  const layoutMask = maskForScope(effectiveScope, resolved.eraId)
+  const windowScoped = effectiveScope === 'window' || effectiveScope === 'sheet'
+  const mask =
+    windowScoped && winGeom ? { rect: winGeom.rect, radius: winGeom.radius, invert: layoutMask.invert } : layoutMask
+  // Does the live geometry actually differ from the era rule?
+  const winDiffers = Boolean(
+    winGeom &&
+      (winGeom.rect.some((v, i) => Math.abs(v - layoutMask.rect[i]!) > 1e-4) ||
+        Math.abs(winGeom.radius - layoutMask.radius) > 1e-4),
+  )
 
   // ── Saved hand mask: load on card/variant change (beats the layout tier) ──
   useEffect(() => {
@@ -265,6 +290,27 @@ export function FoilLab() {
       cancelled = true
     }
   }, [detail, sel.variantId, devSurface, maskCanvas, resolved.scope])
+
+  // ── Saved window geometry: load on card/variant change (pre-flatten state).
+  // Artwork-keyed like masks — a sibling variant's geometry on the same scan
+  // answers (aliasOf reports which).
+  useEffect(() => {
+    setAdjustMode(false)
+    setWinGeom(null)
+    setWinSaved(null)
+    setWinDirty(false)
+    setWinStatus('idle')
+    if (!detail || sel.variantId == null || !devSurface) return
+    let cancelled = false
+    void foilApi.getWindow(detail.card.cardId, sel.variantId).then((r) => {
+      if (cancelled || !r) return
+      setWinGeom({ rect: r.entry.rect, radius: r.entry.radius })
+      setWinSaved({ savedAt: r.entry.savedAt, aliasOf: r.aliasOf })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [detail, sel.variantId, devSurface])
 
   // ── Uniforms: canon baseline + saved card overrides, live in state + ref ──
   // Layering (foil/canon.ts): code defaults < canon file < per-card override
@@ -345,9 +391,9 @@ export function FoilLab() {
       maskView,
       maskTexOn: handActive,
       maskTexVersion,
-      maxTiltDeg: editMode ? 0 : maxTiltDeg,
+      maxTiltDeg: editMode || adjustMode ? 0 : maxTiltDeg,
     }
-  }, [uniforms, mask, maskFeather, maskView, maxTiltDeg, handActive, maskTexVersion, editMode])
+  }, [uniforms, mask, maskFeather, maskView, maxTiltDeg, handActive, maskTexVersion, editMode, adjustMode])
 
   const setU = (k: string, v: number) => setUniforms((u) => ({ ...u, [k]: v }))
 
@@ -364,7 +410,8 @@ export function FoilLab() {
   const startEdit = () => {
     setEditMode(true)
     // Editing starts from the current mask: saved hand mask if loaded,
-    // otherwise rasterize the layout prior so he refines, not restarts.
+    // otherwise rasterize the current window (adjusted geometry if present,
+    // era rule otherwise) so he refines, not restarts.
     if (maskSource === 'layout') {
       // defer until the editor registered its handle
       requestAnimationFrame(() => {
@@ -381,7 +428,9 @@ export function FoilLab() {
       // Sidecar v2: every save records the starting prior — the deterministic
       // layout-rule output for this card/variant — so the server can persist
       // the prior render + hand-vs-prior diff next to the mask (the corpus
-      // carries what the rule got wrong, not just the human's answer).
+      // carries what the rule got wrong, not just the human's answer). An
+      // adjusted window is the HUMAN's correction, so it rides along as
+      // prior.window provenance and never replaces the rule's rect.
       const saved = await foilApi.putMask(
         detail.card.cardId,
         sel.variantId,
@@ -392,11 +441,14 @@ export function FoilLab() {
           source: 'layout',
           eraId: resolved.eraId,
           scope: effectiveScope,
-          rect: mask.rect,
-          radius: mask.radius,
-          invert: mask.invert,
+          rect: layoutMask.rect,
+          radius: layoutMask.radius,
+          invert: layoutMask.invert,
           feather: maskFeather,
           resolverVersion: RESOLVER_VERSION,
+          ...(windowScoped && winGeom && winDiffers
+            ? { window: { rect: winGeom.rect, radius: winGeom.radius } }
+            : {}),
         },
       )
       setSavedMask(true)
@@ -411,6 +463,76 @@ export function FoilLab() {
     } catch {
       /* surfaced by the dirty flag remaining */
     }
+  }
+
+  // ── Adjusted-window actions (handles → save/flatten) ──
+
+  const startAdjust = () => {
+    setAdjustMode(true)
+    // Start from the saved/live geometry if any, else the era rule.
+    if (!winGeom) setWinGeom({ rect: layoutMask.rect, radius: layoutMask.radius })
+    // Show the coverage overlay while dragging — the whole point is aligning
+    // the rect to the printed window; restored on Done.
+    preAdjustMaskView.current = maskView
+    setMaskView(true)
+  }
+
+  const endAdjust = () => {
+    setAdjustMode(false)
+    setMaskView(preAdjustMaskView.current)
+  }
+
+  const saveWindow = async (): Promise<boolean> => {
+    if (!detail || sel.variantId == null || !winGeom) return false
+    setWinStatus('saving')
+    try {
+      if (!winDiffers) {
+        // Geometry matches the era rule — a file would say nothing; remove it.
+        if (winSaved) await foilApi.deleteWindow(detail.card.cardId, sel.variantId)
+        setWinSaved(null)
+      } else {
+        const e = await foilApi.putWindow(detail.card.cardId, sel.variantId, {
+          scope: effectiveScope,
+          eraId: resolved.eraId,
+          rect: winGeom.rect,
+          radius: winGeom.radius,
+          invert: layoutMask.invert,
+          base: { rect: layoutMask.rect, radius: layoutMask.radius, resolverVersion: RESOLVER_VERSION },
+        })
+        setWinSaved({ savedAt: e.savedAt, aliasOf: null })
+      }
+      setWinDirty(false)
+      setWinStatus('saved')
+      setTimeout(() => setWinStatus('idle'), 1500)
+      return true
+    } catch {
+      setWinStatus('error')
+      return false
+    }
+  }
+
+  const resetWindow = () => {
+    setWinGeom({ rect: layoutMask.rect, radius: layoutMask.radius })
+    setWinDirty(true)
+  }
+
+  /**
+   * Flatten: persist the geometry, bake it into a raster hand mask through
+   * the STANDARD save path (sidecar v2 — prior = era rule, prior.window =
+   * the adjustment), then open the existing paint tooling to refine it.
+   * From the save on, the card behaves exactly like any hand-masked card
+   * (artwork-keyed aliasing included).
+   */
+  const flattenWindow = async () => {
+    if (!detail || sel.variantId == null || !winGeom) return
+    await saveWindow() // pre-flatten state survives even if the mask save fails
+    rasterizeWindowRect(maskCanvas, mask.rect, mask.invert, mask.radius, MASK_TINT)
+    setMaskSource('hand')
+    setMaskDirty(true) // cleared by the save below; stays visible if it fails
+    setMaskTexVersion((v) => v + 1)
+    await saveMask()
+    endAdjust()
+    setEditMode(true)
   }
 
   const deleteMask = async () => {
@@ -445,6 +567,12 @@ export function FoilLab() {
     maskEditActive: editMode,
     maskDirty,
     savedMask,
+    // Adjusted-window linkage (foil/mask-refine): the geometry state this
+    // comment describes — live rect, save state, alias source.
+    windowAdjustActive: adjustMode,
+    windowAdjusted: winDiffers,
+    ...(winGeom && winDiffers ? { windowRect: winGeom.rect, windowRadius: winGeom.radius } : {}),
+    ...(winSaved ? { windowSavedAt: winSaved.savedAt, windowAliasOf: winSaved.aliasOf } : {}),
     // Comment↔mask linkage (automatic): the exact saved mask state this
     // comment describes — file, savedAt, alias source, prior/diff presence.
     ...(maskMeta
@@ -534,10 +662,10 @@ export function FoilLab() {
           imageUrl={imageUrl}
           pattern={pattern}
           settingsRef={settingsRef}
-          tiltTarget={editMode ? zeroTilt : tilt.target}
+          tiltTarget={editMode || adjustMode ? zeroTilt : tilt.target}
           maskCanvas={handActive ? maskCanvas : null}
-          onPointerMove={editMode ? undefined : tilt.onPointerMove}
-          onPointerLeave={editMode ? undefined : tilt.onPointerLeave}
+          onPointerMove={editMode || adjustMode ? undefined : tilt.onPointerMove}
+          onPointerLeave={editMode || adjustMode ? undefined : tilt.onPointerLeave}
           className="h-full w-full"
         >
           {editMode && cardRect.width > 0 && (
@@ -551,6 +679,16 @@ export function FoilLab() {
               registerHandle={registerEditor}
             />
           )}
+          {adjustMode && !editMode && cardRect.width > 0 && winGeom && (
+            <WindowEditor
+              rect={cardRect}
+              value={winGeom}
+              onChange={(v) => {
+                setWinGeom(v)
+                setWinDirty(true)
+              }}
+            />
+          )}
         </CardViewer>
         <div className="pointer-events-none absolute left-[12px] top-[10px] text-[12px]">
           <div className="font-semibold">{detail ? detail.card.name : 'Foil workbench'}</div>
@@ -560,8 +698,9 @@ export function FoilLab() {
           </div>
         </div>
         <div className="pointer-events-none absolute right-[12px] top-[10px] rounded-full bg-surface-secondary/70 px-[8px] py-[2px] text-[11px] text-text-muted">
-          {editMode ? 'mask edit' : tilt.mode}
+          {editMode ? 'mask edit' : adjustMode ? 'window adjust' : tilt.mode}
           {handActive && !editMode ? ' · hand mask' : ''}
+          {!handActive && !adjustMode && windowScoped && winDiffers ? ' · window adjusted' : ''}
         </div>
         {devSurface && (
           <button
@@ -792,6 +931,7 @@ export function FoilLab() {
                   setScopeOverride(s)
                   setMaskSource('layout')
                   setEditMode(false)
+                  if (adjustMode) endAdjust()
                 }}
               >
                 {s === 'auto' ? `auto (${resolved.scope})` : s}
@@ -800,7 +940,10 @@ export function FoilLab() {
             <Chip
               active={handActive}
               disabled={!savedMask && !maskDirty && !editMode}
-              onClick={() => setMaskSource('hand')}
+              onClick={() => {
+                setMaskSource('hand')
+                if (adjustMode) endAdjust()
+              }}
             >
               hand
             </Chip>
@@ -814,9 +957,50 @@ export function FoilLab() {
           )}
 
           {devSurface ? (
-            !editMode ? (
+            adjustMode && winGeom ? (
+              <div className="space-y-[8px]">
+                <p className="text-[11px] leading-[15px] text-text-muted">
+                  Drag the corners/edges to fit the printed foil window; drag inside the box to move it.
+                  {effectiveScope === 'sheet' ? ' Sheet scope: foil covers everything OUTSIDE this box.' : ''}
+                </p>
+                <Slider
+                  label="Window corner radius"
+                  value={winGeom.radius}
+                  min={0}
+                  max={0.08}
+                  step={0.001}
+                  onChange={(v) => {
+                    setWinGeom({ ...winGeom, radius: v })
+                    setWinDirty(true)
+                  }}
+                />
+                <p className="text-[11px] tabular-nums text-text-muted">
+                  window x/y/w/h {fmtRect(winGeom.rect)} {winDiffers ? '· adjusted vs era rule' : '· = era rule'}
+                </p>
+                <div className="flex flex-wrap gap-[6px]">
+                  <ActionBtn onClick={() => void saveWindow()}>
+                    {winStatus === 'saving'
+                      ? 'Saving…'
+                      : winStatus === 'saved'
+                        ? 'Saved ✓'
+                        : `Save window${winDirty ? ' ●' : ''}`}
+                  </ActionBtn>
+                  <ActionBtn onClick={resetWindow}>Reset to era rect</ActionBtn>
+                  <ActionBtn active onClick={() => void flattenWindow()}>
+                    Flatten → refine by hand
+                  </ActionBtn>
+                  <ActionBtn onClick={endAdjust}>Done</ActionBtn>
+                </div>
+                {winStatus === 'error' && (
+                  <p className="text-[12px] text-red-400">Window save failed — is the branch api up?</p>
+                )}
+              </div>
+            ) : !editMode ? (
               <div className="mb-[6px] flex flex-wrap gap-[6px]">
                 <ActionBtn onClick={startEdit}>✏️ Edit mask (Pencil)</ActionBtn>
+                {maskSource === 'layout' && windowScoped && (
+                  <ActionBtn onClick={startAdjust}>⤡ Adjust window</ActionBtn>
+                )}
                 {savedMask && <ActionBtn onClick={deleteMask}>Delete saved</ActionBtn>}
               </div>
             ) : (
@@ -832,7 +1016,7 @@ export function FoilLab() {
                   <ActionBtn onClick={() => editorRef.current?.clear()}>Clear</ActionBtn>
                   <ActionBtn onClick={() => editorRef.current?.fill()}>Fill</ActionBtn>
                   <ActionBtn onClick={() => editorRef.current?.loadLayoutRect(mask.rect, mask.invert, mask.radius)}>
-                    Reset to layout
+                    {winDiffers ? 'Reset to window' : 'Reset to layout'}
                   </ActionBtn>
                 </div>
                 <Slider label="Brush size" value={brushSize} min={4} max={120} step={1} onChange={setBrushSize} />
@@ -856,7 +1040,17 @@ export function FoilLab() {
               ? `Hand mask ${savedMask ? '(saved)' : '(unsaved)'}${maskDirty ? ' — unsaved strokes' : ''}${
                   maskMeta?.aliasOf != null ? ` — same-artwork alias of variant ${maskMeta.aliasOf}` : ''
                 } → data/foil-masks/`
-              : `Era: ${ERAS[resolved.eraId].label} (rects from era-layouts.json)`}
+              : `Era: ${ERAS[resolved.eraId].label} (rects from era-layouts.json)${
+                  windowScoped && winDiffers
+                    ? ` — window adjusted ${
+                        winSaved
+                          ? winSaved.aliasOf != null
+                            ? `(saved — same-artwork alias of variant ${winSaved.aliasOf})`
+                            : '(saved)'
+                          : '(unsaved)'
+                      } → data/foil-windows/`
+                    : ''
+                }`}
           </p>
         </Section>
 

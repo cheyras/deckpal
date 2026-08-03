@@ -39,6 +39,9 @@ data/*
 # committed — tiny JSON, the locked-down recipe truth (routes/foil-lab.ts).
 !data/foil-canon/
 !data/foil-overrides/
+# Adjusted window geometry (foil/mask-refine — pre-flatten state) IS
+# committed — tiny JSON sidecars, same rationale as overrides.
+!data/foil-windows/
 
 # ── backups + exports (never committed; live outside the repo by default) ──
 # Defensive: if a backup/export is ever pointed inside the repo, don't commit it.
