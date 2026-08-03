@@ -9,7 +9,8 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import type { FoilPattern } from './patterns'
-import { buildFoilMaterial, CARD_ASPECT } from './shader'
+import { buildFoilMaterial, CARD_ASPECT, transparentTexture } from './shader'
+import { buildGlyphAtlas, fetchGlyphIndex, glyphSlotFor, resolveGlyphDir } from './glyphs'
 
 export interface ViewerSettings {
   /** Core + pattern uniform values, keyed by uniform name. */
@@ -56,6 +57,18 @@ export function CardViewer({
   const textureRef = useRef<THREE.Texture | null>(null)
   const maskTexRef = useRef<THREE.CanvasTexture | null>(null)
   const maskVersionSeen = useRef(-1)
+  // Glyph slot (R3-GLYPH): rasterized atlas of Chey's real glyph artwork.
+  const glyphTexRef = useRef<THREE.CanvasTexture | null>(null)
+  const glyphInfoRef = useRef<{ count: number; cols: number } | null>(null)
+
+  const applyGlyphUniforms = (mat: THREE.ShaderMaterial) => {
+    if (!mat.uniforms.uGlyphTex) return
+    const info = glyphInfoRef.current
+    mat.uniforms.uGlyphTex.value = glyphTexRef.current ?? transparentTexture()
+    mat.uniforms.uGlyphOn.value = info ? 1 : 0
+    mat.uniforms.uGlyphCount.value = info?.count ?? 0
+    mat.uniforms.uGlyphCols.value = info?.cols ?? 1
+  }
 
   // Scene lifecycle — once.
   useEffect(() => {
@@ -141,6 +154,7 @@ export function CardViewer({
       geo.dispose()
       materialRef.current?.dispose()
       textureRef.current?.dispose()
+      glyphTexRef.current?.dispose()
       renderer.dispose()
       host.removeChild(renderer.domElement)
     }
@@ -155,9 +169,63 @@ export function CardViewer({
     const mat = buildFoilMaterial(pattern)
     if (textureRef.current) mat.uniforms.uFace.value = textureRef.current
     if (maskTexRef.current) mat.uniforms.uMaskTex.value = maskTexRef.current
+    applyGlyphUniforms(mat)
     mesh.material = mat
     materialRef.current = mat
     old?.dispose()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pattern])
+
+  // Glyph slot (R3-GLYPH): while a glyph-capable pattern is displayed, poll
+  // the dev api's glyph index and (re)rasterize Chey's dropped artwork into
+  // the atlas texture — saving a file into research/foil-glyphs/<slug>/ IS
+  // the deploy. No dev api (prod) → the first fetch returns null and the poll
+  // stops; recipes keep their procedural fallback (uGlyphOn 0).
+  useEffect(() => {
+    glyphTexRef.current?.dispose()
+    glyphTexRef.current = null
+    glyphInfoRef.current = null
+    if (materialRef.current) applyGlyphUniforms(materialRef.current)
+    const slug = glyphSlotFor(pattern.id)
+    if (!slug) return
+    let cancelled = false
+    let timer: number | undefined
+    let lastKey = ''
+    const tick = async () => {
+      const index = await fetchGlyphIndex()
+      if (cancelled) return
+      if (index === null) return // dev surface absent — stop polling this mount
+      const dir = resolveGlyphDir(index, slug)
+      const key = dir ? `${dir}:${index[dir].mtime}:${index[dir].files.join(',')}` : ''
+      if (key !== lastKey) {
+        const atlas = dir ? await buildGlyphAtlas(dir, index[dir]) : null
+        if (cancelled) return
+        lastKey = key
+        glyphTexRef.current?.dispose()
+        if (atlas) {
+          const tex = new THREE.CanvasTexture(atlas.canvas)
+          // Same convention as the hand-mask: exactly one flip, in the shader
+          // (glyphTex maps y-up glyph space to the y-down canvas). LinearFilter
+          // (no mips): mip levels would bleed across atlas cells.
+          tex.flipY = false
+          tex.minFilter = THREE.LinearFilter
+          tex.magFilter = THREE.LinearFilter
+          glyphTexRef.current = tex
+          glyphInfoRef.current = { count: atlas.count, cols: atlas.cols }
+        } else {
+          glyphTexRef.current = null
+          glyphInfoRef.current = null // assets deleted → procedural fallback
+        }
+        if (materialRef.current) applyGlyphUniforms(materialRef.current)
+      }
+      timer = window.setTimeout(() => void tick(), 2500)
+    }
+    void tick()
+    return () => {
+      cancelled = true
+      if (timer !== undefined) clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pattern])
 
   // Hand-mask canvas change → (re)create the CanvasTexture.
