@@ -426,6 +426,22 @@ Full verdict table in `research/foil-verification.md` (R2b section). Distilled:
   parked the lit group off-face at strong tilt. Derive window travel from the
   visible coordinate range, not from the tilt range.
 
+- **R3-MOTION field notes (2026-08-03).** (1) Ask which MOTION MODEL a foil uses
+  before tuning sliders: starlight is axis-split (vertical tilt = global field
+  shift on all layers, horizontal = per-star random fade), cosmos is the inverse
+  ruling — zero axis separation — each dot owns independent random tilt directions
+  for brightness and hue; radiant is discrete hologram steps (positions
+  crossfade, never slide). One shared sweep scalar can't express any of these.
+  (2) The cosine hueRamp's peak order is R→B→G (t = 0, 1/3 blue, 2/3 green) —
+  derive banded-hue mappings from the actual peak order, not spectral intuition.
+  (3) A crossfade between interleaved gratings is judge-invisible in stills
+  (reads as a slide) — pixel-verify with cropped adjacent fine-sweep frames and
+  flag for the owner's live tilt instead of chasing the note.
+  (4) When the owner "can't explain the difference", run an articulation-only
+  vision pass (no verdict, sections + image-citation validator) and pixel-verify
+  each claimed delta before coding — two of five claims were exaggerations, one
+  real delta (the repeat chevron) the pass missed entirely.
+
 ## Masks
 
 Patterns never mask themselves — `main()` applies the layout-tier mask (see
