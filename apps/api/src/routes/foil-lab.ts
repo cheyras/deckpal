@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { existsSync, mkdirSync } from 'node:fs';
-import { readFile, readdir, writeFile, unlink } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asyncHandler, badRequest, notFound, str } from '../http.js';
@@ -42,6 +42,11 @@ import { decodePng, diffMask, parsePrior, rasterizePriorAlpha, renderPriorPng, t
  *    `research/foil-video-reference/<pattern>/` mini-clips + keyframes so the
  *    canon lab can play the real tilt clip next to the bare pattern render.
  *    Dev-instance only (env gate) — nothing ships into prod builds.
+ * 6. Glyph slot assets (R3-GLYPH) — GET-only serving of Chey's real glyph
+ *    artwork from `research/foil-glyphs/<pattern>/` (glyph.svg or
+ *    glyph-1.svg…glyph-16.svg; .png accepted too). The index route reports
+ *    files + max mtime so the web loader auto-picks-up a freshly dropped or
+ *    edited file without a rebuild. See research/foil-glyphs/README.md.
  */
 export const foilLabRouter: Router = Router();
 
@@ -60,6 +65,7 @@ const COMMENTS_DIR = join(repoRoot(), 'issues', 'foil');
 const CANON_DIR = join(repoRoot(), 'data', 'foil-canon');
 const OVERRIDES_DIR = join(repoRoot(), 'data', 'foil-overrides');
 const REFERENCE_DIR = join(repoRoot(), 'research', 'foil-video-reference');
+const GLYPHS_DIR = join(repoRoot(), 'research', 'foil-glyphs');
 
 // Path-traversal guards: card ids are catalog ids (e.g. base1-8, me04.5-12),
 // variant ids are integers. Reject anything else outright.
@@ -569,6 +575,74 @@ foilLabRouter.get(
     }
     res.setHeader('Cache-Control', 'private, max-age=300');
     res.json({ patterns });
+  }),
+);
+
+// ── Glyph slot assets (R3-GLYPH: Chey's real glyph artwork) ────────────────
+//
+// research/foil-glyphs/<pattern>/glyph.svg (single) or glyph-1.svg… (atlas
+// set). GET-only; the web loader (apps/web/src/foil/glyphs.ts) polls the index
+// and re-rasterizes when mtime changes — dropping a file IS the deploy.
+
+const GLYPH_FILE_RE = /^glyph(-\d{1,2})?\.(svg|png)$/;
+
+/** glyph.svg first, then glyph-1..glyph-16 in numeric order. */
+function glyphOrder(f: string): number {
+  const m = /^glyph-(\d{1,2})\./.exec(f);
+  return m ? Number(m[1]) : 0;
+}
+
+foilLabRouter.get(
+  '/glyphs',
+  asyncHandler(async (_req, res) => {
+    const patterns: Record<string, { files: string[]; mtime: number }> = {};
+    let dirs: string[] = [];
+    try {
+      dirs = await readdir(GLYPHS_DIR);
+    } catch {
+      /* no glyph assets dropped yet */
+    }
+    for (const d of dirs) {
+      if (!PATTERN_ID_RE.test(d)) continue; // skips README.md etc.
+      let files: string[];
+      try {
+        files = await readdir(join(GLYPHS_DIR, d));
+      } catch {
+        continue;
+      }
+      const glyphs = files.filter((f) => GLYPH_FILE_RE.test(f)).sort((a, b) => glyphOrder(a) - glyphOrder(b));
+      if (glyphs.length === 0) continue;
+      let mtime = 0;
+      for (const f of glyphs) {
+        try {
+          const st = await stat(join(GLYPHS_DIR, d, f));
+          mtime = Math.max(mtime, Math.round(st.mtimeMs));
+        } catch {
+          /* raced a delete — the next poll sees the truth */
+        }
+      }
+      patterns[d] = { files: glyphs, mtime };
+    }
+    res.setHeader('Cache-Control', 'no-store'); // auto-pickup poll — never stale
+    res.json({ patterns });
+  }),
+);
+
+foilLabRouter.get(
+  '/glyphs/:pattern/:file',
+  asyncHandler(async (req, res) => {
+    const pattern = validPatternId(req.params.pattern);
+    const file = str(req.params.file);
+    if (!file || !GLYPH_FILE_RE.test(file)) throw badRequest('Invalid glyph file.');
+    const abs = join(GLYPHS_DIR, pattern, file);
+    if (!existsSync(abs)) throw notFound('No such glyph asset.');
+    res.setHeader('Cache-Control', 'no-store'); // editable asset — never stale
+    await new Promise<void>((resolve, reject) => {
+      res.sendFile(abs, (err) => {
+        if (err && !res.headersSent) reject(err);
+        else resolve();
+      });
+    });
   }),
 );
 

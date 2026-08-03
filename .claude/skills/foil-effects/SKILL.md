@@ -51,6 +51,7 @@ Core uniforms (global sliders; every pattern may read them):
 | `uDarken` | mirror-substrate attenuation, applied by `main()` (2026-08-02 R2 blend-model term, default **0 = exact legacy render**). Physically: mirror foil sits between the printed body and the viewer; at non-flash angles it reflects the (mostly dark) environment instead of diffusing, so the scan is multiplied by `1 - uDarken * mask * gate` — the SAME coverage field the additive layer uses — before the foil screen-blends on top. Opt in per recipe via `defaults`; recipes may also read it (e.g. an ink overprint that suppresses the additive layer). Absent key in canon/override/sidecar JSON = 0 = no effect. |
 | `uMask*` | layout mask uniforms — handled entirely by `main()`; patterns never mask themselves |
 | `uMaskTex` / `uMaskTexOn` | hand-mask tier: when on, `main()` samples the mask canvas's ALPHA (shader flips V; the CanvasTexture sets `flipY=false` — exactly one flip, ever) instead of the layout rect |
+| `uGlyphTex` / `uGlyphOn` / `uGlyphCount` / `uGlyphCols` | **glyph slot** (R3-GLYPH 2026-08-03): rasterized atlas of Chey's real glyph artwork from `research/foil-glyphs/<slug>/` (see its README for the drop contract). Driven by CardViewer's auto-pickup poll via `foil/glyphs.ts`, never by sliders or canon files. Recipes with a slot branch on `uGlyphOn` and sample via the preamble helper `glyphTex(idx, p)` (p glyph-local, y up, box \|p\| ≤ 0.5, returns rgba·inside; a = coverage, rgb luminance = optional interior detail). `uGlyphOn = 0` (no assets / prod) = the recipe's procedural fallback glyphs, bit-for-bit the shipped look. Slot registry: `GLYPH_SLOTS` in glyphs.ts (reverse-sheet, energy-symbols, energy-symbols-ii — shares energy-symbols' atlas, prismatic-pokeball). |
 | `uP0..uP3` | **yours** — per-recipe params, surfaced as labelled sliders |
 
 Preamble helpers available to every recipe: `hash21`, `hash22`, `vnoise`, `fnoise`
@@ -441,6 +442,33 @@ Full verdict table in `research/foil-verification.md` (R2b section). Distilled:
   vision pass (no verdict, sections + image-citation validator) and pixel-verify
   each claimed delta before coding — two of five claims were exaggerations, one
   real delta (the repeat chevron) the pass missed entirely.
+
+- **R3-GLYPH field notes (2026-08-03).** (1) **The glyph slot is the pattern for
+  owner-supplied artwork:** assets in `research/foil-glyphs/<slug>/`, dev-gated api
+  routes, a polling rasterizer (`foil/glyphs.ts`) and shader branch on `uGlyphOn` —
+  missing asset = procedural fallback, bit-identical to the shipped look, so the
+  drop is zero-risk and zero-code. Add a slot by registering the slug in
+  `GLYPH_SLOTS` and branching the recipe's glyph term on `uGlyphOn`. (2) **"X
+  shouldn't darken, it catches light differently" cannot be met with a hue
+  offset alone:** a saturated magenta can never reach a saturated yellow's
+  luminance through the fragment clamp — hue-offsetting a region reads as
+  darkening whenever the ramp lands on a low-luma hue. Differentiate a region
+  with a WHITE-mixed (paler/shinier) response, a small phase lead on interior
+  detail, and/or a coherent plane-flash — never with chroma that fights luma.
+  (3) **Randomized per-element phases are still-frame-invisible (5th data
+  point):** checkerboard swaps, random-bank swaps, and per-square size pulses
+  all judged "static" against frames that pixel-refute the claim — embedding
+  track-this-element protocols in the prompt did NOT break the blindness; one
+  judge named a specific square whose change its own frames show. Pixel-verify
+  first, spend at most one round on protocol, then bank the pixel proof and
+  flag for the owner's live tilt. (4) **A lit bank must be WHITE-LIFTED, not
+  just bright:** hue-ramped glyphs at full visibility still read dim when the
+  ramp hands them blue/olive — `hueRamp * lum + white * sq` keeps a
+  checkerboard legible. (5) Band/window envelopes have a narrowness cliff:
+  sharpening radiant-collection-dots' band from 2.2/pow3 to 3.2/pow3 left most
+  sweep frames lighting NOTHING — after narrowing an envelope, re-check what
+  fraction of the sweep actually lights features (same family as the R3
+  grouped-reveal window lesson).
 
 ## Masks
 
