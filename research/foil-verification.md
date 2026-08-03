@@ -680,3 +680,71 @@ swsh10.5-004 v24829, rainbow-glitter-sheen me01-003 v34747). Pre-R3M frames arch
 `frames/starlight-fine-pre-r3m/` and `frames/rainbow-glitter-sheen/pre-r3m/`. New fine
 dirs: `starlight-ii-fine/`, `cosmos-fine/`, `radiant-fine/`. Gate shots:
 `~/.legacy-dev-hub-legacy/foil-shots/r3-motion/` (desktop + 390 per pattern).
+
+## R3-GLYPH — the glyph-based patterns against Chey's canon-lab critique (2026-08-03)
+
+Chey's third canon-lab pass hit the GLYPH patterns (issues/foil/…_q1ay7h reverse-sheet,
+_y853aj energy-symbols, _pta96a energy-symbols-ii, _1ckdc2 + _ulxj32 ace-spec,
+_hjwcss prismatic-pokeball, _xbvqk2 radiant-collection-dots). **His eye is ground truth —
+his verbatim notes were folded into every judge prompt as acceptance criteria.** He also
+promised real glyph artwork (SVGs) for four patterns; this wave built the **drop-in glyph
+slot** so his files land with zero code changes (see below).
+
+**The glyph slot** (infrastructure, all in this wave): `research/foil-glyphs/<slug>/`
+(`glyph.svg` or `glyph-1..16.svg`; README.md in that dir is Chey's drop guide) → served by
+the branch api (`GET /foil-lab/glyphs[…]`, POKEDEX_FOIL_LAB-gated like all lab routes) →
+`apps/web/src/foil/glyphs.ts` polls the index while a glyph-capable pattern is on screen,
+rasterizes the SVGs into a 256px-per-cell canvas atlas, and CardViewer binds it to the new
+shader contract (`uGlyphTex/uGlyphOn/uGlyphCount/uGlyphCols` + preamble helper
+`glyphTex(idx, p)`). **Auto-pickup ~2.5 s after a file save; deleting falls back to the
+procedural glyph; prod (no lab routes) always renders procedural.** Verified end-to-end
+with a throwaway bolt/diamond SVG: drop → stamped grid re-renders live; edit → swaps in
+place; delete → ring+dot fallback. Slots wired: reverse-sheet (single stamp or mix),
+energy-symbols (his 9-icon atlas — the contract change R1/R2 deferred), energy-symbols-ii
+(shares the energy-symbols atlas when its own dir is empty), prismatic-pokeball (ball;
+alpha = shape, interior luminance = light-response detail).
+
+**The reworks (all in `patterns.ts`):** reverse-sheet — neutral silver sheet, rainbow
+ONLY on glyphs, per-stamp fbm grain (uP1, was unused; **canon migration: reverse-sheet
+uP1 0 → 0.6**, the dead placeholder would have suppressed his requested noise — same
+precedent as radiant's uP1). energy-symbols — cell-parity checkerboard: square-wave banks
+(one bright / neighbours near-invisible at uP2 0.07) that EXCHANGE roles with tilt (uP1);
+white lift on the lit bank (dark ramp hues otherwise blur the checker read); default swap
+rate 0.8 so one clean swap fits an 8-frame sweep. energy-symbols-ii — same visibility
+physics but two RANDOM-membership banks with per-glyph phase jitter over the sporadic
+scatter (~half hardly visible at any time). ace-spec — per-square size pulse riding the
+brightness phase (uP2, ±25% default) + soft ring edges that widen when swollen (blur
+settled via a judge two-step: too thick → too crisp → between). prismatic-pokeball — the
+R2 overprint SUPPRESSION is deleted; the ball catches light differently, never darker:
+same flash envelope, white-mixed pale response, belt/button phase-lead shimmer, plus a
+coherent pale plane-flash riding ~0.30 behind the mosaic lobe. radiant-collection-dots —
+the shape windows catch a traveling rainbow BAND per-pixel (lit only where the band
+crosses, hue varying across the band, dull gray off-band); dots smaller/more chromatic.
+
+**Verdicts (jobs `jobs/<p>-r3g*.json`, manifests `manifest-r3g{,2,3}.json`, tasks
+`verify-<p>-r3g{,2,3}`, google/gemini-3.1-pro-preview; reverse-sheet judged as a
+NOTE-COMPLIANCE check on canon-lab blank sweeps — its only video reference is the
+borrowed pokeball-masterball sheet, which contradicts his note by design):**
+
+| pattern | rounds | judge | my eye (live renderer + frames) |
+|---|---|---|---|
+| reverse-sheet | 1 | **20/20 yay** (note-compliance) | neutral sheet, rainbow-on-glyphs, grain ✓ |
+| energy-symbols-ii | 1 | **13/20 yay** | sporadic banks swap, ~half faint ✓ |
+| radiant-collection-dots | 3 | **16/20 YAY — the standing R2 nay is broken** | band-lit colored shapes on blank card ✓; dot toggling pixel-proven a 3rd time (25–39%/adjacent pair) |
+| energy-symbols | 3 | nay — but "banks do not exchange" is PIXEL-REFUTED (blank frames 2 vs 4 invert) | checkerboard + swap ✓; honest residual: placeholder icons until his atlas |
+| ace-spec | 3 | nay — its own named square (above 'e' in "Tree", frames 9→10) visibly changes: PIXEL-REFUTED | pulse + blur ✓ on live tilt |
+| prismatic-pokeball | 3 | nay — round-3 "darkens" was REAL: hue-offset magenta can never match yellow through the screen-blend clamp | root-caused; post-cap white-mix fix eyeball-verified (never darker, ball legible) |
+
+**Still-frame motion blindness now has FIVE data points** (starlight parallax, radiant
+crossfade, + this wave's checkerboard swap, random-bank swap scored only 3, size pulse).
+Randomized per-element phases are the common thread: in stills they read as static
+variety. Tracking protocols embedded in the prompts did not break it this wave — two
+judges asserted staticness against frames that pixel-refute them, one citing a specific
+element that visibly changes. Chey's live tilt remains the arbiter for motion claims.
+
+**Capture notes:** exemplars as prior waves (energy-symbols ex5-92 v6386, energy-symbols-ii
+ex6-7 v6446, ace-spec sv07-136 v30419, prismatic-pokeball sv08.5-123 v31813,
+radiant-collection-dots g1-RC29 v16720); pre-wave frames archived `frames/<p>/pre-r3g/`.
+New canon-lab blank sweeps: `frames/reverse-sheet-canon-r3g/`,
+`frames/energy-symbols-canon-r3g/`, `frames/radiant-collection-dots-canon-r3g/`.
+Gate shots: `~/.legacy-dev-hub-legacy/foil-shots/r3-glyph/` (desktop + 390 per pattern).
