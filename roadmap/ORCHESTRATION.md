@@ -101,7 +101,8 @@ Unregister with `POST /unregister {"branch": "..."}` when a worktree is retired.
 | 5183 | `feat/board-live` web dev |
 | 5184 | `foil/canon-lab` web dev (workbench split: canon pattern lab) |
 | 5185 | `foil/assignments` web dev (per-card pattern assignment review) |
-| 5186–5189 | spares — allocate here and record in this table |
+| 5186 | `foil/mask-refine` web dev (window-mask handles + flatten-to-hand-mask) |
+| 5187–5189 | spares — allocate here and record in this table |
 | 3710–3719 | per-branch api dev instances (set `POKEDEX_API_PORT`, point vite at it with `POKEDEX_DEV_API_PORT`) |
 
 `apps/web/vite.config.ts` reads `POKEDEX_DEV_API_PORT` (default 3700) for its dev proxy, so a
