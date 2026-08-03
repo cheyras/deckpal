@@ -31,6 +31,15 @@
 //   Mask (hand-drawn tier; beats the layout tier when present)
 //     uMaskTex     sampler2D  hand-drawn mask, ALPHA channel = foil coverage
 //     uMaskTexOn   float      1 = sample uMaskTex instead of the layout rect
+//   Glyph slot (R3-GLYPH 2026-08-03; driven by CardViewer, never by sliders)
+//     uGlyphTex    sampler2D  rasterized atlas of Chey's real glyph artwork
+//                             (research/foil-glyphs/<slug>/ via foil/glyphs.ts);
+//                             ALPHA = stamp coverage, RGB luminance = optional
+//                             interior detail
+//     uGlyphOn     float      1 = atlas loaded — recipes branch to glyphTex();
+//                             0 (no assets / no dev api) = procedural fallback
+//     uGlyphCount  float      number of glyphs in the atlas (1..16)
+//     uGlyphCols   float      atlas grid columns (square grid)
 //   Pattern params (recipe-owned; labelled sliders in the workbench)
 //     uP0..uP3     float      meaning defined per recipe in patterns.ts
 //
@@ -94,6 +103,10 @@ uniform float uMaskInvert;
 uniform float uMaskView;
 uniform sampler2D uMaskTex;
 uniform float uMaskTexOn;
+uniform sampler2D uGlyphTex;
+uniform float uGlyphOn;
+uniform float uGlyphCount;
+uniform float uGlyphCols;
 uniform float uP0;
 uniform float uP1;
 uniform float uP2;
@@ -149,6 +162,21 @@ float sheen(vec2 uv, vec2 tilt) {
   float ph = uv.x * 0.9 + uv.y * 0.6 - (tilt.x * 1.1 + tilt.y * 0.8);
   return pow(max(0.0, cos(PI * clamp(ph, -1.0, 1.0))), 5.0);
 }
+// Glyph-slot sampler (R3-GLYPH): glyph idx (0..uGlyphCount-1) from the atlas
+// at glyph-local p (y UP; the glyph box is |p| <= 0.5 — outside returns 0, so
+// recipes may jitter/rotate/scale p freely). a = coverage, rgb = raw pixels
+// (luminance carries optional interior detail). Guard against uGlyphOn == 0
+// in the recipe — with no atlas this samples a 1x1 transparent texture.
+// LinearFilter, no mips: safe inside non-uniform flow, no atlas-cell bleed.
+vec4 glyphTex(float idx, vec2 p) {
+  float inside = step(abs(p.x), 0.5) * step(abs(p.y), 0.5);
+  float i = clamp(floor(idx + 0.5), 0.0, max(uGlyphCount - 1.0, 0.0));
+  float col = mod(i, uGlyphCols);
+  float row = floor(i / uGlyphCols);
+  // y-up glyph local -> y-down atlas cell (texture flipY=false: v0 = canvas top)
+  vec2 q = vec2(p.x + 0.5, 0.5 - p.y);
+  return texture2D(uGlyphTex, (vec2(col, row) + q) / uGlyphCols) * inside;
+}
 `
 
 const MAIN = /* glsl */ `
@@ -194,6 +222,16 @@ function whiteTexture(): THREE.DataTexture {
   return white
 }
 
+// 1×1 transparent fallback so uGlyphTex is always a valid sampler (uGlyphOn=0).
+let transparent: THREE.DataTexture | null = null
+export function transparentTexture(): THREE.DataTexture {
+  if (!transparent) {
+    transparent = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1)
+    transparent.needsUpdate = true
+  }
+  return transparent
+}
+
 export function buildFoilMaterial(pattern: FoilPattern): THREE.ShaderMaterial {
   const uniforms: Record<string, THREE.IUniform> = {
     uFace: { value: null },
@@ -214,6 +252,10 @@ export function buildFoilMaterial(pattern: FoilPattern): THREE.ShaderMaterial {
     uMaskView: { value: 0 },
     uMaskTex: { value: whiteTexture() },
     uMaskTexOn: { value: 0 },
+    uGlyphTex: { value: transparentTexture() },
+    uGlyphOn: { value: 0 },
+    uGlyphCount: { value: 0 },
+    uGlyphCols: { value: 1 },
     uP0: { value: 0 },
     uP1: { value: 0 },
     uP2: { value: 0 },
