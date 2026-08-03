@@ -64,6 +64,7 @@ const MASKS_DIR = join(repoRoot(), 'data', 'foil-masks');
 const COMMENTS_DIR = join(repoRoot(), 'issues', 'foil');
 const CANON_DIR = join(repoRoot(), 'data', 'foil-canon');
 const OVERRIDES_DIR = join(repoRoot(), 'data', 'foil-overrides');
+const WINDOWS_DIR = join(repoRoot(), 'data', 'foil-windows');
 const REFERENCE_DIR = join(repoRoot(), 'research', 'foil-video-reference');
 const GLYPHS_DIR = join(repoRoot(), 'research', 'foil-glyphs');
 
@@ -340,6 +341,11 @@ foilLabRouter.post(
       line('maskAliasOf'),
       line('maskHasPriorDiff'),
       line('maskEditActive'),
+      // Adjusted-window linkage (foil/mask-refine): geometry state the
+      // comment describes; full rect lives in context.json.
+      line('windowAdjusted'),
+      line('windowSavedAt'),
+      line('windowAliasOf'),
       line('tiltMode'),
       line('viewport'),
       'context: context.json',
@@ -534,6 +540,145 @@ foilLabRouter.delete(
     let removed = false;
     try {
       await unlink(overridePath(cardId, variantId));
+      removed = true;
+    } catch {
+      /* absent is fine */
+    }
+    res.json({ removed });
+  }),
+);
+
+// ── Adjusted window geometry (foil/mask-refine — pre-flatten state) ────────
+//
+// data/foil-windows/<cardId>/<variantId>.json — the hand-adjusted layout
+// window rect for a card (UV y-up, maskForScope's space) + corner radius.
+// This is the PRE-FLATTEN state of Chey's "handles → flatten → refine"
+// workflow: while no hand mask exists the layout tier renders this rect
+// instead of the era rect; Flatten bakes it into a normal hand mask (the
+// mask save records it as prior.window provenance). Artwork-keyed like
+// masks — the window box is a property of the SCAN (all variants share it;
+// scope only decides inversion at render time), so GETs alias to any
+// sibling variant's geometry, newest savedAt first, unconditionally.
+
+interface WindowEntry {
+  version: 1;
+  cardId: string;
+  variantId: number;
+  artworkKey: string;
+  savedAt: string;
+  /** Scope active when adjusted (provenance only — applies to window AND sheet). */
+  scope: string;
+  eraId: string;
+  rect: [number, number, number, number];
+  radius: number;
+  invert: boolean;
+  /** The era-layout rule this geometry adjusted, at save time. */
+  base: { rect: [number, number, number, number]; radius: number; resolverVersion: number };
+}
+
+function windowPath(cardId: string, variantId: string): string {
+  return join(WINDOWS_DIR, cardId, `${variantId}.json`);
+}
+
+async function readWindowEntry(cardId: string, variantId: string): Promise<WindowEntry | null> {
+  try {
+    return JSON.parse(await readFile(windowPath(cardId, variantId), 'utf8')) as WindowEntry;
+  } catch {
+    return null;
+  }
+}
+
+/** Exact file wins; otherwise newest sibling variant's geometry (same scan). */
+async function resolveWindow(
+  cardId: string,
+  variantId: string,
+): Promise<{ entry: WindowEntry; aliasOf: string | null } | null> {
+  const exact = await readWindowEntry(cardId, variantId);
+  if (exact) return { entry: exact, aliasOf: null };
+  let files: string[];
+  try {
+    files = await readdir(join(WINDOWS_DIR, cardId));
+  } catch {
+    return null;
+  }
+  const candidates: WindowEntry[] = [];
+  for (const f of files) {
+    const m = /^(\d{1,10})\.json$/.exec(f);
+    if (!m || m[1] === variantId) continue;
+    const e = await readWindowEntry(cardId, m[1]!);
+    if (e) candidates.push(e);
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
+  const best = candidates[0]!;
+  return { entry: best, aliasOf: String(best.variantId) };
+}
+
+function parseWindowRect(raw: unknown, what: string): [number, number, number, number] {
+  if (!Array.isArray(raw) || raw.length !== 4) throw badRequest(`${what} must be [x,y,w,h].`);
+  const rect = raw.map((v) => Number(v)) as [number, number, number, number];
+  for (const v of rect) {
+    if (!Number.isFinite(v) || v < -0.5 || v > 1.5) throw badRequest(`${what} out of range.`);
+  }
+  return rect;
+}
+
+foilLabRouter.get(
+  '/windows/:cardId/:variantId',
+  asyncHandler(async (req, res) => {
+    const { cardId, variantId } = validIds(req.params.cardId, req.params.variantId);
+    const r = await resolveWindow(cardId, variantId);
+    if (!r) throw notFound('No adjusted window for this card/variant.');
+    res.setHeader('Cache-Control', 'no-store'); // editing surface — never stale
+    res.json({ aliasOf: r.aliasOf ? Number(r.aliasOf) : null, entry: r.entry });
+  }),
+);
+
+foilLabRouter.put(
+  '/windows/:cardId/:variantId',
+  asyncHandler(async (req, res) => {
+    const { cardId, variantId } = validIds(req.params.cardId, req.params.variantId);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const scope = str(body.scope);
+    if (!scope || !SCOPES.has(scope)) throw badRequest('Invalid scope.');
+    const eraId = str(body.eraId);
+    if (!eraId || !/^[a-z0-9-]{1,32}$/.test(eraId)) throw badRequest('Invalid eraId.');
+    const rect = parseWindowRect(body.rect, 'rect');
+    const radius = Number(body.radius);
+    if (!Number.isFinite(radius) || radius < 0 || radius > 0.5) throw badRequest('radius out of range.');
+    const baseRaw = (body.base ?? {}) as Record<string, unknown>;
+    const baseRect = parseWindowRect(baseRaw.rect, 'base.rect');
+    const baseRadius = Number(baseRaw.radius);
+    if (!Number.isFinite(baseRadius) || baseRadius < 0 || baseRadius > 0.5) throw badRequest('base.radius out of range.');
+    const resolverVersion = Number(baseRaw.resolverVersion);
+    if (!Number.isInteger(resolverVersion)) throw badRequest('base.resolverVersion must be an integer.');
+    const entry: WindowEntry = {
+      version: 1,
+      cardId,
+      variantId: Number(variantId),
+      // Same identity rule as masks: the geometry belongs to the card's SCAN.
+      artworkKey: cardId,
+      savedAt: new Date().toISOString(),
+      scope,
+      eraId,
+      rect,
+      radius,
+      invert: Boolean(body.invert),
+      base: { rect: baseRect, radius: baseRadius, resolverVersion },
+    };
+    mkdirSync(join(WINDOWS_DIR, cardId), { recursive: true });
+    await writeFile(windowPath(cardId, variantId), JSON.stringify(entry, null, 2) + '\n', 'utf8');
+    res.json({ saved: `data/foil-windows/${cardId}/${variantId}.json`, ...entry });
+  }),
+);
+
+foilLabRouter.delete(
+  '/windows/:cardId/:variantId',
+  asyncHandler(async (req, res) => {
+    const { cardId, variantId } = validIds(req.params.cardId, req.params.variantId);
+    let removed = false;
+    try {
+      await unlink(windowPath(cardId, variantId));
       removed = true;
     } catch {
       /* absent is fine */

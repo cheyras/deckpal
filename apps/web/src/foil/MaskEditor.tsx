@@ -17,13 +17,15 @@
 // .claude/skills/mask-pipeline/SKILL.md).
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { rasterizeWindowRect } from './WindowEditor'
 
 export const MASK_W = 490 // 2× the 245×337 card fraction — plenty for zone masks
 export const MASK_H = Math.round((MASK_W * 337) / 245)
 
 export type BrushMode = 'brush' | 'erase'
 
-const TINT = 'rgba(255, 45, 100, 1)' // display tint; only alpha matters to the shader
+export const MASK_TINT = 'rgba(255, 45, 100, 1)' // display tint; only alpha matters to the shader
+const TINT = MASK_TINT
 
 export interface MaskEditorHandle {
   canvas: HTMLCanvasElement
@@ -90,23 +92,9 @@ export function MaskEditor({
     registerHandle({
       canvas,
       loadLayoutRect: (r, invert, radiusFrac) => {
-        c.clearRect(0, 0, MASK_W, MASK_H)
-        c.fillStyle = TINT
-        const [x, yUp, w, h] = r
-        // layout rects are UV y-up; canvas is y-down
-        const px = x * MASK_W
-        const py = (1 - yUp - h) * MASK_H
-        const pw = w * MASK_W
-        const ph = h * MASK_H
-        const rad = radiusFrac * MASK_W
-        if (invert) {
-          c.fillRect(0, 0, MASK_W, MASK_H)
-          c.globalCompositeOperation = 'destination-out'
-        }
-        c.beginPath()
-        c.roundRect(px, py, pw, ph, rad)
-        c.fill()
-        c.globalCompositeOperation = 'source-over'
+        // Shared rasterizer (WindowEditor.tsx) — the Flatten action bakes the
+        // exact same pixels this editor would start from.
+        rasterizeWindowRect(canvas, r, invert, radiusFrac, TINT)
         undoStack.current = []
         repaint()
         bump((n) => n + 1)

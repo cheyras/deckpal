@@ -52,11 +52,42 @@ export interface FoilMaskPrior {
   source: 'layout'
   eraId: string
   scope: string
+  /** The DETERMINISTIC layout-rule output (era rect) — never the adjusted window. */
   rect: [number, number, number, number]
   radius: number
   invert: boolean
   feather: number
   resolverVersion: number
+  /**
+   * Optional provenance (foil/mask-refine): the hand-adjusted window geometry
+   * in effect when this mask was saved/flattened. The prior render + diff stay
+   * based on `rect` (the rule's output) so `diff.agreement` keeps measuring
+   * the RULE's error; this field records the human's geometry correction.
+   */
+  window?: { rect: [number, number, number, number]; radius: number }
+}
+
+/**
+ * Adjusted window geometry — data/foil-windows/<cardId>/<variantId>.json.
+ * Artwork-keyed like masks (geometry is a property of the scan; scope only
+ * decides inversion at render time).
+ */
+export interface FoilWindowEntry {
+  version: 1
+  cardId: string
+  variantId: number
+  artworkKey: string
+  savedAt: string
+  /** Scope active when adjusted (provenance — geometry applies to window AND sheet). */
+  scope: string
+  eraId: string
+  /** UV y-up [x,y,w,h] — same space as maskForScope()/prior.rect. */
+  rect: [number, number, number, number]
+  /** Corner radius, fraction of card width. */
+  radius: number
+  invert: boolean
+  /** The era-layout rule this geometry adjusted, at save time. */
+  base: { rect: [number, number, number, number]; radius: number; resolverVersion: number }
 }
 
 /** Canon pattern defaults — data/foil-canon/<patternId>.json (surface A). */
@@ -249,6 +280,55 @@ export const foilApi = {
     })
     if (!res.ok) throw new Error(`comment save failed (HTTP ${res.status})`)
     return res.json() as Promise<{ id: string }>
+  },
+
+  // ── Adjusted window geometry (foil/mask-refine — pre-flatten state) ──
+
+  /**
+   * Saved window geometry for a card/variant, or null (none saved / no dev
+   * api). Artwork-keyed: any sibling variant's geometry on the same card
+   * answers (newest savedAt), `aliasOf` says which one.
+   */
+  getWindow: async (
+    cardId: string,
+    variantId: number,
+    signal?: AbortSignal,
+  ): Promise<{ entry: FoilWindowEntry; aliasOf: number | null } | null> => {
+    try {
+      const res = await fetch(`${BASE}/foil-lab/windows/${encodeURIComponent(cardId)}/${variantId}`, { signal })
+      if (!res.ok) return null
+      return (await res.json()) as { entry: FoilWindowEntry; aliasOf: number | null }
+    } catch {
+      return null
+    }
+  },
+
+  putWindow: async (
+    cardId: string,
+    variantId: number,
+    body: {
+      scope: string
+      eraId: string
+      rect: [number, number, number, number]
+      radius: number
+      invert: boolean
+      base: { rect: [number, number, number, number]; radius: number; resolverVersion: number }
+    },
+  ): Promise<FoilWindowEntry> => {
+    const res = await fetch(`${BASE}/foil-lab/windows/${encodeURIComponent(cardId)}/${variantId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error(`window save failed (HTTP ${res.status})`)
+    return res.json() as Promise<FoilWindowEntry>
+  },
+
+  deleteWindow: async (cardId: string, variantId: number): Promise<void> => {
+    const res = await fetch(`${BASE}/foil-lab/windows/${encodeURIComponent(cardId)}/${variantId}`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) throw new Error(`window delete failed (HTTP ${res.status})`)
   },
 
   // ── Canon pattern defaults (surface A — the canon lab) ──
