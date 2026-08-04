@@ -49,6 +49,17 @@
 //                             own hue (a pure chroma pump, luminance-neutral
 //                             by construction) — bands make colors shimmer
 //                             more vivid, never washed. Scan path only.
+//     uOnsetRange  float      R4d glow-onset window (scan path only): the
+//                             |uTilt| at which added light reaches full
+//                             (default 0.5). Chey's dial for "how far do I
+//                             tilt before it glows".
+//     uOnsetCurve  float      R4d glow-onset curve (scan path only): the
+//                             flash-gate exponent over the onset ramp,
+//                             eager (1) → lazy (6), default 3.5. Small tilts
+//                             read as MOVEMENT of the existing sheen (pattern
+//                             phase tracks uTilt directly); brightness joins
+//                             late. Specular trails at uOnsetCurve+1 — latest
+//                             of all. (0.45 / 1.5 reproduces R4c exactly.)
 //     uScanBase    float      1 = uFace is a REAL CARD SCAN (both workbench
 //                             card surfaces + the canon-lab card preview):
 //                             the R4b scan-additive law applies. 0 = uFace is
@@ -88,12 +99,16 @@
 // green→yellow hue push on me05-002; header ΔL −22 under tilt; glyph contrast
 // −26% under the lobe). On scans (uScanBase 1) the composite is now purely
 // ADDITIVE dynamic light, three invariants BY CONSTRUCTION:
-//   (a) rest parity (perceptual, R4c) — all added light is scaled by a wide
-//       C1 tilt-onset ease (flash s^1.5, specular s^2.5 of a 0→0.45 ramp)
-//       whose rest value is a sub-JND floor (REST = 0.006, sheet-mean ≪1 ΔL):
-//       at rest the render is visually the scan, and the sheen LEANS IN with
-//       tilt instead of switching on (R4b's near-step onset was Chey's
-//       "suddenly appears" complaint, 2026-08-04).
+//   (a) rest parity (perceptual, R4c/R4d) — all added light is scaled by a
+//       wide C1 tilt-onset ease (flash s^uOnsetCurve, specular s^(uOnsetCurve
+//       +1) of a 0→uOnsetRange ramp, both canon-tunable) whose rest value is
+//       a sub-JND floor (REST = 0.006, sheet-mean ≪1 ΔL): at rest the render
+//       is visually the scan. R4d made the onset MOTION-FIRST: physical
+//       gestures are ~0.005 tilt/px (pointer, 390px) and ~0.036 tilt/deg
+//       (gyro), so a tiny drag lands at |tilt| 0.15–0.2 — the defaults
+//       (0.5 / 3.5) keep added light near the rest floor there and let the
+//       pattern PHASE (which tracks uTilt directly) carry the response;
+//       brightness joins from ~0.25 and peaks unchanged (ramp = 1 at 0.5).
 //   (b) adds, never subtracts — col = scan + light, light ≥ 0; uDarken is
 //       inert on scans (the photograph already carries the substrate).
 //   (c) text sacred — light is clamped to a luminance-headroom budget
@@ -126,6 +141,8 @@ export const GLOBAL_DEFAULTS = {
   uTint: 0.0,
   uInkGuard: 1.0,
   uInkPop: 0.5,
+  uOnsetRange: 0.5,
+  uOnsetCurve: 3.5,
 } as const
 
 export type CoreUniform = keyof typeof GLOBAL_DEFAULTS
@@ -161,6 +178,8 @@ uniform float uDarken;
 uniform float uTint;
 uniform float uInkGuard;
 uniform float uInkPop;
+uniform float uOnsetRange;
+uniform float uOnsetCurve;
 uniform float uScanBase;
 uniform vec4 uMaskRect;
 uniform float uMaskRadius;
@@ -336,28 +355,34 @@ void main() {
   // ONLY. Engagement fades in with uInkGuard (saturating by 0.35 so canon
   // values like 0.81 run it fully); 0 keeps the legacy composite above.
   if (uScanBase > 0.5 && uInkGuard > 0.001) {
-    // Tilt onset (R4c 2026-08-04 — Chey on R4b's gate: "it's like it isn't
-    // there at all until I've tilted the card a tiny bit and then it's like
-    // it just suddenly appears"). R4b's smoothstep(.02,.28) looked smooth on
-    // paper, but the headroom clamp below SATURATES once gate·light exceeds
-    // the per-pixel budget (~gate 0.33 on the mirror canon), so all the
-    // light arrived inside |tilt| 0.03→0.12 and then froze — a step smeared
-    // over 4% of the tilt range, with a dead zone before it (measured,
-    // r4c ramp harness). Now the sheen LEANS IN: one wide ease (full at
-    // 0.45 — every R4b tilt-0.5 metric is unchanged), raised to powers so
-    // small tilts give proportionally small light:
-    //   flash s^1.5 — cubic-slow start, the pattern breathes in first;
-    //   spec  s^2.5 — the broad whole-card gloss band was the loudest
-    //   early arriver ("suddenly appears"), so it now trails the flash.
-    // Plus a faint living rest sheen REST (sub-JND floor, blended not
-    // max'd so the curve stays smooth): the foil exists at rest, so motion
-    // reads as "the sheen leans in", never "the foil switches on". Rest
-    // render stays visually the scan (R4b's vibrancy win — re-measured,
-    // sheet-mean ≪1 ΔL; the clamp still starves glyphs at any gate).
+    // Tilt onset (R4c ease → R4d motion-first, 2026-08-04). R4c smoothed the
+    // curve in SHADER-tilt units, but Chey gestures in PHYSICAL units: the
+    // pointer map is ±1 across the viewer (0.0051 tilt/px on a 390px phone)
+    // and gyro is Δ°/28 (0.036 tilt/deg), so a 30px thumb drag or a 5° wrist
+    // tip lands at |tilt| 0.15–0.18 — where R4c's s^1.5 already delivered
+    // HALF its full glow (measured 9.0 of 17.9 ΔL; Chey: "It still lights up
+    // pretty noticeably when I tilt the card a tiny bit"). R4d: a tiny tilt
+    // reads as MOVEMENT of the existing sheen — the pattern phase and the
+    // specular band position track uTilt directly and proportionally, as
+    // they always did — while added BRIGHTNESS arrives much later, as a
+    // steeper power of the same wide C1 ramp. Both knobs are canon-stored
+    // sliders on both workbench surfaces:
+    //   uOnsetRange — |tilt| at which glow reaches full (default 0.5, so
+    //                 every tilt-0.5 peak metric is unchanged: ramp = 1);
+    //   uOnsetCurve — flash exponent, eager (1) → lazy (6), default 3.5;
+    //                 the broad specular gloss trails at +1, latest of all.
+    //   (0.45 / 1.5 reproduces R4c exactly; R4b was ~a step at 0.03–0.12.)
+    // REST: the faint living sheen floor (sub-JND, blended not max'd so the
+    // curve stays smooth) — the foil exists at rest, so a tiny tilt shows
+    // its phase MOVING instead of a brightness step. Rest render stays
+    // visually the scan (R4b's vibrancy win; the clamp still starves glyphs
+    // at any gate).
     const float REST = 0.006;
-    float ramp = smoothstep(0.0, 0.45, length(uTilt));
-    float flashGate = REST + (1.0 - REST) * ramp * sqrt(ramp);
-    float specGate = REST + (1.0 - REST) * ramp * ramp * sqrt(ramp);
+    // (pow guard: GLSL pow(0, y) is driver-dependent — clamp the base away
+    // from 0 so the rest frame can never go NaN on the V3D driver.)
+    float ramp = max(smoothstep(0.0, max(uOnsetRange, 0.05), length(uTilt)), 1e-4);
+    float flashGate = REST + (1.0 - REST) * pow(ramp, uOnsetCurve);
+    float specGate = REST + (1.0 - REST) * pow(ramp, uOnsetCurve + 1.0);
     // Raw dynamic light: the pattern's emission over its coverage field plus
     // the shared specular sweep (0.12 base = whole-card paper gloss).
     vec3 rawFlash = clamp(foilPattern(uv, uTilt), 0.0, 1.0) * uIntensity * m * gate * flashGate;
@@ -437,6 +462,8 @@ export function buildFoilMaterial(pattern: FoilPattern): THREE.ShaderMaterial {
     uTint: { value: GLOBAL_DEFAULTS.uTint },
     uInkGuard: { value: GLOBAL_DEFAULTS.uInkGuard },
     uInkPop: { value: GLOBAL_DEFAULTS.uInkPop },
+    uOnsetRange: { value: GLOBAL_DEFAULTS.uOnsetRange },
+    uOnsetCurve: { value: GLOBAL_DEFAULTS.uOnsetCurve },
     uScanBase: { value: 1 }, // surface-owned: CanonLab's blank render sets 0
 
     uMaskRect: { value: new THREE.Vector4(0, 0, 1, 1) },

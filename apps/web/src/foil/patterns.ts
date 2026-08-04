@@ -56,7 +56,8 @@ export interface PatternParam {
 
 type CoreDefaults = Partial<
   Record<
-    'uIntensity' | 'uScale' | 'uHueShift' | 'uHueSpread' | 'uSat' | 'uArtGate' | 'uSpecular' | 'uDarken' | 'uTint' | 'uInkGuard' | 'uInkPop',
+    | 'uIntensity' | 'uScale' | 'uHueShift' | 'uHueSpread' | 'uSat' | 'uArtGate' | 'uSpecular' | 'uDarken' | 'uTint' | 'uInkGuard' | 'uInkPop'
+    | 'uOnsetRange' | 'uOnsetCurve',
     number
   >
 >
