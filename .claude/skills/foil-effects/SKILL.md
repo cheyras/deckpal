@@ -22,12 +22,12 @@ the lazy route in `main.tsx` and a pathname check in `AppShell.tsx`. Read
 | `foil/CardViewer.tsx` | three.js scene; rAF loop pushes uniforms from a settings ref (no React re-renders per frame). Also exports `cardScreenRect` — the exact on-screen card rect used to align overlays. |
 | `foil/useTilt.ts` | pointer / gyro (iOS permission) / manual tilt; reduced-motion → manual. |
 | `foil/MaskEditor.tsx` | Apple-Pencil hand-mask drawing overlay (see mask-pipeline SKILL.md). |
-| `foil/CanonLab.tsx` | **Surface A — canon pattern lab** (`/pokedex/foil-lab/canon`, 2026-08-02 split): bare pattern on a blank card (no ink) beside the real reference clip + keyframes (`research/foil-video-reference/`, streamed by the branch api), full 39-slug picker, sliders, tilt, **Save canon** → `data/foil-canon/<patternId>.json` (full uniform snapshot; replaces code defaults as the baseline everywhere). |
+| `foil/CanonLab.tsx` | **Surface A — canon pattern lab** (`/pokedex/foil-lab/canon`, 2026-08-02 split): bare pattern on a blank card (no ink) beside the real reference clip + keyframes (`research/foil-video-reference/`, streamed by the branch api), full 39-slug picker, sliders, tilt, **Save canon** → `data/foil-canon/<patternId>.json` (full uniform snapshot; replaces code defaults as the baseline everywhere). **Card preview** (R4b 2026-08-04): a blank/on-card toggle in the viewer slot renders the live slider state on a RANDOM catalog card the resolver assigns the pattern to, with a re-randomize chip — sampled server-side from the baked inversion `data/foil-pattern-cards.json` (gitignored; regenerate with `pnpm --filter pokedex-api exec tsx ../../tools/foil/build-pattern-cards.mts` after catalog syncs or resolver changes). Preview honors saved hand masks + adjusted windows (artwork-keyed) but deliberately NOT per-card uniform overrides — the lab edits canon, and a card's sparse override layered over the sliders would misreport what Save canon produces. Patterns with an empty pool show "no catalog cards" and a disabled toggle. |
 | `foil/FoilLab.tsx` | **Surface B — card adjustment** (`/pokedex/foil-lab`): era-grouped card picker over the **whole catalog** (Owned-only is a filter toggle; unowned cards list their catalog variants and resolve a base-guess pattern like any other), full-catalog name search, pattern/scope overrides, mask overlay + hand-mask editing, uniform sliders baselined on canon with **per-card sparse overrides** → `data/foil-overrides/<cardId>/<variantId>.json`, comment queue, Copy-recipe-JSON. Single column at 390px; two columns (viewer \| controls) from 700px (iPad-mini portrait) up. |
 | `foil/canon.ts` | The canon-vs-override layering model: code defaults < canon file < per-card sparse override < live sliders. Also `seedUniforms` and the pattern-id → reference-dir mapping. |
 | `foil/ui.tsx` | Shared UI atoms for both surfaces + the surface tab switcher. |
 | `foil/api.ts` | Self-contained read client (series → sets → paged set cards → card detail, plus `/search`; each browse tier takes an ownedOnly flag) + the foil-lab dev surface (masks, comments). Do NOT import `lib/api.ts`. |
-| `apps/api/src/routes/foil-lab.ts` | Branch-instance-only routes (mask save/load with sidecar v2 prior+diff artifacts, artwork-keyed alias lookup, comments → working tree). Mounted only when `POKEDEX_FOIL_LAB=1`; inert in prod. Artifact generation: `apps/api/src/foil/mask-artifacts.ts` + pure-JS `png.ts`. |
+| `apps/api/src/routes/foil-lab.ts` | Branch-instance-only routes (mask save/load with sidecar v2 prior+diff artifacts, artwork-keyed alias lookup, comments → working tree, `GET /pattern-cards/:patternId` random samples from the baked resolver inversion — DB-free by design). Mounted only when `POKEDEX_FOIL_LAB=1`; inert in prod. Artifact generation: `apps/api/src/foil/mask-artifacts.ts` + pure-JS `png.ts`. |
 
 ## The uniform contract
 
@@ -48,10 +48,11 @@ Core uniforms (global sliders; every pattern may read them):
 | `uSat` | rainbow saturation, applied **inside** `hueRamp()` (0 = silver) |
 | `uArtGate` | luminance gate applied by `main()`: foil shows in dark scan areas, printed ink stays readable. The cheap precursor to art-driven masks. |
 | `uSpecular` | shared white sheen band, applied by `main()` |
-| `uDarken` | mirror-substrate attenuation, applied by `main()` (2026-08-02 R2 blend-model term, default **0 = exact legacy render**). Physically: mirror foil sits between the printed body and the viewer; at non-flash angles it reflects the (mostly dark) environment instead of diffusing, so the scan is multiplied by `1 - uDarken * mask * gate` — the SAME coverage field the additive layer uses — before the foil screen-blends on top. Opt in per recipe via `defaults`; recipes may also read it (e.g. an ink overprint that suppresses the additive layer). Absent key in canon/override/sidecar JSON = 0 = no effect. |
-| `uTint` | **metallic ink tint**, applied by `main()` (2026-08-03 R3-MISC blend-model term, default **0 = exact legacy render**). Physically: a mirror foil's flash crosses the printed ink twice, so over colored art the flash carries the ink's OWN color — screen-blending achromatic light instead compresses chroma and reads dull/grayish (Chey's modern-reverse complaint). `main()` multiplies the clamped foil layer (and the shared specular, within the mask) by `mix(1, tint², uTint · mask · gate)` where `tint` = luminance-normalized scan chroma (capped ≤ 1 — chroma direction only, no gain). Neutral over silver/white, so blank-card canon-lab renders are IDENTICAL at any value — tune it on real card scans, not in the lab. Opted in by the reverse-family recipes (mirror 0.7, rainbow-mirror 0.7, reverse-sheet 0.7, pokeball-masterball 0.7, energy-symbols 0.6, energy-symbols-ii 0.6, pinwheel 0.6, fireworks 0.5, prism 0.4, disco 0.5). |
-| `uInkGuard` | **ink protection**, applied by `main()` (2026-08-03 R4-COMPOSITE core-invariant term, default **1**; **0 = exact legacy composite**). `main()` estimates ink density from the scan — `inkDark` = how much darker the pixel is than its LOCAL 8-tap field average (text, linework, dark detail; relative by construction, so any flat blank base measures exactly 0) and `inkColor` = scan chroma above a 0.12 floor (saturated print; the lab's slightly-tinted gray tones peak ~0.06 = still 0). uInkGuard scales both. Dense ink sits ON TOP of the physical foil, so: dark ink blocks the additive flash and the shared specular (text never screen-lifts into illegibility), and ink (dark or colored) is exempt from `uDarken` substrate attenuation (ink diffuses normally — printed color is never muted). Blank-card canon renders are pixel-identical at ANY value (proven by the R4 frame-stepped zero-delta harness). |
-| `uInkPop` | **metallic chroma pop**, applied by `main()` (R4-COMPOSITE, default **0.5**; **0 = legacy**): over colored ink the flash also pumps the ink's own chroma — `+ (scan − lum) · uInkPop · 1.25 · inkColor · flashLum` — so colors read MORE saturated and metallic under the flash instead of washing toward white. Rides `inkColor`, so inert on blank/neutral bases and whenever `uInkGuard` is 0. |
+| `uDarken` | mirror-substrate attenuation, applied by `main()` (2026-08-02 R2 blend-model term, default **0 = exact legacy render**). **Blank-base path only** (R4b): on the canon lab's tone bases it darkens the substrate as before (dark-mirror moods live here); on REAL CARD SCANS (`uScanBase 1` with `uInkGuard > 0`) it is INERT — the scan is a photograph that already carries the substrate's rest appearance, and Chey's Grubbin ruling is that foil on a scan never darkens anything. Opt in per recipe via `defaults`; recipes may also read it. Absent key in canon/override/sidecar JSON = 0 = no effect. |
+| `uTint` | **metallic ink tint** (2026-08-03 R3-MISC, default **0 = exact legacy render**). Physically: a mirror foil's flash crosses the printed ink twice, so over colored art the flash carries the ink's OWN color — achromatic light instead compresses chroma and reads dull/grayish (Chey's modern-reverse complaint). On scans the R4b law tints the additive light by `mix(1, tint², max(uTint, chromaRamp))` where `tint` = luminance-normalized scan chroma (direction only, no gain) and `chromaRamp` = `smoothstep(0.02, 0.45, chroma)` — saturated print always colors its own light even at uTint 0; uTint is the floor for neutral paper. Neutral over silver/white, so blank-card canon renders are IDENTICAL at any value. Opted in by the reverse-family recipes (mirror 0.7→0.81 canon, rainbow-mirror 0.7, reverse-sheet 0.7, pokeball-masterball 0.7, energy-symbols 0.6, energy-symbols-ii 0.6, pinwheel 0.6, fireworks 0.5, prism 0.4, disco 0.5). |
+| `uInkGuard` | **scan-composite engagement** (R4b 2026-08-04, default **1**; **0 = exact pre-R4 legacy composite**). On a real card scan (`uScanBase 1`) this fades in the SCAN-ADDITIVE law (`smoothstep(0, 0.35, uInkGuard)` — saturates by 0.35 so mid-range canon values run the safe law fully). The law itself is parameter-free protection: additive-only light, tilt-gated to zero at rest, luminance-headroom clamped (see the Blend model section). Inert on the canon lab's blank bases (`uScanBase 0`), where the classic composite runs unchanged — blank-card canon renders are pixel-identical at ANY value (R4b CDP frame-stepped zero-delta harness, AE 0). |
+| `uInkPop` | **metallic chroma pop** (default **0.5**; **0 = none**): under the flash, colored print gains SATURATION along its own hue — `+ (scan − lum) · uInkPop · 0.5 · chromaRamp · drive · L²` — a Rec.601-luminance-neutral chroma pump (bands make colors shimmer more vivid, never washed), gated by `L²` so glyph ink never re-hues toward the paper. Scan path only; inert on blank bases and at `uInkGuard` 0. |
+| `uScanBase` | **surface-owned mode switch** (R4b): `1` = `uFace` is a real card scan (both card surfaces + the canon-lab card preview) — the scan-additive law applies; `0` = synthetic blank base (canon-lab pattern room) — classic composite, bit-identical canon renders. Set via `ViewerSettings.scanBase` (default true; CanonLab's blank render passes false). NEVER a slider, never stored in canon/override files. |
 | `uMask*` | layout mask uniforms — handled entirely by `main()`; patterns never mask themselves |
 | `uMaskTex` / `uMaskTexOn` | hand-mask tier: when on, `main()` samples the mask canvas's ALPHA (shader flips V; the CanvasTexture sets `flipY=false` — exactly one flip, ever) instead of the layout rect |
 | `uGlyphTex` / `uGlyphOn` / `uGlyphCount` / `uGlyphCols` | **glyph slot** (R3-GLYPH 2026-08-03): rasterized atlas of Chey's real glyph artwork from `research/foil-glyphs/<slug>/` (see its README for the drop contract). Driven by CardViewer's auto-pickup poll via `foil/glyphs.ts`, never by sliders or canon files. Recipes with a slot branch on `uGlyphOn` and sample via the preamble helper `glyphTex(idx, p)` (p glyph-local, y up, box \|p\| ≤ 0.5, returns rgba·inside; a = coverage, rgb luminance = optional interior detail). `uGlyphOn = 0` (no assets / prod) = the recipe's procedural fallback glyphs, bit-for-bit the shipped look. Slot registry: `GLYPH_SLOTS` in glyphs.ts (reverse-sheet, energy-symbols, energy-symbols-ii — shares energy-symbols' atlas, prismatic-pokeball). |
@@ -62,37 +63,43 @@ Preamble helpers available to every recipe: `hash21`, `hash22`, `vnoise`, `fnois
 plus constants `PI`, `TAU`, `CARD_ASPECT` (h/w ≈ 1.3755). For isotropic patterns multiply
 uv by `vec2(1.0, CARD_ASPECT)` so cells aren't stretched.
 
-Blend model (in `main()`, R4-COMPOSITE 2026-08-03). **The composite contract /
-core invariant: foil ADDS pop — it must never lift dark ink or text into
-illegibility, and it must never darken, mute, or muddy the printed ink's colors**
-(Chey, issues 7rtnzx + 19mo4l). Physical model: on a real card the ink layer sits
-on top of / interleaved with the foil, so ink-dense areas show the foil weakly and
-keep their own diffuse color; the mirror/flash owns only the low-ink field.
-`main()` estimates ink density from the scan (`inkDark` relative-darkness +
-`inkColor` chroma — see the `uInkGuard` row) and composites:
+Blend model (in `main()`, R4b SCAN-ADDITIVE 2026-08-04 — supersedes R4's
+ink-density heuristics, which Chey's Grubbin review refuted: the stacked
+per-pixel estimates repainted the card at rest, rest ΔC +32 with a
+green→yellow hue push, header −22 L under tilt, glyph contrast −26% under the
+lobe). **The composite contract, three invariants BY CONSTRUCTION on real
+card scans (`uScanBase 1`, `uInkGuard > 0`):**
 
-- `body = scan * (1 - uDarken * mask * gate * (1 - ink))` — substrate darkening
-  on the low-ink field only (`ink = clamp(inkDark + 0.85·inkColor, 0, 1)`)
-- `foil = foilPattern * uIntensity * mask * gate * (1 - inkDark)` — dark ink
-  blocks the flash
-- `screenBlend(body, clamp(foil, 0, 1) * inkTint)` where
-  `inkTint = mix(1, tint², max(uTint, inkColor) · mask · gate)` — colored ink
-  always tints its own flash (uTint remains the per-recipe floor)
-- `+ (scan − lum) · uInkPop · 1.25 · inkColor · flashLum` — the chroma pop:
-  flash saturates colored ink instead of whitening it
-- `+ uSpecular * sheen * (0.12 + 0.88·mask) * (1 − 0.85·inkDark) * inkTint'` —
-  the gloss sweep is shielded over dark ink, so text stays crisp at every angle
+1. **Rest parity.** The scan is a PHOTOGRAPH of the real card at rest — it is
+   already correct. All foil light is scaled by `smoothstep(0.02, 0.28,
+   |uTilt|)`: at neutral tilt the render IS the scan, exactly (measured ΔL =
+   ΔC = 0.00 in every region on the whole R4b sample set).
+2. **Flash adds, never subtracts.** `col = scan + light, light ≥ 0`. No
+   uDarken on scans, no screen-blend, nothing multiplies the base down.
+3. **Text sacred at every angle.** The light (pattern flash AND the shared
+   specular — one clamp covers both) is bounded by a per-pixel luminance
+   headroom `allow = max(1.6·L⁴·(1−L), 1.4·uArtGate·darkSmooth·(1−L))` and a
+   per-channel distance-to-1 cap. The quartic starves glyph ink (modern glyphs
+   are MID-dark, L 0.35–0.45 — a gentle ramp lights them; measured) and gives
+   paper tones (L≈0.8) the sheen; whites have no headroom, so nothing ever
+   blows out, and the per-channel cap means no channel clips (clipping is what
+   hue-rotated green→yellow in R4). The `uArtGate` channel is the one licensed
+   exception: gated recipes declare dark scan areas ARE the foil (WOTC holo
+   backgrounds), so those pixels flash — text sits outside the window mask on
+   gated cards.
 
-With `uDarken = 0` (the default, and every pre-R2 recipe) the additive layer can
-only **lighten**. Recipes whose real-world substrate is a DARK mirror at most
-angles (rainbow-mirror family, Prismatic Evolutions reverses, dark broken static)
-opt into `uDarken > 0`: the darkened substrate is what makes dark-mirror looks and
-ink-overprint watermarks (drawn as *suppression* of the additive layer) renderable
-at all — R4 reconciles this with the invariant by scoping the darkening to the
-foil-visible field: the mirror IS dark at off angles, but only where you can
-actually see the mirror. `uDarken`, `uTint`, `uInkGuard`, and `uInkPop` at 0
-reproduce the original screen-only composite exactly; both ink estimates are
-exactly 0 on flat blank bases, so the canon lab never moves at any knob value.
+Light is chroma-preserving (`inkTint` — see the `uTint` row) and `uInkPop`
+pumps saturation along the pixel's own hue (luminance-neutral). Consequence to
+know: **dark stamp features (masterball silhouettes) render as light stamps**
+on scans — adds-only cannot darken; that is invariant 2's price.
+
+On the canon lab's blank bases (`uScanBase 0`) the CLASSIC composite runs
+textually unchanged — screen-blend + uDarken substrate + R4's (self-zeroing on
+flat tones) ink estimates — so dark-mirror canon moods still exist in the
+pattern room and every saved canon renders bit-identically (AE-0 proven per
+change via the CDP frame-stepped harness; see DECISIONS 2026-08-04). Zero
+knobs = legacy: `uInkGuard 0` (+ `uInkPop 0`) reproduces the pre-R4
+screen-only composite exactly on EVERY surface.
 
 ## Adding a pattern (worked example: Crosshatch)
 

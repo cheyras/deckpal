@@ -31,24 +31,31 @@
 //                             (Chey, 2026-08-03, modern reverse holos). Neutral
 //                             over silver/white, so blank-card canon renders
 //                             are unaffected at any value.
-//     uInkGuard    float      ink protection (R4-COMPOSITE 2026-08-03; 0 =
-//                             exact legacy composite, default 1): scales the
-//                             ink-density estimates (inkDark: darker than the
-//                             LOCAL field average — text/linework; inkColor:
-//                             scan chroma — saturated print). Dense ink sits
-//                             ON TOP of the foil layer, so it (a) blocks the
-//                             flash + specular (text never screen-lifts into
-//                             illegibility) and (b) is exempt from the uDarken
-//                             substrate attenuation (ink diffuses normally —
-//                             printed color is never muted). Both estimates
-//                             are exactly 0 on any flat blank base, so canon-
-//                             lab renders are untouched at ANY value.
-//     uInkPop      float      metallic chroma pop (R4-COMPOSITE; 0 = legacy):
-//                             over colored ink the flash also pumps the ink's
-//                             own chroma, so colors read MORE saturated and
-//                             metallic under the flash instead of washing
-//                             toward white. Rides the inkColor estimate, so
-//                             inert on blank/neutral bases and at uInkGuard 0.
+//     uInkGuard    float      scan-composite engagement (R4b 2026-08-04; 0 =
+//                             exact pre-R4 legacy composite, default 1): on a
+//                             real card scan (uScanBase 1) this fades in the
+//                             SCAN-ADDITIVE law — the scan is a photograph of
+//                             the real card at rest, so it is already correct;
+//                             foil becomes purely additive dynamic light,
+//                             tilt-gated (zero at rest), chroma-preserving,
+//                             and hard-clamped to each pixel's luminance
+//                             headroom (dark ink gets almost none — text can
+//                             never blow out, by construction). Engagement
+//                             saturates by 0.35 so mid-range canon values run
+//                             the safe law fully. Inert when uScanBase is 0.
+//     uInkPop      float      metallic chroma pop (R4b; 0 = none): under the
+//                             flash, colored print gains SATURATION along its
+//                             own hue (a pure chroma pump, luminance-neutral
+//                             by construction) — bands make colors shimmer
+//                             more vivid, never washed. Scan path only.
+//     uScanBase    float      1 = uFace is a REAL CARD SCAN (both workbench
+//                             card surfaces + the canon-lab card preview):
+//                             the R4b scan-additive law applies. 0 = uFace is
+//                             a synthetic blank base (canon-lab pattern room):
+//                             the classic composite runs UNCHANGED, preserving
+//                             every blank-card canon render bit-for-bit.
+//                             Surface-owned (ViewerSettings.scanBase), never a
+//                             slider, never stored in canon/override files.
 //   Mask (layout-driven coarse tier; from era-layouts.json via resolver)
 //     uMaskRect    vec4       x,y,w,h in UV (y UP — converted from layout data)
 //     uMaskRadius  float      rect corner radius (UV of width)
@@ -74,23 +81,27 @@
 //                             per-card burst origin; old canon snapshots
 //                             simply lack the keys and inherit code defaults)
 //
-// Blend model (R4-COMPOSITE): the core invariant is that foil ADDS pop — it
-// must never lift dark ink into illegibility nor mute printed color. main()
-// estimates ink density from the scan (inkDark = relative darkness vs an
-// 8-tap local field average; inkColor = chroma), then:
-//   body  = scan * (1 - uDarken * mask * gate * (1 - ink))   — substrate
-//           darkening lives on the LOW-INK field only
-//   foil  = foilPattern * uIntensity * mask * gate * (1 - inkDark)
-//           tinted by mix(1, tint², max(uTint, inkColor) * mask * gate) where
-//           tint = luminance-normalized scan chroma (double ink pass), then
-//           screen-blended over body
-//   pop   = + (scan - lum) * uInkPop * inkColor * flashLum  — flash saturates
-//           colored ink instead of washing it
-//   spec  = shared specular sweep, shielded by inkDark and ink-tinted
-// uDarken/uTint/uInkGuard/uInkPop at 0 reproduce the original screen-only
-// model exactly; both ink estimates are exactly 0 on flat blank bases, so the
-// canon lab is untouched at any knob value. Card corners are rounded via a
-// rounded-rect SDF.
+// Blend model (R4b SCAN-ADDITIVE, 2026-08-04 — Chey's Grubbin ruling): a real
+// card scan is a PHOTOGRAPH of the card at rest, so the base is already
+// correct — R4's per-pixel ink heuristics repainted it (rest ΔC +32 with a
+// green→yellow hue push on me05-002; header ΔL −22 under tilt; glyph contrast
+// −26% under the lobe). On scans (uScanBase 1) the composite is now purely
+// ADDITIVE dynamic light, three invariants BY CONSTRUCTION:
+//   (a) rest parity  — all added light is scaled by a tilt gate that is 0 at
+//       neutral tilt: zero flash ⇒ zero change to the base, exactly.
+//   (b) adds, never subtracts — col = scan + light, light ≥ 0; uDarken is
+//       inert on scans (the photograph already carries the substrate).
+//   (c) text sacred — light is clamped to a luminance-headroom budget
+//       0.75·smoothstep(.05,.40,L)·(1−L) (dark glyphs ≈ 0, whites ≈ 0) AND
+//       per-channel to the pixel's distance-to-1 (no clip, no hue rotation).
+//   Chroma preservation: light is tinted along the pixel's own hue
+//   (dir², strength max(uTint, chroma ramp — pastel-safe, no floor cliff)),
+//   and uInkPop pumps chroma along (scan − lum) — luminance-neutral, so
+//   bands make colors MORE saturated, never washed.
+// uScanBase 0 (canon-lab blank bases) runs the classic composite UNCHANGED —
+// blank-card canon renders stay bit-identical; uInkGuard 0 (+ uInkPop 0)
+// reproduces the pre-R4 screen-only model exactly on every surface. Card
+// corners are rounded via a rounded-rect SDF.
 
 import * as THREE from 'three'
 import type { FoilPattern } from './patterns'
@@ -145,6 +156,7 @@ uniform float uDarken;
 uniform float uTint;
 uniform float uInkGuard;
 uniform float uInkPop;
+uniform float uScanBase;
 uniform vec4 uMaskRect;
 uniform float uMaskRadius;
 uniform float uMaskFeather;
@@ -314,6 +326,51 @@ void main() {
   // ink-tinted like the flash.
   col += uSpecular * sheen(uv, uTilt) * (0.12 + 0.88 * m) * (1.0 - 0.85 * inkDark)
        * mix(vec3(1.0), tint * tint, max(uTint, inkColor) * m);
+  // ── R4b scan-additive law (uScanBase 1: uFace is a real card scan) ──────
+  // The scan already shows the card at rest; foil is additive dynamic light
+  // ONLY. Engagement fades in with uInkGuard (saturating by 0.35 so canon
+  // values like 0.81 run it fully); 0 keeps the legacy composite above.
+  if (uScanBase > 0.5 && uInkGuard > 0.001) {
+    // Tilt gate: hard zero at neutral tilt — rest parity by construction.
+    float restGate = smoothstep(0.02, 0.28, length(uTilt));
+    // Raw dynamic light: the pattern's emission over its coverage field plus
+    // the shared specular sweep (0.12 base = whole-card paper gloss).
+    vec3 rawFlash = clamp(foilPattern(uv, uTilt), 0.0, 1.0) * uIntensity * m * gate;
+    vec3 rawLight = (rawFlash + vec3(uSpecular * sheen(uv, uTilt) * (0.12 + 0.88 * m))) * restGate;
+    // Chroma-preserving tint: light rides the pixel's own hue direction
+    // (double ink pass ⇒ dir²). Pastel-safe ramp — no 0.12 chroma cliff.
+    float inkChroma = smoothstep(0.02, 0.45, chroma);
+    vec3 lightCol = rawLight * mix(vec3(1.0), tint * tint, clamp(max(uTint, inkChroma), 0.0, 1.0));
+    // Hard luminance-headroom clamp, two channels:
+    //   ink model — shape L⁴·(1−L): peaks at light paper tones (L≈0.8)
+    //   where foil physically shows, and starves ink. Glyphs on modern
+    //   cards are MID-dark (L 0.35–0.45), so a gentle ramp lights them
+    //   (measured: text contrast 55→15 with smoothstep(.05,.40)); the
+    //   quartic keeps a 4–6× paper/glyph ratio at every angle. Whites get
+    //   (1−L)≈0 — never blown out.
+    //   art-gated foil — recipes with uArtGate declare that DARK scan
+    //   areas ARE the foil (WOTC holo backgrounds): those pixels are
+    //   dark-because-mirror, not dark-because-ink, and they flash. Uses
+    //   the gate's own dark-smoothstep; 0 for every non-gated recipe, and
+    //   text sits outside the window mask on gated cards anyway.
+    // Then a per-channel cap so no channel clips (clipping is what rotated
+    // green toward yellow in R4). One scalar scale keeps the light's hue.
+    float darkFoil = smoothstep(0.82, 0.22, faceLum);
+    float allow = max(1.6 * pow(faceLum, 4.0) * (1.0 - faceLum),
+                      1.4 * uArtGate * darkFoil * (1.0 - faceLum));
+    float s = min(1.0, allow / max(dot(lightCol, vec3(0.299, 0.587, 0.114)), 1e-4));
+    s = min(s, (1.0 - face.r) / max(lightCol.r, 1e-4));
+    s = min(s, (1.0 - face.g) / max(lightCol.g, 1e-4));
+    s = min(s, (1.0 - face.b) / max(lightCol.b, 1e-4));
+    vec3 scanCol = face.rgb + lightCol * s;
+    // Saturation shimmer: bands pump colored print along its own hue — a
+    // pure chroma term (Rec.601-neutral), driven by the pattern flash only
+    // (m-scoped: the unfoiled window never shifts) and gated by the same
+    // steep luminance curve so glyph ink never re-hues toward the paper.
+    float drive = clamp(2.0 * dot(rawFlash * restGate, vec3(0.299, 0.587, 0.114)), 0.0, 1.0);
+    scanCol += (face.rgb - vec3(faceLum)) * (uInkPop * 0.5 * inkChroma * drive * faceLum * faceLum);
+    col = mix(col, clamp(scanCol, 0.0, 1.0), smoothstep(0.0, 0.35, clamp(uInkGuard, 0.0, 1.0)));
+  }
   if (uMaskView > 0.5) col = mix(col, vec3(1.0, 0.15, 0.2), 0.40 * m);
   gl_FragColor = vec4(col, a);
 }
@@ -355,6 +412,8 @@ export function buildFoilMaterial(pattern: FoilPattern): THREE.ShaderMaterial {
     uTint: { value: GLOBAL_DEFAULTS.uTint },
     uInkGuard: { value: GLOBAL_DEFAULTS.uInkGuard },
     uInkPop: { value: GLOBAL_DEFAULTS.uInkPop },
+    uScanBase: { value: 1 }, // surface-owned: CanonLab's blank render sets 0
+
     uMaskRect: { value: new THREE.Vector4(0, 0, 1, 1) },
     uMaskRadius: { value: 0.01 },
     uMaskFeather: { value: 0.008 },
