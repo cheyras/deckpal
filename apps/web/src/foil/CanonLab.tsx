@@ -16,11 +16,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { foilApi } from './api'
-import { PATTERNS, patternById } from './patterns'
+import { PATTERNS, patternById, type FoilPattern } from './patterns'
 import { canonBaseline, canonFor, referenceSlug, sparseDiff } from './canon'
-import { maskForScope } from './resolver'
+import { maskForScope, resolveFoil, type FoilScope } from './resolver'
 import { useTilt } from './useTilt'
 import { CardViewer, type ViewerSettings } from './CardViewer'
+import { createMaskCanvas, MASK_W, MASK_H } from './MaskEditor'
 import { ActionBtn, Chip, Section, Select, Slider, SurfaceTabs } from './ui'
 
 const LS_PATTERN_KEY = 'foil-lab:canon-pattern'
@@ -62,6 +63,131 @@ function loadTone(): Tone {
 
 function loadPatternId(): string {
   return localStorage.getItem(LS_PATTERN_KEY) ?? 'cosmos'
+}
+
+// ── The card preview (one randomized assigned card in the viewer slot) ──────
+//
+// Renders the CURRENT slider state of the selected pattern on a real catalog
+// card the resolver assigns it to. Full CardViewer machinery: the row's
+// resolved scope + live era rect, any saved adjusted-window geometry, any
+// saved hand mask (artwork-keyed aliasing via the scope param), live tilt,
+// and the R4b scan-additive composite (scanBase defaults true). Per-card
+// UNIFORM overrides are deliberately NOT applied: the canon lab edits the
+// canon baseline, and layering a card's sparse override over the very
+// sliders being tuned would misreport what a canon save will look like.
+
+function CanonCardPreview({
+  pattern,
+  uniforms,
+  row,
+  total,
+  maxTiltDeg,
+  tilt,
+}: {
+  pattern: FoilPattern
+  uniforms: Record<string, number>
+  row: { cardId: string; variantId: number; kind: string; scope: string }
+  total: number
+  maxTiltDeg: number
+  tilt: ReturnType<typeof useTilt>
+}) {
+  const detailQ = useQuery({
+    queryKey: ['foil', 'card', row.cardId],
+    queryFn: ({ signal }) => foilApi.cardDetail(row.cardId, signal),
+  })
+  const detail = detailQ.data
+
+  // Era comes from the live resolver (the baked row carries scope only).
+  const eraId = useMemo(() => {
+    if (!detail) return 'modern-sv' as const
+    return resolveFoil({
+      seriesSlug: detail.card.series.slug,
+      rarity: detail.card.rarity,
+      variantKind: row.kind,
+      setId: detail.card.set.setId,
+      setName: detail.card.set.name,
+      cardName: detail.card.name,
+      cardId: detail.card.cardId,
+    }).eraId
+  }, [detail, row.kind])
+  const layoutMask = useMemo(() => maskForScope(row.scope as FoilScope, eraId), [row.scope, eraId])
+
+  // Saved artifacts for this card: adjusted-window geometry + hand mask.
+  const maskCanvas = useMemo(() => createMaskCanvas(), [])
+  const [winGeom, setWinGeom] = useState<{ rect: [number, number, number, number]; radius: number } | null>(null)
+  const [handMask, setHandMask] = useState(false)
+  const [maskTexVersion, setMaskTexVersion] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    setWinGeom(null)
+    setHandMask(false)
+    void foilApi.getWindow(row.cardId, row.variantId).then((r) => {
+      if (!cancelled && r) setWinGeom({ rect: r.entry.rect, radius: r.entry.radius })
+    })
+    void foilApi.getMask(row.cardId, row.variantId, row.scope).then((r) => {
+      if (cancelled || !r) return
+      const ctx = maskCanvas.getContext('2d')!
+      ctx.clearRect(0, 0, MASK_W, MASK_H)
+      ctx.drawImage(r.bitmap, 0, 0, MASK_W, MASK_H)
+      setHandMask(true)
+      setMaskTexVersion((v) => v + 1)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [row.cardId, row.variantId, row.scope, maskCanvas])
+
+  const windowScoped = row.scope === 'window' || row.scope === 'sheet'
+  const mask =
+    windowScoped && winGeom ? { rect: winGeom.rect, radius: winGeom.radius, invert: layoutMask.invert } : layoutMask
+
+  const settingsRef = useRef<ViewerSettings>({
+    uniforms,
+    maskRect: mask.rect,
+    maskRadius: mask.radius,
+    maskFeather: 0.008,
+    maskInvert: mask.invert,
+    maskView: false,
+    maskTexOn: handMask,
+    maskTexVersion,
+    maxTiltDeg,
+  })
+  useEffect(() => {
+    settingsRef.current = {
+      uniforms,
+      maskRect: mask.rect,
+      maskRadius: mask.radius,
+      maskFeather: 0.008,
+      maskInvert: mask.invert,
+      maskView: false,
+      maskTexOn: handMask,
+      maskTexVersion,
+      maxTiltDeg,
+    }
+  }, [uniforms, mask, handMask, maskTexVersion, maxTiltDeg])
+
+  const variant = detail?.variants.find((v) => v.variantId === row.variantId)
+  return (
+    <div className="relative h-full w-full">
+      <CardViewer
+        imageUrl={detail?.card.images.high ?? null}
+        pattern={pattern}
+        settingsRef={settingsRef}
+        tiltTarget={tilt.target}
+        maskCanvas={maskCanvas}
+        onPointerMove={tilt.onPointerMove}
+        onPointerLeave={tilt.onPointerLeave}
+        className="h-full w-full"
+      />
+      <div className="pointer-events-none absolute inset-x-0 bottom-[46px] flex justify-center">
+        <span className="max-w-[92%] truncate rounded-full bg-surface-secondary/85 px-[10px] py-[3px] text-[11px] text-text-primary">
+          {detail
+            ? `${detail.card.name} · ${detail.card.set.name} · ${variant?.displayName ?? row.kind}${handMask ? ' · hand mask' : ''} — ${total} assigned`
+            : 'loading card…'}
+        </span>
+      </div>
+    </div>
+  )
 }
 
 // ── The canon lab ───────────────────────────────────────────────────────────
@@ -129,6 +255,7 @@ export function CanonLab() {
     maskTexOn: false,
     maskTexVersion: 0,
     maxTiltDeg,
+    scanBase: false, // blank tone base — classic composite, canon truth
   })
   useEffect(() => {
     settingsRef.current = {
@@ -141,6 +268,7 @@ export function CanonLab() {
       maskTexOn: false,
       maskTexVersion: 0,
       maxTiltDeg,
+      scanBase: false,
     }
   }, [uniforms, mask, maxTiltDeg])
 
@@ -204,6 +332,35 @@ export function CanonLab() {
     }
   }
 
+  // ── Card preview (Chey 2026-08-04: "preview any holo pattern on a
+  // randomized card that it's assigned to ... with a button to re-randomize
+  // to another card that it's assigned to"). The dev api samples random
+  // (cardId, variantId) rows from the baked resolver inversion
+  // (data/foil-pattern-cards.json); the blank-card canon flow stays the
+  // default — preview is an opt-in toggle on the same viewer slot. ──
+  const [previewOn, setPreviewOn] = useState(false)
+  const [previewIdx, setPreviewIdx] = useState(0)
+  const pcQ = useQuery({
+    queryKey: ['foil', 'pattern-cards', pattern.id],
+    queryFn: ({ signal }) => foilApi.patternCards(pattern.id, 12, signal),
+    enabled: devSurface,
+    staleTime: 5 * 60_000,
+  })
+  useEffect(() => setPreviewIdx(0), [pattern.id])
+  const previewPool = pcQ.data?.sample ?? []
+  const previewTotal = pcQ.data?.total ?? 0
+  const previewRow = previewPool.length ? previewPool[previewIdx % previewPool.length] : null
+  const nextPreview = () => {
+    if (previewPool.length === 0) return
+    if (previewIdx + 1 >= previewPool.length) {
+      // Batch exhausted — the server reshuffles on every GET.
+      void queryClient.invalidateQueries({ queryKey: ['foil', 'pattern-cards', pattern.id] })
+      setPreviewIdx(0)
+    } else {
+      setPreviewIdx(previewIdx + 1)
+    }
+  }
+
   // ── Reference clip availability ──
   const slug = referenceSlug(pattern.id)
   const refInfo = slug ? refIndexQ.data?.patterns[slug] : undefined
@@ -214,24 +371,59 @@ export function CanonLab() {
     <div className="flex min-h-screen flex-col bg-surface-primary text-text-primary min-[700px]:h-screen min-[700px]:flex-row min-[700px]:overflow-hidden">
       {/* ── Pattern + reference column ── */}
       <div className="flex shrink-0 flex-col min-[700px]:h-full min-[700px]:flex-1 min-[700px]:shrink">
-        {/* Bare pattern render on the blank card */}
+        {/* Bare pattern render on the blank card — or the card preview */}
         <div className="relative h-[44vh] shrink-0 bg-[#0b0d12] min-[700px]:h-auto min-[700px]:min-h-0 min-[700px]:flex-1">
-          <CardViewer
-            imageUrl={toneUrl(tone)}
-            pattern={pattern}
-            settingsRef={settingsRef}
-            tiltTarget={tilt.target}
-            onPointerMove={tilt.onPointerMove}
-            onPointerLeave={tilt.onPointerLeave}
-            className="h-full w-full"
-          />
+          {previewOn && previewRow ? (
+            <CanonCardPreview
+              key={`${previewRow.cardId}:${previewRow.variantId}`}
+              pattern={pattern}
+              uniforms={uniforms}
+              row={previewRow}
+              total={previewTotal}
+              maxTiltDeg={maxTiltDeg}
+              tilt={tilt}
+            />
+          ) : (
+            <CardViewer
+              imageUrl={toneUrl(tone)}
+              pattern={pattern}
+              settingsRef={settingsRef}
+              tiltTarget={tilt.target}
+              onPointerMove={tilt.onPointerMove}
+              onPointerLeave={tilt.onPointerLeave}
+              className="h-full w-full"
+            />
+          )}
           <div className="pointer-events-none absolute left-[12px] top-[10px] text-[12px]">
             <div className="font-semibold">{pattern.label}</div>
-            <div className="text-text-muted">canon pattern lab · blank card, no ink</div>
+            <div className="text-text-muted">
+              {previewOn && previewRow ? 'canon pattern lab · on an assigned card' : 'canon pattern lab · blank card, no ink'}
+            </div>
+            {devSurface && pcQ.data && previewTotal === 0 && (
+              <div className="text-amber-500/90">no catalog cards</div>
+            )}
+            {devSurface && pcQ.isFetched && pcQ.data === null && (
+              <div className="text-amber-500/90">preview index missing — run tools/foil/build-pattern-cards.mts</div>
+            )}
           </div>
           <div className="pointer-events-none absolute right-[12px] top-[10px] rounded-full bg-surface-secondary/70 px-[8px] py-[2px] text-[11px] text-text-muted">
             {tilt.mode}
           </div>
+          {devSurface && (
+            <div className="absolute bottom-[12px] right-[12px] flex gap-[6px]">
+              <Chip active={!previewOn} onClick={() => setPreviewOn(false)}>
+                blank
+              </Chip>
+              <Chip active={previewOn} onClick={() => setPreviewOn(true)} disabled={previewRow === null}>
+                on card
+              </Chip>
+              {previewOn && previewRow && (
+                <Chip active={false} onClick={nextPreview} disabled={previewTotal <= 1}>
+                  ↻ another
+                </Chip>
+              )}
+            </div>
+          )}
           {devSurface && (
             <button
               onClick={() => setCommentOpen(true)}

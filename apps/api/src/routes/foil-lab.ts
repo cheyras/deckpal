@@ -687,6 +687,78 @@ foilLabRouter.delete(
   }),
 );
 
+// ── Pattern → assigned cards (canon lab: the card preview) ─────────────────
+//
+// GET /pattern-cards/:patternId?sample=N — random catalog cards the v5
+// resolver actually assigns the pattern to, from the BAKED inversion file
+// data/foil-pattern-cards.json (tools/foil/build-pattern-cards.mts — the
+// resolver is client code and this router is deliberately DB-free, so the
+// inversion is baked, not queried). Sampling happens HERE so the client
+// never downloads the whole pool; the client enriches each hit via the
+// normal /cards/:cardId detail route. Empty pool = the pattern has no
+// catalog cards (canon lab shows "no catalog cards" and disables the
+// re-randomize button). The file is gitignored (catalog derivative) — a 404
+// tells the operator the regen command.
+
+const PATTERN_CARDS_FILE = join(repoRoot(), 'data', 'foil-pattern-cards.json');
+
+interface PatternCardsFile {
+  version: number;
+  generatedAt: string;
+  resolverVersion: number;
+  patterns: Record<string, [string, number, string, string][]>;
+}
+
+let patternCardsCache: { mtimeMs: number; data: PatternCardsFile } | null = null;
+
+async function loadPatternCards(): Promise<PatternCardsFile | null> {
+  let mtimeMs: number;
+  try {
+    mtimeMs = (await stat(PATTERN_CARDS_FILE)).mtimeMs;
+  } catch {
+    return null;
+  }
+  if (!patternCardsCache || patternCardsCache.mtimeMs !== mtimeMs) {
+    patternCardsCache = { mtimeMs, data: JSON.parse(await readFile(PATTERN_CARDS_FILE, 'utf8')) as PatternCardsFile };
+  }
+  return patternCardsCache.data;
+}
+
+foilLabRouter.get(
+  '/pattern-cards/:patternId',
+  asyncHandler(async (req, res) => {
+    const patternId = validPatternId(req.params.patternId);
+    const rawSample = Number(str(req.query.sample) ?? '12');
+    const sampleN = Number.isInteger(rawSample) && rawSample >= 1 && rawSample <= 50 ? rawSample : 12;
+    const file = await loadPatternCards();
+    if (!file) {
+      throw notFound(
+        'data/foil-pattern-cards.json missing — regenerate: pnpm --filter pokedex-api exec tsx ../../tools/foil/build-pattern-cards.mts',
+      );
+    }
+    const pool = file.patterns[patternId] ?? [];
+    // Partial Fisher–Yates over an index array: sample without replacement.
+    const idx = pool.map((_, i) => i);
+    const n = Math.min(sampleN, idx.length);
+    for (let i = 0; i < n; i++) {
+      const j = i + Math.floor(Math.random() * (idx.length - i));
+      [idx[i], idx[j]] = [idx[j]!, idx[i]!];
+    }
+    const sample = idx.slice(0, n).map((i) => {
+      const [cardId, variantId, kind, scope] = pool[i]!;
+      return { cardId, variantId, kind, scope };
+    });
+    res.setHeader('Cache-Control', 'no-store'); // every GET is a fresh shuffle
+    res.json({
+      patternId,
+      total: pool.length,
+      sample,
+      generatedAt: file.generatedAt,
+      resolverVersion: file.resolverVersion,
+    });
+  }),
+);
+
 // ── Reference media (canon lab: the real tilt clip beside the render) ──────
 //
 // Streams committed research/foil-video-reference/<pattern>/ assets. GET-only,

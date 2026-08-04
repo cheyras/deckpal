@@ -26,6 +26,12 @@ export interface ViewerSettings {
   maskTexVersion: number
   /** Max card rotation in degrees at |tilt| = 1. */
   maxTiltDeg: number
+  /**
+   * R4b: is uFace a REAL CARD SCAN (true/undefined — the scan-additive
+   * composite applies) or a synthetic blank base (false — the canon lab's
+   * pattern room, classic composite, bit-identical canon renders)?
+   */
+  scanBase?: boolean
 }
 
 export function CardViewer({
@@ -139,6 +145,7 @@ export function CardViewer({
       u.uMaskFeather.value = s.maskFeather
       u.uMaskInvert.value = s.maskInvert ? 1 : 0
       u.uMaskView.value = s.maskView ? 1 : 0
+      if (u.uScanBase) u.uScanBase.value = s.scanBase === false ? 0 : 1
       u.uMaskTexOn.value = s.maskTexOn && maskTexRef.current ? 1 : 0
       if (maskTexRef.current && s.maskTexVersion !== maskVersionSeen.current) {
         maskTexRef.current.needsUpdate = true
