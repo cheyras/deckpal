@@ -604,6 +604,8 @@ export function CanonLab() {
           <Slider label="Ink tint (art metallic)" value={uniforms.uTint ?? 0} min={0} max={1} step={0.01} marked={dirtyKeys.includes('uTint')} onChange={(v) => setU('uTint', v)} />
           <Slider label="Ink guard (legibility)" value={uniforms.uInkGuard ?? 1} min={0} max={1} step={0.01} marked={dirtyKeys.includes('uInkGuard')} onChange={(v) => setU('uInkGuard', v)} />
           <Slider label="Ink pop (chroma boost)" value={uniforms.uInkPop ?? 0.5} min={0} max={1.5} step={0.02} marked={dirtyKeys.includes('uInkPop')} onChange={(v) => setU('uInkPop', v)} />
+          <Slider label="Onset range (glow full at tilt)" value={uniforms.uOnsetRange ?? 0.5} min={0.15} max={1} step={0.01} marked={dirtyKeys.includes('uOnsetRange')} onChange={(v) => setU('uOnsetRange', v)} />
+          <Slider label="Onset curve (eager→lazy)" value={uniforms.uOnsetCurve ?? 3.5} min={1} max={6} step={0.1} marked={dirtyKeys.includes('uOnsetCurve')} onChange={(v) => setU('uOnsetCurve', v)} />
           {pattern.params.length > 0 && <div className="my-[8px] border-t border-border-default" />}
           {pattern.params.map((p) => (
             <Slider
