@@ -155,6 +155,20 @@ export interface FoilSearchPage {
   total: number
 }
 
+/**
+ * Random catalog cards the resolver assigns a pattern to (canon-lab card
+ * preview) — server-side sample from the baked inversion file
+ * (GET /foil-lab/pattern-cards/:patternId, tools/foil/build-pattern-cards.mts).
+ */
+export interface FoilPatternCards {
+  patternId: string
+  /** Size of the FULL assigned pool (0 = pattern has no catalog cards). */
+  total: number
+  sample: { cardId: string; variantId: number; kind: string; scope: string }[]
+  generatedAt: string
+  resolverVersion: number
+}
+
 export interface FoilCardDetail {
   card: {
     cardId: string
@@ -397,6 +411,26 @@ export const foilApi = {
       method: 'DELETE',
     })
     if (!res.ok) throw new Error(`override delete failed (HTTP ${res.status})`)
+  },
+
+  // ── Pattern → assigned cards (canon lab: the card preview) ──
+
+  /**
+   * A fresh random sample of catalog cards the resolver assigns `patternId`
+   * to. Every call reshuffles server-side. Null when the dev api is absent
+   * or the baked inversion file is missing (preview hides/complains).
+   */
+  patternCards: async (patternId: string, sample: number, signal?: AbortSignal): Promise<FoilPatternCards | null> => {
+    try {
+      const res = await fetch(
+        `${BASE}/foil-lab/pattern-cards/${encodeURIComponent(patternId)}?sample=${sample}`,
+        { signal },
+      )
+      if (!res.ok) return null
+      return (await res.json()) as FoilPatternCards
+    } catch {
+      return null
+    }
   },
 
   // ── Reference corpus (canon lab: real tilt clips + keyframes) ──
