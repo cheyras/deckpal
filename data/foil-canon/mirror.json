@@ -1,19 +1,22 @@
 {
   "version": 1,
   "patternId": "mirror",
-  "savedAt": "2026-08-02T19:37:37.831Z",
+  "savedAt": "2026-08-04T04:22:18.101Z",
   "uniforms": {
-    "uIntensity": 1,
+    "uIntensity": 1.06,
     "uScale": 0.5,
     "uHueShift": 0.4,
     "uHueSpread": 0,
     "uSat": 0,
     "uArtGate": 0,
-    "uSpecular": 0.58,
+    "uSpecular": 0.26,
     "uDarken": 0.5,
-    "uP0": 7,
+    "uTint": 0.81,
+    "uInkGuard": 0.81,
+    "uInkPop": 0.7,
+    "uP0": 5,
     "uP1": 0.55,
-    "uP2": 0.25,
+    "uP2": 0.85,
     "uP3": 1
   }
 }
