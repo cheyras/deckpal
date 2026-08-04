@@ -37,7 +37,8 @@
 //                             SCAN-ADDITIVE law — the scan is a photograph of
 //                             the real card at rest, so it is already correct;
 //                             foil becomes purely additive dynamic light,
-//                             tilt-gated (zero at rest), chroma-preserving,
+//                             tilt-onset-eased (sub-JND at rest, R4c),
+//                             chroma-preserving,
 //                             and hard-clamped to each pixel's luminance
 //                             headroom (dark ink gets almost none — text can
 //                             never blow out, by construction). Engagement
@@ -87,8 +88,12 @@
 // green→yellow hue push on me05-002; header ΔL −22 under tilt; glyph contrast
 // −26% under the lobe). On scans (uScanBase 1) the composite is now purely
 // ADDITIVE dynamic light, three invariants BY CONSTRUCTION:
-//   (a) rest parity  — all added light is scaled by a tilt gate that is 0 at
-//       neutral tilt: zero flash ⇒ zero change to the base, exactly.
+//   (a) rest parity (perceptual, R4c) — all added light is scaled by a wide
+//       C1 tilt-onset ease (flash s^1.5, specular s^2.5 of a 0→0.45 ramp)
+//       whose rest value is a sub-JND floor (REST = 0.006, sheet-mean ≪1 ΔL):
+//       at rest the render is visually the scan, and the sheen LEANS IN with
+//       tilt instead of switching on (R4b's near-step onset was Chey's
+//       "suddenly appears" complaint, 2026-08-04).
 //   (b) adds, never subtracts — col = scan + light, light ≥ 0; uDarken is
 //       inert on scans (the photograph already carries the substrate).
 //   (c) text sacred — light is clamped to a luminance-headroom budget
@@ -331,12 +336,32 @@ void main() {
   // ONLY. Engagement fades in with uInkGuard (saturating by 0.35 so canon
   // values like 0.81 run it fully); 0 keeps the legacy composite above.
   if (uScanBase > 0.5 && uInkGuard > 0.001) {
-    // Tilt gate: hard zero at neutral tilt — rest parity by construction.
-    float restGate = smoothstep(0.02, 0.28, length(uTilt));
+    // Tilt onset (R4c 2026-08-04 — Chey on R4b's gate: "it's like it isn't
+    // there at all until I've tilted the card a tiny bit and then it's like
+    // it just suddenly appears"). R4b's smoothstep(.02,.28) looked smooth on
+    // paper, but the headroom clamp below SATURATES once gate·light exceeds
+    // the per-pixel budget (~gate 0.33 on the mirror canon), so all the
+    // light arrived inside |tilt| 0.03→0.12 and then froze — a step smeared
+    // over 4% of the tilt range, with a dead zone before it (measured,
+    // r4c ramp harness). Now the sheen LEANS IN: one wide ease (full at
+    // 0.45 — every R4b tilt-0.5 metric is unchanged), raised to powers so
+    // small tilts give proportionally small light:
+    //   flash s^1.5 — cubic-slow start, the pattern breathes in first;
+    //   spec  s^2.5 — the broad whole-card gloss band was the loudest
+    //   early arriver ("suddenly appears"), so it now trails the flash.
+    // Plus a faint living rest sheen REST (sub-JND floor, blended not
+    // max'd so the curve stays smooth): the foil exists at rest, so motion
+    // reads as "the sheen leans in", never "the foil switches on". Rest
+    // render stays visually the scan (R4b's vibrancy win — re-measured,
+    // sheet-mean ≪1 ΔL; the clamp still starves glyphs at any gate).
+    const float REST = 0.006;
+    float ramp = smoothstep(0.0, 0.45, length(uTilt));
+    float flashGate = REST + (1.0 - REST) * ramp * sqrt(ramp);
+    float specGate = REST + (1.0 - REST) * ramp * ramp * sqrt(ramp);
     // Raw dynamic light: the pattern's emission over its coverage field plus
     // the shared specular sweep (0.12 base = whole-card paper gloss).
-    vec3 rawFlash = clamp(foilPattern(uv, uTilt), 0.0, 1.0) * uIntensity * m * gate;
-    vec3 rawLight = (rawFlash + vec3(uSpecular * sheen(uv, uTilt) * (0.12 + 0.88 * m))) * restGate;
+    vec3 rawFlash = clamp(foilPattern(uv, uTilt), 0.0, 1.0) * uIntensity * m * gate * flashGate;
+    vec3 rawLight = rawFlash + vec3(uSpecular * sheen(uv, uTilt) * (0.12 + 0.88 * m)) * specGate;
     // Chroma-preserving tint: light rides the pixel's own hue direction
     // (double ink pass ⇒ dir²). Pastel-safe ramp — no 0.12 chroma cliff.
     float inkChroma = smoothstep(0.02, 0.45, chroma);
@@ -367,7 +392,7 @@ void main() {
     // pure chroma term (Rec.601-neutral), driven by the pattern flash only
     // (m-scoped: the unfoiled window never shifts) and gated by the same
     // steep luminance curve so glyph ink never re-hues toward the paper.
-    float drive = clamp(2.0 * dot(rawFlash * restGate, vec3(0.299, 0.587, 0.114)), 0.0, 1.0);
+    float drive = clamp(2.0 * dot(rawFlash, vec3(0.299, 0.587, 0.114)), 0.0, 1.0);
     scanCol += (face.rgb - vec3(faceLum)) * (uInkPop * 0.5 * inkChroma * drive * faceLum * faceLum);
     col = mix(col, clamp(scanCol, 0.0, 1.0), smoothstep(0.0, 0.35, clamp(uInkGuard, 0.0, 1.0)));
   }
