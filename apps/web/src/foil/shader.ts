@@ -34,14 +34,10 @@
 //     uInkGuard    float      scan-composite engagement (R4b 2026-08-04; 0 =
 //                             exact pre-R4 legacy composite, default 1): on a
 //                             real card scan (uScanBase 1) this fades in the
-//                             SCAN-ADDITIVE law — the scan is a photograph of
-//                             the real card at rest, so it is already correct;
-//                             foil becomes purely additive dynamic light,
-//                             tilt-onset-eased (sub-JND at rest, R4c),
-//                             chroma-preserving,
-//                             and hard-clamped to each pixel's luminance
-//                             headroom (dark ink gets almost none — text can
-//                             never blow out, by construction). Engagement
+//                             METALLIC law (R5) — chroma-preserving light,
+//                             hard-clamped to each pixel's luminance headroom
+//                             (dark ink gets almost none — text can never
+//                             blow out, by construction). Engagement
 //                             saturates by 0.35 so mid-range canon values run
 //                             the safe law fully. Inert when uScanBase is 0.
 //     uInkPop      float      metallic chroma pop (R4b; 0 = none): under the
@@ -49,17 +45,31 @@
 //                             own hue (a pure chroma pump, luminance-neutral
 //                             by construction) — bands make colors shimmer
 //                             more vivid, never washed. Scan path only.
-//     uOnsetRange  float      R4d glow-onset window (scan path only): the
-//                             |uTilt| at which added light reaches full
-//                             (default 0.5). Chey's dial for "how far do I
-//                             tilt before it glows".
-//     uOnsetCurve  float      R4d glow-onset curve (scan path only): the
-//                             flash-gate exponent over the onset ramp,
-//                             eager (1) → lazy (6), default 3.5. Small tilts
-//                             read as MOVEMENT of the existing sheen (pattern
-//                             phase tracks uTilt directly); brightness joins
-//                             late. Specular trails at uOnsetCurve+1 — latest
-//                             of all. (0.45 / 1.5 reproduces R4c exactly.)
+//   Metallic compositing (R5 2026-08-05, scan path only — Chey: "the effect
+//   should always be on the card ... contributing to the metallicness and the
+//   sheen ... it seems like it's just brightening the card". No tilt gate:
+//   the R4c/R4d onset machinery is REMOVED; uOnsetRange/uOnsetCurve keys in
+//   old canon/override files are inert — CardViewer skips unknown keys.)
+//     uMetal       float      master print→metal conversion (0 = plain scan,
+//                             the whole metal layer off): the scan is the
+//                             ALBEDO; metalness trades diffuse print into
+//                             tinted specular. Scales highlight AND depth.
+//     uSheen       float      highlight gain: how much of the pattern layer's
+//                             caught light shows as sheen (0..2).
+//     uSheenTint   float      highlight color: 0 = the foil's own color,
+//                             0.5 = the R4 chroma-preserving law
+//                             (max(uTint, ink chroma) — old canon appearance
+//                             at peak), 1 = fully ink-colored (white light
+//                             off gold is gold).
+//     uDepth       float      energy-conserving darkening where the pattern
+//                             layer turns AWAY from the light — the mirror
+//                             substrate reflects a dark room, so foiled areas
+//                             read darker than diffuse paper between
+//                             highlights. Contrast, not luminance lift, is
+//                             what makes metal read as metal.
+//     uGrain       float      how much of the pattern's spatial structure
+//                             perturbs the surface: 1 = full structure,
+//                             0 = a uniform sheen at the neutral-metal level.
 //     uScanBase    float      1 = uFace is a REAL CARD SCAN (both workbench
 //                             card surfaces + the canon-lab card preview):
 //                             the R4b scan-additive law applies. 0 = uFace is
@@ -93,31 +103,32 @@
 //                             per-card burst origin; old canon snapshots
 //                             simply lack the keys and inherit code defaults)
 //
-// Blend model (R4b SCAN-ADDITIVE, 2026-08-04 — Chey's Grubbin ruling): a real
-// card scan is a PHOTOGRAPH of the card at rest, so the base is already
-// correct — R4's per-pixel ink heuristics repainted it (rest ΔC +32 with a
-// green→yellow hue push on me05-002; header ΔL −22 under tilt; glyph contrast
-// −26% under the lobe). On scans (uScanBase 1) the composite is now purely
-// ADDITIVE dynamic light, three invariants BY CONSTRUCTION:
-//   (a) rest parity (perceptual, R4c/R4d) — all added light is scaled by a
-//       wide C1 tilt-onset ease (flash s^uOnsetCurve, specular s^(uOnsetCurve
-//       +1) of a 0→uOnsetRange ramp, both canon-tunable) whose rest value is
-//       a sub-JND floor (REST = 0.006, sheet-mean ≪1 ΔL): at rest the render
-//       is visually the scan. R4d made the onset MOTION-FIRST: physical
-//       gestures are ~0.005 tilt/px (pointer, 390px) and ~0.036 tilt/deg
-//       (gyro), so a tiny drag lands at |tilt| 0.15–0.2 — the defaults
-//       (0.5 / 3.5) keep added light near the rest floor there and let the
-//       pattern PHASE (which tracks uTilt directly) carry the response;
-//       brightness joins from ~0.25 and peaks unchanged (ramp = 1 at 0.5).
-//   (b) adds, never subtracts — col = scan + light, light ≥ 0; uDarken is
-//       inert on scans (the photograph already carries the substrate).
-//   (c) text sacred — light is clamped to a luminance-headroom budget
-//       0.75·smoothstep(.05,.40,L)·(1−L) (dark glyphs ≈ 0, whites ≈ 0) AND
-//       per-channel to the pixel's distance-to-1 (no clip, no hue rotation).
-//   Chroma preservation: light is tinted along the pixel's own hue
-//   (dir², strength max(uTint, chroma ramp — pastel-safe, no floor cliff)),
-//   and uInkPop pumps chroma along (scan − lum) — luminance-neutral, so
-//   bands make colors MORE saturated, never washed.
+// Blend model (R5 METALLIC, 2026-08-05 — Chey's always-on ruling: "I want the
+// effect to always be on the card ... it should be contributing to the
+// metallicness and the sheen of the card, like spectral and metallic. And it
+// seems like it's just brightening the card too much"). On scans (uScanBase
+// 1) the R4c/R4d tilt-onset gate is GONE — the foil layer exists at rest.
+// The model is metalness: the scan is the ALBEDO of a printed sheet, and
+// uMetal converts printed ink into colored metal — diffuse energy trades into
+// tinted specular. The pattern layer (the exact field the blank-card canon
+// lab shows) decides WHERE the metal catches light: above its neutral level
+// it flashes (uSheen highlight, colored by uSheenTint along the pixel's own
+// hue — metal reflects its own color); below it the mirror substrate turns
+// away and the surface reads DARKER than diffuse paper (uDepth). Energy
+// redistributes — the metallic read is contrast + chroma, not luminance
+// lift. Tilt moves the pattern PHASE (recipes read uTilt directly), so the
+// resting sheen sweeps continuously; nothing gates its existence.
+// Invariants BY CONSTRUCTION:
+//   (a) plain print recoverable — uMetal 0 (or uInkGuard 0 → the legacy
+//       composite) renders exactly the scan.
+//   (b) text sacred — highlight light is clamped to a luminance-headroom
+//       budget max(1.6·L⁴·(1−L), art-gate channel) AND per-channel to the
+//       pixel's distance-to-1 (no clip, no hue rotation); glyph-dark pixels
+//       (inkDark) are exempt from BOTH highlight and depth — printed glyph
+//       ink sits on top of the foil and stays matte-dark and crisp.
+//   (c) chroma preserved — light rides the pixel's own hue (dir²,
+//       uSheenTint-blended), uInkPop pumps chroma luminance-neutrally, and
+//       depth darkening is multiplicative (hue-safe, saturation-raising).
 // uScanBase 0 (canon-lab blank bases) runs the classic composite UNCHANGED —
 // blank-card canon renders stay bit-identical; uInkGuard 0 (+ uInkPop 0)
 // reproduces the pre-R4 screen-only model exactly on every surface. Card
@@ -141,8 +152,11 @@ export const GLOBAL_DEFAULTS = {
   uTint: 0.0,
   uInkGuard: 1.0,
   uInkPop: 0.5,
-  uOnsetRange: 0.5,
-  uOnsetCurve: 3.5,
+  uMetal: 0.6,
+  uSheen: 0.55,
+  uSheenTint: 0.5,
+  uDepth: 0.55,
+  uGrain: 1.0,
 } as const
 
 export type CoreUniform = keyof typeof GLOBAL_DEFAULTS
@@ -178,8 +192,11 @@ uniform float uDarken;
 uniform float uTint;
 uniform float uInkGuard;
 uniform float uInkPop;
-uniform float uOnsetRange;
-uniform float uOnsetCurve;
+uniform float uMetal;
+uniform float uSheen;
+uniform float uSheenTint;
+uniform float uDepth;
+uniform float uGrain;
 uniform float uScanBase;
 uniform vec4 uMaskRect;
 uniform float uMaskRadius;
@@ -350,74 +367,100 @@ void main() {
   // ink-tinted like the flash.
   col += uSpecular * sheen(uv, uTilt) * (0.12 + 0.88 * m) * (1.0 - 0.85 * inkDark)
        * mix(vec3(1.0), tint * tint, max(uTint, inkColor) * m);
-  // ── R4b scan-additive law (uScanBase 1: uFace is a real card scan) ──────
-  // The scan already shows the card at rest; foil is additive dynamic light
-  // ONLY. Engagement fades in with uInkGuard (saturating by 0.35 so canon
-  // values like 0.81 run it fully); 0 keeps the legacy composite above.
+  // ── R5 metallic law (uScanBase 1: uFace is a real card scan) ────────────
+  // 2026-08-05, Chey: "I want the effect to always be on the card ... it
+  // should be contributing to the metallicness and the sheen of the card,
+  // like spectral and metallic. And it seems like it's just brightening the
+  // card too much." No tilt gate — the R4c/R4d onset ramp is gone; the foil
+  // layer EXISTS at rest and tilt only moves its phase (recipes read uTilt
+  // directly, the card's physical rotation does the rest, exactly like a
+  // real card whose photographed sheen moves with it).
+  //
+  // The model is metalness: the scan is the ALBEDO of a printed sheet, and
+  // the foil converts printed ink into colored metal. The pattern field (the
+  // exact layer the blank-card canon lab locks) says where the metal catches
+  // light, split around a neutral level PIVOT:
+  //   above  → HIGHLIGHT: tinted specular (metal reflects its own color),
+  //            uSheen gain, uSheenTint color, headroom-clamped (text sacred);
+  //   below  → DEPTH: the mirror substrate turns away and reflects a dark
+  //            room — multiplicatively darker than diffuse paper (hue-safe,
+  //            saturation-raising). Energy redistributes; contrast and
+  //            chroma carry the metallic read, not luminance lift.
+  // uMetal is the master diffuse→metal conversion scaling BOTH directions;
+  // uMetal 0 (or uInkGuard 0 → legacy composite) is exactly the plain scan.
+  // Engagement fades in with uInkGuard (saturating by 0.35 so canon values
+  // like 0.81 run it fully); 0 keeps the legacy composite above.
   if (uScanBase > 0.5 && uInkGuard > 0.001) {
-    // Tilt onset (R4c ease → R4d motion-first, 2026-08-04). R4c smoothed the
-    // curve in SHADER-tilt units, but Chey gestures in PHYSICAL units: the
-    // pointer map is ±1 across the viewer (0.0051 tilt/px on a 390px phone)
-    // and gyro is Δ°/28 (0.036 tilt/deg), so a 30px thumb drag or a 5° wrist
-    // tip lands at |tilt| 0.15–0.18 — where R4c's s^1.5 already delivered
-    // HALF its full glow (measured 9.0 of 17.9 ΔL; Chey: "It still lights up
-    // pretty noticeably when I tilt the card a tiny bit"). R4d: a tiny tilt
-    // reads as MOVEMENT of the existing sheen — the pattern phase and the
-    // specular band position track uTilt directly and proportionally, as
-    // they always did — while added BRIGHTNESS arrives much later, as a
-    // steeper power of the same wide C1 ramp. Both knobs are canon-stored
-    // sliders on both workbench surfaces:
-    //   uOnsetRange — |tilt| at which glow reaches full (default 0.5, so
-    //                 every tilt-0.5 peak metric is unchanged: ramp = 1);
-    //   uOnsetCurve — flash exponent, eager (1) → lazy (6), default 3.5;
-    //                 the broad specular gloss trails at +1, latest of all.
-    //   (0.45 / 1.5 reproduces R4c exactly; R4b was ~a step at 0.03–0.12.)
-    // REST: the faint living sheen floor (sub-JND, blended not max'd so the
-    // curve stays smooth) — the foil exists at rest, so a tiny tilt shows
-    // its phase MOVING instead of a brightness step. Rest render stays
-    // visually the scan (R4b's vibrancy win; the clamp still starves glyphs
-    // at any gate).
-    const float REST = 0.006;
-    // (pow guard: GLSL pow(0, y) is driver-dependent — clamp the base away
-    // from 0 so the rest frame can never go NaN on the V3D driver.)
-    float ramp = max(smoothstep(0.0, max(uOnsetRange, 0.05), length(uTilt)), 1e-4);
-    float flashGate = REST + (1.0 - REST) * pow(ramp, uOnsetCurve);
-    float specGate = REST + (1.0 - REST) * pow(ramp, uOnsetCurve + 1.0);
-    // Raw dynamic light: the pattern's emission over its coverage field plus
-    // the shared specular sweep (0.12 base = whole-card paper gloss).
-    vec3 rawFlash = clamp(foilPattern(uv, uTilt), 0.0, 1.0) * uIntensity * m * gate * flashGate;
-    vec3 rawLight = rawFlash + vec3(uSpecular * sheen(uv, uTilt) * (0.12 + 0.88 * m)) * specGate;
-    // Chroma-preserving tint: light rides the pixel's own hue direction
-    // (double ink pass ⇒ dir²). Pastel-safe ramp — no 0.12 chroma cliff.
+    // The pattern field, gained by canon intensity. uGrain: full spatial
+    // structure (1) … a uniform sheen at the neutral-metal level (0).
+    const float PIVOT = 0.40;
+    vec3 patC = clamp(foilPattern(uv, uTilt), 0.0, 1.5) * uIntensity;
+    patC = mix(vec3(PIVOT), patC, clamp(uGrain, 0.0, 1.0));
+    float patLum = dot(patC, vec3(0.299, 0.587, 0.114));
+    float cov = m * gate;              // the card's foil coverage field
+    float inkFree = 1.0 - inkDark;     // glyph ink is ON TOP of the foil: matte, sacred
+
+    // DEPTH — energy-conserving darkening where the pattern turns away from
+    // the light. Bounded (≤32% at full sliders), multiplicative (hue-safe),
+    // starved on already-dark art (nothing to trade) and on glyph ink.
+    // CONCAVE in turn (sqrt): partial turns — the shoulders of a structured
+    // field — dig almost as deep as a fully-dark field, so recipes that rest
+    // near zero (SV emblem sheets) don't read "uniformly dimmed" relative to
+    // recipes with broad rest lobes (mirror) reading balanced.
+    // Gated on uIntensity: "uIntensity 0 = plain scan" is a contract (the
+    // none-pattern emits nothing — an all-zero field must not read as
+    // "all turned away" and darken the card).
+    float turn = sqrt(clamp((PIVOT - patLum) / PIVOT, 0.0, 1.0));
+    float shade = uMetal * uDepth * cov * inkFree * turn
+                * smoothstep(0.10, 0.45, faceLum) * smoothstep(0.0, 0.25, uIntensity);
+    vec3 body = face.rgb * (1.0 - 0.32 * shade);
+
+    // HIGHLIGHT — the traded energy returns as tinted specular where the
+    // metal catches light (vector positive part: rainbow patterns keep their
+    // own color), plus the shared specular sweep (0.12 base = whole-card
+    // paper gloss). Both scaled by the master conversion.
+    vec3 hiRaw = max(patC - PIVOT, 0.0) * (1.0 / (1.0 - PIVOT)) * uSheen * cov * inkFree;
+    vec3 rawLight = (hiRaw + vec3(uSpecular * sheen(uv, uTilt) * (0.12 + 0.88 * m))) * uMetal;
+    // SHEEN TINT — metal reflects its own color (double ink pass ⇒ dir²).
+    // 0 = the foil's own color; 0.5 = the R4 chroma-preserving law
+    // max(uTint, ink chroma) exactly; 1 = fully ink-colored highlights.
     float inkChroma = smoothstep(0.02, 0.45, chroma);
-    vec3 lightCol = rawLight * mix(vec3(1.0), tint * tint, clamp(max(uTint, inkChroma), 0.0, 1.0));
-    // Hard luminance-headroom clamp, two channels:
+    float tintW = clamp(max(uTint, inkChroma) * 2.0 * uSheenTint, 0.0, 1.0);
+    vec3 lightCol = rawLight * mix(vec3(1.0), tint * tint, tintW);
+    // Hard luminance-headroom clamp, two channels (unchanged from R4b — the
+    // proven text guarantee):
     //   ink model — shape L⁴·(1−L): peaks at light paper tones (L≈0.8)
     //   where foil physically shows, and starves ink. Glyphs on modern
-    //   cards are MID-dark (L 0.35–0.45), so a gentle ramp lights them
-    //   (measured: text contrast 55→15 with smoothstep(.05,.40)); the
-    //   quartic keeps a 4–6× paper/glyph ratio at every angle. Whites get
-    //   (1−L)≈0 — never blown out.
-    //   art-gated foil — recipes with uArtGate declare that DARK scan
-    //   areas ARE the foil (WOTC holo backgrounds): those pixels are
-    //   dark-because-mirror, not dark-because-ink, and they flash. Uses
-    //   the gate's own dark-smoothstep; 0 for every non-gated recipe, and
-    //   text sits outside the window mask on gated cards anyway.
-    // Then a per-channel cap so no channel clips (clipping is what rotated
+    //   cards are MID-dark (L 0.35–0.45); the quartic keeps a 4–6×
+    //   paper/glyph ratio at every angle. Whites get (1−L)≈0 — never blown.
+    //   art-gated foil — recipes with uArtGate declare that DARK scan areas
+    //   ARE the foil (WOTC holo backgrounds): those pixels are
+    //   dark-because-mirror, not dark-because-ink, and they flash.
+    // The budget is applied as a COMPRESSIVE soft knee, not a hard min —
+    // a hard clamp plateaus every strong-light pixel at the same value and
+    // flattens the pattern's structure into a uniform wash (measured on the
+    // Grubbin mirror rest field: text-box ΔL pinned at the budget at every
+    // tilt = "someone brightened this area"). The knee compresses
+    // monotonically toward the budget instead, so relative structure — the
+    // metallic texture — survives arbitrarily strong fields. Then a
+    // per-channel hard cap so no channel clips (clipping is what rotated
     // green toward yellow in R4). One scalar scale keeps the light's hue.
+    // Headroom is measured against the DEPTH-darkened body — the darks the
+    // metal digs are headroom the highlights may spend (redistribution).
     float darkFoil = smoothstep(0.82, 0.22, faceLum);
     float allow = max(1.6 * pow(faceLum, 4.0) * (1.0 - faceLum),
                       1.4 * uArtGate * darkFoil * (1.0 - faceLum));
-    float s = min(1.0, allow / max(dot(lightCol, vec3(0.299, 0.587, 0.114)), 1e-4));
-    s = min(s, (1.0 - face.r) / max(lightCol.r, 1e-4));
-    s = min(s, (1.0 - face.g) / max(lightCol.g, 1e-4));
-    s = min(s, (1.0 - face.b) / max(lightCol.b, 1e-4));
-    vec3 scanCol = face.rgb + lightCol * s;
-    // Saturation shimmer: bands pump colored print along its own hue — a
-    // pure chroma term (Rec.601-neutral), driven by the pattern flash only
-    // (m-scoped: the unfoiled window never shifts) and gated by the same
-    // steep luminance curve so glyph ink never re-hues toward the paper.
-    float drive = clamp(2.0 * dot(rawFlash, vec3(0.299, 0.587, 0.114)), 0.0, 1.0);
+    float ll = dot(lightCol, vec3(0.299, 0.587, 0.114));
+    float s = ll > 1e-4 ? min(1.0, allow * (1.0 - exp(-ll / max(allow, 1e-4))) / ll) : 1.0;
+    s = min(s, (1.0 - body.r) / max(lightCol.r, 1e-4));
+    s = min(s, (1.0 - body.g) / max(lightCol.g, 1e-4));
+    s = min(s, (1.0 - body.b) / max(lightCol.b, 1e-4));
+    vec3 scanCol = body + lightCol * s;
+    // Saturation shimmer: the highlight pumps colored print along its own
+    // hue — a pure chroma term (Rec.601-neutral), m-scoped (the unfoiled
+    // window never shifts) and gated by the steep luminance curve so glyph
+    // ink never re-hues toward the paper.
+    float drive = clamp(2.0 * dot(hiRaw * uMetal, vec3(0.299, 0.587, 0.114)), 0.0, 1.0);
     scanCol += (face.rgb - vec3(faceLum)) * (uInkPop * 0.5 * inkChroma * drive * faceLum * faceLum);
     col = mix(col, clamp(scanCol, 0.0, 1.0), smoothstep(0.0, 0.35, clamp(uInkGuard, 0.0, 1.0)));
   }
@@ -462,8 +505,11 @@ export function buildFoilMaterial(pattern: FoilPattern): THREE.ShaderMaterial {
     uTint: { value: GLOBAL_DEFAULTS.uTint },
     uInkGuard: { value: GLOBAL_DEFAULTS.uInkGuard },
     uInkPop: { value: GLOBAL_DEFAULTS.uInkPop },
-    uOnsetRange: { value: GLOBAL_DEFAULTS.uOnsetRange },
-    uOnsetCurve: { value: GLOBAL_DEFAULTS.uOnsetCurve },
+    uMetal: { value: GLOBAL_DEFAULTS.uMetal },
+    uSheen: { value: GLOBAL_DEFAULTS.uSheen },
+    uSheenTint: { value: GLOBAL_DEFAULTS.uSheenTint },
+    uDepth: { value: GLOBAL_DEFAULTS.uDepth },
+    uGrain: { value: GLOBAL_DEFAULTS.uGrain },
     uScanBase: { value: 1 }, // surface-owned: CanonLab's blank render sets 0
 
     uMaskRect: { value: new THREE.Vector4(0, 0, 1, 1) },
