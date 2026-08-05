@@ -50,8 +50,13 @@ Core uniforms (global sliders; every pattern may read them):
 | `uSpecular` | shared white sheen band, applied by `main()` |
 | `uDarken` | mirror-substrate attenuation, applied by `main()` (2026-08-02 R2 blend-model term, default **0 = exact legacy render**). **Blank-base path only** (R4b): on the canon lab's tone bases it darkens the substrate as before (dark-mirror moods live here); on REAL CARD SCANS (`uScanBase 1` with `uInkGuard > 0`) it is INERT — the scan is a photograph that already carries the substrate's rest appearance, and Chey's Grubbin ruling is that foil on a scan never darkens anything. Opt in per recipe via `defaults`; recipes may also read it. Absent key in canon/override/sidecar JSON = 0 = no effect. |
 | `uTint` | **metallic ink tint** (2026-08-03 R3-MISC, default **0 = exact legacy render**). Physically: a mirror foil's flash crosses the printed ink twice, so over colored art the flash carries the ink's OWN color — achromatic light instead compresses chroma and reads dull/grayish (Chey's modern-reverse complaint). On scans the R4b law tints the additive light by `mix(1, tint², max(uTint, chromaRamp))` where `tint` = luminance-normalized scan chroma (direction only, no gain) and `chromaRamp` = `smoothstep(0.02, 0.45, chroma)` — saturated print always colors its own light even at uTint 0; uTint is the floor for neutral paper. Neutral over silver/white, so blank-card canon renders are IDENTICAL at any value. Opted in by the reverse-family recipes (mirror 0.7→0.81 canon, rainbow-mirror 0.7, reverse-sheet 0.7, pokeball-masterball 0.7, energy-symbols 0.6, energy-symbols-ii 0.6, pinwheel 0.6, fireworks 0.5, prism 0.4, disco 0.5). |
-| `uInkGuard` | **scan-composite engagement** (R4b 2026-08-04, default **1**; **0 = exact pre-R4 legacy composite**). On a real card scan (`uScanBase 1`) this fades in the SCAN-ADDITIVE law (`smoothstep(0, 0.35, uInkGuard)` — saturates by 0.35 so mid-range canon values run the safe law fully). The law itself is parameter-free protection: additive-only light, tilt-gated to zero at rest, luminance-headroom clamped (see the Blend model section). Inert on the canon lab's blank bases (`uScanBase 0`), where the classic composite runs unchanged — blank-card canon renders are pixel-identical at ANY value (R4b CDP frame-stepped zero-delta harness, AE 0). |
+| `uInkGuard` | **scan-composite engagement** (R4b 2026-08-04, default **1**; **0 = exact pre-R4 legacy composite**). On a real card scan (`uScanBase 1`) this fades in the METALLIC law (`smoothstep(0, 0.35, uInkGuard)` — saturates by 0.35 so mid-range canon values run the safe law fully). The law's text protection is parameter-free: luminance-headroom soft-knee + per-channel caps + inkDark exemption (see the Blend model section). Inert on the canon lab's blank bases (`uScanBase 0`), where the classic composite runs unchanged — blank-card canon renders are pixel-identical at ANY value (R4b CDP frame-stepped zero-delta harness, AE 0). |
 | `uInkPop` | **metallic chroma pop** (default **0.5**; **0 = none**): under the flash, colored print gains SATURATION along its own hue — `+ (scan − lum) · uInkPop · 0.5 · chromaRamp · drive · L²` — a Rec.601-luminance-neutral chroma pump (bands make colors shimmer more vivid, never washed), gated by `L²` so glyph ink never re-hues toward the paper. Scan path only; inert on blank bases and at `uInkGuard` 0. |
+| `uMetal` | **master print→metal conversion** (R5 2026-08-05, default **0.6**; **0 = plain scan**). Scan path only. The scan is the ALBEDO; uMetal scales the ENTIRE metal layer — highlight, depth, and the shared specular. Chey's "how metal is this card" dial. |
+| `uSheen` | **highlight gain** (R5, default **0.55**, range 0–2): how much of the pattern layer's caught light shows as sheen. The pattern field above the neutral level (`PIVOT` 0.40, after `uIntensity`) is the vector positive part — rainbow patterns keep their own highlight color. |
+| `uSheenTint` | **highlight color** (R5, default **0.5**): 0 = the foil's own color, **0.5 = exactly the R4 chroma-preserving law** (`max(uTint, chromaRamp)` — old canon appearance), 1 = fully ink-colored (white light off gold is gold). Implemented as `tintW = saturate(max(uTint, chromaRamp) · 2 · uSheenTint)`. |
+| `uDepth` | **metal darks** (R5, default **0.55**): energy-conserving multiplicative darkening (≤32% at full sliders) where the pattern turns AWAY from the light (`sqrt((PIVOT − patLum)/PIVOT)` — concave, so structured-field shoulders dig nearly as deep as dead-flat fields). Hue-safe, saturation-raising; starved on already-dark art (`smoothstep(0.10, 0.45, faceLum)`), on glyph ink (`1 − inkDark`), and at `uIntensity ≤ 0.25` (the none-pattern guard: an all-zero field must not read "all turned away"). |
+| `uGrain` | **texture** (R5, default **1**): how much of the pattern's spatial structure perturbs the surface — `patC = mix(vec3(PIVOT), patC, uGrain)`. 1 = full structure; 0 = a flat neutral-metal field (only the moving specular band animates). |
 | `uScanBase` | **surface-owned mode switch** (R4b): `1` = `uFace` is a real card scan (both card surfaces + the canon-lab card preview) — the scan-additive law applies; `0` = synthetic blank base (canon-lab pattern room) — classic composite, bit-identical canon renders. Set via `ViewerSettings.scanBase` (default true; CanonLab's blank render passes false). NEVER a slider, never stored in canon/override files. |
 | `uMask*` | layout mask uniforms — handled entirely by `main()`; patterns never mask themselves |
 | `uMaskTex` / `uMaskTexOn` | hand-mask tier: when on, `main()` samples the mask canvas's ALPHA (shader flips V; the CanvasTexture sets `flipY=false` — exactly one flip, ever) instead of the layout rect |
@@ -63,43 +68,56 @@ Preamble helpers available to every recipe: `hash21`, `hash22`, `vnoise`, `fnois
 plus constants `PI`, `TAU`, `CARD_ASPECT` (h/w ≈ 1.3755). For isotropic patterns multiply
 uv by `vec2(1.0, CARD_ASPECT)` so cells aren't stretched.
 
-Blend model (in `main()`, R4b SCAN-ADDITIVE 2026-08-04 — supersedes R4's
-ink-density heuristics, which Chey's Grubbin review refuted: the stacked
-per-pixel estimates repainted the card at rest, rest ΔC +32 with a
-green→yellow hue push, header −22 L under tilt, glyph contrast −26% under the
-lobe). **The composite contract, three invariants BY CONSTRUCTION on real
-card scans (`uScanBase 1`, `uInkGuard > 0`):**
+Blend model (in `main()`, R5 METALLIC 2026-08-05 — supersedes the R4c/R4d
+tilt-onset machinery, which Chey's always-on ruling removed: "I want the
+effect to always be on the card … it should be contributing to the
+metallicness and the sheen of the card, like spectral and metallic. And it
+seems like it's just brightening the card too much"). **The composite
+contract on real card scans (`uScanBase 1`, `uInkGuard > 0`):**
 
-1. **Rest parity.** The scan is a PHOTOGRAPH of the real card at rest — it is
-   already correct. All foil light is scaled by `smoothstep(0.02, 0.28,
-   |uTilt|)`: at neutral tilt the render IS the scan, exactly (measured ΔL =
-   ΔC = 0.00 in every region on the whole R4b sample set).
-2. **Flash adds, never subtracts.** `col = scan + light, light ≥ 0`. No
-   uDarken on scans, no screen-blend, nothing multiplies the base down.
-3. **Text sacred at every angle.** The light (pattern flash AND the shared
-   specular — one clamp covers both) is bounded by a per-pixel luminance
-   headroom `allow = max(1.6·L⁴·(1−L), 1.4·uArtGate·darkSmooth·(1−L))` and a
-   per-channel distance-to-1 cap. The quartic starves glyph ink (modern glyphs
-   are MID-dark, L 0.35–0.45 — a gentle ramp lights them; measured) and gives
-   paper tones (L≈0.8) the sheen; whites have no headroom, so nothing ever
-   blows out, and the per-channel cap means no channel clips (clipping is what
-   hue-rotated green→yellow in R4). The `uArtGate` channel is the one licensed
-   exception: gated recipes declare dark scan areas ARE the foil (WOTC holo
-   backgrounds), so those pixels flash — text sits outside the window mask on
-   gated cards.
+1. **Always on, metalness model.** No tilt gate of any kind — the foil layer
+   exists at rest, and tilt moves its PHASE (recipes read `uTilt` directly)
+   plus the card's physical rotation, exactly like a real card whose
+   photographed sheen moves with it. The scan is the ALBEDO of a printed
+   sheet; `uMetal` converts printed ink into colored metal — diffuse energy
+   trades into tinted specular. The pattern field (the exact layer the
+   blank-card canon lab locks), gained by `uIntensity` and split around a
+   neutral level `PIVOT = 0.40`, decides where the metal catches light:
+   above → **highlight** (`uSheen` gain, `uSheenTint` color along the
+   pixel's own hue — metal reflects its own color); below → **depth**
+   (`uDepth` multiplicative darkening — the mirror substrate turns away and
+   reflects a dark room). Energy REDISTRIBUTES: contrast and chroma carry
+   the metallic read, not luminance lift (an on-card render should read
+   "this area is metallic", never "someone brightened this area").
+2. **Plain print recoverable.** `uMetal 0` renders exactly the scan (so does
+   `uIntensity 0`, and `uInkGuard 0` = the legacy composite). The
+   none-pattern is still the pixel-comparable baseline.
+3. **Text sacred at every angle.** Highlight light (pattern AND the shared
+   specular — one budget covers both) is bounded by the per-pixel luminance
+   headroom `allow = max(1.6·L⁴·(1−L), 1.4·uArtGate·darkSmooth·(1−L))`
+   applied as a **compressive soft knee** (`allow·(1−e^(−light/allow))` —
+   a hard min plateaus strong fields into a flat wash and erases the
+   pattern's texture; the knee compresses monotonically so structure
+   survives), then a per-channel distance-to-1 hard cap (no clip ⇒ no hue
+   rotation). Glyph-dark pixels (`inkDark`) are exempt from BOTH highlight
+   and depth — printed glyph ink sits on top of the foil and stays
+   matte-dark and crisp. The `uArtGate` channel is the licensed exception:
+   gated recipes declare dark scan areas ARE the foil (WOTC holo windows).
 
-Light is chroma-preserving (`inkTint` — see the `uTint` row) and `uInkPop`
-pumps saturation along the pixel's own hue (luminance-neutral). Consequence to
-know: **dark stamp features (masterball silhouettes) render as light stamps**
-on scans — adds-only cannot darken; that is invariant 2's price.
+Light is chroma-preserving (`uSheenTint` at 0.5 = the old `max(uTint,
+chromaRamp)` law) and `uInkPop` pumps saturation along the pixel's own hue
+(luminance-neutral). Depth darkening is multiplicative — hue-safe and
+saturation-raising, which is most of what makes metal read as metal.
 
 On the canon lab's blank bases (`uScanBase 0`) the CLASSIC composite runs
 textually unchanged — screen-blend + uDarken substrate + R4's (self-zeroing on
 flat tones) ink estimates — so dark-mirror canon moods still exist in the
 pattern room and every saved canon renders bit-identically (AE-0 proven per
-change via the CDP frame-stepped harness; see DECISIONS 2026-08-04). Zero
+change via the CDP frame-stepped harness; see DECISIONS 2026-08-04/05). Zero
 knobs = legacy: `uInkGuard 0` (+ `uInkPop 0`) reproduces the pre-R4
-screen-only composite exactly on EVERY surface.
+screen-only composite exactly on EVERY surface. The R4c/R4d onset keys
+(`uOnsetRange`/`uOnsetCurve`) no longer exist; stale keys in canon/override
+files are INERT — CardViewer applies only known uniforms.
 
 ## Adding a pattern (worked example: Crosshatch)
 
