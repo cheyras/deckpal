@@ -29,7 +29,7 @@ import { useTilt } from './useTilt'
 import { CardViewer, cardScreenRect, type ViewerSettings } from './CardViewer'
 import { MaskEditor, createMaskCanvas, MASK_W, MASK_H, MASK_TINT, type BrushMode, type MaskEditorHandle } from './MaskEditor'
 import { WindowEditor, rasterizeWindowRect, type WindowGeom } from './WindowEditor'
-import { ActionBtn, Chip, Section, Select, Slider, SurfaceTabs } from './ui'
+import { ActionBtn, Chip, CoreSliders, Section, Select, Slider, SurfaceTabs } from './ui'
 
 const LS_KEY = 'foil-lab:selection'
 const LS_OWNED_KEY = 'foil-lab:owned-only'
@@ -1092,22 +1092,7 @@ export function FoilLab() {
         </Section>
 
         <Section title="Foil uniforms (this card vs canon)">
-          <Slider label="Intensity" value={uniforms.uIntensity ?? 1} min={0} max={2} step={0.02} marked={overrideDiffKeys.includes('uIntensity')} onChange={(v) => setU('uIntensity', v)} />
-          <Slider label="Pattern scale" value={uniforms.uScale ?? 1} min={0.25} max={3} step={0.05} marked={overrideDiffKeys.includes('uScale')} onChange={(v) => setU('uScale', v)} />
-          <Slider label="Hue shift" value={uniforms.uHueShift ?? 0.5} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uHueShift')} onChange={(v) => setU('uHueShift', v)} />
-          <Slider label="Hue spread" value={uniforms.uHueSpread ?? 0.5} min={0} max={1.5} step={0.01} marked={overrideDiffKeys.includes('uHueSpread')} onChange={(v) => setU('uHueSpread', v)} />
-          <Slider label="Color saturation" value={uniforms.uSat ?? 0.8} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uSat')} onChange={(v) => setU('uSat', v)} />
-          <Slider label="Art gate (dark areas)" value={uniforms.uArtGate ?? 0} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uArtGate')} onChange={(v) => setU('uArtGate', v)} />
-          <Slider label="Specular sheen" value={uniforms.uSpecular ?? 0.4} min={0} max={1.5} step={0.02} marked={overrideDiffKeys.includes('uSpecular')} onChange={(v) => setU('uSpecular', v)} />
-          <Slider label="Mirror darken (substrate)" value={uniforms.uDarken ?? 0} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uDarken')} onChange={(v) => setU('uDarken', v)} />
-          <Slider label="Ink tint (art metallic)" value={uniforms.uTint ?? 0} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uTint')} onChange={(v) => setU('uTint', v)} />
-          <Slider label="Ink guard (legibility)" value={uniforms.uInkGuard ?? 1} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uInkGuard')} onChange={(v) => setU('uInkGuard', v)} />
-          <Slider label="Ink pop (chroma boost)" value={uniforms.uInkPop ?? 0.5} min={0} max={1.5} step={0.02} marked={overrideDiffKeys.includes('uInkPop')} onChange={(v) => setU('uInkPop', v)} />
-          <Slider label="Metallic (mirror law; 0 = pattern's own light)" value={uniforms.uMetal ?? 0} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uMetal')} onChange={(v) => setU('uMetal', v)} />
-          <Slider label="Sheen strength (pattern light)" value={uniforms.uSheen ?? 1} min={0} max={3} step={0.02} marked={overrideDiffKeys.includes('uSheen')} onChange={(v) => setU('uSheen', v)} />
-          <Slider label="Sheen tint (own color→ink color)" value={uniforms.uSheenTint ?? 0} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uSheenTint')} onChange={(v) => setU('uSheenTint', v)} />
-          <Slider label="Depth (substrate darks)" value={uniforms.uDepth ?? 0.5} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uDepth')} onChange={(v) => setU('uDepth', v)} />
-          <Slider label="Texture (structure vs sheen)" value={uniforms.uGrain ?? 1} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uGrain')} onChange={(v) => setU('uGrain', v)} />
+          <CoreSliders uniforms={uniforms} dirty={overrideDiffKeys} onChange={setU} />
           {pattern.params.length > 0 && <div className="my-[8px] border-t border-border-default" />}
           {pattern.params.map((p) => (
             <Slider
