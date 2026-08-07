@@ -62,11 +62,23 @@ type CoreDefaults = Partial<
   >
 >
 
+/**
+ * Which COMPOSITE family a recipe belongs to — how its light lands on a real
+ * card scan (R6 2026-08-07). This is the axis "apply composite to family"
+ * propagates along, and the reason a recipe's scan defaults look the way they
+ * do. It is deliberately NOT the taxonomy axis: two recipes can model quite
+ * different physical processes and still distribute light the same way.
+ */
+export type FoilFamily = 'flash' | 'line' | 'stamp' | 'field' | 'pearl' | 'metal' | 'none'
+
 export interface FoilPattern {
   id: string
   label: string
   /** Canonical taxonomy name (video + Bulbapedia) this entry models. */
   taxonomy: string
+  /** Composite family — see FoilFamily. Must match the constant its
+   *  `defaults` spreads; that pairing is the whole contract. */
+  family: FoilFamily
   /** Human note: which physical printings use this process. */
   usedOn: string
   /** GLSL body defining `vec3 foilPattern(vec2 uv, vec2 tilt)`. */
@@ -94,33 +106,75 @@ export const PATTERN_ALIASES: Record<string, string> = {
 
 export const canonicalPatternId = (id: string): string => PATTERN_ALIASES[id] ?? id
 
-// ── R5b scan-composite families (2026-08-07) ────────────────────────────────
-// Chey: "You applied the metallic treatment to EVERY HOLO PATTERN when I only
-// wanted it for mirror ... you can barely see the pattern at all, it's like
-// every single one is being applied in a way that it adds no rainbow color or
-// anything to the card." Metalness (uMetal > 0) is now MIRROR ONLY; every
-// other recipe runs the additive law and declares, by family, how its light
-// lands on a card scan. All three dials are scan-path only — the blank-card
-// canon room is untouched by every value here (uScanBase 0 skips the branch),
-// so no saved canon changes appearance. Tuned by eye on each family's own
-// assigned cards (see DECISIONS 2026-08-07).
+// ── R6 composite families (2026-08-07) ──────────────────────────────────────
+// Re-derived from Chey's FOUR hand-tuned canons, which are the only real
+// evidence we have about how these dials should land on a card. He asked for
+// exactly this: "i re-adjusted cracked-ice. take a look at it, and then make
+// the changes based on everything you're observing to make all of this better —
+// i want it so that i have to do as little of work personally on all the rest
+// as possible."
 //
-//   uSheen      on-card gain for the pattern's own light
-//   uSheenTint  0 = the pattern's OWN colour whatever the art underneath;
-//               1 = the R4 automatic law (the flash takes the ink's hue).
-//               Discrete particles reflect their own colour; a broad wash
-//               sitting under printed art takes the ink's, or it repaints it.
-//   uDepth      how much darker the foiled field reads than plain cardstock
-//               on a SCAN (uDarken remains the blank-canon substrate)
+// What his canons say (mirror runs the METAL law and is excluded — it is its
+// own thing and its own canon):
+//
+//   uSheenTint  0 on ALL THREE non-mirror canons (cracked-ice, tinsel-ii,
+//               rainbow-glitter-sheen). The R5b family defaults were 0.15 /
+//               0.5 / 0.85 / 0.6 — every one of them too high. Tinting a
+//               pattern's highlight with the ink underneath IS the thing he
+//               rejected: "it adds no rainbow color or anything to the card."
+//               So the composite families now declare 0, and a recipe that
+//               genuinely wants art-coloured metal says so with its own uTint
+//               (that path is untouched: tintW = uTint when uSheenTint is 0).
+//
+//   uSheen      he raised every one: 1.6 -> 3 (cracked-ice), 1.6 -> 3
+//               (tinsel-ii), 1.0 -> 1.4 (rainbow-glitter-sheen). Shipped
+//               defaults were far too quiet on a real scan.
+//
+//   uDepth      NOT universal. cracked-ice 0, tinsel-ii 1, rgs 1. The dial
+//               darkens the card exactly WHERE THE PATTERN IS NOT (darkHalf
+//               follows pattern luminance), so what it costs depends on how
+//               much of the face the pattern's light actually covers.
+//
+// Measured (tools/foil/duty — pattern light over the black canon base, every
+// substrate/gloss dial neutralised, mean of three tilts) the coverage of each
+// recipe's own light, and his three choices line up with it:
+//
+//   recipe                 duty>0.15   his uSheen   his uDepth
+//   cracked-ice               12.8%        3.0          0
+//   tinsel-ii                 26.5%        3.0          1
+//   rainbow-glitter-sheen     63.7%        1.4          1
+//
+// Sparse light wants GAIN and no substrate (the ground between flashes is
+// cardstock, not foil). Dense light wants less gain and a real substrate (the
+// ground between highlights IS foil, and foil is darker than paper — that
+// contrast is what makes a sheet read as a sheet). The three tiers below are
+// that relationship; per-recipe overrides then take over, tuned by eye on the
+// recipe's own assigned cards.
+//
+// All five dials here are SCAN-PATH ONLY: on a blank canon base the ink
+// estimates are exactly 0 by construction, so uScanBase 0 skips the branch and
+// no saved canon changes appearance at any value. Proven, not assumed — AE 0
+// across all 44 implemented recipes x 4 canon tones x 3 tilts.
 
-/** Discrete flashes over dark/mid artwork: bubbles, stars, facets, flakes. */
-const PARTICLE_FOIL: CoreDefaults = { uSheen: 1.6, uSheenTint: 0.15, uDepth: 0.18 }
-/** Sheet foils under a pale printed body — reverse holos. Need the substrate. */
-const SHEET_FOIL: CoreDefaults = { uSheen: 2.6, uSheenTint: 0.5, uDepth: 0.14 }
-/** Broad colour washes across saturated full art — must not repaint the ink. */
-const WASH_FOIL: CoreDefaults = { uSheen: 1.0, uSheenTint: 0.85, uDepth: 0.15 }
-/** Near-white pearl / vault stock: never dim it, but it still has to show. */
-const PEARL_FOIL: CoreDefaults = { uSheen: 1.8, uSheenTint: 0.6, uDepth: 0.12 }
+/** Sparse discrete flashes: stars, bubbles, facets, flakes, dots, confetti.
+ *  Between the flashes you are looking at CARDSTOCK — no substrate at all. */
+const FLASH_FOIL: CoreDefaults = { uSheen: 3.4, uSheenTint: 0, uDepth: 0 }
+/** Fine continuous line-work: sheens, tinsels, gratings, crosshatch. A real
+ *  sheet, but a mostly-dark one — it wants gain AND some substrate to read
+ *  as metal rather than as a scratch. Chey's tinsel-ii sits here. */
+const LINE_FOIL: CoreDefaults = { uSheen: 4.2, uSheenTint: 0, uDepth: 0.45 }
+/** A continuous holo layer: reverse sheets, washes, emblem sheets, mirrors.
+ *  Chey's rainbow-glitter-sheen sits here. */
+const FIELD_FOIL: CoreDefaults = { uSheen: 3.0, uSheenTint: 0, uDepth: 0.6 }
+/** A continuous sheet whose light is SPARSE STAMPS — the reverse-holo emblem
+ *  sheets. The sheet IS foil, but its highlights cover so little of the face
+ *  that a field substrate just reads as "someone dimmed this card" (measured:
+ *  energy-symbols-ii lights 5.8% of the face, so uDepth 0.9 darkened the other
+ *  94%). Sparse light, so it wants gain; continuous sheet, so it wants a
+ *  little substrate — but only a little. */
+const STAMP_FOIL: CoreDefaults = { uSheen: 3.6, uSheenTint: 0, uDepth: 0.22 }
+/** Near-white pearl / vault stock: continuous, but it must never dim. */
+const PEARL_FOIL: CoreDefaults = { uSheen: 1.2, uSheenTint: 0, uDepth: 0.2 }
 
 // ── Recipe GLSL bodies ──────────────────────────────────────────────────────
 
@@ -235,7 +289,7 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 }`
 
 const STARLIGHT_DEFAULTS: CoreDefaults = {
-  ...PARTICLE_FOIL,
+  ...FLASH_FOIL,
   uIntensity: 1.1,
   uScale: 1.0,
   uHueShift: 0.62,
@@ -327,7 +381,7 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 }`
 
 const COSMOS_DEFAULTS: CoreDefaults = {
-  ...PARTICLE_FOIL,
+  ...FLASH_FOIL,
   uIntensity: 0.95,
   uScale: 1.0,
   uHueShift: 0.0,
@@ -529,7 +583,7 @@ const SHEEN_DL = sheenGlsl({ nx: 0.7071, ny: -0.7071, sharp: 3.0, beam: 0.55 }) 
 const SHEEN_V_STRIPED = sheenGlsl({ nx: 1, ny: 0, stripes: true })
 
 const SHEEN_DEFAULTS: CoreDefaults = {
-  ...SHEET_FOIL,
+  ...LINE_FOIL,
   uIntensity: 0.9,
   uScale: 1.0,
   uHueShift: 0.55,
@@ -582,7 +636,7 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 }`
 
 const REVERSE_SHEET_DEFAULTS: CoreDefaults = {
-  ...SHEET_FOIL,
+  ...STAMP_FOIL,
   uIntensity: 1.0,
   uScale: 1.0,
   uHueShift: 0.1,
@@ -677,7 +731,7 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 }`
 
 const CRACKED_ICE_DEFAULTS: CoreDefaults = {
-  ...PARTICLE_FOIL,
+  ...FLASH_FOIL,
   uIntensity: 1.0,
   uScale: 1.0,
   uHueShift: 0.5,
@@ -2253,6 +2307,7 @@ export const PATTERNS: FoilPattern[] = [
     // uSpecular 0: "none" is the pixel-comparable baseline against the flat
     // scan (issue ls9u0y) — even a 0.12 sheen adds a corner glow at rest.
     glsl: `vec3 foilPattern(vec2 uv, vec2 tilt) { return vec3(0.0); }`,
+    family: 'none',
     defaults: { uIntensity: 0.0, uSpecular: 0.0 },
     params: [],
     implemented: true,
@@ -2267,6 +2322,7 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Starlight (syn. Galaxy) — WOTC multi-depth star hologram',
     usedOn: 'Base Set, Jungle, Fossil holo rares — international printings only (JP Base-era used cosmos).',
     glsl: STARLIGHT_GLSL,
+    family: 'flash',
     defaults: STARLIGHT_DEFAULTS,
     params: STARLIGHT_PARAMS,
     implemented: true,
@@ -2285,6 +2341,7 @@ export const PATTERNS: FoilPattern[] = [
     // uArtGate lowered vs base starlight: the Evolutions holo field is
     // mid-orange, not WOTC-dark — at 0.75 the gate halved every star.
     glsl: STARLIGHT_GLSL,
+    family: 'flash',
     defaults: { ...STARLIGHT_DEFAULTS, uSat: 0.95, uArtGate: 0.45 },
     // uP2 pinned at 0.45: the 20/20 round-2 verdict was earned at this wash
     // level — base starlight's later default bumps must not drift II.
@@ -2301,6 +2358,7 @@ export const PATTERNS: FoilPattern[] = [
     usedOn:
       'The most-used pattern in TCG history: English Base Set 2 → Call of Legends standard holos, JP Base-era holos, decades of promos.',
     glsl: COSMOS_GLSL,
+    family: 'flash',
     defaults: COSMOS_DEFAULTS,
     params: COSMOS_PARAMS,
     implemented: true,
@@ -2315,6 +2373,7 @@ export const PATTERNS: FoilPattern[] = [
     usedOn:
       'The long-running default holo: HGSS era through Platinum, Call of Legends, BW, into XY; also the raw sheet under many reverse designs.',
     glsl: SHEEN_V_BARCODE,
+    family: 'line',
     defaults: { ...SHEEN_DEFAULTS, uArtGate: 0.5 },
     params: SHEEN_PARAMS,
     implemented: true,
@@ -2334,7 +2393,8 @@ export const PATTERNS: FoilPattern[] = [
     // migrated 0 -> 0.22 with this change (DECISIONS R3).
     // R5b eyeball: the SV Mirage band is broad and low-contrast; at the SHEET
     // default it barely registered on the me04 exemplar.
-    defaults: { ...SHEEN_DEFAULTS, uDarken: 0.32, uSheen: 2.6 },
+    family: 'line',
+    defaults: { ...SHEEN_DEFAULTS, uDarken: 0.32 },
     params: tuneParams(SHEEN_PARAMS, { uP0: 2, uP1: 2.2 }),
     implemented: true,
   },
@@ -2349,6 +2409,7 @@ export const PATTERNS: FoilPattern[] = [
     glsl: SHEEN_DR,
     // specular tamed with the diffuse fix landed: the center was blowing out
     // to white over bright full-art scans (verdict color_travel note).
+    family: 'line',
     defaults: { ...SHEEN_DEFAULTS, uSpecular: 0.35 },
     // uP0 2 -> 7 (2026-08-02 R0): same physical sheet as the fixed left
     // diagonal — several narrow parallel bands, not one broad wash.
@@ -2363,6 +2424,7 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Sheen — diagonal rotation, band rises "/"',
     usedOn: 'Sun & Moon series reverse holos, heavily.',
     glsl: SHEEN_DL,
+    family: 'line',
     defaults: { ...SHEEN_DEFAULTS, uSpecular: 0.35 },
     // uP0 2 → 7 after Gemini verification (2026-08-02): the reference sheet
     // shows several narrow parallel bands; at 2 the render read as one broad
@@ -2384,6 +2446,7 @@ export const PATTERNS: FoilPattern[] = [
     // substrate attenuation the group reveal is nearly invisible on the card
     // (same physics as the R2 window-foil uDarken extensions). Chey's canon
     // migrated 0 → 0.18 with this change (DECISIONS R3).
+    family: 'line',
     defaults: { ...SHEEN_DEFAULTS, uDarken: 0.32 },
     params: tuneParams(SHEEN_PARAMS, { uP0: 3, uP1: 1.8 }),
     implemented: true,
@@ -2400,6 +2463,7 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Mirror sheet + stamped emblem grid (≈ pokeball-masterball)',
     usedOn: 'SV + Mega Evolution reverse holos — foil covers the body, not the art.',
     glsl: REVERSE_SHEET_GLSL,
+    family: 'stamp',
     defaults: REVERSE_SHEET_DEFAULTS,
     params: REVERSE_SHEET_PARAMS,
     implemented: true,
@@ -2412,6 +2476,7 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Cracked Ice (syn. Broken Glass, Shards) faceted foil',
     usedOn: 'Skyridge box toppers, FRLG bird promos, POP series; THE theme-deck holo DP→SWSH.',
     glsl: CRACKED_ICE_GLSL,
+    family: 'flash',
     defaults: CRACKED_ICE_DEFAULTS,
     params: CRACKED_ICE_PARAMS,
     implemented: true,
@@ -2432,7 +2497,8 @@ export const PATTERNS: FoilPattern[] = [
     glsl: FIREWORKS_GLSL,
     // uTint 0.5 (R3-MISC): the LC parallel is foil UNDER the printed art —
     // burst flashes over the artwork carry the ink's color (blend-model fix).
-    defaults: { ...WASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.0, uHueSpread: 0.75, uSat: 0.9, uArtGate: 0.0, uSpecular: 0.3, uTint: 0.5 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.0, uHueSpread: 0.75, uSat: 0.9, uArtGate: 0.0, uSpecular: 0.3, uTint: 0.5 },
     params: [
       { key: 'uP0', label: 'Burst density', min: 3, max: 14, step: 0.5, default: 6.5 },
       // uP1 (R3-MISC): was the per-burst ignition rate; now the radial hue
@@ -2471,6 +2537,7 @@ export const PATTERNS: FoilPattern[] = [
     // (data/foil-canon/mirror.json — "basically perfect", 2026-08-07) stores
     // its own and wins. Do not re-derive them: the canon's on-card appearance
     // is a frozen reference.
+    family: 'metal',
     defaults: {
       uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.0, uSat: 0.0,
       uArtGate: 0.0, uSpecular: 0.6, uDarken: 0.5, uTint: 0.7,
@@ -2497,7 +2564,8 @@ export const PATTERNS: FoilPattern[] = [
     // screen-blend over a dark base, not a color-grading knob).
     // uTint 0.7 (R3-MISC): THE modern reverse base sheet — over colored card
     // bodies the spotlight must read as art-colored metal, not gray wash.
-    defaults: { ...SHEET_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.9, uSat: 1.0, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.45, uTint: 0.7 },
+    family: 'field',
+    defaults: { ...FIELD_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.9, uSat: 1.0, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.45, uTint: 0.7 },
     params: [
       // lobe breadth ~mirror family: smaller = wider spotlight. 10 (r2): at
       // 5.5 the "spotlight" covered the whole card and read as a bullseye.
@@ -2517,6 +2585,7 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Dense embossed dot-facet glitter foil',
     usedOn: 'Once: e-series oversized box toppers (manufacturer stock).',
     glsl: CRACKED_ICE_GLSL,
+    family: 'flash',
     defaults: CRACKED_ICE_DEFAULTS,
     params: tuneParams(CRACKED_ICE_PARAMS, { uP0: 18, uP1: 3.2, uP2: 0 }),
     implemented: false,
@@ -2536,7 +2605,8 @@ export const PATTERNS: FoilPattern[] = [
     // gaps" ARE the darkened substrate between symbols — gating the pattern
     // to dark scan areas instead erased it over the light exemplar window.
     // uSat 1.0 (round 3): "too faint and pastel" — the icons are vivid.
-    defaults: { ...SHEET_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.15, uHueSpread: 0.7, uSat: 1.0, uArtGate: 0.15, uSpecular: 0.25, uDarken: 0.35, uTint: 0.6 },
+    family: 'stamp',
+    defaults: { ...STAMP_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.15, uHueSpread: 0.7, uSat: 1.0, uArtGate: 0.15, uSpecular: 0.25, uDarken: 0.35, uTint: 0.6 },
     params: [
       { key: 'uP0', label: 'Symbol density', min: 6, max: 22, step: 0.5, default: 10 },
       // 0.8 (round 2): at 1.4 the checkerboard cycles ~1.7x across a full
@@ -2564,7 +2634,8 @@ export const PATTERNS: FoilPattern[] = [
     // uTint 0.6 (R3-MISC): THE modern SWSH/SV reverse — Chey's named case
     // for the dull-grayish defect; flashes over the colored body now carry
     // the ink color (verified before/after on sv02/sv09/sv10 reverses).
-    defaults: { ...SHEET_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.3, uHueSpread: 0.7, uSat: 0.9, uArtGate: 0.35, uSpecular: 0.3, uTint: 0.6 },
+    family: 'stamp',
+    defaults: { ...STAMP_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.3, uHueSpread: 0.7, uSat: 0.9, uArtGate: 0.35, uSpecular: 0.3, uTint: 0.6 },
     params: [
       { key: 'uP0', label: 'Glyph density', min: 1, max: 6, step: 0.1, default: 2.6 },
       { key: 'uP1', label: 'Swap rate', min: 0.2, max: 4, step: 0.05, default: 1.4 },
@@ -2580,7 +2651,8 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Square grid of radial-wedge pinwheel cells',
     usedOn: 'EX Deoxys reverses; revived on simplified-Chinese sets.',
     glsl: PINWHEEL_GLSL,
-    defaults: { ...SHEET_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.3, uHueSpread: 0.55, uSat: 0.75, uArtGate: 0.0, uSpecular: 0.4, uTint: 0.6 },
+    family: 'line',
+    defaults: { ...LINE_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.3, uHueSpread: 0.55, uSat: 0.75, uArtGate: 0.0, uSpecular: 0.4, uTint: 0.6 },
     params: [
       { key: 'uP0', label: 'Grid density', min: 6, max: 20, step: 0.5, default: 11 },
       { key: 'uP1', label: 'Wedge flash rate', min: 0.2, max: 4, step: 0.05, default: 1.6 },
@@ -2599,7 +2671,8 @@ export const PATTERNS: FoilPattern[] = [
     // uDarken 0.25 + gate 0.1 (round 2): the EX window is a mirror sheet with
     // art printed translucently over it — gating the foil to dark scan areas
     // erased both band and icons on the light Swalot exemplar.
-    defaults: { ...SHEET_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.3, uHueSpread: 0.6, uSat: 0.8, uArtGate: 0.1, uSpecular: 0.35, uDarken: 0.25 },
+    family: 'field',
+    defaults: { ...FIELD_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.3, uHueSpread: 0.6, uSat: 0.8, uArtGate: 0.1, uSpecular: 0.35, uDarken: 0.25 },
     params: [
       { key: 'uP0', label: 'Icon density', min: 3, max: 14, step: 0.5, default: 6 },
       { key: 'uP1', label: 'Band drift', min: 0, max: 4, step: 0.05, default: 1.2 },
@@ -2622,7 +2695,8 @@ export const PATTERNS: FoilPattern[] = [
     // top half" (verdict, verified on frames). Keep only a whisper; the true
     // fix is per-card art-extent masking — a mask-pipeline item, not a
     // pattern hack.
-    defaults: { ...SHEET_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.45, uHueSpread: 0.6, uSat: 0.85, uArtGate: 0.15, uSpecular: 0.3, uDarken: 0.12 },
+    family: 'stamp',
+    defaults: { ...STAMP_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.45, uHueSpread: 0.6, uSat: 0.85, uArtGate: 0.15, uSpecular: 0.3, uDarken: 0.12 },
     params: [
       { key: 'uP0', label: 'Ball density', min: 4, max: 20, step: 0.5, default: 5.5 },
       { key: 'uP1', label: 'Parallax depth', min: 0, max: 4, step: 0.05, default: 2.2 },
@@ -2640,7 +2714,8 @@ export const PATTERNS: FoilPattern[] = [
     glsl: VSR_GLSL,
     // uDarken 0.3: milder than the raw mirror — the EX window foil sits under
     // warm translucent art, but still visibly darkens off-flash.
-    defaults: { ...SHEET_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.6, uSat: 0.8, uArtGate: 0.15, uSpecular: 0.55, uDarken: 0.3 },
+    family: 'field',
+    defaults: { ...FIELD_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.6, uSat: 0.8, uArtGate: 0.15, uSpecular: 0.55, uDarken: 0.3 },
     params: [
       { key: 'uP0', label: 'Band width', min: 0.002, max: 0.08, step: 0.002, default: 0.015 },
       { key: 'uP1', label: 'Band travel', min: 0, max: 4, step: 0.05, default: 1.6 },
@@ -2658,7 +2733,8 @@ export const PATTERNS: FoilPattern[] = [
     glsl: COSMOS_II_GLSL,
     // R5b eyeball: the pixel-speck field is the faintest in the library and
     // read as nothing on its own exemplar (0.4% coloured pixels). Pushed.
-    defaults: { ...PARTICLE_FOIL, uSheen: 2.4, uDepth: 0.26, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.0, uHueSpread: 0.55, uSat: 0.55, uArtGate: 0.5, uSpecular: 0.35 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.0, uHueSpread: 0.55, uSat: 0.55, uArtGate: 0.5, uSpecular: 0.35 },
     params: [
       { key: 'uP0', label: 'Shape scale', min: 0.4, max: 3, step: 0.05, default: 1.0 },
       { key: 'uP1', label: 'Shimmer rate', min: 0.2, max: 4, step: 0.05, default: 1.2 },
@@ -2674,7 +2750,8 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Smooth-disc cosmos + sweeping specular band',
     usedOn: 'Legendary Treasures onward; modern promos ship pixel OR smooth.',
     glsl: COSMOS_III_GLSL,
-    defaults: { ...PARTICLE_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.0, uHueSpread: 0.6, uSat: 0.7, uArtGate: 0.2, uSpecular: 0.45 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.0, uHueSpread: 0.6, uSat: 0.7, uArtGate: 0.2, uSpecular: 0.45 },
     params: [
       { key: 'uP0', label: 'Orb scale', min: 0.4, max: 3, step: 0.05, default: 1.3 },
       { key: 'uP1', label: 'Shimmer rate', min: 0.2, max: 4, step: 0.05, default: 0.9 },
@@ -2693,7 +2770,8 @@ export const PATTERNS: FoilPattern[] = [
     glsl: TINSEL_GLSL,
     // uDarken 0.35: the raw sheet is DARK between dashes (same physics as
     // tinsel-ii's static gaps).
-    defaults: { ...PARTICLE_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.1, uHueSpread: 0.8, uSat: 1.0, uArtGate: 0.45, uSpecular: 0.3, uDarken: 0.35 },
+    family: 'line',
+    defaults: { ...LINE_FOIL, uSheen: 3.0, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.1, uHueSpread: 0.8, uSat: 1.0, uArtGate: 0.45, uSpecular: 0.3, uDarken: 0.35 },
     params: [
       { key: 'uP0', label: 'Line density', min: 0.5, max: 3, step: 0.05, default: 1.6 },
       { key: 'uP1', label: 'Slide speed', min: 0, max: 2, step: 0.05, default: 0.8 },
@@ -2718,7 +2796,8 @@ export const PATTERNS: FoilPattern[] = [
     // between lines stayed the near-white card body and the static plateaued
     // at "fine bright brushed metal" (three R1 rounds, static_appearance 2).
     // Darkening the substrate makes the un-lit gaps the dark half of the static.
-    defaults: { ...PARTICLE_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.08, uHueSpread: 0.6, uSat: 0.5, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.4 },
+    family: 'line',
+    defaults: { ...LINE_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.08, uHueSpread: 0.6, uSat: 0.5, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.4 },
     params: [
       { key: 'uP0', label: 'Line density', min: 0.5, max: 4, step: 0.1, default: 2.0 },
       // uP1 (R3-MISC): now the VERTICAL band's horizontal travel; Chey's
@@ -2747,7 +2826,8 @@ export const PATTERNS: FoilPattern[] = [
     // etched substrate — the r2 render was still pastel-on-light.
     // R5b eyeball: the facet grid at WASH strength checkerboarded a blue
     // Team Aqua full-art — the cells must read as facets, not as a screen door.
-    defaults: { ...WASH_FOIL, uSheen: 0.65, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.1, uHueSpread: 0.8, uSat: 1.0, uArtGate: 0.2, uSpecular: 0.12, uDarken: 0.35, uTint: 0.4 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uSheen: 1.0, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.1, uHueSpread: 0.8, uSat: 1.0, uArtGate: 0.2, uSpecular: 0.12, uDarken: 0.35, uTint: 0.4 },
     params: [
       // 33: the delta pass counts 30-35 cells across the Raticate's width
       // (~3x pinwheel's 10) — the old default 60 was twice too fine
@@ -2766,7 +2846,8 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Organic rippling-liquid contours, colors flow along ridges',
     usedOn: 'Sun & Moon standard holos + GX cards (through Cosmic Eclipse).',
     glsl: WATER_WEB_GLSL,
-    defaults: { ...WASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.8, uSat: 0.9, uArtGate: 0.45, uSpecular: 0.3 },
+    family: 'field',
+    defaults: { ...FIELD_FOIL, uSheen: 2.2, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.8, uSat: 0.9, uArtGate: 0.45, uSpecular: 0.3 },
     params: [
       { key: 'uP0', label: 'Topo scale', min: 1, max: 8, step: 0.1, default: 3 },
       { key: 'uP1', label: 'Flow rate', min: 0, max: 4, step: 0.05, default: 1.4 },
@@ -2782,7 +2863,8 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Diagonal criss-cross diamond grid, segmented lines',
     usedOn: 'Radiant-rarity cards, SWSH Astral Radiance onward; full face.',
     glsl: RADIANT_GLSL,
-    defaults: { ...WASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.12, uHueSpread: 0.55, uSat: 0.8, uArtGate: 0.0, uSpecular: 0.35 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.12, uHueSpread: 0.55, uSat: 0.8, uArtGate: 0.0, uSpecular: 0.35 },
     params: [
       { key: 'uP0', label: 'Grid density', min: 4, max: 20, step: 0.5, default: 10 },
       // R3-MOTION: uP1 was an unused placeholder; now the hologram-step
@@ -2801,7 +2883,8 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Fine glitter over a rainbow-mirror base',
     usedOn: 'SWSH VMAX / rainbow ("hyper") rares and more.',
     glsl: RAINBOW_GLITTER_GLSL,
-    defaults: { ...WASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.9, uSat: 0.9, uArtGate: 0.0, uSpecular: 0.5 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uSheen: 2.4, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.9, uSat: 0.9, uArtGate: 0.0, uSpecular: 0.5 },
     params: [
       { key: 'uP0', label: 'Glitter density', min: 0.4, max: 3, step: 0.05, default: 1.0 },
       { key: 'uP1', label: 'Band travel', min: 0, max: 4, step: 0.05, default: 2.2 },
@@ -2822,7 +2905,8 @@ export const PATTERNS: FoilPattern[] = [
     // of the legibility physics (prismatic-pokeball, R2 window foils, R3
     // sheens). The mirror term darkens the body so the band's primaries read
     // saturated instead of pastel.
-    defaults: { ...WASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.9, uSat: 1.0, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.4 },
+    family: 'field',
+    defaults: { ...FIELD_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.9, uSat: 1.0, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.4 },
     params: [
       { key: 'uP0', label: 'Glitter density', min: 0.4, max: 3, step: 0.05, default: 1.0 },
       // travel 0.8: at 2.0 the band left the card entirely at |tilt| ≥ 0.7
@@ -2843,7 +2927,8 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Bold diagonal diamond grid with cross motifs',
     usedOn: 'SV-era ACE SPEC cards only (BW ACE SPECs used tinsel).',
     glsl: ACE_SPEC_GLSL,
-    defaults: { ...WASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.0, uHueSpread: 0.8, uSat: 1.0, uArtGate: 0.0, uSpecular: 0.3 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.0, uHueSpread: 0.8, uSat: 1.0, uArtGate: 0.0, uSpecular: 0.3 },
     params: [
       { key: 'uP0', label: 'Grid density', min: 4, max: 18, step: 0.5, default: 9 },
       { key: 'uP1', label: 'Cycle rate', min: 0.2, max: 4, step: 0.05, default: 1.3 },
@@ -2863,7 +2948,8 @@ export const PATTERNS: FoilPattern[] = [
     glsl: POKEBALL_MASTERBALL_GLSL,
     // uTint 0.7 (R3-MISC): the BBWF ball reverses sit on colored bodies —
     // one of Chey's three named before/after verification cases.
-    defaults: { ...SHEET_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.1, uHueSpread: 0.45, uSat: 0.6, uArtGate: 0.0, uSpecular: 0.5, uTint: 0.7 },
+    family: 'stamp',
+    defaults: { ...STAMP_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.1, uHueSpread: 0.45, uSat: 0.6, uArtGate: 0.0, uSpecular: 0.5, uTint: 0.7 },
     params: [
       { key: 'uP0', label: 'Stamp density', min: 3, max: 24, step: 0.5, default: 9 },
       { key: 'uP1', label: 'Master Ball', min: 0, max: 1, step: 1, default: 0 },
@@ -2890,7 +2976,8 @@ export const PATTERNS: FoilPattern[] = [
     // Prismatic Evolutions body at all (structural nay, best 8/20).
     // uDarken 0.6: at 0.5 the flash screen-blended over a still-mid-gray body
     // and washed pastel; the reference flash is vivid BECAUSE the base is dark
-    defaults: { ...WASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 1.0, uSat: 0.85, uArtGate: 0.0, uSpecular: 0.25, uDarken: 0.6 },
+    family: 'stamp',
+    defaults: { ...STAMP_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 1.0, uSat: 0.85, uArtGate: 0.0, uSpecular: 0.25, uDarken: 0.6 },
     params: [
       // 13: reference cells are 1/15–1/10 card width; the R1 default 9 judged
       // "significantly larger and less dense than the reference"
@@ -2920,7 +3007,8 @@ export const PATTERNS: FoilPattern[] = [
     glsl: RC_DOTS_GLSL,
     // uArtGate 0: the dot overprint sits ABOVE the ink — it must show over
     // bright printed areas (the whole point of the pattern).
-    defaults: { ...PARTICLE_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.1, uHueSpread: 0.8, uSat: 0.6, uArtGate: 0.0, uSpecular: 0.3 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uSheen: 5.0, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.1, uHueSpread: 0.8, uSat: 0.6, uArtGate: 0.0, uSpecular: 0.3 },
     params: [
       { key: 'uP0', label: 'Dot density', min: 0.4, max: 3, step: 0.05, default: 1.0 },
       // 1.1 (round 2): at 2.6 the pops decorrelated completely between sweep
@@ -2942,7 +3030,8 @@ export const PATTERNS: FoilPattern[] = [
     // bright lilac 151 scan under screen-only blending.
     // R5b eyeball: at the WASH default the star/streak layer washed the 151
     // full-art to grey-pink. Gentler, and almost fully ink-tinted.
-    defaults: { ...WASH_FOIL, uSheen: 0.7, uSheenTint: 0.95, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.55, uHueSpread: 0.6, uSat: 0.7, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.2 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.55, uHueSpread: 0.6, uSat: 0.7, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.2 },
     params: [
       // band count 1.5: the reference shows 1-2 broad diagonal bands, the
       // first render's 2.5 read as ~5 stripes (eyeball round 1)
@@ -2964,7 +3053,8 @@ export const PATTERNS: FoilPattern[] = [
     // carry over; the uP slots were re-keyed for the new recipe — his old
     // cracked-ice-approx uP values migrated to the new defaults (DECISIONS).
     // R5b eyeball: sparse glints, so each one has to actually pop.
-    defaults: { ...PARTICLE_FOIL, uSheen: 2.2, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.7, uSat: 0.85, uArtGate: 0.45, uSpecular: 0.4 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uSheen: 5.0, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.7, uSat: 0.85, uArtGate: 0.45, uSpecular: 0.4 },
     params: [
       { key: 'uP0', label: 'Sequin density', min: 6, max: 28, step: 0.5, default: 14 },
       { key: 'uP1', label: 'Twinkle rate', min: 0.2, max: 4, step: 0.05, default: 1.4 },
@@ -2980,7 +3070,8 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Fine woven diagonal line grid under a sweeping band',
     usedOn: 'Play! Pokémon / League promos exclusively.',
     glsl: CROSSHATCH_GLSL,
-    defaults: { ...PARTICLE_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.7, uSat: 0.85, uArtGate: 0.0, uSpecular: 0.4 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.7, uSat: 0.85, uArtGate: 0.0, uSpecular: 0.4 },
     params: [
       { key: 'uP0', label: 'Weave density', min: 0.5, max: 3, step: 0.05, default: 1.4 },
       { key: 'uP1', label: 'Band drift', min: 0, max: 4, step: 0.05, default: 1.5 },
@@ -2996,7 +3087,8 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Flat starlight stars + rainbow-glitter grain on a soft rainbow',
     usedOn: 'Pokémon TCG Classic (2023 premium decks) only — every card holo.',
     glsl: TCG_CLASSIC_GLSL,
-    defaults: { ...PARTICLE_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.85, uSat: 0.9, uArtGate: 0.35, uSpecular: 0.35 },
+    family: 'field',
+    defaults: { ...FIELD_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.85, uSat: 0.9, uArtGate: 0.35, uSpecular: 0.35 },
     params: [
       { key: 'uP0', label: 'Glitter density', min: 0.4, max: 3, step: 0.05, default: 1.0 },
       { key: 'uP1', label: 'Twinkle rate', min: 0.2, max: 4, step: 0.05, default: 1.3 },
@@ -3014,7 +3106,8 @@ export const PATTERNS: FoilPattern[] = [
     glsl: CONFETTI_GLSL,
     // round 2 per the verdict: flakes were "5-10x too big" and "pastel,
     // semi-transparent" — density 26 → 58, sat 1.0, gain 0.9 → 1.5
-    defaults: { ...PARTICLE_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.1, uHueSpread: 0.8, uSat: 1.0, uArtGate: 0.0, uSpecular: 0.35 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.1, uHueSpread: 0.8, uSat: 1.0, uArtGate: 0.0, uSpecular: 0.35 },
     params: [
       { key: 'uP0', label: 'Flake density', min: 10, max: 90, step: 1, default: 58 },
       { key: 'uP1', label: 'Snap rate', min: 0.5, max: 6, step: 0.1, default: 3.0 },
@@ -3032,7 +3125,8 @@ export const PATTERNS: FoilPattern[] = [
     glsl: ACID_WASH_GLSL,
     // uDarken 0.3: the reference blotches go genuinely DARK on a bright
     // energy-card body — unrenderable screen-only (5th legibility data point).
-    defaults: { ...WASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.55, uHueSpread: 0.6, uSat: 0.5, uArtGate: 0.35, uSpecular: 0.4, uDarken: 0.3 },
+    family: 'field',
+    defaults: { ...FIELD_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.55, uHueSpread: 0.6, uSat: 0.5, uArtGate: 0.35, uSpecular: 0.4, uDarken: 0.3 },
     params: [
       { key: 'uP0', label: 'Blotch scale', min: 1, max: 8, step: 0.1, default: 2.2 },
       { key: 'uP1', label: 'Flow rate', min: 0, max: 4, step: 0.05, default: 1.1 },
@@ -3050,7 +3144,8 @@ export const PATTERNS: FoilPattern[] = [
     glsl: DISCO_GLSL,
     // uTint 0.5: the prototype foil spans the full face under the printed
     // art — flashes over the artwork carry the ink's color.
-    defaults: { ...PARTICLE_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.6, uSat: 0.9, uArtGate: 0.35, uSpecular: 0.35, uTint: 0.5 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.6, uSat: 0.9, uArtGate: 0.35, uSpecular: 0.35, uTint: 0.5 },
     params: [
       { key: 'uP0', label: 'Grid density', min: 10, max: 60, step: 1, default: 26 },
       { key: 'uP1', label: 'Twinkle rate', min: 0.2, max: 4, step: 0.05, default: 1.2 },
@@ -3074,6 +3169,7 @@ export const PATTERNS: FoilPattern[] = [
     // uSat only paints the chromatic glitter pops — the field ignores hueRamp
     // by construction (warm-locked). uArtGate 0: the gold covers everything;
     // art elements keep printed color because the scan carries them.
+    family: 'pearl',
     defaults: { ...PEARL_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.0, uSat: 0.9, uArtGate: 0.0, uSpecular: 0.25, uDarken: 0.0 },
     params: [
       { key: 'uP0', label: 'Grain density', min: 0.4, max: 3, step: 0.05, default: 1.0 },
@@ -3105,7 +3201,8 @@ export const PATTERNS: FoilPattern[] = [
     // out exactly like pre-rebuild prismatic-pokeball.
     // R5b eyeball: the pink/gold wash turned Arceus's cool white to cream at
     // PEARL strength. Ink-tinted and gentle — pearl is a whisper, not a wash.
-    defaults: { ...PEARL_FOIL, uSheen: 1.0, uSheenTint: 0.9, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.93, uHueSpread: 0.6, uSat: 0.75, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.3 },
+    family: 'pearl',
+    defaults: { ...PEARL_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.93, uHueSpread: 0.6, uSat: 0.75, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.3 },
     params: [
       { key: 'uP0', label: 'Wash width', min: 0.005, max: 0.2, step: 0.005, default: 0.05 },
       { key: 'uP1', label: 'Wash travel', min: 0, max: 4, step: 0.05, default: 1.6 },
@@ -3133,6 +3230,7 @@ export const PATTERNS: FoilPattern[] = [
     // near-white-substrate physics as vstar-pearl, kept milder because the
     // field stays light).
     // uSat 0.5 (round 2: "reduce the saturation ... soft pastel rainbow tints").
+    family: 'pearl',
     defaults: { ...PEARL_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.55, uHueSpread: 0.6, uSat: 0.5, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.15 },
     params: [
       // 1.4: big-flare span ≈ 19% of card width (spec: 15–20%)
@@ -3153,7 +3251,8 @@ export const PATTERNS: FoilPattern[] = [
     glsl: DETECTIVE_PIKACHU_GLSL,
     // R5b eyeball: a smooth gloss under translucent photo art needs more gain
     // than a coloured wash — at 1.0 the det1 window barely moved.
-    defaults: { ...WASH_FOIL, uSheen: 1.8, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.9, uSat: 0.9, uArtGate: 0.0, uSpecular: 0.3, uDarken: 0.0 },
+    family: 'flash',
+    defaults: { ...FLASH_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.9, uSat: 0.9, uArtGate: 0.0, uSpecular: 0.3, uDarken: 0.0 },
     params: [
       { key: 'uP0', label: 'Beam count', min: 0.5, max: 6, step: 0.1, default: 1.2 },
       { key: 'uP1', label: 'Beam travel', min: 0, max: 4, step: 0.05, default: 1.5 },

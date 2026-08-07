@@ -350,19 +350,51 @@ void main() {
   //   inkColor — saturated printed color. Absolute chroma with a 0.12 floor
   //              (the lab's tinted grays peak at ~0.06).
   // uInkGuard scales both; 0 = the exact legacy composite.
-  vec3 nb;
+  //
+  // R6 2026-08-07 — the GLYPH SPLIT. 'inkDark' is a pure local-contrast
+  // (unsharp) measure, so it fires on EVERY dark mark: printed text, yes, but
+  // equally every black outline, shading edge and dark texture detail in the
+  // ILLUSTRATION. Since the additive law spends it as 'inkFree' (a hard
+  // coverage multiply), guard 1 punched the pattern full of holes wherever the
+  // art had structure — measured on five assigned scans, 86–89% of strong
+  // local-dark hits inside the art window were artwork, not text. That is why
+  // Chey kept pulling the guard down to ~0.51/0.56 on the sheet/wash patterns
+  // he tuned by hand: the only way to get his pattern back over the artwork was
+  // to weaken the text protection everywhere.
+  // The fix is to SPLIT the estimate rather than weaken it. 'glyphness' asks
+  // whether a dark mark is printed TEXT: near-neutral ink sitting on a LIGHT
+  // ground (text boxes, name bars, HP, ability panels, set symbols), or failing
+  // that genuinely, absolutely dark. Artwork darks are chromatic and/or sit in
+  // mid/dark surroundings, so they score low.
+  //   inkGlyph  = the SACRED field — zero flash, exactly as before.
+  //   inkDetail = artwork darks — they keep the pattern, on a tightened budget
+  //               (ink still sits above the foil, so a black outline may glow a
+  //               little but must not blow out).
+  // 'inkAny' is byte-for-byte the old 'inkDark', and every pre-R6 consumer
+  // still reads it, so the classic composite, the metalness law and the
+  // substrate/specular shields are all unchanged.
+  vec3 nbIn; vec3 nbOut;
   {
     vec2 r1 = vec2(0.011, 0.011 / CARD_ASPECT);           // inner ring (diagonals)
     vec2 r2 = vec2(0.028, 0.028 / CARD_ASPECT);           // outer ring (cross)
-    nb  = texture2D(uFace, uv + r1).rgb + texture2D(uFace, uv - r1).rgb
-        + texture2D(uFace, uv + vec2(r1.x, -r1.y)).rgb + texture2D(uFace, uv - vec2(r1.x, -r1.y)).rgb;
-    nb += texture2D(uFace, uv + vec2(r2.x, 0.0)).rgb + texture2D(uFace, uv - vec2(r2.x, 0.0)).rgb
-        + texture2D(uFace, uv + vec2(0.0, r2.y)).rgb + texture2D(uFace, uv - vec2(0.0, r2.y)).rgb;
-    nb *= 0.125;
+    nbIn  = texture2D(uFace, uv + r1).rgb + texture2D(uFace, uv - r1).rgb
+          + texture2D(uFace, uv + vec2(r1.x, -r1.y)).rgb + texture2D(uFace, uv - vec2(r1.x, -r1.y)).rgb;
+    nbOut = texture2D(uFace, uv + vec2(r2.x, 0.0)).rgb + texture2D(uFace, uv - vec2(r2.x, 0.0)).rgb
+          + texture2D(uFace, uv + vec2(0.0, r2.y)).rgb + texture2D(uFace, uv - vec2(0.0, r2.y)).rgb;
+    nbIn *= 0.25; nbOut *= 0.25;
   }
+  vec3 nb = (nbIn + nbOut) * 0.5;                          // identical to the old 8-tap mean
   float nbLum = dot(nb, vec3(0.299, 0.587, 0.114));
+  float nbOutLum = dot(nbOut, vec3(0.299, 0.587, 0.114));
   float chroma = max(face.r, max(face.g, face.b)) - min(face.r, min(face.g, face.b));
-  float inkDark = uInkGuard * smoothstep(0.045, 0.30, nbLum - faceLum);
+  float localDark = smoothstep(0.045, 0.30, nbLum - faceLum);
+  float inkAny = uInkGuard * localDark;                    // == the pre-R6 inkDark
+  float glyphness = clamp((1.0 - smoothstep(0.30, 0.62, chroma))
+                          * max(smoothstep(0.26, 0.54, nbOutLum),
+                                0.85 * smoothstep(0.36, 0.14, faceLum)), 0.0, 1.0);
+  float inkGlyph = inkAny * glyphness;
+  float inkDetail = inkAny - inkGlyph;
+  float inkDark = inkAny;
   float inkColor = uInkGuard * smoothstep(0.12, 0.55, chroma) * (1.0 - inkDark);
   float inkBody = clamp(inkDark + 0.85 * inkColor, 0.0, 1.0);
   // Mirror-substrate darkening (uDarken, default 0 = exact legacy render):
@@ -515,7 +547,12 @@ void main() {
       float darkHalf = 1.0 - smoothstep(0.0, 0.38, dot(pat, vec3(0.299, 0.587, 0.114)));
       body = face.rgb * (1.0 - uDepth * cov * (1.0 - inkBody) * darkHalf
                               * smoothstep(0.0, 0.25, uIntensity));
-      vec3 hi = pat * uSheen * cov * inkFree;
+      // R6 GLYPH SPLIT (see the ink-density block): the additive law exempts
+      // GLYPH ink only. Dark ARTWORK detail — outlines, shading, texture — keeps
+      // the pattern; it is the illustration, not text, and punching it out was
+      // what made guard 1 read as "the pattern is barely there".
+      float inkFreeA = 1.0 - inkGlyph;
+      vec3 hi = pat * uSheen * cov * inkFreeA;
       rawLight = hi + vec3(uSpecular * sheen(uv, uTilt) * (0.12 + 0.88 * m));
       // FLASH COLOR. uSheenTint blends the recipe's declared uTint (0 = the
       // pattern's OWN colour, whatever the art underneath) toward the R4
@@ -546,9 +583,24 @@ void main() {
       // uSheen changed prism by 8% and ex-starfoil by 1% (measured). Tying the
       // ceiling to the gain makes "Sheen strength" mean what its label says
       // across the whole range instead of only at the quiet end. 1.6 is the
-      // PARTICLE_FOIL reference, so that family is unscaled.
-      allowOverride = 0.62 * (1.0 - faceLum) * (0.25 + 0.75 * inkFree)
-                    * clamp(uSheen / 1.6, 0.0, 1.25);
+      // reference gain, so the FLASH family is unscaled.
+      // R6: the ceiling used to be a flat clamp at 1.25, which is reached at
+      // uSheen 2.0 — so the top THIRD of a 0..3 slider bought almost nothing,
+      // and a bright card body (budget 0.62*(1-L), tiny when L is high) could
+      // not be pushed past it at all. That is very likely why Chey parked two
+      // canons at the slider's ceiling. The ceiling now RESUMES climbing above
+      // uSheen 3, which leaves every value at or below 3 bit-for-bit identical
+      // (no canon migration needed) while giving the extended range something
+      // real to do. min() keeps it monotone and continuous.
+      // The (1 − L) shape is a NO-CLIP budget (distance to white), not a
+      // legibility budget — it is most generous exactly where a dark mark
+      // lives. Glyph ink never reaches it (inkFreeA has already zeroed the
+      // flash), but dark ARTWORK detail now does, so it is throttled here
+      // instead: a black outline picks up a fraction of the pattern rather
+      // than a full flash. Ink sits above the foil — it may glow, not blow.
+      allowOverride = 0.62 * (1.0 - faceLum) * (0.25 + 0.75 * inkFreeA)
+                    * min(uSheen / 1.6, 1.25 + 0.5 * max(uSheen - 3.0, 0.0))
+                    * (1.0 - 0.85 * inkDetail);
     }
     vec3 lightCol = rawLight * mix(vec3(1.0), tint * tint, tintW);
     // Hard luminance-headroom clamp, two channels (unchanged from R4b — the

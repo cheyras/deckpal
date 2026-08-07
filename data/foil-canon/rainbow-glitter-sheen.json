@@ -12,7 +12,7 @@
     "uSpecular": 0.35,
     "uDarken": 0.4,
     "uTint": 0,
-    "uInkGuard": 0.56,
+    "uInkGuard": 1,
     "uInkPop": 0.5,
     "uMetal": 0,
     "uSheen": 1.4,
@@ -23,5 +23,6 @@
     "uP1": 0.8,
     "uP2": 1.5,
     "uP3": 1
-  }
+  },
+  "note": "R6 migration 2026-08-07: uInkGuard 0.56 -> 1. The reduced guard was a workaround for the pre-R6 ink estimate, which treated every dark mark in the ILLUSTRATION as printed text and punched the pattern out of it; pulling the guard down was the only way to get the pattern back over the art, at the cost of the text protection everywhere. R6 splits the estimate into glyph ink (still sacred, zero flash) and artwork detail (keeps the pattern on a tightened budget), so guard 1 now shows MORE pattern over the art than 0.56 did, with the text guarantee intact. Every other value in this file is Chey's, untouched."
 }
