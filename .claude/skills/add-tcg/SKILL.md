@@ -223,6 +223,14 @@ keep game-specific specifics in `PKMN-SYNC-RUNBOOK.md` / the slot's `image-slots
 - Promo/odd cards can carry **non-numeric collector numbers that differ across sources** (one
   source's `MEW` is another's `001`) — when the number crosswalk misses, fall back to a
   normalized-**name** match before declaring the card absent.
+- A catalog source can list a card whose JSON has **no image field at all** (oddball one-off
+  promos) — confirm the gap on the card endpoint, then go to fallbacks. When both the CDN and the
+  credentialed fallback are unavailable, **public MediaWiki TCG archives** (Bulbagarden Archives,
+  Yugipedia, …) are a workable tertiary source: `api.php?list=search&srnamespace=6` to find the
+  scan, `prop=imageinfo` for the original URL, then validate + re-encode to the cache's tier geometry.
+- The scan indexer **skips cards that already have a hash row** — if a card gains or replaces art
+  after being hashed (or a stale row exists from a placeholder era), rerun
+  `scan:index --set <set> --force` or the old hash silently persists.
 
 ## Definition of done (adding a TCG, or a refresh)
 
