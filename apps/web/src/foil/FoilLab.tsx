@@ -1103,10 +1103,10 @@ export function FoilLab() {
           <Slider label="Ink tint (art metallic)" value={uniforms.uTint ?? 0} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uTint')} onChange={(v) => setU('uTint', v)} />
           <Slider label="Ink guard (legibility)" value={uniforms.uInkGuard ?? 1} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uInkGuard')} onChange={(v) => setU('uInkGuard', v)} />
           <Slider label="Ink pop (chroma boost)" value={uniforms.uInkPop ?? 0.5} min={0} max={1.5} step={0.02} marked={overrideDiffKeys.includes('uInkPop')} onChange={(v) => setU('uInkPop', v)} />
-          <Slider label="Metallic (print→metal)" value={uniforms.uMetal ?? 0.6} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uMetal')} onChange={(v) => setU('uMetal', v)} />
-          <Slider label="Sheen strength (pattern light)" value={uniforms.uSheen ?? 0.55} min={0} max={2} step={0.02} marked={overrideDiffKeys.includes('uSheen')} onChange={(v) => setU('uSheen', v)} />
-          <Slider label="Sheen tint (foil→ink color)" value={uniforms.uSheenTint ?? 0.5} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uSheenTint')} onChange={(v) => setU('uSheenTint', v)} />
-          <Slider label="Depth (metal darks)" value={uniforms.uDepth ?? 0.55} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uDepth')} onChange={(v) => setU('uDepth', v)} />
+          <Slider label="Metallic (mirror law; 0 = pattern's own light)" value={uniforms.uMetal ?? 0} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uMetal')} onChange={(v) => setU('uMetal', v)} />
+          <Slider label="Sheen strength (pattern light)" value={uniforms.uSheen ?? 1} min={0} max={3} step={0.02} marked={overrideDiffKeys.includes('uSheen')} onChange={(v) => setU('uSheen', v)} />
+          <Slider label="Sheen tint (own color→ink color)" value={uniforms.uSheenTint ?? 0} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uSheenTint')} onChange={(v) => setU('uSheenTint', v)} />
+          <Slider label="Depth (substrate darks)" value={uniforms.uDepth ?? 0.5} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uDepth')} onChange={(v) => setU('uDepth', v)} />
           <Slider label="Texture (structure vs sheen)" value={uniforms.uGrain ?? 1} min={0} max={1} step={0.01} marked={overrideDiffKeys.includes('uGrain')} onChange={(v) => setU('uGrain', v)} />
           {pattern.params.length > 0 && <div className="my-[8px] border-t border-border-default" />}
           {pattern.params.map((p) => (
