@@ -22,7 +22,7 @@ import { maskForScope, resolveFoil, type FoilScope } from './resolver'
 import { useTilt } from './useTilt'
 import { CardViewer, type ViewerSettings } from './CardViewer'
 import { createMaskCanvas, MASK_W, MASK_H } from './MaskEditor'
-import { ActionBtn, Chip, Section, Select, Slider, SurfaceTabs } from './ui'
+import { ActionBtn, Chip, COMPOSITE_KEYS, CoreSliders, Section, Select, Slider, SurfaceTabs } from './ui'
 
 const LS_PATTERN_KEY = 'foil-lab:canon-pattern'
 const LS_TONE_KEY = 'foil-lab:canon-tone'
@@ -199,6 +199,7 @@ export function CanonLab() {
   const [maxTiltDeg, setMaxTiltDeg] = useState(16)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [copied, setCopied] = useState(false)
+  const [familyStatus, setFamilyStatus] = useState<'idle' | 'saving' | 'done' | 'error'>('idle')
 
   // Comments (same queue as surface B; context marks the surface)
   const [commentOpen, setCommentOpen] = useState(false)
@@ -282,6 +283,38 @@ export function CanonLab() {
       setTimeout(() => setSaveStatus('idle'), 1500)
     } catch {
       setSaveStatus('error')
+    }
+  }
+
+  // ── Apply composite dials to the rest of this family (R6 2026-08-07) ──────
+  // When one pattern finally lands right on a card, the settings that got it
+  // there are almost never pattern-specific — they are how that whole CLASS of
+  // foil catches light. This copies exactly the COMPOSITE set (ui.tsx: the
+  // dials that are provably inert on a blank base, so no sibling's canon-room
+  // appearance can move) to every other implemented recipe in the same family.
+  // It never touches pattern SHAPE — uP0..uP5, uScale, hue, saturation and
+  // intensity stay each recipe's own. Siblings with no canon get one seeded
+  // from their code defaults plus these dials, which is what they were already
+  // rendering, so the only thing that ever changes is the on-card composite.
+  const familySibs = useMemo(
+    () => PATTERNS.filter((p) => p.family === pattern.family && p.id !== pattern.id && p.implemented),
+    [pattern],
+  )
+  const applyToFamily = async () => {
+    if (!familySibs.length) return
+    setFamilyStatus('saving')
+    try {
+      const dials: Record<string, number> = {}
+      for (const k of COMPOSITE_KEYS) if (typeof uniforms[k] === 'number') dials[k] = uniforms[k]
+      for (const sib of familySibs) {
+        const base = canonBaseline(sib, canonFor(canonQ.data ?? undefined, sib.id))
+        await foilApi.putCanon(sib.id, { ...base, ...dials })
+      }
+      await queryClient.invalidateQueries({ queryKey: ['foil', 'canon'] })
+      setFamilyStatus('done')
+      setTimeout(() => setFamilyStatus('idle'), 3000)
+    } catch {
+      setFamilyStatus('error')
     }
   }
 
@@ -530,6 +563,15 @@ export function CanonLab() {
               {canon && dirty && <ActionBtn onClick={() => setUniforms(baseline)}>Reset to canon</ActionBtn>}
               <ActionBtn onClick={() => setUniforms(canonBaseline(pattern, undefined))}>Code defaults</ActionBtn>
               {canon && <ActionBtn onClick={deleteCanon}>Delete canon</ActionBtn>}
+              {familySibs.length > 0 && (
+                <ActionBtn onClick={applyToFamily} disabled={familyStatus === 'saving'}>
+                  {familyStatus === 'saving'
+                    ? `Applying to ${familySibs.length}…`
+                    : familyStatus === 'done'
+                      ? `Applied to ${familySibs.length} ✓`
+                      : `Apply composite → ${pattern.family} (${familySibs.length})`}
+                </ActionBtn>
+              )}
             </div>
           ) : (
             <p className="text-[11px] text-text-muted">
@@ -538,6 +580,17 @@ export function CanonLab() {
           )}
           {saveStatus === 'error' && (
             <p className="mt-[6px] text-[12px] text-red-400">Save failed — is the foil branch api up?</p>
+          )}
+          {devSurface && familySibs.length > 0 && (
+            <p className="mt-[6px] text-[11px] leading-[15px] text-text-muted">
+              “Apply composite” copies only the on-card dials ({COMPOSITE_KEYS.join(', ')}) to the{' '}
+              {familySibs.length} other <b>{pattern.family}</b> recipe{familySibs.length === 1 ? '' : 's'}. Pattern
+              shape — uP0–uP5, scale, hue, saturation, intensity — is never touched, and the blank canon room cannot
+              change (these dials are inert without a card scan).
+            </p>
+          )}
+          {familyStatus === 'error' && (
+            <p className="mt-[6px] text-[12px] text-red-400">Family apply failed — nothing was rolled back; check the api.</p>
           )}
         </Section>
 
@@ -593,22 +646,7 @@ export function CanonLab() {
         </Section>
 
         <Section title="Foil uniforms">
-          <Slider label="Intensity" value={uniforms.uIntensity ?? 1} min={0} max={2} step={0.02} marked={dirtyKeys.includes('uIntensity')} onChange={(v) => setU('uIntensity', v)} />
-          <Slider label="Pattern scale" value={uniforms.uScale ?? 1} min={0.25} max={3} step={0.05} marked={dirtyKeys.includes('uScale')} onChange={(v) => setU('uScale', v)} />
-          <Slider label="Hue shift" value={uniforms.uHueShift ?? 0.5} min={0} max={1} step={0.01} marked={dirtyKeys.includes('uHueShift')} onChange={(v) => setU('uHueShift', v)} />
-          <Slider label="Hue spread" value={uniforms.uHueSpread ?? 0.5} min={0} max={1.5} step={0.01} marked={dirtyKeys.includes('uHueSpread')} onChange={(v) => setU('uHueSpread', v)} />
-          <Slider label="Color saturation" value={uniforms.uSat ?? 0.8} min={0} max={1} step={0.01} marked={dirtyKeys.includes('uSat')} onChange={(v) => setU('uSat', v)} />
-          <Slider label="Art gate (dark areas)" value={uniforms.uArtGate ?? 0} min={0} max={1} step={0.01} marked={dirtyKeys.includes('uArtGate')} onChange={(v) => setU('uArtGate', v)} />
-          <Slider label="Specular sheen" value={uniforms.uSpecular ?? 0.4} min={0} max={1.5} step={0.02} marked={dirtyKeys.includes('uSpecular')} onChange={(v) => setU('uSpecular', v)} />
-          <Slider label="Mirror darken (substrate)" value={uniforms.uDarken ?? 0} min={0} max={1} step={0.01} marked={dirtyKeys.includes('uDarken')} onChange={(v) => setU('uDarken', v)} />
-          <Slider label="Ink tint (art metallic)" value={uniforms.uTint ?? 0} min={0} max={1} step={0.01} marked={dirtyKeys.includes('uTint')} onChange={(v) => setU('uTint', v)} />
-          <Slider label="Ink guard (legibility)" value={uniforms.uInkGuard ?? 1} min={0} max={1} step={0.01} marked={dirtyKeys.includes('uInkGuard')} onChange={(v) => setU('uInkGuard', v)} />
-          <Slider label="Ink pop (chroma boost)" value={uniforms.uInkPop ?? 0.5} min={0} max={1.5} step={0.02} marked={dirtyKeys.includes('uInkPop')} onChange={(v) => setU('uInkPop', v)} />
-          <Slider label="Metallic (mirror law; 0 = pattern's own light)" value={uniforms.uMetal ?? 0} min={0} max={1} step={0.01} marked={dirtyKeys.includes('uMetal')} onChange={(v) => setU('uMetal', v)} />
-          <Slider label="Sheen strength (pattern light)" value={uniforms.uSheen ?? 1} min={0} max={3} step={0.02} marked={dirtyKeys.includes('uSheen')} onChange={(v) => setU('uSheen', v)} />
-          <Slider label="Sheen tint (own color→ink color)" value={uniforms.uSheenTint ?? 0} min={0} max={1} step={0.01} marked={dirtyKeys.includes('uSheenTint')} onChange={(v) => setU('uSheenTint', v)} />
-          <Slider label="Depth (substrate darks)" value={uniforms.uDepth ?? 0.5} min={0} max={1} step={0.01} marked={dirtyKeys.includes('uDepth')} onChange={(v) => setU('uDepth', v)} />
-          <Slider label="Texture (structure vs sheen)" value={uniforms.uGrain ?? 1} min={0} max={1} step={0.01} marked={dirtyKeys.includes('uGrain')} onChange={(v) => setU('uGrain', v)} />
+          <CoreSliders uniforms={uniforms} dirty={dirtyKeys} onChange={setU} />
           {pattern.params.length > 0 && <div className="my-[8px] border-t border-border-default" />}
           {pattern.params.map((p) => (
             <Slider
