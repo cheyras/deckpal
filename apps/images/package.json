@@ -12,8 +12,12 @@
     "warm:dev": "tsx src/warmer.ts",
     "warm:sets": "node dist/setWarmer.js",
     "warm:sets:dev": "tsx src/setWarmer.ts",
+    "warm:gaps": "tsx src/warmGaps.ts",
+    "warm:pkmn": "tsx src/warmFromPkmn.ts",
     "evict": "node dist/evict.js",
-    "evict:dev": "tsx src/evict.ts"
+    "evict:dev": "tsx src/evict.ts",
+    "manifest:check": "tsx src/manifestCheck.ts",
+    "manifest:backfill": "tsx src/manifestBackfill.ts"
   },
   "dependencies": {
     "@pokedex/db": "workspace:*",
