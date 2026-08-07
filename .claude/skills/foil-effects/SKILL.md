@@ -50,10 +50,10 @@ Core uniforms (global sliders; every pattern may read them):
 | `uSpecular` | shared white sheen band, applied by `main()` |
 | `uDarken` | mirror-substrate attenuation, applied by `main()` (2026-08-02 R2 blend-model term, default **0 = exact legacy render**). **Blank-base path only** (R4b): on the canon lab's tone bases it darkens the substrate as before (dark-mirror moods live here); on REAL CARD SCANS (`uScanBase 1` with `uInkGuard > 0`) it is INERT — the scan is a photograph that already carries the substrate's rest appearance, and Chey's Grubbin ruling is that foil on a scan never darkens anything. Opt in per recipe via `defaults`; recipes may also read it. Absent key in canon/override/sidecar JSON = 0 = no effect. |
 | `uTint` | **metallic ink tint** (2026-08-03 R3-MISC, default **0 = exact legacy render**). Physically: a mirror foil's flash crosses the printed ink twice, so over colored art the flash carries the ink's OWN color — achromatic light instead compresses chroma and reads dull/grayish (Chey's modern-reverse complaint). On scans the R4b law tints the additive light by `mix(1, tint², max(uTint, chromaRamp))` where `tint` = luminance-normalized scan chroma (direction only, no gain) and `chromaRamp` = `smoothstep(0.02, 0.45, chroma)` — saturated print always colors its own light even at uTint 0; uTint is the floor for neutral paper. Neutral over silver/white, so blank-card canon renders are IDENTICAL at any value. Opted in by the reverse-family recipes (mirror 0.7→0.81 canon, rainbow-mirror 0.7, reverse-sheet 0.7, pokeball-masterball 0.7, energy-symbols 0.6, energy-symbols-ii 0.6, pinwheel 0.6, fireworks 0.5, prism 0.4, disco 0.5). |
-| `uInkGuard` | **scan-composite engagement** (R4b 2026-08-04, default **1**; **0 = exact pre-R4 legacy composite**). On a real card scan (`uScanBase 1`) this fades in the METALLIC law (`smoothstep(0, 0.35, uInkGuard)` — saturates by 0.35 so mid-range canon values run the safe law fully). The law's text protection is parameter-free: luminance-headroom soft-knee + per-channel caps + inkDark exemption (see the Blend model section). Inert on the canon lab's blank bases (`uScanBase 0`), where the classic composite runs unchanged — blank-card canon renders are pixel-identical at ANY value (R4b CDP frame-stepped zero-delta harness, AE 0). |
+| `uInkGuard` | **scan-composite engagement** (R4b 2026-08-04, default **1**; **0 = exact pre-R4 legacy composite**). On a real card scan (`uScanBase 1`) this fades in the METALLIC law (`smoothstep(0, 0.35, uInkGuard)` — saturates by 0.35 so mid-range canon values run the safe law fully). The law's text protection is parameter-free: luminance-headroom soft-knee + per-channel caps + the glyph-ink exemption (see the Blend model section). **R6: leave this at 1.** Pulling it down used to be the only way to stop the guard punching the pattern out of ARTWORK; the estimate now separates glyph ink from artwork detail, so 1 protects text without suppressing the pattern. It is a switch, not a dial — which is why its slider range was deliberately not extended. Inert on the canon lab's blank bases (`uScanBase 0`), where the classic composite runs unchanged — blank-card canon renders are pixel-identical at ANY value (R4b CDP frame-stepped zero-delta harness, AE 0). |
 | `uInkPop` | **metallic chroma pop** (default **0.5**; **0 = none**): under the flash, colored print gains SATURATION along its own hue — `+ (scan − lum) · uInkPop · 0.5 · chromaRamp · drive · L²` — a Rec.601-luminance-neutral chroma pump (bands make colors shimmer more vivid, never washed), gated by `L²` so glyph ink never re-hues toward the paper. Scan path only; inert on blank bases and at `uInkGuard` 0. |
 | `uMetal` | **the scan-path LAW SELECTOR**, and the master print→metal conversion (R5 2026-08-05; made per-recipe R5b 2026-08-07). Global default **0 = the ADDITIVE law**, so no recipe can inherit metalness. **Mirror is the only recipe that opts in** (`patterns.ts` defaults 0.6; Chey's canon 0.99) — he scoped the metallic treatment to "just the mirror pattern" twice. Under metalness the scan is the ALBEDO and uMetal scales the ENTIRE metal layer (highlight + depth + specular). |
-| `uSheen` | **pattern-light gain** (0–3). Both laws. `1` = the pattern at its authored (blank-canon) strength; the soft-knee text budget costs roughly a third of that on a real scan, so the additive families sit at 1.0–1.8. Under metalness it gains the field above `PIVOT` 0.40 only. |
+| `uSheen` | **pattern-light gain** (0–6 since R6). Both laws. `1` = the pattern at its authored (blank-canon) strength; the soft-knee text budget costs roughly a third of that on a real scan, so the additive families sit at 1.2–4.2. The additive budget's ceiling used to flatten at `uSheen` 2.0; since R6 it resumes climbing above 3 (`min(uSheen/1.6, 1.25 + 0.5·max(uSheen−3, 0))`), which leaves every stored value ≤ 3 bit-identical while giving the extended range something to do. Under metalness it gains the field above `PIVOT` 0.40 only. |
 | `uSheenTint` | **how far the flash takes the printed INK's colour** rather than the foil's own. Additive law: `tintW = mix(uTint, max(uTint, chromaRamp), uSheenTint)` — at 0 a rainbow recipe stays rainbow over ANY artwork; at 1 the full R4 automatic law. The automatic term is inert on neutral/pale areas (chroma ≈ 0), so it costs nothing where the rainbow needs to show and engages only over saturated print, where an untinted wash reads as a REPAINT, not as foil. Metalness law: `saturate(max(uTint, chromaRamp)·2·uSheenTint)`, 0.5 = exactly the R4 law. |
 | `uDepth` | **substrate darkness on a card SCAN** — how much darker the foiled field reads than plain cardstock. **Independent of `uDarken`**, which stays the blank-canon substrate and is frozen by 30 saved canon files (and is 0 on precisely the pale modern reverse sheets that need this most). Additive: a flat attenuation of the foiled, ink-free field, gated on `uIntensity` so the none-pattern never dims the card. Metalness: the energy-conserving darkening where the pattern turns AWAY from the light (`sqrt((PIVOT − patLum)/PIVOT)`, ≤32%, starved on already-dark art and on glyph ink). |
 | `uGrain` | **texture** (metalness only, default **1**): how much of the pattern's spatial structure perturbs the surface — `patC = mix(vec3(PIVOT), patC, uGrain)`. 1 = full structure; 0 = a flat neutral-metal field (only the moving specular band animates). |
@@ -105,21 +105,63 @@ scans (`uScanBase 1`, `uInkGuard > 0`) is now chosen PER RECIPE by `uMetal`:**
      a second line of defence behind `inkFree`; applied to a structured pattern
      it starves the card instead (ΔL ≈ 13/255 at L 0.5 against the classic
      composite's ~128).
-   - **`uSheenTint` defaults low**, so the flash keeps the pattern's own hue.
-3. **Per-recipe FAMILIES** (`patterns.ts`, spread into each recipe's
-   `defaults`) — pick one when you add a pattern, then tune by eye on a card
-   the resolver actually assigns it:
-   | family | uSheen | uSheenTint | uDepth | for |
-   |---|---|---|---|---|
-   | `PARTICLE_FOIL` | 1.6 | 0.15 | 0.18 | discrete flashes over dark/mid art — bubbles, stars, facets, flakes, sequins. They reflect their OWN colour. |
-   | `SHEET_FOIL` | 1.8 | 0.5 | 0.34 | sheet foils under a pale printed body (reverse holos). Need the substrate or there is no headroom to flash into. |
-   | `WASH_FOIL` | 1.0 | 0.85 | 0.15 | broad colour washes across saturated full art. High tint or the wash repaints the ink. |
-   | `PEARL_FOIL` | 1.8 | 0.6 | 0.12 | near-white pearl / vault stock: never dim it, but it still has to show. |
+   - **`uSheenTint` is 0 on every non-mirror family** (R6): the flash keeps the
+     pattern's OWN hue over any artwork. Ink-tinting a pattern's highlight is
+     exactly what Chey rejected as "it adds no rainbow color". A recipe that
+     genuinely wants art-coloured metal still asks for it with its own `uTint`
+     (`tintW = uTint` when `uSheenTint` is 0).
+3. **Per-recipe COMPOSITE FAMILIES** (`patterns.ts`; also stated explicitly as
+   `FoilPattern.family`) — re-derived R6 2026-08-07 from Chey's four hand-tuned
+   canons. Pick one when you add a pattern, then tune by eye on a card the
+   resolver actually assigns it (2+ cards where the pool allows).
+
+   Families are named for **how the recipe's light lands**, not for the physical
+   process, because that is what these dials control. The discriminator is the
+   recipe's **duty cycle** — what fraction of the face its own light covers
+   (measure it over the black canon base with substrate/gloss neutralised):
+
+   | family | duty | uSheen | uSheenTint | uDepth | for |
+   |---|---|---|---|---|---|
+   | `FLASH_FOIL` | < ~20% | 3.4 | 0 | 0 | sparse discrete highlights — stars, bubbles, facets, flakes, sequins, confetti. Between the flashes you are looking at CARDSTOCK, so there is no substrate to darken. |
+   | `LINE_FOIL` | ~20–45% | 4.2 | 0 | 0.45 | fine continuous line-work — sheens, tinsels, gratings. A real sheet, but a mostly-dark one: it wants gain AND some substrate or it reads as a scratch. |
+   | `STAMP_FOIL` | sheet, sparse stamps | 3.6 | 0 | 0.22 | reverse-holo emblem sheets. The sheet IS foil, but its highlights cover so little of the face that a field substrate reads as "someone dimmed this card". |
+   | `FIELD_FOIL` | > ~45% | 3.0 | 0 | 0.6 | a continuous holo layer — washes, mirrored sheets. Between the highlights you ARE looking at foil, and foil is darker than paper; that contrast is what makes a sheet read as a sheet. |
+   | `PEARL_FOIL` | any | 1.2 | 0 | 0.2 | near-white pearl / vault stock: it still has to show, but it bleaches easily — keep the gain low. |
+   | (mirror) | — | its own canon | 0.5 | — | the METAL law, `uMetal > 0`. Mirror only; nothing else may inherit it. |
+
+   **`uDepth` is the trap.** It darkens the card exactly WHERE THE PATTERN IS
+   NOT (`darkHalf` follows pattern luminance), so its cost scales with `1 −
+   duty`. A field substrate on a 6%-duty stamp sheet darkens 94% of the card.
+   If a recipe looks "dimmed" rather than "foiled", that is this dial.
+
+   The derivation, from the only three non-mirror canons Chey has hand-tuned:
+   cracked-ice (duty 12.8%) → uSheen 3.0, uDepth 0; tinsel-ii (26.5%) → 3.0, 1;
+   rainbow-glitter-sheen (63.7%) → 1.4, 1. Sparse wants gain and no substrate;
+   dense wants less gain and a real one.
+
+   **These dials are provably inert on a blank base** (the ink estimates are
+   exactly 0 on a flat tone, and `uScanBase 0` skips the branch), so changing a
+   family default can never move a saved canon's canon-room appearance — and
+   the canon lab's "Apply composite → family" action propagates exactly this
+   set, never pattern shape (`uP0`–`uP5`, scale, hue, sat, intensity).
 4. **Plain print recoverable.** `uIntensity 0` renders exactly the scan under
    both laws (the substrate and the depth are both `smoothstep(0, .25,
    uIntensity)`-gated — an all-zero field must not read "all turned away"), and
    `uInkGuard 0` drops to the pre-R4 legacy composite on every surface.
-5. **Text sacred at every angle, both laws.** Added light (pattern AND the
+5. **Glyph ink vs artwork detail — the R6 split.** The ink estimate is a local
+   contrast measure, so it fires on EVERY dark mark: printed text, but equally
+   every black outline and shading edge in the ILLUSTRATION (measured: 86–89%
+   of strong hits inside the art window are artwork, not text). The additive
+   law spends it as a hard coverage multiply, so an undifferentiated estimate
+   punches the pattern full of holes wherever the art has structure. It is now
+   split by `glyphness` — near-neutral ink on a LIGHT ground, or absolutely
+   dark — into `inkGlyph` (SACRED: zero flash, unchanged) and `inkDetail`
+   (artwork darks: keeps the pattern, on a budget tightened by
+   `1 − 0.85·inkDetail`; ink sits above the foil, so it may glow, not blow).
+   `inkAny` is byte-for-byte the pre-R6 `inkDark` and every older consumer still
+   reads it, so the classic composite, the metalness law and the
+   substrate/specular shields are untouched — **mirror is pixel-frozen.**
+6. **Text sacred at every angle, both laws.** Added light (pattern AND the
    shared specular — one budget covers both) is bounded by the per-pixel
    luminance headroom applied as a **compressive soft knee**
    (`allow·(1−e^(−light/allow))` — a hard min plateaus strong fields into a
@@ -154,6 +196,7 @@ files are INERT — CardViewer applies only known uniforms.
      id: 'crosshatch',
      label: 'Crosshatch',
      taxonomy: 'Crosshatch line foil',
+     family: 'flash',            // composite family — see the table above
      usedOn: 'SWSH-era promos …',
      glsl: `
    vec3 foilPattern(vec2 uv, vec2 tilt) {
@@ -165,7 +208,7 @@ files are INERT — CardViewer applies only known uniforms.
      vec3 col = hueRamp(uHueShift + uHueSpread * (uv.x * 0.4 + uv.y * 0.3 + 0.7 * sweep));
      return lines * col * uP3;
    }`,
-     defaults: { uIntensity: 1.0, uSat: 0.7, uArtGate: 0.4, uSpecular: 0.4 },
+     defaults: { ...FLASH_FOIL, uIntensity: 1.0, uSat: 1.0, uArtGate: 0.4, uSpecular: 0.4 },
      params: [
        { key: 'uP0', label: 'Line density', min: 5, max: 60, step: 1, default: 24 },
        { key: 'uP1', label: 'Drift rate', min: 0, max: 4, step: 0.05, default: 1.2 },
@@ -177,6 +220,11 @@ files are INERT — CardViewer applies only known uniforms.
    Conventions: params ≤ 4, every param gets a real label/range/default; unused slots are
    marked `(unused)`; set `uArtGate` per how the physical foil interacts with ink
    (window/full foils ≥ 0.3; mirror/reverse sheets 0 — the sheet is on light card body).
+   **`family` must match the `_FOIL` constant the `defaults` spread** — that
+   pairing is the contract, and the "Apply composite → family" action walks it.
+   Start from `uSat: 1.0` and a wide `uHueSpread`: full spectral character is
+   Chey's baseline (R6). Only override a family's `uSheen`/`uDepth` after you
+   have LOOKED at the recipe on 2+ assigned cards and can say why.
 3. **Wire the resolver if a real printing uses it** — add/adjust a branch in
    `resolver.ts` so `Auto` picks it for the right `(era, rarity, kind)`. A recipe that's
    only reachable via the override dropdown is fine while tuning.
