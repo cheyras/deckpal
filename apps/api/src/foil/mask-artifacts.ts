@@ -16,10 +16,24 @@
 
 import { decodePng, encodePng, type RgbaImage } from './png.js';
 
-/** What the layout tier resolved to when the hand-edit session was saved. */
+/**
+ * What the mask was derived FROM.
+ *
+ * `rect`/`radius`/`invert` ALWAYS carry the deterministic era-rule output, in
+ * every generation of the sidecar, so `diff.agreement` never stops scoring the
+ * RULE against the saved mask (the codify ritual depends on that). `source`
+ * says what the editing session actually started from, and — for machine
+ * output — `generator` says who made it and from which human exemplars
+ * (sidecar v3, foil/provenance.ts).
+ */
 export interface MaskPrior {
-  /** Where editing started: the layout rule (always, today). */
-  source: 'layout';
+  /**
+   * - `layout` — the deterministic era rect (v1/v2 behavior; still the default).
+   * - `window` — a human-adjusted window rect, baked (see `window`).
+   * - `mask`   — an existing NON-AI mask (see `parentMask`).
+   * - `ai`     — a machine-generated mask (see `generator`).
+   */
+  source: 'layout' | 'window' | 'mask' | 'ai';
   eraId: string;
   scope: 'window' | 'sheet' | 'full' | 'none';
   /** maskForScope() output — UV space, y UP, fractions of the card face. */
@@ -40,6 +54,22 @@ export interface MaskPrior {
    * and on saves with no adjusted window; readers must treat it as optional.
    */
   window?: { rect: [number, number, number, number]; radius: number };
+  /**
+   * Generator identity when this mask descends from machine output — set on
+   * the AI mask itself AND carried forward onto every human correction of it,
+   * so "what made me, from what" survives the correction. Shape:
+   * foil/provenance.ts `GeneratorIdentity` (name/version/modelId/runId/params/
+   * exemplars/confidence). Typed loosely here to keep this module free of a
+   * cycle; provenance.ts owns the schema.
+   */
+  generator?: import('./provenance.js').GeneratorIdentity;
+  /** The existing mask the edit started from (source 'mask' or 'ai'). */
+  parentMask?: {
+    cardId: string;
+    variantId: number;
+    savedAt: string | null;
+    method: import('./provenance.js').DerivationMethod;
+  };
 }
 
 export interface DiffStats {
@@ -150,7 +180,14 @@ export function diffMask(
   return { png: encodePng({ width, height, rgba: out }), stats };
 }
 
-/** Parse + sanity-check a client-supplied prior payload. Throws on junk. */
+/**
+ * Parse + sanity-check a client-supplied prior payload. Throws on junk.
+ *
+ * `source` is deliberately pinned to 'layout' here: the client only ever
+ * reports the deterministic era-rule numbers. The REAL source (window / mask /
+ * ai) is decided server-side from the pixels + the parent on disk —
+ * foil/provenance.ts `writeMaskRecord`. Never let a client name its own source.
+ */
 export function parsePrior(raw: unknown): MaskPrior {
   const p = (raw ?? {}) as Record<string, unknown>;
   const num = (v: unknown): number => {

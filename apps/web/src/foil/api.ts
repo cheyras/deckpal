@@ -47,9 +47,54 @@ export interface FoilVariant {
   quantity: number
 }
 
-/** Sidecar-v2 prior payload sent with every hand-mask save (mask-pipeline SKILL.md). */
+// ── Mask provenance (sidecar v3 — mask-pipeline SKILL.md § "Sidecar v3") ──
+
+/** The five honest derivation methods. The API DERIVES this — we never send it. */
+export type FoilDerivationMethod = 'layout-flatten' | 'hand' | 'hand-refined' | 'ai' | 'ai-corrected'
+
+export type FoilReviewStatus = 'human-authored' | 'human-adjusted' | 'unreviewed'
+
+/** Who/what made a machine mask, and which human masks it learned from. */
+export interface FoilGeneratorIdentity {
+  name: string
+  version: number
+  modelId: string | null
+  runId: string
+  params: Record<string, number | string | boolean>
+  exemplars: { cardId: string; variantId: number; savedAt: string | null; method: FoilDerivationMethod; weight: number }[]
+  confidence: number | null
+  generatedAt: string
+}
+
+/** What a human changed about the mask they started from — the training signal. */
+export interface FoilCorrectionRecord {
+  parent: {
+    cardId: string
+    variantId: number
+    savedAt: string | null
+    method: FoilDerivationMethod
+    sha256: string
+    generator: FoilGeneratorIdentity | null
+  }
+  parentPng: string
+  parentDiffPng: string
+  addedPx: number
+  removedPx: number
+  unchangedPx: number
+  agreement: number
+  changedPx: number
+  changedFraction: number
+  bbox: [number, number, number, number] | null
+  grid: { size: number; cells: number[] }
+}
+
+/**
+ * What the mask was derived FROM. `rect`/`radius`/`invert` ALWAYS carry the
+ * deterministic era-rule numbers (so diff.agreement keeps scoring the rule);
+ * `source` says what the editing session actually started from.
+ */
 export interface FoilMaskPrior {
-  source: 'layout'
+  source: 'layout' | 'window' | 'mask' | 'ai'
   eraId: string
   scope: string
   /** The DETERMINISTIC layout-rule output (era rect) — never the adjusted window. */
@@ -65,6 +110,82 @@ export interface FoilMaskPrior {
    * the RULE's error; this field records the human's geometry correction.
    */
   window?: { rect: [number, number, number, number]; radius: number }
+  /** Machine identity — on an AI mask AND carried onto every correction of it. */
+  generator?: FoilGeneratorIdentity
+  parentMask?: { cardId: string; variantId: number; savedAt: string | null; method: FoilDerivationMethod }
+}
+
+/** The full sidecar as the api returns it (GET .../meta, PUT response). */
+export interface FoilMaskSidecar {
+  version: number
+  cardId: string
+  variantId: number
+  artworkKey: string
+  width: number
+  height: number
+  channel: string
+  derivation_method: FoilDerivationMethod
+  authorship: 'human' | 'machine' | 'mixed'
+  reviewStatus: FoilReviewStatus
+  savedAt: string
+  artworkUrl: string | null
+  card?: { setId: string | null; seriesSlug: string | null; name: string | null; number: string | null }
+  prior: FoilMaskPrior
+  diff?: { addedPx: number; removedPx: number; unchangedPx: number; agreement: number }
+  correction?: FoilCorrectionRecord
+  lineage?: { method: FoilDerivationMethod; savedAt: string | null; source: FoilMaskPrior['source']; generator: { name: string; version: number; runId: string } | null }[]
+}
+
+/**
+ * What the editing session was SEEDED with. This — not a label — is what the
+ * client is allowed to claim; the api decides `derivation_method` by diffing
+ * the saved pixels against what this seed actually rasterizes to.
+ */
+export interface FoilMaskDerivation {
+  startedFrom: 'layout' | 'window-bake' | 'mask'
+  parent?: { cardId: string; variantId: number } | null
+}
+
+/** Corpus-wide provenance report (GET /foil-lab/masks/corpus). */
+export interface FoilCorpusReport {
+  generatedAt: string
+  total: number
+  byMethod: Record<FoilDerivationMethod, number>
+  byAuthorship: Record<string, number>
+  byReviewStatus: Record<string, number>
+  meanAgreement: number | null
+  byEra: Record<string, { n: number; byMethod: Record<string, number>; meanAgreement: number | null }>
+  bySet: Record<string, { n: number; byMethod: Record<string, number>; meanAgreement: number | null }>
+  bySeries: Record<string, { n: number; byMethod: Record<string, number>; meanAgreement: number | null }>
+  byScope: Record<string, { n: number; byMethod: Record<string, number>; meanAgreement: number | null }>
+  exemplarsAvailable: { total: number; byEra: Record<string, number>; byScope: Record<string, number> }
+  awaitingReview: {
+    cardId: string
+    variantId: number
+    savedAt: string
+    generator: { name: string; version: number; runId: string; modelId: string | null } | null
+    confidence: number | null
+    exemplars: number
+    agreement: number | null
+    maskUrl: string
+  }[]
+  corrections: {
+    n: number
+    meanAgreementVsParent: number | null
+    meanChangedFraction: number | null
+    entries: {
+      cardId: string
+      variantId: number
+      savedAt: string
+      parentMethod: FoilDerivationMethod
+      generator: string | null
+      agreement: number
+      changedFraction: number
+      addedPx: number
+      removedPx: number
+    }[]
+  }
+  bySidecarVersion: Record<string, number>
 }
 
 /**
@@ -128,6 +249,9 @@ export interface FoilMaskMeta {
   aliasOf: number | null
   hasPrior: boolean
   hasDiff: boolean
+  /** Provenance headers (sidecar v3) — enough to badge without a second fetch. */
+  method: FoilDerivationMethod | null
+  reviewStatus: FoilReviewStatus | null
 }
 
 /** One page of a set's card list (the strip is paged — promo sets run 300+). */
@@ -257,8 +381,42 @@ export const foilApi = {
         aliasOf: aliasOf ? Number(aliasOf) : null,
         hasPrior: res.headers.get('X-Foil-Mask-Prior') === '1',
         hasDiff: res.headers.get('X-Foil-Mask-Diff') === '1',
+        method: (res.headers.get('X-Foil-Mask-Method') as FoilDerivationMethod | null) ?? null,
+        reviewStatus: (res.headers.get('X-Foil-Mask-Review') as FoilReviewStatus | null) ?? null,
       }
       return { bitmap, meta }
+    } catch {
+      return null
+    }
+  },
+
+  /** Full sidecar for the displayed mask (provenance panel), through the same aliasing. */
+  maskMeta: async (
+    cardId: string,
+    variantId: number,
+    scope?: string,
+    signal?: AbortSignal,
+  ): Promise<{ aliasOf: number | null; sidecar: FoilMaskSidecar } | null> => {
+    try {
+      const q = scope ? `?scope=${encodeURIComponent(scope)}` : ''
+      const res = await fetch(`${BASE}/foil-lab/masks/${encodeURIComponent(cardId)}/${variantId}/meta${q}`, { signal })
+      if (!res.ok) return null
+      return (await res.json()) as { aliasOf: number | null; sidecar: FoilMaskSidecar }
+    } catch {
+      return null
+    }
+  },
+
+  /** URL of a provenance artifact PNG (prior render, rule diff, corrected parent, correction diff). */
+  maskArtifactUrl: (cardId: string, variantId: number, kind: 'prior' | 'diff' | 'parent' | 'parent-diff', scope?: string): string =>
+    `${BASE}/foil-lab/masks/${encodeURIComponent(cardId)}/${variantId}/artifact/${kind}${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`,
+
+  /** Corpus-wide provenance report. Null when the dev api isn't mounted. */
+  maskCorpus: async (signal?: AbortSignal): Promise<FoilCorpusReport | null> => {
+    try {
+      const res = await fetch(`${BASE}/foil-lab/masks/corpus`, { signal })
+      if (!res.ok) return null
+      return (await res.json()) as FoilCorpusReport
     } catch {
       return null
     }
@@ -271,14 +429,21 @@ export const foilApi = {
     width: number,
     height: number,
     prior: FoilMaskPrior,
-  ): Promise<{ savedAt: string }> => {
+    /**
+     * What the canvas was SEEDED with. Not a label: the api derives the honest
+     * `derivation_method` by diffing the saved pixels against what this seed
+     * rasterizes to, so a stale or wrong claim can't mislabel the corpus.
+     */
+    derivation: FoilMaskDerivation,
+    extra?: { artworkUrl?: string | null; card?: { setId: string | null; seriesSlug: string | null; name: string | null; number: string | null } },
+  ): Promise<FoilMaskSidecar> => {
     const res = await fetch(`${BASE}/foil-lab/masks/${encodeURIComponent(cardId)}/${variantId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ png: pngDataUrl, width, height, prior }),
+      body: JSON.stringify({ png: pngDataUrl, width, height, prior, derivation, ...extra }),
     })
     if (!res.ok) throw new Error(`mask save failed (HTTP ${res.status})`)
-    return res.json() as Promise<{ savedAt: string }>
+    return res.json() as Promise<FoilMaskSidecar>
   },
 
   deleteMask: async (cardId: string, variantId: number): Promise<void> => {
