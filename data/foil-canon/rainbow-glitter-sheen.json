@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "patternId": "rainbow-glitter-sheen",
+  "savedAt": "2026-08-07T05:21:01.012Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 0.55,
+    "uHueShift": 0.5,
+    "uHueSpread": 0.9,
+    "uSat": 1,
+    "uArtGate": 1,
+    "uSpecular": 0.35,
+    "uDarken": 0.4,
+    "uTint": 0,
+    "uInkGuard": 0.56,
+    "uInkPop": 0.5,
+    "uMetal": 0,
+    "uSheen": 1.4,
+    "uSheenTint": 0,
+    "uDepth": 1,
+    "uGrain": 1,
+    "uP0": 1,
+    "uP1": 0.8,
+    "uP2": 1.5,
+    "uP3": 1
+  }
+}
