@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "test:deck": "node --import tsx --test src/deck/__tests__/*.test.ts",
+    "test:foil": "node --import tsx --test src/foil/__tests__/*.test.ts",
     "test:collection": "node --import tsx --test src/__tests__/*.test.ts",
     "test:auth": "node --import tsx --test src/__tests__/auth.test.ts",
     "test:bugs": "node --import tsx --test src/__tests__/bugs.test.ts",
