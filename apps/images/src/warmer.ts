@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, rename, stat, writeFile, readFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import {
   CACHE_ROOT,
@@ -17,13 +17,17 @@ import {
   cardSourceUrl,
   type CardRef,
 } from './layout.js';
-import { closePool, existingCacheKeys, getStoredEtag, upsertImageAsset } from './assets.js';
+import { closePool, existingCacheKeys, getStoredEtag } from './assets.js';
+import { ensureRecorded, fromUrl, putAsset } from './store.js';
 
 /**
  * Image warmer. Walks the upstream asset manifest (datas.json) as the work-list —
  * NOT probing for 404s (DATA-LAYER §3.5/§5.3). Resumable (skips files already on
  * disk / recorded), rate-limited by the fetcher (≤5 req/s, ≤2 concurrent, If-None-
  * Match), and idempotent (ON CONFLICT upsert). It is INVOCABLE, never auto-run.
+ *
+ * All cache writes go through store.ts (`putAsset` / `ensureRecorded`) so bytes
+ * and the `image_asset` row always land together — see that file for the contract.
  */
 
 // datas.json: { lang: { serie: { set: { localId: sha1 } } } }
@@ -89,17 +93,16 @@ async function runTask(t: Task, st: Stats, dryRun: boolean): Promise<void> {
   // Resumable: never re-fetch a file already on disk (assets are immutable).
   if (existsSync(absPath)) {
     st.skippedDisk++;
-    // ensure a DB row exists for an on-disk file (self-heal a torn write)
-    const s = await stat(absPath);
+    // Self-heal a torn write: make sure a row exists for the on-disk file. We did
+    // NOT fetch it, so we don't restate provenance on an existing row; for a brand
+    // new row the canonical URL is the honest fallback, because this work-list IS
+    // the upstream manifest — the asset is attested at that URL.
     if (!dryRun) {
-      await upsertImageAsset({
+      await ensureRecorded({
         cacheKey: t.cacheKey,
         kind: 'card',
         relativePath: relPath,
-        contentType: 'image/webp',
-        byteSize: s.size,
-        sourceUrl: url,
-        etag: null,
+        fallbackProvenance: fromUrl(url),
       });
       st.recordedFromDisk++;
     }
@@ -112,18 +115,12 @@ async function runTask(t: Task, st: Stats, dryRun: boolean): Promise<void> {
   const result = await fetchWebp(url, etag);
   switch (result.status) {
     case 'ok': {
-      await mkdir(dirname(absPath), { recursive: true });
-      const tmp = `${absPath}.tmp`;
-      await writeFile(tmp, result.body);
-      await rename(tmp, absPath);
-      await upsertImageAsset({
+      await putAsset({
         cacheKey: t.cacheKey,
         kind: 'card',
         relativePath: relPath,
-        contentType: result.contentType.split(';')[0]!.trim(),
-        byteSize: result.body.length,
-        sourceUrl: url,
-        etag: result.etag,
+        bytes: result.body,
+        provenance: fromUrl(url, result.etag),
       });
       st.fetched++;
       if (t.quality === 'high') st.bytesHigh += result.body.length;
