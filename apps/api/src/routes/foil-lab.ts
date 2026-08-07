@@ -4,7 +4,14 @@ import { readFile, readdir, stat, writeFile, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asyncHandler, badRequest, notFound, str } from '../http.js';
-import { decodePng, diffMask, parsePrior, rasterizePriorAlpha, renderPriorPng, type MaskPrior } from '../foil/mask-artifacts.js';
+import { decodePng, parsePrior, type MaskPrior } from '../foil/mask-artifacts.js';
+import {
+  normalizeSidecar,
+  writeMaskRecord,
+  type MaskCardContext,
+  type MaskSidecarV3,
+} from '../foil/provenance.js';
+import { buildReport, readCorpus, selectExemplars, trainingTuples } from '../foil/mask-corpus.js';
 
 /**
  * foil-lab dev routes — QUARANTINED (foil/main track, roadmap/plans/foil-main.md).
@@ -76,35 +83,32 @@ const PNG_DATA_URL_RE = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/;
 const MAX_MASK_BYTES = 4 * 1024 * 1024;
 const MAX_TEXT = 20_000;
 
-function maskPaths(cardId: string, variantId: string): { png: string; json: string; prior: string; diff: string } {
+function maskPaths(
+  cardId: string,
+  variantId: string,
+): { png: string; json: string; prior: string; diff: string; parent: string; parentDiff: string } {
   const dir = join(MASKS_DIR, cardId);
   return {
     png: join(dir, `${variantId}.png`),
     json: join(dir, `${variantId}.json`),
     prior: join(dir, `${variantId}.prior.png`),
     diff: join(dir, `${variantId}.diff.png`),
+    parent: join(dir, `${variantId}.parent.png`),
+    parentDiff: join(dir, `${variantId}.parent.diff.png`),
   };
 }
 
-interface MaskSidecar {
-  version?: number;
-  cardId: string;
-  variantId: number;
-  artworkKey?: string;
-  width: number;
-  height: number;
-  channel: string;
-  derivation_method: string;
-  savedAt: string;
-  prior?: MaskPrior;
-  priorPng?: string;
-  diffPng?: string;
-  diff?: { addedPx: number; removedPx: number; unchangedPx: number; agreement: number };
-}
+/**
+ * Sidecar v3 (foil/provenance.ts). v1/v2 files keep loading unchanged —
+ * `normalizeSidecar` migrates them in memory and recomputes the derived
+ * provenance fields on every read, so nothing on disk can claim a status its
+ * `derivation_method` doesn't support.
+ */
+type MaskSidecar = MaskSidecarV3;
 
 async function readSidecar(cardId: string, variantId: string): Promise<MaskSidecar | null> {
   try {
-    return JSON.parse(await readFile(maskPaths(cardId, variantId).json, 'utf8')) as MaskSidecar;
+    return normalizeSidecar(JSON.parse(await readFile(maskPaths(cardId, variantId).json, 'utf8')) as unknown);
   } catch {
     return null;
   }
@@ -163,6 +167,12 @@ function maskMetaHeaders(
   if (r.aliasOf) res.setHeader('X-Foil-Mask-Alias-Of', r.aliasOf);
   res.setHeader('X-Foil-Mask-Prior', r.sidecar?.priorPng ? '1' : '0');
   res.setHeader('X-Foil-Mask-Diff', r.sidecar?.diffPng ? '1' : '0');
+  // Provenance (sidecar v3): the client needs the method to decide the badge
+  // AND to report the right parent on the next save, without a second round trip.
+  if (r.sidecar) {
+    res.setHeader('X-Foil-Mask-Method', r.sidecar.derivation_method);
+    res.setHeader('X-Foil-Mask-Review', r.sidecar.reviewStatus);
+  }
 }
 
 function validIds(cardId: unknown, variantId: unknown): { cardId: string; variantId: string } {
@@ -183,6 +193,40 @@ function scopeParam(req: { query: Record<string, unknown> }): string | null {
   if (!SCOPES.has(s)) throw badRequest('Invalid scope.');
   return s;
 }
+
+// ── Corpus report (sidecar v3): the provenance view of the whole corpus ────
+//
+// Counts by derivation method, mean rule-vs-mask agreement, breakdown by
+// era/set/series/scope, how many masks a generator is currently ALLOWED to
+// learn from, the queue of unreviewed `ai` masks, and every recorded human
+// correction. Read-only, no DB — it walks data/foil-masks. Registered before
+// the /:cardId/:variantId routes for clarity (no path collision either way).
+foilLabRouter.get(
+  '/masks/corpus',
+  asyncHandler(async (req, res) => {
+    const corpus = await readCorpus(MASKS_DIR);
+    res.setHeader('Cache-Control', 'no-store'); // the corpus changes as he paints
+    if (str(req.query.tuples) === '1') {
+      res.json(trainingTuples(corpus));
+      return;
+    }
+    if (str(req.query.exemplars) === '1') {
+      const sel = selectExemplars(corpus, { eraId: str(req.query.era) ?? null, scope: scopeParam(req as { query: Record<string, unknown> }) });
+      res.json({
+        chosen: sel.chosen.map((e) => ({
+          cardId: e.cardId,
+          variantId: e.variantId,
+          method: e.sidecar.derivation_method,
+          weight: e.weight,
+          savedAt: e.sidecar.savedAt,
+        })),
+        rejected: sel.rejected,
+      });
+      return;
+    }
+    res.json(buildReport(corpus));
+  }),
+);
 
 foilLabRouter.get(
   '/masks/:cardId/:variantId',
@@ -209,6 +253,27 @@ foilLabRouter.get(
   }),
 );
 
+// Provenance artifacts for a mask: the rule render, the rule diff, the mask a
+// human corrected, and the correction diff. Resolved through the SAME artwork
+// aliasing as the mask itself so the workbench can show them for an aliased
+// mask without knowing which variant answered.
+const ARTIFACT_KIND = { prior: 'prior', diff: 'diff', parent: 'parent', 'parent-diff': 'parentDiff' } as const;
+
+foilLabRouter.get(
+  '/masks/:cardId/:variantId/artifact/:kind',
+  asyncHandler(async (req, res) => {
+    const { cardId, variantId } = validIds(req.params.cardId, req.params.variantId);
+    const kind = str(req.params.kind);
+    if (!kind || !(kind in ARTIFACT_KIND)) throw badRequest('Invalid artifact kind.');
+    const r = await resolveMask(cardId, variantId, scopeParam(req as { query: Record<string, unknown> }));
+    if (!r) throw notFound('No hand mask for this card/variant.');
+    const abs = maskPaths(cardId, r.variantId)[ARTIFACT_KIND[kind as keyof typeof ARTIFACT_KIND]];
+    if (!existsSync(abs)) throw notFound(`No ${kind} artifact for this mask.`);
+    res.setHeader('Cache-Control', 'no-store'); // editing surface — never stale
+    res.type('png').send(await readFile(abs));
+  }),
+);
+
 foilLabRouter.put(
   '/masks/:cardId/:variantId',
   asyncHandler(async (req, res) => {
@@ -226,9 +291,9 @@ foilLabRouter.put(
     if (!Number.isInteger(width) || !Number.isInteger(height) || width < 16 || height < 16 || width > 4096 || height > 4096)
       throw badRequest('width/height must be sane integers.');
 
-    // Sidecar v2: the save must record the starting prior (the deterministic
+    // Sidecar v3: the save must record the starting prior (the deterministic
     // layout-rule output for this card/variant) and persist it as a rendered
-    // PNG + a hand-vs-prior diff — the corpus carries the rule's error, not
+    // PNG + a mask-vs-prior diff — the corpus carries the rule's error, not
     // just the human's answer. A save without a parsable prior is a 400: a
     // corpus entry that can't be diffed teaches nothing.
     let prior: MaskPrior;
@@ -237,42 +302,64 @@ foilLabRouter.put(
     } catch (e) {
       throw badRequest(`prior invalid: ${(e as Error).message}`);
     }
-    let hand;
     try {
-      hand = decodePng(buf);
+      const decoded = decodePng(buf);
+      if (decoded.width !== width || decoded.height !== height)
+        throw new Error('png dimensions do not match width/height');
     } catch (e) {
       throw badRequest(`png undecodable: ${(e as Error).message}`);
     }
-    if (hand.width !== width || hand.height !== height) throw badRequest('png dimensions do not match width/height.');
 
-    const priorAlpha = rasterizePriorAlpha(width, height, prior);
-    const priorPng = renderPriorPng(width, height, prior);
-    const { png: diffPng, stats } = diffMask(hand, priorAlpha);
+    // Provenance (v3): the client reports WHAT THE CANVAS WAS SEEDED WITH — not
+    // what the mask is. `derivation_method` is decided in writeMaskRecord by
+    // diffing the saved pixels against the pixels that seed actually produces,
+    // so an honest label survives a buggy or lying client. This route can never
+    // stamp a machine label: only a generator supplying a full identity can
+    // (foil/generate-masks.ts), and that path does not go through HTTP.
+    //
+    // REQUIRED, not defaulted: a client that forgets it would silently get
+    // `startedFrom: 'layout'` and stamp a corrected AI mask as `hand`. Failing
+    // loudly is the whole point — a mislabelled corpus entry teaches a lie.
+    if (typeof body.derivation !== 'object' || body.derivation === null || Array.isArray(body.derivation))
+      throw badRequest('derivation { startedFrom, parent? } is required.');
+    const d = body.derivation as Record<string, unknown>;
+    const rawStart = str(d.startedFrom) ?? '';
+    if (!['layout', 'window-bake', 'mask'].includes(rawStart))
+      throw badRequest('derivation.startedFrom must be layout | window-bake | mask.');
+    const startedFrom = rawStart as 'layout' | 'window-bake' | 'mask';
+    let parentRef: { cardId: string; variantId: number } | null = null;
+    if (startedFrom === 'mask' && d.parent) {
+      const p = d.parent as Record<string, unknown>;
+      const pc = str(p.cardId);
+      const pv = str(p.variantId) ?? (typeof p.variantId === 'number' ? String(p.variantId) : null);
+      if (!pc || !CARD_ID_RE.test(pc) || !pv || !VARIANT_ID_RE.test(pv))
+        throw badRequest('derivation.parent must be { cardId, variantId }.');
+      parentRef = { cardId: pc, variantId: Number(pv) };
+    }
+    const rawCard = (body.card ?? {}) as Record<string, unknown>;
+    const card: MaskCardContext | undefined =
+      rawCard.setId || rawCard.seriesSlug
+        ? {
+            setId: str(rawCard.setId) ?? null,
+            seriesSlug: str(rawCard.seriesSlug) ?? null,
+            name: str(rawCard.name) ?? null,
+            number: str(rawCard.number) ?? null,
+          }
+        : undefined;
 
-    const paths = maskPaths(cardId, variantId);
-    mkdirSync(dirname(paths.png), { recursive: true });
-    await writeFile(paths.png, buf);
-    await writeFile(paths.prior, priorPng);
-    await writeFile(paths.diff, diffPng);
-    const sidecar: MaskSidecar = {
-      version: 2,
+    const sidecar = await writeMaskRecord({
+      masksDir: MASKS_DIR,
       cardId,
-      variantId: Number(variantId),
-      // Identity rule: the mask belongs to the card's SCAN (all variants of a
-      // cardId share one scan; see resolveMask). Cross-card artwork identity
-      // is unprovable from the catalog, so the key stays the cardId.
-      artworkKey: cardId,
+      variantId,
+      png: buf,
       width,
       height,
-      channel: 'alpha', // alpha = mask; RGB is display tint only
-      derivation_method: 'hand',
-      savedAt: new Date().toISOString(),
       prior,
-      priorPng: `${variantId}.prior.png`,
-      diffPng: `${variantId}.diff.png`,
-      diff: stats,
-    };
-    await writeFile(paths.json, JSON.stringify(sidecar, null, 2) + '\n', 'utf8');
+      startedFrom,
+      parentRef,
+      artworkUrl: str(body.artworkUrl) ?? null,
+      card,
+    });
     res.json({ saved: `data/foil-masks/${cardId}/${variantId}.png`, ...sidecar });
   }),
 );
@@ -281,9 +368,9 @@ foilLabRouter.delete(
   '/masks/:cardId/:variantId',
   asyncHandler(async (req, res) => {
     const { cardId, variantId } = validIds(req.params.cardId, req.params.variantId);
-    const { png, json, prior, diff } = maskPaths(cardId, variantId);
+    const { png, json, prior, diff, parent, parentDiff } = maskPaths(cardId, variantId);
     let removed = false;
-    for (const p of [png, json, prior, diff]) {
+    for (const p of [png, json, prior, diff, parent, parentDiff]) {
       try {
         await unlink(p);
         removed = true;

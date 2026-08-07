@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "cardId": "base1-8",
   "variantId": 32,
   "width": 490,
@@ -30,5 +30,16 @@
     "removedPx": 39643,
     "unchangedPx": 70788,
     "agreement": 0.6409
-  }
+  },
+  "authorship": "human",
+  "reviewStatus": "human-authored",
+  "artworkUrl": null,
+  "lineage": [
+    {
+      "method": "hand",
+      "savedAt": "2026-08-01T22:35:48.527Z",
+      "source": "layout",
+      "generator": null
+    }
+  ]
 }
