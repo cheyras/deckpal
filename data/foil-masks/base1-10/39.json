@@ -1,0 +1,86 @@
+{
+  "version": 3,
+  "cardId": "base1-10",
+  "variantId": 39,
+  "artworkKey": "base1-10",
+  "width": 490,
+  "height": 674,
+  "channel": "alpha",
+  "derivation_method": "ai",
+  "authorship": "machine",
+  "reviewStatus": "unreviewed",
+  "savedAt": "2026-08-07T13:02:47.320Z",
+  "artworkUrl": "/pokedex/images/en/base/base1/10/high.webp",
+  "card": {
+    "setId": "base1",
+    "seriesSlug": "base",
+    "name": null,
+    "number": null
+  },
+  "prior": {
+    "source": "ai",
+    "eraId": "wotc",
+    "scope": "window",
+    "rect": [
+      0.103,
+      0.48000000000000004,
+      0.802,
+      0.418
+    ],
+    "radius": 0.004,
+    "invert": false,
+    "feather": 0,
+    "resolverVersion": 5,
+    "generator": {
+      "name": "window-artgate",
+      "version": 1,
+      "modelId": null,
+      "runId": "wotc-window-trial-1",
+      "params": {
+        "gate": "exemplar-fit-luminance",
+        "feather": 0,
+        "era": "wotc",
+        "scope": "window",
+        "notes": "luminance gate fit from 2 human exemplar(s): threshold 95.7, kept/erased separation 92.27. Kept 86573/110431 in-window px. Crude global threshold — it approximates \"window minus subject\" only where the subject is brighter than the background."
+      },
+      "exemplars": [
+        {
+          "cardId": "base1-5",
+          "variantId": 19,
+          "savedAt": "2026-08-02T16:37:41.457Z",
+          "method": "hand",
+          "weight": 1
+        },
+        {
+          "cardId": "base1-8",
+          "variantId": 32,
+          "savedAt": "2026-08-01T22:35:48.527Z",
+          "method": "hand",
+          "weight": 1
+        }
+      ],
+      "confidence": 0.461,
+      "generatedAt": "2026-08-07T13:02:47.063Z"
+    }
+  },
+  "priorPng": "39.prior.png",
+  "diffPng": "39.diff.png",
+  "diff": {
+    "addedPx": 0,
+    "removedPx": 23858,
+    "unchangedPx": 86573,
+    "agreement": 0.784
+  },
+  "lineage": [
+    {
+      "method": "ai",
+      "savedAt": "2026-08-07T13:02:47.320Z",
+      "source": "ai",
+      "generator": {
+        "name": "window-artgate",
+        "version": 1,
+        "runId": "wotc-window-trial-1"
+      }
+    }
+  ]
+}
