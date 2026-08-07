@@ -168,7 +168,36 @@ eviction on `high` only. AVIF re-encode measured and rejected.
 
 **Ingest must validate `content-type`:** `assets.tcgdex.net` returns HTTP 200 with
 a 299-byte HTML body for unsupported extensions, so a loop trusting status codes
-will cache garbage.
+will cache garbage. Validate the *magic bytes* too — a size-only check
+(`length > 800`) passes an HTML error page and a PNG alike, which is how 30 cached
+files named `.webp` came to hold PNG bytes.
+
+**Every cached byte records where it came from.** `image_asset` is the cache
+manifest (metadata only — bytes live on the filesystem) and every write goes through
+a single choke point, `apps/images/src/store.ts`:
+
+- `putAsset({ cacheKey, kind, relativePath, bytes, provenance })` stages the file,
+  writes the row, then publishes with an atomic rename — bytes and metadata land
+  together or neither does. `ensureRecorded` is the variant for bytes already on
+  disk; it never overwrites provenance someone else established.
+- **`provenance` is a required argument.** `fromUrl(url)` for anything fetched;
+  `unknownProvenance('<why>')` — which records `source_url = NULL` — only when the
+  source genuinely cannot be established. A guessed URL is never acceptable: it
+  would make coverage look total over a fiction.
+- `content_type` is sniffed from the bytes, never inferred from the extension.
+
+**Serving does not depend on the manifest.** `apps/images` resolves every request
+from the on-disk path (a pure function of the upstream URL) and serves a
+placeholder/404 on a miss; a missing row degrades metadata (LRU, stats, provenance),
+never a page. This is deliberate — do not add a manifest lookup to the read path.
+
+**Drift is checked, not assumed:** `pnpm --filter pokedex-images manifest:check`
+reconciles disk against the manifest in both directions (orphans, missing files,
+size/content-type mismatches, leftover `.tmp`) and exits non-zero on drift, so it can
+be cronned. It is deliberately **not** in CI, which excludes live-DB work.
+`manifest:backfill` records any un-recorded files, confirming each candidate source
+URL with a HEAD before it will write one. See DECISIONS.md 2026-08-07 for the
+1,970-orphan incident that motivated all of this.
 
 ### 5.3 Prices — daily, and the UI must say so
 

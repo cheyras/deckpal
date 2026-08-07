@@ -79,6 +79,17 @@ floating ◐ switcher is auto-injected into every Vite **dev** server (dev-only 
   `<IMAGE_CACHE_ROOT>/images/<lang>/<serie>/<set>/<localId>.<low|high>.webp` and set imagery at
   `sets/<setId>/<logo|symbol>.webp` (see `apps/images/src/layout.ts`). A miss serves a ~1 KB
   placeholder. The **cache dir is gitignored — never commit card art or bulk catalog dumps.**
+- **Every cached byte records its source.** `image_asset` (Postgres) is the cache manifest;
+  **bytes on disk with no row are a defect.** All writes go through the choke point
+  `apps/images/src/store.ts` — `putAsset({…, provenance})` writes the file *and* the row together,
+  and provenance is a **required** argument: `fromUrl(url)` for anything fetched,
+  `unknownProvenance('<why>')` (→ `source_url NULL`) only when the source genuinely can't be
+  established. **Never invent a plausible URL** — an honest blank beats a lie the manifest then
+  spreads. Never `writeFile`/`curl -o`/`cp` into the cache, and don't add loose fill scripts under
+  `scripts/`; add a command in `apps/images/src/`, where the contract lives. Verify with
+  `rtk pnpm --filter pokedex-images manifest:check` (exits non-zero on drift; manual/cron —
+  deliberately NOT in CI, which excludes live-DB work). Serving stays **disk-only**: a missing row
+  must never break a page. Backstory + the 1,970-orphan backfill: DECISIONS.md 2026-08-07.
 - **The scanner index is in-memory.** After `pnpm --filter pokedex-api scan:index`, you MUST
   `pm2 restart pokedex-api` for new hashes to be live. Verify a known card self-matches at distance 0.
 - **Don't touch shared infra:** no nginx reloads, no other pm2 apps, no DB schema changes to
