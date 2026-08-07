@@ -27,17 +27,42 @@ never warmed; the primary source **404s or its manifest omits that set**; the so
 wrong path; or a genuine upstream gap. Confirm the cause against the artifact (the source URL, the
 cache dir) — not a guess.
 
-### 3. Source + fill (thoroughly)
+### 3. Source + fill (thoroughly, and through the choke point)
 Follow the slot's catalog entry + `add-tcg` Step 4: enumerate the work-list **from the DB, not the
 source manifest**; primary source → fallback(s); validate every download (content-type + magic
-bytes, reject tiny/placeholder bodies), atomic write, WebP where sensible, polite rate limit,
-resumable, idempotent. Crosswalk on multiple keys. If it feeds the scanner, `scan:index` +
-**restart the service**. **Never invent an asset** — leave genuine gaps and report them.
+bytes, reject tiny/placeholder bodies), WebP where sensible, polite rate limit, resumable,
+idempotent. Crosswalk on multiple keys. If it feeds the scanner, `scan:index` + **restart the
+service**. **Never invent an asset** — leave genuine gaps and report them.
+
+**Every byte you add to the cache must record where it came from.** Write through
+`putAsset` in `apps/images/src/store.ts` — never `writeFile`/`curl -o`/`cp` into the cache
+directory. It does the atomic write *and* the `image_asset` row together, and provenance is a
+required argument: `fromUrl(sourceUrl)` for anything fetched, `unknownProvenance('<why>')` only
+when the source genuinely can't be established. **Never pass a plausible-but-unverified URL** —
+an invented source is worse than an honest blank because it hides the gap.
+
+Existing fillers to reuse rather than reinvent — both already write through the choke point:
+- `pnpm --filter pokedex-images warm:gaps` — probes the catalog CDN for cards its manifest omits.
+- `pnpm --filter pokedex-images warm:pkmn` — pkmn.gg fallback for art the CDN 404s.
+
+If you need something they don't do, add a command in `apps/images/src/` — **not** a loose script
+in `scripts/`. Loose scripts are exactly how 1,970 files ended up in the cache with no record of
+their origin (DECISIONS.md 2026-08-07); most of that provenance is unrecoverable.
 
 ### 4. Confirm it looks good (gate)
 Verify the **filesystem truth** (count real files `-size +2k`; `curl` served URLs → 200, real
 bytes not the ~1 KB placeholder) AND open the spot in a real browser at desktop + 390px and look.
 Report `N of M` filled and the honest residue (broken down by set/reason).
+
+**Then prove you left no drift** — this gate is not optional:
+
+```bash
+rtk pnpm --filter pokedex-images manifest:check     # must exit 0
+```
+
+Orphans (bytes with no row) and missing-file rows are both defects. The check also reports how
+many rows have honestly-unknown provenance (`source_url IS NULL`) — that count may legitimately
+be non-zero from the historical backfill, but it must not grow because of your fill.
 
 ### 5. Bank the learning (the point of this skill)
 Ask: **"what did I learn here that would apply to other TCGs or other gaps?"** If anything
@@ -63,6 +88,8 @@ the thoroughness lesson you banked (if any). Offer to commit (repo convention: c
 ## Rules
 - Prefix every shell command (and every `&&` segment) with `rtk` (see `CLAUDE.md`).
 - Respect the image-cache contract + gitignore; secrets read at runtime only, never committed/logged.
+- **Bytes in the cache with no `image_asset` row are a defect.** Write through
+  `apps/images/src/store.ts`; finish with `manifest:check` exiting 0.
 - Verify the artifact, never a warmer's own "warmed/gap" counter (it conflates already-cached with failed).
 - Stay within the Postgres connection budget; don't touch nginx or other pm2 apps.
 - Only bank **generalizable** learnings; keep game-specific specifics in the runbook / slot entry.

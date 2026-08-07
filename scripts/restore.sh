@@ -123,3 +123,7 @@ fi
 echo
 echo "DONE. Restored into '$TARGET_DB'."
 echo "Reminder: sprites are NOT in backups — run scripts/fetch-sprites.sh if this is a fresh Pi."
+# The DB dump carries the image_asset manifest and the tar carries the bytes, so a full
+# restore is self-consistent. A partial one (--no-images, or a backup with no image
+# archive) is not — reconcile before trusting the cache.
+echo "Next: rtk pnpm --filter pokedex-images manifest:check   # disk vs image_asset, non-zero on drift"

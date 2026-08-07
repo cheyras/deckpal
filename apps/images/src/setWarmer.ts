@@ -1,6 +1,4 @@
 import { existsSync } from 'node:fs';
-import { mkdir, rename, stat, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
 import { fetchWebp } from './fetch.js';
 import {
   setImageAbsolutePath,
@@ -9,12 +7,8 @@ import {
   setImageSourceUrl,
   type SetImageKind,
 } from './layout.js';
-import {
-  closePool,
-  getStoredEtag,
-  listSetImageSources,
-  upsertImageAsset,
-} from './assets.js';
+import { closePool, getStoredEtag, listSetImageSources } from './assets.js';
+import { ensureRecorded, fromUrl, putAsset } from './store.js';
 
 /**
  * Set-imagery warmer. The card warmer walks datas.json (a CARD-only manifest), so
@@ -70,18 +64,16 @@ async function runTask(t: Task, st: Stats, dryRun: boolean): Promise<void> {
   const kindTag = t.kind === 'logo' ? 'set-logo' : 'set-symbol';
 
   // Resumable: never re-fetch a file already on disk (assets are immutable).
+  // Self-heal a torn write without restating provenance we didn't establish —
+  // see store.ts `ensureRecorded`.
   if (existsSync(absPath)) {
     st.skippedDisk++;
-    const s = await stat(absPath);
     if (!dryRun) {
-      await upsertImageAsset({
+      await ensureRecorded({
         cacheKey: t.cacheKey,
         kind: kindTag,
         relativePath: relPath,
-        contentType: 'image/webp',
-        byteSize: s.size,
-        sourceUrl: url,
-        etag: null,
+        fallbackProvenance: fromUrl(url),
       });
       st.recordedFromDisk++;
     }
@@ -94,18 +86,12 @@ async function runTask(t: Task, st: Stats, dryRun: boolean): Promise<void> {
   const result = await fetchWebp(url, etag);
   switch (result.status) {
     case 'ok': {
-      await mkdir(dirname(absPath), { recursive: true });
-      const tmp = `${absPath}.tmp`;
-      await writeFile(tmp, result.body);
-      await rename(tmp, absPath);
-      await upsertImageAsset({
+      await putAsset({
         cacheKey: t.cacheKey,
         kind: kindTag,
         relativePath: relPath,
-        contentType: result.contentType.split(';')[0]!.trim(),
-        byteSize: result.body.length,
-        sourceUrl: url,
-        etag: result.etag,
+        bytes: result.body,
+        provenance: fromUrl(url, result.etag),
       });
       st.fetched++;
       st.bytes += result.body.length;
