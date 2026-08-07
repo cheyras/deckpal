@@ -51,12 +51,20 @@ Follow the `add-tcg` Step-4 contract exactly:
   `…AbsolutePath` following the on-disk convention; add a **service route** in
   `apps/images/src/index.ts` (validate inputs, bar traversal, 404→client placeholder).
 - **Warmer**: enumerate the work-list **from the DB** (not a source manifest); primary source →
-  fallback; validate downloads (content-type + magic bytes, reject tiny bodies), atomic write,
-  WebP where sensible, polite rate limit, resumable. Model on `apps/images/src/warmer.ts` /
-  `scripts/warm-from-pkmn.mjs`.
+  fallback; validate downloads (content-type + magic bytes, reject tiny bodies), polite rate
+  limit, resumable. Model on `apps/images/src/warmer.ts` / `apps/images/src/warmFromPkmn.ts`.
+- **Write through the choke point** — `putAsset` from `apps/images/src/store.ts`, never a bare
+  `writeFile` into the cache. It does the atomic write *and* records the `image_asset` row, and
+  it **requires** provenance: `fromUrl(sourceUrl)` for anything fetched, or
+  `unknownProvenance('<why>')` when the source genuinely can't be established. Never invent a
+  plausible URL. If the new slot needs a `kind` that isn't in the `image_asset` CHECK (migration
+  006 allows `card`, `set-logo`, `set-symbol`, `set-background`, `sprite`, `avatar`, `banner`),
+  that is the one case where a slot needs an additive migration — flag it before you build.
 - **Frontend**: render it on the requested page/component with a graceful fallback on miss
   (no broken image, no layout shift); match the app's Tailwind conventions.
 - If this slot feeds the scanner (rare), reindex + restart per add-tcg Step 5.
+- **Prove no drift** before calling it done: `rtk pnpm --filter pokedex-images manifest:check`
+  must exit 0. Bytes in the cache with no manifest row are a defect, not a detail.
 
 ### 6. Verify (gate)
 `curl` a few served URLs → HTTP 200, real bytes (not the ~1 KB placeholder). Then open the page in
