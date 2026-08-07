@@ -134,6 +134,37 @@ and `/pokedex/images/sets/<setId>/<logo|symbol>.webp`). A cache **miss serves a 
 placeholder** — that's the "no image" users report. See `apps/images/src/layout.ts` for the
 authoritative path functions; replicate them, don't guess.
 
+**The provenance contract — write through the choke point, always.** Every byte in the cache must
+carry a record of where it came from, in the `image_asset` table. Do NOT write into the cache
+directly (`writeFile` / `curl -o` / `cp`) — go through **`apps/images/src/store.ts`**:
+
+```ts
+import { putAsset, fromUrl, unknownProvenance } from './store.js';
+
+await putAsset({
+  cacheKey, kind, relativePath,          // build these with layout.ts, never by hand
+  bytes,
+  provenance: fromUrl(sourceUrl, etag),  // REQUIRED — no default, no optional argument
+});
+```
+
+`putAsset` writes the bytes and the manifest row together, or neither. Provenance is a required
+argument: `fromUrl(url)` for anything fetched; `unknownProvenance('<why>')` only when the source
+genuinely cannot be established. **Never pass a plausible-but-unverified URL** — an invented
+source is worse than an honest blank, because it hides the gap instead of reporting it.
+(`ensureRecorded` is the variant for bytes already on disk; it won't overwrite provenance
+someone else established.)
+
+**Bytes on disk with no manifest row are a defect.** Prove you created none:
+
+```bash
+rtk pnpm --filter pokedex-images manifest:check      # exits non-zero on drift
+```
+
+This is how 1,970 orphaned files accumulated before 2026-08-07: ad-hoc gap-fill scripts wrote
+straight to the cache path, and the record of where that art came from was lost permanently for
+most of them.
+
 **The warmer pattern (layered fallback — this is the whole game):**
 
 1. **Enumerate work from the DB card list, NOT the source's manifest.** A source's manifest
@@ -145,11 +176,14 @@ authoritative path functions; replicate them, don't guess.
    secondary (for Pokémon: pkmn.gg's `assets.pkmn.gg` art, whose URLs come from
    `[redacted host]/…/v1/card/<set>` — the JSON carries **signed** `largeImageUrl`(→high) +
    `thumbImageUrl`(→low); the signature is in the URL so no auth on the download itself). See
-   `scripts/warm-from-pkmn.mjs` for the working fallback warmer and `PKMN-SYNC-RUNBOOK.md`.
+   `apps/images/src/warmFromPkmn.ts` for the working fallback warmer and `PKMN-SYNC-RUNBOOK.md`.
 3. **Two resolutions.** `high` (detail view) and `low` (grid + the scanner). WebP.
 4. **Validate every download** — content-type + magic bytes (RIFF/WEBP), reject tiny/placeholder
-   bodies (`< ~800 B`), write to a temp file and atomic-`rename` into place (mirror
-   `apps/images/src/fetch.ts`).
+   bodies (`< ~800 B`); then hand the bytes to `putAsset`, which does the temp-file +
+   atomic-`rename` and records the row for you (mirror `apps/images/src/fetch.ts` for the
+   validation). Do not hand-roll the write. A body that isn't the format the cache path claims
+   is a REJECT, never a rename — 30 cached `.webp` files are actually PNG because one script
+   validated only `length >= 800`.
 5. **Be polite** — ~5–8 rps, bounded concurrency (2). Run long warms in the background.
 6. **Never invent an image.** If no source has a card's art, leave the placeholder and
    **report it** as a genuine upstream gap. Honest residue > a wrong/blank image (`SCHEMA.md`
@@ -223,6 +257,12 @@ keep game-specific specifics in `PKMN-SYNC-RUNBOOK.md` / the slot's `image-slots
 - Promo/odd cards can carry **non-numeric collector numbers that differ across sources** (one
   source's `MEW` is another's `001`) — when the number crosswalk misses, fall back to a
   normalized-**name** match before declaring the card absent.
+- **Never write cache bytes outside the choke point.** A one-off fill script that writes files
+  directly leaves art whose origin nobody can ever reconstruct; route it through
+  `apps/images/src/store.ts` and finish with `manifest:check`. If you need a new one-off, add it
+  as a command in `apps/images/src/` rather than a loose script — that is where the contract lives.
+- **Validate the format, not just the size.** `length >= 800` passes an HTML error page and a PNG
+  alike; sniff magic bytes and refuse anything the cache path doesn't claim to be.
 
 ## Definition of done (adding a TCG, or a refresh)
 
@@ -243,5 +283,8 @@ keep game-specific specifics in `PKMN-SYNC-RUNBOOK.md` / the slot's `image-slots
 - `PKMN-SYNC-RUNBOOK.md` — the Pokémon-specific runbook (per-release procedure, the pkmn.gg
   API map, the image-fallback flow) — the concrete instance of this skill.
 - Code: `apps/sync/src/catalog` (catalog import), `apps/sync/src/prices` (prices + cross-fill),
+  `apps/images/src/store.ts` (**the cache write choke point — read this first**),
   `apps/images/src/{layout,fetch,warmer,setWarmer,evict}.ts` (image cache + warmers),
-  `apps/api/src/scan/{index,phash,router}.ts` (scanner), `scripts/warm-from-pkmn.mjs` (fallback warmer).
+  `apps/images/src/{warmGaps,warmFromPkmn}.ts` (CDN gap-fill + pkmn.gg fallback warmer),
+  `apps/images/src/{manifestCheck,manifestBackfill}.ts` (drift check + provenance backfill),
+  `apps/api/src/scan/{index,phash,router}.ts` (scanner).

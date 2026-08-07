@@ -44,6 +44,62 @@ function release(): void {
   tryRelease();
 }
 
+export interface HeadResult {
+  /** HTTP status, or 0 if the request could not be made at all. */
+  status: number;
+  contentType: string | null;
+  /** `content-length` as a number, or null if the origin didn't send one. */
+  contentLength: number | null;
+  etag: string | null;
+  error?: string;
+}
+
+/**
+ * HEAD an asset through the same politeness gate as `fetchWebp`. Answers "does the
+ * canonical upstream URL actually serve this asset?" without pulling the body —
+ * the provenance question the manifest backfill has to settle before it may write
+ * a source URL. Retries transient failures twice with backoff, then reports 0.
+ */
+export async function headAsset(url: string, attempt = 0): Promise<HeadResult> {
+  await acquire();
+  let released = false;
+  const releaseOnce = (): void => {
+    if (!released) {
+      released = true;
+      release();
+    }
+  };
+  try {
+    const res = await fetch(url, {
+      method: 'HEAD',
+      headers: { 'user-agent': USER_AGENT },
+      signal: AbortSignal.timeout(20_000),
+    });
+    const len = res.headers.get('content-length');
+    return {
+      status: res.status,
+      contentType: res.headers.get('content-type'),
+      contentLength: len === null ? null : Number(len),
+      etag: res.headers.get('etag'),
+    };
+  } catch (err) {
+    if (attempt < 2) {
+      releaseOnce();
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+      return headAsset(url, attempt + 1);
+    }
+    return {
+      status: 0,
+      contentType: null,
+      contentLength: null,
+      etag: null,
+      error: (err as Error).message,
+    };
+  } finally {
+    releaseOnce();
+  }
+}
+
 export type FetchResult =
   | { status: 'ok'; body: Buffer; contentType: string; etag: string | null }
   | { status: 'not-modified' }
