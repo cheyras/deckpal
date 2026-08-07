@@ -21,7 +21,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { foilApi, type FoilMaskMeta, type FoilVariant } from './api'
+import {
+  foilApi,
+  type FoilDerivationMethod,
+  type FoilMaskMeta,
+  type FoilMaskSidecar,
+  type FoilVariant,
+} from './api'
+import { MaskCorpusPanel, MaskProvenanceLine } from './MaskProvenance'
 import { PATTERNS, patternById, canonicalPatternId } from './patterns'
 import { canonBaseline, canonFor, sparseDiff } from './canon'
 import { resolveFoil, maskForScope, ERAS, RESOLVER_VERSION, type FoilScope } from './resolver'
@@ -83,6 +90,20 @@ export function FoilLab() {
   const [savedMask, setSavedMask] = useState(false)
   /** Sidecar meta of the hand mask on screen (null = none / layout tier). */
   const [maskMeta, setMaskMeta] = useState<FoilMaskMeta | null>(null)
+  /** Full sidecar (v3 provenance) of the mask on screen — drives the badge. */
+  const [maskSidecar, setMaskSidecar] = useState<FoilMaskSidecar | null>(null)
+  const [corpusKey, setCorpusKey] = useState(0)
+  /**
+   * Provenance session state: what the canvas was SEEDED with, and whether it
+   * has been painted on since. Sent as `derivation` on save — the api derives
+   * the honest `derivation_method` from the pixels, this only tells it which
+   * pixels to compare against (see foil/provenance.ts).
+   */
+  const [session, setSession] = useState<{
+    startedFrom: 'layout' | 'window-bake' | 'mask'
+    parent: { cardId: string; variantId: number } | null
+    painted: boolean
+  }>({ startedFrom: 'layout', parent: null, painted: false })
   const [maskTexVersion, setMaskTexVersion] = useState(0)
   const editorRef = useRef<MaskEditorHandle | null>(null)
   const zeroTilt = useRef({ x: 0, y: 0 })
@@ -262,6 +283,8 @@ export function FoilLab() {
     setEditMode(false)
     setMaskDirty(false)
     let cancelled = false
+    setMaskSidecar(null)
+    setSession({ startedFrom: 'layout', parent: null, painted: false })
     if (!devSurface) {
       setMaskSource('layout')
       setSavedMask(false)
@@ -270,7 +293,9 @@ export function FoilLab() {
     }
     // Artwork-keyed lookup: pass the variant's resolved scope so a sibling
     // variant's mask on the same scan can answer (aliasOf in the meta).
-    void foilApi.getMask(detail.card.cardId, sel.variantId, resolved.scope).then((r) => {
+    const cardId = detail.card.cardId
+    const variantId = sel.variantId
+    void foilApi.getMask(cardId, variantId, resolved.scope).then((r) => {
       if (cancelled) return
       if (r) {
         const ctx = maskCanvas.getContext('2d')!
@@ -280,6 +305,16 @@ export function FoilLab() {
         setMaskMeta(r.meta)
         setMaskSource('hand')
         setMaskTexVersion((v) => v + 1)
+        // The mask that answered IS the parent of whatever gets saved next —
+        // an aliased answer means the sibling variant's file, not this one.
+        setSession({
+          startedFrom: 'mask',
+          parent: { cardId, variantId: r.meta.aliasOf ?? variantId },
+          painted: false,
+        })
+        void foilApi.maskMeta(cardId, variantId, resolved.scope).then((m) => {
+          if (!cancelled) setMaskSidecar(m?.sidecar ?? null)
+        })
       } else {
         setSavedMask(false)
         setMaskMeta(null)
@@ -401,6 +436,8 @@ export function FoilLab() {
     setMaskDirty(true)
     setMaskSource('hand')
     setMaskTexVersion((v) => v + 1)
+    // Human pixels touched this canvas — the save is no longer a pure bake.
+    setSession((s) => (s.painted ? s : { ...s, painted: true }))
   }, [])
 
   const registerEditor = useCallback((h: MaskEditorHandle) => {
@@ -418,19 +455,33 @@ export function FoilLab() {
         editorRef.current?.loadLayoutRect(mask.rect, mask.invert, mask.radius)
         setMaskSource('hand')
         setMaskTexVersion((v) => v + 1)
+        seedFromGeometry()
       })
     }
   }
 
-  const saveMask = async () => {
+  /** The canvas was re-seeded from geometry — no parent, nothing painted yet. */
+  const seedFromGeometry = () => {
+    setSession({ startedFrom: windowScoped && winDiffers ? 'window-bake' : 'layout', parent: null, painted: false })
+  }
+
+  // `override` exists because setSession is async: Flatten seeds and saves in
+  // the same tick, so it passes the seed it just installed rather than racing.
+  const saveMask = async (override?: typeof session) => {
     if (!detail || sel.variantId == null) return
+    const s = override ?? session
     try {
-      // Sidecar v2: every save records the starting prior — the deterministic
+      // Sidecar v3: every save records the starting prior — the deterministic
       // layout-rule output for this card/variant — so the server can persist
-      // the prior render + hand-vs-prior diff next to the mask (the corpus
+      // the prior render + mask-vs-prior diff next to the mask (the corpus
       // carries what the rule got wrong, not just the human's answer). An
       // adjusted window is the HUMAN's correction, so it rides along as
       // prior.window provenance and never replaces the rule's rect.
+      //
+      // `derivation` reports the SEED, not a label: the api recomputes the
+      // honest derivation_method from the pixels (and, when the seed was an
+      // existing mask, writes the correction record — parent PNG + change map
+      // + metrics, which is the training signal for the generator lane).
       const saved = await foilApi.putMask(
         detail.card.cardId,
         sel.variantId,
@@ -450,16 +501,36 @@ export function FoilLab() {
             ? { window: { rect: winGeom.rect, radius: winGeom.radius } }
             : {}),
         },
+        { startedFrom: s.startedFrom, parent: s.parent },
+        {
+          artworkUrl: detail.card.images.high,
+          card: {
+            setId: detail.card.set.setId,
+            seriesSlug: detail.card.series.slug,
+            name: detail.card.name,
+            number: detail.card.number,
+          },
+        },
       )
       setSavedMask(true)
       setMaskDirty(false)
+      setMaskSidecar(saved)
       setMaskMeta({
         file: `data/foil-masks/${detail.card.cardId}/${sel.variantId}.png`,
         savedAt: saved.savedAt,
         aliasOf: null,
         hasPrior: true,
         hasDiff: true,
+        method: saved.derivation_method,
+        reviewStatus: saved.reviewStatus,
       })
+      // What was just written becomes the parent of the next save.
+      setSession({
+        startedFrom: 'mask',
+        parent: { cardId: detail.card.cardId, variantId: sel.variantId },
+        painted: false,
+      })
+      setCorpusKey((k) => k + 1)
     } catch {
       /* surfaced by the dirty flag remaining */
     }
@@ -517,11 +588,16 @@ export function FoilLab() {
   }
 
   /**
-   * Flatten: persist the geometry, bake it into a raster hand mask through
-   * the STANDARD save path (sidecar v2 — prior = era rule, prior.window =
-   * the adjustment), then open the existing paint tooling to refine it.
-   * From the save on, the card behaves exactly like any hand-masked card
-   * (artwork-keyed aliasing included).
+   * Flatten: persist the geometry, bake it into a raster mask through the
+   * STANDARD save path (sidecar v3 — prior = era rule, prior.window = the
+   * adjustment), then open the existing paint tooling to refine it. From the
+   * save on, the card behaves exactly like any hand-masked card (artwork-keyed
+   * aliasing included).
+   *
+   * PROVENANCE: the bake is MACHINE geometry — no stroke has been painted yet —
+   * so it lands as `layout-flatten`, not `hand`. The first stroke on top of it
+   * promotes the next save to `hand-refined`. (Before sidecar v3 this path
+   * stamped 'hand' and quietly claimed a rect as human work.)
    */
   const flattenWindow = async () => {
     if (!detail || sel.variantId == null || !winGeom) return
@@ -530,7 +606,8 @@ export function FoilLab() {
     setMaskSource('hand')
     setMaskDirty(true) // cleared by the save below; stays visible if it fails
     setMaskTexVersion((v) => v + 1)
-    await saveMask()
+    setSession({ startedFrom: 'window-bake', parent: null, painted: false })
+    await saveMask({ startedFrom: 'window-bake', parent: null, painted: false })
     endAdjust()
     setEditMode(true)
   }
@@ -545,8 +622,23 @@ export function FoilLab() {
     setSavedMask(false)
     setMaskDirty(false)
     setMaskMeta(null)
+    setMaskSidecar(null)
+    setSession({ startedFrom: 'layout', parent: null, painted: false })
     setMaskSource('layout')
     setEditMode(false)
+    setCorpusKey((k) => k + 1)
+  }
+
+  /**
+   * What the NEXT save will be stamped as, so the badge never surprises him.
+   * The api recomputes this from pixels — this is a faithful preview of the
+   * same rules (foil/provenance.ts deriveMethod).
+   */
+  const pendingMethod = (): FoilDerivationMethod => {
+    const parentMethod = session.parent ? (maskSidecar?.derivation_method ?? 'hand') : null
+    if (!session.painted) return parentMethod ?? 'layout-flatten'
+    if (parentMethod === 'ai' || parentMethod === 'ai-corrected') return 'ai-corrected'
+    return parentMethod ? 'hand-refined' : 'hand'
   }
 
   const commentContext = (): Record<string, unknown> => ({
@@ -1015,7 +1107,14 @@ export function FoilLab() {
                   <ActionBtn onClick={() => editorRef.current?.undo()}>Undo</ActionBtn>
                   <ActionBtn onClick={() => editorRef.current?.clear()}>Clear</ActionBtn>
                   <ActionBtn onClick={() => editorRef.current?.fill()}>Fill</ActionBtn>
-                  <ActionBtn onClick={() => editorRef.current?.loadLayoutRect(mask.rect, mask.invert, mask.radius)}>
+                  <ActionBtn
+                    onClick={() => {
+                      editorRef.current?.loadLayoutRect(mask.rect, mask.invert, mask.radius)
+                      // Re-seeded from geometry: the canvas is a bare rect again,
+                      // so the next save must not inherit the old mask's label.
+                      seedFromGeometry()
+                    }}
+                  >
                     {winDiffers ? 'Reset to window' : 'Reset to layout'}
                   </ActionBtn>
                 </div>
@@ -1025,7 +1124,10 @@ export function FoilLab() {
                   Allow finger drawing (Pencil + mouse only by default)
                 </label>
                 <div className="flex flex-wrap gap-[6px]">
-                  <ActionBtn onClick={saveMask}>{maskDirty ? 'Save mask ●' : 'Save mask'}</ActionBtn>
+                  {/* Wrapped, NOT passed by reference: ActionBtn forwards the
+                      click event as the first argument, which would land in
+                      saveMask's `override` slot and blank out `derivation`. */}
+                  <ActionBtn onClick={() => void saveMask()}>{maskDirty ? 'Save mask ●' : 'Save mask'}</ActionBtn>
                   <ActionBtn onClick={() => setEditMode(false)}>Done</ActionBtn>
                 </div>
               </div>
@@ -1052,7 +1154,29 @@ export function FoilLab() {
                     : ''
                 }`}
           </p>
+          {devSurface && detail && sel.variantId != null && (
+            <MaskProvenanceLine
+              sidecar={maskSidecar}
+              aliasOf={maskMeta?.aliasOf ?? null}
+              cardId={detail.card.cardId}
+              variantId={sel.variantId}
+              scope={resolved.scope}
+              pendingNote={
+                maskDirty
+                  ? `unsaved edits — this will save as “${pendingMethod()}”`
+                  : maskSidecar?.derivation_method === 'ai'
+                    ? 'AI proposal — nobody has reviewed it. Edit it to turn it into training signal.'
+                    : null
+              }
+            />
+          )}
         </Section>
+
+        <MaskCorpusPanel
+          devSurface={devSurface}
+          refreshKey={corpusKey}
+          onPick={(cardId, variantId) => setSel((p) => ({ ...p, cardId, variantId }))}
+        />
 
         <Section title="Tilt">
           <div className="mb-[8px] flex gap-[6px]">
