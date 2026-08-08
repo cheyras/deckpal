@@ -50,6 +50,13 @@ import {
   type RegionPolicy,
   type WindowRect,
 } from './region-learn.js';
+import {
+  DEFAULT_VECTOR_FIT_PARAMS,
+  discoverOptionalElement,
+  fitTemplate,
+  probeOptional,
+  rasterizeTemplate,
+} from './vector-template.js';
 
 export interface GeneratorTarget {
   cardId: string;
@@ -639,9 +646,117 @@ export const regionLearnGenerator: MaskGenerator = {
   },
 };
 
+/**
+ * `vector-template@1` — the LAYOUT is the artifact, and it is analytic geometry.
+ *
+ * Chey, 2026-08-08: "Generated masks should feel like they're derived from clean vectors,
+ * with straight lines and crisp curves/rounded corners following the artwork" — and then,
+ * on scale: "We don't need 3,454 vector masks. All of these share the same 2 layouts really."
+ *
+ * So this generator does not trace anything. It fits ONE template to the consensus of his
+ * masks (lines + arcs + exact corners), discovers from the corpus itself which single
+ * element is optional, reads off THIS card's own printing whether that element is present,
+ * and rasterises the analytic geometry. Per-card output is a rasterisation of a committed
+ * template, not a per-card derivation — which is why it is cheap enough to apply to a whole
+ * population, and reviewable enough that Chey can correct the template once instead of
+ * correcting thousands of masks.
+ *
+ * Registered as an ordinary `MaskGenerator` so leave-one-out `eval`, the stated bar,
+ * provenance and `revert --run-id` all keep working unchanged.
+ */
+export const vectorTemplateGenerator: MaskGenerator = {
+  name: 'vector-template',
+  version: 1,
+  modelId: null,
+  params: {
+    tolerancePx: DEFAULT_VECTOR_FIT_PARAMS.tolerancePx,
+    stepPx: DEFAULT_VECTOR_FIT_PARAMS.stepPx,
+    axisSnapDeg: DEFAULT_VECTOR_FIT_PARAMS.axisSnapDeg,
+    minCornerDeg: DEFAULT_VECTOR_FIT_PARAMS.minCornerDeg,
+    minArcRadiusPx: DEFAULT_VECTOR_FIT_PARAMS.minArcRadiusPx,
+    maxArcRadiusPx: DEFAULT_VECTOR_FIT_PARAMS.maxArcRadiusPx,
+    flattenSagittaPx: DEFAULT_VECTOR_FIT_PARAMS.flattenSagittaPx,
+    supersample: 4,
+  },
+  // Four, not two: a per-pixel MAJORITY over the corpus is only a median if there are
+  // enough masks to have one, and the fit needs at least one card on each side of the
+  // optional element or it cannot tell a layout feature from a card feature.
+  minExemplars: 4,
+  generate({ target, exemplars }): MaskGeneratorOutput {
+    const { width, height } = target;
+    const n = width * height;
+    const usable = exemplars.filter((e) => e.alpha.length === n);
+    if (usable.length < 4) {
+      return {
+        alpha: new Uint8Array(n),
+        confidence: null,
+        notes: `vector-template needs 4 usable human exemplars at ${width}x${height}; got ${usable.length}. Do not accept this.`,
+      };
+    }
+    const opt = discoverOptionalElement(usable.map((e) => ({ cardId: e.ref.cardId, alpha: e.alpha })), width, height);
+    const loaded = usable.map((e) => ({
+      cardId: e.ref.cardId,
+      variantId: e.ref.variantId,
+      method: e.ref.method as string,
+      weight: e.ref.weight,
+      alpha: e.alpha,
+      evolves: opt ? (opt.shares.find((s) => s.cardId === e.ref.cardId)?.share ?? 1) < opt.split : false,
+    }));
+    if (loaded.every((e) => e.evolves)) {
+      return {
+        alpha: new Uint8Array(n),
+        confidence: null,
+        notes:
+          'vector-template: every exemplar carries the optional element, so the base layout is unobservable. ' +
+          'Do not accept this — hand-draw one card without it.',
+      };
+    }
+
+    const fit = fitTemplate({
+      exemplars: loaded, width, height,
+      eraId: target.eraId, scope: target.scope, runId: 'inline',
+    });
+
+    // Does THIS card have the optional element? Read it off the card, not a catalog.
+    const probe = opt ? probeOptional(target.artwork, opt.region) : { chromaFrac: 1, hasElement: false };
+    const alpha = rasterizeTemplate(fit.template, width, height, { evolves: probe.hasElement });
+
+    // Confidence: how cleanly the corpus split on the optional element, how decisively THIS
+    // card lands on one side of that split, and how little of the corpus was contested at all.
+    const sep = opt ? opt.separation : 0;
+    const decisive = Math.min(1, Math.abs(probe.chromaFrac - 0.5) * 2);
+    const agreement = 1 - fit.stats.disputedPx / n;
+    const confidence = Number(Math.max(0, Math.min(0.85, sep * decisive * agreement)).toFixed(3));
+
+    return {
+      alpha,
+      confidence,
+      notes:
+        `VECTOR TEMPLATE fitted from ${loaded.length} human exemplar(s). ${fit.template.provenance.statement} ` +
+        `This card: optional element ${probe.hasElement ? 'PRESENT' : 'absent'} — chroma ${(probe.chromaFrac * 100).toFixed(1)}% ` +
+        'inside its footprint (a card without it shows the coloured frame there; a card with it shows silver). ' +
+        'The boundary is analytic geometry rasterised with coverage AA — no path was traced on this card, so ' +
+        'nothing here can wobble. UNREVIEWED: check the REGIONS first; clean geometry in the wrong place is still wrong.',
+      report: {
+        optionalElementPx: opt?.px ?? 0,
+        optionalSeparation: sep,
+        hasOptionalElement: probe.hasElement,
+        chromaFrac: probe.chromaFrac,
+        primitives: fit.stats.primitives,
+        lines: fit.stats.lines,
+        arcs: fit.stats.arcs,
+        corners: fit.stats.corners,
+        loops: fit.stats.loopsFitted,
+        disputedPx: fit.stats.disputedPx,
+      },
+    };
+  },
+};
+
 export const GENERATORS: Record<string, MaskGenerator> = {
   [windowArtGateGenerator.name]: windowArtGateGenerator,
   [lineSnapGenerator.name]: lineSnapGenerator,
   [edgeTraceGenerator.name]: edgeTraceGenerator,
   [regionLearnGenerator.name]: regionLearnGenerator,
+  [vectorTemplateGenerator.name]: vectorTemplateGenerator,
 };
