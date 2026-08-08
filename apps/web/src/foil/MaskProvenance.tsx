@@ -119,6 +119,7 @@ export function MaskProvenanceLine({
   }
   const g = sidecar.prior.generator ?? sidecar.correction?.parent.generator ?? null
   const c = sidecar.correction ?? null
+  const sup = sidecar.supersedes ?? null
   return (
     <div className="mt-[8px] rounded-md border border-border-default bg-surface-tertiary/50 p-[8px]">
       <button
@@ -163,6 +164,46 @@ export function MaskProvenanceLine({
                 ))}
                 {g.exemplars.length === 0 && <li>none — it learned from nothing</li>}
               </ul>
+            </div>
+          )}
+
+          {sup && (
+            <div className="rounded-[4px] border border-amber-400/40 bg-amber-400/10 p-[6px]">
+              <p className="font-semibold text-amber-200">
+                This REPLACED your {sup.parent.method} mask — you have not agreed to it yet
+              </p>
+              <div className="mt-[4px] flex items-start gap-[8px]">
+                <CorrectionGrid grid={sup.grid} />
+                <p className="tabular-nums">
+                  agreement with what you drew {sup.agreement} · +{sup.addedPx}px added / −{sup.removedPx}px removed ·{' '}
+                  {(sup.changedFraction * 100).toFixed(2)}% of the face changed
+                </p>
+              </div>
+              <div className="mt-[6px] flex gap-[6px]">
+                <a
+                  className="underline"
+                  href={foilApi.maskArtifactUrl(cardId, variantId, 'parent', scope)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  your original
+                </a>
+                <a
+                  className="underline"
+                  href={foilApi.maskArtifactUrl(cardId, variantId, 'parent-diff', scope)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  change map
+                </a>
+              </div>
+              <p className="mt-[6px] break-all">
+                Undo, byte-for-byte (archived at <code>{sup.archiveDir}</code>):
+                <br />
+                <code className="text-text-primary">
+                  pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts revert --run-id {sup.runId}
+                </code>
+              </p>
             </div>
           )}
 

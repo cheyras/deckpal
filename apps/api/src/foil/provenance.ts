@@ -25,8 +25,8 @@
 
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { readFile, writeFile, unlink } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readFile, writeFile, unlink, rm, readdir } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import {
   decodePng,
   diffMask,
@@ -207,6 +207,48 @@ export interface CorrectionRecord {
   grid: CorrectionGrid;
 }
 
+// ── Supersede record (a machine write that REPLACED a real mask) ───────────
+//
+// Distinct from `correction` on purpose. `correction` means "a human edited
+// what was here" and is training signal. This means "a generator replaced what
+// was here, and no human has agreed yet" — the opposite direction. Blurring
+// them would feed a generator's own reshaping back as if a human had endorsed
+// it, which is exactly what EXEMPLAR_WEIGHT exists to prevent.
+//
+// The replaced mask survives twice over: `.parent.png` holds its pixels for
+// review, and `archiveDir` holds a VERBATIM copy of every artifact it had, so
+// `restoreSuperseded()` puts the original back byte-for-byte — sha256-verified.
+// A proposal you cannot un-propose is not a proposal.
+
+export interface SupersededRecord {
+  parent: {
+    cardId: string;
+    variantId: number;
+    savedAt: string | null;
+    method: DerivationMethod;
+    sha256: string;
+    generator: GeneratorIdentity | null;
+  };
+  /** Filename (in this mask's dir) of the replaced mask's pixels. */
+  parentPng: string;
+  /** Filename of the machine-vs-replaced diff: GREEN added, RED removed. */
+  parentDiffPng: string;
+  /** The generator run that did it — the handle `revert --run-id` uses. */
+  runId: string;
+  /** Directory (relative to the mask's own dir) of the verbatim archive. */
+  archiveDir: string;
+  /** basename → sha256 of the archived bytes. Restore verifies every one. */
+  archive: Record<string, string>;
+  addedPx: number;
+  removedPx: number;
+  unchangedPx: number;
+  agreement: number;
+  changedPx: number;
+  changedFraction: number;
+  bbox: [number, number, number, number] | null;
+  grid: CorrectionGrid;
+}
+
 // ── The sidecar ────────────────────────────────────────────────────────────
 
 /** Card context, so a generator lane can group by set/series with no DB. */
@@ -251,6 +293,8 @@ export interface MaskSidecarV3 {
   diff?: DiffStats;
   /** HUMAN-vs-parent: what the human changed. Present only on a correction. */
   correction?: CorrectionRecord;
+  /** MACHINE-vs-replaced: what a generator overwrote, and how to undo it. */
+  supersedes?: SupersededRecord;
   /** Oldest → newest ancestry, this save last. Capped at MAX_LINEAGE. */
   lineage?: LineageEntry[];
 }
@@ -477,6 +521,143 @@ export function readSidecarFile(masksDir: string, cardId: string, variantId: str
     .catch(() => null);
 }
 
+/** Where a generator run parks the mask it replaced. Committed with the corpus. */
+export function archiveDirName(variantId: string | number, runId: string): string {
+  return join('superseded', `${variantId}.${runId.replace(/[^A-Za-z0-9._-]/g, '_')}`);
+}
+
+/**
+ * The archive is SELF-DESCRIBING on disk (`archive.json`), not merely pointed
+ * at by the sidecar. That matters: once Chey corrects a generated mask the live
+ * sidecar stops being about the supersede, but his original must still be one
+ * command away. So the undo reads the manifest from the archive itself.
+ */
+export interface ArchiveManifest {
+  version: 1;
+  cardId: string;
+  variantId: number;
+  runId: string;
+  archivedAt: string;
+  /** The replaced mask's method — what a restore puts back. */
+  method: DerivationMethod;
+  /** basename → sha256 of the archived bytes. */
+  files: Record<string, string>;
+}
+
+const ARCHIVE_MANIFEST = 'archive.json';
+
+/**
+ * Copy every artifact currently on disk into the run's archive, VERBATIM, and
+ * drop a manifest beside them. Returns basename → sha256 so a restore can
+ * prove it put back the same BYTES, not a re-serialization that merely looks
+ * equivalent.
+ */
+async function archiveExisting(
+  paths: MaskPaths,
+  cardId: string,
+  variantId: string,
+  runId: string,
+  method: DerivationMethod,
+): Promise<Record<string, string>> {
+  const dir = join(paths.dir, archiveDirName(variantId, runId));
+  mkdirSync(dir, { recursive: true });
+  const files: Record<string, string> = {};
+  for (const src of [paths.png, paths.json, paths.prior, paths.diff, paths.parent, paths.parentDiff]) {
+    const buf = await readFile(src).catch(() => null);
+    if (!buf) continue;
+    const name = basename(src);
+    await writeFile(join(dir, name), buf);
+    files[name] = sha256(buf);
+  }
+  const manifest: ArchiveManifest = {
+    version: 1,
+    cardId,
+    variantId: Number(variantId),
+    runId,
+    archivedAt: new Date().toISOString(),
+    method,
+    files,
+  };
+  await writeFile(join(dir, ARCHIVE_MANIFEST), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  return files;
+}
+
+export interface FoundArchive {
+  cardId: string;
+  variantId: number;
+  runId: string;
+  /** Absolute path of the archive directory. */
+  dir: string;
+  manifest: ArchiveManifest;
+}
+
+/** Every generator archive on disk, optionally filtered to one run. */
+export async function findArchives(masksDir: string, runId?: string | null): Promise<FoundArchive[]> {
+  const out: FoundArchive[] = [];
+  const cardDirs = await readdir(masksDir).catch(() => [] as string[]);
+  for (const cardId of cardDirs) {
+    if (cardId === 'codified') continue;
+    const supDir = join(masksDir, cardId, 'superseded');
+    const runs = await readdir(supDir).catch(() => [] as string[]);
+    for (const r of runs) {
+      const dir = join(supDir, r);
+      const raw = await readFile(join(dir, ARCHIVE_MANIFEST), 'utf8').catch(() => null);
+      if (!raw) continue;
+      const manifest = JSON.parse(raw) as ArchiveManifest;
+      if (runId && manifest.runId !== runId) continue;
+      out.push({ cardId, variantId: manifest.variantId, runId: manifest.runId, dir, manifest });
+    }
+  }
+  return out.sort((a, b) => (a.cardId === b.cardId ? a.variantId - b.variantId : a.cardId < b.cardId ? -1 : 1));
+}
+
+export interface RestoreResult {
+  cardId: string;
+  variantId: number;
+  runId: string;
+  /** Files put back, with the sha256 that was verified on each. */
+  restored: { file: string; sha256: string }[];
+  /** The method the restored mask carries — i.e. what Chey gets back. */
+  method: DerivationMethod;
+}
+
+/**
+ * Put back exactly what a generator run replaced. Byte-for-byte: every file is
+ * read from the archive and re-hashed against the manifest recorded at
+ * supersede time, and the WHOLE archive is verified before a single live file
+ * is deleted — so a corrupt archive can never turn "undo" into "lose both".
+ */
+export async function restoreArchive(masksDir: string, found: FoundArchive): Promise<RestoreResult> {
+  const paths = maskPathsIn(masksDir, found.cardId, found.variantId);
+  const staged: { name: string; buf: Buffer; sha: string }[] = [];
+  for (const [name, sha] of Object.entries(found.manifest.files)) {
+    const buf = await readFile(join(found.dir, name));
+    const got = sha256(buf);
+    if (got !== sha) throw new Error(`archive ${found.dir}/${name} is corrupt (sha256 ${got} != ${sha})`);
+    staged.push({ name, buf, sha });
+  }
+  if (!staged.some((s) => s.name === `${found.variantId}.png`)) {
+    throw new Error(`archive ${found.dir} has no ${found.variantId}.png — refusing to delete the live mask`);
+  }
+
+  for (const f of [paths.png, paths.json, paths.prior, paths.diff, paths.parent, paths.parentDiff]) {
+    await unlink(f).catch(() => undefined);
+  }
+  for (const s of staged) await writeFile(join(paths.dir, s.name), s.buf);
+  await rm(found.dir, { recursive: true, force: true });
+  const left = await readdir(join(paths.dir, 'superseded')).catch(() => null);
+  if (left && left.length === 0) await rm(join(paths.dir, 'superseded'), { recursive: true, force: true });
+
+  const back = await readSidecarFile(masksDir, found.cardId, found.variantId);
+  return {
+    cardId: found.cardId,
+    variantId: found.variantId,
+    runId: found.runId,
+    restored: staged.map((s) => ({ file: s.name, sha256: s.sha })),
+    method: back?.derivation_method ?? found.manifest.method,
+  };
+}
+
 // ── THE single write path ──────────────────────────────────────────────────
 
 export interface WriteMaskInput {
@@ -500,6 +681,15 @@ export interface WriteMaskInput {
    * a full identity. No identity ⇒ the method is derived from pixels.
    */
   machine?: GeneratorIdentity | null;
+  /**
+   * Machine writes only: explicit consent to land on top of a mask that is
+   * already there — including a HUMAN one. Without it, a generator write over
+   * anything but its own unreviewed output THROWS. With it, every artifact the
+   * mask had is archived verbatim under `superseded/<variantId>.<runId>/`,
+   * `.parent.png` keeps the replaced pixels, and `supersedes` records the
+   * sha256s that make `restoreSuperseded()` an exact undo.
+   */
+  supersede?: { runId: string } | null;
 }
 
 /**
@@ -522,6 +712,16 @@ export async function writeMaskRecord(input: WriteMaskInput): Promise<MaskSideca
   const existing = await readSidecarFile(masksDir, cardId, variantId);
   let parentRef = input.parentRef ?? null;
   if (existing?.derivation_method === 'ai') parentRef = { cardId, variantId: Number(variantId) };
+
+  // A generator landing on an existing mask must say so out loud. Silence used
+  // to mean "overwrite", which is how human work disappears.
+  const supersede = input.machine ? (input.supersede ?? null) : null;
+  if (input.machine && existing && !supersede) {
+    throw new Error(
+      `${cardId}/${variantId} already has a ${existing.derivation_method} mask. A generator may only replace it with ` +
+        'an explicit supersede { runId } — which archives the original byte-for-byte so `revert --run-id` undoes it.',
+    );
+  }
 
   let parentSidecar: MaskSidecarV3 | null = null;
   let parentPngBuf: Buffer | null = null;
@@ -572,17 +772,24 @@ export async function writeMaskRecord(input: WriteMaskInput): Promise<MaskSideca
           ? 'window'
           : 'layout';
 
+  const replacedRef =
+    parentRef && parentSidecar
+      ? { cardId: parentRef.cardId, variantId: parentRef.variantId, sidecar: parentSidecar }
+      : supersede && existing
+        ? { cardId, variantId: Number(variantId), sidecar: existing }
+        : null;
+
   const fullPrior: MaskPrior = {
     ...prior,
     source,
     ...(inheritedGenerator ? { generator: inheritedGenerator } : {}),
-    ...(parentRef && parentSidecar
+    ...(replacedRef
       ? {
           parentMask: {
-            cardId: parentRef.cardId,
-            variantId: parentRef.variantId,
-            savedAt: parentSidecar.savedAt ?? null,
-            method: parentSidecar.derivation_method,
+            cardId: replacedRef.cardId,
+            variantId: replacedRef.variantId,
+            savedAt: replacedRef.sidecar.savedAt ?? null,
+            method: replacedRef.sidecar.derivation_method,
           },
         }
       : {}),
@@ -622,21 +829,63 @@ export async function writeMaskRecord(input: WriteMaskInput): Promise<MaskSideca
     await writeFile(paths.parentDiff, m.png);
   }
 
+  // ── Machine-vs-replaced artifacts + the verbatim undo archive ──
+  //
+  // Order matters: archive FIRST (while the originals are still on disk),
+  // then write the parent pixels + change map, then the sidecar. A crash
+  // between steps leaves the archive intact, which is the safe direction.
+  let supersedes: SupersededRecord | undefined;
+  if (supersede && existing) {
+    const replacedPng = await readFile(paths.png).catch(() => null);
+    if (!replacedPng) {
+      throw new Error(`${cardId}/${variantId} has a sidecar but no mask PNG — refusing to supersede a half-record`);
+    }
+    const archive = await archiveExisting(paths, cardId, variantId, supersede.runId, existing.derivation_method);
+    const m = correctionMetrics(saved, alphaOf(decodePng(replacedPng)));
+    supersedes = {
+      parent: {
+        cardId,
+        variantId: Number(variantId),
+        savedAt: existing.savedAt ?? null,
+        method: existing.derivation_method,
+        sha256: sha256(replacedPng),
+        generator: existing.prior?.generator ?? null,
+      },
+      parentPng: `${variantId}.parent.png`,
+      parentDiffPng: `${variantId}.parent.diff.png`,
+      runId: supersede.runId,
+      archiveDir: archiveDirName(variantId, supersede.runId),
+      archive,
+      addedPx: m.stats.addedPx,
+      removedPx: m.stats.removedPx,
+      unchangedPx: m.stats.unchangedPx,
+      agreement: m.stats.agreement,
+      changedPx: m.changedPx,
+      changedFraction: m.changedFraction,
+      bbox: m.bbox,
+      grid: m.grid,
+    };
+    mkdirSync(paths.dir, { recursive: true });
+    await writeFile(paths.parent, replacedPng);
+    await writeFile(paths.parentDiff, m.png);
+  }
+
   // ── Lineage: the parent's chain (which already ENDS with the parent's own
   // entry — don't append it twice) plus this save. Pre-v3 parents have no
   // lineage array, so synthesize their single entry from what they do record.
   const savedAt = new Date().toISOString();
-  const parentLineage: LineageEntry[] = parentSidecar
-    ? (parentSidecar.lineage ?? [
+  const ancestor = parentSidecar ?? (supersede ? existing : null);
+  const parentLineage: LineageEntry[] = ancestor
+    ? (ancestor.lineage ?? [
         {
-          method: parentSidecar.derivation_method,
-          savedAt: parentSidecar.savedAt ?? null,
-          source: parentSidecar.prior?.source ?? 'layout',
-          generator: parentSidecar.prior?.generator
+          method: ancestor.derivation_method,
+          savedAt: ancestor.savedAt ?? null,
+          source: ancestor.prior?.source ?? 'layout',
+          generator: ancestor.prior?.generator
             ? {
-                name: parentSidecar.prior.generator.name,
-                version: parentSidecar.prior.generator.version,
-                runId: parentSidecar.prior.generator.runId,
+                name: ancestor.prior.generator.name,
+                version: ancestor.prior.generator.version,
+                runId: ancestor.prior.generator.runId,
               }
             : null,
         },
@@ -672,6 +921,7 @@ export async function writeMaskRecord(input: WriteMaskInput): Promise<MaskSideca
     diffPng: `${variantId}.diff.png`,
     diff: stats,
     ...(correction ? { correction } : {}),
+    ...(supersedes ? { supersedes } : {}),
     lineage,
   };
 
@@ -679,8 +929,9 @@ export async function writeMaskRecord(input: WriteMaskInput): Promise<MaskSideca
   await writeFile(paths.png, png);
   await writeFile(paths.prior, priorPng);
   await writeFile(paths.diff, diffPng);
-  // A save with no correction must not leave a STALE parent artifact behind.
-  if (!correction) {
+  // A save with neither a correction nor a supersede must not leave a STALE
+  // parent artifact behind.
+  if (!correction && !supersedes) {
     await unlink(paths.parent).catch(() => undefined);
     await unlink(paths.parentDiff).catch(() => undefined);
   }
