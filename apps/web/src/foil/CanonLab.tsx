@@ -81,6 +81,8 @@ function CanonCardPreview({
   uniforms,
   row,
   total,
+  via,
+  citedTotal,
   maxTiltDeg,
   tilt,
 }: {
@@ -88,6 +90,10 @@ function CanonCardPreview({
   uniforms: Record<string, number>
   row: { cardId: string; variantId: number; kind: string; scope: string }
   total: number
+  /** R7: 'cited' = the resolver assigns this card to a DIFFERENT pattern. */
+  via: 'assigned' | 'cited'
+  /** R7: printings the cited rows name (the sampled pool above is capped). */
+  citedTotal: number
   maxTiltDeg: number
   tilt: ReturnType<typeof useTilt>
 }) {
@@ -182,7 +188,9 @@ function CanonCardPreview({
       <div className="pointer-events-none absolute inset-x-0 bottom-[46px] flex justify-center">
         <span className="max-w-[92%] truncate rounded-full bg-surface-secondary/85 px-[10px] py-[3px] text-[11px] text-text-primary">
           {detail
-            ? `${detail.card.name} · ${detail.card.set.name} · ${variant?.displayName ?? row.kind}${handMask ? ' · hand mask' : ''} — ${total} assigned`
+            ? `${detail.card.name} · ${detail.card.set.name} · ${variant?.displayName ?? row.kind}${handMask ? ' · hand mask' : ''} — ${
+                via === 'cited' ? `${total} of ${citedTotal.toLocaleString()} cited` : `${total} assigned`
+              }`
             : 'loading card…'}
         </span>
       </div>
@@ -382,6 +390,10 @@ export function CanonLab() {
   useEffect(() => setPreviewIdx(0), [pattern.id])
   const previewPool = pcQ.data?.sample ?? []
   const previewTotal = pcQ.data?.total ?? 0
+  // R7: an empty ASSIGNED pool is no longer just "no catalog cards" — the
+  // index says why, and offers the cited-but-outranked printings to preview on.
+  const previewVia = pcQ.data?.via ?? 'assigned'
+  const previewWhy = pcQ.data?.diagnosis ?? null
   const previewRow = previewPool.length ? previewPool[previewIdx % previewPool.length] : null
   const nextPreview = () => {
     if (previewPool.length === 0) return
@@ -413,6 +425,8 @@ export function CanonLab() {
               uniforms={uniforms}
               row={previewRow}
               total={previewTotal}
+              via={previewVia}
+              citedTotal={pcQ.data?.citedTotal ?? 0}
               maxTiltDeg={maxTiltDeg}
               tilt={tilt}
             />
@@ -430,10 +444,25 @@ export function CanonLab() {
           <div className="pointer-events-none absolute left-[12px] top-[10px] text-[12px]">
             <div className="font-semibold">{pattern.label}</div>
             <div className="text-text-muted">
-              {previewOn && previewRow ? 'canon pattern lab · on an assigned card' : 'canon pattern lab · blank card, no ink'}
+              {previewOn && previewRow
+                ? previewVia === 'cited'
+                  ? 'canon pattern lab · on a CITED card (another layer wins the resolver)'
+                  : 'canon pattern lab · on an assigned card'
+                : 'canon pattern lab · blank card, no ink'}
             </div>
+            {devSurface && pcQ.data && previewVia === 'cited' && previewTotal > 0 && (
+              <div className="mt-[3px] max-w-[min(88vw,420px)] whitespace-normal rounded-[6px] bg-surface-primary/85 px-[6px] py-[3px] text-amber-500/90">
+                no card RESOLVES to this pattern — previewing {pcQ.data.citedTotal.toLocaleString()} printing
+                {pcQ.data.citedTotal === 1 ? '' : 's'} the research names for it
+                {previewWhy?.outrankedBy?.length
+                  ? `; ${previewWhy.outrankedBy[0]![0]} wins them (different layer of the same card)`
+                  : ''}
+              </div>
+            )}
             {devSurface && pcQ.data && previewTotal === 0 && (
-              <div className="text-amber-500/90">no catalog cards</div>
+              <div className="mt-[3px] max-w-[min(88vw,420px)] whitespace-normal rounded-[6px] bg-surface-primary/85 px-[6px] py-[3px] text-amber-500/90">
+                no catalog cards{previewWhy ? ` — ${previewWhy.detail}` : ''}
+              </div>
             )}
             {devSurface && pcQ.isFetched && pcQ.data === null && (
               <div className="text-amber-500/90">preview index missing — run tools/foil/build-pattern-cards.mts</div>

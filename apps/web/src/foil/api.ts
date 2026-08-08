@@ -286,8 +286,24 @@ export interface FoilSearchPage {
  */
 export interface FoilPatternCards {
   patternId: string
-  /** Size of the FULL assigned pool (0 = pattern has no catalog cards). */
+  /** Size of the pool actually sampled (assigned, or the cited fallback). */
   total: number
+  /**
+   * R7: which pool `sample` came from. 'assigned' = the resolver picks this
+   * pattern for these printings. 'cited' = the resolver picks something ELSE
+   * for them, but a cited row names this pattern for the same card — usually
+   * because the two rows describe different physical layers (see `diagnosis`).
+   */
+  via: 'assigned' | 'cited'
+  /** How many printings the cited rows name (the sampled pool is capped). */
+  citedTotal: number
+  /** Why the assigned pool is empty — null when it isn't. */
+  diagnosis: {
+    reason: 'outranked' | 'class-absent' | 'sets-absent' | 'no-cited-rows' | string
+    detail: string
+    alternates: number
+    outrankedBy?: [string, number][]
+  } | null
   sample: { cardId: string; variantId: number; kind: string; scope: string }[]
   generatedAt: string
   resolverVersion: number

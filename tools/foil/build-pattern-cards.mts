@@ -20,7 +20,9 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
-import { resolveFoil, RESOLVER_VERSION } from '../../apps/web/src/foil/resolver'
+import { resolveFoil, citedFoilPatterns, RESOLVER_VERSION } from '../../apps/web/src/foil/resolver'
+import { PATTERNS, canonicalPatternId } from '../../apps/web/src/foil/patterns'
+import usageIndex from '../../apps/web/src/foil/usage-index.json'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -72,10 +74,19 @@ async function main(): Promise<void> {
   }
 
   // [cardId, variantId, kind, scope] — tuple array keeps the file compact.
-  const patterns: Record<string, [string, number, string, string][]> = {}
+  type Tuple = [string, number, string, string]
+  const patterns: Record<string, Tuple[]> = {}
+  // R7: the SECONDARY pool — cards a cited row names for a pattern that did
+  // NOT win the resolver's single-winner contest (see citedFoilPatterns).
+  // Capped so the file stays a preview index, not a second catalog.
+  const ALT_CAP = 240
+  const alternates: Record<string, Tuple[]> = {}
+  const altSeen: Record<string, number> = {}
+  // Who DID win, per losing pattern — the honest answer to "why no cards".
+  const outrankedBy: Record<string, Record<string, number>> = {}
   let assigned = 0
   for (const r of rows) {
-    const ref = resolveFoil({
+    const input = {
       seriesSlug: r.series_slug,
       rarity: r.rarity,
       variantKind: r.kind,
@@ -83,19 +94,106 @@ async function main(): Promise<void> {
       setName: r.set_name,
       cardName: r.card_name,
       cardId: r.card_id,
-    })
+    }
+    const ref = resolveFoil(input)
     if (ref.patternId === 'none' || ref.scope === 'none') continue
     ;(patterns[ref.patternId] ??= []).push([r.card_id, Number(r.variant_id), r.kind, ref.scope])
     assigned++
+    for (const p of citedFoilPatterns(input)) {
+      if (p === ref.patternId) continue
+      altSeen[p] = (altSeen[p] ?? 0) + 1
+      ;((outrankedBy[p] ??= {})[ref.patternId] = (outrankedBy[p]?.[ref.patternId] ?? 0) + 1)
+      const list = (alternates[p] ??= [])
+      // Reservoir-lite: keep an even spread across the catalog, not the first N.
+      if (list.length < ALT_CAP) list.push([r.card_id, Number(r.variant_id), r.kind, ref.scope])
+      else {
+        const j = Math.floor(Math.random() * altSeen[p]!)
+        if (j < ALT_CAP) list[j] = [r.card_id, Number(r.variant_id), r.kind, ref.scope]
+      }
+    }
+  }
+
+  // ── Why a pattern has no cards (R7: Chey asked this four times) ───────────
+  // Every implemented recipe with an empty PRIMARY pool gets a machine-readable
+  // verdict the canon lab can show instead of a bare "no catalog cards".
+  const usageRows = (usageIndex as { rows: { p: string; sets: string[]; at: string[] }[] }).rows
+  const catalogSetNames = new Set<string>()
+  const displayName = new Map<string, string>()
+  for (const r of rows) {
+    const n = r.set_name.toLowerCase().replace(/\s+/g, ' ').trim()
+    catalogSetNames.add(n)
+    if (!displayName.has(n)) displayName.set(n, r.set_name)
+  }
+  type Verdict = {
+    reason: string
+    detail: string
+    /** Rows kept in the sampled fallback pool (capped at ALT_CAP). */
+    alternates: number
+    /** How many printings the cited rows actually name (uncapped). */
+    citedPrintings: number
+    outrankedBy?: [string, number][]
+  }
+  const diagnosis: Record<string, Verdict> = {}
+  for (const pat of PATTERNS) {
+    if (pat.id === 'none' || (patterns[pat.id]?.length ?? 0) > 0) continue
+    const cited = usageRows.filter((u) => canonicalPatternId(u.p) === pat.id)
+    const alt = alternates[pat.id]?.length ?? 0
+    const ranked = Object.entries(outrankedBy[pat.id] ?? {}).sort((a, b) => b[1] - a[1])
+    if (alt > 0) {
+      diagnosis[pat.id] = {
+        reason: 'outranked',
+        detail:
+          `${altSeen[pat.id]!.toLocaleString()} catalog printings are named by a cited row for this pattern, but a ` +
+          `higher-ranked row wins each of them. Both claims can be true — cited rows often describe different ` +
+          `physical layers of the same card.`,
+        alternates: alt,
+        citedPrintings: altSeen[pat.id] ?? 0,
+        outrankedBy: ranked.slice(0, 4) as [string, number][],
+      }
+      continue
+    }
+    if (cited.length === 0) {
+      diagnosis[pat.id] = {
+        reason: 'no-cited-rows',
+        detail: 'No cited usage or assignment row maps this pattern to any catalog set, so the resolver can never pick it.',
+        alternates: 0,
+        citedPrintings: 0,
+      }
+      continue
+    }
+    const named = [...new Set(cited.flatMap((u) => u.sets))]
+    const inCatalog = named.filter((s) => catalogSetNames.has(s))
+    if (inCatalog.length === 0) {
+      diagnosis[pat.id] = {
+        reason: 'sets-absent',
+        detail: `Cited on ${named.length} set name(s) that do not exist in this catalog.`,
+        alternates: 0,
+        citedPrintings: 0,
+      }
+      continue
+    }
+    const classes = [...new Set(cited.flatMap((u) => u.at))]
+    const pretty = inCatalog.map((s) => displayName.get(s) ?? s)
+    const shown = pretty.slice(0, 4).join(', ') + (pretty.length > 4 ? ` +${pretty.length - 4} more` : '')
+    diagnosis[pat.id] = {
+      reason: 'class-absent',
+      detail:
+        `Cited only on the ${classes.join('/')} printings of ${shown} — and the catalog carries no such variant for ` +
+        `those sets, so no printing can resolve to it. This is a catalog gap upstream, not a resolver miss.`,
+      alternates: 0,
+      citedPrintings: 0,
+    }
   }
 
   const out = {
-    version: 1,
+    version: 2,
     generatedAt: new Date().toISOString(),
     resolverVersion: RESOLVER_VERSION,
     variantsScanned: rows.length,
     variantsAssigned: assigned,
     patterns,
+    alternates,
+    diagnosis,
   }
   const dest = join(ROOT, 'data', 'foil-pattern-cards.json')
   mkdirSync(dirname(dest), { recursive: true })
@@ -106,6 +204,9 @@ async function main(): Promise<void> {
     .join(' ')
   console.log(`wrote data/foil-pattern-cards.json — ${assigned}/${rows.length} variants across ${Object.keys(patterns).length} patterns`)
   console.log(counts)
+  for (const [p, v] of Object.entries(diagnosis)) {
+    console.log(`  empty pool: ${p} — ${v.reason} (alt ${v.alternates}) — ${v.detail}`)
+  }
 }
 
 void main()

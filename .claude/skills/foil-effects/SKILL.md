@@ -644,6 +644,83 @@ Full verdict table in `research/foil-verification.md` (R2b section). Distilled:
   field. Scope substrate attenuation by `(1 − ink)`; don't weaken canon uDarken
   values.
 
+- **R7 field notes (2026-08-08 — 15 canon-lab comments, his eye vs. banked
+  verdicts).** (1) **A mechanism built from his WORDS can still fail his EYE,
+  and the eye wins.** energy-symbols' parity checkerboard came from his own
+  earlier comment ("every other glyph in like a checkerboard pattern"); once he
+  SAW it he called it "nothing like how they are on the cards, looks awful".
+  Same for prism, where a banked corpus-vs-corpus delta pass ("~3x finer, SOLID
+  facets") produced exactly the "pixel grid" he rejected. Treat a description
+  as a hypothesis about the render, not a spec — and re-check it against him
+  once it exists. (2) **"Deterministic" has three separable causes**, and
+  fixing one is not enough: a spatial PARITY/bank rule (neighbours correlated by
+  construction), ONE shared sweep scalar (the whole field crosses its threshold
+  at the same tilt), and a SQUARE transition. The general cure is the R3-MOTION
+  cosmos ruling generalised — per-element random RESPONSE AXIS + per-element
+  random PHASE + per-element transition WIDTH, with a low-frequency `vnoise`
+  cluster field underneath so the result reads as drifting patches rather than
+  salt-and-pepper. It applied unchanged to energy-symbols, energy-symbols-ii and
+  pokeball-hologram's fades. (3) **"It has a parallax it shouldn't" is a
+  translation constant, not a layer count.** Cosmos is printed ON the sheet that
+  IS the card surface; any global `uv + tilt*k` slide reads as the foil floating
+  over the art once there is art underneath. Hard-coded motion constants that
+  only ever got judged on a BLANK card should become sliders the first time they
+  are seen composited. (4) **An achromatic term is a grey line.** Two separate
+  "grey ones showing" complaints (striped-vertical-sheen, tinsel-ii) were both
+  literal: an unconditional silver/white term drawn outside the coloured
+  activation window. Adding a white lift back "so low-luma hues still read"
+  re-creates the defect — deepen the colour with `pow` instead. Also check the
+  SECOND-ORDER lobe: at 0.4 gain a diffraction repeat is a full second
+  population of lines, and far from the window centre the ramp lands near its
+  low-chroma point, so it renders grey. (5) **"3D model, not a glyph" is a
+  shading problem, not a geometry problem.** A flat SDF gains a convincing third
+  dimension from a reconstructed hemisphere normal (`z = sqrt(1 − d²)`), a light
+  direction that follows `uTilt`, Lambert + tight specular + limb brightening,
+  and — for identity — the object's own two-tone shell. It cost ~10 lines and
+  needs no parallax; Chey's own canon pulled pokeball-hologram's parallax 2.2 →
+  0.4 in the same sitting. (6) **"I can't see it on a card" is usually the
+  FAMILY, not the gain.** rainbow-glitter sat in `flash` (uDepth 0) with a base
+  that covers 100% of the face — with no substrate a flake has nothing to be
+  brighter than. Re-measure duty when a recipe's base layer changes, and note
+  that a canon saved before R6 stores none of these keys, so a family change
+  reaches it (and is provably inert on the blank base). (7) **Discrete-step
+  motion needs a step-size dial.** radiant's hologram step was a hard-coded half
+  cell — the largest jump possible before aliasing. Exposing it as `uP4` and
+  scaling the drive by `0.5/uP4` keeps TOTAL travel per unit tilt fixed, so a
+  stored `uP1` still means what it meant. (8) **Pixel AE cannot clear a
+  canon at this harness fidelity.** A same-tree control pair diffed as much as
+  (sometimes more than) the before/after pair, exactly as the R4-COMPOSITE note
+  predicts for real-rAF tilt easing. Without the frame-stepped zero-delta
+  harness, prove "canon untouched" from CODE IDENTITY instead: recipe entry +
+  shared GLSL const + params byte-identical to HEAD, plus a zero diff on
+  `shader.ts` / `canon.ts` / `CardViewer.tsx` / `data/foil-canon/`. That is an
+  internal claim, so an internal proof is the right instrument.
+- **"Why are there no catalog cards for this one?" — the three answers
+  (R7).** The canon lab's preview pool is the baked inversion
+  `data/foil-pattern-cards.json`, and an empty pool has three genuinely
+  different causes, now separated by the builder into a `diagnosis` block the UI
+  renders verbatim: (a) **outranked** — cited rows DO name real printings, but a
+  higher-confidence row wins the resolver's single-winner contest. This is not a
+  bug: cited rows routinely describe DIFFERENT PHYSICAL LAYERS of the same card
+  (SM reverses carry both the embossed emblem layer, `energy-symbols`, high
+  confidence, and the underlying sheet rotation, `diagonal-sheen-left`, medium —
+  the research row says so in its own `conflicts` field). Do NOT flip the winner
+  to fill a pool; the builder now also bakes a capped SECONDARY pool
+  (`alternates`, via `citedFoilPatterns()` in resolver.ts) so the preview works
+  and is labelled `via: 'cited'`. (b) **class-absent** — the pattern is cited on
+  a printing CLASS the catalog does not carry. The live example: the catalog has
+  reverse variants for ex1–ex5 only, so the entire late-EX reverse era (ex6–ex16)
+  is missing and pinwheel/pokeball-hologram can never resolve. That is an
+  upstream catalog gap; say so rather than implying a resolver miss.
+  (c) **sets-absent / no-cited-rows** — nothing to resolve from at all.
+  Before concluding (b), check whether a NARROWER cited claim exists that a
+  broad set+rarity row is swallowing: `known_residuals` in
+  `research/foil-card-assignments.json` is where earlier lanes recorded claims
+  they could not target for want of a card list. Two were closable from the
+  catalog in one query (the six Holo Rare basic Energies of ex13/ex16 →
+  vertical-sheen-rainbow, 0 cards → 12). Transcribing an existing citation into
+  a cardId row is not inventing an assignment; adding a claim no source makes is.
+
 ## Masks
 
 Patterns never mask themselves — `main()` applies the layout-tier mask (see
