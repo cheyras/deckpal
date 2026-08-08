@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "cardId": "me05-001",
+  "variantId": 37184,
+  "runId": "edgetrace-tropius-1",
+  "archivedAt": "2026-08-08T02:33:56.632Z",
+  "method": "ai-corrected",
+  "files": {
+    "37184.png": "61c6f7c7ffa945fb85d0ceff91bd3944e8f09d3e969bddbac9f51656e4c407c0",
+    "37184.json": "85512502c3b72d1f140fd81063c7150796e9b3acf3311f6447cc4e131d623683",
+    "37184.prior.png": "c2f83d90c45d7bc3fdf75c23854c1ff58e772ef26e1b01370969812d72884721",
+    "37184.diff.png": "5b256104fab1bbc7cf4001dcbce7fd9c16eeeea5ec26d7429518f51cd12ced03",
+    "37184.parent.png": "d5f83d4f95f338e48da6d1d65702fd4fc16a90e1522318f13528d15e36dec5b2",
+    "37184.parent.diff.png": "8e6de95058b2d3fcdcc0b8c965b5881f531b3f60a8db0ecc7d61e0f7cccca0be"
+  }
+}
