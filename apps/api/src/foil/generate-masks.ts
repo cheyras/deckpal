@@ -39,7 +39,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile, unlink } from 'node:fs/promises';
+import { mkdir, readFile, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { encodePng, decodePng, type RgbaImage } from './png.js';
@@ -73,6 +73,7 @@ import {
   type GeneratorSource,
   type GeneratorTarget,
 } from './generator.js';
+import { boundaryDistance } from './region-learn.js';
 
 const MASK_W = 490;
 const MASK_H = Math.round((MASK_W * 337) / 245); // 674 — matches MaskEditor.tsx
@@ -155,6 +156,18 @@ function agreement(a: Uint8Array, b: Uint8Array): { agreement: number; addedPx: 
   }
   const union = unchanged + added + removed;
   return { agreement: union === 0 ? 1 : Number((unchanged / union).toFixed(4)), addedPx: added, removedPx: removed, unchangedPx: unchanged };
+}
+
+/** Alpha plane → the RGBA a mask PNG stores: MASK_TINT in RGB, coverage in alpha. */
+function tintAlpha(alpha: Uint8Array): Uint8Array {
+  const rgba = new Uint8Array(alpha.length * 4);
+  for (let i = 0; i < alpha.length; i++) {
+    rgba[i * 4] = 255;
+    rgba[i * 4 + 1] = 45;
+    rgba[i * 4 + 2] = 100; // display only — the ALPHA is the mask
+    rgba[i * 4 + 3] = alpha[i]!;
+  }
+  return rgba;
 }
 
 /** Nearest-neighbour resample of an alpha plane (masks are ~binary). */
@@ -255,7 +268,23 @@ async function evaluate(): Promise<void> {
     return;
   }
 
-  const rows: { card: string; rect: number; gen: number | null; delta: number | null; note: string }[] = [];
+  // THE BAR — stated before any number for the generator under test existed
+  // (scratchpad BAR.md, repeated verbatim in DECISIONS 2026-08-08): a class is ready
+  // for a batch iff mean IoU >= 0.90 AND no held-out card is below 0.85. Boundary
+  // distance is a SECONDARY diagnostic and never promotes a class: the previous lane
+  // proved edge metrics measure precision, not correctness.
+  const barMean = Number(arg('bar-mean') ?? '0.90');
+  const barMin = Number(arg('bar-min') ?? '0.85');
+
+  interface EvalRow {
+    card: string;
+    rect: number;
+    gen: number | null;
+    delta: number | null;
+    bnd: { mean: number; p95: number; max: number } | null;
+    note: string;
+  }
+  const rows: EvalRow[] = [];
   for (const e of held) {
     const artwork = loadArtwork(serie, e.cardId);
     const humanPng = await readFile(join(ROOT, e.files.mask));
@@ -264,13 +293,24 @@ async function evaluate(): Promise<void> {
     const m = maskForScope(layouts, eraId, scope);
     const rectAlpha = rectCoverage(MASK_W, MASK_H, m.rect, m.radius, m.invert);
     const rectScore = agreement(rectAlpha, human).agreement;
+    const card = `${e.cardId}/${e.variantId}`;
     if (!artwork) {
-      rows.push({ card: `${e.cardId}/${e.variantId}`, rect: rectScore, gen: null, delta: null, note: 'scan not in image cache' });
+      rows.push({ card, rect: rectScore, gen: null, delta: null, bnd: null, note: 'scan not in image cache' });
       continue;
     }
+    // LEAVE-ONE-OUT: the held-out card's own mask is pulled out of the pool the
+    // generator learns from. Without that the "evaluation" is the model grading its
+    // own homework — the same failure `selectExemplars` exists to prevent.
     const exemplars = await buildExemplars(layouts, eraId, scope, serie, { cardId: e.cardId, variantId: e.variantId });
-    if (exemplars.length < 1) {
-      rows.push({ card: `${e.cardId}/${e.variantId}`, rect: rectScore, gen: null, delta: null, note: 'no other exemplar to learn from' });
+    if (exemplars.length < gen.minExemplars) {
+      rows.push({
+        card,
+        rect: rectScore,
+        gen: null,
+        delta: null,
+        bnd: null,
+        note: `only ${exemplars.length} other exemplar(s); ${gen.name} needs ${gen.minExemplars}`,
+      });
       continue;
     }
     const out = gen.generate({
@@ -278,33 +318,57 @@ async function evaluate(): Promise<void> {
       exemplars,
     });
     const genScore = agreement(out.alpha, human).agreement;
+    // --dump writes what was actually scored, so review screenshots come out of the
+    // evaluated code path rather than a re-implementation that can quietly diverge.
+    const dumpDir = arg('dump');
+    if (dumpDir) {
+      await mkdir(dumpDir, { recursive: true });
+      const base = join(dumpDir, `${e.cardId}-${e.variantId}`);
+      await writeFile(`${base}.loo.png`, encodePng({ width: MASK_W, height: MASK_H, rgba: tintAlpha(out.alpha) }));
+      await writeFile(`${base}.human.png`, encodePng({ width: MASK_W, height: MASK_H, rgba: tintAlpha(human) }));
+      await writeFile(`${base}.rule.png`, encodePng({ width: MASK_W, height: MASK_H, rgba: tintAlpha(rectAlpha) }));
+    }
     rows.push({
-      card: `${e.cardId}/${e.variantId}`,
+      card,
       rect: rectScore,
       gen: genScore,
       delta: Number((genScore - rectScore).toFixed(4)),
+      bnd: boundaryDistance(out.alpha, human, MASK_W, MASK_H),
       note: out.notes,
     });
   }
-  console.log('card                 rect-only   generator   delta');
+  console.log('card                 rect-only   generator     delta    bnd mean      p95');
   for (const r of rows) {
     console.log(
-      `${r.card.padEnd(20)} ${r.rect.toFixed(4)}      ${r.gen === null ? '  —   ' : r.gen.toFixed(4)}      ${
-        r.delta === null ? '—' : (r.delta >= 0 ? '+' : '') + r.delta.toFixed(4)
-      }`,
+      `${r.card.padEnd(20)} ${r.rect.toFixed(4)}      ${r.gen === null ? '  —   ' : r.gen.toFixed(4)}    ${
+        r.delta === null ? '   —   ' : ((r.delta >= 0 ? '+' : '') + r.delta.toFixed(4)).padStart(8)
+      }  ${r.bnd ? `${r.bnd.mean.toFixed(2).padStart(8)}px ${r.bnd.p95.toFixed(1).padStart(6)}px` : '       —         —'}`,
     );
     if (r.note) console.log(`  ↳ ${r.note}`);
   }
   const scored = rows.filter((r) => r.gen !== null);
-  if (scored.length) {
-    const mr = scored.reduce((a, r) => a + r.rect, 0) / scored.length;
-    const mg = scored.reduce((a, r) => a + (r.gen ?? 0), 0) / scored.length;
-    console.log(`\nmean rect-only ${mr.toFixed(4)}  →  mean generator ${mg.toFixed(4)}  (delta ${(mg - mr >= 0 ? '+' : '') + (mg - mr).toFixed(4)})`);
-    console.log(
-      `\nn=${held.length}. Leave-one-out at this n is a smoke test, NOT validation — a positive delta here\n` +
-        'is evidence the pipeline runs, not evidence the generator generalizes.',
-    );
+  if (!scored.length) {
+    console.log('\nnothing scored — no verdict.');
+    return;
   }
+  const mr = scored.reduce((a, r) => a + r.rect, 0) / scored.length;
+  const mg = scored.reduce((a, r) => a + (r.gen ?? 0), 0) / scored.length;
+  const worst = scored.reduce((a, r) => ((r.gen ?? 1) < (a.gen ?? 1) ? r : a));
+  console.log(
+    `\nmean rect-only ${mr.toFixed(4)}  →  mean generator ${mg.toFixed(4)}  (delta ${(mg - mr >= 0 ? '+' : '') + (mg - mr).toFixed(4)})`,
+  );
+  const pass = mg >= barMean && (worst.gen ?? 0) >= barMin;
+  console.log(
+    `\nBAR (stated before this generator produced a single number): mean IoU >= ${barMean.toFixed(2)}, no card below ${barMin.toFixed(2)}.\n` +
+      `  mean ${mg.toFixed(4)} ${mg >= barMean ? '>=' : '<'} ${barMean.toFixed(2)}    worst ${worst.card} ${(worst.gen ?? 0).toFixed(4)} ${
+        (worst.gen ?? 0) >= barMin ? '>=' : '<'
+      } ${barMin.toFixed(2)}\n` +
+      `  VERDICT: ${pass ? 'PASS — a batch for this class is justified.' : 'FAIL — do NOT generate a batch for this class.'}`,
+  );
+  console.log(
+    `\nn=${held.length}, so this is a small test — but it is held-out, and it is the only honest one available.\n` +
+      'A positive delta over the rect says the pipeline runs; only the BAR says whether to ship.',
+  );
 }
 
 // ── run: write a labeled, reversible trial batch ───────────────────────────
@@ -406,14 +470,7 @@ async function run(): Promise<void> {
     if (source && existing?.prior?.window) target.window = existing.prior.window;
     const out = gen.generate({ target, exemplars, source });
 
-    const rgba = new Uint8Array(MASK_W * MASK_H * 4);
-    for (let i = 0; i < out.alpha.length; i++) {
-      rgba[i * 4] = 255;
-      rgba[i * 4 + 1] = 45;
-      rgba[i * 4 + 2] = 100; // MASK_TINT — display only
-      rgba[i * 4 + 3] = out.alpha[i]!;
-    }
-    const png = encodePng({ width: MASK_W, height: MASK_H, rgba });
+    const png = encodePng({ width: MASK_W, height: MASK_H, rgba: tintAlpha(out.alpha) });
 
     const prior: MaskPrior = {
       source: 'ai',
@@ -448,6 +505,20 @@ async function run(): Promise<void> {
     if (dry) {
       console.log(`[dry] ${t.cardId}/${t.variantId}  conf=${String(out.confidence)}  vs-rect agreement=${rectScore.agreement}`);
       if (out.notes) console.log(`  ↳ ${out.notes}`);
+      // --dump makes review screenshots come out of the REAL code path instead of a
+      // re-implementation that can quietly diverge from what would be written.
+      const dumpDir = arg('dump');
+      if (dumpDir) {
+        await mkdir(dumpDir, { recursive: true });
+        const base = join(dumpDir, `${t.cardId}-${t.variantId}`);
+        await writeFile(`${base}.proposal.png`, png);
+        await writeFile(`${base}.rule.png`, encodePng({ width: MASK_W, height: MASK_H, rgba: tintAlpha(rasterizePriorAlpha(MASK_W, MASK_H, prior)) }));
+        await writeFile(
+          `${base}.report.json`,
+          JSON.stringify({ card: t, confidence: out.confidence, notes: out.notes, vsRect: rectScore, report: out.report ?? null }, null, 2),
+        );
+        console.log(`  ↳ dumped ${base}.{proposal,rule}.png + .report.json`);
+      }
       // A dry run's whole job is showing the reviewer WHICH parts of the
       // boundary the generator would move and why — the notes are the summary,
       // this is the evidence. Refusals are never truncated; they are the part a
@@ -553,6 +624,12 @@ async function revert(): Promise<void> {
     if (e.sidecar.derivation_method !== 'ai' || g?.runId !== runId) continue;
     const p = maskPathsIn(MASKS_DIR, e.cardId, e.variantId);
     for (const f of [p.png, p.json, p.prior, p.diff, p.parent, p.parentDiff]) await unlink(f).catch(() => undefined);
+    // …and the card directory the run created, if it is now empty. "Byte-identical"
+    // has to mean the TREE too: an empty `data/foil-masks/me05-014/` left behind is a
+    // card that looks masked to anything that lists the directory, and `readCorpus`
+    // walks directories. Only ever removed when the run created it and nothing else
+    // (no sibling variant, no `superseded/` archive) lives there.
+    await rmdir(join(MASKS_DIR, e.cardId)).catch(() => undefined);
     removed++;
     console.log(`removed ${e.cardId}/${e.variantId} (this run created it; there was nothing underneath)`);
   }

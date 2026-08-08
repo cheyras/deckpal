@@ -296,23 +296,34 @@ rect, scope, eraId }`. Everything is supplied — a generator fetches nothing.
 (0..1 or null if it honestly has none), notes (shown to the reviewer) }`.
 
 ```bash
-# 1. ALWAYS evaluate before generating — leave-one-out against the human corpus
+# 1. ALWAYS evaluate before generating — leave-one-out against the human corpus.
+#    It prints a per-card IoU + boundary-distance table and a PASS/FAIL against the bar.
 pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts eval \
-  --generator window-artgate --era wotc --scope window --serie base
-# 2. only if that justifies it: a small, labeled, reversible batch (cap 10)
-… run --era wotc --scope window --serie base --series-slug base \
-      --run-id <id> --cards <cardId:variantId,…> [--dry-run]
+  --generator region-learn --era modern-sv --scope sheet --serie me \
+  [--bar-mean 0.90 --bar-min 0.85] [--dump <dir>]
+# 2. only if that PASSES: a small, labeled, reversible batch (cap 10)
+… run --generator region-learn --era modern-sv --scope sheet --serie me \
+      --series-slug mega-evolution --run-id <id> --cards <cardId:variantId,…> \
+      [--dry-run --dump <dir>]
 # 2b. REFINERS (`requiresSource`, e.g. edge-trace / line-snap) rework the mask already there
 …  run --generator edge-trace --refine --era modern-sv --scope sheet \
       --serie me --series-slug mega-evolution --run-id <id> --cards <cardId:variantId>
 # 3. undo an entire run — RESTORES what it superseded (byte-for-byte),
-#    deletes only masks the run created from nothing
+#    deletes only masks the run created from nothing (and the empty card dir with them)
 … revert --run-id <id>
 … archives [--run-id <id>]     # what is currently undoable, and from when
 # 4. MEASURE the result instead of asserting it — edge adherence, any set of masks
 … adherence --serie me --card me05-001 [--probe luminance|tensor] \
       --masks "his=data/foil-masks/me05-001/37184.png,new=/abs/path.png"
 ```
+
+> **STATE THE BAR BEFORE YOU SEE THE NUMBERS.** `eval` takes `--bar-mean` / `--bar-min`
+> and prints a verdict, so the threshold is an input, not a story told afterwards. The
+> shipped default — mean IoU ≥ 0.90 with no held-out card below 0.85 — is the one
+> `foil/mask-learn` used, written down before `region-learn@1` produced a single number.
+> **Boundary distance and edge adherence never promote a class.** They measure precision;
+> a mask can sit perfectly on an edge that is 40px from where anyone meant (DECISIONS
+> 2026-08-08, `edgetrace-me05-batch-1`).
 
 > **Which refiner: `edge-trace@1` is the default. `line-snap@1` is the fallback.**
 > line-snap stays because it is cited in the corpus lineage and its refusal rules are still
@@ -387,6 +398,84 @@ Two traps it exists to avoid, both locked by `__tests__/edge-trace.test.ts`:
   centres at `x+0.5`; a gradient array indexes centres at integer `x`. All artwork lookups
   convert in one place (`edgeAlong`, `luminanceProbe`, `tensorProbe`). Get it wrong and the
   boundary sits half a pixel off the edge it claims to be on, invisibly.
+
+### `region-learn@1` — the REGIONS are learned, the geometry is traced (`apps/api/src/foil/region-learn.ts`)
+
+The other half of the loop, and the first **proposer** rather than refiner. It exists
+because the previous lane measured the thing everyone assumed: seeding `edge-trace` from
+the era rectangle failed on all five me05 reverses, and **99.7% of the gap between the
+layout rule and Chey's intent is REGION decisions, not boundary crispness** (DECISIONS
+2026-08-08, run `edgetrace-me05-batch-1`). A tracer crisps a boundary; it can never add or
+remove a region. So:
+
+1. **PARTITION** the card face into five structural classes, from the card's **own
+   printing** (the era rect only bootstraps the search):
+
+   | class | what it is |
+   |---|---|
+   | `border` | achromatic ring connected to the outside of the card — the silver frame edge |
+   | `furniture` | achromatic printed elements INSIDE the frame: species strip, stage tag, evolution medallion, "evolves from" bar, copyright footer, the WOTC stage box |
+   | `frameBody` | the coloured frame body — the card's chromatic field outside the illustration |
+   | `windowBackground` | inside the illustration box, the field colour-connected to the box's own inner edge (on a WOTC holo: the starlight) |
+   | `windowSubject` | inside the illustration box, everything else (the Pokémon) |
+
+2. **READ THE POLICY** off his masks: per class, what share of its pixels did he make
+   foil? >50% ⇒ that class carries foil. Where his exemplars agree, the agreement IS the
+   policy; where they split it lands in `RegionPolicy.disagreements` with both numbers and
+   is **never averaged into a decision** (`PolicyVote.disputed`, threshold `disagreeSpread`).
+3. **APPLY** to a new card: partition it the same way, union the classes the policy voted
+   for, clean up, then hand the boundary to `edge-trace` for the sub-pixel geometry.
+
+Nothing about Pokémon is hard-coded. The proof is that the vote comes out **opposite** for
+the two classes in the corpus, from the same code — locked by `__tests__/region-learn.test.ts`.
+
+#### HOW CHEY MASKS — the policy, in plain words (this is the reusable part)
+
+> **`modern-sv` / `sheet` (reverse holo)** — *foil = the coloured frame body, and nothing
+> else.* Foil covers the printed colour field: name bar, HP, type icon, attack area,
+> weakness/resistance/retreat row, flavour text, illustrator and set-number line. It stops
+> at **every piece of silver furniture** and at the illustration.
+> **The silver border ring is NOT foil** — 0.2% / 0.2% / 0.4% of its pixels across his
+> three masks; he stops at the inner edge of the coloured frame all the way round,
+> including the rounded corners, and the copyright line below the frame stays bare. (This
+> was flagged as "his call, not a measurement". It is now a measurement.) Also excluded:
+> the species strip *including its flared tails*, the BASIC/STAGE tag, the evolution
+> medallion *and the little sprite inside it*, and the "Evolves from X" bar.
+> Physically: **the reverse foil is under the coloured ink, not under the silver** — which
+> is why CHROMA is the signal here and luminance is not.
+>
+> **`wotc` / `window` (classic holo)** — *foil = the illustration's own background, minus
+> the subject silhouette, minus the stage/evolution box where it overlaps the window.* The
+> card stock and yellow border carry none. Confirmed 4/4 (`base1-5/6/7/8`); the stage-box
+> clause is visible on both evolved cards and inapplicable on both Basics.
+
+Both eras' full numbers, evidence and caveats: `data/foil-masks/codified/<eraId>.md`.
+
+#### The bevel side — a finding worth carrying to every era
+
+An illustration box is framed by a bevel, so its edge is **two parallel printed lines** a
+few px apart, both real, both strong. Which one the foil boundary sits on is not a
+detection question — it is **which side the foil is on**: `window` scope (foil inside)
+stops at the bevel's INNER line, `sheet` scope (foil outside) at its OUTER line. Taking
+"the strongest peak" picks between them at random card by card; that is what put
+`base1-6`'s detected window top 8px wrong and collapsed its segmentation to nothing.
+`detectWindow(..., foilInsideWindow)` takes the side explicitly.
+
+#### Where it stands, measured
+
+`modern-sv/sheet` **PASSES** the bar at leave-one-out mean IoU **0.9691** (worst 0.9519,
+rect-only 0.7566) — batch `regionlearn-me05-1` shipped, 8 cards, `ai`/unreviewed.
+`wotc/window` **FAILS** at **0.8971** (worst `base1-8` Machamp 0.8599) — no batch. Every
+frame-level decision on WOTC is right; the whole error is the **subject silhouette**, and
+it is worst where the subject's colour is close to its own background. That is the one
+region this approach cannot yet segment, and it is where the next hand mask should go.
+
+**Two caveats a future lane must not lose.** (a) The scalar params (chroma threshold,
+morph radius, background sigma) were chosen while looking at the corpus; only the region
+POLICY is properly held out, so a reported LOO number is a ceiling, not a floor. (b) A
+coloured island marooned inside silver furniture is dropped as not-frame — right for a
+medallion sprite, an untested extrapolation for a narrow sliver trapped between a
+medallion and the border ring.
 
 ### Measuring a mask instead of asserting it — edge adherence
 
