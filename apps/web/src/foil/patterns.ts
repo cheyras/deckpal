@@ -333,14 +333,28 @@ float cosmosCross(vec2 sp, float w) {
 // direction lights/recolors a random subset. Cluster activation (low-freq
 // phase over cell ids) stays underneath so neighbors still tend to pop
 // together. At tilt 0 the render is unchanged — his canon appearance holds.
+//
+// R7 2026-08-08 (Chey pjqqrh, seen COMPOSITED on a card): "it feels like
+// cosmos has a parallax effect that it does not have in real life. The
+// bubbles should just feel like they're on the surface of the card, maybe
+// with a very tiny amount of parallax." Cosmos is printed ON the foil sheet
+// that IS the card surface — it cannot slide against the artwork. The R3
+// field slide (a hard-coded 0.085 UV = 8.5% of the card, plus a ±15%
+// per-layer differential = the actual inter-layer parallax) is now the uP4
+// slider "Surface drift", defaulted to 0.012 — a whisper, his "very tiny
+// amount". Old canon files carry no uP4 and inherit that default, and the
+// term is exactly zero at rest either way, so the resting canon render is
+// unchanged; only the motion is.
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   vec3 acc = vec3(0.0);
+  float drift = uP4;
   // solid orb layers over a dark field — most orbs sit near-invisible; a
   // cluster brightens in place when its facet phase aligns with the tilt.
   for (int i = 0; i < 3; i++) {
     float fi = float(i);
-    // the "huge shift": whole field slides with tilt, per-layer depth bias
-    vec2 suv = uv + tilt * 0.085 * (0.85 + 0.15 * fi);
+    // surface drift: the field barely moves, and the per-layer differential
+    // (the parallax proper) is a fraction of that again
+    vec2 suv = uv + tilt * drift * (0.92 + 0.08 * fi);
     float sc = (9.0 + fi * 6.5) * uP0 * uScale;
     vec2 g = suv * vec2(1.0, CARD_ASPECT) * sc + hash22(vec2(fi * 3.1, fi + 11.0)) * 17.0;
     vec2 id = floor(g);
@@ -364,8 +378,8 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   }
   acc *= 0.5 * uP3;
   // pinprick twinkles: tiny 4-point crosses flashing individually in very
-  // tight windows — same per-dot random axes + the global field shift
-  vec2 suv = uv + tilt * 0.085;
+  // tight windows — same per-dot random axes + the (now tiny) surface drift
+  vec2 suv = uv + tilt * drift;
   vec2 g = suv * vec2(1.0, CARD_ASPECT) * 30.0 * uScale;
   vec2 id = floor(g);
   vec2 f = fract(g) - 0.5;
@@ -396,6 +410,9 @@ const COSMOS_PARAMS: PatternParam[] = [
   { key: 'uP1', label: 'Shimmer rate', min: 0.2, max: 4, step: 0.05, default: 1.1 },
   { key: 'uP2', label: 'Twinkle gain', min: 0, max: 3, step: 0.05, default: 1.2 },
   { key: 'uP3', label: 'Bubble gain', min: 0, max: 3, step: 0.05, default: 1.1 },
+  // R7 (pjqqrh): how far the bubble field slides across the card with tilt.
+  // 0 = welded to the surface; 0.085 = the R3 field slide he read as parallax.
+  { key: 'uP4', label: 'Surface drift', min: 0, max: 0.09, step: 0.002, default: 0.012 },
 ]
 
 /**
@@ -549,16 +566,26 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   float wc = clamp(sweep * uP1 * 0.062, -0.10, 0.10);
   float d1 = abs(ang - wc) / 0.038;
   float win = exp(-d1 * d1 * 1.2) * smoothstep(2.0, 1.1, d1);
+  // R7 (w0zk2j): the SECOND-ORDER lobe is the real source of his "gray ones".
+  // At 0.4 gain it lit a whole second population of stripes on the far side of
+  // the card, and the hue ramp that far from the window centre lands near the
+  // ramp's low-chroma point — so they rendered as a field of grey lines running
+  // the length of the card while the "real" lit group was elsewhere. 0.16 keeps
+  // the next diffraction order as a hint instead of a second line-work field.
   float d2 = abs(ang - wc + sign(wc + 1e-3) * 0.18) / 0.034;
-  float w = win + exp(-d2 * d2 * 1.2) * smoothstep(2.0, 1.1, d2) * 0.4;
+  float w = win + exp(-d2 * d2 * 1.2) * smoothstep(2.0, 1.1, d2) * 0.16;
   // hue runs ACROSS the lit group; constant along a stripe at any instant
   // pow 1.35 deepens the ramp so lit stripes stay SATURATED — raw gain
   // clips to white through the fragment clamp (eyeball on the Leon exemplar)
   vec3 col = pow(hueRamp(uHueShift + uHueSpread * ((ang - wc) * 8.0 + 0.2 * sweep)), vec3(1.35));
   float on = (0.45 + 0.55 * cl) * (0.65 + 0.35 * srnd.x);
-  // unlit stripes keep a faint silvery presence; 1.9 gain — screen-blend
-  // over the mid-bright SWSH art needs more punch than the blank card
-  return (stripe * on * w * col * 1.7 + vec3(stripe * 0.045)) * uP3;
+  // R7 2026-08-08 (Chey w0zk2j): "Lines should only show when the color band
+  // overlaps them. Currently there are gray ones showing as well." Two sources
+  // of grey line-work removed: the R3 unconditional silver term
+  // (vec3(stripe * 0.045)), which drew EVERY stripe on the face at every angle,
+  // and the second-order lobe's gain (above). No white lift is added back — an
+  // achromatic term here is precisely what reads as a grey stripe.
+  return stripe * on * w * col * 1.9 * uP3;
 }`
 }
 
@@ -877,7 +904,7 @@ float esStar(vec2 p) {
 float esLeaf(vec2 p) {
   return esCircle(p - vec2(0.13, 0.0), 0.29) * esCircle(p + vec2(0.13, 0.0), 0.29);
 }
-vec3 glyphLayer(vec2 uv, float scale, float seed, float sweep) {
+vec3 glyphLayer(vec2 uv, float scale, float seed, vec2 tilt, float sweep) {
   vec2 g = uv * vec2(1.0, CARD_ASPECT) * scale;
   vec2 id = floor(g);
   vec2 f = fract(g) - 0.5;
@@ -898,20 +925,28 @@ vec3 glyphLayer(vec2 uv, float scale, float seed, float sweep) {
           : kind < 0.75 ? esStar(p)
           : esLeaf(p);
   }
-  // two interleaved visibility banks (pta96a): random membership, one bank
-  // near-invisible while the other is lit; banks SWAP as tilt progresses,
-  // per-glyph phase jitter keeps the handoff sporadic
-  float bank = step(0.5, hash21(id + seed + 4.2));
-  float ph = TAU * sweep * uP1 * 0.45 + PI * bank + (rnd.x - 0.5) * 1.3;
-  float vis = 0.5 + 0.5 * cos(ph);
-  float lum = 0.06 + 0.94 * pow(vis, 2.6);
+  // R7 2026-08-08: the two-BANK swap is gone here too. energy-symbols-ii
+  // shared the defect family Chey rejected on energy-symbols (l7ejtl/m74r55):
+  // a binary bank membership flipped by ONE shared sweep scalar is a
+  // deterministic half-and-half division however the membership is chosen —
+  // random banks only make the checkerboard irregular, not organic. Same
+  // replacement: per-glyph random RESPONSE AXIS (any tilt direction lights a
+  // ragged subset), per-glyph transition width (fades, not flips), and a
+  // low-frequency cluster field so neighbours drift together. uP1 keeps its
+  // meaning (how fast the lit population turns over with tilt).
+  vec2 dirG = normalize(hash22(id + seed + 4.2) - 0.5 + vec2(1e-4));
+  float cluster = vnoise(id * 0.24 + seed * 0.7) * 1.35;
+  float ph = cluster + rnd.x * 0.9 + dot(tilt, dirG) * uP1 * 0.5;
+  float soft = mix(1.6, 4.6, fract(rnd.y * 3.31));
+  float vis = pow(max(0.0, 0.5 + 0.5 * cos(TAU * ph)), soft);
+  float lum = 0.06 + 0.94 * vis;
   float hue = uHueShift + uHueSpread * (rnd.y + 0.25 * (uv.x + uv.y) + 0.9 * sweep);
   return exists * glyph * lum * hueRamp(hue);
 }
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x + tilt.y * 0.6;
-  vec3 acc = glyphLayer(uv, uP0 * 4.0 * uScale, 5.0, sweep)
-           + glyphLayer(uv, uP0 * 7.0 * uScale, 17.0, sweep + 0.4) * 0.8;
+  vec3 acc = glyphLayer(uv, uP0 * 4.0 * uScale, 5.0, tilt, sweep)
+           + glyphLayer(uv, uP0 * 7.0 * uScale, 17.0, tilt, sweep + 0.4) * 0.8;
   // sparkle dots interspersed between the symbols
   vec2 g = uv * vec2(1.0, CARD_ASPECT) * uP0 * 16.0 * uScale;
   vec2 id = floor(g);
@@ -1208,16 +1243,26 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   float lines = tinselLines(uv, uP0 * 75.0 * uScale, 3.7, uP2)
               + tinselLines(uv, uP0 * 47.0 * uScale, 11.9, uP2) * 0.8
               + tinselLines(uv, uP0 * 110.0 * uScale, 23.3, uP2) * 0.6;
-  // vertical rainbow band: gaussian window over x, sliding with the sweep
+  // vertical rainbow band: gaussian window over x, sliding with the sweep.
+  // R7 (Chey b8klnq): uP4 exposes the band WIDTH (was the hard-coded 0.014).
+  // Default raised to 0.024 (σ ≈ 0.155, ~45% of the face) — with the line-work
+  // now gated to the band, 0.014 left too little of the card doing anything.
   float bx = uv.x - 0.5 - sweep * uP1 * 0.32;
-  float band = exp(-bx * bx / 0.014);
+  float band = exp(-bx * bx / max(uP4, 0.001));
   // hue runs ACROSS the band width (spectral order preserved), tiny per-line
   // jitter keeps it foil-organic
   float r2 = hash21(vec2(floor(uv.y * uP0 * 75.0 * uScale), 9.1));
   float hue = uHueShift + uHueSpread * (bx * 2.6 + r2 * 0.12);
-  // silvery everywhere; the band recolors + brightens the lines only
-  vec3 lineCol = mix(vec3(0.60, 0.61, 0.63), hueRamp(hue) * 1.35, band);
-  return lines * lineCol * uP3;
+  // R7 2026-08-08 (Chey b8klnq): "pretty awful, way too busy - lines are super
+  // stark. Line should only show where color is overlapping." The R3-MISC
+  // model drew every line at a bright silver 0.60 across the WHOLE face and
+  // only recoloured them inside the band — so the line-work was at full
+  // contrast everywhere, which is both the starkness and the business. The
+  // silver term is now 0.10 (a hint of sheet, not a drawn line) and the whole
+  // line-work is gated by the band: outside the colour there is nothing to
+  // see, which is the same ruling he gave for tinsel I in the same sitting.
+  vec3 lineCol = hueRamp(hue) * 1.35 + vec3(0.10);
+  return lines * lineCol * band * uP3;
 }`
 
 // #16 Cosmos III (smooth/HD) — perfectly smooth AA discs only (no crosses, no
@@ -1323,10 +1368,21 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   // hold 60% / crossfade 40% (R3-MOTION round 2): with a 76%-wide fade the
   // still-frame sequence read as a continuous dissolve-slide; a longer hold
   // makes positions PERSIST between distinct fade-out/fade-in swaps
-  float t = (tilt.y + 0.35 * tilt.x) * uP1;
+  //
+  // R7 2026-08-08 (Chey gx8t8q): "General effect is good, but the positional
+  // difference of the diagonal grid between 'frames' in the animation are too
+  // far apart." The R3 step was a hard-coded HALF CELL — the largest visible
+  // jump the lattice can make short of aliasing back onto itself. uP4 is now
+  // the step size, and the drive is scaled by (0.5 / uP4) so the TOTAL travel
+  // per unit tilt is unchanged: his canon uP1 2.2 still moves the grid the
+  // same distance across a sweep, in ~3x as many ~3x smaller steps. Canon
+  // files carry no uP4 and inherit the new default, so his tuning is intact
+  // and the fix reaches him.
+  float stepSize = max(uP4, 0.02);
+  float t = (tilt.y + 0.35 * tilt.x) * uP1 * (0.5 / stepSize);
   float i0 = floor(t);
   float f = smoothstep(0.30, 0.70, fract(t));
-  vec2 stepQ = vec2(-0.5, 0.5);
+  vec2 stepQ = vec2(-stepSize, stepSize);
   vec3 a = radiantLattice(q0 + stepQ * i0, env, uv, sweep);
   vec3 b = radiantLattice(q0 + stepQ * (i0 + 1.0), env, uv, sweep);
   return mix(a, b, f) * uP3;
@@ -1334,6 +1390,18 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 
 // #27 Rainbow glitter — fine dense micro-glitter twinkling in place OVER a
 // smooth rainbow-mirror base whose broad continuous bands sweep with tilt.
+// R7 2026-08-08 — Chey m6islq: "Composited on a card I can't see the glitter
+// at all." Three compounding causes, all fixed here:
+//   (1) the flakes were tiny (disc radius 0.20 of a 90-cell grid ≈ 1-2 px on
+//       a phone) and only ~a few percent were lit at any tilt (pow 8 window),
+//   (2) they were pure hueRamp colour — a saturated blue flake over bright
+//       artwork loses to the additive law's luminance-headroom knee, where a
+//       WHITE-lifted core survives (the R3-GLYPH "a lit bank must be
+//       white-lifted, not just bright" lesson, third confirmation),
+//   (3) the recipe was in the FLASH family (uDepth 0) even though its rainbow
+//       base covers the whole face — with no substrate there is no dark half
+//       for a flake to be brighter THAN, so the glitter had nothing to read
+//       against on a card. It is a FIELD recipe; see the entry below.
 const RAINBOW_GLITTER_GLSL = `
 vec3 rgSparkle(vec2 uv, float scale, float seed, vec2 tilt, float sweep) {
   vec2 g = uv * vec2(1.0, CARD_ASPECT) * scale;
@@ -1341,19 +1409,27 @@ vec3 rgSparkle(vec2 uv, float scale, float seed, vec2 tilt, float sweep) {
   vec2 f = fract(g) - 0.5;
   vec2 rnd = hash22(id + seed);
   vec2 n = normalize(rnd - 0.5 + 1e-4);
-  float align = dot(n, tilt) * 2.6 - (rnd.x - 0.5) * 2.0;
-  float on = pow(max(0.0, 1.0 - abs(align)), 8.0);
-  float d = length(f - (rnd - 0.5) * 0.5);
-  vec3 col = hueRamp(uHueShift + rnd.y * 0.9 + 0.35 * sweep);
-  return on * smoothstep(0.20, 0.05, d) * col;
+  float align = dot(n, tilt) * 2.2 - (rnd.x - 0.5) * 1.6;
+  float on = pow(max(0.0, 1.0 - abs(align)), 6.0);
+  vec2 sp = f - (rnd - 0.5) * 0.5;
+  float d = length(sp);
+  // a flake is a bright core with a short 4-point flare, not a dot
+  float core = smoothstep(0.26, 0.03, d);
+  float flare = pow(max(0.0, 1.0 - abs(sp.x) * 3.4), 3.0) * pow(max(0.0, 1.0 - abs(sp.y) * 11.0), 3.0)
+              + pow(max(0.0, 1.0 - abs(sp.y) * 3.4), 3.0) * pow(max(0.0, 1.0 - abs(sp.x) * 11.0), 3.0);
+  // white-lifted colour: survives the on-card headroom knee over bright art
+  vec3 col = mix(vec3(1.0), hueRamp(uHueShift + rnd.y * 0.9 + 0.35 * sweep), 0.62);
+  return on * (core + flare * 0.32) * col;
 }
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x + tilt.y * 0.7;
-  // broad continuous rainbow-mirror bands
+  // broad continuous rainbow-mirror bands — the BASE the glitter sits on, so
+  // it stays a shade under the flakes rather than competing with them
   float ph = uv.x * 0.55 + uv.y * 0.40 + sweep * uP1 * 0.5;
-  vec3 base = hueRamp(uHueShift + uHueSpread * ph) * (0.20 + 0.30 * pow(0.5 + 0.5 * cos(TAU * ph * 0.7), 2.0));
-  vec3 glit = rgSparkle(uv, 90.0 * uP0 * uScale, 1.0, tilt, sweep)
-            + rgSparkle(uv, 150.0 * uP0 * uScale, 7.0, tilt, sweep) * 0.7;
+  vec3 base = hueRamp(uHueShift + uHueSpread * ph) * (0.15 + 0.26 * pow(0.5 + 0.5 * cos(TAU * ph * 0.7), 2.0));
+  // coarser grids: 90/150 → 62/104 cells, so a flake is a visible speck
+  vec3 glit = rgSparkle(uv, 62.0 * uP0 * uScale, 1.0, tilt, sweep)
+            + rgSparkle(uv, 104.0 * uP0 * uScale, 7.0, tilt, sweep) * 0.7;
   return (base + glit * uP2) * uP3;
 }`
 
@@ -1426,33 +1502,44 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 // stay organic) whose phase travels with tilt, so colors migrate through
 // the moving spotlight. Crystal Energy frame-05 confirms: magenta/green/
 // yellow bands INSIDE the lit region, dark gray mirror outside it.
+// R7 2026-08-08 — Chey rvbl2y, third pass and the first that reads his words
+// literally: "This one is still pretty fundamentally wrong. The spotlight and
+// the sheen should be banded blue -> green -> red from left to right, fairly
+// vivid." Both earlier readings put the colour in a RADIAL coordinate (R2
+// blotch field, R3 concentric rings inside the lobe) — the Crystal Energy
+// reference frame-03 is unambiguous: violet/blue at the LEFT edge, green
+// through the middle, orange/red at the RIGHT, across the whole face, with the
+// travelling spotlight riding on top of that fixed spectral axis. So:
+//   * the hue coordinate is card X (plus a waviness wobble so the band edges
+//     stay organic, and a slow slide with tilt so the spectrum breathes),
+//   * BOTH light features carry it — the broad sheen wash AND the spotlight,
+//   * only the very core of the spotlight whitens (the R3 core-whitening was
+//     eating the vividness he is asking for).
+// Hue direction: hueRamp's cosine peaks are R(t=0) → B(1/3) → G(2/3), so the
+// defaults uHueShift 1/3 + uHueSpread 2/3 put blue at the left edge, green mid,
+// red at the right — exactly his order. The sliders keep their meanings.
 const RAINBOW_MIRROR_GLSL = `
 vec3 foilPattern(vec2 uv, vec2 tilt) {
-  float sweep = tilt.x + tilt.y * 0.6;
+  float sweep = tilt.x + tilt.y * 0.4;
   vec2 p = uv * vec2(1.0, CARD_ASPECT);
   // sheet waviness — blurred environment shapes sliding with tilt (mirror twin)
   float w1 = fnoise(p * 2.1 * uScale + tilt * 1.4);
   float w2 = fnoise(p * 4.3 * uScale - tilt * 0.9 + 5.7);
+  // THE SPECTRAL AXIS — left to right across the card. uP2 sets how many full
+  // blue→green→red passes fit across the face (1 = one, the reference).
+  float xn = (uv.x - 0.5) * uP2 + (w1 - 0.5) * 0.30 - sweep * 0.20 + 0.5;
+  vec3 bcol = pow(hueRamp(uHueShift + uHueSpread * xn), vec3(1.12));
   // broad spotlight lobe traveling WITH tilt
   vec2 lc = vec2(0.5, 0.55) + tilt * (0.45 * uP1);
   vec2 d = (uv - lc) * vec2(1.0, CARD_ASPECT * 0.85);
-  float r2 = dot(d, d);
-  float lobe = exp(-r2 * uP0) * (0.75 + 0.25 * w1);
-  // hue BANDING inside the lobe: spectral bands over the lobe's radial
-  // coordinate, wobbled by the waviness, phase sliding with the sweep
-  // wobble 0.95: at 0.45 the rings rendered as a perfect bullseye — the
-  // reference's bands inside the spotlight are organic patches (eyeball r1)
-  float bandCoord = sqrt(r2) * uP2 + (w1 - 0.5) * 0.95;
-  vec3 bcol = pow(hueRamp(uHueShift + uHueSpread * (bandCoord - sweep * 0.9)), vec3(1.25));
-  // judge r1 (5/20, "blotchy concentric blob, too saturated"): the SPOTLIGHT
-  // is the subject — near-white mirror flash at its core, the hue banding
-  // lives in the fringe; outside it the film is plain dark mirror. Core
-  // whitening + a tight default lobe (uP0 10) get the "just like the mirror
-  // one except the spotlight has hue banding" reading.
-  vec3 spot = mix(bcol, vec3(1.04, 1.02, 0.98), clamp(lobe * 1.5, 0.0, 0.85)) * lobe;
-  // dim faintly-warm environment floor — never fully black, never colorful
-  float env = 0.07 + 0.18 * w1 * w2;
-  return vec3(1.02, 1.0, 0.96) * env + spot * uP3 * 1.15;
+  float lobe = exp(-dot(d, d) * uP0) * (0.75 + 0.25 * w1);
+  // THE SHEEN — the film is never colourless: a broad banded wash covers the
+  // whole face, brightest when the card is near flat, wavering with the sheet.
+  float sh = 0.17 + 0.30 * w1 * w2 + 0.26 * pow(max(0.0, 1.0 - abs(sweep)), 2.0);
+  // THE SPOTLIGHT — the same bands, concentrated. Only the very core goes
+  // white (0.32 cap): the R3 0.85 cap bleached the colour out of the subject.
+  vec3 spot = mix(bcol, vec3(1.04, 1.02, 0.98), clamp(lobe * 0.7, 0.0, 0.32)) * lobe;
+  return bcol * sh + spot * uP3 * 1.25;
 }`
 
 // #13 Vertical sheen rainbow — the EX-era sheen debut: mirror-smooth window
@@ -1474,27 +1561,59 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 // parallax layers of Poké Ball glyphs over a deep hue field that drifts
 // through the spectrum together; a faint horizontal manufacturing seam
 // (visible in the reference frames) sells the authentic artifact.
+// R7 2026-08-08 — Chey b6a30g: "This one isn't really supposed to use pokeball
+// GLYPHS. They are more like actual 3D pokeball MODELS with hue shift and fade
+// in/out." The R2 recipe drew a flat icon (filled disc + outline + belt line +
+// button dot) — a SYMBOL of a ball. A hologram of a ball is a shaded SPHERE:
+// the balls are now lit as hemispheres (reconstructed surface normal, a light
+// direction that follows card tilt, Lambert + a tight specular + limb
+// brightening), with the belt as a latitude band that darkens across the
+// curved surface and the button as a hub catching the same light. Everything
+// that reads as "3D" here comes from the SHADING, not from layer parallax —
+// which is consistent with Chey's own canon saved four seconds after this
+// comment, where he pulled Parallax depth 2.2 → 0.4. Fades are softened from
+// pow 6 (a pop) to a wide lobe on a per-ball random tilt axis, so balls fade
+// in and out of the hologram independently, as he describes.
 const POKEBALL_HOLOGRAM_GLSL = `
-vec3 phBalls(vec2 uv, float scale, float seed, vec2 par, float sweep, float floorV) {
+// One shaded 3-D ball. sp = ball-local coords, r = radius, L = light direction.
+// Returns (luminance, whiteness): body light in x, achromatic highlight in y.
+vec2 phSphere(vec2 sp, float r, vec3 L) {
+  float d = length(sp) / max(r, 1e-4);            // 0 at the pole, 1 at the limb
+  float edge = smoothstep(1.0, 0.90, d);
+  float z = sqrt(max(0.0, 1.0 - d * d));
+  vec3 n = vec3(sp / max(r, 1e-4), z);
+  float diff = 0.22 + 0.78 * max(0.0, dot(n, L));
+  vec3 refl = reflect(-L, n);
+  float spec = pow(max(0.0, refl.z), 24.0);
+  float limb = pow(1.0 - z, 4.0) * 0.30;          // the sphere's bright rim
+  float belt = smoothstep(0.22, 0.07, abs(n.y));  // equator band, in shadow
+  float hub = smoothstep(0.28, 0.15, d);          // the centre button
+  // upper hemisphere brighter than the lower — the ball's own two-tone shell,
+  // which is what makes a shaded sphere read as a POKE BALL and not a marble
+  float shell = 0.78 + 0.34 * smoothstep(-0.12, 0.30, n.y);
+  float lum = diff * shell * (1.0 - 0.72 * belt) + hub * (0.35 + 0.85 * diff) + limb * diff;
+  return vec2(edge * lum, edge * (spec * 0.85 + hub * spec * 0.6));
+}
+vec3 phBalls(vec2 uv, float scale, float seed, vec2 par, vec2 tilt, float sweep, float floorV) {
   vec2 p = (uv + par) * vec2(1.0, CARD_ASPECT) * scale;
   vec2 id = floor(p);
   vec2 f = fract(p) - 0.5;
   vec2 rnd = hash22(id + seed);
   float exists = step(rnd.x, 0.55);
   vec2 sp = f - (rnd - 0.5) * 0.45;
-  float r = 0.20 + 0.15 * rnd.y;
-  float d = length(sp);
-  // round 3 (round-2 balls read as "⊖" glyphs): soft-filled disc, thin belt,
-  // strong center button — circle/line/dot reads as a ball, not a theta
-  float disc = smoothstep(r, r * 0.40, d) * 0.45;
-  float outline = smoothstep(0.050, 0.020, abs(d - r));
-  float belt = smoothstep(0.024, 0.010, abs(sp.y)) * smoothstep(r * 0.98, r * 0.90, d) * 0.75;
-  float button = smoothstep(r * 0.36, r * 0.16, d) * 1.2;
-  float glyph = clamp(disc + outline + belt + button, 0.0, 1.0);
-  float phase = fract(rnd.x * 7.7 + rnd.y * 3.1);
-  float vis = floorV + (1.0 - floorV) * pow(0.5 + 0.5 * cos(TAU * phase + sweep * 2.2), 6.0);
+  float r = 0.22 + 0.14 * rnd.y;
+  // each ball is lit from its own slightly-offset direction, so the hologram
+  // does not read as one rigid array of identical spheres
+  vec3 L = normalize(vec3(tilt * 0.85 + (rnd - 0.5) * 0.45, 0.85));
+  vec2 sh = phSphere(sp, r, L);
+  // FADE IN/OUT: per-ball random response axis + a wide lobe (pow 2.4) — the
+  // ball dissolves into the field rather than blinking
+  vec2 dirB = normalize(hash22(id + seed + 13.9) - 0.5 + vec2(1e-4));
+  float phase = fract(rnd.x * 7.7 + rnd.y * 3.1) + dot(tilt, dirB) * 1.15;
+  float vis = floorV + (1.0 - floorV) * pow(max(0.0, 0.5 + 0.5 * cos(TAU * phase)), 2.4);
+  // HUE SHIFT: each ball owns a hue that travels as the card turns
   vec3 col = hueRamp(uHueShift + uHueSpread * (rnd.y + 0.6 * sweep));
-  return exists * glyph * vis * col;
+  return exists * vis * (sh.x * col + vec3(sh.y));
 }
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x + tilt.y * 0.6;
@@ -1502,12 +1621,12 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   vec2 p = uv * vec2(1.0, CARD_ASPECT);
   float n = fnoise(p * 2.0 * uScale + tilt * 0.8);
   vec3 field = hueRamp(uHueShift + uHueSpread * (0.35 * n + 0.28 * (uv.y - 0.5) + 0.75 * sweep)) * (0.16 + 0.14 * n);
-  // three ball layers at opposing parallax depths (starlight machinery, ball glyphs)
+  // three ball layers at opposing depths — uP1 is a whisper by Chey's canon
   float par = 0.030 * uP1;
   vec3 balls =
-      phBalls(uv, uP0 * 0.72, 7.0, tilt * (-par * 1.5), sweep, 0.22) * 0.75
-    + phBalls(uv, uP0 * 1.0, 19.0, tilt * (par * 0.3), sweep + 0.3, 0.12)
-    + phBalls(uv, uP0 * 1.35, 31.0, tilt * (par * 1.7), sweep + 0.7, 0.08) * 0.9;
+      phBalls(uv, uP0 * 0.72, 7.0, tilt * (-par * 1.5), tilt, sweep, 0.22) * 0.75
+    + phBalls(uv, uP0 * 1.0, 19.0, tilt * (par * 0.3), tilt, sweep + 0.3, 0.12)
+    + phBalls(uv, uP0 * 1.35, 31.0, tilt * (par * 1.7), tilt, sweep + 0.7, 0.08) * 0.9;
   // manufacturing seam — fixed faint horizontal line (frames 4-8)
   float seam = smoothstep(0.004, 0.0015, abs(uv.y - 0.46)) * uP2;
   return field + balls * uP3 + vec3(0.18) * seam;
@@ -1525,31 +1644,46 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 // (the magenta/violet checker mosaic of tilt frames 5-6), and cells twinkle
 // semi-independently inside the region ("disco ball" scatter, not a smooth
 // contiguous band).
+// R7 2026-08-08 — Chey tgagee: "This one just looks like a pixel grid. Doesn't
+// look like prism at all. Should look more like pinwheel but without the
+// rotational animation to it." The R3-MISC reading took "3x finer, SOLID
+// single facets" from a Gemini corpus-vs-corpus delta pass; solid cells at
+// density 33 are, by construction, a grid of coloured pixels. His redirect is
+// explicit and outranks the banked delta: take PINWHEEL's cell — a radial
+// spoke fan inside a square rim — and remove the thing that makes a pinwheel
+// spin, which is the PER-WEDGE alignment phase (`wh = hash21(id + wedge*…)`).
+// Here every wedge of a cell rides ONE per-cell phase, so a cell flashes as a
+// single facet and nothing appears to rotate. Density drops 33 → 18: fine
+// enough to stay prism's "finer than pinwheel" delta, coarse enough for the
+// spokes to resolve (at 33 they alias back into the pixel grid he saw).
 const PRISM_GLSL = `
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x + tilt.y * 0.6;
-  // upright square grid, pinwheel machinery at ~3x density
+  // upright square grid, pinwheel machinery
   vec2 g = uv * vec2(1.0, CARD_ASPECT) * uP0 * uScale;
   vec2 id = floor(g);
   vec2 f = fract(g) - 0.5;
   float h = hash21(id);
-  // solid flat facet with thin dark seams (NO internal wedge structure)
-  float cell = smoothstep(0.5, 0.42, max(abs(f.x), abs(f.y)));
+  float ang = atan(f.y, f.x);
+  // pinwheel's radial spoke fan — the facet structure inside the cell. The
+  // spoke phase is per CELL (h), never per wedge, so the fan is static and
+  // the cell reads as a cut facet rather than a turning wheel.
+  float spoke = pow(0.5 + 0.5 * cos(ang * 8.0 + h * TAU), 5.0);
+  float rim = smoothstep(0.5, 0.43, max(abs(f.x), abs(f.y)));
+  float body = rim * smoothstep(0.58, 0.16, length(f));
   // broad diagonal activation region (shared with pinwheel). Floor 0.08 +
   // pow 2: judge r2 wants the unlit field DARKER — the reference's off-band
   // grid is a dark etched mosaic (uDarken 0.35 carries the substrate half).
   float dph = (uv.x + uv.y) * 1.1 - 1.1 - sweep * 1.3;
   float denv = 0.08 + 0.92 * pow(0.5 + 0.5 * cos(PI * clamp(dph, -1.0, 1.0)), 2.0);
   // per-cell RANDOM hue phase — neighbors sit at unrelated points of the
-  // ramp and cycle independently as tilt progresses (checkerboard mosaic).
-  // pow 1.4 (judge r1: "too pastel and low-contrast") — the reference cells
-  // flash with sharp metallic punch.
+  // ramp and cycle independently as tilt progresses (the magenta/violet
+  // mosaic of the Raticate tilt frames). pow 1.4: sharp metallic punch.
   vec3 col = pow(hueRamp(uHueShift + uHueSpread * (h * 1.9 + sweep * uP1)), vec3(1.4));
-  // per-cell twinkle inside the region — pow 2.2 (judge r2: "too sparse"):
-  // the reference's lit band is a DENSE contiguous mosaic of colored cells
-  // (tilt frames 5-6), so most in-band cells ride lit, phase-staggered
+  // whole-CELL twinkle — one phase for the whole facet (no wedge sequence)
   float tw = pow(max(0.0, cos(TAU * (h * 3.7 + sweep * uP1 * 1.2))), 2.2);
-  return cell * col * denv * (0.06 + uP2 * tw) * uP3;
+  float lum = 0.10 + spoke * 0.40 + uP2 * tw;
+  return body * col * denv * lum * uP3;
 }`
 
 // #25 Water web — "oil slick": fixed liquid topography (domain-warped fbm);
@@ -1632,16 +1766,33 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
   }
   // strong spatial hue progression + sweep travel (verified on the frames)
   float hue = uHueShift + uHueSpread * (uv.x * 0.9 + 0.25 * uv.y + 0.85 * sweep);
-  // checkerboard visibility (y853aj): cell parity splits the grid into two
-  // banks; one bright while the other sits at the uP2 floor, swapping as the
-  // tilt phase advances. Round 3: SQUARE-wave banks (smoothstep on the cosine
-  // sign) so the on/off contrast holds at every tilt instead of washing out
-  // mid-phase, plus a white lift riding the lit bank — dark-hued lit glyphs
-  // (blue/olive on the ramp) otherwise read as dim and blur the checkerboard.
-  float parity = mod(id.x + id.y, 2.0);
-  float sq = smoothstep(-0.3, 0.3, cos(TAU * sweep * uP1 * 0.5 + PI * parity));
-  float lum = uP2 + (1.0 - uP2) * sq;
-  return exists * glyph * (hueRamp(hue) * lum + vec3(0.28) * sq) * uP3;
+  // ── R7 2026-08-08: the CHECKERBOARD IS GONE (Chey l7ejtl + m74r55) ───────
+  // "I hate the way half of them light up all at once and the other half are
+  // dark, in such a deterministic way. Checkerboard pattern. It's nothing like
+  // how they are on the cards, looks awful." / "Just too clear of a division,
+  // flips from (lit up) to (not lit up) way too cleanly and quickly."
+  // This supersedes the R3-GLYPH parity mechanism, which was itself built from
+  // an earlier comment of his (y853aj, "every other glyph ... checkerboard") —
+  // he has now SEEN it rendered and rejected it. Three separate causes of the
+  // "deterministic" read are removed:
+  //   (1) cell PARITY — replaced by a per-symbol random phase, so lit and
+  //       unlit neighbours are unrelated;
+  //   (2) ONE shared sweep scalar — each symbol now projects tilt onto its OWN
+  //       random axis (the R3-MOTION cosmos ruling), so no tilt direction can
+  //       flip the whole field at once;
+  //   (3) the SQUARE wave — replaced by a smooth lobe whose width is itself
+  //       per-symbol (some breathe slowly, some snap), so symbols fade rather
+  //       than switch.
+  // A low-frequency cluster field rides underneath so neighbours still TEND to
+  // agree — the field reads as drifting patches of light, not as salt-and-
+  // pepper noise (the same machinery that fixed cosmos in R0).
+  vec2 dirG = normalize(hash22(id + 19.7) - 0.5 + vec2(1e-4));
+  float cluster = vnoise(id * 0.27 + 3.3) * 1.35;
+  float ph = cluster + hash21(id + 61.1) * 0.85 + dot(tilt, dirG) * uP1 * 0.55;
+  float soft = mix(1.5, 4.5, hash21(id + 7.3));
+  float vis = pow(max(0.0, 0.5 + 0.5 * cos(TAU * ph)), soft);
+  float lum = uP2 + (1.0 - uP2) * vis;
+  return exists * glyph * (hueRamp(hue) * lum + vec3(0.26) * vis * vis) * uP3;
 }`
 
 // #10 Pinwheel — strict square grid; each cell a pinwheel of radial wedges
@@ -1744,9 +1895,17 @@ vec3 tDashes(vec2 uv, float dens, float seed, float slide, float sweep) {
 vec3 foilPattern(vec2 uv, vec2 tilt) {
   float sweep = tilt.x + tilt.y * 0.5;
   float dens = uP0 * 70.0 * uScale;
-  // faint continuous striation texture between dashes
+  // R7 2026-08-08 (Chey qisjo4): "Lines should only show where the color is.
+  // Not all the way through the card like 'blinds'." The R2 recipe drew a
+  // CONTINUOUS full-card striation floor under the dashes — every line ran
+  // edge to edge at every angle, which is exactly the venetian-blind read.
+  // The striation is now scoped to the coloured dashes themselves (they are
+  // already line-profiled, so the fine striation survives where the light is),
+  // and the old floor is demoted to the previously-unused uP2 slot at default
+  // 0 — his saved canon stores uP2 0, so the blinds are off for him, and the
+  // dial exists if he ever wants a whisper of the sheet back between dashes.
   float lines = 0.5 + 0.5 * sin(TAU * uv.y * dens);
-  vec3 base = vec3(0.10 + 0.06 * lines) * (0.8 + 0.4 * fnoise(uv * 9.0));
+  vec3 base = vec3(0.10 + 0.06 * lines) * (0.8 + 0.4 * fnoise(uv * 9.0)) * uP2;
   // opposite slide directions -> the signature two-plane bounce
   vec3 d1 = tDashes(uv, dens, 3.0, tilt.x * uP1, sweep);
   vec3 d2 = tDashes(uv, dens * 0.85, 11.0, -tilt.x * uP1 * 0.7, sweep + 0.5);
@@ -2564,16 +2723,27 @@ export const PATTERNS: FoilPattern[] = [
     // screen-blend over a dark base, not a color-grading knob).
     // uTint 0.7 (R3-MISC): THE modern reverse base sheet — over colored card
     // bodies the spotlight must read as art-colored metal, not gray wash.
+    // R7 (rvbl2y): uHueShift 1/3 + uHueSpread 2/3 is the pair that renders
+    // hueRamp's R→B→G peak order as BLUE → GREEN → RED left to right, his
+    // stated order. uSpecular 0.35 → 0.14: main()'s achromatic gloss band was
+    // washing the left third of the face white and killing "fairly vivid" —
+    // this recipe now carries its own (banded) sheen instead.
+    // uSheen 4.2 (R7, above the FIELD default 3.0, deliberately): eyeballed on
+    // two assigned reverses — Power Charge (Expedition) and Miltank (Aquapolis)
+    // — and the banding was invisible on both. e-series reverses are SHEET
+    // scope, so the foil lands on the card's bright yellow border, where the
+    // additive no-clip budget 0.62·(1−L) is at its smallest. uSheen is scan-path
+    // only, so this cannot move any canon's blank-room appearance.
     family: 'field',
-    defaults: { ...FIELD_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.9, uSat: 1.0, uArtGate: 0.0, uSpecular: 0.35, uDarken: 0.45, uTint: 0.7 },
+    defaults: { ...FIELD_FOIL, uSheen: 4.2, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.333, uHueSpread: 0.667, uSat: 1.0, uArtGate: 0.0, uSpecular: 0.14, uDarken: 0.45, uTint: 0.7 },
     params: [
       // lobe breadth ~mirror family: smaller = wider spotlight. 10 (r2): at
       // 5.5 the "spotlight" covered the whole card and read as a bullseye.
       { key: 'uP0', label: 'Spot tightness', min: 1, max: 20, step: 0.5, default: 10 },
       { key: 'uP1', label: 'Spot travel', min: 0, max: 3, step: 0.05, default: 1.0 },
-      // 2.2 (r2): 3.2 put ~2 full hue cycles inside the fringe — the
-      // reference shows a handful of distinct bands, not a rainbow poster
-      { key: 'uP2', label: 'Band count', min: 0.5, max: 8, step: 0.1, default: 2.2 },
+      // R7: the count of full blue→green→red passes ACROSS THE CARD. 1 = the
+      // reference's single left-to-right spectrum (was 2.2 radial rings).
+      { key: 'uP2', label: 'Band count', min: 0.3, max: 6, step: 0.1, default: 1.0 },
       { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.2 },
     ],
     implemented: true,
@@ -2609,10 +2779,11 @@ export const PATTERNS: FoilPattern[] = [
     defaults: { ...STAMP_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.15, uHueSpread: 0.7, uSat: 1.0, uArtGate: 0.15, uSpecular: 0.25, uDarken: 0.35, uTint: 0.6 },
     params: [
       { key: 'uP0', label: 'Symbol density', min: 6, max: 22, step: 0.5, default: 10 },
-      // 0.8 (round 2): at 1.4 the checkerboard cycles ~1.7x across a full
-      // tilt sweep — sampled frames alias into "random variation"; 0.8 gives
-      // ONE clean bank swap edge-to-edge
-      { key: 'uP1', label: 'Swap rate', min: 0.2, max: 4, step: 0.05, default: 0.8 },
+      // R7: same semantic as before — how fast a symbol's visibility travels
+      // with tilt — but now per-symbol along its own axis, so it sets the
+      // TURNOVER RATE of the lit population rather than a bank swap rate.
+      // 0.8 keeps the stored canon-lab feel; higher = a busier field.
+      { key: 'uP1', label: 'Response rate', min: 0.2, max: 4, step: 0.05, default: 0.8 },
       // 0.07 (R3-GLYPH): the off-bank is "almost invisible" (y853aj) — the old
       // 0.3 floor kept every glyph clearly lit
       { key: 'uP2', label: 'Faint floor', min: 0, max: 1, step: 0.02, default: 0.07 },
@@ -2775,7 +2946,9 @@ export const PATTERNS: FoilPattern[] = [
     params: [
       { key: 'uP0', label: 'Line density', min: 0.5, max: 3, step: 0.05, default: 1.6 },
       { key: 'uP1', label: 'Slide speed', min: 0, max: 2, step: 0.05, default: 0.8 },
-      { key: 'uP2', label: '(unused)', min: 0, max: 1, step: 0.01, default: 0 },
+      // R7 (qisjo4): was '(unused)' and stored 0 in his canon — now the
+      // full-card striation floor ("blinds"), so 0 keeps it off, as he asked.
+      { key: 'uP2', label: 'Striation floor', min: 0, max: 1, step: 0.01, default: 0 },
       { key: 'uP3', label: 'Dash gain', min: 0, max: 3, step: 0.05, default: 1.4 },
     ],
     implemented: true,
@@ -2805,6 +2978,10 @@ export const PATTERNS: FoilPattern[] = [
       { key: 'uP1', label: 'Band travel', min: 0, max: 4, step: 0.05, default: 1.5 },
       { key: 'uP2', label: 'Static coarseness', min: 0.2, max: 3, step: 0.05, default: 1.0 },
       { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.8 },
+      // R7 (b8klnq): the colour band's width — now that the line-work only
+      // exists inside the band, this is how much of the card carries lines.
+      // 0.014 = the R3 hard-coded value (σ ≈ 0.084, ~30% of the face).
+      { key: 'uP4', label: 'Band width', min: 0.002, max: 0.16, step: 0.002, default: 0.024 },
     ],
     implemented: true,
   },
@@ -2829,9 +3006,12 @@ export const PATTERNS: FoilPattern[] = [
     family: 'flash',
     defaults: { ...FLASH_FOIL, uSheen: 1.0, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.1, uHueSpread: 0.8, uSat: 1.0, uArtGate: 0.2, uSpecular: 0.12, uDarken: 0.35, uTint: 0.4 },
     params: [
-      // 33: the delta pass counts 30-35 cells across the Raticate's width
-      // (~3x pinwheel's 10) — the old default 60 was twice too fine
-      { key: 'uP0', label: 'Grid density', min: 15, max: 70, step: 1, default: 33 },
+      // R7 (tgagee): 33 → 18. The delta pass counted 30-35 cells across the
+      // Raticate's width, but at that pitch the spoke fan cannot resolve and
+      // the recipe collapses back into the pixel grid he rejected. 18 is still
+      // ~1.6x finer than pinwheel (11) — the delta survives, the facet reads.
+      // Range floor lowered to 8 so the cell structure can be seen while tuning.
+      { key: 'uP0', label: 'Grid density', min: 8, max: 70, step: 1, default: 18 },
       { key: 'uP1', label: 'Cycle rate', min: 0.2, max: 4, step: 0.05, default: 1.5 },
       // 1.9 (r2): the cell flashes carry the light now that the gloss is cut
       { key: 'uP2', label: 'Twinkle gain', min: 0, max: 3, step: 0.05, default: 1.9 },
@@ -2873,6 +3053,10 @@ export const PATTERNS: FoilPattern[] = [
       { key: 'uP1', label: 'Hologram travel', min: 0, max: 5, step: 0.05, default: 2.2 },
       { key: 'uP2', label: 'Segmentation', min: 2, max: 20, step: 0.5, default: 9 },
       { key: 'uP3', label: 'Gain', min: 0, max: 3, step: 0.05, default: 1.0 },
+      // R7 (gx8t8q): how far the lattice jumps between hologram positions, in
+      // cells. 0.5 = the R3 half-cell he called too far apart; 0.17 is ~3x
+      // finer at identical total travel.
+      { key: 'uP4', label: 'Step size', min: 0.04, max: 0.5, step: 0.01, default: 0.17 },
     ],
     implemented: true,
   },
@@ -2883,8 +3067,17 @@ export const PATTERNS: FoilPattern[] = [
     taxonomy: 'Fine glitter over a rainbow-mirror base',
     usedOn: 'SWSH VMAX / rainbow ("hyper") rares and more.',
     glsl: RAINBOW_GLITTER_GLSL,
-    family: 'flash',
-    defaults: { ...FLASH_FOIL, uSheen: 2.4, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.9, uSat: 0.9, uArtGate: 0.0, uSpecular: 0.5 },
+    // R7 (m6islq — "composited on a card I can't see the glitter at all"):
+    // family flash → FIELD. The duty rule in the SKILL is unambiguous here —
+    // the rainbow-mirror base covers 100% of the face, so this is a continuous
+    // holo layer, not sparse discrete highlights. FLASH_FOIL's uDepth 0 left
+    // the card with no substrate at all, so the flakes had nothing to be
+    // brighter than; FIELD_FOIL's 0.6 gives the between-flake field the dark
+    // half every sheet needs. His canon (2026-08-02) predates these keys and
+    // stores none of them, so it inherits the fix; the dials are provably
+    // inert on the blank canon base, so his canon-room render is unchanged.
+    family: 'field',
+    defaults: { ...FIELD_FOIL, uIntensity: 1.0, uScale: 1.0, uHueShift: 0.5, uHueSpread: 0.9, uSat: 0.9, uArtGate: 0.0, uSpecular: 0.5 },
     params: [
       { key: 'uP0', label: 'Glitter density', min: 0.4, max: 3, step: 0.05, default: 1.0 },
       { key: 'uP1', label: 'Band travel', min: 0, max: 4, step: 0.05, default: 2.2 },

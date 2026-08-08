@@ -477,6 +477,88 @@ export function resolveFoil(input: {
   return { patternId, scope, eraId, guess: NO_GUESS }
 }
 
+/**
+ * Every pattern a CITED row claims for this variant — winners AND runners-up
+ * (R7 2026-08-08, Chey 9vt98k / v6hz1k / 1rdrlt / h4uap7: "Why are there no
+ * catalog cards for this one?").
+ *
+ * `resolveFoil` is a single-winner contest, but the corpus is not: several
+ * cited rows describe DIFFERENT PHYSICAL LAYERS of the same card and are true
+ * simultaneously. The Sun & Moon reverses are the exemplar — the usage table
+ * carries both `energy-symbols` (Collexy, high confidence: the embossed
+ * type-symbol layer you SEE) and `diagonal-sheen-left` (the video, medium: the
+ * underlying foil sheet's rotation), and the research row says so in its own
+ * `conflicts` field. Confidence decides the winner, so diagonal-sheen-left
+ * resolves for zero cards even though ~2,000 catalog printings physically
+ * carry it.
+ *
+ * This returns the whole claimed set so the canon lab's card preview can offer
+ * a SECONDARY pool ("cards the research names for this pattern, on a card
+ * another layer wins") instead of an empty picker. It is diagnostic/preview
+ * only — nothing in the render path consults it.
+ */
+export function citedFoilPatterns(input: {
+  seriesSlug: string
+  rarity: string | null
+  variantKind: string | null
+  setId?: string | null
+  setName?: string | null
+  cardName?: string | null
+  cardId?: string | null
+}): string[] {
+  const kind = (input.variantKind ?? '').toLowerCase()
+  const rarity = (input.rarity ?? '').toLowerCase()
+  const facet = kindFacet(kind)
+  const isReverse = kind.includes('reverse')
+  const isFullFoil = FULL_FOIL_RARITIES.some((r) => rarity.includes(r))
+  const isHolo = kind.includes('holo')
+  const scope: FoilScope = isReverse ? 'sheet' : isFullFoil ? 'full' : isHolo || facet ? 'window' : 'none'
+  const out = new Set<string>()
+  const add = (p: string): void => {
+    if (patternById(p).id !== 'none') out.add(canonicalPatternId(p))
+  }
+  if (scope === 'none') {
+    // Only the card-level 'normal' tier can reach a plain print.
+    if (input.setId && input.cardId) {
+      for (const row of ASSIGN_BY_SET.get(input.setId) ?? []) {
+        if (row.cls === 'normal' && row.cards?.includes(input.cardId)) add(row.p)
+      }
+    }
+    return [...out]
+  }
+  const cls = assignCls({ isReverse, isFullFoil, isHolo, facet })
+  if (cls && input.setId) {
+    for (const row of ASSIGN_BY_SET.get(input.setId) ?? []) {
+      if (row.cls !== cls) continue
+      if (row.rar && !row.rar.some((r) => rarity.includes(r))) continue
+      if (row.kinds && !row.kinds.includes(kind)) continue
+      if (row.cards && !(input.cardId && row.cards.includes(input.cardId))) continue
+      add(row.p)
+    }
+  }
+  if (facet && ASSIGN_FACETS[facet]) add(ASSIGN_FACETS[facet]!.p)
+  const classes = applicableClasses({
+    kind,
+    rarity,
+    setName: norm(input.setName ?? ''),
+    cardName: norm(input.cardName ?? ''),
+  })
+  const seen = new Set<UsageRow>()
+  for (const row of ROWS_BY_SET.get(norm(input.setName ?? '')) ?? []) seen.add(row)
+  if (seen.size === 0) {
+    // Same fallback order the resolver uses: series tokens only when no
+    // set-level row matched, so we never inflate the pool with era-wide rows
+    // for a set that has its own citation.
+    for (const t of SERIES_TOKENS[input.seriesSlug] ?? []) {
+      for (const row of ROWS) if (row.sk.includes(t)) seen.add(row)
+    }
+  }
+  for (const row of seen) {
+    if (row.at.some((at) => classes.includes(at))) add(row.p)
+  }
+  return [...out]
+}
+
 // Convert a resolved scope + era into shader mask uniforms. Layout rects are
 // measured top-left-origin (image space); the shader works in UV (y up).
 export function maskForScope(
