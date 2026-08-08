@@ -7,7 +7,7 @@ export const collectionRouter: Router = Router();
 
 /**
  * Collection write endpoints (Phase 3 · task 3). These are the ONLY writers in the
- * app; every other route is read-only. All under /pokedex/api/collection.
+ * app; every other route is read-only. All under /deckscout/api/collection.
  *
  * A mutation, in ONE transaction (withTx): upsert collection_item to the new
  * quantity, append a collection_event for the non-zero delta, then recompute the
@@ -192,7 +192,7 @@ async function applyQuantity(
 }
 
 /**
- * PATCH /pokedex/api/collection/variants/:variantId  { quantity, source?, note? }
+ * PATCH /deckscout/api/collection/variants/:variantId  { quantity, source?, note? }
  * Set the absolute owned quantity for a variant. Idempotent.
  */
 collectionRouter.patch(
@@ -207,7 +207,7 @@ collectionRouter.patch(
 );
 
 /**
- * POST /pokedex/api/collection/variants/:variantId/increment  { delta?, source?, note? }
+ * POST /deckscout/api/collection/variants/:variantId/increment  { delta?, source?, note? }
  * Adjust the owned quantity by a signed delta (default +1). Floors at 0.
  */
 collectionRouter.post(
@@ -222,7 +222,7 @@ collectionRouter.post(
 );
 
 /**
- * POST /pokedex/api/collection/cards/:cardId/have   { have, source?, note? }
+ * POST /deckscout/api/collection/cards/:cardId/have   { have, source?, note? }
  * Tile-level Have/Need toggle. have:true owns the primary variant (sets it to 1 if
  * currently 0; leaves an existing higher quantity untouched). have:false zeroes
  * EVERY variant of the card (Need = own nothing). One transaction, one recompute.
@@ -327,12 +327,12 @@ collectionRouter.post(
 );
 
 /**
- * POST /pokedex/api/collection/reconcile — nightly consistency sweep: recompute
+ * POST /deckscout/api/collection/reconcile — nightly consistency sweep: recompute
  * the three user_set_progress rows for EVERY set that has progress rows, from
  * the live catalog + collection (bumps recomputed_at AND reconciled_at). On a
  * quiet system this never changes derived values — it exists to heal any drift.
  * One withTx transaction per set, strictly sequential (connection budget: the
- * API owns 2 connections total). Internal: called by the pokedex-sync
+ * API owns 2 connections total). Internal: called by the deckscout-sync
  * `reconcile` cron over HTTP. Any request body is ignored.
  */
 collectionRouter.post(
@@ -386,7 +386,7 @@ function eventKind(delta: number, quantityAfter: number, isFirst: boolean): stri
 }
 
 /**
- * GET /pokedex/api/collection/events — read the collection activity log, newest
+ * GET /deckscout/api/collection/events — read the collection activity log, newest
  * first, each event resolved to human fields (card/set names, number, variant
  * label, images). Powers the stream overlay ("just added Charizard, Base Set,
  * #4") and an Activity view. Read-only, parameterized, shared pool.

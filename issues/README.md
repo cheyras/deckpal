@@ -1,7 +1,7 @@
 # issues/
 
 In-app bug reports submitted via the top-nav **Report a bug** button. Each report is a
-folder written by `POST /pokedex/api/bugs` (see `apps/api/src/routes/bugs.ts`):
+folder written by `POST /deckscout/api/bugs` (see `apps/api/src/routes/bugs.ts`):
 
 ```
 issues/<id>/
@@ -16,7 +16,7 @@ issues/<id>/
 id: 2026-07-29_14-30-00-123_ab12cd
 status: open            # open | resolved
 createdAt: 2026-07-29T14:30:00.123Z
-page: /pokedex/series/mega-evolution/me05
+page: /deckscout/series/mega-evolution/me05
 viewport: 1280x900
 userAgent: Mozilla/5.0 …
 screenshot: screenshot.jpg

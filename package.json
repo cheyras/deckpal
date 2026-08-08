@@ -1,5 +1,5 @@
 {
-  "name": "pokedex",
+  "name": "deckscout",
   "private": true,
   "version": "0.1.0",
   "description": "Self-hosted pkmn.gg clone for Raspberry Pi 5 (TheGrid). Backend + DB + sync.",
@@ -7,11 +7,11 @@
     "node": ">=20"
   },
   "scripts": {
-    "migrate": "pnpm --filter @pokedex/db migrate",
-    "migrate:status": "pnpm --filter @pokedex/db migrate:status",
-    "build": "pnpm --filter @pokedex/db build && pnpm --filter pokedex-api build && pnpm --filter pokedex-images build && pnpm --filter pokedex-sync build",
+    "migrate": "pnpm --filter @deckscout/db migrate",
+    "migrate:status": "pnpm --filter @deckscout/db migrate:status",
+    "build": "pnpm --filter @deckscout/db build && pnpm --filter deckscout-api build && pnpm --filter deckscout-images build && pnpm --filter deckscout-sync build",
     "typecheck": "pnpm -r typecheck",
-    "dev:api": "pnpm --filter pokedex-api dev"
+    "dev:api": "pnpm --filter deckscout-api dev"
   },
   "pnpm": {
     "onlyBuiltDependencies": []

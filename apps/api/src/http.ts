@@ -39,7 +39,7 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
   }
   const message = err instanceof Error ? err.message : 'Internal error';
   // Log server-side; do not leak internals to the client body beyond the message.
-  console.error('[pokedex-api] unhandled', err);
+  console.error('[deckscout-api] unhandled', err);
   res.status(500).json({ error: { code: 'internal', message } });
 }
 

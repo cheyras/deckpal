@@ -4,7 +4,7 @@
 // 🔴 apps/sync must NOT import from apps/api — apps/api/src/db.ts instantiates a
 // 2-connection pool at module load, which inside this process would blow the
 // 4-connection budget (sync gets exactly 1). The single-source logic therefore
-// stays in pokedex-api and we call its internal endpoints over localhost HTTP,
+// stays in deckscout-api and we call its internal endpoints over localhost HTTP,
 // the same principle as apps/mcp (SPEC §3). This module only does what sync owns:
 // the advisory lock, the sync_run bookkeeping, and the HTTP call.
 
@@ -13,7 +13,7 @@ import { finishRun, tryLock, unlock, type Queryable } from '../prices/db.js';
 const TIMEOUT_MS = 120_000;
 
 function apiBase(): string {
-  return process.env.POKEDEX_API_BASE ?? 'http://127.0.0.1:3700/pokedex/api';
+  return process.env.DECKSCOUT_API_BASE ?? 'http://127.0.0.1:3700/pokedex/api';
 }
 
 type ApiJob = 'snapshot-collection' | 'reconcile';
@@ -49,13 +49,13 @@ async function startRunOrSkip(client: Queryable, job: ApiJob): Promise<number | 
 async function runApiJob(client: Queryable, job: ApiJob): Promise<unknown> {
   const spec = JOB_SPEC[job];
   if (!(await tryLock(client, job))) {
-    console.log(`[pokedex-sync] ${job}: advisory lock held — skipping`);
+    console.log(`[deckscout-sync] ${job}: advisory lock held — skipping`);
     return { skipped: true, reason: 'advisory lock held' };
   }
   try {
     const runId = await startRunOrSkip(client, job);
     if (runId === null) {
-      console.log(`[pokedex-sync] ${job}: a run is already active (sync_run_one_active) — skipping`);
+      console.log(`[deckscout-sync] ${job}: a run is already active (sync_run_one_active) — skipping`);
       return { skipped: true, reason: 'sync_run already active' };
     }
     try {

@@ -8,7 +8,7 @@ import { closePool, pool } from '../db.js';
 /**
  * Migration 019 deck intelligence — live-DB integration tests (Deck Intelligence
  * plan §2). Boots the real app on an ephemeral port and walks the whole
- * versioning lifecycle against the live pokedex DB:
+ * versioning lifecycle against the live deckscout DB:
  *
  *   create → card edits amend v1 in place (no logs yet) → battle log attaches to
  *   v1 → next card edit auto-bumps to v2 → versions list carries per-version W/L
@@ -29,7 +29,7 @@ let cardB: string;
 let logId: number;
 
 async function api(method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
-  const res = await fetch(`${base}/pokedex/api${path}`, {
+  const res = await fetch(`${base}/deckscout/api${path}`, {
     method,
     headers: { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),

@@ -1,9 +1,9 @@
-// pokedex dev hub — floating surface switcher. Served by tools/devhub/server.mjs at
+// deckscout dev hub — floating surface switcher. Served by tools/devhub/server.mjs at
 // /switcher.js and injected into Vite DEV servers only (devhubSwitcher plugin in
 // apps/web/vite.config.ts). Never present in a prod build.
 (() => {
-  if (window.__pokedexSwitcher) return;
-  window.__pokedexSwitcher = true;
+  if (window.__deckscoutSwitcher) return;
+  window.__deckscoutSwitcher = true;
 
   const hub = new URL(document.currentScript?.src ?? 'http://localhost:3999/').origin;
 

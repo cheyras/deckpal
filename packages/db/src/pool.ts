@@ -26,13 +26,13 @@ export function makePool(maxOverride?: number): pg.Pool {
   return new Pool({
     host: process.env.PGHOST ?? '127.0.0.1',
     port: Number(process.env.PGPORT ?? 5432),
-    database: process.env.PGDATABASE ?? 'pokedex',
-    user: process.env.PGUSER ?? 'pokedex',
+    database: process.env.PGDATABASE ?? 'deckscout',
+    user: process.env.PGUSER ?? 'deckscout',
     password: process.env.PGPASSWORD,
     max,
     min: 0,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
-    application_name: process.env.PGAPPNAME ?? 'pokedex',
+    application_name: process.env.PGAPPNAME ?? 'deckscout',
   });
 }

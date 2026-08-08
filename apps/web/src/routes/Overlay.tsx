@@ -5,8 +5,8 @@ import { Icon } from '../components/Icon'
 // Stream overlay (UI-SPEC §13.5 "Stream Tools"). A standalone, transparent-background
 // route meant to be added to OBS as a Browser Source:
 //
-//     http://the.grid/pokedex/overlay          (LAN)
-//     http://127.0.0.1/pokedex/overlay          (same box)
+//     http://the.grid/deckscout/overlay          (LAN)
+//     http://127.0.0.1/deckscout/overlay          (same box)
 //
 // It polls the named collection-events feed (GET /collection/events?since=<last>)
 // and animates a "just added: <card name + art>" pop-up for each new event.

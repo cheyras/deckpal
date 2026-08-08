@@ -350,7 +350,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // The OBS overlay is a standalone browser source: no header, no sidebar, no
   // page surface — it must render chrome-free and transparent.
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  if (pathname === '/pokedex/overlay' || pathname === '/overlay') {
+  if (pathname === '/deckscout/overlay' || pathname === '/overlay') {
     return <>{children}</>
   }
 

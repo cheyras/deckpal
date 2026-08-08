@@ -1,6 +1,6 @@
-# UI-SPEC.md — pokedex design-system contract
+# UI-SPEC.md — DeckScout design-system contract
 
-> The visual/behavioural contract the pokedex front-end is built against, distilled from
+> The visual/behavioural contract the DeckScout front-end is built against, distilled from
 > observation of **pkmn.gg**. This document describes *design intent and measurements*.
 > It deliberately contains **no pkmn.gg code, CSS, or class names** — their compiled
 > `unistyles_*` hashes are worthless to us and off-limits as an implementation strategy.
@@ -182,7 +182,7 @@ On the Pokédex (creature, not card) side there is a second, separate family of 
 (`type-fire`, `type-flying` observed) rendered at 15 px with colour baked into the SVG (**M**) —
 these display as small circular colour discs.
 
-**Implication for pokedex:** we should ship our own 11 energy glyphs as SVG and *also* define a
+**Implication for DeckScout:** we should ship our own 11 energy glyphs as SVG and *also* define a
 type-colour palette, because we will want type-tinted filter chips that pkmn.gg does not have.
 That palette is **ours to invent (I)** — do not claim it came from pkmn.gg.
 
@@ -554,7 +554,7 @@ However, pkmn.gg has clearly **provisioned** for a second scheme: the `pkmnDark`
 makes sense as one of a pair, and every asset path reserves a scheme slot. So the architecture is
 theme-ready; the theme just isn't shipped.
 
-### 2.3 How pokedex should key theming
+### 2.3 How DeckScout should key theming
 
 Adopt the same architecture, on the assumption we may add a light scheme later:
 
@@ -917,7 +917,7 @@ measurement of the surrounding chrome plus **pixel-histogram sampling of the can
 | Per-variant block below the chart | One per variant, 122px apart: swatch + variant name (10px/550 white), then two stat cards side by side — **194.08 × 72**, `--surface-tertiary`, radius 8, `padding: 12px 16px`; label 12px/600 `--text-secondary`, a 10px/450 range chip right-aligned on the same line, value below with a ▲/▼ caret (`--change-positive` up, warm orange down). A TCGplayer button sits at the right of each block | M |
 | Empty / insufficient-data state | — | **U** — every card × every range tried returned a populated series |
 
-**For pokedex:** canvas is the right call for a 300-point series on a Pi-served page, but we should
+**For DeckScout:** canvas is the right call for a 300-point series on a Pi-served page, but we should
 render at `devicePixelRatio` (pkmn.gg does not, and their chart is visibly soft on retina). Keep the
 "series colour = variant accent" rule — it is what ties the chart to the rest of the design system.
 
@@ -983,7 +983,7 @@ contain`) → title 24px/700/36px `--text-primary` → body 14px/500/21px `--tex
   for the footer lines. Two densities exist (4-line and 1-line).
 - **Loading logo** (**M**): a `<video autoplay loop playsinline preload="metadata">` element
   wrapping a `.webm`, keyed `loading-logo` / scheme `dark` / `variant-2`, rendered at **64 × 64**.
-  This is pkmn.gg's page loader — an animated brand mark, not a spinner. For pokedex, ship a small
+  This is pkmn.gg's page loader — an animated brand mark, not a spinner. For DeckScout, ship a small
   looping animated brand `.webm` (with an `<img>` fallback) rather than a generic spinner.
 - **First paint is a full-viewport brand splash, not a skeleton** (**M**, captured under a throttled
   connection, `interactions/screens/loading-4000ms.png`): the whole viewport is
@@ -1052,7 +1052,7 @@ All **M**. Every page panel: `border-radius: 16px`, background `--surface-primar
 | @390 | The spread collapses to a **single page**; 9-Pocket still 3 pockets across, card image 104.92 × 146.67. The page-panel element is not present at that width | M |
 | Layout reflow | At 12-/16-Pocket the `Stack Variants` control moves **above** the select instead of beside it | M |
 
-**For pokedex:** this is the highest-value component to get right, and it is more than a 9-up grid —
+**For DeckScout:** this is the highest-value component to get right, and it is more than a 9-up grid —
 the spread, the spine-side padding asymmetry, the four pocket densities, and the scrimmed
 "Slot #N" empty pocket are what make it read as a binder. Note that pkmn.gg's page turn is a plain
 re-render; a real page-turn animation would be **ours (I)**.
@@ -1212,7 +1212,7 @@ Route map (**M**, all 24 captures): `/` · `/series` · `/series/<series>` ·
 `/lists/<uuid>` · `/decks/<uuid>` · `/trydeckbuilder` · `/pokedex` ·
 `/pokedex/generation/<n>` · `/pokedex/<name>` · `/u/<username>[?tab=…]` · `/pro` ·
 `/stream-tools` · `/auth/signin` · `/auth/register` · `/changelog[/<slug>]` · `/card-changelog`.
-**pokedex's IA should mirror this**, minus the multi-language TCG splits we don't need.
+**DeckScout's IA should mirror this**, minus the multi-language TCG splits we don't need.
 
 ### 5.1 Home — `home--1440.png` · `home--390.png`
 - **Header:** standard shell.
@@ -1394,7 +1394,7 @@ Set-code examples worth noting for our own data mapping: `sv3pt5` (151),
 | Shadow | **None** on grid tiles — the tile reads flat against `--surface-secondary` |
 | Holo treatment | **U** — no shine/tilt/holo effect is applied. Holo-ness is carried by the artwork itself and by the variant accent colour |
 
-**For pokedex:** replicate the resize service locally. Cache two derivatives per card —
+**For DeckScout:** replicate the resize service locally. Cache two derivatives per card —
 `300×418` (grid) and `600×836` (detail) — plus the original. Serve WebP with a PNG fallback.
 Preserve `border-radius: 8px` and `object-fit: fill` so the rounded corners of the physical card
 art line up with our own corner radius.

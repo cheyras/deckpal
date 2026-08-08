@@ -4,7 +4,7 @@ import type { Ctx } from '../ctx.js';
 import { fail, ok } from '../envelope.js';
 
 /**
- * `set_cart` — thin wrapper over pokedex-api's GET /sets/:setId/massentry
+ * `set_cart` — thin wrapper over deckscout-api's GET /sets/:setId/massentry
  * (the single source of Mass Entry link generation, shared with the web UI's
  * Purchase Set button). Builds TCGplayer cart deep link(s) for everything
  * still needed to finish a set; it never buys anything itself.

@@ -1,7 +1,7 @@
-# FRONTEND.md — pokedex front-end stack + performance plan
+# FRONTEND.md — DeckScout front-end stack + performance plan
 
 > **Scope.** Stack selection, virtualization, image delivery, offline/PWA, build strategy,
-> and specialist components for the pokedex front-end. Written against `UI-SPEC.md`
+> and specialist components for the DeckScout front-end. Written against `UI-SPEC.md`
 > (design contract), `DECISIONS.md` (binding decisions), `research/DATA-LAYER.md`
 > (corpus + image facts) and `research/BEHAVIOR-SPEC.md` (filter/sort surface).
 >
@@ -32,7 +32,7 @@
 | 5 | Virtualization? | **TanStack Virtual 3.14.8**, driven by a measured column count from `ResizeObserver`. Not `VirtuosoGrid` — it requires equally-sized items and owns the scroller. |
 | 6 | Charts? | **Hand-rolled SVG on `d3-scale` + `d3-shape` (21.1 KB gzip).** Recharts 3.10 is 143.9 KB gzip — 2.2× the entire React runtime, for one chart. |
 | 7 | Build on the Pi? | **Yes.** Rolldown removes the reason not to. Budget ~10–12 min cold, ~40–70 s warm, ~1.2 GB peak; run `nice -n 10`, keep `tsc` out of the deploy path. |
-| 8 | PWA on LAN? | **Blocked as currently routed.** `http://the.grid/pokedex/` is not a secure context → no service worker, no install, no offline. Fixable with split-horizon DNS on the dnsmasq already running here (§C.1). This is the single most important finding in this document. |
+| 8 | PWA on LAN? | **Blocked as currently routed.** `http://the.grid/deckscout/` is not a secure context → no service worker, no install, no offline. Fixable with split-horizon DNS on the dnsmasq already running here (§C.1). This is the single most important finding in this document. |
 | 9 | Offline on a phone? | **Catalog metadata: yes. All 1.87 GB of art: no, on any phone.** Ship a bounded "offline pack" (~50–120 MB) and be honest in the UI (§C.5). |
 | 10 | Virtualized grid + drag-and-drop? | **Do not build it.** Split the surfaces: grid is virtualized and never draggable; binder is paginated and never virtualized. The hard combination dissolves (§E.2). |
 
@@ -333,33 +333,33 @@ buggy encode/decode.
 ## A.6 Sub-path deployment — the constraint, made concrete
 
 `DECISIONS.md` (2026-07-24, remote access) fixes ingress as the existing nginx vhosts, and
-`DATA-LAYER.md` §1 already reserved the convention: `/pokedex/` + `/api/pokedex/` →
+`DATA-LAYER.md` §1 already reserved the convention: `/deckscout/` + `/api/deckscout/` →
 `127.0.0.1:3700`. **[measured]** every existing app on this box follows
 `location /<name>/ { proxy_pass http://127.0.0.1:<port>/<name>/; }`. So the app is served
-from `/pokedex/`, never from a domain root, on **both** vhosts.
+from `/deckscout/`, never from a domain root, on **both** vhosts.
 
 Every layer that can get this wrong, and the setting that fixes it:
 
 | Layer | Setting | Notes |
 |---|---|---|
-| Vite | `base: '/pokedex/'` | **[verified]** rewrites JS-imported asset URLs, CSS `url()`, and `.html` asset refs at build. **Trailing slash required.** |
+| Vite | `base: '/deckscout/'` | **[verified]** rewrites JS-imported asset URLs, CSS `url()`, and `.html` asset refs at build. **Trailing slash required.** |
 | Runtime URL building | `import.meta.env.BASE_URL` | **[verified]** statically replaced — must be written *literally*; `import.meta.env['BASE_URL']` does not work. |
-| Router | `createRouter({ basepath: '/pokedex' })` | **[verified]** "useful for mounting a router instance at a subpath". Note **no** trailing slash here, unlike Vite. |
+| Router | `createRouter({ basepath: '/deckscout' })` | **[verified]** "useful for mounting a router instance at a subpath". Note **no** trailing slash here, unlike Vite. |
 | PWA manifest | `start_url`, `scope` | **[verified: vite-plugin-pwa src/options.ts]** both default to `resolveBasePath(viteConfig.base)` — inherited automatically. |
-| Service worker | `sw.js` emitted at `/pokedex/sw.js` | **[verified]** `src/html.ts` injects `${options.buildBase}${options.filename}`. A SW at `/pokedex/sw.js` can only control `/pokedex/*` — which is what we want. Do **not** try to widen it with `Service-Worker-Allowed`. |
-| Workbox SPA fallback | `workbox.navigateFallback` | Default is the *relative* `'index.html'` **[verified: options.ts]**, resolved against the SW's own URL → `/pokedex/index.html`. **Set it explicitly to `/pokedex/index.html`** rather than relying on that. |
-| API base | `/api/pokedex/` | Separate nginx location; keep it a sibling of `/pokedex/`, never nested, so the SW's navigation fallback can't swallow API 404s. |
-| Static images | `/pokedex/img/…` | nginx `alias`, never through Node (§B.3.6). |
-| Dev server | `base: '/pokedex/'` + `server.allowedHosts` | §D.4. |
+| Service worker | `sw.js` emitted at `/deckscout/sw.js` | **[verified]** `src/html.ts` injects `${options.buildBase}${options.filename}`. A SW at `/deckscout/sw.js` can only control `/deckscout/*` — which is what we want. Do **not** try to widen it with `Service-Worker-Allowed`. |
+| Workbox SPA fallback | `workbox.navigateFallback` | Default is the *relative* `'index.html'` **[verified: options.ts]**, resolved against the SW's own URL → `/deckscout/index.html`. **Set it explicitly to `/deckscout/index.html`** rather than relying on that. |
+| API base | `/api/deckscout/` | Separate nginx location; keep it a sibling of `/deckscout/`, never nested, so the SW's navigation fallback can't swallow API 404s. |
+| Static images | `/deckscout/img/…` | nginx `alias`, never through Node (§B.3.6). |
+| Dev server | `base: '/deckscout/'` + `server.allowedHosts` | §D.4. |
 
 **Reject `base: './'`.** Relative base is the usual "we don't know the deploy path" answer,
-but it breaks client-side routing: a deep URL like `/pokedex/series/sv/sv03.5/006` resolves
-relative asset URLs against `/pokedex/series/sv/sv03.5/`, 404ing every chunk. We know our
+but it breaks client-side routing: a deep URL like `/deckscout/series/sv/sv03.5/006` resolves
+relative asset URLs against `/deckscout/series/sv/sv03.5/`, 404ing every chunk. We know our
 path. Hard-code it.
 
-**Trap worth naming.** Because `base` is baked in at build time, a build made for `/pokedex/`
+**Trap worth naming.** Because `base` is baked in at build time, a build made for `/deckscout/`
 cannot be served at `/`. Add a `scripts/verify-base.mjs` postbuild check that greps `dist/index.html`
-for `/pokedex/assets/` and fails the build otherwise. That is thirty seconds of work and it
+for `/deckscout/assets/` and fails the build otherwise. That is thirty seconds of work and it
 prevents the exact expensive-late failure the brief warns about.
 
 ---
@@ -573,10 +573,10 @@ nothing.
 <div class="relative w-full rounded-lg bg-surface-tertiary"
      style="aspect-ratio: 245 / 337">
   <img
-    src="/pokedex/img/en/sv/sv03.5/006.low.webp"
-    srcset="/pokedex/img/en/sv/sv03.5/006.low.webp  245w,
-            /pokedex/img/en/sv/sv03.5/006.mid.webp  400w,
-            /pokedex/img/en/sv/sv03.5/006.high.webp 600w"
+    src="/deckscout/img/en/sv/sv03.5/006.low.webp"
+    srcset="/deckscout/img/en/sv/sv03.5/006.low.webp  245w,
+            /deckscout/img/en/sv/sv03.5/006.mid.webp  400w,
+            /deckscout/img/en/sv/sv03.5/006.high.webp 600w"
     sizes="(min-width: 992px) 208px, (min-width: 576px) 33vw, 50vw"
     width="245" height="337"
     loading="lazy" decoding="async"
@@ -633,7 +633,7 @@ Consequences and actions:
    would ship as ~620 KB. Fix: `nginx -V` shows **`--with-http_gzip_static_module`** is
    compiled in **[measured]**, and `ngx_brotli` is **not**. So: precompress `dist/` at build
    time (`find dist -name '*.js' -o -name '*.css' -o -name '*.svg' | xargs gzip -9 -k`) and
-   add `gzip_static on; gzip_vary on;` to the pokedex locations. This is better than runtime
+   add `gzip_static on; gzip_vary on;` to the DeckScout locations. This is better than runtime
    gzip — the Pi compresses once at `-9` instead of per-request at `-1`. **Do not** add
    `gzip_types` globally; that changes behaviour for six other services. Scope it to the
    pokedex locations only. **Never gzip `image/webp`** (already compressed; wastes CPU).
@@ -646,14 +646,14 @@ Consequences and actions:
    (`/etc/nginx/snippets/authelia-protect.conf` **[measured]**), is a self-inflicted DoS on a
    Pi. Two mitigations, and the second needs a user decision:
    - **App-side (do this regardless):** the virtualizer already bounds in-flight images to
-     window+overscan. Additionally set `http2_max_concurrent_streams 32;` on the pokedex
+     window+overscan. Additionally set `http2_max_concurrent_streams 32;` on the DeckScout
      server block.
-   - **Policy (ask the user):** exempt `location /pokedex/img/` from `auth_request`. The
+   - **Policy (ask the user):** exempt `location /deckscout/img/` from `auth_request`. The
      images are Nintendo/TPC card art, not personal data — the *collection* is the private
-     part, and that lives behind `/api/pokedex/`. Exempting images removes ~21,828 auth
+     part, and that lives behind `/api/deckscout/`. Exempting images removes ~21,828 auth
      subrequests from a full browse. **This is a security-posture change on a public vhost
      and must not be made silently.** Present it; do not decide it here.
-4. **Serve images from nginx, never from Node.** `location /pokedex/img/ { alias /home/cheyras/pokedex/data/images/; expires max; add_header Cache-Control "public, immutable"; }` — matching the origin's own `max-age=31536000`, and matching DATA-LAYER §5.3's plan. `sendfile` + the page cache means a warm image costs the Pi almost nothing.
+4. **Serve images from nginx, never from Node.** `location /deckscout/img/ { alias /home/cheyras/pokedex/data/images/; expires max; add_header Cache-Control "public, immutable"; }` — matching the origin's own `max-age=31536000`, and matching DATA-LAYER §5.3's plan. `sendfile` + the page cache means a warm image costs the Pi almost nothing.
 5. **`open_file_cache`.** With 21,828 small files on a microSD, `open_file_cache max=8000 inactive=600s;` on the image location is worth having; it caches the fd + stat and avoids repeated inode lookups on a card that is not fast at random I/O (47 MB/s sequential **[DATA-LAYER §1]**).
 
 ## B.4 Data fetching
@@ -798,7 +798,7 @@ Derivation for a mid-range phone (Pixel 6a class) on LAN:
 | Entry JS+CSS 185 KB gzip → ~600 KB raw | ~40 transfer | 50 Mbit/s effective Wi-Fi to a phone |
 | Parse + compile + execute 600 KB | ~600 | **[inferred]** ~1 MB/s main-thread JS on mid-tier mobile |
 | React mount + first shell paint | ~80 | |
-| Route loader → `/api/pokedex/sets/sv03.5` (9 KB gzip) | ~60 | Postgres keyset query + Express + LAN |
+| Route loader → `/api/deckscout/sets/sv03.5` (9 KB gzip) | ~60 | Postgres keyset query + Express + LAN |
 | Grid layout, 12 tiles | ~60 | Geometry precomputed; no measure pass |
 | Row-0 images: 6 × 16.4 KB, `fetchpriority=high` | ~80 | One HTTP/1.1 connection generation |
 | **Total** | **~945 ms** | |
@@ -889,11 +889,11 @@ back for a device sitting three metres from the Pi.
 DNS makes the existing, already-valid Let's Encrypt certificate serve LAN clients:
 
 ```conf
-# /etc/dnsmasq.d/pokedex-splithorizon.conf   (ILLUSTRATIVE — needs user approval)
+# /etc/dnsmasq.d/deckscout-splithorizon.conf   (ILLUSTRATIVE — needs user approval)
 address=/cheyrasnet.tplinkdns.com/<pi-lan-ip>
 ```
 
-LAN clients using the Pi as their resolver then reach `https://cheyrasnet.tplinkdns.com/pokedex/`
+LAN clients using the Pi as their resolver then reach `https://cheyrasnet.tplinkdns.com/deckscout/`
 over the LAN, with a valid cert, HTTP/2, and a real secure context — **no hairpin NAT, no
 second certificate, no new daemon.** Everything in this section then works identically on
 LAN and remote.
@@ -910,7 +910,7 @@ LAN and remote.
 
 **Alternatives, ranked:**
 1. **Split-horizon DNS (above).** Zero new components, reuses a valid public cert. ✅
-2. Second nginx server block on 443 for `pokedex.lan` with a private-CA cert, and install
+2. Second nginx server block on 443 for `deckscout.lan` with a private-CA cert, and install
    the CA on each device. Works, but iOS requires manually trusting the CA in Settings →
    General → About → Certificate Trust Settings, and it expires. Meh.
 3. Accept "no PWA on LAN; PWA only over the public hostname". Functional, but means the
@@ -931,13 +931,13 @@ us write `src/sw.ts` with Workbox 7.4.1 modules and still get the precache manif
 
 | Asset class | Strategy | Cache | Expiration |
 |---|---|---|---|
-| **App shell** (`index.html`, entry JS/CSS, Inter woff2, icons, brand `.webm` loader) | **Precache** (`precacheAndRoute(self.__WB_MANIFEST)`) | `pokedex-precache-<buildhash>` | Replaced wholesale on deploy; `cleanupOutdatedCaches: true` (plugin default **[verified]**) |
+| **App shell** (`index.html`, entry JS/CSS, Inter woff2, icons, brand `.webm` loader) | **Precache** (`precacheAndRoute(self.__WB_MANIFEST)`) | `deckscout-precache-<buildhash>` | Replaced wholesale on deploy; `cleanupOutdatedCaches: true` (plugin default **[verified]**) |
 | **Lazy route chunks** | Precache too | same | Total dist JS+CSS is ~600 KB raw. Precaching all of it makes every route work offline for the price of one background fetch. |
-| **Catalog API** (`/api/pokedex/sets/**`, `/cards/**`, `/pokedex/**`) | **StaleWhileRevalidate** | `pokedex-api-catalog` | `maxEntries: 300`, `maxAgeSeconds: 7d`. Catalog is immutable-ish; instant paint then refresh. |
-| **Price API** (`/api/pokedex/prices/**`) | **NetworkFirst**, `networkTimeoutSeconds: 3` | `pokedex-api-prices` | `maxAgeSeconds: 24h`. BRIEF §5 wants *last-known* prices offline — NetworkFirst gives exactly that. |
-| **Collection mutations** (POST/PATCH) | **Never cached.** Queue with `BackgroundSyncPlugin` | `pokedex-mutations` | `maxRetentionTime: 24h`. Lets you tick cards off in a card shop with no signal. |
-| **Card images** (`/pokedex/img/**`) | **CacheFirst** | `pokedex-img-v1` | See §C.5 — bounded, and the bound is the whole design problem |
-| **Set logos / symbols** (218 sets, ~4.4 MB **[DATA-LAYER §5.2]**) | **CacheFirst**, precache-on-install | `pokedex-chrome` | Never expire. 4.4 MB buys a fully-navigable offline app. |
+| **Catalog API** (`/api/deckscout/sets/**`, `/cards/**`, `/pokedex/**`) | **StaleWhileRevalidate** | `deckscout-api-catalog` | `maxEntries: 300`, `maxAgeSeconds: 7d`. Catalog is immutable-ish; instant paint then refresh. |
+| **Price API** (`/api/deckscout/prices/**`) | **NetworkFirst**, `networkTimeoutSeconds: 3` | `deckscout-api-prices` | `maxAgeSeconds: 24h`. BRIEF §5 wants *last-known* prices offline — NetworkFirst gives exactly that. |
+| **Collection mutations** (POST/PATCH) | **Never cached.** Queue with `BackgroundSyncPlugin` | `deckscout-mutations` | `maxRetentionTime: 24h`. Lets you tick cards off in a card shop with no signal. |
+| **Card images** (`/deckscout/img/**`) | **CacheFirst** | `deckscout-img-v1` | See §C.5 — bounded, and the bound is the whole design problem |
+| **Set logos / symbols** (218 sets, ~4.4 MB **[DATA-LAYER §5.2]**) | **CacheFirst**, precache-on-install | `deckscout-chrome` | Never expire. 4.4 MB buys a fully-navigable offline app. |
 
 `registerType`: **`'prompt'`**, not `'autoUpdate'`. **[verified: options.ts]** `'prompt'` is
 the plugin's own default. Auto-update swaps the SW mid-session, and this app holds
@@ -945,7 +945,7 @@ significant unsaved-feeling client state (a filter/sort/scroll position deep in 
 browse). Show the toast that UI-SPEC §3.14 already specifies — bottom-right, `--shadow-sticker`,
 14px/700 — with "Update available · Reload".
 
-`navigateFallback: '/pokedex/index.html'` and `navigateFallbackDenylist: [/^\/api\//]` so an
+`navigateFallback: '/deckscout/index.html'` and `navigateFallbackDenylist: [/^\/api\//]` so an
 API 404 surfaces as a 404, not as a silently-served HTML shell (a bug that presents as
 "JSON.parse: unexpected token <").
 
@@ -1053,7 +1053,7 @@ but *never* default it on.
 error_page 401 =302 https://$host/authelia/?rd=$target_url;
 ```
 
-An expired Authelia session turns **every** request — including `fetch('/api/pokedex/...')`
+An expired Authelia session turns **every** request — including `fetch('/api/deckscout/...')`
 from inside the service worker — into a **302 to an HTML login page**. The classic failure:
 the SW caches that HTML under the API's cache key, and from then on the app "loads" but every
 query returns a login page. Users experience it as permanent, unexplainable corruption that
@@ -1070,8 +1070,8 @@ Three guards, all mandatory:
 3. **Prefer `fetch(..., { redirect: 'manual' })`** for API calls so a 302 is observable rather
    than silently followed into HTML.
 
-Separately: **the service worker script itself must not be gated.** `/pokedex/sw.js` and
-`/pokedex/manifest.webmanifest` need to be reachable for registration and install. If
+Separately: **the service worker script itself must not be gated.** `/deckscout/sw.js` and
+`/deckscout/manifest.webmanifest` need to be reachable for registration and install. If
 Authelia 302s `sw.js`, the browser refuses to register a SW whose response isn't JavaScript,
 and the PWA silently never installs — with no console error that names the cause. Give them
 their own `location` with `auth_request off;`, or accept that install only works while a
@@ -1156,19 +1156,19 @@ Guardrails:
    **6.84 GB/day** at idle. A cold `pnpm install` writes ~450 MB of tiny files. Prefer
    `--frozen-lockfile`, never `--force`, and don't rebuild `node_modules` on every deploy.
 
-**Escape hatch if it does struggle:** build in a `tmpfs` (`--outDir /dev/shm/pokedex-dist`,
+**Escape hatch if it does struggle:** build in a `tmpfs` (`--outDir /dev/shm/deckscout-dist`,
 then `rsync` to `dist/`). ~200 MB of the 8 GB RAM, and it removes the microSD from the build
 loop entirely. Worth doing on day one, honestly — it's one line and it protects the card.
 
 ## D.4 Dev-server workflow through nginx
 
-The dev server must serve from `/pokedex/` too, or every path assumption differs between dev
+The dev server must serve from `/deckscout/` too, or every path assumption differs between dev
 and prod — the exact class of bug the sub-path constraint is about.
 
 ```ts
 // vite.config.ts  (illustrative)
 export default defineConfig({
-  base: '/pokedex/',
+  base: '/deckscout/',
   plugins: [
     tanstackRouter({ target: 'react', autoCodeSplitting: true }),
     react(),
@@ -1187,21 +1187,21 @@ export default defineConfig({
     port: 3709,                          // inside the 3700–3709 block DATA-LAYER reserved
     strictPort: true,
     allowedHosts: ['.the.grid', 'cheyrasnet.tplinkdns.com'],
-    proxy: { '/api/pokedex': { target: 'http://127.0.0.1:3700', changeOrigin: true } },
+    proxy: { '/api/deckscout': { target: 'http://127.0.0.1:3700', changeOrigin: true } },
   },
 })
 ```
 
 Two ways to reach it, and I recommend the first:
 
-- **Direct, over an SSH tunnel** (`ssh -L 3709:127.0.0.1:3709 pi`) → `http://localhost:3709/pokedex/`.
+- **Direct, over an SSH tunnel** (`ssh -L 3709:127.0.0.1:3709 pi`) → `http://localhost:3709/deckscout/`.
   `localhost` **is** a secure context **[verified: MDN]**, so the service worker, install
   prompt and storage APIs all work in dev *without* touching nginx. HMR works over the
   tunnel with no `hmr.clientPort` gymnastics. **This is the clean answer** and it means we
   never reload nginx for development — which `/home/cheyras/CLAUDE.md` explicitly warns
   about.
 - **Through nginx**, only when testing the real ingress: a temporary
-  `location /pokedex/ { proxy_pass http://127.0.0.1:3709/pokedex/; }` with WebSocket upgrade
+  `location /deckscout/ { proxy_pass http://127.0.0.1:3709/deckscout/; }` with WebSocket upgrade
   headers for HMR, and `server.hmr.clientPort = 443` on the public vhost. Requires an nginx
   reload → **requires asking the user**. Reserve it for pre-Phase-7 verification.
 
@@ -1211,7 +1211,7 @@ message ("Blocked request") does not obviously point at nginx.
 
 **Caveat on `devOptions.enabled`:** leave the dev service worker **off**. A live SW in dev
 caches modules and produces "my change didn't apply" confusion that costs hours. Test the
-SW against `vite preview --base /pokedex/` over the SSH tunnel instead — a real build, a real
+SW against `vite preview --base /deckscout/` over the SSH tunnel instead — a real build, a real
 SW, on a secure `localhost` origin.
 
 ---
@@ -1380,13 +1380,13 @@ Not for a subagent to decide. Each has a real cost or a real blast radius.
 1. **Split-horizon DNS for `cheyrasnet.tplinkdns.com` on the running dnsmasq** — the only
    cheap way to get a secure context (and therefore *any* PWA) on LAN. Changes DNS behaviour
    for services the user depends on. **§C.1. Highest priority; everything PWA depends on it.**
-2. **Exempt `/pokedex/img/` (and `/pokedex/sw.js`, `/pokedex/manifest.webmanifest`) from
+2. **Exempt `/deckscout/img/` (and `/deckscout/sw.js`, `/deckscout/manifest.webmanifest`) from
    Authelia** on the public vhost. Security-posture change; also removes ~21,828 auth
    subrequests from a full browse and unblocks SW registration. **§B.3.5, §C.6.**
 3. **Add a third `mid` (400w, q75) image tier: +721 MB, ~5.5 h one-off encode.** Halves the
    worst path in the app (mobile set page 14.4 MB → 6.8 MB). Amends DECISIONS.md's "both
    resolutions". **§B.3.3.**
-4. **Scope `gzip_static on` to the pokedex nginx locations** and precompress `dist` at build.
+4. **Scope `gzip_static on` to the DeckScout nginx locations** and precompress `dist` at build.
    JS/CSS/JSON are served **uncompressed on this box today** (`gzip_types` commented out).
    Do not change it globally — six other services share that config. **§B.3.5.**
 5. **Accept the 4.7 px tile-height deviation** from UI-SPEC §3.2, in exchange for not

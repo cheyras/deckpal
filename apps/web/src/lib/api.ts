@@ -1,10 +1,10 @@
-// API client — consumes pokedex-api (read-only contract, API.md).
-// All routes under /pokedex/api. In dev, Vite proxies to :3700.
+// API client — consumes deckscout-api (read-only contract, API.md).
+// All routes under /deckscout/api. In dev, Vite proxies to :3700.
 
-const BASE = '/pokedex/api'
+const BASE = '/deckscout/api'
 
 // ── Authelia session-expiry handling ───────────────────────────
-// On the public vhost every /pokedex/* location is Authelia-gated; when the
+// On the public vhost every /deckscout/* location is Authelia-gated; when the
 // session expires nginx answers the API fetch with a 302 to the login portal
 // (authelia-protect.conf: `error_page 401 =302 https://$host/authelia/?rd=…`).
 // fetch follows it and lands on the portal's HTML login page with status 200,
@@ -12,11 +12,11 @@ const BASE = '/pokedex/api'
 // "Something went wrong".
 //
 // ⚠️ Recovery MUST navigate to the portal, never reload the current URL: the
-// service worker serves any /pokedex/* navigation from the precached shell
+// service worker serves any /deckscout/* navigation from the precached shell
 // (sw.ts NavigationRoute), so a same-URL reload never reaches nginx and the
 // login flow never runs — the PWA dead-ends on the error screen forever (the
 // 2026-07-30 recurrence of issue ylftyb). /authelia/ is OUTSIDE the SW's
-// /pokedex/ scope, so navigating there always hits the network; Authelia's
+// /deckscout/ scope, so navigating there always hits the network; Authelia's
 // rd= param brings the user straight back to the page they were on.
 // On the LAN vhost there is no Authelia, so none of these signals ever fire.
 function isAuthBounce(res: Response): boolean {
@@ -31,14 +31,14 @@ function isAuthBounce(res: Response): boolean {
     if (ct.includes('text/html')) return true
   }
   // An OK-but-HTML body on an API path can only be a login page (the API is
-  // JSON-only, its 404s are JSON, and the SW denylists /pokedex/api/ from the
+  // JSON-only, its 404s are JSON, and the SW denylists /deckscout/api/ from the
   // shell fallback) — catch it even if the redirected flag was lost in transit.
   if (res.ok && (res.headers.get('content-type') ?? '').includes('text/html')) return true
   // A bare 401 also only ever comes from the auth layer (the API never 401s).
   return res.status === 401
 }
 
-const AUTH_PORTAL_KEY = 'pokedex:auth-portal-at'
+const AUTH_PORTAL_KEY = 'deckscout:auth-portal-at'
 let authRedirectInFlight = false
 
 // Send the user through the Authelia portal and back. Guarded so a burst of
@@ -945,5 +945,5 @@ export const api = {
   dex: (params: URLSearchParams, signal?: AbortSignal) =>
     get<SpeciesGridResponse>(`/insights/pokedex?${params.toString()}`, signal),
   species: (id: string, signal?: AbortSignal) =>
-    get<SpeciesDetailResponse>(`/insights/pokedex/${encodeURIComponent(id)}`, signal),
+    get<SpeciesDetailResponse>(`/insights/deckscout/${encodeURIComponent(id)}`, signal),
 }

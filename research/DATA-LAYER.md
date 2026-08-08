@@ -14,7 +14,7 @@
 | Decision | Recommendation | One-line reason |
 |---|---|---|
 | **TCGdex API container vs. direct import** | **Direct import.** Never run their API long-term. | Their server statically `import`s all 18 languages' `cards.json` (161 MB JSON) into one in-memory dict **per worker**, and forks one worker per core by default. Measured JSON→object expansion is **6.4×**. |
-| **Storage engine** | **Reuse the host Postgres 17.9** with a dedicated `pokedex` DB + role, pool capped at **3 connections**. | Marginal RAM ≈ **25–35 MB** (vs ~180–250 MB for a second instance); needs **no config change and no restart**, so zero blast radius on Gitea/openbrain/brain2db. Monthly range partitions + BRIN are what keep the price time-series viable on microSD. |
+| **Storage engine** | **Reuse the host Postgres 17.9** with a dedicated `deckscout` DB + role, pool capped at **3 connections**. | Marginal RAM ≈ **25–35 MB** (vs ~180–250 MB for a second instance); needs **no config change and no restart**, so zero blast radius on Gitea/openbrain/brain2db. Monthly range partitions + BRIN are what keep the price time-series viable on microSD. |
 | **Image cache** | **WebP only, both resolutions, eager full-corpus warm.** Cap **4 GB**, LRU eviction of `high` only. | Measured: **1.87 GB** for the entire English corpus at both resolutions. TCGdex serves WebP natively — no re-encode needed. PNG would be 22.85 GB. |
 | **Port block** | **3700–3709**, all bound to `127.0.0.1`, fronted by the existing nginx vhosts. | Verified free via `ss -tln`; clear of every port in BRIEF constraint 4 and of the live listener set. |
 
@@ -74,7 +74,7 @@ The BRIEF's list is a **superset** of what is actually listening. **3597, 4700, 
 | 3703 | Vite dev server (dev only) | `127.0.0.1` |
 | 3704–3709 | reserved for pokedex | — |
 
-nginx convention confirmed from `/etc/nginx/sites-available/thegrid`: every app is `location /<name>/ { proxy_pass http://127.0.0.1:<port>/<name>/; }`. pokedex should follow: `/pokedex/` + `/api/pokedex/` → `127.0.0.1:3700`.
+nginx convention confirmed from `/etc/nginx/sites-available/thegrid`: every app is `location /<name>/ { proxy_pass http://127.0.0.1:<port>/<name>/; }`. pokedex should follow: `/pokedex/` + `/api/deckscout/` → `127.0.0.1:3700`.
 
 ### 1.2 Host Postgres — real capacity
 
@@ -811,7 +811,7 @@ both png   =  3,647,240,520 + 19,201,720,524 = 22,848,961,044 B = 22,849.0 MB (2
 
 Mirroring the upstream path (`{lang}/{serie}/{set}/{localId}`) means the local path is a pure function of the API's `image` URL — no mapping table, and a `rsync` of this tree onto a fresh Pi is a complete restore. Keep ~100 files per directory (never a flat 21,828-file dir — ext4 htree copes, but `ls`/backup/rsync do not).
 
-nginx serves this directly (`location /pokedex/img/ { alias …; expires max; }`), so image requests never touch Node. Given the origin sends `cache-control: max-age=31536000`, we do the same.
+nginx serves this directly (`location /deckscout/img/ { alias …; expires max; }`), so image requests never touch Node. Given the origin sends `cache-control: max-age=31536000`, we do the same.
 
 ### 5.4 WebP vs AVIF re-encode — measured, and the answer is no
 
@@ -858,10 +858,10 @@ window 180s: 14.25 MB written -> 6.84 GB/day steady-state
 
 **Honest conclusion: pokedex is not what will kill this card — the existing 6.84 GB/day baseline is.** The right mitigations are the ones that already apply to the whole box, not pokedex-specific:
 1. The **existing baseline is the thing worth investigating** — 6.8 GB/day on an idle box is high, and is probably journald + Postgres WAL + container logs. Worth a separate look; not my scope.
-2. Set `synchronous_commit = off` **for the pokedex role only** (`ALTER ROLE pokedex SET synchronous_commit = off`) — this is a rebuildable derived dataset; losing the last few seconds of a price sync on a power cut is free, and it materially cuts fsync traffic. **Role-level, so it cannot affect openbrain/brain2db.**
+2. Set `synchronous_commit = off` **for the deckscout role only** (`ALTER ROLE deckscout SET synchronous_commit = off`) — this is a rebuildable derived dataset; losing the last few seconds of a price sync on a power cut is free, and it materially cuts fsync traffic. **Role-level, so it cannot affect openbrain/brain2db.**
 3. Set `fillfactor = 100` on append-only partitions (§4.6).
 4. Do the image ingest **once** and never re-download (assets are immutable, `max-age=31536000`).
-5. **Back up.** The card is the single point of failure regardless of wear. `pg_dump -Fc pokedex` (a few hundred MB) + a `tar` of the image tree, weekly, to somewhere that is not this card. The image tree is regenerable from the network; the collection data is not — back that up separately and often.
+5. **Back up.** The card is the single point of failure regardless of wear. `pg_dump -Fc deckscout` (a few hundred MB) + a `tar` of the image tree, weekly, to somewhere that is not this card. The image tree is regenerable from the network; the collection data is not — back that up separately and often.
 
 **A USB SSD would still be the right hardware answer**, but on these numbers it is a *nice-to-have for I/O latency*, not a *requirement to avoid destroying the card*. That is worth telling the user plainly at the Phase 1 checkpoint, since BRIEF constraint 1 frames it as a blocker.
 
@@ -880,7 +880,7 @@ Workload: single user; ~23.4 k cards / 35.6 k variants / 218 sets (static-ish); 
 | **Disk** | catalog ~250 MB; price_history ~530 MB/yr at the recommended cadence (§4.6). |
 | **Fit for the workload** | Excellent. Declarative range partitioning, BRIN, window functions for trends, `generate_series` for gap-filling charts, `jsonb` for the raw card blob, `pg_dump -Fc` for backup, concurrent reader during sync writes. |
 | **Risk** | **Shared blast radius.** A 20 M-row table's autovacuum, or a runaway analytics query holding `work_mem = 64 MB`, degrades the two brain apps. Also: if openbrain/brain2db ever grow their pools past 7, we collide on `max_connections`. |
-| **Mitigations** | Separate database + role; pool hard-capped at 3; `ALTER ROLE pokedex SET work_mem='16MB'`, `statement_timeout='30s'`, `idle_in_transaction_session_timeout='60s'`, `synchronous_commit=off` — **all role-scoped, all applied without a restart, none visible to other databases.** Monthly partitions keep any single autovacuum bounded to ~600 k rows. |
+| **Mitigations** | Separate database + role; pool hard-capped at 3; `ALTER ROLE deckscout SET work_mem='16MB'`, `statement_timeout='30s'`, `idle_in_transaction_session_timeout='60s'`, `synchronous_commit=off` — **all role-scoped, all applied without a restart, none visible to other databases.** Monthly partitions keep any single autovacuum bounded to ~600 k rows. |
 
 ### 6.2 Option B — second Postgres in a container on another port
 
@@ -922,13 +922,13 @@ CREATE DATABASE pokedex OWNER pokedex ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C
 -- LC_COLLATE 'C': faster text comparisons, and card names/ids are ASCII-ish.
 -- If accent-correct sorting of card names matters, use a per-column ICU collation instead.
 
-ALTER ROLE pokedex SET work_mem                            = '16MB';   -- vs global 64MB
-ALTER ROLE pokedex SET maintenance_work_mem                = '64MB';   -- vs global 256MB
-ALTER ROLE pokedex SET statement_timeout                   = '30s';
-ALTER ROLE pokedex SET idle_in_transaction_session_timeout = '60s';
-ALTER ROLE pokedex SET synchronous_commit                  = off;      -- derived data; cuts fsync on microSD
-ALTER ROLE pokedex SET jit                                 = off;      -- JIT is a loss on small OLTP queries on arm64
-ALTER ROLE pokedex SET random_page_cost                    = 1.5;      -- microSD ≠ spinning rust, but ≠ NVMe either
+ALTER ROLE deckscout SET work_mem                            = '16MB';   -- vs global 64MB
+ALTER ROLE deckscout SET maintenance_work_mem                = '64MB';   -- vs global 256MB
+ALTER ROLE deckscout SET statement_timeout                   = '30s';
+ALTER ROLE deckscout SET idle_in_transaction_session_timeout = '60s';
+ALTER ROLE deckscout SET synchronous_commit                  = off;      -- derived data; cuts fsync on microSD
+ALTER ROLE deckscout SET jit                                 = off;      -- JIT is a loss on small OLTP queries on arm64
+ALTER ROLE deckscout SET random_page_cost                    = 1.5;      -- microSD ≠ spinning rust, but ≠ NVMe either
 ```
 
 Per-table, on the big append-only partitions:
@@ -942,7 +942,7 @@ ALTER TABLE price_history_YYYY_MM SET (fillfactor = 100,
 
 **Connection pool: `max = 3`** (2 for the API, 1 for the sync job), `min = 1`, idle timeout 30 s. Document loudly: **never raise this past 5 without first raising `max_connections`, which requires a Postgres restart and therefore the user's permission.**
 
-**Memory footprint summary:** ~25–35 MB Postgres backends + ~80–120 MB for the pokedex Node API (in line with the other pm2 apps at 66–90 MB) + ~150 MB peak during a sync job = **~250 MB steady, ~400 MB peak**. Set `max_memory_restart: '400M'` on the API and `'512M'` on the sync process, matching the house pm2 convention.
+**Memory footprint summary:** ~25–35 MB Postgres backends + ~80–120 MB for the DeckScout Node API (in line with the other pm2 apps at 66–90 MB) + ~150 MB peak during a sync job = **~250 MB steady, ~400 MB peak**. Set `max_memory_restart: '400M'` on the API and `'512M'` on the sync process, matching the house pm2 convention.
 
 ---
 
@@ -954,7 +954,7 @@ BRIEF §4 and §6 say "everything in Docker Compose". **On this box that is the 
 
 **Recommendation:**
 - **pm2** for the API (`pokedex`, port 3700) and the scheduler — matching `ecosystem.config.cjs` conventions exactly (fork mode, explicit `interpreter`, `max_memory_restart`, `autorestart: true`, `watch: false`).
-- **In-process cron** (`node-cron`) inside a single `pokedex-sync` pm2 process, rather than systemd timers. Rationale: it keeps job state, locking and the DB pool in one place; `pm2 logs pokedex-sync` is the debugging path the user already knows; and it avoids adding units to a box whose systemd already has a stale `thegrid.service` confusing things.
+- **In-process cron** (`node-cron`) inside a single `deckscout-sync` pm2 process, rather than systemd timers. Rationale: it keeps job state, locking and the DB pool in one place; `pm2 logs deckscout-sync` is the debugging path the user already knows; and it avoids adding units to a box whose systemd already has a stale `thegrid.service` confusing things.
 - **Docker only transiently**, and only for the catalog sync's `docker pull` + `docker save | tar` extraction (§2.5). No long-lived pokedex container.
 - Update `docker-compose.arm64.yml` in the deliverables list to a **pm2 `ecosystem.config.cjs` fragment + nginx location block**. Flag this deviation from BRIEF §7 to the user.
 
@@ -998,7 +998,7 @@ Note `prices-tcgcsv` only walks the **178 sets that have a TCGplayer `groupId`**
 - A failed sync writes `sync_run.status='error'` and changes nothing else. Last-known prices remain. The UI shows **"prices as of {price_current.captured_at}"** on every price — which is honest anyway, given the daily cadence (§4.4).
 - Card art missing from the cache → serve `low` if `high` is absent; serve a placeholder if both are absent; queue a background fetch. Never proxy-on-demand to the upstream from a user request path (that couples page load to network health).
 - A `Settings → disable pricing` flag (BRIEF §2) short-circuits the price jobs entirely and hides all price UI — which also makes the app fully functional with zero external dependencies beyond the weekly catalog.
-- Health endpoint `GET /api/pokedex/health` reports per-job `{last_success, age_hours, status}` so a silent 3-week sync failure is visible.
+- Health endpoint `GET /api/deckscout/health` reports per-job `{last_success, age_hours, status}` so a silent 3-week sync failure is visible.
 
 ---
 

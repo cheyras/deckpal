@@ -4,7 +4,7 @@ import { asyncHandler, badRequest, notFound, oneOf, strList, userCache } from '.
 import { MASSENTRY_NOTE, buildUrls, meLine, tcgplayerAbbrev } from '../tcgplayer/massentry.js';
 
 /**
- * GET /pokedex/api/sets/:setId/massentry — TCGplayer Mass Entry deep link(s)
+ * GET /deckscout/api/sets/:setId/massentry — TCGplayer Mass Entry deep link(s)
  * for every card still needed to finish the set (issue 2026-07-30_qhfs2f).
  *
  * The Mass Entry mechanics (line grammar, abbreviation vocabulary, URL

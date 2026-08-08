@@ -1,6 +1,6 @@
-# Project: **pokedex**
+# Project: **DeckScout**
 
-> The name of this project is **pokedex**. The repo lives at `/home/cheyras/pokedex` (git initialized, branch `main`, identity `cheyras <cheyras@gmail.com>`). Refer to it as "pokedex" in all docs, commits, container names, and when talking to the user.
+> The name of this project is **DeckScout**. The repo lives at `/home/cheyras/DeckScout` (git initialized, branch `main`, identity `cheyras <cheyras@gmail.com>`). Refer to it as "DeckScout" in all docs, commits, container names, and when talking to the user.
 
 This document has three parts:
 

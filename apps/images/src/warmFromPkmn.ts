@@ -21,9 +21,9 @@ import { fromUrl, isWebp, putAsset, sniffContentType } from './store.js';
  * Both are fixed here: every write goes through store.ts `putAsset` with the real
  * per-card source URL, and the content type is sniffed from the bytes.
  *
- *   pnpm --filter pokedex-images warm:pkmn -- --dry-run
- *   pnpm --filter pokedex-images warm:pkmn -- --set smp
- *   PKMN_AUTH=[redacted path] pnpm --filter pokedex-images warm:pkmn
+ *   pnpm --filter deckscout-images warm:pkmn -- --dry-run
+ *   pnpm --filter deckscout-images warm:pkmn -- --set smp
+ *   PKMN_AUTH=[redacted path] pnpm --filter deckscout-images warm:pkmn
  *
  * Secret handling (CLAUDE.md): the session is read at RUNTIME from `PKMN_AUTH`
  * (default `[redacted path]`), never committed, never logged. Refresh

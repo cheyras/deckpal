@@ -34,9 +34,9 @@ import { checkManifest } from './manifestCheck.js';
  *
  * Never touches image bytes — metadata only, additive.
  *
- *   pnpm --filter pokedex-images manifest:backfill -- --dry-run
- *   pnpm --filter pokedex-images manifest:backfill
- *   pnpm --filter pokedex-images manifest:backfill -- --probe-cache probe.tsv
+ *   pnpm --filter deckscout-images manifest:backfill -- --dry-run
+ *   pnpm --filter deckscout-images manifest:backfill
+ *   pnpm --filter deckscout-images manifest:backfill -- --probe-cache probe.tsv
  *
  * `--probe-cache <file>` memoises HEAD results (TSV: relPath, status, contentType,
  * contentLength) so a re-run does not re-hit the origin. It is appended to as the

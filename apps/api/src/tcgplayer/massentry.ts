@@ -40,7 +40,7 @@ let abbrevInFlight: Promise<Map<number, string>> | null = null;
 async function fetchAbbrevMap(): Promise<Map<number, string>> {
   const res = await fetch('https://tcgcsv.com/tcgplayer/3/groups', {
     // TCGCSV blocks generic/missing UAs — same identity apps/sync uses.
-    headers: { 'User-Agent': 'pokedex/1.0 (+cheyras@gmail.com)', Accept: 'application/json' },
+    headers: { 'User-Agent': 'deckscout/1.0 (+cheyras@gmail.com)', Accept: 'application/json' },
     signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`tcgcsv groups → ${res.status}`);
@@ -68,7 +68,7 @@ export async function tcgplayerAbbrev(groupId: number | null): Promise<string | 
       return map;
     })
     .catch((err: unknown) => {
-      console.error('[pokedex-api] tcgcsv abbreviation fetch failed:', (err as Error).message);
+      console.error('[deckscout-api] tcgcsv abbreviation fetch failed:', (err as Error).message);
       // Keep a stale successful map if we ever had one; else negative-cache.
       abbrevCache = abbrevCache?.ok ? { ...abbrevCache, at: Date.now() } : { at: Date.now(), ok: false, map: new Map() };
       return abbrevCache.map;

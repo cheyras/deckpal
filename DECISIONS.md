@@ -97,7 +97,7 @@ entirely. Docker remains in use on this box only for third-party appliances.
 
 ## 2026-07-24 — Database: host Postgres, dedicated DB + role
 **Decided by:** user, at the Phase 1 checkpoint.
-**Decision:** a dedicated `pokedex` database and role on the existing host
+**Decision:** a dedicated `deckscout` database and role on the existing host
 Postgres 17.9, application pool capped at **3** connections. All tuning
 role-scoped. **No `postgresql.conf` change and no Postgres restart.**
 
@@ -115,7 +115,7 @@ database specifically**, not the whole cluster.
 **Decided by:** user, at the Phase 1 checkpoint.
 **Decision:** add a dnsmasq `address=/cheyrasnet.tplinkdns.com/<pi-lan-ip>` entry
 so the existing Let's Encrypt certificate serves LAN clients, making
-`https://cheyrasnet.tplinkdns.com/pokedex/` a **secure context** on the LAN.
+`https://cheyrasnet.tplinkdns.com/deckscout/` a **secure context** on the LAN.
 
 **Why:** `http://the.grid/` is plaintext, so service workers, install, and offline
 are impossible there on every browser — which makes the BRIEF's PWA and
@@ -137,11 +137,11 @@ nginx `gzip_types` is commented out in `nginx.conf`, so JS/CSS/JSON are served
 in; brotli is not. Any fix should be scoped to pokedex's own location blocks rather
 than editing the global config — raised to the user as a separate observation.
 
-## 2026-07-24 — Brain DBs fully isolated from the pokedex role
+## 2026-07-24 — Brain DBs fully isolated from the deckscout role
 **Decided by:** user. **Done and verified by lead.**
 `REVOKE CONNECT ON DATABASE openbrain, brain2db FROM PUBLIC`, with explicit
 `GRANT CONNECT … TO ob1 / brain2` so the owners are unaffected. Verified: the
-pokedex role now gets `FATAL: permission denied` connecting to either brain DB
+deckscout role now gets `FATAL: permission denied` connecting to either brain DB
 (it could before); owners retain CONNECT (`has_database_privilege` = true); both
 apps' live connections held at 5+5 unbroken across the change. `datacl` is now
 `{=T/<owner>,<owner>=CTc/<owner>}` — PUBLIC keeps TEMP only.
@@ -189,7 +189,7 @@ apps' live connections held at 5+5 unbroken across the change. `datacl` is now
 
 ## Phase 3 progress (the app)
 
-- ✅ **Task 1 — read API** (`apps/api` :3700, `/pokedex/api/*`). Lead-verified against
+- ✅ **Task 1 — read API** (`apps/api` :3700, `/deckscout/api/*`). Lead-verified against
   live data: base1 goals 102/102/409; sv03.5 goals 207/373/384 (Master<Grandmaster,
   distinct pair fractions); `base1-4` Charizard 4 composed variants, Holofoil
   `market` $800.43 USD / €421.11 EUR with full price object (low/mid/high/directLow/
@@ -221,17 +221,17 @@ images. It runs from manually-started node processes; **it is NOT yet deployed**
 ## 2026-07-27 — Deployment (Phase 7, partial): LAN live; HTTPS/remote blocked by a pre-existing Authelia failure
 
 **Applied and verified (reversible):**
-- **pm2:** `pokedex-api` :3700, `pokedex-images` :3701, `pokedex-sync` (cron) — all
-  online, `pm2 save`d (survive reboot). Config: `deploy/ecosystem.pokedex.config.cjs`.
+- **pm2:** `deckscout-api` :3700, `deckscout-images` :3701, `deckscout-sync` (cron) — all
+  online, `pm2 save`d (survive reboot). Config: `deploy/ecosystem.deckscout.config.cjs`.
 - **API serves the SPA** (`apps/web/dist` + client-route fallback), matching the
   box's proxy-not-static convention — so nginx never needs to traverse the 700 `$HOME`
   (and `setfacl` isn't installed anyway).
 - **nginx LAN vhost** (`thegrid`): one `include` line added after `server_name`
-  → `deploy/nginx-thegrid-pokedex.conf`. **`http://the.grid/pokedex/` works now**,
+  → `deploy/nginx-thegrid-deckscout.conf`. **`http://the.grid/deckscout/` works now**,
   verified in a browser end-to-end (nginx→api→images, real art, all 200), and
   git/colorsplash/lumina/root all still 200.
 - **nginx public vhost** (`brain-public` :443): one `include` after the
-  authelia-authrequest include → `deploy/nginx-brain-public-pokedex.conf`
+  authelia-authrequest include → `deploy/nginx-brain-public-deckscout.conf`
   (Authelia-gated). Config correct (`nginx -t` clean).
 
 **✅ RESOLVED 2026-07-27 (user asked):** root cause was `/etc/authelia/secrets/`
@@ -251,7 +251,7 @@ user's auth infra and it failed for an unknown reason. Until it's back:
   - LAN **HTTP** access works fully (the LAN vhost has no Authelia).
   - Remote HTTPS + the LAN-HTTPS/PWA path (via `cheyrasnet.tplinkdns.com`) will 500.
 
-**⏸ Deferred: split-horizon dnsmasq (Stage D).** `deploy/dnsmasq-pokedex.conf` is
+**⏸ Deferred: split-horizon dnsmasq (Stage D).** `deploy/dnsmasq-deckscout.conf` is
 ready (`address=/cheyrasnet.tplinkdns.com/192.168.68.76`), but its only benefit —
 HTTPS secure-context on LAN for the PWA — requires Authelia up to verify, and it's
 the riskiest change (rewrites DNS resolution of that hostname for every service).
@@ -259,8 +259,8 @@ Not worth flipping DNS for an unverifiable, currently-500ing target. Apply after
 Authelia is healthy.
 
 **Rollback:** vhost backups at `scratchpad/{thegrid,brain-public}.bak`; remove the
-two `include` lines + `nginx -t` + reload; `pm2 delete pokedex-api pokedex-images
-pokedex-sync && pm2 save`.
+two `include` lines + `nginx -t` + reload; `pm2 delete deckscout-api deckscout-images
+deckscout-sync && pm2 save`.
 
 ## Phase 2 follow-ups (found during verification, non-blocking)
 
@@ -295,7 +295,7 @@ pokedex-sync && pm2 save`.
 
 ## Open — pending Phase 1 research
 - **Storage engine** — data-layer research recommends the **host Postgres 17.9**
-  with a dedicated `pokedex` DB + role and a pool capped at 3 connections
+  with a dedicated `deckscout` DB + role and a pool capped at 3 connections
   (marginal RAM 25–35 MB, vs ~180–250 MB for a second instance, vs ~0 for
   SQLite). Decisive point: `max_connections = 20` with **10 already in use** by
   the openbrain/brain2db apps, so a 3-connection pool fits with 7 spare —
@@ -396,7 +396,7 @@ Recorded so they are not silently re-introduced later:
 
 ## 2026-07-27 — Feature-complete against the brief (Phases 1–6 + backup/restore)
 
-All verified against the LIVE deployed stack (http://the.grid/pokedex/):
+All verified against the LIVE deployed stack (http://the.grid/deckscout/):
 - ✅ Phase 4 Lists (dynamic/static/pokédex-binder, read-through progress)
 - ✅ Phase 5 Deck builder (engine 27/27 tests; reprint-legality proven correct in the
   live "Not Legal" panel; PTCGL import/export; test-hand; buy-missing)
@@ -419,7 +419,7 @@ to dist → built app crash-looped on ENOENT (latent: engine only ran under tsx 
 
 ## 2026-07-27 — Split-horizon DNS + backup cron applied (user: "all of the above")
 
-- **Split-horizon DNS DONE.** `/etc/dnsmasq.d/pokedex.conf` = `address=/cheyrasnet.tplinkdns.com/192.168.68.76` (mirrors the existing Minecraft split-horizon entries). `dnsmasq --test` OK → restarted. Verified: hostname → Pi LAN IP via dnsmasq; Minecraft entries + external DNS (github) still resolve; **LAN HTTPS serves a VALID cert** (curl without -k → 302 Authelia gate, not a cert error) → secure context enabled → PWA now possible on LAN. `/git/` + Authelia portal still serve over the LAN path. Rollback: `rm /etc/dnsmasq.d/pokedex.conf && systemctl restart dnsmasq`.
+- **Split-horizon DNS DONE.** `/etc/dnsmasq.d/deckscout.conf` = `address=/cheyrasnet.tplinkdns.com/192.168.68.76` (mirrors the existing Minecraft split-horizon entries). `dnsmasq --test` OK → restarted. Verified: hostname → Pi LAN IP via dnsmasq; Minecraft entries + external DNS (github) still resolve; **LAN HTTPS serves a VALID cert** (curl without -k → 302 Authelia gate, not a cert error) → secure context enabled → PWA now possible on LAN. `/git/` + Authelia portal still serve over the LAN path. Rollback: `rm /etc/dnsmasq.d/deckscout.conf && systemctl restart dnsmasq`.
 - **Backup cron DONE.** User crontab: `15 4 * * * bash scripts/backup.sh` (between the 03:00 fuel + 05:00 karakeep jobs). Script already proven (valid dump + restore-drill).
 - **In flight:** catalog-imagery fill (set logos/symbols warm + image-service route + frontend wiring — the "unpopulated/empty" fix) and PDF export backend.
 - **Queued (web-file-collision-serialized, after imagery lands):** PWA manifest+SW (now unblocked by LAN HTTPS), stream overlay, card scanner, wire PDF buttons. **Then** zero demo data to pristine baseline (held last so the PDF agent can test against the demo deck/list).
@@ -432,7 +432,7 @@ Every remaining item done and lead-verified against the live stack:
 - ✅ PDF export (deck/list/set checklist) + UI buttons
 - ✅ PWA (manifest, SW, offline shell+visited-art, iOS mitigations)
 - ✅ Card scanner (perceptual-hash, 21,828-card index, ImageMagick decode, no native deps) + UI (upload/camera → match → add), verified dist-0 exact match
-- ✅ Stream overlay (transparent OBS source at /pokedex/overlay)
+- ✅ Stream overlay (transparent OBS source at /deckscout/overlay)
 - ✅ **Demo data zeroed to pristine** (collection/lists/decks/events/value-points/dex/progress all 0; catalog + prices + sprites + set imagery intact; app_user seeded). Empty-state endpoints all 200.
 
 **Genuine follow-ups (not done, by design/limitation):**
@@ -440,7 +440,7 @@ Every remaining item done and lead-verified against the live stack:
 2. Overlay names no card — needs a `GET /collection/events` read endpoint (activity feed exists in DB, no route); currently watches owned-count deltas only.
 3. BW/XY-era ACE SPEC sublist (10 names) vendored from public docs, not DB-derivable — flagged in deck engine `data/_provenance.json` for refresh.
 4. Offline is tiered (shell + visited art + collection), not full-catalog — deliberate on a phone.
-5. Remote HTTPS (cheyrasnet.tplinkdns.com/pokedex/) works via Authelia.
+5. Remote HTTPS (cheyrasnet.tplinkdns.com/deckscout/) works via Authelia.
 
 ## 2026-07-27 — Correction: git history is clean (no entanglement)
 An earlier note called e0e5fd4 "entangled" from the concurrent Phase 7/8 commit race.
@@ -494,7 +494,7 @@ pkmn's `type: Primary/Secondary` flag into `variant_tier_override` catalog-wide 
 (a tier-system change, offered to the user). Also: pkmn.gg-modelled variants carry a
 `tcgPlayerId` but no price row yet, so collection value ($746) slightly under-counts them.
 
-Verified live (http://the.grid/pokedex/) desktop + 390px: Pitch Black 38/120 · 31.7% ·
+Verified live (http://the.grid/deckscout/) desktop + 390px: Pitch Black 38/120 · 31.7% ·
 Master 22.4% (matches pkmn), Trainer Level 36, value [redacted]/[redacted], Pokédex 213/1025.
 Import is idempotent — re-run picks up any future TCGdex reverse-holo backfill automatically.
 
@@ -530,11 +530,11 @@ Added a **Report a bug** button to the top nav (`components/BugReport.tsx`, wire
 the modal opens (so the modal is never in the shot) via **html2canvas** (added as an
 `apps/web` dep, **lazy-imported** so it stays out of the initial bundle — it splits into its
 own ~47 KB-gzip chunk fetched only on first click), then opens a comment form. Submit POSTs
-`{text, page, screenshot(JPEG dataURL), viewport, userAgent}` to **`POST /pokedex/api/bugs`**
+`{text, page, screenshot(JPEG dataURL), viewport, userAgent}` to **`POST /deckscout/api/bugs`**
 (`routes/bugs.ts`), which writes each report to **`issues/<id>/`** in the repo (`report.md`
 with YAML frontmatter + `screenshot.jpg`) — reports live in the codebase, not the DB. Raised
 the app-wide `express.json` limit to 12 MB for the screenshot payload (every other route is
-tiny; nginx already allows 50–100 MB on the pokedex locations). Screenshots are JPEG q0.85 of
+tiny; nginx already allows 50–100 MB on the DeckScout locations). Screenshots are JPEG q0.85 of
 the viewport region (~120 KB).
 
 **Project skill `fix-issues`** (`.claude/skills/fix-issues/SKILL.md`): walks `issues/*/`,
@@ -546,9 +546,9 @@ never resolve without visual confirmation.
 Verified end-to-end (Playwright, desktop 1280 + mobile 390): button renders, capture excludes
 the modal, submit writes `issues/<id>/{report.md,screenshot.jpg}`, success toast → auto-close.
 
-## 2026-07-29 — rotom-mcp: MCP server over the pokedex DB (`apps/mcp`)
+## 2026-07-29 — rotom-mcp: MCP server over the deckscout DB (`apps/mcp`)
 
-New workspace app **`pokedex-mcp`** ("rotom-mcp", after the games' AI-assistant Pokémon):
+New workspace app **`deckscout-mcp`** ("rotom-mcp", after the games' AI-assistant Pokémon):
 an MCP streamable-HTTP server on **127.0.0.1:3704** giving Claude (Code / claude.ai / iOS)
 14 tools + a `collection://summary` resource over the collection, catalog, prices, decks,
 and lists. Design contract: `apps/mcp/SPEC.md`. Key decisions:
@@ -556,10 +556,10 @@ and lists. Design contract: `apps/mcp/SPEC.md`. Key decisions:
 - **Hybrid data path.** Reads hit Postgres directly (compact MCP-shaped aggregation,
   precomputed views — `variant_tier_resolved`, `master_required_variant`,
   `user_set_progress` — never re-derived). All writes and every deck/list operation go
-  through pokedex-api on :3700 so the transactional write logic (event append + progress
+  through deckscout-api on :3700 so the transactional write logic (event append + progress
   recompute) and deck logic stay single-sourced.
 - **Connection budget is now 4 TOTAL** (API 2 + sync 1 + **mcp 1**). Headroom re-checked
-  against the 2026-07-24 measurement (7 spare); `makePool(1)`, `PGAPPNAME=pokedex-mcp`.
+  against the 2026-07-24 measurement (7 spare); `makePool(1)`, `PGAPPNAME=deckscout-mcp`.
 - **Migration 018** adds `source` (default `'web'`) + `note` to `collection_event`;
   the three collection write endpoints and `GET /collection/events` carry them. MCP
   writes are stamped `source='rotom-mcp'` — the "agentic logging" attribution. The
@@ -575,13 +575,13 @@ and lists. Design contract: `apps/mcp/SPEC.md`. Key decisions:
 - **Deploy fragments**: `deploy/nginx-thegrid-rotom-mcp.conf` (LAN `/rotom/mcp`, app-layer
   key) and `deploy/nginx-brain-public-rotom-mcp.conf` (public `/rotom-mcp`, Anthropic CIDR
   `160.79.104.0/21` + nginx-injected key from `/etc/nginx/snippets/rotom-key.conf`, which
-  holds the secret and lives OUTSIDE the repo). pm2 entry `pokedex-mcp` added to
+  holds the secret and lives OUTSIDE the repo). pm2 entry `deckscout-mcp` added to
   `ecosystem.config.cjs` (300M ceiling).
 - **Bug found & fixed en route**: PTCGL name-only deck import 500'd — pg returns `DATE`
   as `Date` but `deck/db.ts` sorted `releasedOn` with `.localeCompare` (`CardFacts` claims
   ISO string). Normalized at the row boundary (`toFacts`).
 
-## 2026-07-30 — snapshot-collection + reconcile cron jobs wired (HTTP to pokedex-api)
+## 2026-07-30 — snapshot-collection + reconcile cron jobs wired (HTTP to deckscout-api)
 
 The last two daily cron stubs in `apps/sync` are now real: `snapshot-collection`
 (21:00 UTC) and `reconcile` (01:00 UTC). Key decisions:
@@ -593,14 +593,14 @@ The last two daily cron stubs in `apps/sync` are now real: `snapshot-collection`
   two new internal endpoints — `POST /insights/value/snapshot` (→
   `snapshotCollectionValue`, idempotent per day) and `POST /collection/reconcile`
   (→ per-set `withTx(recomputeSetProgress)`, strictly sequential; 214 sets ≈ 1.1 s).
-  Base URL `POKEDEX_API_BASE ?? http://127.0.0.1:3700/pokedex/api`, 120 s timeout.
+  Base URL `DECKSCOUT_API_BASE ?? http://127.0.0.1:3700/deckscout/api`, 120 s timeout.
 - **`apps/sync/src/jobs/api-jobs.ts`** reuses the price jobs' plumbing: advisory lock
   (`tryLock`, clean skip if held), a `sync_run` row opened with
   `ON CONFLICT (job) WHERE status='running' DO NOTHING` (honours the
   `sync_run_one_active` partial unique index; conflict → log + skip), closed `ok`
   with `rows_written` (snapshot: `inserted`; reconcile: `sets`) or `failed` with the
   error. Errors re-throw; the scheduler's `runJob` catch is the crash barrier.
-- **`run-once` CLI** (`pnpm --filter pokedex-sync run-once <job>`) runs any
+- **`run-once` CLI** (`pnpm --filter deckscout-sync run-once <job>`) runs any
   `REAL_JOBS` entry on a `makePool(1)` client; exits 1 on failure, 2 on bad job. To
   make `REAL_JOBS` importable, `apps/sync/src/index.ts` gained the same
   `pm_exec_path`/argv isMain guard as apps/api — importing it no longer boots the
@@ -814,7 +814,7 @@ misparse can now fix it instead of reporting it upstream. SPEC §5 now 21 tools.
 
 ## 2026-08-01 — Gitea is the upstream + CI on every push
 **Decided by:** user.
-**Decision:** `origin` = local Gitea (`http://localhost:3000/cheyras/pokedex.git`, browse via
+**Decision:** `origin` = local Gitea (`http://localhost:3000/cheyras/deckscout.git`, browse via
 `the.grid/git/`). CI runs on every push to main via Gitea Actions on the existing host-mode
 `thegrid-pi` runner (capacity 1): typecheck all workspaces → pure deck/parser tests → api/mcp/web
 builds. **Live-DB collection/versioning tests are deliberately excluded from CI** — they hit the
@@ -833,7 +833,7 @@ consecutive `rtk git push` invocations reported `ok` while actually failing with
 `fatal: no upstream branch` — the workflow files never left the machine. rtk's push filter
 plus `| tail` piping masked both the message and the exit code. Fixed with `git push -u`;
 after that, run creation was instant and CI went green on run 3 (49/49 tests; the one real
-CI catch was `@pokedex/db` needing a build step in a fresh workspace — dist/ doesn't exist
+CI catch was `@deckscout/db` needing a build step in a fresh workspace — dist/ doesn't exist
 there). **Rule: after any push that matters, verify it landed (`git ls-remote origin main`
 vs local HEAD); prefer plain `git push` over rtk for pushes.** Banked as a global memory too.
 
@@ -841,7 +841,7 @@ vs local HEAD); prefer plain `git push` over rtk for pushes.** Banked as a globa
 **Symptom:** `http://192.168.68.76/pokedex/` on a phone = blank black screen (the dark app
 shell HTML renders; JS never loads). `the.grid`-less devices (phones not using the Pi's
 dnsmasq) hit this path.
-**Cause:** `pokedex-api` serves the SPA with `helmet()` defaults, whose CSP includes
+**Cause:** `deckscout-api` serves the SPA with `helmet()` defaults, whose CSP includes
 `upgrade-insecure-requests`. On a plain-HTTP origin the browser upgrades every subresource
 to `https://192.168.68.76/...`; the only 443 vhost carries the cheyrasnet cert →
 `ERR_CERT_COMMON_NAME_INVALID` → no bundle. Invisible over real HTTPS (cheyrasnet), where
@@ -913,7 +913,7 @@ the two loose scripts, which were rewritten as first-class commands
 files deleted so nobody runs the drifting versions again. `evict.ts` already deleted file
 + row together. **Serving stayed disk-only** — a missing row must never break a page.
 
-**Drift check:** `pnpm --filter pokedex-images manifest:check` reconciles both directions
+**Drift check:** `pnpm --filter deckscout-images manifest:check` reconciles both directions
 (orphans / missing files / size + content-type mismatches / leftover `.tmp`), exits
 non-zero on drift, `--deep` verifies every content type, `--strict` also fails on unknown
 provenance. **Deliberately NOT in CI** — CI excludes live-DB tests by design; this is a
@@ -962,7 +962,7 @@ Two in-app bug reports, both closed on `main` and deployed.
 carried a `<button aria-label="Search">` with **no `onClick`** and an `<input type="search">`
 with **no `value`/`onChange`/submit** — a static mockup, dead on every page, not just the
 `me05` set page the report came from. The deeper gap: the API has shipped a full 12-filter
-`GET /pokedex/api/search` for a long time, and `api.searchCards()` was already used by the
+`GET /deckscout/api/search` for a long time, and `api.searchCards()` was already used by the
 deck builder and list modals, but **the SPA had no search route at all**. Added `/search`
 (`routes/SearchResults.tsx` + `routes/globalSearch.ts`, registered in `main.tsx`) holding
 `q/sort/dir/page` in the URL per the FRONTEND §A.5 idiom, and pointed the header at it —
@@ -996,5 +996,5 @@ resolves from live deck data so the panel updates as `+`/`-` mutations settle.
 missing upstream data, not a mapping bug — verified against the endpoint before believing the UI.
 
 Verified in a real browser at 390px and 1440px, first on a main-tree dev server (:5199) and
-then against the deployed build, zero console errors in both. Deployed: `pokedex-api` rebuilt
+then against the deployed build, zero console errors in both. Deployed: `deckscout-api` rebuilt
 and restarted (additive `series` field), web rebuilt.

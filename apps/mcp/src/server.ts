@@ -24,7 +24,7 @@ const iconDataUri: string | null = (() => {
     const p = join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'icon-128.png');
     return `data:image/png;base64,${readFileSync(p).toString('base64')}`;
   } catch {
-    console.error('[pokedex-mcp] assets/icon-128.png missing — serving without an icon');
+    console.error('[deckscout-mcp] assets/icon-128.png missing — serving without an icon');
     return null;
   }
 })();

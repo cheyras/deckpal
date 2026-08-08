@@ -1,10 +1,10 @@
-// pokedex dev hub — one LAN URL (http://the.grid:3999) that lists every in-flight
+// deckscout dev hub — one LAN URL (http://the.grid:3999) that lists every in-flight
 // dev surface (worktree branches, ports, pages) and serves the floating switcher
 // script that Vite dev servers inject (see devhubSwitcher in apps/web/vite.config.ts).
 //
 // LAN-only by construction: ufw admits LAN to all ports; the router forwards only
 // 80/443, and nginx has no route here. Zero dependencies; state is a JSON file at
-// ~/.pokedex-devhub/surfaces.json (outside the repo so every worktree shares it).
+// ~/.deckscout-devhub/surfaces.json (outside the repo so every worktree shares it).
 //
 // API:
 //   GET  /               mobile menu page (bookmark on the phone)
@@ -19,7 +19,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.DEVHUB_PORT ?? 3999);
-const REG = join(homedir(), '.pokedex-devhub', 'surfaces.json');
+const REG = join(homedir(), '.deckscout-devhub', 'surfaces.json');
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 // Dev surfaces only — no pinned prod entry (removed 2026-08-01: the.grid doesn't
@@ -56,7 +56,7 @@ function menuPage() {
   // Links are built client-side from location.hostname so the.grid and raw-IP both work.
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>pokedex dev hub</title><style>
+<title>deckscout dev hub</title><style>
 :root{color-scheme:dark}
 body{margin:0;font:16px/1.5 system-ui,sans-serif;background:#15181f;color:#e6e9ef;
   padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
@@ -70,7 +70,7 @@ a.page:active{background:#3a4570}
 .empty{color:#8b93a7;font-size:14px}
 footer{color:#5b6275;font-size:12px;margin-top:20px}
 </style></head><body>
-<h1>◐ pokedex dev hub</h1>
+<h1>◐ deckscout dev hub</h1>
 <div id="list"><p class="empty">Loading…</p></div>
 <footer>Surfaces register via POST /register — see roadmap/ORCHESTRATION.md.</footer>
 <script>

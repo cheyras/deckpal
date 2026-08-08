@@ -102,7 +102,7 @@ fields to the tables above. Decisions you'll make per game:
 ### Step 3 — Populate the catalog (idempotent, resumable, verified)
 
 Mirror the reference importer (`apps/sync/src/catalog/{cli,import,transform}.ts`, run via
-`pnpm --filter pokedex-sync import:catalog <dataDir>`). Properties to preserve:
+`pnpm --filter deckscout-sync import:catalog <dataDir>`). Properties to preserve:
 
 - **Idempotent** — `ON CONFLICT … DO UPDATE`; re-running is a no-op / clean update.
 - **Batched, one txn per batch, pooled connection** — respect the connection budget (this
@@ -129,8 +129,8 @@ type is added there (with the user's approval) by the `add-image-slot` skill, ne
 <IMAGE_CACHE_ROOT>/sets/<setId>/<logo|symbol>.webp                        ← set imagery
 ```
 
-Served by `apps/images` (`GET /pokedex/images/<lang>/<serie>/<set>/<localId>/<low|high>.webp`
-and `/pokedex/images/sets/<setId>/<logo|symbol>.webp`). A cache **miss serves a ~1 KB
+Served by `apps/images` (`GET /deckscout/images/<lang>/<serie>/<set>/<localId>/<low|high>.webp`
+and `/deckscout/images/sets/<setId>/<logo|symbol>.webp`). A cache **miss serves a ~1 KB
 placeholder** — that's the "no image" users report. See `apps/images/src/layout.ts` for the
 authoritative path functions; replicate them, don't guess.
 
@@ -158,7 +158,7 @@ someone else established.)
 **Bytes on disk with no manifest row are a defect.** Prove you created none:
 
 ```bash
-rtk pnpm --filter pokedex-images manifest:check      # exits non-zero on drift
+rtk pnpm --filter deckscout-images manifest:check      # exits non-zero on drift
 ```
 
 This is how 1,970 orphaned files accumulated before 2026-08-07: ad-hoc gap-fill scripts wrote
@@ -205,12 +205,12 @@ The offline scanner matches an uploaded photo against a **dHash per cached card 
 (`apps/api/src/scan/{index,phash,router}.ts`, table `card_image_phash`, migration
 `016_card_image_phash.sql`). After warming new art:
 
-1. **Rebuild the index** — `pnpm --filter pokedex-api scan:index` (idempotent/resumable; hashes
+1. **Rebuild the index** — `pnpm --filter deckscout-api scan:index` (idempotent/resumable; hashes
    cards that have a cached image but no hash; `--force` to recompute; `nice`/`ionice` it).
 2. **🔴 Restart the scan service** — it loads the index into memory at boot. New hashes are
-   invisible until you `pm2 restart pokedex-api`. (This one bites every time: the DB had the
+   invisible until you `pm2 restart deckscout-api`. (This one bites every time: the DB had the
    hash, self-match was distance 0, but the running service still used the boot-time index.)
-3. **Verify** — feed a known card's own cached art to `POST /pokedex/api/scan`; it must
+3. **Verify** — feed a known card's own cached art to `POST /deckscout/api/scan`; it must
    self-match at **distance 0**. Query-side preprocessing (a background-trim variant,
    min-combined with the plain hash) makes real photos-with-background work — keep the *index*
    plain and only trim the *query* (trimming the index shifts bordered cards and breaks

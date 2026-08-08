@@ -208,7 +208,7 @@ const routeTree = rootRoute.addChildren([
 
 const router = createRouter({
   routeTree,
-  basepath: '/pokedex',
+  basepath: '/deckscout',
   defaultPreload: 'intent',
 })
 

@@ -1,4 +1,4 @@
-# pokedex — Architecture
+# DeckScout — Architecture
 
 **Status:** Phase 1 draft, 2026-07-24. Sections 1–7 are settled and evidence-backed.
 Sections 8–9 are pending two in-flight research streams and are marked as such.
@@ -25,7 +25,7 @@ measured.
 
 ## 1. The one-paragraph version
 
-pokedex is a single-user Pokémon TCG collection app that runs entirely on TheGrid
+DeckScout is a single-user Pokémon TCG collection app that runs entirely on TheGrid
 (Raspberry Pi 5). It holds its own copy of the card catalog, its own cached card
 art, and its own accumulating price history — so it keeps working if every upstream
 vanishes. Card data is imported from TCGdex's open database, prices come from
@@ -35,7 +35,7 @@ to a local Postgres. Nothing in a user request path ever touches the network.
 ## 2. Guiding constraints
 
 1. **This is a live homelab box.** Gitea, nginx, six pm2 services and six containers
-   are already running and the user depends on them. pokedex must not perturb them:
+   are already running and the user depends on them. DeckScout must not perturb them:
    no port collisions, no Postgres restart, memory ceilings on every process.
 2. **Offline resilience is structural, not a fallback.** The read path is
    Postgres + local image tree. There is no proxy-on-demand, so there is no network
@@ -60,13 +60,13 @@ flowchart TB
     end
 
     subgraph pm2 [pm2 — first-party processes]
-        api["pokedex-api :3700"]
-        img["pokedex-images :3701"]
-        sync["pokedex-sync (node-cron)"]
+        api["deckscout-api :3700"]
+        img["deckscout-images :3701"]
+        sync["deckscout-sync (node-cron)"]
     end
 
     subgraph store [Local storage]
-        pg[("host Postgres 17.9<br/>db: pokedex")]
+        pg[("host Postgres 17.9<br/>db: deckscout")]
         cache["image cache<br/>WebP, ~1.9 GB"]
     end
 
@@ -89,7 +89,7 @@ flowchart TB
     class up net
 ```
 
-The dashed boundary is the point: **only `pokedex-sync` crosses it.** A user
+The dashed boundary is the point: **only `deckscout-sync` crosses it.** A user
 request never leaves the box.
 
 ## 4. Runtime & deployment
@@ -97,17 +97,17 @@ request never leaves the box.
 **pm2 + nginx, not Docker Compose.** All six existing first-party services on this
 box are pm2-managed Express apps behind nginx; Docker here is reserved for
 third-party appliances. Following the brief's `docker-compose.arm64.yml` would make
-pokedex the only first-party service with a different operational shape, for no
+DeckScout the only first-party service with a different operational shape, for no
 benefit. *This changes a named brief deliverable and is flagged for user approval.*
 Rationale and the counter-argument: `research/DATA-LAYER.md` §7.1, `DECISIONS.md`.
 
 | Process | Port | Role | Notes |
 |---|---|---|---|
-| `pokedex-api` | 3700 | REST API + static SPA | `max_memory_restart`, fork mode |
-| `pokedex-images` | 3701 | Serves the local WebP cache | Separable so image I/O can't stall the API |
+| `deckscout-api` | 3700 | REST API + static SPA | `max_memory_restart`, fork mode |
+| `deckscout-images` | 3701 | Serves the local WebP cache | Separable so image I/O can't stall the API |
 | *(reserved)* | 3702 | Ad-hoc/transient only | See the TCGdex hazard note below |
-| `pokedex-dev` | 3703 | Vite dev server | Not run in production |
-| `pokedex-sync` | — | `node-cron` scheduler | No listening socket |
+| `deckscout-dev` | 3703 | Vite dev server | Not run in production |
+| `deckscout-sync` | — | `node-cron` scheduler | No listening socket |
 
 All bound to `127.0.0.1`. nginx is the sole ingress; the block 3700–3709 was
 verified free (`ss -tln`). The brief's port list is stale in both directions —
@@ -191,7 +191,7 @@ from the on-disk path (a pure function of the upstream URL) and serves a
 placeholder/404 on a miss; a missing row degrades metadata (LRU, stats, provenance),
 never a page. This is deliberate — do not add a manifest lookup to the read path.
 
-**Drift is checked, not assumed:** `pnpm --filter pokedex-images manifest:check`
+**Drift is checked, not assumed:** `pnpm --filter deckscout-images manifest:check`
 reconciles disk against the manifest in both directions (orphans, missing files,
 size/content-type mismatches, leftover `.tmp`) and exits non-zero on drift, so it can
 be cronned. It is deliberately **not** in CI, which excludes live-DB work.
@@ -225,14 +225,14 @@ Full job table, cadences and per-host politeness policy: `research/DATA-LAYER.md
 
 ## 6. Storage
 
-**Host Postgres 17.9, dedicated `pokedex` database and role, connection pool capped
+**Host Postgres 17.9, dedicated `deckscout` database and role, connection pool capped
 at 3.** Marginal cost 25–35 MB, versus ~180–250 MB for a second instance. The
 decisive point is blast radius: `max_connections` is 20 with 10 already in use, so a
 3-connection pool fits with 7 to spare — **no config change and no restart of a
 Postgres that other services depend on.** All tuning is role-scoped.
 
 Honest counter-argument, recorded rather than buried: every other pm2 app on this
-box uses SQLite, and sharing Postgres couples pokedex to the brain apps. Flagged for
+box uses SQLite, and sharing Postgres couples DeckScout to the brain apps. Flagged for
 user decision in `DECISIONS.md`.
 
 Price history is bounded by a hybrid cadence (weekly full corpus + daily for
@@ -439,7 +439,7 @@ it is a user decision, not ours.
 
 Incidental, box-wide: nginx `gzip_types` is commented out in `nginx.conf`, so
 JS/CSS/JSON are served **uncompressed** for every service on this machine today.
-`gzip_static` is compiled in; brotli is not. Recommend scoping any fix to pokedex's
+`gzip_static` is compiled in; brotli is not. Recommend scoping any fix to DeckScout's
 own location blocks rather than editing the global config.
 
 ## 10. Open questions for the user
@@ -452,5 +452,5 @@ own location blocks rather than editing the global config.
    Master/Grandmaster variant boundary we must model, only close from a logged-in
    account, some Pro-gated.
 
-Separately, and not a pokedex question: this box writes **6.84 GB/day at idle** and
-has **no backup**. pokedex adds ~0.8% to that. The backup gap is the larger risk.
+Separately, and not a DeckScout question: this box writes **6.84 GB/day at idle** and
+has **no backup**. DeckScout adds ~0.8% to that. The backup gap is the larger risk.

@@ -221,7 +221,7 @@ creating `image_cache`]
 
 **Path layout: none — it is not on disk. Eviction: none. Size cap: none.** There is no TTL, no LRU,
 no prune job, and no configured maximum. The only disk-based cache is a separate one for Pokédex
-sprites/artwork at `POKEDEX_IMAGE_CACHE_DIR=/app/data/pokedex-images`. [verified: `docker-compose.yml`,
+sprites/artwork at `DECKSCOUT_IMAGE_CACHE_DIR=/app/data/deckscout-images`. [verified: `docker-compose.yml`,
 `backend/scripts/cache_pokedex_images.py`]
 
 > **Correction to `PRIOR-ART-RAW.md`:** the RAW doc states "Both also hotlink card images from

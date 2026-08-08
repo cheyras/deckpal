@@ -16,7 +16,7 @@ import { dexCompletion, speciesDetail, speciesGrid } from '../insights/pokedex.j
  * Insights / gamification router — Phase 6 backend, mounted at /insights in
  * apps/api/src/index.ts. Every GET is read-only over the collection; the one
  * write is POST /value/snapshot (insights/collectionValue.snapshotCollectionValue,
- * idempotent per day), which the pokedex-sync daily cron calls over HTTP — sync
+ * idempotent per day), which the deckscout-sync daily cron calls over HTTP — sync
  * must not import this app (its db.ts opens a 2-connection pool at module load).
  */
 export const insightsRouter: Router = Router();
@@ -67,7 +67,7 @@ insightsRouter.get(
  * collection_value_point for the default user. Idempotent per
  * (user, observed_on, currency): a same-day re-run inserts nothing
  * (ON CONFLICT DO NOTHING) and reports inserted: 0. Returns the SnapshotResult.
- * Internal: called by the pokedex-sync `snapshot-collection` cron (127.0.0.1;
+ * Internal: called by the deckscout-sync `snapshot-collection` cron (127.0.0.1;
  * nginx/Authelia is the only external ingress). Any request body is ignored.
  */
 insightsRouter.post(

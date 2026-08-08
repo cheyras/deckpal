@@ -7,7 +7,7 @@
 #
 # Deliberately NOT run here:
 #   - test:collection (apps/api/src/__tests__) — those are live-DB integration
-#     tests against the PRODUCTION pokedex database (self-cleaning, but CI
+#     tests against the PRODUCTION deckscout database (self-cleaning, but CI
 #     should never mutate prod data on every push). Run them manually.
 #   - deploys — the live app runs from ~/pokedex's working tree (see
 #     CLAUDE.md); pushes originate from the deployment, so there is nothing
@@ -33,23 +33,23 @@ jobs:
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      # @pokedex/db is consumed via its dist/ (main: dist/index.js) — a fresh
+      # @deckscout/db is consumed via its dist/ (main: dist/index.js) — a fresh
       # workspace has none until it's built, and both tsc and the test suites
       # resolve the workspace link through it.
-      - name: Build @pokedex/db
-        run: pnpm --filter @pokedex/db build
+      - name: Build @deckscout/db
+        run: pnpm --filter @deckscout/db build
 
       - name: Typecheck all workspaces
         run: pnpm -r --workspace-concurrency=1 exec tsc --noEmit
 
       - name: Deck engine + battle-log parser tests (pure, no DB)
-        run: pnpm --filter pokedex-api test:deck
+        run: pnpm --filter deckscout-api test:deck
 
       - name: Build api
-        run: pnpm --filter pokedex-api build
+        run: pnpm --filter deckscout-api build
 
       - name: Build mcp
-        run: pnpm --filter pokedex-mcp build
+        run: pnpm --filter deckscout-mcp build
 
       - name: Build web
-        run: pnpm --filter pokedex-web build
+        run: pnpm --filter deckscout-web build

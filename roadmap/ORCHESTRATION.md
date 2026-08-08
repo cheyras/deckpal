@@ -67,24 +67,24 @@ it; only `foil/main` ever merges to main, on Chey's call, much later.
 ## Dev hub — one LAN URL for every surface (phone-first review)
 
 `tools/devhub/` is a zero-dependency hub on **http://the.grid:3999** (LAN-only: ufw admits LAN
-to all ports, the router only forwards 80/443). Runs under pm2 as `pokedex-devhub`.
+to all ports, the router only forwards 80/443). Runs under pm2 as `deckscout-devhub`.
 
 - **`GET /`** — mobile menu page listing every registered surface (bookmark this on the phone).
 - **`GET /switcher.js`** — the floating ◐ button. Injected automatically into every Vite **dev**
   server by the `devhubSwitcher` plugin in `apps/web/vite.config.ts` (dev-only; prod builds are
   untouched). Tap → overlay menu of all surfaces → jump between pages *and* branches.
 - **`POST /register`** — how a surface joins the menu. Registry persists at
-  `~/.pokedex-devhub/surfaces.json` (outside the repo; survives restarts).
+  `~/.deckscout-devhub/surfaces.json` (outside the repo; survives restarts).
 
 A subagent whose branch has a UI surface starts its dev server LAN-visible on its **assigned
 port** and registers:
 
 ```bash
 # in the worktree
-rtk pnpm --filter pokedex-web exec vite --host --port <PORT>
+rtk pnpm --filter deckscout-web exec vite --host --port <PORT>
 curl -s -X POST http://127.0.0.1:3999/register -H 'content-type: application/json' -d '{
   "branch": "foil/main", "label": "Foil workbench", "port": 5182,
-  "pages": [{ "name": "Workbench", "path": "/pokedex/foil-lab" }]
+  "pages": [{ "name": "Workbench", "path": "/deckscout/foil-lab" }]
 }'
 ```
 
@@ -103,12 +103,12 @@ Unregister with `POST /unregister {"branch": "..."}` when a worktree is retired.
 | 5185 | `foil/assignments` web dev (per-card pattern assignment review) |
 | 5186 | `foil/mask-refine` web dev (window-mask handles + flatten-to-hand-mask) |
 | 5187–5189 | spares — allocate here and record in this table |
-| 3710–3719 | per-branch api dev instances (set `POKEDEX_API_PORT`, point vite at it with `POKEDEX_DEV_API_PORT`) |
+| 3710–3719 | per-branch api dev instances (set `DECKSCOUT_API_PORT`, point vite at it with `DECKSCOUT_DEV_API_PORT`) |
 
-`apps/web/vite.config.ts` reads `POKEDEX_DEV_API_PORT` (default 3700) for its dev proxy, so a
+`apps/web/vite.config.ts` reads `DECKSCOUT_DEV_API_PORT` (default 3700) for its dev proxy, so a
 branch that changes the API runs its own api instance instead of polluting prod's.
 
-The hub lists dev surfaces only — no prod entry (removed 2026-08-01; it broke for raw-IP visitors and the hub's job is in-flight work). Reach the live app directly at `http://the.grid/pokedex/` when needed.
+The hub lists dev surfaces only — no prod entry (removed 2026-08-01; it broke for raw-IP visitors and the hub's job is in-flight work). Reach the live app directly at `http://the.grid/deckscout/` when needed.
 
 ## Ready-for-review checklist (per feature)
 

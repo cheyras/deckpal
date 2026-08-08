@@ -1,4 +1,4 @@
-# ROUTE-MAP.md — pkmn.gg URL / IA structure, and what `pokedex` should mirror
+# ROUTE-MAP.md — pkmn.gg URL / IA structure, and what DeckScout should mirror
 
 **Companion to** `BEHAVIOR-SPEC.md`. Same evidence tags:
 

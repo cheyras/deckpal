@@ -15,7 +15,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { makePool, loadEnv } from '@pokedex/db';
+import { makePool, loadEnv } from '@deckscout/db';
 import {
   buildSpecies, buildSpeciesIndex, detectConflicts, mapCard, MAX_SPECIES,
   type RawCatalogCard, type SpeciesLink,

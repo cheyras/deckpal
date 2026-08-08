@@ -1,4 +1,4 @@
-import { makePool } from '@pokedex/db';
+import { makePool } from '@deckscout/db';
 
 type Pool = ReturnType<typeof makePool>;
 

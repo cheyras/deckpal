@@ -21,10 +21,10 @@ import { scanRouter } from './scan/router.js';
 import { bugsRouter } from './routes/bugs.js';
 
 /**
- * pokedex-api — the read API over the populated catalog (ARCHITECTURE §4).
+ * deckscout-api — the read API over the populated catalog (ARCHITECTURE §4).
  *
- * Everything mounts under the /pokedex/api base: the app is served behind nginx
- * at the /pokedex/ sub-path (never the domain root), so no route assumes it.
+ * Everything mounts under the /deckscout/api base: the app is served behind nginx
+ * at the /deckscout/ sub-path (never the domain root), so no route assumes it.
  * Bound to 127.0.0.1 — nginx (LAN) / Authelia (remote) is the sole ingress and
  * the only auth boundary; the API has none of its own. All queries are read-only
  * and parameterized. Connection budget: 2 (shared pool, hard-capped at 3).
@@ -34,7 +34,7 @@ export function createApp(): express.Express {
   const app = express();
   app.disable('x-powered-by');
   // upgrade-insecure-requests (helmet CSP default) is dropped: on plain-HTTP LAN
-  // origins (http://192.168.68.x/pokedex/) it upgrades every subresource to https,
+  // origins (http://192.168.68.x/deckscout/) it upgrades every subresource to https,
   // where the only 443 vhost serves the cheyrasnet cert → cert error → the JS
   // bundle never loads (blank dark shell). Public access is real HTTPS via nginx,
   // where the directive was a no-op anyway; all content is same-origin.
@@ -81,7 +81,7 @@ export function createApp(): express.Express {
   api.get('/', (_req, res) => {
     catalogCache(res, 3600);
     res.json({
-      name: 'pokedex-api',
+      name: 'deckscout-api',
       endpoints: [
         '/health', '/series', '/series/:seriesSlug', '/sets/:setId', '/sets/:setId/massentry', '/cards/:cardId', '/search', '/dex', '/dex/:speciesId',
         'PATCH /collection/variants/:variantId', 'POST /collection/variants/:variantId/increment', 'POST /collection/cards/:cardId/have',
@@ -118,18 +118,18 @@ export function createApp(): express.Express {
   api.use('/scan', scanRouter);
   api.use('/bugs', bugsRouter);
 
-  app.use('/pokedex/api', api);
+  app.use('/deckscout/api', api);
 
   // Serve the built SPA (matches the box convention: every first-party app serves
   // its own frontend on its own port, proxied by nginx — no nginx-static-from-home,
   // which would need www-data to traverse the 700 home dir). Static assets first,
-  // then a client-routing fallback to index.html for any non-API GET under /pokedex/.
+  // then a client-routing fallback to index.html for any non-API GET under /deckscout/.
   // webDist resolves relative to this compiled file: apps/api/dist -> apps/web/dist.
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
   if (existsSync(webDist)) {
-    app.use('/pokedex', express.static(webDist, { index: false, maxAge: '1h' }));
-    app.get(/^\/pokedex(\/.*)?$/, (req, res, next) => {
-      if (req.method !== 'GET' || req.path.startsWith('/pokedex/api')) return next();
+    app.use('/deckscout', express.static(webDist, { index: false, maxAge: '1h' }));
+    app.get(/^\/deckscout(\/.*)?$/, (req, res, next) => {
+      if (req.method !== 'GET' || req.path.startsWith('/deckscout/api')) return next();
       res.sendFile(join(webDist, 'index.html'));
     });
   }
@@ -148,9 +148,9 @@ const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
 const isMain = entryPath.endsWith('index.js') || entryPath.endsWith('index.ts');
 if (isMain) {
   const app = createApp();
-  const port = Number(process.env.POKEDEX_API_PORT ?? 3700);
+  const port = Number(process.env.DECKSCOUT_API_PORT ?? 3700);
   const server = app.listen(port, '127.0.0.1', () => {
-    console.log(`pokedex-api listening on 127.0.0.1:${port} (base /pokedex/api)`);
+    console.log(`deckscout-api listening on 127.0.0.1:${port} (base /deckscout/api)`);
   });
   const shutdown = (): void => {
     server.close(() => {

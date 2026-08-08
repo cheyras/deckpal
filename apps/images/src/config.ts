@@ -1,4 +1,4 @@
-import { loadEnv } from '@pokedex/db';
+import { loadEnv } from '@deckscout/db';
 
 loadEnv();
 
@@ -22,12 +22,12 @@ export const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? '/home/cheyras/pokedex
 //   other/official-artwork/{id}.png       → official artwork (normal)
 //   other/official-artwork/shiny/{id}.png → official artwork (shiny)
 // The insights backend (apps/api insights/pokedex.ts speciesSprite) references
-// these at /pokedex/images/sprites/{pixel|art}[/shiny]/{id}.png — this service
+// these at /deckscout/images/sprites/{pixel|art}[/shiny]/{id}.png — this service
 // resolves those URLs to the paths above. Missing sprites 404 so the client can
 // render its own placeholder tile (no layout shift), mirroring un-warmed card art.
 export const SPRITE_ROOT = process.env.SPRITE_ROOT ?? '/home/cheyras/pokedex/assets/sprites/pokemon';
 
-export const IMAGES_PORT = Number(process.env.POKEDEX_IMAGES_PORT ?? 3701);
+export const IMAGES_PORT = Number(process.env.DECKSCOUT_IMAGES_PORT ?? 3701);
 
 // Upstream asset origin. Only ever touched by the warmer, never the read path.
 export const ASSETS_ORIGIN = 'https://assets.tcgdex.net';
@@ -49,7 +49,7 @@ export const EVICT_LOW_WATER = Math.round(3.0 * 1024 * 1024 * 1024); // stop at 
 export const RATE_PER_SEC = 5;
 export const MAX_CONCURRENCY = 2;
 
-export const USER_AGENT = 'pokedex-images/1.0 (+cheyras@gmail.com)';
+export const USER_AGENT = 'deckscout-images/1.0 (+cheyras@gmail.com)';
 
 // Immutable-asset cache header, mirroring the origin (max-age=31536000).
 export const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';

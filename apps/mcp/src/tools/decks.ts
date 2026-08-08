@@ -6,7 +6,7 @@ import { row, winLoss } from '../format.js';
 import { strategyLabel } from './deckIntel.js';
 
 /**
- * Deck tools — SPEC §5 #8–#10. Every operation goes through pokedex-api
+ * Deck tools — SPEC §5 #8–#10. Every operation goes through deckscout-api
  * (apps/api/src/routes/decks.ts is the contract) via ctx.api; no SQL here so
  * deck logic stays single-sourced (SPEC §3). Card identifiers are TCGdex ids
  * (e.g. 'sv01-25') — the deck routes resolve them server-side.
