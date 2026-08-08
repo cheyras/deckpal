@@ -782,18 +782,39 @@ foilLabRouter.delete(
 // resolver is client code and this router is deliberately DB-free, so the
 // inversion is baked, not queried). Sampling happens HERE so the client
 // never downloads the whole pool; the client enriches each hit via the
-// normal /cards/:cardId detail route. Empty pool = the pattern has no
-// catalog cards (canon lab shows "no catalog cards" and disables the
-// re-randomize button). The file is gitignored (catalog derivative) — a 404
-// tells the operator the regen command.
+// normal /cards/:cardId detail route. The file is gitignored (catalog
+// derivative) — a 404 tells the operator the regen command.
+//
+// R7 2026-08-08 (Chey asked "why are there no catalog cards for this one?"
+// on four separate patterns): an empty primary pool is no longer a dead end.
+// The index v2 also carries
+//   alternates — printings a CITED row names for this pattern even though a
+//                higher-ranked row wins the resolver's single-winner contest
+//                (Sun & Moon reverses: the emblem layer beats the sheet
+//                rotation; both claims are true of the same card), and
+//   diagnosis  — a machine-readable reason + prose for every implemented
+//                recipe whose primary pool is empty.
+// The route serves alternates as the sample when the primary pool is empty
+// and labels the response `via: 'cited'`, so the preview WORKS and the UI can
+// say WHY rather than just "no catalog cards".
 
 const PATTERN_CARDS_FILE = join(repoRoot(), 'data', 'foil-pattern-cards.json');
+
+interface PatternDiagnosis {
+  reason: string;
+  detail: string;
+  alternates: number;
+  citedPrintings: number;
+  outrankedBy?: [string, number][];
+}
 
 interface PatternCardsFile {
   version: number;
   generatedAt: string;
   resolverVersion: number;
   patterns: Record<string, [string, number, string, string][]>;
+  alternates?: Record<string, [string, number, string, string][]>;
+  diagnosis?: Record<string, PatternDiagnosis>;
 }
 
 let patternCardsCache: { mtimeMs: number; data: PatternCardsFile } | null = null;
@@ -823,7 +844,13 @@ foilLabRouter.get(
         'data/foil-pattern-cards.json missing — regenerate: pnpm --filter pokedex-api exec tsx ../../tools/foil/build-pattern-cards.mts',
       );
     }
-    const pool = file.patterns[patternId] ?? [];
+    const primary = file.patterns[patternId] ?? [];
+    const diagnosis = file.diagnosis?.[patternId] ?? null;
+    // Fall back to the cited-but-outranked pool so the preview still works.
+    const fallback = file.alternates?.[patternId] ?? [];
+    const useFallback = primary.length === 0 && fallback.length > 0;
+    const via: 'assigned' | 'cited' = useFallback ? 'cited' : 'assigned';
+    const pool = useFallback ? fallback : primary;
     // Partial Fisher–Yates over an index array: sample without replacement.
     const idx = pool.map((_, i) => i);
     const n = Math.min(sampleN, idx.length);
@@ -839,6 +866,11 @@ foilLabRouter.get(
     res.json({
       patternId,
       total: pool.length,
+      via,
+      // How many printings the cited rows actually name — the sampled pool
+      // above is capped, so this is the honest number to show the operator.
+      citedTotal: diagnosis?.citedPrintings ?? 0,
+      diagnosis,
       sample,
       generatedAt: file.generatedAt,
       resolverVersion: file.resolverVersion,
