@@ -387,6 +387,7 @@ export interface SearchCard {
   artist: string | null
   regulationMark?: string | null
   set: { setId: string; name: string }
+  series: { slug: string; name: string }
   variantCount: number
   images: { low: string; high: string }
   price: Price | null

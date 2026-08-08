@@ -29,6 +29,8 @@ import { SpeciesDetail } from './routes/SpeciesDetail'
 import { Profile } from './routes/Profile'
 import { Scan } from './routes/Scan'
 import { Overlay } from './routes/Overlay'
+import { SearchResults } from './routes/SearchResults'
+import { validateGlobalSearch, GLOBAL_SEARCH_DEFAULTS } from './routes/globalSearch'
 import { validateCardSearch } from './routes/setSearch'
 import { validateListSearch } from './routes/listSearch'
 import { validateDeckSearch, DECK_SEARCH_DEFAULTS } from './routes/deckSearch'
@@ -168,6 +170,15 @@ const scanRoute = createRoute({
   component: Scan,
 })
 
+// Global cross-set card search — the destination for the header search field.
+const searchRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/search',
+  validateSearch: validateGlobalSearch,
+  search: { middlewares: [stripSearchParams(GLOBAL_SEARCH_DEFAULTS)] },
+  component: SearchResults,
+})
+
 // Standalone OBS browser-source overlay — AppShell renders it chrome-free.
 const overlayRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -191,6 +202,7 @@ const routeTree = rootRoute.addChildren([
   profileRoute,
   profileAliasRoute,
   scanRoute,
+  searchRoute,
   overlayRoute,
 ])
 

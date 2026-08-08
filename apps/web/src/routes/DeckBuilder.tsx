@@ -11,6 +11,7 @@ import { EnergyIcon, ENERGY_TYPES } from '../components/EnergyIcon'
 import { fmtUsd, fmtPrice } from '../lib/format'
 import { FORMAT_META, LegalBadge } from './deckShared'
 import { type DeckSearch, type DeckTab, DECK_SEARCH_DEFAULTS } from './deckSearch'
+import { CardSheet } from './CardDetail'
 import { StrategyTab } from './deck/StrategyTab'
 import { BattlesTab } from './deck/BattlesTab'
 import { HistoryTab } from './deck/HistoryTab'
@@ -126,25 +127,110 @@ function LegalityPanel({ detail, onDisclose }: { detail: DeckDetail; onDisclose:
 }
 
 // ── Deck-list row with quantity stepper ───────────────────────────────────────
-function DeckRow({ card, offending, onSet, onRemove }: {
-  card: DeckCard; offending: boolean; onSet: (q: number) => void; onRemove: () => void
+// The deck-scoped header of the card sheet. The thumbnails in the list are tiny,
+// so the sheet leads with the card at a readable size and answers the questions
+// that only make sense *inside a deck* — copies run, shortfall against your
+// collection, and what those copies cost — before the shared card body.
+function DeckCardContext({ card, offending, onSet }: {
+  card: DeckCard; offending: boolean; onSet: (q: number) => void
+}) {
+  const short = Math.max(0, card.quantity - card.owned)
+  const unit = card.price?.market ?? null
+  const lineTotal = unit != null ? unit * card.quantity : null
+
+  return (
+    <div className="mb-[8px] rounded-xl border border-border-default bg-surface-secondary p-[14px]">
+      <div className="flex items-start gap-[14px]">
+        <img
+          src={card.images.high || card.images.low}
+          alt={card.name}
+          className="w-[104px] shrink-0 rounded-lg object-cover shadow-panel"
+          style={{ aspectRatio: '245 / 337' }}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-text-muted">In this deck</div>
+          <div className="mt-[3px] flex items-center gap-[6px]">
+            {basicEnergyType(card) && <EnergyIcon type={basicEnergyType(card)!} size={16} className="shrink-0" />}
+            <span className="truncate text-[17px] font-bold text-text-primary">{card.name}</span>
+          </div>
+          <div className="mt-[2px] text-[12px] text-text-muted">
+            {card.setName} · {card.setId.toUpperCase()} {card.number}
+            {card.regulationMark && <span className="ml-[6px] rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
+          </div>
+
+          {/* copies stepper — same mutation the row uses, so the sheet is not read-only */}
+          <div className="mt-[10px] flex items-center gap-[8px]">
+            <span className="text-[12px] text-text-muted">Copies</span>
+            <button onClick={() => onSet(card.quantity - 1)} aria-label="Decrease copies" className="flex h-[28px] w-[28px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+              <Icon name="minus" size={13} />
+            </button>
+            <span className="w-[22px] text-center text-[16px] font-bold text-text-primary">{card.quantity}</span>
+            <button onClick={() => onSet(card.quantity + 1)} aria-label="Increase copies" className="flex h-[28px] w-[28px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+              <Icon name="plus" size={13} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {offending && (
+        <div className="mt-[12px] flex items-start gap-[8px] rounded-lg px-[10px] py-[8px] text-[12px]" style={{ background: 'rgba(255,157,66,0.10)', color: '#ff9d42' }}>
+          <span className="mt-[1px] shrink-0"><Icon name="alert" size={14} /></span>
+          <span>This card breaks a rule for the deck's current format — see the legality panel.</span>
+        </div>
+      )}
+
+      <div className="mt-[12px] grid grid-cols-3 gap-[8px]">
+        <div className="rounded-lg bg-surface-primary px-[10px] py-[8px]">
+          <div className="text-[11px] text-text-muted">You own</div>
+          <div className={`text-[15px] font-bold ${short === 0 ? 'text-change-positive' : 'text-text-primary'}`}>
+            {card.owned} / {card.quantity}
+          </div>
+        </div>
+        <div className="rounded-lg bg-surface-primary px-[10px] py-[8px]">
+          <div className="text-[11px] text-text-muted">Still needed</div>
+          <div className={`text-[15px] font-bold ${short > 0 ? 'text-text-primary' : 'text-change-positive'}`}>
+            {short === 0 ? 'None' : short}
+          </div>
+        </div>
+        <div className="rounded-lg bg-surface-primary px-[10px] py-[8px]">
+          <div className="text-[11px] text-text-muted">Deck cost</div>
+          <div className="text-[15px] font-bold text-change-positive">{fmtUsd(lineTotal)}</div>
+          {unit != null && card.quantity > 1 && (
+            <div className="text-[10px] text-text-muted">{fmtPrice(card.price)} each</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DeckRow({ card, offending, onSet, onRemove, onOpen }: {
+  card: DeckCard; offending: boolean; onSet: (q: number) => void; onRemove: () => void; onOpen: () => void
 }) {
   return (
     <div className={`flex items-center gap-[10px] rounded-lg p-[6px] pr-[8px] ${offending ? 'bg-[rgba(255,157,66,0.10)] ring-1 ring-[rgba(255,157,66,0.5)]' : 'hover:bg-surface-tertiary/60'}`}>
-      <img src={card.images.low} alt={card.name} loading="lazy" className="h-[52px] w-[37px] shrink-0 rounded object-cover" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-[6px]">
-          {basicEnergyType(card) && <EnergyIcon type={basicEnergyType(card)!} size={16} className="shrink-0" />}
-          <span className="truncate text-[14px] font-semibold text-text-primary">{card.name}</span>
-          {offending && <span className="shrink-0" style={{ color: '#ff9d42' }}><Icon name="alert" size={13} /></span>}
+      {/* Card identity opens the deck-scoped sheet; the steppers keep their own
+          hit targets so tapping +/−/× never opens it by accident. */}
+      <button
+        onClick={onOpen}
+        className="flex min-w-0 flex-1 items-center gap-[10px] rounded-lg text-left"
+        aria-label={`Details for ${card.name}`}
+      >
+        <img src={card.images.low} alt={card.name} loading="lazy" className="h-[52px] w-[37px] shrink-0 rounded object-cover" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-[6px]">
+            {basicEnergyType(card) && <EnergyIcon type={basicEnergyType(card)!} size={16} className="shrink-0" />}
+            <span className="truncate text-[14px] font-semibold text-text-primary">{card.name}</span>
+            {offending && <span className="shrink-0" style={{ color: '#ff9d42' }}><Icon name="alert" size={13} /></span>}
+          </div>
+          <div className="flex items-center gap-[8px] text-[11px] text-text-muted">
+            <span>{card.setId.toUpperCase()} {card.number}</span>
+            {card.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
+            <span className={card.have ? 'text-change-positive' : 'text-text-muted'}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>
+            <span className="text-change-positive">{fmtPrice(card.price)}</span>
+          </div>
         </div>
-        <div className="flex items-center gap-[8px] text-[11px] text-text-muted">
-          <span>{card.setId.toUpperCase()} {card.number}</span>
-          {card.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
-          <span className={card.have ? 'text-change-positive' : 'text-text-muted'}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>
-          <span className="text-change-positive">{fmtPrice(card.price)}</span>
-        </div>
-      </div>
+      </button>
       <div className="flex items-center gap-[5px]">
         <button onClick={() => onSet(card.quantity - 1)} aria-label="Decrease" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
           <Icon name="minus" size={13} />
@@ -543,6 +629,13 @@ export function DeckBuilder() {
     return set
   }, [detail])
 
+  // Resolved from the live deck (not frozen at open time) so the sheet's copies,
+  // owned count and cost re-render as the underlying mutations settle.
+  const sheetCard = useMemo(
+    () => (search.card ? (detail?.cards.find((c) => c.cardId === search.card) ?? null) : null),
+    [detail, search.card],
+  )
+
   const grouped = useMemo(() => {
     const cards = detail?.cards ?? []
     const q = search.q.trim().toLowerCase()
@@ -691,7 +784,8 @@ export function DeckBuilder() {
                         {rows.map((c) => (
                           <DeckRow key={c.cardId} card={c} offending={offending.has(c.cardId)}
                             onSet={(q) => setQty.mutate({ cardId: c.cardId, quantity: Math.max(0, Math.min(60, q)) })}
-                            onRemove={() => removeCard.mutate(c.cardId)} />
+                            onRemove={() => removeCard.mutate(c.cardId)}
+                            onOpen={() => patchSearch({ card: c.cardId })} />
                         ))}
                       </div>
                     </div>
@@ -753,6 +847,25 @@ export function DeckBuilder() {
       {showDelete && deck && (
         <ConfirmModal title="Delete deck" message={`Delete “${deck.name}”? This can't be undone.`} confirmLabel="Delete Deck"
           busy={deleteDeck.isPending} onClose={() => setShowDelete(false)} onConfirm={() => deleteDeck.mutate()} />
+      )}
+
+      {/* Deck-scoped card sheet, driven by ?card=. Rendered here so opening and
+          closing it never unmounts the builder — scroll, filters and tab survive.
+          The card must still be in the deck; a stale ?card= (e.g. after a remove)
+          simply resolves to nothing and the param is dropped on close. */}
+      {sheetCard && (
+        <CardSheet
+          cardId={sheetCard.cardId}
+          ariaLabel={`${sheetCard.name} in this deck`}
+          onClose={() => patchSearch({ card: undefined })}
+          contextSlot={
+            <DeckCardContext
+              card={sheetCard}
+              offending={offending.has(sheetCard.cardId)}
+              onSet={(q) => setQty.mutate({ cardId: sheetCard.cardId, quantity: Math.max(0, Math.min(60, q)) })}
+            />
+          }
+        />
       )}
     </Content>
   )
