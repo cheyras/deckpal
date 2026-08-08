@@ -2,14 +2,23 @@
   "version": 3,
   "cardId": "base1-8",
   "variantId": 32,
+  "artworkKey": "base1-8",
   "width": 490,
   "height": 674,
   "channel": "alpha",
-  "derivation_method": "hand",
-  "savedAt": "2026-08-01T22:35:48.527Z",
-  "artworkKey": "base1-8",
+  "derivation_method": "hand-refined",
+  "authorship": "human",
+  "reviewStatus": "human-authored",
+  "savedAt": "2026-08-08T05:48:27.004Z",
+  "artworkUrl": "/pokedex/images/en/base/base1/8/high.webp",
+  "card": {
+    "setId": "base1",
+    "seriesSlug": "base",
+    "name": "Machamp",
+    "number": "8"
+  },
   "prior": {
-    "source": "layout",
+    "source": "mask",
     "eraId": "wotc",
     "scope": "window",
     "rect": [
@@ -21,24 +30,78 @@
     "radius": 0.004,
     "invert": false,
     "feather": 0.008,
-    "resolverVersion": 1
+    "resolverVersion": 5,
+    "parentMask": {
+      "cardId": "base1-8",
+      "variantId": 32,
+      "savedAt": "2026-08-01T22:35:48.527Z",
+      "method": "hand"
+    }
   },
   "priorPng": "32.prior.png",
   "diffPng": "32.diff.png",
   "diff": {
-    "addedPx": 13,
-    "removedPx": 39643,
-    "unchangedPx": 70788,
-    "agreement": 0.6409
+    "addedPx": 17,
+    "removedPx": 39500,
+    "unchangedPx": 70931,
+    "agreement": 0.6422
   },
-  "authorship": "human",
-  "reviewStatus": "human-authored",
-  "artworkUrl": null,
+  "correction": {
+    "parent": {
+      "cardId": "base1-8",
+      "variantId": 32,
+      "savedAt": "2026-08-01T22:35:48.527Z",
+      "method": "hand",
+      "sha256": "542230ab18790596452a1e060623f06950a215248bba51466f82dc5a62bce471",
+      "generator": null
+    },
+    "parentPng": "32.parent.png",
+    "parentDiffPng": "32.parent.diff.png",
+    "addedPx": 1663,
+    "removedPx": 1516,
+    "unchangedPx": 69285,
+    "agreement": 0.9561,
+    "changedPx": 3179,
+    "changedFraction": 0.009626,
+    "bbox": [
+      0.2265,
+      0.4792,
+      0.5,
+      0.3961
+    ],
+    "grid": {
+      "size": 4,
+      "cells": [
+        0.002,
+        0.02,
+        0.031,
+        0,
+        0,
+        0.032,
+        0.057,
+        0,
+        0,
+        0,
+        0.012,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
   "lineage": [
     {
       "method": "hand",
       "savedAt": "2026-08-01T22:35:48.527Z",
       "source": "layout",
+      "generator": null
+    },
+    {
+      "method": "hand-refined",
+      "savedAt": "2026-08-08T05:48:27.004Z",
+      "source": "mask",
       "generator": null
     }
   ]

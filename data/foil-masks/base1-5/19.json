@@ -6,10 +6,19 @@
   "width": 490,
   "height": 674,
   "channel": "alpha",
-  "derivation_method": "hand",
-  "savedAt": "2026-08-02T16:37:41.457Z",
+  "derivation_method": "hand-refined",
+  "authorship": "human",
+  "reviewStatus": "human-authored",
+  "savedAt": "2026-08-08T05:52:55.654Z",
+  "artworkUrl": "/pokedex/images/en/base/base1/5/high.webp",
+  "card": {
+    "setId": "base1",
+    "seriesSlug": "base",
+    "name": "Clefairy",
+    "number": "5"
+  },
   "prior": {
-    "source": "layout",
+    "source": "mask",
     "eraId": "wotc",
     "scope": "window",
     "rect": [
@@ -21,24 +30,78 @@
     "radius": 0.004,
     "invert": false,
     "feather": 0.008,
-    "resolverVersion": 4
+    "resolverVersion": 5,
+    "parentMask": {
+      "cardId": "base1-5",
+      "variantId": 19,
+      "savedAt": "2026-08-02T16:37:41.457Z",
+      "method": "hand"
+    }
   },
   "priorPng": "19.prior.png",
   "diffPng": "19.diff.png",
   "diff": {
     "addedPx": 4,
-    "removedPx": 51384,
-    "unchangedPx": 59047,
-    "agreement": 0.5347
+    "removedPx": 51433,
+    "unchangedPx": 58998,
+    "agreement": 0.5342
   },
-  "authorship": "human",
-  "reviewStatus": "human-authored",
-  "artworkUrl": null,
+  "correction": {
+    "parent": {
+      "cardId": "base1-5",
+      "variantId": 19,
+      "savedAt": "2026-08-02T16:37:41.457Z",
+      "method": "hand",
+      "sha256": "04c99b6581fd2b6eda03a15e9c45b08f2638e46a82aefe7dae431498081541dd",
+      "generator": null
+    },
+    "parentPng": "19.parent.png",
+    "parentDiffPng": "19.parent.diff.png",
+    "addedPx": 168,
+    "removedPx": 217,
+    "unchangedPx": 58834,
+    "agreement": 0.9935,
+    "changedPx": 385,
+    "changedFraction": 0.001166,
+    "bbox": [
+      0.2449,
+      0.5015,
+      0.5449,
+      0.3561
+    ],
+    "grid": {
+      "size": 4,
+      "cells": [
+        0,
+        0.002,
+        0.003,
+        0,
+        0,
+        0.007,
+        0.003,
+        0.003,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
   "lineage": [
     {
       "method": "hand",
       "savedAt": "2026-08-02T16:37:41.457Z",
       "source": "layout",
+      "generator": null
+    },
+    {
+      "method": "hand-refined",
+      "savedAt": "2026-08-08T05:52:55.654Z",
+      "source": "mask",
       "generator": null
     }
   ]
