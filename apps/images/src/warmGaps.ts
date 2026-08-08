@@ -26,10 +26,10 @@ import { fromUrl, putAsset } from './store.js';
  * found on 2026-08-07 came from. It now writes through store.ts `putAsset`, so the
  * bytes and their source URL land together or not at all.
  *
- *   pnpm --filter pokedex-images warm:gaps                   # every card in the DB
- *   pnpm --filter pokedex-images warm:gaps -- --set svp      # one set
- *   pnpm --filter pokedex-images warm:gaps -- --csv gaps.csv # explicit work-list
- *   pnpm --filter pokedex-images warm:gaps -- --dry-run
+ *   pnpm --filter deckscout-images warm:gaps                   # every card in the DB
+ *   pnpm --filter deckscout-images warm:gaps -- --set svp      # one set
+ *   pnpm --filter deckscout-images warm:gaps -- --csv gaps.csv # explicit work-list
+ *   pnpm --filter deckscout-images warm:gaps -- --dry-run
  *
  * CSV rows (legacy format, still accepted): serie,set,localId[,missHigh,missLow]
  *

@@ -6,7 +6,7 @@
 //
 // Connection budget: ONE pooled client for the whole process (sync = 1 of 3). DATA-LAYER §6.5.
 
-import { makePool, loadEnv } from '@pokedex/db';
+import { makePool, loadEnv } from '@deckscout/db';
 import { ingestTcgcsvPrices, fetchLastUpdated } from './tcgcsv.js';
 import { ingestCardmarket } from './cardmarket.js';
 import { crossFillReverse, AFFECTED_SERIES } from './crossfill.js';

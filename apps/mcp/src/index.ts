@@ -2,13 +2,13 @@ import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import type { RequestHandler } from 'express';
-import { loadEnv } from '@pokedex/db';
+import { loadEnv } from '@deckscout/db';
 import { buildCtx, type Ctx } from './ctx.js';
 import { q } from './db.js';
 import { buildServer } from './server.js';
 
 /**
- * rotom-mcp — the MCP face of pokedex (SPEC §1/§2).
+ * rotom-mcp — the MCP face of DeckScout (SPEC §1/§2).
  *
  * Streamable HTTP on 127.0.0.1:3704/mcp (stateless: fresh McpServer per
  * request via createMcpHandler), plus a plain unauthenticated GET /health for
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   loadEnv();
 
   if (!process.env.ROTOM_MCP_KEY) {
-    console.error('[pokedex-mcp] FATAL: ROTOM_MCP_KEY is not set — refusing to start.');
+    console.error('[deckscout-mcp] FATAL: ROTOM_MCP_KEY is not set — refusing to start.');
     process.exit(1);
   }
 
@@ -44,25 +44,25 @@ async function main(): Promise<void> {
   try {
     ctx = await buildCtx();
   } catch (err) {
-    console.error(`[pokedex-mcp] FATAL: Postgres self-check failed: ${(err as Error).message}`);
+    console.error(`[deckscout-mcp] FATAL: Postgres self-check failed: ${(err as Error).message}`);
     process.exit(1);
   }
-  console.log(`[pokedex-mcp] db ok · default user id ${ctx.userId}`);
+  console.log(`[deckscout-mcp] db ok · default user id ${ctx.userId}`);
 
   // API self-check is warn-only: direct-SQL read tools still work without it;
   // API-backed tools (decks/lists/log_cards) will fail per-call.
   try {
     await ctx.api.get('/health');
-    console.log(`[pokedex-mcp] pokedex-api ok at ${ctx.config.apiBase}`);
+    console.log(`[deckscout-mcp] deckscout-api ok at ${ctx.config.apiBase}`);
   } catch (err) {
     console.error(
-      `[pokedex-mcp] WARN: pokedex-api unreachable at ${ctx.config.apiBase} (${(err as Error).message}) — API-backed tools will fail per-call.`,
+      `[deckscout-mcp] WARN: deckscout-api unreachable at ${ctx.config.apiBase} (${(err as Error).message}) — API-backed tools will fail per-call.`,
     );
   }
 
   const handler = createMcpHandler(() => buildServer(ctx));
   const nodeHandler = toNodeHandler(handler, {
-    onerror: (err) => console.error(`[pokedex-mcp] mcp handler error: ${err.message}`),
+    onerror: (err) => console.error(`[deckscout-mcp] mcp handler error: ${err.message}`),
   });
 
   const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ALLOWED_HOSTS });
@@ -112,20 +112,20 @@ async function main(): Promise<void> {
   });
 
   const httpServer = app.listen(ctx.config.port, '127.0.0.1', () => {
-    console.log(`[pokedex-mcp] rotom-mcp listening on 127.0.0.1:${ctx.config.port} (/mcp + /health)`);
+    console.log(`[deckscout-mcp] rotom-mcp listening on 127.0.0.1:${ctx.config.port} (/mcp + /health)`);
   });
 
   let shuttingDown = false;
   const shutdown = (signal: string): void => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`[pokedex-mcp] ${signal} received — shutting down`);
+    console.log(`[deckscout-mcp] ${signal} received — shutting down`);
     httpServer.close(() => {
       void handler
         .close()
-        .catch((err: unknown) => console.error(`[pokedex-mcp] handler close error: ${(err as Error).message}`))
+        .catch((err: unknown) => console.error(`[deckscout-mcp] handler close error: ${(err as Error).message}`))
         .then(() => ctx.pool.end())
-        .catch((err: unknown) => console.error(`[pokedex-mcp] pool end error: ${(err as Error).message}`))
+        .catch((err: unknown) => console.error(`[deckscout-mcp] pool end error: ${(err as Error).message}`))
         .finally(() => process.exit(0));
     });
     // In-flight SSE streams can hold the server open; don't hang pm2 restarts.
@@ -143,7 +143,7 @@ const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
 const isMain = entryPath.endsWith('index.js') || entryPath.endsWith('index.ts');
 if (isMain) {
   main().catch((err: unknown) => {
-    console.error(`[pokedex-mcp] FATAL: ${(err as Error).message}`);
+    console.error(`[deckscout-mcp] FATAL: ${(err as Error).message}`);
     process.exit(1);
   });
 }

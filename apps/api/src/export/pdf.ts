@@ -2,7 +2,7 @@ import PDFDocument from 'pdfkit';
 import type { Writable } from 'node:stream';
 
 /**
- * pokedex — PDF export rendering (BRIEF §2 nice-to-have, §7).
+ * DeckScout — PDF export rendering (BRIEF §2 nice-to-have, §7).
  *
  * Pure-JS PDF generation via pdfkit (0.19.x). pdfkit has NO native modules — its
  * entire dependency tree (fontkit, linebreak, png-js, @noble/*) is pure
@@ -27,7 +27,7 @@ const PAGE = { size: 'LETTER' as const, margin: 54 }; // 612×792pt, 54pt = 0.75
 const INK = '#18181b'; // near-black body text
 const MUTED = '#6b7280'; // secondary meta
 const RULE = '#d4d4d8'; // hairline rules
-const ACCENT = '#b91c1c'; // pokedex red (UI-SPEC brand) for the title accent bar
+const ACCENT = '#b91c1c'; // DeckScout red (UI-SPEC brand) for the title accent bar
 const OWNED = '#166534'; // dark green check — legible in B&W too
 const F = { reg: 'Helvetica', bold: 'Helvetica-Bold', italic: 'Helvetica-Oblique' };
 
@@ -38,7 +38,7 @@ function beginDoc(stream: Writable, title: string): Doc {
     size: PAGE.size,
     margin: PAGE.margin,
     bufferPages: true,
-    info: { Title: title, Author: 'pokedex', Creator: 'pokedex-api' },
+    info: { Title: title, Author: 'DeckScout', Creator: 'deckscout-api' },
   });
   doc.pipe(stream);
   return doc;
@@ -47,7 +47,7 @@ function beginDoc(stream: Writable, title: string): Doc {
 const contentWidth = (doc: Doc): number => doc.page.width - doc.page.margins.left - doc.page.margins.right;
 const bottomLimit = (doc: Doc): number => doc.page.height - doc.page.margins.bottom;
 
-/** Title band: red accent bar + title + right-aligned "pokedex", then meta lines. */
+/** Title band: red accent bar + title + right-aligned "DeckScout", then meta lines. */
 function header(doc: Doc, title: string, meta: string[]): void {
   const x = doc.page.margins.left;
   const w = contentWidth(doc);
@@ -241,7 +241,7 @@ export interface SetChecklistData {
 
 export function renderDeckPdf(stream: Writable, d: DeckPdfData): void {
   const doc = beginDoc(stream, `${d.name} — deck`);
-  const stamp = `pokedex · deck export · ${d.generatedAt}`;
+  const stamp = `DeckScout · deck export · ${d.generatedAt}`;
   header(doc, d.name, [
     `Format: ${d.formatName}${d.glcType ? ` (${d.glcType})` : ''}`,
     `${d.counts.total} cards · ${d.counts.pokemon} Pokémon · ${d.counts.trainer} Trainer · ${d.counts.energy} Energy · ${d.counts.distinctNames} unique`,
@@ -306,7 +306,7 @@ export function renderDeckPdf(stream: Writable, d: DeckPdfData): void {
 
 export function renderListPdf(stream: Writable, d: ListPdfData): void {
   const doc = beginDoc(stream, `${d.name} — list`);
-  const stamp = `pokedex · list export · ${d.generatedAt}`;
+  const stamp = `DeckScout · list export · ${d.generatedAt}`;
   const kindLabel = d.kind === 'pokedex_binder' ? 'Pokédex binder' : d.kind.charAt(0).toUpperCase() + d.kind.slice(1);
   header(doc, d.name, [
     `${kindLabel} list · ${d.itemCount} ${d.itemCount === 1 ? 'entry' : 'entries'}` +
@@ -344,7 +344,7 @@ export function renderListPdf(stream: Writable, d: ListPdfData): void {
 
 export function renderSetChecklistPdf(stream: Writable, d: SetChecklistData): void {
   const doc = beginDoc(stream, `${d.setName} — set checklist`);
-  const stamp = `pokedex · set checklist · ${d.generatedAt}`;
+  const stamp = `DeckScout · set checklist · ${d.generatedAt}`;
   header(doc, d.setName, [
     `${d.seriesName} · ${d.setId}${d.releasedOn ? ` · released ${d.releasedOn}` : ''}`,
     `${d.progress.owned}/${d.progress.total} owned (${d.progress.pct}%) · ${d.printedCount} printed${d.total > d.printedCount ? ` + ${d.total - d.printedCount} secret` : ''}`,

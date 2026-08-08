@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import { loadEnv, makePool } from '@pokedex/db';
+import { loadEnv, makePool } from '@deckscout/db';
 import { apiBase, apiGet, apiSend } from './api.js';
 import { q1 } from './db.js';
 
@@ -13,11 +13,11 @@ import { q1 } from './db.js';
  */
 
 export interface McpConfig {
-  /** Listen port (POKEDEX_MCP_PORT, default 3704). Bound to 127.0.0.1 only. */
+  /** Listen port (DECKSCOUT_MCP_PORT, default 3704). Bound to 127.0.0.1 only. */
   port: number;
   /** Shared secret gating /mcp (ROTOM_MCP_KEY). Never log this. */
   key: string;
-  /** pokedex-api base, e.g. http://127.0.0.1:3700/pokedex/api */
+  /** deckscout-api base, e.g. http://127.0.0.1:3700/pokedex/api */
   apiBase: string;
 }
 
@@ -39,10 +39,10 @@ export async function buildCtx(): Promise<Ctx> {
   loadEnv();
   // Label this app's connection in pg_stat_activity without leaking the name
   // into sibling apps: PGAPPNAME is set process-locally, never in .env.
-  process.env.PGAPPNAME ??= 'pokedex-mcp';
+  process.env.PGAPPNAME ??= 'deckscout-mcp';
 
   const config: McpConfig = {
-    port: Number(process.env.POKEDEX_MCP_PORT ?? 3704),
+    port: Number(process.env.DECKSCOUT_MCP_PORT ?? 3704),
     key: process.env.ROTOM_MCP_KEY ?? '',
     apiBase: apiBase(),
   };

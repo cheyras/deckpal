@@ -1,4 +1,4 @@
-# pokedex — a self-hosted TCG collection tracker
+# DeckScout — a self-hosted TCG collection tracker
 
 A single-user, self-hosted clone of pkmn.gg: browse a full card catalog, track your
 collection across printings, see prices, a Pokédex, decks, a perceptual-hash card scanner,
@@ -11,30 +11,30 @@ pnpm monorepo. Five apps + a shared db package:
 
 | App | Port | What |
 |---|---|---|
-| `apps/api` (`pokedex-api`) | 3700 | Read API under `/pokedex/api/*` **and serves the built SPA** (`apps/web/dist`) |
-| `apps/images` (`pokedex-images`) | 3701 | Serves the local WebP art cache; disk-only (never proxies upstream) |
-| `apps/mcp` (`pokedex-mcp`) | 3704 | **rotom-mcp** — MCP server for Claude: collection/catalog/price/deck tools + attributed collection writes (see `apps/mcp/SPEC.md`) |
-| `apps/sync` (`pokedex-sync`) | cron | Catalog import, dex import, price ingest |
-| `apps/web` | — | React 19 + Vite + Tailwind 4 SPA (built, then served by `pokedex-api`) |
-| `packages/db` | — | Pool + migrations (`@pokedex/db`) |
+| `apps/api` (`deckscout-api`) | 3700 | Read API under `/deckscout/api/*` **and serves the built SPA** (`apps/web/dist`) |
+| `apps/images` (`deckscout-images`) | 3701 | Serves the local WebP art cache; disk-only (never proxies upstream) |
+| `apps/mcp` (`deckscout-mcp`) | 3704 | **rotom-mcp** — MCP server for Claude: collection/catalog/price/deck tools + attributed collection writes (see `apps/mcp/SPEC.md`) |
+| `apps/sync` (`deckscout-sync`) | cron | Catalog import, dex import, price ingest |
+| `apps/web` | — | React 19 + Vite + Tailwind 4 SPA (built, then served by `deckscout-api`) |
+| `packages/db` | — | Pool + migrations (`@deckscout/db`) |
 
-Data lives in host **Postgres**, database `pokedex`. Runs behind nginx at `http://localhost/pokedex/`
-(LAN) and an the SSO gate-gated `https://example.invalid/pokedex/` (remote). Deployed via
+Data lives in host **Postgres**, database `deckscout`. Runs behind nginx at `http://localhost/deckscout/`
+(LAN) and an the SSO gate-gated `https://example.invalid/deckscout/` (remote). Deployed via
 **pm2** (`pm2 list`). Canonical design: `ARCHITECTURE.md`; schema: `research/SCHEMA.md`.
 
 ## Working here
 
 - **`.env`** (gitignored) holds the Postgres creds + ports. Load it for any DB/script work:
   `set -a && . ./.env && set +a` — then `psql -c "…"` uses it. Use absolute `./.env` from repo root.
-- **Build:** `rtk pnpm --filter pokedex-web build` (web) · `rtk pnpm --filter pokedex-api build`
-  (api) · similarly `pokedex-images`, `pokedex-sync`. Typecheck: `… exec tsc --noEmit`.
+- **Build:** `rtk pnpm --filter deckscout-web build` (web) · `rtk pnpm --filter deckscout-api build`
+  (api) · similarly `deckscout-images`, `deckscout-sync`. Typecheck: `… exec tsc --noEmit`.
 - **Deploy** (this box): rebuild the changed app(s), then `rtk pm2 restart <name>` and
-  `rtk pm2 save`. The SPA is served by `pokedex-api`, so a **web** change needs a web build
-  (no restart) and an **api** change needs `pnpm --filter pokedex-api build && pm2 restart pokedex-api`.
-  Health: `curl -s http://127.0.0.1/pokedex/api/health`. The deployed app runs from **this
+  `rtk pm2 save`. The SPA is served by `deckscout-api`, so a **web** change needs a web build
+  (no restart) and an **api** change needs `pnpm --filter deckscout-api build && pm2 restart deckscout-api`.
+  Health: `curl -s http://127.0.0.1/deckscout/api/health`. The deployed app runs from **this
   working tree** — there is no separate release step.
 - **Git:** commits go on `main`; upstream is the local the legacy git host —
-  `origin http://localhost:3000/cheyras/pokedex.git` (browse at `http://localhost/git/cheyras/pokedex`).
+  `origin http://localhost:3000/cheyras/deckscout.git` (browse at `http://localhost/git/cheyras/deckscout`).
   Push after committing; every push to main runs **CI** (`.github-legacy/workflows/ci.yml` on the
   host-mode `the-original-host-pi` runner: typecheck all workspaces, pure deck/parser tests, api+mcp+web
   builds — live-DB tests are deliberately excluded). Identity is automatic (`cheyras`).
@@ -49,7 +49,7 @@ Data lives in host **Postgres**, database `pokedex`. Runs behind nginx at `http:
 
 One LAN-only menu of every running dev surface: **http://localhost:3999** (or
 `http://10.0.0.1:3999` from devices without the Pi's DNS). Runs under pm2 as
-`legacy-dev-hub-legacy` (`tools/dev-hub-legacy/`); Chey reviews worktree UI from his phone through it. A
+`deckscout-dev-hub-legacy` (`tools/dev-hub-legacy/`); Chey reviews worktree UI from his phone through it. A
 floating ◐ switcher is auto-injected into every Vite **dev** server (dev-only plugin in
 `apps/web/vite.config.ts`) to jump between surfaces; prod builds are untouched.
 
@@ -59,13 +59,13 @@ floating ◐ switcher is auto-injected into every Vite **dev** server (dev-only 
   ```bash
   curl -s -X POST http://127.0.0.1:3999/register -H 'content-type: application/json' -d \
     '{"branch":"foil/main","label":"Foil workbench","port":5182,
-      "pages":[{"name":"Workbench","path":"/pokedex/foil-lab"}]}'
+      "pages":[{"name":"Workbench","path":"/deckscout/foil-lab"}]}'
   ```
   Re-POST with the same `branch` to update (it upserts). List real pages, not every route.
 - **Remove an entry when** its dev server stops or the worktree is retired/merged — a menu
   link that 404s from Chey's phone is worse than no link:
   `curl -s -X POST http://127.0.0.1:3999/unregister -d '{"branch":"foil/main"}'`
-- Registry lives at `~/.legacy-dev-hub-legacy/surfaces.json` (shared across worktrees, not in git);
+- Registry lives at `~/.deckscout-dev-hub-legacy/surfaces.json` (shared across worktrees, not in git);
   the menu lists dev surfaces only (no prod entry — removed 2026-08-01). Don't register prod, backend-only branches, or
   servers you're about to kill. LAN-only by construction — never add an nginx route to :3999.
 
@@ -87,11 +87,11 @@ floating ◐ switcher is auto-injected into every Vite **dev** server (dev-only 
   established. **Never invent a plausible URL** — an honest blank beats a lie the manifest then
   spreads. Never `writeFile`/`curl -o`/`cp` into the cache, and don't add loose fill scripts under
   `scripts/`; add a command in `apps/images/src/`, where the contract lives. Verify with
-  `rtk pnpm --filter pokedex-images manifest:check` (exits non-zero on drift; manual/cron —
+  `rtk pnpm --filter deckscout-images manifest:check` (exits non-zero on drift; manual/cron —
   deliberately NOT in CI, which excludes live-DB work). Serving stays **disk-only**: a missing row
   must never break a page. Backstory + the 1,970-orphan backfill: DECISIONS.md 2026-08-07.
-- **The scanner index is in-memory.** After `pnpm --filter pokedex-api scan:index`, you MUST
-  `pm2 restart pokedex-api` for new hashes to be live. Verify a known card self-matches at distance 0.
+- **The scanner index is in-memory.** After `pnpm --filter deckscout-api scan:index`, you MUST
+  `pm2 restart deckscout-api` for new hashes to be live. Verify a known card self-matches at distance 0.
 - **Don't touch shared infra:** no nginx reloads, no other pm2 apps, no DB schema changes to
   fix a UI bug. Changing nginx/the local DNS resolver/the SSO gate needs the user's OK.
 - **Secrets** (e.g. a pkmn.gg session at `[redacted path]`) are read at **runtime only**,

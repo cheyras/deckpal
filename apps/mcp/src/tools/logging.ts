@@ -16,7 +16,7 @@ import {
  * each item resolves to one card variant and either increments its owned
  * quantity by a signed `delta` or sets it to an absolute `quantity`.
  *
- * All writes go through pokedex-api (SPEC §3 — write logic stays
+ * All writes go through deckscout-api (SPEC §3 — write logic stays
  * single-sourced): delta → POST /collection/variants/:id/increment,
  * quantity → PATCH /collection/variants/:id, always with
  * `source: 'rotom-mcp'` so `collection_log` attributes the change (migration

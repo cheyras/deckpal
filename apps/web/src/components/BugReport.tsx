@@ -6,7 +6,7 @@ import { api } from '../lib/api'
 // In-app bug reporter. Clicking the top-nav button opens the comment form
 // *immediately* and captures a screenshot of the current view in the background,
 // attaching it to the preview when ready. Submit POSTs the comment + page URL +
-// screenshot to /pokedex/api/bugs, which persists them under the repo's issues/
+// screenshot to /deckscout/api/bugs, which persists them under the repo's issues/
 // dir for the `fix-issues` skill to work through.
 //
 // Why open-first-capture-after: html2canvas walks and re-renders the whole

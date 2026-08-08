@@ -2369,7 +2369,7 @@ CREATE TABLE sync_run (
   error      TEXT
 );
 CREATE INDEX sync_run_last_ok ON sync_run (job, started_at DESC) WHERE status = 'ok';
--- ^ serves both the skip-if-unchanged lookup and GET /api/pokedex/health's per-job
+-- ^ serves both the skip-if-unchanged lookup and GET /api/deckscout/health's per-job
 --   {last_success, age_hours, status}. [E] DATA-LAYER §7.5
 -- PRIOR-ART §3 item 6: a 'running' row older than 60 min is ORPHANED, so a crashed sync on a Pi
 -- that reboots cannot wedge the scheduler forever. Enforce in the scheduler, record here.

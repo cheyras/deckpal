@@ -1,8 +1,8 @@
 /// <reference lib="webworker" />
-// pokedex service worker (vite-plugin-pwa, injectManifest strategy).
+// deckscout service worker (vite-plugin-pwa, injectManifest strategy).
 //
-// Sub-path scope: this file is emitted to /pokedex/sw.js, so it can only ever
-// control /pokedex/* — exactly what we want (FRONTEND.md §A.6). Do NOT widen it.
+// Sub-path scope: this file is emitted to /deckscout/sw.js, so it can only ever
+// control /deckscout/* — exactly what we want (FRONTEND.md §A.6). Do NOT widen it.
 //
 // Caching model (FRONTEND.md §C.2, tiered offline §C.5):
 //   Tier 0 — app shell (precache, self.__WB_MANIFEST): index.html + hashed JS/CSS
@@ -10,7 +10,7 @@
 //   Tier 1 — visited card/set art: CacheFirst, LRU-capped at 2000 entries.
 //   API GETs — NetworkFirst: fresh catalog/collection online, last-good offline.
 //   API mutations (POST/PATCH/DELETE) — NetworkOnly, never cached (hard rule).
-//   Client-route navigations under /pokedex/ — fall back to the precached shell.
+//   Client-route navigations under /deckscout/ — fall back to the precached shell.
 import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching'
 import { registerRoute, NavigationRoute } from 'workbox-routing'
 import { NetworkFirst, CacheFirst, NetworkOnly } from 'workbox-strategies'
@@ -25,14 +25,14 @@ precacheAndRoute(self.__WB_MANIFEST)
 cleanupOutdatedCaches()
 
 // ── SPA navigation fallback ───────────────────────────────────────────────────
-// Any client-route navigation (e.g. /pokedex/series/base/base1) resolves to the
+// Any client-route navigation (e.g. /deckscout/series/base/base1) resolves to the
 // precached shell so deep links + offline reloads render. API and image paths are
 // denylisted so a 404 there surfaces as a 404, never as a silently-served HTML
 // shell (the "JSON.parse: unexpected token <" class of bug — FRONTEND.md §C.2).
-const shellHandler = createHandlerBoundToURL('/pokedex/index.html')
+const shellHandler = createHandlerBoundToURL('/deckscout/index.html')
 registerRoute(
   new NavigationRoute(shellHandler, {
-    denylist: [/^\/pokedex\/api\//, /^\/pokedex\/images\//],
+    denylist: [/^\/deckscout\/api\//, /^\/deckscout\/images\//],
   }),
 )
 
@@ -51,9 +51,9 @@ const jsonOnlyGuard = {
 
 // ── API GETs: NetworkFirst (fresh online, last-good offline) ───────────────────
 registerRoute(
-  ({ url, request }) => url.pathname.startsWith('/pokedex/api/') && request.method === 'GET',
+  ({ url, request }) => url.pathname.startsWith('/deckscout/api/') && request.method === 'GET',
   new NetworkFirst({
-    cacheName: 'pokedex-api-v1',
+    cacheName: 'deckscout-api-v1',
     networkTimeoutSeconds: 5,
     plugins: [
       new CacheableResponsePlugin({ statuses: [200] }),
@@ -68,14 +68,14 @@ registerRoute(
 // A queued-offline-write system is explicitly out of scope; the UI disables the
 // steppers when offline instead (CardDetail QtyStepper).
 for (const method of ['POST', 'PATCH', 'DELETE'] as const) {
-  registerRoute(({ url }) => url.pathname.startsWith('/pokedex/api/'), new NetworkOnly(), method)
+  registerRoute(({ url }) => url.pathname.startsWith('/deckscout/api/'), new NetworkOnly(), method)
 }
 
 // ── Tier 1: card & set art, CacheFirst, LRU-capped at 2000 entries ─────────────
 registerRoute(
-  ({ url }) => url.pathname.startsWith('/pokedex/images/'),
+  ({ url }) => url.pathname.startsWith('/deckscout/images/'),
   new CacheFirst({
-    cacheName: 'pokedex-img-v1',
+    cacheName: 'deckscout-img-v1',
     plugins: [
       new CacheableResponsePlugin({ statuses: [0, 200] }),
       new ExpirationPlugin({

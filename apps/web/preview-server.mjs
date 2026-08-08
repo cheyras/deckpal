@@ -1,6 +1,6 @@
-// Preview server: serves the built SPA under /pokedex/ and proxies
-// /pokedex/api → :3700 and /pokedex/images → :3701, mirroring nginx.
-// SPA fallback to /pokedex/index.html for client routes. Dev/screenshot use only.
+// Preview server: serves the built SPA under /deckscout/ and proxies
+// /deckscout/api → :3700 and /deckscout/images → :3701, mirroring nginx.
+// SPA fallback to /deckscout/index.html for client routes. Dev/screenshot use only.
 import { createServer } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
 import { join, extname } from 'node:path'
@@ -29,12 +29,12 @@ function proxy(req, res, target) {
 
 createServer(async (req, res) => {
   const url = req.url || '/'
-  if (url.startsWith('/pokedex/api')) return proxy(req, res, 'http://127.0.0.1:3700')
-  if (url.startsWith('/pokedex/images')) return proxy(req, res, 'http://127.0.0.1:3701')
+  if (url.startsWith('/deckscout/api')) return proxy(req, res, 'http://127.0.0.1:3700')
+  if (url.startsWith('/deckscout/images')) return proxy(req, res, 'http://127.0.0.1:3701')
 
   let path = url.split('?')[0]
-  if (path === '/' || path === '/pokedex' || path === '/pokedex/') path = '/pokedex/index.html'
-  path = path.replace(/^\/pokedex/, '')
+  if (path === '/' || path === '/pokedex' || path === '/deckscout/') path = '/deckscout/index.html'
+  path = path.replace(/^\/deckscout/, '')
   let file = join(DIST, path)
   try {
     const s = await stat(file)
@@ -49,4 +49,4 @@ createServer(async (req, res) => {
   } catch (e) {
     res.writeHead(404); res.end('not found')
   }
-}).listen(PORT, '127.0.0.1', () => console.log(`preview on http://127.0.0.1:${PORT}/pokedex/`))
+}).listen(PORT, '127.0.0.1', () => console.log(`preview on http://127.0.0.1:${PORT}/deckscout/`))

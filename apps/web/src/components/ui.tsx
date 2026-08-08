@@ -24,11 +24,11 @@ export function assetUrl(url: string | null | undefined, ext = 'png'): string | 
   return /\.(png|webp|jpg|jpeg|svg)$/i.test(url) ? url : `${url}.${ext}`
 }
 
-// Local set logo/symbol served by pokedex-images from the WebP cache. The path is
+// Local set logo/symbol served by deckscout-images from the WebP cache. The path is
 // a pure function of the set's tcgdex_id; the service 404s when a set lacks that
 // asset, so callers gate on known presence AND handle onError for a clean fallback.
 export function setAssetUrl(setId: string, kind: 'logo' | 'symbol'): string {
-  return `/pokedex/images/sets/${encodeURIComponent(setId)}/${kind}.webp`
+  return `/deckscout/images/sets/${encodeURIComponent(setId)}/${kind}.webp`
 }
 
 export function BackPill({ to, params, label }: { to: string; params?: Record<string, string>; label: string }) {

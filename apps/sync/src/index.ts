@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { loadEnv, makePool } from '@pokedex/db';
+import { loadEnv, makePool } from '@deckscout/db';
 import { ingestTcgcsvPrices } from './prices/tcgcsv.js';
 import { ingestCardmarket } from './prices/cardmarket.js';
 import { runReconcile, runSnapshotCollection } from './jobs/api-jobs.js';
@@ -7,11 +7,11 @@ import type { Queryable } from './prices/db.js';
 
 // The node-cron scheduler. FOUR of the seven jobs are real (see REAL_JOBS): the two price
 // ingests (prices-tcgcsv, prices-cardmarket) run in-process, and snapshot-collection /
-// reconcile call pokedex-api's internal endpoints over HTTP (jobs/api-jobs.ts — sync must
+// reconcile call deckscout-api's internal endpoints over HTTP (jobs/api-jobs.ts — sync must
 // not import apps/api, whose db.ts opens its own 2-connection pool at module load).
 // catalog / images / products-tcgcsv remain MANUAL per PKMN-SYNC-RUNBOOK.md and fire as
 // logging stubs. Cadences and the job list come from research/DATA-LAYER.md §7.2 and the
-// sync_run.job CHECK. Run any real job once by hand: `pnpm --filter pokedex-sync run-once <job>`.
+// sync_run.job CHECK. Run any real job once by hand: `pnpm --filter deckscout-sync run-once <job>`.
 loadEnv();
 
 // Connection budget: the sync process gets 1 of the 3 total. DATA-LAYER §6.5.
@@ -41,7 +41,7 @@ function registerStub(job: JobName, expr: string): void {
   cron.schedule(expr, () => {
     // Intentionally a no-op in this scaffold. Real jobs: pg_advisory_lock, skip-if-unchanged,
     // one transaction per group, resumable cursor, write sync_run. See ARCHITECTURE §5.4.
-    console.log(`[pokedex-sync] (stub) would run job "${job}" at ${new Date().toISOString()}`);
+    console.log(`[deckscout-sync] (stub) would run job "${job}" at ${new Date().toISOString()}`);
   });
 }
 
@@ -53,9 +53,9 @@ async function runJob(job: JobName, fn: (c: Queryable) => Promise<unknown>): Pro
   const client = (await pool.connect()) as unknown as Queryable & { release(): void };
   try {
     const r = await fn(client);
-    console.log(`[pokedex-sync] ${job} ok:`, JSON.stringify(r));
+    console.log(`[deckscout-sync] ${job} ok:`, JSON.stringify(r));
   } catch (err) {
-    console.error(`[pokedex-sync] ${job} FAILED:`, err instanceof Error ? err.message : err);
+    console.error(`[deckscout-sync] ${job} FAILED:`, err instanceof Error ? err.message : err);
   } finally {
     client.release();
   }
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
     .map((j) => `${j}=${REAL_JOBS[j] ? 'REAL' : 'stub'}`)
     .join(' ');
   console.log(
-    `pokedex-sync up. sync_run rows: ${rows[0]?.n ?? 0}. Registering ${Object.keys(SCHEDULE).length} cron jobs: ${roster}`,
+    `deckscout-sync up. sync_run rows: ${rows[0]?.n ?? 0}. Registering ${Object.keys(SCHEDULE).length} cron jobs: ${roster}`,
   );
   for (const [job, expr] of Object.entries(SCHEDULE)) {
     const real = REAL_JOBS[job as JobName];
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
 const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
 if (entryPath.endsWith('index.js') || entryPath.endsWith('index.ts')) {
   main().catch((err) => {
-    console.error('[pokedex-sync] fatal at boot:', err instanceof Error ? err.message : err);
+    console.error('[deckscout-sync] fatal at boot:', err instanceof Error ? err.message : err);
     process.exit(1);
   });
 }

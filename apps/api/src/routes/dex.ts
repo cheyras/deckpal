@@ -27,7 +27,7 @@ interface SpeciesRow {
 }
 
 /**
- * GET /pokedex/api/dex — the national-dex species list.
+ * GET /deckscout/api/dex — the national-dex species list.
  * Query: generation=1..9, own=all|captured|uncaptured, q, page, pageSize.
  * Capture state is the default user's (own ≥1 card featuring the species).
  */
@@ -94,7 +94,7 @@ dexRouter.get(
 );
 
 /**
- * GET /pokedex/api/dex/:speciesId — a species and every card featuring it.
+ * GET /deckscout/api/dex/:speciesId — a species and every card featuring it.
  * :speciesId accepts the numeric dex id or the identifier slug (e.g. 6 or
  * 'charizard'). Card→species is many-to-many, so tag-team cards appear here too.
  */

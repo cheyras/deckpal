@@ -1,5 +1,5 @@
 {
-  "name": "pokedex-api",
+  "name": "deckscout-api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "scan:index": "node --import tsx src/scan/index.ts"
   },
   "dependencies": {
-    "@pokedex/db": "workspace:*",
+    "@deckscout/db": "workspace:*",
     "cors": "^2.8.5",
     "express": "^5.0.0",
     "helmet": "^8.0.0",

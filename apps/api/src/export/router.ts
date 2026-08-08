@@ -13,7 +13,7 @@ import {
 /**
  * PDF export routes (BRIEF §7). Read-only, parameterized (ids come from the URL),
  * and each streams application/pdf with a Content-Disposition filename. These are
- * mounted at the /pokedex/api base BEFORE the /decks, /lists, /sets routers so the
+ * mounted at the /deckscout/api base BEFORE the /decks, /lists, /sets routers so the
  * `.../pdf` and `checklist.pdf` paths resolve here (those routers define no such
  * routes, but explicit ordering removes any ambiguity).
  *

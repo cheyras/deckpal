@@ -1,5 +1,5 @@
 {
-  "name": "pokedex-images",
+  "name": "deckscout-images",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -20,7 +20,7 @@
     "manifest:backfill": "tsx src/manifestBackfill.ts"
   },
   "dependencies": {
-    "@pokedex/db": "workspace:*",
+    "@deckscout/db": "workspace:*",
     "express": "^5.0.0"
   },
   "devDependencies": {

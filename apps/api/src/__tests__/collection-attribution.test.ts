@@ -9,7 +9,7 @@ import { closePool, defaultUserId, pool } from '../db.js';
  * Migration 018 attribution — live-DB integration tests (rotom-mcp SPEC §6).
  *
  * Boots the real app on an ephemeral port and exercises the collection write
- * path against the live pokedex DB. Self-cleaning: it targets one real variant,
+ * path against the live deckscout DB. Self-cleaning: it targets one real variant,
  * remembers its starting quantity and the event-id high-water mark, and in
  * `after` restores the quantity (deltas sum to zero across the happy-path
  * tests anyway) and deletes only the event rows this run created
@@ -34,7 +34,7 @@ interface EventJson {
 }
 
 async function api(method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
-  const res = await fetch(`${base}/pokedex/api${path}`, {
+  const res = await fetch(`${base}/deckscout/api${path}`, {
     method,
     headers: { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),

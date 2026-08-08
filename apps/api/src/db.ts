@@ -1,5 +1,5 @@
 import pg from 'pg';
-import { loadEnv, makePool } from '@pokedex/db';
+import { loadEnv, makePool } from '@deckscout/db';
 
 /**
  * Shared pool + query helpers for the read API.
@@ -258,7 +258,7 @@ export function shapePrice(r: PriceRow): Price {
 
 // ── Image references ─────────────────────────────────────────────────────────
 // The API returns image *paths*, never bytes — the image service on 3701 serves
-// them (behind nginx at the same /pokedex/ base). The card path is a pure
+// them (behind nginx at the same /deckscout/ base). The card path is a pure
 // function of (series tcgdex_id, set tcgdex_id, card local_id); see
 // apps/images/src/layout.ts. localId is used verbatim (TCGdex's own padding).
 
@@ -268,7 +268,7 @@ export interface CardImages {
 }
 
 export function cardImages(serieTcgdexId: string, setTcgdexId: string, localId: string): CardImages {
-  const base = `/pokedex/images/en/${serieTcgdexId}/${setTcgdexId}/${localId}`;
+  const base = `/deckscout/images/en/${serieTcgdexId}/${setTcgdexId}/${localId}`;
   return { low: `${base}/low.webp`, high: `${base}/high.webp` };
 }
 

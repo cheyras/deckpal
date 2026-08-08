@@ -11,7 +11,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { makePool, loadEnv } from '@pokedex/db';
+import { makePool, loadEnv } from '@deckscout/db';
 
 // Structural client type — avoids a direct `pg` type dependency in this package. pg.PoolClient
 // satisfies it; we only ever call .query here.
@@ -45,7 +45,7 @@ interface RawSeries {
 }
 
 const CATALOGUE = 'en';
-const DEFAULT_USER = process.env.POKEDEX_DEFAULT_USER ?? 'cheyras';
+const DEFAULT_USER = process.env.DECKSCOUT_DEFAULT_USER ?? 'cheyras';
 
 // ── tiny batch-insert helper (respects pg's 65535-param limit via chunking) ──
 async function batchInsert(
