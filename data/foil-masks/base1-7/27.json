@@ -1,0 +1,51 @@
+{
+  "version": 3,
+  "cardId": "base1-7",
+  "variantId": 27,
+  "artworkKey": "base1-7",
+  "width": 490,
+  "height": 674,
+  "channel": "alpha",
+  "derivation_method": "hand",
+  "authorship": "human",
+  "reviewStatus": "human-authored",
+  "savedAt": "2026-08-08T06:24:36.484Z",
+  "artworkUrl": "/pokedex/images/en/base/base1/7/high.webp",
+  "card": {
+    "setId": "base1",
+    "seriesSlug": "base",
+    "name": "Hitmonchan",
+    "number": "7"
+  },
+  "prior": {
+    "source": "layout",
+    "eraId": "wotc",
+    "scope": "window",
+    "rect": [
+      0.103,
+      0.48000000000000004,
+      0.802,
+      0.418
+    ],
+    "radius": 0.004,
+    "invert": false,
+    "feather": 0.008,
+    "resolverVersion": 5
+  },
+  "priorPng": "27.prior.png",
+  "diffPng": "27.diff.png",
+  "diff": {
+    "addedPx": 0,
+    "removedPx": 29619,
+    "unchangedPx": 80812,
+    "agreement": 0.7318
+  },
+  "lineage": [
+    {
+      "method": "hand",
+      "savedAt": "2026-08-08T06:24:36.484Z",
+      "source": "layout",
+      "generator": null
+    }
+  ]
+}
