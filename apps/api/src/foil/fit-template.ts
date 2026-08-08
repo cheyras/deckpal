@@ -25,6 +25,8 @@ import {
   DEFAULT_VECTOR_FIT_PARAMS, VECTORNESS_TOLERANCE_PX, VECTORNESS_LONG_PRIM_PX, type VectorTemplate,
 } from './vector-template.js';
 import { iou, boundaryDistance } from './region-learn.js';
+import { measureAdherence, luminanceProbe } from './edge-trace.js';
+import { gradientOf } from './line-snap.js';
 
 const ROOT = join(import.meta.dirname, '../../../..');
 const MASKS_DIR = join(ROOT, 'data/foil-masks');
@@ -208,10 +210,171 @@ const tint = (a: Uint8Array): Uint8Array => {
   return rgba;
 };
 
+/**
+ * Did the template learn HIS CORRECTION, or the machine version he rejected?
+ *
+ * For every mask he corrected we have both: the parent (`region-learn@1`'s proposal) and
+ * the corrected mask. A generator that merely reproduced the previous generation would sit
+ * closer to the parent. The number that matters is the MARGIN — IoU against his corrected
+ * mask minus IoU against the parent — and it has to be positive on every card, not on
+ * average, or the template is partly re-learning the mistake he took the time to fix.
+ */
+async function cmdCorrections(): Promise<void> {
+  const eraId = arg('era') ?? 'modern-sv';
+  const scope = arg('scope') ?? 'sheet';
+  const { ex } = await loadExemplars(eraId, scope);
+  classify(ex);
+  const tpl: VectorTemplate = JSON.parse(await readFile(TEMPLATE_FILE, 'utf8')).templates[0];
+
+  console.log('DID IT LEARN HIS CORRECTION, OR THE MACHINE VERSION HE REJECTED?\n');
+  console.log('card                  vs HIS(corrected)  vs PARENT(region-learn@1)   margin   verdict');
+  console.log('─'.repeat(88));
+  let worst = Infinity;
+  let n = 0;
+  for (const e of ex.sort((a, b) => a.cardId.localeCompare(b.cardId))) {
+    const parentPath = join(MASKS_DIR, e.cardId, `${e.variantId}.parent.png`);
+    if (!existsSync(parentPath)) continue;
+    const pimg = decodePng(await readFile(parentPath));
+    const parent = resample(alphaOf(pimg), pimg.width, pimg.height, MASK_W, MASK_H);
+    const mine = rasterizeTemplate(tpl, MASK_W, MASK_H, { evolves: e.evolves });
+    const vsHis = iou(mine, e.alpha);
+    const vsParent = iou(mine, parent);
+    const margin = vsHis - vsParent;
+    if (margin < worst) worst = margin;
+    n++;
+    console.log(
+      `${(e.cardId + '/' + e.variantId).padEnd(21)} ${vsHis.toFixed(4).padStart(17)}  ${vsParent.toFixed(4).padStart(24)}  ` +
+      `${(margin >= 0 ? '+' : '') + margin.toFixed(4)}   ${margin > 0 ? 'HIS' : 'PARENT — investigate'}`);
+  }
+  console.log('─'.repeat(88));
+  console.log(`${n} corrected cards; worst margin ${(worst >= 0 ? '+' : '') + worst.toFixed(4)}`);
+  console.log(worst > 0
+    ? 'PASS — on every card the template is closer to what he drew than to what he rejected.'
+    : 'FAIL — at least one card sits closer to the machine version. Do not ship.');
+}
+
+/**
+ * Verify the template over the POPULATION without generating over the population.
+ *
+ * Two independent checks per sampled card, neither of which needs a hand mask:
+ *
+ *  1. ADHERENCE — does the template's boundary actually sit on THIS card's printed edges?
+ *     Measured with line-snap's luminance Sobel, i.e. a probe this generator never
+ *     optimised against, so the incumbent keeps the home field.
+ *  2. THE OPTIONAL-ELEMENT PROBE vs THE CATALOG — the template reads "does this card have
+ *     the medallion" off the artwork; the catalog knows it from `card.stage`. They were
+ *     derived completely independently, so agreement over hundreds of cards is real
+ *     evidence that the per-card parameter is being read correctly, and every disagreement
+ *     is either a probe failure or a genuinely odd card. Both are worth seeing.
+ *
+ * EXCEPTION RULE, stated before the numbers exist: a card is an exception if its
+ * `within1px` adherence is below `median − 3×MAD` of the sample, or below an absolute floor
+ * of 0.60, or if the probe disagrees with the catalog. Exceptions are LISTED, not fixed —
+ * the list is the deliverable, and it is what a hand mask should be spent on.
+ */
+const ADHERENCE_ABS_FLOOR = 0.60;
+const MAD_K = 3;
+
+async function cmdSample(): Promise<void> {
+  const eraId = arg('era') ?? 'modern-sv';
+  const scope = arg('scope') ?? 'sheet';
+  const perSet = Number(arg('per-set') ?? '15');
+  const popFile = arg('pop')!;
+  const outFile = arg('out');
+
+  const { ex } = await loadExemplars(eraId, scope);
+  const opt = classify(ex);
+  if (!opt) throw new Error('no optional element discovered');
+  const tpl: VectorTemplate = JSON.parse(await readFile(TEMPLATE_FILE, 'utf8')).templates[0];
+
+  const rows = (await readFile(popFile, 'utf8')).split('\n').filter(Boolean).map((l) => {
+    const [cardId, setId, series, category, stage, name] = l.split('\t');
+    return { cardId: cardId!, setId: setId!, series: series!, category: category!, stage: stage!, name: name ?? '' };
+  });
+  // Stratified: every set represented, evenly spaced through its numbering so the sample
+  // is not all low-numbered Basics.
+  const bySet = new Map<string, typeof rows>();
+  for (const r of rows) (bySet.get(r.setId) ?? bySet.set(r.setId, []).get(r.setId)!).push(r);
+  const sample: typeof rows = [];
+  for (const [, list] of [...bySet.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const step = Math.max(1, Math.floor(list.length / perSet));
+    for (let i = 0; i < list.length && sample.filter((s) => s.setId === list[0]!.setId).length < perSet; i += step) sample.push(list[i]!);
+  }
+  console.log(`population ${rows.length} distinct cards across ${bySet.size} sets; sampling ${sample.length} (~${perSet}/set)\n`);
+
+  interface Res { cardId: string; setId: string; category: string; stage: string; name: string; within1px: number; supported: number; meanPx: number; probeHas: boolean; catalogHas: boolean; chroma: number }
+  const res: Res[] = [];
+  const skipped: { cardId: string; reason: string }[] = [];
+  const t0 = Date.now();
+  for (const r of sample) {
+    const serie = r.setId.startsWith('sv') || r.setId.startsWith('me02.5') ? 'sv' : 'me';
+    const art = loadArtwork(serie, r.cardId) ?? loadArtwork(serie === 'sv' ? 'me' : 'sv', r.cardId);
+    if (!art) { skipped.push({ cardId: r.cardId, reason: 'scan not in image cache' }); continue; }
+    const probe = probeOptional(art, opt.region);
+    const alpha = rasterizeTemplate(tpl, MASK_W, MASK_H, { evolves: probe.hasElement });
+    const ad = measureAdherence(alpha, MASK_W, MASK_H, luminanceProbe(gradientOf(art)));
+    res.push({
+      cardId: r.cardId, setId: r.setId, category: r.category, stage: r.stage, name: r.name,
+      within1px: ad.within1px, supported: ad.supportedFrac, meanPx: ad.meanDistPx,
+      probeHas: probe.hasElement, catalogHas: r.stage === 'Stage1' || r.stage === 'Stage2',
+      chroma: probe.chromaFrac,
+    });
+  }
+  const wall = (Date.now() - t0) / 1000;
+  console.log(`scored ${res.length} cards in ${wall.toFixed(1)}s (${(wall / Math.max(1, res.length) * 1000).toFixed(0)} ms/card), ${skipped.length} skipped\n`);
+
+  const vals = res.map((r) => r.within1px).sort((a, b) => a - b);
+  const q = (p: number): number => vals[Math.min(vals.length - 1, Math.floor(vals.length * p))] ?? 0;
+  const median = q(0.5);
+  const mad = [...vals].map((v) => Math.abs(v - median)).sort((a, b) => a - b)[Math.floor(vals.length / 2)] ?? 0;
+  const cut = Math.max(ADHERENCE_ABS_FLOOR, median - MAD_K * mad);
+  console.log(`ADHERENCE (within1px of a printed edge, luminance probe — NOT the operator this generator uses)`);
+  console.log(`  min ${q(0).toFixed(3)}  p05 ${q(0.05).toFixed(3)}  p25 ${q(0.25).toFixed(3)}  median ${median.toFixed(3)}  p75 ${q(0.75).toFixed(3)}  p95 ${q(0.95).toFixed(3)}  max ${q(1).toFixed(3)}`);
+  console.log(`  MAD ${mad.toFixed(4)} ⇒ exception cut = max(${ADHERENCE_ABS_FLOOR}, median − ${MAD_K}·MAD) = ${cut.toFixed(3)}\n`);
+
+  const agree = res.filter((r) => r.probeHas === r.catalogHas).length;
+  console.log(`OPTIONAL-ELEMENT PROBE vs CATALOG stage: ${agree}/${res.length} agree (${(100 * agree / res.length).toFixed(2)}%)`);
+  const disagree = res.filter((r) => r.probeHas !== r.catalogHas);
+  for (const d of disagree.slice(0, 20)) {
+    console.log(`  DISAGREE ${d.cardId} ${d.name} — catalog ${d.stage}, probe ${d.probeHas ? 'HAS' : 'lacks'} it (chroma ${(d.chroma * 100).toFixed(1)}%)`);
+  }
+  if (disagree.length > 20) console.log(`  … +${disagree.length - 20} more`);
+
+  const low = res.filter((r) => r.within1px < cut).sort((a, b) => a.within1px - b.within1px);
+  console.log(`\nEXCEPTIONS — ${low.length} of ${res.length} cards below the adherence cut:`);
+  for (const l of low.slice(0, 30)) console.log(`  ${l.cardId} ${l.setId} ${l.category}/${l.stage} within1px ${l.within1px.toFixed(3)} mean ${l.meanPx}px — ${l.name}`);
+  if (low.length > 30) console.log(`  … +${low.length - 30} more`);
+
+  console.log('\nper-set adherence median:');
+  const sets = [...new Set(res.map((r) => r.setId))].sort();
+  for (const s of sets) {
+    const v = res.filter((r) => r.setId === s).map((r) => r.within1px).sort((a, b) => a - b);
+    const m = v[Math.floor(v.length / 2)] ?? 0;
+    const ag = res.filter((r) => r.setId === s && r.probeHas === r.catalogHas).length;
+    console.log(`  ${s.padEnd(9)} n=${String(v.length).padStart(3)}  median ${m.toFixed(3)}  probe-agrees ${ag}/${v.length}${m < cut ? '   ⚠ SET BELOW CUT' : ''}`);
+  }
+  console.log('\nper-category adherence median:');
+  for (const c of [...new Set(res.map((r) => `${r.category}/${r.stage}`))].sort()) {
+    const v = res.filter((r) => `${r.category}/${r.stage}` === c).map((r) => r.within1px).sort((a, b) => a - b);
+    console.log(`  ${c.padEnd(16)} n=${String(v.length).padStart(3)}  median ${(v[Math.floor(v.length / 2)] ?? 0).toFixed(3)}`);
+  }
+  if (skipped.length) {
+    console.log(`\nSKIPPED (${skipped.length}) — art missing from the cache, never guessed at:`);
+    for (const s of skipped.slice(0, 15)) console.log(`  ${s.cardId} — ${s.reason}`);
+    if (skipped.length > 15) console.log(`  … +${skipped.length - 15} more`);
+  }
+  if (outFile) {
+    await writeFile(outFile, JSON.stringify({ sampledAt: new Date().toISOString(), cut, median, mad, res, skipped }, null, 2) + '\n');
+    console.log(`\nwrote ${outFile}`);
+  }
+}
+
 async function main(): Promise<void> {
   const cmd = argv[0];
+  if (cmd === 'sample') { await cmdSample(); return; }
   if (cmd === 'fit') await cmdFit();
   else if (cmd === 'vectorness') await cmdVectorness();
+  else if (cmd === 'corrections') await cmdCorrections();
   else {
     console.log('usage: fit-template.ts <fit|vectorness> --era <id> --scope <scope> [--serie <s>] [--run-id <id>] [--out <file>] [--dump <dir>]');
     process.exit(2);
