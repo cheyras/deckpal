@@ -1,0 +1,226 @@
+{
+  "version": 3,
+  "cardId": "me05-001",
+  "variantId": 37184,
+  "artworkKey": "me05-001",
+  "width": 490,
+  "height": 674,
+  "channel": "alpha",
+  "derivation_method": "ai-corrected",
+  "authorship": "mixed",
+  "reviewStatus": "human-authored",
+  "savedAt": "2026-08-08T01:53:08.063Z",
+  "artworkUrl": "/pokedex/images/en/me/me05/001/high.webp",
+  "card": {
+    "setId": "me05",
+    "seriesSlug": "mega-evolution",
+    "name": "Tropius",
+    "number": "001"
+  },
+  "prior": {
+    "source": "ai",
+    "eraId": "modern-sv",
+    "scope": "sheet",
+    "rect": [
+      0.075,
+      0.5269999999999999,
+      0.85,
+      0.315
+    ],
+    "radius": 0.006,
+    "invert": true,
+    "feather": 0.008,
+    "resolverVersion": 5,
+    "window": {
+      "rect": [
+        0.075,
+        0.5269999999999999,
+        0.85,
+        0.3749417758369723
+      ],
+      "radius": 0.006
+    },
+    "generator": {
+      "name": "line-snap",
+      "version": 1,
+      "modelId": null,
+      "runId": "straighten-tropius-1",
+      "params": {
+        "minSegmentPx": 40,
+        "axisToleranceDeg": 12,
+        "tangentWindowPx": 20,
+        "runMergeGapPx": 8,
+        "searchRadiusPx": 12,
+        "slopeSearchDeg": 1.5,
+        "slopeStepDeg": 0.25,
+        "offsetStepPx": 0.25,
+        "edgeSnrMin": 1.6,
+        "edgeCoverageMin": 0.5,
+        "edgeMinStrength": 6,
+        "ambiguityRatio": 0.85,
+        "ambiguousMaxMovePx": 2,
+        "selfStraightenResidPx": 3,
+        "windowSnapPx": 4,
+        "cornerJoinPx": 160,
+        "minComponentPx": 128,
+        "supersample": 4,
+        "era": "modern-sv",
+        "scope": "sheet",
+        "notes": "Straightened hand-refined mask me05-001/37184 (sha256 01eeacef9431). 8 snapped to a printed edge: H43px 42→42 (max 0px), V621px 19.67→18.17 (max 2.84px), V669px 470.59→469.84 (max 2.04px), H409px 19→17.75 (max 3.74px), H399px 66→65 (max 1px), V236px 453→454 (max 1px), H438px 339.67→339.92 (max 1.93px), V239px 37→38 (max 1px); 0 snapped to his adjusted window rect: —; 1 straightened to his own fit: H444px 655.44→655.44 (max 1.59px); 13 left exactly as drawn (282px of boundary). Closed 8 corner(s); dropped 2 stray blob(s) [43px @0,0,6,11 3px @488,2,489,3]. 3501px changed (1.06% of the face), Jaccard vs his mask 0.9798. Edge softness 0.543 → 0.436 (his AA character preserved). UNREVIEWED: every \"kept\" run above is his hand exactly as drawn, on purpose.",
+        "source": "me05-001/37184@hand-refined",
+        "sourceSha256": "01eeacef9431893c375770d464ac0ba8f0f66cbcd6b1bbeb104e2053238090e8",
+        "report": "{\"segments\":[{\"loop\":0,\"index\":0,\"axis\":\"free\",\"lengthPx\":55,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":0,\"index\":1,\"axis\":\"H\",\"lengthPx\":43,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 29.27, snr 7.38, present over 83% of the run); the band holds several comparable edges (offsets -7/-9/0/-2px) so the move was held to 0px, onto the ridge nearest his stroke\",\"handPos\":42,\"newPos\":42,\"meanDeviationPx\":0,\"maxDeviationPx\":0,\"wobbleRmsPx\":0,\"wobbleMaxPx\":0,\"edge\":{\"score\":29.27,\"snr\":7.38,\"coverage\":0.826,\"offsetPx\":0,\"angleDeg\":0,\"ambiguous\":true,\"ridges\":[-7,-9,0,-2]}},{\"loop\":0,\"index\":2,\"axis\":\"free\",\"lengthPx\":15,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":0,\"index\":3,\"axis\":\"V\",\"lengthPx\":621,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 18.25, snr 5.01, present over 78% of the run)\",\"handPos\":19.67,\"newPos\":18.17,\"meanDeviationPx\":1.52,\"maxDeviationPx\":2.84,\"wobbleRmsPx\":0.47,\"wobbleMaxPx\":0.8,\"edge\":{\"score\":18.25,\"snr\":5.01,\"coverage\":0.775,\"offsetPx\":-1.5,\"angleDeg\":-0.25,\"ambiguous\":false,\"ridges\":[-1.5,8,5.5,1]}},{\"loop\":0,\"index\":4,\"axis\":\"free\",\"lengthPx\":19,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":0,\"index\":5,\"axis\":\"H\",\"lengthPx\":444,\"action\":\"self\",\"reason\":\"best artwork candidate too weak (strength 11.54, snr 2.11, coverage 0.431); his own stroke was straight to 0.40px RMS, so it is straightened to his own best-fit line and nothing is invented\",\"handPos\":655.44,\"newPos\":655.44,\"meanDeviationPx\":0.39,\"maxDeviationPx\":1.59,\"wobbleRmsPx\":0.4,\"wobbleMaxPx\":0.95,\"edge\":{\"score\":11.54,\"snr\":2.11,\"coverage\":0.431,\"offsetPx\":-0.5,\"angleDeg\":-0.25,\"ambiguous\":true,\"ridges\":[9.5,-0.5,5.5,-8.75]}},{\"loop\":0,\"index\":6,\"axis\":\"free\",\"lengthPx\":20,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":0,\"index\":7,\"axis\":\"V\",\"lengthPx\":669,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 8.65, snr 5.65, present over 53% of the run)\",\"handPos\":470.59,\"newPos\":469.84,\"meanDeviationPx\":0.77,\"maxDeviationPx\":2.04,\"wobbleRmsPx\":0.43,\"wobbleMaxPx\":0.88,\"edge\":{\"score\":8.65,\"snr\":5.65,\"coverage\":0.525,\"offsetPx\":-0.75,\"angleDeg\":0,\"ambiguous\":false,\"ridges\":[-0.75,-11,-6.5,-3.5]}},{\"loop\":0,\"index\":8,\"axis\":\"free\",\"lengthPx\":23,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":0,\"index\":9,\"axis\":\"H\",\"lengthPx\":409,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 23.41, snr 6.34, present over 73% of the run)\",\"handPos\":19,\"newPos\":17.75,\"meanDeviationPx\":1.36,\"maxDeviationPx\":3.74,\"wobbleRmsPx\":0,\"wobbleMaxPx\":0,\"edge\":{\"score\":23.41,\"snr\":6.34,\"coverage\":0.73,\"offsetPx\":-1.25,\"angleDeg\":0.5,\"ambiguous\":false,\"ridges\":[-1.25,7,1.25,11.25]}},{\"loop\":1,\"index\":0,\"axis\":\"H\",\"lengthPx\":399,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 61.95, snr 9.11, present over 98% of the run) — and it coincides with his adjusted window edge\",\"handPos\":66,\"newPos\":65,\"meanDeviationPx\":1,\"maxDeviationPx\":1,\"wobbleRmsPx\":0,\"wobbleMaxPx\":0,\"edge\":{\"score\":61.95,\"snr\":9.11,\"coverage\":0.982,\"offsetPx\":-1,\"angleDeg\":0,\"ambiguous\":false,\"ridges\":[-1,-4,2,4]}},{\"loop\":1,\"index\":1,\"axis\":\"free\",\"lengthPx\":17,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":2,\"axis\":\"V\",\"lengthPx\":236,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 37.67, snr 7.23, present over 100% of the run); the band holds several comparable edges (offsets -3/-1/2/8px) so the move was held to 1px, onto the ridge nearest his stroke — and it coincides with his adjusted window edge\",\"handPos\":453,\"newPos\":454,\"meanDeviationPx\":1,\"maxDeviationPx\":1,\"wobbleRmsPx\":0,\"wobbleMaxPx\":0,\"edge\":{\"score\":37.67,\"snr\":7.23,\"coverage\":1,\"offsetPx\":-1,\"angleDeg\":0,\"ambiguous\":true,\"ridges\":[-3,-1,2,8]}},{\"loop\":1,\"index\":3,\"axis\":\"free\",\"lengthPx\":24,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":4,\"axis\":\"V\",\"lengthPx\":2,\"action\":\"kept\",\"reason\":\"run 2px < minSegmentPx\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":5,\"axis\":\"free\",\"lengthPx\":38,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":6,\"axis\":\"H\",\"lengthPx\":438,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 34.62, snr 3.98, present over 100% of the run)\",\"handPos\":339.67,\"newPos\":339.92,\"meanDeviationPx\":0.41,\"maxDeviationPx\":1.93,\"wobbleRmsPx\":0.47,\"wobbleMaxPx\":0.71,\"edge\":{\"score\":34.62,\"snr\":3.98,\"coverage\":1,\"offsetPx\":0.25,\"angleDeg\":0,\"ambiguous\":false,\"ridges\":[0.25,-4.5,-11.75,-9.75]}},{\"loop\":1,\"index\":7,\"axis\":\"free\",\"lengthPx\":17,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":8,\"axis\":\"V\",\"lengthPx\":6,\"action\":\"kept\",\"reason\":\"run 6px < minSegmentPx\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":9,\"axis\":\"free\",\"lengthPx\":29,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":10,\"axis\":\"V\",\"lengthPx\":239,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 55.02, snr 8.44, present over 100% of the run) — and it coincides with his adjusted window edge\",\"handPos\":37,\"newPos\":38,\"meanDeviationPx\":1,\"maxDeviationPx\":1,\"wobbleRmsPx\":0,\"wobbleMaxPx\":0,\"edge\":{\"score\":55.02,\"snr\":8.44,\"coverage\":1,\"offsetPx\":-1,\"angleDeg\":0,\"ambiguous\":false,\"ridges\":[-1,-3,1,-9]}},{\"loop\":1,\"index\":11,\"axis\":\"free\",\"lengthPx\":17,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null}],\"dropped\":[{\"kind\":\"foil\",\"areaPx\":43,\"bbox\":[0,0,6,11]},{\"kind\":\"foil\",\"areaPx\":3,\"bbox\":[488,2,489,3]}],\"loops\":[{\"points\":2318,\"runs\":10,\"corners\":4,\"area\":-285491},{\"points\":1462,\"runs\":12,\"corners\":4,\"area\":114217}],\"cornersClosed\":8,\"softness\":{\"source\":0.543,\"result\":0.436},\"changedPx\":3501,\"changedFraction\":0.010601,\"agreementWithSource\":0.9798}"
+      },
+      "exemplars": [
+        {
+          "cardId": "me05-001",
+          "variantId": 37184,
+          "savedAt": "2026-08-08T00:03:00.924Z",
+          "method": "hand-refined",
+          "weight": 1,
+          "sha256": "01eeacef9431893c375770d464ac0ba8f0f66cbcd6b1bbeb104e2053238090e8"
+        }
+      ],
+      "confidence": 0.557,
+      "generatedAt": "2026-08-08T00:51:25.411Z"
+    },
+    "parentMask": {
+      "cardId": "me05-001",
+      "variantId": 37184,
+      "savedAt": "2026-08-08T01:50:31.157Z",
+      "method": "ai-corrected"
+    }
+  },
+  "priorPng": "37184.prior.png",
+  "diffPng": "37184.diff.png",
+  "diff": {
+    "addedPx": 211,
+    "removedPx": 70309,
+    "unchangedPx": 171349,
+    "agreement": 0.7084
+  },
+  "correction": {
+    "parent": {
+      "cardId": "me05-001",
+      "variantId": 37184,
+      "savedAt": "2026-08-08T01:50:31.157Z",
+      "method": "ai-corrected",
+      "sha256": "d5f83d4f95f338e48da6d1d65702fd4fc16a90e1522318f13528d15e36dec5b2",
+      "generator": {
+        "name": "line-snap",
+        "version": 1,
+        "modelId": null,
+        "runId": "straighten-tropius-1",
+        "params": {
+          "minSegmentPx": 40,
+          "axisToleranceDeg": 12,
+          "tangentWindowPx": 20,
+          "runMergeGapPx": 8,
+          "searchRadiusPx": 12,
+          "slopeSearchDeg": 1.5,
+          "slopeStepDeg": 0.25,
+          "offsetStepPx": 0.25,
+          "edgeSnrMin": 1.6,
+          "edgeCoverageMin": 0.5,
+          "edgeMinStrength": 6,
+          "ambiguityRatio": 0.85,
+          "ambiguousMaxMovePx": 2,
+          "selfStraightenResidPx": 3,
+          "windowSnapPx": 4,
+          "cornerJoinPx": 160,
+          "minComponentPx": 128,
+          "supersample": 4,
+          "era": "modern-sv",
+          "scope": "sheet",
+          "notes": "Straightened hand-refined mask me05-001/37184 (sha256 01eeacef9431). 8 snapped to a printed edge: H43px 42→42 (max 0px), V621px 19.67→18.17 (max 2.84px), V669px 470.59→469.84 (max 2.04px), H409px 19→17.75 (max 3.74px), H399px 66→65 (max 1px), V236px 453→454 (max 1px), H438px 339.67→339.92 (max 1.93px), V239px 37→38 (max 1px); 0 snapped to his adjusted window rect: —; 1 straightened to his own fit: H444px 655.44→655.44 (max 1.59px); 13 left exactly as drawn (282px of boundary). Closed 8 corner(s); dropped 2 stray blob(s) [43px @0,0,6,11 3px @488,2,489,3]. 3501px changed (1.06% of the face), Jaccard vs his mask 0.9798. Edge softness 0.543 → 0.436 (his AA character preserved). UNREVIEWED: every \"kept\" run above is his hand exactly as drawn, on purpose.",
+          "source": "me05-001/37184@hand-refined",
+          "sourceSha256": "01eeacef9431893c375770d464ac0ba8f0f66cbcd6b1bbeb104e2053238090e8",
+          "report": "{\"segments\":[{\"loop\":0,\"index\":0,\"axis\":\"free\",\"lengthPx\":55,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":0,\"index\":1,\"axis\":\"H\",\"lengthPx\":43,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 29.27, snr 7.38, present over 83% of the run); the band holds several comparable edges (offsets -7/-9/0/-2px) so the move was held to 0px, onto the ridge nearest his stroke\",\"handPos\":42,\"newPos\":42,\"meanDeviationPx\":0,\"maxDeviationPx\":0,\"wobbleRmsPx\":0,\"wobbleMaxPx\":0,\"edge\":{\"score\":29.27,\"snr\":7.38,\"coverage\":0.826,\"offsetPx\":0,\"angleDeg\":0,\"ambiguous\":true,\"ridges\":[-7,-9,0,-2]}},{\"loop\":0,\"index\":2,\"axis\":\"free\",\"lengthPx\":15,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":0,\"index\":3,\"axis\":\"V\",\"lengthPx\":621,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 18.25, snr 5.01, present over 78% of the run)\",\"handPos\":19.67,\"newPos\":18.17,\"meanDeviationPx\":1.52,\"maxDeviationPx\":2.84,\"wobbleRmsPx\":0.47,\"wobbleMaxPx\":0.8,\"edge\":{\"score\":18.25,\"snr\":5.01,\"coverage\":0.775,\"offsetPx\":-1.5,\"angleDeg\":-0.25,\"ambiguous\":false,\"ridges\":[-1.5,8,5.5,1]}},{\"loop\":0,\"index\":4,\"axis\":\"free\",\"lengthPx\":19,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":0,\"index\":5,\"axis\":\"H\",\"lengthPx\":444,\"action\":\"self\",\"reason\":\"best artwork candidate too weak (strength 11.54, snr 2.11, coverage 0.431); his own stroke was straight to 0.40px RMS, so it is straightened to his own best-fit line and nothing is invented\",\"handPos\":655.44,\"newPos\":655.44,\"meanDeviationPx\":0.39,\"maxDeviationPx\":1.59,\"wobbleRmsPx\":0.4,\"wobbleMaxPx\":0.95,\"edge\":{\"score\":11.54,\"snr\":2.11,\"coverage\":0.431,\"offsetPx\":-0.5,\"angleDeg\":-0.25,\"ambiguous\":true,\"ridges\":[9.5,-0.5,5.5,-8.75]}},{\"loop\":0,\"index\":6,\"axis\":\"free\",\"lengthPx\":20,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":0,\"index\":7,\"axis\":\"V\",\"lengthPx\":669,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 8.65, snr 5.65, present over 53% of the run)\",\"handPos\":470.59,\"newPos\":469.84,\"meanDeviationPx\":0.77,\"maxDeviationPx\":2.04,\"wobbleRmsPx\":0.43,\"wobbleMaxPx\":0.88,\"edge\":{\"score\":8.65,\"snr\":5.65,\"coverage\":0.525,\"offsetPx\":-0.75,\"angleDeg\":0,\"ambiguous\":false,\"ridges\":[-0.75,-11,-6.5,-3.5]}},{\"loop\":0,\"index\":8,\"axis\":\"free\",\"lengthPx\":23,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":0,\"index\":9,\"axis\":\"H\",\"lengthPx\":409,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 23.41, snr 6.34, present over 73% of the run)\",\"handPos\":19,\"newPos\":17.75,\"meanDeviationPx\":1.36,\"maxDeviationPx\":3.74,\"wobbleRmsPx\":0,\"wobbleMaxPx\":0,\"edge\":{\"score\":23.41,\"snr\":6.34,\"coverage\":0.73,\"offsetPx\":-1.25,\"angleDeg\":0.5,\"ambiguous\":false,\"ridges\":[-1.25,7,1.25,11.25]}},{\"loop\":1,\"index\":0,\"axis\":\"H\",\"lengthPx\":399,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 61.95, snr 9.11, present over 98% of the run) — and it coincides with his adjusted window edge\",\"handPos\":66,\"newPos\":65,\"meanDeviationPx\":1,\"maxDeviationPx\":1,\"wobbleRmsPx\":0,\"wobbleMaxPx\":0,\"edge\":{\"score\":61.95,\"snr\":9.11,\"coverage\":0.982,\"offsetPx\":-1,\"angleDeg\":0,\"ambiguous\":false,\"ridges\":[-1,-4,2,4]}},{\"loop\":1,\"index\":1,\"axis\":\"free\",\"lengthPx\":17,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":2,\"axis\":\"V\",\"lengthPx\":236,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 37.67, snr 7.23, present over 100% of the run); the band holds several comparable edges (offsets -3/-1/2/8px) so the move was held to 1px, onto the ridge nearest his stroke — and it coincides with his adjusted window edge\",\"handPos\":453,\"newPos\":454,\"meanDeviationPx\":1,\"maxDeviationPx\":1,\"wobbleRmsPx\":0,\"wobbleMaxPx\":0,\"edge\":{\"score\":37.67,\"snr\":7.23,\"coverage\":1,\"offsetPx\":-1,\"angleDeg\":0,\"ambiguous\":true,\"ridges\":[-3,-1,2,8]}},{\"loop\":1,\"index\":3,\"axis\":\"free\",\"lengthPx\":24,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":4,\"axis\":\"V\",\"lengthPx\":2,\"action\":\"kept\",\"reason\":\"run 2px < minSegmentPx\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":5,\"axis\":\"free\",\"lengthPx\":38,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":6,\"axis\":\"H\",\"lengthPx\":438,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 34.62, snr 3.98, present over 100% of the run)\",\"handPos\":339.67,\"newPos\":339.92,\"meanDeviationPx\":0.41,\"maxDeviationPx\":1.93,\"wobbleRmsPx\":0.47,\"wobbleMaxPx\":0.71,\"edge\":{\"score\":34.62,\"snr\":3.98,\"coverage\":1,\"offsetPx\":0.25,\"angleDeg\":0,\"ambiguous\":false,\"ridges\":[0.25,-4.5,-11.75,-9.75]}},{\"loop\":1,\"index\":7,\"axis\":\"free\",\"lengthPx\":17,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":8,\"axis\":\"V\",\"lengthPx\":6,\"action\":\"kept\",\"reason\":\"run 6px < minSegmentPx\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":9,\"axis\":\"free\",\"lengthPx\":29,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null},{\"loop\":1,\"index\":10,\"axis\":\"V\",\"lengthPx\":239,\"action\":\"artwork\",\"reason\":\"traced a real printed edge (strength 55.02, snr 8.44, present over 100% of the run) — and it coincides with his adjusted window edge\",\"handPos\":37,\"newPos\":38,\"meanDeviationPx\":1,\"maxDeviationPx\":1,\"wobbleRmsPx\":0,\"wobbleMaxPx\":0,\"edge\":{\"score\":55.02,\"snr\":8.44,\"coverage\":1,\"offsetPx\":-1,\"angleDeg\":0,\"ambiguous\":false,\"ridges\":[-1,-3,1,-9]}},{\"loop\":1,\"index\":11,\"axis\":\"free\",\"lengthPx\":17,\"action\":\"kept\",\"reason\":\"freehand / diagonal — not a line attempt\",\"handPos\":null,\"newPos\":null,\"meanDeviationPx\":null,\"maxDeviationPx\":null,\"wobbleRmsPx\":null,\"wobbleMaxPx\":null,\"edge\":null}],\"dropped\":[{\"kind\":\"foil\",\"areaPx\":43,\"bbox\":[0,0,6,11]},{\"kind\":\"foil\",\"areaPx\":3,\"bbox\":[488,2,489,3]}],\"loops\":[{\"points\":2318,\"runs\":10,\"corners\":4,\"area\":-285491},{\"points\":1462,\"runs\":12,\"corners\":4,\"area\":114217}],\"cornersClosed\":8,\"softness\":{\"source\":0.543,\"result\":0.436},\"changedPx\":3501,\"changedFraction\":0.010601,\"agreementWithSource\":0.9798}"
+        },
+        "exemplars": [
+          {
+            "cardId": "me05-001",
+            "variantId": 37184,
+            "savedAt": "2026-08-08T00:03:00.924Z",
+            "method": "hand-refined",
+            "weight": 1,
+            "sha256": "01eeacef9431893c375770d464ac0ba8f0f66cbcd6b1bbeb104e2053238090e8"
+          }
+        ],
+        "confidence": 0.557,
+        "generatedAt": "2026-08-08T00:51:25.411Z"
+      }
+    },
+    "parentPng": "37184.parent.png",
+    "parentDiffPng": "37184.parent.diff.png",
+    "addedPx": 0,
+    "removedPx": 13,
+    "unchangedPx": 171560,
+    "agreement": 0.9999,
+    "changedPx": 13,
+    "changedFraction": 0.000039,
+    "bbox": [
+      0.0388,
+      0.0267,
+      0.9184,
+      0.0074
+    ],
+    "grid": {
+      "size": 4,
+      "cells": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "lineage": [
+    {
+      "method": "layout-flatten",
+      "savedAt": "2026-08-07T23:53:40.354Z",
+      "source": "window",
+      "generator": null
+    },
+    {
+      "method": "hand-refined",
+      "savedAt": "2026-08-08T00:03:00.924Z",
+      "source": "mask",
+      "generator": null
+    },
+    {
+      "method": "ai",
+      "savedAt": "2026-08-08T00:51:25.628Z",
+      "source": "ai",
+      "generator": {
+        "name": "line-snap",
+        "version": 1,
+        "runId": "straighten-tropius-1"
+      }
+    },
+    {
+      "method": "ai-corrected",
+      "savedAt": "2026-08-08T01:50:31.157Z",
+      "source": "ai",
+      "generator": null
+    },
+    {
+      "method": "ai-corrected",
+      "savedAt": "2026-08-08T01:53:08.063Z",
+      "source": "ai",
+      "generator": null
+    }
+  ]
+}
