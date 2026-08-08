@@ -23,7 +23,8 @@
    "lane": "ex-holos",
    "setId": "ex13",
    "cls": "holo",
-   "reason": "Holon Phantoms mixes three patterns within 'rare': 6 Holo Rare Energies use Sheen and the non-Gyarados Ultra/Secret Rares use Cosmos; without the card list I cannot target these subsets by cardId, so the 'rare'=mirror row over-covers them."
+   "reason": "Holon Phantoms mixes three patterns within 'rare': 6 Holo Rare Energies use Sheen and the non-Gyarados Ultra/Secret Rares use Cosmos; without the card list I cannot target these subsets by cardId, so the 'rare'=mirror row over-covers them.",
+   "resolved": "2026-08-08 R7 (partial): the SHEEN half is closed. The catalog card list is now available and names exactly six Rare + holo basic Energy prints in ex13 (ex13-105..110, Grass/Fire/Water/Lightning/Psychic/Fighting), matching Collexy's count; a cardId row assigns them vertical-sheen-rainbow. The Cosmos Ultra/Secret Rare half remains open - those still share the 'rare' rarity with the Refractor holo rares and the source names no cards."
   },
   {
    "lane": "ex-holos",
@@ -35,7 +36,8 @@
    "lane": "ex-holos",
    "setId": "ex16",
    "cls": "holo",
-   "reason": "Power Keepers has 6 Holo Rare Energy cards using Sheen; the 'energy' variant-kind is not in this cluster's variant list and the task-data card list is missing, so I cannot target them by cardId alongside the Cosmos 'rare' row."
+   "reason": "Power Keepers has 6 Holo Rare Energy cards using Sheen; the 'energy' variant-kind is not in this cluster's variant list and the task-data card list is missing, so I cannot target them by cardId alongside the Cosmos 'rare' row.",
+   "resolved": "2026-08-08 R7: the catalog card list names exactly six Rare + holo basic Energy prints in ex16 (ex16-103..108, Grass/Fire/Water/Lightning/Psychic/Fighting), matching Collexy's count; a cardId row assigns them vertical-sheen-rainbow and the Cosmos 'rare' row now covers only what the source claims."
   },
   {
    "lane": "facet-map",
@@ -367,9 +369,10 @@
   "wotc-gaps",
   "xy-special",
   "r2-subset-commons",
-  "r2b-vocab-wiring"
+  "r2b-vocab-wiring",
+  "r7-ex-sheen-energies"
  ],
- "row_count": 123,
+ "row_count": 125,
  "facet_rows": [
   {
    "facet": "cosmos",
@@ -4604,6 +4607,72 @@
     }
    ],
    "lane": "r2b-vocab-wiring"
+  },
+  {
+   "pattern": "vertical-sheen-rainbow",
+   "sel": {
+    "setIds": [
+     "ex13"
+    ],
+    "cls": "holo",
+    "rarities": null,
+    "variantKinds": null,
+    "cardIds": [
+     "ex13-105",
+     "ex13-106",
+     "ex13-107",
+     "ex13-108",
+     "ex13-109",
+     "ex13-110"
+    ]
+   },
+   "claim": "The six Holo Rare basic Energy cards of EX Holon Phantoms (Grass/Fire/Water/Lightning/Psychic/Fighting) carry the Sheen Holofoil, not the Refractor pattern the rest of the set's Holo Rares use. Closes the ex13 known residual: the residual existed only because the lane had no card list, and the catalog names exactly six Rare+holo basic Energy prints in ex13, matching Collexy's count.",
+   "confidence": "medium",
+   "conflicts": "Slug caveat, same as the other EX-era Refractor rows: Collexy names the pattern 'Sheen Holofoil' and the pattern-usage corpus maps the EX-era Sheen debut to the vertical-sheen-rainbow slug. The video pins the first sheen demo one set earlier (Medicham EX, EX Crystal Guardians); that discrepancy is about WHEN the sheen debuted, not about these energies carrying it.",
+   "sources": [
+    {
+     "url": "https://insights.collexy.com/database-insight-holofoil-overview-ex-series-era/",
+     "quote": "In EX Holon Phantoms, the cards with the rarity Holo Rare, except for the energies which received the Sheen Holofoil pattern, received the Refractor Holofoil pattern."
+    },
+    {
+     "url": "https://insights.collexy.com/database-insight-holofoil-overview-ex-series-era/",
+     "quote": "The second brandnew holofoil pattern is Sheen Holofoil, which was introduced on the energy cards in EX Holon Phantoms and EX Power Keepers."
+    }
+   ],
+   "lane": "r7-ex-sheen-energies"
+  },
+  {
+   "pattern": "vertical-sheen-rainbow",
+   "sel": {
+    "setIds": [
+     "ex16"
+    ],
+    "cls": "holo",
+    "rarities": null,
+    "variantKinds": null,
+    "cardIds": [
+     "ex16-103",
+     "ex16-104",
+     "ex16-105",
+     "ex16-106",
+     "ex16-107",
+     "ex16-108"
+    ]
+   },
+   "claim": "The six Holo Rare basic Energy cards of EX Power Keepers (Grass/Fire/Water/Lightning/Psychic/Fighting) carry the Sheen Holofoil; the set's remaining 'rare' holo prints use Cosmos. Closes the ex16 known residual.",
+   "confidence": "medium",
+   "conflicts": "Slug caveat as above. The existing ex16 Cosmos row already documents these six energies as its own exception ('The 6 Holo Rare Energy cards use Sheen instead'), so this row NARROWS that row rather than contradicting it — card selectors outrank rarity selectors in the resolver.",
+   "sources": [
+    {
+     "url": "https://insights.collexy.com/database-insight-holofoil-overview-ex-series-era/",
+     "quote": "The second brandnew holofoil pattern is Sheen Holofoil, which was introduced on the energy cards in EX Holon Phantoms and EX Power Keepers."
+    },
+    {
+     "url": "https://youtu.be/wQ2TvnHVdys",
+     "quote": "vertical-sheen-rainbow = first sheen holo, a few sets after Unseen Forces (demo card Medicham EX Crystal Guardians)"
+    }
+   ],
+   "lane": "r7-ex-sheen-energies"
   }
  ]
 }
