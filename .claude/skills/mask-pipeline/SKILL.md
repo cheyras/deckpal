@@ -302,14 +302,23 @@ pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts eval \
 # 2. only if that justifies it: a small, labeled, reversible batch (cap 10)
 … run --era wotc --scope window --serie base --series-slug base \
       --run-id <id> --cards <cardId:variantId,…> [--dry-run]
-# 2b. REFINERS (`requiresSource`, e.g. line-snap) rework the mask already there
-…  run --generator line-snap --refine --era modern-sv --scope sheet \
+# 2b. REFINERS (`requiresSource`, e.g. edge-trace / line-snap) rework the mask already there
+…  run --generator edge-trace --refine --era modern-sv --scope sheet \
       --serie me --series-slug mega-evolution --run-id <id> --cards <cardId:variantId>
 # 3. undo an entire run — RESTORES what it superseded (byte-for-byte),
 #    deletes only masks the run created from nothing
 … revert --run-id <id>
 … archives [--run-id <id>]     # what is currently undoable, and from when
+# 4. MEASURE the result instead of asserting it — edge adherence, any set of masks
+… adherence --serie me --card me05-001 [--probe luminance|tensor] \
+      --masks "his=data/foil-masks/me05-001/37184.png,new=/abs/path.png"
 ```
+
+> **Which refiner: `edge-trace@1` is the default. `line-snap@1` is the fallback.**
+> line-snap stays because it is cited in the corpus lineage and its refusal rules are still
+> the right instincts — but its premise (his strokes ARE the geometry; nudge the straight
+> bits) is narrower, it cannot represent a curve at all, and it loses measurably on edge
+> adherence. Reach for it only if a card's foil boundary is genuinely all-straight.
 
 **Refiners** (`MaskGenerator.requiresSource`) get `input.source` = the mask at the target
 path (alpha + RGBA + method + sha256). `--refine` **refuses a source whose exemplar weight
@@ -343,6 +352,51 @@ survives and an ambiguous band is refused.
 `run` refuses to overwrite any non-`ai` mask (human work is never clobbered) and refuses
 to run below the generator's `minExemplars`. Card art is decoded from the image cache
 with ImageMagick (`magick`) — a **CLI-only** dependency; the server never shells out.
+
+### `edge-trace@1` — the artwork holds the geometry (`apps/api/src/foil/edge-trace.ts`)
+
+Chey, 2026-08-08, after reviewing the line-snap result: *"Really just 'straighten' isn't
+quite enough, really just detecting edges and actually tracing accurately around them is
+the real move."* **The premise moves**: his mask is a STATEMENT OF INTENT (which regions
+carry foil); the ARTWORK holds the true geometry. The output boundary is therefore derived
+from the card's own edges, with his mask deciding only WHICH edge to follow.
+
+Pipeline: **Di Zenzo colour structure tensor** (a green-field/silver-border boundary is a
+big chroma step and a small luminance one — a luminance Sobel under-reads it) → Scharr
+gradients → non-maximum suppression → hysteresis linking → a **corridor** (distance+index
+field around his boundary; nothing beyond `corridorPx` is even reachable) → **anchors** at
+`anchorSpacingPx` PLUS every hard turn in his own line (`cornerAnchorDeg`), each snapped
+to the strongest ridge within `anchorSnapPx` → **livewire**: Dijkstra between consecutive
+anchors on `wRidge`·(1−ridge) + `wLinked`·(unlinked) + `wProximity`·(dist/corridor)^`proximityPower`
++ `wDirection`·(across-the-edge) → **sub-pixel refinement** onto the parabolic peak of
+|∂I/∂n| along the path normal → **only then** a straight fit where the traced path really
+is straight (`minStraightPx`, `straightResidPx`, `straightMaxDevPx`) → rasterize with
+line-snap's analytic-x / supersampled-y / nonzero-winding rasterizer.
+
+It **refuses**, each refusal a param and a report line: no scan ⇒ returns his mask
+untouched; an anchor with no ridge ≥ `anchorMinStrength` ⇒ that stretch stays exactly as
+drawn; a traced path under `segmentMinRidge` or detouring past `segmentMaxDetourRatio` ⇒
+kept; no path inside the corridor ⇒ kept; and **every move is capped by `corridorPx`.**
+
+Two traps it exists to avoid, both locked by `__tests__/edge-trace.test.ts`:
+- **The MAD-trim trap.** A robust fit discards a small feature as an outlier, reports
+  "straight to 0.2px RMS", and crisping then flattens the feature it ignored. That is how
+  line-snap squared off the Tropius species-strip tail. `straightMaxDevPx` requires EVERY
+  point in a run to be close, outliers included.
+- **The half-pixel frame.** Mask space (`traceLoops`/`rasterizePolygons`) puts pixel
+  centres at `x+0.5`; a gradient array indexes centres at integer `x`. All artwork lookups
+  convert in one place (`edgeAlong`, `luminanceProbe`, `tensorProbe`). Get it wrong and the
+  boundary sits half a pixel off the edge it claims to be on, invisibly.
+
+### Measuring a mask instead of asserting it — edge adherence
+
+`measureAdherence(alpha, w, h, probe)`: marching-squares the alpha at the half level
+(sub-pixel, so an antialiased edge is not scored as if it lay on the lattice), sample every
+0.5px, and along each sample's own normal find the **NEAREST** local maximum ≥ `strengthFloor`
+within ±`searchPx` (nearest, not strongest — a card border has two edges; plateaux are
+centred). Reports `supportedFrac`, `within1px`, `within1pxOfSupported`, mean/p95/max
+distance. **Run it with a probe the generator did NOT optimise** — the shipped default is
+line-snap's own luminance Sobel, which gives the incumbent the home field.
 
 ### The training-tuple manifest
 

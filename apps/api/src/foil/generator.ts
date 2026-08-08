@@ -33,7 +33,13 @@
 
 import type { RgbaImage } from './png.js';
 import type { DerivationMethod, ExemplarRef } from './provenance.js';
-import { DEFAULT_STRAIGHTEN_PARAMS, straightenMask, type SegmentReport } from './line-snap.js';
+import { DEFAULT_STRAIGHTEN_PARAMS, gradientOf, straightenMask, type SegmentReport } from './line-snap.js';
+import {
+  DEFAULT_EDGE_TRACE_PARAMS,
+  edgeTraceMask,
+  luminanceProbe,
+  measureAdherence,
+} from './edge-trace.js';
 
 export interface GeneratorTarget {
   cardId: string;
@@ -366,7 +372,114 @@ export const lineSnapGenerator: MaskGenerator = {
   },
 };
 
+// ── Refiner: edge-trace ────────────────────────────────────────────────────
+//
+// Chey, 2026-08-08, after reviewing the line-snap result: "I made changes to the
+// tropius mask. Really just 'straighten' isn't quite enough, really just
+// detecting edges and actually tracing accurately around them is the real move."
+//
+// So the premise moves. `line-snap` treats his strokes as the geometry and nudges
+// near-straight runs onto printed lines. `edge-trace` treats his mask as a
+// STATEMENT OF INTENT — which regions carry foil — and takes the geometry from
+// the ARTWORK: an edge map, then livewire (Dijkstra over an edge-cost graph)
+// between anchors lifted off his boundary, then sub-pixel refinement onto the
+// gradient peak, and only THEN a straight fit where the traced path really is
+// straight. Curves are first-class: the rounded end of a BASIC stage tag, the
+// swept tail of a species strip and a corner fillet are traced, not approximated
+// by the nearest axis-aligned line, which is what line-snap structurally could
+// not do.
+//
+// It is a REFINER for the same reason line-snap is: its evidence is the mask it
+// is handed, so `run --refine` refuses a source that is unreviewed machine
+// output and a tracer can never eat its own tail.
+
+const EDGE_TRACE_PARAMS: Record<string, number | string | boolean> = { ...DEFAULT_EDGE_TRACE_PARAMS };
+
+export const edgeTraceGenerator: MaskGenerator = {
+  name: 'edge-trace',
+  version: 1,
+  modelId: null,
+  params: EDGE_TRACE_PARAMS,
+  minExemplars: 1,
+  requiresSource: true,
+  generate({ target, source }): MaskGeneratorOutput {
+    if (!source) {
+      return {
+        alpha: rectCoverage(target.width, target.height, target.rect, target.radius, target.invert),
+        confidence: null,
+        notes:
+          'edge-trace is a REFINER and was given no source mask — it has no intent to follow. ' +
+          'Fell back to the plain era rect, which adds nothing; do not accept this.',
+      };
+    }
+    const r = edgeTraceMask({
+      alpha: source.alpha,
+      width: target.width,
+      height: target.height,
+      artwork: target.artwork,
+    });
+    if (r.refused) {
+      return { alpha: source.alpha, confidence: null, notes: `edge-trace refused: ${r.refused}` };
+    }
+
+    // Adherence is measured with line-snap's OWN luminance Sobel, deliberately
+    // not the colour tensor edge-trace optimised — a tracer scored on its own
+    // edge map proves nothing. The incumbent gets the home field.
+    const probe = luminanceProbe(gradientOf(target.artwork));
+    const before = measureAdherence(source.alpha, target.width, target.height, probe);
+    const after = measureAdherence(r.alpha, target.width, target.height, probe);
+
+    const traced = r.segments.filter((s) => s.action === 'traced');
+    const kept = r.segments.filter((s) => s.action === 'kept');
+    const moves = traced.map((s) => s.maxMovePx ?? 0);
+    const maxMove = moves.length ? Math.max(...moves) : 0;
+    // Confidence: how much of his boundary rests on traced scan evidence, times
+    // how much closer to the printed edge that actually got it, damped by how
+    // far it had to move. Capped below 1 because no human has looked at it yet.
+    const tracedShare = r.tracedPx + r.keptPx > 0 ? r.tracedPx / (r.tracedPx + r.keptPx) : 0;
+    const gain = before.meanDistPx > 0 ? Math.min(1, before.meanDistPx / Math.max(after.meanDistPx, 1e-3) / 3) : 0;
+    const confidence = Number(Math.max(0, Math.min(0.9, tracedShare * gain * Math.exp(-maxMove / 8))).toFixed(3));
+
+    return {
+      alpha: r.alpha,
+      confidence,
+      notes:
+        `Traced ${source.method} mask ${source.ref.cardId}/${source.ref.variantId} ` +
+        `(sha256 ${source.ref.sha256.slice(0, 12)}) against its own scan. ` +
+        `${traced.length} stretch(es) traced from the artwork (${r.tracedPx}px of boundary), ` +
+        `${kept.length} left exactly as drawn (${r.keptPx}px). ` +
+        `${r.straightRuns} genuinely-straight run(s) crisped to a line (${r.straightPx}px); everything else is curve. ` +
+        `Mean move ${(traced.reduce((a, s) => a + (s.meanMovePx ?? 0), 0) / Math.max(1, traced.length)).toFixed(2)}px, ` +
+        `max ${maxMove.toFixed(2)}px (hard-capped at corridorPx ${DEFAULT_EDGE_TRACE_PARAMS.corridorPx}). ` +
+        `EDGE ADHERENCE (line-snap's luminance Sobel, nearest edge max within ±4px, floor 12): ` +
+        `within 1px ${(before.within1px * 100).toFixed(1)}% → ${(after.within1px * 100).toFixed(1)}%, ` +
+        `mean distance ${before.meanDistPx}px → ${after.meanDistPx}px, ` +
+        `p95 ${before.p95DistPx}px → ${after.p95DistPx}px. ` +
+        `${r.changedPx}px changed (${(r.changedFraction * 100).toFixed(2)}% of the face), Jaccard vs his mask ${r.agreementWithSource}. ` +
+        `Edge softness ${r.softness.source} → ${r.softness.result} (a sub-pixel contour is legitimately softer than a hand-drawn one). ` +
+        `dropped ${r.dropped.length} stray blob(s). ` +
+        'UNREVIEWED: every "kept" stretch above is his hand exactly as drawn, on purpose.',
+      report: {
+        segments: r.segments,
+        loops: r.loops,
+        dropped: r.dropped,
+        tracedPx: r.tracedPx,
+        keptPx: r.keptPx,
+        straightRuns: r.straightRuns,
+        straightPx: r.straightPx,
+        softness: r.softness,
+        changedPx: r.changedPx,
+        changedFraction: r.changedFraction,
+        agreementWithSource: r.agreementWithSource,
+        edgeThresholds: r.edgeThresholds,
+        adherence: { probe: 'luminance-sobel', before, after },
+      },
+    };
+  },
+};
+
 export const GENERATORS: Record<string, MaskGenerator> = {
   [windowArtGateGenerator.name]: windowArtGateGenerator,
   [lineSnapGenerator.name]: lineSnapGenerator,
+  [edgeTraceGenerator.name]: edgeTraceGenerator,
 };
