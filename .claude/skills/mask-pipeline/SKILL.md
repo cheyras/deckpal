@@ -39,9 +39,10 @@ EXCEPT `data/foil-masks/` — re-included explicitly in `.gitignore`; don't "fix
 data/foil-masks/<cardId>/<variantId>.png              # ALPHA = foil coverage (RGB = display tint)
 data/foil-masks/<cardId>/<variantId>.prior.png        # the era-RULE output, rendered
 data/foil-masks/<cardId>/<variantId>.diff.png         # mask vs rule: GREEN added, RED removed
-data/foil-masks/<cardId>/<variantId>.parent.png       # (corrections only) the mask BEFORE the human
-data/foil-masks/<cardId>/<variantId>.parent.diff.png  # (corrections only) what the human changed
+data/foil-masks/<cardId>/<variantId>.parent.png       # the mask BEFORE this save (correction OR supersede)
+data/foil-masks/<cardId>/<variantId>.parent.diff.png  # what this save changed
 data/foil-masks/<cardId>/<variantId>.json             # sidecar v3
+data/foil-masks/<cardId>/superseded/<variantId>.<runId>/  # verbatim undo archive + archive.json
 ```
 
 #### The provenance taxonomy (`derivation_method`)
@@ -96,6 +97,18 @@ every read**, so a hand-edited file can't claim a status its method denies), `sa
   removedPx, unchangedPx, agreement, changedPx, changedFraction, bbox (UV y-up),
   grid { size, cells[] } }`. **This is the product**, not a footnote: the parent's pixels
   are kept, the change map is rendered, and `grid` says where the corrections concentrate.
+- **`supersedes`** — the MIRROR of `correction`, and never to be read as one: a **generator
+  replaced a mask that was already there** (`run --refine`), and no human has agreed. Same
+  metrics/grid shape plus `runId`, `archiveDir`, and `archive { basename → sha256 }`. The
+  replaced mask's pixels go to `.parent.png` for review AND every artifact it had is copied
+  **verbatim** into `superseded/<variantId>.<runId>/` beside an `archive.json` manifest — so
+  `revert --run-id` restores the original **byte-for-byte**, sha256-verified, and the whole
+  archive is verified *before* a single live file is deleted. `writeMaskRecord` **throws** if
+  a machine write lands on an existing mask without `supersede: { runId }`; silence used to
+  mean overwrite, which is how human work disappears. The archive is self-describing on disk,
+  so an undo still works after Chey has corrected the proposal (`archives` lists what is
+  undoable). Reading `supersedes` as `correction` would feed a generator's own reshaping back
+  as if a human had endorsed it — exactly what `EXEMPLAR_WEIGHT` exists to prevent.
 - **`lineage`** — oldest→newest `{ method, savedAt, source, generator }`, capped at 8.
   The parent's chain plus this save, so ancestry survives the parent being overwritten.
 
@@ -289,9 +302,43 @@ pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts eval \
 # 2. only if that justifies it: a small, labeled, reversible batch (cap 10)
 … run --era wotc --scope window --serie base --series-slug base \
       --run-id <id> --cards <cardId:variantId,…> [--dry-run]
-# 3. undo an entire run — deletes ONLY its still-unreviewed `ai` masks
+# 2b. REFINERS (`requiresSource`, e.g. line-snap) rework the mask already there
+…  run --generator line-snap --refine --era modern-sv --scope sheet \
+      --serie me --series-slug mega-evolution --run-id <id> --cards <cardId:variantId>
+# 3. undo an entire run — RESTORES what it superseded (byte-for-byte),
+#    deletes only masks the run created from nothing
 … revert --run-id <id>
+… archives [--run-id <id>]     # what is currently undoable, and from when
 ```
+
+**Refiners** (`MaskGenerator.requiresSource`) get `input.source` = the mask at the target
+path (alpha + RGBA + method + sha256). `--refine` **refuses a source whose exemplar weight
+is 0** — the anti-collapse rule applied to the source rather than the corpus, because a
+refiner that could eat its own output would drift a boundary a pixel per pass forever. The
+recorded `exemplars[]` for a refine run is the source itself: it learned from that mask and
+nothing else, and must not imply otherwise.
+
+### `line-snap@1` — reading a hand mask's INTENT (`apps/api/src/foil/line-snap.ts`)
+
+Chey, 2026-08-08: *"it's impossible to get the lines really straight so I'm hoping you can
+get computer vision on the mask and card art in tandem to really see my intent there."*
+Premise: a hand-drawn foil boundary is an **attempt to trace a printed edge** (frame, art
+box, species strip, stage tag), and those are dead straight in the scan. Pipeline: contour
+the mask (crack-following, holes wind oppositely) → cut each loop into near-axis **runs**
+(PCA orientation over a window, short wobble gaps bridged) → robust TLS fit per run → local
+Hough over (angle, offset) on the scan's directional gradient, with a Gaussian **proximity
+prior** → replace → intersect adjacent lines into real corners → rasterize (analytic-x,
+supersampled-y) matching his AA character.
+
+The refusals are the point, and each is a param: weak evidence (`edgeSnrMin`,
+`edgeCoverageMin`, `edgeMinStrength`) ⇒ no move; an **ambiguous band** of comparable ridges
+(`ambiguityRatio`) may nudge but never relocate (`ambiguousMaxMovePx`); no artwork edge ⇒
+straighten only to HIS own fit, and only if his stroke was aiming straight
+(`selfStraightenResidPx`); short or curved runs (`minSegmentPx`, `axisToleranceDeg`) pass
+through untouched; corners close only when the two lines actually meet nearby
+(`cornerJoinPx`). Every run's decision + numbers land in the sidecar params (`report`) and
+in the notes. Locked by `__tests__/line-snap.test.ts` — including that a deliberate curve
+survives and an ambiguous band is refused.
 
 `run` refuses to overwrite any non-`ai` mask (human work is never clobbered) and refuses
 to run below the generator's `minExemplars`. Card art is decoded from the image cache
