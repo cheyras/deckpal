@@ -6,16 +6,16 @@
   "width": 490,
   "height": 674,
   "channel": "alpha",
-  "derivation_method": "ai",
-  "authorship": "machine",
-  "reviewStatus": "unreviewed",
-  "savedAt": "2026-08-08T07:43:58.579Z",
+  "derivation_method": "ai-corrected",
+  "authorship": "mixed",
+  "reviewStatus": "human-authored",
+  "savedAt": "2026-08-08T12:17:30.216Z",
   "artworkUrl": "/pokedex/images/en/me/me05/002/high.webp",
   "card": {
     "setId": "me05",
     "seriesSlug": "mega-evolution",
-    "name": null,
-    "number": null
+    "name": "Grubbin",
+    "number": "002"
   },
   "prior": {
     "source": "ai",
@@ -29,7 +29,7 @@
     ],
     "radius": 0.006,
     "invert": true,
-    "feather": 0,
+    "feather": 0.008,
     "resolverVersion": 5,
     "generator": {
       "name": "region-learn",
@@ -79,15 +79,114 @@
       ],
       "confidence": 0.538,
       "generatedAt": "2026-08-08T07:43:58.426Z"
+    },
+    "parentMask": {
+      "cardId": "me05-002",
+      "variantId": 37186,
+      "savedAt": "2026-08-08T12:08:57.728Z",
+      "method": "ai-corrected"
     }
   },
   "priorPng": "37186.prior.png",
   "diffPng": "37186.diff.png",
   "diff": {
-    "addedPx": 746,
-    "removedPx": 55669,
-    "unchangedPx": 169347,
-    "agreement": 0.7501
+    "addedPx": 5,
+    "removedPx": 54815,
+    "unchangedPx": 170201,
+    "agreement": 0.7564
+  },
+  "correction": {
+    "parent": {
+      "cardId": "me05-002",
+      "variantId": 37186,
+      "savedAt": "2026-08-08T12:08:57.728Z",
+      "method": "ai-corrected",
+      "sha256": "f2a7e95fc687bd45e97af84bcec1879ab166a7fe11bba70f77c0736f7cbabfd7",
+      "generator": {
+        "name": "region-learn",
+        "version": 1,
+        "modelId": null,
+        "runId": "regionlearn-me05-1",
+        "params": {
+          "chromaThreshold": 24,
+          "morphRadius": 3,
+          "minComponentPx": 64,
+          "windowSearchPx": 26,
+          "windowProfileSpan": 0.7,
+          "windowEdgeMinRatio": 1.6,
+          "windowRivalPeakRatio": 0.55,
+          "windowMaxMovePx": 16,
+          "bgRingPx": 6,
+          "bgSigmaK": 2,
+          "voteThreshold": 0.5,
+          "disagreeSpread": 0.35,
+          "era": "modern-sv",
+          "scope": "sheet",
+          "notes": "REGION-LEARNED from 3 human exemplar(s). modern-sv/sheet from 3 human exemplar(s): foil = frameBody. Class foil-share border 0%, furniture 14%, frameBody 97%, windowBackground 4%, windowSubject 1%. Art window detected on this card's own printing: top 66→62px (×2.16), bottom 319→319px (×1.49, REFUSED — kept the prior), left 37→37px (×1.98, REFUSED — kept the prior), right 453→453px (×1.64, REFUSED — kept the prior). Regions contributed frameBody 170804px. edge-trace then put the boundary on the printed edge: 366 stretch(es) traced (3887px), 7 kept (7px); adherence within 1px 45.3% → 75.8%, mean distance 1.1147px → 0.3574px. His exemplars agree on every class that cast a vote. UNREVIEWED: edge adherence measures precision, not correctness — check the REGIONS first, then the edges.",
+          "report": "{\"policy\":{\"foilClasses\":[\"frameBody\"],\"votes\":[{\"cls\":\"border\",\"shares\":[{\"card\":\"me05-012/77558\",\"share\":0.0044,\"px\":44414,\"weight\":1},{\"card\":\"me05-007/37195\",\"share\":0.0018,\"px\":42722,\"weight\":1},{\"card\":\"me05-001/37184\",\"share\":0.0016,\"px\":42905,\"weight\":0.6}],\"mean\":0.0028,\"spread\":0.0028,\"carriesFoil\":false,\"disputed\":false},{\"cls\":\"furniture\",\"shares\":[{\"card\":\"me05-012/77558\",\"share\":0.1194,\"px\":9263,\"weight\":1},{\"card\":\"me05-007/37195\",\"share\":0.1547,\"px\":9885,\"weight\":1},{\"card\":\"me05-001/37184\",\"share\":0.1673,\"px\":9757,\"weight\":0.6}],\"mean\":0.144,\"spread\":0.0479,\"carriesFoil\":false,\"disputed\":false},{\"cls\":\"frameBody\",\"shares\":[{\"card\":\"me05-012/77558\",\"share\":0.9873,\"px\":164679,\"weight\":1},{\"card\":\"me05-007/37195\",\"share\":0.9871,\"px\":171157,\"weight\":1},{\"card\":\"me05-001/37184\",\"share\":0.8992,\"px\":188990,\"weight\":0.6}],\"mean\":0.9669,\"spread\":0.0881,\"carriesFoil\":true,\"disputed\":false},{\"cls\":\"windowBackground\",\"shares\":[{\"card\":\"me05-012/77558\",\"share\":0.1005,\"px\":42692,\"weight\":1},{\"card\":\"me05-007/37195\",\"share\":0,\"px\":36321,\"weight\":1},{\"card\":\"me05-001/37184\",\"share\":0,\"px\":70790,\"weight\":0.6}],\"mean\":0.0387,\"spread\":0.1005,\"carriesFoil\":false,\"disputed\":false},{\"cls\":\"windowSubject\",\"shares\":[{\"card\":\"me05-012/77558\",\"share\":0.0072,\"px\":69212,\"weight\":1},{\"card\":\"me05-007/37195\",\"share\":0.0053,\"px\":70175,\"weight\":1},{\"card\":\"me05-001/37184\",\"share\":0.0239,\"px\":17818,\"weight\":0.6}],\"mean\":0.0103,\"spread\":0.0186,\"carriesFoil\":false,\"disputed\":false}],\"disagreements\":[],\"exemplarCount\":3},\"window\":{\"x0\":37,\"y0\":62,\"x1\":453,\"y1\":319},\"windowEvidence\":[{\"edge\":\"top\",\"priorPx\":66,\"foundPx\":62,\"ratio\":2.16,\"accepted\":true},{\"edge\":\"bottom\",\"priorPx\":319,\"foundPx\":319,\"ratio\":1.49,\"accepted\":false},{\"edge\":\"left\",\"priorPx\":37,\"foundPx\":37,\"ratio\":1.98,\"accepted\":false},{\"edge\":\"right\",\"priorPx\":453,\"foundPx\":453,\"ratio\":1.64,\"accepted\":false}],\"counts\":[43013,9531,170804,64375,42537],\"contribution\":[{\"cls\":\"frameBody\",\"px\":170804}],\"edgeTrace\":{\"tracedPx\":3887,\"keptPx\":7,\"straightRuns\":12,\"changedPx\":4338,\"agreementWithSource\":0.9749},\"adherence\":{\"probe\":\"luminance-sobel\",\"before\":{\"boundaryPx\":3916.2,\"supportedFrac\":0.8094,\"within1px\":0.4534,\"within1pxOfSupported\":0.5602,\"meanDistPx\":1.1147,\"p95DistPx\":2.5,\"maxDistPx\":3.75,\"meanStrength\":27.8},\"after\":{\"boundaryPx\":3929.7,\"supportedFrac\":0.7965,\"within1px\":0.7583,\"within1pxOfSupported\":0.9521,\"meanDistPx\":0.3574,\"p95DistPx\":1,\"maxDistPx\":3.75,\"meanStrength\":30.71}}}"
+        },
+        "exemplars": [
+          {
+            "cardId": "me05-012",
+            "variantId": 77558,
+            "savedAt": "2026-08-08T06:54:27.057Z",
+            "method": "hand-refined",
+            "weight": 1
+          },
+          {
+            "cardId": "me05-007",
+            "variantId": 37195,
+            "savedAt": "2026-08-08T06:37:28.517Z",
+            "method": "hand",
+            "weight": 1
+          },
+          {
+            "cardId": "me05-001",
+            "variantId": 37184,
+            "savedAt": "2026-08-08T03:11:36.291Z",
+            "method": "ai-corrected",
+            "weight": 0.6
+          }
+        ],
+        "confidence": 0.538,
+        "generatedAt": "2026-08-08T07:43:58.426Z"
+      }
+    },
+    "parentPng": "37186.parent.png",
+    "parentDiffPng": "37186.parent.diff.png",
+    "addedPx": 393,
+    "removedPx": 0,
+    "unchangedPx": 169813,
+    "agreement": 0.9977,
+    "changedPx": 393,
+    "changedFraction": 0.00119,
+    "bbox": [
+      0.0755,
+      0.3442,
+      0.0449,
+      0.0341
+    ],
+    "grid": {
+      "size": 4,
+      "cells": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0.019,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
   },
   "lineage": [
     {
@@ -99,6 +198,18 @@
         "version": 1,
         "runId": "regionlearn-me05-1"
       }
+    },
+    {
+      "method": "ai-corrected",
+      "savedAt": "2026-08-08T12:08:57.728Z",
+      "source": "ai",
+      "generator": null
+    },
+    {
+      "method": "ai-corrected",
+      "savedAt": "2026-08-08T12:17:30.216Z",
+      "source": "ai",
+      "generator": null
     }
   ]
 }
