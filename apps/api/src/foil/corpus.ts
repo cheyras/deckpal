@@ -94,6 +94,16 @@ async function report(): Promise<void> {
       `  ${a.cardId}/${a.variantId}  ${a.generator ? `${a.generator.name}@${a.generator.version} run=${a.generator.runId}` : 'no generator id'}` +
         `  conf=${a.confidence ?? '—'}  exemplars=${a.exemplars}  vs-rule ${pct(a.agreement)}`,
     );
+    // A proposal that REPLACED human work is the one to review first — and the
+    // only one whose undo restores something rather than deleting it.
+    if (a.superseded) {
+      console.log(
+        `    ↑ replaced a ${a.superseded.method} mask (agreement ${a.superseded.agreement}, ` +
+          `${(a.superseded.changedFraction * 100).toFixed(2)}% of the face changed). That mask is NOT an ` +
+          'exemplar while this proposal is live.\n' +
+          `      undo byte-for-byte: generate-masks.ts revert --run-id ${a.superseded.runId}`,
+      );
+    }
   }
   console.log(`\ncorrections recorded: ${r.corrections.n}` +
     (r.corrections.n

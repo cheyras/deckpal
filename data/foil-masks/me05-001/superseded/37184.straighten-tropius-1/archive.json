@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "cardId": "me05-001",
+  "variantId": 37184,
+  "runId": "straighten-tropius-1",
+  "archivedAt": "2026-08-08T00:51:25.579Z",
+  "method": "hand-refined",
+  "files": {
+    "37184.png": "01eeacef9431893c375770d464ac0ba8f0f66cbcd6b1bbeb104e2053238090e8",
+    "37184.json": "e9cb3fe4d767a6541b25069e2b6113fccdafa0c9969ce55ea5c23d9d48b9bff5",
+    "37184.prior.png": "c2f83d90c45d7bc3fdf75c23854c1ff58e772ef26e1b01370969812d72884721",
+    "37184.diff.png": "5effe22ab59a294b7e696a3936afa882a81d229fda631f6178dcaecdf877093c",
+    "37184.parent.png": "b4c59a7cb543a4940b73fc1d6ff81e702bbe921d686e3ddf174413129e0cff5f",
+    "37184.parent.diff.png": "a93ba9a281cf00742cbcb75b41b819c020b6a503e6cbb2095f555b592190dacc"
+  }
+}
