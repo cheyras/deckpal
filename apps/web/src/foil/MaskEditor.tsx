@@ -12,12 +12,23 @@
 //   - pen pressure modulates brush width; coalesced events keep strokes smooth.
 //   - undo keeps the last 12 stroke snapshots.
 //
+// PAN/ZOOM (foil/ViewTransform.tsx): the overlay lives inside a CSS-transformed
+// wrapper, so `rect` stays in BASE (unzoomed) coords and the pointer→texel map
+// needs no zoom term at all — getBoundingClientRect() already reports the
+// transformed on-screen box. Two things do care about zoom:
+//   - the brush is SCREEN-CONSTANT (see `brushSize` below), so the mask-space
+//     line width is divided by the zoom;
+//   - a pinch that lands mid-stroke calls cancelStroke(), which rolls the
+//     stroke back off the canvas (a two-finger gesture must not leave a dab).
+//
 // Persistence: PUT/GET/DELETE via the branch api dev instance (foil/api.ts) —
 // committed ground-truth artifacts under data/foil-masks/ (see
-// .claude/skills/mask-pipeline/SKILL.md).
+// .claude/skills/mask-pipeline/SKILL.md). The zoom NEVER touches the mask
+// canvas itself, so a save from a zoomed view is byte-identical to one at 1×.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { rasterizeWindowRect } from './WindowEditor'
+import type { ViewController } from './ViewTransform'
 
 export const MASK_W = 490 // 2× the 245×337 card fraction — plenty for zone masks
 export const MASK_H = Math.round((MASK_W * 337) / 245)
@@ -51,17 +62,31 @@ export function MaskEditor({
   mode,
   brushSize,
   allowTouch,
+  view,
   onStrokeEnd,
+  onStrokeCancel,
   registerHandle,
 }: {
   /** The persistent mask canvas (owned by FoilLab so it outlives edit mode). */
   canvas: HTMLCanvasElement
-  /** Card-face rect within the viewer host (px). */
+  /** Card-face rect within the viewer host (px) — BASE coords, pre-zoom. */
   rect: { left: number; top: number; width: number; height: number }
   mode: BrushMode
-  brushSize: number // px at mask resolution
+  /**
+   * Brush width in mask px AT 1× ZOOM. The brush is deliberately
+   * SCREEN-CONSTANT: at zoom z the mask-space width is brushSize/z, so the tip
+   * keeps the same apparent size on screen and zooming in buys finer control —
+   * which is the point of zooming while tracing a printed edge. (Mask-constant
+   * would make a 4× zoom paint a 4×-fatter-looking stroke and defeat the
+   * feature.)
+   */
+  brushSize: number
   allowTouch: boolean
+  /** Pan/zoom controller — brush scaling + stroke/gesture arbitration. */
+  view?: ViewController
   onStrokeEnd: () => void
+  /** A gesture aborted the stroke — pixels were rolled back, nothing painted. */
+  onStrokeCancel?: () => void
   registerHandle?: (h: MaskEditorHandle) => void
 }) {
   const displayRef = useRef<HTMLCanvasElement>(null)
@@ -148,16 +173,19 @@ export function MaskEditor({
   }
 
   const accepts = (e: React.PointerEvent) =>
-    e.pointerType === 'pen' || e.pointerType === 'mouse' || (allowTouch && e.pointerType === 'touch')
+    !view?.gesturing() &&
+    (e.pointerType === 'pen' || e.pointerType === 'mouse' || (allowTouch && e.pointerType === 'touch'))
 
   const strokeTo = (pts: { x: number; y: number; pressure: number }[]) => {
     const c = ctx()
+    const zoom = view?.view.current.zoom ?? 1
     c.globalCompositeOperation = mode === 'erase' ? 'destination-out' : 'source-over'
     c.strokeStyle = TINT
     c.lineCap = 'round'
     c.lineJoin = 'round'
     for (const p of pts) {
-      const w = brushSize * (p.pressure > 0 ? 0.5 + p.pressure : 1)
+      // Screen-constant brush: mask-space width shrinks with zoom.
+      const w = (brushSize * (p.pressure > 0 ? 0.5 + p.pressure : 1)) / zoom
       c.lineWidth = w
       c.beginPath()
       const from = last.current ?? p
@@ -169,8 +197,33 @@ export function MaskEditor({
     c.globalCompositeOperation = 'source-over'
   }
 
+  /**
+   * A pan/pinch started mid-stroke: undo the partial stroke so a two-finger
+   * gesture never leaves a stray dab (the undo snapshot pushed at pointerdown
+   * is popped, not kept — the stroke never happened).
+   */
+  const cancelStroke = useCallback(() => {
+    if (!drawing.current) return
+    drawing.current = false
+    last.current = null
+    const prev = undoStack.current.pop()
+    if (prev) {
+      canvas.getContext('2d')!.putImageData(prev, 0, 0)
+      repaint()
+    }
+    onStrokeCancel?.()
+  }, [canvas, repaint, onStrokeCancel])
+
+  useEffect(() => {
+    if (!view) return
+    view.setStrokeAbort(cancelStroke)
+    return () => view.setStrokeAbort(null)
+  }, [view, cancelStroke])
+
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!accepts(e)) return
+    // No selection, no drag ghost, no iOS callout from a paint gesture.
+    e.preventDefault()
     try {
       e.currentTarget.setPointerCapture(e.pointerId)
     } catch {
@@ -205,12 +258,15 @@ export function MaskEditor({
   return (
     <canvas
       ref={displayRef}
+      data-testid="mask-canvas"
       width={MASK_W}
       height={MASK_H}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endStroke}
       onPointerCancel={endStroke}
+      onDragStart={(e) => e.preventDefault()}
+      draggable={false}
       className="absolute rounded-[4.7%/3.4%] opacity-45"
       style={{
         left: rect.left,
@@ -218,8 +274,14 @@ export function MaskEditor({
         width: rect.width,
         height: rect.height,
         touchAction: 'none',
-        cursor: 'crosshair',
-      }}
+        pointerEvents: 'auto',
+        // 'grab'/'grabbing' while Space is held — the controller sets the var.
+        cursor: 'var(--foil-cursor, crosshair)',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none',
+        WebkitUserDrag: 'none',
+      } as React.CSSProperties}
     />
   )
 }

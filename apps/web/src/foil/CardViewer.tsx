@@ -6,11 +6,12 @@
 // and pushes live uniform values from `settingsRef` — so slider changes and
 // pointer/gyro motion never re-render React.
 
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import type { FoilPattern } from './patterns'
 import { buildFoilMaterial, CARD_ASPECT, transparentTexture } from './shader'
 import { buildGlyphAtlas, fetchGlyphIndex, glyphSlotFor, resolveGlyphDir } from './glyphs'
+import type { ViewController } from './ViewTransform'
 
 export interface ViewerSettings {
   /** Core + pattern uniform values, keyed by uniform name. */
@@ -40,6 +41,7 @@ export function CardViewer({
   settingsRef,
   tiltTarget,
   maskCanvas,
+  view,
   onPointerMove,
   onPointerLeave,
   className = '',
@@ -51,6 +53,8 @@ export function CardViewer({
   tiltTarget: React.RefObject<{ x: number; y: number }>
   /** Hand-mask drawing surface (alpha = coverage); null when layout tier active. */
   maskCanvas?: HTMLCanvasElement | null
+  /** Pan/zoom while editing — drives camera.setViewOffset and the overlay wrapper. */
+  view?: ViewController
   onPointerMove?: (e: React.PointerEvent<HTMLElement>) => void
   onPointerLeave?: () => void
   className?: string
@@ -66,6 +70,20 @@ export function CardViewer({
   // Glyph slot (R3-GLYPH): rasterized atlas of Chey's real glyph artwork.
   const glyphTexRef = useRef<THREE.CanvasTexture | null>(null)
   const glyphInfoRef = useRef<{ count: number; cols: number } | null>(null)
+  // The controller is stable, but keep it in a ref so the once-only scene
+  // effect never closes over a stale value.
+  const viewCtlRef = useRef<ViewController | undefined>(view)
+  viewCtlRef.current = view
+
+  // Merged ref: the scene effect needs the host, the gesture controller needs
+  // the same element (its client box IS the three.js viewport).
+  const setHost = useCallback(
+    (el: HTMLDivElement | null) => {
+      hostRef.current = el
+      view?.hostRef(el)
+    },
+    [view],
+  )
 
   const applyGlyphUniforms = (mat: THREE.ShaderMaterial) => {
     if (!mat.uniforms.uGlyphTex) return
@@ -88,6 +106,14 @@ export function CardViewer({
     renderer.domElement.style.height = '100%'
     renderer.domElement.style.display = 'block'
     renderer.domElement.style.touchAction = 'none'
+    // Fix 2 (Chey, 2026-08-08 — "sometimes the card image gets 'selected' when
+    // I'm trying to draw"): a paint gesture must never start a selection, a
+    // drag ghost, or iOS's long-press callout on the rendered card.
+    renderer.domElement.style.userSelect = 'none'
+    renderer.domElement.style.setProperty('-webkit-user-select', 'none')
+    renderer.domElement.style.setProperty('-webkit-touch-callout', 'none')
+    renderer.domElement.style.setProperty('-webkit-user-drag', 'none')
+    renderer.domElement.draggable = false
 
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 20)
@@ -99,10 +125,16 @@ export function CardViewer({
     meshRef.current = mesh
     scene.add(mesh)
 
+    // Host box in CSS px — the denominator for the zoom view offset.
+    const size = { w: 0, h: 0 }
+    let viewKey = ''
     const fit = () => {
       const w = host.clientWidth
       const h = host.clientHeight
       if (!w || !h) return
+      size.w = w
+      size.h = h
+      viewKey = '' // force the view offset to be reapplied at the new size
       renderer.setSize(w, h, false)
       camera.aspect = w / h
       // Fit the card into view with margin for rotation.
@@ -125,6 +157,19 @@ export function CardViewer({
       const s = settingsRef.current
       const mat = materialRef.current
       if (!mat || !s) return
+      // Pan/zoom: render the (x,y,w,h) window out of a virtual w·z × h·z image.
+      // Re-rasterizing at the zoomed size is what makes 4× zoom show 4× real
+      // detail — the whole point of the feature for edge tracing.
+      const vt = viewCtlRef.current?.view.current
+      const z = vt ? vt.zoom : 1
+      const vx = vt ? vt.x : 0
+      const vy = vt ? vt.y : 0
+      const key = `${z}|${vx}|${vy}|${size.w}|${size.h}`
+      if (key !== viewKey) {
+        viewKey = key
+        if (z !== 1 && size.w > 0) camera.setViewOffset(size.w * z, size.h * z, vx, vy, size.w, size.h)
+        else camera.clearViewOffset()
+      }
       const tgt = tiltTarget.current ?? { x: 0, y: 0 }
       tilt.x += (tgt.x - tilt.x) * 0.12
       tilt.y += (tgt.y - tilt.y) * 0.12
@@ -285,12 +330,21 @@ export function CardViewer({
 
   return (
     <div
-      ref={hostRef}
-      className={`relative ${className}`}
+      ref={setHost}
+      className={`relative overflow-hidden select-none [-webkit-touch-callout:none] ${className}`}
       onPointerMove={onPointerMove}
       onPointerLeave={onPointerLeave}
     >
-      {children}
+      {/* Overlay wrapper — carries the pan/zoom transform (set imperatively by
+          the controller) so the mask/window overlays stay locked to the card. */}
+      <div
+        ref={view?.wrapRef}
+        data-testid="foil-view-wrap"
+        className="pointer-events-none absolute inset-0"
+        style={{ transformOrigin: '0 0' }}
+      >
+        {children}
+      </div>
     </div>
   )
 }
