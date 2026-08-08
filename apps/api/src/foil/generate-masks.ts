@@ -33,11 +33,16 @@
 // exemplars recorded. Exemplars come from selectExemplars(), which refuses to
 // return unreviewed `ai` masks — a generation can never train on itself.
 //
-// Card art: decoded out of the image cache with ImageMagick (`magick`), which
-// is present on this box. The API deliberately has no native image addon, and
-// this is a CLI, not a request path — the server never shells out.
+// Card art comes from `foil/analysis-source.ts`, which decides between the
+// cached (lossy) WebP and the upstream lossless PNG and REPORTS which it used —
+// recorded per card in the generator's params (`analysisSource`) so a mask can
+// always answer "what pixels was I fitted to". `--analysis-source lossless`
+// fetches the upstream PNG on demand (never cached to disk); the default is
+// `cached`, because TCGdex's PNGs are 256-colour palette and measurably band in
+// flat regions (DECISIONS 2026-08-08). Decoding is ImageMagick (`magick`), a
+// CLI-only dependency — this is a CLI, not a request path; the server never
+// shells out.
 
-import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -74,6 +79,7 @@ import {
   type GeneratorTarget,
 } from './generator.js';
 import { boundaryDistance } from './region-learn.js';
+import { AnalysisSource, closeAnalysisSource, type AnalysisImage } from './analysis-source.js';
 
 const MASK_W = 490;
 const MASK_H = Math.round((MASK_W * 337) / 245); // 674 — matches MaskEditor.tsx
@@ -88,7 +94,6 @@ function repoRoot(): string {
 }
 const ROOT = repoRoot();
 const MASKS_DIR = join(ROOT, 'data', 'foil-masks');
-const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? '/home/cheyras/pokedex/cache';
 
 function arg(name: string): string | null {
   const i = process.argv.indexOf(`--${name}`);
@@ -96,25 +101,51 @@ function arg(name: string): string | null {
 }
 const flag = (name: string): boolean => process.argv.includes(`--${name}`);
 
-// ── Card art from the image cache ──────────────────────────────────────────
+// ── Card art, through the analysis source ──────────────────────────────────
+//
+// ONE way in, for every command, so the provenance of the pixels a generator
+// fitted to is never a guess. `--analysis-source lossless` asks for the upstream
+// PNG; when that is impossible (no recorded source_url, a 404, a non-PNG body)
+// the source falls back to the cached WebP and SAYS SO, and that sentence is
+// what gets recorded. It is never silently swapped.
 
-function cachePath(serie: string, setId: string, localId: string): string {
-  return join(CACHE_ROOT, 'images', 'en', serie, setId, `${localId}.high.webp`);
+/** `cached` (default) | `lossless`. Read once so every command agrees. */
+function analysisPreference(): 'cached' | 'lossless' {
+  const v = arg('analysis-source') ?? 'cached';
+  if (v !== 'cached' && v !== 'lossless') {
+    throw new Error(`--analysis-source must be 'cached' or 'lossless' (got '${v}')`);
+  }
+  return v;
 }
 
-/** Decode a cached WebP scan to RGBA at mask resolution. Null when uncached. */
-function loadArtwork(serie: string, cardId: string, w = MASK_W, h = MASK_H): RgbaImage | null {
-  const setId = setIdOf(cardId);
-  const localId = setId ? cardId.slice(setId.length + 1) : null;
-  if (!setId || !localId) return null;
-  const p = cachePath(serie, setId, localId);
-  if (!existsSync(p)) return null;
-  try {
-    const png = execFileSync('magick', [p, '-resize', `${w}x${h}!`, 'png32:-'], { maxBuffer: 64 * 1024 * 1024 });
-    return decodePng(png);
-  } catch {
-    return null;
-  }
+const ART = new AnalysisSource();
+/** cardId → the provenance of the art actually used, for the run report. */
+const ART_PROVENANCE = new Map<string, AnalysisImage>();
+
+/** Decode a card scan to RGBA at mask resolution. Null when there is none. */
+async function loadArtwork(serie: string, cardId: string, w = MASK_W, h = MASK_H): Promise<RgbaImage | null> {
+  const got = await ART.get(cardId, { serie, prefer: analysisPreference(), width: w, height: h });
+  if (!got) return null;
+  ART_PROVENANCE.set(cardId, got);
+  return got.image;
+}
+
+/** What `loadArtwork` last returned for this card, for params/notes. */
+function artProvenance(cardId: string): AnalysisImage | null {
+  return ART_PROVENANCE.get(cardId) ?? null;
+}
+
+/** The provenance fields recorded in a generator identity's params. */
+function provenanceParams(cardId: string): Record<string, string | boolean> {
+  const p = artProvenance(cardId);
+  if (!p) return {};
+  return {
+    analysisSource: p.source,
+    analysisSourceLossless: p.lossless,
+    ...(p.url ? { analysisSourceUrl: p.url } : {}),
+    ...(p.palette === true ? { analysisSourcePalette: true } : {}),
+    ...(p.fallbackReason ? { analysisSourceFallback: p.fallbackReason } : {}),
+  };
 }
 
 // ── Era rects (same data + same math the web resolver uses) ────────────────
@@ -204,7 +235,7 @@ async function buildExemplars(
     out.push({
       ref: toExemplarRefs(sel)[i]!,
       alpha,
-      artwork: loadArtwork(serie, e.cardId),
+      artwork: await loadArtwork(serie, e.cardId),
       rect: e.sidecar.prior?.rect ?? maskForScope(layouts, eraId, scope).rect,
       scope: e.sidecar.prior?.scope ?? scope,
       eraId: e.sidecar.prior?.eraId ?? eraId,
@@ -286,7 +317,7 @@ async function evaluate(): Promise<void> {
   }
   const rows: EvalRow[] = [];
   for (const e of held) {
-    const artwork = loadArtwork(serie, e.cardId);
+    const artwork = await loadArtwork(serie, e.cardId);
     const humanPng = await readFile(join(ROOT, e.files.mask));
     const humanImg = decodePng(humanPng);
     const human = resampleAlpha(alphaOf(humanImg), humanImg.width, humanImg.height, MASK_W, MASK_H);
@@ -458,11 +489,15 @@ async function run(): Promise<void> {
       };
     }
 
-    const artwork = loadArtwork(serie, t.cardId);
+    const artwork = await loadArtwork(serie, t.cardId);
     if (!artwork) {
       console.log(`skip ${t.cardId}/${t.variantId}: scan not in the image cache`);
       continue;
     }
+    // Say it out loud, per card, before the generator runs. A lossy fallback
+    // that only shows up in a JSON field is a fallback nobody reads.
+    const prov = artProvenance(t.cardId);
+    if (prov) console.log(`  art  ${t.cardId}: ${prov.note}`);
     const target = targetFor(layouts, t.cardId, t.variantId, eraId, scope, serie, seriesSlug, artwork);
     // A refine inherits the geometry the source was drawn against, including
     // the window rect Chey adjusted by hand — a generator must not have to
@@ -492,6 +527,9 @@ async function run(): Promise<void> {
         era: eraId,
         scope,
         notes: out.notes,
+        // WHICH PIXELS THIS WAS FITTED TO. A boundary localised to 0.2px is a
+        // claim about an image; the mask has to be able to say which image.
+        ...provenanceParams(t.cardId),
         ...(source ? { source: `${source.ref.cardId}/${source.ref.variantId}@${source.ref.method}`, sourceSha256: source.ref.sha256 } : {}),
         ...(out.report ? { report: JSON.stringify(out.report) } : {}),
       },
@@ -655,7 +693,7 @@ async function adherence(): Promise<void> {
   const cardId = arg('card');
   const masksArg = arg('masks');
   if (!serie || !cardId || !masksArg) throw new Error('adherence requires --serie --card --masks <label>=<path>[,…]');
-  const artwork = loadArtwork(serie, cardId);
+  const artwork = await loadArtwork(serie, cardId);
   if (!artwork) throw new Error(`scan for ${cardId} is not in the image cache (serie ${serie})`);
   const which = (arg('probe') ?? 'luminance') as 'luminance' | 'tensor';
   const params: AdherenceParams = {
@@ -670,6 +708,7 @@ async function adherence(): Promise<void> {
 
   console.log(
     `\nEDGE ADHERENCE  card=${cardId}  probe=${which}  floor=${params.strengthFloor}  search=±${params.searchPx}px\n` +
+      `${artProvenance(cardId)?.note ?? 'art provenance unknown'}\n` +
       'Distance from each boundary sample to the NEAREST edge maximum along its own normal.\n' +
       '"supp%" = share of boundary with any such edge at all — where it is low, the mask is\n' +
       'following something the probe cannot see, which is a fact about the probe as much as the mask.\n',
@@ -729,7 +768,23 @@ if (!main) {
   console.error('usage: generate-masks.ts <eval|run|revert|archives|adherence> [flags] — see the header comment');
   process.exit(2);
 }
-void main().catch((e: Error) => {
-  console.error(e.message);
-  process.exit(1);
-});
+
+/** The run's honest provenance ledger — printed whether or not it went well. */
+function reportArtProvenance(): void {
+  if (ART.stats.requests === 0) return;
+  console.log(`\n${ART.summary()}`);
+  const lossy = Object.entries(ART.stats.fallbackReasons);
+  if (lossy.length && analysisPreference() === 'lossless') {
+    console.log('LOSSY FALLBACKS — these cards were analysed on the cached WebP, not lossless pixels:');
+    for (const [cardId, why] of lossy) console.log(`  ${cardId}: ${why}`);
+  }
+}
+
+void main()
+  .then(reportArtProvenance)
+  .catch((e: Error) => {
+    reportArtProvenance();
+    console.error(e.message);
+    process.exitCode = 1;
+  })
+  .finally(closeAnalysisSource);
