@@ -11,8 +11,17 @@
 //     --serie base --series-slug base --run-id trial-1 \
 //     --cards base1-1:12,base1-2:15
 //
-//   # and it is reversible
+//   # REFINE an existing HUMAN mask with a refiner generator (line-snap):
+//   #   --refine loads the mask already at each target as the generator's
+//   #   source, archives it verbatim, and writes the result as `ai`/unreviewed.
+//   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts run \
+//     --generator line-snap --refine --era modern-sv --scope sheet \
+//     --serie me --series-slug mega-evolution --run-id straighten-1 \
+//     --cards me05-001:37184
+//
+//   # and it is reversible — restores what it replaced, BYTE-FOR-BYTE
 //   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts revert --run-id trial-1
+//   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts archives   # what is undoable
 //
 // Everything it writes goes through provenance.writeMaskRecord with a full
 // generator identity, so every mask lands as `ai` / unreviewed with its
@@ -32,13 +41,23 @@ import { encodePng, decodePng, type RgbaImage } from './png.js';
 import { rasterizePriorAlpha, type MaskPrior } from './mask-artifacts.js';
 import {
   alphaOf,
+  sha256,
   writeMaskRecord,
   readSidecarFile,
   maskPathsIn,
+  findArchives,
+  restoreArchive,
+  EXEMPLAR_WEIGHT,
   type GeneratorIdentity,
 } from './provenance.js';
 import { readCorpus, selectExemplars, toExemplarRefs, setIdOf } from './mask-corpus.js';
-import { GENERATORS, rectCoverage, type GeneratorExemplar, type GeneratorTarget } from './generator.js';
+import {
+  GENERATORS,
+  rectCoverage,
+  type GeneratorExemplar,
+  type GeneratorSource,
+  type GeneratorTarget,
+} from './generator.js';
 
 const MASK_W = 490;
 const MASK_H = Math.round((MASK_W * 337) / 245); // 674 — matches MaskEditor.tsx
@@ -304,22 +323,73 @@ async function run(): Promise<void> {
     );
   }
   const dry = flag('dry-run');
+  const refine = flag('refine');
+  if (gen.requiresSource && !refine) {
+    throw new Error(
+      `${gen.name} is a REFINER: it reworks an existing human mask rather than proposing one. Pass --refine, ` +
+        'which loads the mask already at each target as the source and archives it byte-for-byte before writing.',
+    );
+  }
   const m = maskForScope(layouts, eraId, scope);
 
   for (const t of targets) {
-    // NEVER overwrite a human mask with a machine proposal.
     const existing = await readSidecarFile(MASKS_DIR, t.cardId, t.variantId);
-    if (existing && existing.derivation_method !== 'ai') {
+    // NEVER overwrite a human mask with a machine proposal — unless the run is
+    // an explicit --refine of that very mask, which archives it first.
+    if (existing && existing.derivation_method !== 'ai' && !refine) {
       console.log(`skip ${t.cardId}/${t.variantId}: already has a ${existing.derivation_method} mask (human work is never overwritten)`);
       continue;
     }
+
+    // ── Refine mode: the source mask, and the rule that keeps it honest ──
+    let source: GeneratorSource | null = null;
+    if (refine) {
+      if (!existing) {
+        console.log(`skip ${t.cardId}/${t.variantId}: --refine needs an existing mask and there is none`);
+        continue;
+      }
+      // ANTI-COMPOUNDING: a refiner may not eat unreviewed machine output. Same
+      // rule as selectExemplars, applied to the SOURCE rather than the corpus —
+      // otherwise a straightener would nudge a boundary every pass forever.
+      if (EXEMPLAR_WEIGHT[existing.derivation_method] === 0) {
+        console.log(
+          `skip ${t.cardId}/${t.variantId}: source mask is ${existing.derivation_method} (exemplar weight 0). ` +
+            'A refiner only reworks masks a human painted.',
+        );
+        continue;
+      }
+      const srcPng = await readFile(maskPathsIn(MASKS_DIR, t.cardId, t.variantId).png).catch(() => null);
+      if (!srcPng) {
+        console.log(`skip ${t.cardId}/${t.variantId}: sidecar present but no mask PNG`);
+        continue;
+      }
+      const srcImg = decodePng(srcPng);
+      source = {
+        ref: {
+          cardId: t.cardId,
+          variantId: t.variantId,
+          savedAt: existing.savedAt ?? null,
+          method: existing.derivation_method,
+          weight: EXEMPLAR_WEIGHT[existing.derivation_method],
+          sha256: sha256(srcPng),
+        },
+        alpha: resampleAlpha(alphaOf(srcImg), srcImg.width, srcImg.height, MASK_W, MASK_H),
+        image: srcImg,
+        method: existing.derivation_method,
+      };
+    }
+
     const artwork = loadArtwork(serie, t.cardId);
     if (!artwork) {
       console.log(`skip ${t.cardId}/${t.variantId}: scan not in the image cache`);
       continue;
     }
     const target = targetFor(layouts, t.cardId, t.variantId, eraId, scope, serie, seriesSlug, artwork);
-    const out = gen.generate({ target, exemplars });
+    // A refine inherits the geometry the source was drawn against, including
+    // the window rect Chey adjusted by hand — a generator must not have to
+    // rediscover a decision he already made.
+    if (source && existing?.prior?.window) target.window = existing.prior.window;
+    const out = gen.generate({ target, exemplars, source });
 
     const rgba = new Uint8Array(MASK_W * MASK_H * 4);
     for (let i = 0; i < out.alpha.length; i++) {
@@ -345,14 +415,24 @@ async function run(): Promise<void> {
       version: gen.version,
       modelId: gen.modelId,
       runId,
-      params: { ...gen.params, era: eraId, scope, notes: out.notes },
-      exemplars: exemplars.map((e) => e.ref),
+      params: {
+        ...gen.params,
+        era: eraId,
+        scope,
+        notes: out.notes,
+        ...(source ? { source: `${source.ref.cardId}/${source.ref.variantId}@${source.ref.method}`, sourceSha256: source.ref.sha256 } : {}),
+        ...(out.report ? { report: JSON.stringify(out.report) } : {}),
+      },
+      // A refiner's evidence is the mask it was handed; say so explicitly
+      // instead of implying it generalised from a corpus it never read.
+      exemplars: source ? [{ ...source.ref }] : exemplars.map((e) => e.ref),
       confidence: out.confidence,
       generatedAt: new Date().toISOString(),
     };
     const rectScore = agreement(rasterizePriorAlpha(MASK_W, MASK_H, prior), out.alpha);
     if (dry) {
       console.log(`[dry] ${t.cardId}/${t.variantId}  conf=${String(out.confidence)}  vs-rect agreement=${rectScore.agreement}`);
+      if (out.notes) console.log(`  ↳ ${out.notes}`);
       continue;
     }
     const sidecar = await writeMaskRecord({
@@ -365,26 +445,68 @@ async function run(): Promise<void> {
       prior,
       startedFrom: 'layout',
       artworkUrl: target.artworkUrl,
-      card: { setId: target.setId, seriesSlug: target.seriesSlug, name: null, number: null },
+      card: {
+        setId: target.setId,
+        seriesSlug: target.seriesSlug,
+        name: existing?.card?.name ?? null,
+        number: existing?.card?.number ?? null,
+      },
       machine: identity,
+      ...(existing ? { supersede: { runId } } : {}),
     });
     console.log(
-      `wrote ${t.cardId}/${t.variantId}  method=${sidecar.derivation_method}  review=${sidecar.reviewStatus}  conf=${String(out.confidence)}`,
+      `wrote ${t.cardId}/${t.variantId}  method=${sidecar.derivation_method}  review=${sidecar.reviewStatus}  conf=${String(out.confidence)}` +
+        (sidecar.supersedes
+          ? `\n  superseded ${sidecar.supersedes.parent.method} mask (agreement ${sidecar.supersedes.agreement}, ` +
+            `${sidecar.supersedes.changedPx}px changed); original archived at ${sidecar.supersedes.archiveDir}`
+          : ''),
     );
+    if (out.notes) console.log(`  ↳ ${out.notes}`);
   }
   if (!dry) {
     console.log(
       `\nrun ${runId}: ${targets.length} target(s). All masks are \`ai\` / unreviewed — they are PROPOSALS.\n` +
-        `Revert with: tsx src/foil/generate-masks.ts revert --run-id ${runId}`,
+        (refine
+          ? 'A superseded human mask is NOT an exemplar while the proposal sits on top of it — reverting or\n' +
+            'correcting the proposal brings it back into the training pool.\n'
+          : '') +
+        `Revert with: pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts revert --run-id ${runId}`,
     );
   }
 }
 
-// ── revert: delete a run's unreviewed output (never touches human work) ────
+// ── revert: undo a run — RESTORE what it replaced, delete what it added ────
+//
+// The old behaviour (delete the `ai` mask) is still right for a proposal on a
+// card that had nothing. But a refine run replaced a real mask, and deleting
+// there would destroy the very thing it was supposed to be reversible against.
+// So revert restores from the run's verbatim archive, sha256-verified, and only
+// falls back to deletion when the run genuinely created a mask from nothing.
 
 async function revert(): Promise<void> {
   const runId = arg('run-id');
   if (!runId) throw new Error('revert requires --run-id');
+
+  let restored = 0;
+  for (const archive of await findArchives(MASKS_DIR, runId)) {
+    const live = await readSidecarFile(MASKS_DIR, archive.cardId, archive.variantId);
+    // Only undo machine output. If a human has since corrected it, HIS work is
+    // now the truth — the archive stays put and says so.
+    if (live && live.derivation_method !== 'ai' && !flag('force')) {
+      console.log(
+        `keep ${archive.cardId}/${archive.variantId}: now a ${live.derivation_method} mask — a human has edited it since. ` +
+          `The original is still at ${archive.dir}; pass --force to put it back anyway.`,
+      );
+      continue;
+    }
+    const r = await restoreArchive(MASKS_DIR, archive);
+    restored++;
+    console.log(
+      `restored ${r.cardId}/${r.variantId} → ${r.method} (${r.restored.length} files, sha256-verified: ` +
+        `${r.restored.map((f) => f.file).join(', ')})`,
+    );
+  }
+
   const corpus = await readCorpus(MASKS_DIR);
   let removed = 0;
   for (const e of corpus) {
@@ -393,15 +515,36 @@ async function revert(): Promise<void> {
     const p = maskPathsIn(MASKS_DIR, e.cardId, e.variantId);
     for (const f of [p.png, p.json, p.prior, p.diff, p.parent, p.parentDiff]) await unlink(f).catch(() => undefined);
     removed++;
-    console.log(`removed ${e.cardId}/${e.variantId}`);
+    console.log(`removed ${e.cardId}/${e.variantId} (this run created it; there was nothing underneath)`);
   }
-  console.log(`\nreverted ${removed} unreviewed mask(s) from run ${runId}. Corrected/hand masks were left alone.`);
+  console.log(
+    `\nrun ${runId}: restored ${restored} superseded mask(s) byte-for-byte, removed ${removed} freshly-created one(s). ` +
+      'Human masks the run never touched were not looked at.',
+  );
+}
+
+// ── archives: what is currently undoable, and from when ───────────────────
+
+async function archives(): Promise<void> {
+  const found = await findArchives(MASKS_DIR, arg('run-id'));
+  if (found.length === 0) {
+    console.log('no generator archives on disk — nothing was superseded.');
+    return;
+  }
+  for (const a of found) {
+    console.log(
+      `${a.cardId}/${a.variantId}  run=${a.runId}  was=${a.manifest.method}  archived=${a.manifest.archivedAt}\n` +
+        `  ${Object.keys(a.manifest.files).length} files at ${a.dir}\n` +
+        `  undo: pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts revert --run-id ${a.runId}`,
+    );
+  }
 }
 
 const CMD = process.argv[2];
-const main = CMD === 'eval' ? evaluate : CMD === 'run' ? run : CMD === 'revert' ? revert : null;
+const main =
+  CMD === 'eval' ? evaluate : CMD === 'run' ? run : CMD === 'revert' ? revert : CMD === 'archives' ? archives : null;
 if (!main) {
-  console.error('usage: generate-masks.ts <eval|run|revert> [flags] — see the header comment');
+  console.error('usage: generate-masks.ts <eval|run|revert|archives> [flags] — see the header comment');
   process.exit(2);
 }
 void main().catch((e: Error) => {

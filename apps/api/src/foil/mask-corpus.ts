@@ -213,6 +213,11 @@ export interface AwaitingReview {
   /** Rule-vs-mask agreement, so a reviewer can triage the worst first. */
   agreement: number | null;
   maskUrl: string;
+  /**
+   * Set when this proposal REPLACED a mask a human had painted — review that
+   * first, and note the one-line undo. null when it created a mask from nothing.
+   */
+  superseded: { method: DerivationMethod; agreement: number; changedFraction: number; runId: string; archiveDir: string } | null;
 }
 
 export interface CorpusReport {
@@ -285,6 +290,15 @@ export function buildReport(corpus: CorpusEntry[]): CorpusReport {
         exemplars: g?.exemplars.length ?? 0,
         agreement: s.diff?.agreement ?? null,
         maskUrl: `/pokedex/api/foil-lab/masks/${e.cardId}/${e.variantId}`,
+        superseded: s.supersedes
+          ? {
+              method: s.supersedes.parent.method,
+              agreement: s.supersedes.agreement,
+              changedFraction: s.supersedes.changedFraction,
+              runId: s.supersedes.runId,
+              archiveDir: s.supersedes.archiveDir,
+            }
+          : null,
       });
     }
     if (s.correction) {
