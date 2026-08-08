@@ -496,6 +496,106 @@ identity, the full `correction` record, and `lineage` — plus a `contract[]` ar
 spells out how to read it. A future generator lane consumes that file; it should never
 have to reverse-engineer the directory.
 
+### `vector-template@1` — the LAYOUT is the artifact (`apps/api/src/foil/vector-template.ts`)
+
+Chey, 2026-08-08: *"I want to make sure that what the system is really learning is not 'give
+these a hand drawn quality' but what I draw is intent. Generated masks should feel like
+they're derived from clean vectors, with straight lines and crisp curves/rounded corners
+following the artwork."* And, on scale: *"We don't need 3,454 vector masks. All of these
+share the same 2 layouts really."*
+
+**THE MEASUREMENT THAT MOVED THE PREMISE.** At 0.35px tolerance on sub-pixel contours,
+primitives per 1000px of boundary: `region-learn@1` **33.7**, **Chey's hand 21.3**,
+`vector-template@1` **10.3**. *His masks are already more vector-like than the generator
+that was learning from them* — where the print is straight he draws it straight, and the
+livewire tracer wobbled ±2px. Smoothing was never the fix; emitting a traced path at all
+was the mistake. **A hand mask encodes WHICH REGIONS carry foil. It does not encode how a
+boundary should look.**
+
+So: fit **lines + circular arcs + exact corners** to the CONSENSUS of his masks (a weighted
+per-pixel majority = the median boundary, so one card's 2px registration error cannot become
+the template's edge), store that as normalised geometry, rasterise on demand.
+
+- **The artifact** is `apps/web/src/foil/vector-templates.json` — 13.3 KB, 58 primitives,
+  beside `era-layouts.json`. Committed, diffable, hand-correctable. It carries full
+  provenance (generator name/version/runId, the exemplars it was fitted from, params,
+  a plain-language `statement`). **Reverting is `git revert`** — it is one small file.
+- **Per-card masks are now EXCEPTIONS**, not the norm: a human mask, or a card that
+  genuinely deviates. `generate-masks.ts revert --run-id` still covers those.
+- **ONE layout + ONE optional element**, discovered not asserted. `discoverOptionalElement`
+  opens the contested set to destroy the ±1-2px boundary band, takes the largest survivor,
+  and splits the corpus on foil-share inside it. On modern-sv/sheet that finds the evolution
+  medallion with an 80.5pp gap. Era-agnostic: on another class it finds that class's
+  optional element, or nothing, which is also an answer.
+- **Storage.** The rasterisation depends only on `(era, scope, hasOptionalElement, w, h)` —
+  NOT on the card. Every Basic reverse gets byte-identical pixels. The cache is **2 PNGs**
+  under `IMAGE_CACHE_ROOT/foil-templates/`, mirroring the image-cache contract (disk-only,
+  outside git, safe to delete). Per-card masks would have been ~100–350 MB.
+- **The API fallback** (`GET /foil-lab/masks/:cardId/:variantId?era=&scope=&evolves=1`)
+  answers with the template ONLY when no hand mask resolves — human work is never shadowed
+  — and labels it `X-Foil-Mask-Review-Status: unreviewed` with the generator identity.
+  `evolves` is an INPUT because these routes have no DB and the server never shells out.
+
+```bash
+pnpm --filter pokedex-api exec tsx src/foil/fit-template.ts fit --era modern-sv --scope sheet --run-id <id>
+…  vectorness  --era modern-sv --scope sheet    # his masks vs region-learn@1 vs the template
+…  corrections --era modern-sv --scope sheet    # did it learn his CORRECTION or the machine parent?
+…  sample --era modern-sv --scope sheet --per-set 16 --pop <tsv>   # population check, generating nothing
+pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts eval --generator vector-template \
+  --era modern-sv --scope sheet --serie me --bar-mean 0.94 --bar-min 0.90
+```
+
+> **VECTOR-NESS NEVER PROMOTES A CLASS.** Same rule as boundary distance and edge adherence:
+> it describes, IoU gates. A flawless vector boundary in the wrong place is still wrong.
+
+> **MEASURE ON SUB-PIXEL CONTOURS, NEVER ON `traceLoops`.** Crack following returns a
+> rectilinear staircase, so every run is exactly axis-aligned and every residual is exactly
+> zero — the measure reports the tracer and rates a hand-drawn blob as perfect geometry.
+> `vectorness()` uses `subpixelLoops()` (marching squares at the alpha half-level). Locked.
+
+> **A join is the INTERSECTION of the two primitives that meet there.** Taking each run's
+> endpoint off the raw contour emits a polyline wearing a vector's clothes — the fitted
+> "vertical" edge of a rounded rect ran x=25.00→25.66 and the straightness the lane claims
+> was measured but never emitted. Line/line, line/arc and arc/arc are all solved, capped by
+> `joinMaxMovePx`. And with y DOWN a positive cross product is a CLOCKWISE turn, so
+> `sweep = cross > 0 ? 1 : 0`; inverting it makes every arc bulge the wrong way (round-trip
+> IoU 0.9482 vs 0.9994). Both locked by `__tests__/vector-template.test.ts`.
+
+#### The modern-sv/sheet policy, as his corrections left it
+
+Supersedes the pass-1 wording above where they differ; numbers in `codified/modern-sv.md` pass 2.
+
+> **The sliver IS foil.** The coloured wedge pinched between the evolution medallion, the
+> stage tag and the border ring — pass 1's open question, which it explicitly recorded as
+> "Chey has never ruled on that sliver". He has: `region-learn@1` scored 0.0% there on all
+> four Stage-1 cards and he added it back on all four (~35-40% of the probe box).
+> **"Largest coloured component" was the wrong rule**; the right one is *every coloured
+> region outside the illustration that reaches the border ring*. The medallion's own sprite
+> stays excluded because it is fully enclosed by the disc — topology, not size.
+>
+> **Achromatic ink printed ON the coloured field carries foil.** Colourless energy symbols
+> (attack cost AND retreat), the regulation-mark box, the illustrator/set-number line, the
+> name text. `region-learn@1` carved a hole around every one because its only test was
+> chroma; he filled every one. Furniture is distinguished **topologically** — it touches the
+> border ring or the illustration window (species strip with its flared tails, stage tag,
+> medallion, "evolves from" bar, copyright footer). Same law as before: the foil is under
+> the coloured ink, and it is under the symbol printed on that ink too.
+>
+> **The window edge sits on the bevel's OUTER line** (`sheet` = foil outside). He removed a
+> 3-5px hairline at both x≈36 and x≈452 on 7 of 8 cards.
+
+#### Scope limits — say these out loud, do not paper over them
+
+- **Trainer (431 variants) and Energy (104) are a DIFFERENT layout with ZERO exemplars.** No
+  illustration window, no species strip. The template is visibly wrong on them and the
+  optional-element probe agrees with the catalog on **0/49** of them against **293/328** on
+  Pokémon. Out of scope until he draws one of each.
+- **Pale frames cannot self-verify.** Adherence flags 45.5% of Lightning and 41.0% of
+  Colorless against **0.0%** of Fire/Psychic/Darkness — a low-contrast frame/border step, not
+  a geometry error. Calibrate before believing an adherence number: on the 11 cards where the
+  boundary is known correct the same probe reads **0.720 for his own hand masks** and 0.758
+  for the template.
+
 ## Tier 2 — art-driven (NEXT, sub-branch `foil/masks`)
 
 Segmentation/luminance analysis on the actual scan to find the true foil region (holo

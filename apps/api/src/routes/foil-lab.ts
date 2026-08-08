@@ -12,6 +12,7 @@ import {
   type MaskSidecarV3,
 } from '../foil/provenance.js';
 import { buildReport, readCorpus, selectExemplars, trainingTuples } from '../foil/mask-corpus.js';
+import { findTemplate, templateMaskPng, templateProvenanceHeaders } from '../foil/template-raster.js';
 
 /**
  * foil-lab dev routes — QUARANTINED (foil/main track, roadmap/plans/foil-main.md).
@@ -232,12 +233,43 @@ foilLabRouter.get(
   '/masks/:cardId/:variantId',
   asyncHandler(async (req, res) => {
     const { cardId, variantId } = validIds(req.params.cardId, req.params.variantId);
-    const r = await resolveMask(cardId, variantId, scopeParam(req as { query: Record<string, unknown> }));
-    if (!r) throw notFound('No hand mask for this card/variant.');
-    const buf = await readFile(maskPaths(cardId, r.variantId).png);
-    res.setHeader('Cache-Control', 'no-store'); // editing surface — never stale
-    maskMetaHeaders(res, r);
-    res.type('png').send(buf);
+    const scope = scopeParam(req as { query: Record<string, unknown> });
+    const r = await resolveMask(cardId, variantId, scope);
+    if (r) {
+      const buf = await readFile(maskPaths(cardId, r.variantId).png);
+      res.setHeader('Cache-Control', 'no-store'); // editing surface — never stale
+      maskMetaHeaders(res, r);
+      res.type('png').send(buf);
+      return;
+    }
+
+    // No human mask. Fall back to the era's VECTOR TEMPLATE, rasterised on demand.
+    //
+    // Order matters and is not negotiable: a hand mask always answers first, so this can
+    // never shadow Chey's work — it only fills space that used to 404. The result is
+    // labelled `unreviewed` in the headers exactly like an `ai` mask, because that is what
+    // it is: machine geometry no human has looked at on THIS card.
+    //
+    // `evolves` is an INPUT rather than something detected here, for two structural
+    // reasons: these routes have no DB, and the server never shells out — so this process
+    // can neither read `card.stage` nor decode the card art. The caller already knows
+    // (the workbench has the card loaded). Absent the hint we serve the base layout, which
+    // is both the commoner case and the safer error: a missing medallion cut-out is
+    // obvious at a glance, an invented one is not.
+    const q = (req as { query: Record<string, unknown> }).query;
+    const eraId = str(q.era);
+    if (!eraId || !scope) throw notFound('No hand mask for this card/variant.');
+    const tpl = findTemplate(eraId, scope);
+    if (!tpl) throw notFound('No hand mask for this card/variant, and no template for this era/scope.');
+
+    const evolves = q.evolves === '1' || q.evolves === 'true';
+    const png = await templateMaskPng({
+      eraId, scope, evolves, width: tpl.space.width, height: tpl.space.height,
+    });
+    if (!png) throw notFound('No hand mask for this card/variant, and no template for this era/scope.');
+    res.setHeader('Cache-Control', 'no-store');
+    for (const [k, v] of Object.entries(templateProvenanceHeaders(tpl, evolves))) res.setHeader(k, v);
+    res.type('png').send(png);
   }),
 );
 
