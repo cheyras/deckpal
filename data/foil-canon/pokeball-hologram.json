@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "patternId": "pokeball-hologram",
+  "savedAt": "2026-08-07T23:34:57.085Z",
+  "uniforms": {
+    "uIntensity": 1,
+    "uScale": 1,
+    "uHueShift": 0.45,
+    "uHueSpread": 0.6,
+    "uSat": 0.85,
+    "uArtGate": 0.15,
+    "uSpecular": 0.3,
+    "uDarken": 0.12,
+    "uTint": 0,
+    "uInkGuard": 1,
+    "uInkPop": 0.5,
+    "uMetal": 0,
+    "uSheen": 3.6,
+    "uSheenTint": 0,
+    "uDepth": 0.22,
+    "uGrain": 1,
+    "uP0": 5.5,
+    "uP1": 0.4,
+    "uP2": 0.5,
+    "uP3": 1.6
+  }
+}

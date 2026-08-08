@@ -1,7 +1,7 @@
 {
   "version": 1,
   "patternId": "vertical-sheen",
-  "savedAt": "2026-08-02T19:19:07.891Z",
+  "savedAt": "2026-08-07T22:05:10.918Z",
   "uniforms": {
     "uIntensity": 0.9,
     "uScale": 0.45,
@@ -11,6 +11,14 @@
     "uArtGate": 0.5,
     "uSpecular": 0.5,
     "uDarken": 0,
+    "uTint": 0,
+    "uInkGuard": 1,
+    "uInkPop": 0.5,
+    "uMetal": 0,
+    "uSheen": 4.2,
+    "uSheenTint": 0,
+    "uDepth": 0.45,
+    "uGrain": 1,
     "uP0": 6.5,
     "uP1": 3.25,
     "uP2": 0,
