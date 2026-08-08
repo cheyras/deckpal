@@ -23,6 +23,11 @@
 //   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts revert --run-id trial-1
 //   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts archives   # what is undoable
 //
+//   # MEASURE, don't assert: how well does each mask's boundary sit on the
+//   # card's own printed edges? (the metric that decides approve vs revert)
+//   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts adherence \
+//     --serie me --card me05-001 --masks "his=data/foil-masks/me05-001/37184.png,new=/tmp/x.png"
+//
 // Everything it writes goes through provenance.writeMaskRecord with a full
 // generator identity, so every mask lands as `ai` / unreviewed with its
 // exemplars recorded. Exemplars come from selectExemplars(), which refuses to
@@ -51,6 +56,16 @@ import {
   type GeneratorIdentity,
 } from './provenance.js';
 import { readCorpus, selectExemplars, toExemplarRefs, setIdOf } from './mask-corpus.js';
+import { gradientOf } from './line-snap.js';
+import {
+  DEFAULT_ADHERENCE_PARAMS,
+  DEFAULT_EDGE_TRACE_PARAMS,
+  buildEdgeMap,
+  luminanceProbe,
+  measureAdherence,
+  tensorProbe,
+  type AdherenceParams,
+} from './edge-trace.js';
 import {
   GENERATORS,
   rectCoverage,
@@ -433,6 +448,30 @@ async function run(): Promise<void> {
     if (dry) {
       console.log(`[dry] ${t.cardId}/${t.variantId}  conf=${String(out.confidence)}  vs-rect agreement=${rectScore.agreement}`);
       if (out.notes) console.log(`  ↳ ${out.notes}`);
+      // A dry run's whole job is showing the reviewer WHICH parts of the
+      // boundary the generator would move and why — the notes are the summary,
+      // this is the evidence. Refusals are never truncated; they are the part a
+      // reviewer most needs to see.
+      const segs = (out.report?.segments ?? null) as Record<string, unknown>[] | null;
+      if (segs) {
+        const limit = Number(arg('max-segments') ?? '40');
+        const moved = segs.filter((s) => s.action === 'traced' || s.action === 'artwork' || s.action === 'window' || s.action === 'self');
+        const held = segs.filter((s) => !moved.includes(s));
+        const fmt = (s: Record<string, unknown>): string =>
+          `    ${String(s.action).padEnd(7)} L${String(s.loop)}#${String(s.index).padStart(3)} ` +
+          `${String(s.lengthPx ?? s.handLengthPx ?? '?').padStart(5)}px ` +
+          `${s.meanMovePx == null ? '' : `move μ${String(s.meanMovePx)}/max${String(s.maxMovePx)} `}` +
+          `${s.meanRidge == null ? '' : `ridge ${String(s.meanRidge)} `}` +
+          `${String(s.reason ?? '')}`;
+        const shown = [...moved].sort((a, b) => Number(b.maxMovePx ?? b.maxDeviationPx ?? 0) - Number(a.maxMovePx ?? a.maxDeviationPx ?? 0)).slice(0, limit);
+        console.log(`  segments: ${segs.length} total — ${moved.length} moved, ${held.length} held. Largest moves first:`);
+        for (const s of shown) console.log(fmt(s));
+        if (moved.length > shown.length) console.log(`    … ${moved.length - shown.length} more moved segment(s) (--max-segments to widen)`);
+        if (held.length) {
+          console.log('  held (his hand, exactly as drawn):');
+          for (const s of held) console.log(fmt(s));
+        }
+      }
       continue;
     }
     const sidecar = await writeMaskRecord({
@@ -523,6 +562,62 @@ async function revert(): Promise<void> {
   );
 }
 
+// ── adherence: does this boundary actually sit on the card's printed edges? ─
+//
+// The number that settles "is the new mask better", instead of asserting it.
+// Any set of mask PNGs, one card scan, one table. Default probe is line-snap's
+// own luminance Sobel — NOT edge-trace's colour tensor — so the incumbent gets
+// the home field and a win means something.
+//
+//   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts adherence \
+//     --serie me --card me05-001 \
+//     --masks "his=data/foil-masks/me05-001/37184.png,archived=data/…/37184.png"
+
+async function adherence(): Promise<void> {
+  const serie = arg('serie');
+  const cardId = arg('card');
+  const masksArg = arg('masks');
+  if (!serie || !cardId || !masksArg) throw new Error('adherence requires --serie --card --masks <label>=<path>[,…]');
+  const artwork = loadArtwork(serie, cardId);
+  if (!artwork) throw new Error(`scan for ${cardId} is not in the image cache (serie ${serie})`);
+  const which = (arg('probe') ?? 'luminance') as 'luminance' | 'tensor';
+  const params: AdherenceParams = {
+    searchPx: Number(arg('search') ?? DEFAULT_ADHERENCE_PARAMS.searchPx),
+    strengthFloor: Number(arg('floor') ?? (which === 'tensor' ? 24 : DEFAULT_ADHERENCE_PARAMS.strengthFloor)),
+    samplePx: DEFAULT_ADHERENCE_PARAMS.samplePx,
+  };
+  const probe =
+    which === 'tensor'
+      ? tensorProbe(buildEdgeMap(artwork, DEFAULT_EDGE_TRACE_PARAMS).tensor)
+      : luminanceProbe(gradientOf(artwork));
+
+  console.log(
+    `\nEDGE ADHERENCE  card=${cardId}  probe=${which}  floor=${params.strengthFloor}  search=±${params.searchPx}px\n` +
+      'Distance from each boundary sample to the NEAREST edge maximum along its own normal.\n' +
+      '"supp%" = share of boundary with any such edge at all — where it is low, the mask is\n' +
+      'following something the probe cannot see, which is a fact about the probe as much as the mask.\n',
+  );
+  console.log('mask                            bnd px  supp%  <=1px%  <=1px|supp   mean    p95    max');
+  for (const entry of masksArg.split(',')) {
+    const eq = entry.indexOf('=');
+    const label = eq > 0 ? entry.slice(0, eq) : entry;
+    const rel = eq > 0 ? entry.slice(eq + 1) : entry;
+    const png = await readFile(rel.startsWith('/') ? rel : join(ROOT, rel)).catch(() => null);
+    if (!png) {
+      console.log(`${label.padEnd(30)} (not found: ${rel})`);
+      continue;
+    }
+    const img = decodePng(png);
+    const alpha = resampleAlpha(alphaOf(img), img.width, img.height, MASK_W, MASK_H);
+    const m = measureAdherence(alpha, MASK_W, MASK_H, probe, params);
+    console.log(
+      `${label.padEnd(30)} ${String(m.boundaryPx).padStart(7)} ${(m.supportedFrac * 100).toFixed(1).padStart(6)} ` +
+        `${(m.within1px * 100).toFixed(1).padStart(7)} ${(m.within1pxOfSupported * 100).toFixed(1).padStart(11)} ` +
+        `${m.meanDistPx.toFixed(3).padStart(6)} ${m.p95DistPx.toFixed(2).padStart(6)} ${m.maxDistPx.toFixed(2).padStart(6)}`,
+    );
+  }
+}
+
 // ── archives: what is currently undoable, and from when ───────────────────
 
 async function archives(): Promise<void> {
@@ -542,9 +637,19 @@ async function archives(): Promise<void> {
 
 const CMD = process.argv[2];
 const main =
-  CMD === 'eval' ? evaluate : CMD === 'run' ? run : CMD === 'revert' ? revert : CMD === 'archives' ? archives : null;
+  CMD === 'eval'
+    ? evaluate
+    : CMD === 'run'
+      ? run
+      : CMD === 'revert'
+        ? revert
+        : CMD === 'archives'
+          ? archives
+          : CMD === 'adherence'
+            ? adherence
+            : null;
 if (!main) {
-  console.error('usage: generate-masks.ts <eval|run|revert|archives> [flags] — see the header comment');
+  console.error('usage: generate-masks.ts <eval|run|revert|archives|adherence> [flags] — see the header comment');
   process.exit(2);
 }
 void main().catch((e: Error) => {
