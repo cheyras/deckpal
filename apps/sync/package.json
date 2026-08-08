@@ -1,5 +1,5 @@
 {
-  "name": "pokedex-sync",
+  "name": "deckscout-sync",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "prices": "tsx src/prices/cli.ts"
   },
   "dependencies": {
-    "@pokedex/db": "workspace:*",
+    "@deckscout/db": "workspace:*",
     "node-cron": "^3.0.3"
   },
   "devDependencies": {

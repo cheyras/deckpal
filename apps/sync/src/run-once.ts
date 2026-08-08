@@ -1,9 +1,9 @@
 // Run a single REAL_JOBS entry once, print the result, exit. Usage:
-//   pnpm --filter pokedex-sync run-once <job>     (tsx src/run-once.ts <job>)
+//   pnpm --filter deckscout-sync run-once <job>     (tsx src/run-once.ts <job>)
 // Uses its own 1-connection pool (the sync budget); each job still takes its
 // advisory lock + sync_run row, so overlapping the cron is a clean skip.
 // Exits 1 on job failure, 2 on a bad/missing job name.
-import { loadEnv, makePool } from '@pokedex/db';
+import { loadEnv, makePool } from '@deckscout/db';
 import { REAL_JOBS } from './index.js';
 import type { Queryable } from './prices/db.js';
 

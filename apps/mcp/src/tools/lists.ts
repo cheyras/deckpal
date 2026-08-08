@@ -5,7 +5,7 @@ import { fail, ok } from '../envelope.js';
 import { row } from '../format.js';
 
 /**
- * List tools — SPEC §5 #11–#13. Everything goes through pokedex-api
+ * List tools — SPEC §5 #11–#13. Everything goes through deckscout-api
  * (apps/api/src/routes/lists.ts is the contract) via ctx.api; no SQL here.
  *
  * List items are keyed by numeric card_variant.id (dynamic/static) or dex_id

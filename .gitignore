@@ -35,6 +35,8 @@ data/*
 
 # ── backups + exports (never committed; live outside the repo by default) ──
 # Defensive: if a backup/export is ever pointed inside the repo, don't commit it.
+deckscout-backups/
+deckscout-exports/
 pokedex-backups/
 pokedex-exports/
 *.dump

@@ -2,7 +2,7 @@
 
 **Wave 4 — the table Chey plays on.**
 Worktree: `~/pokedex-worktrees/board-live` (create when D1 + D2 have merged) · Depends: D1, D2.
-**Web dev port: 5183**; api dev port 3712 if needed (`POKEDEX_API_PORT` + `POKEDEX_DEV_API_PORT`).
+**Web dev port: 5183**; api dev port 3712 if needed (`DECKSCOUT_API_PORT` + `DECKSCOUT_DEV_API_PORT`).
 Spec: §2 (locked UX: tap-to-act v1, phone-first, direct manipulation later), §3 Wave 4.
 
 ## Mission

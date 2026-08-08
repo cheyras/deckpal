@@ -21,21 +21,21 @@ const dev-hub-legacySwitcher = () => ({
 });
 
 // Worktree branches that change the API run their own instance and point the dev
-// proxy at it via POKEDEX_DEV_API_PORT (see roadmap/ORCHESTRATION.md port table).
-const devApiPort = process.env.POKEDEX_DEV_API_PORT ?? '3700';
+// proxy at it via DECKSCOUT_DEV_API_PORT (see roadmap/ORCHESTRATION.md port table).
+const devApiPort = process.env.DECKSCOUT_DEV_API_PORT ?? '3700';
 
-// Sub-path deploy: served at /pokedex/ behind nginx (see ARCHITECTURE §4).
-// Trailing slash on base is required. Router basepath is /pokedex (no slash).
+// Sub-path deploy: served at /deckscout/ behind nginx (see ARCHITECTURE §4).
+// Trailing slash on base is required. Router basepath is /deckscout (no slash).
 export default defineConfig({
-  base: '/pokedex/',
+  base: '/deckscout/',
   plugins: [
     react(),
     tailwindcss(),
     dev-hub-legacySwitcher(),
     // PWA — injectManifest (hand-written src/sw.ts) so we control the the SSO gate
     // JSON guard, network-only mutations, and the LRU image cap (FRONTEND.md §C.2).
-    // start_url/scope inherit base ('/pokedex/'); the SW is emitted at
-    // /pokedex/sw.js and can only control /pokedex/* — exactly the desired scope.
+    // start_url/scope inherit base ('/deckscout/'); the SW is emitted at
+    // /deckscout/sw.js and can only control /deckscout/* — exactly the desired scope.
     VitePWA({
       strategies: 'injectManifest',
       srcDir: 'src',
@@ -43,12 +43,12 @@ export default defineConfig({
       registerType: 'prompt',
       injectRegister: false, // we call registerSW() ourselves in src/pwa.ts
       manifest: {
-        name: 'pokedex',
-        short_name: 'pokedex',
+        name: 'DeckScout',
+        short_name: 'DeckScout',
         description: 'Self-hosted Pokémon TCG collection tracker',
-        id: '/pokedex/',
-        start_url: '/pokedex/',
-        scope: '/pokedex/',
+        id: '/deckscout/',
+        start_url: '/deckscout/',
+        scope: '/deckscout/',
         display: 'standalone',
         orientation: 'portrait',
         background_color: '#15181f', // surface-primary (UI-SPEC dark)
@@ -71,9 +71,9 @@ export default defineConfig({
   server: {
     port: 5199,
     proxy: {
-      // Dev-only: proxy API + image service so the app talks to /pokedex/... same-origin.
-      '/pokedex/api': `http://127.0.0.1:${devApiPort}`,
-      '/pokedex/images': 'http://127.0.0.1:3701',
+      // Dev-only: proxy API + image service so the app talks to /deckscout/... same-origin.
+      '/deckscout/api': `http://127.0.0.1:${devApiPort}`,
+      '/deckscout/images': 'http://127.0.0.1:3701',
     },
   },
   build: {

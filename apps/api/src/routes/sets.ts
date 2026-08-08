@@ -87,7 +87,7 @@ function ownPredicate(goal: Goal): { have: string; need: string; dupe: string } 
 }
 
 /**
- * GET /pokedex/api/sets/:setId — set detail.
+ * GET /deckscout/api/sets/:setId — set detail.
  * :setId is the set's tcgdex_id (e.g. 'sv03.5', 'base1').
  * Query: own=all|have|need|dupes, sort=number|name|price|rarity|artist,
  *        dir=asc|desc, variant=<kind code> (repeatable), goal=complete|master|

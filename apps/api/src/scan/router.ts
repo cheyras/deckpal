@@ -6,11 +6,11 @@ import { ALGO, hashQueryCandidates, hashToHex } from './phash.js';
 /**
  * Offline card scanner (Phase 8) — image → card matcher.
  *
- * POST /pokedex/api/scan
+ * POST /deckscout/api/scan
  *   Body: the raw bytes of a query image (JPEG/PNG/WebP…). Send the image as the
  *         request body with an image/* Content-Type — NOT multipart, NOT base64.
  *           curl --data-binary @photo.jpg -H 'Content-Type: image/jpeg' \
- *                http://127.0.0.1/pokedex/api/scan
+ *                http://127.0.0.1/deckscout/api/scan
  *   Query: ?k=<1..25> top matches to return (default 5)
  *          ?quality=low|high  which indexed hash set to match against (default low)
  *   Response 200:

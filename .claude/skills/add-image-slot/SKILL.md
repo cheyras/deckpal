@@ -63,7 +63,7 @@ Follow the `add-tcg` Step-4 contract exactly:
 - **Frontend**: render it on the requested page/component with a graceful fallback on miss
   (no broken image, no layout shift); match the app's Tailwind conventions.
 - If this slot feeds the scanner (rare), reindex + restart per add-tcg Step 5.
-- **Prove no drift** before calling it done: `rtk pnpm --filter pokedex-images manifest:check`
+- **Prove no drift** before calling it done: `rtk pnpm --filter deckscout-images manifest:check`
   must exit 0. Bytes in the cache with no manifest row are a defect, not a detail.
 
 ### 6. Verify (gate)

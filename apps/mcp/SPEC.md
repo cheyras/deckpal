@@ -10,11 +10,11 @@
 | Thing | Value |
 |---|---|
 | App dir | `/home/cheyras/pokedex/apps/mcp` (pnpm workspace picks up `apps/*` automatically) |
-| Package name | `pokedex-mcp` (matches `pokedex-api` / `pokedex-sync` style) |
+| Package name | `deckscout-mcp` (matches `deckscout-api` / `deckscout-sync` style) |
 | MCP server name | `rotom-mcp`, version from package.json |
 | Port | **3704**, bind `127.0.0.1` only (3702 = TCGdex escape-hatch slot, 3703 = dev server, per DECISIONS.md) |
-| Env vars | `POKEDEX_MCP_PORT=3704`, `ROTOM_MCP_KEY=<hex secret>`, `POKEDEX_API_BASE=http://127.0.0.1:3700/pokedex/api`, `PGPOOL_MAX_MCP=1`, `PGAPPNAME=pokedex-mcp` — all in repo-root `.env` (mode 600, gitignored), loaded via `loadEnv()` from `@pokedex/db` |
-| pm2 name (later) | `pokedex-mcp`, `max_memory_restart: '300M'` |
+| Env vars | `DECKSCOUT_MCP_PORT=3704`, `ROTOM_MCP_KEY=<hex secret>`, `DECKSCOUT_API_BASE=http://127.0.0.1:3700/deckscout/api`, `PGPOOL_MAX_MCP=1`, `PGAPPNAME=deckscout-mcp` — all in repo-root `.env` (mode 600, gitignored), loaded via `loadEnv()` from `@deckscout/db` |
+| pm2 name (later) | `deckscout-mcp`, `max_memory_restart: '300M'` |
 | MCP endpoint | `POST/GET/DELETE http://127.0.0.1:3704/mcp` (+ plain `GET /health` JSON for supervisors) |
 
 ## 2. Stack (verified 2026-07-29 — do not substitute from memory)
@@ -24,7 +24,7 @@
   `typecheck` = `tsc --noEmit`, `start` = `node dist/index.js`. tsc stays out of the runtime path.
 - **MCP SDK v2** (released 2026-07-27, the stable line): `@modelcontextprotocol/server@^2.0.0`,
   `@modelcontextprotocol/express@^2`, `@modelcontextprotocol/node@^2`, `express` (match the major
-  `pokedex-api` uses), `zod@^4.2` (v2 requires ≥4.2 — 4.0/4.1 silently drops `.describe()`).
+  `deckscout-api` uses), `zod@^4.2` (v2 requires ≥4.2 — 4.0/4.1 silently drops `.describe()`).
 - Core wiring (verified against SDK v2 docs; adapt only if the installed package's types disagree —
   read `node_modules` types, not blog posts):
 
@@ -51,7 +51,7 @@ process.on('SIGTERM'/'SIGINT', async () => { await handler.close(); await pool.e
   `?key=` query) must equal `ROTOM_MCP_KEY`; `OPTIONS` passes; failure → bare `401`, **no
   `WWW-Authenticate` header** (claude.ai treats 401+WWW-Authenticate as an OAuth trigger).
   Fatal-exit at startup if `ROTOM_MCP_KEY` unset.
-- Startup self-check: ping Postgres (`SELECT 1`) and `GET ${POKEDEX_API_BASE}/health`; log clearly
+- Startup self-check: ping Postgres (`SELECT 1`) and `GET ${DECKSCOUT_API_BASE}/health`; log clearly
   and `process.exit(1)` if the DB is unreachable (pm2 restarts). API unreachable = warn only
   (read tools still work; API-backed tools will fail per-call).
 - Entry-point detection must handle pm2 fork mode like `apps/api/src/index.ts` does
@@ -59,12 +59,12 @@ process.on('SIGTERM'/'SIGINT', async () => { await handler.close(); await pool.e
 
 ## 3. Data access — the hybrid rule
 
-**Reads go straight to Postgres. Writes (and all deck/list operations) go through pokedex-api on
+**Reads go straight to Postgres. Writes (and all deck/list operations) go through deckscout-api on
 `127.0.0.1:3700`.** Rationale: read queries need MCP-shaped compact aggregation the REST API
 doesn't offer; write logic (upsert → `collection_event` append → `recomputeSetProgress`, one
 transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-sourced.
 
-- Pool: `makePool(1)` from `@pokedex/db`, module scope. This is a **4th** connection against the
+- Pool: `makePool(1)` from `@deckscout/db`, module scope. This is a **4th** connection against the
   documented budget of 3 (API 2 + sync 1). Headroom verified (DECISIONS.md 2026-07-24: 7 spare).
   The budget docs (`.env` comment, `CLAUDE.md`, `DECISIONS.md` dated entry) get updated to
   "4 TOTAL (API 2 + sync 1 + mcp 1)" as part of this build.
@@ -139,7 +139,7 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
    route — implementer reads that file first and picks the thinner path; label results as
    estimates.
 
-### Decks & lists — via pokedex-api (read parts `readOnlyHint: true`)
+### Decks & lists — via deckscout-api (read parts `readOnlyHint: true`)
 
 Exact request/response shapes: **read `apps/api/src/routes/decks.ts` / `lists.ts` first**; the
 routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST /decks/:id/cards`,
@@ -171,7 +171,7 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
     Creates the list when `list_id` omitted. Item payload shape comes from `lists.ts`.
 13. **`delete_list`** — `{ list_id, dry_run? = true }`. `destructiveHint: true`.
 
-### Collection writes — via pokedex-api
+### Collection writes — via deckscout-api
 
 14. **`log_cards`** — THE write tool. `{ items: [{ card_id? | name?+set_id?+number?,
     variant_id? | variant_kind?, delta? | quantity? }] (1–100), note? (≤500 chars),
@@ -185,7 +185,7 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
     nothing external. `readOnlyHint: false`, `destructiveHint: false` (dry-run gated,
     delta-reversible).
 
-### Deck intelligence — via pokedex-api (migration 019; semantics in §6b)
+### Deck intelligence — via deckscout-api (migration 019; semantics in §6b)
 
 Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable. All six live in
 `src/tools/deckIntel.ts`; writes carry `source: 'rotom-mcp'`.
@@ -220,7 +220,7 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
     /decks/:id/logs/:logId` for duplicate/wrong-deck pastes; dry-run gated,
     `destructiveHint: true`, not undoable — descriptions steer corrections to edit_battle_log.
 
-### Shopping — via pokedex-api (`readOnlyHint: true`)
+### Shopping — via deckscout-api (`readOnlyHint: true`)
 
 21. **`set_cart`** — `{ set_id, goal? = default goal, finishes? }`. Thin wrapper over
     `GET /sets/:setId/massentry` (single source of Mass Entry link generation, shared with the
@@ -297,13 +297,13 @@ there.
   reviews and commits.
 - Secrets (`.env`, `[redacted path]`, `token-cache.json`): read at runtime only, never
   log values, never commit.
-- `console.log`/`console.error` with `[pokedex-mcp]` prefix — no logging library.
+- `console.log`/`console.error` with `[deckscout-mcp]` prefix — no logging library.
 - Result-size budgets: Claude Code caps tool output ~25k tokens; claude.ai ~150k chars — the
   paging defaults in §4 exist so we never get near either.
 
 ## 8. Verification gates (what "done" means)
 
-1. `pnpm --filter pokedex-mcp typecheck` clean; API typecheck + tests still clean after §6.
+1. `pnpm --filter deckscout-mcp typecheck` clean; API typecheck + tests still clean after §6.
 2. Real MCP round-trips against `127.0.0.1:3704/mcp` (SDK client or `claude mcp add`-registered):
    every tool called at least once; `collection_summary` numbers reconcile with the web UI /
    known totals; `log_cards` dry-run then a real +1/−1 on a cheap card, confirmed in

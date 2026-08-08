@@ -1,4 +1,4 @@
-# pokedex
+# DeckScout
 
 A self-hosted, single-user [pkmn.gg](https://www.pkmn.gg/) clone running entirely on
 **the original host** (the original host). It holds its own copy of the Pokémon TCG catalog, its own
@@ -19,7 +19,7 @@ model is specified in `research/SCHEMA.md`; this repo implements it.
 ## What's here
 
 ```
-pokedex/
+deckscout/
 ├── package.json               # pnpm workspace root
 ├── pnpm-workspace.yaml         # packages/* + apps/*
 ├── tsconfig.json               # strict base config (tsc kept OUT of the deploy path)
@@ -27,12 +27,12 @@ pokedex/
 ├── .env                        # secrets, mode 600, gitignored (created at setup)
 ├── deploy/nginx/               # nginx location fragments — for a later task
 ├── packages/
-│   └── db/                     # @pokedex/db — pg pool, migration runner, SQL migrations
+│   └── db/                     # @deckscout/db — pg pool, migration runner, SQL migrations
 │       └── src/migrations/     # 001…013 numbered .sql (the authoritative schema)
 └── apps/
-    ├── api/                    # pokedex-api  (:3700) — REST + SPA host (skeleton)
-    ├── images/                 # pokedex-images (:3701) — WebP cache server (skeleton)
-    └── sync/                   # pokedex-sync — node-cron scheduler (stubs, no network)
+    ├── api/                    # deckscout-api  (:3700) — REST + SPA host (skeleton)
+    ├── images/                 # deckscout-images (:3701) — WebP cache server (skeleton)
+    └── sync/                   # deckscout-sync — node-cron scheduler (stubs, no network)
         └── src/catalog/        # the TCGdex catalog importer (transform.ts + import.ts + cli.ts)
 ```
 
@@ -56,7 +56,7 @@ migrations are immutable (a checksum change is a hard error) — add a new file,
 ## Runtime & storage (decided, see `DECISIONS.md`)
 
 - **Node/TS + pm2 + nginx** — matching the box, **not** Docker Compose or Python/FastAPI.
-- **Host Postgres 17.9**, a dedicated `pokedex` database + role, connection pool
+- **Host Postgres 17.9**, a dedicated `deckscout` database + role, connection pool
   **hard-capped at 3** (API 2, sync 1). No `postgresql.conf` change, no Postgres restart —
   all tuning is role-scoped.
 - Ports **3700–3709**, bound to `127.0.0.1` only; nginx is the sole ingress.
@@ -77,19 +77,19 @@ apply role-scoped tuning (never `ALTER SYSTEM`):
 ```bash
 PW=$(openssl rand -base64 30 | tr -d '/+=' | head -c 32)
 
-sudo -u postgres psql -c "CREATE ROLE pokedex LOGIN PASSWORD '$PW' \
+sudo -u postgres psql -c "CREATE ROLE deckscout LOGIN PASSWORD '$PW' \
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;"
-sudo -u postgres psql -c "CREATE DATABASE pokedex OWNER pokedex \
+sudo -u postgres psql -c "CREATE DATABASE deckscout OWNER deckscout \
   ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;"
 
 sudo -u postgres psql <<'SQL'
-ALTER ROLE pokedex SET work_mem                            = '16MB';
-ALTER ROLE pokedex SET maintenance_work_mem                = '64MB';
-ALTER ROLE pokedex SET statement_timeout                   = '30s';
-ALTER ROLE pokedex SET idle_in_transaction_session_timeout = '60s';
-ALTER ROLE pokedex SET synchronous_commit                  = off;
-ALTER ROLE pokedex SET jit                                 = off;
-ALTER ROLE pokedex SET random_page_cost                    = 1.5;
+ALTER ROLE deckscout SET work_mem                            = '16MB';
+ALTER ROLE deckscout SET maintenance_work_mem                = '64MB';
+ALTER ROLE deckscout SET statement_timeout                   = '30s';
+ALTER ROLE deckscout SET idle_in_transaction_session_timeout = '60s';
+ALTER ROLE deckscout SET synchronous_commit                  = off;
+ALTER ROLE deckscout SET jit                                 = off;
+ALTER ROLE deckscout SET random_page_cost                    = 1.5;
 SQL
 ```
 
@@ -101,8 +101,8 @@ password:
 ```ini
 PGHOST=127.0.0.1
 PGPORT=5432
-PGDATABASE=pokedex
-PGUSER=pokedex
+PGDATABASE=deckscout
+PGUSER=deckscout
 PGPASSWORD=<the password from step 1>
 
 # HARD CAP 3 total (API 2 + sync 1). Never raise past 5 without raising
@@ -111,8 +111,8 @@ PGPOOL_MAX_API=2
 PGPOOL_MAX_SYNC=1
 PGPOOL_MAX=3
 
-POKEDEX_API_PORT=3700
-POKEDEX_IMAGES_PORT=3701
+DECKSCOUT_API_PORT=3700
+DECKSCOUT_IMAGES_PORT=3701
 IMAGE_CACHE_ROOT=/home/cheyras/pokedex/cache
 ```
 
@@ -128,7 +128,7 @@ pnpm migrate            # applies packages/db/src/migrations/*.sql in order
 pnpm migrate:status     # [x] per applied migration
 ```
 
-`pnpm migrate` is idempotent: re-running applies nothing. On a fresh empty `pokedex`
+`pnpm migrate` is idempotent: re-running applies nothing. On a fresh empty `deckscout`
 database it applies all migrations cleanly in order.
 
 ### 4. Verify (optional)
@@ -136,8 +136,8 @@ database it applies all migrations cleanly in order.
 ```bash
 pnpm typecheck          # strict tsc --noEmit across all packages
 # smoke-run a service (Ctrl-C to stop) — binds 127.0.0.1 only:
-pnpm --filter pokedex-api dev
-#   curl http://127.0.0.1:3700/api/pokedex/health  -> {"status":"ok","db":"up",...}
+pnpm --filter deckscout-api dev
+#   curl http://127.0.0.1:3700/api/deckscout/health  -> {"status":"ok","db":"up",...}
 ```
 
 ---
@@ -155,7 +155,7 @@ mkdir -p data/catalog/en          # data/ is gitignored
 cp <extract>/generated/en/{cards,sets,series}.json data/catalog/en/
 
 # 2. run it (uses 1 pooled connection; one transaction per set)
-pnpm --filter pokedex-sync import:catalog          # or: … import:catalog <dataDir>
+pnpm --filter deckscout-sync import:catalog          # or: … import:catalog <dataDir>
 ```
 
 Idempotent — re-running is a no-op (upserts on `card.id`, `card_variant (card_id,
@@ -185,7 +185,7 @@ via `ON CONFLICT DO UPDATE`. Prices, images, dex data and the cross-fill are **l
 
 - **No prices, images, dex data, or reverse-holo cross-fill** — each is its own later task.
 - **No pm2 process** was created and `the-original-host-api`'s `ecosystem.config.cjs` was not
-  touched. `pokedex/ecosystem.config.cjs` is a template for later.
+  touched. `deckscout/ecosystem.config.cjs` is a template for later.
 - **No nginx change.** `deploy/nginx/*.conf` are fragments to paste in later, with the
   user's permission.
 - **No frontend.** A later phase.
@@ -199,14 +199,14 @@ Data ownership is enforced by three scripts under `scripts/` — full details an
 restore drill are in **`deploy/BACKUP.md`**.
 
 ```bash
-scripts/backup.sh            # pg_dump the pokedex DB (only) + tar the image cache
-                             #   → ~/pokedex-backups/<ts>/  (outside the repo)
+scripts/backup.sh            # pg_dump the deckscout DB (only) + tar the image cache
+                             #   → ~/deckscout-backups/<ts>/  (outside the repo)
 scripts/restore.sh <dir>     # role+DB bootstrap, pg_restore, image untar (--force to clobber)
 node scripts/export.mjs      # collection/lists/decks → CSV + full JSON + per-deck PTCG Live text
-                             #   → ~/pokedex-exports/<ts>/
+                             #   → ~/deckscout-exports/<ts>/
 ```
 
-- Dumps **one database** (`pokedex`), never the cluster or the brain DBs.
+- Dumps **one database (`deckscout`), never the cluster or the brain DBs.
 - ~1.9 GB per backup (DB dump ~5 MB + image cache ~1.9 GB); sprites are re-fetchable
   and intentionally excluded.
 - **Schedule:** a nightly `crontab` entry calling `scripts/backup.sh` (matches the box's

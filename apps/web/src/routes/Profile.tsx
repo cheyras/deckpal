@@ -9,7 +9,7 @@ import { Icon } from '../components/Icon'
 import { fmtUsd } from '../lib/format'
 
 const USERNAME = 'Trainer'
-const SHOWCASE_KEY = 'pokedex.showcase.v1'
+const SHOWCASE_KEY = 'deckscout.showcase.v1'
 
 interface ShowcasePick {
   cardId: string

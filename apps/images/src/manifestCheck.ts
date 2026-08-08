@@ -16,10 +16,10 @@ import { sniffFile } from './store.js';
  * NOT wired into CI — CI deliberately excludes live-DB tests. Run it by hand after
  * any warm/gap-fill, or from cron.
  *
- *   pnpm --filter pokedex-images manifest:check            # reconcile (fast)
- *   pnpm --filter pokedex-images manifest:check --deep     # + verify content_type
- *   pnpm --filter pokedex-images manifest:check --strict   # also fail on unknown provenance
- *   pnpm --filter pokedex-images manifest:check --json     # machine-readable
+ *   pnpm --filter deckscout-images manifest:check            # reconcile (fast)
+ *   pnpm --filter deckscout-images manifest:check --deep     # + verify content_type
+ *   pnpm --filter deckscout-images manifest:check --strict   # also fail on unknown provenance
+ *   pnpm --filter deckscout-images manifest:check --json     # machine-readable
  *
  * Exit: 0 clean · 1 drift · 2 could not run (DB down, cache root missing).
  *

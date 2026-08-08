@@ -40,22 +40,22 @@ The app is served from built output, not source. After editing:
 
 ```bash
 # web changes:
-rtk pnpm --filter pokedex-web build
+rtk pnpm --filter deckscout-web build
 # api changes:
-rtk pnpm --filter pokedex-api build && rtk pm2 restart pokedex-api
+rtk pnpm --filter deckscout-api build && rtk pm2 restart deckscout-api
 ```
 
-Then confirm the process is healthy (`rtk pm2 list`; `rtk curl -s http://127.0.0.1/pokedex/api/health`).
+Then confirm the process is healthy (`rtk pm2 list`; `rtk curl -s http://127.0.0.1/deckscout/api/health`).
 
 ## 4. Verify — thoroughly, and visually (required)
 
 This is the point of the skill. An issue is resolved only when **all** hold:
 
 - **The fix addresses the reported problem** (re-read the comment — did you fix *that*?).
-- **Type-check / build is clean** (`rtk pnpm --filter pokedex-web build`, and API build if touched).
+- **Type-check / build is clean** (`rtk pnpm --filter deckscout-web build`, and API build if touched).
 - **You looked at it in a real browser and the bug is gone.** Use Playwright (installed at
   `~/amazon-mcp/node_modules`, CommonJS: `import pkg from 'playwright'; const {chromium}=pkg`).
-  Navigate to the reported `page` on `http://127.0.0.1/pokedex/...` at the reported viewport
+  Navigate to the reported `page` on `http://127.0.0.1/deckscout/...` at the reported viewport
   **and** at 390px, screenshot it, and actually inspect the screenshot. One Chromium at a
   time, `--no-sandbox --disable-dev-shm-usage`, close in `finally`, and check for no leftover
   `ms-playwright` processes afterwards (the box's pre-existing `:9222` chromium is not yours).

@@ -45,7 +45,7 @@ interface MassEntryResponse {
 async function fetchMassEntry(setId: string, goal: Goal, finishes: FinishCode[] | null, signal: AbortSignal) {
   const params = new URLSearchParams({ goal })
   for (const f of finishes ?? []) params.append('finish', f)
-  const res = await fetch(`/pokedex/api/sets/${encodeURIComponent(setId)}/massentry?${params}`, { signal })
+  const res = await fetch(`/deckscout/api/sets/${encodeURIComponent(setId)}/massentry?${params}`, { signal })
   if (!res.ok) {
     let msg = `HTTP ${res.status}`
     try {
