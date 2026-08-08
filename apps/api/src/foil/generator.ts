@@ -40,6 +40,16 @@ import {
   luminanceProbe,
   measureAdherence,
 } from './edge-trace.js';
+import {
+  DEFAULT_REGION_LEARN_PARAMS,
+  applyPolicy,
+  learnPolicy,
+  partitionCard,
+  type PolicyExemplar,
+  type RegionLearnParams,
+  type RegionPolicy,
+  type WindowRect,
+} from './region-learn.js';
 
 export interface GeneratorTarget {
   cardId: string;
@@ -478,8 +488,160 @@ export const edgeTraceGenerator: MaskGenerator = {
   },
 };
 
+// ── Proposer: region-learn ─────────────────────────────────────────────────
+//
+// The missing half of the loop. `edge-trace` and `line-snap` are REFINERS: they need
+// a mask to already exist and they only move its boundary. Seeding one from the era
+// rectangle was measured and refused (DECISIONS 2026-08-08, `edgetrace-me05-batch-1`):
+// 99.7% of the gap between the rule and Chey's intent is REGIONS the rule gets wrong,
+// and no tracer can add or remove a region.
+//
+// So `region-learn` decides the REGIONS, and only then hands the boundary to
+// `edge-trace` for the GEOMETRY. What it knows about a card is a five-class partition
+// of the face computed from the card's own printing (`region-learn.ts`); what it knows
+// about FOIL is read off his masks — which of those five classes he filled. That vote
+// comes out opposite for the two classes in the corpus (`windowBackground` for
+// wotc/window, `frameBody` for modern-sv/sheet), which is the evidence that it is
+// reading his pixels rather than restating the rule it started from.
+
+/** UV y-up rect [x,y,w,h] → the pixel box the partition works in. */
+export function rectToPixels(rect: [number, number, number, number], width: number, height: number): WindowRect {
+  const [rx, ryUp, rw, rh] = rect;
+  return {
+    x0: Math.round(rx * width),
+    y0: Math.round((1 - ryUp - rh) * height),
+    x1: Math.round((rx + rw) * width),
+    y1: Math.round((1 - ryUp) * height),
+  };
+}
+
+/**
+ * Learn the region policy from the exemplars a generator run was handed.
+ *
+ * `scope` decides exactly ONE thing — whether the illustration box is the inside or the
+ * outside of the foil zone — and that is the resolver's own definition of the scope
+ * (`era-layouts.json`: window = foil fills the art window, sheet = foil fills everything
+ * except it), not an assumption about card design. Every other decision is voted on by
+ * his pixels.
+ */
+export function policyFromExemplars(
+  eraId: string,
+  scope: string,
+  exemplars: GeneratorExemplar[],
+  width: number,
+  height: number,
+  p: RegionLearnParams = DEFAULT_REGION_LEARN_PARAMS,
+): RegionPolicy | null {
+  const usable: PolicyExemplar[] = [];
+  for (const ex of exemplars) {
+    if (!ex.artwork) continue;
+    usable.push({
+      card: `${ex.ref.cardId}/${ex.ref.variantId}`,
+      alpha: ex.alpha,
+      partition: partitionCard(ex.artwork, rectToPixels(ex.rect, width, height), p, scope === 'window'),
+      weight: ex.ref.weight,
+    });
+  }
+  if (usable.length === 0) return null;
+  return learnPolicy(eraId, scope, usable, p);
+}
+
+const REGION_LEARN_PARAMS: Record<string, number | string | boolean> = { ...DEFAULT_REGION_LEARN_PARAMS };
+
+export const regionLearnGenerator: MaskGenerator = {
+  name: 'region-learn',
+  version: 1,
+  modelId: null,
+  params: REGION_LEARN_PARAMS,
+  // Two, so "where they agree, that agreement IS the policy" can mean something. One
+  // exemplar cannot disagree with itself, and would ship its idiosyncrasies as law.
+  minExemplars: 2,
+  generate({ target, exemplars }): MaskGeneratorOutput {
+    const { width, height } = target;
+    const policy = policyFromExemplars(target.eraId, target.scope, exemplars, width, height);
+    if (!policy || policy.foilClasses.length === 0) {
+      return {
+        alpha: new Uint8Array(width * height),
+        confidence: null,
+        notes:
+          `region-learn could not read a policy out of the exemplars (${exemplars.length} given, ` +
+          `${exemplars.filter((e) => e.artwork).length} with a cached scan). No class carried foil in a ` +
+          'majority of their pixels, so there is nothing to apply. Do not accept this.',
+      };
+    }
+    const geom = target.window ?? { rect: target.rect, radius: target.radius };
+    const applied = applyPolicy(target.artwork, rectToPixels(geom.rect, width, height), policy);
+
+    // The regions are decided; NOW the tracer earns its keep — it puts the region
+    // boundary on the card's own printed edge, sub-pixel, and refuses where there is
+    // no edge under it. That division of labour is the whole point of this lane.
+    const traced = edgeTraceMask({ alpha: applied.alpha, width, height, artwork: target.artwork });
+    const alpha = traced.refused ? applied.alpha : traced.alpha;
+
+    const probe = luminanceProbe(gradientOf(target.artwork));
+    const before = measureAdherence(applied.alpha, width, height, probe);
+    const after = measureAdherence(alpha, width, height, probe);
+
+    // Confidence: how decisively and how unanimously the corpus voted, damped by how
+    // much of the window detection had to fall back on the prior. Capped well below 1
+    // — no human has looked at it, which is what `ai` means.
+    const votes = policy.votes.filter((v) => v.shares.length > 0);
+    const decisiveness = votes.length ? votes.reduce((a, v) => a + Math.abs(v.mean - 0.5) * 2, 0) / votes.length : 0;
+    const unanimity = votes.length ? 1 - votes.reduce((a, v) => a + v.spread, 0) / votes.length : 0;
+    const ev = applied.partition.windowEvidence;
+    const detected = ev.length ? ev.filter((e) => e.accepted).length / ev.length : 0;
+    const confidence = Number(Math.max(0, Math.min(0.85, decisiveness * unanimity * (0.5 + 0.5 * detected))).toFixed(3));
+
+    const evText = ev
+      .map((e) => `${e.edge} ${e.priorPx}→${e.foundPx}px (×${e.ratio}${e.accepted ? '' : ', REFUSED — kept the prior'})`)
+      .join(', ');
+    return {
+      alpha,
+      confidence,
+      notes:
+        `REGION-LEARNED from ${policy.exemplarCount} human exemplar(s). ${policy.statement} ` +
+        `Art window detected on this card's own printing: ${evText}. ` +
+        `Regions contributed ${applied.contribution.map((c) => `${c.cls} ${c.px}px`).join(', ')}. ` +
+        (traced.refused
+          ? `edge-trace refused (${traced.refused}) — the region boundary ships as the partition drew it. `
+          : `edge-trace then put the boundary on the printed edge: ` +
+            `${traced.segments.filter((s) => s.action === 'traced').length} stretch(es) traced (${traced.tracedPx}px), ` +
+            `${traced.segments.filter((s) => s.action === 'kept').length} kept (${traced.keptPx}px); adherence within 1px ` +
+            `${(before.within1px * 100).toFixed(1)}% → ${(after.within1px * 100).toFixed(1)}%, ` +
+            `mean distance ${before.meanDistPx}px → ${after.meanDistPx}px. `) +
+        (policy.disagreements.length
+          ? `HIS EXEMPLARS DISAGREE on: ${policy.disagreements.join('; ')} — reported, not averaged away. `
+          : 'His exemplars agree on every class that cast a vote. ') +
+        'UNREVIEWED: edge adherence measures precision, not correctness — check the REGIONS first, then the edges.',
+      report: {
+        policy: {
+          foilClasses: policy.foilClasses,
+          votes: policy.votes,
+          disagreements: policy.disagreements,
+          exemplarCount: policy.exemplarCount,
+        },
+        window: applied.partition.window,
+        windowEvidence: ev,
+        counts: applied.partition.counts,
+        contribution: applied.contribution,
+        edgeTrace: traced.refused
+          ? { refused: traced.refused }
+          : {
+              tracedPx: traced.tracedPx,
+              keptPx: traced.keptPx,
+              straightRuns: traced.straightRuns,
+              changedPx: traced.changedPx,
+              agreementWithSource: traced.agreementWithSource,
+            },
+        adherence: { probe: 'luminance-sobel', before, after },
+      },
+    };
+  },
+};
+
 export const GENERATORS: Record<string, MaskGenerator> = {
   [windowArtGateGenerator.name]: windowArtGateGenerator,
   [lineSnapGenerator.name]: lineSnapGenerator,
   [edgeTraceGenerator.name]: edgeTraceGenerator,
+  [regionLearnGenerator.name]: regionLearnGenerator,
 };
