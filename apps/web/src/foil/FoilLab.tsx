@@ -36,6 +36,7 @@ import { useTilt } from './useTilt'
 import { CardViewer, cardScreenRect, type ViewerSettings } from './CardViewer'
 import { MaskEditor, createMaskCanvas, MASK_W, MASK_H, MASK_TINT, type BrushMode, type MaskEditorHandle } from './MaskEditor'
 import { WindowEditor, rasterizeWindowRect, type WindowGeom } from './WindowEditor'
+import { useViewTransform, ZoomHud } from './ViewTransform'
 import { ActionBtn, Chip, CoreSliders, Section, Select, Slider, SurfaceTabs } from './ui'
 
 const LS_KEY = 'foil-lab:selection'
@@ -147,6 +148,13 @@ export function FoilLab() {
   const searching = searchQ.length >= 2
 
   const tilt = useTilt()
+  // Pan/pinch-zoom while editing (foil/ViewTransform.tsx). Live only on the
+  // editing surfaces — normal viewing keeps the tilt interaction untouched.
+  const viewCtl = useViewTransform({
+    enabled: editMode || adjustMode,
+    editing: editMode,
+    fingerDraws: allowTouch,
+  })
 
   // ── Data: series → sets → cards (each owned-filtered or full catalog) ──
   const seriesQ = useQuery({
@@ -438,6 +446,15 @@ export function FoilLab() {
     setMaskTexVersion((v) => v + 1)
     // Human pixels touched this canvas — the save is no longer a pure bake.
     setSession((s) => (s.painted ? s : { ...s, painted: true }))
+  }, [])
+
+  /**
+   * A pinch/pan interrupted a stroke and the editor rolled those pixels back.
+   * Refresh the shader's mask texture, but do NOT mark the mask dirty or the
+   * session painted — nothing was actually drawn.
+   */
+  const onStrokeCancel = useCallback(() => {
+    setMaskTexVersion((v) => v + 1)
   }, [])
 
   const registerEditor = useCallback((h: MaskEditorHandle) => {
@@ -749,13 +766,18 @@ export function FoilLab() {
   return (
     <div className="flex min-h-screen flex-col bg-surface-primary text-text-primary min-[700px]:h-screen min-[700px]:flex-row min-[700px]:overflow-hidden">
       {/* ── Viewer column ── */}
-      <div ref={viewerWrapRef} className="relative h-[52vh] shrink-0 bg-[#0b0d12] min-[700px]:h-full min-[700px]:flex-1">
+      <div
+        ref={viewerWrapRef}
+        className="relative h-[52vh] shrink-0 select-none bg-[#0b0d12] [-webkit-touch-callout:none] min-[700px]:h-full min-[700px]:flex-1"
+        onDragStart={(e) => e.preventDefault()}
+      >
         <CardViewer
           imageUrl={imageUrl}
           pattern={pattern}
           settingsRef={settingsRef}
           tiltTarget={editMode || adjustMode ? zeroTilt : tilt.target}
           maskCanvas={handActive ? maskCanvas : null}
+          view={viewCtl}
           onPointerMove={editMode || adjustMode ? undefined : tilt.onPointerMove}
           onPointerLeave={editMode || adjustMode ? undefined : tilt.onPointerLeave}
           className="h-full w-full"
@@ -767,7 +789,9 @@ export function FoilLab() {
               mode={brushMode}
               brushSize={brushSize}
               allowTouch={allowTouch}
+              view={viewCtl}
               onStrokeEnd={onStrokeEnd}
+              onStrokeCancel={onStrokeCancel}
               registerHandle={registerEditor}
             />
           )}
@@ -775,6 +799,7 @@ export function FoilLab() {
             <WindowEditor
               rect={cardRect}
               value={winGeom}
+              view={viewCtl}
               onChange={(v) => {
                 setWinGeom(v)
                 setWinDirty(true)
@@ -782,6 +807,9 @@ export function FoilLab() {
             />
           )}
         </CardViewer>
+        {(editMode || adjustMode) && (
+          <ZoomHud ctl={viewCtl} className="absolute bottom-[52px] right-[12px]" />
+        )}
         <div className="pointer-events-none absolute left-[12px] top-[10px] text-[12px]">
           <div className="font-semibold">{detail ? detail.card.name : 'Foil workbench'}</div>
           <div className="text-text-muted">
@@ -1052,7 +1080,8 @@ export function FoilLab() {
             adjustMode && winGeom ? (
               <div className="space-y-[8px]">
                 <p className="text-[11px] leading-[15px] text-text-muted">
-                  Drag the corners/edges to fit the printed foil window; drag inside the box to move it.
+                  Drag the corners/edges to fit the printed foil window; drag inside the box to move it. Pinch (or
+                  wheel / Space-drag) to zoom and pan — handles stay finger-sized at any zoom.
                   {effectiveScope === 'sheet' ? ' Sheet scope: foil covers everything OUTSIDE this box.' : ''}
                 </p>
                 <Slider
@@ -1123,6 +1152,12 @@ export function FoilLab() {
                   <input type="checkbox" checked={allowTouch} onChange={(e) => setAllowTouch(e.target.checked)} />
                   Allow finger drawing (Pencil + mouse only by default)
                 </label>
+                <p className="text-[11px] leading-[15px] text-text-muted">
+                  Zoom: pinch, or wheel / +− keys. Pan: two fingers
+                  {allowTouch ? '' : ' (or one — fingers pan while “allow finger drawing” is off)'}, middle-drag, or
+                  hold Space and drag. ⤢ (or 0) fits. The brush stays the same size on SCREEN as you zoom, so zooming
+                  in buys finer control — the saved mask is always full resolution.
+                </p>
                 <div className="flex flex-wrap gap-[6px]">
                   {/* Wrapped, NOT passed by reference: ActionBtn forwards the
                       click event as the first argument, which would land in
