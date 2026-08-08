@@ -17,6 +17,7 @@
 // adjusting so a drag never scrolls the page.
 
 import { useRef } from 'react'
+import type { ViewController } from './ViewTransform'
 
 /** Adjusted window geometry — UV y-up rect + corner radius (fraction of card width). */
 export interface WindowGeom {
@@ -84,15 +85,21 @@ const CURSORS: Record<HandleId, string> = {
 export function WindowEditor({
   rect,
   value,
+  view,
   onChange,
 }: {
-  /** Card-face rect within the viewer host (px) — cardScreenRect output. */
+  /** Card-face rect within the viewer host (px) — cardScreenRect output, BASE
+   *  (unzoomed) coords: the overlay wrapper carries the pan/zoom transform. */
   rect: { left: number; top: number; width: number; height: number }
   value: WindowGeom
+  /** Pan/zoom controller — screen deltas are zoom px, so drags divide by it. */
+  view?: ViewController
   /** Fired live during a drag with the updated geometry. */
   onChange: (v: WindowGeom) => void
 }) {
   const drag = useRef<{ id: HandleId; startX: number; startY: number; box: Box } | null>(null)
+  // Counter-scale the grab targets so they stay 44px on SCREEN at any zoom.
+  const invZoom = 'calc(1 / var(--foil-zoom, 1))'
 
   const box = toBox(value.rect)
   const px = {
@@ -116,8 +123,10 @@ export function WindowEditor({
   const onMove = (e: React.PointerEvent<HTMLElement>) => {
     const d = drag.current
     if (!d) return
-    const dx = (e.clientX - d.startX) / rect.width
-    const dy = (e.clientY - d.startY) / rect.height
+    // clientX deltas are SCREEN px (= base px × zoom); rect is base px.
+    const z = view?.view.current.zoom ?? 1
+    const dx = (e.clientX - d.startX) / (rect.width * z)
+    const dy = (e.clientY - d.startY) / (rect.height * z)
     onChange({ ...value, rect: fromBox(applyDrag(d.box, d.id, dx, dy)) })
   }
   const onUp = (e: React.PointerEvent<HTMLElement>) => {
@@ -158,12 +167,14 @@ export function WindowEditor({
       <div
         {...handleProps('move')}
         data-window-handle="move"
-        className="absolute border-[1.5px] border-dashed border-[rgba(255,45,100,0.95)] bg-[rgba(255,45,100,0.08)]"
+        className="absolute border-dashed border-[rgba(255,45,100,0.95)] bg-[rgba(255,45,100,0.08)]"
         style={{
           left: px.left,
           top: px.top,
           width: px.width,
           height: px.height,
+          borderStyle: 'dashed',
+          borderWidth: `calc(1.5px * ${invZoom})`,
           borderRadius: radiusPx,
           pointerEvents: 'auto',
           touchAction: 'none',
@@ -182,7 +193,9 @@ export function WindowEditor({
             top: px.top + ay * px.height,
             width: 44,
             height: 44,
-            transform: 'translate(-50%, -50%)',
+            // scale first (about the box centre), then centre on the anchor —
+            // 44px × (1/zoom) × zoom = 44px on screen, whatever the zoom.
+            transform: `translate(-50%, -50%) scale(${invZoom})`,
             pointerEvents: 'auto',
             touchAction: 'none',
             cursor: CURSORS[id],
