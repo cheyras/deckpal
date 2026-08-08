@@ -133,6 +133,24 @@ export interface FoilMaskSidecar {
   prior: FoilMaskPrior
   diff?: { addedPx: number; removedPx: number; unchangedPx: number; agreement: number }
   correction?: FoilCorrectionRecord
+  /**
+   * Present when a GENERATOR replaced a mask that was already here. The mirror
+   * image of `correction`, and never to be read as one: nobody has agreed to
+   * this yet. The replaced mask's pixels are at the `parent` artifact and a
+   * verbatim copy of everything it had is archived at `archiveDir`, so
+   * `revert --run-id <runId>` restores it byte-for-byte.
+   */
+  supersedes?: {
+    parent: { cardId: string; variantId: number; savedAt: string | null; method: FoilDerivationMethod; sha256: string }
+    runId: string
+    archiveDir: string
+    addedPx: number
+    removedPx: number
+    agreement: number
+    changedPx: number
+    changedFraction: number
+    grid: { size: number; cells: number[] }
+  }
   lineage?: { method: FoilDerivationMethod; savedAt: string | null; source: FoilMaskPrior['source']; generator: { name: string; version: number; runId: string } | null }[]
 }
 
