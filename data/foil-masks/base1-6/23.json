@@ -6,16 +6,16 @@
   "width": 490,
   "height": 674,
   "channel": "alpha",
-  "derivation_method": "ai",
-  "authorship": "machine",
-  "reviewStatus": "unreviewed",
-  "savedAt": "2026-08-07T13:02:46.237Z",
+  "derivation_method": "ai-corrected",
+  "authorship": "mixed",
+  "reviewStatus": "human-authored",
+  "savedAt": "2026-08-08T06:08:13.286Z",
   "artworkUrl": "/pokedex/images/en/base/base1/6/high.webp",
   "card": {
     "setId": "base1",
     "seriesSlug": "base",
-    "name": null,
-    "number": null
+    "name": "Gyarados",
+    "number": "6"
   },
   "prior": {
     "source": "ai",
@@ -29,7 +29,7 @@
     ],
     "radius": 0.004,
     "invert": false,
-    "feather": 0,
+    "feather": 0.008,
     "resolverVersion": 5,
     "generator": {
       "name": "window-artgate",
@@ -61,15 +61,96 @@
       ],
       "confidence": 0.461,
       "generatedAt": "2026-08-07T13:02:45.922Z"
+    },
+    "parentMask": {
+      "cardId": "base1-6",
+      "variantId": 23,
+      "savedAt": "2026-08-07T13:02:46.237Z",
+      "method": "ai"
     }
   },
   "priorPng": "23.prior.png",
   "diffPng": "23.diff.png",
   "diff": {
     "addedPx": 0,
-    "removedPx": 43447,
-    "unchangedPx": 66984,
-    "agreement": 0.6066
+    "removedPx": 49662,
+    "unchangedPx": 60769,
+    "agreement": 0.5503
+  },
+  "correction": {
+    "parent": {
+      "cardId": "base1-6",
+      "variantId": 23,
+      "savedAt": "2026-08-07T13:02:46.237Z",
+      "method": "ai",
+      "sha256": "cfc3421ec0fde113412071886958a184b1883294b2b55fb9fac8f19f640d7d8c",
+      "generator": {
+        "name": "window-artgate",
+        "version": 1,
+        "modelId": null,
+        "runId": "wotc-window-trial-1",
+        "params": {
+          "gate": "exemplar-fit-luminance",
+          "feather": 0,
+          "era": "wotc",
+          "scope": "window",
+          "notes": "luminance gate fit from 2 human exemplar(s): threshold 95.7, kept/erased separation 92.27. Kept 66984/110431 in-window px. Crude global threshold — it approximates \"window minus subject\" only where the subject is brighter than the background."
+        },
+        "exemplars": [
+          {
+            "cardId": "base1-5",
+            "variantId": 19,
+            "savedAt": "2026-08-02T16:37:41.457Z",
+            "method": "hand",
+            "weight": 1
+          },
+          {
+            "cardId": "base1-8",
+            "variantId": 32,
+            "savedAt": "2026-08-01T22:35:48.527Z",
+            "method": "hand",
+            "weight": 1
+          }
+        ],
+        "confidence": 0.461,
+        "generatedAt": "2026-08-07T13:02:45.922Z"
+      }
+    },
+    "parentPng": "23.parent.png",
+    "parentDiffPng": "23.parent.diff.png",
+    "addedPx": 2075,
+    "removedPx": 8290,
+    "unchangedPx": 58694,
+    "agreement": 0.8499,
+    "changedPx": 10365,
+    "changedFraction": 0.031384,
+    "bbox": [
+      0.1061,
+      0.4807,
+      0.7898,
+      0.4021
+    ],
+    "grid": {
+      "size": 4,
+      "cells": [
+        0.007,
+        0.072,
+        0.05,
+        0.014,
+        0.019,
+        0.138,
+        0.167,
+        0.013,
+        0,
+        0.006,
+        0.014,
+        0.002,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
   },
   "lineage": [
     {
@@ -81,6 +162,12 @@
         "version": 1,
         "runId": "wotc-window-trial-1"
       }
+    },
+    {
+      "method": "ai-corrected",
+      "savedAt": "2026-08-08T06:08:13.286Z",
+      "source": "ai",
+      "generator": null
     }
   ]
 }
