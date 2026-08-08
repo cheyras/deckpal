@@ -1,0 +1,108 @@
+{
+  "version": 3,
+  "cardId": "me05-012",
+  "variantId": 77558,
+  "artworkKey": "me05-012",
+  "width": 490,
+  "height": 674,
+  "channel": "alpha",
+  "derivation_method": "hand-refined",
+  "authorship": "human",
+  "reviewStatus": "human-authored",
+  "savedAt": "2026-08-08T06:54:27.057Z",
+  "artworkUrl": "/pokedex/images/en/me/me05/012/high.webp",
+  "card": {
+    "setId": "me05",
+    "seriesSlug": "mega-evolution",
+    "name": "Armarouge",
+    "number": "012"
+  },
+  "prior": {
+    "source": "mask",
+    "eraId": "modern-sv",
+    "scope": "sheet",
+    "rect": [
+      0.075,
+      0.527,
+      0.85,
+      0.3749
+    ],
+    "radius": 0.006,
+    "invert": true,
+    "feather": 0.008,
+    "resolverVersion": 5,
+    "parentMask": {
+      "cardId": "me05-012",
+      "variantId": 77558,
+      "savedAt": "2026-08-08T06:50:05.111Z",
+      "method": "hand"
+    }
+  },
+  "priorPng": "77558.prior.png",
+  "diffPng": "77558.diff.png",
+  "diff": {
+    "addedPx": 0,
+    "removedPx": 56334,
+    "unchangedPx": 168682,
+    "agreement": 0.7496
+  },
+  "correction": {
+    "parent": {
+      "cardId": "me05-012",
+      "variantId": 77558,
+      "savedAt": "2026-08-08T06:50:05.111Z",
+      "method": "hand",
+      "sha256": "0d568e334a22220e42031e3a7eeea292328b62e09bd42b6518f76fb4ff054cd4",
+      "generator": null
+    },
+    "parentPng": "77558.parent.png",
+    "parentDiffPng": "77558.parent.diff.png",
+    "addedPx": 0,
+    "removedPx": 21082,
+    "unchangedPx": 168682,
+    "agreement": 0.8889,
+    "changedPx": 21082,
+    "changedFraction": 0.063835,
+    "bbox": [
+      0,
+      0,
+      1,
+      1
+    ],
+    "grid": {
+      "size": 4,
+      "cells": [
+        0.089,
+        0.107,
+        0.107,
+        0.245,
+        0,
+        0,
+        0,
+        0.159,
+        0,
+        0,
+        0,
+        0.165,
+        0,
+        0,
+        0,
+        0.15
+      ]
+    }
+  },
+  "lineage": [
+    {
+      "method": "hand",
+      "savedAt": "2026-08-08T06:50:05.111Z",
+      "source": "layout",
+      "generator": null
+    },
+    {
+      "method": "hand-refined",
+      "savedAt": "2026-08-08T06:54:27.057Z",
+      "source": "mask",
+      "generator": null
+    }
+  ]
+}

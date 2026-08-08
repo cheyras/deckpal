@@ -1,0 +1,51 @@
+{
+  "version": 3,
+  "cardId": "me05-007",
+  "variantId": 37195,
+  "artworkKey": "me05-007",
+  "width": 490,
+  "height": 674,
+  "channel": "alpha",
+  "derivation_method": "hand",
+  "authorship": "human",
+  "reviewStatus": "human-authored",
+  "savedAt": "2026-08-08T06:37:28.517Z",
+  "artworkUrl": "/pokedex/images/en/me/me05/007/high.webp",
+  "card": {
+    "setId": "me05",
+    "seriesSlug": "mega-evolution",
+    "name": "Heatran",
+    "number": "007"
+  },
+  "prior": {
+    "source": "layout",
+    "eraId": "modern-sv",
+    "scope": "sheet",
+    "rect": [
+      0.075,
+      0.527,
+      0.85,
+      0.3749
+    ],
+    "radius": 0.006,
+    "invert": true,
+    "feather": 0.008,
+    "resolverVersion": 5
+  },
+  "priorPng": "37195.prior.png",
+  "diffPng": "37195.diff.png",
+  "diff": {
+    "addedPx": 0,
+    "removedPx": 54098,
+    "unchangedPx": 170918,
+    "agreement": 0.7596
+  },
+  "lineage": [
+    {
+      "method": "hand",
+      "savedAt": "2026-08-08T06:37:28.517Z",
+      "source": "layout",
+      "generator": null
+    }
+  ]
+}
