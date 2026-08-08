@@ -1,0 +1,117 @@
+{
+  "version": 3,
+  "cardId": "me05-001",
+  "variantId": 37184,
+  "artworkKey": "me05-001",
+  "width": 490,
+  "height": 674,
+  "channel": "alpha",
+  "derivation_method": "hand-refined",
+  "authorship": "human",
+  "reviewStatus": "human-authored",
+  "savedAt": "2026-08-08T00:03:00.924Z",
+  "artworkUrl": "/pokedex/images/en/me/me05/001/high.webp",
+  "card": {
+    "setId": "me05",
+    "seriesSlug": "mega-evolution",
+    "name": "Tropius",
+    "number": "001"
+  },
+  "prior": {
+    "source": "mask",
+    "eraId": "modern-sv",
+    "scope": "sheet",
+    "rect": [
+      0.075,
+      0.5269999999999999,
+      0.85,
+      0.315
+    ],
+    "radius": 0.006,
+    "invert": true,
+    "feather": 0.008,
+    "resolverVersion": 5,
+    "window": {
+      "rect": [
+        0.075,
+        0.5269999999999999,
+        0.85,
+        0.3749417758369723
+      ],
+      "radius": 0.006
+    },
+    "parentMask": {
+      "cardId": "me05-001",
+      "variantId": 37184,
+      "savedAt": "2026-08-07T23:53:40.354Z",
+      "method": "layout-flatten"
+    }
+  },
+  "priorPng": "37184.prior.png",
+  "diffPng": "37184.diff.png",
+  "diff": {
+    "addedPx": 0,
+    "removedPx": 70338,
+    "unchangedPx": 171320,
+    "agreement": 0.7089
+  },
+  "correction": {
+    "parent": {
+      "cardId": "me05-001",
+      "variantId": 37184,
+      "savedAt": "2026-08-07T23:53:40.354Z",
+      "method": "layout-flatten",
+      "sha256": "b4c59a7cb543a4940b73fc1d6ff81e702bbe921d686e3ddf174413129e0cff5f",
+      "generator": null
+    },
+    "parentPng": "37184.parent.png",
+    "parentDiffPng": "37184.parent.diff.png",
+    "addedPx": 0,
+    "removedPx": 53696,
+    "unchangedPx": 171320,
+    "agreement": 0.7614,
+    "changedPx": 53696,
+    "changedFraction": 0.162587,
+    "bbox": [
+      0,
+      0,
+      1,
+      1
+    ],
+    "grid": {
+      "size": 4,
+      "cells": [
+        0.324,
+        0.113,
+        0.111,
+        0.252,
+        0.245,
+        0.107,
+        0.107,
+        0.238,
+        0.174,
+        0.015,
+        0.016,
+        0.175,
+        0.253,
+        0.112,
+        0.107,
+        0.253
+      ]
+    }
+  },
+  "lineage": [
+    {
+      "method": "layout-flatten",
+      "savedAt": "2026-08-07T23:53:40.354Z",
+      "source": "window",
+      "generator": null
+    },
+    {
+      "method": "hand-refined",
+      "savedAt": "2026-08-08T00:03:00.924Z",
+      "source": "mask",
+      "generator": null
+    }
+  ]
+}
