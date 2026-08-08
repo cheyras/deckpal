@@ -115,6 +115,12 @@ export interface VectorFitParams {
   minLoopPx: number;
   /** Arc flattening sagitta, px — the rasteriser sees polylines this close to the true arc. */
   flattenSagittaPx: number;
+  /**
+   * How far a computed join may sit from where the contour actually turned, px. Beyond it
+   * the two primitives were never meant to meet there (near-parallel lines intersect at
+   * infinity), so the endpoint is projected onto the outgoing primitive instead.
+   */
+  joinMaxMovePx: number;
 }
 
 export const DEFAULT_VECTOR_FIT_PARAMS: VectorFitParams = {
@@ -127,6 +133,7 @@ export const DEFAULT_VECTOR_FIT_PARAMS: VectorFitParams = {
   maxArcRadiusPx: 400,
   minLoopPx: 40,
   flattenSagittaPx: 0.02,
+  joinMaxMovePx: 6,
 };
 
 // ── Geometry primitives ────────────────────────────────────────────────────
@@ -347,41 +354,85 @@ export function vectorizeLoop(loop: Vec[], p: VectorFitParams = DEFAULT_VECTOR_F
   // Axis-snap the lines.
   for (const r of runs) if (r.kind === 'line') r.line = snapAxis(r.line!, closed, r.i, r.j, p.axisSnapDeg);
 
-  // Build vertices: line/line joins become exact intersections when they turn a corner.
+  // EVERY VERTEX MUST LIE ON THE PRIMITIVES IT JOINS.
+  //
+  // The version of this that shipped for about an hour took each run's endpoint straight
+  // off the raw contour (`closed[r.j]`) and only replaced it for line/line corners. The
+  // emitted "vertical" left edge of a rounded rect then ran from x=25.00 to x=25.66 — a
+  // polyline through contour samples with arcs bridging them, wearing a vector's clothes.
+  // Round-tripping it lost 5% of the area and, far worse, the straightness the whole lane
+  // claims to deliver was not actually in the artifact. A join is the intersection of the
+  // two primitives that meet there, or nothing.
   const endOf = (r: Run): Vec => closed[r.j]!;
-  const verts: { pt: Vec; prim: Prim }[] = [];
-  let corners = 0;
-  for (let k = 0; k < runs.length; k++) {
-    const r = runs[k]!;
-    const nxt = runs[(k + 1) % runs.length]!;
-    let end = endOf(r);
-    if (r.kind === 'line' && nxt.kind === 'line') {
-      const a = r.line!, b = nxt.line!;
-      const turn = Math.abs(((angleOf(b) - angleOf(a)) * 180) / Math.PI);
-      const turnDeg = Math.min(turn % 180, 180 - (turn % 180));
-      if (turnDeg >= p.minCornerDeg) {
-        const cand = intersectLines(a, b) ?? end;
-        // Only accept a corner that is actually near where the contour turned; an
-        // intersection 40px away means the two lines were never meant to meet here.
-        if (dist(cand, end) <= 6) { end = cand; corners++; }
-      }
+  const projOnLine = (l: FitLine, q: Vec): Vec => {
+    const d = l.nx * q.x + l.ny * q.y - l.c;
+    return v(q.x - d * l.nx, q.y - d * l.ny);
+  };
+  const lineCircle = (l: FitLine, c: FitCircle, near: Vec): Vec | null => {
+    const d = l.nx * c.cx + l.ny * c.cy - l.c;
+    const h2 = c.r * c.r - d * d;
+    if (h2 < 0) return null;                       // the line misses the circle entirely
+    const h = Math.sqrt(h2);
+    const fx = c.cx - d * l.nx, fy = c.cy - d * l.ny;   // foot of the perpendicular
+    const a = v(fx - l.ny * h, fy + l.nx * h);
+    const b = v(fx + l.ny * h, fy - l.nx * h);
+    return dist(a, near) <= dist(b, near) ? a : b;
+  };
+  const circleCircle = (c1: FitCircle, c2: FitCircle, near: Vec): Vec | null => {
+    const dx = c2.cx - c1.cx, dy = c2.cy - c1.cy;
+    const D = Math.hypot(dx, dy);
+    if (D < 1e-9 || D > c1.r + c2.r || D < Math.abs(c1.r - c2.r)) return null;
+    const a = (c1.r * c1.r - c2.r * c2.r + D * D) / (2 * D);
+    const h2 = c1.r * c1.r - a * a;
+    if (h2 < 0) return null;
+    const h = Math.sqrt(h2);
+    const mx = c1.cx + (a * dx) / D, my = c1.cy + (a * dy) / D;
+    const p1 = v(mx + (h * dy) / D, my - (h * dx) / D);
+    const p2 = v(mx - (h * dy) / D, my + (h * dx) / D);
+    return dist(p1, near) <= dist(p2, near) ? p1 : p2;
+  };
+
+  /** Where runs `a` and `b` really meet. Falls back to projecting onto `a` alone. */
+  const joinOf = (a: Run, b: Run): { pt: Vec; corner: boolean } => {
+    const raw = endOf(a);
+    let cand: Vec | null = null;
+    let corner = false;
+    if (a.kind === 'line' && b.kind === 'line') {
+      const turn = Math.abs(((angleOf(b.line!) - angleOf(a.line!)) * 180) / Math.PI) % 180;
+      if (Math.min(turn, 180 - turn) >= p.minCornerDeg) { cand = intersectLines(a.line!, b.line!); corner = true; }
+      else cand = projOnLine(a.line!, raw);
+    } else if (a.kind === 'line' && b.kind === 'arc') cand = lineCircle(a.line!, b.circle!, raw);
+    else if (a.kind === 'arc' && b.kind === 'line') cand = lineCircle(b.line!, a.circle!, raw);
+    else cand = circleCircle(a.circle!, b.circle!, raw);
+    // A join that lands far from where the contour actually turned is not this join.
+    if (!cand || dist(cand, raw) > p.joinMaxMovePx) {
+      return { pt: a.kind === 'line' ? projOnLine(a.line!, raw) : raw, corner: false };
     }
-    if (r.kind === 'line') verts.push({ pt: end, prim: { k: 'line', to: [end.x, end.y] } });
-    else {
-      const c = r.circle!;
-      const s = closed[r.i]!;
-      const cross = (s.x - c.cx) * (end.y - c.cy) - (s.y - c.cy) * (end.x - c.cx);
-      verts.push({ pt: end, prim: { k: 'arc', to: [end.x, end.y], r: c.r, sweep: cross < 0 ? 1 : 0 } });
-    }
-  }
+    return { pt: cand, corner: corner && dist(cand, raw) <= p.joinMaxMovePx };
+  };
+
+  const joins = runs.map((r, k) => joinOf(r, runs[(k + 1) % runs.length]!));
+  const corners = joins.filter((j) => j.corner).length;
+
+  const verts: Prim[] = runs.map((r, k) => {
+    const end = joins[k]!.pt;
+    if (r.kind === 'line') return { k: 'line', to: [end.x, end.y] } as Prim;
+    const c = r.circle!;
+    // Start of this arc = the previous join (or the loop's closing join for run 0).
+    const s = joins[(k - 1 + runs.length) % runs.length]!.pt;
+    const cross = (s.x - c.cx) * (end.y - c.cy) - (s.y - c.cy) * (end.x - c.cx);
+    return { k: 'arc', to: [end.x, end.y], r: c.r, sweep: cross > 0 ? 1 : 0 } as Prim;
+  });
 
   let lengthPx = 0;
   for (let k = 0; k + 1 < closed.length; k++) lengthPx += dist(closed[k]!, closed[k + 1]!);
   const explainedPx = lengthPx; // every point is inside some accepted primitive by construction
 
-  const start = closed[0]!;
+  // The path starts where the LAST run hands over to the first, so `start` is a real join
+  // too and the closed path is consistent all the way round.
+  const start = joins[runs.length - 1]!.pt;
   return {
-    path: { start: [start.x, start.y], prims: verts.map((x) => x.prim) },
+    path: { start: [start.x, start.y], prims: verts },
     runs,
     lengthPx,
     explainedPx,
