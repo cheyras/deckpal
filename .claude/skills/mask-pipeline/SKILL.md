@@ -305,6 +305,8 @@ pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts eval \
 # 2b. REFINERS (`requiresSource`, e.g. edge-trace / line-snap) rework the mask already there
 …  run --generator edge-trace --refine --era modern-sv --scope sheet \
       --serie me --series-slug mega-evolution --run-id <id> --cards <cardId:variantId>
+#    …or --seed rule for a card with NO mask (weaker; read "--seed rule" below FIRST),
+#    --param k=v,k=v to override generator params, --dump <dir> to eyeball a dry run
 # 3. undo an entire run — RESTORES what it superseded (byte-for-byte),
 #    deletes only masks the run created from nothing
 … revert --run-id <id>
@@ -397,6 +399,58 @@ within ±`searchPx` (nearest, not strongest — a card border has two edges; pla
 centred). Reports `supportedFrac`, `within1px`, `within1pxOfSupported`, mean/p95/max
 distance. **Run it with a probe the generator did NOT optimise** — the shipped default is
 line-snap's own luminance Sobel, which gives the incumbent the home field.
+
+### `--seed rule` — generating for a card NOBODY has masked, and when NOT to
+
+A refiner needs a source boundary. `--refine` gives it the human mask already at the target.
+`--seed rule` gives it the **era layout rectangle** instead, so a card with no mask at all can
+be proposed for. It is deliberately weaker and says so everywhere: `exemplars: []` (it learned
+from nobody, which is what the schema's "Empty = it learned from nothing" is for),
+`params.seed = 'layout-rule'`, `params.source = '<era>/<scope> layout rectangle'`, confidence
+**halved**, and notes that open with `RULE-SEEDED`. It skips the `minExemplars` floor on
+purpose — that floor guards *learning*, and a deterministic function of `era-layouts.json`
+has no pool to collapse. It refuses to touch a card that already has any mask, human or ai.
+
+```bash
+… run --generator edge-trace --seed rule --era modern-sv --scope sheet \
+      --serie me --series-slug mega-evolution --run-id <id> \
+      --param corridorPx=24,anchorSnapPx=20 --cards <cardId:variantId,…> \
+      --dry-run --dump /tmp/proposals    # PNGs + report.json you can actually look at
+```
+
+**MEASURED, 2026-08-08, and the answer was no** (DECISIONS "rule-seeding is unsound for
+modern-sv/sheet"). On Tropius me05-001, the one card with a hand mask to score against:
+
+| seed | IoU vs his intent |
+|---|---|
+| era rectangle, untraced | 0.7084 |
+| era rectangle → `edge-trace@1`, defaults | **0.7080** — it closed *zero* of the gap |
+| `corridorPx` 5 / 12 / 24 / 48 | byte-identical output; the corridor is not the knob |
+| `anchorSnapPx` 20 (the knob that does move) | 0.8250, but the boundary hops between the card's two parallel border edges and takes excursions off the card |
+| `anchorSnapPx` 40 | 0.7621, `supp%` 51.8 — collapse |
+| his own hand mask | 1.0000 |
+
+**Why, structurally:** `edge-trace` CRISPS a boundary onto printed edges near it. It can never
+**add or remove a REGION**. The rule↔intent gap was 70,520px and 99.7% of it was regions the
+rule over-claimed (the silver border ring 44,039px; the window-top band + species strip +
+stage tag 26,270px). No parameter reaches that.
+
+**Use `--seed rule` when:** the era rect is already within a couple of px of the true printed
+boundary AND the foil zone has no excluded sub-regions — i.e. the rule is nearly right and you
+only want it crisp. **Do not use it when:** the era rect is materially wrong, or a human's
+masks for that era+scope exclude printed elements the rule includes. On both counts, fix the
+RULE (or get one more hand mask) — a tracer cannot invent intent, and it should not try.
+
+### The trap: edge adherence measures PRECISION, not CORRECTNESS
+
+A rule line dropped in the middle of an illustration will find an edge to sit on, because an
+illustration is *full* of edges. On the five me05 cards the rule-seeded trace improved
+`within1px` from 38.9–53.8% to 62.2–84.7% and halved mean distance — while the traced window
+top sat at y=106 on every card and the **printed** window top is y=65 on every card. The
+adherence numbers were excellent and the mask was 41px wrong. Locked by
+`__tests__/edge-trace.test.ts` ("a rule line inside a texture SCORES WELL on adherence while
+being wrong"). Never approve a mask on adherence alone: look at it, and check it against a
+boundary somebody *chose*.
 
 ### The training-tuple manifest
 

@@ -95,6 +95,12 @@ export interface MaskGeneratorInput {
   exemplars: GeneratorExemplar[];
   /** Present only in refine mode; null when the generator proposes from scratch. */
   source?: GeneratorSource | null;
+  /**
+   * Per-run overrides of the generator's own params (`--param k=v`). The CLI
+   * merges these into the RECORDED identity params, so a mask always carries
+   * the values that actually produced it rather than the module defaults.
+   */
+  params?: Record<string, number>;
 }
 
 export interface MaskGeneratorOutput {
@@ -402,7 +408,7 @@ export const edgeTraceGenerator: MaskGenerator = {
   params: EDGE_TRACE_PARAMS,
   minExemplars: 1,
   requiresSource: true,
-  generate({ target, source }): MaskGeneratorOutput {
+  generate({ target, source, params }): MaskGeneratorOutput {
     if (!source) {
       return {
         alpha: rectCoverage(target.width, target.height, target.rect, target.radius, target.invert),
@@ -417,6 +423,7 @@ export const edgeTraceGenerator: MaskGenerator = {
       width: target.width,
       height: target.height,
       artwork: target.artwork,
+      params,
     });
     if (r.refused) {
       return { alpha: source.alpha, confidence: null, notes: `edge-trace refused: ${r.refused}` };
@@ -440,26 +447,44 @@ export const edgeTraceGenerator: MaskGenerator = {
     const gain = before.meanDistPx > 0 ? Math.min(1, before.meanDistPx / Math.max(after.meanDistPx, 1e-3) / 3) : 0;
     const confidence = Number(Math.max(0, Math.min(0.9, tracedShare * gain * Math.exp(-maxMove / 8))).toFixed(3));
 
+    // A RULE seed is not a statement of intent. `layout-flatten` means the
+    // source boundary is an era rectangle nobody looked at, so every "kept"
+    // stretch below is that rectangle — not a human's decision — and edge-trace
+    // can only crisp a boundary, never move a region. Say it on the mask.
+    const ruleSeeded = source.method === 'layout-flatten';
     return {
       alpha: r.alpha,
-      confidence,
+      confidence: ruleSeeded ? Number((confidence * 0.5).toFixed(3)) : confidence,
       notes:
+        (ruleSeeded
+          ? 'RULE-SEEDED (no human mask existed): the source boundary is the era layout rectangle, ' +
+            'not a statement of intent. edge-trace crisps a boundary onto the printed edges NEAR it; ' +
+            'it cannot add or remove a region the rule never claimed. Treat every "kept" stretch below ' +
+            'as an unexamined rule line. '
+          : '') +
         `Traced ${source.method} mask ${source.ref.cardId}/${source.ref.variantId} ` +
         `(sha256 ${source.ref.sha256.slice(0, 12)}) against its own scan. ` +
         `${traced.length} stretch(es) traced from the artwork (${r.tracedPx}px of boundary), ` +
         `${kept.length} left exactly as drawn (${r.keptPx}px). ` +
         `${r.straightRuns} genuinely-straight run(s) crisped to a line (${r.straightPx}px); everything else is curve. ` +
         `Mean move ${(traced.reduce((a, s) => a + (s.meanMovePx ?? 0), 0) / Math.max(1, traced.length)).toFixed(2)}px, ` +
-        `max ${maxMove.toFixed(2)}px (hard-capped at corridorPx ${DEFAULT_EDGE_TRACE_PARAMS.corridorPx}). ` +
+        `max ${maxMove.toFixed(2)}px (hard-capped at corridorPx ${r.params.corridorPx}, anchorSnapPx ${r.params.anchorSnapPx}). ` +
         `EDGE ADHERENCE (line-snap's luminance Sobel, nearest edge max within ±4px, floor 12): ` +
         `within 1px ${(before.within1px * 100).toFixed(1)}% → ${(after.within1px * 100).toFixed(1)}%, ` +
         `mean distance ${before.meanDistPx}px → ${after.meanDistPx}px, ` +
         `p95 ${before.p95DistPx}px → ${after.p95DistPx}px. ` +
-        `${r.changedPx}px changed (${(r.changedFraction * 100).toFixed(2)}% of the face), Jaccard vs his mask ${r.agreementWithSource}. ` +
+        `${r.changedPx}px changed (${(r.changedFraction * 100).toFixed(2)}% of the face), Jaccard vs the source ${r.agreementWithSource}. ` +
         `Edge softness ${r.softness.source} → ${r.softness.result} (a sub-pixel contour is legitimately softer than a hand-drawn one). ` +
         `dropped ${r.dropped.length} stray blob(s). ` +
-        'UNREVIEWED: every "kept" stretch above is his hand exactly as drawn, on purpose.',
+        (ruleSeeded
+          ? 'UNREVIEWED, AND NOBODY HAS EVER LOOKED AT THIS CARD: every "kept" stretch above is the era ' +
+            'rectangle, and every "traced" one is that rectangle pulled onto whatever printed edge was ' +
+            'nearest — INCLUDING edges inside the illustration, which the adherence numbers cannot tell ' +
+            'apart from the boundary you meant.'
+          : 'UNREVIEWED: every "kept" stretch above is his hand exactly as drawn, on purpose.'),
       report: {
+        seed: ruleSeeded ? 'layout-rule' : 'human-mask',
+        effectiveParams: r.params,
         segments: r.segments,
         loops: r.loops,
         dropped: r.dropped,

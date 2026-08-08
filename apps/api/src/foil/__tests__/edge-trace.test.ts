@@ -27,6 +27,7 @@ import {
   tensorProbe,
 } from '../edge-trace.js';
 import { gradientOf } from '../line-snap.js';
+import { edgeTraceGenerator } from '../generator.js';
 import type { RgbaImage } from '../png.js';
 
 const W = 200;
@@ -275,4 +276,109 @@ test('resampleClosed keeps a closed loop closed and evenly spaced', () => {
     const d = Math.hypot(s[i]!.x - s[i - 1]!.x, s[i]!.y - s[i - 1]!.y);
     assert.ok(d > 0.5 && d < 1.5, `sample ${i} spacing ${d}`);
   }
+});
+
+// ── 5. THE RULE-SEED LIMIT (2026-08-08) ────────────────────────────────────
+//
+// Measured on the one card with ground truth (Tropius me05-001, DECISIONS
+// 2026-08-08 "rule-seeding is unsound for modern-sv/sheet"): seeding edge-trace
+// from the era LAYOUT RECTANGLE instead of a hand mask closed ZERO of the gap
+// to Chey's intent (IoU 0.7084 → 0.7080), and widening `corridorPx` from 5 to
+// 48 changed nothing at all. These two tests pin WHY, because the tempting
+// "fix" — widen the corridor — is the thing that does not work, and the next
+// person to try it should hit a failing test instead of a plausible-looking
+// mask.
+
+/** Fine vertical stripes left of `edgeX`, one strong printed edge AT `edgeX`. */
+function texturedCard(edgeX: number): RgbaImage {
+  const rgba = new Uint8Array(W * H * 4);
+  for (let i = 0; i < W * H; i++) {
+    const x = i % W;
+    // Texture is real signal — it is what an illustration looks like to an
+    // edge detector — but it is not the boundary anybody meant.
+    const v = x >= edgeX ? 235 : 70 + (Math.floor(x / 4) % 2) * 34;
+    rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = v;
+    rgba[i * 4 + 3] = 255;
+  }
+  return { width: W, height: H, rgba };
+}
+
+/** Rightmost foil pixel on a row — where the mask's boundary actually ended up. */
+function rightEdgeAt(alpha: Uint8Array, y: number): number {
+  for (let x = W - 1; x >= 0; x--) if (alpha[y * W + x]! >= 128) return x;
+  return -1;
+}
+
+test('a RULE seed 40px from the true boundary stays 40px off — widening corridorPx does not rescue it', () => {
+  const art = texturedCard(140);
+  // The "rule": a rectangle whose right edge sits at x=100, deep inside the
+  // texture, 40px short of the printed edge at x=140.
+  const rule = alphaFromSdf((x, y) => roundedRectSdf(x, y, 20, 100, 20, 180, 0));
+  for (const corridorPx of [5, 12, 24, 48]) {
+    const r = edgeTraceMask({ alpha: rule, width: W, height: H, artwork: art, params: { corridorPx } });
+    assert.equal(r.params.corridorPx, corridorPx, 'the override is honoured and reported back');
+    for (const y of [60, 100, 140]) {
+      const got = rightEdgeAt(r.alpha, y);
+      assert.ok(
+        got < 120,
+        `corridorPx ${corridorPx}, row ${y}: boundary landed at x=${got}; a rule line does NOT walk to the ` +
+          'real edge at 140 just because the corridor is wide — anchorSnapPx governs, and that is by design',
+      );
+    }
+  }
+});
+
+test('a rule line inside a texture SCORES WELL on adherence while being wrong — the metric cannot tell', () => {
+  const art = texturedCard(140);
+  // 98, deliberately BETWEEN two stripe edges, so the tracer has something to
+  // gain — exactly the situation on a real card, where the rule rectangle lands
+  // in the middle of an illustration full of perfectly real edges.
+  const rule = alphaFromSdf((x, y) => roundedRectSdf(x, y, 20, 98, 20, 180, 0));
+  const probe = luminanceProbe(gradientOf(art));
+  const traced = edgeTraceMask({ alpha: rule, width: W, height: H, artwork: art });
+  const before = measureAdherence(rule, W, H, probe);
+  const after = measureAdherence(traced.alpha, W, H, probe);
+  assert.ok(after.within1px > before.within1px, `adherence goes UP (${before.within1px} → ${after.within1px})`);
+  // The whole point: a boundary 40px from the one edge that matters can still
+  // sit within a pixel of AN edge, because a picture is full of edges. Edge
+  // adherence measures PRECISION, never CORRECTNESS. Do not read it as approval.
+  assert.ok(after.within1px > 0.5, `and it reads as a good mask (${(after.within1px * 100).toFixed(1)}% within 1px)`);
+  assert.ok(rightEdgeAt(traced.alpha, 100) < 120, 'while still being nowhere near the edge that mattered');
+});
+
+test('edge-trace params are overridable per run and reported back verbatim', () => {
+  const art = printedCard((x, y) => 0.5 - roundedRectSdf(x, y, 40, 160, 40, 160, 8));
+  const hand = wobbly((x, y) => roundedRectSdf(x, y, 40, 160, 40, 160, 8));
+  const r = edgeTraceMask({ alpha: hand, width: W, height: H, artwork: art, params: { anchorSnapPx: 9, corridorPx: 17 } });
+  assert.equal(r.params.anchorSnapPx, 9);
+  assert.equal(r.params.corridorPx, 17);
+  assert.equal(r.params.anchorSpacingPx, P.anchorSpacingPx, 'everything not overridden keeps the default');
+});
+
+test('a RULE-seeded generator run says so on the mask, and halves its own confidence', () => {
+  const art = printedCard((x, y) => 0.5 - roundedRectSdf(x, y, 40, 160, 40, 160, 8));
+  const alpha = wobbly((x, y) => roundedRectSdf(x, y, 40, 160, 40, 160, 8));
+  const rgba = new Uint8Array(W * H * 4);
+  for (let i = 0; i < alpha.length; i++) rgba[i * 4 + 3] = alpha[i]!;
+  const target = {
+    cardId: 'x-1', variantId: 1, eraId: 'modern-sv', scope: 'sheet' as const,
+    rect: [0.075, 0.527, 0.85, 0.315] as [number, number, number, number], radius: 0.006, invert: true,
+    window: null, artwork: art, artworkUrl: null, width: W, height: H, setId: 'x', seriesSlug: null,
+  };
+  const src = (method: 'hand' | 'layout-flatten') => ({
+    ref: { cardId: 'x-1', variantId: 1, savedAt: null, method, weight: 0, sha256: 'a'.repeat(64) },
+    alpha, image: { width: W, height: H, rgba }, method,
+  });
+  const fromHand = edgeTraceGenerator.generate({ target, exemplars: [], source: src('hand') });
+  const fromRule = edgeTraceGenerator.generate({ target, exemplars: [], source: src('layout-flatten') });
+  assert.ok(!fromHand.notes.includes('RULE-SEEDED'), 'a hand source is not labelled a rule');
+  assert.ok(fromRule.notes.startsWith('RULE-SEEDED'), 'a rule source announces itself FIRST, before any number');
+  assert.ok(
+    fromRule.notes.includes('cannot add or remove a region'),
+    'and states the limit that the numbers below it will not reveal',
+  );
+  assert.ok(
+    (fromRule.confidence ?? 1) < (fromHand.confidence ?? 0),
+    `a rule seed is less believable than a human one (${String(fromRule.confidence)} < ${String(fromHand.confidence)})`,
+  );
 });

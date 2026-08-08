@@ -842,7 +842,7 @@ function traceLoop(
           loop: loopIndex,
           index: 0,
           action: 'kept',
-          reason: `loop is only ${total}px around — too small to anchor, kept exactly as drawn`,
+          reason: `loop is only ${total}px around — too small to anchor, kept exactly as given`,
           handLengthPx: total,
           tracedLengthPx: null,
           meanRidge: null,
@@ -909,8 +909,8 @@ function traceLoop(
     };
     if (!A.supported || !B.supported) {
       keep(
-        `no printed edge under his stroke at ${!A.supported ? 'the start' : 'the end'} of this stretch ` +
-          `(ridge ${A.strength}/${B.strength} < ${p.anchorMinStrength}) — kept exactly as drawn`,
+        `no printed edge under the source boundary at ${!A.supported ? 'the start' : 'the end'} of this stretch ` +
+          `(ridge ${A.strength}/${B.strength} < ${p.anchorMinStrength}) — kept exactly as given`,
       );
       continue;
     }
@@ -924,15 +924,15 @@ function traceLoop(
     const slack = Math.ceil(p.anchorSpacingPx / 2);
     const px = livewire(ctx, A.pixel, B.pixel, A.sample, B.sample, slack);
     if (!px || px.length < 2) {
-      keep('no path along a printed edge inside the corridor — kept exactly as drawn');
+      keep('no path along a printed edge inside the corridor — kept exactly as given');
       continue;
     }
     const pts = px.map((i) => ({ x: (i % width) + 0.5, y: ((i / width) | 0) + 0.5 }));
     const tracedLen = pathLen(pts);
     if (tracedLen > handLen * p.segmentMaxDetourRatio && handLen > 4) {
       keep(
-        `the best edge path detours ${(tracedLen / handLen).toFixed(2)}× his own span ` +
-          `(> ${p.segmentMaxDetourRatio}) — that is a texture excursion, not his boundary`,
+        `the best edge path detours ${(tracedLen / handLen).toFixed(2)}× the source span ` +
+          `(> ${p.segmentMaxDetourRatio}) — that is a texture excursion, not the boundary`,
       );
       continue;
     }
@@ -940,7 +940,7 @@ function traceLoop(
     for (const i of px) ridgeSum += edges.ridge[i]!;
     const meanRidge = ridgeSum / px.length;
     if (meanRidge < p.segmentMinRidge) {
-      keep(`the best edge path carries only ${meanRidge.toFixed(1)} mean ridge (< ${p.segmentMinRidge}) — kept as drawn`);
+      keep(`the best edge path carries only ${meanRidge.toFixed(1)} mean ridge (< ${p.segmentMinRidge}) — kept as given`);
       continue;
     }
     push(pts.slice(0, -1));

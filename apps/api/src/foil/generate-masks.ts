@@ -19,6 +19,15 @@
 //     --serie me --series-slug mega-evolution --run-id straighten-1 \
 //     --cards me05-001:37184
 //
+//   # RULE-SEED a refiner on cards that have NO mask at all: the source is the
+//   #   era layout rectangle, not a human boundary. Weaker on purpose, labeled
+//   #   as such, and it records `exemplars: []` because it learned from nobody.
+//   #   Read the "when NOT to" note in .claude/skills/mask-pipeline first.
+//   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts run \
+//     --generator edge-trace --seed rule --era modern-sv --scope sheet \
+//     --serie me --series-slug mega-evolution --run-id rule-1 \
+//     --param corridorPx=24,anchorSnapPx=20 --cards me05-002:37186 --dry-run
+//
 //   # and it is reversible — restores what it replaced, BYTE-FOR-BYTE
 //   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts revert --run-id trial-1
 //   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts archives   # what is undoable
@@ -39,7 +48,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile, unlink } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { encodePng, decodePng, type RgbaImage } from './png.js';
@@ -94,6 +103,22 @@ function arg(name: string): string | null {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1]! : null;
 }
 const flag = (name: string): boolean => process.argv.includes(`--${name}`);
+
+/** `--param corridorPx=24,anchorSnapPx=20` → per-run generator param overrides. */
+function paramOverrides(): Record<string, number> {
+  const raw = arg('param');
+  if (!raw) return {};
+  const out: Record<string, number> = {};
+  for (const kv of raw.split(',')) {
+    const eq = kv.indexOf('=');
+    if (eq < 1) throw new Error(`bad --param entry '${kv}' (want key=number)`);
+    const k = kv.slice(0, eq).trim();
+    const v = Number(kv.slice(eq + 1));
+    if (!Number.isFinite(v)) throw new Error(`--param ${k} is not a number`);
+    out[k] = v;
+  }
+  return out;
+}
 
 // ── Card art from the image cache ──────────────────────────────────────────
 
@@ -331,18 +356,42 @@ async function run(): Promise<void> {
 
   const layouts = await loadLayouts();
   const exemplars = await buildExemplars(layouts, eraId, scope, serie);
-  if (exemplars.length < gen.minExemplars) {
+  const dry = flag('dry-run');
+  const overrides = paramOverrides();
+
+  // ── How the refiner gets its source boundary ──────────────────────────────
+  //
+  //   --refine        the HUMAN mask already at the target. Its boundary is a
+  //                   statement of intent, and the anti-compounding gate below
+  //                   keeps a refiner off its own unreviewed output.
+  //   --seed rule     the era LAYOUT RECTANGLE, rasterized. Used when no mask
+  //                   exists at all. It is deliberately a weaker thing: a rule
+  //                   is geometry nobody chose, so a rule-seeded run learns
+  //                   from NO human exemplar and records `exemplars: []`.
+  //                   edge-trace can crisp that rectangle onto the printed
+  //                   edges beside it; it can NEVER add or remove a region the
+  //                   rule never claimed, so anything the rule over- or
+  //                   under-claims survives the run untouched. Measured on the
+  //                   one card where ground truth exists, that is most of the
+  //                   error (see DECISIONS 2026-08-08, rule-seeding control).
+  const seed = (arg('seed') ?? (flag('refine') ? 'mask' : 'none')) as 'mask' | 'rule' | 'none';
+  if (seed !== 'mask' && seed !== 'rule' && seed !== 'none') throw new Error(`--seed must be 'mask' or 'rule'`);
+  const refine = seed === 'mask';
+  const ruleSeed = seed === 'rule';
+  if (gen.requiresSource && seed === 'none') {
+    throw new Error(
+      `${gen.name} is a REFINER: it reworks an existing boundary rather than proposing one from nothing. ` +
+        'Pass --refine (source = the human mask already at the target, archived byte-for-byte before writing), ' +
+        "or --seed rule (source = the era layout rectangle, for cards that have no mask at all — weaker, and labeled so).",
+    );
+  }
+  // The anti-collapse floor guards LEARNING. A rule seed learns from nothing —
+  // it is a deterministic function of era-layouts.json — so there is no pool to
+  // collapse, and requiring exemplars it will not read would only be theatre.
+  if (!ruleSeed && exemplars.length < gen.minExemplars) {
     throw new Error(
       `${gen.name} needs >= ${gen.minExemplars} human exemplars for era=${eraId} scope=${scope}; found ${exemplars.length}. ` +
         'Hand-paint more masks first — this is the anti-collapse floor, not a suggestion.',
-    );
-  }
-  const dry = flag('dry-run');
-  const refine = flag('refine');
-  if (gen.requiresSource && !refine) {
-    throw new Error(
-      `${gen.name} is a REFINER: it reworks an existing human mask rather than proposing one. Pass --refine, ` +
-        'which loads the mask already at each target as the source and archives it byte-for-byte before writing.',
     );
   }
   const m = maskForScope(layouts, eraId, scope);
@@ -394,6 +443,53 @@ async function run(): Promise<void> {
       };
     }
 
+    // ── Rule seed: the era rectangle, and nothing anybody chose ─────────────
+    if (ruleSeed) {
+      // A rule is strictly weaker than any mask that already exists — human OR
+      // machine. If something is there, it knows more than the rectangle does.
+      if (existing) {
+        console.log(
+          `skip ${t.cardId}/${t.variantId}: already has a ${existing.derivation_method} mask. A layout rectangle is ` +
+            'weaker than anything already on disk; --seed rule only fills cards that have nothing.',
+        );
+        continue;
+      }
+      const seedPrior: MaskPrior = {
+        source: 'layout',
+        eraId,
+        scope: scope as MaskPrior['scope'],
+        rect: m.rect,
+        radius: m.radius,
+        invert: m.invert,
+        feather: 0,
+        resolverVersion: Number(arg('resolver-version') ?? '5'),
+      };
+      const seedAlpha = rasterizePriorAlpha(MASK_W, MASK_H, seedPrior);
+      const seedRgba = new Uint8Array(MASK_W * MASK_H * 4);
+      for (let i = 0; i < seedAlpha.length; i++) {
+        seedRgba[i * 4] = 255;
+        seedRgba[i * 4 + 1] = 45;
+        seedRgba[i * 4 + 2] = 100;
+        seedRgba[i * 4 + 3] = seedAlpha[i]!;
+      }
+      const seedImg: RgbaImage = { width: MASK_W, height: MASK_H, rgba: seedRgba };
+      source = {
+        ref: {
+          cardId: t.cardId,
+          variantId: t.variantId,
+          savedAt: null,
+          // `layout-flatten` IS the honest label: machine geometry, weight 0,
+          // never an exemplar. The generator reads it and says so on the mask.
+          method: 'layout-flatten',
+          weight: EXEMPLAR_WEIGHT['layout-flatten'],
+          sha256: sha256(encodePng(seedImg)),
+        },
+        alpha: seedAlpha,
+        image: seedImg,
+        method: 'layout-flatten',
+      };
+    }
+
     const artwork = loadArtwork(serie, t.cardId);
     if (!artwork) {
       console.log(`skip ${t.cardId}/${t.variantId}: scan not in the image cache`);
@@ -404,7 +500,7 @@ async function run(): Promise<void> {
     // the window rect Chey adjusted by hand — a generator must not have to
     // rediscover a decision he already made.
     if (source && existing?.prior?.window) target.window = existing.prior.window;
-    const out = gen.generate({ target, exemplars, source });
+    const out = gen.generate({ target, exemplars, source, params: overrides });
 
     const rgba = new Uint8Array(MASK_W * MASK_H * 4);
     for (let i = 0; i < out.alpha.length; i++) {
@@ -432,20 +528,48 @@ async function run(): Promise<void> {
       runId,
       params: {
         ...gen.params,
+        // The values that ACTUALLY ran, not the module defaults.
+        ...overrides,
         era: eraId,
         scope,
+        seed: ruleSeed ? 'layout-rule' : refine ? 'human-mask' : 'none',
         notes: out.notes,
-        ...(source ? { source: `${source.ref.cardId}/${source.ref.variantId}@${source.ref.method}`, sourceSha256: source.ref.sha256 } : {}),
+        ...(source
+          ? ruleSeed
+            ? {
+                // Never let a rule seed masquerade as a mask that existed.
+                source: `${eraId}/${scope} layout rectangle (no mask existed on this card)`,
+                sourceSha256: source.ref.sha256,
+              }
+            : { source: `${source.ref.cardId}/${source.ref.variantId}@${source.ref.method}`, sourceSha256: source.ref.sha256 }
+          : {}),
         ...(out.report ? { report: JSON.stringify(out.report) } : {}),
       },
       // A refiner's evidence is the mask it was handed; say so explicitly
-      // instead of implying it generalised from a corpus it never read.
-      exemplars: source ? [{ ...source.ref }] : exemplars.map((e) => e.ref),
+      // instead of implying it generalised from a corpus it never read. A RULE
+      // seed had no human evidence at all — an empty list is the truth, and the
+      // schema says so: "Empty = it learned from nothing (say so)."
+      exemplars: ruleSeed ? [] : source ? [{ ...source.ref }] : exemplars.map((e) => e.ref),
       confidence: out.confidence,
       generatedAt: new Date().toISOString(),
     };
     const rectScore = agreement(rasterizePriorAlpha(MASK_W, MASK_H, prior), out.alpha);
     if (dry) {
+      // A dry run you cannot LOOK at is only half a dry run. `--dump <dir>`
+      // writes the proposal (and the seed it came from) as PNGs, so the review
+      // screenshots come out of this exact code path rather than a re-implementation.
+      const dump = arg('dump');
+      if (dump) {
+        await mkdir(dump, { recursive: true });
+        await writeFile(join(dump, `${t.cardId}.${t.variantId}.proposed.png`), png);
+        if (source) {
+          await writeFile(join(dump, `${t.cardId}.${t.variantId}.seed.png`), encodePng(source.image));
+        }
+        await writeFile(
+          join(dump, `${t.cardId}.${t.variantId}.report.json`),
+          JSON.stringify({ confidence: out.confidence, notes: out.notes, params: identity.params, report: out.report }, null, 1),
+        );
+      }
       console.log(`[dry] ${t.cardId}/${t.variantId}  conf=${String(out.confidence)}  vs-rect agreement=${rectScore.agreement}`);
       if (out.notes) console.log(`  ↳ ${out.notes}`);
       // A dry run's whole job is showing the reviewer WHICH parts of the
@@ -509,6 +633,11 @@ async function run(): Promise<void> {
           ? 'A superseded human mask is NOT an exemplar while the proposal sits on top of it — reverting or\n' +
             'correcting the proposal brings it back into the training pool.\n'
           : '') +
+        (ruleSeed
+          ? 'RULE-SEEDED: no human mask existed on these cards, so the source boundary was the era layout\n' +
+            'rectangle and the run learned from NO exemplar. Every region decision on these masks is the\n' +
+            "rectangle's, not anyone's — edge-trace only crisped it onto nearby printed edges.\n"
+          : '') +
         `Revert with: pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts revert --run-id ${runId}`,
     );
   }
@@ -553,6 +682,10 @@ async function revert(): Promise<void> {
     if (e.sidecar.derivation_method !== 'ai' || g?.runId !== runId) continue;
     const p = maskPathsIn(MASKS_DIR, e.cardId, e.variantId);
     for (const f of [p.png, p.json, p.prior, p.diff, p.parent, p.parentDiff]) await unlink(f).catch(() => undefined);
+    // A run that created a card's FIRST mask also created its directory. Leaving
+    // an empty one behind means the corpus is not byte-for-byte back to where it
+    // started, and every later scan walks a directory that means nothing.
+    if ((await readdir(p.dir).catch(() => ['x']))!.length === 0) await rmdir(p.dir).catch(() => undefined);
     removed++;
     console.log(`removed ${e.cardId}/${e.variantId} (this run created it; there was nothing underneath)`);
   }
