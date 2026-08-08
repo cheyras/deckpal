@@ -42,6 +42,8 @@ interface SearchRow {
   regulation_mark: string | null;
   released_on: string | null;
   serie: string;
+  serie_slug: string;
+  serie_name: string;
   setcode: string;
   set_name: string;
   variant_count: string;
@@ -125,7 +127,8 @@ searchRouter.get(
 
     const rows = await q<SearchRow>(
       `SELECT c.tcgdex_id, c.local_id, c.name, c.category, c.rarity, c.illustrator, c.hp, c.regulation_mark, c.released_on,
-              ser.tcgdex_id AS serie, cs.tcgdex_id AS setcode, cs.name AS set_name,
+              ser.tcgdex_id AS serie, ser.slug AS serie_slug, ser.name AS serie_name,
+              cs.tcgdex_id AS setcode, cs.name AS set_name,
               vc.variant_count, price.market_minor AS price_minor, price.currency_code AS price_currency,
               count(*) OVER() AS total_rows
          FROM card c
@@ -168,6 +171,9 @@ searchRouter.get(
         hp: r.hp,
         regulationMark: r.regulation_mark,
         set: { setId: r.setcode, name: r.set_name },
+        // Routing needs the series SLUG (/series/mega-evolution/me05), not the
+        // tcgdex_id ("me") that cardImages() keys the cache path on.
+        series: { slug: r.serie_slug, name: r.serie_name },
         releasedOn: r.released_on,
         variantCount: Number(r.variant_count),
         images: cardImages(r.serie, r.setcode, r.local_id),

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
 import { api, type CardDetailResponse, type Progress, type SetDetailResponse, type Variant } from '../lib/api'
@@ -432,6 +432,8 @@ export function CardSheet({
   set,
   number,
   onClose,
+  contextSlot,
+  ariaLabel = 'Card details',
 }: {
   // Two ways to key the sheet, both resolving to one cardId:
   //  • cardId  — species page / scanner, which carry the full id directly.
@@ -443,6 +445,11 @@ export function CardSheet({
   set?: string
   number?: string
   onClose: () => void
+  // Optional caller-supplied panel rendered above the shared card body, so a
+  // surface can frame the card in its own terms (the deck builder shows copies,
+  // shortfall and deck cost) without forking the sheet.
+  contextSlot?: ReactNode
+  ariaLabel?: string
 }) {
   const [open, setOpen] = useState(false)
 
@@ -481,7 +488,7 @@ export function CardSheet({
       onClick={requestClose}
       role="dialog"
       aria-modal="true"
-      aria-label="Card details"
+      aria-label={ariaLabel}
     >
       <div
         className="relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-border-default bg-surface-primary shadow-xl nav:max-h-[86vh] nav:max-w-[920px] nav:rounded-2xl"
@@ -508,6 +515,7 @@ export function CardSheet({
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-[16px] pb-[24px] nav:px-[24px]"
           style={{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom))' }}
         >
+          {contextSlot}
           <CardDetailBody cardId={cardId ?? `${set}-${number}`} inSheet />
         </div>
       </div>

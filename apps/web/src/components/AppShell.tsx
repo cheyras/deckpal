@@ -1,10 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { Link, useRouterState } from '@tanstack/react-router'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { Link, useRouterState, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Icon, BrandMark, type IconName } from './Icon'
 import { PwaUi } from './PwaUi'
 import { BugButton } from './BugReport'
 import { api } from '../lib/api'
+import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
 
 // Signed-in avatar chip (single-user "me") — replaces Log In / Sign Up. The level
 // badge reads straight from the insights overview; links to the profile surface.
@@ -256,6 +257,18 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
 }
 
 function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: boolean }) {
+  const navigate = useNavigate()
+  const [term, setTerm] = useState('')
+  // Submitting hands the term to /search, which owns the query from there on.
+  // Clearing the header field afterwards keeps it from drifting out of sync with
+  // the search page's own input, which is the one the user then edits.
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    const q = term.trim()
+    if (!q) return
+    setTerm('')
+    void navigate({ to: '/search', search: { q } as never })
+  }
   return (
     <header
       className="app-header fixed left-0 right-0 top-0 z-[20] border-b border-border-default bg-surface-secondary"
@@ -279,27 +292,33 @@ function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: bo
           <span className="brand-wordmark text-[18px] leading-none">Pokédex</span>
         </span>
 
-        {/* search input — desktop full, mobile circular button */}
-        <label className="relative hidden flex-1 items-center nav:flex" style={{ maxWidth: 511 }}>
-          <span className="pointer-events-none absolute left-[14px] text-icon-default">
-            <Icon name="search" size={20} />
-          </span>
-          <input
-            type="search"
-            placeholder="Search Cards…"
-            className="h-[46px] w-full rounded-lg border border-border-default bg-surface-primary pl-[46px] pr-[44px] text-[16px] text-text-primary placeholder:text-text-muted"
-          />
-          <span className="absolute right-[14px] text-icon-default">
-            <Icon name="sliders" size={18} />
-          </span>
-        </label>
+        {/* search — desktop submits to /search; mobile is a link to the same page.
+            The advanced filter vocabularies the API exposes have no UI yet, so the
+            field carries no filter affordance rather than a dead one. */}
+        <form onSubmit={submit} className="relative hidden flex-1 items-center nav:flex" style={{ maxWidth: 511 }}>
+          <label className="relative flex w-full items-center">
+            <span className="pointer-events-none absolute left-[14px] text-icon-default">
+              <Icon name="search" size={20} />
+            </span>
+            <input
+              type="search"
+              value={term}
+              onChange={(e) => setTerm(e.target.value)}
+              placeholder="Search Cards…"
+              aria-label="Search cards"
+              className="h-[46px] w-full rounded-lg border border-border-default bg-surface-primary pl-[46px] pr-[14px] text-[16px] text-text-primary placeholder:text-text-muted"
+            />
+          </label>
+        </form>
         <div className="flex-1 nav:hidden" />
-        <button
+        <Link
+          to="/search"
+          search={GLOBAL_SEARCH_DEFAULTS}
           className="flex h-[44px] w-[44px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default nav:hidden"
           aria-label="Search"
         >
           <Icon name="search" size={20} />
-        </button>
+        </Link>
 
         {/* scan shortcut — camera CTA into the card scanner */}
         <Link
