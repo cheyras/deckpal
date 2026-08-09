@@ -1,12 +1,12 @@
 {
-  "buildCommand": "pnpm --filter deckscout-web build",
+  "buildCommand": "pnpm --filter @deckscout/db build && pnpm --filter deckscout-api build && pnpm --filter deckscout-web build",
   "outputDirectory": "apps/web/dist",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "functions": {
-    "api/index.ts": {
+    "api/index.mjs": {
       "maxDuration": 60,
       "memory": 1024
     }
