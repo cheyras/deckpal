@@ -50,7 +50,7 @@ export async function buildCtx(): Promise<Ctx> {
   const pool = makePool(Number(process.env.PGPOOL_MAX_MCP ?? 1));
 
   // Startup DB self-check: SELECT 1 — a failure here is fatal (index.ts exits 1
-  // and pm2 restarts). Done before the user lookup for a clean error message.
+  // and the supervisor restarts). Done before the user lookup for a clean error message.
   await pool.query('SELECT 1');
 
   // Same rule as apps/api/src/db.ts defaultUserId(): lowest app_user.id, else 1.

@@ -44,9 +44,9 @@ pokedex-exports/
 # ── os cruft ──────────────────────────────────────────────────────────────
 .DS_Store
 
-# ── legacy deployment deploy artifacts (Pi decommissioned 2026-08-09; cloud-first now) ─
+# ── deploy artifacts ─────────────────────────────────────────────────────
 # Intentionally untracked, not just deleted — harmless if someone recreates
-# deploy/ locally for their own legacy deployment setup.
+# deploy/ locally for their own self-host setup.
 deploy/
 
 # ── machine-local agent instructions (not portable) ─────────────────────

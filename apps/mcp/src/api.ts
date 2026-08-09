@@ -42,7 +42,7 @@ async function request(method: string, path: string, body?: unknown): Promise<un
     res = await fetch(url, init);
   } catch (err) {
     if (!isConnRefused(err)) throw err;
-    await sleep(500); // deckscout-api may be mid-restart under pm2; one retry only.
+    await sleep(500); // deckscout-api may be mid-restart; one retry only.
     res = await fetch(url, init);
   }
   const text = await res.text();

@@ -29,7 +29,7 @@ import { bugsRouter } from './routes/bugs.js';
  *
  * Auth is layered: in cloud mode SUPABASE_JWT_SECRET enables JWT verification
  * and user-scoped routes require a valid Bearer token. In self-host mode the
- * reverse proxy (nginx/the SSO gate) is the auth boundary; the API passes all
+ * reverse proxy is the auth boundary; the API passes all
  * requests through.
  */
 
@@ -37,10 +37,9 @@ export function createApp(): express.Express {
   const app = express();
   app.disable('x-powered-by');
   // upgrade-insecure-requests (helmet CSP default) is dropped: on plain-HTTP LAN
-  // origins (http://10.0.0.x/deckscout/) it upgrades every subresource to https,
-  // where the only 443 vhost serves the example.invalid cert → cert error → the JS
-  // bundle never loads (blank dark shell). Public access is real HTTPS via nginx,
-  // where the directive was a no-op anyway; all content is same-origin.
+  // origins the directive upgrades every subresource to https, which breaks the
+  // app when the only TLS cert doesn't match the hostname. Public HTTPS access
+  // makes the directive a no-op anyway; all content is same-origin.
   app.use(
     helmet({
       contentSecurityPolicy: {
@@ -211,7 +210,7 @@ export function createApp(): express.Express {
 
   // Serve the built SPA. On self-host the sub-path is /deckscout/; on Vercel the
   // SPA is served by Vercel's static layer (outputDirectory in vercel.json), so
-  // this block only fires for the self-host entrypoint (pm2 / direct node).
+  // this block only fires for the self-host entrypoint (process manager / direct node).
   // webDist resolves relative to this compiled file: apps/api/dist -> apps/web/dist.
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
   const spaBase = process.env.API_BASE_PATH === '/api' ? '/' : '/deckscout';
@@ -231,9 +230,9 @@ export function createApp(): express.Express {
   return app;
 }
 
-// Under pm2 fork mode process.argv[1] is pm2's ProcessContainerFork.js wrapper, not
-// our entry, so an argv-only check never fires. pm2 exposes the real script path in
-// pm_exec_path; fall back to argv[1] for direct `node dist/index.js` runs.
+// Under some process managers (fork mode) process.argv[1] is a wrapper, not our
+// entry, so an argv-only check never fires. pm_exec_path (if set) holds the real
+// script path; fall back to argv[1] for direct `node dist/index.js` runs.
 const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
 const isMain = entryPath.endsWith('index.js') || entryPath.endsWith('index.ts');
 if (isMain) {

@@ -6,7 +6,7 @@ The React frontend's contract. TypeScript/Express, ~55 routes.
 
 | Mode | Base path | Port | Auth boundary |
 |------|-----------|------|---------------|
-| Self-host | `/deckscout/api` | 3700 (127.0.0.1) | nginx/the SSO gate reverse proxy |
+| Self-host | `/deckscout/api` | 3700 (127.0.0.1) | reverse proxy with auth |
 | Cloud (Vercel) | `/api` | serverless | Supabase JWT (Bearer token) |
 
 The base path is set by `API_BASE_PATH` (defaults to `/deckscout/api`). On Vercel
@@ -79,7 +79,7 @@ In **cloud mode** (`SUPABASE_JWT_SECRET` is set), the API verifies Supabase JWTs
   as `user_id`.
 
 In **self-host mode** (no `SUPABASE_JWT_SECRET`), the auth middleware is a no-op.
-The reverse proxy (nginx/the SSO gate) is the auth boundary. All requests pass through.
+The reverse proxy is the auth boundary. All requests pass through.
 
 ---
 
@@ -289,7 +289,7 @@ cards appear on both species). `sort` = `number`\|`price`\|`rarity`\|`artist`\|
 ## Collection — mutation & activity log
 
 The only writers against `collection_item`. The single default user owns the
-collection (no auth; nginx/the SSO gate is the ingress). Each mutation runs in
+collection (no auth in self-host; reverse proxy is the ingress). Each mutation runs in
 **one transaction**: upsert `collection_item` to the new quantity, append a
 `collection_event` for the non-zero delta, then **recompute the affected set's
 three `user_set_progress` rows** and return them authoritatively. Idempotent

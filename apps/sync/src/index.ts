@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   }
 }
 
-// Same isMain dance as apps/api: under pm2 fork mode pm_exec_path is the real script
+// Same isMain dance as apps/api: under some process managers pm_exec_path is the real script
 // path; argv[1] covers direct node/tsx runs. run-once.ts imports REAL_JOBS from here
 // without tripping the scheduler (its argv[1] ends in run-once.ts).
 const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';

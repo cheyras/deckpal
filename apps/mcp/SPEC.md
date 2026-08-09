@@ -14,7 +14,7 @@
 | MCP server name | `rotom-mcp`, version from package.json |
 | Port | **3704**, bind `127.0.0.1` only (3702 = TCGdex escape-hatch slot, 3703 = dev server, per DECISIONS.md) |
 | Env vars | `DECKSCOUT_MCP_PORT=3704`, `ROTOM_MCP_KEY=<hex secret>`, `DECKSCOUT_API_BASE=http://127.0.0.1:3700/deckscout/api`, `PGPOOL_MAX_MCP=1`, `PGAPPNAME=deckscout-mcp` — all in repo-root `.env` (mode 600, gitignored), loaded via `loadEnv()` from `@deckscout/db` |
-| pm2 name (later) | `deckscout-mcp`, `max_memory_restart: '300M'` |
+| Process name | `deckscout-mcp`, `max_memory_restart: '300M'` |
 | MCP endpoint | `POST/GET/DELETE http://127.0.0.1:3704/mcp` (+ plain `GET /health` JSON for supervisors) |
 
 ## 2. Stack (verified 2026-07-29 — do not substitute from memory)
@@ -36,10 +36,9 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 const handler = createMcpHandler(() => buildServer(ctx)); // fresh McpServer per request
 const app = createMcpExpressApp({
   host: '0.0.0.0', // hostname validation list below is what actually gates
-  allowedHosts: ['example.invalid', 'localhost', 'the-original-host', 'localhost',
-                 '10.0.0.1', '127.0.0.1', 'localhost'],
+  allowedHosts: ['127.0.0.1', 'localhost'],  // production hosts in MCP_ALLOWED_HOSTS env
 });
-app.get('/health', ...);              // plain JSON, no auth — pm2/nginx probe
+app.get('/health', ...);              // plain JSON, no auth — supervisor probe
 app.use('/mcp', requireBrainKey);     // auth BEFORE the handler
 const node = toNodeHandler(handler);
 app.all('/mcp', (req, res) => void node(req, res, req.body));
@@ -52,9 +51,9 @@ process.on('SIGTERM'/'SIGINT', async () => { await handler.close(); await pool.e
   `WWW-Authenticate` header** (claude.ai treats 401+WWW-Authenticate as an OAuth trigger).
   Fatal-exit at startup if `ROTOM_MCP_KEY` unset.
 - Startup self-check: ping Postgres (`SELECT 1`) and `GET ${DECKSCOUT_API_BASE}/health`; log clearly
-  and `process.exit(1)` if the DB is unreachable (pm2 restarts). API unreachable = warn only
+  and `process.exit(1)` if the DB is unreachable (the supervisor restarts). API unreachable = warn only
   (read tools still work; API-backed tools will fail per-call).
-- Entry-point detection must handle pm2 fork mode like `apps/api/src/index.ts` does
+- Entry-point detection must handle process-manager fork mode like `apps/api/src/index.ts` does
   (`process.env.pm_exec_path ?? process.argv[1]`).
 
 ## 3. Data access — the hybrid rule
@@ -292,9 +291,9 @@ there.
 
 - rtk-prefix every shell command and every `&&` segment. `rtk curl` summarizes JSON — write to a
   file and parse with node when you need the real body.
-- Never write `variant_tier_override` (human-asserted). Never touch other pm2 apps, nginx,
-  `the-original-host-api/`, Postgres config. No `git push` (no remote). Don't commit — the lead agent
-  reviews and commits.
+- Never write `variant_tier_override` (human-asserted). Never touch other running services,
+  Postgres config. No `git push` (no remote). Don't commit — the lead agent reviews and
+  commits.
 - Secrets (`.env`, `token-cache.json`): read at runtime only, never log values, never commit.
 - `console.log`/`console.error` with `[deckscout-mcp]` prefix — no logging library.
 - Result-size budgets: Claude Code caps tool output ~25k tokens; claude.ai ~150k chars — the
@@ -309,5 +308,5 @@ there.
    `collection_log` with `source='rotom-mcp'` and in `user_set_progress` recompute; a deck
    round-trip: import small PTCGL list → `decks include=[validate,pricing]` → `delete_deck`.
 3. Auth: request without `x-brain-key` → 401; with → 200.
-4. Deployment (separate phase): pm2 entry, nginx LAN `/rotom/mcp` + public `/rotom-mcp`
-   (Anthropic-IP allowlist + key-injection snippet), reboot-safe.
+4. Deployment (separate phase): process-manager entry, reverse-proxy routes for
+   `/mcp` (key-header auth, allowed-hosts env), reboot-safe.

@@ -5,7 +5,7 @@ import { Icon } from '../components/Icon'
 // Stream overlay (UI-SPEC §13.5 "Stream Tools"). A standalone, transparent-background
 // route meant to be added to OBS as a Browser Source:
 //
-//     http://localhost/deckscout/overlay          (LAN)
+//     http://localhost/deckscout/overlay           (local)
 //     http://127.0.0.1/deckscout/overlay          (same box)
 //
 // It polls the named collection-events feed (GET /collection/events?since=<last>)

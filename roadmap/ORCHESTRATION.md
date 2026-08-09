@@ -14,7 +14,7 @@ operational shape: branches, worktrees, review, and the merge protocol.
   `roadmap/plans/<branch>.md`. Plans state scope and gates; architecture
   internals are the subagent's judgment within the spec's contracts. House
   rules (`CLAUDE.md`, `AGENTS.md`) apply in every worktree.
-- Wave boundaries are checkpoints: write a short retro to a co-hosted app (what
+- Wave boundaries are checkpoints: write a short retro (what
   shipped, what the next wave really costs) and **get Chey's explicit go**
   before fanning out the next wave.
 
