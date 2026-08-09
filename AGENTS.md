@@ -15,6 +15,7 @@ deployed on Vercel + Supabase (cloud) or plain Postgres (self-host):
 | `apps/api` | `deckscout-api` | Express API (~49 endpoints); Vercel catch-all serverless function (cloud) or standalone (self-host) |
 | `apps/sync` | `deckscout-sync` | Catalog import, dex import, price ingest (GitHub Actions or local cron) |
 | `apps/web` | `deckscout-web` | React 19 + Vite + Tailwind 4 SPA |
+| `apps/images` | `deckscout-images` | Self-host image server (card art cache on local disk); cloud path uses Supabase Storage |
 | `apps/mcp` | `deckscout-mcp` | **rotom-mcp** -- MCP server (Wave 3 for cloud; available now for self-host) |
 | `packages/db` | `@deckscout/db` | Shared Postgres pool + numbered SQL migrations |
 
@@ -175,13 +176,17 @@ fix a UI bug. Infrastructure changes require the maintainer's explicit approval.
 
 ### B10 — Bug reports
 
-**Rule:** In-app bug reports write to a `bug_report` table in the database
-(per-user, with `user_id`). Screenshots are stored in Supabase Storage
-(`bug-reports/<id>/screenshot.jpg`). The workflow: reproduce, fix, verify in a
-real browser, resolve.
+**Rule (current — self-host):** In-app bug reports write to the filesystem
+(`issues/<id>/`) behind auth (the reverse proxy). The workflow: reproduce, fix,
+verify in a real browser, resolve.
 
-**Where enforced:** The `bug_report` table (migration 022) with RLS. GitHub
-Issues is used for project-level issue tracking.
+**Planned (cloud — Wave 2):** Bug reports will write to a `bug_report` table in
+the database (per-user, with `user_id` and RLS). Screenshots will be stored in
+Supabase Storage (`bug-reports/<id>/screenshot.jpg`). The table and its migration
+have not been created yet.
+
+**Where enforced:** `apps/api/src/routes/bugs.ts` for the current filesystem
+writer. GitHub Issues is used for project-level issue tracking.
 
 ---
 

@@ -38,7 +38,7 @@ pnpm install
 # Set the direct connection string
 export SUPABASE_DB_URL="postgresql://postgres:<password>@db.<project>.supabase.co:5432/postgres"
 
-# Build the db package and run all migrations (001-022)
+# Build the db package and run all migrations (001-021)
 pnpm --filter @deckscout/db build
 pnpm --filter @deckscout/db migrate
 
@@ -47,8 +47,8 @@ pnpm --filter @deckscout/db migrate:status
 ```
 
 Migrations 001-020 are platform-agnostic (any Postgres 15+). Migration 021 adds
-RLS policies and links `app_user` to `auth.users` (Supabase-specific). Migration
-022 adds the `bug_report` table with RLS.
+RLS policies and links `app_user` to `auth.users` (Supabase-specific; skipped
+automatically when `SUPABASE_MODE` is unset).
 
 ### 3. Set up the Storage bucket
 
