@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { api } from '../lib/api'
+import { supabase, isCloudMode } from '../lib/supabase'
 import { Content, Spinner, ErrorState } from '../components/ui'
 import { LevelRing } from '../components/LevelRing'
 import { CardImage } from '../components/CardImage'
@@ -61,8 +62,10 @@ const TABS = [
 ] as const
 
 export function Profile() {
+  const navigate = useNavigate()
   const overview = useQuery({ queryKey: ['insights', 'overview'], queryFn: ({ signal }) => api.overview(signal) })
   const owned = useOwnedCards()
+  const [signingOut, setSigningOut] = useState(false)
 
   const [showcase, setShowcase] = useState<ShowcasePick[]>(() => loadShowcase())
   const [picking, setPicking] = useState<number | null>(null)
@@ -125,6 +128,22 @@ export function Profile() {
             <span className="text-icon-muted" title="Account settings">
               <Icon name="gear" size={18} />
             </span>
+            {isCloudMode && (
+              <button
+                type="button"
+                disabled={signingOut}
+                onClick={async () => {
+                  setSigningOut(true)
+                  await supabase.auth.signOut()
+                  navigate({ to: '/auth' })
+                }}
+                className="ml-[4px] flex items-center gap-[6px] rounded-full bg-surface-tertiary px-[12px] py-[5px] text-[13px] font-semibold text-text-muted hover:bg-action-default-hover hover:text-text-body disabled:opacity-50"
+                title="Sign out"
+              >
+                <Icon name="logout" size={16} />
+                <span>Sign out</span>
+              </button>
+            )}
           </div>
         </div>
 

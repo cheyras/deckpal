@@ -42,6 +42,7 @@ export type IconName =
   | 'bug'
   | 'book'
   | 'history'
+  | 'logout'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   cards: (
@@ -246,6 +247,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M4.6 7.5A8.5 8.5 0 113.5 12" />
       <path d="M4 3.5v4.5h4.5" />
       <path d="M12 8v4.5l3 2" />
+    </>
+  ),
+  logout: (
+    <>
+      <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+      <path d="M16 17l5-5-5-5M21 12H9" />
     </>
   ),
 }
