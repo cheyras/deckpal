@@ -27,7 +27,7 @@ function emitRefresh(): void {
 }
 
 // iOS ITP evicts all script-writable storage + the SW after 7 days without user
-// interaction (FRONTEND.md §C.4). Home-Screen install and persistent-storage grant
+// interaction (wiki: Frontend-Research §C.4). Home-Screen install and persistent-storage grant
 // are the two documented escapes; we use both because neither is sufficient alone.
 // The brief asks for persist() on load, so we ask immediately; iOS grants it more
 // readily once running standalone, so we re-ask on the first standalone launch too.

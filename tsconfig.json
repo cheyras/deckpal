@@ -1,5 +1,5 @@
 {
-  "comment": "Base tsconfig. tsc is kept OUT of the runtime/deploy path (research/FRONTEND.md §9). `typecheck` is a separate script.",
+  "comment": "Base tsconfig. tsc is kept OUT of the runtime/deploy path (wiki: Frontend-Research §9). `typecheck` is a separate script.",
   "compilerOptions": {
     "target": "ES2022",
     "module": "Node16",

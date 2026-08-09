@@ -1,7 +1,7 @@
 // Pure, DB-free transforms for the Pokédex species import + card→species mapping.
 // Sources: vendored PokeAPI CSVs (data/pokeapi/, BSD-3, pinned SHA) and the compiled TCGdex
 // catalog (data/catalog/en/cards.json). Everything here is deterministic and unit-testable.
-// References: research/DEX-DATA.md (§A mapping, §B species), research/SCHEMA.md §10.
+// References: wiki: Dex-Data (§A mapping, §B species), research/SCHEMA.md §10.
 
 // ── minimal CSV parser (handles quoted fields + embedded commas/quotes) ──────
 export function parseCsv(text: string): string[][] {

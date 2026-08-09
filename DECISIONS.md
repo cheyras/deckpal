@@ -39,7 +39,7 @@ with a single default user.
 ---
 
 ## 2026-07-24 — Never run the self-hosted TCGdex API
-**Decided by:** lead agent, on measured evidence (`research/DATA-LAYER.md`).
+**Decided by:** lead agent, on measured evidence ([Data Layer wiki](https://github.com/cheyras/deckscout/wiki/Data-Layer)).
 **Decision:** We do **not** run `tcgdex/cards-database`'s API server, in any
 phase, even ad hoc. We extract the compiled catalog JSON from the published
 image (`docker save` streamed through `tar`, no container ever created) and
@@ -309,7 +309,7 @@ reload; delete the managed processes and persist the change.
   `docker-compose.arm64.yml`) vs a process manager + nginx (this box's actual
   convention). Leaning process-manager config + an nginx location block. This
   **changes a named deliverable**, so it is the user's call.
-- **Fork `pokecollector` vs build clean** — `PRIOR-ART.md` verdict is *borrow
+- **Fork `pokecollector` vs build clean** — [Prior Art wiki](https://github.com/cheyras/deckscout/wiki/Prior-Art) verdict is *borrow
   heavily, do not fork, build the shell clean*. Lead agent concurs; recorded
   here for user visibility rather than as an open question.
 - **Authenticated pkmn.gg capture session** — roughly half the open questions in
@@ -382,7 +382,7 @@ Recorded so they are not silently re-introduced later:
    special prints" (settings).
 4. **TCGdex has no batch price endpoint** — pricing is one HTTP request per
    card. This reshapes the sync design and promotes TCGCSV from "redundancy" to
-   a primary price path. Source: `PRIOR-ART.md`.
+   a primary price path. Source: [Prior Art wiki](https://github.com/cheyras/deckscout/wiki/Prior-Art).
 5. **TCGdex Cardmarket `*-holo` fields mean *reverse holo*, not holo finish.**
    Verified live on `swsh3-136`. Reading them literally ships wrong prices.
 6. **"Prefer forking pokecollector"** — verdict is *borrow, don't fork*; its
@@ -1011,7 +1011,7 @@ history is a separate, still-open decision.
    the LICENSE file).
 3. **Third-party names** — a co-hosted database name and role identifying a real person
    were replaced with generic labels across all files.
-4. **Infrastructure fingerprinting** — `BRIEF.md`'s exhaustive port inventory of the
+4. **Infrastructure fingerprinting** — the original [Project Brief](https://github.com/cheyras/deckscout/wiki/Project-Brief)'s exhaustive port inventory of the
    entire host was trimmed to DeckScout's own 3700-3709 block; SSO postmortem
    specifics (filesystem paths, uid, secret filenames) were reduced to the lesson only.
 5. **Dangling references** — all pointers to deleted files were updated across the tree

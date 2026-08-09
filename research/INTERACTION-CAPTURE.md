@@ -1,7 +1,7 @@
 # INTERACTION-CAPTURE.md — pkmn.gg live interaction pass
 
 > Second capture pass over **pkmn.gg**, run **signed out**, in one Chromium/Playwright session at a
-> time. This pass targets everything `UI-SPEC.md` marked **U** (undetermined): interaction states,
+> time. This pass targets everything [UI Spec](https://github.com/cheyras/deckscout/wiki/UI-Spec) marked **U** (undetermined): interaction states,
 > motion, overlays, the Table/Binder views, the card-detail Price tab, intermediate breakpoints, and
 > the collapsed sidebar / mobile drawer.
 >
@@ -117,7 +117,7 @@ The only elements with `backdrop-filter` on any captured page remain the ones th
 none of them belong to a dialog. `--overlay-scrim-strong` **is** used — but for the binder's empty
 pockets (§5), not for a modal.
 
-**Conclusion: `UI-SPEC.md` §3.13's modal/sheet spec stays an `I` proposal. There is nothing to
+**Conclusion: [UI Spec](https://github.com/cheyras/deckscout/wiki/UI-Spec) §3.13's modal/sheet spec stays an `I` proposal. There is nothing to
 measure it against.** That is now a *confirmed absence* rather than an unexplored gap.
 
 ## 4. View switcher — all three views rendered
@@ -323,7 +323,7 @@ for in-app data fetches after first paint.
 
 5. **Price-chart empty / insufficient-data state.** Every card × every range returned data.
 6. **Modal / dialog / bottom sheet.** Confirmed *not to exist* anywhere reachable signed out —
-   so `UI-SPEC.md` §3.13 remains our invention, now with the knowledge that we are inventing rather
+   so [UI Spec](https://github.com/cheyras/deckscout/wiki/UI-Spec) §3.13 remains our invention, now with the knowledge that we are inventing rather
    than failing to find.
 7. **Toast.** The copy-link button raised no toast in the capture; the primitives-gallery toast is
    still the only evidence.

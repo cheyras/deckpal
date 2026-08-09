@@ -2,7 +2,7 @@
 // (no layout shift). Un-warmed images resolve to a placeholder from the
 // image service, so the bg-surface-tertiary box IS the skeleton (UI-SPEC §3.22).
 //
-// Offline honesty (FRONTEND.md §C.5): art the user hasn't viewed isn't cached, so
+// Offline honesty (wiki: Frontend-Research §C.5): art the user hasn't viewed isn't cached, so
 // the request fails offline. On error we hide the <img> so the tertiary box reads
 // as the intended skeleton — a broken-image glyph would be the wrong story.
 import { useState } from 'react'

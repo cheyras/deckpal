@@ -1,5 +1,5 @@
 // Typed search params for the list detail page. Like the set page, sort/view/
-// ownership/query live in the URL (FRONTEND.md §A.5). `custom` sort = the list's
+// ownership/query live in the URL (wiki: Frontend-Research §A.5). `custom` sort = the list's
 // manual arrangement (list_item.position order).
 
 export type ListSortKey = 'custom' | 'number' | 'name' | 'rarity' | 'price' | 'artist' | 'released'

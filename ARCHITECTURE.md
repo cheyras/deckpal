@@ -11,15 +11,15 @@ where it was measured.
 
 | Document | What it settles |
 |---|---|
-| `research/DATA-LAYER.md` | Catalog ingest, prices, images, storage engine, sync jobs |
+| [Data Layer (wiki)](https://github.com/cheyras/deckscout/wiki/Data-Layer) | Catalog ingest, prices, images, storage engine, sync jobs |
 | `research/SCHEMA.md` | Tables, DDL, indexes |
 | `research/DECK-FORMATS.md` | Legality rules, PTCGL grammar, format data sources |
-| `research/DEX-DATA.md` | Species mapping, sprites, capture semantics |
+| [Dex Data (wiki)](https://github.com/cheyras/deckscout/wiki/Dex-Data) | Species mapping, sprites, capture semantics |
 | `research/BEHAVIOR-SPEC.md` | Product behavior -- the three goals, variants, lists |
 | `research/ROUTE-MAP.md` | URL structure / IA |
-| `UI-SPEC.md` | Design tokens, components, layout |
-| `research/FRONTEND.md` | Frontend stack + performance plan |
-| `PRIOR-ART.md` | What to borrow, what to avoid, license posture |
+| [UI Spec (wiki)](https://github.com/cheyras/deckscout/wiki/UI-Spec) | Design tokens, components, layout |
+| [Frontend Research (wiki)](https://github.com/cheyras/deckscout/wiki/Frontend-Research) | Frontend stack + performance plan |
+| [Prior Art (wiki)](https://github.com/cheyras/deckscout/wiki/Prior-Art) | What to borrow, what to avoid, license posture |
 | `DECISIONS.md` | Locked decisions + corrections to the original brief |
 
 ---
@@ -325,7 +325,7 @@ materialized into `user_set_progress`.
 
 ## 13. Frontend
 
-Built against `UI-SPEC.md`. Full rationale: `research/FRONTEND.md`.
+Built against [UI Spec (wiki)](https://github.com/cheyras/deckscout/wiki/UI-Spec). Full rationale: [Frontend Research (wiki)](https://github.com/cheyras/deckscout/wiki/Frontend-Research).
 
 **Stack:** React 19, TanStack Router, TanStack Query, TanStack Virtual, Vite,
 Tailwind 4. Charts via `d3-scale`/`d3-shape`; drag-and-drop via `@dnd-kit`

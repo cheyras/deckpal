@@ -6,7 +6,7 @@
 // dex tables: dex_species, dex_species_type, card_species, card_species_conflict. Reads `card`.
 // Does NOT touch price/catalog/collection/user_dex_state tables.
 //
-// Mapping rules (research/DEX-DATA.md §A, research/SCHEMA.md §10):
+// Mapping rules (wiki: Dex-Data §A, research/SCHEMA.md §10):
 //   • gate on category='Pokemon' (4 Trainers carry dexId — must NOT capture)
 //   • dexId is an ARRAY; map ALL ids (dexId[0] is unsafe on multi-species cards)
 //   • 66 cards with no dexId → name-normalisation fallback

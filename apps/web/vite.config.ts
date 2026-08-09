@@ -15,7 +15,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     // PWA — injectManifest (hand-written src/sw.ts) so we control the SSO
-    // JSON guard, network-only mutations, and the LRU image cap (FRONTEND.md §C.2).
+    // JSON guard, network-only mutations, and the LRU image cap (wiki: Frontend-Research §C.2).
     // start_url/scope inherit base ('/deckscout/'); the SW is emitted at
     // /deckscout/sw.js and can only control /deckscout/* — exactly the desired scope.
     VitePWA({

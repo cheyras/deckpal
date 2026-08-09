@@ -3,7 +3,7 @@ import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { CardRow } from '../lib/api'
 import { CardTile } from './CardTile'
 
-// Fluid grid + window virtualization (FRONTEND.md §B.2). ONE ResizeObserver is
+// Fluid grid + window virtualization (wiki: Frontend-Research §B.2). ONE ResizeObserver is
 // the source of truth for column count; we virtualize ROWS (row-major reading
 // order preserved), not lanes. Row height is computed arithmetically from the
 // measured tile width, so no per-item measurement is needed.

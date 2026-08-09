@@ -9,7 +9,7 @@ const { Pool } = pg;
  * 🔴 HARD_CAP 3 is PER-PROCESS — the cluster budget is 4 TOTAL (API 2 + sync
  * 1 + MCP 1; see DECISIONS.md 2026-07-29). Postgres on this box runs at
  * max_connections=20, 3 reserved, ~11 already used by co-hosted apps. See
- * DECISIONS.md 2026-07-24 (storage) and research/DATA-LAYER.md §6.5. Never
+ * DECISIONS.md 2026-07-24 (storage) and https://github.com/cheyras/deckscout/wiki/Data-Layer §6.5. Never
  * raise past 5 without re-checking headroom AND a Postgres restart (which
  * requires the user's permission).
  *
