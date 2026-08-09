@@ -12,9 +12,9 @@ import { buildServer } from './server.js';
  *
  * Streamable HTTP on 127.0.0.1:3704/mcp (stateless: fresh McpServer per
  * request via createMcpHandler), plus a plain unauthenticated GET /health for
- * pm2/nginx probes. nginx is the only ingress beyond localhost; /mcp is gated
- * by the x-brain-key shared secret (house convention — bare 401 on failure,
- * never WWW-Authenticate, which claude.ai would treat as an OAuth trigger).
+ * supervisor probes. The reverse proxy is the only ingress beyond localhost;
+ * /mcp is gated by the x-brain-key shared secret (bare 401 on failure, never
+ * WWW-Authenticate, which claude.ai would treat as an OAuth trigger).
  */
 
 // Hostname allowlist for DNS-rebinding protection (SPEC §2). host '0.0.0.0'
@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   }
 
   // Build-once context; includes the fatal SELECT 1 self-check and the
-  // default-user resolution. DB unreachable → exit 1 (pm2 restarts us).
+  // default-user resolution. DB unreachable → exit 1 (supervisor restarts us).
   let ctx: Ctx;
   try {
     ctx = await buildCtx();
@@ -86,8 +86,8 @@ async function main(): Promise<void> {
     })();
   });
 
-  // Auth BEFORE the MCP handler: x-brain-key header only (nginx injects it on
-  // the legacy deployment). OPTIONS passes (CORS preflight carries no custom headers).
+  // Auth BEFORE the MCP handler: x-brain-key header only (the reverse proxy can
+  // inject it). OPTIONS passes (CORS preflight carries no custom headers).
   // Failure → bare 401 body-less, deliberately WITHOUT WWW-Authenticate (SPEC
   // §2). Never log the supplied or expected key.
   const requireBrainKey: RequestHandler = (req, res, next) => {
@@ -125,17 +125,17 @@ async function main(): Promise<void> {
         .catch((err: unknown) => console.error(`[deckscout-mcp] pool end error: ${(err as Error).message}`))
         .finally(() => process.exit(0));
     });
-    // In-flight SSE streams can hold the server open; don't hang pm2 restarts.
+    // In-flight SSE streams can hold the server open; don't hang restarts.
     setTimeout(() => process.exit(0), 5_000).unref();
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
-// Under pm2 fork mode process.argv[1] is pm2's ProcessContainerFork.js wrapper,
-// not our entry, so an argv-only check never fires. pm2 exposes the real script
-// path in pm_exec_path; fall back to argv[1] for direct `node dist/index.js`
-// runs. (Copied from apps/api/src/index.ts.)
+// Under some process managers (fork mode) process.argv[1] is a wrapper, not our
+// entry, so an argv-only check never fires. pm_exec_path (if set) holds the real
+// script path; fall back to argv[1] for direct `node dist/index.js` runs.
+// (Copied from apps/api/src/index.ts.)
 const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
 const isMain = entryPath.endsWith('index.js') || entryPath.endsWith('index.ts');
 if (isMain) {

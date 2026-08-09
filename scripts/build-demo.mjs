@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Phase 2 capstone / offline proof.
-// Builds a self-contained HTML page for ONE set using ONLY Pi-local data:
+// Builds a self-contained HTML page for ONE set using ONLY local data:
 //   - card/variant/tier/price rows from the local pokedex Postgres
 //   - card art read from the local WebP cache, inlined as data: URIs
 // If this renders, nothing but the local DB + image cache produced it — which
@@ -94,7 +94,7 @@ const html = `<div class="wrap">
     </div>
   </header>
   <section class="prog">${bars}</section>
-  <p class="note">Every card, price and image on this page was produced <strong>entirely from the the original host's local Postgres and on-disk image cache</strong> — no network was touched to build it. ${cached}/${rows.length} cards show locally-cached art; ${priced}/${rows.length} carry a locally-stored price. Prices as of the last local sync.</p>
+  <p class="note">Every card, price and image on this page was produced <strong>entirely from local Postgres and the on-disk image cache</strong> — no network was touched to build it. ${cached}/${rows.length} cards show locally-cached art; ${priced}/${rows.length} carry a locally-stored price. Prices as of the last local sync.</p>
   <section class="grid">${tiles}</section>
   <footer class="ft">pokedex · self-hosted pkmn.gg clone · data © Nintendo/TPC/Creatures/GAME FREAK, cached for personal use · TCGdex (MIT) + TCGCSV</footer>
 </div>`;

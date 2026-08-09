@@ -7,7 +7,7 @@ merges; tool + SKILL design can start now). Dev server: none. Spec: §3 Wave 1 (
 2026-08-01: chat-driven, no server-side LLM).
 
 ## Mission
-Synthesis follows the a co-hosted app pattern: Claude in chat reads via MCP, writes back via MCP.
+Synthesis follows the established pattern: Claude in chat reads via MCP, writes back via MCP.
 The server's only intelligence is embedding (local ollama) and archetype normalization.
 
 ## Scope

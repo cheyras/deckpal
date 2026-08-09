@@ -189,7 +189,7 @@ served locally.
 ### 5. Configure a reverse proxy
 
 The API has no built-in authentication in self-host mode. Place a reverse proxy
-(e.g., nginx with the SSO gate, Caddy with SSO, or any auth-capable proxy) in front
+(e.g., nginx with an SSO gateway, Caddy with SSO, or any auth-capable proxy) in front
 of the API. See [`SECURITY.md`](SECURITY.md) for details.
 
 ### 6. Set up sync jobs

@@ -36,8 +36,8 @@ registerRoute(
   }),
 )
 
-// ── the SSO gate / non-JSON guard ─────────────────────────────────────────────────
-// On the public vhost an expired the SSO gate session turns an API fetch into a 302 to
+// ── SSO / non-JSON guard ─────────────────────────────────────────────────────
+// When behind an SSO proxy, an expired session turns an API fetch into a 302 to
 // an HTML login page. Never let that get written under an API cache key, or the app
 // "loads" forever while every query returns login HTML (FRONTEND.md §C.6).
 const jsonOnlyGuard = {

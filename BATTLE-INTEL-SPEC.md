@@ -15,7 +15,7 @@ Facts the source roadmap got wrong or didn't know. Do not re-litigate these; re-
 2. **holo-card.jsx is gone by choice.** The prototype from the source conversation was procedural art, not real scans; Chey elected not to preserve it. The foil track starts from this spec's description, not from code.
 3. **`battle_log` needs a deliberate schema decision for non-owned games** (migration 019): `deck_id` is NOT NULL and the row is anchored by a composite FK `(deck_id, deck_version) → deck_version`; format is only derivable through that snapshot, and `raw_log` is NOT NULL. Recommended resolution (W0's call, rationale required in the migration comments): keep one table; make `deck_id`/`deck_version` nullable together (`CHECK ((deck_id IS NULL) = (deck_version IS NULL))`), add nullable `format_code` FK for deckless rows, add `source`, and relax `raw_log` to nullable so simulated games can be events-only (no fake Live text).
 4. **`opponent_deck` is freetext.** `matchup_stats` needs canonical archetype labels before A2 writes structured fields — an archetype registry is W0 scope, not an afterthought.
-5. **Embedding infra already exists on this box.** pgvector 0.8.0 is available in the cluster (the `a co-hosted app` DB uses it with HNSW); `nomic-embed-text` is in local ollama (OpenAI-compatible `/v1/embeddings`). "Same approach as a co-hosted app" is literal: `CREATE EXTENSION vector` in the deckscout DB + ollama embeddings. No new infra, no GPU.
+5. **Embedding infra already exists.** pgvector 0.8.0 is available in the Postgres cluster with HNSW; `nomic-embed-text` is in local ollama (OpenAI-compatible `/v1/embeddings`). `CREATE EXTENSION vector` in the deckscout DB + ollama embeddings. No new infra, no GPU.
 6. **Postgres connection budget is 4** (api 2, sync 1, mcp 1) and it is a hard house rule. Any new sustained DB writer (sim runner, synthesis worker) either batches on an existing slot's cadence or needs Chey's explicit OK for +1. Ask at W0 merge, not mid-build.
 7. **Raw Live logs are richer than the parser consumes**: per-card draw reveals, mulligan reveals, shuffles — the deck owner's full hidden information is present. Consequences: (a) the B4 replay harness can validate hand contents, not just prizes/KOs; (b) the log format *defines* the hidden-info boundary for agent matches — the opponent-visible subset is exactly what a log shows about the other player.
 8. **Corpus reality: ~10 logs, 1 deck.** Phase-1 answers will say "n=4" — that's correct behavior, not a bug. Honesty about sample size is a standing constraint everywhere stats are reported.
@@ -53,7 +53,7 @@ Extend the pure parser to emit the full event stream. First task: an **event cen
 **Done:** all existing logs re-parse into event streams; unknown-line rate reported per log; CI-pure tests cover every event type with real log excerpts.
 
 **A2 · `feat/battle-synthesis`** (depends: W0; parallel with A1)
-**Chat-driven synthesis — no server-side LLM calls** (decided 2026-08-01; follows Chey's established a co-hosted app pattern: Claude in chat reads via MCP, synthesizes, writes back via MCP). Rotom grows a read tool `synthesis_queue` (logs missing narrative/structured fields; returns raw log + parsed output, paged) and a write tool `save_synthesis` (dry-run defaulted) accepting the ~150–300-word retrieval-oriented narrative + structured fields. On commit the server normalizes archetypes through the W0 registry and embeds the narrative via local ollama (`nomic-embed-text`) into `battle_memories`; `battle_search` later embeds query text through the same model. A `battle-synthesis` SKILL.md pins the narrative rubric so any session produces consistent output. Narratives carry the existing `ai_generated` metadata discipline. Backfill = Chey (or a scheduled session) runs the queue in chat.
+**Chat-driven synthesis — no server-side LLM calls** (decided 2026-08-01; follows the established pattern: Claude in chat reads via MCP, synthesizes, writes back via MCP). Rotom grows a read tool `synthesis_queue` (logs missing narrative/structured fields; returns raw log + parsed output, paged) and a write tool `save_synthesis` (dry-run defaulted) accepting the ~150–300-word retrieval-oriented narrative + structured fields. On commit the server normalizes archetypes through the W0 registry and embeds the narrative via local ollama (`nomic-embed-text`) into `battle_memories`; `battle_search` later embeds query text through the same model. A `battle-synthesis` SKILL.md pins the narrative rubric so any session produces consistent output. Narratives carry the existing `ai_generated` metadata discipline. Backfill = Chey (or a scheduled session) runs the queue in chat.
 **Done:** every stored log synthesized through the chat path with narrative, embedding, and canonical archetype fields; re-synthesis is idempotent.
 
 **B1 · `feat/engine-fork`** (depends: nothing)
@@ -131,7 +131,7 @@ B1 ── B2 ── B3 ──┬────┴── C2 (sim)      B1 needs no 
      └── E1 (foil/main — fully parallel, merges to main only on Chey's call)
 ```
 
-Wave boundaries are also **checkpoint boundaries** (source roadmap rule, kept): at each one, write a short retro to a co-hosted app — what shipped, what the next wave's real cost looks like — and get Chey's explicit go. The five-project shape of this roadmap is exactly the over-engineering pattern he watches for; the checkpoint is the guardrail.
+Wave boundaries are also **checkpoint boundaries** (source roadmap rule, kept): at each one, write a short retro — what shipped, what the next wave's real cost looks like — and get Chey's explicit go. The five-project shape of this roadmap is exactly the over-engineering pattern he watches for; the checkpoint is the guardrail.
 
 ## 5. Cross-cutting rules for the orchestrator
 
@@ -143,7 +143,7 @@ Wave boundaries are also **checkpoint boundaries** (source roadmap rule, kept): 
 - **CI purity:** engine/parser/DSL tests are pure (fixtures from real logs); live-DB tests stay out of CI.
 - **SKILL.md debt is real debt.** card-implementation, state-serialization, foil-effects, mask-pipeline — each ships with its feature, not after.
 - **House rules apply in every worktree:** connection budget (Ground Truth #6), never run the TCGdex API server, image cache is a contract, no shared-infra changes without Chey's OK, rtk-prefix every shell command.
-- **Deploy reality:** the app serves from this working tree via pm2. Feature branches in worktrees don't touch the live deployment; only merges to main followed by the documented build/restart do.
+- **Deploy reality:** the app serves from this working tree. Feature branches in worktrees don't touch the live deployment; only merges to main followed by the documented build/restart do.
 
 ## 6. Deliberately open (implementing agents' judgment)
 

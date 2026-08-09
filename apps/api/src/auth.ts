@@ -8,7 +8,7 @@ import type { Request, Response, NextFunction } from 'express';
  * authenticated user read `req.user!.id`.
  *
  * In self-host mode (no SUPABASE_JWT_SECRET set), the middleware is a no-op
- * and all routes behave as before (nginx/the SSO gate is the auth boundary).
+ * and all routes behave as before (the reverse proxy is the auth boundary).
  *
  * JWT verification uses HMAC-SHA256 (Supabase's default signing algorithm)
  * with the project's JWT secret. The middleware does NOT call Supabase's

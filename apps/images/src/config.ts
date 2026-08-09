@@ -6,7 +6,7 @@ import { loadEnv } from '@deckscout/db';
 loadEnv();
 
 // Walk up from this compiled file to the repo root (marked by pnpm-workspace.yaml),
-// so the paths are correct whether we run from dist/ (pm2) or src/ (tsx dev).
+// so the paths are correct whether we run from dist/ (production) or src/ (tsx dev).
 function repoRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 8; i++) {
@@ -20,8 +20,8 @@ function repoRoot(): string {
 
 /**
  * Image-service configuration. All values come from the repo .env (loaded above)
- * or pm2 env; the defaults here match ecosystem.config.cjs so a bare `tsx` run
- * behaves identically to the pm2-managed process.
+ * or process-manager env; the defaults here match the project conventions so a
+ * bare `tsx` run behaves identically to a managed process.
  */
 
 // On-disk cache root. Wired in .env + ecosystem.config.cjs as IMAGE_CACHE_ROOT.

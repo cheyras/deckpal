@@ -67,7 +67,7 @@ insightsRouter.get(
  * (user, observed_on, currency): a same-day re-run inserts nothing
  * (ON CONFLICT DO NOTHING) and reports inserted: 0. Returns the SnapshotResult.
  * Internal: called by the deckscout-sync `snapshot-collection` cron (127.0.0.1;
- * nginx/the SSO gate is the only external ingress). Any request body is ignored.
+ * the reverse proxy is the only external ingress). Any request body is ignored.
  */
 insightsRouter.post(
   '/value/snapshot',

@@ -15,7 +15,7 @@ export const collectionRouter: Router = Router();
  * materialised, invalidated on collection mutation). Idempotent: setting the same
  * quantity writes no event and just returns current state. Parameterized only.
  *
- * The single default user owns the collection (no auth; nginx/the SSO gate is the ingress).
+ * The single default user owns the collection (no auth in self-host; reverse proxy is the ingress).
  */
 
 interface VariantLookup {

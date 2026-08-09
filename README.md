@@ -109,9 +109,10 @@ Prerequisites: Node >= 20, pnpm >= 10, Postgres >= 15.
    node apps/api/dist/index.js
    ```
 
-6. **Configure a reverse proxy** with authentication (e.g., nginx + the SSO gate)
-   in front of the API. The API has no built-in auth in self-host mode -- the
-   proxy is the auth boundary. See [`SECURITY.md`](SECURITY.md).
+6. **Configure a reverse proxy** with authentication (e.g., nginx + an SSO
+   gateway, Caddy with auth) in front of the API. The API has no built-in auth
+   in self-host mode -- the proxy is the auth boundary. See
+   [`SECURITY.md`](SECURITY.md).
 
 Self-host deployments skip Supabase-specific migrations (021+) and use the
 `apps/images` Express server for card art instead of Supabase Storage.

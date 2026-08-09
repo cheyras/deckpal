@@ -1,5 +1,5 @@
 {
-  "comment": "Base tsconfig, mirrors /home/cheyras/the-original-host-api/tsconfig.json. tsc is kept OUT of the runtime/deploy path (research/FRONTEND.md §9): it is the memory hog on this box. `typecheck` is a separate script.",
+  "comment": "Base tsconfig. tsc is kept OUT of the runtime/deploy path (research/FRONTEND.md §9). `typecheck` is a separate script.",
   "compilerOptions": {
     "target": "ES2022",
     "module": "Node16",

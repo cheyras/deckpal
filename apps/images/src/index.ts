@@ -200,9 +200,9 @@ function servePlaceholder(res: Response, reason: 'miss' | 'bad-request'): void {
   res.end(PLACEHOLDER_WEBP);
 }
 
-// Under pm2 fork mode process.argv[1] is pm2's ProcessContainerFork.js wrapper, not
-// our entry, so an argv-only check never fires. pm2 exposes the real script path in
-// pm_exec_path; fall back to argv[1] for direct `node dist/index.js` runs.
+// Under some process managers (fork mode) process.argv[1] is a wrapper, not our
+// entry, so an argv-only check never fires. pm_exec_path (if set) holds the real
+// script path; fall back to argv[1] for direct `node dist/index.js` runs.
 const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
 const isMain = entryPath.endsWith('index.js') || entryPath.endsWith('index.ts');
 if (isMain) {

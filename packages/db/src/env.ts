@@ -17,7 +17,7 @@ export function loadEnv(): void {
   try {
     text = readFileSync(path, 'utf-8');
   } catch {
-    return; // .env is optional; env vars may be supplied by pm2/shell.
+    return; // .env is optional; env vars may be supplied by the process manager or shell.
   }
   for (const raw of text.split('\n')) {
     const line = raw.trim();

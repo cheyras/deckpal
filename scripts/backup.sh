@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # deckscout — one-command backup (BRIEF §5, DECISIONS.md 2026-07-24).
 #
-# Backs up EXACTLY two things, the only non-reproducible state on this box:
+# Backs up EXACTLY two things, the only non-reproducible state:
 #   1. the `pokedex` Postgres database  (pg_dump, custom/compressed format)
 #   2. the on-disk WebP image cache      (tar of cache/images)
 #
 # It does NOT back up:
 #   - the whole Postgres cluster or other co-hosted databases (dumps ONE database)
 #   - assets/sprites  (re-fetchable via scripts/fetch-sprites.sh — reproducible)
-#   - the git repo    (already in git/the legacy git host)
+#   - the git repo    (already in git)
 #
 # Output lands OUTSIDE the repo (default ~/deckscout-backups), in a timestamped
 # dir, so nothing backup-shaped is ever committed. Idempotent + safe to cron:

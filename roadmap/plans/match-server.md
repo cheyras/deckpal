@@ -23,7 +23,7 @@ chat-refereed mode and the board UI are both thin layers over this.
       illegal agent picks bounce back with the legality error (a confused agent can stall,
       never corrupt).
 - [ ] `matches` table: engine-serialized state, resumable across restarts (phone sessions get
-      interrupted — a match must survive a pm2 restart).
+      interrupted — a match must survive a process-manager restart).
 - [ ] Agent-turn brain: pluggable provider — Vercel AI Gateway or wrapped Claude Code CLI
       (Sonnet) for personal use. Decide in the design doc with Chey's ack; keep the interface
       swappable either way.

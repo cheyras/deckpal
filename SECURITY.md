@@ -42,7 +42,7 @@ Vercel environment variable and is never exposed to the client.
 ### Self-host deployment
 
 **Authentication:** The API has no built-in authentication. It is designed to
-sit behind a reverse proxy that handles auth (e.g., nginx + the SSO gate, Caddy
+sit behind a reverse proxy that handles auth (e.g., nginx + an SSO gateway, Caddy
 with SSO, or any auth-capable proxy). **Never expose the API directly to the
 internet** without a proxy -- doing so makes your entire collection readable
 and writable by anyone.
