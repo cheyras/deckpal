@@ -1,12 +1,13 @@
 # Large local-only directories — never upload to Vercel
-cache/
-assets/
-data/
-image-cache/
-extract/
-deploy/
-supabase/
-research/
+# Use /prefix to match root-only (avoid excluding apps/api/dist/deck/data/)
+/cache
+/assets
+/data
+/image-cache
+/extract
+/deploy
+/supabase
+/research
 *.dump
 *.tar
 *.log
