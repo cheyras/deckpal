@@ -1,111 +1,104 @@
-# DeckScout — a self-hosted TCG collection tracker
+# DeckScout
 
-A single-user, self-hosted clone of pkmn.gg: browse a full card catalog, track your
-collection across printings, see prices, a Pokédex, decks, a perceptual-hash card scanner,
-and completion goals. Built for Pokémon but the data model, image cache, and scanner are
-**game-agnostic** (see the `add-tcg` skill). Read this first, then the canonical docs below.
+**Read `AGENTS.md` first.** It contains the engineering contracts, verification
+standards, build commands, and DECISIONS.md protocol that apply to all contributors.
+Everything below is specific to **this deployment** on the original host (the original host) and
+is not portable to forks.
 
-## Architecture at a glance
+---
 
-pnpm monorepo. Five apps + a shared db package:
+## This deployment (the original host legacy deployment)
 
-| App | Port | What |
+### pm2 processes
+
+The app runs from this working tree (`~/pokedex`) — there is no separate release
+step. pm2 process names (note: still `pokedex-*` in pm2, not yet renamed to
+`deckscout-*`):
+
+| pm2 name | App | Port |
 |---|---|---|
-| `apps/api` (`deckscout-api`) | 3700 | Read API under `/deckscout/api/*` **and serves the built SPA** (`apps/web/dist`) |
-| `apps/images` (`deckscout-images`) | 3701 | Serves the local WebP art cache; disk-only (never proxies upstream) |
-| `apps/mcp` (`deckscout-mcp`) | 3704 | **rotom-mcp** — MCP server for Claude: collection/catalog/price/deck tools + attributed collection writes (see `apps/mcp/SPEC.md`) |
-| `apps/sync` (`deckscout-sync`) | cron | Catalog import, dex import, price ingest |
-| `apps/web` | — | React 19 + Vite + Tailwind 4 SPA (built, then served by `deckscout-api`) |
-| `packages/db` | — | Pool + migrations (`@deckscout/db`) |
+| `pokedex-api` | API + SPA | 3700 |
+| `pokedex-images` | Image server | 3701 |
+| `pokedex-mcp` | MCP server | 3704 |
+| `pokedex-sync` | Sync jobs | (cron) |
+| `legacy-dev-hub-legacy` | Dev hub | 3999 |
 
-Data lives in host **Postgres**, database `deckscout`. Runs behind nginx at `http://localhost/deckscout/`
-(LAN) and an the SSO gate-gated `https://example.invalid/deckscout/` (remote). Deployed via
-**pm2** (`pm2 list`). Canonical design: `ARCHITECTURE.md`; schema: `research/SCHEMA.md`.
+**Build / restart / save flow:**
 
-## Working here
+```bash
+# After changing an app:
+rtk pnpm --filter deckscout-<app> build
+rtk pm2 restart pokedex-<app>
+rtk pm2 save
+```
 
-- **`.env`** (gitignored) holds the Postgres creds + ports. Load it for any DB/script work:
-  `set -a && . ./.env && set +a` — then `psql -c "…"` uses it. Use absolute `./.env` from repo root.
-- **Build:** `rtk pnpm --filter deckscout-web build` (web) · `rtk pnpm --filter deckscout-api build`
-  (api) · similarly `deckscout-images`, `deckscout-sync`. Typecheck: `… exec tsc --noEmit`.
-- **Deploy** (this box): rebuild the changed app(s), then `rtk pm2 restart <name>` and
-  `rtk pm2 save`. The SPA is served by `deckscout-api`, so a **web** change needs a web build
-  (no restart) and an **api** change needs `pnpm --filter deckscout-api build && pm2 restart deckscout-api`.
-  Health: `curl -s http://127.0.0.1/deckscout/api/health`. The deployed app runs from **this
-  working tree** — there is no separate release step.
-- **Git:** commits go on `main`; upstream is the local the legacy git host —
-  `origin http://localhost:3000/cheyras/deckscout.git` (browse at `http://localhost/git/cheyras/deckscout`).
-  Push after committing; every push to main runs **CI** (`.github-legacy/workflows/ci.yml` on the
-  host-mode `the-original-host-pi` runner: typecheck all workspaces, pure deck/parser tests, api+mcp+web
-  builds — live-DB tests are deliberately excluded). Identity is automatic (`cheyras`).
-  `DECISIONS.md` is the running audit trail — **append a dated entry for any non-trivial
-  decision or gotcha**; it's the single most useful file here.
-- **Verify in a browser.** For any UI change, screenshot desktop + 390px and actually look.
-  Playwright is at `~/amazon-mcp/node_modules` (CommonJS: `const {chromium}=require('…/playwright')`);
-  one chromium at a time, `--no-sandbox --disable-dev-shm-usage`, close in `finally`. The box's
-  pre-existing `:9222` chromium is NOT yours.
+**SPA is served by the API.** A web-only change needs `pnpm --filter deckscout-web
+build` (no restart). An API change needs both its build and `pm2 restart pokedex-api`.
 
-## Dev hub (phone-first review of in-flight work)
+**Health check:** `curl -s http://127.0.0.1/deckscout/api/health`
 
-One LAN-only menu of every running dev surface: **http://localhost:3999** (or
-`http://10.0.0.1:3999` from devices without the Pi's DNS). Runs under pm2 as
-`deckscout-dev-hub-legacy` (`tools/dev-hub-legacy/`); Chey reviews worktree UI from his phone through it. A
-floating ◐ switcher is auto-injected into every Vite **dev** server (dev-only plugin in
-`apps/web/vite.config.ts`) to jump between surfaces; prod builds are untouched.
+### Git remote
 
-- **Add an entry when** you start a dev server Chey should be able to see — i.e. your branch
-  has a UI surface and the server is running LAN-visible (`vite --host --port <assigned
-  port>` — ports are **assigned** in `roadmap/ORCHESTRATION.md`, don't improvise):
+Origin is GitHub: `https://github.com/cheyras/deckscout.git`. the legacy git host
+(`localhost:3000`) is the CI mirror — `.github-legacy/workflows/ci.yml` runs on the
+`the-original-host-pi` host-mode runner. Pushes to GitHub are mirrored to the legacy git host, which
+triggers CI. Identity is automatic (`cheyras`).
+
+### Dev hub (phone-first review)
+
+LAN-only menu of running dev surfaces at `http://localhost:3999` (or
+`http://10.0.0.1:3999`). Runs under pm2 as `legacy-dev-hub-legacy`.
+
+- **Register** a dev surface when its server starts LAN-visible:
   ```bash
-  curl -s -X POST http://127.0.0.1:3999/register -H 'content-type: application/json' -d \
-    '{"branch":"foil/main","label":"Foil workbench","port":5182,
-      "pages":[{"name":"Workbench","path":"/deckscout/foil-lab"}]}'
+  curl -s -X POST http://127.0.0.1:3999/register -H 'content-type: application/json' \
+    -d '{"branch":"feat/foo","label":"Description","port":5182,
+         "pages":[{"name":"Page","path":"/deckscout/page"}]}'
   ```
-  Re-POST with the same `branch` to update (it upserts). List real pages, not every route.
-- **Remove an entry when** its dev server stops or the worktree is retired/merged — a menu
-  link that 404s from Chey's phone is worse than no link:
-  `curl -s -X POST http://127.0.0.1:3999/unregister -d '{"branch":"foil/main"}'`
-- Registry lives at `~/.deckscout-dev-hub-legacy/surfaces.json` (shared across worktrees, not in git);
-  the menu lists dev surfaces only (no prod entry — removed 2026-08-01). Don't register prod, backend-only branches, or
-  servers you're about to kill. LAN-only by construction — never add an nginx route to :3999.
+- **Unregister** when the server stops: `curl -s -X POST http://127.0.0.1:3999/unregister -d '{"branch":"feat/foo"}'`
+- Port assignments are in `roadmap/ORCHESTRATION.md` — don't improvise.
+- LAN-only by construction — never add an nginx route to :3999.
 
-## Hard rules & gotchas (learned the hard way — see DECISIONS.md)
+### Postgres
 
-- **Postgres connection budget is 4** (API 2, sync 1, mcp 1) — it shares the host cluster with
-  other apps. One-off scripts use **one** connection. Never raise the pool without re-checking headroom.
-- **NEVER run the TCGdex API server** (it loads all languages into RAM per worker and OOMs the
-  Pi). Extract its *compiled* JSON instead (`docker create` + `docker cp`, never `docker run`).
-- **Image cache is a contract.** Art lives at
-  `<IMAGE_CACHE_ROOT>/images/<lang>/<serie>/<set>/<localId>.<low|high>.webp` and set imagery at
-  `sets/<setId>/<logo|symbol>.webp` (see `apps/images/src/layout.ts`). A miss serves a ~1 KB
-  placeholder. The **cache dir is gitignored — never commit card art or bulk catalog dumps.**
-- **Every cached byte records its source.** `image_asset` (Postgres) is the cache manifest;
-  **bytes on disk with no row are a defect.** All writes go through the choke point
-  `apps/images/src/store.ts` — `putAsset({…, provenance})` writes the file *and* the row together,
-  and provenance is a **required** argument: `fromUrl(url)` for anything fetched,
-  `unknownProvenance('<why>')` (→ `source_url NULL`) only when the source genuinely can't be
-  established. **Never invent a plausible URL** — an honest blank beats a lie the manifest then
-  spreads. Never `writeFile`/`curl -o`/`cp` into the cache, and don't add loose fill scripts under
-  `scripts/`; add a command in `apps/images/src/`, where the contract lives. Verify with
-  `rtk pnpm --filter deckscout-images manifest:check` (exits non-zero on drift; manual/cron —
-  deliberately NOT in CI, which excludes live-DB work). Serving stays **disk-only**: a missing row
-  must never break a page. Backstory + the 1,970-orphan backfill: DECISIONS.md 2026-08-07.
-- **The scanner index is in-memory.** After `pnpm --filter deckscout-api scan:index`, you MUST
-  `pm2 restart deckscout-api` for new hashes to be live. Verify a known card self-matches at distance 0.
-- **Don't touch shared infra:** no nginx reloads, no other pm2 apps, no DB schema changes to
-  fix a UI bug. Changing nginx/the local DNS resolver/the SSO gate needs the user's OK.
-- **Secrets** are read at **runtime only**, never committed or logged.
-- **RTK:** prefix every shell command — and every `&&` segment — with `rtk` (per `~/.claude/CLAUDE.md`).
-  `rtk curl` summarizes JSON (write to a file + parse); it mangles `git commit` stdin (use `-F <file>` or `-m`).
+Load `.env` before any DB work: `set -a && . ./.env && set +a`
 
-## Canonical docs & skills
+Then `psql -c "..."` uses the creds automatically. Database name is `pokedex`
+(on-disk name not yet renamed to `deckscout`).
 
-- `ARCHITECTURE.md` — services, ports, cache/PWA/offline design.
-- `research/SCHEMA.md` — the data model (variant taxonomy, tier/goal derivation). `research/DATA-LAYER.md` — sources.
-- `DECISIONS.md` — dated audit trail of every decision, correction, and gotcha. **Start here when confused.**
-- `.claude/skills/add-tcg` — add/refresh **any** TCG (research sources → catalog → images → scan index).
-- `.claude/skills/fix-issues` — work the in-app bug-report queue in `issues/` (fix → verify in browser → resolve).
+### Playwright (browser verification)
 
-> Deployment specifics above (ports, `localhost`, pm2, the SSO gate) are for **this** legacy deployment
-> ("the original host", a the original host). A fork on other hardware keeps the app conventions and swaps
-> the deploy details.
+Playwright is installed at `~/amazon-mcp/node_modules` (a legacy deployment coincidence —
+contributors install it normally via npm). Use CommonJS require:
+
+```js
+const { chromium } = require('/home/cheyras/amazon-mcp/node_modules/playwright');
+```
+
+Flags: `--no-sandbox --disable-dev-shm-usage`. One browser at a time. Always close
+in a `finally` block. The box's pre-existing `:9222` chromium is **not yours** — do
+not connect to it.
+
+### RTK prefix
+
+`rtk` is the owner's local shell wrapper (Rust Token Killer). Prefix every shell
+command — and every `&&` segment — with `rtk`. It passes through unchanged for
+commands without a filter, so it is always safe. **Known gotcha:** `rtk` masked a
+fatal `git push` error once (DECISIONS.md 2026-08-01) — prefer plain `git push`
+for pushes. Contributors on their own machines do not need RTK.
+
+### Nginx / the SSO gate
+
+The app runs behind nginx at `/deckscout/` on both the LAN vhost (`the-original-host`) and
+the public vhost (`example.invalid`, the SSO gate-gated). **Do not reload
+nginx or modify the SSO gate config without the user's explicit permission** — six other
+pm2 services depend on them.
+
+### DECISIONS.md
+
+Append a dated entry for any non-trivial decision (see `AGENTS.md` for the format).
+
+### Secrets
+
+Secrets are read at runtime only, never committed or logged. The `.env` file is
+mode 600 and gitignored.
