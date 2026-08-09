@@ -16,14 +16,12 @@
   },
   "dependencies": {
     "@deckscout/db": "workspace:*",
-    "cors": "^2.8.5",
     "express": "^5.0.0",
     "helmet": "^8.0.0",
     "pdfkit": "^0.19.1",
     "pg": "^8.13.1"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.0",
     "@types/pdfkit": "^0.17.6",
