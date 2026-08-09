@@ -1,10 +1,7 @@
 # CI — every push to main (and any PR) must typecheck, pass the pure test
 # suites, and build all deployables.
 #
-# Mirrors the proven the legacy git host pipeline (.github-legacy/workflows/ci.yml), which runs the
-# same steps on the self-hosted the-original-host-pi (arm64, host mode) runner. This
-# workflow runs on GitHub-hosted ubuntu-latest instead — standard actions
-# only, nothing runner-specific carried over.
+# Runs on GitHub-hosted ubuntu-latest — standard actions only.
 #
 # Deliberately NOT run here:
 #   - test:collection (apps/api/src/__tests__) — those are live-DB integration
