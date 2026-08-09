@@ -1036,3 +1036,14 @@ private specifics are gone.
 **Discovered: the DeckScout rename was never deployed.** Current code mounts `/deckscout/*` (since the rename commit), but the live nginx fragments (`deploy/nginx-*-pokedex.conf`, included by absolute path from both vhosts) still route `/pokedex/*`, and the running pm2 processes are a pre-rename build serving `/pokedex/api` (verified: `:3700/pokedex/api/health` → 200, `/deckscout/api/health` → 404). **Restart hazard:** `dist/` on disk is now post-rename, so an unplanned pm2 restart/reboot would boot `/deckscout` code behind `/pokedex` nginx routes and take the app down. The cutover (edit conf fragments to `/deckscout/`, rebuild, restart all, nginx reload, re-install PWA on phone since the start URL changes) needs the user's OK per the shared-infra rule — deliberately NOT done in this pass. `.env` carries both `POKEDEX_*` (read by the running build) and `DECKSCOUT_*` (read by current code) until then.
 
 **Still open (user decisions):** history rewrite for the already-public pre-scrub commits; the Poké Ball/wordmark app icons; the nginx cutover above.
+
+## 2026-08-09 — /deckscout nginx cutover (user approved)
+
+Both vhost fragments now route `/deckscout/*` with a permanent `301` from legacy
+`/pokedex/*` (old bookmarks and the installed PWA redirect instead of breaking; the
+phone PWA should still be reinstalled so its start URL/scope move off the redirect).
+pm2 apps restarted on the post-rename build, nginx reloaded. Verified: API health 200
+via nginx, images health ok, MCP listening, SPA loads at desktop + 390px (screenshots
+reviewed). The restart hazard documented earlier today is closed. pm2 process names
+remain `pokedex-*` (cosmetic; rename them only in a quiet moment — `pm2 delete` +
+fresh `start` from ecosystem config, then `pm2 save`).
