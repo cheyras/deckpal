@@ -16,7 +16,7 @@
  * the API layer then requires playerName or an explicit result.
  *
  * Tolerance is the prime directive: unknown lines are skipped, sub-bullets
- * (`- …`, `   • …`) are folded in or ignored, curly apostrophes (cheyras’s) are
+ * (`- …`, `   • …`) are folded in or ignored, curly apostrophes (PlayerA’s) are
  * normalized, and the parser NEVER throws on arbitrary text — worst case it
  * returns the empty low-confidence shape.
  */
@@ -170,7 +170,7 @@ function parseInner(rawLog: string, deckCardNames: string[], playerName?: string
   if (names.length === 0) return out;
 
   // ── Pass 2: walk every line, attributing actions to their player ───────────
-  // Sub-actions ('- Robni16 evolved …' under Rare Candy) are real actions with a
+  // Sub-actions ('- PlayerB evolved …' under Rare Candy) are real actions with a
   // dash prefix; bullet card lists ('   • …') are ignored.
   let goesFirst: string | null = null;
   let winner: string | null = null;

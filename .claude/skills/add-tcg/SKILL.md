@@ -69,7 +69,7 @@ each candidate on:
 
 | Game | Catalog + images | Prices |
 |---|---|---|
-| **Pokémon** (reference) | TCGdex (compiled JSON) for catalog; pkmn.gg (`[redacted host]`) for art TCGdex lacks | TCGCSV (TCGplayer mirror), Cardmarket via TCGdex |
+| **Pokémon** (reference) | TCGdex (compiled JSON) for catalog; pkmn.gg (`api.tcg.gg`) for art TCGdex lacks | TCGCSV (TCGplayer mirror), Cardmarket via TCGdex |
 | **Magic: The Gathering** | **Scryfall** bulk data — catalog + images + prices in one, excellent IDs, CC0-ish data | Scryfall (USD/EUR/tix) |
 | **Yu-Gi-Oh!** | YGOPRODeck API (bulk cardinfo + images) | YGOPRODeck price fields |
 | **Lorcana / One Piece / Digimon** | community APIs / datasets (e.g. lorcana-api, an OP TCG API) — vet coverage carefully | often none; may be TCGplayer-derived |
@@ -174,7 +174,7 @@ most of them.
 2. **Primary source first, then fallback(s).** Try the catalog CDN (e.g. TCGdex
    `assets.tcgdex.net/<lang>/<serie>/<set>/<localId>/high.webp`). On a 404/miss, fall back to a
    secondary (for Pokémon: pkmn.gg's `assets.pkmn.gg` art, whose URLs come from
-   `[redacted host]/…/v1/card/<set>` — the JSON carries **signed** `largeImageUrl`(→high) +
+   `api.tcg.gg/…/v1/card/<set>` — the JSON carries **signed** `largeImageUrl`(→high) +
    `thumbImageUrl`(→low); the signature is in the URL so no auth on the download itself). See
    `apps/images/src/warmFromPkmn.ts` for the working fallback warmer.
 3. **Two resolutions.** `high` (detail view) and `low` (grid + the scanner). WebP.
