@@ -95,6 +95,26 @@ export async function migrateUp(pool: pg.Pool): Promise<MigrationResult[]> {
         results.push({ version: m.version, applied: false, checksum: m.checksum });
         continue;
       }
+      // ── Supabase preflight: clean orphaned app_user rows before 021 ────
+      // Migration 013 seeds an app_user row (the self-host default user).
+      // Migration 020 converts its id from BIGINT to a random UUID. On a
+      // fresh Supabase project that UUID has no matching auth.users entry, so
+      // 021's FK `app_user(id) REFERENCES auth.users(id)` would fail.
+      // Fix: delete any app_user rows whose id is not in auth.users.  The
+      // CASCADE on user_settings/user_profile cleans up the 1:1 children.
+      // This is safe on re-run (no-op when no orphans exist).
+      if (supabaseMode && m.version === '021_rls_policies') {
+        const { rowCount } = await client.query(`
+          DELETE FROM app_user
+           WHERE id NOT IN (SELECT id FROM auth.users)
+        `);
+        if (rowCount && rowCount > 0) {
+          console.log(
+            `  preflight: removed ${rowCount} orphaned app_user row(s) with no auth.users entry`,
+          );
+        }
+      }
+
       await client.query('BEGIN');
       try {
         await client.query(m.sql);

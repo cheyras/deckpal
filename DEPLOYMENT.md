@@ -38,7 +38,7 @@ pnpm install
 # Set the direct connection string
 export SUPABASE_DB_URL="postgresql://postgres:<password>@db.<project>.supabase.co:5432/postgres"
 
-# Build the db package and run all migrations (001-021)
+# Build the db package and run all migrations (001-024)
 pnpm --filter @deckscout/db build
 pnpm --filter @deckscout/db migrate
 
@@ -49,6 +49,14 @@ pnpm --filter @deckscout/db migrate:status
 Migrations 001-020 are platform-agnostic (any Postgres 15+). Migration 021 adds
 RLS policies and links `app_user` to `auth.users` (Supabase-specific; skipped
 automatically when `SUPABASE_MODE` is unset).
+
+> **Fresh-project note:** Migration 013 seeds a default `app_user` row for
+> self-host use. On a fresh Supabase project this row's UUID has no matching
+> `auth.users` entry, which would cause 021's foreign key to fail. The migration
+> runner detects this: when `SUPABASE_MODE` is set, it automatically deletes any
+> `app_user` rows with no `auth.users` match immediately before applying 021.
+> The Supabase signup trigger (created by 021) will create `app_user` rows for
+> real users going forward. No manual intervention is needed.
 
 ### 3. Set up the Storage bucket
 
