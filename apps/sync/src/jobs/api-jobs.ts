@@ -13,7 +13,7 @@ import { finishRun, tryLock, unlock, type Queryable } from '../prices/db.js';
 const TIMEOUT_MS = 120_000;
 
 function apiBase(): string {
-  return process.env.DECKSCOUT_API_BASE ?? 'http://127.0.0.1:3700/pokedex/api';
+  return process.env.DECKSCOUT_API_BASE ?? 'http://127.0.0.1:3700/deckscout/api';
 }
 
 type ApiJob = 'snapshot-collection' | 'reconcile';
