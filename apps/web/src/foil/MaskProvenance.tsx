@@ -201,7 +201,7 @@ export function MaskProvenanceLine({
                 Undo, byte-for-byte (archived at <code>{sup.archiveDir}</code>):
                 <br />
                 <code className="text-text-primary">
-                  pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts revert --run-id {sup.runId}
+                  pnpm --filter deckscout-api exec tsx src/foil/generate-masks.ts revert --run-id {sup.runId}
                 </code>
               </p>
             </div>
