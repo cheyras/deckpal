@@ -1,24 +1,24 @@
 Setup
 OppDelta chose tails for the opening coin flip.
-cheyras won the coin toss.
-cheyras decided to go first.
+PlayerA won the coin toss.
+PlayerA decided to go first.
 OppDelta drew 7 cards for the opening hand.
 - 7 drawn cards.
-cheyras drew 7 cards for the opening hand.
+PlayerA drew 7 cards for the opening hand.
 - 7 drawn cards.
    • Shuppet, Dhelmise, Basic Psychic Energy, Poké Pad, Shuppet, Poltchageist, Dhelmise
 OppDelta played Budew to the Active Spot.
-cheyras played Shuppet to the Active Spot.
-cheyras played Dhelmise to the Bench.
+PlayerA played Shuppet to the Active Spot.
+PlayerA played Dhelmise to the Bench.
 
-cheyras's Turn
-cheyras drew Switch.
-cheyras attached Basic Psychic Energy to Shuppet in the Active Spot.
-cheyras played Poké Pad.
-- cheyras drew Banette.
-- cheyras shuffled their deck.
-cheyras played Dhelmise to the Bench.
-cheyras ended their turn.
+PlayerA's Turn
+PlayerA drew Switch.
+PlayerA attached Basic Psychic Energy to Shuppet in the Active Spot.
+PlayerA played Poké Pad.
+- PlayerA drew Banette.
+- PlayerA shuffled their deck.
+PlayerA played Dhelmise to the Bench.
+PlayerA ended their turn.
 
 OppDelta's Turn
 OppDelta drew a card.
@@ -44,17 +44,17 @@ OppDelta attached Basic Fire Energy to Dreepy on the Bench.
 OppDelta played Poké Pad.
 - OppDelta drew Drakloak.
 - OppDelta shuffled their deck.
-OppDelta's Budew used Itchy Pollen on cheyras’s Shuppet for 10 damage.
+OppDelta's Budew used Itchy Pollen on PlayerA’s Shuppet for 10 damage.
 
-cheyras's Turn
-cheyras drew Secret Box.
-cheyras evolved Shuppet to Banette in the Active Spot.
-cheyras's Banette used Puppet Pull on OppDelta’s Budew for 80 damage.
-- cheyras drew Fezandipiti ex.
-- cheyras shuffled their deck.
+PlayerA's Turn
+PlayerA drew Secret Box.
+PlayerA evolved Shuppet to Banette in the Active Spot.
+PlayerA's Banette used Puppet Pull on OppDelta’s Budew for 80 damage.
+- PlayerA drew Fezandipiti ex.
+- PlayerA shuffled their deck.
 OppDelta's Budew was Knocked Out!
-cheyras took a Prize card.
-Banette was added to cheyras's hand.
+PlayerA took a Prize card.
+Banette was added to PlayerA's hand.
 OppDelta's Duskull is now in the Active Spot.
 
 OppDelta's Turn
@@ -79,45 +79,45 @@ OppDelta played Ultra Ball.
 OppDelta evolved Duskull to Dusclops in the Active Spot.
 OppDelta's Dusclops used Cursed Blast.
 - OppDelta put 5 damage counters on OppDelta's Dhelmise.
-cheyras's Banette used Hide 'n' Sneak.
+PlayerA's Banette used Hide 'n' Sneak.
 - Effects of Cursed Blast did not affect Banette.
 OppDelta's Dusclops was Knocked Out!
 Duskull was discarded from OppDelta's Dusclops.
-cheyras took a Prize card.
-Switch was added to cheyras's hand.
+PlayerA took a Prize card.
+Switch was added to PlayerA's hand.
 OppDelta's Drakloak is now in the Active Spot.
-OppDelta's Drakloak used Dragon Headbutt on cheyras’s Banette for 70 damage.
-cheyras's Banette was Knocked Out!
-- 2 cards were discarded from cheyras's Banette.
+OppDelta's Drakloak used Dragon Headbutt on PlayerA’s Banette for 70 damage.
+PlayerA's Banette was Knocked Out!
+- 2 cards were discarded from PlayerA's Banette.
    • Basic Psychic Energy, Shuppet
 OppDelta took a Prize card.
 A card was added to OppDelta's hand.
-cheyras's Dhelmise is now in the Active Spot.
+PlayerA's Dhelmise is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew Prism Tower.
-cheyras played Prism Tower to the Stadium spot.
-cheyras played Shuppet to the Bench.
-cheyras played Prism Tower.
-- cheyras discarded 2 cards.
+PlayerA's Turn
+PlayerA drew Prism Tower.
+PlayerA played Prism Tower to the Stadium spot.
+PlayerA played Shuppet to the Bench.
+PlayerA played Prism Tower.
+- PlayerA discarded 2 cards.
    • Poltchageist, Switch
-- cheyras drew Gwynn.
-cheyras played Fezandipiti ex to the Bench.
-cheyras's Fezandipiti ex used Flip the Script.
-- cheyras drew 3 cards.
+- PlayerA drew Gwynn.
+PlayerA played Fezandipiti ex to the Bench.
+PlayerA's Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
    • Night Stretcher, Buddy-Buddy Poffin, Basic Psychic Energy
-cheyras attached Basic Psychic Energy to Dhelmise in the Active Spot.
-cheyras played Secret Box.
-- cheyras discarded 3 cards.
+PlayerA attached Basic Psychic Energy to Dhelmise in the Active Spot.
+PlayerA played Secret Box.
+- PlayerA discarded 3 cards.
    • Buddy-Buddy Poffin, Gwynn, Night Stretcher
-- cheyras drew 4 cards.
+- PlayerA drew 4 cards.
    • Special Red Card, Air Balloon, Boss's Orders, Prism Tower
-- cheyras shuffled their deck.
-cheyras attached Air Balloon to Dhelmise in the Active Spot.
-cheyras retreated Dhelmise to the Bench.
-- Basic Psychic Energy was discarded from cheyras's Dhelmise.
-cheyras's Shuppet is now in the Active Spot.
-cheyras ended their turn.
+- PlayerA shuffled their deck.
+PlayerA attached Air Balloon to Dhelmise in the Active Spot.
+PlayerA retreated Dhelmise to the Bench.
+- Basic Psychic Energy was discarded from PlayerA's Dhelmise.
+PlayerA's Shuppet is now in the Active Spot.
+PlayerA ended their turn.
 
 OppDelta's Turn
 OppDelta drew a card.
@@ -132,19 +132,19 @@ OppDelta's Drakloak used Recon Directive.
 OppDelta evolved Drakloak to Dragapult ex in the Active Spot.
 OppDelta attached Basic Fire Energy to Drakloak on the Bench.
 OppDelta played Boss's Orders.
-- cheyras's Fezandipiti ex was switched with cheyras's Shuppet to become the Active Pokémon.
-cheyras's Fezandipiti ex is now in the Active Spot.
-OppDelta's Dragapult ex used Phantom Dive on cheyras’s Fezandipiti ex for 200 damage.
+- PlayerA's Fezandipiti ex was switched with PlayerA's Shuppet to become the Active Pokémon.
+PlayerA's Fezandipiti ex is now in the Active Spot.
+OppDelta's Dragapult ex used Phantom Dive on PlayerA’s Fezandipiti ex for 200 damage.
 - OppDelta put a damage counter on OppDelta's Dhelmise.
-cheyras's Shuppet used Hide 'n' Sneak.
+PlayerA's Shuppet used Hide 'n' Sneak.
 - Effects of Phantom Dive did not affect Shuppet.
 
-cheyras's Turn
-cheyras drew Lillie's Determination.
-cheyras played Switch.
-- cheyras's Shuppet was switched with cheyras's Fezandipiti ex to become the Active Pokémon.
-cheyras's Shuppet is now in the Active Spot.
-cheyras ended their turn.
+PlayerA's Turn
+PlayerA drew Lillie's Determination.
+PlayerA played Switch.
+- PlayerA's Shuppet was switched with PlayerA's Fezandipiti ex to become the Active Pokémon.
+PlayerA's Shuppet is now in the Active Spot.
+PlayerA ended their turn.
 
 OppDelta's Turn
 OppDelta drew a card.
@@ -155,42 +155,42 @@ OppDelta played Team Rocket's Watchtower to the Stadium spot.
 OppDelta's Drakloak used Recon Directive.
 - OppDelta drew a card.
 OppDelta played Munkidori to the Bench.
-OppDelta's Dragapult ex used Phantom Dive on cheyras’s Shuppet for 200 damage.
+OppDelta's Dragapult ex used Phantom Dive on PlayerA’s Shuppet for 200 damage.
 - OppDelta put 5 damage counters on OppDelta's Dhelmise.
 - OppDelta put a damage counter on OppDelta's Fezandipiti ex.
-cheyras's Shuppet was Knocked Out!
-cheyras's Fezandipiti ex was Knocked Out!
+PlayerA's Shuppet was Knocked Out!
+PlayerA's Fezandipiti ex was Knocked Out!
 OppDelta took 3 Prize cards.
 A card was added to OppDelta's hand.
 A card was added to OppDelta's hand.
 A card was added to OppDelta's hand.
-cheyras's Dhelmise is now in the Active Spot.
+PlayerA's Dhelmise is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew Night Stretcher.
-cheyras played Night Stretcher.
-- cheyras moved cheyras's Basic Psychic Energy to their hand.
-cheyras attached Basic Psychic Energy to Dhelmise in the Active Spot.
-cheyras's Dhelmise used Vengeful Anchor on OppDelta’s Dragapult ex for 170 damage.
+PlayerA's Turn
+PlayerA drew Night Stretcher.
+PlayerA played Night Stretcher.
+- PlayerA moved PlayerA's Basic Psychic Energy to their hand.
+PlayerA attached Basic Psychic Energy to Dhelmise in the Active Spot.
+PlayerA's Dhelmise used Vengeful Anchor on OppDelta’s Dragapult ex for 170 damage.
 - Damage breakdown:
    • Base damage: 30 damage
    • 4 discarded Pokémon: 140 damage
    • Total damage: 170 damage
 
 Handheld Fan was activated.
-- cheyras attached Basic Psychic Energy to Dhelmise on the Bench.
+- PlayerA attached Basic Psychic Energy to Dhelmise on the Bench.
 
 OppDelta's Turn
 OppDelta drew a card.
 OppDelta played Boss's Orders.
-- cheyras's Dhelmise was switched with cheyras's Dhelmise to become the Active Pokémon.
-cheyras's Dhelmise is now in the Active Spot.
-OppDelta's Dragapult ex used Phantom Dive on cheyras’s Dhelmise for 200 damage.
+- PlayerA's Dhelmise was switched with PlayerA's Dhelmise to become the Active Pokémon.
+PlayerA's Dhelmise is now in the Active Spot.
+OppDelta's Dragapult ex used Phantom Dive on PlayerA’s Dhelmise for 200 damage.
 - OppDelta put 6 damage counters on OppDelta's Dhelmise.
-cheyras's Dhelmise was Knocked Out!
-Basic Psychic Energy was discarded from cheyras's Dhelmise.
-cheyras's Dhelmise was Knocked Out!
-Air Balloon was discarded from cheyras's Dhelmise.
+PlayerA's Dhelmise was Knocked Out!
+Basic Psychic Energy was discarded from PlayerA's Dhelmise.
+PlayerA's Dhelmise was Knocked Out!
+Air Balloon was discarded from PlayerA's Dhelmise.
 OppDelta took 2 Prize cards.
 A card was added to OppDelta's hand.
 A card was added to OppDelta's hand.

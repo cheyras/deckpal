@@ -79,7 +79,7 @@ test('every taxonomy type is observed in the corpus (concede: synthesized — no
 test('event stream agrees with parseBattleLog on turns, prizes, KOs and result', () => {
   for (const f of REAL) {
     const raw = LOG.get(f)!;
-    const summary = parseBattleLog(raw, [], 'cheyras');
+    const summary = parseBattleLog(raw, [], 'PlayerA');
     const p = parse(f);
     assert.equal(p.turns, summary.totalTurns, `${f} turns`);
 
@@ -112,13 +112,13 @@ test('event stream agrees with parseBattleLog on turns, prizes, KOs and result',
 test('battle-10 setup: coin toss, go-first, opening hands, mulligans with reveals, bonus draw', () => {
   const p = parse('battle-10.txt');
   const [e1, e2, e3, e4, e5, e6, e7, e8] = p.events;
-  assert.deepEqual(e1, { seq: 1, turn: 0, actor: 'cheyras', type: 'coin_toss', payload: { call: 'tails' } });
+  assert.deepEqual(e1, { seq: 1, turn: 0, actor: 'PlayerA', type: 'coin_toss', payload: { call: 'tails' } });
   assert.deepEqual(e2, { seq: 2, turn: 0, actor: 'xTheWizardx', type: 'coin_toss', payload: { won: true } });
   assert.deepEqual(e3, { seq: 3, turn: 0, actor: 'xTheWizardx', type: 'go_first', payload: { order: 'second' } });
 
   // Owner's opening hand is fully revealed (hidden-info boundary, Ground Truth #7)…
   assert.equal(e4!.type, 'opening_hand');
-  assert.equal(e4!.actor, 'cheyras');
+  assert.equal(e4!.actor, 'PlayerA');
   const hand = (e4 as Extract<BattleEvent, { type: 'opening_hand' }>).payload;
   assert.equal(hand.count, 7);
   assert.equal(hand.cards!.length, 7);
@@ -138,7 +138,7 @@ test('battle-10 setup: coin toss, go-first, opening hands, mulligans with reveal
   assert.equal(m5.count, 5);
   assert.equal(m5.cards!.length, 28); // reveal groups 2–5, 7 cards each
   assert.deepEqual(e8, {
-    seq: 8, turn: 0, actor: 'cheyras', type: 'draw',
+    seq: 8, turn: 0, actor: 'PlayerA', type: 'draw',
     payload: { count: 5, reason: 'mulligan_bonus' },
   });
 });
@@ -155,7 +155,7 @@ test('battle-12 Dusk Raid: attack with weakness modifier and folded damage break
   assert.equal(atk.turn, 3);
   assert.deepEqual(atk.payload.attacker, { name: 'Mega Darkrai ex', ref: 'me5_116' });
   assert.equal(atk.payload.move, 'Dusk Raid');
-  assert.deepEqual(atk.payload.target, { player: 'cheyras', card: { name: 'Dhelmise', ref: 'me5_39' } });
+  assert.deepEqual(atk.payload.target, { player: 'PlayerA', card: { name: 'Dhelmise', ref: 'me5_39' } });
   assert.deepEqual(atk.payload.modifiers, [{ amount: 220, reason: 'Darkness Weakness' }]);
   assert.deepEqual(atk.payload.breakdown, [
     { label: 'Base damage', amount: 110 },
@@ -197,7 +197,7 @@ test('use_move covers both abilities and damage-less attacks (deliberately undis
 test("battle-12 Boss's Orders: gust becomes a switch event attributed via the trainer", () => {
   const p = parse('battle-12.txt');
   const sw = p.events.find((e): e is Extract<BattleEvent, { type: 'switch' }> => e.type === 'switch')!;
-  assert.equal(sw.actor, 'cheyras'); // owner of the switched board
+  assert.equal(sw.actor, 'PlayerA'); // owner of the switched board
   assert.deepEqual(sw.payload, {
     in: { name: 'Dhelmise', ref: 'me5_39' },
     out: { name: 'Poltchageist', ref: 'me5_5' },
@@ -209,11 +209,11 @@ test("battle-12 Boss's Orders: gust becomes a switch event attributed via the tr
 
 test('battle-12 retreat and Night Stretcher recovery', () => {
   const p = parse('battle-12.txt');
-  const ret = p.events.find((e): e is Extract<BattleEvent, { type: 'retreat' }> => e.type === 'retreat' && e.actor === 'cheyras')!;
+  const ret = p.events.find((e): e is Extract<BattleEvent, { type: 'retreat' }> => e.type === 'retreat' && e.actor === 'PlayerA')!;
   assert.deepEqual(ret.payload.card, { name: 'Sinistcha', ref: 'me5_6' });
   const mv = p.events.find((e): e is Extract<BattleEvent, { type: 'move_cards' }> => e.type === 'move_cards' && e.payload.to === 'hand')!;
   assert.deepEqual(mv.payload, {
-    to: 'hand', card: { name: 'Sinistcha', ref: 'me5_6' }, owner: 'cheyras', via: 'Night Stretcher',
+    to: 'hand', card: { name: 'Sinistcha', ref: 'me5_6' }, owner: 'PlayerA', via: 'Night Stretcher',
   });
 });
 
@@ -271,7 +271,7 @@ test('battle-04 Prism Tower re-use: opponent-controlled discard with owner and f
   const mv = p.events.find(
     (e): e is Extract<BattleEvent, { type: 'move_cards' }> => e.type === 'move_cards' && e.payload.to === 'discard',
   )!;
-  assert.equal(mv.actor, 'cheyras'); // cheyras chose the cards…
+  assert.equal(mv.actor, 'PlayerA'); // PlayerA chose the cards…
   assert.equal(mv.payload.owner, 'OppAlpha'); // …from OppAlpha's hand
   assert.equal(mv.payload.count, 2);
   assert.deepEqual(mv.payload.cards, [{ name: 'Rare Candy' }, { name: 'Froakie' }]);
@@ -283,12 +283,12 @@ test('battle-04 Prism Tower re-use: opponent-controlled discard with owner and f
 test('battle-12 KO sequence: knockout → tool discard → prize → hidden hand_add → promote', () => {
   const p = parse('battle-12.txt');
   const ko = p.events.find((e): e is Extract<BattleEvent, { type: 'knockout' }> => e.type === 'knockout')!;
-  assert.equal(ko.actor, 'cheyras'); // owner of the downed Dhelmise
+  assert.equal(ko.actor, 'PlayerA'); // owner of the downed Dhelmise
   assert.deepEqual(ko.payload.card, { name: 'Dhelmise', ref: 'me5_39' });
   const after = p.events.slice(ko.seq, ko.seq + 4); // seq is 1-based ⇒ slice from index ko.seq
   assert.equal(after[0]!.type, 'discard');
   assert.deepEqual((after[0] as Extract<BattleEvent, { type: 'discard' }>).payload.from, {
-    player: 'cheyras', card: { name: 'Dhelmise', ref: 'me5_39' },
+    player: 'PlayerA', card: { name: 'Dhelmise', ref: 'me5_39' },
   });
   assert.equal(after[1]!.type, 'prize_take');
   assert.deepEqual(after[1]!.payload, { count: 1 });
@@ -303,7 +303,7 @@ test('battle-08 named hand_add (own prize pickup is revealed)', () => {
   const add = p.events.find(
     (e): e is Extract<BattleEvent, { type: 'hand_add' }> => e.type === 'hand_add' && e.payload.card !== null,
   )!;
-  assert.equal(add.actor, 'cheyras');
+  assert.equal(add.actor, 'PlayerA');
   assert.deepEqual(add.payload.card, { name: 'Buddy-Buddy Poffin' });
 });
 
@@ -395,7 +395,7 @@ test('game_end reasons across the corpus: prizes, timeout, no_bench', () => {
     parse(f).events.find((e): e is Extract<BattleEvent, { type: 'game_end' }> => e.type === 'game_end')!;
 
   const prizes = end('battle-03.txt');
-  assert.deepEqual(prizes.payload, { winner: 'cheyras', reason: 'prizes' }); // 'All Prize cards taken.' carries no note
+  assert.deepEqual(prizes.payload, { winner: 'PlayerA', reason: 'prizes' }); // 'All Prize cards taken.' carries no note
 
   const oppPrizes = end('battle-12.txt');
   assert.equal(oppPrizes.payload.reason, 'prizes');
@@ -404,12 +404,12 @@ test('game_end reasons across the corpus: prizes, timeout, no_bench', () => {
 
   const timeout = end('battle-08.txt');
   assert.deepEqual(timeout.payload, {
-    winner: 'cheyras', reason: 'timeout', note: 'Opponent was inactive for too long.',
+    winner: 'PlayerA', reason: 'timeout', note: 'Opponent was inactive for too long.',
   });
 
   const noBench = end('battle-10.txt');
   assert.deepEqual(noBench.payload, {
-    winner: 'cheyras', reason: 'no_bench', note: 'No Benched Pokémon for backup.',
+    winner: 'PlayerA', reason: 'no_bench', note: 'No Benched Pokémon for backup.',
   });
 
   // KO-sweep phrasing still resolves to prizes (the sentence states prize completion).
