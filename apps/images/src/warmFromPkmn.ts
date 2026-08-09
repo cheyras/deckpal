@@ -11,7 +11,7 @@ import { fromUrl, isWebp, putAsset, sniffContentType } from './store.js';
  * warm:pkmn — fallback card-art warmer for cards the catalog CDN does not have.
  *
  * TCGdex lacks art for energy sets, promos, e-card, trainer kits and special
- * subsets — those 404 on assets.tcgdex.net. pkmn.gg (backend `[redacted host]/pkmn`)
+ * subsets — those 404 on assets.tcgdex.net. pkmn.gg (backend `api.tcg.gg/pkmn`)
  * has them: each card object carries `largeImageUrl` (→ high) and `thumbImageUrl`
  * (→ low), already WebP.
  *
@@ -29,7 +29,7 @@ import { fromUrl, isWebp, putAsset, sniffContentType } from './store.js';
  * never committed, never logged. Refresh tokens rotate, so run ONE consumer at a time.
  */
 
-const BASE = 'https://[redacted host]/pkmn';
+const BASE = 'https://api.tcg.gg/pkmn';
 const SESSION_PATH = process.env.PKMN_AUTH ?? join(homedir(), 'Transfer', 'pkmn-auth.json');
 
 interface Session {

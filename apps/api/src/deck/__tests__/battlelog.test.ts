@@ -5,17 +5,17 @@ import { fileURLToPath } from 'node:url';
 import { parseBattleLog } from '../battlelog.js';
 
 /**
- * Battle-log parser tests against a REAL PTCG Live log: cheyras's Hide 'n'
- * Sneak Dhelmise win vs Robni16's Dragapult ex / Dusknoir
+ * Battle-log parser tests against a REAL PTCG Live log: PlayerA's Hide 'n'
+ * Sneak Dhelmise win vs PlayerB's Dragapult ex / Dusknoir
  * (fixtures/battle-log-fixture.txt). Every expected value below was derived by
  * reading the fixture, not guessed:
  *   • 14 turn headers ("<name>'s Turn")
- *   • prizes: cheyras 1+2+1+2 = 6, Robni16 1×5 = 5
- *   • KOs of Robni16's mons: Dusknoir, Dragapult ex, Dreepy, Dragapult ex
- *   • KOs of cheyras's mons: Poltchageist, Banette, Dhelmise, Dhelmise, Banette
- *   • "Robni16 decided to go first." → wentFirst 'opponent'
+ *   • prizes: PlayerA 1+2+1+2 = 6, PlayerB 1×5 = 5
+ *   • KOs of PlayerB's mons: Dusknoir, Dragapult ex, Dreepy, Dragapult ex
+ *   • KOs of PlayerA's mons: Poltchageist, Banette, Dhelmise, Dhelmise, Banette
+ *   • "PlayerB decided to go first." → wentFirst 'opponent'
  *   • "All Prize cards taken. PlayerA wins." → result 'win'
- * The fixture also exercises the curly-apostrophe forms ("cheyras’s") that Live
+ * The fixture also exercises the curly-apostrophe forms ("PlayerA’s") that Live
  * emits inside attack lines.
  */
 
@@ -32,17 +32,17 @@ const DECK_NAMES = [
   'Telepathic Psychic Energy', 'Basic Psychic Energy',
 ];
 
-test('fixture: identifies cheyras as me with high confidence', () => {
+test('fixture: identifies PlayerA as me with high confidence', () => {
   const p = parseBattleLog(FIXTURE, DECK_NAMES);
-  assert.equal(p.players.me, 'cheyras');
-  assert.equal(p.players.opponent, 'Robni16');
+  assert.equal(p.players.me, 'PlayerA');
+  assert.equal(p.players.opponent, 'PlayerB');
   assert.equal(p.confidence, 'high');
 });
 
 test('fixture: result, turn order and turn count', () => {
   const p = parseBattleLog(FIXTURE, DECK_NAMES);
   assert.equal(p.result, 'win'); // "All Prize cards taken. PlayerA wins."
-  assert.equal(p.wentFirst, 'opponent'); // "Robni16 decided to go first."
+  assert.equal(p.wentFirst, 'opponent'); // "PlayerB decided to go first."
   assert.equal(p.totalTurns, 14);
 });
 
@@ -71,13 +71,13 @@ test('fixture: opponent deck guess leads with the rule-box terminal evolutions',
 
 test('explicit playerName overrides overlap scoring (case-insensitive)', () => {
   // Pretend the deck names match nothing — playerName alone must resolve "me".
-  const p = parseBattleLog(FIXTURE, ['Charizard ex'], 'CHEYRAS');
-  assert.equal(p.players.me, 'cheyras');
+  const p = parseBattleLog(FIXTURE, ['Charizard ex'], 'PLAYERA');
+  assert.equal(p.players.me, 'PlayerA');
   assert.equal(p.confidence, 'high');
   assert.equal(p.result, 'win');
   // …and naming the opponent flips every perspective-dependent field.
-  const q = parseBattleLog(FIXTURE, DECK_NAMES, 'Robni16');
-  assert.equal(q.players.me, 'Robni16');
+  const q = parseBattleLog(FIXTURE, DECK_NAMES, 'PlayerB');
+  assert.equal(q.players.me, 'PlayerB');
   assert.equal(q.result, 'loss');
   assert.equal(q.wentFirst, 'me');
   assert.deepEqual(q.prizesTaken, { me: 5, opponent: 6 });
@@ -138,7 +138,7 @@ test('a wins line never matches a non-player name from the sentence prefix', () 
 test('no win/concede line → result null (tie or truncated log)', () => {
   const truncated = FIXTURE.split('\n').slice(0, 100).join('\n');
   const p = parseBattleLog(truncated, DECK_NAMES);
-  assert.equal(p.players.me, 'cheyras');
+  assert.equal(p.players.me, 'PlayerA');
   assert.equal(p.result, null);
 });
 
