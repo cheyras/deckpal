@@ -10,7 +10,7 @@
  * @see https://vercel.com/docs/functions/runtimes/node-js
  */
 
-import { createApp } from '../apps/api/src/index.js';
+import { createApp } from '../apps/api/dist/index.js';
 
 const app = createApp();
 export default app;

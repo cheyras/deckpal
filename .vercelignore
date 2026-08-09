@@ -1,0 +1,19 @@
+# Large local-only directories — never upload to Vercel
+cache/
+assets/
+data/
+image-cache/
+extract/
+deploy/
+supabase/
+research/
+*.dump
+*.tar
+*.log
+*.jsonl
+*.webp
+*.avif
+.env
+.env.*
+!.env.example
+.owner-temp-password
