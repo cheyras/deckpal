@@ -1047,3 +1047,14 @@ via nginx, images health ok, MCP listening, SPA loads at desktop + 390px (screen
 reviewed). The restart hazard documented earlier today is closed. pm2 process names
 remain `pokedex-*` (cosmetic; rename them only in a quiet moment — `pm2 delete` +
 fresh `start` from ecosystem config, then `pm2 save`).
+
+## 2026-08-09 — Original app icons (user approved)
+
+The app/PWA icons reproduced a Poké Ball and the POKÉMON wordmark — the one
+trademark exposure in the repo. Replaced the full set (brand/pwa/maskable/
+apple-touch/favicons) with original artwork (fanned generic cards + scout
+magnifier, amber-on-slate), rendered from SVG sources committed next to the
+PNGs. `ICONS-NOTICE.md` documents provenance, mirroring `ENERGY-ICONS-NOTICE.md`.
+The in-app header wordmark ("Pokédex") also became "DeckScout" (the sidebar
+Pokédex nav item keeps its name — it's the dex feature). Verified in-browser at
+desktop + 390px after a web rebuild.
