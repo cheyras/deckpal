@@ -1,5 +1,5 @@
 // Typed search params for the set page. Filter/sort/goal/view/ownership state
-// lives in the URL (a deliberate divergence from pkmn.gg — FRONTEND.md §A.5).
+// lives in the URL (a deliberate divergence from pkmn.gg — wiki: Frontend-Research §A.5).
 // Defaults are stripped so the canonical URL stays clean.
 
 export type SortKey = 'number' | 'name' | 'rarity' | 'price' | 'artist'

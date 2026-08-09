@@ -10,11 +10,11 @@ import type { Queryable } from './prices/db.js';
 // reconcile call deckscout-api's internal endpoints over HTTP (jobs/api-jobs.ts — sync must
 // not import apps/api, whose db.ts opens its own 2-connection pool at module load).
 // catalog / images / products-tcgcsv remain MANUAL per the sync runbook and fire as
-// logging stubs. Cadences and the job list come from research/DATA-LAYER.md §7.2 and the
+// logging stubs. Cadences and the job list come from wiki: Data-Layer §7.2 and the
 // sync_run.job CHECK. Run any real job once by hand: `pnpm --filter deckscout-sync run-once <job>`.
 loadEnv();
 
-// Connection budget: the sync process gets 1 of the 3 total. DATA-LAYER §6.5.
+// Connection budget: the sync process gets 1 of the 3 total. wiki: Data-Layer §6.5.
 const pool = makePool(Number(process.env.PGPOOL_MAX_SYNC ?? 1));
 
 type JobName =
@@ -26,7 +26,7 @@ type JobName =
   | 'snapshot-collection'
   | 'reconcile';
 
-// cron cadences (local time unless noted); DATA-LAYER §7.2.
+// cron cadences (local time unless noted); wiki: Data-Layer §7.2.
 const SCHEDULE: Record<JobName, string> = {
   catalog: '30 4 * * 0', // weekly, Sun 04:30 (after the JFF timer at 03:00)
   images: '0 5 * * 0', // triggered by catalog; placeholder weekly slot

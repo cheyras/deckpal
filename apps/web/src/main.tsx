@@ -97,7 +97,7 @@ const setDetailRoute = createRoute({
   path: '/series/$series/$set',
   validateSearch: validateCardSearch,
   // Keep default-valued params OUT of the URL (clean canonical URL); carry the
-  // chosen view across navigations. FRONTEND.md §A.5.
+  // chosen view across navigations. wiki: Frontend-Research §A.5.
   search: {
     middlewares: [retainSearchParams(['view']), stripSearchParams(CARD_SEARCH_DEFAULTS)],
   },

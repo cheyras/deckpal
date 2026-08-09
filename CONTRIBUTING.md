@@ -108,6 +108,20 @@ Before marking a PR ready for review:
 - [ ] `DECISIONS.md` entry added if the change involves a non-trivial decision
 - [ ] `research/SCHEMA.md` updated if the schema changed
 
+## Attribution
+
+DeckScout tracks whether a contribution came from a human or an agent, and
+which human each agent worked on behalf of.
+
+- **Agent-authored commits** (repo and wiki) carry two trailers:
+  - `On-Behalf-Of: @<github-handle>` -- the human the agent works for.
+  - `Co-Authored-By: <agent model> <noreply@anthropic.com>` -- the agent.
+- **Human contributors'** own commits carry no `On-Behalf-Of` trailer. The
+  absence of that trailer means the commit is directly human-authored.
+- **Wiki page footers** name the last agent + human pair that updated the page.
+- The wiki [Contribution Record](https://github.com/cheyras/deckscout/wiki/Contribution-Record)
+  is the running ledger -- agents append one line per work session.
+
 ## Code of Conduct
 
 This project follows the [Contributor Covenant v2.1](CODE_OF_CONDUCT.md).

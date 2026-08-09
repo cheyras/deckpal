@@ -82,7 +82,7 @@ other games, download the bulk JSON. Extraction ≠ running the service.
 
 ### Step 2 — Map the source to the schema
 
-Read `research/SCHEMA.md` and `research/DATA-LAYER.md`, then write a mapping from the source's
+Read `research/SCHEMA.md` and `wiki: Data-Layer (https://github.com/cheyras/deckscout/wiki/Data-Layer)`, then write a mapping from the source's
 fields to the tables above. Decisions you'll make per game:
 
 - **Variant/printing model.** Enumerate the game's printings and map each to a `variant_kind`
@@ -293,7 +293,7 @@ keep game-specific specifics in the game's runbook / the slot's `image-slots.md`
 ## Canonical references in this repo
 
 - `research/SCHEMA.md` — the data model (read before mapping).
-- `research/DATA-LAYER.md` — source-field → schema details, price/id coverage.
+- `wiki: Data-Layer (https://github.com/cheyras/deckscout/wiki/Data-Layer)` — source-field → schema details, price/id coverage.
 - `ARCHITECTURE.md` — services, ports, the image cache design.
 - The Pokémon-specific sync runbook (per-release procedure, the pkmn.gg
   API map, the image-fallback flow) — the concrete instance of this skill.

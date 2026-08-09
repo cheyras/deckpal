@@ -1,6 +1,6 @@
 // Pure, DB-free transforms for the TCGdex catalog import.
 // Everything here is a deterministic function of the compiled-JSON card/set/series
-// shapes (research/DATA-LAYER.md §3), so it can be unit-tested without a database.
+// shapes (wiki: Data-Layer §3), so it can be unit-tested without a database.
 // SCHEMA references are to research/SCHEMA.md.
 
 export const TIER_RULE_VERSION = 3;

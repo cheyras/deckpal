@@ -2,9 +2,9 @@
 // deckscout service worker (vite-plugin-pwa, injectManifest strategy).
 //
 // Sub-path scope: this file is emitted to /deckscout/sw.js, so it can only ever
-// control /deckscout/* — exactly what we want (FRONTEND.md §A.6). Do NOT widen it.
+// control /deckscout/* — exactly what we want (wiki: Frontend-Research §A.6). Do NOT widen it.
 //
-// Caching model (FRONTEND.md §C.2, tiered offline §C.5):
+// Caching model (wiki: Frontend-Research §C.2, tiered offline §C.5):
 //   Tier 0 — app shell (precache, self.__WB_MANIFEST): index.html + hashed JS/CSS
 //            + fonts + icons. Always available offline.
 //   Tier 1 — visited card/set art: CacheFirst, LRU-capped at 2000 entries.
@@ -28,7 +28,7 @@ cleanupOutdatedCaches()
 // Any client-route navigation (e.g. /deckscout/series/base/base1) resolves to the
 // precached shell so deep links + offline reloads render. API and image paths are
 // denylisted so a 404 there surfaces as a 404, never as a silently-served HTML
-// shell (the "JSON.parse: unexpected token <" class of bug — FRONTEND.md §C.2).
+// shell (the "JSON.parse: unexpected token <" class of bug — wiki: Frontend-Research §C.2).
 const shellHandler = createHandlerBoundToURL('/deckscout/index.html')
 registerRoute(
   new NavigationRoute(shellHandler, {
@@ -39,7 +39,7 @@ registerRoute(
 // ── SSO / non-JSON guard ─────────────────────────────────────────────────────
 // When behind an SSO proxy, an expired session turns an API fetch into a 302 to
 // an HTML login page. Never let that get written under an API cache key, or the app
-// "loads" forever while every query returns login HTML (FRONTEND.md §C.6).
+// "loads" forever while every query returns login HTML (wiki: Frontend-Research §C.6).
 const jsonOnlyGuard = {
   cacheWillUpdate: async ({ response }: { response: Response }): Promise<Response | null> => {
     if (!response || response.status !== 200 || response.redirected) return null
@@ -87,7 +87,7 @@ registerRoute(
   }),
 )
 
-// ── Update flow: registerType 'prompt' (FRONTEND.md §C.2) ──────────────────────
+// ── Update flow: registerType 'prompt' (wiki: Frontend-Research §C.2) ──────────────────────
 // The app posts SKIP_WAITING when the user accepts the update toast; until then we
 // never swap the SW mid-session (this app holds significant filter/scroll state).
 self.addEventListener('message', (event) => {

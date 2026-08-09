@@ -1,5 +1,5 @@
 /**
- * playable_fingerprint — reprint-equivalence hash. PRIOR-ART.md §3 item 4,
+ * playable_fingerprint — reprint-equivalence hash. wiki: Prior-Art §3 item 4,
  * DECK-FORMATS §2.1.5.
  *
  * SHA-256 over a canonically-serialised, whitespace/case-normalised payload of a

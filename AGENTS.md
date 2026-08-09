@@ -231,11 +231,64 @@ Start here when something does not make sense. The answer is usually already log
 | `ARCHITECTURE.md` | Target architecture, RLS model, storage design, sync design |
 | `DEPLOYMENT.md` | Deploy-your-own runbook (Vercel + Supabase) and self-host setup |
 | `research/SCHEMA.md` | Data model (variant taxonomy, tier/goal derivation) |
-| `research/DATA-LAYER.md` | Data sources, sync strategy |
+| [Wiki: Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) | Data sources, sync strategy |
 | `DECISIONS.md` | Dated audit trail of every decision and correction |
 | `apps/mcp/SPEC.md` | MCP server specification (rotom-mcp) |
 | `SECURITY.md` | Security model and disclosure policy |
 | `CONTRIBUTING.md` | Human contributor onboarding |
+
+## Wiki (the LLM knowledge base)
+
+The project wiki at <https://github.com/cheyras/deckscout/wiki> holds design
+research and deep-dive documentation. It is cloned locally at
+`~/deckscout.wiki`. If absent, clone it:
+
+```bash
+git clone https://github.com/cheyras/deckscout.wiki.git ~/deckscout.wiki
+```
+
+**Wiki maintenance is part of done.** After any non-trivial task:
+
+1. Update the relevant wiki page(s) if the task changed design, architecture,
+   or research findings covered by the wiki.
+2. If you appended an entry to `DECISIONS.md`, sync the
+   [Decision Log](https://github.com/cheyras/deckscout/wiki/Decision-Log)
+   wiki page with the new entry.
+3. Update the page footer: `_Last updated by <agent> on behalf of @<handle> -- <date>_`
+4. Commit and push the wiki repo with the same trailer conventions as the main
+   repo (see Attribution below).
+
+Wiki pages:
+
+| Page | What it covers |
+|---|---|
+| [Home](https://github.com/cheyras/deckscout/wiki) | Index of all wiki pages |
+| [Architecture](https://github.com/cheyras/deckscout/wiki/Architecture) | Architecture deep dives (canonical copy: repo `ARCHITECTURE.md`) |
+| [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) | Catalog ingest, prices, images, storage engine, sync jobs |
+| [Frontend Research](https://github.com/cheyras/deckscout/wiki/Frontend-Research) | Frontend stack, virtualization, image delivery, offline/PWA |
+| [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) | Species mapping, sprites, capture semantics |
+| [UI Spec](https://github.com/cheyras/deckscout/wiki/UI-Spec) | Design tokens, components, layout measurements |
+| [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) | Prior art analysis and license landscape |
+| [Project Brief](https://github.com/cheyras/deckscout/wiki/Project-Brief) | Original mission brief (historical) |
+| [Decision Log](https://github.com/cheyras/deckscout/wiki/Decision-Log) | Snapshot of DECISIONS.md |
+| [Contribution Record](https://github.com/cheyras/deckscout/wiki/Contribution-Record) | Attribution ledger |
+
+## Attribution
+
+Every agent-authored commit (repo **and** wiki) carries two trailers:
+
+1. `On-Behalf-Of: @<github-handle>` -- the human the agent works for.
+2. `Co-Authored-By: <agent model> <noreply@anthropic.com>` -- the agent.
+
+Human contributors' own commits carry no `On-Behalf-Of` trailer. The absence
+of that trailer means the commit is directly human-authored.
+
+Wiki page footers name the last agent + human pair:
+`_Last updated by <agent> on behalf of @<handle> -- <date>_`
+
+The wiki [Contribution Record](https://github.com/cheyras/deckscout/wiki/Contribution-Record)
+is the running ledger. Agents append one line per work session:
+`| <date> | <agent> | @<handle> | <what> |`
 
 ## Skills (`.claude/skills/`)
 

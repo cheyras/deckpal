@@ -16,7 +16,7 @@ const REGION = ['National', 'Kanto', 'Johto', 'Hoenn', 'Sinnoh', 'Unova', 'Kalos
 
 const OWN_LABEL: Record<Own, string> = { all: 'All', captured: 'Captured', uncaptured: 'Uncaptured' }
 
-// Virtualized species grid (FRONTEND.md §B.2/§B.3.5: virtualize the 1025-species
+// Virtualized species grid (wiki: Frontend-Research §B.2/§B.3.5: virtualize the 1025-species
 // grid; sprites are the phone-killer if all rendered at once). One ResizeObserver
 // drives the column count; rows are virtualized, row-major order preserved.
 const GAP = 16

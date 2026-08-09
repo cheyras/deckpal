@@ -50,7 +50,7 @@ A wrong **[D]** is worse than an honest **[I]**. Where I could not verify, §7 s
 
 > **Note on C1/C2 licensing.** Neither repo carries a licence, so we vendor nothing from them. The
 > deck-list text they contain is a functional data format, not their creative work, and I quote a
-> handful of lines as evidence of that format — the same posture `PRIOR-ART.md` takes toward
+> handful of lines as evidence of that format — the same posture [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) takes toward
 > `Trust1509/pokecollect`. **Do not ship any file from these repos.**
 
 ### 0.3 Corrections to `BEHAVIOR-SPEC.md` §8
@@ -548,7 +548,7 @@ massentry_line = count , SP , name , [ SP , "[" , setcode , "]" , [ SP , number 
 | Purpose | play the deck | **buy** the deck |
 
 ⇒ **Three set-code namespaces, not two:** PTCGL, TCGplayer, TCGdex. `ptcgl_set_alias` must therefore
-carry a `tcgplayer_abbrev` column too (obtainable from TCGCSV's group data, which `PRIOR-ART.md` §7
+carry a `tcgplayer_abbrev` column too (obtainable from TCGCSV's group data, which [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §7
 already recommends as our price feed — its `groups` endpoint carries the abbreviation). Mass Entry
 is what the `Purchase Deck` / `Purchase Missing Cards` buttons (`BEHAVIOR-SPEC.md` §8.6, §9.7)
 generate; PTCGL export is what `Export to PTCGLive` generates. **Do not share a formatter.**
@@ -644,7 +644,7 @@ S1 also gives the functional-identity test verbatim, which is worth pinning as a
 > Energy (TR, 17) are not functionally identical, as the former 'put[s] 1 damage counter' while the
 > latter 'does 10 damage'."*
 
-⇒ **This is exactly what `playable_fingerprint` (`PRIOR-ART.md` §3 item 4) computes.** Implement
+⇒ **This is exactly what `playable_fingerprint` ([Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §3 item 4) computes.** Implement
 Standard legality as:
 
 ```
@@ -938,7 +938,7 @@ data/formats/
 | J4 | **GLC ban list** | S7 `gymleaderchallenge.com/ban-list` | Squarespace `<li>Name (Set, num) Effective Mon. D, YYYY</li>` | **weekly** | propose diff | Squarespace redesigns break selectors; assert ≥10 rows parse or fail loudly |
 | J5 | **GLC rules + FAQ** | S6, S8, S9 | prose | **quarterly**, human reads the diff | manual | — |
 | J6 | **Set alias table** | `limitlesstcg.com/cards` + TCGdex `sets` (§1.7.2) | HTML table + GraphQL | **monthly** and on any import miss | append proposals only; never rewrite an existing mapping | if the join rate drops below 90%, alert |
-| J7 | **Card marks / legality cross-check** | TCGdex GraphQL, one query per set | JSON | rides the existing catalogue sync (`PRIOR-ART.md` §3 item 8) | store `regulationMark`; diff `legal.standard` vs our computed value and log divergences | — |
+| J7 | **Card marks / legality cross-check** | TCGdex GraphQL, one query per set | JSON | rides the existing catalogue sync ([Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §3 item 8) | store `regulationMark`; diff `legal.standard` vs our computed value and log divergences | — |
 
 **Failure posture for every job:** last-known-good vendored file wins. A failed sync must never
 change a legality answer. Record `formats.checked_at`; if it is more than 30 days stale, the deck
@@ -992,7 +992,7 @@ for each distinct normalized_name n where n ∉ BASIC_ENERGY_NAMES:
 "2 and 2, fine"; a per-name counter says "exactly at the cap." Add a third copy of either and the
 deck is illegal.
 
-**Why the fingerprint matters here too:** `PRIOR-ART.md` §3 item 4 is right that
+**Why the fingerprint matters here too:** [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §3 item 4 is right that
 `playable_fingerprint` is the primitive — but note the two are *not* the same key.
 Name-equality is the **legal** rule; fingerprint-equality is a **stricter** relation (same name AND
 same text). Use **name** for the 4-copy cap and **fingerprint** for reprint-legality propagation and
@@ -1193,7 +1193,7 @@ not Basics — they may not be placed as an Active Pokémon and do **not** preve
 
 # 5. Data model
 
-Postgres. Naming follows `PRIOR-ART.md`'s guidance (real Alembic migrations, keep the FKs, no
+Postgres. Naming follows [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art)'s guidance (real Alembic migrations, keep the FKs, no
 composite string keys).
 
 ## 5.1 Format definitions
@@ -1291,7 +1291,7 @@ CREATE TABLE format_exclusive_group_member (
 
 ## 5.4 Cards, prints, set aliases
 
-Assumes the card/variant model from `BEHAVIOR-SPEC.md` §1 and `PRIOR-ART.md` §1. Additions:
+Assumes the card/variant model from `BEHAVIOR-SPEC.md` §1 and [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §1. Additions:
 
 ```sql
 ALTER TABLE card ADD COLUMN regulation_mark      CHAR(1);
@@ -1494,7 +1494,7 @@ Rules for the validator implementation:
 
 ## 5.7 Collection join — the differentiator
 
-`PRIOR-ART.md` §5(b): joining a decklist to the owned collection is *"the single largest genuine
+[Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §5(b): joining a decklist to the owned collection is *"the single largest genuine
 differentiator available."* The shape it needs:
 
 ```sql
@@ -1520,7 +1520,7 @@ with the same name but different text" does not.
 2. PTCGL importer with the §1.2 right-to-left parser + the §1.7 five-step resolution ladder.
    **Fixture-drive it**: the four examples in §1.4 plus one file per row of §1.5's table.
 3. `format` + `format_regulation_mark` + `format_ban`, vendored from §2's tables.
-4. `playable_fingerprint` (port from pokecollector, AGPL-aware — `PRIOR-ART.md` §3 item 4) and
+4. `playable_fingerprint` (port from pokecollector, AGPL-aware — [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §3 item 4) and
    `standard_legal_fingerprints` / `expanded_legal_fingerprints` materialisation.
 5. Validator returning the §5.6 shape, all rules, no short-circuit.
 6. GLC: rule-box classification + type coherence + exclusive groups.

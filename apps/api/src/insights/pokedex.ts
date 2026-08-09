@@ -2,7 +2,7 @@
  * National Pokédex completion, per-generation breakdown, and per-species capture
  * / level / shiny state.
  *
- * Capture model (research/DEX-DATA.md §A.3, §D.2; pkmn.gg source captures):
+ * Capture model (wiki: Dex-Data §A.3, §D.2; pkmn.gg source captures):
  *   • A species is CAPTURED when you own ≥1 card that (a) features it via
  *     card_species AND (b) has card.category = 'Pokemon'. The category gate is
  *     non-negotiable: a Trainer such as "Tropical Tidal Wave" carries dexIds

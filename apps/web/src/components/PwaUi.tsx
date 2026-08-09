@@ -81,7 +81,7 @@ function UpdateToast() {
 }
 
 /**
- * Offline banner — honest about the tiered offline model (FRONTEND.md §C.5):
+ * Offline banner — honest about the tiered offline model (wiki: Frontend-Research §C.5):
  * full metadata browse + collection + art you've already viewed stay available;
  * unvisited card art shows the skeleton, not real art. Collection edits are
  * network-only, so the steppers disable while offline (see CardDetail).

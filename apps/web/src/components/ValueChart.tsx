@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { ValuePoint } from '../lib/api'
 
-// Hand-rolled SVG line chart (FRONTEND.md §6: recharts REJECTED for bundle size).
+// Hand-rolled SVG line chart (wiki: Frontend-Research §6: recharts REJECTED for bundle size).
 // Zero charting dependency — a linear scale computed by hand is more than enough
 // for a single yellow value series, and it degrades honestly at the cold start:
 // with <2 points there is no trend to draw, so we render the single reading as a

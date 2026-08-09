@@ -27,7 +27,7 @@
 | `/card-changelog` | Card Changelog | Paginated feed of catalogue edits: `{catalogue} · {series} · {set} · #{number} · {card name}`, the changed field (`Variants`, `Artist`, `Subtypes`, `TCGplayer Mass Entry`), `before → after`, editor note, relative timestamp, `Load more` **[O]** `styles/card-changelog.json` | none | **Mirror, repurposed** → `/sync-log`. Our equivalent is "what changed in the last TCGdex/TCGCSV sync". Genuinely useful for debugging a self-hosted catalogue. |
 | `/privacy` | Privacy Policy | Legal **[O]** href in footer | none | **Drop.** |
 | `/tos` | Terms of Service | Legal **[O]** href in footer | none | **Drop.** |
-| `/primitives-showcase` | Design-system storybook | Live gallery of `Button`, `IconButton`, `Checkbox`, `TextInput`, `Select`, `CardSkeleton`, `EmptyStateMessage`, `ErrorBoundary`, `SvgIcon`, `Toast` **[O]** `styles/primitives-showcase.json` | none | **Mirror 1:1.** An unlinked internal route. Build the same page — it is the cheapest possible way to keep our design system honest against `UI-SPEC.md`. |
+| `/primitives-showcase` | Design-system storybook | Live gallery of `Button`, `IconButton`, `Checkbox`, `TextInput`, `Select`, `CardSkeleton`, `EmptyStateMessage`, `ErrorBoundary`, `SvgIcon`, `Toast` **[O]** `styles/primitives-showcase.json` | none | **Mirror 1:1.** An unlinked internal route. Build the same page — it is the cheapest possible way to keep our design system honest against [UI Spec](https://github.com/cheyras/deckscout/wiki/UI-Spec). |
 
 ### 1.2 Auth
 
