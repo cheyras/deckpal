@@ -16,7 +16,12 @@ async function handle401(path: string, init: RequestInit): Promise<Response | nu
   if (!isCloudMode) return null
   const { error } = await supabase.auth.refreshSession()
   if (error) {
-    window.location.assign(isCloudMode ? '/auth' : '/deckscout/auth')
+    // Only hard-redirect when NOT already on /auth — otherwise AppShell's
+    // ProfileChip (which fires an auth-required overview call) creates an
+    // infinite location.assign → page-reload → 401 → location.assign loop.
+    if (!window.location.pathname.endsWith('/auth')) {
+      window.location.assign(isCloudMode ? '/auth' : '/deckscout/auth')
+    }
     throw new Error('Session expired')
   }
   const h = await authHeaders()

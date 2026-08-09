@@ -347,10 +347,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const sidebarW = collapsed ? 82 : 275
 
-  // The OBS overlay is a standalone browser source: no header, no sidebar, no
-  // page surface — it must render chrome-free and transparent.
+  // Chrome-free paths: overlay (OBS browser source) and auth (self-contained
+  // login page). Rendering the full nav on /auth fired ProfileChip's overview
+  // query which 401'd → handle401 → location.assign('/auth') → infinite reload.
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  if (pathname === '/deckscout/overlay' || pathname === '/overlay') {
+  if (pathname.endsWith('/overlay') || pathname.endsWith('/auth')) {
     return <>{children}</>
   }
 

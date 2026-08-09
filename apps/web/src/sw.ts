@@ -19,6 +19,11 @@ import { CacheableResponsePlugin } from 'workbox-cacheable-response'
 
 declare const self: ServiceWorkerGlobalScope
 
+// ── Dynamic base path ────────────────────────────────────────────────────────
+// Derived from the SW's own URL: cloud → '/sw.js' → BASE = '/',
+// self-host → '/deckscout/sw.js' → BASE = '/deckscout/'. No hardcoded paths.
+const BASE = new URL('./', self.location.href).pathname
+
 // ── Tier 0: precache the app shell ────────────────────────────────────────────
 // __WB_MANIFEST is injected at build time with the hashed dist assets.
 precacheAndRoute(self.__WB_MANIFEST)
@@ -29,10 +34,12 @@ cleanupOutdatedCaches()
 // precached shell so deep links + offline reloads render. API and image paths are
 // denylisted so a 404 there surfaces as a 404, never as a silently-served HTML
 // shell (the "JSON.parse: unexpected token <" class of bug — wiki: Frontend-Research §C.2).
-const shellHandler = createHandlerBoundToURL('/deckscout/index.html')
+const shellHandler = createHandlerBoundToURL(`${BASE}index.html`)
+const apiPattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}api/`)
+const imgPattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}images/`)
 registerRoute(
   new NavigationRoute(shellHandler, {
-    denylist: [/^\/deckscout\/api\//, /^\/deckscout\/images\//],
+    denylist: [apiPattern, imgPattern],
   }),
 )
 
@@ -51,7 +58,7 @@ const jsonOnlyGuard = {
 
 // ── API GETs: NetworkFirst (fresh online, last-good offline) ───────────────────
 registerRoute(
-  ({ url, request }) => url.pathname.startsWith('/deckscout/api/') && request.method === 'GET',
+  ({ url, request }) => url.pathname.startsWith(`${BASE}api/`) && request.method === 'GET',
   new NetworkFirst({
     cacheName: 'deckscout-api-v1',
     networkTimeoutSeconds: 5,
@@ -68,12 +75,12 @@ registerRoute(
 // A queued-offline-write system is explicitly out of scope; the UI disables the
 // steppers when offline instead (CardDetail QtyStepper).
 for (const method of ['POST', 'PATCH', 'DELETE'] as const) {
-  registerRoute(({ url }) => url.pathname.startsWith('/deckscout/api/'), new NetworkOnly(), method)
+  registerRoute(({ url }) => url.pathname.startsWith(`${BASE}api/`), new NetworkOnly(), method)
 }
 
 // ── Tier 1: card & set art, CacheFirst, LRU-capped at 2000 entries ─────────────
 registerRoute(
-  ({ url }) => url.pathname.startsWith('/deckscout/images/'),
+  ({ url }) => url.pathname.startsWith(`${BASE}images/`),
   new CacheFirst({
     cacheName: 'deckscout-img-v1',
     plugins: [
