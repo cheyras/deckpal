@@ -11,6 +11,7 @@
     "start": "node dist/index.js",
     "test:deck": "node --import tsx --test src/deck/__tests__/*.test.ts",
     "test:collection": "node --import tsx --test src/__tests__/*.test.ts",
+    "test:auth": "node --import tsx --test src/__tests__/auth.test.ts",
     "prove:deck": "node --import tsx src/deck/prove.ts",
     "scan:index": "node --import tsx src/scan/index.ts"
   },

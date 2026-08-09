@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type pg from 'pg';
-import { cardImages, defaultUserId, q, recomputeSetProgress, withTx, type SetProgress } from '../db.js';
+import { cardImages, q, recomputeSetProgress, withTx, type SetProgress } from '../db.js';
 import { asyncHandler, badRequest, clampInt, notFound, str, userCache } from '../http.js';
 
 export const collectionRouter: Router = Router();
@@ -96,6 +96,7 @@ function parseNote(v: unknown): string | null {
  * lets set (absolute) and increment (relative) share every downstream step.
  */
 async function applyQuantity(
+  userId: string,
   variantIdRaw: string,
   resolveQty: (current: number) => number,
   source: string,
@@ -103,7 +104,6 @@ async function applyQuantity(
 ): Promise<MutationResult> {
   const variantId = Number(variantIdRaw);
   if (!Number.isInteger(variantId) || variantId <= 0) throw badRequest('variantId must be a positive integer');
-  const userId = await defaultUserId();
 
   return withTx(async (client: pg.PoolClient) => {
     // Validate the variant exists and resolve its card + set (for the recompute).
@@ -200,7 +200,7 @@ collectionRouter.patch(
   asyncHandler(async (req, res) => {
     const body = req.body ?? {};
     const quantity = parseQuantity(body.quantity);
-    const result = await applyQuantity(String(req.params.variantId), () => quantity, parseSource(body.source), parseNote(body.note));
+    const result = await applyQuantity(req.user!.id, String(req.params.variantId), () => quantity, parseSource(body.source), parseNote(body.note));
     userCache(res);
     res.json(result);
   }),
@@ -215,7 +215,7 @@ collectionRouter.post(
   asyncHandler(async (req, res) => {
     const body = req.body ?? {};
     const delta = parseDelta(body.delta);
-    const result = await applyQuantity(String(req.params.variantId), (cur) => cur + delta, parseSource(body.source), parseNote(body.note));
+    const result = await applyQuantity(req.user!.id, String(req.params.variantId), (cur) => cur + delta, parseSource(body.source), parseNote(body.note));
     userCache(res);
     res.json(result);
   }),
@@ -238,7 +238,7 @@ collectionRouter.post(
     const source = parseSource(body.source);
     const note = parseNote(body.note);
     const cardTcgdexId = String(req.params.cardId);
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
 
     const result = await withTx(async (client: pg.PoolClient) => {
       const cardRow = await client.query<{ id: string; set_id: string; set_tcgdex_id: string; primary_variant: string | null }>(
@@ -337,8 +337,8 @@ collectionRouter.post(
  */
 collectionRouter.post(
   '/reconcile',
-  asyncHandler(async (_req, res) => {
-    const userId = await defaultUserId();
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
     const started = Date.now();
     const rows = await q<{ set_id: string }>(
       `SELECT DISTINCT set_id FROM user_set_progress WHERE user_id = $1 ORDER BY set_id`,
@@ -417,7 +417,7 @@ collectionRouter.get(
       if (!SOURCE_SHAPE.test(sourceRaw)) throw badRequest("source must match ^[a-z0-9][a-z0-9._-]{0,39}$ (e.g. 'web', 'rotom-mcp')");
       sourceFilter = sourceRaw;
     }
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
 
     const rows = await q<EventRow>(
       `SELECT ce.id, ce.occurred_at, ce.delta, ce.quantity_after, ce.is_first_acquisition,

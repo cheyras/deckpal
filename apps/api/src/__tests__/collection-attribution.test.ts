@@ -20,7 +20,7 @@ import { closePool, defaultUserId, pool } from '../db.js';
 
 let server: http.Server;
 let base: string;
-let userId: number;
+let userId: string;
 let variantId: number;
 let startQty: number;
 let eventWatermark: number;

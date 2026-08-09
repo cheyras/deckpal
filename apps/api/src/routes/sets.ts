@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { cardImages, defaultUserId, q, q1, toMajor } from '../db.js';
+import { cardImages, q, q1, toMajor } from '../db.js';
 import { asyncHandler, clampInt, notFound, oneOf, str, strList, userCache } from '../http.js';
 import { raritySortSql } from '../rarity.js';
 
@@ -109,7 +109,7 @@ setsRouter.get(
       [setTcgdexId],
     );
     if (!set) throw notFound(`No set '${setTcgdexId}'`);
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
 
     const goal = oneOf<Goal>(req.query.goal, GOALS, 'complete');
     const own = oneOf<Own>(req.query.own, OWN, 'all');
