@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # D1 · feat/match-server
 
 **Wave 4.** Worktree: `~/pokedex-worktrees/match-server` (create when B3 merges) · Depends: B3

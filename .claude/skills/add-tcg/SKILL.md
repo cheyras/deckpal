@@ -134,9 +134,14 @@ and `/deckscout/images/sets/<setId>/<logo|symbol>.webp`). A cache **miss serves 
 placeholder** — that's the "no image" users report. See `apps/images/src/layout.ts` for the
 authoritative path functions; replicate them, don't guess.
 
-**The provenance contract — write through the choke point, always.** Every byte in the cache must
-carry a record of where it came from, in the `image_asset` table. Do NOT write into the cache
-directly (`writeFile` / `curl -o` / `cp`) — go through **`apps/images/src/store.ts`**:
+**The provenance contract — write through the choke point, always.** Every byte in the image
+store must carry a record of where it came from, in the `image_asset` table. Do NOT write into
+the storage directly (`writeFile` / `curl -o` / `cp` / direct Supabase Storage upload).
+
+**Cloud:** go through `packages/storage/src/put-asset.ts` — it uploads to Supabase Storage and
+upserts the `image_asset` row. *(This module may not exist until Wave 2 code lands.)*
+
+**Self-host:** go through `apps/images/src/store.ts`:
 
 ```ts
 import { putAsset, fromUrl, unknownProvenance } from './store.js';
@@ -207,9 +212,11 @@ The offline scanner matches an uploaded photo against a **dHash per cached card 
 
 1. **Rebuild the index** — `pnpm --filter deckscout-api scan:index` (idempotent/resumable; hashes
    cards that have a cached image but no hash; `--force` to recompute; `nice`/`ionice` it).
-2. **🔴 Restart the scan service** — it loads the index into memory at boot. New hashes are
-   invisible until you `pm2 restart deckscout-api`. (This one bites every time: the DB had the
-   hash, self-match was distance 0, but the running service still used the boot-time index.)
+2. **🔴 Restart the scan service (self-host only)** — it loads the index into memory at boot.
+   New hashes are invisible until the API process is restarted. (This one bites every time: the
+   DB had the hash, self-match was distance 0, but the running service still used the boot-time
+   index.) Cloud deployments: the scanner is parked for Wave 3; when implemented, the SQL-based
+   scanner reads directly from `card_image_phash` with no restart needed.
 3. **Verify** — feed a known card's own cached art to `POST /deckscout/api/scan`; it must
    self-match at **distance 0**. Query-side preprocessing (a background-trim variant,
    min-combined with the plain hash) makes real photos-with-background work — keep the *index*
@@ -234,8 +241,8 @@ The offline scanner matches an uploaded photo against a **dHash per cached card 
   refresh, so a *single* consumer uses it at a time. If a subagent is blocked from a
   credentialed source by a safety check, the lead performs that step.
 - **Never commit** the image cache or bulk catalog dumps (gitignored); report residue honestly.
-- **RTK + deploy hygiene:** prefix every shell command (and every `&&` segment) with `rtk`;
-  don't reload nginx or touch other pm2 apps; stay within the Postgres connection budget.
+- **Deploy hygiene:** stay within the Postgres connection budget; do not modify shared
+  infrastructure (Supabase settings, Vercel config) to fix a sourcing issue.
 
 ### Accumulated sourcing-thoroughness learnings
 Generalizable lessons harvested from real gaps by the `fill-missing-assets` skill — each should

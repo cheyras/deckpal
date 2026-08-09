@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # A1 · feat/battle-events-parser
 
 **Wave 1.** Worktree: `~/pokedex-worktrees/battle-events-parser` · Depends: W0 (schema only —

@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # C2 · feat/sim-runner
 
 **Wave 4.** Worktree: `~/pokedex-worktrees/sim-runner` (create when B3/B4 + C1 have merged) ·

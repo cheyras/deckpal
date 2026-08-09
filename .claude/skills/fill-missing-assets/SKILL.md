@@ -34,12 +34,15 @@ bytes, reject tiny/placeholder bodies), WebP where sensible, polite rate limit, 
 idempotent. Crosswalk on multiple keys. If it feeds the scanner, `scan:index` + **restart the
 service**. **Never invent an asset** — leave genuine gaps and report them.
 
-**Every byte you add to the cache must record where it came from.** Write through
-`putAsset` in `apps/images/src/store.ts` — never `writeFile`/`curl -o`/`cp` into the cache
-directory. It does the atomic write *and* the `image_asset` row together, and provenance is a
-required argument: `fromUrl(sourceUrl)` for anything fetched, `unknownProvenance('<why>')` only
-when the source genuinely can't be established. **Never pass a plausible-but-unverified URL** —
-an invented source is worse than an honest blank because it hides the gap.
+**Every byte you add to the image store must record where it came from.** Never
+`writeFile`/`curl -o`/`cp`/direct Storage upload outside the choke point.
+**Cloud:** use `packages/storage/src/put-asset.ts` (Supabase Storage + `image_asset` upsert).
+*(May not exist until Wave 2 code lands — mark the step clearly.)*
+**Self-host:** use `putAsset` in `apps/images/src/store.ts` (atomic file write + manifest row).
+Both require provenance: `fromUrl(sourceUrl)` for anything fetched,
+`unknownProvenance('<why>')` only when the source genuinely can't be established. **Never pass
+a plausible-but-unverified URL** — an invented source is worse than an honest blank because it
+hides the gap.
 
 Existing fillers to reuse rather than reinvent — both already write through the choke point:
 - `pnpm --filter deckscout-images warm:gaps` — probes the catalog CDN for cards its manifest omits.
@@ -86,10 +89,10 @@ the thoroughness lesson you banked (if any). Offer to commit (repo convention: c
 **never commit the image cache or bulk assets**).
 
 ## Rules
-- Prefix every shell command (and every `&&` segment) with `rtk` (see `CLAUDE.md`).
-- Respect the image-cache contract + gitignore; secrets read at runtime only, never committed/logged.
-- **Bytes in the cache with no `image_asset` row are a defect.** Write through
-  `apps/images/src/store.ts`; finish with `manifest:check` exiting 0.
+- Respect the image-storage contract + gitignore; secrets read at runtime only, never committed/logged.
+- **Bytes in the store with no `image_asset` row are a defect.** Write through the choke point
+  (cloud: `packages/storage/src/put-asset.ts`; self-host: `apps/images/src/store.ts`); finish
+  with `manifest:check` exiting 0 (self-host).
 - Verify the artifact, never a warmer's own "warmed/gap" counter (it conflates already-cached with failed).
-- Stay within the Postgres connection budget; don't touch nginx or other pm2 apps.
+- Stay within the Postgres connection budget; do not modify shared infrastructure.
 - Only bank **generalizable** learnings; keep game-specific specifics in the runbook / slot entry.

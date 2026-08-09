@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # D2 · feat/board-replay
 
 **Wave 2 — the board component's first life, well before the engine.**
