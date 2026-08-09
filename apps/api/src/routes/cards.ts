@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { cardImages, defaultUserId, q, q1, shapePrice, tcgplayerUrl, type PriceRow } from '../db.js';
+import { cardImages, q, q1, shapePrice, tcgplayerUrl, type PriceRow } from '../db.js';
 import { asyncHandler, notFound, userCache } from '../http.js';
 
 export const cardsRouter: Router = Router();
@@ -88,7 +88,7 @@ cardsRouter.get(
     );
     if (!card) throw notFound(`No card '${cardTcgdexId}'`);
     const cardId = card.id;
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
 
     const [variants, priceRows, attacks, abilities, matchups, types, subtypes, tags, species] = await Promise.all([
       q<VariantRow>(

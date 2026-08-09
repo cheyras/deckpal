@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type pg from 'pg';
-import { cardImages, defaultUserId, pool, q, q1, toMajor, tcgplayerUrl, withTx } from '../db.js';
+import { cardImages, pool, q, q1, toMajor, tcgplayerUrl, withTx } from '../db.js';
 import { asyncHandler, badRequest, clampInt, notFound, oneOf, str, userCache } from '../http.js';
 import { recordDeckChange, recordStrategyChange, type SnapshotEntry } from '../deck/versions.js';
 import { MASSENTRY_NOTE, buildUrls, meLine, tcgplayerAbbrev } from '../tcgplayer/massentry.js';
@@ -207,11 +207,11 @@ const DECK_META_SELECT =
   `SELECT id, name, description, format_code, glc_type, is_favorite, cover_card_id, cover_render, version, strategy_md, created_at, updated_at
      FROM deck`;
 
-async function loadMeta(deckId: string, userId: number): Promise<DeckMeta | null> {
+async function loadMeta(deckId: string, userId: string): Promise<DeckMeta | null> {
   return q1<DeckMeta>(`${DECK_META_SELECT} WHERE id = $1 AND user_id = $2`, [deckId, userId]);
 }
 
-async function loadRows(deckId: string, userId: number): Promise<{ rows: DeckRow[]; types: Map<number, PokemonType[]> }> {
+async function loadRows(deckId: string, userId: string): Promise<{ rows: DeckRow[]; types: Map<number, PokemonType[]> }> {
   const rows = await q<DeckRow>(DECK_CARD_SELECT, [deckId, userId]);
   const ids = rows.map((r) => Number(r.card_id));
   const types = new Map<number, PokemonType[]>();
@@ -360,7 +360,7 @@ function shapeMeta(meta: DeckMeta, rows: DeckRow[], legal: boolean) {
 }
 
 /** Full detail payload (deck + grouped cards + counts + validation under stored format). */
-async function detailPayload(meta: DeckMeta, userId: number) {
+async function detailPayload(meta: DeckMeta, userId: string) {
   const { rows, types } = await loadRows(meta.id, userId);
   const { deck, facts } = buildDeckModel(meta, rows, types);
   const validation = await validate(deck, facts);
@@ -377,8 +377,8 @@ async function detailPayload(meta: DeckMeta, userId: number) {
 // ── GET /decks — index ────────────────────────────────────────────────────────
 decksRouter.get(
   '/',
-  asyncHandler(async (_req, res) => {
-    const userId = await defaultUserId();
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
     const metas = await q<DeckMeta>(
       `${DECK_META_SELECT} WHERE user_id = $1 ORDER BY is_favorite DESC, updated_at DESC`,
       [userId],
@@ -420,7 +420,7 @@ decksRouter.post(
     let glcType = parseGlcType(body.glcType);
     if (format === 'glc' && !glcType) glcType = glcTypes()[0] ?? null; // NOT NULL constraint for glc
     const source = parseSource(body.source);
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const deckId = await withTx(async (client) => {
       const row = await client.query<{ id: string }>(
         `INSERT INTO deck (user_id, format_code, glc_type, name, description)
@@ -442,7 +442,7 @@ decksRouter.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     userCache(res);
@@ -455,7 +455,7 @@ decksRouter.patch(
   '/:id',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const body = req.body ?? {};
 
     const meta0 = await loadMeta(deckId, userId);
@@ -508,7 +508,7 @@ decksRouter.delete(
   '/:id',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const del = await q1<{ id: string }>(`DELETE FROM deck WHERE id = $1 AND user_id = $2 RETURNING id`, [deckId, userId]);
     if (!del) throw notFound(`No deck '${deckId}'`);
     userCache(res);
@@ -529,7 +529,7 @@ async function resolveCardId(client: pg.PoolClient, ref: string): Promise<number
   return Number(r.rows[0].id);
 }
 
-async function assertDeck(client: pg.PoolClient, deckId: string, userId: number): Promise<void> {
+async function assertDeck(client: pg.PoolClient, deckId: string, userId: string): Promise<void> {
   const r = await client.query(`SELECT 1 FROM deck WHERE id = $1 AND user_id = $2 FOR UPDATE`, [deckId, userId]);
   if (!r.rows[0]) throw notFound(`No deck '${deckId}'`);
 }
@@ -539,7 +539,7 @@ decksRouter.post(
   '/:id/cards',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const body = req.body ?? {};
     const ref = str(body.cardId) ?? str(body.card);
     if (!ref) throw badRequest('cardId is required');
@@ -573,7 +573,7 @@ decksRouter.patch(
   '/:id/cards/:cardId',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const ref = String(req.params.cardId);
     const body = req.body ?? {};
     const qty = Number(body.quantity);
@@ -608,7 +608,7 @@ decksRouter.delete(
   '/:id/cards/:cardId',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const ref = String(req.params.cardId);
     const body = req.body ?? {};
     const source = parseSource(body.source);
@@ -631,7 +631,7 @@ decksRouter.get(
   '/:id/validate',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const format = req.query.format !== undefined ? parseFormat(req.query.format, meta.format_code) : meta.format_code;
@@ -660,7 +660,7 @@ decksRouter.post(
     let glcType = parseGlcType(body.glcType);
     if (format === 'glc' && !glcType) glcType = glcTypes()[0] ?? null;
     const name = parseName(body.name, false) || 'Imported Deck';
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
 
     // Parse to a ParsedDeck the resolver understands. Mass Entry's set codes are a
     // THIRD namespace (TCGplayer abbrevs) the engine can't map, so we resolve those
@@ -722,7 +722,7 @@ decksRouter.get(
   '/:id/export',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const kind = oneOf(req.query.format, ['ptcgl', 'massentry'] as const, 'ptcgl');
@@ -769,7 +769,7 @@ decksRouter.get(
   '/:id/testhand',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const { rows, types } = await loadRows(deckId, userId);
@@ -842,7 +842,7 @@ decksRouter.get(
   '/:id/pricing',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const { rows } = await loadRows(deckId, userId);
@@ -919,7 +919,7 @@ decksRouter.get(
   '/:id/massentry',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const { rows } = await loadRows(deckId, userId);
@@ -1038,7 +1038,7 @@ decksRouter.put(
   '/:id/strategy',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const body = req.body ?? {};
     if (!('strategyMd' in body)) throw badRequest('strategyMd is required (null or empty string clears the guide)');
     let strategyMd: string | null = null;
@@ -1064,7 +1064,7 @@ decksRouter.get(
   '/:id/versions',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
 
@@ -1096,7 +1096,7 @@ decksRouter.get(
   '/:id/versions/:v',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const v = parseVersionNumber(req.params.v);
@@ -1138,7 +1138,7 @@ decksRouter.post(
   '/:id/revert',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const body = req.body ?? {};
     const toVersion = parseVersionNumber(body.toVersion, 'toVersion');
     const includeStrategy = body.includeStrategy === undefined ? true : Boolean(body.includeStrategy);
@@ -1258,7 +1258,7 @@ decksRouter.get(
   '/:id/logs',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const versionFilter = req.query.version !== undefined ? parseVersionNumber(req.query.version) : null;
@@ -1305,7 +1305,7 @@ decksRouter.post(
   '/:id/logs',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const body = req.body ?? {};
     if (typeof body.rawLog !== 'string' || !body.rawLog.trim()) throw badRequest('rawLog is required');
     if (body.rawLog.length > RAW_LOG_MAX) throw badRequest(`rawLog too large (max ${RAW_LOG_MAX} chars)`);
@@ -1361,7 +1361,7 @@ decksRouter.get(
   '/:id/logs/:logId',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const logId = parseLogId(String(req.params.logId));
@@ -1383,7 +1383,7 @@ decksRouter.patch(
   '/:id/logs/:logId',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const logId = parseLogId(String(req.params.logId));
@@ -1422,7 +1422,7 @@ decksRouter.delete(
   '/:id/logs/:logId',
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const logId = parseLogId(String(req.params.logId));

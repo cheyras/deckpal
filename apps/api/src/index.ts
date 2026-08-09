@@ -5,6 +5,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { closePool, pool, q } from './db.js';
 import { asyncHandler, catalogCache, errorMiddleware } from './http.js';
+import { authMiddleware, requireAuth } from './auth.js';
 import { seriesRouter } from './routes/series.js';
 import { setsRouter } from './routes/sets.js';
 import { massEntryRouter } from './routes/massentry.js';
@@ -20,13 +21,16 @@ import { scanRouter } from './scan/router.js';
 import { bugsRouter } from './routes/bugs.js';
 
 /**
- * deckscout-api — the read API over the populated catalog (ARCHITECTURE §4).
+ * deckscout-api — the read/write API over the populated catalog.
  *
- * Everything mounts under the /deckscout/api base: the app is served behind nginx
- * at the /deckscout/ sub-path (never the domain root), so no route assumes it.
- * Bound to 127.0.0.1 — nginx (LAN) / the SSO gate (remote) is the sole ingress and
- * the only auth boundary; the API has none of its own. All queries are read-only
- * and parameterized. Connection budget: 2 (shared pool, hard-capped at 3).
+ * Base path is configurable via API_BASE_PATH:
+ *   - Self-host (default): /deckscout/api (behind nginx sub-path)
+ *   - Cloud (Vercel):      /api
+ *
+ * Auth is layered: in cloud mode SUPABASE_JWT_SECRET enables JWT verification
+ * and user-scoped routes require a valid Bearer token. In self-host mode the
+ * reverse proxy (nginx/the SSO gate) is the auth boundary; the API passes all
+ * requests through.
  */
 
 export function createApp(): express.Express {
@@ -56,7 +60,7 @@ export function createApp(): express.Express {
       if (origin && allowed.has(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
         res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
         if (req.method === 'OPTIONS') { res.status(204).end(); return; }
       }
       next();
@@ -68,7 +72,12 @@ export function createApp(): express.Express {
 
   const api = express.Router();
 
+  // JWT verification runs on every request (extracts req.user from Bearer token).
+  // It never rejects — routes that need auth use requireAuth below.
+  api.use(authMiddleware);
+
   // Health: DB liveness + per-sync freshness (cheap; single grouped query).
+  // Public — no requireAuth.
   api.get(
     '/health',
     asyncHandler(async (_req, res) => {
@@ -114,6 +123,15 @@ export function createApp(): express.Express {
     });
   });
 
+  // ── Public routes (catalog reads, no auth required) ───────────────────────
+  // Search is pure catalog — no user_id in the queries.
+  api.use('/search', searchRouter);
+
+  // ── Authenticated routes (user-scoped data) ─────────────────────────────
+  // requireAuth rejects 401 in cloud mode when no valid JWT is present.
+  // In self-host mode it is a no-op (reverse proxy is the auth boundary).
+  api.use(requireAuth);
+
   // PDF export routes carry full paths (/decks/:id/pdf, /lists/:id/pdf,
   // /sets/:setId/checklist.pdf) and are mounted first so they resolve here rather
   // than falling through the /decks, /lists, /sets routers below.
@@ -125,7 +143,6 @@ export function createApp(): express.Express {
   api.use('/sets', massEntryRouter);
   api.use('/sets', setsRouter);
   api.use('/cards', cardsRouter);
-  api.use('/search', searchRouter);
   api.use('/dex', dexRouter);
   api.use('/collection', collectionRouter);
   api.use('/lists', listsRouter);
@@ -134,18 +151,21 @@ export function createApp(): express.Express {
   api.use('/scan', scanRouter);
   api.use('/bugs', bugsRouter);
 
-  app.use('/deckscout/api', api);
+  // Base path: /api on Vercel, /deckscout/api on self-host (nginx sub-path).
+  const basePath = process.env.API_BASE_PATH ?? '/deckscout/api';
+  app.use(basePath, api);
 
-  // Serve the built SPA (matches the box convention: every first-party app serves
-  // its own frontend on its own port, proxied by nginx — no nginx-static-from-home,
-  // which would need www-data to traverse the 700 home dir). Static assets first,
-  // then a client-routing fallback to index.html for any non-API GET under /deckscout/.
+  // Serve the built SPA. On self-host the sub-path is /deckscout/; on Vercel the
+  // SPA is served by Vercel's static layer (outputDirectory in vercel.json), so
+  // this block only fires for the self-host entrypoint (pm2 / direct node).
   // webDist resolves relative to this compiled file: apps/api/dist -> apps/web/dist.
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
+  const spaBase = process.env.API_BASE_PATH === '/api' ? '/' : '/deckscout';
   if (existsSync(webDist)) {
-    app.use('/deckscout', express.static(webDist, { index: false, maxAge: '1h' }));
-    app.get(/^\/deckscout(\/.*)?$/, (req, res, next) => {
-      if (req.method !== 'GET' || req.path.startsWith('/deckscout/api')) return next();
+    app.use(spaBase, express.static(webDist, { index: false, maxAge: '1h' }));
+    const spaApiPrefix = `${spaBase === '/' ? '' : spaBase}/api`;
+    app.get(new RegExp(`^${spaBase === '/' ? '' : spaBase.replace('/', '\\/')}(\\/.*)?$`), (req, res, next) => {
+      if (req.method !== 'GET' || req.path.startsWith(spaApiPrefix)) return next();
       res.sendFile(join(webDist, 'index.html'));
     });
   }

@@ -73,7 +73,7 @@ export function aggregateValue(rows: readonly OwnedPriceRow[]): CurrencyTotal[] 
  * Best market price per owned variant, per currency (the raw material for the
  * total). One row per (owned variant, currency) that has a market price.
  */
-export async function ownedPriceRows(userId: number): Promise<OwnedPriceRow[]> {
+export async function ownedPriceRows(userId: string): Promise<OwnedPriceRow[]> {
   const rows = await q<{ currency_code: string; quantity: number; best_minor: string }>(
     `WITH best AS (
        SELECT pc.card_variant_id, pc.currency_code, max(pc.market_minor) AS best_minor
@@ -91,13 +91,13 @@ export async function ownedPriceRows(userId: number): Promise<OwnedPriceRow[]> {
 }
 
 /** Current total collection value, per currency. */
-export async function currentCollectionValue(userId: number): Promise<CurrencyTotal[]> {
+export async function currentCollectionValue(userId: string): Promise<CurrencyTotal[]> {
   return aggregateValue(await ownedPriceRows(userId));
 }
 
 /** Collection-wide owned-card counts (distinct cards, distinct pairs, total qty). */
 export async function ownedCounts(
-  userId: number,
+  userId: string,
 ): Promise<{ uniqueCards: number; uniquePairs: number; totalQuantity: number }> {
   const row = await q<{ unique_cards: string; unique_pairs: string; total_qty: string }>(
     `SELECT count(DISTINCT cv.card_id)        AS unique_cards,
@@ -136,7 +136,7 @@ export interface ValueSeries {
  * (pkmn.gg's "Last 30 Days" ▲ $ / ▲ % card). No axis padding —
  * we render only the days that exist, matching pkmn.gg's cold-start behaviour.
  */
-export async function valueSeries(userId: number, range: Range, currency = 'USD'): Promise<ValueSeries> {
+export async function valueSeries(userId: string, range: Range, currency = 'USD'): Promise<ValueSeries> {
   const cur = currency.trim().toUpperCase();
   const rows = await q<{ observed_on: string; total_minor: string }>(
     `SELECT to_char(observed_on, 'YYYY-MM-DD') AS observed_on, total_minor
@@ -186,7 +186,7 @@ export interface Mover {
  * and an avg30 quote qualify — a sparse feed simply yields fewer movers, never a
  * wrong number. Returned biggest-absolute-move first.
  */
-export async function topMovers(userId: number, currency = 'USD', limit = 5): Promise<Mover[]> {
+export async function topMovers(userId: string, currency = 'USD', limit = 5): Promise<Mover[]> {
   const cur = currency.trim().toUpperCase();
   const rows = await q<{
     tcgdex_id: string; variant_kind_code: string; name: string; quantity: number;
@@ -246,7 +246,7 @@ export interface SnapshotResult {
  * defaults to the shared pool.
  */
 export async function snapshotCollectionValue(
-  userId: number,
+  userId: string,
   opts: { observedOn?: string; client?: pg.PoolClient } = {},
 ): Promise<SnapshotResult> {
   const runner = opts.client ?? pool;

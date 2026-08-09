@@ -10,11 +10,14 @@ import {
   stripSearchParams,
   RouterProvider,
   Outlet,
+  useRouterState,
 } from '@tanstack/react-router'
 import './theme.css'
 import { registerPwa } from './pwa'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
+import { AuthGuard } from './components/AuthGuard'
+import { Auth } from './routes/Auth'
 import { SeriesIndex } from './routes/SeriesIndex'
 import { SeriesDetail } from './routes/SeriesDetail'
 import { SetDetail } from './routes/SetDetail'
@@ -46,12 +49,27 @@ const queryClient = new QueryClient({
   },
 })
 
+function RootComponent() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const isPublic = pathname.endsWith('/auth') || pathname.includes('/overlay')
+  if (isPublic) {
+    return (
+      <AppShell>
+        <Outlet />
+      </AppShell>
+    )
+  }
+  return (
+    <AuthGuard>
+      <AppShell>
+        <Outlet />
+      </AppShell>
+    </AuthGuard>
+  )
+}
+
 const rootRoute = createRootRoute({
-  component: () => (
-    <AppShell>
-      <Outlet />
-    </AppShell>
-  ),
+  component: RootComponent,
 })
 
 const indexRoute = createRoute({
@@ -179,6 +197,12 @@ const searchRoute = createRoute({
   component: SearchResults,
 })
 
+const authRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/auth',
+  component: Auth,
+})
+
 // Standalone OBS browser-source overlay — AppShell renders it chrome-free.
 const overlayRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -188,6 +212,7 @@ const overlayRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  authRoute,
   seriesIndexRoute,
   seriesDetailRoute,
   setDetailRoute,
