@@ -1,78 +1,71 @@
 # DeckScout
 
-A self-hosted, single-user [pkmn.gg](https://www.pkmn.gg/) clone running entirely on
-**TheGrid** (Raspberry Pi 5). It holds its own copy of the Pokémon TCG catalog, its own
-cached card art, and its own accumulating price history — so it keeps working if every
-upstream disappears. No third-party account, no cloud, no paid API.
+A self-hosted, single-user TCG collection tracker. Browse a full card catalog,
+track your collection across printings, see prices, explore the Pokedex, build
+decks with battle-log intelligence, scan cards with a perceptual-hash scanner,
+and set completion goals. Built for Pokemon but the data model, image cache, and
+scanner are **game-agnostic**.
 
-Design docs live alongside this file (`ARCHITECTURE.md`, `DECISIONS.md`, `BRIEF.md`,
-`PRIOR-ART.md`, `UI-SPEC.md`) and the deep research is under `research/`. The database
-model is specified in `research/SCHEMA.md`; this repo implements it.
-
-> **Status:** Phase 2, task 2 — repository scaffold + database + **the TCGdex catalog
-> importer**. The catalog (series/sets/cards/variants + variant vocabulary) now loads from
-> the compiled TCGdex JSON. No prices, no images, no frontend yet, and **nothing is wired
-> into pm2 or nginx**. See the checklist at the bottom.
+DeckScout keeps working if every upstream disappears: the catalog, card art, and
+price history all live locally. No third-party account, no cloud, no paid API.
 
 ---
 
-## What's here
+## Features
 
-```
-deckscout/
-├── package.json               # pnpm workspace root
-├── pnpm-workspace.yaml         # packages/* + apps/*
-├── tsconfig.json               # strict base config (tsc kept OUT of the deploy path)
-├── ecosystem.config.cjs        # pm2 process defs — TEMPLATE, not activated
-├── .env                        # secrets, mode 600, gitignored (created at setup)
-├── deploy/nginx/               # nginx location fragments — for a later task
-├── packages/
-│   └── db/                     # @deckscout/db — pg pool, migration runner, SQL migrations
-│       └── src/migrations/     # 001…013 numbered .sql (the authoritative schema)
-└── apps/
-    ├── api/                    # deckscout-api  (:3700) — REST + SPA host (skeleton)
-    ├── images/                 # deckscout-images (:3701) — WebP cache server (skeleton)
-    └── sync/                   # deckscout-sync — node-cron scheduler (stubs, no network)
-        └── src/catalog/        # the TCGdex catalog importer (transform.ts + import.ts + cli.ts)
-```
-
-**Why this shape:** it mirrors the existing `/home/cheyras/thegrid-api/` pnpm workspace
-(the six pm2 services the box already runs) — same `apps/*` layout, same
-`type: module` + `Node16` TS config, same `tsx`-for-dev / `tsc`-for-build split, same pm2
-conventions. Shared DB/domain code lives in `packages/db` so all three services import one
-pool and one schema. `tsc` is deliberately kept out of the runtime path (it is the memory
-hog on this box, per `research/FRONTEND.md §9`); type-checking is a separate `typecheck`
-script.
-
-**Why plain SQL migrations over an ORM:** `research/SCHEMA.md` is 2,985 lines of
-hand-written, authoritative SQL — range partitioning, generated columns, partial unique
-indexes, CHECK/FK constraints and views an ORM would fight or paper over. The runner
-(`packages/db/src/migrate.ts`) is ~90 lines: numbered `.sql` files applied in order, each
-in one transaction, tracked with a sha256 checksum in `schema_migrations`. Shipped
-migrations are immutable (a checksum change is a hard error) — add a new file, never edit.
+- **Full card catalog** -- series, sets, cards, and variant-level detail
+  (reverse holos, foils, stamps, promos), imported from TCGdex open data.
+- **Collection tracking** -- own/want/trade at the variant level with quantity,
+  condition, and notes.
+- **Price history** -- daily prices from TCGCSV (TCGplayer) and Cardmarket bulk
+  dumps. Every price in the UI shows "as of {date}" -- honest by construction.
+- **Deck builder** -- PTCG Live format import/export, legality validation, and
+  battle-log intelligence (record matches, track win rates, get strategy
+  analysis).
+- **Card scanner** -- perceptual-hash index against the local image cache;
+  identify a card from a photo.
+- **Completion goals** -- Complete Set, Master Set, Grandmaster tiers with
+  accurate progress tracking.
+- **Pokedex** -- species data from PokeAPI, linked to the cards they appear on.
+- **Local image cache** -- ~1.9 GB of WebP card art cached on disk, served by a
+  dedicated image server. No runtime dependency on upstream CDNs.
+- **MCP server** ("rotom-mcp") -- 21 tools for Claude (Code, claude.ai, iOS) to
+  query the collection, catalog, prices, and decks, and to log collection
+  changes with attribution.
+- **PWA** -- installable, offline-capable (tiered: app shell always; visited
+  art LRU-cached; owned cards opt-in).
+- **Backup, restore, and export** -- `pg_dump` + image cache tar for backup;
+  CSV + JSON + PTCG Live text export for portability.
 
 ---
 
-## Runtime & storage (decided, see `DECISIONS.md`)
+## Architecture
 
-- **Node/TS + pm2 + nginx** — matching the box, **not** Docker Compose or Python/FastAPI.
-- **Host Postgres 17.9**, a dedicated `deckscout` database + role, connection pool
-  **hard-capped at 3** (API 2, sync 1). No `postgresql.conf` change, no Postgres restart —
-  all tuning is role-scoped.
-- Ports **3700–3709**, bound to `127.0.0.1` only; nginx is the sole ingress.
-- Card art / sprites are **fetched at setup, never committed** to git.
+pnpm monorepo. Five apps + a shared database package:
+
+| App | Port | What |
+|---|---|---|
+| `apps/api` (`deckscout-api`) | 3700 | REST API (~49 endpoints) + serves the built SPA |
+| `apps/images` (`deckscout-images`) | 3701 | Serves the local WebP art cache; disk-only, never proxies upstream |
+| `apps/mcp` (`deckscout-mcp`) | 3704 | **rotom-mcp** -- MCP server for Claude: 21 tools for collection/catalog/price/deck access + attributed writes |
+| `apps/sync` (`deckscout-sync`) | cron | Catalog import, dex import, price ingest (node-cron scheduler, no listening socket) |
+| `apps/web` (`deckscout-web`) | -- | React 19 + Vite + Tailwind 4 SPA/PWA (built, then served by `deckscout-api`) |
+| `packages/db` (`@deckscout/db`) | -- | Postgres connection pool + numbered immutable SQL migrations |
+
+Data lives in a host **Postgres** database. All service ports bind `127.0.0.1`
+only -- see the security note below.
+
+For the full topology, data flow, and design rationale, see
+[`ARCHITECTURE.md`](ARCHITECTURE.md). The authoritative schema is in
+[`research/SCHEMA.md`](research/SCHEMA.md).
 
 ---
 
-## First-run setup
+## Quickstart
 
-Prereqs (already true on TheGrid): Node 20, pnpm 10, host Postgres 17.9, passwordless
-`sudo -u postgres`.
+Prerequisites: Node >= 20, pnpm >= 10, host Postgres >= 17.
 
 ### 1. Create the database role and database
-
-Generate a random password, create a **non-superuser** role and an owned database, and
-apply role-scoped tuning (never `ALTER SYSTEM`):
 
 ```bash
 PW=$(openssl rand -base64 30 | tr -d '/+=' | head -c 32)
@@ -93,130 +86,105 @@ ALTER ROLE deckscout SET random_page_cost                    = 1.5;
 SQL
 ```
 
-### 2. Write `.env`
+### 2. Configure environment
 
-Create `/home/cheyras/pokedex/.env` (mode **600**, already gitignored) with the generated
+Copy [`.env.example`](.env.example) to `.env` and fill in the generated
 password:
 
-```ini
-PGHOST=127.0.0.1
-PGPORT=5432
-PGDATABASE=deckscout
-PGUSER=deckscout
-PGPASSWORD=<the password from step 1>
-
-# HARD CAP 3 total (API 2 + sync 1). Never raise past 5 without raising
-# max_connections, which needs a Postgres restart and the user's permission.
-PGPOOL_MAX_API=2
-PGPOOL_MAX_SYNC=1
-PGPOOL_MAX=3
-
-DECKSCOUT_API_PORT=3700
-DECKSCOUT_IMAGES_PORT=3701
-IMAGE_CACHE_ROOT=/home/cheyras/pokedex/cache
-```
-
 ```bash
+cp .env.example .env
 chmod 600 .env
+# Edit .env -- set PGPASSWORD to the password from step 1
 ```
 
-### 3. Install and migrate
+Key settings in `.env`:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PGPOOL_MAX_API` | `2` | API connection pool size |
+| `PGPOOL_MAX_SYNC` | `1` | Sync importer pool size |
+| `PGPOOL_MAX_MCP` | `1` | MCP server pool size |
+| `PGPOOL_MAX` | `3` | Per-process hard cap |
+| `DECKSCOUT_API_PORT` | `3700` | |
+| `DECKSCOUT_IMAGES_PORT` | `3701` | |
+| `DECKSCOUT_MCP_PORT` | `3704` | |
+| `IMAGE_CACHE_ROOT` | `./cache` | Path to the WebP image cache |
+
+The cluster-wide connection budget is **4** (API 2 + sync 1 + MCP 1), with a
+per-process hard cap of **3**. One-off scripts use one connection. Do not raise
+the pool without checking headroom against Postgres `max_connections`.
+
+### 3. Install, migrate, and verify
 
 ```bash
 pnpm install
 pnpm migrate            # applies packages/db/src/migrations/*.sql in order
 pnpm migrate:status     # [x] per applied migration
+pnpm typecheck          # strict tsc --noEmit across all workspaces
 ```
 
-`pnpm migrate` is idempotent: re-running applies nothing. On a fresh empty `deckscout`
-database it applies all migrations cleanly in order.
-
-### 4. Verify (optional)
+### 4. Build and run
 
 ```bash
-pnpm typecheck          # strict tsc --noEmit across all packages
-# smoke-run a service (Ctrl-C to stop) — binds 127.0.0.1 only:
-pnpm --filter deckscout-api dev
-#   curl http://127.0.0.1:3700/api/deckscout/health  -> {"status":"ok","db":"up",...}
+pnpm build              # builds all apps
+# Start each service (example using pm2):
+pm2 start ecosystem.config.cjs
+pm2 save
 ```
 
----
-
-## Catalog import (Phase 2, task 2)
-
-The importer populates `series`, `card_set`, `card` (+ the `card_type`/`card_attack`/
-`card_ability`/`card_matchup` attribute junctions), the variant vocabulary
-(`variant_kind` + `variant_kind_stamp` + the facet/stamp/print-run lookups) and
-`card_variant`, from the compiled TCGdex English JSON.
-
-```bash
-# 1. stage the compiled JSON (the weekly job does this via `docker save | tar`, ARCHITECTURE §5.1)
-mkdir -p data/catalog/en          # data/ is gitignored
-cp <extract>/generated/en/{cards,sets,series}.json data/catalog/en/
-
-# 2. run it (uses 1 pooled connection; one transaction per set)
-pnpm --filter deckscout-sync import:catalog          # or: … import:catalog <dataDir>
-```
-
-Idempotent — re-running is a no-op (upserts on `card.id`, `card_variant (card_id,
-variant_kind_code)`, etc.; user ownership on `card_variant` is never deleted). Loads the
-full English corpus (**23,444 cards, 35,719 variant rows** — 35,648 upstream rows, 4
-intra-card exact-duplicate facet tuples collapsed by the unique key, + 75 synthesized
-`normal` variants for the zero-variant cards) in ~9 s at RSS well under the budget.
-
-Facets are decomposed into the vocabulary tables; the pack-pulled **tier** is derived by
-rule v3 (SCHEMA §5.3); variant **display names** are composed and stored (SCHEMA §5.4.2,
-verified against the authenticated captures); per-variant TCGplayer/Cardmarket/CardTrader
-ids are stored where present and modelled as genuine `NULL` (with `id_source`) where not.
-Every row is written with `source='tcgdex'`, so the next task's reverse-holo cross-fill
-can land provisional `source='tcgcsv'` rows on the same `(card_id, variant_kind_code)` slot
-via `ON CONFLICT DO UPDATE`. Prices, images, dex data and the cross-fill are **later tasks**.
-
-> Two schema corrections this task forced (see `packages/db/src/migrations/014_*.sql`):
-> `card_variant` gained the `source`/`fill_confidence` columns ARCHITECTURE §8.1 specifies,
-> and the `tcgdex_variant_id` **UNIQUE** constraint was dropped — the compiled catalog has
-> only 324 distinct `variantId` values across 35,648 rows (a facet-tuple hash, one sentinel
-> `"generated"` covering ~10k rows), so it is not a per-row key; the real idempotency key is
-> `UNIQUE (card_id, variant_kind_code)`.
+The API serves the built SPA at the configured base path. The image server
+serves cached card art. The sync scheduler runs catalog, dex, and price imports
+on its configured cron cadence.
 
 ---
 
-## What this task did **not** do (deliberately)
+## Security note
 
-- **No prices, images, dex data, or reverse-holo cross-fill** — each is its own later task.
-- **No pm2 process** was created and `thegrid-api`'s `ecosystem.config.cjs` was not
-  touched. `deckscout/ecosystem.config.cjs` is a template for later.
-- **No nginx change.** `deploy/nginx/*.conf` are fragments to paste in later, with the
-  user's permission.
-- **No frontend.** A later phase.
-- **No `docker pull`, no long-running service, no Postgres restart.**
+**The API and image server have no built-in authentication.** This is by design.
+They bind `127.0.0.1` and are not intended to be exposed directly. **You must
+place a reverse proxy with an authentication layer in front of them** (the
+reference deployment uses nginx with an SSO gate).
 
----
-
-## Backup, restore & export (BRIEF §5)
-
-Data ownership is enforced by three scripts under `scripts/` — full details and the
-restore drill are in **`deploy/BACKUP.md`**.
-
-```bash
-scripts/backup.sh            # pg_dump the deckscout DB (only) + tar the image cache
-                             #   → ~/deckscout-backups/<ts>/  (outside the repo)
-scripts/restore.sh <dir>     # role+DB bootstrap, pg_restore, image untar (--force to clobber)
-node scripts/export.mjs      # collection/lists/decks → CSV + full JSON + per-deck PTCG Live text
-                             #   → ~/deckscout-exports/<ts>/
-```
-
-- Dumps **one database (`deckscout`), never the cluster or the brain DBs.
-- ~1.9 GB per backup (DB dump ~5 MB + image cache ~1.9 GB); sprites are re-fetchable
-  and intentionally excluded.
-- **Schedule:** a nightly `crontab` entry calling `scripts/backup.sh` (matches the box's
-  existing `fuel` cron); a systemd timer is an equally-fine alternative. See `deploy/BACKUP.md §2`.
-- Restore is proven by a scratch-DB drill that never touches prod (`deploy/BACKUP.md §3`).
+The MCP server (`deckscout-mcp`) has its own key-based authentication via the
+`ROTOM_MCP_KEY` environment variable and does not require the same proxy gate,
+though it should still be placed behind TLS for remote access.
 
 ---
 
-## Later tasks (not this one)
+## Data sources and credits
 
-Catalog import (TCGdex extract) → image warm → price sync (TCGCSV + Cardmarket) →
-core API → frontend → deck builder → gamification → hardening (pm2 + nginx + backup/PWA).
-See `BRIEF.md §6` and `ARCHITECTURE.md`.
+DeckScout is built on open data from several sources:
+
+- **[TCGdex](https://tcgdex.dev/)** -- card catalog (series, sets, cards,
+  variants). Open data, compiled JSON extracted from the published container
+  image.
+- **[TCGCSV](https://tcgcsv.com/)** -- daily TCGplayer price feeds (bulk CSV).
+- **Cardmarket** -- daily price dumps.
+- **[PokeAPI](https://pokeapi.co/)** -- species and Pokedex data. Licensed
+  BSD-3-Clause; see [`data/pokeapi/LICENSE.md`](data/pokeapi/LICENSE.md) for
+  the full license and attribution.
+
+Pokemon and Pokemon character names are trademarks of Nintendo.
+
+---
+
+## License
+
+DeckScout is licensed under the [GNU Affero General Public License v3.0
+(AGPL-3.0-only)](LICENSE). If you modify DeckScout and make it available over a
+network, AGPL section 13 requires you to offer the corresponding source to
+users of that service.
+
+---
+
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Services, ports, topology, data ingest, cache/PWA/offline design |
+| [`research/SCHEMA.md`](research/SCHEMA.md) | The data model -- variant taxonomy, tier/goal derivation, full DDL |
+| [`API.md`](API.md) | REST API contract (~49 endpoints) |
+| [`DECISIONS.md`](DECISIONS.md) | Dated audit trail of every decision, correction, and gotcha |
+| [`deploy/BACKUP.md`](deploy/BACKUP.md) | Backup, restore, and export scripts and procedures |
+| [`AGENTS.md`](AGENTS.md) | Engineering contracts and conventions for AI agents |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contributor guide -- setup, workflow, code conventions |

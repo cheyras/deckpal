@@ -1,7 +1,7 @@
 # DeckScout — Architecture
 
-**Status:** Phase 1 draft, 2026-07-24. Sections 1–7 are settled and evidence-backed.
-Sections 8–9 are pending two in-flight research streams and are marked as such.
+**Status:** Implemented architecture, updated 2026-08-09. Originally drafted
+2026-07-24; all sections now reflect the built system.
 
 This document is the synthesis. It states *what we are building and why*, and points
 at the research documents that justify each choice. It deliberately does not repeat
@@ -62,6 +62,7 @@ flowchart TB
     subgraph pm2 [pm2 — first-party processes]
         api["deckscout-api :3700"]
         img["deckscout-images :3701"]
+        mcp["deckscout-mcp :3704<br/>(rotom-mcp)"]
         sync["deckscout-sync (node-cron)"]
     end
 
@@ -78,8 +79,10 @@ flowchart TB
     end
 
     phone --> lan & pub --> api
+    pub --> mcp
     api --> pg
     api --> img --> cache
+    mcp --> pg
     sync --> pg & cache
     sync -.weekly.-> tcgdex
     sync -.throttled.-> assets
@@ -107,7 +110,9 @@ Rationale and the counter-argument: `research/DATA-LAYER.md` §7.1, `DECISIONS.m
 | `deckscout-images` | 3701 | Serves the local WebP cache | Separable so image I/O can't stall the API |
 | *(reserved)* | 3702 | Ad-hoc/transient only | See the TCGdex hazard note below |
 | `deckscout-dev` | 3703 | Vite dev server | Not run in production |
+| `deckscout-mcp` | 3704 | MCP server (rotom-mcp) | Key-authed; see `apps/mcp/SPEC.md` |
 | `deckscout-sync` | — | `node-cron` scheduler | No listening socket |
+| `deckscout-devhub` | 3999 | Dev-surface menu (LAN-only) | `tools/devhub/`; not production traffic |
 
 All bound to `127.0.0.1`. nginx is the sole ingress; the block 3700–3709 was
 verified free (`ss -tln`). The brief's port list is stale in both directions —
@@ -225,10 +230,11 @@ Full job table, cadences and per-host politeness policy: `research/DATA-LAYER.md
 
 ## 6. Storage
 
-**Host Postgres 17.9, dedicated `deckscout` database and role, connection pool capped
-at 3.** Marginal cost 25–35 MB, versus ~180–250 MB for a second instance. The
+**Host Postgres 17.9, dedicated `deckscout` database and role, cluster-wide
+connection budget of 4 (API 2 + sync 1 + MCP 1), per-process hard cap 3.**
+Marginal cost 25–35 MB, versus ~180–250 MB for a second instance. The
 decisive point is blast radius: `max_connections` is 20 with 10 already in use, so a
-3-connection pool fits with 7 to spare — **no config change and no restart of a
+4-connection budget fits with 6 to spare — **no config change and no restart of a
 Postgres that other services depend on.** All tuning is role-scoped.
 
 Honest counter-argument, recorded rather than buried: every other pm2 app on this

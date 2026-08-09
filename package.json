@@ -2,7 +2,12 @@
   "name": "deckscout",
   "private": true,
   "version": "0.1.0",
-  "description": "Self-hosted pkmn.gg clone for Raspberry Pi 5 (TheGrid). Backend + DB + sync.",
+  "description": "Self-hosted, single-user TCG collection tracker — catalog, prices, deck builder, card scanner, MCP server, and React PWA.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cheyras/deckscout.git"
+  },
   "engines": {
     "node": ">=20"
   },

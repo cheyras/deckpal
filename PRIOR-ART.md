@@ -1,4 +1,4 @@
-# PRIOR-ART.md — pokedex
+# PRIOR-ART.md — DeckScout
 
 **Research date:** 2026-07-24. Every factual claim below is tagged **[verified: …]** with the URL or
 local artefact it came from, or **[unverified]**. Claims carried from
