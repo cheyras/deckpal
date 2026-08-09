@@ -86,7 +86,23 @@ card-art/
 | `API_BASE_PATH` | `/api` | |
 | `NODE_ENV` | `production` | |
 
-4. Deploy. The `vercel.json` in the repo configures rewrites:
+4. **(Optional) Bug reporter → GitHub issues:** Create a fine-grained Personal
+   Access Token at `github.com/settings/personal-access-tokens/new` with
+   **Issues: Read and write** permission scoped to your `deckscout` repo. Set
+   the two environment variables:
+
+   | Variable | Value |
+   |---|---|
+   | `GITHUB_TOKEN` | `github_pat_...` |
+   | `GITHUB_REPO` | `cheyras/deckscout` |
+
+   When set, in-app bug reports create GitHub issues automatically. The
+   reporter's identity is stored privately in the `bug_report` DB table and
+   never appears in the public issue. If Supabase Storage is configured
+   (`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`), screenshots are uploaded to
+   a `bug-reports` storage bucket and linked in the issue body.
+
+5. Deploy. The `vercel.json` in the repo configures rewrites:
    - `/api/*` routes to the Express catch-all serverless function (`api/index.ts`)
    - All other routes serve the SPA (`index.html`)
 

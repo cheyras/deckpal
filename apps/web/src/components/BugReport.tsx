@@ -41,6 +41,7 @@ export function BugButton() {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [savedId, setSavedId] = useState<string | null>(null)
+  const [issueUrl, setIssueUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Open the modal right away, then kick off the screenshot in the background.
@@ -48,6 +49,7 @@ export function BugButton() {
     setShot(undefined)
     setText('')
     setSavedId(null)
+    setIssueUrl(null)
     setError(null)
     setCapturing(true)
     setOpen(true)
@@ -115,10 +117,12 @@ export function BugButton() {
         userAgent: navigator.userAgent,
       })
       setSavedId(r.id)
+      if (r.issueUrl) setIssueUrl(r.issueUrl)
+      // Longer timeout when there's a GitHub link so the user can click it.
       window.setTimeout(() => {
         setOpen(false)
         setShot(undefined)
-      }, 1600)
+      }, r.issueUrl ? 4000 : 1600)
     } catch (err) {
       setError((err as Error).message || 'Could not save the report.')
     } finally {
@@ -145,7 +149,18 @@ export function BugButton() {
                 <Icon name="check-circle" size={44} />
               </span>
               <p className="text-[15px] font-semibold text-text-primary">Thanks — your report was saved.</p>
-              <p className="font-mono text-[12px] text-text-muted">issues/{savedId}/</p>
+              {issueUrl ? (
+                <a
+                  href={issueUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[13px] font-medium text-action-primary hover:underline"
+                >
+                  View it on GitHub
+                </a>
+              ) : (
+                <p className="font-mono text-[12px] text-text-muted">issues/{savedId}/</p>
+              )}
             </div>
           ) : (
             <form onSubmit={submit} className="flex flex-col gap-[14px]">
