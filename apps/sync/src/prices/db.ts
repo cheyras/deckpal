@@ -74,6 +74,9 @@ export async function ensureObservationPartition(client: Queryable, capturedAt: 
   const from = new Date(Date.UTC(y, m, 1));
   const to = new Date(Date.UTC(y, m + 1, 1));
   const name = `price_observation_${y}_${String(m + 1).padStart(2, '0')}`;
+  if (!/^price_observation_\d{4}_\d{2}$/.test(name)) {
+    throw new Error(`invalid partition identifier: ${name}`);
+  }
   const iso = (d: Date) => d.toISOString().slice(0, 10);
   await client.query(
     `CREATE TABLE IF NOT EXISTS ${name} PARTITION OF price_observation

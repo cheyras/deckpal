@@ -1,6 +1,22 @@
+import { dirname, join, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { loadEnv } from '@deckscout/db';
 
 loadEnv();
+
+// Walk up from this compiled file to the repo root (marked by pnpm-workspace.yaml),
+// so the paths are correct whether we run from dist/ (pm2) or src/ (tsx dev).
+function repoRoot(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 8; i++) {
+    if (existsSync(join(dir, 'pnpm-workspace.yaml'))) return dir;
+    const up = dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  throw new Error('repo root (pnpm-workspace.yaml) not found from ' + fileURLToPath(import.meta.url));
+}
 
 /**
  * Image-service configuration. All values come from the repo .env (loaded above)
@@ -13,7 +29,7 @@ loadEnv();
 // `**/*.webp` in .gitignore). DATA-LAYER §5.3 draws the layout under `data/`,
 // but the shipped wiring points at `cache/`; we honour the wiring — the sub-tree
 // layout (images/<lang>/<serie>/<set>/…) is identical.
-export const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? '/home/cheyras/pokedex/cache';
+export const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? resolve(repoRoot(), 'cache');
 
 // Pokédex species sprite root (pixel art + official artwork, normal + shiny),
 // populated out-of-band by the sprite background job. Disk layout under this root:
@@ -25,7 +41,7 @@ export const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? '/home/cheyras/pokedex
 // these at /deckscout/images/sprites/{pixel|art}[/shiny]/{id}.png — this service
 // resolves those URLs to the paths above. Missing sprites 404 so the client can
 // render its own placeholder tile (no layout shift), mirroring un-warmed card art.
-export const SPRITE_ROOT = process.env.SPRITE_ROOT ?? '/home/cheyras/pokedex/assets/sprites/pokemon';
+export const SPRITE_ROOT = process.env.SPRITE_ROOT ?? resolve(repoRoot(), 'assets/sprites/pokemon');
 
 export const IMAGES_PORT = Number(process.env.DECKSCOUT_IMAGES_PORT ?? 3701);
 

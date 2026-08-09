@@ -363,11 +363,11 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
               WHERE p.user_id = $1
               GROUP BY cs.id, cs.tcgdex_id, cs.name
               ${having}
-              ORDER BY (max(p.owned_required) FILTER (WHERE p.goal = '${goal}'))::float
-                       / NULLIF(max(p.total_required) FILTER (WHERE p.goal = '${goal}'), 0)
+              ORDER BY (max(p.owned_required) FILTER (WHERE p.goal = $4))::float
+                       / NULLIF(max(p.total_required) FILTER (WHERE p.goal = $4), 0)
                        DESC NULLS LAST, cs.tcgdex_id
               LIMIT $2 OFFSET $3`,
-            [ctx.userId, args.page_size, offset],
+            [ctx.userId, args.page_size, offset, goal],
           );
           if (total === 0) return ok('No sets have any progress yet.');
           const lines = rows.map((r) => {

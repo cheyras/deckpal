@@ -279,9 +279,11 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
       }
       summary.cards += setCards.length;
 
-      // card attribute junctions: DELETE-then-INSERT (no user FK on these — safe to replace)
+      // card attribute junctions: DELETE-then-INSERT (no user FK on these — safe to replace).
+      // INVARIANT: the table list is a hardcoded constant — never derived from user input.
+      // Each name is a known junction table in the schema; no interpolation risk.
       const cardIds = [...cardIdByTcgdex.values()];
-      for (const t of ['card_type', 'card_attack', 'card_ability', 'card_matchup']) {
+      for (const t of ['card_type', 'card_attack', 'card_ability', 'card_matchup'] as const) {
         await client.query(`DELETE FROM ${t} WHERE card_id = ANY($1::bigint[])`, [cardIds]);
       }
       const typeRows: unknown[][] = [], attackRows: unknown[][] = [], abilityRows: unknown[][] = [], matchupRows: unknown[][] = [];

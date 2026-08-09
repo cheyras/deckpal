@@ -37,10 +37,9 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
     res.status(err.status).json({ error: { code: err.code, message: err.message } });
     return;
   }
-  const message = err instanceof Error ? err.message : 'Internal error';
-  // Log server-side; do not leak internals to the client body beyond the message.
+  // Log the real error server-side; send a generic message to the client.
   console.error('[deckscout-api] unhandled', err);
-  res.status(500).json({ error: { code: 'internal', message } });
+  res.status(500).json({ error: { code: 'internal', message: 'Internal server error' } });
 }
 
 // ── Cache headers ────────────────────────────────────────────────────────────
