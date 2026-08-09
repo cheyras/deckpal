@@ -192,7 +192,7 @@ export function CardTile({
   eager?: boolean
   onRemove?: () => void
   badge?: string
-  // Optional owned-state rendering (species detail / signed-in grid, AUTH-CAPTURES
+  // Optional owned-state rendering (species detail / signed-in grid, pkmn.gg captures
   // §15.2): dim un-owned cards, and stamp a quantity chip on owned ones. Omitted on
   // the set page, which is unaffected.
   ownership?: boolean

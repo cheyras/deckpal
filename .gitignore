@@ -41,5 +41,8 @@ pokedex-backups/
 pokedex-exports/
 *.dump
 
+# ── issue screenshots (defense-in-depth — never commit user screenshots) ─
+issues/*/*.jpg
+
 # ── os cruft ──────────────────────────────────────────────────────────────
 .DS_Store

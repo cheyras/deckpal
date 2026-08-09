@@ -3,7 +3,7 @@ import { setLevelLabel } from '../lib/format'
 
 type Goal = 'complete' | 'master' | 'grandmaster'
 
-// The two-bar progress cluster (UI-SPEC §3.6, AUTH-CAPTURES §8/§10).
+// The two-bar progress cluster (UI-SPEC §3.6, pkmn.gg captures §8/§10).
 // Bar 1 = Complete Set (gradient salmon→yellow, 3 milestone dots at 25/50/75,
 // dots become stars once passed). Bar 2 = Master, or Grandmaster when that goal
 // is selected — its colour flips green→purple accordingly.

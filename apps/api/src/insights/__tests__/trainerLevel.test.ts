@@ -9,7 +9,7 @@ import {
   pct,
 } from '../trainerLevel.js';
 
-// ── Trainer Level: floor(unique / 10), level-0 start (AUTH-CAPTURES §13) ────────
+// ── Trainer Level: floor(unique / 10), level-0 start (verified against pkmn.gg) ─
 test('trainerLevel — 276 unique → level 27 (the proven data point)', () => {
   assert.equal(trainerLevel(276), 27); // NOT 28 (1+floor) and NOT floor(677/10)=67
 });
@@ -41,7 +41,7 @@ test('trainerLevelProgress — exact boundary (30 → L3, freshly leveled)', () 
   assert.equal(p.fraction, 0);
 });
 
-// ── set LVL from percentage: 0 if 0 else 1+floor(pct/25) (AUTH-CAPTURES §10) ────
+// ── set LVL from percentage: 0 if 0 else 1+floor(pct/25) (pkmn.gg captures §10) ────
 test('setLevel — the six authenticated (pct → LVL) data points', () => {
   assert.equal(setLevel(0), 0); // Perfect Order 0/124
   assert.equal(setLevel(6.4), 1); // Mega Evolution 12/188

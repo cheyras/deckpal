@@ -9,7 +9,7 @@ import type { Queryable } from './prices/db.js';
 // ingests (prices-tcgcsv, prices-cardmarket) run in-process, and snapshot-collection /
 // reconcile call deckscout-api's internal endpoints over HTTP (jobs/api-jobs.ts — sync must
 // not import apps/api, whose db.ts opens its own 2-connection pool at module load).
-// catalog / images / products-tcgcsv remain MANUAL per PKMN-SYNC-RUNBOOK.md and fire as
+// catalog / images / products-tcgcsv remain MANUAL per the sync runbook and fire as
 // logging stubs. Cadences and the job list come from research/DATA-LAYER.md §7.2 and the
 // sync_run.job CHECK. Run any real job once by hand: `pnpm --filter deckscout-sync run-once <job>`.
 loadEnv();

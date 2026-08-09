@@ -10,7 +10,7 @@ import { fmtPrice, fmtDate, fmtNumber, fmtRelative } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 
-// Map a variant kind to its accent colour (AUTH-CAPTURES §12.3).
+// Map a variant kind to its accent colour (pkmn.gg captures §12.3).
 function variantColor(v: Variant): string {
   const k = v.kind.toLowerCase()
   if (v.tier === 'special') return 'var(--color-variant-other)'

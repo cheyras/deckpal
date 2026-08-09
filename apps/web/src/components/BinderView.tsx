@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router'
 import type { CardRow } from '../lib/api'
 import { Icon } from './Icon'
 
-// Binder view (UI-SPEC §3.25, AUTH-CAPTURES §15.3).
+// Binder view (UI-SPEC §3.25, pkmn.gg captures §15.3).
 //
 // A real, paged binder. Pockets are laid out per the selected layout tab
 // (9 / 12 / 4 / 16 per page). An owned card renders at full brightness; an

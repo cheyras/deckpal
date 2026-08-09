@@ -106,7 +106,7 @@ interface ProgressDbRow {
  * return them shaped for the API. Must be called on a transaction client so the
  * recompute is atomic with the collection write that triggered it.
  *
- * Semantics (SCHEMA §5.3 / §9.2, AUTH-CAPTURES §4/§8/§11):
+ * Semantics (SCHEMA §5.3 / §9.2, pkmn.gg captures §4/§8/§11):
  *   • complete    — card fraction: a card counts owned if ANY variant qty ≥ 1.
  *   • master      — (card, standard-variant) pair fraction over master_required_variant
  *                   (standard-tier pairs + is_primary fallback for cards with no standard).
