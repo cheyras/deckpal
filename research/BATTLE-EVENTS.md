@@ -63,7 +63,7 @@ DB rows (migration 020) are written by `battleevents-db.ts` with two mappings:
 
 Note one deliberate delta from 020's `actor` column comment (which lists coin_toss /
 game_end as examples of `'system'`): when the Live line names an acting player
-("cheyras chose heads…", "… PlayerA wins.") we keep that attribution (`me`/`opp`) —
+("PlayerA chose heads…", "… PlayerA wins.") we keep that attribution (`me`/`opp`) —
 more information, same CHECK. `'system'` is used only where the line names no player
 (checkup, tool activations, effect negations, condition damage).
 
@@ -80,33 +80,33 @@ Orders"`).
 
 | type | actor | payload | example line |
 |---|---|---|---|
-| `coin_toss` | caller/winner | `{call?: 'heads'\|'tails'; won?: true}` — one event per line (call line, won line) | `cheyras chose heads for the opening coin flip.` |
+| `coin_toss` | caller/winner | `{call?: 'heads'\|'tails'; won?: true}` — one event per line (call line, won line) | `PlayerA chose heads for the opening coin flip.` |
 | `go_first` | decider | `{order: 'first'\|'second'}` | `OppCharlie decided to go first.` |
-| `opening_hand` | drawer | `{count; cards?: CardRef[]}` — cards only for the log owner (§5) | `cheyras drew 7 cards for the opening hand.` |
+| `opening_hand` | drawer | `{count; cards?: CardRef[]}` — cards only for the log owner (§5) | `PlayerA drew 7 cards for the opening hand.` |
 | `mulligan` | mulliganer | `{count; cards?: CardRef[]}` — reveal groups fold in | `xTheWizardx took 5 mulligans.` |
-| `turn_start` | turn player | `{turn}` | `cheyras's Turn` |
-| `draw` | drawer | `{card?; count?; cards?; to?: 'bench'; reason?: 'mulligan_bonus'; via?}` — `to:'bench'` = drawn straight into play (Poffin) | `cheyras drew Boss's Orders.` |
-| `end_turn` | turn player | `{timeout?: true}` — timeout = "didn't take an action in time" | `cheyras ended their turn.` |
+| `turn_start` | turn player | `{turn}` | `PlayerA's Turn` |
+| `draw` | drawer | `{card?; count?; cards?; to?: 'bench'; reason?: 'mulligan_bonus'; via?}` — `to:'bench'` = drawn straight into play (Poffin) | `PlayerA drew Boss's Orders.` |
+| `end_turn` | turn player | `{timeout?: true}` — timeout = "didn't take an action in time" | `PlayerA ended their turn.` |
 | `checkup` | system | `{}` — between-turns Pokémon Checkup marker | `Pokémon Checkup` |
-| `play_to_bench` | player | `{card; via?}` | `cheyras played Shuppet to the Bench.` |
-| `play_to_active` | player | `{card; via?}` | `cheyras played Poltchageist to the Active Spot.` |
-| `play_card` | player | `{card; via?}` — see §4 polysemy | `cheyras played Ultra Ball.` |
-| `play_stadium` | player | `{card; via?}` — placement only; later uses are `play_card` | `cheyras played Prism Tower to the Stadium spot.` |
-| `evolve` | owner | `{from; to; where?: 'active'\|'bench'; via?}` | `cheyras evolved Shuppet to Banette in the Active Spot.` |
-| `attach` | owner | `{card; to; where?; via?}` — energy AND tools | `cheyras attached Air Balloon to Dhelmise in the Active Spot.` |
-| `retreat` | owner | `{card; via?}` | `cheyras retreated Dhelmise to the Bench.` |
-| `promote` | owner | `{card; via?}` — new Active after KO/retreat/switch | `cheyras's Poltchageist is now in the Active Spot.` |
-| `switch` | board owner | `{in; out; via?}` — `in` becomes Active; via = the gust/switch effect | `- cheyras's Dhelmise was switched with cheyras's Poltchageist to become the Active Pokémon.` |
-| `attack` | attacker's owner | `{attacker; move; target: BoardRef; damage; modifiers?: {amount, reason}[]; breakdown?: {label, amount}[]; extra?: string}` — amounts signed as printed; `extra` = unrecognized trailing rider text, preserved verbatim | `OppFoxtrot's Mega Darkrai ex used Dusk Raid on cheyras's Dhelmise for 440 damage. …took 220 more damage because of Darkness Weakness.` |
-| `use_move` | user's owner | `{user; move; target?; breakdown?}` — see §4 | `cheyras's Fezandipiti ex used Flip the Script.` |
-| `knockout` | **owner of the downed mon** | `{card}` | `cheyras's Dhelmise was Knocked Out!` |
+| `play_to_bench` | player | `{card; via?}` | `PlayerA played Shuppet to the Bench.` |
+| `play_to_active` | player | `{card; via?}` | `PlayerA played Poltchageist to the Active Spot.` |
+| `play_card` | player | `{card; via?}` — see §4 polysemy | `PlayerA played Ultra Ball.` |
+| `play_stadium` | player | `{card; via?}` — placement only; later uses are `play_card` | `PlayerA played Prism Tower to the Stadium spot.` |
+| `evolve` | owner | `{from; to; where?: 'active'\|'bench'; via?}` | `PlayerA evolved Shuppet to Banette in the Active Spot.` |
+| `attach` | owner | `{card; to; where?; via?}` — energy AND tools | `PlayerA attached Air Balloon to Dhelmise in the Active Spot.` |
+| `retreat` | owner | `{card; via?}` | `PlayerA retreated Dhelmise to the Bench.` |
+| `promote` | owner | `{card; via?}` — new Active after KO/retreat/switch | `PlayerA's Poltchageist is now in the Active Spot.` |
+| `switch` | board owner | `{in; out; via?}` — `in` becomes Active; via = the gust/switch effect | `- PlayerA's Dhelmise was switched with PlayerA's Poltchageist to become the Active Pokémon.` |
+| `attack` | attacker's owner | `{attacker; move; target: BoardRef; damage; modifiers?: {amount, reason}[]; breakdown?: {label, amount}[]; extra?: string}` — amounts signed as printed; `extra` = unrecognized trailing rider text, preserved verbatim | `OppFoxtrot's Mega Darkrai ex used Dusk Raid on PlayerA's Dhelmise for 440 damage. …took 220 more damage because of Darkness Weakness.` |
+| `use_move` | user's owner | `{user; move; target?; breakdown?}` — see §4 | `PlayerA's Fezandipiti ex used Flip the Script.` |
+| `knockout` | **owner of the downed mon** | `{card}` | `PlayerA's Dhelmise was Knocked Out!` |
 | `prize_take` | taker | `{count}` | `OppFoxtrot took 2 Prize cards.` |
-| `hand_add` | hand owner | `{card: CardRef\|null}` — null = hidden ("A card was added…") | `Buddy-Buddy Poffin was added to cheyras's hand.` |
-| `discard` | owner | `{card?; count?; cards?; from?: BoardRef; via?}` — `from` = discarded off a mon (KO cleanup, energy costs) | `- 2 cards were discarded from cheyras's Banette.` |
-| `shuffle` | shuffler | `{zone: 'deck'\|'hand'; card?; count?; cards?; via?}` | `- cheyras shuffled their deck.` |
-| `move_cards` | mover | `{to: 'hand'\|'deck'\|'deck_bottom'\|'discard'; card?; count?; cards?; owner?; via?}` — `owner` = whose cards, when the mover is someone else (Prism Tower) | `- cheyras moved OppAlpha's 2 cards to the discard pile.` |
+| `hand_add` | hand owner | `{card: CardRef\|null}` — null = hidden ("A card was added…") | `Buddy-Buddy Poffin was added to PlayerA's hand.` |
+| `discard` | owner | `{card?; count?; cards?; from?: BoardRef; via?}` — `from` = discarded off a mon (KO cleanup, energy costs) | `- 2 cards were discarded from PlayerA's Banette.` |
+| `shuffle` | shuffler | `{zone: 'deck'\|'hand'; card?; count?; cards?; via?}` | `- PlayerA shuffled their deck.` |
+| `move_cards` | mover | `{to: 'hand'\|'deck'\|'deck_bottom'\|'discard'; card?; count?; cards?; owner?; via?}` — `owner` = whose cards, when the mover is someone else (Prism Tower) | `- PlayerA moved OppAlpha's 2 cards to the discard pile.` |
 | `damage_counters` | placer / system | `{count; target: BoardRef; condition?; via?}` — `condition` set for checkup poison ticks | `1 damage counter was placed on OppFoxtrot's Mega Darkrai ex for the Special Condition Poisoned.` |
-| `damage` | target owner | `{target; amount; via?}` — non-attack damage (bench snipes) | `- cheyras's Shuppet took 30 damage.` |
+| `damage` | target owner | `{target; amount; via?}` — non-attack damage (bench snipes) | `- PlayerA's Shuppet took 30 damage.` |
 | `heal` | target owner | `{target; amount; via?}` | `- OppGolf's Lurantis ex healed 30 damage.` |
 | `condition` | target owner | `{target; condition; via?}` — Poisoned/Burned/Asleep/Paralyzed/Confused | `- OppFoxtrot's Mega Darkrai ex is now Poisoned.` |
 | `effect_negated` | system | `{effect; card}` | `- Effects of Poison Jab did not affect Shuppet.` |
