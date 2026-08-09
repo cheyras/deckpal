@@ -2,7 +2,7 @@
  * Local ollama embedding client (OpenAI-compatible /v1/embeddings).
  *
  * BATTLE-INTEL-SPEC §1 Ground Truth #5: embedding infra already exists on this
- * box — `nomic-embed-text` in local ollama, same approach as a co-hosted app. This is
+ * box — `nomic-embed-text` in local ollama. This is
  * the ONLY model call the mcp server ever makes (synthesis itself is chat-driven;
  * no server-side LLM).
  *

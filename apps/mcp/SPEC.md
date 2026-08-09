@@ -234,7 +234,7 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
 
 ## 5b. Battle synthesis — A2 · feat/battle-synthesis (2026-08-01; gated on migration 020)
 
-Chat-driven synthesis per `BATTLE-INTEL-SPEC.md` §3 Wave 1 A2 (a co-hosted app pattern: Claude in
+Chat-driven synthesis per `BATTLE-INTEL-SPEC.md` §3 Wave 1 A2 (Claude in
 chat reads via MCP, synthesizes, writes back; the server's only intelligence is archetype
 normalization + local-ollama embedding — **no server-side LLM**). Both tools live in
 `src/tools/synthesis.ts`; pure logic (normalization, narrative bounds, merge semantics) in
@@ -253,7 +253,7 @@ normalization + local-ollama embedding — **no server-side LLM**). Both tools l
     ~150–300 words (hard bounds 50/500; ≤4000 chars). Archetypes accept slug/alias/display
     name, stored as canonical `archetype.slug` — unknown labels rejected with suggestions,
     never invented. Commit updates `battle_log` (structured fields + narrative + `source`
-    stamp: `rotom-mcp`, or `user` when `ai_generated: false` — the a co-hosted app ai_generated
+    stamp: `rotom-mcp`, or `user` when `ai_generated: false` — the ai_generated
     discipline riding 019's writer-attribution column) then embeds into `battle_memories`
     (upsert on `(log_id, kind='narrative')` — idempotent re-synthesis). **Ollama down =
     honest pending**: battle_log saves, no memory row is written (`embedding` is NOT NULL
