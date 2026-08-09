@@ -7,7 +7,7 @@ onboarding walkthrough; this file is the reference.
 
 ## Architecture at a glance
 
-pnpm monorepo (ESM, Node 22, TypeScript strict). Five apps + one shared package:
+pnpm monorepo (ESM, Node >=20, TypeScript strict). Five apps + one shared package:
 
 | Package | Filter name | Role |
 |---|---|---|
