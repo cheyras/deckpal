@@ -41,8 +41,10 @@ pokedex-backups/
 pokedex-exports/
 *.dump
 
-# ── issue screenshots (defense-in-depth — never commit user screenshots) ─
-issues/*/*.jpg
-
 # ── os cruft ──────────────────────────────────────────────────────────────
 .DS_Store
+
+# ── legacy deployment deploy artifacts (Pi decommissioned 2026-08-09; cloud-first now) ─
+# Intentionally untracked, not just deleted — harmless if someone recreates
+# deploy/ locally for their own legacy deployment setup.
+deploy/
