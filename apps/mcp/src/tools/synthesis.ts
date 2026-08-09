@@ -16,7 +16,7 @@ import {
 
 /**
  * Battle-synthesis tools — BATTLE-INTEL-SPEC §3 Wave 1 A2 (chat-driven
- * synthesis, a co-hosted app pattern): `synthesis_queue` is the read face (logs still
+ * synthesis): `synthesis_queue` is the read face (logs still
  * missing narrative / structured fields / embedding, raw + parsed included so a
  * chat session can synthesize), `save_synthesis` is the write face (dry-run
  * defaulted; normalizes archetypes through the W0 registry, embeds via local
@@ -331,7 +331,7 @@ export function registerSynthesisTools(server: McpServer, ctx: Ctx): void {
           .boolean()
           .default(true)
           .describe(
-            'ai_generated discipline (a co-hosted app convention), carried by battle_log.source: true (the normal ' +
+            'ai_generated discipline, carried by battle_log.source: true (the normal ' +
               `case — you wrote or paraphrased any of the narrative) stamps source '${SOURCE}'; false (ONLY ` +
               `for the user's verbatim text) stamps '${SOURCE_VERBATIM}'. When in doubt, true.`,
           ),

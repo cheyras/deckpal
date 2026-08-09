@@ -67,7 +67,7 @@ why*. 150–300 words is the target; under 50 or over 500 is refused.
 - **key_cards** — the ≤12 cards that actually decided the game (either side), exact card
   names, not the whole list. "Iono" belongs here when Iono won the game, not because it
   was played.
-- **ai_generated** — a co-hosted app discipline, carried by `battle_log.source` (writer
+- **ai_generated** — carried by `battle_log.source` (writer
   attribution): `true` if you wrote or paraphrased any of the narrative (the normal case —
   stamps `rotom-mcp`); `false` ONLY for the user's verbatim text (stamps `user`). When in
   doubt, `true`. This gates any future personal-voice use — contamination is irreversible.
