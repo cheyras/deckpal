@@ -5,9 +5,9 @@ recipes are real implemented recipes** — zero `approxVia` fallbacks left
 (the only non-implemented type is `big-glitter`, a box-topper with no catalog
 card to render). All 38 of your workbench comments are resolved.
 
-**Where:** phone → `http://localhost:3999` → *Foil workbench* →
-*Canon pattern lab* (blank card, pattern dropdown) or *Card adjust*
-(real scans, search box). Tilt = drag, or the gyro chip.
+**Where:** run the foil workbench dev server → *Canon pattern lab*
+(blank card, pattern dropdown) or *Card adjust* (real scans, search box).
+Tilt = drag, or the gyro chip.
 
 Stale items already fixed and dropped from this list: tinsel-ii static,
 prismatic-pokeball darkening, radiant-collection-dots nay, starlight's

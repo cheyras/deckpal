@@ -30,7 +30,7 @@ import { gradientOf } from './line-snap.js';
 
 const ROOT = join(import.meta.dirname, '../../../..');
 const MASKS_DIR = join(ROOT, 'data/foil-masks');
-const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? '/home/cheyras/pokedex/cache';
+const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? join(ROOT, 'cache');
 const TEMPLATE_FILE = join(ROOT, 'apps/web/src/foil/vector-templates.json');
 const MASK_W = 490;
 const MASK_H = Math.round((MASK_W * 337) / 245);

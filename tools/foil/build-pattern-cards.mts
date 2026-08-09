@@ -12,7 +12,7 @@
 // staleness) and ONE Postgres connection walks the variants.
 //
 // Run from repo root (loads ./.env itself):
-//   pnpm --filter pokedex-api exec tsx ../../tools/foil/build-pattern-cards.mts
+//   pnpm --filter deckscout-api exec tsx ../../tools/foil/build-pattern-cards.mts
 // Output: data/foil-pattern-cards.json — re-run after catalog syncs or
 // resolver/assignment changes (the file records resolverVersion + counts).
 

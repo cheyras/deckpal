@@ -8,7 +8,7 @@
 // resolver used. The hand-drawn PNG is never touched; the original sidecar
 // fields (savedAt above all) are preserved.
 //
-//   pnpm --filter pokedex-api exec tsx src/foil/backfill.ts \
+//   pnpm --filter deckscout-api exec tsx src/foil/backfill.ts \
 //     --card base1-8 --variant 32 --era wotc --scope window \
 //     --feather 0.008 --resolver-version 1
 //

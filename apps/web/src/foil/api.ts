@@ -5,7 +5,7 @@
 // client duplicates the handful of read endpoints the workbench needs rather
 // than coupling to lib/api.ts — see roadmap/plans/foil-main.md.
 
-const BASE = '/pokedex/api'
+const BASE = '/deckscout/api'
 
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { signal })
