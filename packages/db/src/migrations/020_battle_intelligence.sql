@@ -34,14 +34,14 @@
 -- they are the shared vocabulary every wave's plan greps for — even though the
 -- rest of the schema uses singular names. Deliberate, recorded in DECISIONS.md.
 
--- pgvector: available cluster-wide at 0.8.0 (a co-hosted app uses it with HNSW).
+-- pgvector: available cluster-wide at 0.8.0 (already in use with HNSW).
 -- ⚠ NOT a trusted extension (verified: /usr/share/postgresql/17/extension/
 -- vector.control has no `trusted` flag — upstream pgvector never sets it), so
 -- the pokedex role CANNOT create it, unlike pg_trgm (001). ONE-TIME PRE-STEP
 -- before this migration runs against a fresh database:
 --     sudo -u postgres psql -d pokedex -c 'CREATE EXTENSION IF NOT EXISTS vector'
 -- After that, the statement below is an idempotent no-op. Same embedding
--- approach as a co-hosted app: local ollama `nomic-embed-text` (768-dim) through an
+-- approach: local ollama `nomic-embed-text` (768-dim) through an
 -- OpenAI-compatible /v1/embeddings.
 CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -209,7 +209,7 @@ COMMENT ON TABLE battle_memories IS
   'Embedded game narratives for semantic battle_search (A3). One row per (log, kind); re-synthesis UPSERTs on that key, which is what makes A2 idempotent. kind=''narrative'' for now; future kinds (e.g. ''turning_point'') are additive. Simulated games are embedded SAMPLED, not exhaustively (C2''s call).';
 COMMENT ON COLUMN battle_memories.embedding IS
   '768-dim nomic-embed-text vector (same model embeds queries). Model changes require re-embedding the table — hence the model column.';
--- ~10 rows today; HNSW now costs nothing and matches the a co-hosted app pattern, so
+-- ~10 rows today; HNSW now costs nothing and matches the existing pattern, so
 -- the index exists from day one instead of arriving as a later "perf" migration.
 CREATE INDEX battle_memories_embedding_hnsw
   ON battle_memories USING hnsw (embedding vector_cosine_ops);
