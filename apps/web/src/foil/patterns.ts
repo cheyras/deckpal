@@ -1635,7 +1635,7 @@ vec3 foilPattern(vec2 uv, vec2 tilt) {
 // #23 Prism — R3-MISC rebuild 2026-08-03 (Chey rmrib7: "totally wrong ...
 // supposed to be more like the pinwheel one but with some differences").
 // Differences articulated by the Gemini corpus-vs-corpus delta pass
-// (~/.legacy-dev-hub-legacy/foil-verify/delta-prism-vs-pinwheel/delta.md, verified
+// (~/.deckscout-dev/foil-verify/delta-prism-vs-pinwheel/delta.md, verified
 // against the Raticate BREAK tilt frames by eye): SHARED with pinwheel —
 // upright square grid, dark etched unlit field, broad diagonal activation
 // region sweeping with tilt, vivid hues. DIFFERENT — ~3x finer grid (30-35
