@@ -1,27 +1,27 @@
 Setup
-ExtraManatee chose tails for the opening coin flip.
-ExtraManatee won the coin toss.
-ExtraManatee decided to go first.
-ExtraManatee drew 7 cards for the opening hand.
+OppBravo chose tails for the opening coin flip.
+OppBravo won the coin toss.
+OppBravo decided to go first.
+OppBravo drew 7 cards for the opening hand.
 - 7 drawn cards.
 cheyras drew 7 cards for the opening hand.
 - 7 drawn cards.
    • (me1_119) Lillie's Determination, (sve_5) Basic Psychic Energy, (sv6-5_61) Night Stretcher, (me5_5) Poltchageist, (me2-5_184) Buddy-Buddy Poffin, (me5_78) Gwynn, (me5_39) Dhelmise
-ExtraManatee played (me1_76) Riolu to the Active Spot.
-ExtraManatee played (me3_62) Meowth ex to the Bench.
+OppBravo played (me1_76) Riolu to the Active Spot.
+OppBravo played (me3_62) Meowth ex to the Bench.
 cheyras played (me5_5) Poltchageist to the Active Spot.
 cheyras played (me5_39) Dhelmise to the Bench.
 
-ExtraManatee's Turn
-ExtraManatee drew a card.
-ExtraManatee attached (mee_6) Basic Fighting Energy to (me1_76) Riolu in the Active Spot.
-ExtraManatee played (me1_124) Premium Power Pro.
-ExtraManatee played (me1_131) Ultra Ball.
-- ExtraManatee discarded 2 cards.
+OppBravo's Turn
+OppBravo drew a card.
+OppBravo attached (mee_6) Basic Fighting Energy to (me1_76) Riolu in the Active Spot.
+OppBravo played (me1_124) Premium Power Pro.
+OppBravo played (me1_131) Ultra Ball.
+- OppBravo discarded 2 cards.
    • (sv8_177) Gravity Mountain, (me3_76) Judge
-- ExtraManatee drew (me1_77) Mega Lucario ex.
-- ExtraManatee shuffled their deck.
-ExtraManatee ended their turn.
+- OppBravo drew (me1_77) Mega Lucario ex.
+- OppBravo shuffled their deck.
+OppBravo ended their turn.
 
 cheyras's Turn
 cheyras drew (sv6-5_38) Fezandipiti ex.
@@ -38,13 +38,13 @@ cheyras played (me1_119) Lillie's Determination.
    • (me4_82) Special Red Card, (me3_88) Telepathic Psychic Energy, (sve_5) Basic Psychic Energy, (me5_6) Sinistcha, (sve_5) Basic Psychic Energy, (zsv10-5_79) Air Balloon, (me1_119) Lillie's Determination, (me5_6) Sinistcha
 cheyras ended their turn.
 
-ExtraManatee's Turn
-ExtraManatee drew a card.
-ExtraManatee evolved (me1_76) Riolu to (me1_77) Mega Lucario ex in the Active Spot.
-ExtraManatee's (me1_77) Mega Lucario ex used Aura Jab on cheyras’s (me5_5) Poltchageist for 130 damage.
+OppBravo's Turn
+OppBravo drew a card.
+OppBravo evolved (me1_76) Riolu to (me1_77) Mega Lucario ex in the Active Spot.
+OppBravo's (me1_77) Mega Lucario ex used Aura Jab on cheyras’s (me5_5) Poltchageist for 130 damage.
 cheyras's (me5_5) Poltchageist was Knocked Out!
-ExtraManatee took a Prize card.
-A card was added to ExtraManatee's hand.
+OppBravo took a Prize card.
+A card was added to OppBravo's hand.
 cheyras's (me5_5) Poltchageist is now in the Active Spot.
 
 cheyras's Turn
@@ -65,13 +65,13 @@ cheyras attached (me3_88) Telepathic Psychic Energy to (me5_39) Dhelmise on the 
 cheyras evolved (me5_33) Shuppet to (me5_34) Banette on the Bench.
 cheyras ended their turn.
 
-ExtraManatee's Turn
-ExtraManatee drew a card.
-ExtraManatee attached (mee_6) Basic Fighting Energy to (me1_77) Mega Lucario ex in the Active Spot.
-ExtraManatee's (me1_77) Mega Lucario ex used Mega Brave on cheyras’s (me5_5) Poltchageist for 270 damage.
+OppBravo's Turn
+OppBravo drew a card.
+OppBravo attached (mee_6) Basic Fighting Energy to (me1_77) Mega Lucario ex in the Active Spot.
+OppBravo's (me1_77) Mega Lucario ex used Mega Brave on cheyras’s (me5_5) Poltchageist for 270 damage.
 cheyras's (me5_5) Poltchageist was Knocked Out!
-ExtraManatee took a Prize card.
-A card was added to ExtraManatee's hand.
+OppBravo took a Prize card.
+A card was added to OppBravo's hand.
 cheyras's (me5_39) Dhelmise is now in the Active Spot.
 
 cheyras's Turn
@@ -81,44 +81,44 @@ cheyras's (sv6-5_38) Fezandipiti ex used Flip the Script.
 - cheyras drew 3 cards.
    • (me5_78) Gwynn, (zsv10-5_79) Air Balloon, (me5_78) Gwynn
 cheyras attached (sve_5) Basic Psychic Energy to (me5_33) Shuppet on the Bench.
-cheyras's (me5_39) Dhelmise used Vengeful Anchor on ExtraManatee’s (me1_77) Mega Lucario ex for 340 damage. ExtraManatee's (me1_77) Mega Lucario ex took 170 more damage because of Psychic Weakness.
+cheyras's (me5_39) Dhelmise used Vengeful Anchor on OppBravo’s (me1_77) Mega Lucario ex for 340 damage. OppBravo's (me1_77) Mega Lucario ex took 170 more damage because of Psychic Weakness.
 - Damage breakdown:
    • Base damage: 30 damage
    • 4 discarded Pokémon: 140 damage
    • Weakness to Psychic: 170 damage
    • Total damage: 340 damage
 
-ExtraManatee's (me1_77) Mega Lucario ex was Knocked Out!
-- 3 cards were discarded from ExtraManatee's (me1_77) Mega Lucario ex.
+OppBravo's (me1_77) Mega Lucario ex was Knocked Out!
+- 3 cards were discarded from OppBravo's (me1_77) Mega Lucario ex.
    • (mee_6) Basic Fighting Energy, (mee_6) Basic Fighting Energy, (me1_76) Riolu
 cheyras took 3 Prize cards.
 (me5_39) Dhelmise was added to cheyras's hand.
 (sv8-5_101) Buddy-Buddy Poffin was added to cheyras's hand.
 (me3_88) Telepathic Psychic Energy was added to cheyras's hand.
-ExtraManatee's (me3_62) Meowth ex is now in the Active Spot.
+OppBravo's (me3_62) Meowth ex is now in the Active Spot.
 
-ExtraManatee's Turn
-ExtraManatee drew a card.
-ExtraManatee played (me2-5_122) Okidogi to the Bench.
-ExtraManatee played (me1_76) Riolu to the Bench.
-ExtraManatee played Prism Tower.
-- cheyras moved ExtraManatee's 2 cards to the discard pile.
+OppBravo's Turn
+OppBravo drew a card.
+OppBravo played (me2-5_122) Okidogi to the Bench.
+OppBravo played (me1_76) Riolu to the Bench.
+OppBravo played Prism Tower.
+- cheyras moved OppBravo's 2 cards to the discard pile.
    • (me1_124) Premium Power Pro, (me1_116) Fighting Gong
 - cheyras drew a card.
-ExtraManatee played (me3_76) Judge.
-- ExtraManatee shuffled a card into their deck.
-- ExtraManatee shuffled 13 cards into their deck.
+OppBravo played (me3_76) Judge.
+- OppBravo shuffled a card into their deck.
+- OppBravo shuffled 13 cards into their deck.
    • (me4_82) Special Red Card, (sve_5) Basic Psychic Energy, (me5_6) Sinistcha, (zsv10-5_79) Air Balloon, (me1_119) Lillie's Determination, (me5_39) Dhelmise, (sv6-5_61) Night Stretcher, (me5_78) Gwynn, (zsv10-5_79) Air Balloon, (me5_78) Gwynn, (me5_39) Dhelmise, (sv8-5_101) Buddy-Buddy Poffin, (me3_88) Telepathic Psychic Energy
-- ExtraManatee drew 4 cards.
-- ExtraManatee drew 4 cards.
+- OppBravo drew 4 cards.
+- OppBravo drew 4 cards.
    • (me5_78) Gwynn, (sv6-5_61) Night Stretcher, (sv6_163) Secret Box, (me1_119) Lillie's Determination
-ExtraManatee attached (mee_6) Basic Fighting Energy to (me1_76) Riolu on the Bench.
-ExtraManatee played (me1_72) Makuhita to the Bench.
-ExtraManatee played (me1_124) Premium Power Pro.
-ExtraManatee attached (zsv10-5_79) Air Balloon to (me3_62) Meowth ex in the Active Spot.
-ExtraManatee retreated (me3_62) Meowth ex to the Bench.
-ExtraManatee's (me2-5_122) Okidogi is now in the Active Spot.
-ExtraManatee ended their turn.
+OppBravo attached (mee_6) Basic Fighting Energy to (me1_76) Riolu on the Bench.
+OppBravo played (me1_72) Makuhita to the Bench.
+OppBravo played (me1_124) Premium Power Pro.
+OppBravo attached (zsv10-5_79) Air Balloon to (me3_62) Meowth ex in the Active Spot.
+OppBravo retreated (me3_62) Meowth ex to the Bench.
+OppBravo's (me2-5_122) Okidogi is now in the Active Spot.
+OppBravo ended their turn.
 
 cheyras's Turn
 cheyras drew (sv8-5_101) Buddy-Buddy Poffin.
@@ -132,7 +132,7 @@ cheyras attached (zsv10-5_79) Air Balloon to (me5_39) Dhelmise in the Active Spo
 cheyras retreated (me5_39) Dhelmise to the Bench.
 - (me3_88) Telepathic Psychic Energy was discarded from cheyras's (me5_39) Dhelmise.
 cheyras's (me5_34) Banette is now in the Active Spot.
-cheyras's (me5_34) Banette used Puppet Pull on ExtraManatee’s (me2-5_122) Okidogi for 160 damage. ExtraManatee's (me2-5_122) Okidogi took 80 more damage because of Psychic Weakness.
+cheyras's (me5_34) Banette used Puppet Pull on OppBravo’s (me2-5_122) Okidogi for 160 damage. OppBravo's (me2-5_122) Okidogi took 80 more damage because of Psychic Weakness.
 - Damage breakdown:
    • Base damage: 80 damage
    • Weakness to Psychic: 80 damage
@@ -140,31 +140,31 @@ cheyras's (me5_34) Banette used Puppet Pull on ExtraManatee’s (me2-5_122) Okid
 
 - cheyras drew (me3_88) Telepathic Psychic Energy.
 - cheyras shuffled their deck.
-ExtraManatee's (me2-5_122) Okidogi was Knocked Out!
+OppBravo's (me2-5_122) Okidogi was Knocked Out!
 cheyras took a Prize card.
 (me5_33) Shuppet was added to cheyras's hand.
-ExtraManatee's (me3_62) Meowth ex is now in the Active Spot.
+OppBravo's (me3_62) Meowth ex is now in the Active Spot.
 
-ExtraManatee's Turn
-ExtraManatee drew a card.
-ExtraManatee played (sv5_160) Salvatore.
-- ExtraManatee evolved (me1_76) Riolu to (me1_77) Mega Lucario ex on the Bench.
-- ExtraManatee shuffled their deck.
-ExtraManatee retreated (me3_62) Meowth ex to the Bench.
-ExtraManatee's (me1_77) Mega Lucario ex is now in the Active Spot.
-ExtraManatee's (me1_77) Mega Lucario ex used Aura Jab on cheyras’s (me5_34) Banette for 100 damage. cheyras's (me5_34) Banette took -30 less damage because of Fighting Resistance.
+OppBravo's Turn
+OppBravo drew a card.
+OppBravo played (sv5_160) Salvatore.
+- OppBravo evolved (me1_76) Riolu to (me1_77) Mega Lucario ex on the Bench.
+- OppBravo shuffled their deck.
+OppBravo retreated (me3_62) Meowth ex to the Bench.
+OppBravo's (me1_77) Mega Lucario ex is now in the Active Spot.
+OppBravo's (me1_77) Mega Lucario ex used Aura Jab on cheyras’s (me5_34) Banette for 100 damage. cheyras's (me5_34) Banette took -30 less damage because of Fighting Resistance.
 - Damage breakdown:
    • Base damage: 130 damage
    • Resistance to Fighting: -30 damage
    • Total damage: 100 damage
 
-- ExtraManatee attached (mee_6) Basic Fighting Energy to (me1_72) Makuhita on the Bench.
-- ExtraManatee attached (mee_6) Basic Fighting Energy to (me1_72) Makuhita on the Bench.
+- OppBravo attached (mee_6) Basic Fighting Energy to (me1_72) Makuhita on the Bench.
+- OppBravo attached (mee_6) Basic Fighting Energy to (me1_72) Makuhita on the Bench.
 cheyras's (me5_34) Banette was Knocked Out!
 - 2 cards were discarded from cheyras's (me5_34) Banette.
    • (sve_5) Basic Psychic Energy, (me5_33) Shuppet
-ExtraManatee took a Prize card.
-A card was added to ExtraManatee's hand.
+OppBravo took a Prize card.
+A card was added to OppBravo's hand.
 cheyras's (me5_39) Dhelmise is now in the Active Spot.
 
 cheyras's Turn
@@ -177,15 +177,15 @@ cheyras's (sv6-5_38) Fezandipiti ex used Flip the Script.
 - cheyras drew 3 cards.
    • (sve_5) Basic Psychic Energy, (sve_5) Basic Psychic Energy, (me5_5) Poltchageist
 cheyras played (me5_5) Poltchageist to the Bench.
-cheyras's (me5_39) Dhelmise used Vengeful Anchor on ExtraManatee’s (me1_77) Mega Lucario ex for 340 damage. ExtraManatee's (me1_77) Mega Lucario ex took 170 more damage because of Psychic Weakness.
+cheyras's (me5_39) Dhelmise used Vengeful Anchor on OppBravo’s (me1_77) Mega Lucario ex for 340 damage. OppBravo's (me1_77) Mega Lucario ex took 170 more damage because of Psychic Weakness.
 - Damage breakdown:
    • Base damage: 30 damage
    • 6 discarded Pokémon: 140 damage
    • Weakness to Psychic: 170 damage
    • Total damage: 340 damage
 
-ExtraManatee's (me1_77) Mega Lucario ex was Knocked Out!
-- 2 cards were discarded from ExtraManatee's (me1_77) Mega Lucario ex.
+OppBravo's (me1_77) Mega Lucario ex was Knocked Out!
+- 2 cards were discarded from OppBravo's (me1_77) Mega Lucario ex.
    • (mee_6) Basic Fighting Energy, (me1_76) Riolu
 cheyras took 2 Prize cards.
 (me5_33) Shuppet was added to cheyras's hand.

@@ -81,7 +81,7 @@ Orders"`).
 | type | actor | payload | example line |
 |---|---|---|---|
 | `coin_toss` | caller/winner | `{call?: 'heads'\|'tails'; won?: true}` — one event per line (call line, won line) | `cheyras chose heads for the opening coin flip.` |
-| `go_first` | decider | `{order: 'first'\|'second'}` | `Robni16 decided to go first.` |
+| `go_first` | decider | `{order: 'first'\|'second'}` | `OppCharlie decided to go first.` |
 | `opening_hand` | drawer | `{count; cards?: CardRef[]}` — cards only for the log owner (§5) | `cheyras drew 7 cards for the opening hand.` |
 | `mulligan` | mulliganer | `{count; cards?: CardRef[]}` — reveal groups fold in | `xTheWizardx took 5 mulligans.` |
 | `turn_start` | turn player | `{turn}` | `cheyras's Turn` |
@@ -97,18 +97,18 @@ Orders"`).
 | `retreat` | owner | `{card; via?}` | `cheyras retreated Dhelmise to the Bench.` |
 | `promote` | owner | `{card; via?}` — new Active after KO/retreat/switch | `cheyras's Poltchageist is now in the Active Spot.` |
 | `switch` | board owner | `{in; out; via?}` — `in` becomes Active; via = the gust/switch effect | `- cheyras's Dhelmise was switched with cheyras's Poltchageist to become the Active Pokémon.` |
-| `attack` | attacker's owner | `{attacker; move; target: BoardRef; damage; modifiers?: {amount, reason}[]; breakdown?: {label, amount}[]; extra?: string}` — amounts signed as printed; `extra` = unrecognized trailing rider text, preserved verbatim | `warthog2010's Mega Darkrai ex used Dusk Raid on cheyras's Dhelmise for 440 damage. …took 220 more damage because of Darkness Weakness.` |
+| `attack` | attacker's owner | `{attacker; move; target: BoardRef; damage; modifiers?: {amount, reason}[]; breakdown?: {label, amount}[]; extra?: string}` — amounts signed as printed; `extra` = unrecognized trailing rider text, preserved verbatim | `OppFoxtrot's Mega Darkrai ex used Dusk Raid on cheyras's Dhelmise for 440 damage. …took 220 more damage because of Darkness Weakness.` |
 | `use_move` | user's owner | `{user; move; target?; breakdown?}` — see §4 | `cheyras's Fezandipiti ex used Flip the Script.` |
 | `knockout` | **owner of the downed mon** | `{card}` | `cheyras's Dhelmise was Knocked Out!` |
-| `prize_take` | taker | `{count}` | `warthog2010 took 2 Prize cards.` |
+| `prize_take` | taker | `{count}` | `OppFoxtrot took 2 Prize cards.` |
 | `hand_add` | hand owner | `{card: CardRef\|null}` — null = hidden ("A card was added…") | `Buddy-Buddy Poffin was added to cheyras's hand.` |
 | `discard` | owner | `{card?; count?; cards?; from?: BoardRef; via?}` — `from` = discarded off a mon (KO cleanup, energy costs) | `- 2 cards were discarded from cheyras's Banette.` |
 | `shuffle` | shuffler | `{zone: 'deck'\|'hand'; card?; count?; cards?; via?}` | `- cheyras shuffled their deck.` |
-| `move_cards` | mover | `{to: 'hand'\|'deck'\|'deck_bottom'\|'discard'; card?; count?; cards?; owner?; via?}` — `owner` = whose cards, when the mover is someone else (Prism Tower) | `- cheyras moved CJW9298's 2 cards to the discard pile.` |
-| `damage_counters` | placer / system | `{count; target: BoardRef; condition?; via?}` — `condition` set for checkup poison ticks | `1 damage counter was placed on warthog2010's Mega Darkrai ex for the Special Condition Poisoned.` |
+| `move_cards` | mover | `{to: 'hand'\|'deck'\|'deck_bottom'\|'discard'; card?; count?; cards?; owner?; via?}` — `owner` = whose cards, when the mover is someone else (Prism Tower) | `- cheyras moved OppAlpha's 2 cards to the discard pile.` |
+| `damage_counters` | placer / system | `{count; target: BoardRef; condition?; via?}` — `condition` set for checkup poison ticks | `1 damage counter was placed on OppFoxtrot's Mega Darkrai ex for the Special Condition Poisoned.` |
 | `damage` | target owner | `{target; amount; via?}` — non-attack damage (bench snipes) | `- cheyras's Shuppet took 30 damage.` |
-| `heal` | target owner | `{target; amount; via?}` | `- mattlromo's Lurantis ex healed 30 damage.` |
-| `condition` | target owner | `{target; condition; via?}` — Poisoned/Burned/Asleep/Paralyzed/Confused | `- warthog2010's Mega Darkrai ex is now Poisoned.` |
+| `heal` | target owner | `{target; amount; via?}` | `- OppGolf's Lurantis ex healed 30 damage.` |
+| `condition` | target owner | `{target; condition; via?}` — Poisoned/Burned/Asleep/Paralyzed/Confused | `- OppFoxtrot's Mega Darkrai ex is now Poisoned.` |
 | `effect_negated` | system | `{effect; card}` | `- Effects of Poison Jab did not affect Shuppet.` |
 | `activate` | system | `{card}` — tool/energy trigger; the line names no owner | `Telepathic Psychic Energy was activated.` |
 | `concede` | conceder | `{}` — terminal when no `game_end` follows | `Misty conceded.` |
@@ -172,7 +172,7 @@ Remaining tolerated limits:
 - An attack whose move name contains ` on ` could mis-split move/target (none observed).
 - `play_card` / `use_move` polysemy per §4 — downstream card data resolves.
 - The stored `parsed` jsonb for battle #11 (written pre-fix) has flipped
-  perspective fields (`players.me = ExtraManatee` at high confidence) — the nameKey
+  perspective fields (`players.me = OppBravo` at high confidence) — the nameKey
   ref-strip in battlelog.ts fixes the parser; the stored row heals if re-parsed
   (row-level result/opponent were caller-supplied and are correct). See DECISIONS.md
   2026-08-01.

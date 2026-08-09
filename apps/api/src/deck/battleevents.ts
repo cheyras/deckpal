@@ -220,7 +220,7 @@ function cardList(s: string): CardRef[] {
     .map(cardRef);
 }
 
-/** "warthog2010's (me5_116) Mega Darkrai ex" → BoardRef (owner matched against known names). */
+/** "OppFoxtrot's (me5_116) Mega Darkrai ex" → BoardRef (owner matched against known names). */
 function boardRef(s: string, names: string[]): BoardRef {
   const t = s.trim();
   for (const n of names) {
