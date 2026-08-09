@@ -20,6 +20,8 @@ import type { Request, Response, NextFunction } from 'express';
 export interface AuthUser {
   /** Supabase Auth UUID (the `sub` claim from the JWT). */
   id: string;
+  /** Email from the JWT `email` claim (present in most Supabase JWTs). */
+  email?: string;
 }
 
 declare global {
@@ -127,7 +129,10 @@ export function authMiddleware(req: Request, _res: Response, next: NextFunction)
         next();
         return;
       }
-      req.user = { id: payload.sub };
+      req.user = {
+        id: payload.sub,
+        ...(typeof payload.email === 'string' ? { email: payload.email } : {}),
+      };
       next();
     })
     .catch(() => {

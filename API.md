@@ -845,14 +845,27 @@ scan indexer.
 ## Bugs — in-app bug reporter
 
 ### POST /deckscout/api/bugs
-The top-nav "Report a bug" button posts here. Persists each report as a folder
-under the repo's `issues/` dir (a developer artefact, not user data — the
-`fix-issues` skill walks that dir). No DB. Body (JSON, hence the app-wide 12 MB
-JSON limit — every other route posts tiny JSON):
+The top-nav "Report a bug" button posts here. Body (JSON, 12 MB limit for the
+screenshot data URL):
 `{ "text" (required, ≤20000), "page"? (current route), "userAgent"?, "viewport"?,
 "screenshot"? (a `data:image/(png|jpeg|webp);base64,…` URL, ≤8 MB decoded) }`.
 `400` when `text` is missing/empty, the screenshot is not a valid image data URL,
 or the decoded screenshot exceeds 8 MB.
+
+**Cloud mode** (GITHUB_TOKEN + GITHUB_REPO set): inserts a `bug_report` row
+(user id and email from the JWT, stored privately — never in the public issue),
+then creates a GitHub issue labelled `in-app-report`. If Supabase Storage is
+configured, the screenshot is uploaded and a signed URL is included in the issue
+body. The returned issue number is stored on the DB row. If GitHub is unreachable
+the row still persists and the response is `202` with a `note`.
+```json
+201 { "id": "<uuid>", "issueUrl": "https://github.com/…/issues/42", "issueNumber": 42 }
+202 { "id": "<uuid>", "note": "Report saved but GitHub issue creation failed." }
+```
+
+**Self-host mode** (no GITHUB_TOKEN): persists each report as a folder under the
+repo's `issues/` dir (a developer artefact, not user data — the `fix-issues`
+skill walks that dir). No DB.
 ```json
 201 { "id": "2026-07-30T12-34-56_abc123", "saved": "issues/2026-07-30T12-34-56_abc123/" }
 ```
