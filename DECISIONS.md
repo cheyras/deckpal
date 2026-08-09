@@ -1058,3 +1058,18 @@ PNGs. `ICONS-NOTICE.md` documents provenance, mirroring `ENERGY-ICONS-NOTICE.md`
 The in-app header wordmark ("Pokédex") also became "DeckScout" (the sidebar
 Pokédex nav item keeps its name — it's the dex feature). Verified in-browser at
 desktop + 390px after a web rebuild.
+
+## 2026-08-09 — Pi instance decommissioned, legacy deployment machinery removed
+
+The the original host Pi deployment is decommissioned: pm2 apps deleted, nginx includes
+removed, full backup taken first (DB dump + image tar in
+`~/deckscout-backups/`). Legacy deployment-only machinery removed from the repo —
+`deploy/` (nginx fragments, the local DNS resolver conf, pm2 ecosystem config, BACKUP.md,
+DEPLOY.md), `tools/dev-hub-legacy/` (LAN dev-hub, standalone/no workspace deps),
+`issues/` (46 resolved personal bug reports — a SaaS project tracks issues on
+GitHub instead), `.github-legacy/` (the legacy git host CI, superseded by GitHub Actions), and root
+`ecosystem.config.cjs`. `.gitignore` gained a `deploy/` rule (legacy deployment deploy
+artifacts are intentionally untracked, not just deleted) and dropped the
+now-pointless `issues/*/*.jpg` rule. Pivot to a Vercel + Supabase cloud-first,
+open-core direction is underway; a docs wave will follow to fix the dangling
+references this leaves in README/ARCHITECTURE/AGENTS/roadmap/skills.
