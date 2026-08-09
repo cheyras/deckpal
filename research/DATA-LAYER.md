@@ -14,7 +14,7 @@
 | Decision | Recommendation | One-line reason |
 |---|---|---|
 | **TCGdex API container vs. direct import** | **Direct import.** Never run their API long-term. | Their server statically `import`s all 18 languages' `cards.json` (161 MB JSON) into one in-memory dict **per worker**, and forks one worker per core by default. Measured JSON→object expansion is **6.4×**. |
-| **Storage engine** | **Reuse the host Postgres 17.9** with a dedicated `deckscout` DB + role, pool capped at **3 connections**. | Marginal RAM ≈ **25–35 MB** (vs ~180–250 MB for a second instance); needs **no config change and no restart**, so zero blast radius on Gitea/openbrain/brain2db. Monthly range partitions + BRIN are what keep the price time-series viable on microSD. |
+| **Storage engine** | **Reuse the host Postgres 17.9** with a dedicated `deckscout` DB + role, pool capped at **3 connections**. | Marginal RAM ≈ **25–35 MB** (vs ~180–250 MB for a second instance); needs **no config change and no restart**, so zero blast radius on other co-hosted services. Monthly range partitions + BRIN are what keep the price time-series viable on microSD. |
 | **Image cache** | **WebP only, both resolutions, eager full-corpus warm.** Cap **4 GB**, LRU eviction of `high` only. | Measured: **1.87 GB** for the entire English corpus at both resolutions. TCGdex serves WebP natively — no re-encode needed. PNG would be 22.85 GB. |
 | **Port block** | **3700–3709**, all bound to `127.0.0.1`, fronted by the existing nginx vhosts. | Verified free via `ss -tln`; clear of every port in BRIEF constraint 4 and of the live listener set. |
 
@@ -94,7 +94,7 @@ effective_cache_size = 1GB
 
 $ rtk ps -o pid,rss,comm,args -C postgres
 # 6 system procs (postmaster, checkpointer, bgwriter, walwriter, autovacuum, logical-rep)
-# + 10 idle client backends: 5× openbrain (ob1), 5× brain2db (brain2)
+# + 10 idle client backends: 5× brain1 (brain1), 5× brain2 (brain2)
 # sum RSS 255 MB across 16 procs — but 256 MB of that is the SHARED shared_buffers,
 # counted once per process. True incremental cost of a backend is ~5-8 MB private.
 ```
@@ -858,7 +858,7 @@ window 180s: 14.25 MB written -> 6.84 GB/day steady-state
 
 **Honest conclusion: pokedex is not what will kill this card — the existing 6.84 GB/day baseline is.** The right mitigations are the ones that already apply to the whole box, not pokedex-specific:
 1. The **existing baseline is the thing worth investigating** — 6.8 GB/day on an idle box is high, and is probably journald + Postgres WAL + container logs. Worth a separate look; not my scope.
-2. Set `synchronous_commit = off` **for the deckscout role only** (`ALTER ROLE deckscout SET synchronous_commit = off`) — this is a rebuildable derived dataset; losing the last few seconds of a price sync on a power cut is free, and it materially cuts fsync traffic. **Role-level, so it cannot affect openbrain/brain2db.**
+2. Set `synchronous_commit = off` **for the deckscout role only** (`ALTER ROLE deckscout SET synchronous_commit = off`) — this is a rebuildable derived dataset; losing the last few seconds of a price sync on a power cut is free, and it materially cuts fsync traffic. **Role-level, so it cannot affect other co-hosted databases.**
 3. Set `fillfactor = 100` on append-only partitions (§4.6).
 4. Do the image ingest **once** and never re-download (assets are immutable, `max-age=31536000`).
 5. **Back up.** The card is the single point of failure regardless of wear. `pg_dump -Fc deckscout` (a few hundred MB) + a `tar` of the image tree, weekly, to somewhere that is not this card. The image tree is regenerable from the network; the collection data is not — back that up separately and often.
@@ -876,10 +876,10 @@ Workload: single user; ~23.4 k cards / 35.6 k variants / 218 sets (static-ish); 
 | | |
 |---|---|
 | **Marginal RAM** | **25–35 MB.** `shared_buffers = 256 MB` is already allocated and is shared across all databases; a new backend costs ~5–8 MB *private* (the ~15 MB RSS shown by `ps` is mostly shared pages counted N times). At a 3-connection pool: ~20 MB + ~10 MB for our slice of the shared buffer working set. |
-| **Config changes needed** | **None.** `max_connections = 20`, 10 in use → 10 free. A 3-connection pool fits with 7 to spare. **No restart, therefore no risk to Gitea/openbrain/brain2db/nginx.** This is the decisive point. |
+| **Config changes needed** | **None.** `max_connections = 20`, 10 in use → 10 free. A 3-connection pool fits with 7 to spare. **No restart, therefore no risk to other co-hosted services.** This is the decisive point. |
 | **Disk** | catalog ~250 MB; price_history ~530 MB/yr at the recommended cadence (§4.6). |
 | **Fit for the workload** | Excellent. Declarative range partitioning, BRIN, window functions for trends, `generate_series` for gap-filling charts, `jsonb` for the raw card blob, `pg_dump -Fc` for backup, concurrent reader during sync writes. |
-| **Risk** | **Shared blast radius.** A 20 M-row table's autovacuum, or a runaway analytics query holding `work_mem = 64 MB`, degrades the two brain apps. Also: if openbrain/brain2db ever grow their pools past 7, we collide on `max_connections`. |
+| **Risk** | **Shared blast radius.** A 20 M-row table's autovacuum, or a runaway analytics query holding `work_mem = 64 MB`, degrades the co-hosted apps. Also: if the co-hosted apps ever grow their pools past 7, we collide on `max_connections`. |
 | **Mitigations** | Separate database + role; pool hard-capped at 3; `ALTER ROLE deckscout SET work_mem='16MB'`, `statement_timeout='30s'`, `idle_in_transaction_session_timeout='60s'`, `synchronous_commit=off` — **all role-scoped, all applied without a restart, none visible to other databases.** Monthly partitions keep any single autovacuum bounded to ~600 k rows. |
 
 ### 6.2 Option B — second Postgres in a container on another port
@@ -910,7 +910,7 @@ Rationale, in priority order:
 2. **The price time-series is the part of this project most likely to become a problem in two years**, and monthly range partitions + BRIN + `DETACH PARTITION` are precisely the tools that keep it bounded. SQLite has no equivalent; you'd be hand-rolling it.
 3. **Backup/restore for BRIEF §5** is a one-liner either way, but `pg_dump -Fc` of a single database is cleanly scoped and restores onto a fresh Pi without touching the other databases.
 
-**The honest trade-off I am accepting:** I am putting pokedex's data inside a Postgres instance that two other apps the user depends on are already using, which means a pokedex bug can, in principle, degrade openbrain and brain2db. I am buying ~170 MB of RAM and better time-series ergonomics with that risk. The mitigations are all role-scoped and restart-free, and the escape hatch (Option B, or Option C) is real and cheap to take in Phase 2 if it goes wrong. **This deserves to be one of the explicit questions at the Phase 1 checkpoint**, alongside the SSD question — the user may reasonably prefer SQLite purely because it matches every other app on the box.
+**The honest trade-off I am accepting:** I am putting pokedex's data inside a Postgres instance that two other apps the user depends on are already using, which means a pokedex bug can, in principle, degrade the co-hosted apps. I am buying ~170 MB of RAM and better time-series ergonomics with that risk. The mitigations are all role-scoped and restart-free, and the escape hatch (Option B, or Option C) is real and cheap to take in Phase 2 if it goes wrong. **This deserves to be one of the explicit questions at the Phase 1 checkpoint**, alongside the SSD question — the user may reasonably prefer SQLite purely because it matches every other app on the box.
 
 ### 6.5 Tuning profile for the recommendation
 

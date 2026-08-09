@@ -6,7 +6,7 @@ import type { ValuePoint } from '../lib/api'
 // for a single yellow value series, and it degrades honestly at the cold start:
 // with <2 points there is no trend to draw, so we render the single reading as a
 // lone marker on a flat baseline and let the caller show the "not enough history"
-// copy. We NEVER interpolate or pad the axis (matches pkmn.gg — AUTH-CAPTURES §14.4).
+// copy. We NEVER interpolate or pad the axis (matches pkmn.gg — pkmn.gg captures §14.4).
 
 function money(v: number, currency: string): string {
   try {

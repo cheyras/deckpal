@@ -94,8 +94,7 @@ floating ◐ switcher is auto-injected into every Vite **dev** server (dev-only 
   `pm2 restart deckscout-api` for new hashes to be live. Verify a known card self-matches at distance 0.
 - **Don't touch shared infra:** no nginx reloads, no other pm2 apps, no DB schema changes to
   fix a UI bug. Changing nginx/dnsmasq/Authelia needs the user's OK.
-- **Secrets** (e.g. a pkmn.gg session at `[redacted path]`) are read at **runtime only**,
-  never committed or logged; refresh tokens rotate, so one consumer at a time.
+- **Secrets** are read at **runtime only**, never committed or logged.
 - **RTK:** prefix every shell command — and every `&&` segment — with `rtk` (per `~/.claude/CLAUDE.md`).
   `rtk curl` summarizes JSON (write to a file + parse); it mangles `git commit` stdin (use `-F <file>` or `-m`).
 
@@ -104,7 +103,6 @@ floating ◐ switcher is auto-injected into every Vite **dev** server (dev-only 
 - `ARCHITECTURE.md` — services, ports, cache/PWA/offline design.
 - `research/SCHEMA.md` — the data model (variant taxonomy, tier/goal derivation). `research/DATA-LAYER.md` — sources.
 - `DECISIONS.md` — dated audit trail of every decision, correction, and gotcha. **Start here when confused.**
-- `PKMN-SYNC-RUNBOOK.md` — per-release procedure for the Pokémon catalog/collection/image sync.
 - `.claude/skills/add-tcg` — add/refresh **any** TCG (research sources → catalog → images → scan index).
 - `.claude/skills/fix-issues` — work the in-app bug-report queue in `issues/` (fix → verify in browser → resolve).
 

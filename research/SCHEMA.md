@@ -36,7 +36,7 @@ rather than silently folded in**, because a visible correction is more useful th
 | C10 | `card_count_total` "advisory" — no number | Measured: `Σ cardCount.total` = 23,746 vs 23,444 real cards → **302 phantom cards**. And per-variant `cardCount` fields **exceed the card count in 47 of 214 sets** — unusable as denominators. | §6, §9.2 |
 | C11 | Binder `slot_index` — untested against real layouts | **Survives.** 9/4-pocket spreads, 12/16-pocket single pages, and the zero-pocket inside cover are all pure *render-time* derivations from `slot_index`. No stored page/pocket, no fudge. | §14.2 |
 
-### Third pass — authenticated evidence (`AUTH-CAPTURES.md`, 37 logged-in screenshots)
+### Third pass — authenticated evidence (pkmn.gg authenticated captures (not tracked), 37 logged-in screenshots)
 
 The first authenticated evidence in the project. It **confirms** more of the model than it breaks,
 but what it breaks, it breaks hard.
@@ -45,7 +45,7 @@ but what it breaks, it breaks hard.
 |---|---|---|---|
 | D1 | Tier rule **v2**: `standard` iff no stamp, base size/finish, non-organised-play foil, non-error subtype | **Falsified.** `IMG_0592` shows Base Set Clefairy with **one** primary `Holofoil` and two rows under `Other Variants`. v2 marks **3–4** of Base Set's variants standard, so it would demand shadowless + 1999-copyright printings for Master Set. **Rule v3** keys on *print run*: exactly **1 standard variant for all 102 Base Set cards**. | §5.3 |
 | D2 | `tier` is a boolean-ish `standard`/`special` | The UI states provenance as **`Found in {printRun} Booster Packs`** — three strings, no more. `1st Edition Holofoil Shadowless` **is pack-pulled** yet sits in `Other Variants`. So **pack-pulled ≠ standard**; the Master boundary is *pack-pulled **from the base print run***. | §5.3, §5.4 |
-| D3 | Variant display names come straight from the facet tuple | Names are **composed**, and `AUTH-CAPTURES.md` §12.2's grammar is **wrong** — see §5.4. `Unlimited` is a *contrastive* token, not `subtype=unlimited`. | §5.4 |
+| D3 | Variant display names come straight from the facet tuple | Names are **composed**, and pkmn.gg authenticated captures (not tracked) §12.2's grammar is **wrong** — see §5.4. `Unlimited` is a *contrastive* token, not `subtype=unlimited`. | §5.4 |
 | D4 | Master % — unit unstated | **Confirmed a `(card, variant)` pair fraction**, not a card fraction. My §9.2/§17.2 already computed it that way. Complete stays a **card** fraction. | §9.2 |
 | D5 | `user_set_progress` keyed `(user, set, goal)`, 3 rows | **Confirmed necessary.** Bar 2 is **Master** by default and Grandmaster *only* when that goal is chosen — never a copy of Complete. Observed at goal=Complete with bar 2 showing a different value. Store three, render two. | §9.2, §9.3 |
 | D6 | Set `LVL` bands "low confidence" (`BEHAVIOR-SPEC.md` §3.2) | **Solved:** `LVL = 0 if pct = 0 else 1 + floor(pct/25)`, nine data points, milestone dots pixel-measured at 25/50/75 %. | §9.2 |
@@ -74,7 +74,7 @@ Black & White, XY and Sun & Moon all shipped reverse-holo commons in reality. TC
 Chaos Rising (`me04`, 2026) has 119 of 122 cards at exactly one variant.
 
 This is what explains the one place my rule and the authenticated evidence disagree.
-`AUTH-CAPTURES.md` §11 brackets Pitch Black's Master denominator at **193–194** (or 204–205);
+pkmn.gg authenticated captures (not tracked) §11 brackets Pitch Black's Master denominator at **193–194** (or 204–205);
 rule v3 over TCGdex's data predicts **187**, which fits no admissible band. The 8-day-old set is
 simply under-populated upstream. The control case proves the rule is sound: **Base Set 2 predicts
 exactly 130 standard pairs, one per card for all 130** — precisely what §11 independently derived
@@ -655,7 +655,7 @@ otherwise 'special'.
 
 ### The measurement that forced v3
 
-pkmn.gg's Base Set Clefairy page (`AUTH-CAPTURES.md` §12.2) renders **three** variant rows:
+pkmn.gg's Base Set Clefairy page (pkmn.gg authenticated captures (not tracked) §12.2) renders **three** variant rows:
 `Holofoil` (primary) · `1st Edition Holofoil Shadowless` and `Unlimited Holofoil Shadowless`
 (both under `Other Variants`). TCGdex's `base1-5` carries **four**:
 
@@ -681,7 +681,7 @@ already caught by the stamp clause) · `no-e-reader` 39 · `japanese-back` 2 · 
 
 **Two independent confirmations that v3 is right:**
 
-1. **Base Set 2 → exactly 130 standard pairs, one per card for all 130.** `AUTH-CAPTURES.md` §11
+1. **Base Set 2 → exactly 130 standard pairs, one per card for all 130.** pkmn.gg authenticated captures (not tracked) §11
    derived that number from an entirely different direction — the observed `22.3 % / 22.3 %` double
    reading, arguing BS2 predates reverse holos so Master and Complete must coincide. My rule,
    applied to TCGdex facets, reproduces it exactly.
@@ -755,7 +755,7 @@ sentence** and the **display name**. We have to generate both ourselves.
 
 ### 5.4.1 Print run
 
-Only **three** provenance strings exist across all 37 images [E] `AUTH-CAPTURES.md` §12.1, with the
+Only **three** provenance strings exist across all 37 images [E] pkmn.gg authenticated captures (not tracked) §12.1, with the
 grammar `Found in {printRun} Booster Packs` and `{printRun}` omitted for the base run.
 
 ```sql
@@ -787,13 +787,13 @@ in §5.3 because it is the one that is easy to get wrong, but `print_run_code = 
 clearer statement of intent.
 
 **Non-booster provenance is unobserved.** No promo, retailer or box-topper card detail page was
-captured [E] `AUTH-CAPTURES.md` §12.1, §21 item 4. So the sentence for a `gamestop`-stamped or
+captured [E] pkmn.gg authenticated captures (not tracked) §12.1, §21 item 4. So the sentence for a `gamestop`-stamped or
 `Jumbo` variant is unknown, and `variant_print_run.provenance` must be nullable for those —
 render nothing rather than invent a sentence.
 
-### 5.4.2 Display-name composition — and a correction to `AUTH-CAPTURES.md` §12.2
+### 5.4.2 Display-name composition — and a correction to pkmn.gg authenticated captures (not tracked) §12.2
 
-`AUTH-CAPTURES.md` §12.2 proposes `[{stamp}] [{subtype-print}] {foil} [{subtype-run}]`, reading
+pkmn.gg authenticated captures (not tracked) §12.2 proposes `[{stamp}] [{subtype-print}] {foil} [{subtype-run}]`, reading
 `Unlimited Holofoil Shadowless` as carrying *two* subtype fragments. **That cannot be right —
 `subtype` is a single scalar field.** Checking `base1-5`'s real facets (§5.3) resolves it:
 
@@ -820,7 +820,7 @@ edition_prefix(v) := '1st Edition'  if v.stamp ∋ '1st-edition'
                    | ''             otherwise
 ```
 
-Verified against all five observed names [E] `AUTH-CAPTURES.md` §12.2:
+Verified against all five observed names [E] pkmn.gg authenticated captures (not tracked) §12.2:
 
 | facets | composed | observed |
 |---|---|---|
@@ -973,7 +973,7 @@ CREATE TABLE card_subtype (              -- filter: "Sub-Type". ORDER IS SIGNIFI
 CREATE TABLE card_tag (                  -- ⚠ NEW (D8). A chip field on the card-detail Card tab,
   card_id BIGINT NOT NULL REFERENCES card(id) ON DELETE CASCADE,   -- rendered alongside Type and
   ord     SMALLINT NOT NULL,             -- Illustrated By, e.g. `Basic`. All three are links into
-  tag     TEXT NOT NULL,                 -- search. [E] AUTH-CAPTURES §6.
+  tag     TEXT NOT NULL,                 -- search. [E] pkmn.gg captures §6.
   PRIMARY KEY (card_id, ord)             -- Source unknown: `Basic` is also a `stage` value, so this
 );                                       -- MAY be a rendering of stage+subtypes rather than its own
                                          -- field. Modelled separately because it is cheap to merge
@@ -1070,7 +1070,7 @@ CREATE TABLE price_current (
                                      -- ⚠ PER (variant, source) — NOT global (D9). Two cards were
                                      -- observed reading "Prices updated 2 hours ago" and
                                      -- "18 hours ago" in the same session, so the age shown is the
-                                     -- age of the row being rendered. [E] AUTH-CAPTURES §5.
+                                     -- age of the row being rendered. [E] pkmn.gg captures §5.
                                      -- Renamed from upstream_updated_at to match what it drives.
   fetched_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   is_fallback         BOOLEAN NOT NULL DEFAULT FALSE,  -- price borrowed from a sibling language /
@@ -1079,7 +1079,7 @@ CREATE TABLE price_current (
 );
 ```
 
-**Absence of a price is a missing ROW, not a row of NULLs (D9).** [E] `AUTH-CAPTURES.md` §12.4:
+**Absence of a price is a missing ROW, not a row of NULLs (D9).** [E] pkmn.gg authenticated captures (not tracked) §12.4:
 Base Set Clefairy's `1st Edition Holofoil Shadowless` renders **no price line and no TCGplayer
 button at all**, while its `Unlimited Holofoil Shadowless` sibling renders both. So "unpriced" is a
 real, common, per-variant state on vintage printings — not an error. The schema represents it by
@@ -1599,7 +1599,7 @@ Restating [E] `BEHAVIOR-SPEC.md` §2.1's formalisation, with `F` = the active va
 | **Grandmaster Set** | for each `c`, every `v ∈ V(c)∩F` | `∀c,∀v: q(c,v) ≥ 1` |
 
 **The unit differs by goal, and this is now confirmed rather than assumed (D4).**
-[E] `AUTH-CAPTURES.md` §11 rules out the card-fraction reading of Master: on Pitch Black
+[E] pkmn.gg authenticated captures (not tracked) §11 rules out the card-fraction reading of Master: on Pitch Black
 (`17/120` Complete, `9.3 %` Master) **no integer numerator over 120 yields 9.3 %**, and on Base
 Set 2 — one printing per card — both bars read `22.3 %`, which only works if Master counts pairs.
 
@@ -1622,13 +1622,13 @@ Denominators:
 
 Percentage: `owned_required / total_required × 100`, **one decimal, round-half-up**. [E]
 `BEHAVIOR-SPEC.md` §2.1 item 4, now verified against **nine** observed pairs in
-[E] `AUTH-CAPTURES.md` §10 (`12/188 → 6.4` · `17/120 → 14.2` · `29/130 → 22.3` · `32/122 → 26.2` ·
+[E] pkmn.gg authenticated captures (not tracked) §10 (`12/188 → 6.4` · `17/120 → 14.2` · `29/130 → 22.3` · `32/122 → 26.2` ·
 `5/8 → 62.5`, plus the four zeroes). Store the two integers, format at render — never store a
 rounded percentage.
 
 ### Which bar renders which counter (D5)
 
-[E] `AUTH-CAPTURES.md` §8, quoting Account Settings verbatim: *"Choosing Grandmaster Set also
+[E] pkmn.gg authenticated captures (not tracked) §8, quoting Account Settings verbatim: *"Choosing Grandmaster Set also
 switches the lower set-completion bar to show Grandmaster progress instead of Master."* This is
 **narrower than the changelog**, which said the second bar "follows your selected goal":
 
@@ -1648,7 +1648,7 @@ The first pass already stored three rows per set; this confirms it is required, 
 
 ### Set `LVL` — derive, do not store (D6)
 
-[E] `AUTH-CAPTURES.md` §10 solves the bands that `BEHAVIOR-SPEC.md` §3.2 could only guess:
+[E] pkmn.gg authenticated captures (not tracked) §10 solves the bands that `BEHAVIOR-SPEC.md` §3.2 could only guess:
 
 ```
 set_level := 0                     if pct = 0
@@ -1842,11 +1842,11 @@ CREATE TABLE user_profile (
 -- ✅ SETTLED (D7). trainer_level = floor(unique_cards / 10), LEVEL-0 START.
 --   Observed: Unique Cards 276 -> badge 27.  floor(276/10)=27 ✓
 --             1+floor(276/10)=28 ✗   floor(total_cards 677/10)=67 ✗
---   [E] AUTH-CAPTURES §13. This closes BEHAVIOR-SPEC §3.3's floor-vs-1+floor ambiguity.
+--   [E] pkmn.gg captures §13. This closes BEHAVIOR-SPEC §3.3's floor-vs-1+floor ambiguity.
 -- STILL OPEN: whether "unique" counts distinct CARDS or distinct (card,variant) PAIRS.
 --   677/276 = 2.45 copies per unique is plausible under either reading. Both columns are
 --   stored, so switching the input is a ONE-LINE change to the expression below, not a migration.
---   [E] AUTH-CAPTURES §21 item 3.
+--   [E] pkmn.gg captures §21 item 3.
 
 CREATE TABLE user_showcase (                 -- BEHAVIOR-SPEC §12.2 (A31). Survives Reset (§2.4).
   user_id BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
@@ -1856,7 +1856,7 @@ CREATE TABLE user_showcase (                 -- BEHAVIOR-SPEC §12.2 (A31). Surv
 );
 
 CREATE TABLE collection_value_point (        -- USER-OWNED. Truncated by Reset Collection (§2.4).
-  -- Drives the Insights tab. [E] AUTH-CAPTURES §14.4 observed the real ranges:
+  -- Drives the Insights tab. [E] pkmn.gg captures §14.4 observed the real ranges:
   --   30 Days | 3 Months | 6 Months | 1 Year, plus 1.5 Years / 2 Years (Pro).
   --   => retention only ever needs 2 YEARS. ~730 rows/user/currency. Trivial.
   -- Also observed: with 4 days of history and "30 Days" selected, pkmn.gg renders ONLY the days
@@ -2127,7 +2127,7 @@ or a screen in `ROUTE-MAP.md`. **Anything not on this list is not created.**
 | Tempting index | Why not |
 |---|---|
 | `card (rarity)`, `card (illustrator)`, `card (released_on)`, `card_variant (price)` — the four remaining set-page sorts | [E] `BEHAVIOR-SPEC.md` §5.3: *"sorting is instantaneous **client-side** reordering"* (C2). A set page is ≤400 cards and is already fully loaded. Four indexes, zero queries. |
-| Any of the 12 Advanced Search filter fields (`rarity`, `retreat`, `hp`, `card_type.type`, `card_subtype.subtype`, `card_matchup.type`, `illustrator`, …) | **Confirmed 12 filters, verbatim and in order** ([E] `AUTH-CAPTURES.md` §17), and every one is covered by an existing column or junction table (§6). But a filtered scan over 23,444 cards is a few ms on this Pi, filters compose as AND so the planner needs only *one* selective predicate, and `set_id` (I1) already provides it for the common case. Twelve indexes to serve a screen that is not on any hot path is exactly the write amplification §1 principle 5 forbids. **Add one only when a measured query is slow.** |
+| Any of the 12 Advanced Search filter fields (`rarity`, `retreat`, `hp`, `card_type.type`, `card_subtype.subtype`, `card_matchup.type`, `illustrator`, …) | **Confirmed 12 filters, verbatim and in order** ([E] pkmn.gg authenticated captures (not tracked) §17), and every one is covered by an existing column or junction table (§6). But a filtered scan over 23,444 cards is a few ms on this Pi, filters compose as AND so the planner needs only *one* selective predicate, and `set_id` (I1) already provides it for the common case. Twelve indexes to serve a screen that is not on any hot path is exactly the write amplification §1 principle 5 forbids. **Add one only when a measured query is slow.** |
 | `card_attack (name)`, `card_ability (name)` for the Attack/Ability Search filters | These are *substring* searches over ~24 k and ~9 k rows [P]. A sequential scan over a table that fits in page cache beats a GIN index's write cost on microSD. Revisit only if measured slow. |
 | `price_observation (captured_at)` as a **btree** | ~650 MB at 23 M rows. A **BRIN** (I16) does the same job for kilobytes — see §11.3 item 2. |
 | `collection_item (card_variant_id)` alone (reverse direction) | Single-user: `user_id` is a constant, so the composite unique is already selective. Add when a second user exists. |
@@ -2291,13 +2291,13 @@ ALTER TABLE card_list ADD COLUMN binder_additional_variants TEXT
 
 The empty-pocket treatment (card art + `rgba(21,24,31,0.75)` scrim + a `Slot #N` label) needs no
 storage at all — an empty pocket is a `slot_index` with no `binder_placement` row, and the artwork
-comes from the set's card at that ordinal. [E] `AUTH-CAPTURES.md` §15.3 confirms this against a
+comes from the set's card at that ordinal. [E] pkmn.gg authenticated captures (not tracked) §15.3 confirms this against a
 binder with owned cards: unowned pockets render dimmed art plus a `Slot #N` overlay, so **slots are
 set-ordered and pre-populated, not blank**.
 
 ### 14.3 Binder mutation is boolean — and that is a data-loss hazard (D10)
 
-[E] `AUTH-CAPTURES.md` §15.3: beneath every pocket sits **a row of variant checkboxes**, one per
+[E] pkmn.gg authenticated captures (not tracked) §15.3: beneath every pocket sits **a row of variant checkboxes**, one per
 available variant, each a rounded square in that variant's colour. Unchecked = transparent,
 checked = solid with a ✓. Observed: `Weedle ▢yellow ▢blue`, `Kakuna ☑yellow ▢blue`,
 `Chesnaught ▢purple ☑blue`.
@@ -2573,12 +2573,12 @@ consequence"* C1 describes. That is a cheap assertion to put in the test suite.
 
 ### Have / Need / Dupes
 
-[E] `AUTH-CAPTURES.md` §4 settles the partition question that `BEHAVIOR-SPEC.md` §15 left open:
+[E] pkmn.gg authenticated captures (not tracked) §4 settles the partition question that `BEHAVIOR-SPEC.md` §15 left open:
 Pitch Black renders `Have (17)` · `Need (103)` · `Dupes (2)` against `17/120 Collected`, and
 **17 + 103 = 120 exactly**. So **Have and Need partition the Complete-Set denominator, and Dupes is
 orthogonal** — a card can be in Have *and* Dupes. It is not a third bucket.
 
-The `Dupes` predicate itself is **still unobserved** ([E] `AUTH-CAPTURES.md` §21 item 1 — the tab
+The `Dupes` predicate itself is **still unobserved** ([E] pkmn.gg authenticated captures (not tracked) §21 item 1 — the tab
 was never tapped). It is therefore isolated as a **single expression** so changing the definition is
 a one-line edit and nothing else moves:
 
@@ -2953,7 +2953,7 @@ and the whole invalidation problem with it.
 
 **2. The `foil` clause in tier rule v3 (§5.3d).** Untouched by the authenticated captures — no
 promo, stamped, or pattern-reverse card detail page was ever opened
-([E] `AUTH-CAPTURES.md` §21 item 4). The three organised-play foils I exclude (`league`,
+([E] pkmn.gg authenticated captures (not tracked) §21 item 4). The three organised-play foils I exclude (`league`,
 `player-reward`, `professor-program`, 57 rows) and the inclusion of `energy` (335 rows) remain my
 judgment. The Pitch Black legend showed only three variant colours, which neither confirms nor
 denies. **What would settle it:** one card-detail capture of an SV-era card with a Poké Ball or
@@ -2973,7 +2973,7 @@ defend it hard. **What would settle it:** one card-detail capture of a Trainer o
 Pokémon, showing what `Tags` contains when `stage` is not `Basic`.
 
 **5. Whether `Unique Cards` counts cards or (card, variant) pairs (§9.5).** [E]
-`AUTH-CAPTURES.md` §21 item 3 — `677 / 276 = 2.45` fits either reading. Both columns are stored so
+pkmn.gg authenticated captures (not tracked) §21 item 3 — `677 / 276 = 2.45` fits either reading. Both columns are stored so
 the switch is one line, but the Trainer Level shown to the user depends on it.
 
 **6. The `Dupes` predicate (§17.2).** Still unobserved after 37 authenticated screenshots — the tab
@@ -2985,7 +2985,7 @@ away: the binder checkbox (D10) makes an append-only event log genuinely load-be
 merely tidy. Still a predicate everyone must remember.
 
 **8. The Pokédex Binder list shape (§14.1).** Unchanged, and now conspicuous: **no list screen of
-any kind appears in the 37 authenticated images** ([E] `AUTH-CAPTURES.md` §21 item 7). The one list
+any kind appears in the 37 authenticated images** ([E] pkmn.gg authenticated captures (not tracked) §21 item 7). The one list
 type I model on pure inference remains entirely unobserved.
 
 ### Closed by the third pass
@@ -3001,7 +3001,7 @@ type I model on pure inference remains entirely unobserved.
 | 16-pocket binder | Confirmed real; the first pass's "leave it behind a flag" already withdrawn in pass two, now observed in use. |
 | Advanced Search filter coverage | All 12 confirmed verbatim and in order; all covered by existing columns/junctions. |
 
-### What I think `AUTH-CAPTURES.md` gets wrong or over-reads
+### What I think pkmn.gg authenticated captures (not tracked) gets wrong or over-reads
 
 Challenged in good faith — it is one analyst's reading of phone screenshots, and it says so.
 

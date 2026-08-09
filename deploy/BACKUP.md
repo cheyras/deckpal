@@ -13,7 +13,7 @@ is **CLI + scripts** — no service, no API endpoint. Three scripts:
 
 Backed up (the only non-reproducible state on this box):
 1. **The `deckscout` database** — dumped with `pg_dump --format=custom` (compressed).
-   One database only. **Never** the whole cluster, never openbrain/brain2db.
+   One database only. **Never** the whole cluster, never other co-hosted databases.
 2. **The WebP image cache** (`cache/images`, ~1.9 GB) — plain `tar` (WebP is
    already compressed, so gzip would burn CPU for ~nothing).
 

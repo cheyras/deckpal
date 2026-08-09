@@ -10,11 +10,11 @@
 
 | Artifact | Location |
 |---|---|
-| Computed styles + full `cssVars` dump, 24 pages @1440×900 | `research/pkmn-gg/styles/*.json` |
-| DOM subtree captures, 24 pages | `research/pkmn-gg/dom/*.html` |
-| Desktop full-page screenshots @1440 | `research/pkmn-gg/screenshots/*--1440.png` |
-| Mobile full-page screenshots @390×844, DPR 2 (captured for this spec) | `research/pkmn-gg/screenshots/{home,set-151,card-151-006,pokedex,collections,deck-public}--390.png` |
-| **Live interaction pass** — state diffs, motion longhands, Table/Binder views, price chart, breakpoint sweep | `research/pkmn-gg/interactions/` + `research/INTERACTION-CAPTURE.md` |
+| Computed styles + full `cssVars` dump, 24 pages @1440×900 | Source captures live outside the repo (not tracked for privacy). |
+| DOM subtree captures, 24 pages | Source captures live outside the repo. |
+| Desktop full-page screenshots @1440 | Source captures live outside the repo. |
+| Mobile full-page screenshots @390×844, DPR 2 (captured for this spec) | Source captures live outside the repo. |
+| **Live interaction pass** — state diffs, motion longhands, Table/Binder views, price chart, breakpoint sweep | `research/INTERACTION-CAPTURE.md` (interaction spec still tracked). |
 
 **Confidence legend** — used throughout.
 
@@ -577,8 +577,9 @@ Adopt the same architecture, on the assumption we may add a light scheme later:
 
 ## 3. Component inventory
 
-Every entry lists the screenshot to look at. All screenshots are in
-`research/pkmn-gg/screenshots/`.
+Every entry references the pkmn.gg screenshot used as evidence. The source
+captures live outside the repo (not tracked for privacy). Screenshot names
+below identify the source page and viewport.
 
 ### 3.1 App shell
 

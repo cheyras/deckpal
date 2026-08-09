@@ -42,7 +42,7 @@ export function Insights() {
     <Content cap={1000}>
       <h1 className="text-[32px] font-extrabold leading-[40px] text-text-primary">Insights</h1>
 
-      {/* Overview | Trends sub-toggle (AUTH-CAPTURES §14.4) */}
+      {/* Overview | Trends sub-toggle (pkmn.gg captures §14.4) */}
       <div className="mt-[16px] inline-flex rounded-full bg-surface-secondary p-[4px]">
         {(['overview', 'trends'] as const).map((t) => (
           <button

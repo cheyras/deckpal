@@ -1,6 +1,6 @@
 # Project: **DeckScout**
 
-> The name of this project is **DeckScout**. The repo lives at `/home/cheyras/DeckScout` (git initialized, branch `main`, identity `cheyras <cheyras@gmail.com>`). Refer to it as "DeckScout" in all docs, commits, container names, and when talking to the user.
+> The name of this project is **DeckScout**. The repo lives at `/home/cheyras/pokedex` (git initialized, branch `main`). Refer to it as "DeckScout" in all docs, commits, container names, and when talking to the user.
 
 This document has three parts:
 
@@ -60,35 +60,24 @@ The mission brief (Part C §4, §8) tells you to ask the user for Pi model, RAM,
 
 | Fact | Value |
 |---|---|
-| Board | Raspberry Pi 5 Model B Rev 1.1 |
-| RAM | 8 GB total (~4.2 GB available at rest) |
-| Arch / OS | `aarch64` / Debian 13 (trixie), 64-bit |
-| Storage | **119 GB microSD only — NO external SSD attached.** ~65 GB free on `/` |
-| Swap | 2 GB zram |
-| Docker | 29.3.1, Compose v5.1.1 |
-| Node / pnpm | v20.20.2 / 10.33.0 |
-| Python | 3.13.5 (system) — note: **not** 3.11 |
-| Postgres | 17.9 running **natively on the host**, port 5432 occupied |
-| Playwright | Installed, Chromium + headless-shell builds cached; `/usr/bin/chromium` also present |
-| Tailscale | **Not installed** |
+| Arch / OS | `aarch64` / Debian, 64-bit |
+| Storage | microSD only (no external SSD) |
+| Node / pnpm | v20 / 10 |
+| Postgres | 17.x running natively on the host |
+
+## DeckScout port block
+
+DeckScout uses ports **3700–3709** (see `ARCHITECTURE.md` for the per-app breakdown). Other services run on the same box — avoid collisions by checking `ss -tln` before claiming new ports.
 
 ## Constraints these facts create — resolve them in Phase 1
 
-1. **No SSD.** Part C §4 assumes an external SSD for Postgres and the image cache. There isn't one. Everything would land on the microSD card, which means write-amplification wear and mediocre random I/O for a Postgres time-series workload. **Raise this with the user at the Phase 1 checkpoint** with a concrete recommendation — options include: buy/attach a USB SSD, cap the image cache aggressively with pruning, use SQLite instead of Postgres, or accept the risk with a solid backup cadence. Do not silently pick one.
+1. **No SSD.** Part C §4 assumes an external SSD for Postgres and the image cache. There isn't one. Everything lands on the microSD card, which means write-amplification wear and mediocre random I/O. **Raise this with the user at the Phase 1 checkpoint.**
 
-2. **Port 3000 is taken by Gitea.** The self-hosted TCGdex API's documented default port is 3000. It **will** collide. Assign pokedex its own port block and document it.
+2. **Port collisions.** Other services use many ports on this box. DeckScout's own block (3700-3709) was chosen to be free. Assign any new ports from within this block.
 
-3. **Port 5432 is taken by the host Postgres.** A containerized Postgres must publish on a different host port (or you deliberately reuse the host instance — decide and justify).
+3. **This is a shared, live homelab box.** It runs other services the user depends on (see the project `CLAUDE.md`). Never bind to a port already in use, and never restart shared services without asking.
 
-4. **Ports already in use on this machine:** 22, 53, 80, 139, 443, 445, 3000, 3001, 3100, 3200, 3300, 3400, 3500, 3501, 3597, 3600, 4021, 4700, 4747, 5250, 5432, 8000, 8002–8006, 8080, 9090, 9091, 11434. Pick a free, contiguous block for pokedex and record it in `ARCHITECTURE.md`.
-
-5. **This is a shared, live homelab box.** It runs Gitea, nginx, and six pm2 services the user depends on (see the project `CLAUDE.md`). Your containers must not disturb them: set memory ceilings and restart policies on every service, never bind to a port already listed above, and never restart nginx or pm2 processes without asking.
-
-6. **Tailscale is not installed.** Part C §4 asks you to document remote-access options. Note that the box already has a public entry point (`cheyrasnet.tplinkdns.com` via nginx + Authelia). Present the options; the user chooses. Default posture stays LAN/VPN-only, single user.
-
-7. **Python 3.13, not 3.11.** If you follow the pokecollector stack, verify its dependencies build on 3.13/aarch64 — or pin 3.11 inside the container. Confirm, don't assume.
-
-8. **Read `/home/cheyras/CLAUDE.md`** before touching anything infrastructural. It documents the nginx vhosts, pm2 topology, Gitea, and known failure modes on this box.
+4. **Read the project `CLAUDE.md`** before touching anything infrastructural.
 
 ---
 

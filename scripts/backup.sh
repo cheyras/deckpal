@@ -6,7 +6,7 @@
 #   2. the on-disk WebP image cache      (tar of cache/images)
 #
 # It does NOT back up:
-#   - the whole Postgres cluster or openbrain/brain2db (dumps ONE database)
+#   - the whole Postgres cluster or other co-hosted databases (dumps ONE database)
 #   - assets/sprites  (re-fetchable via scripts/fetch-sprites.sh — reproducible)
 #   - the git repo    (already in git/Gitea)
 #

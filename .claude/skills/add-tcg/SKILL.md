@@ -176,7 +176,7 @@ most of them.
    secondary (for Pokémon: pkmn.gg's `assets.pkmn.gg` art, whose URLs come from
    `[redacted host]/…/v1/card/<set>` — the JSON carries **signed** `largeImageUrl`(→high) +
    `thumbImageUrl`(→low); the signature is in the URL so no auth on the download itself). See
-   `apps/images/src/warmFromPkmn.ts` for the working fallback warmer and `PKMN-SYNC-RUNBOOK.md`.
+   `apps/images/src/warmFromPkmn.ts` for the working fallback warmer.
 3. **Two resolutions.** `high` (detail view) and `low` (grid + the scanner). WebP.
 4. **Validate every download** — content-type + magic bytes (RIFF/WEBP), reject tiny/placeholder
    bodies (`< ~800 B`); then hand the bytes to `putAsset`, which does the temp-file +
@@ -240,7 +240,7 @@ The offline scanner matches an uploaded photo against a **dHash per cached card 
 ### Accumulated sourcing-thoroughness learnings
 Generalizable lessons harvested from real gaps by the `fill-missing-assets` skill — each should
 make sourcing more thorough for *any* game. Append one tight imperative bullet; don't duplicate;
-keep game-specific specifics in `PKMN-SYNC-RUNBOOK.md` / the slot's `image-slots.md` entry instead.
+keep game-specific specifics in the game's runbook / the slot's `image-slots.md` entry instead.
 
 - Enumerate the warm work-list from the **DB card list**, never the source's manifest — manifests
   routinely omit promo / energy / token / trainer-kit / special-product sets whose art *does* exist.
@@ -288,7 +288,7 @@ keep game-specific specifics in `PKMN-SYNC-RUNBOOK.md` / the slot's `image-slots
 - `research/SCHEMA.md` — the data model (read before mapping).
 - `research/DATA-LAYER.md` — source-field → schema details, price/id coverage.
 - `ARCHITECTURE.md` — services, ports, the image cache design.
-- `PKMN-SYNC-RUNBOOK.md` — the Pokémon-specific runbook (per-release procedure, the pkmn.gg
+- The Pokémon-specific sync runbook (per-release procedure, the pkmn.gg
   API map, the image-fallback flow) — the concrete instance of this skill.
 - Code: `apps/sync/src/catalog` (catalog import), `apps/sync/src/prices` (prices + cross-fill),
   `apps/images/src/store.ts` (**the cache write choke point — read this first**),
