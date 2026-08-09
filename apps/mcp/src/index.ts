@@ -20,15 +20,12 @@ import { buildServer } from './server.js';
 // Hostname allowlist for DNS-rebinding protection (SPEC §2). host '0.0.0.0'
 // disables the SDK's automatic localhost-only validation so this explicit
 // list is what actually gates; the socket itself still binds 127.0.0.1.
-const ALLOWED_HOSTS = [
-  'cheyrasnet.tplinkdns.com',
-  'the.grid',
-  'thegrid',
-  'thegrid.local',
-  '192.168.68.76',
-  '127.0.0.1',
-  'localhost',
-];
+// Production hosts live in the gitignored .env as MCP_ALLOWED_HOSTS (comma-
+// separated); the code default is localhost-only so forks work out of the box.
+const ALLOWED_HOSTS = (process.env.MCP_ALLOWED_HOSTS ?? '127.0.0.1,localhost')
+  .split(',')
+  .map((h) => h.trim())
+  .filter(Boolean);
 
 async function main(): Promise<void> {
   loadEnv();
@@ -89,16 +86,16 @@ async function main(): Promise<void> {
     })();
   });
 
-  // Auth BEFORE the MCP handler: x-brain-key header (fallback ?key= query)
-  // must equal ROTOM_MCP_KEY. OPTIONS passes (CORS preflight carries no custom
-  // headers). Failure → bare 401 body-less, deliberately WITHOUT
-  // WWW-Authenticate (SPEC §2). Never log the supplied or expected key.
+  // Auth BEFORE the MCP handler: x-brain-key header only (nginx injects it on
+  // the homelab). OPTIONS passes (CORS preflight carries no custom headers).
+  // Failure → bare 401 body-less, deliberately WITHOUT WWW-Authenticate (SPEC
+  // §2). Never log the supplied or expected key.
   const requireBrainKey: RequestHandler = (req, res, next) => {
     if (req.method === 'OPTIONS') {
       next();
       return;
     }
-    const supplied = req.header('x-brain-key') ?? (typeof req.query.key === 'string' ? req.query.key : undefined);
+    const supplied = req.header('x-brain-key');
     if (supplied !== undefined && supplied === ctx.config.key) {
       next();
       return;

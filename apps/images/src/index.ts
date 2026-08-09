@@ -51,7 +51,6 @@ export function createApp(): express.Express {
     }
     res.json({
       status: 'ok',
-      cacheRoot: CACHE_ROOT,
       cacheExists: existsSync(CACHE_ROOT),
       db,
       cache: stats,
@@ -151,6 +150,18 @@ function cardHandler(req: Request, res: Response): void {
   const set = p(req.params.set);
   const localId = p(req.params.localId);
   const file = p(req.params.file);
+
+  // Same validation setHandler applies: [A-Za-z0-9][A-Za-z0-9.-]* + no '..' to
+  // bar path traversal. localId also allows digits-only (e.g. '006', 'TG05').
+  const seg = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
+  if (
+    !seg.test(serie) || serie.includes('..') ||
+    !seg.test(set) || set.includes('..') ||
+    !seg.test(localId) || localId.includes('..')
+  ) {
+    res.status(404).end();
+    return;
+  }
 
   const m = /^(low|high)\.webp$/.exec(file);
   const qual = m?.[1];
