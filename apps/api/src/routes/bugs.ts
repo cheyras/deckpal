@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pool, q1 } from '../db.js';
+import { pool, q1, rlsStore } from '../db.js';
 import { asyncHandler, badRequest, str } from '../http.js';
 
 /**
@@ -322,13 +322,26 @@ bugsRouter.post(
         issueUrl = gh.html_url;
 
         // 4. Store the issue number on the row.
-        // This UPDATE runs outside the RLS context (pool.query, not q1)
-        // because the user's RLS policy grants INSERT + SELECT but not
-        // UPDATE — the issue number is server bookkeeping, not a user action.
-        await pool.query(
-          `UPDATE bug_report SET github_issue_number = $1 WHERE id = $2`,
-          [issueNumber, reportId],
-        );
+        // The user's RLS policy grants INSERT + SELECT but not UPDATE —
+        // the issue number is server bookkeeping, not a user action.
+        // We must use the SAME client (to see the uncommitted INSERT) but
+        // temporarily reset to the session/pool role (which has BYPASSRLS)
+        // so the UPDATE isn't blocked by RLS. In self-host mode (no RLS
+        // client) pool.query is fine.
+        const rlsClient = rlsStore.getStore();
+        if (rlsClient) {
+          await rlsClient.query('RESET ROLE');
+          await rlsClient.query(
+            `UPDATE bug_report SET github_issue_number = $1 WHERE id = $2`,
+            [issueNumber, reportId],
+          );
+          await rlsClient.query(`SET LOCAL role = 'authenticated'`);
+        } else {
+          await pool.query(
+            `UPDATE bug_report SET github_issue_number = $1 WHERE id = $2`,
+            [issueNumber, reportId],
+          );
+        }
       } catch (err) {
         console.error('[bugs] GitHub issue creation failed:', err);
         note = 'Report saved but GitHub issue creation failed. It will be reviewed from the database.';
