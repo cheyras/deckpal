@@ -289,7 +289,7 @@ export function buildReport(corpus: CorpusEntry[]): CorpusReport {
         confidence: g?.confidence ?? null,
         exemplars: g?.exemplars.length ?? 0,
         agreement: s.diff?.agreement ?? null,
-        maskUrl: `/pokedex/api/foil-lab/masks/${e.cardId}/${e.variantId}`,
+        maskUrl: `/deckscout/api/foil-lab/masks/${e.cardId}/${e.variantId}`,
         superseded: s.supersedes
           ? {
               method: s.supersedes.parent.method,

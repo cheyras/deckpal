@@ -37,7 +37,7 @@ import { buildReport, readCorpus, selectExemplars, trainingTuples } from '../foi
  *    deeper so the fix-issues sweep over issues/<id>/report.md never picks
  *    them up; they're tuning observations for bulk triage, not bugs.
  * 3. Canon pattern defaults — `data/foil-canon/<patternId>.json`. The canon
- *    lab (surface A of the workbench split, /pokedex/foil-lab/canon) locks
+ *    lab (surface A of the workbench split, /deckscout/foil-lab/canon) locks
  *    down THE canonical look of each holofoil pattern against the video
  *    reference corpus. A canon file is a FULL uniform snapshot; when present
  *    it replaces the recipe's code defaults as the baseline on both surfaces.
