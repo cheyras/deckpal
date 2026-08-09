@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@deckscout/db": "workspace:*",
-    "node-cron": "^3.0.3"
+    "node-cron": "^4.6.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
