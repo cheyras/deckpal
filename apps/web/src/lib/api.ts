@@ -16,7 +16,7 @@ async function handle401(path: string, init: RequestInit): Promise<Response | nu
   if (!isCloudMode) return null
   const { error } = await supabase.auth.refreshSession()
   if (error) {
-    window.location.assign('/deckscout/auth')
+    window.location.assign(isCloudMode ? '/auth' : '/deckscout/auth')
     throw new Error('Session expired')
   }
   const h = await authHeaders()
