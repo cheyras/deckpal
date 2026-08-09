@@ -4,12 +4,12 @@ OppEcho won the coin toss.
 OppEcho decided to go first.
 OppEcho drew 7 cards for the opening hand.
 - 7 drawn cards.
-cheyras drew 7 cards for the opening hand.
+PlayerA drew 7 cards for the opening hand.
 - 7 drawn cards.
    • Sinistcha, Poltchageist, Ultra Ball, Prism Tower, Special Red Card, Boss's Orders, Banette
 OppEcho played Dunsparce to the Active Spot.
 OppEcho played Fezandipiti ex to the Bench.
-cheyras played Poltchageist to the Active Spot.
+PlayerA played Poltchageist to the Active Spot.
 
 OppEcho's Turn
 OppEcho drew a card.
@@ -20,16 +20,16 @@ OppEcho played Ultra Ball.
 - OppEcho shuffled their deck.
 OppEcho ended their turn.
 
-cheyras's Turn
-cheyras drew Poltchageist.
-cheyras played Ultra Ball.
-- cheyras discarded 2 cards.
+PlayerA's Turn
+PlayerA drew Poltchageist.
+PlayerA played Ultra Ball.
+- PlayerA discarded 2 cards.
    • Sinistcha, Banette
-- cheyras drew Shuppet.
-- cheyras shuffled their deck.
-cheyras played Shuppet to the Bench.
-cheyras played Prism Tower to the Stadium spot.
-cheyras ended their turn.
+- PlayerA drew Shuppet.
+- PlayerA shuffled their deck.
+PlayerA played Shuppet to the Bench.
+PlayerA played Prism Tower to the Stadium spot.
+PlayerA ended their turn.
 
 OppEcho's Turn
 OppEcho drew a card.
@@ -61,23 +61,23 @@ OppEcho played Ultra Ball.
    • Judge, Basic Fighting Energy
 - OppEcho drew Mega Lucario ex.
 - OppEcho shuffled their deck.
-OppEcho's Solrock used Cosmic Beam on cheyras's Poltchageist for 70 damage.
-cheyras's Poltchageist was Knocked Out!
+OppEcho's Solrock used Cosmic Beam on PlayerA's Poltchageist for 70 damage.
+PlayerA's Poltchageist was Knocked Out!
 OppEcho took a Prize card.
 A card was added to OppEcho's hand.
-cheyras's Shuppet is now in the Active Spot.
+PlayerA's Shuppet is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew Telepathic Psychic Energy.
-cheyras attached Telepathic Psychic Energy to Shuppet in the Active Spot.
+PlayerA's Turn
+PlayerA drew Telepathic Psychic Energy.
+PlayerA attached Telepathic Psychic Energy to Shuppet in the Active Spot.
 Telepathic Psychic Energy was activated.
-- cheyras drew Dhelmise and played it to the Bench.
-- cheyras shuffled their deck.
-cheyras played Poltchageist to the Bench.
-cheyras played Boss's Orders.
+- PlayerA drew Dhelmise and played it to the Bench.
+- PlayerA shuffled their deck.
+PlayerA played Poltchageist to the Bench.
+PlayerA played Boss's Orders.
 - OppEcho's Fezandipiti ex was switched with OppEcho's Solrock to become the Active Pokémon.
 OppEcho's Fezandipiti ex is now in the Active Spot.
-cheyras's Shuppet used Hang Down on OppEcho's Fezandipiti ex for 10 damage.
+PlayerA's Shuppet used Hang Down on OppEcho's Fezandipiti ex for 10 damage.
 
 OppEcho's Turn
 OppEcho drew a card.
@@ -103,8 +103,8 @@ OppEcho played Poké Pad.
 - OppEcho shuffled their deck.
 OppEcho played Riolu to the Bench.
 OppEcho played Boss's Orders.
-- cheyras's Dhelmise was switched with cheyras's Shuppet to become the Active Pokémon.
-cheyras's Dhelmise is now in the Active Spot.
+- PlayerA's Dhelmise was switched with PlayerA's Shuppet to become the Active Pokémon.
+PlayerA's Dhelmise is now in the Active Spot.
 OppEcho played Secret Box.
 - OppEcho discarded 3 cards.
    • Lillie's Determination, Switch, Basic Fighting Energy
@@ -113,7 +113,7 @@ OppEcho played Secret Box.
 - OppEcho shuffled their deck.
 OppEcho played Premium Power Pro.
 OppEcho played Premium Power Pro.
-OppEcho's Mega Lucario ex used Aura Jab on cheyras's Dhelmise for 160 damage. cheyras's Dhelmise took -30 less damage because of Fighting Resistance.
+OppEcho's Mega Lucario ex used Aura Jab on PlayerA's Dhelmise for 160 damage. PlayerA's Dhelmise took -30 less damage because of Fighting Resistance.
 - Damage breakdown:
    • Base damage: 130 damage
    • (Item) Premium Power Pro: 30 damage
@@ -124,14 +124,14 @@ OppEcho's Mega Lucario ex used Aura Jab on cheyras's Dhelmise for 160 damage. ch
 - OppEcho attached Basic Fighting Energy to Riolu on the Bench.
 - OppEcho attached Basic Fighting Energy to Riolu on the Bench.
 - OppEcho attached Basic Fighting Energy to Riolu on the Bench.
-cheyras's Dhelmise was Knocked Out!
+PlayerA's Dhelmise was Knocked Out!
 OppEcho took a Prize card.
 A card was added to OppEcho's hand.
-cheyras's Poltchageist is now in the Active Spot.
+PlayerA's Poltchageist is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew Secret Box.
-cheyras ended their turn.
+PlayerA's Turn
+PlayerA drew Secret Box.
+PlayerA ended their turn.
 
 OppEcho's Turn
 OppEcho drew a card.
@@ -143,90 +143,90 @@ OppEcho played Lillie's Determination.
 - OppEcho shuffled 3 cards into their deck.
 - OppEcho drew 6 cards.
 OppEcho attached Basic Fighting Energy to Mega Lucario ex in the Active Spot.
-OppEcho's Mega Lucario ex used Aura Jab on cheyras's Poltchageist for 130 damage.
+OppEcho's Mega Lucario ex used Aura Jab on PlayerA's Poltchageist for 130 damage.
 - OppEcho attached Basic Fighting Energy to Mega Lucario ex on the Bench.
 - OppEcho attached Basic Fighting Energy to Fezandipiti ex on the Bench.
-cheyras's Poltchageist was Knocked Out!
+PlayerA's Poltchageist was Knocked Out!
 OppEcho took a Prize card.
 A card was added to OppEcho's hand.
-cheyras's Shuppet is now in the Active Spot.
+PlayerA's Shuppet is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew Lillie's Determination.
-cheyras played Special Red Card.
+PlayerA's Turn
+PlayerA drew Lillie's Determination.
+PlayerA played Special Red Card.
 - OppEcho shuffled their hand.
-- cheyras moved cheyras's 6 cards to their deck.
-- cheyras drew 3 cards.
-cheyras played Lillie's Determination.
-- cheyras shuffled Secret Box into their deck.
-- cheyras drew 8 cards.
+- PlayerA moved PlayerA's 6 cards to their deck.
+- PlayerA drew 3 cards.
+PlayerA played Lillie's Determination.
+- PlayerA shuffled Secret Box into their deck.
+- PlayerA drew 8 cards.
    • Buddy-Buddy Poffin, Poké Pad, Special Red Card, Basic Psychic Energy, Prism Tower, Basic Psychic Energy, Prism Tower, Telepathic Psychic Energy
-cheyras played Poké Pad.
-- cheyras drew Banette.
-- cheyras shuffled their deck.
-cheyras played Buddy-Buddy Poffin.
-- cheyras drew 2 cards and played them to the Bench.
+PlayerA played Poké Pad.
+- PlayerA drew Banette.
+- PlayerA shuffled their deck.
+PlayerA played Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
    • Shuppet, Shuppet
-- cheyras shuffled their deck.
-cheyras evolved Shuppet to Banette in the Active Spot.
-cheyras played Prism Tower to the Stadium spot.
-- cheyras discarded Gravity Mountain.
-cheyras attached Basic Psychic Energy to Shuppet on the Bench.
-cheyras's Banette used Puppet Pull on OppEcho's Mega Lucario ex for 160 damage. OppEcho's Mega Lucario ex took 80 more damage because of Psychic Weakness.
+- PlayerA shuffled their deck.
+PlayerA evolved Shuppet to Banette in the Active Spot.
+PlayerA played Prism Tower to the Stadium spot.
+- PlayerA discarded Gravity Mountain.
+PlayerA attached Basic Psychic Energy to Shuppet on the Bench.
+PlayerA's Banette used Puppet Pull on OppEcho's Mega Lucario ex for 160 damage. OppEcho's Mega Lucario ex took 80 more damage because of Psychic Weakness.
 - Damage breakdown:
    • Base damage: 80 damage
    • Weakness to Psychic: 80 damage
    • Total damage: 160 damage
 
-- cheyras drew Dhelmise.
-- cheyras shuffled their deck.
+- PlayerA drew Dhelmise.
+- PlayerA shuffled their deck.
 
 OppEcho's Turn
 OppEcho drew a card.
 OppEcho didn't take an action in time.
 
-cheyras's Turn
-cheyras drew Ultra Ball.
-cheyras played Ultra Ball.
-- cheyras discarded 2 cards.
+PlayerA's Turn
+PlayerA drew Ultra Ball.
+PlayerA played Ultra Ball.
+- PlayerA discarded 2 cards.
    • Prism Tower, Basic Psychic Energy
-- cheyras drew Poltchageist.
-- cheyras shuffled their deck.
-cheyras played Poltchageist to the Bench.
-cheyras played Dhelmise to the Bench.
-cheyras attached Telepathic Psychic Energy to Dhelmise on the Bench.
+- PlayerA drew Poltchageist.
+- PlayerA shuffled their deck.
+PlayerA played Poltchageist to the Bench.
+PlayerA played Dhelmise to the Bench.
+PlayerA attached Telepathic Psychic Energy to Dhelmise on the Bench.
 Telepathic Psychic Energy was activated.
-- cheyras drew Dhelmise and played it to the Bench.
-- cheyras shuffled their deck.
-cheyras's Banette used Puppet Pull on OppEcho's Mega Lucario ex for 160 damage. OppEcho's Mega Lucario ex took 80 more damage because of Psychic Weakness.
+- PlayerA drew Dhelmise and played it to the Bench.
+- PlayerA shuffled their deck.
+PlayerA's Banette used Puppet Pull on OppEcho's Mega Lucario ex for 160 damage. OppEcho's Mega Lucario ex took 80 more damage because of Psychic Weakness.
 - Damage breakdown:
    • Base damage: 80 damage
    • Weakness to Psychic: 80 damage
    • Total damage: 160 damage
 
-- cheyras drew Lillie's Determination.
-- cheyras shuffled their deck.
+- PlayerA drew Lillie's Determination.
+- PlayerA shuffled their deck.
 
 OppEcho's Turn
 OppEcho drew a card.
 OppEcho didn't take an action in time.
 
-cheyras's Turn
-cheyras drew Telepathic Psychic Energy.
-cheyras attached Telepathic Psychic Energy to Poltchageist on the Bench.
-cheyras's Banette used Puppet Pull on OppEcho's Mega Lucario ex for 160 damage. OppEcho's Mega Lucario ex took 80 more damage because of Psychic Weakness.
+PlayerA's Turn
+PlayerA drew Telepathic Psychic Energy.
+PlayerA attached Telepathic Psychic Energy to Poltchageist on the Bench.
+PlayerA's Banette used Puppet Pull on OppEcho's Mega Lucario ex for 160 damage. OppEcho's Mega Lucario ex took 80 more damage because of Psychic Weakness.
 - Damage breakdown:
    • Base damage: 80 damage
    • Weakness to Psychic: 80 damage
    • Total damage: 160 damage
 
-- cheyras drew Boss's Orders.
-- cheyras shuffled their deck.
+- PlayerA drew Boss's Orders.
+- PlayerA shuffled their deck.
 OppEcho's Mega Lucario ex was Knocked Out!
 - 3 cards were discarded from OppEcho's Mega Lucario ex.
    • Basic Fighting Energy, Basic Fighting Energy, Riolu
-cheyras took 3 Prize cards.
-Dhelmise was added to cheyras's hand.
-Basic Psychic Energy was added to cheyras's hand.
-Poké Pad was added to cheyras's hand.
+PlayerA took 3 Prize cards.
+Dhelmise was added to PlayerA's hand.
+Basic Psychic Energy was added to PlayerA's hand.
+Poké Pad was added to PlayerA's hand.
 Opponent was inactive for too long. PlayerA wins.

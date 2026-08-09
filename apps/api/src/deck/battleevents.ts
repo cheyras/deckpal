@@ -156,7 +156,7 @@ export type BattleEvent = EventBase &
           card?: CardRef;
           count?: number;
           cards?: CardRef[];
-          /** Owner of the moved cards when the line names one ("moved cheyras's Sinistcha…"). */
+          /** Owner of the moved cards when the line names one ("moved PlayerA's Sinistcha…"). */
           owner?: string;
           via?: string;
         };
@@ -585,7 +585,7 @@ function parseInner(rawLog: string): BattleEventParse {
           emit({ actor: n, type: 'move_cards', payload: { to: 'deck_bottom', count: Number(m[1]), ...via(isSub) } });
         } else if ((m = rest.match(/^moved (.+?) to (their hand|their deck|the discard pile)\.$/))) {
           const dest = m[2] === 'their hand' ? 'hand' : m[2] === 'their deck' ? 'deck' : 'discard';
-          const what = boardRef(m[1]!, names); // "cheyras's Sinistcha" or "cheyras's 4 cards"
+          const what = boardRef(m[1]!, names); // "PlayerA's Sinistcha" or "PlayerA's 4 cards"
           const countM = what.card.name.match(/^(\d{1,9}) cards?$/);
           const ev = emit({
             actor: n,

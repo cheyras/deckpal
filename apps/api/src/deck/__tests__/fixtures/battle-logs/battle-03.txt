@@ -4,16 +4,16 @@ OppCharlie won the coin toss.
 OppCharlie decided to go first.
 OppCharlie drew 7 cards for the opening hand.
 - 7 drawn cards.
-cheyras drew 7 cards for the opening hand.
+PlayerA drew 7 cards for the opening hand.
 - 7 drawn cards.
    • Telepathic Psychic Energy, Poltchageist, Air Balloon, Buddy-Buddy Poffin, Lillie's Determination, Telepathic Psychic Energy, Buddy-Buddy Poffin
 OppCharlie took a mulligan.
 - Cards revealed from Mulligan 1
    • Basic Psychic Energy, Buddy-Buddy Poffin, Basic Fire Energy, Lillie's Determination, Rare Candy, Boss's Orders, Judge
-cheyras drew 1 more card because OppCharlie took at least 1 mulligan.
-- cheyras drew Switch.
+PlayerA drew 1 more card because OppCharlie took at least 1 mulligan.
+- PlayerA drew Switch.
 OppCharlie played Dreepy to the Active Spot.
-cheyras played Poltchageist to the Active Spot.
+PlayerA played Poltchageist to the Active Spot.
 
 OppCharlie's Turn
 OppCharlie drew a card.
@@ -24,22 +24,22 @@ OppCharlie played Poké Pad.
 - OppCharlie shuffled their deck.
 OppCharlie ended their turn.
 
-cheyras's Turn
-cheyras drew Shuppet.
-cheyras played Shuppet to the Bench.
-cheyras played Lillie's Determination.
-- cheyras shuffled 6 cards into their deck.
+PlayerA's Turn
+PlayerA drew Shuppet.
+PlayerA played Shuppet to the Bench.
+PlayerA played Lillie's Determination.
+- PlayerA shuffled 6 cards into their deck.
    • Telepathic Psychic Energy, Air Balloon, Buddy-Buddy Poffin, Telepathic Psychic Energy, Buddy-Buddy Poffin, Switch
-- cheyras drew 8 cards.
+- PlayerA drew 8 cards.
    • Air Balloon, Basic Psychic Energy, Buddy-Buddy Poffin, Poltchageist, Dhelmise, Telepathic Psychic Energy, Poké Pad, Prism Tower
-cheyras played Dhelmise to the Bench.
-cheyras played Prism Tower to the Stadium spot.
-cheyras played Prism Tower.
-- cheyras discarded 2 cards.
+PlayerA played Dhelmise to the Bench.
+PlayerA played Prism Tower to the Stadium spot.
+PlayerA played Prism Tower.
+- PlayerA discarded 2 cards.
    • Poltchageist, Buddy-Buddy Poffin
-- cheyras drew Ultra Ball.
-cheyras attached Basic Psychic Energy to Dhelmise on the Bench.
-cheyras ended their turn.
+- PlayerA drew Ultra Ball.
+PlayerA attached Basic Psychic Energy to Dhelmise on the Bench.
+PlayerA ended their turn.
 
 OppCharlie's Turn
 OppCharlie drew a card.
@@ -52,31 +52,31 @@ OppCharlie played Hilda.
 OppCharlie attached Basic Fire Energy to Drakloak in the Active Spot.
 OppCharlie's Drakloak used Recon Directive.
 - OppCharlie drew a card.
-OppCharlie's Drakloak used Dragon Headbutt on cheyras’s Poltchageist for 70 damage.
-cheyras's Poltchageist was Knocked Out!
+OppCharlie's Drakloak used Dragon Headbutt on PlayerA’s Poltchageist for 70 damage.
+PlayerA's Poltchageist was Knocked Out!
 OppCharlie took a Prize card.
 A card was added to OppCharlie's hand.
-cheyras's Shuppet is now in the Active Spot.
+PlayerA's Shuppet is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew Switch.
-cheyras attached Telepathic Psychic Energy to Shuppet in the Active Spot.
+PlayerA's Turn
+PlayerA drew Switch.
+PlayerA attached Telepathic Psychic Energy to Shuppet in the Active Spot.
 Telepathic Psychic Energy was activated.
-- cheyras drew 2 cards and played them to the Bench.
+- PlayerA drew 2 cards and played them to the Bench.
    • Shuppet, Shuppet
-- cheyras shuffled their deck.
-cheyras played Poké Pad.
-- cheyras drew Banette.
-- cheyras shuffled their deck.
-cheyras evolved Shuppet to Banette in the Active Spot.
-cheyras played Ultra Ball.
-- cheyras discarded 2 cards.
+- PlayerA shuffled their deck.
+PlayerA played Poké Pad.
+- PlayerA drew Banette.
+- PlayerA shuffled their deck.
+PlayerA evolved Shuppet to Banette in the Active Spot.
+PlayerA played Ultra Ball.
+- PlayerA discarded 2 cards.
    • Air Balloon, Switch
-- cheyras drew Poltchageist.
-- cheyras shuffled their deck.
-cheyras's Banette used Puppet Pull on OppCharlie’s Drakloak for 80 damage.
-- cheyras drew Fezandipiti ex.
-- cheyras shuffled their deck.
+- PlayerA drew Poltchageist.
+- PlayerA shuffled their deck.
+PlayerA's Banette used Puppet Pull on OppCharlie’s Drakloak for 80 damage.
+- PlayerA drew Fezandipiti ex.
+- PlayerA shuffled their deck.
 
 OppCharlie's Turn
 OppCharlie drew a card.
@@ -86,29 +86,29 @@ OppCharlie played Buddy-Buddy Poffin.
 - OppCharlie drew 2 cards and played them to the Bench.
    • Duskull, Dreepy
 - OppCharlie shuffled their deck.
-OppCharlie's Dragapult ex used Phantom Dive on cheyras’s Banette for 200 damage.
-cheyras's Shuppet used Hide 'n' Sneak.
+OppCharlie's Dragapult ex used Phantom Dive on PlayerA’s Banette for 200 damage.
+PlayerA's Shuppet used Hide 'n' Sneak.
 - Effects of Phantom Dive did not affect Shuppet.
-cheyras's Shuppet used Hide 'n' Sneak.
+PlayerA's Shuppet used Hide 'n' Sneak.
 - Effects of Phantom Dive did not affect Shuppet.
-cheyras's Banette was Knocked Out!
-- 2 cards were discarded from cheyras's Banette.
+PlayerA's Banette was Knocked Out!
+- 2 cards were discarded from PlayerA's Banette.
    • Telepathic Psychic Energy, Shuppet
 OppCharlie took a Prize card.
 A card was added to OppCharlie's hand.
-cheyras's Dhelmise is now in the Active Spot.
+PlayerA's Dhelmise is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew Poké Pad.
-cheyras played Poké Pad.
-- cheyras drew Dhelmise.
-- cheyras shuffled their deck.
-cheyras played Dhelmise to the Bench.
-cheyras played Fezandipiti ex to the Bench.
-cheyras's Fezandipiti ex used Flip the Script.
-- cheyras drew 3 cards.
+PlayerA's Turn
+PlayerA drew Poké Pad.
+PlayerA played Poké Pad.
+- PlayerA drew Dhelmise.
+- PlayerA shuffled their deck.
+PlayerA played Dhelmise to the Bench.
+PlayerA played Fezandipiti ex to the Bench.
+PlayerA's Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
    • Lillie's Determination, Buddy-Buddy Poffin, Boss's Orders
-cheyras's Dhelmise used Vengeful Anchor on OppCharlie’s Dragapult ex for 170 damage.
+PlayerA's Dhelmise used Vengeful Anchor on OppCharlie’s Dragapult ex for 170 damage.
 - Damage breakdown:
    • Base damage: 30 damage
    • 4 discarded Pokémon: 140 damage
@@ -123,47 +123,47 @@ OppCharlie played Lillie's Determination.
 - OppCharlie shuffled 3 cards into their deck.
 - OppCharlie drew 6 cards.
 OppCharlie's Dusknoir used Cursed Blast.
-cheyras's Shuppet used Hide 'n' Sneak.
+PlayerA's Shuppet used Hide 'n' Sneak.
 - Effects of Cursed Blast did not affect Shuppet.
-cheyras's Shuppet used Hide 'n' Sneak.
+PlayerA's Shuppet used Hide 'n' Sneak.
 - Effects of Cursed Blast did not affect Shuppet.
 OppCharlie's Dusknoir was Knocked Out!
 - 2 cards were discarded from OppCharlie's Dusknoir.
    • Dusclops, Duskull
-cheyras took a Prize card.
-Night Stretcher was added to cheyras's hand.
-OppCharlie's Dragapult ex used Phantom Dive on cheyras’s Dhelmise for 200 damage.
-cheyras's Shuppet used Hide 'n' Sneak.
+PlayerA took a Prize card.
+Night Stretcher was added to PlayerA's hand.
+OppCharlie's Dragapult ex used Phantom Dive on PlayerA’s Dhelmise for 200 damage.
+PlayerA's Shuppet used Hide 'n' Sneak.
 - Effects of Phantom Dive did not affect Shuppet.
-cheyras's Shuppet used Hide 'n' Sneak.
+PlayerA's Shuppet used Hide 'n' Sneak.
 - Effects of Phantom Dive did not affect Shuppet.
-cheyras's Dhelmise was Knocked Out!
-Basic Psychic Energy was discarded from cheyras's Dhelmise.
+PlayerA's Dhelmise was Knocked Out!
+Basic Psychic Energy was discarded from PlayerA's Dhelmise.
 OppCharlie took a Prize card.
 A card was added to OppCharlie's hand.
-cheyras's Dhelmise is now in the Active Spot.
+PlayerA's Dhelmise is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew Banette.
-cheyras's Fezandipiti ex used Flip the Script.
-- cheyras drew 3 cards.
+PlayerA's Turn
+PlayerA drew Banette.
+PlayerA's Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
    • Special Red Card, Shuppet, Dhelmise
-cheyras played Special Red Card.
+PlayerA played Special Red Card.
 - OppCharlie shuffled their hand.
-- cheyras put 7 cards on the bottom of their deck.
-- cheyras drew 3 cards.
-cheyras played Prism Tower.
-- cheyras discarded 2 cards.
+- PlayerA put 7 cards on the bottom of their deck.
+- PlayerA drew 3 cards.
+PlayerA played Prism Tower.
+- PlayerA discarded 2 cards.
    • Shuppet, Poltchageist
-- cheyras drew Poltchageist.
-cheyras evolved Shuppet to Banette on the Bench.
-cheyras played Night Stretcher.
-- cheyras moved cheyras's Basic Psychic Energy to their hand.
-cheyras attached Basic Psychic Energy to Dhelmise in the Active Spot.
-cheyras played Boss's Orders.
+- PlayerA drew Poltchageist.
+PlayerA evolved Shuppet to Banette on the Bench.
+PlayerA played Night Stretcher.
+- PlayerA moved PlayerA's Basic Psychic Energy to their hand.
+PlayerA attached Basic Psychic Energy to Dhelmise in the Active Spot.
+PlayerA played Boss's Orders.
 - OppCharlie's Dragapult ex was switched with OppCharlie's Dragapult ex to become the Active Pokémon.
 OppCharlie's Dragapult ex is now in the Active Spot.
-cheyras's Dhelmise used Vengeful Anchor on OppCharlie’s Dragapult ex for 170 damage.
+PlayerA's Dhelmise used Vengeful Anchor on OppCharlie’s Dragapult ex for 170 damage.
 - Damage breakdown:
    • Base damage: 30 damage
    • 6 discarded Pokémon: 140 damage
@@ -184,41 +184,41 @@ OppCharlie played Ultra Ball.
 OppCharlie retreated Dragapult ex to the Bench.
 - Basic Psychic Energy was discarded from OppCharlie's Dragapult ex.
 OppCharlie's Dragapult ex is now in the Active Spot.
-OppCharlie's Dragapult ex used Phantom Dive on cheyras’s Dhelmise for 200 damage.
-cheyras's Shuppet used Hide 'n' Sneak.
+OppCharlie's Dragapult ex used Phantom Dive on PlayerA’s Dhelmise for 200 damage.
+PlayerA's Shuppet used Hide 'n' Sneak.
 - Effects of Phantom Dive did not affect Shuppet.
-cheyras's Banette used Hide 'n' Sneak.
+PlayerA's Banette used Hide 'n' Sneak.
 - Effects of Phantom Dive did not affect Banette.
-cheyras's Dhelmise was Knocked Out!
-Basic Psychic Energy was discarded from cheyras's Dhelmise.
+PlayerA's Dhelmise was Knocked Out!
+Basic Psychic Energy was discarded from PlayerA's Dhelmise.
 OppCharlie took a Prize card.
 A card was added to OppCharlie's hand.
-cheyras's Banette is now in the Active Spot.
+PlayerA's Banette is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew Night Stretcher.
-cheyras played Night Stretcher.
-- cheyras moved cheyras's Basic Psychic Energy to their hand.
-cheyras's Fezandipiti ex used Flip the Script.
-- cheyras drew 3 cards.
+PlayerA's Turn
+PlayerA drew Night Stretcher.
+PlayerA played Night Stretcher.
+- PlayerA moved PlayerA's Basic Psychic Energy to their hand.
+PlayerA's Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
    • Boss's Orders, Telepathic Psychic Energy, Poké Pad
-cheyras attached Telepathic Psychic Energy to Banette in the Active Spot.
+PlayerA attached Telepathic Psychic Energy to Banette in the Active Spot.
 Telepathic Psychic Energy was activated.
-- cheyras shuffled their deck.
-cheyras played Dhelmise to the Bench.
-cheyras played Poké Pad.
-- cheyras drew Sinistcha.
-- cheyras shuffled their deck.
-cheyras played Poltchageist to the Bench.
-cheyras's Banette used Puppet Pull on OppCharlie’s Dragapult ex for 80 damage.
-- cheyras drew Telepathic Psychic Energy.
-- cheyras shuffled their deck.
+- PlayerA shuffled their deck.
+PlayerA played Dhelmise to the Bench.
+PlayerA played Poké Pad.
+- PlayerA drew Sinistcha.
+- PlayerA shuffled their deck.
+PlayerA played Poltchageist to the Bench.
+PlayerA's Banette used Puppet Pull on OppCharlie’s Dragapult ex for 80 damage.
+- PlayerA drew Telepathic Psychic Energy.
+- PlayerA shuffled their deck.
 OppCharlie's Dragapult ex was Knocked Out!
 - 4 cards were discarded from OppCharlie's Dragapult ex.
    • Basic Psychic Energy, Basic Fire Energy, Drakloak, Dreepy
-cheyras took 2 Prize cards.
-Special Red Card was added to cheyras's hand.
-Banette was added to cheyras's hand.
+PlayerA took 2 Prize cards.
+Special Red Card was added to PlayerA's hand.
+Banette was added to PlayerA's hand.
 OppCharlie's Dragapult ex is now in the Active Spot.
 
 OppCharlie's Turn
@@ -228,31 +228,31 @@ OppCharlie played Crispin.
 OppCharlie attached Basic Psychic Energy to Dragapult ex in the Active Spot.
 OppCharlie played Dreepy to the Bench.
 OppCharlie played Prism Tower.
-- cheyras moved OppCharlie's 2 cards to the discard pile.
+- PlayerA moved OppCharlie's 2 cards to the discard pile.
    • Rare Candy, Dragapult ex
-- cheyras drew a card.
-OppCharlie's Dragapult ex used Jet Headbutt on cheyras’s Banette for 70 damage.
+- PlayerA drew a card.
+OppCharlie's Dragapult ex used Jet Headbutt on PlayerA’s Banette for 70 damage.
 
-cheyras's Turn
-cheyras drew Basic Psychic Energy.
-cheyras played Special Red Card.
+PlayerA's Turn
+PlayerA drew Basic Psychic Energy.
+PlayerA played Special Red Card.
 - OppCharlie shuffled their hand.
-- cheyras put 3 cards on the bottom of their deck.
-- cheyras drew 3 cards.
-cheyras played Boss's Orders.
+- PlayerA put 3 cards on the bottom of their deck.
+- PlayerA drew 3 cards.
+PlayerA played Boss's Orders.
 - OppCharlie's Dreepy was switched with OppCharlie's Dragapult ex to become the Active Pokémon.
 OppCharlie's Dreepy is now in the Active Spot.
-cheyras evolved Poltchageist to Sinistcha on the Bench.
-cheyras attached Telepathic Psychic Energy to Sinistcha on the Bench.
-cheyras evolved Shuppet to Banette on the Bench.
-cheyras played Buddy-Buddy Poffin.
-- cheyras shuffled their deck.
-cheyras's Banette used Puppet Pull on OppCharlie’s Dreepy for 80 damage.
-- cheyras drew Switch.
-- cheyras shuffled their deck.
+PlayerA evolved Poltchageist to Sinistcha on the Bench.
+PlayerA attached Telepathic Psychic Energy to Sinistcha on the Bench.
+PlayerA evolved Shuppet to Banette on the Bench.
+PlayerA played Buddy-Buddy Poffin.
+- PlayerA shuffled their deck.
+PlayerA's Banette used Puppet Pull on OppCharlie’s Dreepy for 80 damage.
+- PlayerA drew Switch.
+- PlayerA shuffled their deck.
 OppCharlie's Dreepy was Knocked Out!
-cheyras took a Prize card.
-Lillie's Determination was added to cheyras's hand.
+PlayerA took a Prize card.
+Lillie's Determination was added to PlayerA's hand.
 OppCharlie's Dragapult ex is now in the Active Spot.
 
 OppCharlie's Turn
@@ -262,21 +262,21 @@ OppCharlie played Ultra Ball.
    • Drakloak, Drakloak
 - OppCharlie drew Dusclops.
 - OppCharlie shuffled their deck.
-OppCharlie's Dragapult ex used Jet Headbutt on cheyras’s Banette for 70 damage.
-cheyras's Banette was Knocked Out!
-- 2 cards were discarded from cheyras's Banette.
+OppCharlie's Dragapult ex used Jet Headbutt on PlayerA’s Banette for 70 damage.
+PlayerA's Banette was Knocked Out!
+- 2 cards were discarded from PlayerA's Banette.
    • Telepathic Psychic Energy, Shuppet
 OppCharlie took a Prize card.
 A card was added to OppCharlie's hand.
-cheyras's Dhelmise is now in the Active Spot.
+PlayerA's Dhelmise is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew Gwynn.
-cheyras attached Basic Psychic Energy to Dhelmise in the Active Spot.
-cheyras's Fezandipiti ex used Flip the Script.
-- cheyras drew 3 cards.
+PlayerA's Turn
+PlayerA drew Gwynn.
+PlayerA attached Basic Psychic Energy to Dhelmise in the Active Spot.
+PlayerA's Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
    • Ultra Ball, Prism Tower, Gwynn
-cheyras's Dhelmise used Vengeful Anchor on OppCharlie’s Dragapult ex for 170 damage.
+PlayerA's Dhelmise used Vengeful Anchor on OppCharlie’s Dragapult ex for 170 damage.
 - Damage breakdown:
    • Base damage: 30 damage
    • 8 discarded Pokémon: 140 damage
@@ -285,8 +285,8 @@ cheyras's Dhelmise used Vengeful Anchor on OppCharlie’s Dragapult ex for 170 d
 OppCharlie's Dragapult ex was Knocked Out!
 - 2 cards were discarded from OppCharlie's Dragapult ex.
    • Basic Psychic Energy, Dreepy
-cheyras took 2 Prize cards.
-Dhelmise was added to cheyras's hand.
-Gwynn was added to cheyras's hand.
+PlayerA took 2 Prize cards.
+Dhelmise was added to PlayerA's hand.
+Gwynn was added to PlayerA's hand.
 All Prize cards taken. PlayerA wins.
 

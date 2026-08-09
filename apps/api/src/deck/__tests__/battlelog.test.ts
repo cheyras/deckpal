@@ -144,14 +144,14 @@ test('no win/concede line → result null (tie or truncated log)', () => {
 
 test('ID-prefixed logs (new Live format) still identify the owner by deck overlap', () => {
   // Real log battle-11 writes every card as '(me5_39) Dhelmise'. Before the
-  // nameKey ref-strip this scored cheyras 0 vs OppBravo 1 → owner
+  // nameKey ref-strip this scored PlayerA 0 vs OppBravo 1 → owner
   // mis-identified as OppBravo at HIGH confidence (perspective flipped).
   const raw = readFileSync(
     fileURLToPath(new URL('./fixtures/battle-logs/battle-11.txt', import.meta.url)),
     'utf8',
   );
   const p = parseBattleLog(raw, DECK_NAMES);
-  assert.equal(p.players.me, 'cheyras');
+  assert.equal(p.players.me, 'PlayerA');
   assert.equal(p.players.opponent, 'OppBravo');
   assert.equal(p.confidence, 'high');
   assert.equal(p.result, 'win'); // 'All Prize cards taken. PlayerA wins.'

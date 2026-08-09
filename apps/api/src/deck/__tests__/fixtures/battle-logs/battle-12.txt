@@ -4,12 +4,12 @@ OppFoxtrot won the coin toss.
 OppFoxtrot decided to go first.
 OppFoxtrot drew 7 cards for the opening hand.
 - 7 drawn cards.
-cheyras drew 7 cards for the opening hand.
+PlayerA drew 7 cards for the opening hand.
 - 7 drawn cards.
    • (me2-5_184) Buddy-Buddy Poffin, (sv6-5_38) Fezandipiti ex, (me1_114) Boss's Orders, (me5_6) Sinistcha, (me3_88) Telepathic Psychic Energy, (me5_39) Dhelmise, (me4_82) Special Red Card
 OppFoxtrot played (sv8-5_163) Pecharunt ex to the Active Spot.
-cheyras played (me5_39) Dhelmise to the Active Spot.
-cheyras played (sv6-5_38) Fezandipiti ex to the Bench.
+PlayerA played (me5_39) Dhelmise to the Active Spot.
+PlayerA played (sv6-5_38) Fezandipiti ex to the Bench.
 
 OppFoxtrot's Turn
 OppFoxtrot drew a card.
@@ -21,17 +21,17 @@ OppFoxtrot played (me2-5_198) Poké Pad.
 OppFoxtrot played (me2_60) Carvanha to the Bench.
 OppFoxtrot ended their turn.
 
-cheyras's Turn
-cheyras drew (me5_6) Sinistcha.
-cheyras played (me2-5_184) Buddy-Buddy Poffin.
-- cheyras drew 2 cards and played them to the Bench.
+PlayerA's Turn
+PlayerA drew (me5_6) Sinistcha.
+PlayerA played (me2-5_184) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
    • (me5_33) Shuppet, (me5_5) Poltchageist
-- cheyras shuffled their deck.
-cheyras attached (me3_88) Telepathic Psychic Energy to (me5_39) Dhelmise in the Active Spot.
+- PlayerA shuffled their deck.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_39) Dhelmise in the Active Spot.
 (me3_88) Telepathic Psychic Energy was activated.
-- cheyras drew (me5_39) Dhelmise and played it to the Bench.
-- cheyras shuffled their deck.
-cheyras's (me5_39) Dhelmise used Vengeful Anchor on OppFoxtrot's (sv8-5_163) Pecharunt ex for 30 damage.
+- PlayerA drew (me5_39) Dhelmise and played it to the Bench.
+- PlayerA shuffled their deck.
+PlayerA's (me5_39) Dhelmise used Vengeful Anchor on OppFoxtrot's (sv8-5_163) Pecharunt ex for 30 damage.
 
 OppFoxtrot's Turn
 OppFoxtrot drew a card.
@@ -40,117 +40,117 @@ OppFoxtrot attached (mee_7) Basic Darkness Energy to (me5_116) Mega Darkrai ex o
 OppFoxtrot attached (swsh1_213) Air Balloon to (sv8-5_163) Pecharunt ex in the Active Spot.
 OppFoxtrot retreated (sv8-5_163) Pecharunt ex to the Bench.
 OppFoxtrot's (me5_116) Mega Darkrai ex is now in the Active Spot.
-OppFoxtrot's (me5_116) Mega Darkrai ex used Dusk Raid on cheyras's (me5_39) Dhelmise for 440 damage. cheyras's (me5_39) Dhelmise took 220 more damage because of Darkness Weakness.
+OppFoxtrot's (me5_116) Mega Darkrai ex used Dusk Raid on PlayerA's (me5_39) Dhelmise for 440 damage. PlayerA's (me5_39) Dhelmise took 220 more damage because of Darkness Weakness.
 - Damage breakdown:
    • Base damage: 110 damage
    • 3 damage counters: 110 damage
    • Weakness to Darkness: 220 damage
    • Total damage: 440 damage
 
-cheyras's (me5_39) Dhelmise was Knocked Out!
-(me3_88) Telepathic Psychic Energy was discarded from cheyras's (me5_39) Dhelmise.
+PlayerA's (me5_39) Dhelmise was Knocked Out!
+(me3_88) Telepathic Psychic Energy was discarded from PlayerA's (me5_39) Dhelmise.
 OppFoxtrot took a Prize card.
 A card was added to OppFoxtrot's hand.
-cheyras's (me5_5) Poltchageist is now in the Active Spot.
+PlayerA's (me5_5) Poltchageist is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew (me4_82) Special Red Card.
-cheyras's (sv6-5_38) Fezandipiti ex used Flip the Script.
-- cheyras drew 3 cards.
+PlayerA's Turn
+PlayerA drew (me4_82) Special Red Card.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
    • (me4_80) Prism Tower, (me5_78) Gwynn, (me5_78) Gwynn
-cheyras played (me5_78) Gwynn.
-- cheyras discarded 2 cards.
+PlayerA played (me5_78) Gwynn.
+- PlayerA discarded 2 cards.
    • (me5_6) Sinistcha, (me5_6) Sinistcha
-- cheyras drew 6 cards.
+- PlayerA drew 6 cards.
    • (me5_78) Gwynn, (me3_81) Poké Pad, (sve_5) Basic Psychic Energy, (sve_5) Basic Psychic Energy, (me5_5) Poltchageist, (sv8-5_101) Buddy-Buddy Poffin
-cheyras played (sv8-5_101) Buddy-Buddy Poffin.
-- cheyras drew 2 cards and played them to the Bench.
+PlayerA played (sv8-5_101) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
    • (me5_33) Shuppet, (me5_5) Poltchageist
-- cheyras shuffled their deck.
-cheyras played (me4_80) Prism Tower to the Stadium spot.
-cheyras played Prism Tower.
-- cheyras discarded 2 cards.
+- PlayerA shuffled their deck.
+PlayerA played (me4_80) Prism Tower to the Stadium spot.
+PlayerA played Prism Tower.
+- PlayerA discarded 2 cards.
    • (me5_5) Poltchageist, (me5_78) Gwynn
-- cheyras drew (me5_33) Shuppet.
-cheyras played (me3_81) Poké Pad.
-- cheyras drew (me5_33) Shuppet.
-- cheyras shuffled their deck.
-cheyras ended their turn.
+- PlayerA drew (me5_33) Shuppet.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (me5_33) Shuppet.
+- PlayerA shuffled their deck.
+PlayerA ended their turn.
 
 OppFoxtrot's Turn
 OppFoxtrot drew a card.
 OppFoxtrot played (me2_67_ph) Toxel to the Bench.
 OppFoxtrot played (sv2_265) Boss's Orders.
-- cheyras's (me5_39) Dhelmise was switched with cheyras's (me5_5) Poltchageist to become the Active Pokémon.
-cheyras's (me5_39) Dhelmise is now in the Active Spot.
-OppFoxtrot's (me5_116) Mega Darkrai ex used Dusk Raid on cheyras's (me5_39) Dhelmise for 440 damage. cheyras's (me5_39) Dhelmise took 220 more damage because of Darkness Weakness.
+- PlayerA's (me5_39) Dhelmise was switched with PlayerA's (me5_5) Poltchageist to become the Active Pokémon.
+PlayerA's (me5_39) Dhelmise is now in the Active Spot.
+OppFoxtrot's (me5_116) Mega Darkrai ex used Dusk Raid on PlayerA's (me5_39) Dhelmise for 440 damage. PlayerA's (me5_39) Dhelmise took 220 more damage because of Darkness Weakness.
 - Damage breakdown:
    • Base damage: 110 damage
    • 3 damage counters: 110 damage
    • Weakness to Darkness: 220 damage
    • Total damage: 440 damage
 
-cheyras's (me5_39) Dhelmise was Knocked Out!
+PlayerA's (me5_39) Dhelmise was Knocked Out!
 OppFoxtrot took a Prize card.
 A card was added to OppFoxtrot's hand.
-cheyras's (me5_5) Poltchageist is now in the Active Spot.
+PlayerA's (me5_5) Poltchageist is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew (sve_5) Basic Psychic Energy.
-cheyras's (sv6-5_38) Fezandipiti ex used Flip the Script.
-- cheyras drew 3 cards.
+PlayerA's Turn
+PlayerA drew (sve_5) Basic Psychic Energy.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
    • (sv8-5_101) Buddy-Buddy Poffin, (me1_114) Boss's Orders, (zsv10-5_79) Air Balloon
-cheyras played (me5_78) Gwynn.
-- cheyras discarded 2 cards.
+PlayerA played (me5_78) Gwynn.
+- PlayerA discarded 2 cards.
    • (me5_33) Shuppet, (me5_33) Shuppet
-- cheyras drew 6 cards.
+- PlayerA drew 6 cards.
    • (sve_5) Basic Psychic Energy, (me3_88) Telepathic Psychic Energy, (me3_88) Telepathic Psychic Energy, (me5_78) Gwynn, (sv6-5_61) Night Stretcher, (zsv10-5_79) Air Balloon
-cheyras played (sv6-5_61) Night Stretcher.
-- cheyras moved cheyras's (me5_6) Sinistcha to their hand.
-cheyras evolved (me5_5) Poltchageist to (me5_6) Sinistcha in the Active Spot.
-cheyras attached (me3_88) Telepathic Psychic Energy to (me5_6) Sinistcha in the Active Spot.
-cheyras attached (zsv10-5_79) Air Balloon to (me5_6) Sinistcha in the Active Spot.
-cheyras retreated (me5_6) Sinistcha to the Bench.
-cheyras's (me5_5) Poltchageist is now in the Active Spot.
-cheyras played Prism Tower.
-- cheyras discarded 2 cards.
+PlayerA played (sv6-5_61) Night Stretcher.
+- PlayerA moved PlayerA's (me5_6) Sinistcha to their hand.
+PlayerA evolved (me5_5) Poltchageist to (me5_6) Sinistcha in the Active Spot.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_6) Sinistcha in the Active Spot.
+PlayerA attached (zsv10-5_79) Air Balloon to (me5_6) Sinistcha in the Active Spot.
+PlayerA retreated (me5_6) Sinistcha to the Bench.
+PlayerA's (me5_5) Poltchageist is now in the Active Spot.
+PlayerA played Prism Tower.
+- PlayerA discarded 2 cards.
    • (sv8-5_101) Buddy-Buddy Poffin, (sve_5) Basic Psychic Energy
-- cheyras drew (me1_130) Switch.
-cheyras ended their turn.
+- PlayerA drew (me1_130) Switch.
+PlayerA ended their turn.
 
 OppFoxtrot's Turn
 OppFoxtrot drew a card.
 OppFoxtrot attached (mee_7) Basic Darkness Energy to (me2_60) Carvanha on the Bench.
 OppFoxtrot played (sv2_265) Boss's Orders.
-- cheyras's (sv6-5_38) Fezandipiti ex was switched with cheyras's (me5_5) Poltchageist to become the Active Pokémon.
-cheyras's (sv6-5_38) Fezandipiti ex is now in the Active Spot.
-OppFoxtrot's (me5_116) Mega Darkrai ex used Dusk Raid on cheyras's (sv6-5_38) Fezandipiti ex for 220 damage.
+- PlayerA's (sv6-5_38) Fezandipiti ex was switched with PlayerA's (me5_5) Poltchageist to become the Active Pokémon.
+PlayerA's (sv6-5_38) Fezandipiti ex is now in the Active Spot.
+OppFoxtrot's (me5_116) Mega Darkrai ex used Dusk Raid on PlayerA's (sv6-5_38) Fezandipiti ex for 220 damage.
 - Damage breakdown:
    • Base damage: 110 damage
    • 3 damage counters: 110 damage
    • Total damage: 220 damage
 
-cheyras's (sv6-5_38) Fezandipiti ex was Knocked Out!
+PlayerA's (sv6-5_38) Fezandipiti ex was Knocked Out!
 OppFoxtrot took 2 Prize cards.
 A card was added to OppFoxtrot's hand.
 A card was added to OppFoxtrot's hand.
-cheyras's (me5_6) Sinistcha is now in the Active Spot.
+PlayerA's (me5_6) Sinistcha is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew (me5_5) Poltchageist.
-cheyras played (me1_114) Boss's Orders.
+PlayerA's Turn
+PlayerA drew (me5_5) Poltchageist.
+PlayerA played (me1_114) Boss's Orders.
 - OppFoxtrot's (me3_48_ph) Gastly was switched with OppFoxtrot's (me5_116) Mega Darkrai ex to become the Active Pokémon.
 OppFoxtrot's (me3_48_ph) Gastly is now in the Active Spot.
-cheyras attached (me3_88) Telepathic Psychic Energy to (me5_33) Shuppet on the Bench.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_33) Shuppet on the Bench.
 (me3_88) Telepathic Psychic Energy was activated.
-- cheyras drew 2 cards and played them to the Bench.
+- PlayerA drew 2 cards and played them to the Bench.
    • (me5_39) Dhelmise, (me5_39) Dhelmise
-- cheyras shuffled their deck.
-cheyras played (me4_82) Special Red Card.
+- PlayerA shuffled their deck.
+PlayerA played (me4_82) Special Red Card.
 - OppFoxtrot shuffled their hand.
-- cheyras put 4 cards on the bottom of their deck.
-- cheyras drew 3 cards.
-cheyras ended their turn.
+- PlayerA put 4 cards on the bottom of their deck.
+- PlayerA drew 3 cards.
+PlayerA ended their turn.
 
 OppFoxtrot's Turn
 OppFoxtrot drew a card.
@@ -160,27 +160,27 @@ OppFoxtrot's (sv8-5_163) Pecharunt ex used Subjugating Chains.
 OppFoxtrot's (me5_116) Mega Darkrai ex is now in the Active Spot.
 OppFoxtrot attached (mee_7) Basic Darkness Energy to (me5_116) Mega Darkrai ex in the Active Spot.
 OppFoxtrot played (sv2_265) Boss's Orders.
-- cheyras's (me5_39) Dhelmise was switched with cheyras's (me5_6) Sinistcha to become the Active Pokémon.
-cheyras's (me5_39) Dhelmise is now in the Active Spot.
-OppFoxtrot's (me5_116) Mega Darkrai ex used Dusk Raid on cheyras's (me5_39) Dhelmise for 440 damage. cheyras's (me5_39) Dhelmise took 220 more damage because of Darkness Weakness.
+- PlayerA's (me5_39) Dhelmise was switched with PlayerA's (me5_6) Sinistcha to become the Active Pokémon.
+PlayerA's (me5_39) Dhelmise is now in the Active Spot.
+OppFoxtrot's (me5_116) Mega Darkrai ex used Dusk Raid on PlayerA's (me5_39) Dhelmise for 440 damage. PlayerA's (me5_39) Dhelmise took 220 more damage because of Darkness Weakness.
 - Damage breakdown:
    • Base damage: 110 damage
    • 3 damage counters: 110 damage
    • Weakness to Darkness: 220 damage
    • Total damage: 440 damage
 
-cheyras's (me5_39) Dhelmise was Knocked Out!
+PlayerA's (me5_39) Dhelmise was Knocked Out!
 OppFoxtrot took a Prize card.
 A card was added to OppFoxtrot's hand.
-cheyras's (me5_39) Dhelmise is now in the Active Spot.
+PlayerA's (me5_39) Dhelmise is now in the Active Spot.
 
 Pokémon Checkup
 1 damage counter was placed on OppFoxtrot's (me5_116) Mega Darkrai ex for the Special Condition Poisoned.
 
-cheyras's Turn
-cheyras drew (me1_119) Lillie's Determination.
-cheyras attached (sve_5) Basic Psychic Energy to (me5_39) Dhelmise in the Active Spot.
-cheyras's (me5_39) Dhelmise used Vengeful Anchor on OppFoxtrot's (me5_116) Mega Darkrai ex for 170 damage.
+PlayerA's Turn
+PlayerA drew (me1_119) Lillie's Determination.
+PlayerA attached (sve_5) Basic Psychic Energy to (me5_39) Dhelmise in the Active Spot.
+PlayerA's (me5_39) Dhelmise used Vengeful Anchor on OppFoxtrot's (me5_116) Mega Darkrai ex for 170 damage.
 - Damage breakdown:
    • Base damage: 30 damage
    • 4 discarded Pokémon: 140 damage
@@ -201,15 +201,15 @@ OppFoxtrot's (sv8-5_163) Pecharunt ex used Subjugating Chains.
 - OppFoxtrot's (me2_127) Mega Sharpedo ex was switched with OppFoxtrot's (me5_116) Mega Darkrai ex to become the Active Pokémon.
 - OppFoxtrot's (me2_127) Mega Sharpedo ex is now Poisoned.
 OppFoxtrot's (me2_127) Mega Sharpedo ex is now in the Active Spot.
-OppFoxtrot's (me2_127) Mega Sharpedo ex used Greedy Fang on cheyras's (me5_39) Dhelmise for 140 damage. cheyras's (me5_39) Dhelmise took 70 more damage because of Darkness Weakness.
+OppFoxtrot's (me2_127) Mega Sharpedo ex used Greedy Fang on PlayerA's (me5_39) Dhelmise for 140 damage. PlayerA's (me5_39) Dhelmise took 70 more damage because of Darkness Weakness.
 - Damage breakdown:
    • Base damage: 70 damage
    • Weakness to Darkness: 70 damage
    • Total damage: 140 damage
 
 - OppFoxtrot drew 2 cards.
-cheyras's (me5_39) Dhelmise was Knocked Out!
-(sve_5) Basic Psychic Energy was discarded from cheyras's (me5_39) Dhelmise.
+PlayerA's (me5_39) Dhelmise was Knocked Out!
+(sve_5) Basic Psychic Energy was discarded from PlayerA's (me5_39) Dhelmise.
 OppFoxtrot took a Prize card.
 A card was added to OppFoxtrot's hand.
 Opponent took all of their Prize cards. OppFoxtrot wins.

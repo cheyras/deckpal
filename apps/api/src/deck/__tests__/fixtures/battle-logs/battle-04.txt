@@ -1,24 +1,24 @@
 Setup
 OppAlpha chose tails for the opening coin flip.
-cheyras won the coin toss.
-cheyras decided to go first.
+PlayerA won the coin toss.
+PlayerA decided to go first.
 OppAlpha drew 7 cards for the opening hand.
 - 7 drawn cards.
-cheyras drew 7 cards for the opening hand.
+PlayerA drew 7 cards for the opening hand.
 - 7 drawn cards.
    • Shuppet, Special Red Card, Ultra Ball, Telepathic Psychic Energy, Basic Psychic Energy, Night Stretcher, Prism Tower
 OppAlpha played Froakie to the Active Spot.
-cheyras played Shuppet to the Active Spot.
+PlayerA played Shuppet to the Active Spot.
 
-cheyras's Turn
-cheyras drew Buddy-Buddy Poffin.
-cheyras played Prism Tower to the Stadium spot.
-cheyras attached Telepathic Psychic Energy to Shuppet in the Active Spot.
+PlayerA's Turn
+PlayerA drew Buddy-Buddy Poffin.
+PlayerA played Prism Tower to the Stadium spot.
+PlayerA attached Telepathic Psychic Energy to Shuppet in the Active Spot.
 Telepathic Psychic Energy was activated.
-- cheyras drew 2 cards and played them to the Bench.
+- PlayerA drew 2 cards and played them to the Bench.
    • Shuppet, Shuppet
-- cheyras shuffled their deck.
-cheyras ended their turn.
+- PlayerA shuffled their deck.
+PlayerA ended their turn.
 
 OppAlpha's Turn
 OppAlpha drew a card.
@@ -41,18 +41,18 @@ OppAlpha played Judge.
 OppAlpha retreated Froakie to the Bench.
 - Basic Water Energy was discarded from OppAlpha's Froakie.
 OppAlpha's Budew is now in the Active Spot.
-OppAlpha's Budew used Itchy Pollen on cheyras’s Shuppet for 10 damage.
+OppAlpha's Budew used Itchy Pollen on PlayerA’s Shuppet for 10 damage.
 
-cheyras's Turn
-cheyras drew Banette.
-cheyras evolved Shuppet to Banette in the Active Spot.
-cheyras played Fezandipiti ex to the Bench.
-cheyras's Banette used Puppet Pull on OppAlpha’s Budew for 80 damage.
-- cheyras drew Poltchageist.
-- cheyras shuffled their deck.
+PlayerA's Turn
+PlayerA drew Banette.
+PlayerA evolved Shuppet to Banette in the Active Spot.
+PlayerA played Fezandipiti ex to the Bench.
+PlayerA's Banette used Puppet Pull on OppAlpha’s Budew for 80 damage.
+- PlayerA drew Poltchageist.
+- PlayerA shuffled their deck.
 OppAlpha's Budew was Knocked Out!
-cheyras took a Prize card.
-Basic Psychic Energy was added to cheyras's hand.
+PlayerA took a Prize card.
+Basic Psychic Energy was added to PlayerA's hand.
 OppAlpha's Staryu is now in the Active Spot.
 
 OppAlpha's Turn
@@ -65,41 +65,41 @@ OppAlpha played Surfing Beach to the Stadium spot.
 - OppAlpha discarded Prism Tower.
 OppAlpha evolved Staryu to Mega Starmie ex in the Active Spot.
 OppAlpha evolved Froakie to Frogadier on the Bench.
-OppAlpha's Mega Starmie ex used Jetting Blow on cheyras’s Banette for 120 damage.
-- cheyras's Shuppet took 50 damage.
-cheyras's Banette was Knocked Out!
-- 2 cards were discarded from cheyras's Banette.
+OppAlpha's Mega Starmie ex used Jetting Blow on PlayerA’s Banette for 120 damage.
+- PlayerA's Shuppet took 50 damage.
+PlayerA's Banette was Knocked Out!
+- 2 cards were discarded from PlayerA's Banette.
    • Telepathic Psychic Energy, Shuppet
-cheyras's Shuppet was Knocked Out!
+PlayerA's Shuppet was Knocked Out!
 OppAlpha took 2 Prize cards.
 A card was added to OppAlpha's hand.
 A card was added to OppAlpha's hand.
-cheyras's Shuppet is now in the Active Spot.
+PlayerA's Shuppet is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew Poltchageist.
-cheyras played Gwynn.
-- cheyras discarded 2 cards.
+PlayerA's Turn
+PlayerA drew Poltchageist.
+PlayerA played Gwynn.
+- PlayerA discarded 2 cards.
    • Poltchageist, Poltchageist
-- cheyras drew 6 cards.
+- PlayerA drew 6 cards.
    • Poltchageist, Dhelmise, Prism Tower, Special Red Card, Ultra Ball, Buddy-Buddy Poffin
-cheyras played Dhelmise to the Bench.
-cheyras's Fezandipiti ex used Flip the Script.
-- cheyras drew 3 cards.
+PlayerA played Dhelmise to the Bench.
+PlayerA's Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
    • Switch, Basic Psychic Energy, Buddy-Buddy Poffin
-cheyras played Night Stretcher.
-- cheyras moved cheyras's Banette to their hand.
-cheyras attached Basic Psychic Energy to Dhelmise on the Bench.
-cheyras played Buddy-Buddy Poffin.
-- cheyras drew Shuppet and played it to the Bench.
-- cheyras shuffled their deck.
-cheyras evolved Shuppet to Banette in the Active Spot.
-cheyras played Buddy-Buddy Poffin.
-- cheyras shuffled their deck.
-cheyras played Switch.
-- cheyras's Dhelmise was switched with cheyras's Banette to become the Active Pokémon.
-cheyras's Dhelmise is now in the Active Spot.
-cheyras's Dhelmise used Vengeful Anchor on OppAlpha’s Mega Starmie ex for 170 damage.
+PlayerA played Night Stretcher.
+- PlayerA moved PlayerA's Banette to their hand.
+PlayerA attached Basic Psychic Energy to Dhelmise on the Bench.
+PlayerA played Buddy-Buddy Poffin.
+- PlayerA drew Shuppet and played it to the Bench.
+- PlayerA shuffled their deck.
+PlayerA evolved Shuppet to Banette in the Active Spot.
+PlayerA played Buddy-Buddy Poffin.
+- PlayerA shuffled their deck.
+PlayerA played Switch.
+- PlayerA's Dhelmise was switched with PlayerA's Banette to become the Active Pokémon.
+PlayerA's Dhelmise is now in the Active Spot.
+PlayerA's Dhelmise used Vengeful Anchor on OppAlpha’s Mega Starmie ex for 170 damage.
 - Damage breakdown:
    • Base damage: 30 damage
    • 4 discarded Pokémon: 140 damage
@@ -124,94 +124,94 @@ OppAlpha played Surfing Beach.
 OppAlpha's Mega Greninja ex is now in the Active Spot.
 OppAlpha's Mega Greninja ex used Mortal Shuriken.
 - OppAlpha discarded Basic Water Energy.
-cheyras's Shuppet used Hide 'n' Sneak.
+PlayerA's Shuppet used Hide 'n' Sneak.
 - Effects of Mortal Shuriken did not affect Shuppet.
-cheyras's Banette used Hide 'n' Sneak.
+PlayerA's Banette used Hide 'n' Sneak.
 - Effects of Mortal Shuriken did not affect Banette.
-OppAlpha's Mega Greninja ex used Ninja Spinner on cheyras’s Dhelmise for 200 damage.
+OppAlpha's Mega Greninja ex used Ninja Spinner on PlayerA’s Dhelmise for 200 damage.
 - Damage breakdown:
    • Base damage: 120 damage
    • Total damage: 200 damage
 
 - OppAlpha moved OppAlpha's Neo Upper Energy to their hand.
-cheyras's Dhelmise was Knocked Out!
-Basic Psychic Energy was discarded from cheyras's Dhelmise.
+PlayerA's Dhelmise was Knocked Out!
+Basic Psychic Energy was discarded from PlayerA's Dhelmise.
 OppAlpha took a Prize card.
 A card was added to OppAlpha's hand.
-cheyras's Banette is now in the Active Spot.
+PlayerA's Banette is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew Basic Psychic Energy.
-cheyras played Special Red Card.
+PlayerA's Turn
+PlayerA drew Basic Psychic Energy.
+PlayerA played Special Red Card.
 - OppAlpha shuffled their hand.
-- cheyras put 7 cards on the bottom of their deck.
-- cheyras drew 3 cards.
-cheyras played Poltchageist to the Bench.
-cheyras's Fezandipiti ex used Flip the Script.
-- cheyras drew 3 cards.
+- PlayerA put 7 cards on the bottom of their deck.
+- PlayerA drew 3 cards.
+PlayerA played Poltchageist to the Bench.
+PlayerA's Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
    • Dhelmise, Poké Pad, Secret Box
-cheyras played Dhelmise to the Bench.
-cheyras attached Basic Psychic Energy to Banette in the Active Spot.
-cheyras played Poké Pad.
-- cheyras drew Sinistcha.
-- cheyras shuffled their deck.
-cheyras played Secret Box.
-- cheyras discarded 3 cards.
+PlayerA played Dhelmise to the Bench.
+PlayerA attached Basic Psychic Energy to Banette in the Active Spot.
+PlayerA played Poké Pad.
+- PlayerA drew Sinistcha.
+- PlayerA shuffled their deck.
+PlayerA played Secret Box.
+- PlayerA discarded 3 cards.
    • Special Red Card, Sinistcha, Basic Psychic Energy
-- cheyras drew 4 cards.
+- PlayerA drew 4 cards.
    • Switch, Air Balloon, Boss's Orders, Prism Tower
-- cheyras shuffled their deck.
-cheyras attached Air Balloon to Banette in the Active Spot.
-cheyras played Prism Tower to the Stadium spot.
-- cheyras discarded Surfing Beach.
-cheyras played Prism Tower.
-- cheyras discarded 2 cards.
+- PlayerA shuffled their deck.
+PlayerA attached Air Balloon to Banette in the Active Spot.
+PlayerA played Prism Tower to the Stadium spot.
+- PlayerA discarded Surfing Beach.
+PlayerA played Prism Tower.
+- PlayerA discarded 2 cards.
    • Ultra Ball, Prism Tower
-- cheyras drew Poké Pad.
-cheyras played Poké Pad.
-- cheyras drew Dhelmise.
-- cheyras shuffled their deck.
-cheyras played Dhelmise to the Bench.
-cheyras played Boss's Orders.
+- PlayerA drew Poké Pad.
+PlayerA played Poké Pad.
+- PlayerA drew Dhelmise.
+- PlayerA shuffled their deck.
+PlayerA played Dhelmise to the Bench.
+PlayerA played Boss's Orders.
 - OppAlpha's Mega Starmie ex was switched with OppAlpha's Mega Greninja ex to become the Active Pokémon.
 OppAlpha's Mega Starmie ex is now in the Active Spot.
-cheyras's Banette used Puppet Pull on OppAlpha’s Mega Starmie ex for 80 damage.
-- cheyras drew Telepathic Psychic Energy.
-- cheyras shuffled their deck.
+PlayerA's Banette used Puppet Pull on OppAlpha’s Mega Starmie ex for 80 damage.
+- PlayerA drew Telepathic Psychic Energy.
+- PlayerA shuffled their deck.
 
 OppAlpha's Turn
 OppAlpha drew a card.
 OppAlpha attached Basic Water Energy to Mega Greninja ex on the Bench.
 OppAlpha played Prism Tower.
-- cheyras moved OppAlpha's 2 cards to the discard pile.
+- PlayerA moved OppAlpha's 2 cards to the discard pile.
    • Rare Candy, Froakie
-- cheyras drew a card.
+- PlayerA drew a card.
 OppAlpha attached Air Balloon to Mega Greninja ex on the Bench.
-OppAlpha's Mega Starmie ex used Jetting Blow on cheyras’s Banette for 120 damage.
-- cheyras's Poltchageist took 50 damage.
-cheyras's Banette was Knocked Out!
-- 3 cards were discarded from cheyras's Banette.
+OppAlpha's Mega Starmie ex used Jetting Blow on PlayerA’s Banette for 120 damage.
+- PlayerA's Poltchageist took 50 damage.
+PlayerA's Banette was Knocked Out!
+- 3 cards were discarded from PlayerA's Banette.
    • Basic Psychic Energy, Shuppet, Air Balloon
-cheyras's Poltchageist was Knocked Out!
+PlayerA's Poltchageist was Knocked Out!
 OppAlpha took 2 Prize cards.
 A card was added to OppAlpha's hand.
 A card was added to OppAlpha's hand.
-cheyras's Dhelmise is now in the Active Spot.
+PlayerA's Dhelmise is now in the Active Spot.
 
-cheyras's Turn
-cheyras drew Ultra Ball.
-cheyras attached Telepathic Psychic Energy to Dhelmise in the Active Spot.
+PlayerA's Turn
+PlayerA drew Ultra Ball.
+PlayerA attached Telepathic Psychic Energy to Dhelmise in the Active Spot.
 Telepathic Psychic Energy was activated.
-- cheyras drew Dhelmise and played it to the Bench.
-- cheyras shuffled their deck.
-cheyras's Fezandipiti ex used Flip the Script.
-- cheyras drew 3 cards.
+- PlayerA drew Dhelmise and played it to the Bench.
+- PlayerA shuffled their deck.
+PlayerA's Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
    • Sinistcha, Ultra Ball, Basic Psychic Energy
-cheyras played Prism Tower.
-- cheyras discarded 2 cards.
+PlayerA played Prism Tower.
+- PlayerA discarded 2 cards.
    • Ultra Ball, Ultra Ball
-- cheyras drew Buddy-Buddy Poffin.
-cheyras's Dhelmise used Vengeful Anchor on OppAlpha’s Mega Starmie ex for 170 damage.
+- PlayerA drew Buddy-Buddy Poffin.
+PlayerA's Dhelmise used Vengeful Anchor on OppAlpha’s Mega Starmie ex for 170 damage.
 - Damage breakdown:
    • Base damage: 30 damage
    • 8 discarded Pokémon: 140 damage
@@ -220,10 +220,10 @@ cheyras's Dhelmise used Vengeful Anchor on OppAlpha’s Mega Starmie ex for 170 
 OppAlpha's Mega Starmie ex was Knocked Out!
 - 2 cards were discarded from OppAlpha's Mega Starmie ex.
    • Basic Water Energy, Staryu
-cheyras took 3 Prize cards.
-Lillie's Determination was added to cheyras's hand.
-Air Balloon was added to cheyras's hand.
-Gwynn was added to cheyras's hand.
+PlayerA took 3 Prize cards.
+Lillie's Determination was added to PlayerA's hand.
+Air Balloon was added to PlayerA's hand.
+Gwynn was added to PlayerA's hand.
 OppAlpha's Mega Greninja ex is now in the Active Spot.
 
 OppAlpha's Turn
@@ -235,11 +235,11 @@ OppAlpha attached Basic Water Energy to Mega Greninja ex in the Active Spot.
 OppAlpha's Mega Greninja ex used Mortal Shuriken.
 - OppAlpha discarded Basic Water Energy.
 - OppAlpha put 6 damage counters on OppAlpha's Dhelmise.
-cheyras's Shuppet used Hide 'n' Sneak.
+PlayerA's Shuppet used Hide 'n' Sneak.
 - Effects of Mortal Shuriken did not affect Shuppet.
-OppAlpha's Mega Greninja ex used Ninja Spinner on cheyras’s Dhelmise for 120 damage.
-cheyras's Dhelmise was Knocked Out!
-Telepathic Psychic Energy was discarded from cheyras's Dhelmise.
+OppAlpha's Mega Greninja ex used Ninja Spinner on PlayerA’s Dhelmise for 120 damage.
+PlayerA's Dhelmise was Knocked Out!
+Telepathic Psychic Energy was discarded from PlayerA's Dhelmise.
 OppAlpha took a Prize card.
 A card was added to OppAlpha's hand.
 Opponent took all of their Prize cards. OppAlpha wins.
