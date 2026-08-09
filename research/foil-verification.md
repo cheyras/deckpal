@@ -7,7 +7,7 @@ verdict/score/discrepancy consistency; executed as each task's check).
 **Dates:** 2026-08-02. The original run was interrupted twice by a host crash mid-flight;
 it was resumed with a trimmed 31-task manifest and the 2 already-verified verdicts
 (`starlight`, `starlight-ii`) reused untouched. All 31 resumed tasks passed first try.
-**Artifacts:** frames + verdicts live OUTSIDE the repo at `~/.legacy-dev-hub-legacy/foil-verify/`
+**Artifacts:** frames + verdicts live OUTSIDE the repo at `~/.deckscout-dev/foil-verify/`
 (render tilt sweeps under `frames/<pattern>/render-0*.jpg`, verdicts under
 `verify-<pattern>/verdict.json`, machine summary `verdicts-summary.json`). Reference
 keyframes are the committed corpus at `research/foil-video-reference/<pattern>/frame-0*.jpg`.
@@ -513,7 +513,7 @@ animation inferred, Medium confidence — prototype flag in the workbench dropdo
 
 ## Reproduction
 
-- Re-run everything: `cd ~/ringer && ./ringer.py run ~/.legacy-dev-hub-legacy/foil-verify/manifest.json`
+- Re-run everything: `cd ~/ringer && ./ringer.py run ~/.deckscout-dev/foil-verify/manifest.json`
   (33 tasks; `manifest-resume.json` = the 31-task crash-resume variant; `manifest-dsl-v2.json`
   = the one-task re-judge; `manifest-r1/r2/r3.json` = the R1-wave rounds — r1 jobs are
   `jobs/<pattern>-r1.json` with the implemented-recipe wording, `jobs/starlight-r1-fine.json`
@@ -526,7 +526,7 @@ animation inferred, Medium confidence — prototype flag in the workbench dropdo
   8 frames x = −0.9…0.9 / y = 0.6·x, screenshot the canvas (crop DOM overlays out).
   The v2 capture script pattern is recorded in DECISIONS (2026-08-02 W2 entry).
 - `report.py` in the run dir predates the crash and expects a lost
-  `~/.legacy-dev-hub-legacy/verify-manifest.json`; `verdicts-summary.json` (written by the
+  `~/.deckscout-dev/verify-manifest.json`; `verdicts-summary.json` (written by the
   finisher) supersedes it.
 
 ## R3 — the sheen-family rework against Chey's canon-lab critique (2026-08-03)
@@ -540,7 +540,7 @@ other's slope is CORRECT — the harvest-time slug-to-slope mapping was mirrored
 "geometry proof" used to dismiss Gemini's three separate slope complaints only ever
 proved render-matches-code-comment, not slug-matches-reality. Upright-sheet frames
 (right/frame-03, -05; left/frame-04, -06 — 3x-upscaled, plus before/after renders in
-~/.legacy-dev-hub-legacy/foil-shots/r3-sheen/swap-evidence/) are unambiguous: **right = "\",
+~/.deckscout-dev/foil-shots/r3-sheen/swap-evidence/) are unambiguous: **right = "\",
 left = "/"**. Fixed by swapping the generators' angle assignment (slugs keep their
 taxonomy meaning); canon files carry only orientation-agnostic uniforms, and nothing
 else in the corpus encodes slope. The W2/R0/R2 sections' slope statements above carry
@@ -679,7 +679,7 @@ v7, starlight-ii xy12-11 v17058 scope window, cosmos base4-14 v826, radiant
 swsh10.5-004 v24829, rainbow-glitter-sheen me01-003 v34747). Pre-R3M frames archived at
 `frames/starlight-fine-pre-r3m/` and `frames/rainbow-glitter-sheen/pre-r3m/`. New fine
 dirs: `starlight-ii-fine/`, `cosmos-fine/`, `radiant-fine/`. Gate shots:
-`~/.legacy-dev-hub-legacy/foil-shots/r3-motion/` (desktop + 390 per pattern).
+`~/.deckscout-dev/foil-shots/r3-motion/` (desktop + 390 per pattern).
 
 ## R3-GLYPH — the glyph-based patterns against Chey's canon-lab critique (2026-08-03)
 
@@ -747,7 +747,7 @@ ex6-7 v6446, ace-spec sv07-136 v30419, prismatic-pokeball sv08.5-123 v31813,
 radiant-collection-dots g1-RC29 v16720); pre-wave frames archived `frames/<p>/pre-r3g/`.
 New canon-lab blank sweeps: `frames/reverse-sheet-canon-r3g/`,
 `frames/energy-symbols-canon-r3g/`, `frames/radiant-collection-dots-canon-r3g/`.
-Gate shots: `~/.legacy-dev-hub-legacy/foil-shots/r3-glyph/` (desktop + 390 per pattern).
+Gate shots: `~/.deckscout-dev/foil-shots/r3-glyph/` (desktop + 390 per pattern).
 
 ## R3-MISC — Chey's remaining canon-lab comments + the reverse-holo ink-tint fix (2026-08-03)
 
@@ -785,7 +785,7 @@ change (first user: gold-secret's burst origin).
 
 **Verified before/after by eye at 5 tilt angles on 3 modern reverses** (uTint slider 0
 vs default, same build — frames `frames/tint-*-{pre,post}/`, headline shots in
-`~/.legacy-dev-hub-legacy/foil-shots/r3-misc/`):
+`~/.deckscout-dev/foil-shots/r3-misc/`):
 
 | card | variant | pattern | before → after |
 |---|---|---|---|
@@ -856,10 +856,10 @@ fixpoint; a wall-clock control pair diffs ~15k px of 1-LSB noise, so naive
 screenshot pairs cannot prove identity). Gemini sanity pass
 (`verify-r4-composite-zero-delta`, jobs/r4-composite-zero-delta.json):
 all three pairs "identical: true". Shots:
-`~/.legacy-dev-hub-legacy/foil-shots/r4-composite/canon-zero-delta/`.
+`~/.deckscout-dev/foil-shots/r4-composite/canon-zero-delta/`.
 
 **On-card sample (eyeballed, before = knobs 0 / after = defaults; 3 tilts,
-390px + desktop, `~/.legacy-dev-hub-legacy/foil-shots/r4-composite/`):**
+390px + desktop, `~/.deckscout-dev/foil-shots/r4-composite/`):**
 
 | Card | Read |
 |---|---|
