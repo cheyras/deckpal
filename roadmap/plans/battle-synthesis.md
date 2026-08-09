@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # A2 · feat/battle-synthesis
 
 **Wave 1.** Worktree: `~/pokedex-worktrees/battle-synthesis` · Depends: W0 (rebase when it

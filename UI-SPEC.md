@@ -1,3 +1,5 @@
+> **Historical design doc from the self-hosted era; current architecture: [ARCHITECTURE.md](ARCHITECTURE.md).**
+
 # UI-SPEC.md — DeckScout design-system contract
 
 > The visual/behavioural contract the DeckScout front-end is built against, distilled from

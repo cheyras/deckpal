@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # D4 · feat/coach
 
 **Wave 4 (last — needs the knowledge layer and matches both live).**

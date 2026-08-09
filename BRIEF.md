@@ -1,3 +1,5 @@
+> **Historical design doc from the self-hosted era; current architecture: [ARCHITECTURE.md](ARCHITECTURE.md).**
+
 # Project: **DeckScout**
 
 > The name of this project is **DeckScout**. The repo lives at `/home/cheyras/pokedex` (git initialized, branch `main`). Refer to it as "DeckScout" in all docs, commits, container names, and when talking to the user.

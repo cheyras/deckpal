@@ -1,3 +1,5 @@
+> **Historical research doc from the self-hosted era; current architecture: [../ARCHITECTURE.md](../ARCHITECTURE.md).**
+
 # Prior Art Scan — Self-Hosted Pokémon TCG Collection Apps
 
 Research date: 2026-07-24. All repo facts pulled from the GitHub API and from a local clone

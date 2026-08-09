@@ -1,13 +1,15 @@
 # DeckScout
 
-A self-hosted, single-user TCG collection tracker. Browse a full card catalog,
-track your collection across printings, see prices, explore the Pokedex, build
-decks with battle-log intelligence, scan cards with a perceptual-hash scanner,
-and set completion goals. Built for Pokemon but the data model, image cache, and
+An open-core TCG collection platform. Browse a full card catalog, track your
+collection across printings, see prices, explore the Pokedex, build decks with
+battle-log intelligence, scan cards with a perceptual-hash scanner, and set
+completion goals. Built for Pokemon but the data model, image storage, and
 scanner are **game-agnostic**.
 
-DeckScout keeps working if every upstream disappears: the catalog, card art, and
-price history all live locally. No third-party account, no cloud, no paid API.
+DeckScout is heading toward a hosted service with paid subscriptions. The open
+core is AGPL-3.0 — anyone can fork and self-host. The architecture is
+cloud-first: Vercel + Supabase for the hosted path, plain Postgres for
+self-hosters.
 
 ---
 
@@ -22,38 +24,37 @@ price history all live locally. No third-party account, no cloud, no paid API.
 - **Deck builder** -- PTCG Live format import/export, legality validation, and
   battle-log intelligence (record matches, track win rates, get strategy
   analysis).
-- **Card scanner** -- perceptual-hash index against the local image cache;
-  identify a card from a photo.
+- **Card scanner** -- perceptual-hash index against stored card art; identify a
+  card from a photo. *(Cloud: parked for Wave 3 -- see Roadmap.)*
 - **Completion goals** -- Complete Set, Master Set, Grandmaster tiers with
   accurate progress tracking.
 - **Pokedex** -- species data from PokeAPI, linked to the cards they appear on.
-- **Local image cache** -- ~1.9 GB of WebP card art cached on disk, served by a
-  dedicated image server. No runtime dependency on upstream CDNs.
-- **MCP server** ("rotom-mcp") -- 21 tools for Claude (Code, claude.ai, iOS) to
-  query the collection, catalog, prices, and decks, and to log collection
-  changes with attribution.
+- **Image storage** -- ~1.9 GB of WebP card art. Cloud deployments use Supabase
+  Storage with CDN; self-host uses a local disk cache with a dedicated image
+  server.
+- **MCP server** ("rotom-mcp") -- 21 tools for Claude to query the collection,
+  catalog, prices, and decks, and to log collection changes with attribution.
+  *(Cloud: parked for Wave 3.)*
 - **PWA** -- installable, offline-capable (tiered: app shell always; visited
   art LRU-cached; owned cards opt-in).
-- **Backup, restore, and export** -- `pg_dump` + image cache tar for backup;
-  CSV + JSON + PTCG Live text export for portability.
+- **Multi-user with row-level security** -- Supabase Auth (email + OAuth) with
+  per-user RLS policies on all collection data. Catalog and pricing data is
+  shared and world-readable.
 
 ---
 
 ## Architecture
 
-pnpm monorepo. Five apps + a shared database package:
+pnpm monorepo. Four apps + a shared database package, deployed on Vercel +
+Supabase (cloud) or plain Postgres (self-host):
 
-| App | Port | What |
-|---|---|---|
-| `apps/api` (`deckscout-api`) | 3700 | REST API (~49 endpoints) + serves the built SPA |
-| `apps/images` (`deckscout-images`) | 3701 | Serves the local WebP art cache; disk-only, never proxies upstream |
-| `apps/mcp` (`deckscout-mcp`) | 3704 | **rotom-mcp** -- MCP server for Claude: 21 tools for collection/catalog/price/deck access + attributed writes |
-| `apps/sync` (`deckscout-sync`) | cron | Catalog import, dex import, price ingest (node-cron scheduler, no listening socket) |
-| `apps/web` (`deckscout-web`) | -- | React 19 + Vite + Tailwind 4 SPA/PWA (built, then served by `deckscout-api`) |
-| `packages/db` (`@deckscout/db`) | -- | Postgres connection pool + numbered immutable SQL migrations |
-
-Data lives in a host **Postgres** database. All service ports bind `127.0.0.1`
-only -- see the security note below.
+| App | Role |
+|---|---|
+| `apps/api` (`deckscout-api`) | Express API (~49 endpoints), deployed as a Vercel catch-all serverless function |
+| `apps/sync` (`deckscout-sync`) | Catalog import, dex import, price ingest (GitHub Actions scheduled jobs) |
+| `apps/web` (`deckscout-web`) | React 19 + Vite + Tailwind 4 SPA/PWA, deployed as Vercel static output |
+| `apps/mcp` (`deckscout-mcp`) | **rotom-mcp** -- MCP server (Wave 3) |
+| `packages/db` (`@deckscout/db`) | Shared Postgres pool + numbered immutable SQL migrations |
 
 For the full topology, data flow, and design rationale, see
 [`ARCHITECTURE.md`](ARCHITECTURE.md). The authoritative schema is in
@@ -63,91 +64,57 @@ For the full topology, data flow, and design rationale, see
 
 ## Quickstart
 
-Prerequisites: Node >= 20, pnpm >= 10, host Postgres >= 17.
+### Option A — Deploy your own on Vercel + Supabase
 
-### 1. Create the database role and database
+This is the recommended path. You get Supabase Auth, row-level security,
+Supabase Storage CDN for card art, and Vercel's serverless deployment.
 
-```bash
-PW=$(openssl rand -base64 30 | tr -d '/+=' | head -c 32)
+See **[`DEPLOYMENT.md`](DEPLOYMENT.md)** for the full connect-your-accounts
+runbook.
 
-sudo -u postgres psql -c "CREATE ROLE deckscout LOGIN PASSWORD '$PW' \
-  NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;"
-sudo -u postgres psql -c "CREATE DATABASE deckscout OWNER deckscout \
-  ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;"
+### Option B — Self-host (plain Postgres)
 
-sudo -u postgres psql <<'SQL'
-ALTER ROLE deckscout SET work_mem                            = '16MB';
-ALTER ROLE deckscout SET maintenance_work_mem                = '64MB';
-ALTER ROLE deckscout SET statement_timeout                   = '30s';
-ALTER ROLE deckscout SET idle_in_transaction_session_timeout = '60s';
-ALTER ROLE deckscout SET synchronous_commit                  = off;
-ALTER ROLE deckscout SET jit                                 = off;
-ALTER ROLE deckscout SET random_page_cost                    = 1.5;
-SQL
-```
+Self-hosting runs the open core without Supabase. You provide your own Postgres
+15+ database and a reverse proxy for authentication.
 
-### 2. Configure environment
+Prerequisites: Node >= 20, pnpm >= 10, Postgres >= 15.
 
-Copy [`.env.example`](.env.example) to `.env` and fill in the generated
-password:
+1. **Create a Postgres database and role** (see [`DEPLOYMENT.md`](DEPLOYMENT.md)
+   for detailed instructions).
 
-```bash
-cp .env.example .env
-chmod 600 .env
-# Edit .env -- set PGPASSWORD to the password from step 1
-```
+2. **Configure environment:**
+   ```bash
+   cp .env.example .env
+   chmod 600 .env
+   # Edit .env -- fill in your Postgres credentials
+   ```
 
-Key settings in `.env`:
+3. **Install, migrate, and verify:**
+   ```bash
+   pnpm install
+   pnpm --filter @deckscout/db build
+   pnpm --filter @deckscout/db migrate       # applies migrations 001-020
+   pnpm --filter @deckscout/db migrate:status # [x] per applied migration
+   ```
 
-| Variable | Default | Notes |
-|---|---|---|
-| `PGPOOL_MAX_API` | `2` | API connection pool size |
-| `PGPOOL_MAX_SYNC` | `1` | Sync importer pool size |
-| `PGPOOL_MAX_MCP` | `1` | MCP server pool size |
-| `PGPOOL_MAX` | `3` | Per-process hard cap |
-| `DECKSCOUT_API_PORT` | `3700` | |
-| `DECKSCOUT_IMAGES_PORT` | `3701` | |
-| `DECKSCOUT_MCP_PORT` | `3704` | |
-| `IMAGE_CACHE_ROOT` | `./cache` | Path to the WebP image cache |
+4. **Import the card catalog:**
+   ```bash
+   pnpm --filter deckscout-sync catalog:run
+   ```
 
-The cluster-wide connection budget is **4** (API 2 + sync 1 + MCP 1), with a
-per-process hard cap of **3**. One-off scripts use one connection. Do not raise
-the pool without checking headroom against Postgres `max_connections`.
+5. **Build and run:**
+   ```bash
+   pnpm --filter deckscout-web build
+   pnpm --filter deckscout-api build
+   node apps/api/dist/index.js
+   ```
 
-### 3. Install, migrate, and verify
+6. **Configure a reverse proxy** with authentication (e.g., nginx + Authelia)
+   in front of the API. The API has no built-in auth in self-host mode -- the
+   proxy is the auth boundary. See [`SECURITY.md`](SECURITY.md).
 
-```bash
-pnpm install
-pnpm migrate            # applies packages/db/src/migrations/*.sql in order
-pnpm migrate:status     # [x] per applied migration
-pnpm typecheck          # strict tsc --noEmit across all workspaces
-```
-
-### 4. Build and run
-
-```bash
-pnpm build              # builds all apps
-# Start each service (example using pm2):
-pm2 start ecosystem.config.cjs
-pm2 save
-```
-
-The API serves the built SPA at the configured base path. The image server
-serves cached card art. The sync scheduler runs catalog, dex, and price imports
-on its configured cron cadence.
-
----
-
-## Security note
-
-**The API and image server have no built-in authentication.** This is by design.
-They bind `127.0.0.1` and are not intended to be exposed directly. **You must
-place a reverse proxy with an authentication layer in front of them** (the
-reference deployment uses nginx with an SSO gate).
-
-The MCP server (`deckscout-mcp`) has its own key-based authentication via the
-`ROTOM_MCP_KEY` environment variable and does not require the same proxy gate,
-though it should still be placed behind TLS for remote access.
+Self-host deployments skip Supabase-specific migrations (021+) and use the
+`apps/images` Express server for card art instead of Supabase Storage.
 
 ---
 
@@ -181,10 +148,11 @@ users of that service.
 
 | Document | What it covers |
 |---|---|
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Services, ports, topology, data ingest, cache/PWA/offline design |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Target architecture, RLS model, storage design, sync design |
+| [`DEPLOYMENT.md`](DEPLOYMENT.md) | Deploy-your-own runbook (Vercel + Supabase) and self-host setup |
 | [`research/SCHEMA.md`](research/SCHEMA.md) | The data model -- variant taxonomy, tier/goal derivation, full DDL |
 | [`API.md`](API.md) | REST API contract (~49 endpoints) |
 | [`DECISIONS.md`](DECISIONS.md) | Dated audit trail of every decision, correction, and gotcha |
-| [`deploy/BACKUP.md`](deploy/BACKUP.md) | Backup, restore, and export scripts and procedures |
 | [`AGENTS.md`](AGENTS.md) | Engineering contracts and conventions for AI agents |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contributor guide -- setup, workflow, code conventions |
+| [`SECURITY.md`](SECURITY.md) | Security model (auth, RLS, self-host) and disclosure policy |

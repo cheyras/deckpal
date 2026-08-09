@@ -48,3 +48,6 @@ pokedex-exports/
 # Intentionally untracked, not just deleted — harmless if someone recreates
 # deploy/ locally for their own homelab setup.
 deploy/
+
+# ── machine-local agent instructions (not portable) ─────────────────────
+CLAUDE.local.md

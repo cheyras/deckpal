@@ -1,3 +1,5 @@
+> **Historical research doc from the self-hosted era; current architecture: [../ARCHITECTURE.md](../ARCHITECTURE.md).**
+
 # pokedex — Data Layer Feasibility & Sizing Report
 
 **Author:** research subagent (Opus)

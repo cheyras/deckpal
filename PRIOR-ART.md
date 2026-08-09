@@ -1,3 +1,5 @@
+> **Historical design doc from the self-hosted era; current architecture: [ARCHITECTURE.md](ARCHITECTURE.md).**
+
 # PRIOR-ART.md — DeckScout
 
 **Research date:** 2026-07-24. Every factual claim below is tagged **[verified: …]** with the URL or

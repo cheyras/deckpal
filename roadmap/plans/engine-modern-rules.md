@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # B2 · feat/engine-modern-rules
 
 **Wave 2.** Worktree: `~/pokedex-worktrees/engine-modern-rules` (create when B1 merges) ·

@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # E1 · foil/main (long-lived branch)
 
 **Parallel track — quarantined by design.** Worktree: `~/pokedex-worktrees/foil` ·

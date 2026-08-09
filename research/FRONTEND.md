@@ -1,3 +1,5 @@
+> **Historical research doc from the self-hosted era; current architecture: [../ARCHITECTURE.md](../ARCHITECTURE.md).**
+
 # FRONTEND.md — DeckScout front-end stack + performance plan
 
 > **Scope.** Stack selection, virtualization, image delivery, offline/PWA, build strategy,
