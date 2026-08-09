@@ -35,14 +35,21 @@ rtk pm2 save
 **SPA is served by the API.** A web-only change needs `pnpm --filter deckscout-web
 build` (no restart). An API change needs both its build and `pm2 restart pokedex-api`.
 
-**Health check:** `curl -s http://127.0.0.1/deckscout/api/health`
+**Health check:** `curl -s http://127.0.0.1/pokedex/api/health` — yes, `/pokedex`:
+the running build and the nginx fragments predate the DeckScout rename. Current
+code mounts `/deckscout/*`, so do NOT restart pm2 apps until the nginx cutover
+(see DECISIONS.md 2026-08-09) — a restart boots `/deckscout` code behind
+`/pokedex` routes and takes the app down.
 
 ### Git remote
 
 Origin is GitHub: `https://github.com/cheyras/deckscout.git`. the legacy git host
-(`localhost:3000`) is the CI mirror — `.github-legacy/workflows/ci.yml` runs on the
-`the-original-host-pi` host-mode runner. Pushes to GitHub are mirrored to the legacy git host, which
-triggers CI. Identity is automatic (`cheyras`).
+(`localhost:3000`) still hosts the repo under the old name (`cheyras/pokedex`)
+but is **stale** — nothing mirrors to it, so its copy predates the 2026-08-09
+privacy scrub and `.github-legacy/workflows/ci.yml` no longer runs. GitHub Actions
+(`.github/workflows/ci.yml`) is the active CI. Push to the legacy git host manually only if
+you want the Pi runner to exercise the the legacy git host workflow. Identity is automatic
+(`cheyras`).
 
 ### Dev hub (phone-first review)
 
