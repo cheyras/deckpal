@@ -1,5 +1,5 @@
 /**
- * @pokedex/engine — Pokemon TCG rules engine + baseline bot.
+ * @deckscout/engine — Pokemon TCG rules engine + baseline bot.
  *
  * Vendored from github.com/keeshii/ryuu-play @ 9cd20b6 (MIT — see LICENSE and
  * README.md). Layout:

@@ -886,7 +886,7 @@ marker helpers, per-player bench size) — none structural. The full list with c
 citations is `roadmap/engine-gap-analysis.md` (B2's requirements doc). Greenfield would
 re-derive ~1,400 lines of proven turn-loop/prompt/rollback machinery for zero mechanical
 advantage.
-**Vendoring:** `packages/engine` (`@pokedex/engine`, private) = upstream `common` →
+**Vendoring:** `packages/engine` (`@deckscout/engine`, private) = upstream `common` →
 `src/common`, `simple-bot` → `src/bot`, `sets` → `src/cards` (kept intact as DSL prior
 art + smoke-test material). Discarded: Angular client, Cordova shell, lobby server (the
 only TypeORM/SQLite user — the game core has no persistence to strip), avatars/scans/

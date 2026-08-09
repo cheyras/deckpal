@@ -1,4 +1,4 @@
-# @pokedex/engine
+# @deckscout/engine
 
 Pokemon TCG rules engine + baseline bot for the battle-intel track
 (`BATTLE-INTEL-SPEC.md` §3, branch lineage B1 → B2 → B3 …).
@@ -42,9 +42,9 @@ for the vendored code; new files should stay clean against repo strictness.
 ## Commands
 
 ```bash
-pnpm --filter @pokedex/engine typecheck
-pnpm --filter @pokedex/engine build     # emits dist/ from src/ only
-pnpm --filter @pokedex/engine test      # pure: no DB, no network (CI-safe)
+pnpm --filter @deckscout/engine typecheck
+pnpm --filter @deckscout/engine build     # emits dist/ from src/ only
+pnpm --filter @deckscout/engine test      # pure: no DB, no network (CI-safe)
 ```
 
 The test suite includes the B1 smoke test: a full legal game of vanilla basic

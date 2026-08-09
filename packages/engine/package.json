@@ -1,5 +1,5 @@
 {
-  "name": "@pokedex/engine",
+  "name": "@deckscout/engine",
   "version": "0.1.0",
   "private": true,
   "description": "Pokemon TCG rules engine + bot, vendored from keeshii/ryuu-play (MIT) — see README.md",
