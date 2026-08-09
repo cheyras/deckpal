@@ -5,21 +5,21 @@ Running log of locked decisions. Each entry: date, decision, who decided, why.
 
 ---
 
-## 2026-07-24 — Remote access: existing nginx + the SSO gate
+## 2026-07-24 — Remote access: existing reverse proxy + SSO
 **Decided by:** user.
 **Decision:** pokedex will be reachable remotely via a route on the existing
-`example.invalid` nginx vhost, gated by the SSO gate — the same pattern the
-other services on this box already use. Tailscale will **not** be installed.
+public-hostname nginx vhost, gated by the SSO layer — the same pattern the
+other services on this host already use. Tailscale will **not** be installed.
 
 **Implications:**
-- No new daemon on the Pi; reuses a proven, already-operating pattern.
+- No new daemon on the host; reuses a proven, already-operating pattern.
 - The app binds to localhost / LAN only; nginx is the sole ingress.
 - The app itself needs no login of its own — the SSO gate is the auth boundary.
   It must therefore never be bound to `0.0.0.0` on a routable interface.
-- LAN access goes through the `the-original-host` vhost as usual.
-- Requires a new `location` block in `/etc/nginx/sites-available/brain-public`
-  and in `/etc/nginx/sites-available/the-original-host`. **Do not reload nginx without
-  asking the user** (per project CLAUDE.md — six pm2 services depend on it).
+- LAN access goes through the LAN vhost as usual.
+- Requires a new `location` block in both the public and LAN nginx vhosts.
+  **Do not reload nginx without asking the user** (other co-hosted services
+  depend on it).
 
 ## 2026-07-24 — Users: single-user now, multi-user-ready schema
 **Decided by:** user.
@@ -49,8 +49,8 @@ import it directly into our own DB.
 (161 MB) into an in-memory dict **per cluster worker**, and forks one worker per
 core. Measured JSON→object expansion on this Pi is **6.4×** (27.24 MB → 172.6 MB
 peak RSS). Stock defaults would want ~2.5–4.5 GB on a box with ~3.7 GB
-available, alongside the legacy git host, nginx, six pm2 services and six containers. This is
-the most likely cause of the crash that preceded this session.
+available, alongside other co-hosted services. This is the most likely cause
+of the crash that preceded this session.
 
 **Implications:** the BRIEF's §3a instruction to "stand up a local TCGdex API
 container as the upstream" is **superseded** — it is a live hazard to this box,
@@ -85,15 +85,15 @@ Image cache: WebP only, both resolutions, eager full warm (43,656 GETs @ 5 rps
 
 ## 2026-07-24 — Stack: match the box, not the brief
 **Decided by:** user, at the Phase 1 checkpoint.
-**Decision:** Node/TS API + pm2 + an nginx location block, matching the six
-existing first-party services. The BRIEF's Python 3.11 + FastAPI and its named
+**Decision:** Node/TS API + a process manager + an nginx location block, matching
+the existing first-party services. The BRIEF's Python 3.11 + FastAPI and its named
 `docker-compose.arm64.yml` deliverable are **superseded**; the deliverable becomes
-a pm2 `ecosystem.config.cjs` fragment + nginx config.
+a process-manager config fragment + nginx config.
 
-**Why:** same operational shape and debugging path (`pm2 logs pokedex-*`) as
-everything else the user runs; no container memory overhead on a box that recently
-OOM'd; and it dissolves the BRIEF Part B constraint 7 (Python 3.13 vs 3.11)
-entirely. Docker remains in use on this box only for third-party appliances.
+**Why:** same operational shape and debugging path as everything else the user
+runs; no container memory overhead on a box that recently OOM'd; and it dissolves
+the BRIEF Part B constraint 7 (Python 3.13 vs 3.11) entirely. Docker remains in
+use on this box only for third-party appliances.
 
 ## 2026-07-24 — Database: host Postgres, dedicated DB + role
 **Decided by:** user, at the Phase 1 checkpoint.
@@ -106,29 +106,30 @@ apps — a 3-connection pool fits with 7 spare, so blast radius is zero. Margina
 RAM 25–35 MB vs ~180–250 MB for a second instance. Postgres also gives the price
 time-series range partitioning and BRIN, which SQLite cannot.
 
-**Implications:** pokedex is now coupled to the same Postgres as the brain apps.
+**Implications:** pokedex is now coupled to a shared Postgres cluster.
 Mitigations: cap the pool at 3 and never raise it without re-checking headroom;
 scope every setting to the role; and **backup/restore must cover the `pokedex`
 database specifically**, not the whole cluster.
 
 ## 2026-07-24 — LAN HTTPS via split-horizon DNS
 **Decided by:** user, at the Phase 1 checkpoint.
-**Decision:** add a the local DNS resolver `address=/example.invalid/<pi-lan-ip>` entry
-so the existing Let's Encrypt certificate serves LAN clients, making
-`https://example.invalid/deckscout/` a **secure context** on the LAN.
+**Decision:** add a split-horizon DNS entry pointing the public hostname at the
+host's LAN IP so the existing Let's Encrypt certificate serves LAN clients,
+making the HTTPS URL a **secure context** on the LAN.
 
-**Why:** `http://localhost/` is plaintext, so service workers, install, and offline
-are impossible there on every browser — which makes the BRIEF's PWA and
-offline-resilience requirements unmeetable on LAN. This is the cheapest fix: no new
-certificate, no new port, no external dependency.
+**Why:** the plain-HTTP LAN hostname is plaintext, so service workers, install,
+and offline are impossible there on every browser — which makes the BRIEF's PWA
+and offline-resilience requirements unmeetable on LAN. This is the cheapest fix:
+no new certificate, no new port, no external dependency.
 
 **Implications — this touches shared infrastructure, so treat it carefully:**
 - It changes DNS resolution for **every** service on this box, not just pokedex.
 - Before changing anything: record how each existing service resolves today, make
   the change, then verify each one still resolves and still serves. Roll back on
   any regression.
-- the SSO gate still gates the route; LAN clients will now traverse it too. Confirm
-  that is acceptable, or add a LAN bypass deliberately rather than by accident.
+- The SSO gate still guards the route; LAN clients will now traverse it too.
+  Confirm that is acceptable, or add a LAN bypass deliberately rather than by
+  accident.
 - Scheduled for the hardening phase, **not** done casually mid-build.
 
 ### Related, box-wide (not a pokedex decision)
@@ -148,7 +149,7 @@ apps' live connections held at 5+5 unbroken across the change. `datacl` is now
 
 ## Phase 2 progress (data backbone)
 
-- ✅ **Task 1 — scaffold + DB.** pnpm workspace mirroring `the-original-host-api`; `pokedex`
+- ✅ **Task 1 — scaffold + DB.** pnpm workspace mirroring the host API layout; `pokedex`
   DB + non-superuser role on host Postgres; 60 tables / 5 views / 95 indexes from
   `SCHEMA.md`; role-scoped tuning only; `.env` 600 + gitignored; 2 commits on
   `main`. Independently re-verified by lead. Caught + fixed 5 real SCHEMA.md
@@ -216,50 +217,49 @@ apps' live connections held at 5+5 unbroken across the change. `datacl` is now
 **Phase 3 MVP is functionally complete:** browse (series→set→card→binder) + own
 cards + live three-goal progress + search/filter/sort in URL + prices + dex + local
 images. It runs from manually-started node processes; **it is NOT yet deployed**
-(no pm2 unit, no nginx route) — that touches shared infra and needs user consent.
+(no process-manager unit, no nginx route) — that touches shared infra and needs
+user consent.
 
-## 2026-07-27 — Deployment (Phase 7, partial): LAN live; HTTPS/remote blocked by a pre-existing the SSO gate failure
+## 2026-07-27 — Deployment (Phase 7, partial): LAN live; HTTPS/remote blocked by a pre-existing SSO failure
 
 **Applied and verified (reversible):**
-- **pm2:** `deckscout-api` :3700, `deckscout-images` :3701, `deckscout-sync` (cron) — all
-  online, `pm2 save`d (survive reboot). Config: `deploy/ecosystem.deckscout.config.cjs`.
+- **Process manager:** API :3700, image service :3701, sync (cron) — all online and
+  persisted (survive reboot).
 - **API serves the SPA** (`apps/web/dist` + client-route fallback), matching the
   box's proxy-not-static convention — so nginx never needs to traverse the 700 `$HOME`
   (and `setfacl` isn't installed anyway).
-- **nginx LAN vhost** (`the-original-host`): one `include` line added after `server_name`
-  → `deploy/nginx-the-original-host-deckscout.conf`. **`http://localhost/deckscout/` works now**,
-  verified in a browser end-to-end (nginx→api→images, real art, all 200), and
-  git/a co-hosted app/a co-hosted app/root all still 200.
-- **nginx public vhost** (`brain-public` :443): one `include` after the
-  the SSO gate-authrequest include → `deploy/nginx-brain-public-deckscout.conf`
-  (the SSO gate-gated). Config correct (`nginx -t` clean).
+- **nginx LAN vhost:** one `include` line added after `server_name` for the
+  DeckScout location block. **LAN HTTP access works now**, verified in a browser
+  end-to-end (nginx -> api -> images, real art, all 200), and all other co-hosted
+  routes still 200.
+- **nginx public vhost** (:443): one `include` after the SSO auth-request include
+  (SSO-gated). Config correct (`nginx -t` clean).
 
-**✅ RESOLVED 2026-07-27 (user asked):** root cause was the the SSO gate secrets directory
-having lost its owner **execute** bit — the service user could not traverse the dir to
-read its secrets, so it died at config load on the last boot. Fix: `chmod u+x` on the
-secrets directory (surgical; file contents untouched). the SSO gate restarted successfully,
-portal 200. All gated routes recovered. **Lesson:** if the x-bit is stripped again on a
-future boot, investigate what does it — the perm fix itself is persistent and the unit
-is `enabled`.
+**Resolved 2026-07-27 (user asked):** root cause was the SSO service's secrets
+directory having lost its owner **execute** bit — the service user could not
+traverse the dir to read its secrets, so it died at config load on the last boot.
+Fix: `chmod u+x` on the secrets directory (surgical; file contents untouched).
+SSO service restarted successfully, portal 200. All gated routes recovered.
+**Lesson:** if the x-bit is stripped again on a future boot, investigate what
+does it — the perm fix itself is persistent and the unit is `enabled`.
 
-**🔴 Pre-existing blocker (NOT caused by pokedex): `the SSO gate.service` is `failed`.**
-Port 9091 isn't listening; every the SSO gate-gated route 500s — `/git/` 500s with the
-pokedex include *removed*, proving it's the SSO gate, not us. This blocks ALL remote/
-gated access on the box, not just pokedex. **Lead did not restart it** — it's the
-user's auth infra and it failed for an unknown reason. Until it's back:
-  - LAN **HTTP** access works fully (the LAN vhost has no the SSO gate).
-  - Remote HTTPS + the LAN-HTTPS/PWA path (via `example.invalid`) will 500.
+**Pre-existing blocker (NOT caused by pokedex): the SSO service was `failed`.**
+Its port was not listening; every SSO-gated route 500d — co-hosted routes 500d
+with the pokedex include *removed*, proving it was the SSO gate, not us. This
+blocked ALL remote/gated access on the box, not just pokedex. **Lead did not
+restart it** — it is the user's auth infra and it failed for an unknown reason.
+Until it was back:
+  - LAN **HTTP** access worked fully (the LAN vhost has no SSO).
+  - Remote HTTPS + the LAN-HTTPS/PWA path (via the public hostname) would 500.
 
-**⏸ Deferred: split-horizon the local DNS resolver (Stage D).** `deploy/the local DNS resolver-deckscout.conf` is
-ready (`address=/example.invalid/10.0.0.1`), but its only benefit —
-HTTPS secure-context on LAN for the PWA — requires the SSO gate up to verify, and it's
-the riskiest change (rewrites DNS resolution of that hostname for every service).
-Not worth flipping DNS for an unverifiable, currently-500ing target. Apply after
-the SSO gate is healthy.
+**Deferred: split-horizon DNS (Stage D).** The DNS config was ready, but its only
+benefit — HTTPS secure-context on LAN for the PWA — required the SSO gate up to
+verify, and it was the riskiest change (rewrites DNS resolution of that hostname
+for every service). Not worth flipping DNS for an unverifiable, currently-500ing
+target. Apply after the SSO gate is healthy.
 
-**Rollback:** vhost backups at `scratchpad/{the-original-host,brain-public}.bak`; remove the
-two `include` lines + `nginx -t` + reload; `pm2 delete deckscout-api deckscout-images
-deckscout-sync && pm2 save`.
+**Rollback:** vhost backups saved; remove the two `include` lines + `nginx -t` +
+reload; delete the managed processes and persist the change.
 
 ## Phase 2 follow-ups (found during verification, non-blocking)
 
@@ -299,16 +299,16 @@ deckscout-sync && pm2 save`.
   SQLite). Decisive point: `max_connections = 20` with **10 already in use** by
   the co-hosted apps, so a 3-connection pool fits with 7 spare —
   **no config change, no Postgres restart, zero blast radius**. Honest
-  counter-argument: every other pm2 app on this box uses SQLite, and sharing
-  Postgres with the brain apps couples pokedex to them. **User decision.**
-- **Backend language** — the BRIEF says Python 3.11 + FastAPI, but all six
-  existing pm2 services are Node/TS, `bun` is not installed, and Node is
-  v20.20.2. A single-language Node/TS stack also dissolves the BRIEF's Python
-  3.13 concern entirely. Leaning Node/TS. **User decision.**
+  counter-argument: every other app on this box uses SQLite, and sharing
+  Postgres with the co-hosted apps couples pokedex to them. **User decision.**
+- **Backend language** — the BRIEF says Python 3.11 + FastAPI, but all existing
+  services are Node/TS, `bun` is not installed, and Node is v20.20.2. A
+  single-language Node/TS stack also dissolves the BRIEF's Python 3.13 concern
+  entirely. Leaning Node/TS. **User decision.**
 - **Deployment shape** — Docker Compose (a named BRIEF deliverable,
-  `docker-compose.arm64.yml`) vs pm2 + nginx (this box's actual convention, per
-  `/home/cheyras/CLAUDE.md`). Leaning pm2 + `ecosystem.config.cjs` + an nginx
-  location block. This **changes a named deliverable**, so it is the user's call.
+  `docker-compose.arm64.yml`) vs a process manager + nginx (this box's actual
+  convention). Leaning process-manager config + an nginx location block. This
+  **changes a named deliverable**, so it is the user's call.
 - **Fork `pokecollector` vs build clean** — `PRIOR-ART.md` verdict is *borrow
   heavily, do not fork, build the shell clean*. Lead agent concurs; recorded
   here for user visibility rather than as an open question.
@@ -330,8 +330,8 @@ kind of local cache as card art. They are **not** vendored into the git repo.
 CC0 applied to work the applier does not own, so the CC0 grant is not the
 author's to make. Card art is in exactly the same position. Caching Nintendo/TPC
 assets on your own disk for personal use is the brief's accepted posture;
-*committing* them into a git repo that lives on a publicly-reachable the legacy git host is a
-materially different act. Keeping them out of git costs us nothing (a sparse
+*committing* them into a publicly-reachable git repo is a materially different
+act. Keeping them out of git costs us nothing (a sparse
 blobless checkout is ~270 MB and scripted) and removes the question entirely.
 
 **Implications:** setup is a documented two-step (clone, then `fetch-assets`).
@@ -395,7 +395,7 @@ Recorded so they are not silently re-introduced later:
 
 ## 2026-07-27 — Feature-complete against the brief (Phases 1–6 + backup/restore)
 
-All verified against the LIVE deployed stack (http://localhost/deckscout/):
+All verified against the live deployed stack:
 - ✅ Phase 4 Lists (dynamic/static/pokédex-binder, read-through progress)
 - ✅ Phase 5 Deck builder (engine 27/27 tests; reprint-legality proven correct in the
   live "Not Legal" panel; PTCGL import/export; test-hand; buy-missing)
@@ -409,7 +409,7 @@ to dist → built app crash-looped on ENOENT (latent: engine only ran under tsx 
 `apps/api` build now copies `src/deck/data` → `dist/deck/data`.
 
 **Remaining (consent-gated / optional), NOT done:**
-- Split-horizon the local DNS resolver + PWA/offline polish (approved in principle; needs the DNS
+- Split-horizon DNS + PWA/offline polish (approved in principle; needs the DNS
   flip — riskiest change, rewrites hostname resolution for all services). Deferred.
 - Schedule the nightly backup cron (`scripts/backup.sh` @ 04:15) — one crontab line.
 - Phase 8 optional: card scanner, stream overlay, PDF export — not started.
@@ -418,8 +418,8 @@ to dist → built app crash-looped on ENOENT (latent: engine only ran under tsx 
 
 ## 2026-07-27 — Split-horizon DNS + backup cron applied (user: "all of the above")
 
-- **Split-horizon DNS DONE.** `/etc/the local DNS resolver.d/deckscout.conf` = `address=/example.invalid/10.0.0.1` (mirrors the existing Minecraft split-horizon entries). `the local DNS resolver --test` OK → restarted. Verified: hostname → Pi LAN IP via the local DNS resolver; Minecraft entries + external DNS (github) still resolve; **LAN HTTPS serves a VALID cert** (curl without -k → 302 the SSO gate gate, not a cert error) → secure context enabled → PWA now possible on LAN. `/git/` + the SSO gate portal still serve over the LAN path. Rollback: `rm /etc/the local DNS resolver.d/deckscout.conf && systemctl restart the local DNS resolver`.
-- **Backup cron DONE.** User crontab: `15 4 * * * bash scripts/backup.sh` (between the 03:00 fuel + 05:00 karakeep jobs). Script already proven (valid dump + restore-drill).
+- **Split-horizon DNS DONE.** Added a local DNS override pointing the public hostname at the host's LAN IP (mirrors the existing split-horizon entries). Config tested, service restarted. Verified: hostname resolves to LAN IP; existing split-horizon entries + external DNS still resolve; **LAN HTTPS serves a VALID cert** (curl without -k -> 302 SSO gate, not a cert error) -> secure context enabled -> PWA now possible on LAN. Co-hosted routes + SSO portal still serve over the LAN path. Rollback: remove the config file and restart the DNS service.
+- **Backup cron DONE.** User crontab: `15 4 * * * bash scripts/backup.sh` (between existing scheduled jobs). Script already proven (valid dump + restore-drill).
 - **In flight:** catalog-imagery fill (set logos/symbols warm + image-service route + frontend wiring — the "unpopulated/empty" fix) and PDF export backend.
 - **Queued (web-file-collision-serialized, after imagery lands):** PWA manifest+SW (now unblocked by LAN HTTPS), stream overlay, card scanner, wire PDF buttons. **Then** zero demo data to pristine baseline (held last so the PDF agent can test against the demo deck/list).
 
@@ -439,7 +439,7 @@ Every remaining item done and lead-verified against the live stack:
 2. Overlay names no card — needs a `GET /collection/events` read endpoint (activity feed exists in DB, no route); currently watches owned-count deltas only.
 3. BW/XY-era ACE SPEC sublist (10 names) vendored from public docs, not DB-derivable — flagged in deck engine `data/_provenance.json` for refresh.
 4. Offline is tiered (shell + visited art + collection), not full-catalog — deliberate on a phone.
-5. Remote HTTPS (example.invalid/deckscout/) works via the SSO gate.
+5. Remote HTTPS works via the SSO gate.
 
 ## 2026-07-27 — Correction: git history is clean (no entanglement)
 An earlier note called e0e5fd4 "entangled" from the concurrent Phase 7/8 commit race.
@@ -562,11 +562,10 @@ and lists. Design contract: `apps/mcp/SPEC.md`. Key decisions:
 - **Write-tool policy** (`log_cards`): `dry_run` defaults true; ambiguity (card name or
   multi-owned-variant absolute set) is returned as candidates, never guessed; per-item
   partial failure; sequential API calls only.
-- **Deploy fragments**: `deploy/nginx-the-original-host-rotom-mcp.conf` (LAN `/rotom/mcp`, app-layer
-  key) and `deploy/nginx-brain-public-rotom-mcp.conf` (public `/rotom-mcp`, Anthropic CIDR
-  `160.79.104.0/21` + nginx-injected key from `/etc/nginx/snippets/rotom-key.conf`, which
-  holds the secret and lives OUTSIDE the repo). pm2 entry `deckscout-mcp` added to
-  `ecosystem.config.cjs` (300M ceiling).
+- **Deploy fragments**: LAN and public nginx location blocks (public path restricted
+  to the Anthropic CIDR `160.79.104.0/21` + an nginx-injected key from a snippet
+  outside the repo). Process-manager entry added to the ecosystem config (300M
+  ceiling).
 - **Bug found & fixed en route**: PTCGL name-only deck import 500'd — pg returns `DATE`
   as `Date` but `deck/db.ts` sorted `releasedOn` with `.localeCompare` (`CardFacts` claims
   ISO string). Normalized at the row boundary (`toFacts`).
@@ -750,21 +749,22 @@ backfilled for existing decks.
 
 ## 2026-07-30 — Auth-bounce fix v1 was PWA-incompatible; recovery must navigate to the portal
 **Decided by:** agent (root-cause), after user reported the "fixed" issue recurring.
-**Correction to the 2026-07-30 01:52 fix (3ae8c27):** detecting the expired-the SSO gate bounce
+**Correction to the 2026-07-30 01:52 fix (3ae8c27):** detecting the expired-SSO bounce
 and *reloading the current URL* can never work in the installed PWA — the service worker's
-NavigationRoute serves every /pokedex/* navigation from the precached shell, so the reload
+NavigationRoute serves every in-scope navigation from the precached shell, so the reload
 never reaches nginx, the login flow never runs, and the loop guard then pins the app on the
 error screen. In a plain browser tab (no controlling SW) the reload works, which is why the
 first fix looked verified.
-**Rule:** any auth-recovery path in this app MUST navigate to `/the SSO gate/?rd=<current page>`
-(outside the SW's /pokedex/ scope — the browser guarantees the SW cannot intercept it), never
-reload an in-scope URL. Implemented in api.ts `redirectToAuth()` (portal origin taken from the
-bounce response when available), with hardened detection (`opaqueredirect`, ok-but-HTML on an
-API path, bare 401) and a 15s guard so an abandoned login falls through to the error UI
-instead of ping-ponging. Verified in-browser via Playwright with a faithful nginx simulation
-(intercepted 302→portal-HTML): app lands on `/the SSO gate/?rd=…`; and an SW-controlled page
-demonstrably escapes to the network for /the SSO gate/. Note: installed PWAs pick this up after
-the next SW update prompt is accepted.
+**Rule:** any auth-recovery path in this app MUST navigate to the SSO portal's login URL
+with a redirect parameter (outside the SW's scope — the browser guarantees the SW cannot
+intercept it), never reload an in-scope URL. Implemented in api.ts `redirectToAuth()` (portal
+origin taken from the bounce response when available), with hardened detection
+(`opaqueredirect`, ok-but-HTML on an API path, bare 401) and a 15s guard so an abandoned
+login falls through to the error UI instead of ping-ponging. Verified in-browser via
+Playwright with a faithful nginx simulation (intercepted 302 -> portal-HTML): app lands on
+the SSO login URL; and an SW-controlled page demonstrably escapes to the network for the
+external portal path. Note: installed PWAs pick this up after the next SW update prompt is
+accepted.
 
 ## 2026-07-31 — Battle-log parser: a wins line can carry any sentence prefix + agents can now correct logs
 **Decided by:** agent, after a field report from an MCP-using agent (battle #8).
@@ -802,23 +802,24 @@ misparse can now fix it instead of reporting it upstream. SPEC §5 now 21 tools.
   Missing filter (URL state `missing`); rotom-mcp `decks include:pricing` now appends the cart
   URL(s). All verified on the built app at 428/390/1440px.
 
-## 2026-08-01 — the legacy git host is the upstream + CI on every push
+## 2026-08-01 — Local git server is the upstream + CI on every push
 **Decided by:** user.
-**Decision:** `origin` = local the legacy git host (`http://localhost:3000/cheyras/deckscout.git`, browse via
-`localhost/git/`). CI runs on every push to main via the legacy git host Actions on the existing host-mode
-`the-original-host-pi` runner (capacity 1): typecheck all workspaces → pure deck/parser tests → api/mcp/web
-builds. **Live-DB collection/versioning tests are deliberately excluded from CI** — they hit the
-production Postgres; run them manually. No deploy step: the live app IS the working tree pushes
+**Decision:** `origin` = the local git server. CI runs on every push to main via the
+server's built-in Actions on the existing host-mode runner (capacity 1): typecheck all
+workspaces -> pure deck/parser tests -> api/mcp/web builds. **Live-DB collection/
+versioning tests are deliberately excluded from CI** — they hit the production
+Postgres; run them manually. No deploy step: the live app IS the working tree pushes
 originate from.
-**Gotcha fixed on the way:** the act_runner service PATH pointed at a since-upgraded nvm dir
-(`v20.18.0`, only `v20.20.2` exists) — invisible to the-original-host-api's absolute-path deploy script,
-fatal for anything needing node/pnpm. Fixed with a stable `~/.node-current` symlink + systemd
-drop-in (`act_runner.service.d/path.conf`); **on node upgrades, re-point the symlink**
+**Gotcha fixed on the way:** the CI runner service PATH pointed at a since-upgraded nvm
+dir (`v20.18.0`, only `v20.20.2` exists) — invisible to the host API's absolute-path
+deploy script, fatal for anything needing node/pnpm. Fixed with a stable
+`~/.node-current` symlink + systemd drop-in; **on node upgrades, re-point the symlink**
 (`ln -sfn ~/.nvm/versions/node/<new> ~/.node-current`). Workflow avoids JS actions
 (manual git fetch checkout) so CI has no external action-toolchain dependency.
 
-**2026-08-01 addendum — the runs weren't missing because of the legacy git host.** The debugging detour
-(debug loggers, repo diffing, a throwaway probe repo) ended at a mundane truth: five
+**2026-08-01 addendum — the runs were not missing because of the git server.** The
+debugging detour (debug loggers, repo diffing, a throwaway probe repo) ended at a
+mundane truth: five
 consecutive `rtk git push` invocations reported `ok` while actually failing with
 `fatal: no upstream branch` — the workflow files never left the machine. rtk's push filter
 plus `| tail` piping masked both the message and the exit code. Fixed with `git push -u`;
@@ -828,14 +829,14 @@ there). **Rule: after any push that matters, verify it landed (`git ls-remote or
 vs local HEAD); prefer plain `git push` over rtk for pushes.** Banked as a global memory too.
 
 ## 2026-08-01 — helmet's `upgrade-insecure-requests` broke LAN-by-IP access
-**Symptom:** `http://10.0.0.1/pokedex/` on a phone = blank black screen (the dark app
-shell HTML renders; JS never loads). `localhost`-less devices (phones not using the Pi's
-the local DNS resolver) hit this path.
-**Cause:** `deckscout-api` serves the SPA with `helmet()` defaults, whose CSP includes
+**Symptom:** accessing the app via bare LAN IP on a phone = blank black screen (the
+dark app shell HTML renders; JS never loads). Devices not using the host's split-horizon
+DNS hit this path.
+**Cause:** the API serves the SPA with `helmet()` defaults, whose CSP includes
 `upgrade-insecure-requests`. On a plain-HTTP origin the browser upgrades every subresource
-to `https://10.0.0.1/...`; the only 443 vhost carries the example.invalid cert →
-`ERR_CERT_COMMON_NAME_INVALID` → no bundle. Invisible over real HTTPS (example.invalid), where
-the directive is a no-op — which is why it looked like it "worked" everywhere else.
+to `https://<bare-ip>/...`; the only 443 vhost carries the public-hostname cert ->
+`ERR_CERT_COMMON_NAME_INVALID` -> no bundle. Invisible over real HTTPS (public hostname),
+where the directive is a no-op — which is why it looked like it "worked" everywhere else.
 **Decision:** drop only that directive (`contentSecurityPolicy.directives.upgradeInsecureRequests:
 null`, `useDefaults: true` otherwise) in `apps/api/src/index.ts`. All content is same-origin
 and the public path is HTTPS via nginx regardless, so nothing is lost. Verified in a real
@@ -986,8 +987,8 @@ resolves from live deck data so the panel updates as `+`/`-` mutations settle.
 missing upstream data, not a mapping bug — verified against the endpoint before believing the UI.
 
 Verified in a real browser at 390px and 1440px, first on a main-tree dev server (:5199) and
-then against the deployed build, zero console errors in both. Deployed: `deckscout-api` rebuilt
-and restarted (additive `series` field), web rebuilt.
+then against the deployed build, zero console errors in both. Deployed: API rebuilt and
+restarted (additive `series` field), web rebuilt.
 
 ## 2026-08-09 — Privacy scrub for public repo (github.com/cheyras/deckscout)
 
@@ -1011,7 +1012,7 @@ history is a separate, still-open decision.
 3. **Third-party names** — a co-hosted database name and role identifying a real person
    were replaced with generic labels across all files.
 4. **Infrastructure fingerprinting** — `BRIEF.md`'s exhaustive port inventory of the
-   entire host was trimmed to DeckScout's own 3700-3709 block; the SSO gate postmortem
+   entire host was trimmed to DeckScout's own 3700-3709 block; SSO postmortem
    specifics (filesystem paths, uid, secret filenames) were reduced to the lesson only.
 5. **Dangling references** — all pointers to deleted files were updated across the tree
    (code comments, research docs, skills, specs). Source-capture citations in code
@@ -1029,11 +1030,11 @@ private specifics are gone.
 
 **What landed (four commits after the privacy scrub):**
 1. **Security/portability** — MCP `allowedHosts` moved to `MCP_ALLOWED_HOSTS` env (localhost-only default; prod hosts now in `.env`); `?key=` query auth fallback removed (header only — nginx injects it, so prod unaffected); card-image handler now validates path params like the set handler; 500/health responses no longer leak `err.message`; blanket `cors()` replaced with off-by-default + `API_CORS_ORIGINS` allowlist (SPA is same-origin, MCP calls server-side — nothing needed it); repo-relative config defaults; parameterized the `goal` FILTER in mcp catalog; partition-name validation in prices DDL; per-IP rate limit on POST /bugs; `cors` dep dropped.
-2. **Docs** — README rewritten (was claiming "Phase 2, no frontend"); ARCHITECTURE refreshed (+mcp, +dev-hub-legacy); rename stragglers fixed; `"license": "AGPL-3.0-only"` in all 7 package.json files.
-3. **Contributor surface** — AGENTS.md (the ten portable engineering contracts + verification standards), CONTRIBUTING.md, SECURITY.md (deployment model: API/images have no auth by design — reverse proxy required), CODE_OF_CONDUCT.md, `.env.example`, issue/PR templates. CLAUDE.md slimmed to legacy deployment-only operational detail.
-4. **CI** — `.github/workflows/ci.yml` mirroring the the legacy git host pipeline (db build first, typecheck, pure tests, app builds); every step verified locally before commit.
+2. **Docs** — README rewritten (was claiming "Phase 2, no frontend"); ARCHITECTURE refreshed (+mcp, +dev tooling); rename stragglers fixed; `"license": "AGPL-3.0-only"` in all 7 package.json files.
+3. **Contributor surface** — AGENTS.md (the ten portable engineering contracts + verification standards), CONTRIBUTING.md, SECURITY.md (deployment model: API/images have no auth by design — reverse proxy required), CODE_OF_CONDUCT.md, `.env.example`, issue/PR templates. CLAUDE.md slimmed to deployment-specific operational detail.
+4. **CI** — `.github/workflows/ci.yml` mirroring the prior CI pipeline (db build first, typecheck, pure tests, app builds); every step verified locally before commit.
 
-**Discovered: the DeckScout rename was never deployed.** Current code mounts `/deckscout/*` (since the rename commit), but the live nginx fragments (`deploy/nginx-*-pokedex.conf`, included by absolute path from both vhosts) still route `/pokedex/*`, and the running pm2 processes are a pre-rename build serving `/pokedex/api` (verified: `:3700/pokedex/api/health` → 200, `/deckscout/api/health` → 404). **Restart hazard:** `dist/` on disk is now post-rename, so an unplanned pm2 restart/reboot would boot `/deckscout` code behind `/pokedex` nginx routes and take the app down. The cutover (edit conf fragments to `/deckscout/`, rebuild, restart all, nginx reload, re-install PWA on phone since the start URL changes) needs the user's OK per the shared-infra rule — deliberately NOT done in this pass. `.env` carries both `POKEDEX_*` (read by the running build) and `DECKSCOUT_*` (read by current code) until then.
+**Discovered: the DeckScout rename was never deployed.** Current code mounts `/deckscout/*` (since the rename commit), but the live nginx fragments still route `/pokedex/*`, and the running processes are a pre-rename build serving `/pokedex/api` (verified: `:3700/pokedex/api/health` -> 200, `/deckscout/api/health` -> 404). **Restart hazard:** `dist/` on disk is now post-rename, so an unplanned process restart/reboot would boot `/deckscout` code behind `/pokedex` nginx routes and take the app down. The cutover (edit conf fragments to `/deckscout/`, rebuild, restart all, nginx reload, re-install PWA on phone since the start URL changes) needs the user's OK per the shared-infra rule — deliberately NOT done in this pass. `.env` carries both `POKEDEX_*` (read by the running build) and `DECKSCOUT_*` (read by current code) until then.
 
 **Still open (user decisions):** history rewrite for the already-public pre-scrub commits; the Poké Ball/wordmark app icons; the nginx cutover above.
 
@@ -1042,11 +1043,9 @@ private specifics are gone.
 Both vhost fragments now route `/deckscout/*` with a permanent `301` from legacy
 `/pokedex/*` (old bookmarks and the installed PWA redirect instead of breaking; the
 phone PWA should still be reinstalled so its start URL/scope move off the redirect).
-pm2 apps restarted on the post-rename build, nginx reloaded. Verified: API health 200
-via nginx, images health ok, MCP listening, SPA loads at desktop + 390px (screenshots
-reviewed). The restart hazard documented earlier today is closed. pm2 process names
-remain `pokedex-*` (cosmetic; rename them only in a quiet moment — `pm2 delete` +
-fresh `start` from ecosystem config, then `pm2 save`).
+App processes restarted on the post-rename build, nginx reloaded. Verified: API health
+200 via nginx, images health ok, MCP listening, SPA loads at desktop + 390px
+(screenshots reviewed). The restart hazard documented earlier today is closed.
 
 ## 2026-08-09 — Original app icons (user approved)
 
@@ -1059,17 +1058,16 @@ The in-app header wordmark ("Pokédex") also became "DeckScout" (the sidebar
 Pokédex nav item keeps its name — it's the dex feature). Verified in-browser at
 desktop + 390px after a web rebuild.
 
-## 2026-08-09 — Pi instance decommissioned, legacy deployment machinery removed
+## 2026-08-09 — Original single-host deployment decommissioned, host-specific machinery removed
 
-The the original host Pi deployment is decommissioned: pm2 apps deleted, nginx includes
-removed, full backup taken first (DB dump + image tar in
-`~/deckscout-backups/`). Legacy deployment-only machinery removed from the repo —
-`deploy/` (nginx fragments, the local DNS resolver conf, pm2 ecosystem config, BACKUP.md,
-DEPLOY.md), `tools/dev-hub-legacy/` (LAN dev-hub, standalone/no workspace deps),
-`issues/` (46 resolved personal bug reports — a SaaS project tracks issues on
-GitHub instead), `.github-legacy/` (the legacy git host CI, superseded by GitHub Actions), and root
-`ecosystem.config.cjs`. `.gitignore` gained a `deploy/` rule (legacy deployment deploy
-artifacts are intentionally untracked, not just deleted) and dropped the
+The original single-host deployment is decommissioned: managed processes deleted,
+nginx includes removed, full backup taken first (DB dump + image tar). Host-specific
+machinery removed from the repo — `deploy/` (nginx fragments, DNS config, process-
+manager ecosystem config, BACKUP.md, DEPLOY.md), `tools/dev-dashboard/` (LAN dev
+tooling, standalone/no workspace deps), `issues/` (46 resolved personal bug
+reports — a SaaS project tracks issues on GitHub instead), the prior CI config
+directory (superseded by GitHub Actions), and root `ecosystem.config.cjs`. `.gitignore` gained a `deploy/` rule
+(deploy artifacts are intentionally untracked, not just deleted) and dropped the
 now-pointless `issues/*/*.jpg` rule. Pivot to a Vercel + Supabase cloud-first,
 open-core direction is underway; a docs wave will follow to fix the dangling
 references this leaves in README/ARCHITECTURE/AGENTS/roadmap/skills.
@@ -1081,8 +1079,9 @@ references this leaves in README/ARCHITECTURE/AGENTS/roadmap/skills.
 toward a paid subscription (not paid yet — no billing code). Forks can self-host the
 open core on plain Postgres.
 
-**What landed (five commits):** legacy deployment machinery purged (deploy/, dev-hub-legacy, issues/,
-the legacy git host CI, pm2 config); migrations 020 (BIGINT→UUID owners, user_id on deck_version +
+**What landed (five commits):** host-specific machinery purged (deploy/, dev tooling,
+issues/, prior CI config, process-manager config); migrations 020 (BIGINT->UUID
+owners, user_id on deck_version +
 battle_log) and 021 (Supabase-only: RLS on all 56 tables — world-read catalog,
 own-row user data in `(SELECT auth.uid())` form, auth FK, signup trigger) with the
 runner gaining a `-- @supabase-only` marker; scripts/migrate-to-cloud.mjs (dry-run
@@ -1106,7 +1105,7 @@ table, price backfill. See ARCHITECTURE.md and DEPLOYMENT.md.
 tests, all builds green; migrations proven 001→021 on scratch DBs with a mocked
 auth schema and two-user RLS isolation tests; login UI screenshotted and reviewed.
 
-**Pi decommission:** full backup first (~/deckscout-backups/20260809-060049: DB
-dump 13.3 MB + image tar 2.0 GB), then pm2 apps deleted and nginx includes
-removed; other services on the box verified unaffected. The local Postgres DB
-(`pokedex`) is retained as the data source for migrate-to-cloud.
+**Decommission of original host:** full backup first (DB dump 13.3 MB + image tar
+2.0 GB), then managed processes deleted and nginx includes removed; other services
+on the box verified unaffected. The local Postgres DB (`pokedex`) is retained as
+the data source for migrate-to-cloud.
