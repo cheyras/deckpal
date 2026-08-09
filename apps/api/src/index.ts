@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import { closePool, pool, q } from './db.js';
@@ -46,7 +45,23 @@ export function createApp(): express.Express {
       },
     }),
   );
-  app.use(cors());
+  // CORS is off by default: the SPA is served same-origin by this very server,
+  // and the MCP calls the API server-side, so cross-origin access is unnecessary.
+  // Forks that split hosting can set API_CORS_ORIGINS (comma-separated allowlist).
+  const corsOrigins = process.env.API_CORS_ORIGINS;
+  if (corsOrigins) {
+    const allowed = new Set(corsOrigins.split(',').map((o) => o.trim()).filter(Boolean));
+    app.use((req, res, next) => {
+      const origin = req.headers.origin;
+      if (origin && allowed.has(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        if (req.method === 'OPTIONS') { res.status(204).end(); return; }
+      }
+      next();
+    });
+  }
   // 12mb accommodates the bug reporter's screenshot dataURL; every other route
   // posts tiny JSON, so the raised ceiling only ever matters for /bugs.
   app.use(express.json({ limit: '12mb' }));
@@ -60,7 +75,8 @@ export function createApp(): express.Express {
       try {
         await q('SELECT 1');
       } catch (err) {
-        res.status(503).json({ status: 'degraded', db: 'down', error: (err as Error).message });
+        console.error('[deckscout-api] health: db unreachable', (err as Error).message);
+        res.status(503).json({ status: 'degraded', db: 'down', error: 'db unreachable' });
         return;
       }
       let syncs: Array<{ job: string; status: string; finishedAt: string | null; sourceStamp: string | null }> = [];

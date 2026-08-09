@@ -31,6 +31,29 @@ function repoRoot(): string {
 }
 const ISSUES_DIR = join(repoRoot(), 'issues');
 
+// ── Per-IP rate limiter (no external dependency) ─────────────────────────────
+const RATE_MAX = 10; // max bug reports per IP per hour
+const RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const RATE_SWEEP_MS = 10 * 60 * 1000; // sweep stale entries every 10 min
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, bucket] of rateBuckets) {
+    if (bucket.resetAt <= now) rateBuckets.delete(ip);
+  }
+}, RATE_SWEEP_MS).unref();
+
+function rateOk(ip: string): boolean {
+  const now = Date.now();
+  let bucket = rateBuckets.get(ip);
+  if (!bucket || bucket.resetAt <= now) {
+    bucket = { count: 0, resetAt: now + RATE_WINDOW_MS };
+    rateBuckets.set(ip, bucket);
+  }
+  bucket.count++;
+  return bucket.count <= RATE_MAX;
+}
+
 const MAX_TEXT = 20_000;
 const MAX_IMG_BYTES = 8 * 1024 * 1024; // 8 MB decoded — generous for a JPEG viewport grab
 const DATA_URL_RE = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/;
@@ -45,6 +68,10 @@ function newId(): string {
 bugsRouter.post(
   '/',
   asyncHandler(async (req, res) => {
+    if (!rateOk(req.ip ?? 'unknown')) {
+      res.status(429).json({ error: { code: 'rate_limited', message: 'Too many reports — try again later.' } });
+      return;
+    }
     const body = (req.body ?? {}) as Record<string, unknown>;
     const text = str(body.text)?.trim();
     if (!text) throw badRequest('A bug description is required.');
