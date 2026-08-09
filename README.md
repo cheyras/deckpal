@@ -157,3 +157,5 @@ users of that service.
 | [`AGENTS.md`](AGENTS.md) | Engineering contracts and conventions for AI agents |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contributor guide -- setup, workflow, code conventions |
 | [`SECURITY.md`](SECURITY.md) | Security model (auth, RLS, self-host) and disclosure policy |
+
+<!-- deploy pipeline verified 2026-08-09 -->
