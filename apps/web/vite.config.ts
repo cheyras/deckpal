@@ -8,16 +8,19 @@ import { VitePWA } from 'vite-plugin-pwa'
 const devApiPort = process.env.DECKSCOUT_DEV_API_PORT ?? '3700';
 
 // Sub-path deploy: served at /deckscout/ behind nginx (see ARCHITECTURE §4).
-// Trailing slash on base is required. Router basepath is /deckscout (no slash).
+// Cloud (Vercel): served at / (VITE_SUPABASE_URL signals cloud mode).
+// Trailing slash on base is required. Router basepath matches (minus trailing slash).
+const isCloud = !!process.env.VITE_SUPABASE_URL;
+const basePath = isCloud ? '/' : '/deckscout/';
 export default defineConfig({
-  base: '/deckscout/',
+  base: basePath,
   plugins: [
     react(),
     tailwindcss(),
     // PWA — injectManifest (hand-written src/sw.ts) so we control the SSO
     // JSON guard, network-only mutations, and the LRU image cap (wiki: Frontend-Research §C.2).
-    // start_url/scope inherit base ('/deckscout/'); the SW is emitted at
-    // /deckscout/sw.js and can only control /deckscout/* — exactly the desired scope.
+    // start_url/scope inherit base; the SW is emitted at <base>/sw.js and can
+    // only control <base>/* — exactly the desired scope.
     VitePWA({
       strategies: 'injectManifest',
       srcDir: 'src',
@@ -28,9 +31,9 @@ export default defineConfig({
         name: 'DeckScout',
         short_name: 'DeckScout',
         description: 'Self-hosted Pokémon TCG collection tracker',
-        id: '/deckscout/',
-        start_url: '/deckscout/',
-        scope: '/deckscout/',
+        id: basePath,
+        start_url: basePath,
+        scope: basePath,
         display: 'standalone',
         orientation: 'portrait',
         background_color: '#15181f', // surface-primary (UI-SPEC dark)
