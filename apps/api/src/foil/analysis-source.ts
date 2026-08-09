@@ -275,7 +275,7 @@ export function cardRelativePath(cardId: string, serie: string, quality: Quality
 
 // ── Real dependencies ──────────────────────────────────────────────────────
 
-export const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? '/home/cheyras/pokedex/cache';
+export const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? join(import.meta.dirname, '../../../..', 'cache');
 
 export const DEFAULT_USER_AGENT =
   'pokedex-foil-analysis/1.0 (self-hosted TCG collection tracker; analysis-only, not cached or redistributed)';
@@ -347,7 +347,7 @@ async function getPool(): Promise<MinimalPool | null> {
   if (poolBroken) return null;
   poolPromise ??= (async (): Promise<MinimalPool | null> => {
     try {
-      const { makePool } = await import('@pokedex/db');
+      const { makePool } = await import('@deckscout/db');
       return makePool(1) as unknown as MinimalPool;
     } catch (e) {
       poolBroken = e instanceof Error ? e.message : String(e);

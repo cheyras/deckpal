@@ -1,4 +1,4 @@
-// foil/CanonLab.tsx — surface A of the workbench split (/pokedex/foil-lab/canon):
+// foil/CanonLab.tsx — surface A of the workbench split (/deckscout/foil-lab/canon):
 // the pattern-truth room (issues/foil/2026-08-02_12-59-52-368_4aq756).
 //
 // A plain/empty card — no ink, no artwork scan, just the holofoil pattern
@@ -11,7 +11,7 @@
 // the code defaults as the baseline on both surfaces; see foil/canon.ts).
 //
 // Card-to-card differences (masks, per-card overrides, comments about a
-// specific printing) belong on surface B (/pokedex/foil-lab — FoilLab.tsx).
+// specific printing) belong on surface B (/deckscout/foil-lab — FoilLab.tsx).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
