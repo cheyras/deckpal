@@ -1,13 +1,13 @@
 Setup
-CJW9298 chose tails for the opening coin flip.
+OppAlpha chose tails for the opening coin flip.
 cheyras won the coin toss.
 cheyras decided to go first.
-CJW9298 drew 7 cards for the opening hand.
+OppAlpha drew 7 cards for the opening hand.
 - 7 drawn cards.
 cheyras drew 7 cards for the opening hand.
 - 7 drawn cards.
    • Shuppet, Special Red Card, Ultra Ball, Telepathic Psychic Energy, Basic Psychic Energy, Night Stretcher, Prism Tower
-CJW9298 played Froakie to the Active Spot.
+OppAlpha played Froakie to the Active Spot.
 cheyras played Shuppet to the Active Spot.
 
 cheyras's Turn
@@ -20,60 +20,60 @@ Telepathic Psychic Energy was activated.
 - cheyras shuffled their deck.
 cheyras ended their turn.
 
-CJW9298's Turn
-CJW9298 drew a card.
-CJW9298 played Poké Pad.
-- CJW9298 drew Budew.
-- CJW9298 shuffled their deck.
-CJW9298 played Budew to the Bench.
-CJW9298 attached Basic Water Energy to Froakie in the Active Spot.
-CJW9298 played Buddy-Buddy Poffin.
-- CJW9298 drew 2 cards and played them to the Bench.
+OppAlpha's Turn
+OppAlpha drew a card.
+OppAlpha played Poké Pad.
+- OppAlpha drew Budew.
+- OppAlpha shuffled their deck.
+OppAlpha played Budew to the Bench.
+OppAlpha attached Basic Water Energy to Froakie in the Active Spot.
+OppAlpha played Buddy-Buddy Poffin.
+- OppAlpha drew 2 cards and played them to the Bench.
    • Staryu, Froakie
-- CJW9298 shuffled their deck.
-CJW9298 played Judge.
-- CJW9298 shuffled 3 cards into their deck.
-- CJW9298 shuffled 5 cards into their deck.
+- OppAlpha shuffled their deck.
+OppAlpha played Judge.
+- OppAlpha shuffled 3 cards into their deck.
+- OppAlpha shuffled 5 cards into their deck.
    • Special Red Card, Ultra Ball, Basic Psychic Energy, Night Stretcher, Buddy-Buddy Poffin
-- CJW9298 drew 4 cards.
-- CJW9298 drew 4 cards.
+- OppAlpha drew 4 cards.
+- OppAlpha drew 4 cards.
    • Fezandipiti ex, Special Red Card, Night Stretcher, Gwynn
-CJW9298 retreated Froakie to the Bench.
-- Basic Water Energy was discarded from CJW9298's Froakie.
-CJW9298's Budew is now in the Active Spot.
-CJW9298's Budew used Itchy Pollen on cheyras’s Shuppet for 10 damage.
+OppAlpha retreated Froakie to the Bench.
+- Basic Water Energy was discarded from OppAlpha's Froakie.
+OppAlpha's Budew is now in the Active Spot.
+OppAlpha's Budew used Itchy Pollen on cheyras’s Shuppet for 10 damage.
 
 cheyras's Turn
 cheyras drew Banette.
 cheyras evolved Shuppet to Banette in the Active Spot.
 cheyras played Fezandipiti ex to the Bench.
-cheyras's Banette used Puppet Pull on CJW9298’s Budew for 80 damage.
+cheyras's Banette used Puppet Pull on OppAlpha’s Budew for 80 damage.
 - cheyras drew Poltchageist.
 - cheyras shuffled their deck.
-CJW9298's Budew was Knocked Out!
+OppAlpha's Budew was Knocked Out!
 cheyras took a Prize card.
 Basic Psychic Energy was added to cheyras's hand.
-CJW9298's Staryu is now in the Active Spot.
+OppAlpha's Staryu is now in the Active Spot.
 
-CJW9298's Turn
-CJW9298 drew a card.
-CJW9298 attached Basic Water Energy to Staryu in the Active Spot.
-CJW9298 played Lillie's Determination.
-- CJW9298 shuffled 3 cards into their deck.
-- CJW9298 drew 8 cards.
-CJW9298 played Surfing Beach to the Stadium spot.
-- CJW9298 discarded Prism Tower.
-CJW9298 evolved Staryu to Mega Starmie ex in the Active Spot.
-CJW9298 evolved Froakie to Frogadier on the Bench.
-CJW9298's Mega Starmie ex used Jetting Blow on cheyras’s Banette for 120 damage.
+OppAlpha's Turn
+OppAlpha drew a card.
+OppAlpha attached Basic Water Energy to Staryu in the Active Spot.
+OppAlpha played Lillie's Determination.
+- OppAlpha shuffled 3 cards into their deck.
+- OppAlpha drew 8 cards.
+OppAlpha played Surfing Beach to the Stadium spot.
+- OppAlpha discarded Prism Tower.
+OppAlpha evolved Staryu to Mega Starmie ex in the Active Spot.
+OppAlpha evolved Froakie to Frogadier on the Bench.
+OppAlpha's Mega Starmie ex used Jetting Blow on cheyras’s Banette for 120 damage.
 - cheyras's Shuppet took 50 damage.
 cheyras's Banette was Knocked Out!
 - 2 cards were discarded from cheyras's Banette.
    • Telepathic Psychic Energy, Shuppet
 cheyras's Shuppet was Knocked Out!
-CJW9298 took 2 Prize cards.
-A card was added to CJW9298's hand.
-A card was added to CJW9298's hand.
+OppAlpha took 2 Prize cards.
+A card was added to OppAlpha's hand.
+A card was added to OppAlpha's hand.
 cheyras's Shuppet is now in the Active Spot.
 
 cheyras's Turn
@@ -99,51 +99,51 @@ cheyras played Buddy-Buddy Poffin.
 cheyras played Switch.
 - cheyras's Dhelmise was switched with cheyras's Banette to become the Active Pokémon.
 cheyras's Dhelmise is now in the Active Spot.
-cheyras's Dhelmise used Vengeful Anchor on CJW9298’s Mega Starmie ex for 170 damage.
+cheyras's Dhelmise used Vengeful Anchor on OppAlpha’s Mega Starmie ex for 170 damage.
 - Damage breakdown:
    • Base damage: 30 damage
    • 4 discarded Pokémon: 140 damage
    • Total damage: 170 damage
 
 
-CJW9298's Turn
-CJW9298 drew a card.
-CJW9298 evolved Frogadier to Mega Greninja ex on the Bench.
-CJW9298 played Meowth ex to the Bench.
-CJW9298's Meowth ex used Last-Ditch Catch.
-- CJW9298 drew Hilda.
-- CJW9298 shuffled their deck.
-CJW9298 played Hilda.
-- CJW9298 drew 2 cards.
+OppAlpha's Turn
+OppAlpha drew a card.
+OppAlpha evolved Frogadier to Mega Greninja ex on the Bench.
+OppAlpha played Meowth ex to the Bench.
+OppAlpha's Meowth ex used Last-Ditch Catch.
+- OppAlpha drew Hilda.
+- OppAlpha shuffled their deck.
+OppAlpha played Hilda.
+- OppAlpha drew 2 cards.
    • Frogadier, Neo Upper Energy
-- CJW9298 shuffled their deck.
-CJW9298 evolved Froakie to Frogadier on the Bench.
-CJW9298 attached Neo Upper Energy to Mega Greninja ex on the Bench.
-CJW9298 played Surfing Beach.
-- CJW9298's Mega Greninja ex was switched with CJW9298's Mega Starmie ex to become the Active Pokémon.
-CJW9298's Mega Greninja ex is now in the Active Spot.
-CJW9298's Mega Greninja ex used Mortal Shuriken.
-- CJW9298 discarded Basic Water Energy.
+- OppAlpha shuffled their deck.
+OppAlpha evolved Froakie to Frogadier on the Bench.
+OppAlpha attached Neo Upper Energy to Mega Greninja ex on the Bench.
+OppAlpha played Surfing Beach.
+- OppAlpha's Mega Greninja ex was switched with OppAlpha's Mega Starmie ex to become the Active Pokémon.
+OppAlpha's Mega Greninja ex is now in the Active Spot.
+OppAlpha's Mega Greninja ex used Mortal Shuriken.
+- OppAlpha discarded Basic Water Energy.
 cheyras's Shuppet used Hide 'n' Sneak.
 - Effects of Mortal Shuriken did not affect Shuppet.
 cheyras's Banette used Hide 'n' Sneak.
 - Effects of Mortal Shuriken did not affect Banette.
-CJW9298's Mega Greninja ex used Ninja Spinner on cheyras’s Dhelmise for 200 damage.
+OppAlpha's Mega Greninja ex used Ninja Spinner on cheyras’s Dhelmise for 200 damage.
 - Damage breakdown:
    • Base damage: 120 damage
    • Total damage: 200 damage
 
-- CJW9298 moved CJW9298's Neo Upper Energy to their hand.
+- OppAlpha moved OppAlpha's Neo Upper Energy to their hand.
 cheyras's Dhelmise was Knocked Out!
 Basic Psychic Energy was discarded from cheyras's Dhelmise.
-CJW9298 took a Prize card.
-A card was added to CJW9298's hand.
+OppAlpha took a Prize card.
+A card was added to OppAlpha's hand.
 cheyras's Banette is now in the Active Spot.
 
 cheyras's Turn
 cheyras drew Basic Psychic Energy.
 cheyras played Special Red Card.
-- CJW9298 shuffled their hand.
+- OppAlpha shuffled their hand.
 - cheyras put 7 cards on the bottom of their deck.
 - cheyras drew 3 cards.
 cheyras played Poltchageist to the Bench.
@@ -173,29 +173,29 @@ cheyras played Poké Pad.
 - cheyras shuffled their deck.
 cheyras played Dhelmise to the Bench.
 cheyras played Boss's Orders.
-- CJW9298's Mega Starmie ex was switched with CJW9298's Mega Greninja ex to become the Active Pokémon.
-CJW9298's Mega Starmie ex is now in the Active Spot.
-cheyras's Banette used Puppet Pull on CJW9298’s Mega Starmie ex for 80 damage.
+- OppAlpha's Mega Starmie ex was switched with OppAlpha's Mega Greninja ex to become the Active Pokémon.
+OppAlpha's Mega Starmie ex is now in the Active Spot.
+cheyras's Banette used Puppet Pull on OppAlpha’s Mega Starmie ex for 80 damage.
 - cheyras drew Telepathic Psychic Energy.
 - cheyras shuffled their deck.
 
-CJW9298's Turn
-CJW9298 drew a card.
-CJW9298 attached Basic Water Energy to Mega Greninja ex on the Bench.
-CJW9298 played Prism Tower.
-- cheyras moved CJW9298's 2 cards to the discard pile.
+OppAlpha's Turn
+OppAlpha drew a card.
+OppAlpha attached Basic Water Energy to Mega Greninja ex on the Bench.
+OppAlpha played Prism Tower.
+- cheyras moved OppAlpha's 2 cards to the discard pile.
    • Rare Candy, Froakie
 - cheyras drew a card.
-CJW9298 attached Air Balloon to Mega Greninja ex on the Bench.
-CJW9298's Mega Starmie ex used Jetting Blow on cheyras’s Banette for 120 damage.
+OppAlpha attached Air Balloon to Mega Greninja ex on the Bench.
+OppAlpha's Mega Starmie ex used Jetting Blow on cheyras’s Banette for 120 damage.
 - cheyras's Poltchageist took 50 damage.
 cheyras's Banette was Knocked Out!
 - 3 cards were discarded from cheyras's Banette.
    • Basic Psychic Energy, Shuppet, Air Balloon
 cheyras's Poltchageist was Knocked Out!
-CJW9298 took 2 Prize cards.
-A card was added to CJW9298's hand.
-A card was added to CJW9298's hand.
+OppAlpha took 2 Prize cards.
+A card was added to OppAlpha's hand.
+A card was added to OppAlpha's hand.
 cheyras's Dhelmise is now in the Active Spot.
 
 cheyras's Turn
@@ -211,37 +211,37 @@ cheyras played Prism Tower.
 - cheyras discarded 2 cards.
    • Ultra Ball, Ultra Ball
 - cheyras drew Buddy-Buddy Poffin.
-cheyras's Dhelmise used Vengeful Anchor on CJW9298’s Mega Starmie ex for 170 damage.
+cheyras's Dhelmise used Vengeful Anchor on OppAlpha’s Mega Starmie ex for 170 damage.
 - Damage breakdown:
    • Base damage: 30 damage
    • 8 discarded Pokémon: 140 damage
    • Total damage: 170 damage
 
-CJW9298's Mega Starmie ex was Knocked Out!
-- 2 cards were discarded from CJW9298's Mega Starmie ex.
+OppAlpha's Mega Starmie ex was Knocked Out!
+- 2 cards were discarded from OppAlpha's Mega Starmie ex.
    • Basic Water Energy, Staryu
 cheyras took 3 Prize cards.
 Lillie's Determination was added to cheyras's hand.
 Air Balloon was added to cheyras's hand.
 Gwynn was added to cheyras's hand.
-CJW9298's Mega Greninja ex is now in the Active Spot.
+OppAlpha's Mega Greninja ex is now in the Active Spot.
 
-CJW9298's Turn
-CJW9298 drew a card.
-CJW9298 played Energy Retrieval.
-- CJW9298 moved CJW9298's 2 cards to their hand.
+OppAlpha's Turn
+OppAlpha drew a card.
+OppAlpha played Energy Retrieval.
+- OppAlpha moved OppAlpha's 2 cards to their hand.
    • Basic Water Energy, Basic Water Energy
-CJW9298 attached Basic Water Energy to Mega Greninja ex in the Active Spot.
-CJW9298's Mega Greninja ex used Mortal Shuriken.
-- CJW9298 discarded Basic Water Energy.
-- CJW9298 put 6 damage counters on CJW9298's Dhelmise.
+OppAlpha attached Basic Water Energy to Mega Greninja ex in the Active Spot.
+OppAlpha's Mega Greninja ex used Mortal Shuriken.
+- OppAlpha discarded Basic Water Energy.
+- OppAlpha put 6 damage counters on OppAlpha's Dhelmise.
 cheyras's Shuppet used Hide 'n' Sneak.
 - Effects of Mortal Shuriken did not affect Shuppet.
-CJW9298's Mega Greninja ex used Ninja Spinner on cheyras’s Dhelmise for 120 damage.
+OppAlpha's Mega Greninja ex used Ninja Spinner on cheyras’s Dhelmise for 120 damage.
 cheyras's Dhelmise was Knocked Out!
 Telepathic Psychic Energy was discarded from cheyras's Dhelmise.
-CJW9298 took a Prize card.
-A card was added to CJW9298's hand.
-Opponent took all of their Prize cards. CJW9298 wins.
+OppAlpha took a Prize card.
+A card was added to OppAlpha's hand.
+Opponent took all of their Prize cards. OppAlpha wins.
 
 Chey’s notes: This one ended up way more tricky than I was expecting in the beginning. He just whittled me down and that starmie double damage both to active and bench was rough to reckon with. Had my dhelmise survived that last greninja attack, my next move would have taken the game.

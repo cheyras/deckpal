@@ -893,7 +893,7 @@ with parseBattleLog on turns/prizes/KOs/result for all 9 real logs.
 **Bug found & fixed (pre-existing):** newer Live logs prefix every card with a printing
 id (`(me5_39) Dhelmise`); battlelog.ts's nameKey kept the prefix, so deck-overlap
 scoring matched nothing for the owner — battle #11's stored `parsed` has
-`players.me = ExtraManatee` at HIGH confidence (perspective-dependent fields flipped;
+`players.me = OppBravo` at HIGH confidence (perspective-dependent fields flipped;
 row-level result/opponent were luckily caller-supplied). Fixed by stripping the ref in
 nameKey (regression test on the real fixture); stored jsonb for #11 heals on re-parse —
 flagged for a post-W0 `parsed` refresh pass.

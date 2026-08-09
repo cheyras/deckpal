@@ -151,7 +151,7 @@ test('battle-12 Dusk Raid: attack with weakness modifier and folded damage break
     (e): e is Extract<BattleEvent, { type: 'attack' }> =>
       e.type === 'attack' && e.payload.damage === 440,
   )!;
-  assert.equal(atk.actor, 'warthog2010');
+  assert.equal(atk.actor, 'OppFoxtrot');
   assert.equal(atk.turn, 3);
   assert.deepEqual(atk.payload.attacker, { name: 'Mega Darkrai ex', ref: 'me5_116' });
   assert.equal(atk.payload.move, 'Dusk Raid');
@@ -251,7 +251,7 @@ test('battle-03 Rare Candy: nested evolution keeps via', () => {
   const ev = p.events.find(
     (e): e is Extract<BattleEvent, { type: 'evolve' }> => e.type === 'evolve' && e.payload.via === 'Rare Candy',
   )!;
-  assert.equal(ev.actor, 'Robni16');
+  assert.equal(ev.actor, 'OppCharlie');
   assert.deepEqual(ev.payload, {
     from: { name: 'Dreepy' }, to: { name: 'Dragapult ex' }, where: 'bench', via: 'Rare Candy',
   });
@@ -272,7 +272,7 @@ test('battle-04 Prism Tower re-use: opponent-controlled discard with owner and f
     (e): e is Extract<BattleEvent, { type: 'move_cards' }> => e.type === 'move_cards' && e.payload.to === 'discard',
   )!;
   assert.equal(mv.actor, 'cheyras'); // cheyras chose the cards…
-  assert.equal(mv.payload.owner, 'CJW9298'); // …from CJW9298's hand
+  assert.equal(mv.payload.owner, 'OppAlpha'); // …from OppAlpha's hand
   assert.equal(mv.payload.count, 2);
   assert.deepEqual(mv.payload.cards, [{ name: 'Rare Candy' }, { name: 'Froakie' }]);
   assert.equal(mv.payload.via, 'Prism Tower');
@@ -314,7 +314,7 @@ test('battle-12 poison: condition on apply, checkup event, condition-attributed 
   const cond = p.events.find((e): e is Extract<BattleEvent, { type: 'condition' }> => e.type === 'condition')!;
   assert.equal(cond.payload.condition, 'Poisoned');
   assert.deepEqual(cond.payload.target, {
-    player: 'warthog2010', card: { name: 'Mega Darkrai ex', ref: 'me5_116' },
+    player: 'OppFoxtrot', card: { name: 'Mega Darkrai ex', ref: 'me5_116' },
   });
   assert.equal(cond.payload.via, 'Subjugating Chains');
 
@@ -399,7 +399,7 @@ test('game_end reasons across the corpus: prizes, timeout, no_bench', () => {
 
   const oppPrizes = end('battle-12.txt');
   assert.equal(oppPrizes.payload.reason, 'prizes');
-  assert.equal(oppPrizes.payload.winner, 'warthog2010');
+  assert.equal(oppPrizes.payload.winner, 'OppFoxtrot');
   assert.equal(oppPrizes.payload.note, 'Opponent took all of their Prize cards.');
 
   const timeout = end('battle-08.txt');
@@ -415,7 +415,7 @@ test('game_end reasons across the corpus: prizes, timeout, no_bench', () => {
   // KO-sweep phrasing still resolves to prizes (the sentence states prize completion).
   const sweep = end('battle-07.txt');
   assert.equal(sweep.payload.reason, 'prizes');
-  assert.equal(sweep.payload.winner, 'Golduck28711');
+  assert.equal(sweep.payload.winner, 'OppDelta');
 });
 
 test('a concession emits a concede event (synthesized — no stored concession yet)', () => {
