@@ -1,11 +1,11 @@
-// foil/FoilLab.tsx — surface B of the workbench split (/pokedex/foil-lab):
+// foil/FoilLab.tsx — surface B of the workbench split (/deckscout/foil-lab):
 // the CARD ADJUSTMENT surface (issues/foil/2026-08-02_12-59-52-368_4aq756).
 //
 // Card-to-card differences ONLY: per-card mask work (hand masks, layout
 // masks, artwork-keyed aliasing), per-card uniform overrides layered on top
 // of the canon pattern defaults, and the comment queue. The canonical
 // pattern recipes themselves are locked on surface A — the canon lab at
-// /pokedex/foil-lab/canon (CanonLab.tsx) — and load here as the slider
+// /deckscout/foil-lab/canon (CanonLab.tsx) — and load here as the slider
 // baseline (foil/canon.ts explains the layering).
 //
 // Reachable by URL only — linked from NOWHERE in the app shell (quarantine

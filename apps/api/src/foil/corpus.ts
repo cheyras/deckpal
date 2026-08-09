@@ -1,10 +1,10 @@
 // foil/corpus.ts — CLI over the hand-mask corpus. DEV TOOL (foil track).
 //
-//   pnpm --filter pokedex-api exec tsx src/foil/corpus.ts report
-//   pnpm --filter pokedex-api exec tsx src/foil/corpus.ts report --json
-//   pnpm --filter pokedex-api exec tsx src/foil/corpus.ts tuples --out /tmp/tuples.json
-//   pnpm --filter pokedex-api exec tsx src/foil/corpus.ts exemplars --era wotc --scope window
-//   pnpm --filter pokedex-api exec tsx src/foil/corpus.ts migrate [--dry-run]
+//   pnpm --filter deckscout-api exec tsx src/foil/corpus.ts report
+//   pnpm --filter deckscout-api exec tsx src/foil/corpus.ts report --json
+//   pnpm --filter deckscout-api exec tsx src/foil/corpus.ts tuples --out /tmp/tuples.json
+//   pnpm --filter deckscout-api exec tsx src/foil/corpus.ts exemplars --era wotc --scope window
+//   pnpm --filter deckscout-api exec tsx src/foil/corpus.ts migrate [--dry-run]
 //
 // `migrate` rewrites v1/v2 sidecars in place as v3. It NEVER touches the mask
 // PNG and never re-labels: a pre-v3 sidecar's `derivation_method` was the
