@@ -33,15 +33,19 @@ export async function q1<T extends pg.QueryResultRow = pg.QueryResultRow>(
 }
 
 /**
- * The single default user. This is a one-user app (ARCHITECTURE §8: user_id is
- * threaded everywhere so multi-user is a later, non-breaking change). Resolved
- * once at boot to the lowest app_user id, falling back to 1.
+ * Self-host fallback: the default (sole) user. In cloud mode, routes use
+ * `req.user!.id` from the JWT instead — this function is only called by
+ * standalone proof scripts and test suites that run without auth.
+ *
+ * Returns the user_id as a string (UUID in cloud, cast-to-string BIGINT in
+ * legacy self-host). Type is `string` so call sites are compatible with UUID
+ * user ids without further conversion.
  */
-let cachedUserId: number | null = null;
-export async function defaultUserId(): Promise<number> {
+let cachedUserId: string | null = null;
+export async function defaultUserId(): Promise<string> {
   if (cachedUserId !== null) return cachedUserId;
   const row = await q1<{ id: string }>('SELECT id FROM app_user ORDER BY id LIMIT 1');
-  cachedUserId = row ? Number(row.id) : 1;
+  cachedUserId = row?.id ?? '1';
   return cachedUserId;
 }
 
@@ -115,7 +119,7 @@ interface ProgressDbRow {
  * the catalog-import baseline), so owned_required ≤ total_required holds by construction
  * and a mid-flight catalog change can never leave a stale denominator behind.
  */
-export async function recomputeSetProgress(client: pg.PoolClient, userId: number, setId: number): Promise<SetProgress> {
+export async function recomputeSetProgress(client: pg.PoolClient, userId: string, setId: number): Promise<SetProgress> {
   await client.query(
     `WITH v AS (
        SELECT c.id AS card_id, cv.id AS cv_id, cv.is_primary,

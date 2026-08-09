@@ -1,107 +1,59 @@
 // API client — consumes deckscout-api (read-only contract, API.md).
-// All routes under /deckscout/api. In dev, Vite proxies to :3700.
+// Cloud: /api (Vercel). Self-host: /deckscout/api (behind nginx proxy).
 
-const BASE = '/deckscout/api'
+import { supabase, isCloudMode } from './supabase'
 
-// ── Authelia session-expiry handling ───────────────────────────
-// On the public vhost every /deckscout/* location is Authelia-gated; when the
-// session expires nginx answers the API fetch with a 302 to the login portal
-// (authelia-protect.conf: `error_page 401 =302 https://$host/authelia/?rd=…`).
-// fetch follows it and lands on the portal's HTML login page with status 200,
-// so without this guard res.json() throws and every route dead-ends on
-// "Something went wrong".
-//
-// ⚠️ Recovery MUST navigate to the portal, never reload the current URL: the
-// service worker serves any /deckscout/* navigation from the precached shell
-// (sw.ts NavigationRoute), so a same-URL reload never reaches nginx and the
-// login flow never runs — the PWA dead-ends on the error screen forever (the
-// 2026-07-30 recurrence of issue ylftyb). /authelia/ is OUTSIDE the SW's
-// /deckscout/ scope, so navigating there always hits the network; Authelia's
-// rd= param brings the user straight back to the page they were on.
-// On the LAN vhost there is no Authelia, so none of these signals ever fire.
-function isAuthBounce(res: Response): boolean {
-  if (res.redirected || res.type === 'opaqueredirect') {
-    try {
-      if (new URL(res.url).pathname.startsWith('/authelia/')) return true
-    } catch {
-      /* ignore */
-    }
-    // Redirected off the API onto an HTML page — an auth portal by any name.
-    const ct = res.headers.get('content-type') ?? ''
-    if (ct.includes('text/html')) return true
-  }
-  // An OK-but-HTML body on an API path can only be a login page (the API is
-  // JSON-only, its 404s are JSON, and the SW denylists /deckscout/api/ from the
-  // shell fallback) — catch it even if the redirected flag was lost in transit.
-  if (res.ok && (res.headers.get('content-type') ?? '').includes('text/html')) return true
-  // A bare 401 also only ever comes from the auth layer (the API never 401s).
-  return res.status === 401
+const BASE = isCloudMode ? '/api' : '/deckscout/api'
+
+async function authHeaders(): Promise<Record<string, string>> {
+  if (!isCloudMode) return {}
+  const { data } = await supabase.auth.getSession()
+  if (!data.session) return {}
+  return { Authorization: `Bearer ${data.session.access_token}` }
 }
 
-const AUTH_PORTAL_KEY = 'deckscout:auth-portal-at'
-let authRedirectInFlight = false
-
-// Send the user through the Authelia portal and back. Guarded so a burst of
-// failing fetches triggers one navigation, and a bounce that recurs within 15s
-// of returning from the portal (login abandoned / still broken) falls through
-// to the normal error UI instead of ping-ponging portal ↔ app.
-function redirectToAuth(res?: Response): Error {
-  const now = Date.now()
-  const last = Number(sessionStorage.getItem(AUTH_PORTAL_KEY) ?? 0)
-  if (!authRedirectInFlight && now - last > 15_000) {
-    authRedirectInFlight = true
-    sessionStorage.setItem(AUTH_PORTAL_KEY, String(now))
-    // Prefer the portal origin we were actually bounced to; fall back to the
-    // conventional same-host portal path.
-    let portal: URL
-    try {
-      const bounced = res?.redirected ? new URL(res.url) : null
-      portal =
-        bounced && bounced.pathname.startsWith('/authelia/')
-          ? new URL(bounced.origin + '/authelia/')
-          : new URL('/authelia/', window.location.origin)
-    } catch {
-      portal = new URL('/authelia/', window.location.origin)
-    }
-    portal.searchParams.set('rd', window.location.href)
-    window.location.assign(portal.toString())
+async function handle401(path: string, init: RequestInit): Promise<Response | null> {
+  if (!isCloudMode) return null
+  const { error } = await supabase.auth.refreshSession()
+  if (error) {
+    window.location.assign('/deckscout/auth')
+    throw new Error('Session expired')
   }
-  return new Error('Session expired — signing you back in…')
+  const h = await authHeaders()
+  return fetch(`${BASE}${path}`, { ...init, headers: { ...init.headers as Record<string, string>, ...h } })
+}
+
+function extractError(res: Response): Promise<string> {
+  return res.json().then(
+    (b: { error?: { message?: string } }) => b?.error?.message ?? `HTTP ${res.status}`,
+    () => `HTTP ${res.status}`,
+  )
 }
 
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { signal })
-  if (isAuthBounce(res)) throw redirectToAuth(res)
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`
-    try {
-      const body = await res.json()
-      if (body?.error?.message) msg = body.error.message
-    } catch {
-      /* ignore */
-    }
-    throw new Error(msg)
+  const headers = await authHeaders()
+  let res = await fetch(`${BASE}${path}`, { signal, headers })
+  if (res.status === 401) {
+    const retry = await handle401(path, { signal, headers })
+    if (retry) res = retry
   }
+  if (!res.ok) throw new Error(await extractError(res))
   return res.json() as Promise<T>
 }
 
 async function send<T>(method: 'PATCH' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...await authHeaders() }
+  const init: RequestInit = {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  })
-  if (isAuthBounce(res)) throw redirectToAuth(res)
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`
-    try {
-      const b = await res.json()
-      if (b?.error?.message) msg = b.error.message
-    } catch {
-      /* ignore */
-    }
-    throw new Error(msg)
   }
+  let res = await fetch(`${BASE}${path}`, init)
+  if (res.status === 401) {
+    const retry = await handle401(path, init)
+    if (retry) res = retry
+  }
+  if (!res.ok) throw new Error(await extractError(res))
   return res.json() as Promise<T>
 }
 
@@ -829,23 +781,24 @@ export const api = {
   // Scanner — POST raw image bytes, get ranked perceptual-hash matches.
   scan: async (bytes: ArrayBuffer, contentType: string, k = 5, quality: 'low' | 'high' = 'low', signal?: AbortSignal): Promise<ScanResponse> => {
     const params = new URLSearchParams({ k: String(k), quality })
-    const res = await fetch(`${BASE}/scan?${params.toString()}`, {
+    const auth = await authHeaders()
+    const path = `/scan?${params.toString()}`
+    let res = await fetch(`${BASE}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': contentType || 'application/octet-stream' },
+      headers: { 'Content-Type': contentType || 'application/octet-stream', ...auth },
       body: bytes,
       signal,
     })
-    if (isAuthBounce(res)) throw redirectToAuth(res)
-    if (!res.ok) {
-      let msg = `HTTP ${res.status}`
-      try {
-        const b = await res.json()
-        if (b?.error?.message) msg = b.error.message
-      } catch {
-        /* ignore */
-      }
-      throw new Error(msg)
+    if (res.status === 401) {
+      const retry = await handle401(path, {
+        method: 'POST',
+        headers: { 'Content-Type': contentType || 'application/octet-stream', ...auth },
+        body: bytes,
+        signal,
+      })
+      if (retry) res = retry
     }
+    if (!res.ok) throw new Error(await extractError(res))
     return res.json() as Promise<ScanResponse>
   },
   // PDF export URLs (streamed by the API; open in a new tab).

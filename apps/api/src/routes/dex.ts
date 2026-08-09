@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { cardImages, defaultUserId, q, q1, toMajor } from '../db.js';
+import { cardImages, q, q1, toMajor } from '../db.js';
 import { asyncHandler, clampInt, notFound, oneOf, str, userCache } from '../http.js';
 import { raritySortSql } from '../rarity.js';
 
@@ -34,7 +34,7 @@ interface SpeciesRow {
 dexRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const generation = str(req.query.generation);
     const own = oneOf(req.query.own, ['all', 'captured', 'uncaptured'] as const, 'all');
     const search = str(req.query.q);
@@ -101,7 +101,7 @@ dexRouter.get(
 dexRouter.get(
   '/:speciesId',
   asyncHandler(async (req, res) => {
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const raw = String(req.params.speciesId ?? '');
     const numeric = Number.parseInt(raw, 10);
     const species = await q1<{ id: number; identifier: string; name: string; genus: string | null; generation: number; total_card_count: string; captured: boolean; types: string[] | null }>(

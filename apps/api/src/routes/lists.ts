@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type pg from 'pg';
-import { cardImages, defaultUserId, q, q1, toMajor, withTx } from '../db.js';
+import { cardImages, q, q1, toMajor, withTx } from '../db.js';
 import { asyncHandler, badRequest, notFound, oneOf, str, userCache } from '../http.js';
 
 export const listsRouter: Router = Router();
@@ -120,7 +120,7 @@ function shapeSummary(r: ListSummaryRow) {
  * Fetch one list's summary row (aggregates + cover) for a user. Shared by the index
  * and by mutation responses so a caller always gets the same shape back.
  */
-async function summaryQuery(userId: number, listId?: string): Promise<ListSummaryRow[]> {
+async function summaryQuery(userId: string, listId?: string): Promise<ListSummaryRow[]> {
   const params: unknown[] = [userId];
   let filter = '';
   if (listId) {
@@ -189,8 +189,8 @@ async function summaryQuery(userId: number, listId?: string): Promise<ListSummar
 // ── GET /lists — index ──────────────────────────────────────────────────────
 listsRouter.get(
   '/',
-  asyncHandler(async (_req, res) => {
-    const userId = await defaultUserId();
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
     const rows = await summaryQuery(userId);
     userCache(res);
     res.json({ lists: rows.map(shapeSummary) });
@@ -237,7 +237,7 @@ listsRouter.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const listId = parseListId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const summary = (await summaryQuery(userId, listId))[0];
     if (!summary) throw notFound(`No list '${listId}'`);
 
@@ -385,7 +385,7 @@ listsRouter.post(
     const visibility = oneOf(body.visibility, VIS, 'private');
     // A pokedex_binder gets a default pocket size so the binder view has a layout.
     const pocketSize = kind === 'pokedex_binder' ? 9 : null;
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
 
     const row = await q1<{ id: string }>(
       `INSERT INTO card_list (user_id, kind, name, description, visibility, pocket_size)
@@ -403,7 +403,7 @@ listsRouter.patch(
   '/:id',
   asyncHandler(async (req, res) => {
     const listId = parseListId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const body = req.body ?? {};
     let order: string[] | undefined;
     if (body.itemOrder !== undefined) {
@@ -487,7 +487,7 @@ listsRouter.delete(
   '/:id',
   asyncHandler(async (req, res) => {
     const listId = parseListId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const del = await q1<{ id: string }>(
       `DELETE FROM card_list WHERE id = $1 AND user_id = $2 RETURNING id`,
       [listId, userId],
@@ -503,7 +503,7 @@ listsRouter.post(
   '/:id/items',
   asyncHandler(async (req, res) => {
     const listId = parseListId(String(req.params.id));
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const body = req.body ?? {};
 
     const result = await withTx(async (client: pg.PoolClient) => {
@@ -597,7 +597,7 @@ listsRouter.delete(
     const listId = parseListId(String(req.params.id));
     const itemId = String(req.params.itemId);
     if (!/^[0-9a-f-]{36}$/i.test(itemId)) throw notFound(`No item '${itemId}'`);
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const del = await q1<{ id: string }>(
       `DELETE FROM list_item WHERE id = $1 AND list_id = $2 AND user_id = $3 RETURNING id`,
       [itemId, listId, userId],

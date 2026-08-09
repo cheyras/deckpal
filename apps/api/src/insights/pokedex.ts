@@ -95,7 +95,7 @@ export interface DexCompletion {
  * category='Pokemon' gate. `total` is COUNT(dex_species); `captured` is distinct
  * species featured on any owned Pokémon card (qty>0).
  */
-export async function dexCompletion(userId: number): Promise<DexCompletion> {
+export async function dexCompletion(userId: string): Promise<DexCompletion> {
   const rows = await q<{ generation: number; total: string; captured: string }>(
     `WITH captured AS (
        SELECT DISTINCT cs.dex_id
@@ -155,7 +155,7 @@ export interface SpeciesGrid {
  * level and shiny. `own` filters to captured/uncaptured; `generation` to one gen.
  */
 export async function speciesGrid(
-  userId: number,
+  userId: string,
   opts: { generation?: number; own?: 'all' | 'captured' | 'uncaptured'; search?: string; page: number; pageSize: number },
 ): Promise<SpeciesGrid> {
   const own = opts.own ?? 'all';
@@ -232,7 +232,7 @@ function shapeGridRow(r: {
 }
 
 /** Distinct captured species, live, gated — the headline number. */
-export async function dexCapturedCount(userId: number): Promise<number> {
+export async function dexCapturedCount(userId: string): Promise<number> {
   const row = await q1<{ n: string }>(
     `SELECT count(DISTINCT cs.dex_id) AS n
        FROM collection_item ci
@@ -273,7 +273,7 @@ export interface SpeciesDetail {
 }
 
 /** One species (by numeric id or slug) with every card featuring it + capture/level. */
-export async function speciesDetail(userId: number, raw: string): Promise<SpeciesDetail | null> {
+export async function speciesDetail(userId: string, raw: string): Promise<SpeciesDetail | null> {
   const numeric = Number.parseInt(raw, 10);
   const species = await q1<{
     id: number; identifier: string; name: string; genus: string | null; generation: number;

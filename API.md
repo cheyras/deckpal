@@ -1,18 +1,28 @@
 # deckscout-api — read API contract
 
-The React frontend's contract. TypeScript/Express, port **3700**, bound to
-`127.0.0.1`; nginx (LAN) / Authelia (remote) is the sole ingress and the only auth
-boundary. **Every route is under the `/deckscout/` sub-path** — the app never assumes
-the domain root. The surface is ~55 routes: pure-catalog reads (`/series`, `/sets`,
-`/cards`, `/search`, `/dex`, the PDF exports), the **collection write endpoints**
-(§Collection) that mutate `collection_item` + `collection_event` and recompute the
-affected set's `user_set_progress` rows in one transaction, list/deck CRUD, the
-deck engine (validate / import / export / test-hand / pricing / versions / battle
-logs), the insights/gamification router, a perceptual-hash card scanner, and an
+The React frontend's contract. TypeScript/Express, ~55 routes.
+
+**Deployment modes:**
+
+| Mode | Base path | Port | Auth boundary |
+|------|-----------|------|---------------|
+| Self-host | `/deckscout/api` | 3700 (127.0.0.1) | nginx/Authelia reverse proxy |
+| Cloud (Vercel) | `/api` | serverless | Supabase JWT (Bearer token) |
+
+The base path is set by `API_BASE_PATH` (defaults to `/deckscout/api`). On Vercel
+the Express app is mounted as a catch-all serverless function at `api/index.ts`.
+
+Pure-catalog reads (`/series`, `/sets`, `/cards`, `/search`, `/dex`, the PDF
+exports), the **collection write endpoints** (§Collection) that mutate
+`collection_item` + `collection_event` and recompute the affected set's
+`user_set_progress` rows in one transaction, list/deck CRUD, the deck engine
+(validate / import / export / test-hand / pricing / versions / battle logs),
+the insights/gamification router, a perceptual-hash card scanner, and an
 in-app bug reporter. All queries parameterized, connection budget **2** (shared
 `@deckscout/db` pool, hard-capped at 3).
 
-Base path: **`/deckscout/api`**. All examples below omit the host (`http://the.grid`).
+Base path: **`/deckscout/api`** (self-host) or **`/api`** (Vercel). Examples below
+omit the host.
 
 ## Conventions
 
@@ -53,6 +63,23 @@ Base path: **`/deckscout/api`**. All examples below omit the host (`http://the.g
 - **Caching.** Pure-catalog responses (`/series` list, `/search`, the `/` index)
   send `Cache-Control: public, max-age=…`. Anything mixing in the user's
   collection or prices sends `private, no-cache, must-revalidate`.
+
+## Authentication
+
+In **cloud mode** (`SUPABASE_JWT_SECRET` is set), the API verifies Supabase JWTs:
+
+- All requests pass through `authMiddleware` which decodes the `Authorization:
+  Bearer <token>` header (HS256) and attaches `req.user` with the user's UUID.
+- **Public routes** (no auth required): `GET /health`, `GET /`, `GET /search`.
+- **Protected routes** (require a valid JWT): everything else (series with
+  progress, sets, cards, collection mutations, lists, decks, insights, scan,
+  bugs, PDF exports). Returns `401 { "error": { "code": "unauthorized" } }`
+  without a valid token.
+- The user UUID comes from the JWT `sub` claim. All SQL queries use this UUID
+  as `user_id`.
+
+In **self-host mode** (no `SUPABASE_JWT_SECRET`), the auth middleware is a no-op.
+The reverse proxy (nginx/Authelia) is the auth boundary. All requests pass through.
 
 ---
 

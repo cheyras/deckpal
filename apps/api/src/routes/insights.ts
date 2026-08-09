@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { defaultUserId } from '../db.js';
 import { asyncHandler, clampInt, notFound, oneOf, str, userCache } from '../http.js';
 import { TRAINER_UNIQUE_MODE, trainerLevelProgress } from '../insights/trainerLevel.js';
 import {
@@ -24,8 +23,8 @@ export const insightsRouter: Router = Router();
 /** GET /insights/overview — trainer level + collection value + dex summary. */
 insightsRouter.get(
   '/overview',
-  asyncHandler(async (_req, res) => {
-    const userId = await defaultUserId();
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
     const counts = await ownedCounts(userId);
     const uniqueForLevel = TRAINER_UNIQUE_MODE === 'pairs' ? counts.uniquePairs : counts.uniqueCards;
     const [value, dex] = await Promise.all([currentCollectionValue(userId), dexCompletion(userId)]);
@@ -48,7 +47,7 @@ insightsRouter.get(
 insightsRouter.get(
   '/value',
   asyncHandler(async (req, res) => {
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const range = oneOf<Range>(req.query.range, ['30d', '3m', '6m', '1y'], '30d');
     const currency = oneOf(req.query.currency, ['USD', 'EUR', 'JPY'] as const, 'USD');
     const [totals, series, movers] = await Promise.all([
@@ -72,8 +71,8 @@ insightsRouter.get(
  */
 insightsRouter.post(
   '/value/snapshot',
-  asyncHandler(async (_req, res) => {
-    const userId = await defaultUserId();
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
     const result = await snapshotCollectionValue(userId);
     userCache(res);
     res.json(result);
@@ -84,7 +83,7 @@ insightsRouter.post(
 insightsRouter.get(
   '/pokedex',
   asyncHandler(async (req, res) => {
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const generationRaw = str(req.query.generation);
     const generation = generationRaw && Number.isFinite(Number(generationRaw)) ? Number(generationRaw) : undefined;
     const own = oneOf(req.query.own, ['all', 'captured', 'uncaptured'] as const, 'all');
@@ -101,7 +100,7 @@ insightsRouter.get(
 insightsRouter.get(
   '/pokedex/:speciesId',
   asyncHandler(async (req, res) => {
-    const userId = await defaultUserId();
+    const userId = req.user!.id;
     const raw = String(req.params.speciesId ?? '');
     const detail = await speciesDetail(userId, raw);
     if (!detail) throw notFound(`No species '${raw}'`);
