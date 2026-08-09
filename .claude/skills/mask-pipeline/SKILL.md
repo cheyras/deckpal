@@ -137,7 +137,7 @@ pnpm --filter pokedex-api exec tsx src/foil/corpus.ts tuples --out /tmp/tuples.j
 pnpm --filter pokedex-api exec tsx src/foil/corpus.ts migrate --dry-run
 ```
 
-Same data over HTTP: `GET /pokedex/api/foil-lab/masks/corpus` (`?tuples=1`,
+Same data over HTTP: `GET /deckscout/api/foil-lab/masks/corpus` (`?tuples=1`,
 `?exemplars=1&era=&scope=`), and the workbench's **Mask corpus** panel renders it
 phone-first. Provenance artifacts stream from
 `GET /foil-lab/masks/:cardId/:variantId/artifact/{prior|diff|parent|parent-diff}`.

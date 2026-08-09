@@ -86,7 +86,7 @@ console.log(`wrote ${OUT} (${rows.length} rows)`);
 
 // ── Optional coverage diagnostics against the live catalog ──────────────────
 try {
-  const api = 'http://127.0.0.1:3712/pokedex/api';
+  const api = 'http://127.0.0.1:3712/deckscout/api';
   const seriesRes = await fetch(`${api}/series`);
   if (!seriesRes.ok) throw new Error('api down');
   const { series } = await seriesRes.json();

@@ -2,11 +2,11 @@
 // against the human corpus. DEV TOOL (foil track); never imported by the server.
 //
 //   # honest feasibility check FIRST — leave-one-out against the human corpus
-//   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts eval \
+//   pnpm --filter deckscout-api exec tsx src/foil/generate-masks.ts eval \
 //     --generator window-artgate --era wotc --scope window
 //
 //   # then, only if eval justifies it, a small labeled trial batch
-//   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts run \
+//   pnpm --filter deckscout-api exec tsx src/foil/generate-masks.ts run \
 //     --generator window-artgate --era wotc --scope window \
 //     --serie base --series-slug base --run-id trial-1 \
 //     --cards base1-1:12,base1-2:15
@@ -14,18 +14,18 @@
 //   # REFINE an existing HUMAN mask with a refiner generator (line-snap):
 //   #   --refine loads the mask already at each target as the generator's
 //   #   source, archives it verbatim, and writes the result as `ai`/unreviewed.
-//   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts run \
+//   pnpm --filter deckscout-api exec tsx src/foil/generate-masks.ts run \
 //     --generator line-snap --refine --era modern-sv --scope sheet \
 //     --serie me --series-slug mega-evolution --run-id straighten-1 \
 //     --cards me05-001:37184
 //
 //   # and it is reversible — restores what it replaced, BYTE-FOR-BYTE
-//   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts revert --run-id trial-1
-//   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts archives   # what is undoable
+//   pnpm --filter deckscout-api exec tsx src/foil/generate-masks.ts revert --run-id trial-1
+//   pnpm --filter deckscout-api exec tsx src/foil/generate-masks.ts archives   # what is undoable
 //
 //   # MEASURE, don't assert: how well does each mask's boundary sit on the
 //   # card's own printed edges? (the metric that decides approve vs revert)
-//   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts adherence \
+//   pnpm --filter deckscout-api exec tsx src/foil/generate-masks.ts adherence \
 //     --serie me --card me05-001 --masks "his=data/foil-masks/me05-001/37184.png,new=/tmp/x.png"
 //
 // Everything it writes goes through provenance.writeMaskRecord with a full
@@ -225,7 +225,7 @@ function targetFor(
     artwork,
     // Same URL shape the api's cardImages() emits (apps/api/src/db.ts) — the
     // scan the workbench textures, not the raw cache filename.
-    artworkUrl: `/pokedex/images/en/${serie}/${setId ?? ''}/${localId}/high.webp`,
+    artworkUrl: `/deckscout/images/en/${serie}/${setId ?? ''}/${localId}/high.webp`,
     width: MASK_W,
     height: MASK_H,
     setId,
@@ -509,7 +509,7 @@ async function run(): Promise<void> {
           ? 'A superseded human mask is NOT an exemplar while the proposal sits on top of it — reverting or\n' +
             'correcting the proposal brings it back into the training pool.\n'
           : '') +
-        `Revert with: pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts revert --run-id ${runId}`,
+        `Revert with: pnpm --filter deckscout-api exec tsx src/foil/generate-masks.ts revert --run-id ${runId}`,
     );
   }
 }
@@ -569,7 +569,7 @@ async function revert(): Promise<void> {
 // own luminance Sobel — NOT edge-trace's colour tensor — so the incumbent gets
 // the home field and a win means something.
 //
-//   pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts adherence \
+//   pnpm --filter deckscout-api exec tsx src/foil/generate-masks.ts adherence \
 //     --serie me --card me05-001 \
 //     --masks "his=data/foil-masks/me05-001/37184.png,archived=data/…/37184.png"
 
@@ -630,7 +630,7 @@ async function archives(): Promise<void> {
     console.log(
       `${a.cardId}/${a.variantId}  run=${a.runId}  was=${a.manifest.method}  archived=${a.manifest.archivedAt}\n` +
         `  ${Object.keys(a.manifest.files).length} files at ${a.dir}\n` +
-        `  undo: pnpm --filter pokedex-api exec tsx src/foil/generate-masks.ts revert --run-id ${a.runId}`,
+        `  undo: pnpm --filter deckscout-api exec tsx src/foil/generate-masks.ts revert --run-id ${a.runId}`,
     );
   }
 }
