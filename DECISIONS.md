@@ -1357,7 +1357,7 @@ offsets (back soft-blurry moves against tilt, front crisp glyphs with it), per-c
 existence culling (constellation, not confetti — v1 without it read as mottle), smooth
 floor+lobe visibility (pow 5) replacing the pow-28 binary blink; `uP1` = parallax
 depth. Tuned by eye on his Machamp with his hand mask active; before/after + final
-shots at 390x844 / 744x1133 / 1133x744 in ~/.legacy-dev-hub-legacy/foil-shots/starlight-rework/.
+shots at 390x844 / 744x1133 / 1133x744 in ~/.deckscout-dev/foil-shots/starlight-rework/.
 Comment marked resolved (his text untouched); insight distilled into foil-effects
 SKILL field notes.
 **Gotcha:** a saved-mask GET without `?scope=` only exact-matches — aliasing needs the
@@ -1393,7 +1393,7 @@ identical resolve → layout-prior → hand-mask path.
 **Verified:** neo2-13 Umbreon (Neo Discovery — provably unowned, q=0 on both variants)
 found via search, renders its cached scan with Auto — Starlight (WOTC) / window scope,
 survives toggling Owned-only back on. Screenshots at 390x844 + 744x1133 + 1133x744 in
-~/.legacy-dev-hub-legacy/foil-shots/anycard/. Typecheck + build green (web + api).
+~/.deckscout-dev/foil-shots/anycard/. Typecheck + build green (web + api).
 **Gotcha:** search hits don't carry a series slug, so a search pick sets only cardId and
 lets the detail-sync effect fix seriesSlug/setId — don't "optimize" that into guessing
 the series from the set id.
@@ -1489,7 +1489,7 @@ sRGB→linear curve. Fix: sample the scan UNDECODED (`NoColorSpace`) because the
 blend model (screenBlend, hueRamp, art gate) is authored in display space; plus
 pattern-none uSpecular 0.12→0 so the baseline is truly the plain scan. Verified by
 automated pixel diff: mean |Δluma| 44.55 → 2.16, bucket mapping identity ±2
-(screenshots + diag script output in ~/.legacy-dev-hub-legacy/foil-shots/r0/diffuse/).
+(screenshots + diag script output in ~/.deckscout-dev/foil-shots/r0/diffuse/).
 **Consequence recorded honestly: every pre-fix verdict/capture was judged on a darker
 base; W2 yays were re-verified post-fix (no regressions).**
 
@@ -1658,7 +1658,7 @@ holos resolved *horizontal-sheen*). Both now map to the wotc frame.
 (56.5% high / 31.9% medium / 5.0% low), 4.0% facet-level, 0.3% card-level, 2.4% still on
 era-wide series rows, **0 heuristics** (was 79.5 / 20.4 / 0.2 with a narrower foil-bearing
 denominator). Verified in-browser on 13 cards across eras (shots in
-~/.legacy-dev-hub-legacy/foil-shots/assignments/): base4-2 cosmos set|high (Chey's card), Fossil
+~/.deckscout-dev/foil-shots/assignments/): base4-2 cosmos set|high (Chey's card), Fossil
 Galaxy-foil Aerodactyl starlight facet|high window (previously rendered flat), LC
 Alakazam starlight (previously heuristic horizontal-sheen), RC22 Reshiram card|medium
 dots, Black Bolt Master-Ball Snivy pokeball-masterball set|high, etc.
@@ -1771,7 +1771,7 @@ pre-R2 gap-fallback frames archived frames/<p>/pre-r2/; every capture now writes
 capture.json (the W2 gap captures never did — variant identity had to be re-derived);
 ex-emerald judged on ex9-40's set-logo-stamped holo variant v7263 (catalog has no
 reverse; the reference frames show the stamped window print). Shots in
-~/.legacy-dev-hub-legacy/foil-shots/r2/ (390px + desktop).
+~/.deckscout-dev/foil-shots/r2/ (390px + desktop).
 
 ## 2026-08-02 — foil/vocab: four vocabulary-extension pattern types (R2 stage 2, Chey's go)
 
@@ -1856,7 +1856,7 @@ captures ran through resolver Auto — the sweep doubles as an end-to-end wiring
 Browser-verified per the done gate: baby Buzzwole sma-SV24 renders the window-scoped
 shiny treatment via Auto (guess card/high) at 390px and desktop. Known residual: SM
 era still has no era-layout rects (baby-shiny windows use the modern-sv rect).
-Shots: ~/.legacy-dev-hub-legacy/foil-shots/r2b/ · runs: verify-<p>-r2b(-2)/ · jobs:
+Shots: ~/.deckscout-dev/foil-shots/r2b/ · runs: verify-<p>-r2b(-2)/ · jobs:
 jobs/<p>-r2b.json · manifests manifest-r2b(2).json.
 
 ## 2026-08-02 — foil/main R3: the diagonal swap — Chey was right, the geometry proof had a blind spot, and Gemini's slope claims were never hallucinations
@@ -1865,7 +1865,7 @@ jobs/<p>-r2b.json · manifests manifest-r2b(2).json.
 the OPPOSITE direction from the reference video, and right/left are swapped — each renders
 as the other should. **Verdict after re-investigation: HE IS CORRECT. They were swapped.**
 **Frame evidence (my own eyes, 3x-upscaled corpus frames — archived with before/after
-renders in ~/.legacy-dev-hub-legacy/foil-shots/r3-sheen/swap-evidence/):**
+renders in ~/.deckscout-dev/foil-shots/r3-sheen/swap-evidence/):**
 - diagonal-sheen-right/frame-03 and -05: the raw sheet held UPRIGHT next to the on-screen
   label "Diagonal Sheen (Right)", and the sheet behind the Battle Arena Moltres EX —
   beams unambiguously FALL top-left→bottom-right ("\").
@@ -2060,8 +2060,8 @@ mirror/reverse-sheet/pokeball-masterball 0.7, energy-symbols/-ii/pinwheel 0.6,
 fireworks/disco 0.5, prism 0.4). Verified before/after by eye at 5 tilt angles on
 Victini sv10.5b-012 ball-reverse (white bleach → orange-gold metal — the flagship),
 Crystal Energy ecard2-146 (border stays gold), Pineco sv02-004 (green-tinted pops);
-frames `~/.legacy-dev-hub-legacy/foil-verify/frames/tint-*-{pre,post}/`, headline shots
-`~/.legacy-dev-hub-legacy/foil-shots/r3-misc/`. Same contract change added **uP4/uP5** param
+frames `~/.deckscout-dev/foil-verify/frames/tint-*-{pre,post}/`, headline shots
+`~/.deckscout-dev/foil-shots/r3-misc/`. Same contract change added **uP4/uP5** param
 slots (preamble + material init + ParamUniform + PatternParam key union; sliders render
 from `params` automatically; old canons lack the keys and inherit code defaults).
 
@@ -2156,7 +2156,7 @@ vite :5186 / api :3714 per ORCHESTRATION).
   auto-resolve; adjust+flatten gives Chey a by-hand fix today — root-causing the
   assignment gap stays open, not scope-crept here. Test artifacts were DELETED before
   commit (corpus rule: only Chey's actual adjustments belong in data/) — screenshots
-  in ~/.legacy-dev-hub-legacy/foil-shots/mask-refine/ are the evidence.
+  in ~/.deckscout-dev/foil-shots/mask-refine/ are the evidence.
 - **Gotcha for future lanes:** `saveMask` must send `layoutMask` (the rule), never the
   effective mask — the effective `mask` variable in FoilLab is now
   adjusted-window-aware, and passing it as the prior would silently corrupt the
@@ -2175,7 +2175,7 @@ zero tilt); uTint/uP4/uP5 sliders and the adjust panel live in independent secti
 No interaction bugs found. Typecheck + build clean (web + api).
 
 **Browser-verified on the merged tree** (:5182/:3712, desktop + 390px, shots in
-`~/.legacy-dev-hub-legacy/foil-shots/closer/`): Adjust window on base1-4 (handles drag,
+`~/.deckscout-dev/foil-shots/closer/`): Adjust window on base1-4 (handles drag,
 geometry text updates, Flatten opens the paint editor with the baked mask); Machamp
 base1-8/32 + Clefairy base1-5/19 hand masks load ("Hand mask (saved)"); canon lab
 plays its reference clip (loop-wrap caught the first "not playing" false alarm —
@@ -2301,7 +2301,7 @@ yellow shift (per-channel cap). (2) untouched-vs-foiled — indistinguishable at
 rest by construction; window stays ≤2.6 ΔL under tilt (card-wide paper gloss
 only). (3) text blow-out — glyph contrast 54.6→49.7 / 59.9→56.2 under lobe
 peaks (was a collapse); "String Shot" + body text crisp at every tilt in the
-shots (`~/.legacy-dev-hub-legacy/foil-shots/r4b/`, 3 tilts × desktop + 390px).
+shots (`~/.deckscout-dev/foil-shots/r4b/`, 3 tilts × desktop + 390px).
 
 **Sample metrics (tilt 0.5,0; ΔL/ΔC vs pattern-none, text-region contrast
 plain→foil):** Grubbin me05-002 frame +24.6/+44.6, text 54.6→49.7 · Tropius
@@ -2351,7 +2351,7 @@ layered into the preview — the lab edits canon, and overrides would misreport
 what Save canon produces. Browser-verified desktop + 390px (gold-secret facet
 tier incl. Jet Energy/Zoroark VSTAR rolls, shiny-vault scope-override babies,
 mirror reverses, big-glitter empty; shots in
-`~/.legacy-dev-hub-legacy/foil-shots/canon-preview/`). Regenerate the baked file
+`~/.deckscout-dev/foil-shots/canon-preview/`). Regenerate the baked file
 after catalog syncs / resolver changes — the endpoint 404s with the command
 when missing; staleness is bounded by that regen (recorded tradeoff).
 
@@ -2401,7 +2401,7 @@ scan, side-by-side crops indistinguishable). Onset 0.9 → 3.4 → 8.9 → 14.4 
 16.4 ΔL at tilt 0.05/0.10/0.15/0.20/0.25 — a smooth S spread over 0→0.25
 with no dead zone, no knee, peak slope roughly halved. Terminal identical:
 16.77 mean / 31.77 p95 at tilt 0.5, before and after, to the second decimal.
-Curve plot: `~/.legacy-dev-hub-legacy/foil-shots/r4c/onset-curve-grubbin-before-after.png`
+Curve plot: `~/.deckscout-dev/foil-shots/r4c/onset-curve-grubbin-before-after.png`
 (+ stepped filmstrips and real-rAF slow-drag filmstrips for Grubbin,
 Machamp base1-8, Cetitan sv01-060 in the same dir).
 
@@ -2486,7 +2486,7 @@ the high-tilt pop window are untouched.
 rising; AFTER mean ΔL stays within ±0.08 across all 19 frames while
 per-pixel change (movement) reaches mean|Δ| 6.1 / p95 18.9 — the render
 changes by MOVING, not by brightening. Filmstrips + per-frame metrics:
-`~/.legacy-dev-hub-legacy/foil-shots/r4d/` (pointerdrag-30px-before-after.png,
+`~/.deckscout-dev/foil-shots/r4d/` (pointerdrag-30px-before-after.png,
 film-before/, film-after/, eyeball-{grubbin,machamp,cetitan}/ real-rAF slow
 drags, ui-*.png slider proofs both surfaces, ramp JSONs).
 
@@ -2604,7 +2604,7 @@ everywhere, and inkDark exemption unchanged).
 `uScanBase > 0.5` branch. CDP frame-stepped before/after pairs (mirror+dark
 tilt 0.5 AND rest, horizontal-sheen+silver, cosmos+black tilted,
 starlight+black rest): AE 0 at fuzz 1% — same floor as the same-build
-control pair (AE 0). Shots: `~/.legacy-dev-hub-legacy/foil-shots/r5/`.
+control pair (AE 0). Shots: `~/.deckscout-dev/foil-shots/r5/`.
 
 **Verification-harness note (adds to the R4c/R4d gotchas):** corner pixels
 with alpha 1–3/255 (the rounded-corner AA fringe) produce ±255 ΔL outliers
@@ -3001,7 +3001,7 @@ Chey's Machamp (base1-8/32) still renders and reads **HAND-PAINTED**, agreement
 0.641; R6's extended ranges are live on both surfaces (intensity→4, hue
 spread→3, saturation→2, sheen→6, uGrain dimmed as "metal law only") and
 "Apply composite → family" is present on the canon tab. Shots in
-`~/.legacy-dev-hub-legacy/foil-shots/integrate-prov/`.
+`~/.deckscout-dev/foil-shots/integrate-prov/`.
 
 The end-to-end save ran on **base1-3 (Chansey)** — a scratch card, never one of
 Chey's — through both a first save and a correction on top (`layout-flatten` →
@@ -3086,7 +3086,7 @@ verbatim instead of a bare "no catalog cards":
 
 **Verification:** typecheck (web + api) and web build green; all 14 recipes
 compile with no GLSL errors; before/after screenshots on the blank canon card and
-a real assigned card at 390px and desktop in `~/.legacy-dev-hub-legacy/foil-shots/r7/`;
+a real assigned card at 390px and desktop in `~/.deckscout-dev/foil-shots/r7/`;
 the pattern-cards route exercised end-to-end in a self-terminating express
 harness (the branch api on :3712 was left running, not restarted).
 
@@ -3178,7 +3178,7 @@ Tropius revert path was exercised **twice** end to end — `sha256sum -c` clean 
 six files and `git status` on `data/` empty after each revert — then re-applied.
 Visuals (mask side-by-side, change map, corner zooms, provenance panel, rendered
 foil at rest + 2 tilts, desktop + 390px) in
-`~/.legacy-dev-hub-legacy/foil-shots/mask-straighten/`. The rendered foil is near
+`~/.deckscout-dev/foil-shots/mask-straighten/`. The rendered foil is near
 indistinguishable at normal size — 1–3px on a 490px mask — and the difference is
 plainly visible in the mask overlay and at 4× zoom; that is the honest claim.
 
