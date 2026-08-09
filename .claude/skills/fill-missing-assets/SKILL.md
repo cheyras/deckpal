@@ -21,7 +21,7 @@ items are blank (this card? this set? every promo/energy set? site-wide?). Query
 quantify — don't eyeball. State the scope before fixing.
 
 ### 2. Diagnose why they're missing
-Real causes seen before (see `DECISIONS.md` / `PKMN-SYNC-RUNBOOK.md`): the card exists but was
+Real causes seen before (see `DECISIONS.md`): the card exists but was
 never warmed; the primary source **404s or its manifest omits that set**; the source→our id
 **crosswalk missed** (case/slug/JP-EN collision); wrong local-id padding; the file warmed to the
 wrong path; or a genuine upstream gap. Confirm the cause against the artifact (the source URL, the
@@ -74,7 +74,7 @@ fallback-source pattern, a verification method — append it as a concise bullet
   "mep needed override MEP" does not (that belongs in the slot/runbook, not the thoroughness list).
 - **One tight, imperative bullet.** Don't duplicate a lesson that's already there.
 - If a slot's **source or fallback** changed, also update that entry in `image-slots.md`.
-- If the fix has a per-release/per-game procedure, note it in `PKMN-SYNC-RUNBOOK.md` (game-specific)
+- If the fix has a per-release/per-game procedure, note it in the game-specific runbook
   rather than the generic list.
 
 This is what compounds: every gap you fill makes the next agent — and every other TCG onboarded

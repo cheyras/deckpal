@@ -101,7 +101,7 @@ entirely. Docker remains in use on this box only for third-party appliances.
 Postgres 17.9, application pool capped at **3** connections. All tuning
 role-scoped. **No `postgresql.conf` change and no Postgres restart.**
 
-**Why:** `max_connections` is 20 with 10 already in use by the a co-hosted app/brain2db
+**Why:** `max_connections` is 20 with 10 already in use by other co-hosted
 apps — a 3-connection pool fits with 7 spare, so blast radius is zero. Marginal
 RAM 25–35 MB vs ~180–250 MB for a second instance. Postgres also gives the price
 time-series range partitioning and BRIN, which SQLite cannot.
@@ -139,9 +139,9 @@ than editing the global config — raised to the user as a separate observation.
 
 ## 2026-07-24 — Brain DBs fully isolated from the deckscout role
 **Decided by:** user. **Done and verified by lead.**
-`REVOKE CONNECT ON DATABASE a co-hosted app, brain2db FROM PUBLIC`, with explicit
-`GRANT CONNECT … TO ob1 / brain2` so the owners are unaffected. Verified: the
-deckscout role now gets `FATAL: permission denied` connecting to either brain DB
+`REVOKE CONNECT ON DATABASE <co-hosted DBs> FROM PUBLIC`, with explicit
+`GRANT CONNECT` to each DB's owner so the owners are unaffected. Verified: the
+deckscout role now gets `FATAL: permission denied` connecting to either co-hosted DB
 (it could before); owners retain CONNECT (`has_database_privilege` = true); both
 apps' live connections held at 5+5 unbroken across the change. `datacl` is now
 `{=T/<owner>,<owner>=CTc/<owner>}` — PUBLIC keeps TEMP only.
@@ -234,14 +234,13 @@ images. It runs from manually-started node processes; **it is NOT yet deployed**
   the SSO gate-authrequest include → `deploy/nginx-brain-public-deckscout.conf`
   (the SSO gate-gated). Config correct (`nginx -t` clean).
 
-**✅ RESOLVED 2026-07-27 (user asked):** root cause was `/etc/the SSO gate/secrets/`
-having lost its owner **execute** bit (`drw-r-----`) — the owner (the SSO gate, uid 980)
-could not traverse the dir to read `smtp_password`, so it died at config load on the
-last boot. Fix: `chmod u+x /etc/the SSO gate/secrets` (surgical; file contents untouched).
-`systemctl start the SSO gate` → active, 9091 listening, portal 200. All gated routes
-recovered (`/git/`, `/pokedex/`, MCP endpoints now 302→portal instead of 500). If the
-x-bit is stripped again on a future boot, investigate what does it — the perm fix
-itself is persistent and the unit is `enabled`.
+**✅ RESOLVED 2026-07-27 (user asked):** root cause was the the SSO gate secrets directory
+having lost its owner **execute** bit — the service user could not traverse the dir to
+read its secrets, so it died at config load on the last boot. Fix: `chmod u+x` on the
+secrets directory (surgical; file contents untouched). the SSO gate restarted successfully,
+portal 200. All gated routes recovered. **Lesson:** if the x-bit is stripped again on a
+future boot, investigate what does it — the perm fix itself is persistent and the unit
+is `enabled`.
 
 **🔴 Pre-existing blocker (NOT caused by pokedex): `the SSO gate.service` is `failed`.**
 Port 9091 isn't listening; every the SSO gate-gated route 500s — `/git/` 500s with the
@@ -298,7 +297,7 @@ deckscout-sync && pm2 save`.
   with a dedicated `deckscout` DB + role and a pool capped at 3 connections
   (marginal RAM 25–35 MB, vs ~180–250 MB for a second instance, vs ~0 for
   SQLite). Decisive point: `max_connections = 20` with **10 already in use** by
-  the a co-hosted app/brain2db apps, so a 3-connection pool fits with 7 spare —
+  the co-hosted apps, so a 3-connection pool fits with 7 spare —
   **no config change, no Postgres restart, zero blast radius**. Honest
   counter-argument: every other pm2 app on this box uses SQLite, and sharing
   Postgres with the brain apps couples pokedex to them. **User decision.**
@@ -346,7 +345,7 @@ Recorded so they are not silently re-introduced later:
 1. **"Main set vs master set" is stale.** pkmn.gg now has *three* goals —
    Complete / Master / Grandmaster. **Confirmed in the shipped UI**, not just the
    changelog: Account Settings → `Default Collecting Goal` presents all three with
-   descriptions, on a **non-Pro account** (`research/AUTH-CAPTURES.md` §8).
+   descriptions, on a **non-Pro account** (pkmn.gg authenticated captures §8).
    Model three.
    - Refinement from observation: bar 1 is always Complete Set; **bar 2 is Master,
      or Grandmaster when Grandmaster is selected — never a copy of Complete.**
@@ -451,23 +450,15 @@ the race; the transient bad SHA (7e5237d) never survived into history. Nothing t
 
 ## 2026-07-28 — Collection migrated from pkmn.gg (100% faithful) + catalog gaps modelled
 
-The user's real pkmn.gg collection (account **[redacted]**) is imported. **389 (card,variant)
+The user's real pkmn.gg collection is imported via an authenticated export. **389 (card,variant)
 rows / 835 cards across 23 English sets — 0 in the review bucket.**
 
-**Extraction.** pkmn.gg's backend is `[redacted host]/pkmn`. The authoritative endpoints
-(discovered from the SPA bundle + session):
-- `GET /v1/collection?setId=<id>` — real per-set ownership `{cardId, variant, quantity}`.
-  The `/v1/collection/recent` feed in the user's XHR sample was a *views* feed (all
-  quantities 0) — **not** ownership; the gating risk is resolved by using the per-set GET.
-- `GET /v1/card/<setId>` — authoritative full per-card `variantMap` (incl. `tcgPlayerId`,
-  `tcgPlayerSubtype`, and a `type: Primary|Secondary` flag = pkmn's master-tier boundary).
-- `GET /v1/set` — all 649 sets (211 EN / 21 Pocket-EN / 417 JP). Swept the 211 EN only.
-- `POST /v1/auth/refresh` with `Cookie: refresh_token=…` mints a fresh access token
-  (rotates the refresh token). Access JWT lives ~15 min; the extractor auto-refreshes.
-Scripts: `scripts/pkmn-extract.mjs` (sweep → `~/Transfer/pkmn-collection-full.jsonl`,
-durable, gitignored), `scripts/pkmn-import.mjs` (resolve + dry-run/`--commit`, idempotent
-SET-quantity upsert + `collection_event` + `recomputeSetProgress`). Session/token files
-live in `~/Transfer/` only — never committed or logged.
+**Extraction.** The collection was exported from pkmn.gg using scripts that authenticated
+against the platform's API [redacted: reverse-engineered API endpoints and auth-flow details
+removed for public-repo privacy]. The scripts swept per-set ownership data and resolved
+each card+variant to the local schema. Session/token files lived in `~/Transfer/` only
+-- never committed or logged. The scraper scripts have been removed from the repo
+(see 2026-08-09 privacy scrub).
 
 **Mapping.** Card: pkmn `cardId` → our `card.tcgdex_id` via a set crosswalk
 (`sv3pt5`→`sv03.5`, `sv8pt5`→`sv08.5`, `sv10pt5_blk`→`sv10.5b`, `sve23`→`sve`, `misc-MEW`→
@@ -477,7 +468,7 @@ of that finish (this is pkmn's "bare name = base print run" semantic — Base Se
 `holo-unlimited`, Fossil Normal → `normal-foil-galaxy`); facet keys (1st-edition, poké-ball,
 stamps) require the exact facet.
 
-**Catalog gap fixed (`scripts/pkmn-enrich.mjs`).** TCGdex under-catalogues reverse-holos:
+**Catalog gap fixed** (one-off enrichment script, removed). TCGdex under-catalogues reverse-holos:
 **me04 Chaos Rising had 0 reverse variants** (siblings me01–03 have ~1.9/card) — a real
 ingest gap, NOT a new set. Modelled the missing variants from pkmn.gg's authoritative
 variantMap, tagged `source='pkmn.gg'` (fully reversible: `DELETE … WHERE source='pkmn.gg'`).
@@ -492,17 +483,17 @@ Lunatone) as **Secondary** (grandmaster-only) — so our me01 Master reads 12 vs
 This is the documented pack-pulled-boundary derivation gap (§5). **Fixable** by ingesting
 pkmn's `type: Primary/Secondary` flag into `variant_tier_override` catalog-wide — deferred
 (a tier-system change, offered to the user). Also: pkmn.gg-modelled variants carry a
-`tcgPlayerId` but no price row yet, so collection value ($746) slightly under-counts them.
+`tcgPlayerId` but no price row yet, so collection value slightly under-counts them.
 
-Verified live (http://localhost/deckscout/) desktop + 390px: Pitch Black 38/120 · 31.7% ·
-Master 22.4% (matches pkmn), Trainer Level 36, value [redacted]/[redacted], Pokédex 213/1025.
+Verified live desktop + 390px: Pitch Black 38/120 · 31.7% ·
+Master 22.4% (matches pkmn), Trainer Level and collection value match expected values.
 Import is idempotent — re-run picks up any future TCGdex reverse-holo backfill automatically.
 
 ## 2026-07-28 — Tier boundary synced to pkmn + prices + runbook (23/23 sets exact)
 
 Closed out the three residuals from the import so the collection is **completely** faithful:
 
-- **Tier sync (`scripts/pkmn-tier-sync.mjs`).** pkmn's per-card `variantMap[key].type`
+- **Tier sync** (one-off script, removed). pkmn's per-card `variantMap[key].type`
   (`Primary`=Master / `Secondary`=Grandmaster-only) is the authoritative pack-pulled
   boundary. Ingested it into `variant_tier_override` (card-scoped, `asserted_by=
   'pkmn.gg-tier-sync'`) wherever our derived v3 rule disagreed — **260 overrides**. Two
@@ -511,17 +502,16 @@ Closed out the three residuals from the import so the collection is **completely
   (2) WOTC 1st-edition → Primary for Jungle/Fossil/Team Rocket (~209 — pkmn counts BOTH
   unlimited and 1st-ed printings as Master; Base Set is the exception since its 1st-ed is
   *also* Shadowless, correctly staying Secondary). Result: **23/23 owned sets now match
-  pkmn.gg exactly on Complete + Master + Grandmaster** (`scripts/pkmn-verify.mjs`).
+  pkmn.gg exactly on Complete + Master + Grandmaster** (verified at import time).
 - **Prices.** Re-ran the TCGCSV ingest; the modelled standard variants (83 reverse + 9 holo
   with TCGplayer ids) are now priced. The ~11 promo variants without a TCGplayer id stay
   unpriced by design (no invented prices — SCHEMA §4.6).
-- **New `card_variant.source` value `pkmn.gg`** added to the CHECK constraint (inline in
-  `pkmn-enrich.mjs`); one new `variant_kind` `holo-stamp-trick-or-trade`.
-- **Runbook: `PKMN-SYNC-RUNBOOK.md`** — the full procedure for a future agent on each new
-  release (fetch pkmn variantMap → model missing variants → tier-sync → price → import →
-  verify against set-stats), with the API map, the tier nuances, and per-step undo. New
-  helper scripts: `pkmn-fetch-sets.mjs`, `pkmn-verify.mjs`. `HANDOFF-COLLECTION-IMPORT.md`
-  is now superseded by the runbook.
+- **New `card_variant.source` value `pkmn.gg`** added to the CHECK constraint;
+  one new `variant_kind` `holo-stamp-trick-or-trade`.
+- **Runbook** — the full procedure for a future agent on each new release (fetch pkmn
+  variantMap → model missing variants → tier-sync → price → import → verify against
+  set-stats), with the tier nuances and per-step undo. The scraper scripts and runbook
+  have been removed from the repo (see 2026-08-09 privacy scrub).
 
 ## 2026-07-29 — In-app bug reporter + `fix-issues` skill
 
@@ -605,7 +595,7 @@ The last two daily cron stubs in `apps/sync` are now real: `snapshot-collection`
   make `REAL_JOBS` importable, `apps/sync/src/index.ts` gained the same
   `pm_exec_path`/argv isMain guard as apps/api — importing it no longer boots the
   scheduler. Boot log now prints per-job REAL/stub roster (4 real; catalog / images /
-  products-tcgcsv stay manual per PKMN-SYNC-RUNBOOK.md).
+  products-tcgcsv stay manual per the sync runbook).
 - **Proven live**: first snapshot run inserted 2 `collection_value_point` rows
   (2026-07-30: USD 77701, EUR 101151 minor); re-run inserted 0 (idempotent).
   Reconcile bumped all 642 `user_set_progress.reconciled_at` and changed **zero**
@@ -998,3 +988,37 @@ missing upstream data, not a mapping bug — verified against the endpoint befor
 Verified in a real browser at 390px and 1440px, first on a main-tree dev server (:5199) and
 then against the deployed build, zero console errors in both. Deployed: `deckscout-api` rebuilt
 and restarted (additive `series` field), web rebuilt.
+
+## 2026-08-09 — Privacy scrub for public repo (github.com/cheyras/deckscout)
+
+**Decided by:** user (via agent audit). The repo went public earlier this same day, so
+this scrub trailed the exposure by hours; whether to also rewrite the already-public
+history is a separate, still-open decision.
+
+**What was removed/redacted:**
+1. **Personal account data** — pkmn.gg account identifiers, collection-value figures,
+   and a battle-log line tying the GitHub identity to the gaming account were redacted
+   from `DECISIONS.md`. The two research files containing full account captures and
+   collection-transfer planning (`research/AUTH-CAPTURES.md`,
+   `research/COLLECTION-TRANSFER.md`) were deleted.
+2. **Reverse-engineered API scraper** — the six `scripts/pkmn-*.mjs` scripts (extract,
+   fetch-sets, enrich, import, tier-sync, verify) that authenticated against pkmn.gg's
+   private API were deleted. Endpoint paths, auth-flow mechanics, and header-spoofing
+   details were redacted from prose. The runbook referencing these scripts was never
+   tracked (commit 1a1828b's message claimed removal of `research/pkmn-gg/` and
+   `PKMN-SYNC-RUNBOOK.md`, but those were never committed -- that commit only added
+   the LICENSE file).
+3. **Third-party names** — a co-hosted database name and role identifying a real person
+   were replaced with generic labels across all files.
+4. **Infrastructure fingerprinting** — `BRIEF.md`'s exhaustive port inventory of the
+   entire host was trimmed to DeckScout's own 3700-3709 block; the SSO gate postmortem
+   specifics (filesystem paths, uid, secret filenames) were reduced to the lesson only.
+5. **Dangling references** — all pointers to deleted files were updated across the tree
+   (code comments, research docs, skills, specs). Source-capture citations in code
+   retain the formula evidence but no longer reference the removed file.
+6. **Defense-in-depth** — `issues/*/*.jpg` added to `.gitignore`.
+
+**Why:** the repo went public. Personal account data, reverse-engineered API tooling,
+third-party names, and detailed infrastructure internals have no place in a public
+codebase. The engineering lessons and verified formulas are preserved; only the
+private specifics are gone.

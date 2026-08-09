@@ -83,7 +83,7 @@ export function typeColor(type: string): string {
   return TYPE_COLORS[type.toLowerCase()] ?? '#7f8596'
 }
 
-// Set LVL from Complete-Set pct (AUTH-CAPTURES §10): 0 if 0%, else 1+floor(pct/25), cap "Max".
+// Set LVL from Complete-Set pct (verified against pkmn.gg): 0 if 0%, else 1+floor(pct/25), cap "Max".
 export function setLevelLabel(pct: number): string {
   if (pct >= 100) return 'MAX'
   if (pct === 0) return '0'

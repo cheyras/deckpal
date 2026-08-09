@@ -174,7 +174,7 @@ export function provenance(f: Facet): string | null {
   }
 }
 
-// ── display name composition (SCHEMA §5.4.2) — verified 5/5 against AUTH-CAPTURES §12.2 ──
+// ── display name composition (SCHEMA §5.4.2) — verified 5/5 against pkmn.gg captures §12.2 ──
 function editionPrefix(f: Facet, siblings: Facet[]): string {
   if (f.stamps.includes('1st-edition')) return '1st Edition';
   // 'Unlimited' iff a sibling is identical except it carries the 1st-edition stamp.

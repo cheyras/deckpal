@@ -295,8 +295,7 @@ there.
 - Never write `variant_tier_override` (human-asserted). Never touch other pm2 apps, nginx,
   `the-original-host-api/`, Postgres config. No `git push` (no remote). Don't commit — the lead agent
   reviews and commits.
-- Secrets (`.env`, `[redacted path]`, `token-cache.json`): read at runtime only, never
-  log values, never commit.
+- Secrets (`.env`, `token-cache.json`): read at runtime only, never log values, never commit.
 - `console.log`/`console.error` with `[deckscout-mcp]` prefix — no logging library.
 - Result-size budgets: Claude Code caps tool output ~25k tokens; claude.ai ~150k chars — the
   paging defaults in §4 exist so we never get near either.

@@ -8,7 +8,7 @@ const { Pool } = pg;
  *
  * 🔴 Connection budget is 4 TOTAL across the whole app (API 2 + sync 1 + mcp 1;
  * see DECISIONS.md 2026-07-29). Postgres on this box runs at max_connections=20,
- * 3 reserved, ~11 already used by a co-hosted app/brain2db. See DECISIONS.md
+ * 3 reserved, ~11 already used by co-hosted apps. See DECISIONS.md
  * 2026-07-24 (storage) and research/DATA-LAYER.md §6.5. Never raise past 5
  * without re-checking headroom AND a Postgres restart (which requires the
  * user's permission).

@@ -2,7 +2,7 @@
  * National Pokédex completion, per-generation breakdown, and per-species capture
  * / level / shiny state.
  *
- * Capture model (research/DEX-DATA.md §A.3, §D.2; AUTH-CAPTURES.md):
+ * Capture model (research/DEX-DATA.md §A.3, §D.2; pkmn.gg source captures):
  *   • A species is CAPTURED when you own ≥1 card that (a) features it via
  *     card_species AND (b) has card.category = 'Pokemon'. The category gate is
  *     non-negotiable: a Trainer such as "Tropical Tidal Wave" carries dexIds
@@ -26,7 +26,7 @@ export const NATIONAL_DEX_SIZE = 1025;
 
 /**
  * ── ASSUMPTION (shiny) — FLAGGED, one-line switch ───────────────────────────
- * AUTH-CAPTURES §21 item 12 states the Pokédex shiny threshold was NEVER
+ * pkmn.gg captures §21 item 12 states the Pokédex shiny threshold was NEVER
  * observed (no signed-in Pokédex screen exists in the 37 captures). DEX-DATA
  * §D.2 offers only a breadth-based shape, `GREATEST(unique - 1, 0)`, and leaves
  * the exact rule to "the rule layer". We therefore implement the DOCUMENTED

@@ -51,7 +51,7 @@ export function OwnershipStrip({
           )
         })}
       </div>
-      {/* goal star switcher (AUTH-CAPTURES §8) */}
+      {/* goal star switcher (pkmn.gg captures §8) */}
       <button
         onClick={() => {
           const next = goals[(goals.indexOf(search.goal) + 1) % goals.length]
@@ -135,7 +135,7 @@ export function SortChips({ search, patch }: { search: CardSearch; patch: Patch 
   )
 }
 
-// Variant colour legend (AUTH-CAPTURES §4): yellow=Normal, purple=Holofoil,
+// Variant colour legend (pkmn.gg captures §4): yellow=Normal, purple=Holofoil,
 // blue=Reverse Holofoil.
 export function VariantLegend() {
   const items = [

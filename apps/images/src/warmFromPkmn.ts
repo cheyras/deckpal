@@ -23,15 +23,14 @@ import { fromUrl, isWebp, putAsset, sniffContentType } from './store.js';
  *
  *   pnpm --filter deckscout-images warm:pkmn -- --dry-run
  *   pnpm --filter deckscout-images warm:pkmn -- --set smp
- *   PKMN_AUTH=[redacted path] pnpm --filter deckscout-images warm:pkmn
+ *   PKMN_AUTH=<path-to-auth-file> pnpm --filter deckscout-images warm:pkmn
  *
- * Secret handling (CLAUDE.md): the session is read at RUNTIME from `PKMN_AUTH`
- * (default `[redacted path]`), never committed, never logged. Refresh
- * tokens rotate, so run ONE consumer at a time.
+ * Secret handling (CLAUDE.md): the auth file is read at RUNTIME from `PKMN_AUTH`,
+ * never committed, never logged. Refresh tokens rotate, so run ONE consumer at a time.
  */
 
 const BASE = 'https://[redacted host]/pkmn';
-const SESSION_PATH = process.env.PKMN_AUTH ?? join(homedir(), 'Transfer', 'redacted-auth-file');
+const SESSION_PATH = process.env.PKMN_AUTH ?? join(homedir(), 'Transfer', 'pkmn-auth.json');
 
 interface Session {
   access_token: string;
@@ -44,7 +43,7 @@ async function loadSession(): Promise<Session> {
   if (session) return session;
   if (!existsSync(SESSION_PATH)) {
     throw new Error(
-      `pkmn session not found at ${SESSION_PATH}. Set PKMN_AUTH to the session file ` +
+      `pkmn auth file not found at ${SESSION_PATH}. Set PKMN_AUTH to the auth file ` +
         `(JSON with access_token + refresh_token). Never commit or log it.`,
     );
   }

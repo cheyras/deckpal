@@ -269,7 +269,7 @@ three `user_set_progress` rows** and return them authoritatively. Idempotent
 (setting the same quantity writes no event). Bodies are JSON; all queries
 parameterized. Responses are `private, no-cache`.
 
-Tier drives which goals a variant advances (SCHEMA §5.3, AUTH-CAPTURES §4/§8/§11):
+Tier drives which goals a variant advances (SCHEMA §5.3):
 **Complete** = own the card in ≥1 variant of any tier (card fraction); **Master** =
 own each `(card, standard-variant)` pair (over `master_required_variant`);
 **Grandmaster** = own each `(card, any-variant)` pair. `totalQuantity` is per-goal

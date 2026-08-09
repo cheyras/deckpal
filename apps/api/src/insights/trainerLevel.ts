@@ -1,10 +1,10 @@
 /**
  * Trainer Level + set-LVL — the two gamification formulas, as PURE functions.
  *
- * Both are settled by authenticated captures (research/AUTH-CAPTURES.md):
+ * Both are settled by authenticated pkmn.gg captures (source captures not tracked):
  *
- *   Trainer Level = floor(unique_cards / 10)              §13  (276 unique → badge 27)
- *   set LVL       = 0 if pct == 0 else 1 + floor(pct/25)  §10  (nine data points; dots at 25/50/75)
+ *   Trainer Level = floor(unique_cards / 10)              (276 unique → badge 27)
+ *   set LVL       = 0 if pct == 0 else 1 + floor(pct/25)  (nine data points; dots at 25/50/75)
  *
  * No DB access here — callers pass in counts. The DB adapters (collectionValue.ts,
  * pokedex.ts) produce the counts; these functions turn counts into levels.
@@ -12,16 +12,16 @@
 
 /**
  * ── ASSUMPTION (one-line switch) ────────────────────────────────────────────
- * What "unique cards" means for Trainer Level. AUTH-CAPTURES §13 leans toward
+ * What "unique cards" means for Trainer Level. The pkmn.gg source captures lean toward
  * distinct CARDS (677 total / 276 unique on the reference account fits either
- * reading, but the stat card is labelled "Unique Cards" and §21 item 3 lists the
+ * reading, but the stat card is labelled "Unique Cards" and the question of
  * card-vs-(card,variant) question as still-open). We default to distinct cards.
  * Flip to 'pairs' to count distinct (card, variant) pairs instead — nothing else
  * changes; the adapter selects the matching COUNT(DISTINCT …).
  */
 export const TRAINER_UNIQUE_MODE: 'cards' | 'pairs' = 'cards';
 
-/** Cards needed per Trainer Level (AUTH-CAPTURES §13: floor(unique/10)). */
+/** Cards needed per Trainer Level (floor(unique/10), verified against pkmn.gg). */
 export const CARDS_PER_LEVEL = 10;
 
 /** Trainer Level from the count of unique owned cards. floor(unique / 10). */
@@ -62,7 +62,7 @@ export function trainerLevelProgress(uniqueCards: number): TrainerLevelProgress 
 // ── Set / species completion level ────────────────────────────────────────────
 
 /**
- * The set-LVL ladder is 0,1,2,3,4,Max = 6 states (AUTH-CAPTURES §10, D.A22).
+ * The set-LVL ladder is 0,1,2,3,4,Max = 6 states (verified against pkmn.gg, D.A22).
  * `1 + floor(pct/25)` yields 1..5; 5 is the "Max" state reached only at 100%.
  * We clamp to MAX_SET_LEVEL so a rounding artdefact above 100 can't exceed it.
  */
@@ -76,7 +76,7 @@ export function pct(owned: number, total: number): number {
 
 /**
  * set LVL from a real percentage: 0 if pct<=0 else 1 + floor(pct/25), capped.
- * Verified against AUTH-CAPTURES §10: 0→0, 6.4→1, 14.2→1, 22.3→1, 26.2→2,
+ * Verified against pkmn.gg source captures: 0→0, 6.4→1, 14.2→1, 22.3→1, 26.2→2,
  * 62.5→3.
  */
 export function setLevel(percent: number): number {
