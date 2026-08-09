@@ -1,7 +1,7 @@
 {
  "model": "google/gemini-3.1-pro-preview",
  "images": [
-  "/home/cheyras/pokedex-worktrees/foil-video/research/foil-video-reference/rainbow-mirror/frame-01.jpg"
+  "research/foil-video-reference/rainbow-mirror/frame-01.jpg"
  ],
  "prompt": "This is a frame from a video about Pokemon TCG holofoil patterns. A person is holding a trading card. What is the exact name printed in the card's title bar? Answer with the card name and a one-sentence description of what you see.",
  "out": "answer.md",

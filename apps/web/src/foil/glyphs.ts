@@ -17,7 +17,7 @@
 // prod always renders the procedural fallbacks until a bundling step exists
 // (documented in the README — not built until the assets exist).
 
-const BASE = '/pokedex/api'
+const BASE = '/deckscout/api'
 
 /**
  * Patterns with a glyph slot. `shares` names a sibling slug whose assets are

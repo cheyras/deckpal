@@ -31,7 +31,7 @@ import { rasterizeTemplate, type VectorTemplate } from './vector-template.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '../../../..');
 const TEMPLATE_FILE = join(ROOT, 'apps/web/src/foil/vector-templates.json');
-const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? '/home/cheyras/pokedex/cache';
+const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? join(ROOT, 'cache');
 
 /** The mask tint the editor and the shader expect; only alpha is load-bearing. */
 const TINT: [number, number, number] = [255, 45, 100];
