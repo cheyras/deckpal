@@ -22,8 +22,11 @@
     "onlyBuiltDependencies": []
   },
   "devDependencies": {
+    "@types/node": "^26.1.2",
     "tsx": "^4.23.9",
-    "typescript": "^7.0.2",
-    "@types/node": "^26.1.2"
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "pg": "^8.22.0"
   }
 }

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { q1 } from '../db.js';
+import { pool, q1 } from '../db.js';
 import { asyncHandler, badRequest, str } from '../http.js';
 
 /**
@@ -322,7 +322,10 @@ bugsRouter.post(
         issueUrl = gh.html_url;
 
         // 4. Store the issue number on the row.
-        await q1(
+        // This UPDATE runs outside the RLS context (pool.query, not q1)
+        // because the user's RLS policy grants INSERT + SELECT but not
+        // UPDATE — the issue number is server bookkeeping, not a user action.
+        await pool.query(
           `UPDATE bug_report SET github_issue_number = $1 WHERE id = $2`,
           [issueNumber, reportId],
         );
