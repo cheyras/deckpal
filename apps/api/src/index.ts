@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
-import { closePool, pool, q } from './db.js';
+import { closePool, pool, q, rlsStore, SUPABASE_MODE, withUserContext } from './db.js';
 import { asyncHandler, catalogCache, errorMiddleware } from './http.js';
 import { authMiddleware, requireAuth } from './auth.js';
 import { seriesRouter } from './routes/series.js';
@@ -75,6 +75,60 @@ export function createApp(): express.Express {
   // JWT verification runs on every request (extracts req.user from Bearer token).
   // It never rejects — routes that need auth use requireAuth below.
   api.use(authMiddleware);
+
+  // RLS context: in SUPABASE_MODE, wrap authenticated requests in a transaction
+  // with SET LOCAL role = 'authenticated' + request.jwt.claims. This makes RLS
+  // policies fire on every query — defense-in-depth on top of the parameterized
+  // WHERE user_id = $1 clauses. q(), q1(), and withTx() automatically use the
+  // per-request client via AsyncLocalStorage, so routes need no changes.
+  if (SUPABASE_MODE) {
+    api.use((req, res, next) => {
+      if (!req.user) {
+        // No authenticated user — public routes run without RLS context.
+        next();
+        return;
+      }
+      const userId = req.user.id;
+      pool.connect().then(async (client) => {
+        try {
+          await client.query('BEGIN');
+          await client.query(
+            `SELECT set_config('request.jwt.claims', $1, true)`,
+            [JSON.stringify({ sub: userId, role: 'authenticated' })],
+          );
+          await client.query(`SET LOCAL role = 'authenticated'`);
+
+          let cleaned = false;
+          const cleanup = async (mode: 'commit' | 'rollback') => {
+            if (cleaned) return;
+            cleaned = true;
+            try {
+              await client.query(mode === 'commit' ? 'COMMIT' : 'ROLLBACK');
+            } catch { /* swallow — connection may already be dead */ }
+            try {
+              await client.query('RESET ROLE');
+            } catch { /* best-effort */ }
+            client.release();
+          };
+
+          res.on('finish', () => void cleanup('commit'));
+          res.on('close', () => {
+            // Early disconnect before finish — roll back rather than commit.
+            void cleanup('rollback');
+          });
+
+          // Run the rest of the middleware chain inside the RLS store context
+          // so q()/q1()/withTx() pick up the client transparently.
+          rlsStore.run(client, () => next());
+        } catch (err) {
+          try { await client.query('ROLLBACK'); } catch { /* swallow */ }
+          try { await client.query('RESET ROLE'); } catch { /* swallow */ }
+          client.release();
+          next(err);
+        }
+      }).catch(next);
+    });
+  }
 
   // Health: DB liveness + per-sync freshness (cheap; single grouped query).
   // Public — no requireAuth.

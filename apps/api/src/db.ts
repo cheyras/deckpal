@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import pg from 'pg';
 import { loadEnv, makePool } from '@deckscout/db';
 
@@ -16,10 +17,93 @@ loadEnv();
 
 export const pool: pg.Pool = makePool(Number(process.env.PGPOOL_MAX_API ?? 2));
 
+// ── Per-request RLS context (defense-in-depth for Supabase deployments) ─────
+//
+// When SUPABASE_MODE is set, a middleware wraps each authenticated request in a
+// transaction with SET LOCAL role = 'authenticated' + request.jwt.claims so that
+// RLS policies fire transparently on every query — even if a route forgets a
+// WHERE user_id clause. Self-host deployments leave SUPABASE_MODE unset and all
+// of this is a no-op (plain Postgres lacks the roles/auth schema).
+//
+// The rlsStore (AsyncLocalStorage) holds the per-request PoolClient. q(), q1(),
+// and withTx() check the store before touching the pool, so existing routes work
+// unchanged — no call-site rewrites required.
+
+const SUPABASE_MODE = !!process.env.SUPABASE_MODE;
+export { SUPABASE_MODE };
+
+/** AsyncLocalStorage carrying the per-request RLS-enabled PoolClient. */
+export const rlsStore = new AsyncLocalStorage<pg.PoolClient>();
+
+/**
+ * Run `fn` inside a per-request RLS context (defense-in-depth).
+ *
+ * When SUPABASE_MODE is set:
+ *   1. Check out a PoolClient and BEGIN a transaction.
+ *   2. SET LOCAL role = 'authenticated' and set request.jwt.claims so
+ *      auth.uid() resolves to `userId` for the remainder of the transaction.
+ *   3. Run `fn` inside the AsyncLocalStorage context (q/q1/withTx pick it up).
+ *   4. COMMIT (or ROLLBACK on error) and release the client.
+ *
+ * When SUPABASE_MODE is unset: passthrough — `fn` runs directly with no RLS,
+ * and the existing parameterized-query pattern is the sole access-control layer.
+ */
+export async function withUserContext<T>(
+  userId: string,
+  fn: (client: pg.PoolClient) => Promise<T>,
+): Promise<T> {
+  if (!SUPABASE_MODE) {
+    // Self-host: no RLS, no role switching. Hand the caller a plain client.
+    const client = await pool.connect();
+    try {
+      return await fn(client);
+    } finally {
+      client.release();
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `SELECT set_config('request.jwt.claims', $1, true)`,
+      [JSON.stringify({ sub: userId, role: 'authenticated' })],
+    );
+    await client.query(`SET LOCAL role = 'authenticated'`);
+    const result = await rlsStore.run(client, () => fn(client));
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      /* ignore rollback failure — original error is what matters */
+    }
+    throw err;
+  } finally {
+    // RESET ROLE so the connection is returned to the pool in a clean state.
+    // This is defensive: pg releases connections back to the pool after the
+    // COMMIT/ROLLBACK above, but if the connection is reused before the pool
+    // closes, we want the role to be the connection default (the pool user),
+    // not 'authenticated'.
+    try {
+      await client.query('RESET ROLE');
+    } catch {
+      /* best-effort; the pool will discard a broken connection */
+    }
+    client.release();
+  }
+}
+
 export async function q<T extends pg.QueryResultRow = pg.QueryResultRow>(
   text: string,
   params: readonly unknown[] = [],
 ): Promise<T[]> {
+  const rlsClient = rlsStore.getStore();
+  if (rlsClient) {
+    const res = await rlsClient.query<T>(text, params as unknown[]);
+    return res.rows;
+  }
   const res = await pool.query<T>(text, params as unknown[]);
   return res.rows;
 }
@@ -59,8 +143,34 @@ export async function closePool(): Promise<void> {
  * collection_item write, the collection_event append, and the user_set_progress
  * recompute either all land together or not at all. Stays within the 2-connection
  * budget: one client is checked out for the duration and released in `finally`.
+ *
+ * When an RLS context is active (withUserContext middleware), the request is
+ * already inside a transaction on the rlsStore client. In that case withTx
+ * nests via SAVEPOINT instead of a separate BEGIN/COMMIT, reuses the same
+ * client (no second connection), and inherits the RLS settings.
  */
+let _spCounter = 0;
 export async function withTx<T>(fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  const rlsClient = rlsStore.getStore();
+  if (rlsClient) {
+    // Already inside withUserContext's transaction — nest with SAVEPOINT.
+    const sp = `sp_${++_spCounter}`;
+    await rlsClient.query(`SAVEPOINT ${sp}`);
+    try {
+      const out = await fn(rlsClient);
+      await rlsClient.query(`RELEASE SAVEPOINT ${sp}`);
+      return out;
+    } catch (err) {
+      try {
+        await rlsClient.query(`ROLLBACK TO SAVEPOINT ${sp}`);
+      } catch {
+        /* ignore rollback failure — original error is what matters */
+      }
+      throw err;
+    }
+  }
+
+  // No RLS context — original behaviour: own connection + BEGIN/COMMIT.
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
