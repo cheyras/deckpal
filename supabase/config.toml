@@ -1,0 +1,30 @@
+# Supabase CLI local config.
+#
+# Schema management is handled by the DeckScout migration runner
+# (packages/db/src/migrate.ts), NOT the Supabase CLI.  This config exists so
+# that `supabase db push` can be used as a one-shot alternative for initial
+# project setup, and for future Supabase CLI commands (functions, storage, etc.).
+#
+# The project id is filled in when the Supabase project is created.
+
+[project]
+id = ""
+
+[db]
+port = 54322
+major_version = 15
+
+[db.pooler]
+enabled = true
+port = 54329
+pool_mode = "transaction"
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+
+[auth.email]
+enable_signup = true
+
+[storage]
+enabled = true

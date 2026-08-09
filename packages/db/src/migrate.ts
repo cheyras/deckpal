@@ -18,6 +18,10 @@ import pg from 'pg';
  *  - applied files are recorded in `schema_migrations` with a sha256 checksum.
  *  - re-running is a no-op; a checksum change on an already-applied file is a
  *    hard error (edit-in-place of shipped migrations is forbidden — add a new one).
+ *  - a migration whose first line is `-- @supabase-only` is skipped unless
+ *    the env var `SUPABASE_MODE` is truthy. This lets self-host deployments
+ *    run plain Postgres without Supabase-specific DDL (RLS policies, auth.users
+ *    FK, etc.).
  */
 
 export interface MigrationResult {
@@ -32,13 +36,22 @@ function sha256(s: string): string {
   return createHash('sha256').update(s).digest('hex');
 }
 
-function listMigrations(): { version: string; file: string; sql: string; checksum: string }[] {
+interface Migration {
+  version: string;
+  file: string;
+  sql: string;
+  checksum: string;
+  supabaseOnly: boolean;
+}
+
+function listMigrations(): Migration[] {
   return readdirSync(migrationsDir)
     .filter((f) => /^\d+.*\.sql$/.test(f))
     .sort()
     .map((file) => {
       const sql = readFileSync(join(migrationsDir, file), 'utf-8');
-      return { version: file.replace(/\.sql$/, ''), file, sql, checksum: sha256(sql) };
+      const supabaseOnly = sql.startsWith('-- @supabase-only');
+      return { version: file.replace(/\.sql$/, ''), file, sql, checksum: sha256(sql), supabaseOnly };
     });
 }
 
@@ -54,6 +67,7 @@ async function ensureTable(client: pg.PoolClient): Promise<void> {
 
 export async function migrateUp(pool: pg.Pool): Promise<MigrationResult[]> {
   const migrations = listMigrations();
+  const supabaseMode = !!process.env.SUPABASE_MODE;
   const results: MigrationResult[] = [];
   const client = await pool.connect();
   try {
@@ -73,6 +87,11 @@ export async function migrateUp(pool: pg.Pool): Promise<MigrationResult[]> {
               `Shipped migrations are immutable — add a new migration instead of editing.`,
           );
         }
+        results.push({ version: m.version, applied: false, checksum: m.checksum });
+        continue;
+      }
+      // Skip Supabase-only migrations on plain Postgres.
+      if (m.supabaseOnly && !supabaseMode) {
         results.push({ version: m.version, applied: false, checksum: m.checksum });
         continue;
       }
