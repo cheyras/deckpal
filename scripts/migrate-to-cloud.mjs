@@ -81,12 +81,15 @@ const CATALOG_TABLES = [
   'card_image_phash',
 ];
 
-/** Per-user tables: user_id (BIGINT in source) is replaced with the target UUID. */
+/** Per-user tables: user_id (BIGINT in source) is replaced with the target UUID.
+ *  singleton: true for 1:1 per-user tables (PK = user_id).  These use
+ *  ON CONFLICT ... DO UPDATE so that business columns are preserved even when
+ *  the Supabase signup trigger pre-created a bare row. */
 const USER_TABLES = [
   // order matters: parent tables first (FK dependencies)
-  { table: 'app_user',               idCol: 'id',      transform: 'root' },
-  { table: 'user_settings',          idCol: 'user_id', transform: 'fk' },
-  { table: 'user_profile',           idCol: 'user_id', transform: 'fk' },
+  { table: 'app_user',               idCol: 'id',      transform: 'root', singleton: true },
+  { table: 'user_settings',          idCol: 'user_id', transform: 'fk',   singleton: true },
+  { table: 'user_profile',           idCol: 'user_id', transform: 'fk',   singleton: true },
   { table: 'user_showcase',          idCol: 'user_id', transform: 'fk' },
   { table: 'collection_item',        idCol: 'user_id', transform: 'fk' },
   { table: 'collection_event',       idCol: 'user_id', transform: 'fk' },
@@ -221,6 +224,7 @@ async function migrate() {
     console.log(`Mapping local user ${users[0].username} (id=${oldUserId}) -> ${targetUserId}\n`);
 
     // ── Catalog tables ────────────────────────────────────────────────────
+    const BATCH_SIZE = 500;
     console.log('--- Catalog tables ---');
     for (const table of CATALOG_TABLES) {
       const cols = await getColumns(src, table);
@@ -230,19 +234,66 @@ async function migrate() {
       if (rows.length === 0) { continue; }
 
       const colList = cols.map(c => `"${c}"`).join(', ');
-      const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
 
       let inserted = 0;
-      for (const row of rows) {
-        const vals = cols.map(c => row[c]);
+      for (let b = 0; b < rows.length; b += BATCH_SIZE) {
+        const batch = rows.slice(b, b + BATCH_SIZE);
+        const allVals = [];
+        const valueClauses = [];
+        for (let r = 0; r < batch.length; r++) {
+          const offset = r * cols.length;
+          const ph = cols.map((_, i) => `$${offset + i + 1}`).join(', ');
+          valueClauses.push(`(${ph})`);
+          for (const c of cols) allVals.push(batch[r][c]);
+        }
         try {
-          await tgt.query(
-            `INSERT INTO "${table}" (${colList}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
-            vals
+          const result = await tgt.query(
+            `INSERT INTO "${table}" (${colList}) OVERRIDING SYSTEM VALUE VALUES ${valueClauses.join(', ')} ON CONFLICT DO NOTHING`,
+            allVals
           );
-          inserted++;
+          inserted += result.rowCount;
         } catch (err) {
-          console.error(`  ${table}: error on row: ${err.message}`);
+          // Deferrable constraints don't support ON CONFLICT — retry batch without it
+          if (err.message.includes('deferrable')) {
+            try {
+              const result = await tgt.query(
+                `INSERT INTO "${table}" (${colList}) OVERRIDING SYSTEM VALUE VALUES ${valueClauses.join(', ')}`,
+                allVals
+              );
+              inserted += result.rowCount;
+            } catch (e2) {
+              // Batch has duplicates — fall back to row-by-row without ON CONFLICT
+              for (const row of batch) {
+                const vals = cols.map(c => row[c]);
+                const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+                try {
+                  await tgt.query(
+                    `INSERT INTO "${table}" (${colList}) OVERRIDING SYSTEM VALUE VALUES (${placeholders})`,
+                    vals
+                  );
+                  inserted++;
+                } catch (e3) {
+                  // duplicate key — already exists, skip
+                }
+              }
+            }
+          } else {
+            console.error(`  ${table}: batch error at offset ${b}: ${err.message}`);
+            // Fall back to row-by-row
+            for (const row of batch) {
+              const vals = cols.map(c => row[c]);
+              const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+              try {
+                await tgt.query(
+                  `INSERT INTO "${table}" (${colList}) OVERRIDING SYSTEM VALUE VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
+                  vals
+                );
+                inserted++;
+              } catch (e2) {
+                // skip individual row errors
+              }
+            }
+          }
         }
       }
       console.log(`  ${table}: ${inserted}/${rows.length} rows`);
@@ -250,7 +301,7 @@ async function migrate() {
 
     // ── Per-user tables ───────────────────────────────────────────────────
     console.log('\n--- Per-user tables ---');
-    for (const { table, idCol, transform } of USER_TABLES) {
+    for (const { table, idCol, transform, singleton } of USER_TABLES) {
       const cols = await getColumns(src, table);
       if (cols.length === 0) { console.log(`  ${table}: skipped (not found)`); continue; }
 
@@ -269,6 +320,20 @@ async function migrate() {
       const colList = targetCols.map(c => `"${c}"`).join(', ');
       const placeholders = targetCols.map((_, i) => `$${i + 1}`).join(', ');
 
+      // For singleton tables (app_user, user_settings, user_profile), use
+      // ON CONFLICT ... DO UPDATE so that business columns from the local DB
+      // overwrite the bare row the Supabase signup trigger may have created.
+      // Without this, display_name, joined_on, etc. are silently lost.
+      let conflictClause = 'ON CONFLICT DO NOTHING';
+      if (singleton) {
+        const pkCol = idCol;  // PK for singletons is always the idCol
+        const updateCols = targetCols.filter(c => c !== pkCol);
+        if (updateCols.length > 0) {
+          const setClauses = updateCols.map(c => `"${c}" = EXCLUDED."${c}"`).join(', ');
+          conflictClause = `ON CONFLICT ("${pkCol}") DO UPDATE SET ${setClauses}`;
+        }
+      }
+
       let inserted = 0;
       for (const row of rows) {
         const vals = targetCols.map(c => {
@@ -286,12 +351,25 @@ async function migrate() {
         });
         try {
           await tgt.query(
-            `INSERT INTO "${table}" (${colList}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
+            `INSERT INTO "${table}" (${colList}) OVERRIDING SYSTEM VALUE VALUES (${placeholders}) ${conflictClause}`,
             vals
           );
           inserted++;
         } catch (err) {
-          console.error(`  ${table}: error on row: ${err.message}`);
+          // Deferrable constraints don't support ON CONFLICT — retry without it
+          if (err.message.includes('deferrable')) {
+            try {
+              await tgt.query(
+                `INSERT INTO "${table}" (${colList}) OVERRIDING SYSTEM VALUE VALUES (${placeholders})`,
+                vals
+              );
+              inserted++;
+            } catch (e2) {
+              // duplicate — already exists
+            }
+          } else {
+            console.error(`  ${table}: error on row: ${err.message}`);
+          }
         }
       }
       console.log(`  ${table}: ${inserted}/${rows.length} rows`);
