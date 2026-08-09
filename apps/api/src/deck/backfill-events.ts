@@ -13,7 +13,7 @@
  * open briefly, closed in finally. Idempotent: each log's stream is replaced
  * wholesale in its own transaction (DELETE + batched INSERT).
  */
-import { loadEnv, makePool } from '@pokedex/db';
+import { loadEnv, makePool } from '@deckscout/db';
 import { parseBattleLog } from './battlelog.js';
 import { parseBattleEvents } from './battleevents.js';
 import { battleEventsTableExists, replaceBattleEvents, toEventRows } from './battleevents-db.js';
