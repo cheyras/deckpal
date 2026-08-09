@@ -183,7 +183,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
         <BrandMark size={33} />
         {!collapsed && (
           <span className="flex-1">
-            <span className="brand-wordmark text-[21px] leading-none">Pokédex</span>
+            <span className="brand-wordmark text-[21px] leading-none">DeckScout</span>
           </span>
         )}
         <button
@@ -289,7 +289,7 @@ function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: bo
         </button>
         <span className="flex min-w-0 items-center gap-[8px] nav:hidden">
           <BrandMark size={30} />
-          <span className="brand-wordmark text-[18px] leading-none">Pokédex</span>
+          <span className="brand-wordmark text-[18px] leading-none">DeckScout</span>
         </span>
 
         {/* search — desktop submits to /search; mobile is a link to the same page.
