@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # B4 · feat/replay-validation
 
 **Wave 3 — the engine's trust gate.**

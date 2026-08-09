@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # W0 · feat/battle-contracts
 
 **Wave 0 — serialize; every other battle feature builds on this merge.**

@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # B3 · feat/card-dsl
 
 **Wave 3 — the load-bearing feature of the whole engine track.**

@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # A3 · feat/battle-search-tools
 
 **Wave 2.** Worktree: `~/pokedex-worktrees/battle-search-tools` (create when A2 merges) ·

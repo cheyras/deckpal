@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # B1 · feat/engine-fork
 
 **Wave 1 — merge early: this branch churns root files (`pnpm-workspace.yaml`, lockfile).**

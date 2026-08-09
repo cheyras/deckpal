@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.**
+
 # C1 · feat/gauntlet
 
 **Wave 3.** Worktree: `~/pokedex-worktrees/gauntlet` (create when W0 merges; `impl_gaps`

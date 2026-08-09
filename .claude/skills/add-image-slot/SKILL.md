@@ -53,9 +53,11 @@ Follow the `add-tcg` Step-4 contract exactly:
 - **Warmer**: enumerate the work-list **from the DB** (not a source manifest); primary source →
   fallback; validate downloads (content-type + magic bytes, reject tiny bodies), polite rate
   limit, resumable. Model on `apps/images/src/warmer.ts` / `apps/images/src/warmFromPkmn.ts`.
-- **Write through the choke point** — `putAsset` from `apps/images/src/store.ts`, never a bare
-  `writeFile` into the cache. It does the atomic write *and* records the `image_asset` row, and
-  it **requires** provenance: `fromUrl(sourceUrl)` for anything fetched, or
+- **Write through the choke point** — never a bare `writeFile` or direct Storage upload.
+  **Cloud:** use `packages/storage/src/put-asset.ts` (uploads to Supabase Storage + upserts
+  `image_asset`). *(May not exist until Wave 2 code lands — mark the step clearly.)*
+  **Self-host:** use `putAsset` from `apps/images/src/store.ts` (atomic file write + manifest
+  row). Both require provenance: `fromUrl(sourceUrl)` for anything fetched, or
   `unknownProvenance('<why>')` when the source genuinely can't be established. Never invent a
   plausible URL. If the new slot needs a `kind` that isn't in the `image_asset` CHECK (migration
   006 allows `card`, `set-logo`, `set-symbol`, `set-background`, `sprite`, `avatar`, `banner`),
@@ -85,8 +87,8 @@ Summarize: the slot, the approved source, coverage/residue, the files touched, a
 codified. Offer to commit (repo convention: commit to `main`, never commit the image cache).
 
 ## Rules
-- Prefix every shell command (and every `&&` segment) with `rtk` (see `CLAUDE.md`).
-- Respect the image-cache contract and gitignore — **never commit card art or bulk assets**.
+- Respect the image-storage contract and gitignore — **never commit card art or bulk assets**.
 - Secrets/session tokens are read at runtime only, never committed or logged.
 - Approval gate (step 4) and browser verification (step 6) are non-negotiable; don't skip either.
-- Stay within the Postgres connection budget; don't touch nginx or other pm2 apps.
+- Stay within the Postgres connection budget; do not modify shared infrastructure
+  (Supabase settings, Vercel config) to fix an image issue.
