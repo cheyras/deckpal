@@ -3699,11 +3699,10 @@ known correct, the same probe reads 0.720 for *his own hand masks* and 0.758 for
 **The next hand masks should be one Lightning or Colorless reverse, one Trainer, one Energy.**
 
 **Operational gotcha from this run, worth not repeating:** stopping a per-branch dev API with
-`pkill -f "apps/api/dist/index.js"` also matches the **deployed** pm2 `pokedex-api`, which runs
-from `apps/api/dist/index.js`. pm2 restarted it within seconds (prod
-health 200, `unstable restarts 0`), but it was a real if brief prod blip caused by a careless
-pattern. **Kill a dev instance by PID, or match on the worktree path** — never on a path
-fragment that the deployment shares.
+`pkill -f "apps/api/dist/index.js"` also matches any **deployed** process running the same
+entry point. The process manager restarted it within seconds, but it was a real if brief prod
+blip caused by a careless pattern. **Kill a dev instance by PID, or match on the worktree
+path** — never on a path fragment that the deployment shares.
 
 
 ## 2026-08-08 — Chey on ex cards: base template + per-card delta shape (forward note, not yet built)
