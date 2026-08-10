@@ -24,6 +24,18 @@ assets/sprites/
 **/*.webp
 **/*.avif
 
+# Marketing imagery is the exception: these are a small, deliberately committed set
+# of original AI-generated landing-page assets (see apps/web/public/marketing/CREDITS.md).
+# Without these negations the blanket **/*.webp and **/*.avif rules above would
+# silently swallow every optimised asset scripts/gen-marketing-images.mjs produces.
+!apps/web/public/marketing/
+!apps/web/public/marketing/*.webp
+!apps/web/public/marketing/*.avif
+
+# Raw, full-size generations from scripts/gen-marketing-images.mjs — originals and
+# rejected candidates. Only the optimised derivatives get committed.
+.marketing-raw/
+
 # ── transient catalog extract (docker save | tar output) ──────────────────
 extract/
 *.tar
