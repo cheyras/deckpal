@@ -11,7 +11,7 @@
     { "scope": "print", "name": "Flabébé", "set": "sm6", "local_ids": ["83"], "source_text": "Flabébé — Sun & Moon—Forbidden Light, 83/131" },
     { "scope": "print", "name": "Flapple", "set": "swsh2", "local_ids": ["022"], "source_text": "Flapple — Sword & Shield—Rebel Clash, 022/192" },
     { "scope": "print", "name": "Flapple", "set": "swsh4.5", "local_ids": ["SV013"], "source_text": "Flapple — Sword & Shield—Shining Fates, SV013/SV122" },
-    { "scope": "print", "name": "Flapple", "set": "swsh10.5tg", "local_ids": ["TG02"], "source_text": "Flapple — Sword & Shield—Astral Radiance, TG02/TG30" },
+    { "scope": "print", "name": "Flapple", "set": "swsh10tg", "local_ids": ["TG02"], "source_text": "Flapple — Sword & Shield—Astral Radiance, TG02/TG30" },
     { "scope": "print", "name": "Flapple", "set": "swshp", "local_ids": ["SWSH022"], "source_text": "Flapple — Sword & Shield Promo, SWSH022" },
     { "scope": "print", "name": "Forest of Giant Plants", "set": "xy7", "local_ids": ["74"], "source_text": "Forest of Giant Plants — XY—Ancient Origins, 74/98" },
     { "scope": "print", "name": "Ghetsis", "set": "bw9", "local_ids": ["101", "115"], "source_text": "Ghetsis — Black & White—Plasma Freeze, 101/116 and 115/116" },
