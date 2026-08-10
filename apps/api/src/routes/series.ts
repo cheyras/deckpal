@@ -15,6 +15,7 @@ interface SeriesRow {
   set_count: string;
   card_count: string;
   rep_set_id: string | null;
+  rep_has_logo: boolean | null;
   rep_has_symbol: boolean | null;
   owned_required: string | null;
   total_required: string | null;
@@ -30,6 +31,14 @@ seriesRouter.get(
     // (the flagship base set). Represents the whole era rather than a random recent
     // sub-set. Its logo/symbol are served locally by deckscout-images via the set id
     // (the client falls back cleanly when absent).
+    //
+    // A whole series can have no set logo at all upstream (McDonald's Collection,
+    // Trainer kits, Miscellaneous — TCGdex publishes none for any of their sets;
+    // issue #15). For those we still want a real, sourced mark rather than a blank,
+    // so the candidate set is any set with a logo *or* a symbol, logo-bearing first.
+    // That leading sort key means every series that already had a logo rep keeps
+    // exactly the same rep; only the logo-less series change. `rep_has_logo` tells
+    // the client which asset to ask for so it never requests a URL known to 404.
     //
     // Pokémon TCG Pocket (tcgdex_id 'tcgp') is a separate game, not an English TCG
     // era — excluded from this list. The rows are ordered newest era first.
@@ -54,6 +63,7 @@ seriesRouter.get(
               COALESCE(cnt.set_count, 0)  AS set_count,
               COALESCE(cnt.card_count, 0) AS card_count,
               rep.tcgdex_id        AS rep_set_id,
+              rep.logo_url   IS NOT NULL AS rep_has_logo,
               rep.symbol_url IS NOT NULL AS rep_has_symbol,
               prog.owned_required  AS owned_required,
               prog.total_required  AS total_required
@@ -61,10 +71,12 @@ seriesRouter.get(
          JOIN catalogue cat ON cat.code = s.catalogue_code AND cat.is_enabled
     LEFT JOIN counts cnt ON cnt.series_id = s.id
     LEFT JOIN LATERAL (
-                SELECT cs2.tcgdex_id, cs2.symbol_url
+                SELECT cs2.tcgdex_id, cs2.logo_url, cs2.symbol_url
                   FROM card_set cs2
-                 WHERE cs2.series_id = s.id AND cs2.logo_url IS NOT NULL
-                 ORDER BY (lower(cs2.name) = lower(s.name)) DESC,
+                 WHERE cs2.series_id = s.id
+                   AND (cs2.logo_url IS NOT NULL OR cs2.symbol_url IS NOT NULL)
+                 ORDER BY (cs2.logo_url IS NOT NULL) DESC,
+                          (lower(cs2.name) = lower(s.name)) DESC,
                           cs2.is_promo ASC,
                           cs2.released_on ASC NULLS LAST,
                           cs2.name
@@ -96,6 +108,7 @@ seriesRouter.get(
           setCount: Number(r.set_count),
           cardCount: Number(r.card_count),
           repSetId: r.rep_set_id,
+          repHasLogo: Boolean(r.rep_has_logo),
           repHasSymbol: Boolean(r.rep_has_symbol),
           // Per-series completion rollup (owned cards / total cards across the series).
           progress: { owned, total, pct: pct(owned, total) },

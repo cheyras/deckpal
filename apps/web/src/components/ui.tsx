@@ -58,17 +58,24 @@ const BLACK_STAR_PROMO_IDS = new Set([
 // Energy sets (full-art / basic-energy printings) — show all the type symbols.
 const ENERGY_SET_IDS = new Set(['mee', 'sve'])
 
-type SetMark = 'promo' | 'energy' | 'mcdonalds' | null
+type SetMark = 'promo' | 'energy' | null
 
 // Classify a set into a special-mark family from its id and/or name. Works from
 // the id alone (so callers that don't pass a name — e.g. CardDetail — still get
 // the right mark); the name is a secondary signal for robustness.
+//
+// There is deliberately no McDonald's branch (issue #15). The two marks below are
+// original artwork standing in for *Pokémon TCG* families that have no per-set
+// symbol upstream. A McDonald's branch instead reproduced a third-party corporate
+// trademark (the Golden Arches) as app chrome — the same exposure the Poké Ball /
+// POKÉMON wordmark icons were replaced for (DECISIONS.md 2026-08-09). Those sets
+// now use the ordinary ladder: the real TCGdex set symbol where one is published
+// (2021swsh), else the derived tag below.
 function setMarkKind(setId?: string | null, name?: string | null): SetMark {
   const id = (setId ?? '').toLowerCase()
   const nm = name ?? ''
   if (BLACK_STAR_PROMO_IDS.has(id) || /black star promos?/i.test(nm)) return 'promo'
   if (ENERGY_SET_IDS.has(id) || /\benergy\b/i.test(nm)) return 'energy'
-  if (/^20\d{2}/.test(id) || /mc ?donald/i.test(nm)) return 'mcdonalds'
   return null
 }
 
@@ -79,6 +86,11 @@ export function deriveSetTag(setId?: string | null, name?: string | null): strin
   const compact = raw.replace(/[^a-zA-Z0-9]/g, '')
   // Short clean codes (mep, mee, svp, rc, np, A3, B1a, P-A, me02…) read best as-is.
   if (compact.length > 0 && compact.length <= 4) return compact.toUpperCase()
+  // Year-bucketed sets (the McDonald's Collection: 2011bw … 2024sv) are known by
+  // their year, not their era suffix. Without this the name-initials branch below
+  // produced "MS2" for "McDonald's Collection 2021" (issue #15).
+  const year = raw.match(/^(20\d{2})/)
+  if (year) return year[1]!
   // Trailing letter suffix after a digit → Galarian/Trainer Gallery, Shiny Vault,
   // Classic Collection (swsh12.5gg→GG, swsh10.5tg→TG, cel25cc→CC, swsh4.5sv→SV).
   const suffix = raw.match(/\d([a-zA-Z]{2,3})$/)
@@ -130,23 +142,6 @@ function PromoStarMark({ size }: { size: number }) {
   )
 }
 
-// Authored mark: the McDonald's golden arches.
-export function McdonaldsMark({ size }: { size: number }) {
-  return (
-    <svg width={size * 0.74} height={size * 0.74} viewBox="0 0 24 24" role="img" aria-label="McDonald's">
-      <title>McDonald&apos;s</title>
-      <path
-        d="M4 21 V10 Q4 4 8 4 Q12 4 12 10 V21 M12 21 V10 Q12 4 16 4 Q20 4 20 10 V21"
-        fill="none"
-        stroke="#ffbc0d"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
 // Composed mark: a small cluster of the Pokémon energy-type symbols, standing in
 // for an energy set's thumbnail.
 function EnergySymbolsMark({ size }: { size: number }) {
@@ -166,9 +161,9 @@ function EnergySymbolsMark({ size }: { size: number }) {
 
 // White rounded set-symbol tile (UI-SPEC §3.7). The symbol is served locally from
 // the WebP cache by set id. When a set belongs to a special family (Black Star
-// Promo, energy, McDonald's) we render an authored mark; when it has no warmed
-// symbol (or the fetch fails) we render a derived acronym tag — never a bare ◆,
-// no broken image, no layout shift. `name` is optional & backward-compatible.
+// Promo, energy) we render an authored mark; when it has no warmed symbol (or the
+// fetch fails) we render a derived acronym tag — never a bare ◆, no broken image,
+// no layout shift. `name` is optional & backward-compatible.
 export function SetSymbolTile({
   setId,
   hasSymbol,
@@ -190,8 +185,6 @@ export function SetSymbolTile({
     >
       {mark === 'promo' ? (
         <PromoStarMark size={size} />
-      ) : mark === 'mcdonalds' ? (
-        <McdonaldsMark size={size} />
       ) : mark === 'energy' ? (
         <EnergySymbolsMark size={size} />
       ) : showImg ? (

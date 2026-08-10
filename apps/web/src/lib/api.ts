@@ -176,6 +176,9 @@ export interface SeriesSummary {
   setCount: number
   cardCount: number
   repSetId: string | null
+  // A series whose sets have no upstream logo at all still gets a rep set, picked
+  // by symbol — these two flags say which asset actually exists (issue #15).
+  repHasLogo: boolean
   repHasSymbol: boolean
   // Per-series completion rollup: owned cards / total cards across the series.
   progress: { owned: number; total: number; pct: number }
