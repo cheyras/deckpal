@@ -152,10 +152,11 @@ it records the per-tier `image_object` row for the copy it just wrote. It is
 idempotent and resumable: an object already in the bucket is not re-sent, but its
 per-tier row is still recorded.
 
-> **`scripts/storage-backfill.mjs` is superseded.** It writes objects directly
-> rather than through the choke point, so it cannot record `image_object` rows;
-> objects it creates will be reported by `manifest:check --object-store` as
-> "objects with no row". Use the command above.
+> **These commands are the only supported way to publish bytes.** Anything that
+> uploads to the bucket directly, bypassing `packages/storage/src/put-asset.ts`,
+> cannot record `image_object` rows — objects it creates get reported by
+> `manifest:check --object-store` as "objects with no row". Repair such a bucket
+> with `storage:backfill -- --reconcile`.
 
 **Auditing the bucket.** The disk tier proves "no byte without a row" by walking a
 directory; the object tier proves it by listing the bucket:

@@ -420,8 +420,9 @@ export function formatObjectReport(r: ObjectDriftReport): string {
   if (r.unrecordedObjects.length) {
     L.push(sample(r.unrecordedObjects));
     L.push('      Bytes were published without going through packages/storage put-asset.ts.');
-    L.push('      Almost always a direct upload — scripts/storage-backfill.mjs writes objects');
-    L.push('      but cannot write per-tier rows, and so produces exactly this. Repair with:');
+    L.push('      Almost always a direct upload (Supabase dashboard, CLI, or a one-off script):');
+    L.push('      it writes objects but cannot write per-tier rows, and so produces exactly');
+    L.push('      this. Repair with:');
     L.push('          pnpm --filter deckscout-images storage:backfill --reconcile');
     L.push('      and prefer that command over any direct upload from now on (AGENTS.md B1).');
   }
