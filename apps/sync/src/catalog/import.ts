@@ -47,6 +47,11 @@ interface RawSeries {
 const CATALOGUE = 'en';
 const DEFAULT_USER = process.env.DECKSCOUT_DEFAULT_USER ?? 'cheyras';
 
+// Where retired card_variant rows are parked so they cannot collide with the live 0..n-1 slots
+// (see the park step in the per-set loop). Must exceed the largest variant count of any single
+// card — asserted below rather than assumed — and 1000 + that must stay inside smallint.
+const PARK_BASE = 1000;
+
 // ── tiny batch-insert helper (respects pg's 65535-param limit via chunking) ──
 async function batchInsert(
   client: Queryable,
@@ -72,6 +77,8 @@ export interface ImportSummary {
   synthesized: number;
   droppedDuplicates: number;
   variantKinds: number;
+  renamedSets: number; // upstream re-keyed a set id; we re-keyed our rows in place
+  renamedCards: number;
 }
 
 export async function importCatalog(dataDir: string): Promise<ImportSummary> {
@@ -91,6 +98,7 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
   const client = await pool.connect();
   const summary: ImportSummary = {
     series: 0, sets: 0, cards: 0, variants: 0, synthesized: 0, droppedDuplicates: 0, variantKinds: 0,
+    renamedSets: 0, renamedCards: 0,
   };
   try {
     // ── 1. series (union of series.json and every set's serie ref) ───────────
@@ -205,6 +213,78 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
     await client.query('COMMIT');
     summary.variantKinds = kinds.size;
 
+    // ── 2b. upstream set-id renames (must run BEFORE the per-set loop) ───────
+    // TCGdex occasionally re-keys a set without renaming it. 2026-08: the four SWSH
+    // Trainer Gallery subsets went swsh9.5tg -> swsh9tg (…10/11/12 likewise), and every
+    // card under them went swsh9.5tg-TG01 -> swsh9tg-TG01.
+    //
+    // Left alone this is not a slow drift, it is a hard stop: card_set upserts on
+    // (series_id, tcgdex_id), so the re-keyed set looks new and gets INSERTed — straight
+    // into the (series_id, slug) UNIQUE the old row still holds. That is a 23505 that
+    // aborts the whole import, so ONE upstream rename freezes the entire catalog, every
+    // set, until someone intervenes. (This is how issue #21's 222 missing cards outlived
+    // several sync windows.)
+    //
+    // So: re-key our rows in place first, and let the normal upsert path below update the
+    // same rows it always did. Identity is the bigint PK, which never moves, so every
+    // user-owned FK (collection_item, deck_card, list_item, graded_card, …) rides along
+    // untouched — B8's "an import never deletes user data" holds by construction.
+    //
+    // Detection is deliberately narrow: same (series_id, slug), different tcgdex_id, AND
+    // the id we hold is one upstream no longer publishes. Two live sets that merely share
+    // a name are a slug collision, not a rename, and are left for a human.
+    const upstreamSetIds = new Set(sets.map((s) => s.id));
+    await client.query('BEGIN');
+    for (const st of sets) {
+      const seriesId = seriesIdByTcgdex.get(st.serie.id);
+      if (seriesId == null) continue;
+      const slug = slugify(st.name) || st.id;
+      const { rows: held } = await client.query<{ id: string; tcgdex_id: string }>(
+        `SELECT id, tcgdex_id FROM card_set WHERE series_id = $1 AND slug = $2`,
+        [seriesId, slug],
+      );
+      const prior = held[0];
+      if (!prior || prior.tcgdex_id === st.id) continue; // fresh set, or already correct
+      if (upstreamSetIds.has(prior.tcgdex_id)) continue; // both ids live upstream => not a rename
+
+      const setRowId = Number(prior.id);
+      await client.query(`UPDATE card_set SET tcgdex_id = $1 WHERE id = $2`, [st.id, setRowId]);
+      summary.renamedSets++;
+
+      // Re-key the set's cards by local_id. We map from the compiled JSON rather than
+      // string-surgery on the old id, so the upstream `${set}-${localId}` convention is a
+      // convenience we read, never an assumption we depend on.
+      const renameRows = (cardsBySet.get(st.id) ?? []).map((c) => [c.localId, c.id]);
+      for (let i = 0; i < renameRows.length; i += 400) {
+        const chunk = renameRows.slice(i, i + 400);
+        const ph = chunk.map((_, r) => `($${r * 2 + 1}::text,$${r * 2 + 2}::text)`).join(',');
+        const { rows: moved } = await client.query<{ id: string }>(
+          `UPDATE card c SET tcgdex_id = v.new_id
+             FROM (VALUES ${ph}) AS v(local_id, new_id)
+            WHERE c.set_id = $${chunk.length * 2 + 1}
+              AND c.lang = $${chunk.length * 2 + 2}
+              AND c.local_id = v.local_id
+              AND c.tcgdex_id <> v.new_id
+            RETURNING c.id`,
+          [...chunk.flat(), setRowId, CATALOGUE],
+        );
+        summary.renamedCards += moved.length;
+      }
+      console.log(
+        `[catalog-import] upstream renamed set ${prior.tcgdex_id} -> ${st.id} (${st.name}); re-keyed in place`,
+      );
+    }
+    await client.query('COMMIT');
+    if (summary.renamedSets > 0) {
+      // Card art is keyed on the set's tcgdex_id (B6), so the old objects are now orphaned
+      // under a path nothing resolves. Say so loudly — the fix is an images-side re-warm,
+      // not something the catalog importer may reach across and do.
+      console.warn(
+        `[catalog-import] ${summary.renamedSets} set(s) re-keyed: their cached card art still sits under the OLD ` +
+          `path and will serve placeholders. Re-warm those sets (warm:pkmn for Trainer Gallery subsets).`,
+      );
+    }
+
     // ── 3. per-set transaction: card_set, cards (+attrs), card_variant ───────
     for (const st of sets) {
       const setCards = cardsBySet.get(st.id) ?? [];
@@ -305,11 +385,45 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
 
       // card_variant: clear primaries for these cards, then upsert (keyed on card_id,variant_kind_code)
       await client.query(`UPDATE card_variant SET is_primary=false WHERE card_id = ANY($1::bigint[]) AND is_primary`, [cardIds]);
+
+      // Then park every existing variant of these cards above the live 0..n-1 range.
+      //
+      // (card_id, sort_order) is UNIQUE. The upsert below only touches kinds upstream STILL
+      // publishes, so a variant upstream has since retired keeps the slot it was given years
+      // ago — and the first time upstream reshuffles a card's variants_detailed, some live
+      // variant is handed a sort_order a retired row is still sitting on. The constraint is
+      // DEFERRABLE INITIALLY DEFERRED, so this does not surface as a bad row: it detonates at
+      // COMMIT and takes the whole set's transaction with it. (Measured against the 3-week-old
+      // snapshot this import replaced: 5,081 retired rows across 77 sets, 847 of them collided.)
+      //
+      // Retired rows must NOT be deleted — collection_item, deck_card, list_item, graded_card
+      // and user_showcase all point at card_variant, and B8 says an import never destroys
+      // user-owned data. So park, don't prune. row_number() keeps the parked block internally
+      // collision-free per card; PARK_BASE keeps it clear of the live range; the upsert
+      // immediately below pulls every still-published variant back down. Retired printings a
+      // user owns therefore survive, and simply sort after the live ones.
+      await client.query(
+        `UPDATE card_variant cv SET sort_order = p.parked
+           FROM (SELECT id, $2::int + (row_number() OVER (PARTITION BY card_id ORDER BY sort_order, id))::int AS parked
+                   FROM card_variant WHERE card_id = ANY($1::bigint[])) p
+          WHERE cv.id = p.id`,
+        [cardIds, PARK_BASE],
+      );
+
       const varRows: unknown[][] = [];
       for (const c of setCards) {
         const cid = cardIdByTcgdex.get(c.id)!;
         const plan = planCardVariants(c);
         summary.droppedDuplicates += plan.droppedDuplicates;
+        // The park range starts at PARK_BASE; a card with that many live variants would land a
+        // live slot on top of a parked one. Nothing upstream is remotely close (the busiest card
+        // has single digits), so this is a tripwire, not a branch — fail loudly rather than
+        // corrupt sort_order silently if upstream ever does something absurd.
+        if (plan.variants.length >= PARK_BASE) {
+          throw new Error(
+            `card ${c.id} plans ${plan.variants.length} variants, which reaches PARK_BASE (${PARK_BASE}) — raise PARK_BASE`,
+          );
+        }
         for (const v of plan.variants) {
           if (v.isSynthesized) summary.synthesized++;
           summary.variants++;
