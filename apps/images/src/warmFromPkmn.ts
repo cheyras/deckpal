@@ -131,7 +131,13 @@ function buildCrosswalk(sets: PkmnSet[]) {
   const byName = new Map(sets.map((s) => [norm(s.name), s.id]));
   return (ourSet: string, ourSlug?: string | null, ourName?: string | null): string | null => {
     if (OVERRIDE[ourSet]) return OVERRIDE[ourSet];
-    // Trainer Gallery subsets: our swshN.5tg → pkmn swshNtg
+    // Trainer Gallery subsets: our swshN.5tg → pkmn swshNtg.
+    // NO LONGER LOAD-BEARING as of 2026-08-10 — upstream re-keyed those four sets to
+    // swshNtg, so our id now equals pkmn's and the plain byIdLc lookup below resolves
+    // them. Kept because the crosswalk has to keep working against an older catalog
+    // extract (a self-host box that has not refreshed yet still holds swshN.5tg), and
+    // because removing a mapping is only safe once nobody can still be on that side of
+    // the rename. Delete it when the oldest supported catalog postdates the re-key.
     let m = /^swsh(\d+)\.5tg$/.exec(ourSet);
     if (m && byIdLc.has(`swsh${m[1]}tg`)) return byIdLc.get(`swsh${m[1]}tg`)!;
     // McDonald's year buckets: our 20YY<era> → pkmn mcdYY

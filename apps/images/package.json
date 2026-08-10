@@ -18,6 +18,8 @@
     "evict": "node dist/evict.js",
     "evict:dev": "tsx src/evict.ts",
     "manifest:check": "tsx src/manifestCheck.ts",
+    "rekey:set": "tsx src/rekeySet.ts",
+    "test": "node --import tsx --test src/__tests__/*.test.ts",
     "manifest:backfill": "tsx src/manifestBackfill.ts",
     "storage:backfill": "tsx src/cloudBackfill.ts"
   },
