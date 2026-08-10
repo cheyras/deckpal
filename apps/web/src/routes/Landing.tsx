@@ -306,7 +306,7 @@ function Hero({ scrollY }: { scrollY: number }) {
             className="mx-auto mt-[20px] max-w-[620px] text-text-body"
             style={{ fontSize: 'clamp(16px, 1.5vw, 19px)', lineHeight: 1.6 }}
           >
-            Track every English Pokémon card — all 23,444 of them, across 40,107 printings. Set completion,
+            Track every English Pokémon card — all 20,964 of them, across 37,627 printings. Set completion,
             price history, a deck builder wired to PTCG Live, and a scanner that names the card in your hand.
           </p>
         </Reveal>
@@ -332,10 +332,16 @@ function Hero({ scrollY }: { scrollY: number }) {
 
 /* ── stat strip ───────────────────────────────────────────────────────────── */
 
+// Live counts from the production catalog, restricted the same way the app's own
+// series index restricts it: English TCG only. The raw tables hold 23,444 cards /
+// 40,107 variants / 218 sets, but 2,480 cards across 15 sets belong to Pokémon TCG
+// Pocket — a different game, excluded by /api/series (`WHERE s.tcgdex_id <> 'tcgp'`)
+// and therefore not browsable. Quoting the raw totals under the word "English"
+// would overstate the product by ~12%.
 const STATS = [
-  { value: '23,444', label: 'Cards catalogued' },
-  { value: '40,107', label: 'Individual printings' },
-  { value: '218', label: 'English sets' },
+  { value: '20,964', label: 'Cards catalogued' },
+  { value: '37,627', label: 'Individual printings' },
+  { value: '203', label: 'English sets' },
   { value: '1,025', label: 'Pokédex species' },
 ]
 
@@ -359,7 +365,7 @@ function Stats() {
           ))}
         </ul>
         <Reveal delay={360} as="p" className="mt-[24px] text-center text-[13px] text-text-muted">
-          Every English set across 21 series — from Base Set to the latest release — kept in step with the
+          Every English set across 20 series — from Base Set to the latest release — kept in step with the
           official catalog.
         </Reveal>
       </Reveal>
@@ -543,7 +549,7 @@ const FAQ = [
   },
   {
     q: 'Which cards does it cover?',
-    a: 'Every English Pokémon TCG set — 23,444 cards and their 40,107 individual printings, across 218 sets and 21 series, plus all 1,025 Pokédex species.',
+    a: 'Every English Pokémon TCG set — 20,964 cards and their 37,627 individual printings, across 203 sets and 20 series, plus all 1,025 Pokédex species.',
   },
   {
     q: 'Where do the prices come from?',
