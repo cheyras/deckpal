@@ -131,6 +131,9 @@ export function ListDetail() {
   const counts = useMemo(() => {
     let have = 0, need = 0, dupes = 0
     for (const c of items) {
+      // /lists is signed-in-only, so ownership is always present here — the
+      // field is optional because CardRow is shared with the public catalog.
+      if (!c.ownership) continue
       if (c.ownership.have) have++
       if (c.ownership.need) need++
       if (c.ownership.dupe) dupes++
@@ -141,7 +144,9 @@ export function ListDetail() {
   const view = useMemo(() => {
     let out = items
     if (search.own !== 'all' && list?.kind === 'dynamic') {
-      out = out.filter((c) => (search.own === 'have' ? c.ownership.have : search.own === 'need' ? c.ownership.need : c.ownership.dupe))
+      out = out.filter((c) =>
+        search.own === 'have' ? c.ownership?.have : search.own === 'need' ? c.ownership?.need : c.ownership?.dupe,
+      )
     }
     if (search.q.trim()) {
       const t = search.q.trim().toLowerCase()

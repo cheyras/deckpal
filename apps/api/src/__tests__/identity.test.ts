@@ -8,6 +8,8 @@ import { ApiError } from '../http.js';
 import {
   currentUserId,
   makeResolveIdentity,
+  makeResolveOptionalIdentity,
+  optionalUserId,
   type AuthedRequest,
   type IdentityConfig,
 } from '../identity.js';
@@ -49,6 +51,7 @@ interface FakeRes {
 async function run(
   cfg: IdentityConfig,
   req: Partial<Request>,
+  make: (c: IdentityConfig) => ReturnType<typeof makeResolveIdentity> = makeResolveIdentity,
 ): Promise<{ req: Partial<Request>; res: FakeRes; nextErr: unknown; nexted: boolean }> {
   let nextErr: unknown;
   let nexted = false;
@@ -77,7 +80,7 @@ async function run(
     settle();
   };
 
-  makeResolveIdentity(cfg)(req as Request, res as unknown as Response, next);
+  make(cfg)(req as Request, res as unknown as Response, next);
   await done;
   return { req, res, nextErr, nexted };
 }
@@ -228,6 +231,95 @@ describe('currentUserId', () => {
   });
 });
 
+// ── Optional identity (the public catalog) ──────────────────────────────────
+
+describe('resolveOptionalIdentity — the public catalog seam', () => {
+  const runOptional = (cfg: IdentityConfig, req: Partial<Request>) =>
+    run(cfg, req, makeResolveOptionalIdentity);
+
+  test('cloud, no credential: served as nobody — no 401, no invented user', async () => {
+    const { req, res, nexted, nextErr } = await runOptional(CLOUD, {});
+
+    assert.ok(nexted, 'the catalog is browsable signed-out');
+    assert.equal(nextErr, undefined);
+    assert.equal(res.statusCode, null, 'not a 401 — this is the whole point');
+    assert.equal(req.user, undefined, 'no ambient user was invented');
+    assert.equal(optionalUserId(req as Request), null);
+  });
+
+  test('cloud, no credential: currentUserId STILL throws — the two seams do not blur', async () => {
+    // A route that needs a real user must not be able to read one off an
+    // anonymous request just because it was mounted behind the optional
+    // middleware by mistake.
+    const { req } = await runOptional(CLOUD, {});
+    assert.throws(() => currentUserId(req as Request), ApiError);
+  });
+
+  test('cloud with a credential: identical to the required path', async () => {
+    const subject = '11111111-2222-3333-4444-555555555555';
+    const { req, res } = await runOptional(CLOUD, { user: { id: subject }, authKind: 'jwt' });
+
+    assert.equal(res.statusCode, null);
+    assert.equal(optionalUserId(req as Request), subject);
+    assert.equal(currentUserId(req as Request), subject);
+  });
+
+  test('self-host: the single local user, never anonymous', async () => {
+    // Self-host has no signed-out state — the reverse proxy is the auth
+    // boundary — so the catalog behaves exactly as it always has.
+    const { req, res } = await runOptional(SELF_HOST, {});
+
+    assert.equal(res.statusCode, null);
+    assert.equal(optionalUserId(req as Request), 'local-user-1');
+    assert.equal(req.authKind, 'local');
+    assert.notEqual(optionalUserId(req as Request), null, 'self-host is never anonymous');
+  });
+
+  test('the self-host fallback is never invoked when Supabase is configured', async () => {
+    let called = 0;
+    const cfg: IdentityConfig = {
+      supabaseConfigured: true,
+      localUserId: () => {
+        called += 1;
+        return Promise.resolve('SHOULD-NEVER-BE-USED');
+      },
+    };
+    const { req } = await runOptional(cfg, {});
+
+    assert.equal(called, 0, 'an anonymous cloud read never resolves a local user');
+    assert.equal(optionalUserId(req as Request), null);
+  });
+});
+
+describe('optionalUserId', () => {
+  test('anonymous is a settled answer; unmounted is not', async () => {
+    // `null` may only ever come from a request an optional-identity middleware
+    // actually marked. A route mounted ahead of every identity middleware gets
+    // the same loud 500 currentUserId gives — "nobody is calling" and "nobody
+    // has asked yet" must not collapse into one value.
+    assert.throws(
+      () => optionalUserId({} as unknown as Request),
+      (err: unknown) => {
+        assert.ok(err instanceof ApiError);
+        assert.equal(err.status, 500);
+        assert.equal(err.code, 'identity_unresolved');
+        return true;
+      },
+    );
+    assert.equal(
+      optionalUserId({ identityResolution: 'anonymous' } as unknown as Request),
+      null,
+    );
+  });
+
+  test('a resolved user wins over the marker', () => {
+    assert.equal(
+      optionalUserId({ user: { id: 'abc' }, identityResolution: 'user' } as unknown as Request),
+      'abc',
+    );
+  });
+});
+
 // ── Source guard ────────────────────────────────────────────────────────────
 
 describe('routes read identity only through the accessor', () => {
@@ -269,7 +361,12 @@ describe('routes read identity only through the accessor', () => {
     // A typo in the path would make both assertions above vacuously true.
     const files = routeFiles();
     assert.ok(files.length >= 12, `expected the full route set, saw ${files.length}`);
-    const withAccessor = files.filter((f) => readFileSync(f, 'utf-8').includes('currentUserId(req)'));
-    assert.ok(withAccessor.length >= 10, `expected most routers to use the accessor, saw ${withAccessor.length}`);
+    const withAccessor = files.filter((f) => {
+      const src = readFileSync(f, 'utf-8');
+      // Either accessor counts: catalog routers moved to optionalUserId when the
+      // catalog went public, and both are identity read through identity.ts.
+      return src.includes('currentUserId(req)') || src.includes('optionalUserId(req)');
+    });
+    assert.ok(withAccessor.length >= 10, `expected most routers to use an accessor, saw ${withAccessor.length}`);
   });
 });

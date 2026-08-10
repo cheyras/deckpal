@@ -6,6 +6,8 @@ import { api, type SpeciesGridRow } from '../lib/api'
 import { Content, Spinner, ErrorState } from '../components/ui'
 import { SpriteTile } from '../components/SpriteTile'
 import { fmtNumber, typeColor } from '../lib/format'
+import { useSignedIn } from '../lib/session'
+import { SignInPrompt } from '../components/SignInPrompt'
 
 type Own = 'all' | 'captured' | 'uncaptured'
 
@@ -26,7 +28,9 @@ function SpeciesCard({ s }: { s: SpeciesGridRow }) {
   return (
     <Link to="/pokedex/$speciesId" params={{ speciesId: String(s.speciesId) }} className="group block">
       <div className="relative">
-        <SpriteTile src={s.sprite.pixel} alt={s.name} captured={s.captured} />
+        {/* `captured` is absent for a logged-out visitor: the sprite then renders
+            in its plain (un-dimmed) state — an unknown, not an uncaptured. */}
+        <SpriteTile src={s.sprite.pixel} alt={s.name} captured={s.captured ?? true} />
         <span className="absolute left-[6px] top-[6px] rounded bg-surface-primary/70 px-[5px] py-[1px] text-[10px] font-bold text-text-muted backdrop-blur-sm">
           {fmtNumber(String(s.speciesId))}
         </span>
@@ -218,6 +222,7 @@ export function PokedexIndex() {
   const [gen, setGen] = useState(0)
   const [own, setOwn] = useState<Own>('all')
   const [q, setQ] = useState('')
+  const signedOut = useSignedIn() === false
 
   const params = new URLSearchParams({ pageSize: '1025', own })
   if (gen) params.set('generation', String(gen))
@@ -251,19 +256,29 @@ export function PokedexIndex() {
       <div className="flex flex-wrap items-end justify-between gap-[12px]">
         <div>
           <h1 className="text-[32px] font-extrabold leading-[40px] text-text-primary">Pokédex</h1>
-          <div className="mt-[2px] text-[14px] text-text-muted">{dexName} completion</div>
-        </div>
-        <div className="text-right">
-          <div className="text-[24px] font-extrabold text-text-primary">
-            {captured}
-            <span className="text-[16px] font-normal text-text-muted"> / {total}</span>
+          <div className="mt-[2px] text-[14px] text-text-muted">
+            {signedOut ? `${dexName} — every species, every card` : `${dexName} completion`}
           </div>
-          <div className="text-[13px] text-action-primary">{pct}% captured</div>
         </div>
+        {/* Completion is a fact about a collector. Logged out, the same slot
+            says how big the dex is and offers the account that would fill it. */}
+        {signedOut ? (
+          <SignInPrompt title="Capture your dex" detail={`${total.toLocaleString()} species to collect.`} />
+        ) : (
+          <div className="text-right">
+            <div className="text-[24px] font-extrabold text-text-primary">
+              {captured}
+              <span className="text-[16px] font-normal text-text-muted"> / {total}</span>
+            </div>
+            <div className="text-[13px] text-action-primary">{pct}% captured</div>
+          </div>
+        )}
       </div>
-      <div className="mt-[10px] h-[6px] w-full overflow-hidden rounded-full bg-surface-tertiary">
-        <div className="h-full rounded-full bg-action-primary" style={{ width: `${Math.max(pct, captured > 0 ? 0.5 : 0)}%` }} />
-      </div>
+      {!signedOut && (
+        <div className="mt-[10px] h-[6px] w-full overflow-hidden rounded-full bg-surface-tertiary">
+          <div className="h-full rounded-full bg-action-primary" style={{ width: `${Math.max(pct, captured > 0 ? 0.5 : 0)}%` }} />
+        </div>
+      )}
 
       {/* filters */}
       <div className="mt-[20px] flex flex-col gap-[12px]">
@@ -290,7 +305,7 @@ export function PokedexIndex() {
               className="h-[38px] w-full rounded-lg border border-border-default bg-surface-primary px-[14px] text-[14px] text-text-primary placeholder:text-text-muted"
             />
           </label>
-          <OwnFilterMenu value={own} onChange={setOwn} />
+          {!signedOut && <OwnFilterMenu value={own} onChange={setOwn} />}
         </div>
       </div>
 

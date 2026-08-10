@@ -5,7 +5,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { closePool, pool, q, rlsStore, SUPABASE_MODE, withUserContext } from './db.js';
 import { asyncHandler, catalogCache, errorMiddleware } from './http.js';
-import { authMiddleware, resolveIdentity, requireSession } from './auth.js';
+import { authMiddleware, resolveIdentity, resolveOptionalIdentity, requireSession } from './auth.js';
 import { seriesRouter } from './routes/series.js';
 import { setsRouter } from './routes/sets.js';
 import { massEntryRouter } from './routes/massentry.js';
@@ -15,7 +15,7 @@ import { dexRouter } from './routes/dex.js';
 import { collectionRouter } from './routes/collection.js';
 import { listsRouter } from './routes/lists.js';
 import { decksRouter } from './routes/decks.js';
-import { insightsRouter } from './routes/insights.js';
+import { insightsRouter, publicPokedexRouter } from './routes/insights.js';
 import { exportRouter } from './export/router.js';
 import { scanRouter } from './scan/router.js';
 import { bugsRouter } from './routes/bugs.js';
@@ -84,12 +84,7 @@ export function createApp(): express.Express {
   // per-request client via AsyncLocalStorage, so routes need no changes.
   if (SUPABASE_MODE) {
     api.use((req, res, next) => {
-      if (!req.user) {
-        // No authenticated user — public routes run without RLS context.
-        next();
-        return;
-      }
-      const userId = req.user.id;
+      const userId = req.user?.id ?? null;
       pool.connect().then(async (client) => {
         try {
           // One round trip, not three. The DB lives in a different AWS region from
@@ -99,10 +94,25 @@ export function createApp(): express.Express {
           // simple-query protocol runs a semicolon-separated batch in one exchange;
           // the claims JSON is escaped with pg's own escapeLiteral because the
           // extended (parameterised) protocol permits only one statement per call.
-          const claims = client.escapeLiteral(JSON.stringify({ sub: userId, role: 'authenticated' }));
-          await client.query(
-            `BEGIN; SELECT set_config('request.jwt.claims', ${claims}, true); SET LOCAL role = 'authenticated'`,
-          );
+          //
+          // An ANONYMOUS request gets the same treatment with Supabase's `anon`
+          // role and no claims, so `auth.uid()` is NULL. That is not decoration:
+          // the pool connects as `postgres`, which OWNS every table in `public`
+          // and therefore BYPASSES row-level security (the tables are not FORCE
+          // RLS). Public catalog routes read `collection_item`,
+          // `user_set_progress` and `user_dex_state` in LEFT JOINs, so serving
+          // them on the bare pool connection would mean the one thing standing
+          // between a logged-out visitor and somebody's collection was a bound
+          // parameter. Under `anon`, RLS actually fires: the catalog policies are
+          // USING (true) and every per-user table has no policy an anonymous
+          // caller satisfies, so those tables are EMPTY — measured, not assumed
+          // (see DECISIONS.md 2026-08-10).
+          const setup = userId
+            ? `BEGIN; SELECT set_config('request.jwt.claims', ${client.escapeLiteral(
+                JSON.stringify({ sub: userId, role: 'authenticated' }),
+              )}, true); SET LOCAL role = 'authenticated'`
+            : `BEGIN; SET LOCAL role = 'anon'`;
+          await client.query(setup);
 
           let cleaned = false;
           const cleanup = async (mode: 'commit' | 'rollback') => {
@@ -191,8 +201,31 @@ export function createApp(): express.Express {
   });
 
   // ── Public routes (catalog reads, no auth required) ───────────────────────
-  // Search is pure catalog — no user_id in the queries.
+  // Search is pure catalog — no user_id in the queries at all, so it needs no
+  // identity of any kind.
   api.use('/search', searchRouter);
+
+  // ── Public catalog (browsable signed-out) ─────────────────────────────────
+  // The catalog is the product's shop window: a visitor can read every set,
+  // card, price and species without an account. These responses still EMBED the
+  // caller's ownership when there is a caller, so they get the optional seam:
+  //   cloud + credential → the verified subject, response unchanged;
+  //   cloud, no credential → nobody. optionalUserId() returns null, the query
+  //     binds SQL NULL (never equal to any user_id) and the route omits every
+  //     ownership field;
+  //   self-host → the single local user, exactly as before.
+  // See identity.ts. Anything per-user — collection, lists, decks, insights,
+  // scanner, profile, bug reports, tokens — stays below resolveIdentity.
+  api.use(resolveOptionalIdentity);
+  api.use('/series', seriesRouter);
+  api.use('/sets', setsRouter);
+  api.use('/cards', cardsRouter);
+  api.use('/dex', dexRouter);
+  // The Pokédex surface the web app actually renders is /insights/pokedex (the
+  // sprite/level/shiny shape), not /dex — so the two Pokédex reads are split off
+  // the insights router and mounted here. Every other /insights route is a
+  // report on YOUR collection and stays gated below.
+  api.use('/insights', publicPokedexRouter);
 
   // ── User-scoped routes ────────────────────────────────────────────────────
   // resolveIdentity settles "who is calling" once, for both deployments:
@@ -208,13 +241,11 @@ export function createApp(): express.Express {
   // than falling through the /decks, /lists, /sets routers below.
   api.use('/', exportRouter);
 
-  api.use('/series', seriesRouter);
-  // /sets/:setId/massentry (TCGplayer cart deep links) resolves before the
-  // general set-detail router; the two never overlap (:setId is one segment).
+  // /sets/:setId/massentry (TCGplayer cart deep links for the cards you still
+  // NEED) is per-user, so it stays gated even though /sets/:setId above is not.
+  // The two never collide: setsRouter's '/:setId' matches one path segment, so
+  // '/sets/sv01/massentry' falls straight through it to here.
   api.use('/sets', massEntryRouter);
-  api.use('/sets', setsRouter);
-  api.use('/cards', cardsRouter);
-  api.use('/dex', dexRouter);
   api.use('/collection', collectionRouter);
   api.use('/lists', listsRouter);
   api.use('/decks', decksRouter);

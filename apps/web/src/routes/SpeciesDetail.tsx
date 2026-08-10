@@ -7,6 +7,7 @@ import { GridView } from '../components/GridView'
 import { SpriteTile } from '../components/SpriteTile'
 import { CardSheet } from './CardDetail'
 import { fmtNumber, typeColor } from '../lib/format'
+import { SignInPrompt } from '../components/SignInPrompt'
 
 // The card-detail route param $series is a series SLUG (e.g. "scarlet-violet"),
 // but the species-detail cards only carry the serie tcgdexId (e.g. "sv") inside
@@ -18,6 +19,9 @@ function serieFromImagePath(low: string): string | null {
   return m ? m[1]! : null
 }
 
+// `owned`/`ownedQuantity` are absent on an anonymous read, and the synthesized
+// ownership block is then left off too — GridView's tiles render as plain
+// catalog rather than as 'you own none of these'.
 function toCardRow(c: SpeciesDetailCard, seriesSlug: string | null): CardRow {
   return {
     cardId: c.cardId,
@@ -30,14 +34,18 @@ function toCardRow(c: SpeciesDetailCard, seriesSlug: string | null): CardRow {
     variantCount: c.variantCount,
     images: c.images,
     price: c.price,
-    ownership: {
-      totalQuantity: c.ownedQuantity,
-      requiredCount: 1,
-      ownedRequired: c.owned ? 1 : 0,
-      have: c.owned,
-      need: !c.owned,
-      dupe: c.ownedQuantity >= 2,
-    },
+    ...(c.owned === undefined || c.ownedQuantity === undefined
+      ? {}
+      : {
+          ownership: {
+            totalQuantity: c.ownedQuantity,
+            requiredCount: 1,
+            ownedRequired: c.owned ? 1 : 0,
+            have: c.owned,
+            need: !c.owned,
+            dupe: c.ownedQuantity >= 2,
+          },
+        }),
     seriesSlug: seriesSlug ?? undefined,
     setId: c.set.setId,
   }
@@ -67,7 +75,7 @@ export function SpeciesDetail() {
       const slug = serie ? slugByTcgdex.get(serie) ?? null : null
       return toCardRow(c, slug)
     })
-    return ownedOnly ? list.filter((c) => c.ownership.have) : list
+    return ownedOnly ? list.filter((c) => c.ownership?.have) : list
   }, [data, slugByTcgdex, ownedOnly])
 
   const sp = data?.species
@@ -87,9 +95,9 @@ export function SpeciesDetail() {
           <div className="flex flex-col gap-[16px] rounded-2xl bg-surface-secondary p-[20px] sm:flex-row sm:items-center">
             <div className="w-[128px] shrink-0">
               <SpriteTile
-                src={sp.captured ? sp.sprite.art : sp.sprite.art}
+                src={sp.sprite.art}
                 alt={sp.name}
-                captured={sp.captured}
+                captured={sp.captured ?? true}
                 pixelated={false}
               />
             </div>
@@ -99,7 +107,7 @@ export function SpeciesDetail() {
                 <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[11px] font-semibold text-text-body">
                   Gen {sp.generation}
                 </span>
-                {sp.captured ? (
+                {sp.captured === undefined ? null : sp.captured ? (
                   <span className="rounded-full bg-action-primary px-[8px] py-[2px] text-[11px] font-extrabold text-action-primary-text">
                     Captured · LVL {sp.levelLabel}
                   </span>
@@ -128,20 +136,31 @@ export function SpeciesDetail() {
                 ))}
               </div>
               <div className="mt-[10px] text-[13px] text-text-muted">
-                You own{' '}
-                <span className="font-bold text-action-primary">{sp.uniqueOwned}</span> of {sp.cardPool} cards featuring{' '}
-                {sp.name}.
+                {sp.uniqueOwned === undefined ? (
+                  <>
+                    <span className="font-bold text-text-body">{sp.cardPool}</span> cards feature {sp.name}.
+                  </>
+                ) : (
+                  <>
+                    You own <span className="font-bold text-action-primary">{sp.uniqueOwned}</span> of {sp.cardPool} cards
+                    featuring {sp.name}.
+                  </>
+                )}
               </div>
             </div>
           </div>
 
-          {/* owned filter */}
-          <div className="mt-[20px] flex items-center justify-between">
+          {/* owned filter — nothing to filter by when nobody is signed in */}
+          <div className="mt-[20px] flex flex-wrap items-center justify-between gap-[12px]">
             <div className="text-[14px] font-semibold text-text-body">{cards.length} cards</div>
-            <label className="flex cursor-pointer items-center gap-[8px] text-[13px] text-text-body">
-              <input type="checkbox" checked={ownedOnly} onChange={(e) => setOwnedOnly(e.target.checked)} />
-              Owned only
-            </label>
+            {sp.captured === undefined ? (
+              <SignInPrompt title="Track this Pokémon" />
+            ) : (
+              <label className="flex cursor-pointer items-center gap-[8px] text-[13px] text-text-body">
+                <input type="checkbox" checked={ownedOnly} onChange={(e) => setOwnedOnly(e.target.checked)} />
+                Owned only
+              </label>
+            )}
           </div>
 
           <div className="mt-[16px]">
@@ -150,7 +169,7 @@ export function SpeciesDetail() {
                 {ownedOnly ? 'You own none of this species yet.' : 'No cards found for this species.'}
               </div>
             ) : (
-              <GridView cards={cards} seriesSlug="" setId="" ownership />
+              <GridView cards={cards} seriesSlug="" setId="" ownership={sp.captured !== undefined} />
             )}
           </div>
         </>

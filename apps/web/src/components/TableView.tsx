@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CardDetailResponse, type CardRow, type Variant } from '../lib/api'
 import { fmtPrice, fmtNumber } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
+import { useSignedIn } from '../lib/session'
 import { Icon } from './Icon'
 
 // Per-variant accent colour + dark-text flag. Mirrors CardTile.variantMeta so the
@@ -122,7 +123,7 @@ function RowCounters({ cardId, setId }: { cardId: string; setId: string }) {
           ? {
               ...old,
               variants: old.variants.map((v) =>
-                v.variantId === variantId ? { ...v, quantity: Math.max(0, v.quantity + delta) } : v,
+                v.variantId === variantId ? { ...v, quantity: Math.max(0, (v.quantity ?? 0) + delta) } : v,
               ),
             }
           : old,
@@ -155,7 +156,7 @@ function RowCounters({ cardId, setId }: { cardId: string; setId: string }) {
           label={v.displayName}
           color={meta.color}
           dark={meta.dark}
-          qty={v.quantity}
+          qty={v.quantity ?? 0}
           disabled={!online || mutation.isPending}
           onInc={() => mutation.mutate({ variantId: v.variantId, delta: 1 })}
           onDec={() => mutation.mutate({ variantId: v.variantId, delta: -1 })}
@@ -177,6 +178,7 @@ export function TableView({
   seriesSlug: string
   setId: string
 }) {
+  const signedIn = useSignedIn()
   return (
     <div className="flex flex-col gap-[20px]">
       {cards.map((card) => {
@@ -208,7 +210,9 @@ export function TableView({
                 <span className="hidden text-[12px] text-text-muted sm:inline">{card.variantCount} variants</span>
               )}
               <span className="text-[14px] font-medium text-change-positive">{fmtPrice(card.price)}</span>
-              {set && <RowCounters cardId={`${set}-${card.number}`} setId={set} />}
+              {/* Write affordance: hidden signed-out (the API sends no quantities
+                  and there is nothing to write to). The header carries the CTA. */}
+              {set && signedIn === true && <RowCounters cardId={`${set}-${card.number}`} setId={set} />}
               <Icon name="chevron-right" size={16} className="text-icon-muted" />
             </div>
           </Link>

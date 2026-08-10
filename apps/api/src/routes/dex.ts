@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { cardImages, q, q1, toMajor } from '../db.js';
 import { asyncHandler, clampInt, notFound, oneOf, str, userCache } from '../http.js';
-import { currentUserId } from '../identity.js';
+import { optionalUserId } from '../identity.js';
 import { raritySortSql } from '../rarity.js';
 
 export const dexRouter: Router = Router();
@@ -35,9 +35,14 @@ interface SpeciesRow {
 dexRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    const userId = currentUserId(req);
+    // null when nobody is signed in (public catalog). Bound as SQL NULL below:
+    // `uds.user_id = NULL` is UNKNOWN, so the capture LEFT JOIN matches no row
+    // for any user, and `captured`/`completion` are omitted from the response.
+    const userId = optionalUserId(req);
     const generation = str(req.query.generation);
-    const own = oneOf(req.query.own, ['all', 'captured', 'uncaptured'] as const, 'all');
+    // ?own=captured|uncaptured filters on capture state nobody has; it collapses
+    // to 'all' for an anonymous caller rather than returning everything-or-nothing.
+    const own = userId === null ? 'all' : oneOf(req.query.own, ['all', 'captured', 'uncaptured'] as const, 'all');
     const search = str(req.query.q);
     const pageSize = clampInt(req.query.pageSize, 200, 1, 1025);
     const page = clampInt(req.query.page, 1, 1, 100000);
@@ -72,13 +77,21 @@ dexRouter.get(
       params,
     );
 
-    const capturedTotal = await q1<{ n: string }>(`SELECT count(*) AS n FROM user_dex_state WHERE user_id = $1`, [userId]);
+    const capturedTotal =
+      userId === null
+        ? null
+        : await q1<{ n: string }>(`SELECT count(*) AS n FROM user_dex_state WHERE user_id = $1`, [userId]);
     const speciesTotal = await q1<{ n: string }>(`SELECT count(*) AS n FROM dex_species`);
     const totalRows = rows.length ? Number(rows[0]!.total_rows) : 0;
 
     userCache(res);
     res.json({
-      completion: { captured: Number(capturedTotal?.n ?? 0), total: Number(speciesTotal?.n ?? 0) },
+      // How much of the dex YOU have captured — absent when there is no you.
+      // `total` alone is catalog, but it only means anything paired with
+      // `captured`, so the pair travels together.
+      ...(userId === null
+        ? {}
+        : { completion: { captured: Number(capturedTotal?.n ?? 0), total: Number(speciesTotal?.n ?? 0) } }),
       pagination: { page, pageSize, total: totalRows, pageCount: Math.ceil(totalRows / pageSize) },
       species: rows.map((r) => ({
         speciesId: r.id,
@@ -88,7 +101,7 @@ dexRouter.get(
         generation: r.generation,
         totalCardCount: Number(r.total_card_count),
         types: r.types ?? [],
-        captured: r.captured,
+        ...(userId === null ? {} : { captured: r.captured }),
       })),
     });
   }),
@@ -102,7 +115,8 @@ dexRouter.get(
 dexRouter.get(
   '/:speciesId',
   asyncHandler(async (req, res) => {
-    const userId = currentUserId(req);
+    // null when nobody is signed in — see the species list above.
+    const userId = optionalUserId(req);
     const raw = String(req.params.speciesId ?? '');
     const numeric = Number.parseInt(raw, 10);
     const species = await q1<{ id: number; identifier: string; name: string; genus: string | null; generation: number; total_card_count: string; captured: boolean; types: string[] | null }>(
@@ -157,7 +171,7 @@ dexRouter.get(
         generation: species.generation,
         types: species.types ?? [],
         totalCardCount: Number(species.total_card_count),
-        captured: species.captured,
+        ...(userId === null ? {} : { captured: species.captured }),
       },
       cards: cards.map((c) => ({
         cardId: c.tcgdex_id,
@@ -168,8 +182,7 @@ dexRouter.get(
         artist: c.illustrator,
         set: { setId: c.setcode, name: c.set_name },
         variantCount: Number(c.variant_count),
-        owned: Number(c.owned_qty) > 0,
-        ownedQuantity: Number(c.owned_qty),
+        ...(userId === null ? {} : { owned: Number(c.owned_qty) > 0, ownedQuantity: Number(c.owned_qty) }),
         images: cardImages(c.serie, c.setcode, c.local_id),
         price: c.price_minor !== null ? { market: toMajor(c.price_minor, c.price_currency ?? 'USD'), currency: (c.price_currency ?? 'USD').trim() } : null,
       })),

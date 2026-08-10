@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CardRow, type TileVariant } from '../lib/api'
 import { fmtPrice, fmtNumber, rarityGlyph } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
+import { useSignedIn } from '../lib/session'
 import { CardImage } from './CardImage'
 import { Icon } from './Icon'
 import type { CardSearch } from '../routes/setSearch'
@@ -180,7 +181,7 @@ function VariantCounters({ cardId, setId, seed }: { cardId: string; setId: strin
           label={v.displayName}
           color={meta.color}
           dark={meta.dark}
-          qty={v.quantity}
+          qty={v.quantity ?? 0}
           disabled={!online || mutation.isPending}
           onInc={() => mutation.mutate({ variantId: v.variantId, delta: 1 })}
           onDec={() => mutation.mutate({ variantId: v.variantId, delta: -1 })}
@@ -219,10 +220,14 @@ export function CardTile({
   const set = card.setId ?? setId
   const owned = ownership ? card.ownership?.have : undefined
   const qty = card.ownership?.totalQuantity ?? 0
+  // The count boxes are a write affordance. Logged out there is no collection to
+  // write to and the API sends no quantities, so the tile stays a clean piece of
+  // catalog — the page-level prompt (SetHeader) is where the ask lives.
+  const signedIn = useSignedIn()
   // Per-variant count boxes only make sense on the plain set catalog: skip them
   // when the tile already renders an ownership total, a badge, or a remove button
   // (their lower-right corner is spoken for) or has no real set to resolve.
-  const showCounters = !ownership && !badge && !onRemove && Boolean(set)
+  const showCounters = signedIn === true && !ownership && !badge && !onRemove && Boolean(set)
   // On the set page AND the species page the tile opens the detail as a bottom-sheet
   // (a ?card= search change that leaves the current page mounted → scroll/filter
   // preserved) instead of a full-page nav. Elsewhere (lists) it links to the card

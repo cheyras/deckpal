@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { defaultUserId, pool } from './db.js';
 import { looksLikeApiToken, resolveToken, touchToken } from '@deckscout/db';
-import { makeResolveIdentity } from './identity.js';
+import { makeResolveIdentity, makeResolveOptionalIdentity } from './identity.js';
 
 /**
  * Supabase JWT authentication middleware for the cloud deployment.
@@ -63,6 +63,17 @@ declare global {
       authKind?: AuthKind;
       /** `api_token.id` behind a token-authenticated request (never the raw token). */
       apiTokenId?: string;
+      /**
+       * Whether an identity middleware has run, and what it concluded.
+       *
+       * `'anonymous'` is set only by `resolveOptionalIdentity` on a cloud
+       * request that presented no credential — it means "settled: nobody",
+       * which is what lets `optionalUserId()` return `null` instead of
+       * throwing. Absent means no identity middleware ran at all, which is a
+       * wiring bug and stays loud. Read only by `identity.ts`; routes use the
+       * accessors. See identity.ts for the contract.
+       */
+      identityResolution?: 'user' | 'anonymous';
     }
   }
 }
@@ -346,7 +357,7 @@ export function authMiddleware(req: Request, _res: Response, next: NextFunction)
  * itself rejects, and `makeResolveIdentity` asserts `supabaseConfigured` again
  * before it would ever call it.
  */
-export const resolveIdentity: RequestHandler = makeResolveIdentity({
+const identityConfig = {
   supabaseConfigured: SUPABASE_CONFIGURED,
   localUserId: SUPABASE_CONFIGURED
     ? (): Promise<string> =>
@@ -356,7 +367,22 @@ export const resolveIdentity: RequestHandler = makeResolveIdentity({
           ),
         )
     : defaultUserId,
-});
+};
+
+export const resolveIdentity: RequestHandler = makeResolveIdentity(identityConfig);
+
+/**
+ * Settle request identity for the **public catalog**: same as `resolveIdentity`
+ * except that a cloud request with no credential is served as nobody instead of
+ * 401'd. Mounted once in index.ts ahead of the catalog routers; after it,
+ * `optionalUserId(req)` answers with the user id or `null`.
+ *
+ * Shares `identityConfig` with `resolveIdentity` by construction, so the two can
+ * never disagree about whether this deployment is cloud or self-host — the one
+ * disagreement that would matter, because it is the difference between "no user"
+ * and "the local user".
+ */
+export const resolveOptionalIdentity: RequestHandler = makeResolveOptionalIdentity(identityConfig);
 
 /**
  * Guard middleware: rejects unauthenticated requests with 401.

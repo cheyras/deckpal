@@ -63,14 +63,16 @@ function optimisticApply(
   const prevSets = qc.getQueriesData<SetDetailResponse>({ queryKey: ['set', setId] })
 
   if (!prevCard) return () => undefined
-  const before = prevCard.variants.map<OwnBits>((v) => ({ tier: v.tier, isPrimary: v.isPrimary, quantity: v.quantity }))
+  // Quantities are absent on an anonymous read, but this whole optimistic path
+  // only runs behind a stepper, and steppers only render when signed in.
+  const before = prevCard.variants.map<OwnBits>((v) => ({ tier: v.tier, isPrimary: v.isPrimary, quantity: v.quantity ?? 0 }))
   const changed = prevCard.variants.find((v) => v.variantId === variantId)
   const oldQty = changed?.quantity ?? 0
   const clampedNew = Math.max(0, newQty)
   const after = prevCard.variants.map<OwnBits>((v) => ({
     tier: v.tier,
     isPrimary: v.isPrimary,
-    quantity: v.variantId === variantId ? clampedNew : v.quantity,
+    quantity: v.variantId === variantId ? clampedNew : v.quantity ?? 0,
   }))
   const b = cardOwnedUnits(before)
   const a = cardOwnedUnits(after)
@@ -91,7 +93,10 @@ function optimisticApply(
   // Every cached set view: shift progress owned/pct/totalQuantity + the card row.
   qc.setQueriesData<SetDetailResponse>({ queryKey: ['set', setId] }, (old) => {
     if (!old) return old
+    // Both are absent on an anonymous read of the set page; there is then no
+    // cached progress to shift and no ownership to re-derive.
     const p = old.progress
+    if (!p) return old
     const nextProgress: Progress = {
       complete: {
         ...p.complete,
@@ -114,7 +119,7 @@ function optimisticApply(
       },
     }
     const cards = old.cards.map((c) => {
-      if (c.cardId !== cardId) return c
+      if (c.cardId !== cardId || !c.ownership) return c
       const newTotal = c.ownership.totalQuantity + qtyDelta
       return {
         ...c,
@@ -196,7 +201,7 @@ function VariantRow({
   const color = variantColor(v)
   const price = v.prices.find((p) => p.currency === 'USD') ?? v.prices[0] ?? null
   return (
-    <div className="rounded-lg bg-surface-tertiary p-[16px]" data-owned={v.quantity > 0 ? 'true' : 'false'}>
+    <div className="rounded-lg bg-surface-tertiary p-[16px]" data-owned={(v.quantity ?? 0) > 0 ? 'true' : 'false'}>
       <div className={`${VARIANT_GRID} items-center`}>
         {/* Variant column */}
         <div className="flex min-w-0 items-start gap-[8px]">
@@ -233,9 +238,20 @@ function VariantRow({
           )}
         </div>
 
-        {/* Quantity column */}
+        {/* Quantity column. Logged out there is no quantity and nothing to
+            adjust, so the stepper is replaced by the reason it is missing. */}
         <div className="flex justify-end">
-          <QtyStepper v={v} color={color} quantity={v.quantity} onAdjust={onAdjust} pending={pending} />
+          {v.quantity === undefined ? (
+            <Link
+              to="/auth"
+              search={{ mode: 'signup' } as never}
+              className="flex h-[34px] items-center whitespace-nowrap rounded-lg border border-border-default px-[12px] text-[12px] font-semibold text-text-body hover:border-surface-quaternary hover:text-text-primary"
+            >
+              Sign in to track
+            </Link>
+          ) : (
+            <QtyStepper v={v} color={color} quantity={v.quantity} onAdjust={onAdjust} pending={pending} />
+          )}
         </div>
       </div>
     </div>

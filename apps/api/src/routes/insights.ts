@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, clampInt, notFound, oneOf, str, userCache } from '../http.js';
-import { currentUserId } from '../identity.js';
+import { currentUserId, optionalUserId } from '../identity.js';
 import { TRAINER_UNIQUE_MODE, trainerLevelProgress } from '../insights/trainerLevel.js';
 import {
   currentCollectionValue,
@@ -80,11 +80,26 @@ insightsRouter.post(
   }),
 );
 
+/**
+ * The two Pokédex reads, split off the insights router because they are the ONLY
+ * ones a logged-out visitor may reach. Mounted at /insights ahead of
+ * resolveIdentity (see index.ts); everything left on `insightsRouter` is a
+ * report on your own collection and stays gated.
+ *
+ * They live in this file rather than routes/dex.ts because they are the
+ * sprite/level/shiny shape the web Pokédex actually renders — /dex is the
+ * leaner catalog view of the same species.
+ */
+export const publicPokedexRouter: Router = Router();
+
 /** GET /insights/pokedex?generation=&own=&q=&page=&pageSize= — species grid. */
-insightsRouter.get(
+publicPokedexRouter.get(
   '/pokedex',
   asyncHandler(async (req, res) => {
-    const userId = currentUserId(req);
+    // null when nobody is signed in: speciesGrid then binds SQL NULL for the
+    // collection join (matching no row for any user) and omits every capture,
+    // level and shiny field. See identity.ts.
+    const userId = optionalUserId(req);
     const generationRaw = str(req.query.generation);
     const generation = generationRaw && Number.isFinite(Number(generationRaw)) ? Number(generationRaw) : undefined;
     const own = oneOf(req.query.own, ['all', 'captured', 'uncaptured'] as const, 'all');
@@ -98,10 +113,11 @@ insightsRouter.get(
 );
 
 /** GET /insights/pokedex/:speciesId — one species' cards + capture/level/shiny. */
-insightsRouter.get(
+publicPokedexRouter.get(
   '/pokedex/:speciesId',
   asyncHandler(async (req, res) => {
-    const userId = currentUserId(req);
+    // null when nobody is signed in — see the grid above.
+    const userId = optionalUserId(req);
     const raw = String(req.params.speciesId ?? '');
     const detail = await speciesDetail(userId, raw);
     if (!detail) throw notFound(`No species '${raw}'`);

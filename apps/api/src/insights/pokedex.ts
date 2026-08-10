@@ -127,6 +127,13 @@ export async function dexCompletion(userId: string): Promise<DexCompletion> {
   return { captured: capturedTotal, total, pct: round1(capturedTotal, total), byGeneration };
 }
 
+/**
+ * A species row. Everything from `uniqueOwned` down is the CALLER's state, and
+ * every one of those keys is optional because the Pokédex is browsable
+ * signed-out: an anonymous read omits them rather than sending a zero, which
+ * would be a claim about a collector who isn't there. See `optionalUserId` in
+ * identity.ts for the seam.
+ */
 export interface SpeciesGridRow {
   speciesId: number;
   slug: string;
@@ -135,17 +142,18 @@ export interface SpeciesGridRow {
   generation: number;
   types: string[];
   cardPool: number;
-  uniqueOwned: number;
-  captured: boolean;
-  level: number;
-  levelLabel: string;
-  shiny: boolean;
-  shinyBreadth: number;
+  uniqueOwned?: number;
+  captured?: boolean;
+  level?: number;
+  levelLabel?: string;
+  shiny?: boolean;
+  shinyBreadth?: number;
   sprite: { pixel: string; pixelShiny: string; art: string; artShiny: string };
 }
 
 export interface SpeciesGrid {
-  completion: { captured: number; total: number };
+  /** Your dex completion. Absent for an anonymous read. */
+  completion?: { captured: number; total: number };
   pagination: { page: number; pageSize: number; total: number; pageCount: number };
   species: SpeciesGridRow[];
 }
@@ -155,10 +163,12 @@ export interface SpeciesGrid {
  * level and shiny. `own` filters to captured/uncaptured; `generation` to one gen.
  */
 export async function speciesGrid(
-  userId: string,
+  userId: string | null,
   opts: { generation?: number; own?: 'all' | 'captured' | 'uncaptured'; search?: string; page: number; pageSize: number },
 ): Promise<SpeciesGrid> {
-  const own = opts.own ?? 'all';
+  // An anonymous caller has no capture state to filter on, so the facet
+  // collapses to 'all' rather than returning every species or none.
+  const own = userId === null ? 'all' : opts.own ?? 'all';
   const offset = (opts.page - 1) * opts.pageSize;
   const params: unknown[] = [userId];
   const where: string[] = ['true'];
@@ -197,19 +207,23 @@ export async function speciesGrid(
     params,
   );
 
-  const capturedTotal = await dexCapturedCount(userId);
+  const capturedTotal = userId === null ? null : await dexCapturedCount(userId);
   const totalRows = rows.length ? Number(rows[0]!.total_rows) : 0;
   return {
-    completion: { captured: capturedTotal, total: NATIONAL_DEX_SIZE },
+    ...(capturedTotal === null ? {} : { completion: { captured: capturedTotal, total: NATIONAL_DEX_SIZE } }),
     pagination: { page: opts.page, pageSize: opts.pageSize, total: totalRows, pageCount: Math.ceil(totalRows / opts.pageSize) },
-    species: rows.map((r) => shapeGridRow(r)),
+    species: rows.map((r) => shapeGridRow(r, userId !== null)),
   };
 }
 
-function shapeGridRow(r: {
-  id: number; identifier: string; name: string; genus: string | null; generation: number;
-  types: string[] | null; card_pool: string; unique_owned: string | null;
-}): SpeciesGridRow {
+function shapeGridRow(
+  r: {
+    id: number; identifier: string; name: string; genus: string | null; generation: number;
+    types: string[] | null; card_pool: string; unique_owned: string | null;
+  },
+  /** False for an anonymous read — the capture block is left off entirely. */
+  withOwnership: boolean,
+): SpeciesGridRow {
   const pool = Number(r.card_pool);
   const uniqueOwned = Number(r.unique_owned ?? 0);
   const level = speciesLevel(uniqueOwned, pool);
@@ -221,12 +235,16 @@ function shapeGridRow(r: {
     generation: r.generation,
     types: r.types ?? [],
     cardPool: pool,
-    uniqueOwned,
-    captured: uniqueOwned > 0,
-    level,
-    levelLabel: setLevelLabel(level),
-    shiny: isShiny(uniqueOwned),
-    shinyBreadth: shinyBreadth(uniqueOwned),
+    ...(withOwnership
+      ? {
+          uniqueOwned,
+          captured: uniqueOwned > 0,
+          level,
+          levelLabel: setLevelLabel(level),
+          shiny: isShiny(uniqueOwned),
+          shinyBreadth: shinyBreadth(uniqueOwned),
+        }
+      : {}),
     sprite: speciesSprite(r.id),
   };
 }
@@ -259,21 +277,21 @@ export function speciesSprite(dexId: number): SpeciesGridRow['sprite'] {
 export interface SpeciesDetail {
   species: {
     speciesId: number; slug: string; name: string; genus: string | null; generation: number;
-    types: string[]; cardPool: number; uniqueOwned: number; captured: boolean;
-    level: number; levelLabel: string; shiny: boolean; shinyBreadth: number;
+    types: string[]; cardPool: number; uniqueOwned?: number; captured?: boolean;
+    level?: number; levelLabel?: string; shiny?: boolean; shinyBreadth?: number;
     sprite: SpeciesGridRow['sprite'];
   };
   cards: Array<{
     cardId: string; number: string; name: string; category: string; rarity: string | null;
     artist: string | null; set: { setId: string; name: string };
-    variantCount: number; owned: boolean; ownedQuantity: number;
+    variantCount: number; owned?: boolean; ownedQuantity?: number;
     images: { low: string; high: string };
     price: { market: number | null; currency: string } | null;
   }>;
 }
 
 /** One species (by numeric id or slug) with every card featuring it + capture/level. */
-export async function speciesDetail(userId: string, raw: string): Promise<SpeciesDetail | null> {
+export async function speciesDetail(userId: string | null, raw: string): Promise<SpeciesDetail | null> {
   const numeric = Number.parseInt(raw, 10);
   const species = await q1<{
     id: number; identifier: string; name: string; genus: string | null; generation: number;
@@ -333,12 +351,16 @@ export async function speciesDetail(userId: string, raw: string): Promise<Specie
       generation: species.generation,
       types: species.types ?? [],
       cardPool: pool,
-      uniqueOwned,
-      captured: uniqueOwned > 0,
-      level,
-      levelLabel: setLevelLabel(level),
-      shiny: isShiny(uniqueOwned),
-      shinyBreadth: shinyBreadth(uniqueOwned),
+      ...(userId === null
+        ? {}
+        : {
+            uniqueOwned,
+            captured: uniqueOwned > 0,
+            level,
+            levelLabel: setLevelLabel(level),
+            shiny: isShiny(uniqueOwned),
+            shinyBreadth: shinyBreadth(uniqueOwned),
+          }),
       sprite: speciesSprite(species.id),
     },
     cards: cards.map((c) => ({
@@ -350,8 +372,7 @@ export async function speciesDetail(userId: string, raw: string): Promise<Specie
       artist: c.illustrator,
       set: { setId: c.setcode, name: c.set_name },
       variantCount: Number(c.variant_count),
-      owned: Number(c.owned_qty) > 0,
-      ownedQuantity: Number(c.owned_qty),
+      ...(userId === null ? {} : { owned: Number(c.owned_qty) > 0, ownedQuantity: Number(c.owned_qty) }),
       images: cardImages(c.serie, c.setcode, c.local_id),
       price:
         c.price_minor !== null

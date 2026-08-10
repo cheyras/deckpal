@@ -22,24 +22,47 @@ function stripBase(pathname: string): string {
   return rest.replace(/\/+$/, '')
 }
 
-// Every route a logged-OUT visitor is allowed to see. Three call sites need the
-// same answer and MUST agree, or the answer is worse than useless:
-//   • RootComponent (main.tsx) — must not wrap these in AuthGuard, or a
-//     logged-out visitor is bounced off the very page they were sent to.
-//   • AppShell — must render these chrome-free. The nav mounts ProfileChip,
-//     whose overview query 401s while signed out → handle401 →
-//     location.assign('/auth') → reload → 401 … the loop that api.ts's guard
-//     exists to break.
-//   • api.ts handle401 — must not hard-redirect away from one of these.
-// Hence one predicate, not three string tests that drift apart.
-const PUBLIC_PATHS = new Set([
+// Routes that render with NO app chrome at all: the marketing landing, every
+// auth surface, and the OBS overlay. AppShell returns bare children for these.
+// The nav mounts ProfileChip, whose overview query 401s while signed out →
+// handle401 → location.assign('/auth') → reload → 401 … the loop this list
+// exists to break. (The catalog below fixes that differently — it renders the
+// nav but never mounts an authenticated query while signed out.)
+const CHROMELESS_PATHS = new Set([
   '/auth', // sign in / sign up / forgot password
   '/auth/reset', // password-recovery link target
   '/signed-out', // post-sign-out confirmation
   '/overlay', // OBS browser source
 ])
 
-export function isPublicPathname(pathname: string): boolean {
+export function isChromelessPathname(pathname: string): boolean {
   const rest = stripBase(pathname)
-  return rest === '' || PUBLIC_PATHS.has(rest)
+  return rest === '' || CHROMELESS_PATHS.has(rest)
+}
+
+// The public catalog: the shop window a logged-out visitor may browse in full.
+// These render WITH the app chrome and WITHOUT AuthGuard. Everything per-user —
+// /lists, /decks, /insights, /scan, /profile — is absent from this list and
+// still bounces to /auth.
+//
+// Matching is prefix-with-a-boundary, not startsWith: '/series' must cover
+// '/series/sword-shield/swsh1/4' but a hypothetical '/seriesadmin' must not.
+const CATALOG_PREFIXES = ['/series', '/pokedex', '/search']
+
+export function isCatalogPathname(pathname: string): boolean {
+  const rest = stripBase(pathname)
+  return CATALOG_PREFIXES.some((p) => rest === p || rest.startsWith(`${p}/`))
+}
+
+// Every route a logged-OUT visitor is allowed to sit on. Three call sites need
+// the same answer and MUST agree, or the answer is worse than useless:
+//   • RootComponent (main.tsx) — must not wrap these in AuthGuard, or a
+//     logged-out visitor is bounced off the very page they were sent to.
+//   • AppShell — decides chrome from isChromelessPathname, but must not mount
+//     authenticated queries on any of these.
+//   • api.ts handle401 — must not hard-redirect away from one of these, or a
+//     single stray 401 turns into an assign → reload → 401 loop.
+// Hence one predicate, not three string tests that drift apart.
+export function isPublicPathname(pathname: string): boolean {
+  return isChromelessPathname(pathname) || isCatalogPathname(pathname)
 }

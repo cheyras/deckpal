@@ -8,6 +8,8 @@ import { SetLogo } from './SetLogo'
 import { ProgressCluster } from './ProgressCluster'
 import { Icon } from './Icon'
 import { PurchaseSetMenu } from './PurchaseSetMenu'
+import { SignInPrompt } from './SignInPrompt'
+import { useSignedIn } from '../lib/session'
 
 function Stat({ label, value, money = false }: { label: string; value: string; money?: boolean }) {
   return (
@@ -22,6 +24,11 @@ function Stat({ label, value, money = false }: { label: string; value: string; m
 
 export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal }) {
   const { set, progress } = data
+  // `progress` is absent for a logged-out visitor. Two of the three header
+  // actions are per-user too: Purchase Set builds a cart of the cards you still
+  // NEED, and Print Checklist is a gated export. Shop is a plain TCGplayer
+  // search and stays for everyone.
+  const signedOut = useSignedIn() === false
   // Shop: no canonical per-set product URL is derivable from our catalog, so it
   // opens a TCGplayer Pokémon search for the set name — a reliable landing page
   // for singles and sealed product alike. Purchase Set is different: it builds a
@@ -65,16 +72,27 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
             <a href={tcgSearchUrl} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
               <Icon name="external" size={16} className="text-action-brand" /> Shop
             </a>
-            <PurchaseSetMenu setId={set.setId} pageGoal={goal} />
-            <a href={api.setChecklistPdfUrl(set.setId)} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
-              <Icon name="printer" size={16} className="text-action-brand" /> Print Checklist
-            </a>
+            {!signedOut && (
+              <>
+                <PurchaseSetMenu setId={set.setId} pageGoal={goal} />
+                <a href={api.setChecklistPdfUrl(set.setId)} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
+                  <Icon name="printer" size={16} className="text-action-brand" /> Print Checklist
+                </a>
+              </>
+            )}
           </div>
 
           <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.images.symbolUrl)} name={set.name} size={40} />
 
           <div className="ml-auto min-w-[300px] flex-1">
-            <ProgressCluster progress={progress} goal={goal} />
+            {progress ? (
+              <ProgressCluster progress={progress} goal={goal} />
+            ) : (
+              <SignInPrompt
+                title="Track this set"
+                detail={`Mark which of these ${set.cardCountTotal.toLocaleString()} cards you own.`}
+              />
+            )}
           </div>
         </div>
 
