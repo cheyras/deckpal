@@ -1,0 +1,163 @@
+# Catalog refresh — the scheduled job that keeps `card` / `card_set` in step with
+# upstream TCGdex.
+#
+# ── Why this workflow exists ────────────────────────────────────────────────
+# `data/catalog/en/*.json` is a point-in-time extract and, until this file, NOTHING
+# refreshed it: the `catalog` entry in `apps/sync/src/index.ts` is a logging stub
+# and there was no Actions job. So it rotted for 17 days and surfaced as issue #21
+# ("I have an 087 Binacle I can't add") rather than as a sync log. 102 cards were
+# genuinely absent from the app. Sets do not stop growing at release — MEP went
+# 60 → 89 cards after ship — so a snapshot is a decaying asset by construction.
+# See DECISIONS.md 2026-08-10.
+#
+# ── Why weekly, on a Sunday ─────────────────────────────────────────────────
+# `SCHEDULE.catalog` in apps/sync has said `30 4 * * 0` since the scaffold; this
+# workflow is that stub made real, at the same cadence, so there is one answer to
+# "when does the catalog refresh" rather than two competing ones.
+#
+# Weekly is the right grain for this data. Main sets ship roughly quarterly, but
+# the churn that actually bites is continuous drip: promos, Trainer Kits and
+# Trainer Gallery subsets get filled in weeks or months after a set is "done".
+# Weekly bounds worst-case staleness at 7 days against the 17 that produced the
+# bug report, while a daily run would spend a ~460 MB image pull and a production
+# write seven times to observe the same no-op six of them (B8 makes a no-op
+# harmless, not free). `workflow_dispatch` covers "a set just dropped and I want
+# it now", which is the case daily scheduling would actually be buying.
+#
+# ── Contracts ───────────────────────────────────────────────────────────────
+# B3  The TCGdex API server is NEVER started. `scripts/refresh-catalog.sh` uses
+#     `docker create` + `docker cp` and this workflow calls that script rather
+#     than re-implementing the extraction, so B3 has one enforcement point.
+# B8  The importer is idempotent, batched, resumable and uses ONE connection
+#     (`makePool(1)`), and never deletes user-owned data. Re-running a failed run
+#     is the supported recovery — hence no `continue-on-error` anywhere here.
+# B9  This mutates the production catalog. It does not touch Supabase settings,
+#     Vercel config, or anything else infrastructural.
+#
+# ── Secrets the repository owner must add ───────────────────────────────────
+# Settings → Secrets and variables → Actions → New repository secret. The values
+# are exactly the matching lines of the owner's local `.env.cloud`:
+#
+#   SUPABASE_DB_HOST      ← PGHOST      (the Supabase pooler host)
+#   SUPABASE_DB_NAME      ← PGDATABASE
+#   SUPABASE_DB_USER      ← PGUSER
+#   SUPABASE_DB_PASSWORD  ← PGPASSWORD
+#   SUPABASE_DB_PORT      ← PGPORT      (OPTIONAL; defaults to 5432 below)
+#
+# Nothing else is needed: the importer talks to Postgres only — no Supabase
+# service-role key, no Storage access, no GitHub token beyond the default one.
+# `PGSSLMODE` is pinned to `require` in the job env because it is configuration,
+# not a credential (`packages/db/pool.ts` implements libpq's semantics for it).
+#
+# Until those secrets exist the job cannot run, and the preflight step below says
+# so in one line instead of failing later as a confusing ECONNREFUSED to
+# 127.0.0.1.
+name: Catalog refresh
+
+on:
+  schedule:
+    # Sundays 04:30 UTC. Off the hour on purpose: GitHub's scheduler is
+    # best-effort and queues hardest on the hour.
+    - cron: '30 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      skip_import:
+        description: 'Extract and report the delta, but do not write to the database'
+        type: boolean
+        default: false
+
+# One refresh at a time, ever. Two concurrent importers would each be idempotent
+# on their own and still interleave their per-set transactions against the same
+# rows. Queue rather than cancel: a run that is mid-import must finish or fail on
+# its own terms, not be killed halfway through a set.
+concurrency:
+  group: catalog-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PGHOST: ${{ secrets.SUPABASE_DB_HOST }}
+      PGPORT: ${{ secrets.SUPABASE_DB_PORT || '5432' }}
+      PGDATABASE: ${{ secrets.SUPABASE_DB_NAME }}
+      PGUSER: ${{ secrets.SUPABASE_DB_USER }}
+      PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PGSSLMODE: require
+      # B2 / B8: the importer asks for one connection and must not be able to ask
+      # for more, whatever the default becomes.
+      PGPOOL_MAX: '1'
+      SUMMARY_JSON: ${{ github.workspace }}/catalog-summary.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Fail on the missing secret, not on the connection it would have made.
+      - name: Preflight — credentials present
+        if: ${{ !inputs.skip_import }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${PGHOST:-}" ]     || missing+=(SUPABASE_DB_HOST)
+          [ -n "${PGDATABASE:-}" ] || missing+=(SUPABASE_DB_NAME)
+          [ -n "${PGUSER:-}" ]     || missing+=(SUPABASE_DB_USER)
+          [ -n "${PGPASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Catalog refresh is not configured::Missing repository secret(s): ${missing[*]}. See the header of .github/workflows/catalog-refresh.yml."
+            exit 1
+          fi
+          echo "credentials present for ${PGUSER}@${PGHOST}:${PGPORT}/${PGDATABASE}"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      # apps/sync resolves @deckscout/db through its dist/ (main: dist/index.js),
+      # which a fresh workspace does not have.
+      - name: Build @deckscout/db
+        run: pnpm --filter @deckscout/db build
+
+      # B3 lives inside this script: docker create + docker cp, never docker run.
+      # No `|| true`, no `continue-on-error` — a failure here is the whole point of
+      # having the job, and the two defects fixed in 5ce5570 (upstream set renames,
+      # retired-variant sort_order collisions) both abort the import rather than
+      # skip a row, so they surface as a red run.
+      - name: Extract upstream catalog and import
+        env:
+          SKIP_IMPORT: ${{ inputs.skip_import && '1' || '0' }}
+          CATALOG_SUMMARY_JSON: ${{ env.SUMMARY_JSON }}
+        run: |
+          set -euo pipefail
+          scripts/refresh-catalog.sh
+
+      # Always runs, even when the import failed, so a red run still explains
+      # itself in the summary rather than only in 400 lines of log.
+      - name: Job summary
+        if: ${{ always() && !inputs.skip_import }}
+        run: node scripts/catalog-job-summary.mjs >> "$GITHUB_STEP_SUMMARY"
+
+      # A rename is the one success that leaves work behind: card art is addressed
+      # by the set's tcgdex_id (B6), so the moment the importer re-keys a set its
+      # cached images are stranded under the old address and ~30 cards per set
+      # serve placeholders. That is precisely the regression this pair of tasks
+      # exists to fix, and a green run nobody reads is how it would recur.
+      #
+      # So the job goes RED — after the import has committed, so the catalog is
+      # already correct and B8 makes a re-run free. Once the operator has run the
+      # re-key, a re-run detects no rename (our id now equals upstream's) and the
+      # job is green again with no override needed.
+      - name: Fail if a set rename left card art stranded
+        if: ${{ !inputs.skip_import }}
+        run: node scripts/catalog-job-summary.mjs --gate

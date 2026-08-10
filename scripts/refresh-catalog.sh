@@ -74,9 +74,30 @@ if [ "${SKIP_IMPORT:-0}" = "1" ]; then
   exit 0
 fi
 
-echo "==> importing with $ENV_FILE"
 cd "$REPO_ROOT"
-set -a && . "./$ENV_FILE" && set +a
+
+# An env FILE is how a human runs this; the scheduled refresh
+# (.github/workflows/catalog-refresh.yml) has no such file and exports PG* from
+# repository secrets instead. Sourcing is therefore best-effort — but the
+# credentials are not: an unset PGHOST silently means 127.0.0.1, which on a CI
+# runner is a confusing connection refused rather than "you forgot a secret".
+if [ -f "$REPO_ROOT/$ENV_FILE" ]; then
+  echo "==> importing with $ENV_FILE"
+  set -a && . "./$ENV_FILE" && set +a
+else
+  echo "==> $ENV_FILE not present; importing with the ambient environment"
+fi
+missing=""
+for v in PGHOST PGDATABASE PGUSER PGPASSWORD; do
+  eval "val=\${$v:-}"
+  [ -n "$val" ] || missing="$missing $v"
+done
+if [ -n "$missing" ]; then
+  echo "!! refusing to import: no database credentials —$missing unset, and no $ENV_FILE to read them from" >&2
+  exit 1
+fi
+echo "    target: $PGUSER@$PGHOST:${PGPORT:-5432}/$PGDATABASE"
+
 pnpm --filter deckscout-sync import:catalog
 
 cat <<'EOF'

@@ -245,18 +245,65 @@ The script (`scripts/migrate-to-cloud.ts`):
 
 ### 6. GitHub Actions sync setup
 
-Catalog and price imports run as scheduled GitHub Actions workflows. Set the
-following repository secrets (Settings > Secrets and variables > Actions):
+**`.github/workflows/catalog-refresh.yml` — weekly catalog refresh (Sundays
+04:30 UTC), plus `workflow_dispatch`.** This is the only scheduled data workflow
+that exists today; price and snapshot ingests still run from the `deckscout-sync`
+process (Path B below) and are not yet wired to Actions.
 
-| Secret | Value |
-|---|---|
-| `SUPABASE_DB_HOST` | `db.<project>.supabase.co` |
-| `SUPABASE_DB_PASSWORD` | Your Supabase database password |
+Add these repository secrets — Settings → Secrets and variables → Actions → *New
+repository secret*. The values are exactly the matching lines of your `.env.cloud`:
 
-The workflows:
-- `.github/workflows/sync-catalog.yml` — weekly catalog sync (Sunday 03:00 UTC)
-- `.github/workflows/sync-prices.yml` — daily price sync
-- `.github/workflows/sync-snapshot.yml` — daily collection value snapshot
+| Secret | Value (from `.env.cloud`) | Required |
+|---|---|---|
+| `SUPABASE_DB_HOST` | `PGHOST` — the Supabase pooler host | yes |
+| `SUPABASE_DB_NAME` | `PGDATABASE` | yes |
+| `SUPABASE_DB_USER` | `PGUSER` | yes |
+| `SUPABASE_DB_PASSWORD` | `PGPASSWORD` | yes |
+| `SUPABASE_DB_PORT` | `PGPORT` | no — defaults to `5432` |
+
+Nothing else is needed. The importer talks to Postgres only: no service-role key,
+no Storage access, no extra GitHub token. `PGSSLMODE=require` and `PGPOOL_MAX=1`
+are set in the workflow itself because they are configuration, not credentials.
+
+Until the secrets exist the job's first step fails with a one-line error naming
+the missing ones, rather than a confusing connection error later on.
+
+**What the run tells you.** The job summary reports cards before → after, sets
+before → after, and `renamedSets` / `renamedCards`. Those last two matter: card
+art is addressed by a set's `tcgdex_id` (AGENTS.md B6), so when upstream re-keys a
+set, the catalog moves and the cached images do not — every card in that set then
+serves a placeholder. **The job deliberately fails when that happens**, after the
+import has committed, and prints the exact `rekey:set` commands to run. The
+catalog is already correct at that point; re-run the workflow once the re-key is
+done and it goes green (the importer sees no rename the second time).
+
+**Running it by hand** — the same thing the workflow does, from a checkout with
+`.env.cloud` present:
+
+```bash
+ENV_FILE=.env.cloud scripts/refresh-catalog.sh    # extract (B3-safe) + import
+SKIP_IMPORT=1 scripts/refresh-catalog.sh          # extract + delta report only
+```
+
+`scripts/refresh-catalog.sh` never starts the TCGdex API server (contract B3 — it
+loads all 18 languages per worker and will OOM the box); it `docker create`s a
+container purely to `docker cp` the compiled JSON out of. The importer is
+idempotent (B8), so re-running is a no-op beyond whatever upstream actually
+changed, and it never deletes user-owned rows.
+
+**If a run reports a rename**, re-address the cached art — do not re-warm it. The
+bytes are already correct, and for some sets the upstream URL now 404s, so a
+refetch would destroy art rather than restore it:
+
+```bash
+# disk tier (self-host cache; PG* pointed at that box's database)
+pnpm --filter deckscout-images rekey:set --rename <old>:<new>
+# object tier (Supabase Storage; .env.cloud loaded)
+pnpm --filter deckscout-images rekey:set --object-store --rename <old>:<new>
+# then prove both tiers
+pnpm --filter deckscout-images manifest:check
+pnpm --filter deckscout-images manifest:check --object-store
+```
 
 ---
 
@@ -320,15 +367,26 @@ of the API. See [`SECURITY.md`](SECURITY.md) for details.
 
 ### 6. Set up sync jobs
 
-Use cron, systemd timers, or any scheduler to run the importers periodically:
+`deckscout-sync` runs the price and collection-snapshot jobs on its own node-cron
+schedule. The **catalog** entry there is a logging stub on purpose: refreshing the
+catalog needs Docker to extract the upstream JSON, so it is a scheduled GitHub
+Actions job for the cloud path (`.github/workflows/catalog-refresh.yml`) and a
+cron/systemd timer calling the script directly for self-host:
 
 ```bash
-# Weekly catalog sync
-pnpm --filter deckscout-sync catalog:run
+# Weekly catalog refresh — extract upstream JSON (B3-safe) and import it
+scripts/refresh-catalog.sh                # uses .env
+SKIP_IMPORT=1 scripts/refresh-catalog.sh  # extract + delta report only
 
-# Daily price sync
-pnpm --filter deckscout-sync prices:run
+# One price ingest by hand (otherwise the deckscout-sync scheduler runs it)
+pnpm --filter deckscout-sync run-once prices-tcgcsv
 ```
+
+Requires Docker on the host. If a refresh reports `renamedSets > 0`, the cached
+card art for those sets is stranded under the old set id — re-address it with
+`pnpm --filter deckscout-images rekey:set --rename <old>:<new>` and confirm with
+`manifest:check`. See the cloud section above for why this is a re-key and never
+a re-warm.
 
 ---
 
