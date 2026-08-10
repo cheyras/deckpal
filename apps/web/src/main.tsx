@@ -17,7 +17,10 @@ import { registerPwa } from './pwa'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
 import { AuthGuard } from './components/AuthGuard'
+import { isLandingPathname } from './lib/landingRoute'
+import { supabase, isCloudMode } from './lib/supabase'
 import { Auth } from './routes/Auth'
+import { Landing } from './routes/Landing'
 import { SeriesIndex } from './routes/SeriesIndex'
 import { SeriesDetail } from './routes/SeriesDetail'
 import { SetDetail } from './routes/SetDetail'
@@ -51,7 +54,10 @@ const queryClient = new QueryClient({
 
 function RootComponent() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const isPublic = pathname.endsWith('/auth') || pathname.includes('/overlay')
+  // The marketing landing at `/` is public by definition: wrapping it in
+  // AuthGuard would bounce every logged-out visitor straight to /auth.
+  const isPublic =
+    isLandingPathname(pathname) || pathname.endsWith('/auth') || pathname.includes('/overlay')
   if (isPublic) {
     return (
       <AppShell>
@@ -72,12 +78,24 @@ const rootRoute = createRootRoute({
   component: RootComponent,
 })
 
+// `/` is two different things depending on who is asking:
+//   • self-host (no Supabase)  → straight into the app, as it always has been.
+//     A self-hoster has no signup flow, so a marketing page with a dead
+//     "Create your free account" button would be a cul-de-sac.
+//   • cloud + signed in         → straight into the app (preserves the old
+//     redirect for every existing user and every bookmarked deep link).
+//   • cloud + signed out        → the public marketing landing.
+// getSession() reads the persisted session out of localStorage, so the common
+// case resolves in a tick without a network round-trip.
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  beforeLoad: () => {
-    throw redirect({ to: '/series' })
+  beforeLoad: async () => {
+    if (!isCloudMode) throw redirect({ to: '/series' })
+    const { data } = await supabase.auth.getSession()
+    if (data.session) throw redirect({ to: '/series' })
   },
+  component: Landing,
 })
 
 const seriesIndexRoute = createRoute({
@@ -197,9 +215,15 @@ const searchRoute = createRoute({
   component: SearchResults,
 })
 
+// `?mode=signup` opens the form on the Sign Up tab — the landing page's primary
+// CTA links here, and dropping someone on the Sign In tab after they clicked
+// "Create your free account" is a needless extra click.
 const authRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/auth',
+  validateSearch: (raw: Record<string, unknown>): { mode?: 'signup' } => ({
+    mode: raw.mode === 'signup' ? 'signup' : undefined,
+  }),
   component: Auth,
 })
 

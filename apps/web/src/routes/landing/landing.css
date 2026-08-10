@@ -1,0 +1,259 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Landing page (logged-out `/`) — presentation layer.
+ *
+ * Everything here is scoped under `.ls` so none of it can leak into the app
+ * shell. Colours/radii/shadows come from the design tokens in theme.css; no
+ * hard-coded hexes except the two hero-gradient stops, which are alpha washes
+ * of tokens that CSS cannot express as a colour-mix on older Safari.
+ *
+ * MOTION CONTRACT: every animated property in this file is opacity, transform,
+ * stroke-dashoffset, width or grid-template-rows — never a layout box that a
+ * sibling depends on, so nothing here can shift the page (CLS = 0). The
+ * `prefers-reduced-motion` block at the bottom hard-resets ALL of it to the
+ * finished state, including the pre-reveal `opacity: 0` — a reduced-motion
+ * visitor must never see a blank page if IntersectionObserver never fires.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+.ls {
+  --ls-max: 1180px;
+  --ls-gutter: 20px;
+  --ls-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (min-width: 768px) {
+  .ls {
+    --ls-gutter: 32px;
+  }
+}
+
+.ls-wrap {
+  width: 100%;
+  max-width: var(--ls-max);
+  margin-inline: auto;
+  padding-inline: var(--ls-gutter);
+}
+
+/* ── scroll reveal ─────────────────────────────────────────────────────────
+   Opacity + a 20px lift. `data-revealed` is stamped by the IntersectionObserver
+   in Landing.tsx; `--ls-delay` staggers siblings. */
+.ls [data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, 20px, 0);
+  transition:
+    opacity 680ms var(--ls-ease),
+    transform 680ms var(--ls-ease);
+  transition-delay: var(--ls-delay, 0ms);
+}
+.ls [data-reveal][data-revealed] {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── image-free backdrops ──────────────────────────────────────────────────
+   The marketing photography is optional: every <picture> on this page removes
+   itself if the bytes 404. So the backdrops below have to carry the page on
+   their own, and are built purely from the alpha tokens (halo-*, overlay-ring,
+   surface-tertiary-subtle) so they stay in the palette. When the imagery lands
+   it layers ON TOP of these at partial opacity — nothing needs to change. */
+.ls-mesh {
+  background-color: var(--color-surface-primary);
+  background-image:
+    radial-gradient(46% 38% at 14% 4%, var(--color-overlay-ring) 0%, transparent 66%),
+    radial-gradient(38% 32% at 88% 0%, var(--color-halo-success) 0%, transparent 64%),
+    radial-gradient(34% 30% at 74% 46%, var(--color-halo-error) 0%, transparent 70%),
+    radial-gradient(64% 48% at 50% -6%, var(--color-surface-secondary) 0%, transparent 74%);
+}
+
+/* Faint engineering grid, masked to a soft ellipse so it never reaches an edge. */
+.ls-grid-lines {
+  background-image:
+    linear-gradient(to right, var(--color-surface-tertiary-transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-surface-tertiary-transparent) 1px, transparent 1px);
+  background-size: 58px 58px;
+  -webkit-mask-image: radial-gradient(76% 60% at 50% 26%, #000 0%, transparent 78%);
+  mask-image: radial-gradient(76% 60% at 50% 26%, #000 0%, transparent 78%);
+  opacity: 0.5;
+}
+
+/* Optional seamless tile (marketing/texture-grid-*). A background layer that
+   404s simply does not paint, so this degrades to the gradient beneath it. */
+.ls-texture {
+  background-image: var(--ls-texture);
+  background-size: 320px 320px;
+  background-repeat: repeat;
+  opacity: 0.16;
+}
+
+/* ── hero backdrop ────────────────────────────────────────────────────────── */
+.ls-hero-glow {
+  animation: ls-drift 24s ease-in-out infinite alternate;
+}
+@keyframes ls-drift {
+  from {
+    transform: translate3d(-4%, -3%, 0) scale(1.05);
+  }
+  to {
+    transform: translate3d(4%, 3%, 0) scale(1.14);
+  }
+}
+
+/* Parallax offset is written by a rAF-throttled scroll listener as a custom
+   property, so the browser only ever recomposites the transform. */
+.ls-parallax {
+  transform: translate3d(0, var(--ls-parallax, 0px), 0);
+  will-change: transform;
+}
+
+/* ── completion ring (LevelRing idiom, continuous arc) ────────────────────── */
+.ls-ring-arc {
+  stroke-dasharray: var(--ls-circ);
+  stroke-dashoffset: var(--ls-circ);
+  transition: stroke-dashoffset 1500ms var(--ls-ease) 220ms;
+}
+.ls [data-revealed] .ls-ring-arc {
+  stroke-dashoffset: var(--ls-arc);
+}
+
+/* ── progress bars (ProgressCluster idiom) ────────────────────────────────── */
+.ls-bar-fill {
+  width: 0;
+  transition: width 1150ms var(--ls-ease) 320ms;
+}
+.ls [data-revealed] .ls-bar-fill {
+  width: var(--ls-bar);
+}
+
+/* ── value chart (ValueChart idiom) ───────────────────────────────────────── */
+.ls-chart-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 1800ms cubic-bezier(0.36, 0.7, 0.3, 1) 180ms;
+}
+.ls [data-revealed] .ls-chart-line {
+  stroke-dashoffset: 0;
+}
+.ls-chart-area,
+.ls-chart-dot {
+  opacity: 0;
+  transition: opacity 620ms ease;
+  transition-delay: var(--ls-delay, 800ms);
+}
+.ls [data-revealed] .ls-chart-area,
+.ls [data-revealed] .ls-chart-dot {
+  opacity: 1;
+}
+
+/* ── scanner viewport ─────────────────────────────────────────────────────── */
+.ls-scanline {
+  animation: ls-sweep 2.8s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+}
+@keyframes ls-sweep {
+  from {
+    top: 8%;
+  }
+  to {
+    top: 88%;
+  }
+}
+.ls-reticle {
+  animation: ls-pulse 2.4s ease-in-out infinite;
+}
+@keyframes ls-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ── hover affordances ────────────────────────────────────────────────────── */
+.ls-card {
+  transition:
+    transform 280ms var(--ls-ease),
+    border-color 280ms ease;
+}
+.ls-card:hover {
+  transform: translate3d(0, -3px, 0);
+  border-color: var(--color-surface-quaternary);
+}
+
+.ls-cta {
+  transition:
+    background-color 150ms ease,
+    transform 200ms var(--ls-ease),
+    box-shadow 240ms ease;
+}
+.ls-cta:hover {
+  transform: translate3d(0, -2px, 0);
+}
+
+/* ── FAQ accordion (grid-rows trick — animates without measuring) ─────────── */
+.ls-faq-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 240ms ease;
+}
+.ls-faq[data-open='true'] .ls-faq-body {
+  grid-template-rows: 1fr;
+}
+.ls-faq-body > div {
+  overflow: hidden;
+}
+.ls-faq-chev {
+  transition: transform 200ms ease;
+}
+.ls-faq[data-open='true'] .ls-faq-chev {
+  transform: rotate(180deg);
+}
+
+/* ── reduced motion: everything lands in its finished state, instantly ────── */
+@media (prefers-reduced-motion: reduce) {
+  .ls [data-reveal],
+  .ls [data-reveal][data-revealed] {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .ls-ring-arc {
+    stroke-dashoffset: var(--ls-arc) !important;
+    transition: none !important;
+  }
+  .ls-bar-fill {
+    width: var(--ls-bar) !important;
+    transition: none !important;
+  }
+  .ls-chart-line {
+    stroke-dashoffset: 0 !important;
+    transition: none !important;
+  }
+  .ls-chart-area,
+  .ls-chart-dot {
+    opacity: 1 !important;
+    transition: none !important;
+  }
+  .ls-hero-glow,
+  .ls-scanline,
+  .ls-reticle {
+    animation: none !important;
+  }
+  .ls-scanline {
+    top: 50% !important;
+  }
+  .ls-parallax {
+    transform: none !important;
+  }
+  .ls-card,
+  .ls-cta {
+    transition: none !important;
+  }
+  .ls-card:hover,
+  .ls-cta:hover {
+    transform: none !important;
+  }
+  .ls-faq-body,
+  .ls-faq-chev {
+    transition: none !important;
+  }
+}
