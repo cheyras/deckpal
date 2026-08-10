@@ -10,11 +10,16 @@ import { BinderView } from '../components/BinderView'
 import { TableView } from '../components/TableView'
 import { CardSheet } from './CardDetail'
 import { type CardSearch } from './setSearch'
+import { useSignedIn } from '../lib/session'
 
 export function SetDetail() {
   const { series, set } = useParams({ from: '/series/$series/$set' })
   const search = useSearch({ from: '/series/$series/$set' })
   const navigate = useNavigate({ from: '/series/$series/$set' })
+  // Logged out, the API omits every card's `ownership` block, so the Have/Need/
+  // Dupes tabs and the goal selector have nothing to filter on. The sign-up
+  // prompt lives in the header, where the progress bars were (SetHeader).
+  const signedOut = useSignedIn() === false
 
   // Merge and navigate; the route's stripSearchParams middleware drops
   // default-valued keys so the canonical URL only carries deviations.
@@ -48,6 +53,7 @@ export function SetDetail() {
       need = 0,
       dupes = 0
     for (const c of allCards) {
+      if (!c.ownership) continue
       if (c.ownership.have) have++
       if (c.ownership.need) need++
       if (c.ownership.dupe) dupes++
@@ -58,7 +64,13 @@ export function SetDetail() {
   const cards = useMemo(() => {
     if (search.own === 'all') return allCards
     return allCards.filter((c) =>
-      search.own === 'have' ? c.ownership.have : search.own === 'need' ? c.ownership.need : c.ownership.dupe,
+      c.ownership
+        ? search.own === 'have'
+          ? c.ownership.have
+          : search.own === 'need'
+            ? c.ownership.need
+            : c.ownership.dupe
+        : true,
     )
   }, [allCards, search.own])
 
@@ -85,7 +97,7 @@ export function SetDetail() {
                 <SortChips search={search} patch={patch} />
               </div>
             </div>
-            <OwnershipStrip search={search} patch={patch} counts={counts} />
+            {!signedOut && <OwnershipStrip search={search} patch={patch} counts={counts} />}
             <div className="flex flex-wrap items-center justify-between gap-[12px]">
               <VariantLegend />
               <ViewToggle view={search.view} patch={patch} />

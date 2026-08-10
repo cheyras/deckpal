@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { cardImages, q, q1, toMajor } from '../db.js';
 import { asyncHandler, clampInt, notFound, oneOf, str, strList, userCache } from '../http.js';
-import { currentUserId } from '../identity.js';
+import { optionalUserId } from '../identity.js';
 import { raritySortSql } from '../rarity.js';
 
 export const setsRouter: Router = Router();
@@ -120,10 +120,16 @@ setsRouter.get(
       [setTcgdexId],
     );
     if (!set) throw notFound(`No set '${setTcgdexId}'`);
-    const userId = currentUserId(req);
+    // null when nobody is signed in (public catalog). Bound as SQL NULL below:
+    // `ci.user_id = NULL` is UNKNOWN, so no collection row can join for any
+    // user, and the ownership fields are omitted from the response.
+    const userId = optionalUserId(req);
 
     const goal = oneOf<Goal>(req.query.goal, GOALS, 'complete');
-    const own = oneOf<Own>(req.query.own, OWN, 'all');
+    // ?own=have|need|dupes filters on ownership nobody has. Rather than serve a
+    // silently empty (or silently complete) set page to a logged-out visitor,
+    // the facet collapses to 'all' — and `query.own` in the response says so.
+    const own = userId === null ? 'all' : oneOf<Own>(req.query.own, OWN, 'all');
     const sort = oneOf<SortKey>(req.query.sort, Object.keys(SORT_COLUMNS) as SortKey[], 'number');
     const dir = oneOf(req.query.dir, ['asc', 'desc'] as const, 'asc');
     const variantCodes = strList(req.query.variant);
@@ -134,7 +140,9 @@ setsRouter.get(
 
     // Progress: the three goals, straight from user_set_progress (authoritative;
     // Master/Grandmaster are pair fractions — do NOT recompute a card fraction).
-    const progressRows = await q<ProgressRow>(
+    // Skipped entirely when anonymous — there is no row to read and no query to
+    // spend a round trip on.
+    const progressRows = userId === null ? [] : await q<ProgressRow>(
       `SELECT goal, owned_required, total_required, total_quantity, set_level
          FROM user_set_progress WHERE user_id = $1 AND set_id = $2`,
       [userId, set.id],
@@ -283,7 +291,11 @@ setsRouter.get(
           ? { cardId: agg.max_card, name: agg.max_name, number: agg.max_number, marketUsd: toMajor(agg.max_minor, 'USD') }
           : null,
       },
-      progress: { complete: goalOut('complete'), master: goalOut('master'), grandmaster: goalOut('grandmaster') },
+      // The three-goal progress block is the caller's — omitted whole when there
+      // is no caller, rather than sent as three zeroed goals.
+      ...(userId === null
+        ? {}
+        : { progress: { complete: goalOut('complete'), master: goalOut('master'), grandmaster: goalOut('grandmaster') } }),
       query: { goal, own, sort, dir, variant: variantCodes, q: search ?? null, page, pageSize },
       pagination: { page, pageSize, total: totalRows, pageCount: Math.ceil(totalRows / pageSize) },
       cards: rows.map((r) => {
@@ -301,19 +313,29 @@ setsRouter.get(
           rarity: r.rarity,
           artist: r.illustrator,
           variantCount: Number(r.variant_count),
-          // Standard-tier variants with owned quantities, so the grid's count
-          // boxes render from this response instead of one GET /cards/:id per tile.
-          standardVariants: r.standard_variants ?? [],
+          // Standard-tier variants, so the grid's count boxes render from this
+          // response instead of one GET /cards/:id per tile. `quantity` is the
+          // caller's owned count and is stripped when there is no caller — the
+          // variant list itself is catalog and stays.
+          standardVariants: (r.standard_variants ?? []).map((v) =>
+            userId === null ? { variantId: v.variantId, kind: v.kind, displayName: v.displayName, tier: v.tier } : v,
+          ),
           images: cardImages(r.serie, r.setcode, r.local_id),
           price: r.price_minor !== null ? { market: toMajor(r.price_minor, r.price_currency ?? 'USD'), currency: (r.price_currency ?? 'USD').trim() } : null,
-          ownership: {
-            totalQuantity: sumQty,
-            requiredCount: reqCount,
-            ownedRequired: ownedReq,
-            have,
-            need: !have && (goal === 'complete' ? sumQty === 0 : reqCount > 0),
-            dupe: goal === 'complete' ? sumQty >= 2 : dupeReq >= 1,
-          },
+          // Ownership — omitted whole when anonymous. Everything in it (owned
+          // count, have/need/dupe) is a fact about a person.
+          ...(userId === null
+            ? {}
+            : {
+                ownership: {
+                  totalQuantity: sumQty,
+                  requiredCount: reqCount,
+                  ownedRequired: ownedReq,
+                  have,
+                  need: !have && (goal === 'complete' ? sumQty === 0 : reqCount > 0),
+                  dupe: goal === 'complete' ? sumQty >= 2 : dupeReq >= 1,
+                },
+              }),
         };
       }),
     });

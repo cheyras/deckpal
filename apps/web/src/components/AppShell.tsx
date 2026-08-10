@@ -6,7 +6,8 @@ import { AvatarDisc, useAvatar } from './Avatar'
 import { PwaUi } from './PwaUi'
 import { BugButton } from './BugReport'
 import { api } from '../lib/api'
-import { isPublicPathname } from '../lib/landingRoute'
+import { isChromelessPathname } from '../lib/landingRoute'
+import { useSignedIn } from '../lib/session'
 import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
 
 // Signed-in avatar chip (single-user "me") — replaces Log In / Sign Up. The level
@@ -39,6 +40,29 @@ function ProfileChip() {
   )
 }
 
+// The signed-out counterpart to ProfileChip. It mounts NO query — that is the
+// point. ProfileChip's ['insights','overview'] call 401s while signed out, and
+// a 401 on a page the visitor is allowed to be on is how the reload loop starts.
+function SignInChip() {
+  return (
+    <div className="flex items-center gap-[8px]">
+      <Link
+        to="/auth"
+        className="flex h-[38px] items-center rounded-full px-[14px] text-[14px] font-semibold text-text-body hover:text-text-primary"
+      >
+        Sign in
+      </Link>
+      <Link
+        to="/auth"
+        search={{ mode: 'signup' } as never}
+        className="flex h-[38px] items-center rounded-full bg-action-primary px-[16px] text-[14px] font-semibold text-action-primary-text hover:opacity-90"
+      >
+        Sign up free
+      </Link>
+    </div>
+  )
+}
+
 interface NavItem {
   label: string
   icon: IconName
@@ -46,24 +70,40 @@ interface NavItem {
   expandable?: boolean
   external?: boolean
   soon?: boolean
+  /** Needs an account. Signed out, the row links to /auth instead of a dead end. */
+  gated?: boolean
 }
 
 // Order mirrors pkmn.gg's rail (UI-SPEC §3.1). Single-user English-TCG build:
 // "English TCG" expands to the live series list; every other entry is wired.
 const NAV: NavItem[] = [
   { label: 'Pokémon TCG (English)', icon: 'cards', to: '/series', expandable: true },
-  { label: 'My Lists', icon: 'lists', to: '/lists' },
-  { label: 'Deck Builder', icon: 'deck', to: '/decks' },
+  { label: 'My Lists', icon: 'lists', to: '/lists', gated: true },
+  { label: 'Deck Builder', icon: 'deck', to: '/decks', gated: true },
   { label: 'Pokédex', icon: 'pokedex', to: '/pokedex' },
-  { label: 'Insights', icon: 'chart', to: '/insights' },
-  { label: 'Scan Card', icon: 'camera', to: '/scan' },
+  { label: 'Insights', icon: 'chart', to: '/insights', gated: true },
+  { label: 'Scan Card', icon: 'camera', to: '/scan', gated: true },
   // Stream Tools is the OBS overlay browser source (chrome-free/transparent), which
   // renders as a black screen in a normal tab — so it's non-navigable with a "Soon"
   // badge until there's a real in-app surface for it. The /overlay route still exists.
   { label: 'Stream Tools', icon: 'stream', soon: true },
 ]
 
-function NavRow({ item, active, collapsed }: { item: NavItem; active: boolean; collapsed: boolean }) {
+function NavRow({
+  item,
+  active,
+  collapsed,
+  signedOut = false,
+}: {
+  item: NavItem
+  active: boolean
+  collapsed: boolean
+  signedOut?: boolean
+}) {
+  // A gated row stays visible signed-out — hiding it would hide what an account
+  // is FOR — but it leads to the sign-up form rather than to a page that would
+  // immediately bounce there anyway.
+  const locked = signedOut && !!item.gated
   const body = (
     <span
       className={[
@@ -83,12 +123,24 @@ function NavRow({ item, active, collapsed }: { item: NavItem; active: boolean; c
               Soon
             </span>
           )}
+          {locked && (
+            <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[10px] font-bold uppercase tracking-wide text-text-muted">
+              Sign in
+            </span>
+          )}
           {item.expandable && <Icon name="chevron-down" size={18} className="text-icon-muted" />}
           {item.external && <Icon name="external" size={14} className="text-icon-muted" />}
         </>
       )}
     </span>
   )
+  if (locked) {
+    return (
+      <Link to="/auth" search={{ mode: 'signup' } as never} className="block">
+        {body}
+      </Link>
+    )
+  }
   if (item.to) {
     return (
       <Link to={item.to} className="block">
@@ -177,7 +229,7 @@ function ExpandableNavRow({
   )
 }
 
-function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+function Sidebar({ collapsed, onToggle, signedOut }: { collapsed: boolean; onToggle: () => void; signedOut: boolean }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   return (
     <aside
@@ -210,18 +262,20 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
             return <ExpandableNavRow key={item.label} item={item} collapsed={collapsed} />
           }
           const active = !!item.to && (pathname === item.to || pathname.startsWith(`${item.to}/`))
-          return <NavRow key={item.label} item={item} active={active} collapsed={collapsed} />
+          return <NavRow key={item.label} item={item} active={active} collapsed={collapsed} signedOut={signedOut} />
         })}
       </nav>
     </aside>
   )
 }
 
-function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+function MobileDrawer({ open, onClose, signedOut }: { open: boolean; onClose: () => void; signedOut: boolean }) {
   // The drawer's "View Profile" button is the ONLY identity surface on mobile —
   // the header chip is desktop-only (`nav:flex`). So the photo belongs here too,
   // or a phone user never sees the avatar they just uploaded outside /profile.
-  const avatar = useAvatar()
+  // Signed out it becomes the sign-up CTA, and useAvatar (an authenticated
+  // query) is never mounted — see SignInChip.
+  const avatar = useAvatar(!signedOut)
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
@@ -246,15 +300,25 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
         aria-label="Navigation"
       >
         <div className="px-[16px] py-[20px]" onClick={onClose}>
-          <Link
-            to="/profile"
-            className="flex h-[48px] items-center justify-center gap-[8px] rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text"
-          >
-            <span className="h-[26px] w-[26px] shrink-0 overflow-hidden rounded-full">
-              <AvatarDisc url={avatar.data?.avatarUrl} iconSize={18} fallbackClass="text-action-primary-text" />
-            </span>
-            View Profile
-          </Link>
+          {signedOut ? (
+            <Link
+              to="/auth"
+              search={{ mode: 'signup' } as never}
+              className="flex h-[48px] items-center justify-center rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text"
+            >
+              Sign up free
+            </Link>
+          ) : (
+            <Link
+              to="/profile"
+              className="flex h-[48px] items-center justify-center gap-[8px] rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text"
+            >
+              <span className="h-[26px] w-[26px] shrink-0 overflow-hidden rounded-full">
+                <AvatarDisc url={avatar.data?.avatarUrl} iconSize={18} fallbackClass="text-action-primary-text" />
+              </span>
+              View Profile
+            </Link>
+          )}
         </div>
         <nav>
           {NAV.map((item) =>
@@ -263,7 +327,7 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
               <ExpandableNavRow key={item.label} item={item} collapsed={false} onNavigate={onClose} />
             ) : (
               <div key={item.label} onClick={item.to ? onClose : undefined}>
-                <NavRow item={item} active={false} collapsed={false} />
+                <NavRow item={item} active={false} collapsed={false} signedOut={signedOut} />
               </div>
             ),
           )}
@@ -273,7 +337,7 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
   )
 }
 
-function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: boolean }) {
+function Header({ onBurger, drawerOpen, signedIn }: { onBurger: () => void; drawerOpen: boolean; signedIn: boolean | undefined }) {
   const navigate = useNavigate()
   const [term, setTerm] = useState('')
   // Submitting hands the term to /search, which owns the query from there on.
@@ -337,9 +401,11 @@ function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: bo
           <Icon name="search" size={20} />
         </Link>
 
-        {/* scan shortcut — camera CTA into the card scanner */}
+        {/* scan shortcut — camera CTA into the card scanner. The scanner writes
+            to a collection, so signed out it leads to the sign-up form. */}
         <Link
-          to="/scan"
+          to={signedIn === false ? '/auth' : '/scan'}
+          {...(signedIn === false ? { search: { mode: 'signup' } as never } : {})}
           aria-label="Scan a card"
           className="flex h-[44px] w-[44px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover hover:text-icon-hover nav:h-[42px] nav:w-auto nav:gap-[8px] nav:px-[16px]"
         >
@@ -347,12 +413,17 @@ function Header({ onBurger, drawerOpen }: { onBurger: () => void; drawerOpen: bo
           <span className="hidden text-[14px] font-semibold text-text-primary nav:inline">Scan</span>
         </Link>
 
-        {/* report-a-bug — captures a screenshot of the current view + a comment */}
-        <BugButton />
+        {/* report-a-bug — captures a screenshot of the current view + a comment.
+            The reporter posts as a user, so it is signed-in only. */}
+        {signedIn === true && <BugButton />}
 
-        {/* profile chip — desktop only (single-user signed-in state) */}
+        {/* Identity: the avatar chip when signed in, the sign-up CTA when not.
+            `undefined` (still resolving) renders neither — a flash of "Sign in"
+            in front of a signed-in user reads as a bug, and ProfileChip's
+            authenticated query must not fire before we know there is a session. */}
         <div className="hidden items-center gap-[12px] nav:flex">
-          <ProfileChip />
+          {signedIn === true && <ProfileChip />}
+          {signedIn === false && <SignInChip />}
         </div>
       </div>
     </header>
@@ -363,23 +434,31 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const sidebarW = collapsed ? 82 : 275
+  // Self-host is always `true` (no signed-out state); cloud settles from the
+  // persisted session in a tick. Drives which identity affordance the chrome
+  // shows AND which authenticated queries are allowed to mount at all.
+  const signedIn = useSignedIn()
 
   // Chrome-free paths: the OBS overlay, every auth surface, and the marketing
-  // landing at `/` — see isPublicPathname for the full list. Rendering the full
-  // nav on /auth fired ProfileChip's overview query which 401'd → handle401 →
-  // location.assign('/auth') → infinite reload; every other page served to a
-  // logged-out visitor is exactly the same trap and gets the same treatment —
-  // no nav means no authenticated query ever mounts.
+  // landing at `/` — see isChromelessPathname. Rendering the full nav on /auth
+  // fired ProfileChip's overview query which 401'd → handle401 →
+  // location.assign('/auth') → infinite reload.
+  //
+  // The public catalog gets the nav (a catalog with no navigation is not a
+  // product) and avoids the same trap differently: every authenticated query in
+  // this shell — ProfileChip's overview, the avatar, the bug reporter — is
+  // mounted only when `signedIn === true`, so a logged-out visitor still fires
+  // exactly zero authenticated calls.
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  if (isPublicPathname(pathname)) {
+  if (isChromelessPathname(pathname)) {
     return <>{children}</>
   }
 
   return (
     <div className="min-h-screen bg-surface-primary">
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
-      <Header onBurger={() => setDrawerOpen((o) => !o)} drawerOpen={drawerOpen} />
-      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} signedOut={signedIn === false} />
+      <Header onBurger={() => setDrawerOpen((o) => !o)} drawerOpen={drawerOpen} signedIn={signedIn} />
+      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} signedOut={signedIn === false} />
       <main className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
         <div className="app-content pt-[64px] nav:pt-[78px]">{children}</div>
       </main>

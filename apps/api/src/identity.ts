@@ -46,6 +46,26 @@ import { ApiError } from './http.js';
  * `NULL` row. The remaining half of the guard lives in
  * `__tests__/identity.test.ts`, which fails CI if a route reaches for
  * `req.user` again.
+ *
+ * ## The public catalog — a second, explicit answer
+ *
+ * The catalog (series, sets, cards, Pokédex) is browsable signed-out. Those
+ * routes are not "user-scoped" and not "user-free" either: they are catalog
+ * responses that *embed* the caller's ownership when there is a caller. So
+ * there is a second, deliberately separate seam —
+ * {@link makeResolveOptionalIdentity} + {@link optionalUserId} — whose answer
+ * is `string | null`, where `null` means **nobody is calling** rather than
+ * "we don't know yet".
+ *
+ * It is a distinct function and a distinct middleware on purpose. Widening
+ * `currentUserId` to return `string | null` would have made every one of the
+ * ~30 user-scoped call sites nullable overnight, and the original bug was
+ * precisely a `undefined` reaching `WHERE user_id = $1`. Instead the two
+ * concepts stay apart: a route that must have a user calls `currentUserId` and
+ * cannot compile against `null`; a route that tolerates anonymity calls
+ * `optionalUserId` and the compiler forces it to say what it does with `null`.
+ * Both throw the same loud 500 when no identity middleware ran at all, so
+ * neither can silently degrade.
  */
 
 // ── The narrowed request ────────────────────────────────────────────────────
@@ -85,6 +105,45 @@ export function currentUserId(req: Request): string {
     );
   }
   return id;
+}
+
+/**
+ * The current user's `app_user.id`, or `null` when the request is **explicitly
+ * anonymous**. The one way a *public catalog* route learns who is calling.
+ *
+ * `null` is a settled answer, not a missing one: it is only ever returned
+ * behind {@link makeResolveOptionalIdentity}, which reached it by finding no
+ * credential on a cloud deployment. A route mounted ahead of any identity
+ * middleware still gets the same loud 500 `identity_unresolved` as
+ * {@link currentUserId} — "nobody is calling" and "nobody has asked yet" are
+ * different facts and must never collapse into the same value.
+ *
+ * Self-host never returns `null`: there is always the single local user, and
+ * the reverse proxy is the auth boundary (SECURITY.md). Public catalog routes
+ * therefore behave in self-host exactly as they always have.
+ *
+ * ## What a route must do with `null`
+ *
+ * Two things, and the second is the one that matters:
+ *
+ *  1. Bind it into the query as-is. SQL's `col = NULL` is `UNKNOWN`, never
+ *     true, so `LEFT JOIN collection_item ci ON … AND ci.user_id = $2` matches
+ *     no row for any user — the anonymous result is empty *by three-valued
+ *     logic*, not by a filter someone could forget to apply.
+ *  2. **Omit the ownership fields from the response.** Zeroes read as "you own
+ *     none of this", which is a claim about a person that does not exist here.
+ *     Absent keys are the honest shape and are trivially provable: the audit is
+ *     `Object.keys(response)`, not an argument about which zero is real.
+ */
+export function optionalUserId(req: Request): string | null {
+  const id = req.user?.id;
+  if (id) return id;
+  if (req.identityResolution === 'anonymous') return null;
+  throw new ApiError(
+    500,
+    'identity_unresolved',
+    'Request identity was not resolved. This route is mounted ahead of resolveOptionalIdentity.',
+  );
 }
 
 // ── Resolution ──────────────────────────────────────────────────────────────
@@ -174,6 +233,60 @@ export function makeResolveIdentity(cfg: IdentityConfig): RequestHandler {
       .then((id) => {
         req.user = { id };
         req.authKind = 'local';
+        req.identityResolution = 'user';
+        next();
+      })
+      .catch(next);
+  };
+}
+
+/**
+ * Build the middleware that settles identity for the **public catalog**: mount
+ * it ahead of the routers a logged-out visitor is allowed to reach.
+ *
+ * Same three branches as {@link makeResolveIdentity}, with one difference, and
+ * it is the whole point:
+ *
+ *  1. A verified credential wins, identically. A signed-in visitor browsing the
+ *     catalog gets exactly the response they got before this middleware
+ *     existed.
+ *  2. No credential and Supabase is configured → **anonymous**, not 401. The
+ *     request is marked and served; {@link optionalUserId} answers `null` and
+ *     the route omits every ownership field.
+ *  3. No credential and no Supabase configuration → the single local user.
+ *     Byte-identical to the required path, so self-host is untouched: there is
+ *     no anonymous state in a self-host deployment and this middleware cannot
+ *     invent one.
+ *
+ * Note what branch 2 does *not* do: it never invents a user id, a sentinel
+ * uuid, or "the first row of app_user". `req.user` stays `undefined`, so a
+ * route that calls `currentUserId` by mistake — because it needs a real user —
+ * still throws rather than reading somebody's rows. The only thing that changes
+ * is that `optionalUserId` now has an answer to give.
+ */
+export function makeResolveOptionalIdentity(cfg: IdentityConfig): RequestHandler {
+  return (req, _res, next) => {
+    // 1. Verified credential (JWT or personal access token).
+    if (req.user?.id) {
+      req.identityResolution = 'user';
+      next();
+      return;
+    }
+
+    // 2. Cloud without a credential — served, as nobody.
+    if (cfg.supabaseConfigured) {
+      req.identityResolution = 'anonymous';
+      next();
+      return;
+    }
+
+    // 3. Self-host — the single local user, exactly as the required path.
+    cfg
+      .localUserId()
+      .then((id) => {
+        req.user = { id };
+        req.authKind = 'local';
+        req.identityResolution = 'user';
         next();
       })
       .catch(next);

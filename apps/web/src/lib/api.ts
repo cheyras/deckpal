@@ -181,7 +181,10 @@ export interface SeriesSummary {
   repHasLogo: boolean
   repHasSymbol: boolean
   // Per-series completion rollup: owned cards / total cards across the series.
-  progress: { owned: number; total: number; pct: number }
+  // OPTIONAL because the catalog is browsable signed-out — the API omits every
+  // ownership field for an anonymous read rather than sending zeroes, and the
+  // optionality is what forces each call site to say what it renders instead.
+  progress?: { owned: number; total: number; pct: number }
 }
 export interface SeriesIndexResponse {
   series: SeriesSummary[]
@@ -211,7 +214,8 @@ export interface SetSummary {
   cardCountTotal: number
   logoUrl: string | null
   symbolUrl: string | null
-  progress: Progress
+  /** Absent for an anonymous read (see SeriesSummary.progress). */
+  progress?: Progress
 }
 export interface SeriesDetailResponse {
   series: { slug: string; tcgdexId: string; name: string; firstReleaseOn: string | null }
@@ -233,7 +237,8 @@ export interface TileVariant {
   kind: string
   displayName: string
   tier: 'standard' | 'special'
-  quantity: number
+  /** Owned count. Absent for an anonymous read. */
+  quantity?: number
 }
 export interface CardRow {
   cardId: string
@@ -246,7 +251,8 @@ export interface CardRow {
   variantCount: number
   images: { low: string; high: string }
   price: Price | null
-  ownership: CardOwnership
+  /** Absent for an anonymous read (see SeriesSummary.progress). */
+  ownership?: CardOwnership
   // Standard-tier variants with owned quantities, served inline by /sets/:setId so
   // the grid's count boxes need no per-tile request. Absent on endpoints that
   // don't supply it (lists, search), where the tiles fall back to GET /cards/:id.
@@ -270,7 +276,8 @@ export interface SetDetailResponse {
     marketValueUsd: number | null
     mostExpensiveCard: { cardId: string; name: string; number: string; marketUsd: number | null } | null
   }
-  progress: Progress
+  /** Absent for an anonymous read (see SeriesSummary.progress). */
+  progress?: Progress
   query: Record<string, unknown>
   pagination: { page: number; pageSize: number; total: number; pageCount: number }
   cards: CardRow[]
@@ -287,7 +294,8 @@ export interface Variant {
   isPrimary: boolean
   isSynthesized?: boolean
   source: string
-  quantity: number
+  /** Owned count. Absent for an anonymous read. */
+  quantity?: number
   buyUrl: string | null
   prices: VariantPrice[]
 }
@@ -773,16 +781,17 @@ export interface SpeciesGridRow {
   generation: number
   types: string[]
   cardPool: number
-  uniqueOwned: number
-  captured: boolean
-  level: number
-  levelLabel: string
-  shiny: boolean
-  shinyBreadth: number
+  // Capture state is the caller's; absent for an anonymous read.
+  uniqueOwned?: number
+  captured?: boolean
+  level?: number
+  levelLabel?: string
+  shiny?: boolean
+  shinyBreadth?: number
   sprite: SpeciesSprite
 }
 export interface SpeciesGridResponse {
-  completion: { captured: number; total: number }
+  completion?: { captured: number; total: number }
   pagination: { page: number; pageSize: number; total: number; pageCount: number }
   species: SpeciesGridRow[]
 }
@@ -795,8 +804,8 @@ export interface SpeciesDetailCard {
   artist: string | null
   set: { setId: string; name: string }
   variantCount: number
-  owned: boolean
-  ownedQuantity: number
+  owned?: boolean
+  ownedQuantity?: number
   images: { low: string; high: string }
   price: Price | null
 }
@@ -809,12 +818,12 @@ export interface SpeciesDetailResponse {
     generation: number
     types: string[]
     cardPool: number
-    uniqueOwned: number
-    captured: boolean
-    level: number
-    levelLabel: string
-    shiny: boolean
-    shinyBreadth: number
+    uniqueOwned?: number
+    captured?: boolean
+    level?: number
+    levelLabel?: string
+    shiny?: boolean
+    shinyBreadth?: number
     sprite: SpeciesSprite
   }
   cards: SpeciesDetailCard[]

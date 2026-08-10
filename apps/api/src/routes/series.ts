@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { q, q1 } from '../db.js';
 import { asyncHandler, notFound, userCache } from '../http.js';
-import { currentUserId } from '../identity.js';
+import { optionalUserId } from '../identity.js';
 
 export const seriesRouter: Router = Router();
 
@@ -25,7 +25,10 @@ interface SeriesRow {
 seriesRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    const userId = currentUserId(req);
+    // null when nobody is signed in (public catalog). Bound as SQL NULL below,
+    // where `usp.user_id = NULL` is UNKNOWN and so matches no row for any user;
+    // the `progress` key is then omitted from the response entirely.
+    const userId = optionalUserId(req);
     // rep: the series' base/namesake set — the set sharing the series name (e.g.
     // "Scarlet & Violet" → set sv01), else the earliest non-promo set with a logo
     // (the flagship base set). Represents the whole era rather than a random recent
@@ -93,7 +96,10 @@ seriesRouter.get(
         ORDER BY s.sort_order DESC, s.first_release_on DESC NULLS LAST, s.name`,
       [userId],
     );
-    // Now includes the user's completion rollup, so it's user-private (not shared-cacheable).
+    // May include the user's completion rollup, so it's user-private (not
+    // shared-cacheable). Deliberately unchanged for the anonymous shape too: one
+    // URL must not have both a `public` and a `private` variant in a shared
+    // cache, or a signed-in visitor gets served the ownership-free copy.
     userCache(res);
     res.json({
       series: rows.map((r) => {
@@ -110,8 +116,11 @@ seriesRouter.get(
           repSetId: r.rep_set_id,
           repHasLogo: Boolean(r.rep_has_logo),
           repHasSymbol: Boolean(r.rep_has_symbol),
-          // Per-series completion rollup (owned cards / total cards across the series).
-          progress: { owned, total, pct: pct(owned, total) },
+          // Per-series completion rollup (owned cards / total cards across the
+          // series) — the caller's, so it exists only when there is a caller.
+          // Absent rather than zeroed: "0 of 1 823 collected" is a statement
+          // about a person, and there is no person here.
+          ...(userId === null ? {} : { progress: { owned, total, pct: pct(owned, total) } }),
         };
       }),
     });
@@ -162,7 +171,8 @@ seriesRouter.get(
       [slug],
     );
     if (!series) throw notFound(`No series '${slug}'`);
-    const userId = currentUserId(req);
+    // null when nobody is signed in — see the series list above.
+    const userId = optionalUserId(req);
 
     const sets = await q<SetSummaryRow>(
       `SELECT cs.id, cs.tcgdex_id, cs.slug, cs.name, cs.released_on,
@@ -204,11 +214,17 @@ seriesRouter.get(
           cardCountTotal: total,
           logoUrl: s.logo_url,
           symbolUrl: s.symbol_url,
-          progress: {
-            complete: { owned: s.complete_owned ?? 0, total: s.complete_total ?? Number(s.card_rows), pct: pct(s.complete_owned, s.complete_total), setLevel: s.complete_level ?? 0 },
-            master: { owned: s.master_owned ?? 0, total: s.master_total ?? 0, pct: pct(s.master_owned, s.master_total) },
-            grandmaster: { owned: s.grand_owned ?? 0, total: s.grand_total ?? 0, pct: pct(s.grand_owned, s.grand_total) },
-          },
+          // The three-goal completion summary is the caller's — omitted whole
+          // when there is no caller (see the series list above).
+          ...(userId === null
+            ? {}
+            : {
+                progress: {
+                  complete: { owned: s.complete_owned ?? 0, total: s.complete_total ?? Number(s.card_rows), pct: pct(s.complete_owned, s.complete_total), setLevel: s.complete_level ?? 0 },
+                  master: { owned: s.master_owned ?? 0, total: s.master_total ?? 0, pct: pct(s.master_owned, s.master_total) },
+                  grandmaster: { owned: s.grand_owned ?? 0, total: s.grand_total ?? 0, pct: pct(s.grand_owned, s.grand_total) },
+                },
+              }),
         };
       }),
     });

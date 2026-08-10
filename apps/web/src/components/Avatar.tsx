@@ -54,12 +54,22 @@ function preloadImage(url: string, timeoutMs: number): Promise<void> {
  * into `undefined` by react-query and every consumer falls back to the default
  * glyph, so a flaky avatar endpoint can never break the header.
  */
-export function useAvatar() {
+/**
+ * The signed-in user's profile photo.
+ *
+ * `enabled` exists for the public catalog: the mobile drawer mounts in the
+ * shell on pages a logged-out visitor may sit on, and GET /avatar is a
+ * user-scoped route that 401s. Passing `false` keeps the query from firing at
+ * all, which is the rule the whole signed-out shell follows — no authenticated
+ * call while there is no session.
+ */
+export function useAvatar(enabled = true) {
   return useQuery({
     queryKey: AVATAR_KEY,
     queryFn: ({ signal }) => api.avatar(signal),
     staleTime: 5 * 60_000,
     retry: false,
+    enabled,
   })
 }
 

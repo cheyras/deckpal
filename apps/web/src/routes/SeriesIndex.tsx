@@ -6,6 +6,8 @@ import { Content, Spinner, ErrorState, SetSymbolTile } from '../components/ui'
 import { SetLogo } from '../components/SetLogo'
 import { Icon } from '../components/Icon'
 import { fmtDate } from '../lib/format'
+import { useSignedIn } from '../lib/session'
+import { SignInPrompt } from '../components/SignInPrompt'
 
 // ── Sort / group preferences (issue 14i8ys) ────────────────────────────────
 // Persisted to localStorage only when the user hits "Save as default"; otherwise
@@ -43,7 +45,10 @@ const SORT_LABEL: Record<SortKey, string> = { recency: 'Recency', az: 'A–Z', p
 
 function compare(a: SeriesSummary, b: SeriesSummary, key: SortKey): number {
   if (key === 'az') return a.name.localeCompare(b.name)
-  if (key === 'pct') return a.progress.pct - b.progress.pct
+  // `progress` is absent for a logged-out visitor; the '% Collected' sort and
+  // the group-by-owned split are hidden in that state, so this is belt and
+  // braces for a stale saved preference rather than a live code path.
+  if (key === 'pct') return (a.progress?.pct ?? 0) - (b.progress?.pct ?? 0)
   const ad = a.firstReleaseOn ? Date.parse(a.firstReleaseOn) : Number.NEGATIVE_INFINITY
   const bd = b.firstReleaseOn ? Date.parse(b.firstReleaseOn) : Number.NEGATIVE_INFINITY
   return ad - bd
@@ -137,7 +142,7 @@ function SeriesCard({ s }: { s: SeriesSummary }) {
           </div>
         </div>
       </div>
-      <CompletionRing owned={s.progress.owned} total={s.progress.total} pct={s.progress.pct} />
+      {s.progress && <CompletionRing owned={s.progress.owned} total={s.progress.total} pct={s.progress.pct} />}
     </Link>
   )
 }
@@ -159,9 +164,11 @@ interface ControlsProps {
   onChange: (p: Prefs) => void
   onSave: () => void
   saved: boolean
+  /** Hides the two controls that sort/group on ownership. */
+  signedOut: boolean
 }
 
-function Controls({ prefs, onChange, onSave, saved, stacked = false }: ControlsProps & { stacked?: boolean }) {
+function Controls({ prefs, onChange, onSave, saved, signedOut, stacked = false }: ControlsProps & { stacked?: boolean }) {
   const ctrl =
     'h-[34px] rounded-md border border-border-default bg-surface-tertiary px-[10px] text-[13px] text-text-primary hover:border-surface-quaternary'
   // Inline + stacked variants can be mounted at once (mobile popover vs ≥sm
@@ -178,7 +185,7 @@ function Controls({ prefs, onChange, onSave, saved, stacked = false }: ControlsP
         value={prefs.sortKey}
         onChange={(e) => onChange({ ...prefs, sortKey: e.target.value as SortKey })}
       >
-        {SORT_KEYS.map((k) => (
+        {SORT_KEYS.filter((k) => !(signedOut && k === 'pct')).map((k) => (
           <option key={k} value={k}>
             {SORT_LABEL[k]}
           </option>
@@ -192,14 +199,17 @@ function Controls({ prefs, onChange, onSave, saved, stacked = false }: ControlsP
       >
         {prefs.sortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
       </button>
-      <button
-        type="button"
-        className={[ctrl, prefs.groupByOwned ? 'text-action-primary' : ''].join(' ')}
-        aria-pressed={prefs.groupByOwned}
-        onClick={() => onChange({ ...prefs, groupByOwned: !prefs.groupByOwned })}
-      >
-        {prefs.groupByOwned ? '✓ ' : ''}Group by owned
-      </button>
+      {/* Both of these sort/group on ownership the visitor doesn't have yet. */}
+      {!signedOut && (
+        <button
+          type="button"
+          className={[ctrl, prefs.groupByOwned ? 'text-action-primary' : ''].join(' ')}
+          aria-pressed={prefs.groupByOwned}
+          onClick={() => onChange({ ...prefs, groupByOwned: !prefs.groupByOwned })}
+        >
+          {prefs.groupByOwned ? '✓ ' : ''}Group by owned
+        </button>
+      )}
       <button type="button" className={ctrl} onClick={onSave}>
         {saved ? 'Saved ✓' : 'Save as default'}
       </button>
@@ -264,6 +274,8 @@ export function SeriesIndex() {
     queryKey: ['series'],
     queryFn: ({ signal }) => api.series(signal),
   })
+  const signedIn = useSignedIn()
+  const signedOut = signedIn === false
 
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs)
   const [savedFlash, setSavedFlash] = useState(false)
@@ -287,16 +299,17 @@ export function SeriesIndex() {
     }
   }
 
+  const groupByOwned = prefs.groupByOwned && !signedOut
   const { owned, others, flat } = useMemo(() => {
     const series = data?.series ?? []
     const sorted = sortSeries(series, prefs.sortKey, prefs.sortDir)
-    if (!prefs.groupByOwned) return { owned: [], others: [], flat: sorted }
+    if (!groupByOwned) return { owned: [], others: [], flat: sorted }
     return {
-      owned: sorted.filter((s) => s.progress.owned > 0),
-      others: sorted.filter((s) => s.progress.owned <= 0),
+      owned: sorted.filter((s) => (s.progress?.owned ?? 0) > 0),
+      others: sorted.filter((s) => (s.progress?.owned ?? 0) <= 0),
       flat: [],
     }
-  }, [data, prefs.sortKey, prefs.sortDir, prefs.groupByOwned])
+  }, [data, prefs.sortKey, prefs.sortDir, groupByOwned])
 
   return (
     <Content cap={1200}>
@@ -321,9 +334,9 @@ export function SeriesIndex() {
         {data && (
           <>
             <div className="hidden sm:block">
-              <Controls prefs={prefs} onChange={setPrefs} onSave={savePrefs} saved={savedFlash} />
+              <Controls prefs={prefs} onChange={setPrefs} onSave={savePrefs} saved={savedFlash} signedOut={signedOut} />
             </div>
-            <MobileControls prefs={prefs} onChange={setPrefs} onSave={savePrefs} saved={savedFlash} />
+            <MobileControls prefs={prefs} onChange={setPrefs} onSave={savePrefs} saved={savedFlash} signedOut={signedOut} />
           </>
         )}
       </div>
@@ -331,9 +344,21 @@ export function SeriesIndex() {
       {isLoading && <Spinner label="Loading series…" />}
       {error && <ErrorState message={(error as Error).message} />}
 
-      {data && !prefs.groupByOwned && <CardGrid list={flat} />}
+      {/* Where the collection rings would be. One prompt for the page, not one
+          per card — 21 sign-up buttons is an advert, not an affordance. */}
+      {signedOut && (
+        <div className="mb-[24px]">
+          <SignInPrompt
+            variant="banner"
+            title="Track what you own"
+            detail="Sign in to see how much of each era you've collected, set by set."
+          />
+        </div>
+      )}
 
-      {data && prefs.groupByOwned && (
+      {data && !groupByOwned && <CardGrid list={flat} />}
+
+      {data && groupByOwned && (
         <div className="flex flex-col gap-[24px]">
           {owned.length > 0 ? (
             <CardGrid list={owned} />

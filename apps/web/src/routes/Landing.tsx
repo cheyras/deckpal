@@ -124,6 +124,21 @@ function PrimaryCta({ children, className = '' }: { children: ReactNode; classNa
   )
 }
 
+// The catalog is browsable without an account, so the hero can point at the
+// real thing instead of only at the signup form: 23 546 cards, live prices, no
+// wall. Styled as the ghost CTA's twin because it IS the secondary path — the
+// primary ask is still the account.
+function BrowseCta({ className = '' }: { className?: string }) {
+  return (
+    <Link
+      to="/series"
+      className={`inline-flex h-[50px] items-center justify-center gap-[8px] rounded-full border border-border-default px-[26px] text-[15px] font-bold text-text-body hover:border-surface-quaternary hover:text-text-primary ${className}`}
+    >
+      Browse the catalog
+    </Link>
+  )
+}
+
 function GhostCta({ href, children, className = '' }: { href: string; children: ReactNode; className?: string }) {
   return (
     <a
@@ -317,13 +332,14 @@ function Hero({ scrollY }: { scrollY: number }) {
 
         <Reveal delay={110} className="mt-[30px] flex flex-col items-center justify-center gap-[12px] sm:flex-row">
           <PrimaryCta className="w-full sm:w-auto">Create your free account</PrimaryCta>
+          <BrowseCta className="w-full sm:w-auto" />
           <GhostCta href={REPO} className="w-full sm:w-auto">
             <GitHubGlyph size={18} /> View on GitHub
           </GhostCta>
         </Reveal>
 
         <Reveal delay={180} as="p" className="mt-[16px] text-center text-[13px] text-text-muted">
-          Free to use · private by default · open source
+          No account needed to browse · free to use · private by default · open source
         </Reveal>
 
         {/* Narrower than the old set-list frame: a conversation reads badly at

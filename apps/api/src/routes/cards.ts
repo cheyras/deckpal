@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { cardImages, q, q1, shapePrice, tcgplayerUrl, type PriceRow } from '../db.js';
 import { asyncHandler, notFound, userCache } from '../http.js';
-import { currentUserId } from '../identity.js';
+import { optionalUserId } from '../identity.js';
 
 export const cardsRouter: Router = Router();
 
@@ -89,7 +89,10 @@ cardsRouter.get(
     );
     if (!card) throw notFound(`No card '${cardTcgdexId}'`);
     const cardId = card.id;
-    const userId = currentUserId(req);
+    // null when nobody is signed in (public catalog). Bound as SQL NULL below:
+    // `ci.user_id = NULL` is UNKNOWN, so the collection LEFT JOIN matches no row
+    // for any user, and `quantity` is omitted from every variant.
+    const userId = optionalUserId(req);
 
     // These nine result sets used to be a `Promise.all` of nine `q()` calls. That
     // read like nine parallel queries but never was one: in SUPABASE_MODE every
@@ -238,7 +241,9 @@ cardsRouter.get(
         isSynthesized: v.is_synthesized,
         source: v.source, // 'tcgdex' | 'tcgcsv' (cross-filled reverse holos count for real)
         fillConfidence: v.fill_confidence,
-        quantity: Number(v.quantity), // owned quantity for the default user (0 if unowned)
+        // Owned quantity for the caller (0 if unowned) — absent when there is no
+        // caller. The rest of the variant is catalog and is served either way.
+        ...(userId === null ? {} : { quantity: Number(v.quantity) }),
         buyUrl: tcgplayerUrl(v.tcgplayer_url, v.tcgplayer_product_id, v.tcgplayer_printing),
         // Every price carries currency + priced_at; a missing price is null, never 0.
         prices: (pricesByVariant.get(v.id) ?? []).map(shapePrice),
