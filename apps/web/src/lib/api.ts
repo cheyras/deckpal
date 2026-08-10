@@ -178,6 +178,14 @@ export interface CardOwnership {
   need: boolean
   dupe: boolean
 }
+/** The slice of a variant the set grid's count boxes render. */
+export interface TileVariant {
+  variantId: number
+  kind: string
+  displayName: string
+  tier: 'standard' | 'special'
+  quantity: number
+}
 export interface CardRow {
   cardId: string
   number: string
@@ -190,6 +198,10 @@ export interface CardRow {
   images: { low: string; high: string }
   price: Price | null
   ownership: CardOwnership
+  // Standard-tier variants with owned quantities, served inline by /sets/:setId so
+  // the grid's count boxes need no per-tile request. Absent on endpoints that
+  // don't supply it (lists, search), where the tiles fall back to GET /cards/:id.
+  standardVariants?: TileVariant[]
   // Optional per-card routing (present on list items, which span many sets).
   seriesSlug?: string | null
   setId?: string | null
@@ -906,5 +918,8 @@ export const api = {
   dex: (params: URLSearchParams, signal?: AbortSignal) =>
     get<SpeciesGridResponse>(`/insights/pokedex?${params.toString()}`, signal),
   species: (id: string, signal?: AbortSignal) =>
-    get<SpeciesDetailResponse>(`/insights/deckscout/${encodeURIComponent(id)}`, signal),
+    // `/insights/pokedex/:speciesId` — NOT `/insights/deckscout/…`. The pokedex→
+    // deckscout rename swept this string and 404'd every species page ("No such
+    // route"); the route is the Pokédex feature, not the product name.
+    get<SpeciesDetailResponse>(`/insights/pokedex/${encodeURIComponent(id)}`, signal),
 }
