@@ -101,18 +101,25 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 - Token verification lives in `@deckscout/db` (`src/tokens.ts`) so the API (which mints them) and
   the MCP edge (which checks them) can never disagree about the hashing rule. SHA-256 of the raw
   value; the raw value is returned once, at creation, and never stored.
-- Missing / malformed / unknown / revoked token ⇒ bare `401` **without** `WWW-Authenticate`.
-  Per Anthropic's connector docs a `401` *with* that header makes claude.ai run OAuth discovery,
-  which this server does not implement; omitting it keeps the failure honest.
-- **Two credential positions, one credential.** Claude Code takes arbitrary headers
-  (`--header "Authorization: Bearer …"`). claude.ai's custom-connector dialog exposes headers only
-  through its beta *Request headers* section (allowlisted names, rolled out per account), so for
-  accounts without it the URL has to carry the secret: `https://deckscout.io/mcp/<token>`. The
-  token goes in the **path**, never the query string — the MCP authorization spec's
-  "access tokens MUST NOT be included in the URI query string" and Anthropic's own
-  "not recommended" both name the query string specifically. The UI labels that URL as a password.
-  The doc-blessed alternative is a full OAuth 2.1 authorization server (RFC 9728 metadata + DCR or
-  CIMD + PKCE + RFC 8707 resource indicators); that is the eventual path, not this one.
+- Missing / malformed / unknown / revoked token ⇒ bare `401` **with** `WWW-Authenticate: Bearer
+  resource_metadata="<origin>/.well-known/oauth-protected-resource"` (added 2026-08-10, issue #29).
+  A spec-compliant client that reads this hint runs real OAuth discovery and lands on a working
+  `/authorize` — see below — instead of guessing one and 404ing against the SPA.
+- **Three credential paths, one credential.** OAuth 2.1 + PKCE + dynamic client registration
+  (`apps/api/src/oauthServer.ts` for `/register` + `/token` + the two `.well-known/*` metadata
+  documents; `apps/web/src/routes/Authorize.tsx` for the browser-facing `/authorize` consent
+  screen) is the primary path now — any MCP-spec client that runs OAuth ends up, after the user
+  approves, with an ordinary `api_token` row minted by the token endpoint calling the exact same
+  `createToken()` Profile → Agent access uses. Claude Code takes arbitrary headers
+  (`--header "Authorization: Bearer …"`) as a second path. claude.ai's custom-connector dialog
+  exposes headers only through its beta *Request headers* section (allowlisted names, rolled out
+  per account); for clients with neither OAuth nor a header field, the URL carries the secret as a
+  third path: `https://deckscout.io/mcp/<token>`. The token goes in the **path**, never the query
+  string — the MCP authorization spec's "access tokens MUST NOT be included in the URI query
+  string" and Anthropic's own "not recommended" both name the query string specifically. The UI
+  labels that URL as a password. All three paths resolve to the same `api_token` table and the
+  same `resolveToken()` at the `/mcp` edge — OAuth and dynamic client registration are a front
+  door onto the existing credential, not a parallel one.
 - `MCP_ALLOWED_HOSTS` still gates the `Host` header; the cloud default is
   `deckscout.io,www.deckscout.io,localhost,127.0.0.1` plus any `*.vercel.app` alias.
 - The REST base is derived from the (already validated) request host — `https://<host>/api` — so

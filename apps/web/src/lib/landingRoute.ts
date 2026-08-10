@@ -33,6 +33,7 @@ const CHROMELESS_PATHS = new Set([
   '/auth/reset', // password-recovery link target
   '/signed-out', // post-sign-out confirmation
   '/overlay', // OBS browser source
+  '/authorize', // OAuth "Connect" consent screen — must render signed-out, see Authorize.tsx
 ])
 
 export function isChromelessPathname(pathname: string): boolean {
@@ -65,4 +66,17 @@ export function isCatalogPathname(pathname: string): boolean {
 // Hence one predicate, not three string tests that drift apart.
 export function isPublicPathname(pathname: string): boolean {
   return isChromelessPathname(pathname) || isCatalogPathname(pathname)
+}
+
+// A same-origin relative path, safe to hand to `navigate`/`window.location`
+// as a post-sign-in redirect target (currently /auth's `next` param, set by
+// /authorize). `//host/...` and `/\host/...` are both browser-recognised
+// spellings of a protocol-relative URL to a DIFFERENT origin — a leading
+// backslash is silently treated as a forward slash by every major browser's
+// URL parser, so `/\evil.com` resolves exactly like `//evil.com` even though
+// neither `startsWith('http')` nor `startsWith('//')` would catch it. One
+// predicate, used everywhere `next` is both written (validateSearch) and read
+// (Auth.tsx) — the whole point is that those two checks cannot drift apart.
+export function isSafeNextPath(value: unknown): value is string {
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.startsWith('/\\')
 }

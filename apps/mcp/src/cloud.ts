@@ -118,8 +118,30 @@ function tokenFrom(req: Request): string {
   return last.startsWith('dsk_') ? last : '';
 }
 
-/** Bare 401. Deliberately WITHOUT `WWW-Authenticate`: claude.ai reads that header as an OAuth trigger and abandons the manual-token flow (SPEC §2). */
-function unauthorized(res: Response, message: string): void {
+/**
+ * Where `/.well-known/oauth-protected-resource` lives — same host-validated
+ * derivation as {@link apiBaseFor}, minus the `/api` suffix, since the
+ * metadata endpoint is served from apps/api at the bare origin
+ * (apps/api/src/oauthServer.ts), not under this MCP function.
+ */
+function originFor(req: Request): string {
+  const configured = process.env.DECKSCOUT_PUBLIC_ORIGIN;
+  if (configured) return configured.replace(/\/+$/, '');
+  const host = req.headers.host ?? 'localhost';
+  const proto = host.startsWith('localhost') || host.startsWith('127.0.0.1') ? 'http' : 'https';
+  return `${proto}://${host}`;
+}
+
+/**
+ * Bare 401, now WITH `WWW-Authenticate` — a real OAuth 2.1 "Connect" flow
+ * exists (apps/api/src/oauthServer.ts), so a client that reads this hint and
+ * fetches the protected-resource metadata lands on a working /authorize
+ * instead of guessing one and 404ing (issue #29). The manual token / personal
+ * connector URL below still works unchanged for clients that don't speak MCP
+ * OAuth at all.
+ */
+function unauthorized(req: Request, res: Response, message: string): void {
+  res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${originFor(req)}/.well-known/oauth-protected-resource"`);
   res.status(401).json({ error: { code: 'unauthorized', message } });
 }
 
@@ -128,8 +150,8 @@ function endpointCard(res: Response): void {
   res.status(200).json({
     name: 'rotom-mcp',
     transport: 'streamable-http',
-    auth: 'Authorization: Bearer <personal access token>',
-    tokens: 'Create one at /profile → Agent access',
+    auth: 'OAuth 2.1 ("Connect" in any MCP client), or Authorization: Bearer <personal access token>',
+    tokens: 'Sign in and approve at /authorize, or create a token at /profile → Agent access',
     docs: 'https://github.com/cheyras/deckscout/blob/main/DEPLOYMENT.md#connect-an-ai-assistant-mcp',
   });
 }
@@ -167,9 +189,10 @@ export function createCloudApp(): Express {
       }
       if (!raw) {
         unauthorized(
+          req,
           res,
-          'No token. Send Authorization: Bearer <token>, or use the personal connector URL ' +
-            'https://deckscout.io/mcp/<token>. Create a token in DeckScout at Profile → Agent access.',
+          'No token. Connect via OAuth in your MCP client, send Authorization: Bearer <token>, or use the ' +
+            'personal connector URL https://deckscout.io/mcp/<token>. Create a token in DeckScout at Profile → Agent access.',
         );
         return;
       }
@@ -183,7 +206,7 @@ export function createCloudApp(): Express {
         return;
       }
       if (!resolved) {
-        unauthorized(res, 'Invalid or revoked token.');
+        unauthorized(req, res, 'Invalid or revoked token.');
         return;
       }
 

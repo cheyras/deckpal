@@ -15,3 +15,15 @@ export {
   touchToken,
 } from './tokens.js';
 export type { ApiTokenRow, CreatedToken, Queryable, ResolvedToken } from './tokens.js';
+export {
+  CLIENT_ID_PREFIX,
+  OAuthValidationError,
+  consumeAuthCode,
+  createAuthCode,
+  generateAuthCode,
+  generateClientId,
+  getClient,
+  registerClient,
+  verifyPkceS256,
+} from './oauth.js';
+export type { AuthCodeRow, CreateAuthCodeInput, OAuthClientRow } from './oauth.js';
