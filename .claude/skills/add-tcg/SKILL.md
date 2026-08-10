@@ -261,6 +261,14 @@ keep game-specific specifics in the game's runbook / the slot's `image-slots.md`
 - A missing set symbol/logo isn't always a warming gap — whole set *families* (promos, basic-energy,
   licensed tie-ins) have no per-set mark at the source. Prefer a **UI fallback ladder** (authored
   family SVG → derived acronym from the set code → neutral placeholder) over warming a nonexistent asset.
+- An authored family SVG may only depict **the game's own iconography**. For a licensed tie-in set
+  (a fast-food/retailer promo) the tempting stand-in is the partner brand's logo — drawing it by
+  hand is still reproducing their trademark, and a "higher-fidelity" replacement makes it worse.
+  A set's own logo/symbol *as published by the catalog source* is nominative use; the brand owner's
+  corporate mark is not, however you obtain it. Check what a candidate image actually **is** before
+  taking it: a secondary catalog API may serve the partner's corporate logo as a stand-in (identical
+  bytes across every year of the family is the tell), which is a brand asset, not a set logo.
+  When no legitimate set mark exists, ship a **typographic tag** (for year-bucketed families, the year).
 - Promo/odd cards can carry **non-numeric collector numbers that differ across sources** (one
   source's `MEW` is another's `001`) — when the number crosswalk misses, fall back to a
   normalized-**name** match before declaring the card absent.
