@@ -281,12 +281,26 @@ async function requestImage(asset, seed) {
   }
 }
 
+/**
+ * Account-level failures (billing, revoked/expired credentials) will fail every
+ * subsequent request identically. Detect them so we abort instead of grinding
+ * through every remaining candidate and burning minutes on certain failure.
+ */
+function isFatalAccountError(err) {
+  if (err?.statusCode === 401 || err?.statusCode === 403) return true;
+  return /credit card|customer_verification|unauthorized|invalid token|expired/i.test(
+    String(err?.message ?? ''),
+  );
+}
+
 async function generate(only) {
   const auth = ensureAuth();
   console.log(`Gateway auth: ${auth}`);
 
   const targets = only ? ASSETS.filter((a) => a.name === only) : ASSETS;
   if (targets.length === 0) throw new Error(`Unknown asset: ${only}`);
+
+  let produced = 0;
 
   for (const asset of targets) {
     const dir = path.join(RAW_DIR, asset.name);
@@ -303,19 +317,27 @@ async function generate(only) {
         const file = path.join(dir, `cand-${i}.png`);
         await sharp(buf).png().toFile(file);
         const meta = await sharp(file).metadata();
+        produced++;
         console.log(
           `  cand-${i}: ${meta.width}x${meta.height} ` +
             `${(fs.statSync(file).size / 1024).toFixed(0)}KB ` +
             `${((Date.now() - started) / 1000).toFixed(1)}s`,
         );
       } catch (err) {
+        // Re-throw account-level failures: retrying cannot help, and the top-level
+        // handler prints the actionable remedy instead of N identical stack traces.
+        if (isFatalAccountError(err)) throw err;
         console.error(`  cand-${i}: FAILED ${err?.statusCode ?? ''} ${err?.message ?? err}`);
       }
     }
   }
 
+  if (produced === 0) {
+    throw new Error('No candidates were generated — every request failed. See errors above.');
+  }
+
   console.log(
-    `\nRaw candidates in ${path.relative(REPO_ROOT, RAW_DIR)}/. ` +
+    `\n${produced} raw candidate(s) in ${path.relative(REPO_ROOT, RAW_DIR)}/. ` +
       `Review them, then record choices in ${path.relative(REPO_ROOT, PICKS_FILE)}.`,
   );
 }
