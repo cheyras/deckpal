@@ -14,6 +14,12 @@
 *.jsonl
 *.webp
 *.avif
+# ...except the committed landing-page art. Without these negations the two rules
+# above drop every optimised marketing asset from the upload, and the deployed
+# hero/accents 404 into their CSS gradient fallbacks with no build-time error.
+# Mirrors the same negation pair in .gitignore.
+!apps/web/public/marketing/*.webp
+!apps/web/public/marketing/*.avif
 .env
 .env.*
 !.env.example

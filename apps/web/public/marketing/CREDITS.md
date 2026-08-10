@@ -1,18 +1,24 @@
 # Marketing imagery — credits and provenance
 
-> **Status: image files not yet generated — blocked on Vercel billing.**
+> **Status: shipped.** Generated 2026-08-10 with `bfl/flux-2-pro` through the Vercel AI
+> Gateway — 3 candidates per asset, 18 images, $0.83 total. (The earlier
+> `403 customer_verification_required` block was a team-level payment precondition on
+> the `deck-scout` team, not a credential problem; an account-scoped
+> `AI_GATEWAY_API_KEY` cleared it.)
 >
-> The generator, the encoder pipeline, and this documentation are complete and verified.
-> The image bytes are missing because the AI Gateway refuses every request for the
-> `deck-scout` Vercel team with `403 customer_verification_required`:
-> *"AI Gateway requires a valid credit card on file to service requests."*
-> OIDC authentication itself works — the same token successfully lists all 321 gateway
-> models — and the refusal applies to text models too, so it is a team-level payment
-> precondition, not a credential or image-model problem. An `AI_GATEWAY_API_KEY` would
-> **not** help: the check is on the team, not the credential.
+> Selected candidates, as recorded in `.marketing-raw/picks.json`:
 >
-> **To unblock:** add a payment method at Vercel → DeckScout team → AI Gateway, then run
-> the reproduction steps below. Delete this block once the assets land.
+> | Asset | Pick | Why |
+> |---|---|---|
+> | `hero-bg` | `cand-2` | near-black left third for the headline; layered rounded-rectangle planes catching a gold bloom on the right, so the subject survives the 960px crop |
+> | `texture-grid` | `cand-3` | flat, even, near-black with a fine grid and no focal point — the only candidate that actually tiles invisibly |
+> | `og-image` | `cand-3` | calm middle-left for the platform's title overlay; rounded planes echo the hero rather than the other candidates' shards/triangles |
+> | `accent-collection` | `cand-2` | centred floating stack with amber rim light and breathing room on all sides |
+> | `accent-insights` | `cand-2` | amber curve with a restrained cool-blue secondary; no perspective floor to fight the flat set |
+> | `accent-discovery` | `cand-2` | warm amber line + ring traces, same key as the other two accents |
+>
+> The raw candidates (including the rejects) stay in the gitignored `.marketing-raw/`;
+> only the optimised derivatives are committed.
 
 Every image in this directory is an **original work generated for DeckScout**. Nothing
 here is stock photography, nothing is traced or derived from third-party artwork, and
@@ -22,7 +28,9 @@ only — both as a design choice and as a trademark-safety guarantee.
 
 - **Generated via:** [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) (`ai` SDK
   `generateImage`). No direct provider SDKs or third-party image APIs are used.
-- **Authentication:** Vercel OIDC (`VERCEL_OIDC_TOKEN`, provisioned by `vercel env pull`).
+- **Authentication:** `AI_GATEWAY_API_KEY` (account-scoped). The generator also accepts
+  Vercel OIDC (`VERCEL_OIDC_TOKEN`, provisioned by `vercel env pull`), but a team without
+  a payment method is refused on either credential.
 - **Generator:** [`scripts/gen-marketing-images.mjs`](../../../../scripts/gen-marketing-images.mjs)
   — the canonical source for the prompts, sizes, and encoder settings reproduced below.
 - **Post-processing:** [`sharp`](https://sharp.pixelplumbing.com/) (libvips) for resizing
