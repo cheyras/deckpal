@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
 import { api, type SetSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, setAssetUrl } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, SetSymbolTile } from '../components/ui'
+import { SetLogo } from '../components/SetLogo'
 import { fmtDate, setLevelLabel } from '../lib/format'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 
@@ -16,11 +17,10 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
     >
       <div className="flex h-[72px] w-[110px] shrink-0 items-center justify-center rounded-md bg-surface-secondary">
         {set.logoUrl ? (
-          <img
-            src={setAssetUrl(set.setId, 'logo')}
-            alt=""
-            className="max-h-[56px] max-w-[96px] object-contain"
-            onError={(e) => ((e.currentTarget.style.display = 'none'))}
+          <SetLogo
+            setId={set.setId}
+            imgClassName="max-h-[56px] max-w-[96px]"
+            platedImgClassName="max-h-[48px] max-w-[82px]"
           />
         ) : (
           <span className="px-[6px] text-center text-[12px] text-text-muted">{set.name}</span>

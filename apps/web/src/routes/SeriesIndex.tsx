@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { api, type SeriesSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, setAssetUrl, McdonaldsMark } from '../components/ui'
+import { Content, Spinner, ErrorState, McdonaldsMark } from '../components/ui'
+import { SetLogo } from '../components/SetLogo'
 import { Icon } from '../components/Icon'
 import { fmtDate } from '../lib/format'
 
@@ -114,14 +115,7 @@ function SeriesCard({ s }: { s: SeriesSummary }) {
             {/mc ?donald/i.test(s.name) ? (
               <McdonaldsMark size={48} />
             ) : (
-              s.repSetId && (
-                <img
-                  src={setAssetUrl(s.repSetId, 'logo')}
-                  alt=""
-                  className="max-h-[48px] max-w-[180px] object-contain"
-                  onError={(e) => (e.currentTarget.style.display = 'none')}
-                />
-              )
+              s.repSetId && <SetLogo setId={s.repSetId} imgClassName="max-h-[48px] max-w-[180px]" />
             )}
           </div>
           <div className="text-[18px] font-semibold leading-[27px] text-text-primary">{s.name}</div>

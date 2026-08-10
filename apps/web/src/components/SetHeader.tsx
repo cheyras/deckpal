@@ -3,7 +3,8 @@ import type { SetDetailResponse } from '../lib/api'
 import type { Goal } from '../routes/setSearch'
 import { api } from '../lib/api'
 import { fmtDate, fmtUsd } from '../lib/format'
-import { SetSymbolTile, setAssetUrl } from './ui'
+import { SetSymbolTile } from './ui'
+import { SetLogo } from './SetLogo'
 import { ProgressCluster } from './ProgressCluster'
 import { Icon } from './Icon'
 import { PurchaseSetMenu } from './PurchaseSetMenu'
@@ -45,10 +46,12 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
         <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[16px]">
           <div className="flex h-[103px] min-w-[135px] items-center">
             {set.images.logoUrl ? (
-              <img
-                src={setAssetUrl(set.setId, 'logo')}
+              <SetLogo
+                setId={set.setId}
                 alt={set.name}
-                className="max-h-[103px] max-w-[220px] object-contain"
+                imgClassName="max-h-[103px] max-w-[220px]"
+                platedImgClassName="max-h-[88px] max-w-[220px]"
+                plateClassName="rounded-lg px-[14px] py-[10px]"
                 onError={(e) => {
                   e.currentTarget.outerHTML = `<span class="text-[32px] font-black text-text-primary">${set.name}</span>`
                 }}
