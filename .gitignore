@@ -66,3 +66,11 @@ deploy/
 CLAUDE.local.md
 .vercel
 .env*
+
+# ── credentials ──────────────────────────────────────────────────────────
+# .qa-account holds the shared QA login used to verify the DEPLOYED site (every
+# app route sits behind the Supabase auth guard, so there is no other way to see
+# production signed in). Ignored ahead of anything else claiming a dot-prefixed
+# credential name, because the failure mode is a live password in a public repo.
+.qa-account
+.owner-temp-password
