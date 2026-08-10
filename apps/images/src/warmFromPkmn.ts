@@ -306,8 +306,19 @@ export async function warmFromPkmn(opts: WarmFromPkmnOptions = {}): Promise<Stat
     return st;
   }
 
-  const setsResp = await apiJson<{ value: PkmnSet[] }>('/v1/sets');
-  if (!setsResp?.value) throw new Error('could not list pkmn sets (session expired?)');
+  // `/v1/set`, singular. Upstream renamed it from `/v1/sets` sometime before
+  // 2026-08-10; the plural now 404s. `apiJson` only retries on 401, so a 404 fell
+  // through as a null and the old message here blamed the session — which sent the
+  // next reader off refreshing a token that was already fine. The route is the only
+  // thing that moved: the envelope is still `{ value: PkmnSet[] }` and `category`
+  // still spells English sets 'EN' (211 of them, MEP among them). Say what actually
+  // failed, so a future rename is one probe away instead of an auth goose chase.
+  const setsResp = await apiJson<{ value: PkmnSet[] }>('/v1/set');
+  if (!setsResp?.value)
+    throw new Error(
+      'could not list pkmn sets: GET /v1/set returned no envelope. Refresh succeeds ' +
+        'independently, so check whether the route moved again before suspecting auth.',
+    );
   const resolve = buildCrosswalk(setsResp.value.filter((s) => s.category === 'EN'));
 
   // group gaps by our set
