@@ -24,6 +24,18 @@ declare const self: ServiceWorkerGlobalScope
 // self-host → '/deckscout/sw.js' → BASE = '/deckscout/'. No hardcoded paths.
 const BASE = new URL('./', self.location.href).pathname
 
+// ── Fixed image path contract ────────────────────────────────────────────────
+// Unlike API/nav routes below, image URLs are NOT relative to where this SW
+// script itself lives. apps/api/src/db.ts cardImages() emits `/deckscout/images/...`
+// verbatim on EVERY deployment: vercel.json rewrites that exact prefix to the
+// cloud image function (api/images.mjs), and self-host nginx proxies the same
+// fixed prefix to apps/images on :3701 (see apps/web/vite.config.ts dev proxy,
+// which maps '/deckscout/images' regardless of basePath). Deriving this from
+// BASE broke image caching on cloud, where sw.js is served from the site root
+// (BASE = '/') so the route only ever matched a '/images/' path that the app
+// never requests.
+const IMAGES_PATH = '/deckscout/images/'
+
 // ── Tier 0: precache the app shell ────────────────────────────────────────────
 // __WB_MANIFEST is injected at build time with the hashed dist assets.
 precacheAndRoute(self.__WB_MANIFEST)
@@ -36,7 +48,7 @@ cleanupOutdatedCaches()
 // shell (the "JSON.parse: unexpected token <" class of bug — wiki: Frontend-Research §C.2).
 const shellHandler = createHandlerBoundToURL(`${BASE}index.html`)
 const apiPattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}api/`)
-const imgPattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}images/`)
+const imgPattern = new RegExp(`^${IMAGES_PATH.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
 registerRoute(
   new NavigationRoute(shellHandler, {
     denylist: [apiPattern, imgPattern],
@@ -79,8 +91,18 @@ for (const method of ['POST', 'PATCH', 'DELETE'] as const) {
 }
 
 // ── Tier 1: card & set art, CacheFirst, LRU-capped at 2000 entries ─────────────
+// statuses: [0, 200] is load-bearing, not defensive: on cloud the same-origin
+// request to /deckscout/images/... answers with a 302 to a cross-origin Supabase
+// Storage object URL. Image requests (<img> tags, intercepted by this SW) run in
+// 'no-cors' mode, so the browser follows that redirect and hands back an opaque
+// (status 0) Response — unreadable to JS but fully cacheable and re-servable to
+// the next no-cors request, which is the whole point. Caching the fixed-up 302
+// itself isn't an option: `redirect: manual` would be required to observe it as
+// 'opaqueredirect', and Workbox can't safely replay a stored redirect response
+// on a cache hit. Self-host answers 200 directly off apps/images' disk cache;
+// both statuses need to be accepted here for the single strategy to cover both.
 registerRoute(
-  ({ url }) => url.pathname.startsWith(`${BASE}images/`),
+  ({ url }) => url.pathname.startsWith(IMAGES_PATH),
   new CacheFirst({
     cacheName: 'deckscout-img-v1',
     plugins: [
