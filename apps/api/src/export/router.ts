@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool, q, q1 } from '../db.js';
 import { asyncHandler, notFound } from '../http.js';
+import { currentUserId } from '../identity.js';
 import {
   validateDeck, buildReprintOracle, formatConfig, setAliases, normalizeName,
   type FormatCode, type PokemonType, type CardFacts, type Deck, type DeckEntry, type Section,
@@ -83,7 +84,7 @@ exportRouter.get(
   asyncHandler(async (req, res) => {
     const deckId = String(req.params.id);
     if (!UUID_RE.test(deckId)) throw notFound(`No deck '${deckId}'`);
-    const userId = req.user!.id;
+    const userId = currentUserId(req);
 
     const meta = await q1<{ id: string; name: string; description: string | null; format_code: FormatCode; glc_type: string | null }>(
       `SELECT id, name, description, format_code, glc_type FROM deck WHERE id = $1 AND user_id = $2`,
@@ -222,7 +223,7 @@ exportRouter.get(
   asyncHandler(async (req, res) => {
     const listId = String(req.params.id);
     if (!UUID_RE.test(listId)) throw notFound(`No list '${listId}'`);
-    const userId = req.user!.id;
+    const userId = currentUserId(req);
 
     const list = await q1<ListRow>(
       `SELECT name, kind, description FROM card_list WHERE id = $1 AND user_id = $2`,
@@ -317,7 +318,7 @@ exportRouter.get(
   '/sets/:setId/checklist.pdf',
   asyncHandler(async (req, res) => {
     const setTcgdexId = String(req.params.setId);
-    const userId = req.user!.id;
+    const userId = currentUserId(req);
 
     const set = await q1<SetMetaRow>(
       `SELECT cs.id, cs.tcgdex_id, cs.name, cs.released_on, cs.card_count_official, cs.card_count_total,

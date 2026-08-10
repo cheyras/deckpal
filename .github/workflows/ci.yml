@@ -57,6 +57,14 @@ jobs:
       - name: Image path parsing + traversal rejection tests (pure, no DB)
         run: pnpm --filter deckscout-api test:images
 
+      # JWT verification plus the cloud/self-host identity seam. The live-DB
+      # suites that would otherwise catch a self-host regression stay out of CI
+      # by contract B7, so this pure suite is the compensating control: it
+      # proves cloud-with-credential, cloud-without-credential (401, no
+      # fallback) and self-host (single local user) without a Postgres.
+      - name: Auth + request identity tests (pure, no DB)
+        run: pnpm --filter deckscout-api test:auth
+
       - name: Build api
         run: pnpm --filter deckscout-api build
 

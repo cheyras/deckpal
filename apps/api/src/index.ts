@@ -5,7 +5,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { closePool, pool, q, rlsStore, SUPABASE_MODE, withUserContext } from './db.js';
 import { asyncHandler, catalogCache, errorMiddleware } from './http.js';
-import { authMiddleware, requireAuth, requireSession } from './auth.js';
+import { authMiddleware, resolveIdentity, requireSession } from './auth.js';
 import { seriesRouter } from './routes/series.js';
 import { setsRouter } from './routes/sets.js';
 import { massEntryRouter } from './routes/massentry.js';
@@ -192,10 +192,14 @@ export function createApp(): express.Express {
   // Search is pure catalog — no user_id in the queries.
   api.use('/search', searchRouter);
 
-  // ── Authenticated routes (user-scoped data) ─────────────────────────────
-  // requireAuth rejects 401 in cloud mode when no valid JWT is present.
-  // In self-host mode it is a no-op (reverse proxy is the auth boundary).
-  api.use(requireAuth);
+  // ── User-scoped routes ────────────────────────────────────────────────────
+  // resolveIdentity settles "who is calling" once, for both deployments:
+  //   cloud     → the verified JWT/token subject, or 401 with no fallback;
+  //   self-host → the single local user (the reverse proxy is the auth
+  //               boundary, so no credential is required or expected).
+  // Every router below reads it through currentUserId(req) and never branches
+  // on deployment. See identity.ts.
+  api.use(resolveIdentity);
 
   // PDF export routes carry full paths (/decks/:id/pdf, /lists/:id/pdf,
   // /sets/:setId/checklist.pdf) and are mounted first so they resolve here rather

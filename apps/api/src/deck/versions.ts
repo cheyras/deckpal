@@ -57,8 +57,15 @@ export async function recordDeckChange(
   opts: { source: string; note?: string | null },
 ): Promise<DeckChangeResult> {
   const note = opts.note ?? null;
-  const deck = await client.query<{ version: number; strategy_md: string | null; format_code: string }>(
-    `SELECT version, strategy_md, format_code FROM deck WHERE id = $1`,
+  // user_id comes off the owning deck row, never from the caller. Migration 020
+  // added deck_version.user_id NOT NULL and backfilled it with exactly this
+  // rule (`UPDATE deck_version dv SET user_id = d.user_id …`) but no writer was
+  // updated to keep supplying it, so every snapshot insert violated the
+  // constraint. Deriving it here rather than threading a 4th argument through
+  // seven call sites means a snapshot cannot be attributed to anyone but the
+  // deck's owner — and under RLS this SELECT only ever sees the caller's decks.
+  const deck = await client.query<{ version: number; strategy_md: string | null; format_code: string; user_id: string }>(
+    `SELECT version, strategy_md, format_code, user_id FROM deck WHERE id = $1`,
     [deckId],
   );
   const d = deck.rows[0];
@@ -75,17 +82,17 @@ export async function recordDeckChange(
     const next = d.version + 1;
     await client.query(`UPDATE deck SET version = $2 WHERE id = $1`, [deckId, next]);
     await client.query(
-      `INSERT INTO deck_version (deck_id, version, format_code, cards, strategy_md, note, source)
-            VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)`,
-      [deckId, next, d.format_code, cards, d.strategy_md, note, opts.source],
+      `INSERT INTO deck_version (deck_id, version, format_code, cards, strategy_md, note, source, user_id)
+            VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)`,
+      [deckId, next, d.format_code, cards, d.strategy_md, note, opts.source, d.user_id],
     );
     return { version: next, bumped: true };
   }
 
   // Amend in place. The upsert also covers deck creation (no snapshot row yet).
   await client.query(
-    `INSERT INTO deck_version (deck_id, version, format_code, cards, strategy_md, note, source)
-          VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+    `INSERT INTO deck_version (deck_id, version, format_code, cards, strategy_md, note, source, user_id)
+          VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
      ON CONFLICT (deck_id, version) DO UPDATE SET
        format_code = EXCLUDED.format_code,
        cards       = EXCLUDED.cards,
@@ -93,7 +100,7 @@ export async function recordDeckChange(
        note        = COALESCE(EXCLUDED.note, deck_version.note),
        source      = EXCLUDED.source,
        updated_at  = now()`,
-    [deckId, d.version, d.format_code, cards, d.strategy_md, note, opts.source],
+    [deckId, d.version, d.format_code, cards, d.strategy_md, note, opts.source, d.user_id],
   );
   return { version: d.version, bumped: false };
 }

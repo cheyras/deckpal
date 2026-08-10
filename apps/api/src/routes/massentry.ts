@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { q, q1 } from '../db.js';
 import { asyncHandler, badRequest, notFound, oneOf, strList, userCache } from '../http.js';
+import { currentUserId } from '../identity.js';
 import { MASSENTRY_NOTE, buildUrls, meLine, tcgplayerAbbrev } from '../tcgplayer/massentry.js';
 
 /**
@@ -52,7 +53,7 @@ massEntryRouter.get(
       [String(req.params.setId)],
     );
     if (!set) throw notFound(`No set '${String(req.params.setId)}'`);
-    const userId = req.user!.id;
+    const userId = currentUserId(req);
 
     const goal = oneOf<Goal>(req.query.goal, GOALS, 'complete');
     const rawFinishes = strList(req.query.finish).map((f) => f.toLowerCase());
