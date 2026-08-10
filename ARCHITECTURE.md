@@ -159,6 +159,17 @@ half-configured cloud deployment fails closed rather than serving one tenant's
 rows to anonymous callers. Cloud identity derives from the verified JWT and
 nothing else.
 
+A second, narrower seam sits beside it for routes that don't require a user
+at all: `resolveOptionalIdentity` / `optionalUserId()` resolve to
+`string | null`, where `null` means *settled: nobody*, not *nobody asked
+yet*. Search, series/set/card pages, the Pokédex and its insights are
+anonymous-readable; every other per-user route still 401s exactly as before.
+The `null` is bound as a SQL parameter, so ownership joins evaluate to
+UNKNOWN for anonymous rows by the query's own three-valued logic, and the
+pool runs those requests as Postgres role `anon` under RLS rather than
+`postgres` (which owns every table and bypasses RLS) -- the gap that made
+this safe to ship (DECISIONS.md 2026-08-10, "The catalog goes public").
+
 The original pivot instead rewrote ~40 call sites to `req.user!.id`. That is
 correct in cloud and silently `undefined` in self-host, where `authMiddleware`
 is deliberately a no-op — see DECISIONS.md 2026-08-10. `currentUserId()`
@@ -231,9 +242,28 @@ something with no provenance record cannot be represented at all.
 the real bucket, which is what makes the "every byte has a row" claim falsifiable
 on the cloud side rather than self-reported.
 
-**CDN:** Supabase Storage includes a CDN. The SPA references Storage public URLs
-instead of relative paths. Image transforms (resize, format conversion) are
-available on Pro.
+**CDN:** Supabase Storage includes a CDN, but the SPA does not link to it
+directly -- it requests the same relative paths self-host does
+(`/deckscout/images/en/<serie>/<set>/<localId>/<low|high>.webp`, built by
+`cardImages()` in `apps/api/src/db.ts` and `setAssetUrl()` in
+`apps/web/src/components/ui.tsx`). `vercel.json` rewrites that prefix to
+`/api/images?p=…`, a serverless function (`apps/api/src/images/handler.ts`)
+that lazily fills the bucket on demand: a HIT 302s straight to the public
+object URL (`max-age=31536000, immutable`, so a warm asset costs the function
+nothing after the first request per edge); a MISS reads the `image_asset`
+row, fetches the bytes from its `source_url`, writes them through
+`putAsset()`, then 302s; a genuine FAIL serves the same ~1 KB placeholder
+self-host uses, or 404 for set imagery. An image URL never answers with HTML
+-- the invariant that closed the bug where every `<img>` on deckscout.io was
+silently serving the index shell (DECISIONS.md 2026-08-10, "Cloud image tier:
+lazy cache-on-demand out of Supabase Storage"). Image transforms (resize,
+format conversion) are available on Pro.
+
+A second public bucket, `user-avatars`, holds profile photos independently of
+`image_asset`/`putAsset()` -- the record lives on `user_profile` (migration
+029) instead, keyed by a random 32-hex object name rather than anything
+derived from the user id, and re-encoded server-side to 256×256 WebP
+(DECISIONS.md 2026-08-10, "Profile photos").
 
 ### Self-host: local disk cache
 
@@ -304,14 +334,20 @@ Self-host deployments run 001-020 and skip 021+. Auth is handled by the reverse
 proxy. Images are served by `apps/images`. Sync jobs run via cron or any
 scheduler.
 
-## 10. What is parked and why
+## 10. MCP server — live and multi-user
 
-### MCP server (Wave 3)
-
-The MCP auth model (`x-brain-key` shared secret) is fundamentally single-user.
-Multi-user requires per-user PATs or Supabase JWT auth. The 21 existing tools
-map cleanly to API calls, so the port is straightforward once auth is settled.
-Self-host continues to use `x-brain-key`.
+`rotom-mcp`'s 21 tools are served to any signed-up user at
+`https://deckscout.io/mcp` (`apps/mcp/src/cloud.ts`), authenticated per-user by
+a personal access token (`dsk_…`, SHA-256 hashed, shown once at creation,
+revocable from Profile). Each call resolves the token to a `user_id` and runs
+inside the same `withUserContext` per-request RLS transaction the REST API
+uses, so a tool has two independent locks: its own `WHERE user_id = $1` and
+migration 021's RLS policies underneath it. Self-host is unaffected and keeps
+the original single-user `x-brain-key` process (`apps/mcp/src/index.ts`).
+Cross-user isolation was verified against production with a throwaway
+account: all ten hostile writes against another user's real ids failed
+closed, and read tools reported zero owner data (DECISIONS.md 2026-08-10,
+"MCP goes multi-user").
 
 ## 11. Correctness traps that shape the design
 
@@ -364,6 +400,15 @@ the `bytea` hash — the hash is stored as `bytea` because that round-trips to a
 bigint, but Postgres has bitwise XOR only for `bit`, and converting per row per
 probe costs 3x (190 ms vs 64 ms measured). Query time on the live index: 22.6k
 rows × 34 geometry probes, ~69 ms of server time.
+
+Accuracy is measured, not assumed: 60 cards × 7 realistic degradations (389
+scans -- re-encode, JPEG noise, tilt, off-centre, keystone, dim/glare) against
+five synthetic no-card frames. Threshold 9 admits **96.9%** of correct scans
+while rejecting every no-card frame tested. `ALGO` is `dhash8v3` -- bumped from
+the ImageMagick-era pipeline, whose hashes land 0-9 bits away (median 2) from
+`sharp`'s, enough to invalidate the old index outright. The old **~99.6%**
+figure was measured on that superseded pipeline against a different
+degradation set and does not carry over (DECISIONS.md 2026-08-10, issue #20).
 
 Two consequences worth stating plainly. **An indexer run is live immediately** —
 no restart, on either deployment. And **index-time and query-time hashing must be
