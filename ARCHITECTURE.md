@@ -135,11 +135,36 @@ async function withUserContext(userId: string, fn: (client) => Promise<T>): Prom
 For catalog-only reads (search, series list without user progress): the service
 role is used (bypasses RLS, since catalog tables are world-readable).
 
-### The `defaultUserId()` replacement
+### Request identity — the one accessor
 
-The single-user choke point is replaced by extracting the user UUID from the
-verified JWT. Every route already passes `userId` as a parameter to SQL queries;
-the change is mechanical across ~40 call sites.
+The single-user choke point (`defaultUserId()`) is not removed; it becomes one
+of two branches behind a single seam, `apps/api/src/identity.ts`. Routes never
+learn which deployment they are running in:
+
+```ts
+const userId = currentUserId(req);   // string, always — the only supported read
+```
+
+`resolveIdentity` (mounted once in `index.ts`, ahead of every user-scoped
+router) settles it per request:
+
+| | Cloud | Self-host |
+|---|---|---|
+| Credential present | JWT `sub`, or the personal access token's owner | same |
+| No credential | **401** — no fallback exists | the single local user (`defaultUserId()`) |
+
+The self-host branch is gated on *any* Supabase environment being absent
+(`SUPABASE_URL`, `SUPABASE_JWT_SECRET` **or** `SUPABASE_MODE`), so a
+half-configured cloud deployment fails closed rather than serving one tenant's
+rows to anonymous callers. Cloud identity derives from the verified JWT and
+nothing else.
+
+The original pivot instead rewrote ~40 call sites to `req.user!.id`. That is
+correct in cloud and silently `undefined` in self-host, where `authMiddleware`
+is deliberately a no-op — see DECISIONS.md 2026-08-10. `currentUserId()`
+returns `string` or throws, so there is nothing for `!` to assert; a pure test
+(`__tests__/identity.test.ts`, run in CI via `test:auth`) exercises all three
+branches without a database and fails if a route reaches for `req.user` again.
 
 ## 6. RLS schema model
 
