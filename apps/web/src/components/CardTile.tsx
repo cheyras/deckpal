@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type CardDetailResponse, type CardRow, type Variant } from '../lib/api'
+import { api, type CardRow, type TileVariant } from '../lib/api'
 import { fmtPrice, fmtNumber, rarityGlyph } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { CardImage } from './CardImage'
@@ -11,7 +11,7 @@ import type { CardSearch } from '../routes/setSearch'
 // Per-variant accent colour + whether the filled chip needs dark text for
 // legibility (yellow/normal does; purple/blue do not). Mirrors CardDetail's
 // variantColor() + the VariantLegend so the grid counters read as the same system.
-function variantMeta(v: Variant): { color: string; dark: boolean; order: number } {
+function variantMeta(v: TileVariant): { color: string; dark: boolean; order: number } {
   const k = v.kind.toLowerCase()
   if (v.tier === 'special') return { color: 'var(--color-variant-other)', dark: true, order: 3 }
   if (k.includes('reverse')) return { color: 'var(--color-variant-reverse-holo)', dark: false, order: 2 }
@@ -102,50 +102,68 @@ function CounterBox({
   )
 }
 
-// Per-variant quantity counters (pkmn.gg's little count boxes). The set list API
-// only returns an aggregate owned total, not per-variant quantities, so we read
-// the card's variants from the shared ['card', cardId] query — the same cache
-// CardDetail populates and mutates — and write through the existing collection
-// endpoints. Progress bars reconcile via the ['set', setId] invalidation on settle.
-function VariantCounters({ cardId, setId }: { cardId: string; setId: string }) {
+// Per-variant quantity counters (pkmn.gg's little count boxes).
+//
+// `seed` is the card's standard-tier variants as served inline by /sets/:setId.
+// When it is present this component issues NO request at all. It used to always
+// open its own ['card', cardId] query, which meant the set grid fired one
+// GET /cards/:id per rendered tile — 18 requests at 1440px, ~900 ms each, and
+// none of them started until the set response had landed. Tiles rendered outside
+// a set response (lists, search) have no seed and still fetch.
+//
+// Reads come straight from `seed` rather than from a react-query cache so the
+// grid can never disagree with the set response that painted it. Optimistic
+// writes live in a local overlay that clears the moment fresh server data
+// arrives; the ['set', setId] invalidation on settle is what delivers it.
+function VariantCounters({ cardId, setId, seed }: { cardId: string; setId: string; seed?: TileVariant[] }) {
   const qc = useQueryClient()
   const online = useOnline()
-  const { data } = useQuery({
+  const { data: fetched } = useQuery({
     queryKey: ['card', cardId],
     queryFn: ({ signal }) => api.card(cardId, signal),
+    enabled: seed === undefined,
   })
+  const variants: TileVariant[] | undefined = seed ?? fetched?.variants
+
+  const [pending, setPending] = useState<Record<number, number>>({})
+  // Fresh server data supersedes any optimistic value. `variants` keeps a stable
+  // identity between refetches, so this fires exactly when new data lands.
+  useEffect(() => {
+    setPending((p) => (Object.keys(p).length ? {} : p))
+  }, [variants])
+
+  const shown = variants?.map((v) =>
+    pending[v.variantId] !== undefined ? { ...v, quantity: pending[v.variantId]! } : v,
+  )
 
   const mutation = useMutation({
     mutationFn: ({ variantId, delta }: { variantId: number; delta: number }) =>
       api.incrementVariant(variantId, delta),
-    onMutate: async ({ variantId, delta }) => {
-      await qc.cancelQueries({ queryKey: ['card', cardId] })
-      const prevCard = qc.getQueryData<CardDetailResponse>(['card', cardId])
-      // Optimistically move just this variant's quantity so the box updates
-      // instantly; the set query's progress + counts reconcile on settle.
-      qc.setQueryData<CardDetailResponse>(['card', cardId], (old) =>
-        old
-          ? {
-              ...old,
-              variants: old.variants.map((v) =>
-                v.variantId === variantId ? { ...v, quantity: Math.max(0, v.quantity + delta) } : v,
-              ),
-            }
-          : old,
-      )
-      return { prevCard }
+    onMutate: ({ variantId, delta }) => {
+      const current = shown?.find((v) => v.variantId === variantId)?.quantity ?? 0
+      const prev = pending[variantId]
+      setPending((p) => ({ ...p, [variantId]: Math.max(0, current + delta) }))
+      return { variantId, prev }
     },
     onError: (_err, _vars, ctx) => {
-      if (ctx?.prevCard) qc.setQueryData(['card', cardId], ctx.prevCard)
+      if (!ctx) return
+      setPending((p) => {
+        const next = { ...p }
+        if (ctx.prev === undefined) delete next[ctx.variantId]
+        else next[ctx.variantId] = ctx.prev
+        return next
+      })
     },
     onSettled: () => {
+      // CardDetail shares the ['card', cardId] cache; the set query carries both
+      // the progress bars and (now) the quantities these boxes render.
       void qc.invalidateQueries({ queryKey: ['card', cardId] })
       void qc.invalidateQueries({ queryKey: ['set', setId] })
     },
   })
 
-  if (!data) return null
-  const standard = data.variants
+  if (!shown) return null
+  const standard = shown
     .filter((v) => v.tier === 'standard')
     .map((v) => ({ v, meta: variantMeta(v) }))
     .sort((a, b) => a.meta.order - b.meta.order)
@@ -257,7 +275,9 @@ export function CardTile({
             <Icon name="close" size={16} />
           </button>
         )}
-        {showCounters && <VariantCounters cardId={`${set}-${card.number}`} setId={set} />}
+        {showCounters && (
+          <VariantCounters cardId={`${set}-${card.number}`} setId={set} seed={card.standardVariants} />
+        )}
       </div>
       {/* Footer block — 74px, uniform for virtualization */}
       <div className="pt-[10px]">

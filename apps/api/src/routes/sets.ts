@@ -61,7 +61,17 @@ interface CardListRow {
   req_count: string;
   owned_req: string;
   dupe_req: string;
+  standard_variants: StandardVariant[] | null;
   total_rows: string;
+}
+
+/** The subset of a card's variants the grid's count boxes need (standard tier only). */
+interface StandardVariant {
+  variantId: number;
+  kind: string;
+  displayName: string;
+  tier: 'standard';
+  quantity: number;
 }
 
 function pct(owned: number, total: number): number {
@@ -209,12 +219,33 @@ setsRouter.get(
               vc.variant_count,
               price.market_minor AS price_minor, price.currency_code AS price_currency,
               a.sum_qty, a.req_count, a.owned_req, a.dupe_req,
+              sv.standard_variants,
               count(*) OVER() AS total_rows
          FROM a
          JOIN card c   ON c.id = a.card_id
          JOIN card_set cs ON cs.id = c.set_id
          JOIN series ser ON ser.id = cs.series_id
     LEFT JOIN LATERAL (SELECT count(*) AS variant_count FROM card_variant cv2 WHERE cv2.card_id = c.id) vc ON true
+    -- Per-variant owned quantities for the grid's count boxes. Without these the
+    -- web tiles each opened their own GET /cards/:id — one request per rendered
+    -- tile (measured 18 at 1440px), each ~900 ms. Deliberately NOT filtered by the
+    -- ?variant= facet ($3): the counters must show the card's real standard
+    -- variants regardless of which variants the grid is filtered to, which is what
+    -- the per-card endpoint returned.
+    LEFT JOIN LATERAL (
+                SELECT COALESCE(json_agg(json_build_object(
+                         'variantId',   cv3.id,
+                         'kind',        cv3.variant_kind_code,
+                         'displayName', COALESCE(cv3.display_name, vk3.display_name),
+                         'tier',        t3.tier,
+                         'quantity',    COALESCE(ci3.quantity, 0)
+                       ) ORDER BY cv3.sort_order), '[]'::json) AS standard_variants
+                  FROM card_variant cv3
+                  JOIN variant_kind vk3 ON vk3.code = cv3.variant_kind_code
+                  JOIN variant_tier_resolved t3 ON t3.card_variant_id = cv3.id
+             LEFT JOIN collection_item ci3 ON ci3.card_variant_id = cv3.id AND ci3.user_id = $2
+                 WHERE cv3.card_id = c.id AND t3.tier = 'standard'
+              ) sv ON true
     LEFT JOIN LATERAL (
                 SELECT pc.market_minor, pc.currency_code
                   FROM card_variant cvp
@@ -269,6 +300,9 @@ setsRouter.get(
           rarity: r.rarity,
           artist: r.illustrator,
           variantCount: Number(r.variant_count),
+          // Standard-tier variants with owned quantities, so the grid's count
+          // boxes render from this response instead of one GET /cards/:id per tile.
+          standardVariants: r.standard_variants ?? [],
           images: cardImages(r.serie, r.setcode, r.local_id),
           price: r.price_minor !== null ? { market: toMajor(r.price_minor, r.price_currency ?? 'USD'), currency: (r.price_currency ?? 'USD').trim() } : null,
           ownership: {
