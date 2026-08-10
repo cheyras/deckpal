@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { defaultUserId, pool, rlsStore } from '../db.js';
+import { pool, rlsStore } from '../db.js';
 import { asyncHandler, badRequest, notFound, userCache } from '../http.js';
+import { currentUserId } from '../identity.js';
 import { createToken, listTokens, revokeToken, type Queryable } from '@deckscout/db';
 
 /**
@@ -25,21 +26,18 @@ function db(): Queryable {
   return rlsStore.getStore() ?? pool;
 }
 
-/**
- * The acting user. `req.user` is set for every cloud request that got here
- * (requireSession rejected the alternative); self-host has no session at all
- * and falls back to the single default user, exactly like the other routers.
- */
-async function actingUser(userId: string | undefined): Promise<string> {
-  return userId ?? (await defaultUserId());
-}
+// The acting user comes from currentUserId(req), the same seam every other
+// router uses: the verified JWT subject in cloud, the single local user in
+// self-host. This file used to carry its own `userId ?? defaultUserId()`
+// fallback — the only route that survived the cloud pivot working, and the
+// reason the breakage in its siblings was easy to miss.
 
 // GET /tokens — list, newest first. Never returns a secret.
 tokensRouter.get(
   '/',
   asyncHandler(async (req, res) => {
     userCache(res);
-    const userId = await actingUser(req.user?.id);
+    const userId = currentUserId(req);
     res.json({ tokens: await listTokens(db(), userId) });
   }),
 );
@@ -53,7 +51,7 @@ tokensRouter.post(
     if (!name) throw badRequest('name is required');
     if (name.length > MAX_NAME_LEN) throw badRequest(`name must be ${MAX_NAME_LEN} characters or fewer`);
 
-    const userId = await actingUser(req.user?.id);
+    const userId = currentUserId(req);
     const existing = await listTokens(db(), userId);
     if (existing.filter((t) => !t.revokedAt).length >= MAX_ACTIVE_TOKENS) {
       throw badRequest(`You already have ${MAX_ACTIVE_TOKENS} active tokens. Revoke one first.`);
@@ -76,7 +74,7 @@ tokensRouter.delete(
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       throw notFound('No such token');
     }
-    const userId = await actingUser(req.user?.id);
+    const userId = currentUserId(req);
     const revoked = await revokeToken(db(), userId, id);
     if (!revoked) throw notFound('No such token');
     userCache(res);

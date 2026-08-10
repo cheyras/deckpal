@@ -117,9 +117,15 @@ export async function q1<T extends pg.QueryResultRow = pg.QueryResultRow>(
 }
 
 /**
- * Self-host fallback: the default (sole) user. In cloud mode, routes use
- * `req.user!.id` from the JWT instead — this function is only called by
- * standalone proof scripts and test suites that run without auth.
+ * The single local user — the self-host answer to "who is the current user".
+ * Same rule as `apps/mcp/src/ctx.ts`: lowest `app_user.id`, else '1'.
+ *
+ * Routes never call this directly. It is injected once into `resolveIdentity`
+ * (see identity.ts / auth.ts) as the self-host branch, and that branch is
+ * unreachable when any Supabase environment is configured — in cloud, identity
+ * comes from the verified JWT subject and nothing else. Standalone proof
+ * scripts and live-DB test suites also call it to name the user they operate
+ * on.
  *
  * Returns the user_id as a string (UUID in cloud, cast-to-string BIGINT in
  * legacy self-host). Type is `string` so call sites are compatible with UUID

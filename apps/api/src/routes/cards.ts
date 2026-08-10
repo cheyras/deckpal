@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { cardImages, q, q1, shapePrice, tcgplayerUrl, type PriceRow } from '../db.js';
 import { asyncHandler, notFound, userCache } from '../http.js';
+import { currentUserId } from '../identity.js';
 
 export const cardsRouter: Router = Router();
 
@@ -88,7 +89,7 @@ cardsRouter.get(
     );
     if (!card) throw notFound(`No card '${cardTcgdexId}'`);
     const cardId = card.id;
-    const userId = req.user!.id;
+    const userId = currentUserId(req);
 
     // These nine result sets used to be a `Promise.all` of nine `q()` calls. That
     // read like nine parallel queries but never was one: in SUPABASE_MODE every

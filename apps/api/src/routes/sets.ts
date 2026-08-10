@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { cardImages, q, q1, toMajor } from '../db.js';
 import { asyncHandler, clampInt, notFound, oneOf, str, strList, userCache } from '../http.js';
+import { currentUserId } from '../identity.js';
 import { raritySortSql } from '../rarity.js';
 
 export const setsRouter: Router = Router();
@@ -119,7 +120,7 @@ setsRouter.get(
       [setTcgdexId],
     );
     if (!set) throw notFound(`No set '${setTcgdexId}'`);
-    const userId = req.user!.id;
+    const userId = currentUserId(req);
 
     const goal = oneOf<Goal>(req.query.goal, GOALS, 'complete');
     const own = oneOf<Own>(req.query.own, OWN, 'all');

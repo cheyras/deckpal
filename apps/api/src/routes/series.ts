@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { q, q1 } from '../db.js';
 import { asyncHandler, notFound, userCache } from '../http.js';
+import { currentUserId } from '../identity.js';
 
 export const seriesRouter: Router = Router();
 
@@ -23,7 +24,7 @@ interface SeriesRow {
 seriesRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    const userId = req.user!.id;
+    const userId = currentUserId(req);
     // rep: the series' base/namesake set — the set sharing the series name (e.g.
     // "Scarlet & Violet" → set sv01), else the earliest non-promo set with a logo
     // (the flagship base set). Represents the whole era rather than a random recent
@@ -148,7 +149,7 @@ seriesRouter.get(
       [slug],
     );
     if (!series) throw notFound(`No series '${slug}'`);
-    const userId = req.user!.id;
+    const userId = currentUserId(req);
 
     const sets = await q<SetSummaryRow>(
       `SELECT cs.id, cs.tcgdex_id, cs.slug, cs.name, cs.released_on,

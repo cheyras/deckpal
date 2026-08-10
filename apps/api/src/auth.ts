@@ -1,13 +1,15 @@
-import type { Request, Response, NextFunction } from 'express';
-import { pool } from './db.js';
+import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import { defaultUserId, pool } from './db.js';
 import { looksLikeApiToken, resolveToken, touchToken } from '@deckscout/db';
+import { makeResolveIdentity } from './identity.js';
 
 /**
  * Supabase JWT authentication middleware for the cloud deployment.
  *
  * Verifies the JWT from the Authorization header, extracts the user UUID
- * (`sub` claim), and attaches it to `req.user`. Routes that need the
- * authenticated user read `req.user!.id`.
+ * (`sub` claim), and attaches it to `req.user`. Routes never read `req.user`
+ * themselves — they call `currentUserId(req)` from `identity.js`, which is
+ * total in both deployments. See that module for why.
  *
  * The same header also carries the second credential kind: a personal access
  * token (`dsk_…`, migration 026) minted in Profile → Agent access and used by
@@ -44,8 +46,14 @@ export interface AuthUser {
   email?: string;
 }
 
-/** Which credential produced `req.user`. Absent when the request is anonymous. */
-export type AuthKind = 'jwt' | 'token';
+/**
+ * Which credential produced `req.user`. Absent when the request is anonymous.
+ *
+ * `'local'` is the self-host case: no credential was presented and none is
+ * required, so `resolveIdentity` supplied the single local user. It can never
+ * appear when Supabase auth is configured.
+ */
+export type AuthKind = 'jwt' | 'token' | 'local';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -239,6 +247,15 @@ const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 /** True when at least one auth credential source is configured. */
 const AUTH_ENABLED = !!(JWT_SECRET || SUPABASE_URL);
 
+/**
+ * True when *any* Supabase environment is present. Wider than AUTH_ENABLED on
+ * purpose: SUPABASE_MODE alone (RLS context configured but no verifiable
+ * credential) is a broken cloud deployment, and a broken cloud deployment must
+ * 401 rather than fall back to the self-host user. Gates the self-host branch
+ * of `resolveIdentity` only — it never loosens JWT verification.
+ */
+const SUPABASE_CONFIGURED = !!(JWT_SECRET || SUPABASE_URL || process.env.SUPABASE_MODE);
+
 /** Verification options built from environment at startup. */
 const _verifyOpts: VerifyOptions = {
   ...(JWT_SECRET ? { secret: JWT_SECRET } : {}),
@@ -320,16 +337,42 @@ export function authMiddleware(req: Request, _res: Response, next: NextFunction)
 }
 
 /**
+ * Settle request identity for every user-scoped route: cloud → the verified
+ * JWT/token subject or 401; self-host → the single local user. Mounted once in
+ * index.ts ahead of the user-scoped routers; after it, `currentUserId(req)`
+ * always answers. See `identity.ts` for the contract.
+ *
+ * The self-host branch is doubly unreachable under Supabase: `localUserId`
+ * itself rejects, and `makeResolveIdentity` asserts `supabaseConfigured` again
+ * before it would ever call it.
+ */
+export const resolveIdentity: RequestHandler = makeResolveIdentity({
+  supabaseConfigured: SUPABASE_CONFIGURED,
+  localUserId: SUPABASE_CONFIGURED
+    ? (): Promise<string> =>
+        Promise.reject(
+          new Error(
+            'self-host identity fallback is unreachable when Supabase auth is configured',
+          ),
+        )
+    : defaultUserId,
+});
+
+/**
  * Guard middleware: rejects unauthenticated requests with 401.
  * Place after `authMiddleware` on routes that require a logged-in user.
  *
  * In self-host mode (no auth configured), all requests pass through — the
  * reverse proxy is the auth boundary.
+ *
+ * Retained for `requireSession` below. The user-scoped mount uses
+ * `resolveIdentity`, which enforces the same 401 *and* supplies the self-host
+ * user that this one leaves to the route.
  */
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   if (!AUTH_ENABLED) {
     // Self-host: no Supabase auth, requests pass through.
-    // Routes that need a user id will use the self-host fallback in db.ts.
+    // Identity has already been settled by resolveIdentity.
     next();
     return;
   }

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, clampInt, notFound, oneOf, str, userCache } from '../http.js';
+import { currentUserId } from '../identity.js';
 import { TRAINER_UNIQUE_MODE, trainerLevelProgress } from '../insights/trainerLevel.js';
 import {
   currentCollectionValue,
@@ -24,7 +25,7 @@ export const insightsRouter: Router = Router();
 insightsRouter.get(
   '/overview',
   asyncHandler(async (req, res) => {
-    const userId = req.user!.id;
+    const userId = currentUserId(req);
     const counts = await ownedCounts(userId);
     const uniqueForLevel = TRAINER_UNIQUE_MODE === 'pairs' ? counts.uniquePairs : counts.uniqueCards;
     const [value, dex] = await Promise.all([currentCollectionValue(userId), dexCompletion(userId)]);
@@ -47,7 +48,7 @@ insightsRouter.get(
 insightsRouter.get(
   '/value',
   asyncHandler(async (req, res) => {
-    const userId = req.user!.id;
+    const userId = currentUserId(req);
     const range = oneOf<Range>(req.query.range, ['30d', '3m', '6m', '1y'], '30d');
     const currency = oneOf(req.query.currency, ['USD', 'EUR', 'JPY'] as const, 'USD');
     const [totals, series, movers] = await Promise.all([
@@ -72,7 +73,7 @@ insightsRouter.get(
 insightsRouter.post(
   '/value/snapshot',
   asyncHandler(async (req, res) => {
-    const userId = req.user!.id;
+    const userId = currentUserId(req);
     const result = await snapshotCollectionValue(userId);
     userCache(res);
     res.json(result);
@@ -83,7 +84,7 @@ insightsRouter.post(
 insightsRouter.get(
   '/pokedex',
   asyncHandler(async (req, res) => {
-    const userId = req.user!.id;
+    const userId = currentUserId(req);
     const generationRaw = str(req.query.generation);
     const generation = generationRaw && Number.isFinite(Number(generationRaw)) ? Number(generationRaw) : undefined;
     const own = oneOf(req.query.own, ['all', 'captured', 'uncaptured'] as const, 'all');
@@ -100,7 +101,7 @@ insightsRouter.get(
 insightsRouter.get(
   '/pokedex/:speciesId',
   asyncHandler(async (req, res) => {
-    const userId = req.user!.id;
+    const userId = currentUserId(req);
     const raw = String(req.params.speciesId ?? '');
     const detail = await speciesDetail(userId, raw);
     if (!detail) throw notFound(`No species '${raw}'`);
