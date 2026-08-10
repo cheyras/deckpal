@@ -193,6 +193,19 @@ service role and upserts the `image_asset` row with provenance. The contract is
 identical to the disk-based version: no direct writes to the bucket, every byte
 has an `image_asset` row. `provenance` is a required argument.
 
+`image_asset` records the asset's **identity and provenance** — shared across
+tiers, because where bytes came from does not change when you copy them.
+`image_object` (migration 025) records **one row per physical copy**, keyed
+`(cache_key, tier)` with `tier IN ('disk','object')`, holding that copy's
+`byte_size`, `content_type` and storage `etag`. The two copies genuinely differ:
+TCGdex re-encodes between the day the disk cache was warmed and the day the
+bucket was filled. Each choke point writes only its own tier, and
+`image_object.cache_key` is a foreign key to `image_asset`, so a stored copy of
+something with no provenance record cannot be represented at all.
+`manifest:check --object-store` reconciles the object tier against a listing of
+the real bucket, which is what makes the "every byte has a row" claim falsifiable
+on the cloud side rather than self-reported.
+
 **CDN:** Supabase Storage includes a CDN. The SPA references Storage public URLs
 instead of relative paths. Image transforms (resize, format conversion) are
 available on Pro.
