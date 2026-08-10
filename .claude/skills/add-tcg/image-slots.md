@@ -64,6 +64,12 @@ new `kind` outside the migration-006 CHECK list needs an additive migration.
 - Optimization: single small asset; graceful client fallback to a text card on 404 (no broken image).
 - Verify: `curl /deckscout/images/sets/<setId>/logo.webp` → 200; series index renders the base-set logo.
 - Game-specific: no (most TCGs have set/expansion logos).
+- Known residue (2026-08-10, #15): TCGdex publishes **no logo for any of the 12 McDonald's Collection
+  sets** in any of its 14 languages (CDN 404s on `en|univ/mc/<set>/logo`), so a whole series has none.
+  Do **not** fill it from pokemontcg.io — its `mcd*` logos are byte-identical across nine sets and are
+  McDonald's *corporate* logo, not a set logo (see DECISIONS.md 2026-08-10 for the trademark line).
+  The series index instead falls back to the rep set's **symbol** tile (`/api/series.repHasLogo` says
+  which asset exists), and sets with neither get `deriveSetTag`'s year. Same shape for Trainer kits.
 
 ### set-symbol — status: active
 - Purpose / renders: the small set symbol/icon shown beside a set / on cards.
