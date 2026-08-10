@@ -26,8 +26,9 @@ and CDN) or **self-host** (plain Postgres behind your own reverse proxy).
 ### 2. Run migrations
 
 The project uses its own migration runner with SHA-256 checksums (not the
-Supabase CLI's migration system). Run against the **direct** connection string
-(not the pooled one):
+Supabase CLI's migration system). Run against the **direct** connection (not
+the pooled one). The runner reads discrete `PG*` variables — the standard libpq
+names — not a connection string:
 
 ```bash
 # Clone the repo and install
@@ -35,8 +36,14 @@ git clone https://github.com/cheyras/deckscout.git
 cd deckscout
 pnpm install
 
-# Set the direct connection string
-export SUPABASE_DB_URL="postgresql://postgres:<password>@db.<project>.supabase.co:5432/postgres"
+# Point the runner at Supabase. These are the libpq variables; the runner reads
+# these, not SUPABASE_DB_URL/DATABASE_URL.
+export PGHOST="db.<project>.supabase.co"
+export PGPORT=5432
+export PGDATABASE=postgres
+export PGUSER=postgres
+export PGPASSWORD="<password>"
+export PGSSLMODE=require        # Supabase terminates TLS with its own CA
 
 # Build the db package and run all migrations (001-024)
 pnpm --filter @deckscout/db build
@@ -45,6 +52,27 @@ pnpm --filter @deckscout/db migrate
 # Verify
 pnpm --filter @deckscout/db migrate:status
 ```
+
+> **On `PGSSLMODE`.** Supabase serves a certificate chain that is not in the
+> system trust store, so a *verifying* mode fails with `self-signed certificate
+> in certificate chain`. `require` is the right answer and means what libpq says
+> it means — encrypt the connection, do not verify the chain. DeckScout
+> implements the libpq semantics itself (`packages/db/src/pool.ts`) rather than
+> inheriting node-postgres's, which verifies for every mode:
+>
+> | `PGSSLMODE` | Behaviour |
+> |---|---|
+> | unset, `disable` | no TLS — the self-host default (local socket / trusted LAN) |
+> | `allow`, `prefer` | encrypt, do not verify |
+> | `require` | encrypt, do not verify — **use this for Supabase** |
+> | `verify-ca` | encrypt, verify the chain, ignore the hostname |
+> | `verify-full` | encrypt, verify the chain and the hostname |
+>
+> To verify against Supabase rather than trust-on-first-use, download the
+> project's CA certificate from the Supabase dashboard and point
+> `PGSSLROOTCERT` at it; `require`, `verify-ca` and `verify-full` all honour it.
+> An unrecognised value is rejected outright — a typo must not silently
+> downgrade the connection to plaintext.
 
 Migrations 001-020 are platform-agnostic (any Postgres 15+). Migration 021 adds
 RLS policies and links `app_user` to `auth.users` (Supabase-specific; skipped
@@ -153,8 +181,13 @@ pnpm --filter deckscout-images manifest:check -- --object-store
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://<project>.supabase.co` | |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJ...` | |
 | `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | Server-side only |
-| `SUPABASE_DB_URL` | `postgresql://postgres:<pw>@db.<project>.supabase.co:5432/postgres` | Direct connection (migrations) |
-| `DATABASE_URL` | `postgresql://postgres.<project>:<pw>@aws-0-us-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true` | Pooled connection (API) |
+| `PGHOST` | `aws-0-us-east-1.pooler.supabase.com` | Pooled connection (API) — the runtime reads `PG*`, not a URL |
+| `PGPORT` | `6543` | |
+| `PGDATABASE` | `postgres` | |
+| `PGUSER` | `postgres.<project>` | |
+| `PGPASSWORD` | `<pw>` | |
+| `PGSSLMODE` | `require` | See "On `PGSSLMODE`" above |
+| `SUPABASE_DB_URL` | `postgresql://postgres:<pw>@db.<project>.supabase.co:5432/postgres` | Reference only — read by `scripts/migrate-to-cloud.mjs`, not by the API |
 | `API_BASE_PATH` | `/api` | |
 | `NODE_ENV` | `production` | |
 
