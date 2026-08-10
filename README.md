@@ -1,7 +1,7 @@
 # DeckScout
 
-An open-core TCG collection platform. Browse a full card catalog, track your
-collection across printings, see prices, explore the Pokedex, build decks with
+An open-core Pokemon TCG collection and agentic strategy platform. Browse a full card catalog, track your
+collection across printings, see prices, connect to Claude or GPT to collaboratively build decks with
 battle-log intelligence, scan cards with a perceptual-hash scanner, and set
 completion goals. Built for Pokemon but the data model, image storage, and
 scanner are **game-agnostic**.
