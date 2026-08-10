@@ -57,6 +57,13 @@ jobs:
       - name: Image path parsing + traversal rejection tests (pure, no DB)
         run: pnpm --filter deckscout-api test:images
 
+      # The storage package's own pure suites: the path algebra (paths.test.ts)
+      # and the avatar choke point's guards — key shape, accepted magic bytes,
+      # and the record-before-publish ordering that keeps a failed upload from
+      # leaving a row behind (contract B1's shape for user uploads).
+      - name: Storage path algebra + avatar choke point (pure, no DB)
+        run: pnpm --filter @deckscout/storage test
+
       # JWT verification plus the cloud/self-host identity seam. The live-DB
       # suites that would otherwise catch a self-host regression stay out of CI
       # by contract B7, so this pure suite is the compensating control: it

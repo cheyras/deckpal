@@ -20,6 +20,7 @@ import { exportRouter } from './export/router.js';
 import { scanRouter } from './scan/router.js';
 import { bugsRouter } from './routes/bugs.js';
 import { tokensRouter } from './routes/tokens.js';
+import { avatarRouter } from './routes/avatar.js';
 
 /**
  * deckscout-api — the read/write API over the populated catalog.
@@ -184,6 +185,7 @@ export function createApp(): express.Express {
         '/decks/:id/pdf', '/lists/:id/pdf', '/sets/:setId/checklist.pdf',
         'POST /scan',
         '/tokens', 'POST /tokens', 'DELETE /tokens/:id',
+        '/avatar', 'POST /avatar', 'DELETE /avatar',
       ],
     });
   });
@@ -222,6 +224,9 @@ export function createApp(): express.Express {
   // Token management is session-only: a personal access token can use the API,
   // but it can never mint another one or revoke the ones that gate it.
   api.use('/tokens', requireSession, tokensRouter);
+  // Profile photo. Session-only for the same reason: a personal access token
+  // reads a collection, it does not restyle the account that minted it.
+  api.use('/avatar', requireSession, avatarRouter);
 
   // Base path: /api on Vercel, /deckscout/api on self-host (nginx sub-path).
   const basePath = process.env.API_BASE_PATH ?? '/deckscout/api';
