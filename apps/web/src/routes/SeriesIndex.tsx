@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { api, type SeriesSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, McdonaldsMark } from '../components/ui'
+import { Content, Spinner, ErrorState, SetSymbolTile } from '../components/ui'
 import { SetLogo } from '../components/SetLogo'
 import { Icon } from '../components/Icon'
 import { fmtDate } from '../lib/format'
@@ -109,14 +109,19 @@ function SeriesCard({ s }: { s: SeriesSummary }) {
       <div className="flex min-w-0 flex-1 flex-col justify-between">
         <div>
           {/* representative set logo — the series' base/namesake set (e.g. the
-              "Scarlet & Violet" set for the Scarlet & Violet era). Falls back to
-              nothing (the name below always shows) if absent or the fetch fails. */}
+              "Scarlet & Violet" set for the Scarlet & Violet era). Three series
+              (McDonald's Collection, Trainer kits, Miscellaneous) have no upstream
+              logo for *any* of their sets, so the API picks their rep set by symbol
+              instead and we show that real set symbol on its white tile rather than
+              a blank band (issue #15). Falls back to nothing — the name below always
+              shows — when neither asset exists or the fetch fails. */}
           <div className="mb-[12px] flex h-[48px] items-center">
-            {/mc ?donald/i.test(s.name) ? (
-              <McdonaldsMark size={48} />
-            ) : (
-              s.repSetId && <SetLogo setId={s.repSetId} imgClassName="max-h-[48px] max-w-[180px]" />
-            )}
+            {s.repSetId &&
+              (s.repHasLogo ? (
+                <SetLogo setId={s.repSetId} imgClassName="max-h-[48px] max-w-[180px]" />
+              ) : (
+                <SetSymbolTile setId={s.repSetId} hasSymbol={s.repHasSymbol} name={s.name} size={48} />
+              ))}
           </div>
           <div className="text-[18px] font-semibold leading-[27px] text-text-primary">{s.name}</div>
           <div className="mt-[2px] text-[12px] text-text-muted">First released {fmtDate(s.firstReleaseOn)}</div>
