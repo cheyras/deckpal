@@ -462,27 +462,45 @@ deck costs, how it has been performing. The cloud deployment serves it at
 `https://deckscout.io/mcp` (Streamable HTTP) for every signed-up user; a
 self-host deployment runs the same server as its own process.
 
-### 1. Create a personal access token
+### 1. Connect
+
+Works with claude.ai, ChatGPT, Gemini, Claude Code, or any client that speaks
+the MCP Authorization spec (OAuth 2.1 + PKCE + dynamic client registration —
+`apps/api/src/oauthServer.ts`).
+
+1. In your client, add a custom MCP connector pointed at
+   `https://deckscout.io/mcp` and choose **Connect** (not a manual-header
+   option).
+2. Your client registers itself, then opens `https://deckscout.io/authorize`
+   in a browser tab. Sign in to DeckScout if you aren't already.
+3. Approve the consent screen — it names the client asking and exactly what
+   it can do (read/write your collection, decks, lists, battle logs; not your
+   password, not your account settings).
+4. You're bounced back to the client, already connected. No token to copy.
+
+Under the hood, approving mints an ordinary personal access token (below) named
+after the client — it shows up in **Profile → Agent access** exactly like one
+you created by hand, with the same **Revoke** button.
+
+### 2. If your client doesn't support MCP OAuth — a personal access token
+
+Some clients (or older versions) only take a static URL or header. For those:
 
 1. Sign in at <https://deckscout.io> and open **Profile** (the avatar, top
    right).
 2. Scroll to **Agent access** and press **New token**.
-3. Name it after the client you are about to connect — e.g. `claude.ai` or
-   `Claude on my laptop` — and press **Create token**.
+3. Name it after the client — e.g. `claude.ai` or `Claude on my laptop` — and
+   press **Create token**.
 4. Copy the value **immediately.** DeckScout stores only a SHA-256 hash, so the
    token is shown exactly once and can never be recovered. Alongside it you also
    get a **personal connector URL** of the form
-   `https://deckscout.io/mcp/dsk_…` — copy that too; step 2 may need it.
+   `https://deckscout.io/mcp/dsk_…` — copy that too.
 
 Tokens are listed afterwards by their `dsk_…` prefix with their creation and
-last-used dates, and can be revoked from the same panel at any time.
+last-used dates, and can be revoked from the same panel at any time — same as
+an OAuth-connected client, because it's the same underlying credential.
 
-### 2. Add the connector in claude.ai
-
-In claude.ai: **Settings → Connectors → Add custom connector**. Name it
-`DeckScout`, then use whichever of these the dialog offers you.
-
-**A · If the dialog has a “Request headers” section (preferred)**
+**A · If the dialog has a "Request headers" section**
 
 1. Remote MCP server URL: `https://deckscout.io/mcp`
 2. Open **Request headers**. Choose the header name `authorization` and set the
@@ -490,13 +508,10 @@ In claude.ai: **Settings → Connectors → Add custom connector**. Name it
    token. Mark it **Required**.
 3. Click **Add**.
 
-Request headers are a beta Anthropic is still rolling out to accounts, so the
-section may not be there. If it isn't, use B.
-
-**B · If there is no header field — use your personal connector URL**
+**B · If there is no header field either — use your personal connector URL**
 
 1. Remote MCP server URL: paste `https://deckscout.io/mcp/dsk_…` (the personal
-   connector URL from step 1).
+   connector URL from step 4 above).
 2. Add no headers. Click **Add**.
 
 That URL *contains* your token, so treat the whole string like a password:
@@ -514,12 +529,15 @@ Start a new chat, enable DeckScout in the tools menu, and ask:
 You should get your own numbers back. The token's **Last used** date in
 Profile → Agent access updates within a minute.
 
-### 4. Claude Code instead (optional)
+### 4. Claude Code
 
 ```bash
-claude mcp add --transport http deckscout https://deckscout.io/mcp \
-  --header "Authorization: Bearer <your token>"
+claude mcp add --transport http deckscout https://deckscout.io/mcp
 ```
+
+Claude Code runs the OAuth flow itself and opens `/authorize` in your browser.
+To use a static token instead: `claude mcp add --transport http deckscout
+https://deckscout.io/mcp --header "Authorization: Bearer <your token>"`.
 
 `claude mcp list` should then print:
 
@@ -527,34 +545,40 @@ claude mcp add --transport http deckscout https://deckscout.io/mcp \
 deckscout: https://deckscout.io/mcp (HTTP) - ✔ Connected
 ```
 
-Remove it with `claude mcp remove deckscout`. Claude Code takes arbitrary
-headers at add time, so option A always works there.
+Remove it with `claude mcp remove deckscout`.
 
 ### 5. If it doesn't connect
 
 - Use `https://deckscout.io` **exactly** — not `www.deckscout.io`. The `www`
   host 308-redirects to the apex, and a redirect to a different host silently
-  drops the `Authorization` header.
-- *"Couldn't reach the MCP server"* or an authorization failure almost always
-  means the token is missing, truncated, or revoked. A token cannot be shown
-  twice, so a partial copy is unrecoverable — create a fresh one and re-paste.
-- In option A, include the word `Bearer` and one space before the token.
+  drops the `Authorization` header (and breaks the OAuth redirect_uri
+  exact-match check).
+- Landing on `/authorize` and seeing "Invalid connection request" means the
+  client sent a malformed request (missing `client_id` or PKCE parameters) —
+  usually a client that doesn't actually implement MCP OAuth yet. Use the
+  personal access token instead (§2).
+- *"Couldn't reach the MCP server"* or an authorization failure with a manual
+  token almost always means the token is missing, truncated, or revoked. A
+  token cannot be shown twice, so a partial copy is unrecoverable — create a
+  fresh one and re-paste.
+- In option A above, include the word `Bearer` and one space before the token.
   claude.ai sends the header value exactly as typed and adds no scheme of its
   own.
-- There is no OAuth flow. The endpoint answers `401` **without** a
-  `WWW-Authenticate` header on purpose, so no client tries to start one.
 
 ### 6. Revoking
 
 **Profile → Agent access → Revoke.** It takes effect immediately, on every
-client. The row stays in the list, struck through and marked *Revoked*, so you
-can see it happened. Then delete the connector in claude.ai or give it a new
-token.
+client, whether it connected via OAuth or a manual token — both are the same
+`api_token` row. The row stays in the list, struck through and marked
+*Revoked*, so you can see it happened. Then delete the connector in your
+client or reconnect to get a new one.
 
 ### Any other MCP client
 
-Point it at `https://deckscout.io/mcp` over **Streamable HTTP** with an
-`Authorization: Bearer <token>` header, or at
+Point it at `https://deckscout.io/mcp` over **Streamable HTTP** and either let
+it run OAuth discovery (`.well-known/oauth-protected-resource` →
+`.well-known/oauth-authorization-server` → register → `/authorize` → `/token`),
+or give it an `Authorization: Bearer <token>` header, or point it at
 `https://deckscout.io/mcp/<token>` with no header at all.
 
 ### What the token grants

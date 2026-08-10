@@ -17,6 +17,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { supabase, isCloudMode } from '../lib/supabase'
+import { isSafeNextPath } from '../lib/landingRoute'
 import {
   PASSWORD_MIN_LENGTH,
   emailProblem,
@@ -34,8 +35,12 @@ function appUrl(path: string): string {
 
 export function Auth() {
   const navigate = useNavigate()
-  const search = useSearch({ strict: false }) as { mode?: 'signup' | 'forgot' }
+  const search = useSearch({ strict: false }) as { mode?: 'signup' | 'forgot'; next?: string }
   const mode: Mode = search.mode === 'signup' ? 'signup' : search.mode === 'forgot' ? 'forgot' : 'signin'
+  // Where sign-in lands. Only ever a same-origin relative path — validated
+  // again here (not just trusted from the route's own validateSearch) because
+  // this is the value about to drive a real navigation.
+  const next = isSafeNextPath(search.next) ? search.next : null
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -79,7 +84,11 @@ export function Auth() {
       if (mode === 'signin') {
         const { error } = await supabase.auth.signInWithPassword({ email: address, password })
         if (error) throw error
-        navigate({ to: '/series' })
+        // A full navigation (not the router) when `next` leaves this route
+        // tree — /authorize is a real destination but not one this sign-in
+        // form needs typed route knowledge of.
+        if (next) window.location.assign(next)
+        else navigate({ to: '/series' })
       } else if (mode === 'signup') {
         const { error } = await supabase.auth.signUp({ email: address, password })
         if (error) throw error

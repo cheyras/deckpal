@@ -964,6 +964,22 @@ export const api = {
   createApiToken: (name: string) => send<{ token: ApiTokenRow; secret: string }>('POST', '/tokens', { name }),
   revokeApiToken: (id: string) => send<{ token: ApiTokenRow }>('DELETE', `/tokens/${encodeURIComponent(id)}`),
 
+  // OAuth "Connect" flow (/authorize consent screen). See apps/api/src/routes/oauth.ts.
+  oauthClient: (clientId: string, redirectUri: string) =>
+    get<{ clientName: string; redirectUri: string }>(
+      `/oauth/client?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}`,
+    ),
+  oauthDecision: (body: {
+    decision: 'allow' | 'deny'
+    responseType: string
+    clientId: string
+    redirectUri: string
+    codeChallenge: string
+    codeChallengeMethod: string
+    state?: string
+    resource?: string
+  }) => send<{ redirectTo: string }>('POST', '/oauth/authorize/decision', body),
+
   // Profile photo. The server stores a 256×256 WebP re-encoded from whatever
   // was uploaded, so `avatarUrl` changes on every replace (the object key is
   // random) and never needs a cache-busting query string.

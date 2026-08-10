@@ -21,6 +21,8 @@ import { scanRouter } from './scan/router.js';
 import { bugsRouter } from './routes/bugs.js';
 import { tokensRouter } from './routes/tokens.js';
 import { avatarRouter } from './routes/avatar.js';
+import { oauthRouter } from './routes/oauth.js';
+import { mountOAuthServer } from './oauthServer.js';
 
 /**
  * deckscout-api — the read/write API over the populated catalog.
@@ -70,6 +72,15 @@ export function createApp(): express.Express {
   // 12mb accommodates the bug reporter's screenshot dataURL; every other route
   // posts tiny JSON, so the raised ceiling only ever matters for /bugs.
   app.use(express.json({ limit: '12mb' }));
+
+  // The public half of the OAuth "Connect" flow lives at the bare origin
+  // (RFC 8414/9728 well-known paths, /register, /token) — mounted on `app`
+  // directly, ahead of the `basePath` API router, and only in cloud mode: the
+  // flow mints api_token rows tied to a Supabase user, which self-host has no
+  // concept of (SPEC.md §3b).
+  if (SUPABASE_MODE) {
+    mountOAuthServer(app);
+  }
 
   const api = express.Router();
 
@@ -196,6 +207,7 @@ export function createApp(): express.Express {
         'POST /scan',
         '/tokens', 'POST /tokens', 'DELETE /tokens/:id',
         '/avatar', 'POST /avatar', 'DELETE /avatar',
+        '/oauth/client', 'POST /oauth/authorize/decision',
       ],
     });
   });
@@ -258,6 +270,10 @@ export function createApp(): express.Express {
   // Profile photo. Session-only for the same reason: a personal access token
   // reads a collection, it does not restyle the account that minted it.
   api.use('/avatar', requireSession, avatarRouter);
+  // OAuth consent decision. Session-only for the same reason as /tokens:
+  // approving a connector mints a new personal access token, so a token must
+  // never be able to approve minting another one.
+  api.use('/oauth', requireSession, oauthRouter);
 
   // Base path: /api on Vercel, /deckscout/api on self-host (nginx sub-path).
   const basePath = process.env.API_BASE_PATH ?? '/deckscout/api';

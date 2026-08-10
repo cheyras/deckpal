@@ -17,9 +17,10 @@ import { registerPwa } from './pwa'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
 import { AuthGuard } from './components/AuthGuard'
-import { isPublicPathname } from './lib/landingRoute'
+import { isPublicPathname, isSafeNextPath } from './lib/landingRoute'
 import { supabase, isCloudMode } from './lib/supabase'
 import { Auth } from './routes/Auth'
+import { Authorize } from './routes/Authorize'
 import { ResetPassword } from './routes/auth/ResetPassword'
 import { SignedOut } from './routes/auth/SignedOut'
 import { Landing } from './routes/Landing'
@@ -228,10 +229,36 @@ const searchRoute = createRoute({
 const authRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/auth',
-  validateSearch: (raw: Record<string, unknown>): { mode?: 'signup' | 'forgot' } => ({
+  validateSearch: (raw: Record<string, unknown>): { mode?: 'signup' | 'forgot'; next?: string } => ({
     mode: raw.mode === 'signup' ? 'signup' : raw.mode === 'forgot' ? 'forgot' : undefined,
+    // Same-origin relative path only — /authorize is the one caller today,
+    // bouncing a signed-out visitor here and back once they sign in.
+    next: isSafeNextPath(raw.next) ? raw.next : undefined,
   }),
   component: Auth,
+})
+
+// The OAuth 2.1 "Connect" consent screen (apps/api/src/oauthServer.ts mints
+// the authorize URL a client redirects here to). Every param stays an
+// untyped string at the route layer — Authorize.tsx does the real validation
+// (response_type==='code', S256 PKCE, etc.) because a malformed request here
+// must render an in-app error page, not a router-level crash.
+const authorizeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/authorize',
+  validateSearch: (raw: Record<string, unknown>) => {
+    const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
+    return {
+      response_type: str(raw.response_type),
+      client_id: str(raw.client_id),
+      redirect_uri: str(raw.redirect_uri),
+      code_challenge: str(raw.code_challenge),
+      code_challenge_method: str(raw.code_challenge_method),
+      state: str(raw.state),
+      resource: str(raw.resource),
+    }
+  },
+  component: Authorize,
 })
 
 // Everything below this line is Supabase-only. A self-host deploy has no
@@ -268,6 +295,7 @@ const overlayRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   authRoute,
+  authorizeRoute,
   authResetRoute,
   signedOutRoute,
   seriesIndexRoute,
