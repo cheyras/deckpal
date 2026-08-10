@@ -1,10 +1,22 @@
 {
   "buildCommand": "pnpm --filter @deckscout/db build && pnpm --filter @deckscout/storage build && pnpm --filter deckscout-api build && pnpm --filter deckscout-web build",
+  "regions": [
+    "sfo1"
+  ],
   "outputDirectory": "apps/web/dist",
   "rewrites": [
-    { "source": "/deckscout/images/(.*)", "destination": "/api/images?p=$1" },
-    { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/deckscout/images/(.*)",
+      "destination": "/api/images?p=$1"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ],
   "functions": {
     "api/index.mjs": {
