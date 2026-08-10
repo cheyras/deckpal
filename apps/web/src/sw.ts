@@ -101,8 +101,13 @@ for (const method of ['POST', 'PATCH', 'DELETE'] as const) {
 // 'opaqueredirect', and Workbox can't safely replay a stored redirect response
 // on a cache hit. Self-host answers 200 directly off apps/images' disk cache;
 // both statuses need to be accepted here for the single strategy to cover both.
+// `bugshot=1` is the in-app bug reporter reading the same bytes back through a
+// CORS request so it can inline them into its screenshot (components/BugReport.tsx).
+// Those reads must reach the network — an opaque cache hit reads as zero bytes —
+// and they must not fill this LRU with a duplicate entry per card, so the route
+// declines them and they fall through to the browser.
 registerRoute(
-  ({ url }) => url.pathname.startsWith(IMAGES_PATH),
+  ({ url }) => url.pathname.startsWith(IMAGES_PATH) && !url.searchParams.has('bugshot'),
   new CacheFirst({
     cacheName: 'deckscout-img-v1',
     plugins: [

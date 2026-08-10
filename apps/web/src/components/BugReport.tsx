@@ -38,11 +38,27 @@ import { api } from '../lib/api'
 const INLINE_CONCURRENCY = 8
 const INLINE_TIMEOUT_MS = 4000
 
+/**
+ * The read has to be on a URL the page has not already loaded. An <img> fetches
+ * in `no-cors` mode, so by the time the reporter opens, every card URL has a
+ * browser-cache entry (and a service-worker entry) that is not CORS-clean, and a
+ * later `cors` request for that same URL fails outright — measured on the
+ * deployed app: plain fetch, `cache: 'reload'` and `cache: 'no-store'` all throw
+ * `TypeError: Failed to fetch`; only a distinct URL succeeds. `bugshot=1` is a
+ * fixed marker rather than a random nonce so the CORS copy is itself cacheable
+ * and a second report costs nothing, and so the service worker can recognise and
+ * skip these reads instead of filling the LRU image cache with duplicates
+ * (see src/sw.ts). Both image tiers ignore unknown query parameters.
+ */
+function corsReadUrl(src: string): string {
+  return src + (src.includes('?') ? '&' : '?') + 'bugshot=1'
+}
+
 async function fetchAsDataUrl(src: string): Promise<string | null> {
   const ctl = new AbortController()
   const timer = window.setTimeout(() => ctl.abort(), INLINE_TIMEOUT_MS)
   try {
-    const res = await fetch(src, { signal: ctl.signal, credentials: 'omit' })
+    const res = await fetch(corsReadUrl(src), { signal: ctl.signal, credentials: 'omit' })
     if (!res.ok) return null
     const blob = await res.blob()
     // An opaque response (service-worker cache hit on a no-cors entry) reads as
