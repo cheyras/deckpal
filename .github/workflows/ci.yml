@@ -72,6 +72,13 @@ jobs:
       - name: Auth + request identity tests (pure, no DB)
         run: pnpm --filter deckscout-api test:auth
 
+      # The address algebra behind `rekey:set` — which manifest rows an upstream
+      # set-id rename puts in scope, and what their new path/cache key is. It
+      # moves production bytes, so the part that can be proved without a database
+      # or a bucket is proved on every push.
+      - name: Image re-key address algebra (pure, no DB)
+        run: pnpm --filter deckscout-images test
+
       - name: Build api
         run: pnpm --filter deckscout-api build
 

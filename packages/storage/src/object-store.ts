@@ -275,6 +275,67 @@ export async function listObjectsRecursive(
   return all;
 }
 
+/**
+ * Re-address an object that is already in the bucket — a server-side RENAME.
+ *
+ * This is not a write of new bytes and it is deliberately not a `put`: the bytes
+ * are already correct and already attributed, only their *address* is stale. The
+ * case that produced it is an upstream set-id re-key (TCGdex went `swsh9.5tg` →
+ * `swsh9tg` in 2026-08 without renaming the set), which moves every derived path
+ * under B6 while changing nothing about the images themselves.
+ *
+ * Rename rather than copy-then-delete, for three reasons:
+ *   1. the bytes never leave Supabase — no 240-object download/re-upload, no
+ *      transient double storage, and no chance of a re-encode sneaking in;
+ *   2. the stored object keeps its size, content type and MD5 etag, so the
+ *      `image_object(tier='object')` row that measured it stays true and does not
+ *      have to be re-measured;
+ *   3. one operation has one failure mode. Copy-then-delete can leave BOTH keys
+ *      populated, which reads as an unrecorded object to
+ *      `manifest:check --object-store` and needs a human to tell the live copy
+ *      from the leftover.
+ *
+ * `/object/move` is Supabase Storage's own endpoint and does the rename inside
+ * the storage backend. If a deployment's Storage version lacks it the caller
+ * gets `ok: false` with the status, and can fall back to copy + delete
+ * explicitly rather than having a silent second write path here.
+ *
+ * RETRIES on 429/5xx with the same backoff as `uploadObject`, for the same
+ * reason: Supabase throttles a bulk caller well below what it will offer.
+ */
+export async function moveObject(
+  sourceKey: string,
+  destinationKey: string,
+  timeoutMs = 20_000,
+  maxAttempts = 4,
+): Promise<UploadResult> {
+  const { supabaseUrl, bucket } = storageEnv();
+  let last: UploadResult = { ok: false, status: 0, error: 'no attempt made' };
+
+  for (let attempt = 0; attempt < Math.max(1, maxAttempts); attempt++) {
+    if (attempt > 0) await sleep(400 * 2 ** (attempt - 1) + Math.floor(Math.random() * 200));
+    try {
+      const res = await fetch(`${supabaseUrl}/storage/v1/object/move`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'content-type': 'application/json' },
+        body: JSON.stringify({
+          bucketId: bucket,
+          sourceKey,
+          destinationKey,
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (res.ok) return { ok: true, status: res.status };
+      const body = await res.text().catch(() => '');
+      last = { ok: false, status: res.status, error: body.slice(0, 200) };
+      if (res.status !== 429 && res.status < 500) return last; // a real rejection
+    } catch (err) {
+      last = { ok: false, status: 0, error: (err as Error).message };
+    }
+  }
+  return last;
+}
+
 /** Remove an object. Used only to roll back a torn write. */
 export async function deleteObject(objectPath: string, timeoutMs = 10_000): Promise<boolean> {
   const { supabaseUrl, bucket } = storageEnv();
