@@ -5,7 +5,7 @@ import { Icon, BrandMark, type IconName } from './Icon'
 import { PwaUi } from './PwaUi'
 import { BugButton } from './BugReport'
 import { api } from '../lib/api'
-import { isLandingPathname } from '../lib/landingRoute'
+import { isPublicPathname } from '../lib/landingRoute'
 import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
 
 // Signed-in avatar chip (single-user "me") — replaces Log In / Sign Up. The level
@@ -348,14 +348,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const sidebarW = collapsed ? 82 : 275
 
-  // Chrome-free paths: overlay (OBS browser source), auth (self-contained login
-  // page), and the marketing landing at `/`. Rendering the full nav on /auth
-  // fired ProfileChip's overview query which 401'd → handle401 →
-  // location.assign('/auth') → infinite reload; the landing is served to
-  // logged-out visitors, so it is exactly the same trap and gets the same
-  // treatment — no nav means no authenticated query ever mounts.
+  // Chrome-free paths: the OBS overlay, every auth surface, and the marketing
+  // landing at `/` — see isPublicPathname for the full list. Rendering the full
+  // nav on /auth fired ProfileChip's overview query which 401'd → handle401 →
+  // location.assign('/auth') → infinite reload; every other page served to a
+  // logged-out visitor is exactly the same trap and gets the same treatment —
+  // no nav means no authenticated query ever mounts.
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  if (pathname.endsWith('/overlay') || pathname.endsWith('/auth') || isLandingPathname(pathname)) {
+  if (isPublicPathname(pathname)) {
     return <>{children}</>
   }
 

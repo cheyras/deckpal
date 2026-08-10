@@ -17,9 +17,11 @@ import { registerPwa } from './pwa'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
 import { AuthGuard } from './components/AuthGuard'
-import { isLandingPathname } from './lib/landingRoute'
+import { isPublicPathname } from './lib/landingRoute'
 import { supabase, isCloudMode } from './lib/supabase'
 import { Auth } from './routes/Auth'
+import { ResetPassword } from './routes/auth/ResetPassword'
+import { SignedOut } from './routes/auth/SignedOut'
 import { Landing } from './routes/Landing'
 import { SeriesIndex } from './routes/SeriesIndex'
 import { SeriesDetail } from './routes/SeriesDetail'
@@ -54,11 +56,10 @@ const queryClient = new QueryClient({
 
 function RootComponent() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  // The marketing landing at `/` is public by definition: wrapping it in
-  // AuthGuard would bounce every logged-out visitor straight to /auth.
-  const isPublic =
-    isLandingPathname(pathname) || pathname.endsWith('/auth') || pathname.includes('/overlay')
-  if (isPublic) {
+  // The marketing landing at `/` and every auth surface are public by
+  // definition: wrapping them in AuthGuard would bounce the visitor straight to
+  // /auth — including the page they were just sent to by email.
+  if (isPublicPathname(pathname)) {
     return (
       <AppShell>
         <Outlet />
@@ -217,14 +218,39 @@ const searchRoute = createRoute({
 
 // `?mode=signup` opens the form on the Sign Up tab — the landing page's primary
 // CTA links here, and dropping someone on the Sign In tab after they clicked
-// "Create your free account" is a needless extra click.
+// "Create your free account" is a needless extra click. `?mode=forgot` gives
+// the password-reset request its own shareable URL.
 const authRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/auth',
-  validateSearch: (raw: Record<string, unknown>): { mode?: 'signup' } => ({
-    mode: raw.mode === 'signup' ? 'signup' : undefined,
+  validateSearch: (raw: Record<string, unknown>): { mode?: 'signup' | 'forgot' } => ({
+    mode: raw.mode === 'signup' ? 'signup' : raw.mode === 'forgot' ? 'forgot' : undefined,
   }),
   component: Auth,
+})
+
+// Everything below this line is Supabase-only. A self-host deploy has no
+// password-reset email, no hosted sign-out and no account to recover, so these
+// routes send self-hosters back into the app rather than rendering a dead end.
+const cloudOnly = () => {
+  if (!isCloudMode) throw redirect({ to: '/series' })
+}
+
+// Target of the recovery link in the reset email. Public: the whole point is
+// that whoever opens it is NOT signed in.
+const authResetRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/auth/reset',
+  beforeLoad: cloudOnly,
+  component: ResetPassword,
+})
+
+// Where signing out lands — a confirmation, not the login form.
+const signedOutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/signed-out',
+  beforeLoad: cloudOnly,
+  component: SignedOut,
 })
 
 // Standalone OBS browser-source overlay — AppShell renders it chrome-free.
@@ -237,6 +263,8 @@ const overlayRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   authRoute,
+  authResetRoute,
+  signedOutRoute,
   seriesIndexRoute,
   seriesDetailRoute,
   setDetailRoute,

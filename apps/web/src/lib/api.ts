@@ -2,6 +2,7 @@
 // Cloud: /api (Vercel). Self-host: /deckscout/api (behind nginx proxy).
 
 import { supabase, isCloudMode } from './supabase'
+import { isPublicPathname } from './landingRoute'
 
 const BASE = isCloudMode ? '/api' : '/deckscout/api'
 
@@ -16,10 +17,12 @@ async function handle401(path: string, init: RequestInit): Promise<Response | nu
   if (!isCloudMode) return null
   const { error } = await supabase.auth.refreshSession()
   if (error) {
-    // Only hard-redirect when NOT already on /auth — otherwise AppShell's
-    // ProfileChip (which fires an auth-required overview call) creates an
-    // infinite location.assign → page-reload → 401 → location.assign loop.
-    if (!window.location.pathname.endsWith('/auth')) {
+    // Only hard-redirect when NOT already on a public page — otherwise
+    // AppShell's ProfileChip (which fires an auth-required overview call)
+    // creates an infinite location.assign → page-reload → 401 →
+    // location.assign loop. Same predicate the router and shell use, so the
+    // three can never disagree about which pages are safe to sit on.
+    if (!isPublicPathname(window.location.pathname)) {
       window.location.assign(isCloudMode ? '/auth' : '/deckscout/auth')
     }
     throw new Error('Session expired')
