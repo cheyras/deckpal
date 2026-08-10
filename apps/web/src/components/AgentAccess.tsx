@@ -29,7 +29,15 @@ import { Icon } from './Icon'
  */
 function mcpUrl(): string {
   if (typeof window === 'undefined') return 'https://deckscout.io/mcp'
-  return `${window.location.origin}/mcp`
+  // Always the apex host. `www.deckscout.io` 308-redirects here, and a redirect
+  // to a different host silently drops the Authorization header — which
+  // surfaces inside claude.ai as an authorization failure with no clue why.
+  return `${window.location.origin.replace('://www.', '://')}/mcp`
+}
+
+/** The whole-URL form: the credential is the URL. Used by clients that cannot send a header. */
+function connectorUrl(token: string): string {
+  return `${mcpUrl()}/${token}`
 }
 
 function fmtDate(iso: string | null): string {
@@ -88,6 +96,21 @@ function CodeRow({ value, label }: { value: string; label?: ReactNode }) {
           {value}
         </code>
         <CopyButton value={value} />
+      </div>
+    </div>
+  )
+}
+
+/** One numbered step of the setup guide. Numbered because people follow them in order. */
+function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
+  return (
+    <div className="flex gap-[10px]">
+      <span className="mt-[1px] flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-[11px] font-bold text-action-primary">
+        {n}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="mb-[6px] text-[13px] font-bold text-text-primary">{title}</div>
+        <div className="text-[12px] leading-[1.6] text-text-body">{children}</div>
       </div>
     </div>
   )
@@ -221,8 +244,18 @@ export function AgentAccess() {
               <Icon name="close" size={16} />
             </button>
           </div>
-          <div className="mt-[12px]">
-            <CodeRow value={secret.raw} />
+          <div className="mt-[12px] flex flex-col gap-[12px]">
+            <CodeRow label="Token" value={secret.raw} />
+            {isCloudMode && (
+              <CodeRow
+                label={
+                  <>
+                    Personal connector URL <span className="font-normal text-text-muted">— the token is inside it</span>
+                  </>
+                }
+                value={connectorUrl(secret.raw)}
+              />
+            )}
           </div>
         </div>
       )}
@@ -320,27 +353,107 @@ export function AgentAccess() {
         <div id="agent-access-help" className="mt-[12px] flex flex-col gap-[16px]">
           {isCloudMode ? (
             <>
-              <CodeRow label="MCP endpoint" value={mcpUrl()} />
+              <Step n={1} title="Create a token">
+                <p>
+                  Use the <strong className="text-text-body">New token</strong> button above. Copy the value the
+                  moment it appears — it is shown once and cannot be recovered.
+                </p>
+              </Step>
 
-              <div>
-                <div className="mb-[6px] text-[12px] font-semibold text-text-secondary">claude.ai</div>
-                <ol className="ml-[18px] list-decimal text-[12px] leading-[1.7] text-text-body">
-                  <li>Settings → Connectors → Add custom connector.</li>
+              <Step n={2} title="Add the connector in claude.ai">
+                <p className="mb-[8px]">
+                  In claude.ai: <strong className="text-text-body">Settings → Connectors → Add custom connector</strong>.
+                  Name it <em>DeckScout</em>, then use whichever of these two the dialog offers you.
+                </p>
+
+                <div className="mb-[10px] rounded-[10px] border border-action-ghost-border p-[12px]">
+                  <div className="mb-[6px] text-[12px] font-bold text-text-primary">
+                    A · If the dialog has a “Request headers” section (preferred)
+                  </div>
+                  <ol className="ml-[16px] list-decimal leading-[1.7]">
+                    <li>
+                      Remote MCP server URL: <code className="font-mono text-[11px] text-text-primary">{mcpUrl()}</code>
+                    </li>
+                    <li>
+                      Open <strong className="text-text-body">Request headers</strong>, choose the header name{' '}
+                      <code className="font-mono text-[11px] text-text-primary">authorization</code>, and set the value
+                      to <code className="font-mono text-[11px] text-text-primary">Bearer &lt;your token&gt;</code>{' '}
+                      (the word <em>Bearer</em>, a space, then the token). Mark it Required.
+                    </li>
+                    <li>
+                      Click <strong className="text-text-body">Add</strong>.
+                    </li>
+                  </ol>
+                  <p className="mt-[6px] text-text-muted">
+                    Request headers are a beta Anthropic is still rolling out. If you don’t see that section, use B.
+                  </p>
+                </div>
+
+                <div className="rounded-[10px] border border-action-ghost-border p-[12px]">
+                  <div className="mb-[6px] text-[12px] font-bold text-text-primary">
+                    B · If there is no header field — use your personal connector URL
+                  </div>
+                  <ol className="ml-[16px] list-decimal leading-[1.7]">
+                    <li>
+                      Paste your personal connector URL as the Remote MCP server URL. It looks like{' '}
+                      <code className="font-mono text-[11px] text-text-primary">{`${mcpUrl()}/dsk_…`}</code> and is shown
+                      once, next to the token, when you create it.
+                    </li>
+                    <li>Add no headers. Click Add.</li>
+                  </ol>
+                  <p className="mt-[6px] text-text-muted">
+                    That URL <strong className="text-text-body">contains your token</strong> — treat the whole thing
+                    like a password. Revoking the token kills the URL too.
+                  </p>
+                </div>
+              </Step>
+
+              <Step n={3} title="Check that it works">
+                <p>
+                  Start a new chat, turn DeckScout on in the tools menu, and ask{' '}
+                  <em>“what is my collection worth, and which set am I closest to finishing?”</em> You should get your
+                  own numbers back. The token’s <strong className="text-text-body">Last used</strong> date above
+                  updates within a minute.
+                </p>
+              </Step>
+
+              <Step n={4} title="Claude Code instead (optional)">
+                <CodeRow
+                  value={`claude mcp add --transport http deckscout ${mcpUrl()} --header "Authorization: Bearer <token>"`}
+                />
+                <p className="mt-[8px]">
+                  Then <code className="font-mono text-[11px] text-text-primary">claude mcp list</code> should print{' '}
+                  <code className="font-mono text-[11px] text-text-primary">deckscout: {mcpUrl()} (HTTP) - ✔ Connected</code>.
+                  Remove it with <code className="font-mono text-[11px] text-text-primary">claude mcp remove deckscout</code>.
+                </p>
+              </Step>
+
+              <Step n={5} title="If it doesn’t connect">
+                <ul className="ml-[16px] list-disc leading-[1.7]">
                   <li>
-                    Paste the endpoint above as the URL, and add a header{' '}
-                    <code className="font-mono text-[11px] text-text-primary">
-                      Authorization: Bearer &lt;token&gt;
-                    </code>
-                    .
+                    Use <code className="font-mono text-[11px] text-text-primary">{mcpUrl()}</code> exactly — not the{' '}
+                    <code className="font-mono text-[11px]">www.</code> version. That one redirects, and a redirect
+                    drops the header.
                   </li>
-                  <li>Save, then enable the connector in a chat and ask about your collection.</li>
-                </ol>
-              </div>
+                  <li>
+                    “Couldn’t reach the MCP server” or an authorization error almost always means the token is missing,
+                    mistyped, or revoked. Create a fresh one and re-paste it — a token cannot be shown twice, so a
+                    partial copy is unrecoverable.
+                  </li>
+                  <li>
+                    Include the word <code className="font-mono text-[11px] text-text-primary">Bearer</code> and one
+                    space before the token in option A. claude.ai sends the value exactly as typed.
+                  </li>
+                </ul>
+              </Step>
 
-              <CodeRow
-                label="Claude Code"
-                value={`claude mcp add --transport http deckscout ${mcpUrl()} --header "Authorization: Bearer <token>"`}
-              />
+              <Step n={6} title="Revoking">
+                <p>
+                  Press <strong className="text-text-body">Revoke</strong> next to a token here. It stops working
+                  immediately, on every client, and the row stays in the list so you can see it happened. Then delete
+                  the connector in claude.ai, or replace its token with a new one.
+                </p>
+              </Step>
             </>
           ) : (
             <p className="text-[12px] leading-[1.6] text-text-body">
