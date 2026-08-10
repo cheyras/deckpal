@@ -90,23 +90,33 @@ export function createApp(): express.Express {
       const userId = req.user.id;
       pool.connect().then(async (client) => {
         try {
-          await client.query('BEGIN');
+          // One round trip, not three. The DB lives in a different AWS region from
+          // the function (measured ~90 ms RTT iad1 → aws-1-us-west-2), so each
+          // extra `await client.query(...)` here cost ~90 ms on EVERY authenticated
+          // request before the route ran a single query of its own. Postgres'
+          // simple-query protocol runs a semicolon-separated batch in one exchange;
+          // the claims JSON is escaped with pg's own escapeLiteral because the
+          // extended (parameterised) protocol permits only one statement per call.
+          const claims = client.escapeLiteral(JSON.stringify({ sub: userId, role: 'authenticated' }));
           await client.query(
-            `SELECT set_config('request.jwt.claims', $1, true)`,
-            [JSON.stringify({ sub: userId, role: 'authenticated' })],
+            `BEGIN; SELECT set_config('request.jwt.claims', ${claims}, true); SET LOCAL role = 'authenticated'`,
           );
-          await client.query(`SET LOCAL role = 'authenticated'`);
 
           let cleaned = false;
           const cleanup = async (mode: 'commit' | 'rollback') => {
             if (cleaned) return;
             cleaned = true;
+            // Also one round trip: this runs after the response is flushed, so it
+            // never shows up in TTFB, but it does hold a pooled connection — and
+            // the API's connection budget is 2 (contract B2).
             try {
-              await client.query(mode === 'commit' ? 'COMMIT' : 'ROLLBACK');
-            } catch { /* swallow — connection may already be dead */ }
-            try {
-              await client.query('RESET ROLE');
-            } catch { /* best-effort */ }
+              await client.query(`${mode === 'commit' ? 'COMMIT' : 'ROLLBACK'}; RESET ROLE`);
+            } catch {
+              // Swallow — the connection may already be dead. Fall back to a bare
+              // RESET ROLE so the connection is not returned to the pool still
+              // wearing the 'authenticated' role.
+              try { await client.query('RESET ROLE'); } catch { /* best-effort */ }
+            }
             client.release();
           };
 

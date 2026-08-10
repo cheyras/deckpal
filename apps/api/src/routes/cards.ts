@@ -90,46 +90,91 @@ cardsRouter.get(
     const cardId = card.id;
     const userId = req.user!.id;
 
-    const [variants, priceRows, attacks, abilities, matchups, types, subtypes, tags, species] = await Promise.all([
-      q<VariantRow>(
-        `SELECT cv.id, cv.variant_kind_code, cv.display_name, vk.display_name AS kind_display,
-                cv.provenance, cv.sort_order, cv.is_primary, cv.is_synthesized, cv.source,
-                cv.fill_confidence, t.tier, t.tier_source,
-                cv.tcgplayer_url, cv.tcgplayer_product_id, cv.tcgplayer_printing,
-                COALESCE(ci.quantity, 0) AS quantity
-           FROM card_variant cv
-           JOIN variant_kind vk ON vk.code = cv.variant_kind_code
-           JOIN variant_tier_resolved t ON t.card_variant_id = cv.id
-      LEFT JOIN collection_item ci ON ci.card_variant_id = cv.id AND ci.user_id = $2
-          WHERE cv.card_id = $1
-          ORDER BY cv.sort_order`,
-        [cardId, userId],
-      ),
-      q<PriceRow & { card_variant_id: string }>(
-        `SELECT pc.card_variant_id, pc.source_code, ps.label AS source_label, ps.marketplace,
-                pc.currency_code, pc.market_minor, pc.low_minor, pc.mid_minor, pc.high_minor,
-                pc.direct_low_minor, pc.trend_minor, pc.avg1_minor, pc.avg7_minor, pc.avg30_minor,
-                pc.priced_at, pc.is_fallback
-           FROM price_current pc
-           JOIN card_variant cv ON cv.id = pc.card_variant_id
-           JOIN price_source ps ON ps.code = pc.source_code
-          WHERE cv.card_id = $1
-          ORDER BY ps.priority, pc.currency_code`,
-        [cardId],
-      ),
-      q(`SELECT ord, name, damage, effect, cost FROM card_attack WHERE card_id = $1 ORDER BY ord`, [cardId]),
-      q(`SELECT ord, kind, name, effect FROM card_ability WHERE card_id = $1 ORDER BY ord`, [cardId]),
-      q(`SELECT kind, ord, type, value FROM card_matchup WHERE card_id = $1 ORDER BY kind, ord`, [cardId]),
-      q<{ slot: number; type: string }>(`SELECT slot, type FROM card_type WHERE card_id = $1 ORDER BY slot`, [cardId]),
-      q<{ ord: number; subtype: string }>(`SELECT ord, subtype FROM card_subtype WHERE card_id = $1 ORDER BY ord`, [cardId]),
-      q<{ ord: number; tag: string }>(`SELECT ord, tag FROM card_tag WHERE card_id = $1 ORDER BY ord`, [cardId]),
-      q<{ id: number; identifier: string; name: string; generation: number; ord: number }>(
-        `SELECT d.id, d.identifier, d.name, d.generation, csp.ord
-           FROM card_species csp JOIN dex_species d ON d.id = csp.dex_id
-          WHERE csp.card_id = $1 ORDER BY csp.ord`,
-        [cardId],
-      ),
-    ]);
+    // These nine result sets used to be a `Promise.all` of nine `q()` calls. That
+    // read like nine parallel queries but never was one: in SUPABASE_MODE every
+    // q() runs on the single per-request RLS PoolClient, and node-postgres
+    // serialises queries on one connection. So it was nine *sequential* round
+    // trips to a database in another AWS region (~90 ms each, measured) — the
+    // dominant cost of this endpoint, and the set page fetches it once per tile.
+    //
+    // Folding them into one statement of independent scalar subqueries keeps each
+    // sub-plan exactly as it was (same indexes, same filters) and costs one round
+    // trip instead of nine. Ordering is explicit inside each json_agg rather than
+    // inherited from a subquery's output order. BIGINT ids are cast to text so the
+    // JSON shape matches what the pg driver returned before (json_agg would
+    // otherwise emit them as numbers), and priced_at is formatted to the exact
+    // ISO-8601 spelling JSON.stringify produced for the driver's Date objects.
+    const bundle = await q1<{
+      variants: VariantRow[];
+      prices: (PriceRow & { card_variant_id: string })[];
+      attacks: { ord: number; name: string; damage: string | null; effect: string | null; cost: string[] | null }[];
+      abilities: { ord: number; kind: string; name: string; effect: string | null }[];
+      matchups: { kind: string; ord: number; type: string; value: string }[];
+      types: { slot: number; type: string }[];
+      subtypes: { ord: number; subtype: string }[];
+      tags: { ord: number; tag: string }[];
+      species: { id: number; identifier: string; name: string; generation: number; ord: number }[];
+    }>(
+      `SELECT
+         COALESCE((SELECT json_agg(v ORDER BY v.sort_order) FROM (
+             SELECT cv.id::text AS id, cv.variant_kind_code, cv.display_name,
+                    vk.display_name AS kind_display,
+                    cv.provenance, cv.sort_order, cv.is_primary, cv.is_synthesized, cv.source,
+                    cv.fill_confidence, t.tier, t.tier_source,
+                    cv.tcgplayer_url, cv.tcgplayer_product_id, cv.tcgplayer_printing,
+                    COALESCE(ci.quantity, 0) AS quantity
+               FROM card_variant cv
+               JOIN variant_kind vk ON vk.code = cv.variant_kind_code
+               JOIN variant_tier_resolved t ON t.card_variant_id = cv.id
+          LEFT JOIN collection_item ci ON ci.card_variant_id = cv.id AND ci.user_id = $2
+              WHERE cv.card_id = $1
+           ) v), '[]'::json) AS variants,
+         COALESCE((SELECT json_agg(p ORDER BY p.priority, p.currency_code) FROM (
+             SELECT pc.card_variant_id::text AS card_variant_id, pc.source_code,
+                    ps.label AS source_label, ps.marketplace, ps.priority,
+                    pc.currency_code, pc.market_minor, pc.low_minor, pc.mid_minor, pc.high_minor,
+                    pc.direct_low_minor, pc.trend_minor, pc.avg1_minor, pc.avg7_minor, pc.avg30_minor,
+                    to_char(pc.priced_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS priced_at,
+                    pc.is_fallback
+               FROM price_current pc
+               JOIN card_variant cv ON cv.id = pc.card_variant_id
+               JOIN price_source ps ON ps.code = pc.source_code
+              WHERE cv.card_id = $1
+           ) p), '[]'::json) AS prices,
+         COALESCE((SELECT json_agg(a ORDER BY a.ord) FROM (
+             SELECT ord, name, damage, effect, cost FROM card_attack WHERE card_id = $1
+           ) a), '[]'::json) AS attacks,
+         COALESCE((SELECT json_agg(b ORDER BY b.ord) FROM (
+             SELECT ord, kind, name, effect FROM card_ability WHERE card_id = $1
+           ) b), '[]'::json) AS abilities,
+         COALESCE((SELECT json_agg(m ORDER BY m.kind, m.ord) FROM (
+             SELECT kind, ord, type, value FROM card_matchup WHERE card_id = $1
+           ) m), '[]'::json) AS matchups,
+         COALESCE((SELECT json_agg(ty ORDER BY ty.slot) FROM (
+             SELECT slot, type FROM card_type WHERE card_id = $1
+           ) ty), '[]'::json) AS types,
+         COALESCE((SELECT json_agg(st ORDER BY st.ord) FROM (
+             SELECT ord, subtype FROM card_subtype WHERE card_id = $1
+           ) st), '[]'::json) AS subtypes,
+         COALESCE((SELECT json_agg(tg ORDER BY tg.ord) FROM (
+             SELECT ord, tag FROM card_tag WHERE card_id = $1
+           ) tg), '[]'::json) AS tags,
+         COALESCE((SELECT json_agg(sp ORDER BY sp.ord) FROM (
+             SELECT d.id, d.identifier, d.name, d.generation, csp.ord
+               FROM card_species csp JOIN dex_species d ON d.id = csp.dex_id
+              WHERE csp.card_id = $1
+           ) sp), '[]'::json) AS species`,
+      [cardId, userId],
+    );
+    const variants = bundle?.variants ?? [];
+    const priceRows = bundle?.prices ?? [];
+    const attacks = bundle?.attacks ?? [];
+    const abilities = bundle?.abilities ?? [];
+    const matchups = bundle?.matchups ?? [];
+    const types = bundle?.types ?? [];
+    const subtypes = bundle?.subtypes ?? [];
+    const tags = bundle?.tags ?? [];
+    const species = bundle?.species ?? [];
 
     const pricesByVariant = new Map<string, PriceRow[]>();
     for (const p of priceRows) {
