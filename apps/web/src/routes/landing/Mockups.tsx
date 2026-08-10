@@ -209,75 +209,140 @@ function SetTag({ tag, size = 34 }: { tag: string; size?: number }) {
   )
 }
 
-/* ── 1 · hero: the catalog ────────────────────────────────────────────────── */
+/* ── 1 · hero: an assistant grounded in YOUR collection ───────────────────────
+ * The differentiator is not "there is a chat" — every product has one of those.
+ * It is that the reply is answered out of the visitor's own shelf. So the bubble
+ * is deliberately small and the thing it *cites* is large: a real DeckScout
+ * readiness panel, owned-vs-missing, with the cards you are short on and what
+ * they cost. The chrome bar says "your assistant", not a vendor name: DeckScout
+ * ships no assistant of its own, you point yours at it.
+ *
+ * The arithmetic is checked, because a mockup whose numbers do not reconcile is
+ * the fastest way to look fake: 54 owned + 6 missing = 60, and
+ * 2 × $4.10 + 4 × $1.25 = $13.20.
+ * ───────────────────────────────────────────────────────────────────────────── */
 
-const HERO_SETS = [
-  { tag: 'SSP', name: 'Surging Sparks', cards: 252, pct: 78, lvl: 8 },
-  { tag: 'SCR', name: 'Stellar Crown', cards: 175, pct: 54, lvl: 6 },
-  { tag: 'TWM', name: 'Twilight Masquerade', cards: 226, pct: 31, lvl: 4 },
-  { tag: 'PRE', name: 'Prismatic Evolutions', cards: 180, pct: 12, lvl: 2 },
+const AGENT_TOOL_CALLS = ['collection_summary', 'search_cards', 'decks']
+
+const AGENT_MISSING = [
+  { qty: 2, kind: 'Stadium', code: 'SSP 142', price: '$4.10', accent: 'var(--color-variant-holofoil)', w: '36%' },
+  {
+    qty: 4,
+    kind: 'Special Energy',
+    code: 'SCR 088',
+    price: '$1.25',
+    accent: 'var(--color-variant-reverse-holo)',
+    w: '48%',
+  },
 ]
 
-export function CatalogMockup() {
+export function AgentMockup() {
   return (
     <AppFrame
-      label="deckscout.io/series/scarlet-violet"
-      ariaLabel="Illustration of the DeckScout set browser: a sidebar and a list of sets, each with a completion bar."
-      bodyClassName="p-0"
+      label="your assistant · DeckScout connector"
+      ariaLabel="Illustration of an AI assistant connected to DeckScout: the question “what can I build from what I own?”, the DeckScout tools it called, and a reply citing a 54-of-60 deck with the missing cards and their prices."
     >
-      <div className="flex">
-        {/* mini nav rail — the app's 275px sidebar, reduced */}
-        <div className="hidden w-[160px] shrink-0 border-r border-border-default py-[12px] sm:block">
-          {(['cards', 'lists', 'deck', 'pokedex', 'chart', 'camera'] as const).map((n, i) => (
-            <span
-              key={n}
-              className={[
-                'flex h-[34px] items-center gap-[10px] px-[16px]',
-                i === 0 ? 'bg-surface-tertiary-subtle text-text-primary' : 'text-icon-muted-strong',
-              ].join(' ')}
-            >
-              <Icon name={n} size={16} />
-              <Bar w={i === 0 ? '58px' : `${44 + ((i * 11) % 26)}px`} h={6} tone={i === 0 ? 0.34 : 0.12} />
-            </span>
-          ))}
-        </div>
+      {/* the ask */}
+      <div className="flex justify-end">
+        <p className="max-w-[88%] rounded-2xl rounded-br-[7px] bg-action-primary px-[13px] py-[9px] text-[13px] font-semibold leading-[1.45] text-action-primary-text">
+          What can I build from what I own?
+        </p>
+      </div>
 
-        <div className="min-w-0 flex-1 p-[14px] sm:p-[18px]">
-          <div className="mb-[4px] text-[11px] font-semibold uppercase tracking-[0.1em] text-text-muted">Series</div>
-          <div className="mb-[14px] text-[19px] font-extrabold leading-tight text-text-primary">Scarlet &amp; Violet</div>
-          <div className="flex flex-col gap-[10px]">
-            {HERO_SETS.map((s, i) => (
+      {/* the tools it reached for — named, so the mechanism is legible */}
+      <div className="mt-[13px] flex flex-wrap items-center gap-[6px]">
+        <span
+          className="inline-flex items-center gap-[5px] rounded-full bg-halo-neutral px-[9px] py-[4px] text-[10px] font-bold text-action-primary"
+          style={{ boxShadow: 'inset 0 0 0 1px var(--color-overlay-ring)' }}
+        >
+          <Icon name="sparkle" size={12} /> DeckScout
+        </span>
+        {AGENT_TOOL_CALLS.map((t) => (
+          <span
+            key={t}
+            className="rounded-full bg-surface-tertiary px-[8px] py-[4px] font-mono text-[10px] font-semibold text-text-secondary"
+          >
+            {t}
+          </span>
+        ))}
+        <span className="text-[10px] text-text-muted">reading your collection</span>
+      </div>
+
+      {/* the answer */}
+      <div className="mt-[13px] flex gap-[9px]">
+        <span
+          className="mt-[1px] flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-text-secondary"
+          style={{ boxShadow: 'inset 0 0 0 1px var(--color-border-default)' }}
+        >
+          <Icon name="sparkle" size={15} />
+        </span>
+        <div className="min-w-0 flex-1 rounded-2xl rounded-tl-[7px] border border-border-default bg-surface-tertiary-subtle p-[11px] sm:p-[13px]">
+          <p className="text-[13px] leading-[1.55] text-text-body">
+            You are six cards off a Standard lightning list —{' '}
+            <strong className="font-bold text-text-primary">54 of the 60 are already in your binder</strong>, and the
+            rest come to $13.20.
+          </p>
+
+          <div className="mt-[11px] rounded-xl border border-border-default bg-surface-secondary p-[11px]">
+            <div className="flex items-center gap-[10px]">
+              <SetTag tag="SSP" size={30} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] font-bold text-text-primary">Lightning Box</span>
+                <span className="block truncate text-[10px] text-text-muted">Standard · Surging Sparks core</span>
+              </span>
+              <span className="shrink-0 text-[13px] font-extrabold tabular-nums text-text-primary">54/60</span>
+            </div>
+
+            <div className="relative mt-[9px] h-[6px] w-full rounded-full bg-surface-primary">
               <div
-                key={s.name}
-                className="flex items-center gap-[12px] rounded-xl border border-border-default bg-surface-tertiary-subtle px-[12px] py-[10px]"
-                style={{ '--ls-delay': `${i * 90}ms` } as Vars}
-              >
-                <SetTag tag={s.tag} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-semibold text-text-primary">{s.name}</span>
-                  <span className="block text-[11px] text-text-muted">{s.cards} cards</span>
-                </span>
-                <span className="hidden w-[110px] shrink-0 sm:block">
-                  <span className="relative block h-[5px] w-full rounded-full bg-surface-primary">
-                    <span
-                      className="ls-bar-fill absolute inset-y-0 left-0 rounded-full"
-                      style={
-                        {
-                          '--ls-bar': `${s.pct}%`,
-                          '--ls-delay': `${300 + i * 110}ms`,
-                          background:
-                            'linear-gradient(90deg, var(--color-action-danger), var(--color-action-primary-strong))',
-                        } as Vars
-                      }
-                    />
+                className="ls-bar-fill h-full rounded-full"
+                style={
+                  {
+                    '--ls-bar': '90%',
+                    '--ls-delay': '460ms',
+                    background: 'linear-gradient(90deg, var(--color-action-danger), var(--color-action-primary-strong))',
+                  } as Vars
+                }
+              />
+            </div>
+
+            <div className="mt-[9px] flex flex-wrap items-center gap-[6px]">
+              <span className="inline-flex items-center gap-[5px] rounded-full bg-halo-success px-[8px] py-[3px] text-[10px] font-bold text-success">
+                <Icon name="check" size={11} strokeWidth={2.6} /> 54 owned
+              </span>
+              <span className="inline-flex items-center gap-[5px] rounded-full bg-surface-tertiary px-[8px] py-[3px] text-[10px] font-bold text-text-secondary">
+                6 missing
+              </span>
+            </div>
+
+            <div className="mt-[10px] flex flex-col gap-[8px] border-t border-divider-subtle pt-[10px]">
+              {AGENT_MISSING.map((m) => (
+                <div key={m.code} className="flex items-center gap-[9px]">
+                  <span className="w-[22px] shrink-0">
+                    <CardPlaceholder accent={m.accent} />
                   </span>
-                </span>
-                <span className="w-[54px] shrink-0 text-right">
-                  <span className="block text-[9px] font-extrabold leading-[13px] text-action-primary">LVL {s.lvl}</span>
-                  <span className="block text-[13px] font-extrabold leading-[16px] text-text-primary">{s.pct}%</span>
-                </span>
-              </div>
-            ))}
+                  <span className="flex min-w-0 flex-1 flex-col gap-[5px]">
+                    <span className="flex items-center gap-[7px]">
+                      <span className="shrink-0 text-[11px] font-extrabold leading-none tabular-nums text-text-primary">
+                        ×{m.qty}
+                      </span>
+                      <Bar w={m.w} h={6} tone={0.2} />
+                    </span>
+                    <span className="truncate text-[10px] leading-none text-text-muted">
+                      {m.kind} · {m.code}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[11px] font-bold tabular-nums text-text-secondary">{m.price}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-[10px] flex items-center justify-between gap-[8px] border-t border-divider-subtle pt-[10px]">
+              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted">Buy the rest</span>
+              <span className="inline-flex items-center gap-[6px] rounded-lg bg-action-primary px-[10px] py-[5px] text-[11px] font-extrabold text-action-primary-text">
+                <Icon name="cart" size={12} /> $13.20
+              </span>
+            </div>
           </div>
         </div>
       </div>
