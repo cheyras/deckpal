@@ -17,8 +17,8 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { Link } from '@tanstack/react-router'
 import { BrandMark, Icon } from '../components/Icon'
 import {
+  AgentMockup,
   BinderMockup,
-  CatalogMockup,
   DeckMockup,
   ProgressMockup,
   ScanMockup,
@@ -31,6 +31,9 @@ type Vars = CSSProperties & Record<`--${string}`, string>
 const REPO = 'https://github.com/cheyras/deckscout'
 const WIKI = `${REPO}/wiki`
 const LICENSE = `${REPO}/blob/main/LICENSE`
+/* The connector walkthrough — the same six steps the app shows signed-in under
+   Profile → Agent access, but readable by a visitor who has no account yet. */
+const MCP_DOCS = `${REPO}/blob/main/DEPLOYMENT.md#connect-an-ai-assistant-mcp`
 const ASSETS = `${import.meta.env.BASE_URL}marketing/`
 
 /* ── motion plumbing ──────────────────────────────────────────────────────── */
@@ -294,20 +297,21 @@ function Hero({ scrollY }: { scrollY: number }) {
         <Reveal className="mx-auto max-w-[760px] text-center">
           <span className="inline-flex items-center gap-[8px] rounded-full border border-action-ghost-border bg-surface-secondary/70 px-[13px] py-[6px] text-[12px] font-semibold text-text-secondary">
             <span className="h-[6px] w-[6px] rounded-full bg-success" />
-            Open-source Pokémon TCG collection tracker
+            Connect your own Claude · 21 tools over MCP
           </span>
           <h1
             className="mt-[22px] font-extrabold tracking-[-0.03em] text-text-primary"
             style={{ fontSize: 'clamp(38px, 6.4vw, 68px)', lineHeight: 1.04 }}
           >
-            Your collection, down to the last printing.
+            Ask Claude what you can build from the cards you own.
           </h1>
           <p
-            className="mx-auto mt-[20px] max-w-[620px] text-text-body"
+            className="mx-auto mt-[20px] max-w-[640px] text-text-body"
             style={{ fontSize: 'clamp(16px, 1.5vw, 19px)', lineHeight: 1.6 }}
           >
-            Track every English Pokémon card — all 20,964 of them, across 37,627 printings. Set completion,
-            price history, a deck builder wired to PTCG Live, and a scanner that names the card in your hand.
+            DeckScout tracks every English Pokémon card you own, then hands that collection to Claude over MCP.
+            Bring your own claude.ai or Claude Code — the answers come back from your real cards, prices and match
+            history, not generic advice.
           </p>
         </Reveal>
 
@@ -319,11 +323,13 @@ function Hero({ scrollY }: { scrollY: number }) {
         </Reveal>
 
         <Reveal delay={180} as="p" className="mt-[16px] text-center text-[13px] text-text-muted">
-          Free to use · AGPL-3.0 open source · your collection stays private
+          Free to use · private by default · open source
         </Reveal>
 
-        <Reveal delay={240} className="mx-auto mt-[46px] max-w-[940px]">
-          <CatalogMockup />
+        {/* Narrower than the old set-list frame: a conversation reads badly at
+            940px, and the panel it cites is the thing that has to be legible. */}
+        <Reveal delay={240} className="mx-auto mt-[46px] max-w-[800px]">
+          <AgentMockup />
         </Reveal>
       </div>
     </section>
@@ -369,6 +375,153 @@ function Stats() {
           official catalog.
         </Reveal>
       </Reveal>
+    </section>
+  )
+}
+
+/* ── agentic flow ─────────────────────────────────────────────────────────────
+ * The lead story, spelled out. Everything claimed here is live and verified:
+ * the endpoint, the token flow, the 21 tools, both clients, and the isolation
+ * guarantee. What is deliberately NOT claimed: that DeckScout ships an
+ * assistant, or anything at all about how good the model is. The product is the
+ * connection and the data behind it — the visitor brings the assistant.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+const AGENT_STEPS: { icon: 'key' | 'link' | 'sparkle'; title: string; body: ReactNode }[] = [
+  {
+    icon: 'key',
+    title: 'Create a token',
+    body: (
+      <>
+        <strong className="font-semibold text-text-body">Profile → Agent access</strong> mints a personal token.
+        It is shown once — DeckScout keeps only a hash — and you can revoke it from that same screen, on every
+        client at once.
+      </>
+    ),
+  },
+  {
+    icon: 'link',
+    title: 'Connect Claude',
+    body: (
+      <>
+        Add <span className="font-mono text-[13px] text-text-body">deckscout.io/mcp</span> as a custom connector
+        in claude.ai, or register it in Claude Code with one <span className="font-mono text-[13px] text-text-body">claude&nbsp;mcp&nbsp;add</span> command.
+        Both are supported, and there is nothing to install either way.
+      </>
+    ),
+  },
+  {
+    icon: 'sparkle',
+    title: 'Ask about your collection',
+    body: (
+      <>
+        Then just ask, in your own words:
+        <span className="mt-[10px] flex flex-col gap-[6px]">
+          {[
+            'What can I build from what I own?',
+            'Here are my last ten games — what is losing them?',
+            'What should I buy next to finish this deck?',
+          ].map((q) => (
+            <span key={q} className="text-text-body">
+              “{q}”
+            </span>
+          ))}
+        </span>
+      </>
+    ),
+  },
+]
+
+/* Twelve groupings over the 21 tools the connector exposes. */
+const AGENT_TOOLS = [
+  'Collection summary',
+  'Collection log',
+  'Collection value',
+  'Set progress',
+  'Card search',
+  'Card lookup',
+  'Decks',
+  'Lists',
+  'Battle logs',
+  'Deck strategy guides',
+  'Deck version history',
+  'Buy list & cart',
+]
+
+function AgentFlow() {
+  return (
+    <section className="relative isolate overflow-hidden py-[52px] sm:py-[76px]" id="agentic">
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px]"
+        style={{ background: 'radial-gradient(closest-side, var(--color-overlay-ring), transparent)' }}
+      />
+      <div className="ls-wrap">
+        <Reveal className="mx-auto max-w-[700px] text-center">
+          <div className="text-[12px] font-bold uppercase tracking-[0.12em] text-action-primary">
+            Agentic deckbuilding
+          </div>
+          <h2
+            className="mt-[12px] font-extrabold tracking-[-0.025em] text-text-primary"
+            style={{ fontSize: 'clamp(26px, 3.2vw, 40px)', lineHeight: 1.12 }}
+          >
+            Point Claude at your own collection.
+          </h2>
+          <p className="mt-[16px] text-[16px] leading-[1.65] text-text-body">
+            DeckScout speaks MCP. Generate a token, add one connector, and Claude can read your collection, your
+            set progress, your decks, your prices and your battle logs — and write back to them. There is no
+            chatbot to babysit here: you bring the assistant, DeckScout brings the data.
+          </p>
+        </Reveal>
+
+        <ol className="mt-[36px] grid gap-[18px] md:grid-cols-3">
+          {AGENT_STEPS.map((s, i) => (
+            <Reveal as="li" key={s.title} delay={i * 110}>
+              <article className="ls-card h-full rounded-2xl border border-border-default bg-surface-secondary p-[20px]">
+                <div className="flex items-center gap-[10px]">
+                  <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-xl bg-surface-tertiary text-action-primary">
+                    <Icon name={s.icon} size={19} />
+                  </span>
+                  <span className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-text-muted">
+                    Step {i + 1}
+                  </span>
+                </div>
+                <h3 className="mt-[14px] text-[17px] font-bold text-text-primary">{s.title}</h3>
+                <p className="mt-[8px] text-[14px] leading-[1.6] text-text-secondary">{s.body}</p>
+              </article>
+            </Reveal>
+          ))}
+        </ol>
+
+        <Reveal delay={140} className="mt-[18px] rounded-2xl border border-border-default bg-surface-secondary p-[20px]">
+          <div className="flex flex-wrap items-baseline gap-x-[10px] gap-y-[4px]">
+            <h3 className="text-[15px] font-bold text-text-primary">21 tools, one connector</h3>
+            <span className="text-[13px] text-text-muted">every one scoped to your account</span>
+          </div>
+          <ul className="mt-[12px] flex flex-wrap gap-[6px]">
+            {AGENT_TOOLS.map((t) => (
+              <li
+                key={t}
+                className="rounded-full bg-surface-tertiary px-[10px] py-[5px] text-[12px] font-semibold text-text-secondary"
+              >
+                {t}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-[14px] text-[13px] leading-[1.65] text-text-secondary">
+            Works with claude.ai custom connectors and with Claude Code. A token only ever reaches its own
+            account — somebody else’s token cannot see your collection, and a write aimed at an id that is not
+            yours is refused rather than quietly applied.
+          </p>
+        </Reveal>
+
+        <Reveal delay={200} className="mt-[26px] flex flex-col items-center justify-center gap-[12px] sm:flex-row">
+          <PrimaryCta className="w-full sm:w-auto">Create your free account</PrimaryCta>
+          <GhostCta href={MCP_DOCS} className="w-full sm:w-auto">
+            <Icon name="book" size={18} /> Read the setup guide
+          </GhostCta>
+        </Reveal>
+      </div>
     </section>
   )
 }
@@ -544,6 +697,10 @@ function OpenSource() {
 
 const FAQ = [
   {
+    q: 'How does the Claude connection work?',
+    a: 'DeckScout exposes your account over MCP at deckscout.io/mcp. Create a personal token in Profile → Agent access, add it as a custom connector in claude.ai or register it in Claude Code, and Claude gets 21 tools scoped to your data — collection, set progress, card search, decks, lists, battle logs, strategy guides and a buy list. DeckScout has no assistant of its own; you bring yours, and you can revoke the token at any time.',
+  },
+  {
     q: 'Is DeckScout free?',
     a: 'Yes. The hosted app at deckscout.io is free to use, and because the source is AGPL-3.0 you can run your own copy at no cost either. There is nothing to buy and no card to enter.',
   },
@@ -638,7 +795,7 @@ function FinalCta() {
         </h2>
         <p className="mx-auto mt-[16px] max-w-[520px] text-[16px] leading-[1.65] text-text-body">
           Make an account, pick the set you are closest to finishing, and watch the ring fill in. The other
-          217 will still be there when you want them.
+          202 will still be there when you want them.
         </p>
         <div className="mt-[28px] flex flex-col items-center justify-center gap-[12px] sm:flex-row">
           <PrimaryCta className="w-full sm:w-auto">Create your free account</PrimaryCta>
@@ -744,6 +901,11 @@ export function Landing() {
       <main id="main">
         <Hero scrollY={scrollY} />
         <Stats />
+
+        {/* Narrative order: the agentic connection leads, then the collection
+            tracking that gives it something true to say, then value, decks and
+            the scanner that feed it. */}
+        <AgentFlow />
 
         <Feature
           eyebrow="Collection tracking"
