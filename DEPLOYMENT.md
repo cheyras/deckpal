@@ -305,6 +305,70 @@ pnpm --filter deckscout-images manifest:check
 pnpm --filter deckscout-images manifest:check --object-store
 ```
 
+### Transactional email (custom SMTP)
+
+Supabase's built-in sender is shared infrastructure capped at **2 emails/hour**
+across the whole project. That is fine while you are the only account and fatal
+the moment strangers can sign up, so wire your own sender before opening signups.
+
+DeckScout uses [Resend](https://resend.com) (free tier: 3,000/month, 100/day).
+Any SMTP provider works — only the DNS records differ.
+
+**1. Verify a sending domain.** Domain management needs a **Full access** API key;
+a *Sending access* key returns `401 restricted_api_key` here, even though it
+authenticates against SMTP perfectly well. Create the domain, then publish the
+three records Resend returns. If your DNS is on Vercel:
+
+```bash
+# --scope is REQUIRED. Without it the CLI reports "You don't have permission to
+# list the domain record" -- a scope-resolution problem wearing a permissions error.
+vercel dns add <domain> resend._domainkey TXT "p=<dkim-public-key>" --scope <team>
+vercel dns add <domain> send MX feedback-smtp.us-east-1.amazonses.com 10 --scope <team>
+vercel dns add <domain> send TXT "v=spf1 include:amazonses.com ~all" --scope <team>
+```
+
+Resend's API labels these `DKIM` and `SPF` in its `record` field. Those are
+*purposes, not DNS types* — everything is TXT except the row carrying a
+`priority`, which is MX. Both SPF rows share the name `send`.
+
+**2. Point Supabase at it.** Dashboard → Authentication → SMTP Settings, or the
+Management API:
+
+```bash
+curl -X PATCH "https://api.supabase.com/v1/projects/<ref>/config/auth" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"smtp_host":"smtp.resend.com","smtp_port":"465","smtp_user":"resend",
+       "smtp_pass":"<SENDING-ONLY key>","smtp_admin_email":"noreply@<domain>",
+       "smtp_sender_name":"DeckScout","rate_limit_email_sent":100}'
+```
+
+`smtp_port` must be a **string**; `465` as a number is rejected with
+`expected string, received number`, while `rate_limit_email_sent` on the same
+request takes a real number.
+
+Use the **sending-only** key as `smtp_pass`. The full-access key is needed only to
+create the domain and can be deleted afterwards — the credential that lives
+permanently in third-party config should be the one that can do the least.
+
+**3. Prove it, and do not fool yourself.** Test with an address that has **no
+account yet** — a `+alias` reaches the same inbox:
+
+```bash
+curl -X POST "$SUPABASE_URL/auth/v1/signup" -H "apikey: $ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you+smtptest@gmail.com","password":"<throwaway>"}'
+```
+
+Signing up an address that already exists returns **HTTP 200 with a fabricated
+user id and sends nothing** — Supabase does that so signup cannot be used to
+enumerate accounts. A green status code there is not evidence. Confirm against the
+provider's own delivery log (`GET https://api.resend.com/emails`) and check the
+sender reads your domain rather than a `supabase.io` address.
+
+Note that a send-only domain needs no MX record, so it can never *receive* mail —
+password reset will not work for any account at that domain.
+
 ---
 
 ## Path B — Self-host (plain Postgres)
