@@ -15,7 +15,57 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
-    <title>DeckScout</title>
+
+    <!-- SEO / social. This document is the SPA shell for BOTH the marketing
+         landing at / and the app behind it, and nothing in the app sets
+         document.title at runtime, so these are static and describe the
+         product. Absolute URLs: og:/twitter: crawlers do not resolve relative
+         ones. Self-host builds serve the app from /deckscout on a private host
+         where none of this is crawled — harmless there, correct on cloud. -->
+    <title>DeckScout — Pokémon TCG collection tracker</title>
+    <meta
+      name="description"
+      content="Track every English Pokémon TCG card down to the printing — 23,444 cards and 40,107 variants. Set completion, price history, a PTCG Live deck builder, and a camera card scanner. Free and open source."
+    />
+    <link rel="canonical" href="https://deckscout.io/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="DeckScout" />
+    <meta property="og:url" content="https://deckscout.io/" />
+    <meta property="og:title" content="DeckScout — Pokémon TCG collection tracker" />
+    <meta
+      property="og:description"
+      content="Your collection, down to the last printing. 23,444 cards, 40,107 printings, set completion, price history, deck builder and a camera scanner. Free and open source."
+    />
+    <meta property="og:image" content="https://deckscout.io/marketing/og-image-1200.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="DeckScout — Pokémon TCG collection tracker" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="DeckScout — Pokémon TCG collection tracker" />
+    <meta
+      name="twitter:description"
+      content="Your collection, down to the last printing. 23,444 cards, 40,107 printings, set completion, price history, deck builder and a camera scanner. Free and open source."
+    />
+    <meta name="twitter:image" content="https://deckscout.io/marketing/og-image-1200.jpg" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "DeckScout",
+        "url": "https://deckscout.io/",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Web",
+        "description": "Open-source Pokémon TCG collection tracker: per-printing collection tracking with set completion goals, daily price history and collection value over time, a deck builder with PTCG Live import/export and version history, battle-log parsing, a perceptual-hash card scanner, binders, lists and a Pokédex.",
+        "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "codeRepository": "https://github.com/cheyras/deckscout",
+        "author": { "@type": "Person", "name": "cheyras", "url": "https://github.com/cheyras" }
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

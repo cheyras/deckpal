@@ -1,10 +1,14 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { supabase } from '../lib/supabase'
 
 export function Auth() {
   const navigate = useNavigate()
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
+  // The landing page's "Create your free account" CTA links to /auth?mode=signup
+  // so the form opens on the right tab. Read once as the initial state — after
+  // that the toggle owns it, and the URL is not rewritten on every click.
+  const { mode: initialMode } = useSearch({ strict: false }) as { mode?: 'signup' }
+  const [mode, setMode] = useState<'signin' | 'signup'>(initialMode === 'signup' ? 'signup' : 'signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
