@@ -79,6 +79,51 @@ export interface ImportSummary {
   variantKinds: number;
   renamedSets: number; // upstream re-keyed a set id; we re-keyed our rows in place
   renamedCards: number;
+  /**
+   * WHICH sets were re-keyed, not just how many.
+   *
+   * A rename is the one importer outcome that leaves manual work behind: card art
+   * is addressed by the set's `tcgdex_id` (B6), so the images under the old id are
+   * stranded the moment this succeeds and the fix needs the exact pair
+   * (`rekey:set --rename <from>:<to>`). The counts alone cannot produce that
+   * command, and the scheduled refresh has no human reading its logs — so the
+   * pairs travel in the summary rather than only in a log line.
+   */
+  renames: Array<{ from: string; to: string; name: string }>;
+  /**
+   * Catalog row counts either side of the run, so "what did this change" is
+   * answerable without a second connection or a diff against an extract that is
+   * gitignored (a CI checkout has no previous snapshot to compare with). Measured
+   * on the client the import already holds, before any write and after the last
+   * COMMIT — `cards` above counts rows PROCESSED, which is ~23,500 every run and
+   * says nothing about growth.
+   */
+  cardsBefore: number;
+  cardsAfter: number;
+  setsBefore: number;
+  setsAfter: number;
+}
+
+/** Catalog size at one instant, on the connection the import already holds. */
+async function countCatalog(
+  client: Queryable,
+  summary: ImportSummary,
+  when: 'before' | 'after',
+): Promise<void> {
+  const { rows } = await client.query<{ cards: string; sets: string }>(
+    `SELECT (SELECT COUNT(*) FROM card WHERE lang = $1) AS cards,
+            (SELECT COUNT(*) FROM card_set)             AS sets`,
+    [CATALOGUE],
+  );
+  const cards = Number(rows[0]?.cards ?? 0);
+  const sets = Number(rows[0]?.sets ?? 0);
+  if (when === 'before') {
+    summary.cardsBefore = cards;
+    summary.setsBefore = sets;
+  } else {
+    summary.cardsAfter = cards;
+    summary.setsAfter = sets;
+  }
 }
 
 export async function importCatalog(dataDir: string): Promise<ImportSummary> {
@@ -98,9 +143,11 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
   const client = await pool.connect();
   const summary: ImportSummary = {
     series: 0, sets: 0, cards: 0, variants: 0, synthesized: 0, droppedDuplicates: 0, variantKinds: 0,
-    renamedSets: 0, renamedCards: 0,
+    renamedSets: 0, renamedCards: 0, renames: [],
+    cardsBefore: 0, cardsAfter: 0, setsBefore: 0, setsAfter: 0,
   };
   try {
+    await countCatalog(client, summary, 'before');
     // ── 1. series (union of series.json and every set's serie ref) ───────────
     const seriesMeta = new Map<string, { name: string; release?: string }>();
     for (const s of series) seriesMeta.set(s.id, { name: s.name, release: s.releaseDate });
@@ -270,6 +317,7 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
         );
         summary.renamedCards += moved.length;
       }
+      summary.renames.push({ from: prior.tcgdex_id, to: st.id, name: st.name });
       console.log(
         `[catalog-import] upstream renamed set ${prior.tcgdex_id} -> ${st.id} (${st.name}); re-keyed in place`,
       );
@@ -281,7 +329,16 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
       // not something the catalog importer may reach across and do.
       console.warn(
         `[catalog-import] ${summary.renamedSets} set(s) re-keyed: their cached card art still sits under the OLD ` +
-          `path and will serve placeholders. Re-warm those sets (warm:pkmn for Trainer Gallery subsets).`,
+          `path and will serve placeholders. Re-address it (bytes are already correct — this is a ` +
+          `re-key, not a re-warm):\n` +
+          summary.renames
+            .map(
+              (r) =>
+                `    pnpm --filter deckscout-images rekey:set --rename ${r.from}:${r.to}` +
+                `            # disk tier\n` +
+                `    pnpm --filter deckscout-images rekey:set --object-store --rename ${r.from}:${r.to}  # object tier`,
+            )
+            .join('\n'),
       );
     }
 
@@ -502,6 +559,7 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
     );
     await client.query('COMMIT');
 
+    await countCatalog(client, summary, 'after');
     return summary;
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch { /* ignore */ }

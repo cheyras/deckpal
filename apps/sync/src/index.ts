@@ -12,6 +12,15 @@ import type { Queryable } from './prices/db.js';
 // catalog / images / products-tcgcsv remain MANUAL per the sync runbook and fire as
 // logging stubs. Cadences and the job list come from wiki: Data-Layer §7.2 and the
 // sync_run.job CHECK. Run any real job once by hand: `pnpm --filter deckscout-sync run-once <job>`.
+//
+// `catalog` stays a stub HERE, and is scheduled elsewhere, on purpose. Refreshing the
+// catalog means extracting the compiled JSON out of the tcgdex/server image, which needs
+// Docker and contract B3's create-and-copy dance — not something this in-process
+// scheduler can do. It is a scheduled GitHub Actions job instead
+// (.github/workflows/catalog-refresh.yml, weekly at the SAME 04:30 Sunday slot below so
+// there is one answer to "when does the catalog refresh"), and `scripts/refresh-catalog.sh`
+// for self-host cron. It was the absence of BOTH that let the catalog rot 17 days and
+// surface as issue #21 rather than as a sync log (DECISIONS.md 2026-08-10).
 loadEnv();
 
 // Connection budget: the sync process gets 1 of the 3 total. wiki: Data-Layer §6.5.
