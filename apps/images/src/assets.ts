@@ -130,6 +130,110 @@ export async function upsertPreservingProvenance(input: UpsertInput): Promise<bo
   return rows[0]?.inserted ?? false;
 }
 
+// ── Per-tier physical metadata (migration 025) ───────────────────────────────
+/**
+ * `image_asset` is the asset's identity and provenance; `image_object` is what
+ * ONE tier physically stored. This app owns the `disk` tier and never writes the
+ * `object` tier (that is packages/storage, over PostgREST, against the cloud DB).
+ *
+ * Why the split exists: the disk copy and the bucket copy are not always the same
+ * bytes, because upstream re-encodes between the day we warmed a file and the day
+ * the cloud tier fetched it. One row could not honestly describe both.
+ */
+export type ImageObjectTier = 'disk' | 'object';
+
+export interface ImageObjectInput {
+  cacheKey: string;
+  tier: ImageObjectTier;
+  byteSize: number;
+  contentType: string;
+  /**
+   * The storage layer's validator for the stored bytes. A POSIX filesystem
+   * assigns none, so the disk tier passes null rather than inventing one.
+   */
+  etag: string | null;
+}
+
+/**
+ * Record what this tier stored, replacing any previous record for the same tier.
+ *
+ * Unlike provenance, a re-write here is new truth: if the file is replaced with
+ * re-encoded bytes, its size really did change and the row must follow.
+ *
+ * Call it through `store.ts`, never directly — that is the choke point that keeps
+ * bytes and metadata in step (AGENTS.md B1).
+ */
+export async function upsertImageObject(input: ImageObjectInput): Promise<void> {
+  await getPool().query(
+    `INSERT INTO image_object (cache_key, tier, byte_size, content_type, etag, stored_at)
+     VALUES ($1,$2,$3,$4,$5, now())
+     ON CONFLICT (cache_key, tier) DO UPDATE SET
+       byte_size    = EXCLUDED.byte_size,
+       content_type = EXCLUDED.content_type,
+       etag         = EXCLUDED.etag,
+       stored_at    = now()`,
+    [input.cacheKey, input.tier, input.byteSize, input.contentType, input.etag],
+  );
+}
+
+export interface ImageObjectRow {
+  cache_key: string;
+  tier: ImageObjectTier;
+  byte_size: number;
+  content_type: string;
+  etag: string | null;
+}
+
+/** Every per-tier row for one tier, for reconciliation. */
+export async function imageObjectRows(tier: ImageObjectTier): Promise<ImageObjectRow[]> {
+  const { rows } = await getPool().query<ImageObjectRow>(
+    `SELECT cache_key, tier, byte_size, content_type, etag
+       FROM image_object WHERE tier = $1`,
+    [tier],
+  );
+  return rows;
+}
+
+/** Row counts per tier — a cheap summary line for `manifest:check`. */
+export async function imageObjectCounts(): Promise<Record<string, number>> {
+  const { rows } = await getPool().query<{ tier: string; n: string }>(
+    `SELECT tier, COUNT(*) AS n FROM image_object GROUP BY tier ORDER BY tier`,
+  );
+  return Object.fromEntries(rows.map((r) => [r.tier, Number(r.n)]));
+}
+
+/**
+ * Assets whose two tiers disagree about the bytes.
+ *
+ * NOT drift — this is the condition `image_object` was created to RECORD rather
+ * than hide (DECISIONS.md 2026-08-10). Upstream re-encodes; the disk copy and the
+ * object copy then legitimately differ, and both rows are correct about their own
+ * copy. Reported so the divergence is visible and quantified.
+ */
+export interface TierDivergence {
+  cache_key: string;
+  disk_bytes: number;
+  object_bytes: number;
+  disk_type: string;
+  object_type: string;
+}
+export async function tierDivergences(): Promise<TierDivergence[]> {
+  const { rows } = await getPool().query<TierDivergence>(
+    `SELECT d.cache_key,
+            d.byte_size    AS disk_bytes,
+            o.byte_size    AS object_bytes,
+            d.content_type AS disk_type,
+            o.content_type AS object_type
+       FROM image_object d
+       JOIN image_object o
+         ON o.cache_key = d.cache_key AND o.tier = 'object'
+      WHERE d.tier = 'disk'
+        AND (d.byte_size <> o.byte_size OR d.content_type <> o.content_type)
+      ORDER BY d.cache_key`,
+  );
+  return rows;
+}
+
 // Resumability: which of these cache_keys are already recorded?
 export async function existingCacheKeys(cacheKeys: string[]): Promise<Set<string>> {
   if (cacheKeys.length === 0) return new Set();

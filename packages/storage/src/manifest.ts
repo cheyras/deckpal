@@ -112,6 +112,66 @@ export async function deleteManifestRow(cacheKey: string, timeoutMs = 8_000): Pr
   });
 }
 
+// ── Per-tier physical metadata (migration 025) ───────────────────────────────
+/**
+ * `image_asset` says what an asset IS and where it came from. `image_object`
+ * says what one TIER actually stored — because the two copies are not always the
+ * same bytes.
+ *
+ * They diverge for an ordinary reason: TCGdex re-encodes. The Pi's disk copy of
+ * `card:sv03.5-102:low` is the 14,906 bytes upstream served when it was warmed;
+ * the object in the bucket is the 17,954 bytes upstream serves today. Before
+ * this table one row had to answer for both and silently described whichever
+ * writer touched it last.
+ *
+ * The object tier writes `tier='object'`; apps/images writes `tier='disk'` over
+ * `pg`. Neither ever writes the other's row.
+ */
+export type ImageObjectTier = 'disk' | 'object';
+
+export interface ImageObjectInput {
+  cacheKey: string;
+  tier: ImageObjectTier;
+  byteSize: number;
+  contentType: string;
+  /** Storage's validator for the stored bytes (MD5 hex), or null if none. */
+  etag: string | null;
+}
+
+/**
+ * Record what this tier stored, replacing any previous record for the SAME tier.
+ *
+ * Upsert rather than insert-or-ignore: unlike the provenance row, a re-write is
+ * new truth. If the object is overwritten with re-encoded bytes, the object
+ * tier's size and etag genuinely changed and the row must follow. `on_conflict`
+ * names the composite PK so the merge targets (cache_key, tier), never just one.
+ */
+export async function upsertImageObjectRow(
+  input: ImageObjectInput,
+  timeoutMs = 8_000,
+): Promise<void> {
+  const res = await fetch(restUrl('image_object?on_conflict=cache_key,tier'), {
+    method: 'POST',
+    headers: restHeaders({
+      'content-type': 'application/json',
+      prefer: 'resolution=merge-duplicates,return=minimal',
+    }),
+    body: JSON.stringify({
+      cache_key: input.cacheKey,
+      tier: input.tier,
+      byte_size: input.byteSize,
+      content_type: input.contentType,
+      etag: input.etag,
+      stored_at: new Date().toISOString(),
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`[manifest] image_object upsert failed: HTTP ${res.status} ${body.slice(0, 200)}`);
+  }
+}
+
 /**
  * Fill in provenance for a row that has NONE — and only such a row.
  *

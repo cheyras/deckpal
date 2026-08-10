@@ -9,9 +9,11 @@ import {
   type CardRef,
   type SetImageKind,
 } from './layout.js';
-import { closePool, getPool } from './assets.js';
-import { ensureRecorded, fromUrl, unknownProvenance, type Provenance } from './store.js';
+import { closePool, getPool, upsertImageObject } from './assets.js';
+import { ensureRecorded, fromUrl, sniffFile, unknownProvenance, type Provenance } from './store.js';
 import { checkManifest } from './manifestCheck.js';
+import { absoluteFromRelative } from './layout.js';
+import { stat } from 'node:fs/promises';
 
 /**
  * manifest:backfill — give every un-recorded file in the image cache a manifest
@@ -37,6 +39,11 @@ import { checkManifest } from './manifestCheck.js';
  *   pnpm --filter deckscout-images manifest:backfill -- --dry-run
  *   pnpm --filter deckscout-images manifest:backfill
  *   pnpm --filter deckscout-images manifest:backfill -- --probe-cache probe.tsv
+ *   pnpm --filter deckscout-images manifest:backfill -- --disk-tier
+ *
+ * `--disk-tier` is a different job in the same file: it fills the per-tier
+ * `image_object` rows migration 025 added (see `backfillDiskTier`), rather than
+ * hunting orphans. Run it once on an existing cache; it is idempotent after that.
  *
  * `--probe-cache <file>` memoises HEAD results (TSV: relPath, status, contentType,
  * contentLength) so a re-run does not re-hit the origin. It is appended to as the
@@ -348,6 +355,95 @@ export async function backfill(opts: BackfillOptions = {}): Promise<BackfillRepo
   return report;
 }
 
+// ── Disk-tier rows (migration 025) ───────────────────────────────────────────
+export interface DiskTierReport {
+  manifestRows: number;
+  measured: number;
+  recorded: number;
+  alreadyRecorded: number;
+  missingFiles: number;
+  failures: Array<{ relativePath: string; error: string }>;
+}
+
+/**
+ * `--disk-tier`: give every recorded asset an `image_object(tier='disk')` row.
+ *
+ * The one-time step migration 025 deliberately does NOT do for you: only the
+ * operator knows whether this database's `image_asset` rows describe files on
+ * THIS machine's disk (true for a self-host box; false for a cloud database that
+ * imported the manifest), and writing 47,924 rows asserting a disk that isn't
+ * there would be a lie the checker would then confirm.
+ *
+ * Every row is MEASURED, never copied from `image_asset.byte_size`. Copying would
+ * make the disk tier agree with the manifest by construction and quietly destroy
+ * the check's ability to detect that they had diverged. Rows whose file is absent
+ * are skipped and counted — `manifest:check` already reports those as missing
+ * files, and inventing a size for a file that is not there is exactly the failure
+ * this whole subsystem exists to prevent.
+ *
+ * Idempotent and resumable: re-running measures again and upserts the same values.
+ */
+export async function backfillDiskTier(opts: { dryRun?: boolean } = {}): Promise<DiskTierReport> {
+  const { rows } = await getPool().query<{
+    cache_key: string;
+    relative_path: string;
+    has_tier: boolean;
+  }>(
+    `SELECT a.cache_key, a.relative_path,
+            EXISTS (SELECT 1 FROM image_object o
+                     WHERE o.cache_key = a.cache_key AND o.tier = 'disk') AS has_tier
+       FROM image_asset a
+      ORDER BY a.relative_path`,
+  );
+
+  const report: DiskTierReport = {
+    manifestRows: rows.length,
+    measured: 0,
+    recorded: 0,
+    alreadyRecorded: 0,
+    missingFiles: 0,
+    failures: [],
+  };
+
+  for (const r of rows) {
+    if (r.has_tier) report.alreadyRecorded++;
+    const abs = absoluteFromRelative(r.relative_path);
+    let size: number;
+    try {
+      const st = await stat(abs);
+      if (!st.isFile() || st.size === 0) {
+        report.missingFiles++;
+        continue;
+      }
+      size = st.size;
+    } catch {
+      report.missingFiles++;
+      continue;
+    }
+    report.measured++;
+    if (opts.dryRun) continue;
+    try {
+      const contentType = await sniffFile(abs, size);
+      await upsertImageObject({
+        cacheKey: r.cache_key,
+        tier: 'disk',
+        byteSize: size,
+        contentType,
+        // A POSIX filesystem assigns no entity tag; an honest null beats a
+        // fabricated one (the same rule source_url follows).
+        etag: null,
+      });
+      report.recorded++;
+      if (report.recorded % 5000 === 0) {
+        process.stderr.write(`[backfill] disk tier: ${report.recorded} rows recorded …\n`);
+      }
+    } catch (err) {
+      report.failures.push({ relativePath: r.relative_path, error: (err as Error).message });
+    }
+  }
+  return report;
+}
+
 function mergeCounts(
   a: Record<string, number>,
   b: Record<string, number>,
@@ -370,6 +466,7 @@ const isMain =
 if (isMain) {
   const argv = process.argv.slice(2);
   const dryRun = argv.includes('--dry-run');
+  const diskTier = argv.includes('--disk-tier');
   const pcIdx = argv.indexOf('--probe-cache');
   const probeCache = pcIdx > -1 ? argv[pcIdx + 1] : undefined;
   const limIdx = argv.indexOf('--limit');
@@ -377,6 +474,24 @@ if (isMain) {
 
   let code = 1;
   try {
+    if (diskTier) {
+      const r = await backfillDiskTier({ dryRun });
+      process.stdout.write(
+        [
+          '',
+          `disk-tier backfill (image_object tier='disk')${dryRun ? ' — DRY RUN, nothing written' : ''}`,
+          `  image_asset rows       : ${r.manifestRows}`,
+          `  files measured on disk : ${r.measured}`,
+          `  rows recorded          : ${r.recorded}`,
+          `  already had a row      : ${r.alreadyRecorded}`,
+          `  files absent (skipped) : ${r.missingFiles}   (manifest:check reports these separately)`,
+          `  failures               : ${r.failures.length}`,
+          ...r.failures.slice(0, 20).map((f) => `      ${f.relativePath}: ${f.error}`),
+          '',
+        ].join('\n'),
+      );
+      code = r.failures.length ? 1 : 0;
+    } else {
     const passes = await backfillUntilStable({ dryRun, probeCache, limit });
     const r: BackfillReport = passes.reduce((acc, p) => ({
       orphansFound: acc.orphansFound + p.orphansFound,
@@ -429,6 +544,7 @@ if (isMain) {
     L.push('');
     process.stdout.write(L.join('\n') + '\n');
     code = r.failures.length ? 1 : 0;
+    }
   } catch (err) {
     process.stderr.write(`[backfill] fatal: ${(err as Error).message}\n`);
     code = 1;

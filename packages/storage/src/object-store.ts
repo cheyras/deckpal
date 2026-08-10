@@ -42,11 +42,67 @@ export async function objectExists(objectPath: string, timeoutMs = 5_000): Promi
   }
 }
 
+/**
+ * The object's stored facts, or null if it is not there.
+ *
+ * A superset of `objectExists` for callers that will need the metadata anyway —
+ * a bulk mirror asking "is this already uploaded?" gets the answer AND the
+ * size/type/etag it would otherwise have to fetch in a second round trip.
+ *
+ * NOTE: `cache-control` is deliberately not read here. Supabase's public endpoint
+ * answers HEAD with `cache-control: no-cache` regardless of what the object
+ * stores — verified 2026-08-10, same object, same second: HEAD says `no-cache`,
+ * GET says `public, max-age=31536000` and Cloudflare caches it (MISS then HIT).
+ * Reading it from a HEAD would record a header the object does not actually
+ * serve. Use `listObjectsRecursive` when you need the stored value.
+ */
+export async function headObject(
+  objectPath: string,
+  timeoutMs = 5_000,
+): Promise<StoredObject | null> {
+  try {
+    const res = await fetch(publicObjectUrl(objectPath), {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (res.status !== 200) return null;
+    const len = Number(res.headers.get('content-length') ?? 0);
+    if (!Number.isFinite(len) || len <= 0) return null;
+    return {
+      path: objectPath,
+      byteSize: len,
+      contentType: (res.headers.get('content-type') ?? 'application/octet-stream').split(';')[0]!.trim(),
+      etag: normaliseEtag(res.headers.get('etag')),
+      cacheControl: null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export interface UploadResult {
   ok: boolean;
   status: number;
   error?: string;
+  /**
+   * The entity tag Storage assigned to the stored object — an MD5 hex of the
+   * bytes, quotes stripped. It is the OBJECT tier's own validator, not upstream's
+   * (that one is provenance and lives on `image_asset.etag`), and it is recorded
+   * as `image_object.etag`. Verified 2026-08-10 against 1,854 backfilled objects:
+   * it equals the MD5 of the local source file every time, which makes it a free
+   * content check rather than an opaque token. Null when the response omitted it.
+   */
+  etag?: string | null;
 }
+
+/** Strip the quoting (and any weak-validator prefix) from an HTTP ETag header. */
+function normaliseEtag(raw: string | null): string | null {
+  if (!raw) return null;
+  const t = raw.trim().replace(/^W\//, '').replace(/^"|"$/g, '');
+  return t.length > 0 ? t : null;
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Upload bytes, overwriting any existing object (`x-upsert`).
@@ -55,6 +111,18 @@ export interface UploadResult {
  * racing on the same cold asset fetch the same URL and write byte-identical
  * content, so last-writer-wins is indistinguishable from first-writer-wins. No
  * lock, no partial object (Supabase publishes an upload atomically).
+ *
+ * RETRIES on 429 and 5xx, with exponential backoff and jitter. Supabase Storage
+ * answers `429 too_many_connections` well below what a bulk mirror will offer it
+ * — measured 2026-08-10, six parallel uploads was already too many — and without
+ * this a throttled asset is simply lost from the run. Only throttles and server
+ * errors are retried: a 4xx that is genuinely about the request will say the same
+ * thing however many times you ask.
+ *
+ * The default budget is deliberately small (4 attempts, ~2.8 s worst case) because
+ * this same function runs inside the serverless image fill, where a long retry
+ * ladder would turn a slow asset into a function timeout. Bulk callers that can
+ * afford to wait raise `maxAttempts`.
  */
 export async function uploadObject(
   objectPath: string,
@@ -62,27 +130,149 @@ export async function uploadObject(
   contentType: string,
   cacheControl = 'max-age=31536000',
   timeoutMs = 20_000,
+  maxAttempts = 4,
 ): Promise<UploadResult> {
   const { supabaseUrl, bucket } = storageEnv();
   const url = `${supabaseUrl}/storage/v1/object/${bucket}/${encodeURI(objectPath)}`;
-  try {
-    const res = await fetch(url, {
+  let last: UploadResult = { ok: false, status: 0, error: 'no attempt made' };
+
+  for (let attempt = 0; attempt < Math.max(1, maxAttempts); attempt++) {
+    if (attempt > 0) await sleep(400 * 2 ** (attempt - 1) + Math.floor(Math.random() * 200));
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...authHeaders(),
+          'content-type': contentType,
+          'cache-control': cacheControl,
+          'x-upsert': 'true',
+        },
+        body: bytes as unknown as BodyInit,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (res.ok) {
+        return { ok: true, status: res.status, etag: normaliseEtag(res.headers.get('etag')) };
+      }
+      const body = await res.text().catch(() => '');
+      last = { ok: false, status: res.status, error: body.slice(0, 200) };
+      if (res.status !== 429 && res.status < 500) return last; // a real rejection
+    } catch (err) {
+      // Network error / timeout — worth another try, same as a 5xx.
+      last = { ok: false, status: 0, error: (err as Error).message };
+    }
+  }
+  return last;
+}
+
+// ── Inventory ────────────────────────────────────────────────────────────────
+/**
+ * What Storage says about one stored object. These are the OBJECT tier's facts —
+ * the numbers `image_object` records for `tier='object'`.
+ */
+export interface StoredObject {
+  /** Full object key, i.e. `image_asset.relative_path`. */
+  path: string;
+  byteSize: number;
+  contentType: string;
+  etag: string | null;
+  cacheControl: string | null;
+}
+
+interface ListEntry {
+  name: string;
+  id: string | null;
+  metadata: {
+    size?: number;
+    mimetype?: string;
+    eTag?: string;
+    cacheControl?: string;
+  } | null;
+}
+
+const LIST_PAGE = 1000;
+
+/**
+ * List ONE level of the bucket under `prefix`.
+ *
+ * Supabase's list endpoint is directory-shaped: real objects come back with an
+ * `id` and a `metadata` blob, while sub-directories come back as synthetic
+ * entries with both null. `listObjectsRecursive` uses that distinction to walk.
+ */
+async function listObjectLevel(
+  prefix: string,
+  timeoutMs: number,
+): Promise<{ objects: StoredObject[]; folders: string[] }> {
+  const { supabaseUrl, bucket, serviceKey } = storageEnv();
+  const objects: StoredObject[] = [];
+  const folders: string[] = [];
+
+  for (let offset = 0; ; offset += LIST_PAGE) {
+    const res = await fetch(`${supabaseUrl}/storage/v1/object/list/${bucket}`, {
       method: 'POST',
       headers: {
-        ...authHeaders(),
-        'content-type': contentType,
-        'cache-control': cacheControl,
-        'x-upsert': 'true',
+        apikey: serviceKey,
+        authorization: `Bearer ${serviceKey}`,
+        'content-type': 'application/json',
       },
-      body: bytes as unknown as BodyInit,
+      body: JSON.stringify({
+        prefix,
+        limit: LIST_PAGE,
+        offset,
+        sortBy: { column: 'name', order: 'asc' },
+      }),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (res.ok) return { ok: true, status: res.status };
-    const body = await res.text().catch(() => '');
-    return { ok: false, status: res.status, error: body.slice(0, 200) };
-  } catch (err) {
-    return { ok: false, status: 0, error: (err as Error).message };
+    if (!res.ok) {
+      throw new Error(`[storage] list failed for '${prefix}': HTTP ${res.status}`);
+    }
+    const page = (await res.json()) as ListEntry[];
+    for (const e of page) {
+      const full = prefix ? `${prefix}/${e.name}` : e.name;
+      if (e.id === null || e.metadata === null) {
+        folders.push(full);
+        continue;
+      }
+      objects.push({
+        path: full,
+        byteSize: Number(e.metadata.size ?? 0),
+        contentType: e.metadata.mimetype ?? 'application/octet-stream',
+        etag: normaliseEtag(e.metadata.eTag ?? null),
+        cacheControl: e.metadata.cacheControl ?? null,
+      });
+    }
+    if (page.length < LIST_PAGE) break;
   }
+  return { objects, folders };
+}
+
+/**
+ * Every object under `prefix`, depth-first.
+ *
+ * This is the object tier's answer to "walk the cache directory" — the thing
+ * apps/images does with readdir. It is the only complete source for what is
+ * ACTUALLY in the bucket, which is what `manifest:check --object-store` needs in
+ * order to be a real tripwire rather than a self-report from the manifest.
+ *
+ * `onBatch` is called per directory so a caller can stream progress on a bucket
+ * with tens of thousands of objects instead of buffering it all.
+ */
+export async function listObjectsRecursive(
+  prefix = '',
+  onBatch?: (objects: StoredObject[], dir: string) => void | Promise<void>,
+  timeoutMs = 20_000,
+): Promise<StoredObject[]> {
+  const all: StoredObject[] = [];
+  const queue = [prefix];
+  while (queue.length > 0) {
+    const dir = queue.shift()!;
+    const { objects, folders } = await listObjectLevel(dir, timeoutMs);
+    if (objects.length > 0) {
+      all.push(...objects);
+      if (onBatch) await onBatch(objects, dir);
+    }
+    queue.push(...folders);
+  }
+  return all;
 }
 
 /** Remove an object. Used only to roll back a torn write. */

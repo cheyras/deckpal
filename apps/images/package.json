@@ -18,7 +18,8 @@
     "evict": "node dist/evict.js",
     "evict:dev": "tsx src/evict.ts",
     "manifest:check": "tsx src/manifestCheck.ts",
-    "manifest:backfill": "tsx src/manifestBackfill.ts"
+    "manifest:backfill": "tsx src/manifestBackfill.ts",
+    "storage:backfill": "tsx src/cloudBackfill.ts"
   },
   "dependencies": {
     "@deckscout/db": "workspace:*",

@@ -1,6 +1,9 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import {
   deleteManifestRow,
   insertManifestRow,
+  upsertImageObjectRow,
   type ImageAssetKind,
 } from './manifest.js';
 import { deleteObject, uploadObject } from './object-store.js';
@@ -31,6 +34,19 @@ import { sniffContentType } from './sniff.js';
  *   inserted it — a pre-existing row (the disk tier's) is left alone, because
  *   dropping it would destroy a good record, whereas leaving it is at worst
  *   visible drift. Bytes are never published without a row behind them.
+ *
+ * A fourth step arrived with migration 025: after a successful upload we also
+ * record an `image_object` row for `tier='object'` — what THIS tier physically
+ * stored. It runs last, and after the bytes, on purpose. `image_asset` is the
+ * B1 record ("no byte without a row") and must precede publication; the per-tier
+ * row is a measurement OF the published copy, and the object's etag only exists
+ * once Storage has accepted it. If that last write fails the asset is still
+ * correct and still attributable — what is lost is a size/etag measurement, which
+ * `manifest:check --object-store` reports and `storage:backfill --reconcile`
+ * repairs. So it is reported (`objectRecorded: false` plus a warning) rather than
+ * thrown: failing here would make the caller serve a placeholder for an image
+ * that uploaded perfectly well, and the next request is a Storage HIT that never
+ * re-enters this function — turning a missing measurement into a broken image.
  */
 
 // ── Provenance ───────────────────────────────────────────────────────────────
@@ -96,6 +112,14 @@ export interface PutStorageAssetResult {
   sourceUrl: string | null;
   /** True when this call created the manifest row (vs. one already existing). */
   recorded: boolean;
+  /**
+   * True when the per-tier `image_object` row was written. False means the bytes
+   * and their provenance are fine but this copy's measurement is missing — see
+   * the module doc; `manifest:check --object-store` reports it.
+   */
+  objectRecorded: boolean;
+  /** Storage's etag for the stored object (MD5 hex), when it returned one. */
+  objectEtag: string | null;
 }
 
 export async function putStorageAsset(
@@ -131,13 +155,98 @@ export async function putStorageAsset(
     );
   }
 
+  // 3. Measure the published copy. See the module doc for why this is last and
+  //    why a failure here is reported rather than thrown.
+  //
+  //    The etag needs explaining. Supabase Storage's REST upload answers with a
+  //    JSON body and NO ETag header (probed 2026-08-10: the only headers are
+  //    CDN/gateway ones). But the etag it then serves for the stored object is
+  //    exactly the MD5 of the content — verified twice, against all 1,854
+  //    backfilled objects and against a direct upload-then-HEAD probe. So we hash
+  //    the bytes we just published instead of spending a HEAD round trip per
+  //    asset on a path that runs inside a serverless function. If Supabase ever
+  //    stops using content-MD5, `manifest:check --object-store` reports it as an
+  //    etag mismatch — loudly, which is the correct way for that assumption to
+  //    fail. `upload.etag` is preferred if the header ever appears.
+  const objectEtag = upload.etag ?? createHash('md5').update(bytes).digest('hex');
+  let objectRecorded = false;
+  try {
+    await upsertImageObjectRow({
+      cacheKey,
+      tier: 'object',
+      byteSize: bytes.length,
+      contentType,
+      etag: objectEtag,
+    });
+    objectRecorded = true;
+  } catch (err) {
+    console.warn(
+      '[storage] %s uploaded but its image_object row was not recorded: %s — ' +
+        'run `pnpm --filter deckscout-images storage:backfill --reconcile` to repair',
+      relativePath,
+      (err as Error).message,
+    );
+  }
+
   return {
     relativePath,
     byteSize: bytes.length,
     contentType,
     sourceUrl,
     recorded: outcome === 'inserted',
+    objectRecorded,
+    objectEtag,
   };
+}
+
+export interface PutStorageAssetFromFileInput {
+  cacheKey: string;
+  kind: ImageAssetKind;
+  /** Object key in the bucket == the tier-shared relative path. Build it with paths.ts. */
+  relativePath: string;
+  /** Absolute path to the bytes on this machine. */
+  absolutePath: string;
+  /**
+   * REQUIRED, and there is deliberately no default. Reading a local file
+   * establishes NOTHING about where those bytes came from, so this entry point
+   * cannot infer provenance the way the fetch path can — the caller has to say.
+   * For the disk cache's own assets that means either the `source_url` the
+   * manifest already recorded when it was fetched, or `unknownProvenance(reason)`
+   * when the manifest honestly holds none. Never a URL nobody fetched.
+   */
+  provenance: Provenance;
+  contentType?: string;
+}
+
+/**
+ * Publish bytes that are already on THIS machine's disk — the mirror path.
+ *
+ * The lazy fill can only ever recover what upstream still serves. Assets we hold
+ * and upstream has dropped or re-encoded away are unreachable by it: as of
+ * 2026-08-10 that is 1,854 card rows whose canonical TCGdex URL 404s, warmed from
+ * another source before launch. Their bytes exist only in the self-host cache, so
+ * only an upload fixes them.
+ *
+ * It is a thin wrapper over `putStorageAsset` on purpose. Bulk mirroring must not
+ * become a second way to write the bucket — that is precisely how the disk cache
+ * came to hold 1,970 files with no manifest row (DECISIONS.md 2026-08-07). Same
+ * choke point, same required provenance, same per-tier row.
+ */
+export async function putStorageAssetFromFile(
+  input: PutStorageAssetFromFileInput,
+): Promise<PutStorageAssetResult> {
+  const bytes = await readFile(input.absolutePath);
+  if (bytes.length === 0) {
+    throw new Error(`[storage] refusing to store 0 bytes from ${input.absolutePath}`);
+  }
+  return putStorageAsset({
+    cacheKey: input.cacheKey,
+    kind: input.kind,
+    relativePath: input.relativePath,
+    bytes,
+    provenance: input.provenance,
+    contentType: input.contentType,
+  });
 }
 
 export interface PutUnmanifestedInput {
@@ -187,5 +296,18 @@ export async function putUnmanifestedObject(
       `[storage] upload failed for ${objectPath}: HTTP ${upload.status} ${upload.error ?? ''}`,
     );
   }
-  return { relativePath: objectPath, byteSize: bytes.length, contentType, sourceUrl, recorded: false };
+  // No `image_object` row either, and for the same reason there is no
+  // `image_asset` row: `image_object.cache_key` is a FK to `image_asset`, so a
+  // per-tier row for an asset class that deliberately has no manifest row is not
+  // just unnecessary, it is unrepresentable. Sprite provenance and sprite
+  // measurements alike live at the tier level (the pinned SHA), not per file.
+  return {
+    relativePath: objectPath,
+    byteSize: bytes.length,
+    contentType,
+    sourceUrl,
+    recorded: false,
+    objectRecorded: false,
+    objectEtag: upload.etag ?? null,
+  };
 }
