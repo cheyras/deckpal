@@ -1,5 +1,5 @@
 {
-  "buildCommand": "pnpm --filter @deckscout/db build && pnpm --filter @deckscout/storage build && pnpm --filter deckscout-api build && pnpm --filter deckscout-web build",
+  "buildCommand": "pnpm --filter @deckscout/db build && pnpm --filter @deckscout/storage build && pnpm --filter deckscout-api build && pnpm --filter deckscout-mcp build && pnpm --filter deckscout-web build",
   "regions": [
     "sfo1"
   ],
@@ -8,6 +8,10 @@
     {
       "source": "/deckscout/images/(.*)",
       "destination": "/api/images?p=$1"
+    },
+    {
+      "source": "/mcp",
+      "destination": "/api/mcp"
     },
     {
       "source": "/api/(.*)",
@@ -27,6 +31,11 @@
     "api/images.mjs": {
       "maxDuration": 30,
       "memory": 512
+    },
+    "api/mcp.mjs": {
+      "maxDuration": 60,
+      "memory": 512,
+      "includeFiles": "apps/mcp/{package.json,assets/icon-128.png}"
     }
   }
 }

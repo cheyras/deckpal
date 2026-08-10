@@ -51,7 +51,7 @@ export function describeCard(c: ResolvedCard): string {
 
 export async function resolveCard(ctx: Ctx, ref: CardRef): Promise<CardResolution> {
   if (ref.card_id) {
-    const r = await q1(ctx.pool, `${CARD_SELECT} WHERE c.tcgdex_id = $1 AND c.lang = 'en'`, [
+    const r = await q1(ctx.db, `${CARD_SELECT} WHERE c.tcgdex_id = $1 AND c.lang = 'en'`, [
       ref.card_id.trim(),
     ]);
     return r
@@ -73,14 +73,14 @@ export async function resolveCard(ctx: Ctx, ref: CardRef): Promise<CardResolutio
   // Tier 1: exact accent/case-insensitive name; Tier 2: contains (same operator the REST API uses).
   const exactCond = `lower(unaccent(c.name)) = lower(unaccent(${p(name)}))`;
   let rows = await q(
-    ctx.pool,
+    ctx.db,
     `${CARD_SELECT} WHERE ${[...conds, exactCond].join(' AND ')} ORDER BY cs.tcgdex_id, c.local_id_numeric NULLS LAST, c.local_id LIMIT 9`,
     params,
   );
   if (rows.length === 0) {
     const containsCond = `unaccent(c.name) ILIKE unaccent(${p(`%${name}%`)})`;
     rows = await q(
-      ctx.pool,
+      ctx.db,
       `${CARD_SELECT} WHERE ${[...conds, containsCond].join(' AND ')} ORDER BY (lower(unaccent(c.name)) = lower(unaccent($${params.length - 1}))) DESC, length(c.name), cs.tcgdex_id, c.local_id_numeric NULLS LAST LIMIT 9`,
       params,
     );
@@ -115,7 +115,7 @@ export type VariantResolution =
 
 async function variantsOf(ctx: Ctx, cardId: number): Promise<ResolvedVariant[]> {
   const rows = await q(
-    ctx.pool,
+    ctx.db,
     `SELECT cv.id, cv.variant_kind_code, cv.display_name, cv.is_primary,
             COALESCE(ci.quantity, 0) AS owned_qty
        FROM card_variant cv

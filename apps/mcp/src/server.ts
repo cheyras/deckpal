@@ -13,7 +13,16 @@ import { registerLoggingTools } from './tools/logging.js';
 import { registerShoppingTools } from './tools/shopping.js';
 import { registerStatusTools } from './tools/status.js';
 
-const pkg = createRequire(import.meta.url)('../package.json') as { version: string };
+// package.json sits beside dist/ in the repo, but a serverless bundler only
+// ships files it can see being read. If it did not make the bundle, advertise a
+// version rather than failing to construct the server at all.
+const version: string = (() => {
+  try {
+    return (createRequire(import.meta.url)('../package.json') as { version: string }).version;
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 // Server icon (Rotom on dark gray) advertised per MCP SEP-973 (spec 2025-11-25).
 // claude.ai doesn't render custom-connector icons yet (shows a globe) — when it
@@ -30,14 +39,20 @@ const iconDataUri: string | null = (() => {
 })();
 
 /**
- * Build a fresh McpServer wired to the shared, build-once context. Called by
- * createMcpHandler's factory on every request (stateless HTTP mode, SPEC §2):
- * registration is cheap, state lives in ctx.
+ * Build a fresh McpServer wired to a context. Called by createMcpHandler's
+ * factory on every request (stateless HTTP mode, SPEC §2): registration is
+ * cheap, state lives in ctx.
+ *
+ * The context is process-wide on self-host (one user, one pool) and
+ * per-request in the cloud (the caller's token → their user id → their RLS
+ * transaction client). Every tool registered below reads its identity from
+ * `ctx` and never from module state, which is what makes the same 21 tools
+ * safe to serve to one user or to thousands.
  */
 export function buildServer(ctx: Ctx): McpServer {
   const server = new McpServer({
     name: 'rotom-mcp',
-    version: pkg.version,
+    version,
     title: 'Rotom — pokedex collection assistant',
     ...(iconDataUri
       ? { icons: [{ src: iconDataUri, mimeType: 'image/png', sizes: ['128x128'] }] }

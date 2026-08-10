@@ -1,4 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
+import { pool } from './db.js';
+import { looksLikeApiToken, resolveToken, touchToken } from '@deckscout/db';
 
 /**
  * Supabase JWT authentication middleware for the cloud deployment.
@@ -6,6 +8,14 @@ import type { Request, Response, NextFunction } from 'express';
  * Verifies the JWT from the Authorization header, extracts the user UUID
  * (`sub` claim), and attaches it to `req.user`. Routes that need the
  * authenticated user read `req.user!.id`.
+ *
+ * The same header also carries the second credential kind: a personal access
+ * token (`dsk_…`, migration 026) minted in Profile → Agent access and used by
+ * the MCP endpoint and other non-browser clients. The two can never be
+ * confused — a JWT is three dot-separated base64url segments and never starts
+ * with `dsk_`. A resolved token sets `req.user` exactly as a JWT would, plus
+ * `req.authKind = 'token'` so privileged routes (token management itself) can
+ * insist on a real browser session.
  *
  * Supports two signing algorithms:
  * - **ES256** (default for new Supabase projects) — verified via the project's
@@ -34,11 +44,17 @@ export interface AuthUser {
   email?: string;
 }
 
+/** Which credential produced `req.user`. Absent when the request is anonymous. */
+export type AuthKind = 'jwt' | 'token';
+
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: AuthUser;
+      authKind?: AuthKind;
+      /** `api_token.id` behind a token-authenticated request (never the raw token). */
+      apiTokenId?: string;
     }
   }
 }
@@ -230,25 +246,60 @@ const _verifyOpts: VerifyOptions = {
 };
 
 /**
- * Auth middleware: verifies the JWT and attaches `req.user`.
- * If no auth is configured (self-host), attaches nothing (routes fall
- * back to whatever user resolution they need).
+ * Resolve a personal access token to `req.user`.
+ *
+ * Runs on the base pool, before any RLS context exists — it *has* to, because
+ * the whole point of the lookup is to discover which user the request is. The
+ * only row it can reach is the one matching a 256-bit secret the caller
+ * already proved they hold.
+ *
+ * Deliberately independent of AUTH_ENABLED: a self-hoster who has run the
+ * migrations can use the same tokens, and one who has not gets a swallowed
+ * "relation does not exist" and the unchanged anonymous behaviour.
+ */
+async function applyApiToken(req: Request, raw: string): Promise<void> {
+  const resolved = await resolveToken(pool, raw);
+  if (!resolved) return;
+  req.user = { id: resolved.userId };
+  req.authKind = 'token';
+  req.apiTokenId = resolved.tokenId;
+  await touchToken(pool, resolved.tokenId);
+}
+
+/**
+ * Auth middleware: verifies the credential and attaches `req.user`.
+ * If no auth is configured (self-host) and no personal access token is
+ * presented, attaches nothing (routes fall back to whatever user resolution
+ * they need).
  */
 export function authMiddleware(req: Request, _res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    // No credential — leave req.user undefined; requireAuth will reject if needed.
+    next();
+    return;
+  }
+
+  const token = authHeader.slice(7);
+
+  // ── Personal access token (dsk_…) ──────────────────────────────────────
+  if (looksLikeApiToken(token)) {
+    applyApiToken(req, token)
+      .catch((err: unknown) => {
+        // A missing table (un-migrated self-host) or a transient DB error must
+        // not 500 the request — it stays anonymous and requireAuth decides.
+        console.error('[deckscout-api] api token lookup failed:', (err as Error).message);
+      })
+      .finally(() => next());
+    return;
+  }
+
   if (!AUTH_ENABLED) {
     // Self-host mode — no Supabase auth. The route will need its own fallback.
     next();
     return;
   }
 
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    // No token — leave req.user undefined; requireAuth will reject if needed.
-    next();
-    return;
-  }
-
-  const token = authHeader.slice(7);
   verifySupabaseJwt(token, _verifyOpts)
     .then((payload) => {
       if (!payload.sub) {
@@ -259,6 +310,7 @@ export function authMiddleware(req: Request, _res: Response, next: NextFunction)
         id: payload.sub,
         ...(typeof payload.email === 'string' ? { email: payload.email } : {}),
       };
+      req.authKind = 'jwt';
       next();
     })
     .catch(() => {
@@ -286,4 +338,28 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     return;
   }
   next();
+}
+
+/**
+ * Stricter guard for routes a personal access token must never reach — token
+ * management itself. A leaked token can read and write the collection it was
+ * issued for (that is what it is for), but it cannot mint a second credential
+ * or revoke the ones that would let the owner cut it off.
+ *
+ * Self-host (no Supabase auth) keeps the pass-through posture of requireAuth,
+ * except that a token-authenticated request is still refused: there the
+ * reverse proxy is the boundary, and a token holder is by definition not
+ * behind it.
+ */
+export function requireSession(req: Request, res: Response, next: NextFunction): void {
+  if (req.authKind === 'token') {
+    res.status(403).json({
+      error: {
+        code: 'forbidden',
+        message: 'Personal access tokens cannot manage tokens. Sign in to the web app.',
+      },
+    });
+    return;
+  }
+  requireAuth(req, res, next);
 }

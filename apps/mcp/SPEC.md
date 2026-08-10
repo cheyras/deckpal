@@ -80,6 +80,34 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
   majors with currency (`$3.12`), NULL price = "unpriced", **never $0**. Unpriced counts are
   reported separately in any valuation sum.
 
+## 3b. Cloud mode — multi-user, per-token (added 2026-08-10)
+
+Everything above describes the **self-host** server: one long-lived process, one user, one shared
+`x-brain-key`. The cloud deployment serves the *same 21 tools* to any signed-up user from a single
+Vercel function. Only the way the context is built differs; no tool was rewritten.
+
+| Thing | Self-host (`src/index.ts`) | Cloud (`src/cloud.ts` → `api/mcp.mjs`) |
+|---|---|---|
+| Endpoint | `http://127.0.0.1:3704/mcp` behind a reverse proxy | `https://deckscout.io/mcp` (vercel.json rewrite → `api/mcp.mjs`) |
+| Credential | `x-brain-key: <shared secret>` | `Authorization: Bearer dsk_…` (personal access token, migration 026) |
+| User | lowest `app_user.id`, resolved once at startup | `api_token.user_id` for the presented token, resolved per request |
+| DB access | process pool, no RLS | per-request client inside `withUserContext` — `SET LOCAL role = 'authenticated'` + `request.jwt.claims.sub`, so migration 021's policies fire on every tool query |
+| API-backed tools | unauthenticated call to `127.0.0.1:3700` | same token forwarded as `Authorization: Bearer`, so `deckscout-api` resolves the identical user |
+| Lifetime | one `McpServer` factory, many requests | one `McpHttpHandler` per HTTP request, closed before the transaction commits |
+
+- `Ctx.db` is a `Queryable` (`pg.Pool` **or** `pg.PoolClient`), which is what lets one set of tools
+  run against a process pool and against a per-request RLS transaction unchanged.
+- `Ctx.userId` is a **string** — `app_user.id` has been a UUID since migration 020.
+- Token verification lives in `@deckscout/db` (`src/tokens.ts`) so the API (which mints them) and
+  the MCP edge (which checks them) can never disagree about the hashing rule. SHA-256 of the raw
+  value; the raw value is returned once, at creation, and never stored.
+- Missing / malformed / unknown / revoked token ⇒ bare `401` **without** `WWW-Authenticate`
+  (claude.ai reads that header as an OAuth trigger and abandons the manual-token flow).
+- `MCP_ALLOWED_HOSTS` still gates the `Host` header; the cloud default is
+  `deckscout.io,www.deckscout.io,localhost,127.0.0.1` plus any `*.vercel.app` alias.
+- The REST base is derived from the (already validated) request host — `https://<host>/api` — so
+  there is no environment variable to get wrong. `DECKSCOUT_API_BASE` still overrides.
+
 ## 4. Tool conventions
 
 - Registration: `server.registerTool(name, { title, description, inputSchema: z.object({...}),

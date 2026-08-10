@@ -5,7 +5,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { closePool, pool, q, rlsStore, SUPABASE_MODE, withUserContext } from './db.js';
 import { asyncHandler, catalogCache, errorMiddleware } from './http.js';
-import { authMiddleware, requireAuth } from './auth.js';
+import { authMiddleware, requireAuth, requireSession } from './auth.js';
 import { seriesRouter } from './routes/series.js';
 import { setsRouter } from './routes/sets.js';
 import { massEntryRouter } from './routes/massentry.js';
@@ -19,6 +19,7 @@ import { insightsRouter } from './routes/insights.js';
 import { exportRouter } from './export/router.js';
 import { scanRouter } from './scan/router.js';
 import { bugsRouter } from './routes/bugs.js';
+import { tokensRouter } from './routes/tokens.js';
 
 /**
  * deckscout-api — the read/write API over the populated catalog.
@@ -182,6 +183,7 @@ export function createApp(): express.Express {
         'PATCH /decks/:id/logs/:logId', 'DELETE /decks/:id/logs/:logId',
         '/decks/:id/pdf', '/lists/:id/pdf', '/sets/:setId/checklist.pdf',
         'POST /scan',
+        '/tokens', 'POST /tokens', 'DELETE /tokens/:id',
       ],
     });
   });
@@ -213,6 +215,9 @@ export function createApp(): express.Express {
   api.use('/insights', insightsRouter);
   api.use('/scan', scanRouter);
   api.use('/bugs', bugsRouter);
+  // Token management is session-only: a personal access token can use the API,
+  // but it can never mint another one or revoke the ones that gate it.
+  api.use('/tokens', requireSession, tokensRouter);
 
   // Base path: /api on Vercel, /deckscout/api on self-host (nginx sub-path).
   const basePath = process.env.API_BASE_PATH ?? '/deckscout/api';

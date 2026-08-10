@@ -62,7 +62,7 @@ export function registerStatusTools(server: McpServer, ctx: Ctx): void {
         let dbOk = false;
         let dbErr = '';
         try {
-          await q(ctx.pool, 'SELECT 1');
+          await q(ctx.db, 'SELECT 1');
           dbOk = true;
         } catch (err) {
           dbErr = (err as Error).message;
@@ -89,13 +89,13 @@ export function registerStatusTools(server: McpServer, ctx: Ctx): void {
 
         const [counts, owned, syncs, freshness] = await Promise.all([
           q<CountsRow>(
-            ctx.pool,
+            ctx.db,
             `SELECT (SELECT count(*) FROM card)         AS cards,
                     (SELECT count(*) FROM card_variant) AS variants,
                     (SELECT count(*) FROM card_set)     AS sets`,
           ),
           q<OwnedRow>(
-            ctx.pool,
+            ctx.db,
             `SELECT count(DISTINCT cv.card_id) FILTER (WHERE ci.quantity > 0) AS owned_cards,
                     COALESCE(sum(ci.quantity), 0)::bigint                     AS total_qty
                FROM collection_item ci
@@ -104,12 +104,12 @@ export function registerStatusTools(server: McpServer, ctx: Ctx): void {
             [ctx.userId],
           ),
           q<SyncRow>(
-            ctx.pool,
+            ctx.db,
             `SELECT DISTINCT ON (job) job, status, started_at, finished_at
                FROM sync_run ORDER BY job, started_at DESC`,
           ),
           q<FreshnessRow>(
-            ctx.pool,
+            ctx.db,
             `SELECT source_code, max(fetched_at) AS fetched_at
                FROM price_current GROUP BY source_code ORDER BY source_code`,
           ),
