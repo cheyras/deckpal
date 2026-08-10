@@ -133,14 +133,23 @@ error on the next apply and corrupts the migration history.
 Supabase CLI is not used for schema management; our runner is more rigorous
 (prevents silent edits of shipped migrations).
 
-### B5 — Scanner index (parked for cloud)
+### B5 — Scanner index (the table IS the index)
 
-**Rule (self-host):** After running `pnpm --filter deckscout-api scan:index`,
-restart the API server. The perceptual-hash index is loaded into memory at boot.
+**Rule:** `card_image_phash` is the scanner's only index. The match query ranks it
+in SQL with `bit_count(hash_bits # probe)`; nothing is cached in process memory.
+So `pnpm --filter deckscout-api scan:index` takes effect immediately, on both
+deployments, with no restart.
 
-**Cloud:** The in-memory scanner is parked for Wave 3. The future path is
-Hamming-distance queries in SQL against the `card_image_phash` table -- no
-process restart needed, as the table is the index.
+**Why:** The original scanner read all ~23k hashes into typed arrays at first use
+and kept them for the process lifetime. That is invisible on a server that boots
+once and fatal on serverless, where there is no boot to hang it off.
+
+**Corollary:** index-time and query-time hashing must stay one pipeline, named by
+`ALGO` in `apps/api/src/scan/phash.ts`. Change the decode or the resample and you
+must bump `ALGO` and re-run the indexer — the matcher filters on `algo`, so a
+stale row is silently invisible rather than silently wrong. Hashing is `sharp`;
+do not reintroduce a shelled-out decoder, there is no ImageMagick in a serverless
+function (that is what broke the hosted scanner in issue #20).
 
 ### B6 — Storage path contract
 

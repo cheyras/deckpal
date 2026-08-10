@@ -819,17 +819,23 @@ dex id or the slug. `404` when no such species. Returns the
 Offline card scanner: image → catalog match. Send the **raw image bytes** as the
 request body with an `image/*` Content-Type — **not** multipart, **not** base64
 (`curl --data-binary @photo.jpg -H 'Content-Type: image/jpeg' …`). Max upload
-15 MB. Query: `k` = 1–25 top matches (default 5); `quality` = `low`\|`high`
+4 MB (the hosted platform rejects a larger request body before the API sees it;
+the web client downscales bigger photos client-side, which also converts iOS
+HEIC). Query: `k` = 1–25 top matches (default 5); `quality` = `low`\|`high`
 (which indexed hash set to match against, default `low`).
 
 Computes the query image's 64-bit dHash, ranks the whole indexed hash set by
-Hammed distance (0 = identical, 64 = opposite) across multiple rotation/keystone
-probes (the min distance wins), and hydrates card metadata for the top `k`.
-`matched` is `true` only when the best distance is within the confidence threshold
-(9 — re-measured for the multi-probe matcher so ~99.6% of correct scans fire and
-every tested junk frame is rejected). Read-only.
+Hamming distance (0 = identical, 64 = opposite) across multiple rotation/keystone
+probes (the min distance wins), and hydrates card metadata for the top `k`. The
+ranking is a single SQL query — `bit_count(hash_bits # probe)` over
+`card_image_phash`, native Postgres 14+, no extension and no in-process index —
+so an indexer run takes effect immediately and the endpoint works identically on
+a long-lived server and a serverless function. Measured: 22.6k rows × 34 probes
+in ~69 ms of server time. `matched` is `true` only when the best distance is
+within the confidence threshold (9 — re-measured over 389 degraded scans, so
+96.9% of correct scans fire and every tested junk frame is rejected). Read-only.
 ```json
-{ "query": { "algo": "dhash-64", "hash": "f0e1…08" },
+{ "query": { "algo": "dhash8v3", "hash": "f0e1…08" },
   "matched": true, "threshold": 9, "indexSize": 23104,
   "matches": [ { "cardId": "sv03.5-199", "name": "Charizard ex", "number": "199",
                  "setId": "sv03.5", "setName": "151", "rarity": "Ultra Rare",
