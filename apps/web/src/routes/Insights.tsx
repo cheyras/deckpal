@@ -6,6 +6,7 @@ import { Content, Spinner, ErrorState } from '../components/ui'
 import { LevelRing } from '../components/LevelRing'
 import { ValueChart } from '../components/ValueChart'
 import { Icon } from '../components/Icon'
+import { AvatarDisc, useAvatar } from '../components/Avatar'
 
 const RANGES: { key: ValueRange; label: string }[] = [
   { key: '30d', label: '30 Days' },
@@ -29,6 +30,7 @@ export function Insights() {
   const [currency, setCurrency] = useState<'USD' | 'EUR'>('USD')
 
   const overview = useQuery({ queryKey: ['insights', 'overview'], queryFn: ({ signal }) => api.overview(signal) })
+  const avatar = useAvatar()
   const value = useQuery({
     queryKey: ['insights', 'value', range, currency],
     queryFn: ({ signal }) => api.insightsValue(range, currency, signal),
@@ -68,9 +70,9 @@ export function Insights() {
             {/* Trainer level card */}
             <div className="flex items-center gap-[20px] rounded-2xl bg-surface-secondary p-[20px]">
               <LevelRing level={ov.trainer.level} intoLevel={ov.trainer.intoLevel} size={92}>
-                <div className="flex h-full w-full items-center justify-center text-icon-muted">
-                  <Icon name="user" size={40} />
-                </div>
+                {/* Same ['avatar'] cache as the header chip and /profile — the
+                    trainer card is an identity display, so it wears the face. */}
+                <AvatarDisc url={avatar.data?.avatarUrl} iconSize={40} />
               </LevelRing>
               <div className="min-w-0">
                 <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Trainer Level</div>

@@ -384,10 +384,17 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 }
 
 /**
- * Stricter guard for routes a personal access token must never reach — token
- * management itself. A leaked token can read and write the collection it was
- * issued for (that is what it is for), but it cannot mint a second credential
- * or revoke the ones that would let the owner cut it off.
+ * Stricter guard for routes a personal access token must never reach — the
+ * account itself rather than its contents. A leaked token can read and write
+ * the collection it was issued for (that is what it is for), but it cannot mint
+ * a second credential, revoke the ones that would let the owner cut it off, or
+ * change the face on the account.
+ *
+ * The message is deliberately about the ACCOUNT, not about tokens: this guard
+ * started life in front of `/tokens` alone and said "cannot manage tokens",
+ * which became a lie the moment `/avatar` was mounted behind it. Anything added
+ * here in future is account administration by definition, so the general
+ * sentence stays true.
  *
  * Self-host (no Supabase auth) keeps the pass-through posture of requireAuth,
  * except that a token-authenticated request is still refused: there the
@@ -399,7 +406,7 @@ export function requireSession(req: Request, res: Response, next: NextFunction):
     res.status(403).json({
       error: {
         code: 'forbidden',
-        message: 'Personal access tokens cannot manage tokens. Sign in to the web app.',
+        message: 'Personal access tokens cannot change account settings. Sign in to the web app.',
       },
     });
     return;

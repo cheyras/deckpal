@@ -65,6 +65,39 @@ async function send<T>(method: 'PATCH' | 'POST' | 'PUT' | 'DELETE', path: string
   return res.json() as Promise<T>
 }
 
+/**
+ * POST raw bytes (an image file) rather than JSON.
+ *
+ * `application/octet-stream` is deliberate: the server decides the real type
+ * from the file's magic bytes and ignores this header entirely, and declaring
+ * octet-stream keeps the API's app-wide `express.json` parser from trying to
+ * consume the body first. A `Blob` body survives the 401-refresh retry because
+ * a Blob can be read more than once — a ReadableStream could not.
+ */
+async function upload<T>(path: string, blob: Blob): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream', ...await authHeaders() }
+  const init: RequestInit = { method: 'POST', headers, body: blob }
+  let res = await fetch(`${BASE}${path}`, init)
+  if (res.status === 401) {
+    const retry = await handle401(path, init)
+    if (retry) res = retry
+  }
+  if (!res.ok) throw new Error(await extractError(res))
+  return res.json() as Promise<T>
+}
+
+// ── Profile photo ──────────────────────────────────────────────
+// `enabled` is false on a self-host deployment, which has no object store —
+// the UI hides the whole control rather than offering something that 501s.
+export interface AvatarState {
+  avatarUrl: string | null
+  enabled: boolean
+  /** Largest upload the server will accept, in bytes. */
+  maxBytes?: number
+  /** Formats accepted, decided server-side by magic bytes. */
+  accept?: string[]
+}
+
 // ── Personal access tokens ─────────────────────────────────────
 // Long-lived bearer credentials for non-browser clients (the /mcp endpoint,
 // scripts). The raw value is returned once by createApiToken and never again;
@@ -918,6 +951,13 @@ export const api = {
   apiTokens: (signal?: AbortSignal) => get<{ tokens: ApiTokenRow[] }>('/tokens', signal),
   createApiToken: (name: string) => send<{ token: ApiTokenRow; secret: string }>('POST', '/tokens', { name }),
   revokeApiToken: (id: string) => send<{ token: ApiTokenRow }>('DELETE', `/tokens/${encodeURIComponent(id)}`),
+
+  // Profile photo. The server stores a 256×256 WebP re-encoded from whatever
+  // was uploaded, so `avatarUrl` changes on every replace (the object key is
+  // random) and never needs a cache-busting query string.
+  avatar: (signal?: AbortSignal) => get<AvatarState>('/avatar', signal),
+  uploadAvatar: (file: Blob) => upload<AvatarState>('/avatar', file),
+  removeAvatar: () => send<AvatarState>('DELETE', '/avatar'),
 
   submitBug: (body: { text: string; page: string; screenshot?: string; viewport?: string; userAgent?: string }) =>
     send<{ id: string; saved?: string; issueUrl?: string; issueNumber?: number; note?: string }>('POST', '/bugs', body),

@@ -7,6 +7,7 @@ import { Content, Spinner, ErrorState } from '../components/ui'
 import { LevelRing } from '../components/LevelRing'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
+import { AvatarDisc, AvatarSpinner, useAvatarEditor } from '../components/Avatar'
 import { ChangePassword } from './auth/ChangePassword'
 import { AgentAccess } from '../components/AgentAccess'
 import { fmtUsd } from '../lib/format'
@@ -68,6 +69,7 @@ export function Profile() {
   const overview = useQuery({ queryKey: ['insights', 'overview'], queryFn: ({ signal }) => api.overview(signal) })
   const owned = useOwnedCards()
   const [signingOut, setSigningOut] = useState(false)
+  const photo = useAvatarEditor()
 
   const [showcase, setShowcase] = useState<ShowcasePick[]>(() => loadShowcase())
   const [picking, setPicking] = useState<number | null>(null)
@@ -126,13 +128,42 @@ export function Profile() {
             banner, and took the name, the gear and Sign out with it — so an
             insights outage left nobody able to sign out. */}
         <div className="relative z-[1] -mt-[54px] flex min-h-[96px] items-end gap-[16px]">
-          {ov && (
-            <LevelRing level={ov.trainer.level} intoLevel={ov.trainer.intoLevel} size={96}>
-              <div className="flex h-full w-full items-center justify-center bg-surface-tertiary text-icon-muted">
-                <Icon name="user" size={44} />
-              </div>
+          {/* The ring renders unconditionally now. It used to be gated on `ov`,
+              which meant an insights outage took the profile photo — and its
+              upload control — off the page along with the level. The level is
+              the only part that actually needs insights, so only the badge is
+              gated; the photo is the user's own and must not depend on a
+              statistics endpoint, exactly as Sign out and Account do below. */}
+          <div className="relative shrink-0">
+            <LevelRing
+              level={ov?.trainer.level ?? 0}
+              intoLevel={ov?.trainer.intoLevel ?? 0}
+              size={96}
+              showBadge={!!ov}
+            >
+              <AvatarDisc url={photo.displayUrl} iconSize={44} dimmed={photo.busy === 'upload'} />
+              {photo.busy === 'upload' && (
+                <span className="absolute inset-0 flex items-center justify-center">
+                  <AvatarSpinner size={26} />
+                </span>
+              )}
             </LevelRing>
-          )}
+            {photo.enabled && (
+              // Top-right, not bottom-right: the level badge owns the bottom
+              // edge. Always visible rather than hover-revealed — a hover-only
+              // control is unreachable on the 390px layout this ships to.
+              <button
+                type="button"
+                onClick={photo.choose}
+                disabled={photo.busy !== null}
+                aria-label={photo.hasPhoto ? 'Change profile photo' : 'Add a profile photo'}
+                title={photo.hasPhoto ? 'Change profile photo' : 'Add a profile photo'}
+                className="absolute -right-[2px] -top-[2px] flex h-[30px] w-[30px] items-center justify-center rounded-full border-2 border-surface-primary bg-action-primary text-action-primary-text shadow-panel hover:brightness-110 disabled:opacity-60"
+              >
+                <Icon name="camera" size={15} />
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-[8px] pb-[10px]">
             <span className="text-[24px] font-extrabold text-text-primary">{USERNAME}</span>
             {isCloudMode ? (
@@ -172,16 +203,58 @@ export function Profile() {
           </div>
         </div>
 
-        {/* joined / friends */}
-        <div className="mt-[10px] flex items-center gap-[16px] text-[13px]">
+        {/* joined / friends / photo actions.
+            The photo actions live here rather than beside the name: that row is
+            already name + gear + Sign out and has no room left at 390px. This
+            one is short, wraps cleanly, and is still adjacent to the avatar.
+            The camera badge on the ring is the shortcut; these are the labelled
+            path, and the only place "Remove" can be reached. */}
+        <div className="mt-[10px] flex flex-wrap items-center gap-x-[16px] gap-y-[8px] text-[13px]">
           <span className="text-text-muted">
             Joined <span className="font-semibold text-text-body">Jul 2026</span>
           </span>
-          <span className="h-[14px] w-px bg-divider-subtle" />
+          <span className="hidden h-[14px] w-px bg-divider-subtle sm:block" />
           <span className="text-text-muted">
             Friends <span className="font-semibold text-text-body">0</span>
           </span>
+          {photo.enabled && (
+            <>
+              <span className="hidden h-[14px] w-px bg-divider-subtle sm:block" />
+              <button
+                type="button"
+                onClick={photo.choose}
+                disabled={photo.busy !== null}
+                className="inline-flex items-center gap-[6px] font-semibold text-text-body hover:text-action-primary disabled:opacity-50"
+              >
+                <Icon name="camera" size={14} />
+                {photo.busy === 'upload' ? 'Uploading…' : photo.hasPhoto ? 'Change photo' : 'Add photo'}
+              </button>
+              {photo.hasPhoto && (
+                <button
+                  type="button"
+                  onClick={photo.remove}
+                  disabled={photo.busy !== null}
+                  className="inline-flex items-center gap-[6px] font-semibold text-text-muted hover:text-error disabled:opacity-50"
+                >
+                  <Icon name="close" size={14} />
+                  {photo.busy === 'remove' ? 'Removing…' : 'Remove'}
+                </button>
+              )}
+            </>
+          )}
         </div>
+        {photo.input}
+        {photo.error && (
+          <div
+            role="alert"
+            className="mt-[10px] flex items-start gap-[8px] rounded-[10px] bg-halo-error px-[14px] py-[11px] text-[13px] leading-[1.5] text-error"
+          >
+            <span className="mt-[1px] shrink-0">
+              <Icon name="alert" size={15} />
+            </span>
+            <span>{photo.error}</span>
+          </div>
+        )}
 
         {/* tab strip */}
         <div className="scroll-x mt-[16px] flex gap-[6px] border-b border-border-default">

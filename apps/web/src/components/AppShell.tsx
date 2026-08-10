@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Icon, BrandMark, type IconName } from './Icon'
+import { AvatarDisc, useAvatar } from './Avatar'
 import { PwaUi } from './PwaUi'
 import { BugButton } from './BugReport'
 import { api } from '../lib/api'
@@ -10,8 +11,12 @@ import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
 
 // Signed-in avatar chip (single-user "me") — replaces Log In / Sign Up. The level
 // badge reads straight from the insights overview; links to the profile surface.
+// The photo comes from its own ['avatar'] query, shared with the profile page, so
+// a change there repaints here with no refetch — and an insights outage costs the
+// level badge but never the face.
 function ProfileChip() {
   const { data } = useQuery({ queryKey: ['insights', 'overview'], queryFn: ({ signal }) => api.overview(signal) })
+  const avatar = useAvatar()
   const level = data?.trainer.level ?? 0
   return (
     <Link
@@ -20,7 +25,11 @@ function ProfileChip() {
       aria-label="Your profile"
     >
       <span className="relative flex h-[34px] w-[34px] items-center justify-center rounded-full bg-surface-raised text-icon-default">
-        <Icon name="user" size={20} />
+        {/* The disc is clipped in its own element so the level badge, which
+            hangs 3px past the bottom edge, is not clipped with it. */}
+        <span className="h-full w-full overflow-hidden rounded-full">
+          <AvatarDisc url={avatar.data?.avatarUrl} iconSize={20} fallbackClass="text-icon-default" />
+        </span>
         <span className="absolute -bottom-[3px] left-1/2 -translate-x-1/2 rounded-full bg-action-primary px-[5px] text-[9px] font-extrabold leading-[13px] text-action-primary-text">
           {level}
         </span>
@@ -209,6 +218,10 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
 }
 
 function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+  // The drawer's "View Profile" button is the ONLY identity surface on mobile —
+  // the header chip is desktop-only (`nav:flex`). So the photo belongs here too,
+  // or a phone user never sees the avatar they just uploaded outside /profile.
+  const avatar = useAvatar()
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
@@ -237,7 +250,10 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
             to="/profile"
             className="flex h-[48px] items-center justify-center gap-[8px] rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text"
           >
-            <Icon name="user" size={18} /> View Profile
+            <span className="h-[26px] w-[26px] shrink-0 overflow-hidden rounded-full">
+              <AvatarDisc url={avatar.data?.avatarUrl} iconSize={18} fallbackClass="text-action-primary-text" />
+            </span>
+            View Profile
           </Link>
         </div>
         <nav>
