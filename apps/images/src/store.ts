@@ -1,5 +1,6 @@
 import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { sniffContentType } from '@deckscout/storage';
 import { absoluteFromRelative } from './layout.js';
 import {
   deleteAsset,
@@ -82,36 +83,10 @@ function provenanceColumns(p: Provenance): { sourceUrl: string | null; etag: str
 }
 
 // ── Content-type sniffing ────────────────────────────────────────────────────
-/**
- * Truthful content type from magic bytes. The cache is named `.webp` throughout,
- * but a writer without validation can (and did) land PNG/JPEG bytes under that
- * name; recording `image/webp` for them would be a lie the manifest then spreads.
- * Returns `application/octet-stream` for anything unrecognised.
- */
-export function sniffContentType(buf: Buffer): string {
-  if (
-    buf.length >= 12 &&
-    buf.toString('ascii', 0, 4) === 'RIFF' &&
-    buf.toString('ascii', 8, 12) === 'WEBP'
-  ) {
-    return 'image/webp';
-  }
-  if (buf.length >= 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
-    return 'image/png';
-  }
-  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
-  if (buf.length >= 6 && (buf.toString('ascii', 0, 6) === 'GIF87a' || buf.toString('ascii', 0, 6) === 'GIF89a')) {
-    return 'image/gif';
-  }
-  if (buf.length >= 5 && buf.toString('ascii', 0, 5) === '<?xml') return 'image/svg+xml';
-  if (buf.length >= 4 && buf.toString('ascii', 0, 4) === '<svg') return 'image/svg+xml';
-  return 'application/octet-stream';
-}
-
-/** Is this actually a WebP? Cheap guard for writers that require WebP. */
-export function isWebp(buf: Buffer): boolean {
-  return sniffContentType(buf) === 'image/webp';
-}
+// Truthful content type from magic bytes — defined in @deckscout/storage and
+// re-exported here (every call site in this app imports it from './store.js').
+// Shared with the cloud tier so both record the same truth about the same bytes.
+export { isWebp, sniffContentType } from '@deckscout/storage';
 
 // ── The choke point ──────────────────────────────────────────────────────────
 export interface PutAssetInput {

@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    // No file here imports from `node:*` (the package is deliberately runtime-
+    // agnostic), so nothing pulls @types/node in implicitly — but `process`,
+    // `Buffer` and `fetch` all come from it. Ask for it explicitly.
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

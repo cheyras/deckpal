@@ -14,7 +14,7 @@
   "scripts": {
     "migrate": "pnpm --filter @deckscout/db migrate",
     "migrate:status": "pnpm --filter @deckscout/db migrate:status",
-    "build": "pnpm --filter @deckscout/db build && pnpm --filter deckscout-api build && pnpm --filter deckscout-images build && pnpm --filter deckscout-sync build",
+    "build": "pnpm --filter @deckscout/db build && pnpm --filter @deckscout/storage build && pnpm --filter deckscout-api build && pnpm --filter deckscout-images build && pnpm --filter deckscout-sync build",
     "typecheck": "pnpm -r typecheck",
     "dev:api": "pnpm --filter deckscout-api dev"
   },
