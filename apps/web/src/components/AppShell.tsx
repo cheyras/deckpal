@@ -269,13 +269,21 @@ function Sidebar({ collapsed, onToggle, signedOut }: { collapsed: boolean; onTog
   )
 }
 
-function MobileDrawer({ open, onClose, signedOut }: { open: boolean; onClose: () => void; signedOut: boolean }) {
+function MobileDrawer({ open, onClose, signedIn }: { open: boolean; onClose: () => void; signedIn: boolean | undefined }) {
   // The drawer's "View Profile" button is the ONLY identity surface on mobile —
   // the header chip is desktop-only (`nav:flex`). So the photo belongs here too,
   // or a phone user never sees the avatar they just uploaded outside /profile.
   // Signed out it becomes the sign-up CTA, and useAvatar (an authenticated
   // query) is never mounted — see SignInChip.
-  const avatar = useAvatar(!signedOut)
+  //
+  // `signedIn === true`, not `!signedOut`: the hook returns `undefined` for the
+  // first tick while the session is read out of localStorage, and `!undefined`
+  // is `true`. That one-tick window was enough to fire GET /avatar on every
+  // catalog page and take a 401 — measured in the browser, not reasoned about.
+  // The drawer's `if (!open) return null` sits BELOW this hook, so a closed
+  // drawer fired it too.
+  const signedOut = signedIn === false
+  const avatar = useAvatar(signedIn === true)
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
@@ -458,7 +466,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-surface-primary">
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} signedOut={signedIn === false} />
       <Header onBurger={() => setDrawerOpen((o) => !o)} drawerOpen={drawerOpen} signedIn={signedIn} />
-      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} signedOut={signedIn === false} />
+      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} signedIn={signedIn} />
       <main className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
         <div className="app-content pt-[64px] nav:pt-[78px]">{children}</div>
       </main>
