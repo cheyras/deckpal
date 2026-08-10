@@ -240,6 +240,9 @@ function loadEnv(file) {
 function ensureAuth() {
   const explicit = process.env.MARKETING_ENV_FILE;
   if (explicit) loadEnv(path.resolve(explicit));
+  // Both are gitignored. .env.cloud is where this repo keeps a long-lived
+  // AI_GATEWAY_API_KEY; .env.local is where `vercel env pull` writes the OIDC token.
+  loadEnv(path.join(REPO_ROOT, '.env.cloud'));
   loadEnv(path.join(REPO_ROOT, '.env.local'));
 
   if (process.env.AI_GATEWAY_API_KEY) return 'AI_GATEWAY_API_KEY';
@@ -293,7 +296,7 @@ function isFatalAccountError(err) {
   );
 }
 
-async function generate(only) {
+async function generate(only, candidateOverride, startAt = 1) {
   const auth = ensureAuth();
   console.log(`Gateway auth: ${auth}`);
 
@@ -303,11 +306,12 @@ async function generate(only) {
   let produced = 0;
 
   for (const asset of targets) {
+    const count = candidateOverride ?? asset.candidates;
     const dir = path.join(RAW_DIR, asset.name);
     fs.mkdirSync(dir, { recursive: true });
-    console.log(`\n${asset.name}  (${asset.model}, ${asset.candidates} candidates)`);
+    console.log(`\n${asset.name}  (${asset.model}, candidates ${startAt}..${startAt + count - 1})`);
 
-    for (let i = 1; i <= asset.candidates; i++) {
+    for (let i = startAt; i < startAt + count; i++) {
       const started = Date.now();
       try {
         // Distinct seeds keep candidates genuinely different rather than near-duplicates.
@@ -549,12 +553,19 @@ async function listModels() {
 
 async function main() {
   const [command = 'all', ...rest] = process.argv.slice(2);
-  const onlyIndex = rest.indexOf('--only');
-  const only = onlyIndex >= 0 ? rest[onlyIndex + 1] : undefined;
+  const flag = (name) => {
+    const i = rest.indexOf(name);
+    return i >= 0 ? rest[i + 1] : undefined;
+  };
+  const only = flag('--only');
+  // --candidates / --start-at exist for budget control: image pricing is not always
+  // exposed by the gateway, so a run can be metered a few images at a time.
+  const candidates = flag('--candidates') ? Number(flag('--candidates')) : undefined;
+  const startAt = flag('--start-at') ? Number(flag('--start-at')) : 1;
 
   switch (command) {
     case 'generate':
-      await generate(only);
+      await generate(only, candidates, startAt);
       break;
     case 'optimize':
       await optimize(only);
