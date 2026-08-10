@@ -79,6 +79,47 @@ export function setImageSourceUrl(baseUrl: string): string {
   return /\.webp$/i.test(baseUrl) ? baseUrl : `${baseUrl}.webp`;
 }
 
+// ── Pokédex species sprites ──────────────────────────────────────────────────
+/**
+ * Sprites are the one asset class with NO per-file manifest row, by an existing
+ * project decision (`.claude/skills/add-tcg/image-slots.md`): the tree is
+ * bulk-cloned from ONE pinned upstream commit, so its provenance is that SHA,
+ * recorded in `scripts/fetch-sprites.sh`, rather than 4,100 rows saying the same
+ * thing. `manifest:check` deliberately does not scan the sprite tree — and if we
+ * *did* add rows, it would report every one of them as a missing file on the
+ * self-host box, turning a clean tripwire into permanent false drift.
+ *
+ * The cloud tier therefore fetches sprites from that same pinned SHA. The URL is
+ * fully determined by the request path plus the SHA, so provenance stays exact.
+ *
+ * KEEP IN SYNC with `SPRITES_SHA` in scripts/fetch-sprites.sh — bump both together.
+ */
+export const SPRITES_SHA = 'bf4c47ac82c33b330e33d98b8882d1cedb2f53e7';
+const SPRITES_RAW_BASE = `https://raw.githubusercontent.com/PokeAPI/sprites/${SPRITES_SHA}/sprites/pokemon`;
+
+export type SpriteStyle = 'pixel' | 'art';
+
+/**
+ * Sub-path under the sprite root, identical on disk (SPRITE_ROOT) and in the
+ * bucket (under a `sprites/` prefix), so the same tree can be uploaded verbatim:
+ *   pixel        → {id}.png
+ *   pixel shiny  → shiny/{id}.png
+ *   art          → other/official-artwork/{id}.png
+ *   art shiny    → other/official-artwork/shiny/{id}.png
+ */
+export function spriteSubPath(style: SpriteStyle, id: string, shiny: boolean): string {
+  const dir = style === 'art' ? 'other/official-artwork/' : '';
+  return `${dir}${shiny ? 'shiny/' : ''}${id}.png`;
+}
+
+export function spriteRelativePath(style: SpriteStyle, id: string, shiny: boolean): string {
+  return `sprites/${spriteSubPath(style, id, shiny)}`;
+}
+
+export function spriteSourceUrl(style: SpriteStyle, id: string, shiny: boolean): string {
+  return `${SPRITES_RAW_BASE}/${spriteSubPath(style, id, shiny)}`;
+}
+
 // ── Request parsing ──────────────────────────────────────────────────────────
 /**
  * The URL prefix every image request carries, self-host and cloud alike. Kept
@@ -121,6 +162,16 @@ export type ParsedImage =
       relativePath: string;
       cacheKey: string;
       assetKind: 'set-logo' | 'set-symbol';
+    }
+  | {
+      kind: 'sprite';
+      style: SpriteStyle;
+      id: string;
+      shiny: boolean;
+      relativePath: string;
+      /** Pinned-SHA upstream. Deterministic from the path — see SPRITES_SHA. */
+      canonicalSourceUrl: string;
+      assetKind: 'sprite';
     };
 
 export type ParseImagePathResult =
@@ -156,6 +207,32 @@ export function parseImagePath(subPath: string): ParseImagePathResult {
 
   const segments = decoded.split('/');
   if (segments.some((s) => s.length === 0)) return { ok: false, reason: 'not-found' }; // '', '//', trailing '/'
+
+  // Species sprites: sprites/{pixel|art}[/shiny]/{id}.png — 3 or 4 segments, so
+  // they never collide with the 3-segment set route (which starts 'sets') or the
+  // 5-segment card route. The id is digits-only, which is the whole traversal
+  // defence for this shape.
+  if ((segments.length === 3 || segments.length === 4) && segments[0] === 'sprites') {
+    const style = segments[1]!;
+    const shiny = segments.length === 4;
+    if (shiny && segments[2] !== 'shiny') return { ok: false, reason: 'not-found' };
+    const file = segments[segments.length - 1]!;
+    const m = /^(\d{1,6})\.png$/.exec(file);
+    if ((style !== 'pixel' && style !== 'art') || !m) return { ok: false, reason: 'not-found' };
+    const id = m[1]!;
+    return {
+      ok: true,
+      asset: {
+        kind: 'sprite',
+        style,
+        id,
+        shiny,
+        relativePath: spriteRelativePath(style, id, shiny),
+        canonicalSourceUrl: spriteSourceUrl(style, id, shiny),
+        assetKind: 'sprite',
+      },
+    };
+  }
 
   // Set imagery: sets/{setId}/{logo|symbol}.webp
   if (segments.length === 3 && segments[0] === 'sets') {

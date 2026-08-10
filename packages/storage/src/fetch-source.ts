@@ -68,3 +68,55 @@ export async function fetchSourceBytes(
 
   return { ok: true, bytes, contentType: sniffed, etag: res.headers.get('etag') };
 }
+
+/**
+ * Extensions TCGdex may serve an asset under, in preference order.
+ *
+ * TCGdex asset URLs are a base path plus an extension you pick — the SPA says so
+ * out loud (`assetUrl()` in apps/web ui.tsx: "TCGdex asset URLs omit the file
+ * extension; append one"). Our stored `source_url`s all end in `.webp` because
+ * that is what the warmer asked for, but the origin does not guarantee WebP for
+ * every asset, and it re-encodes: the "Pitch Black" (me05) set logo now 404s as
+ * `.webp` and returns 131 KB of PNG at the same base as `.png`. Verified
+ * 2026-08-10.
+ *
+ * So a 404 on the recorded URL is not proof the asset is gone — only proof that
+ * *that extension* is gone. Trying the siblings is the documented convention, not
+ * a guess, and whichever one answers is the URL we record, because it is the one
+ * we actually fetched.
+ */
+const EXTENSION_LADDER = ['.webp', '.png', '.jpg'] as const;
+
+export interface LadderResult {
+  result: SourceFetchResult;
+  /** The URL that actually served the bytes (may differ from the one passed in). */
+  url: string;
+  /** True when a sibling extension answered after the given URL 404'd. */
+  usedFallback: boolean;
+}
+
+/**
+ * Fetch `url`, and on a hard miss retry the same base with the sibling
+ * extensions. Only 404-class misses are retried — a network error or a 5xx says
+ * nothing about the extension, so re-asking under another name is noise.
+ */
+export async function fetchSourceBytesWithExtensionFallback(
+  url: string,
+  timeoutMs = 15_000,
+): Promise<LadderResult> {
+  const first = await fetchSourceBytes(url, timeoutMs);
+  if (first.ok || first.httpStatus !== 404) return { result: first, url, usedFallback: false };
+
+  const lower = url.toLowerCase();
+  const ext = EXTENSION_LADDER.find((e) => lower.endsWith(e));
+  if (!ext) return { result: first, url, usedFallback: false };
+
+  const base = url.slice(0, url.length - ext.length);
+  for (const alt of EXTENSION_LADDER) {
+    if (alt === ext) continue;
+    const altUrl = `${base}${alt}`;
+    const res = await fetchSourceBytes(altUrl, timeoutMs);
+    if (res.ok) return { result: res, url: altUrl, usedFallback: true };
+  }
+  return { result: first, url, usedFallback: false };
+}

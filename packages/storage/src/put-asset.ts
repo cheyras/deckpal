@@ -139,3 +139,53 @@ export async function putStorageAsset(
     recorded: outcome === 'inserted',
   };
 }
+
+export interface PutUnmanifestedInput {
+  objectPath: string;
+  bytes: Buffer;
+  /** REQUIRED, exactly as above. Still a URL a fetch actually succeeded against. */
+  provenance: Provenance;
+  /**
+   * REQUIRED. Why this asset class is provenance-tracked at the TIER level rather
+   * than per file. There is exactly one legitimate answer today (sprites: one
+   * pinned upstream SHA covers the whole tree, and per-file rows would make the
+   * self-host `manifest:check` report thousands of phantom missing files). If you
+   * are reaching for this for anything else, you want `putStorageAsset`.
+   */
+  tierProvenanceReason: string;
+  contentType?: string;
+}
+
+/**
+ * The deliberate exception to "every byte gets a row".
+ *
+ * It is not a loophole: provenance is still required and still has to be a URL a
+ * fetch succeeded against — it is just recorded once, for the whole class, in the
+ * script that pins it, instead of once per file. See `SPRITES_SHA` in paths.ts
+ * and `scripts/fetch-sprites.sh`. Everything else must go through
+ * `putStorageAsset`.
+ */
+export async function putUnmanifestedObject(
+  input: PutUnmanifestedInput,
+): Promise<PutStorageAssetResult> {
+  const { objectPath, bytes, provenance, tierProvenanceReason } = input;
+  if (!bytes || bytes.length === 0) {
+    throw new Error(`[storage] refusing to store 0 bytes for ${objectPath}`);
+  }
+  if (!tierProvenanceReason.trim()) {
+    throw new Error(
+      `[storage] putUnmanifestedObject requires tierProvenanceReason — say where this asset ` +
+        `class's provenance IS recorded, or use putStorageAsset.`,
+    );
+  }
+  const { sourceUrl } = provenanceColumns(provenance);
+  const contentType = input.contentType ?? sniffContentType(bytes);
+
+  const upload = await uploadObject(objectPath, bytes, contentType);
+  if (!upload.ok) {
+    throw new Error(
+      `[storage] upload failed for ${objectPath}: HTTP ${upload.status} ${upload.error ?? ''}`,
+    );
+  }
+  return { relativePath: objectPath, byteSize: bytes.length, contentType, sourceUrl, recorded: false };
+}
