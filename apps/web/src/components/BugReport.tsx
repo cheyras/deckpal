@@ -16,6 +16,92 @@ import { api } from '../lib/api'
 // appearing. Now the modal is never gated on the screenshot, and the open modal
 // itself is excluded from the shot via `ignoreElements` (see below).
 
+// ── Why the clone's images are inlined before the render walk ────────────────
+//
+// Card art is requested from a *same-origin* path (`/deckscout/images/...`).
+// On cloud that path 302-redirects to a Supabase Storage object on a different
+// origin, so the bytes that actually arrive are cross-origin. html2canvas only
+// sets `crossOrigin="anonymous"` on URLs that *look* cross-origin
+// (`useCORS && !isSameOrigin`), so it loads these with no CORS request at all,
+// every card taints the render canvas, and `toDataURL()` throws
+// `SecurityError: Tainted canvases may not be exported` — after a full,
+// successful render. Setting `crossorigin` on the app's own <img> tags would
+// not help: html2canvas builds its own Image objects from the URL.
+//
+// The fix that holds in both deployments and needs no knowledge of where the
+// bytes come from: replace every image in the *cloned* document with a `data:`
+// URL. An inline image is same-origin by definition and can never taint. The
+// fetch is a normal CORS request, which the redirect target answers with
+// `access-control-allow-origin: *`, and self-host serves the bytes directly.
+// Anything that fails to inline is blanked rather than left in place — one
+// tainted image would fail the whole export.
+const INLINE_CONCURRENCY = 8
+const INLINE_TIMEOUT_MS = 4000
+
+async function fetchAsDataUrl(src: string): Promise<string | null> {
+  const ctl = new AbortController()
+  const timer = window.setTimeout(() => ctl.abort(), INLINE_TIMEOUT_MS)
+  try {
+    const res = await fetch(src, { signal: ctl.signal, credentials: 'omit' })
+    if (!res.ok) return null
+    const blob = await res.blob()
+    // An opaque response (service-worker cache hit on a no-cors entry) reads as
+    // zero bytes — treat it as a miss rather than emitting a broken data URL.
+    if (blob.size === 0) return null
+    return await new Promise<string | null>((resolve) => {
+      const fr = new FileReader()
+      fr.onload = () => resolve(typeof fr.result === 'string' ? fr.result : null)
+      fr.onerror = () => resolve(null)
+      fr.readAsDataURL(blob)
+    })
+  } catch {
+    return null
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
+async function inlineImages(doc: Document): Promise<void> {
+  const imgs = Array.from(doc.querySelectorAll('img')).filter(
+    (img) => img.src && !img.src.startsWith('data:'),
+  )
+  let next = 0
+  const worker = async () => {
+    for (let i = next++; i < imgs.length; i = next++) {
+      const img = imgs[i]!
+      const dataUrl = await fetchAsDataUrl(img.src)
+      img.removeAttribute('srcset')
+      if (dataUrl) {
+        img.src = dataUrl
+      } else {
+        img.removeAttribute('src')
+        img.style.visibility = 'hidden'
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(INLINE_CONCURRENCY, imgs.length) }, worker))
+}
+
+// Keep the POST body clear of the platform's request-size ceiling (Vercel caps a
+// serverless function request at 4.5 MB; the API caps the decoded image at 8 MB).
+// A viewport-sized JPEG is normally well under this, but a 4K/HiDPI viewport is
+// not, and a 413 would lose the whole report, not just the picture.
+const MAX_DATA_URL_CHARS = 3_000_000
+
+function encodeBounded(canvas: HTMLCanvasElement): string | undefined {
+  for (const quality of [0.85, 0.6, 0.4]) {
+    const dataUrl = canvas.toDataURL('image/jpeg', quality)
+    if (dataUrl.length <= MAX_DATA_URL_CHARS) return dataUrl
+  }
+  // Still too big: halve the pixels and re-encode once.
+  const small = document.createElement('canvas')
+  small.width = Math.max(1, Math.round(canvas.width / 2))
+  small.height = Math.max(1, Math.round(canvas.height / 2))
+  small.getContext('2d')?.drawImage(canvas, 0, 0, small.width, small.height)
+  const dataUrl = small.toDataURL('image/jpeg', 0.6)
+  return dataUrl.length <= MAX_DATA_URL_CHARS ? dataUrl : undefined
+}
+
 // Reject a promise if it hasn't settled within `ms`, so a wedged capture can
 // never keep the preview stuck in the "capturing" state.
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -59,9 +145,19 @@ export function BugButton() {
   async function capture() {
     let dataUrl: string | undefined
     try {
-      // Lazy-loaded so html2canvas (~150 KB) never touches the initial bundle —
-      // it's fetched only the first time someone opens the bug reporter.
-      const html2canvas = (await import('html2canvas')).default
+      // html2canvas-pro, not html2canvas. The original is unmaintained since
+      // 1.4.1 (2022) and its colour parser predates CSS Color 4: it throws
+      // `Attempting to parse an unsupported color function "oklab"` on the very
+      // first element it walks, because Tailwind 4 compiles every `/opacity`
+      // utility to `color-mix(in oklab, …)`, which the browser serialises as
+      // `oklab(…)` at computed-value time. That threw inside this try, the
+      // catch below swallowed it, and every report since the Tailwind 4 upgrade
+      // went out with no screenshot (issue #17). The maintained fork parses
+      // oklab/oklch/lab/lch/color() and is otherwise API-compatible.
+      //
+      // Lazy-loaded so it never touches the initial bundle — it's fetched only
+      // the first time someone opens the bug reporter.
+      const html2canvas = (await import('html2canvas-pro')).default
       const bg = getComputedStyle(document.body).backgroundColor || '#15181f'
       // Wait for the just-opened modal to actually paint so `ignoreElements` can
       // find and skip it (two frames: one for React commit, one for paint).
@@ -84,12 +180,19 @@ export function BugButton() {
             el.getAttribute?.('role') === 'dialog' ||
             el.getAttribute?.('aria-modal') === 'true' ||
             el.hasAttribute?.('data-bug-capture-ignore'),
+          onclone: inlineImages,
         }),
-        6000,
+        // Generous, because inlineImages() now runs inside this window. The
+        // modal is never gated on the capture, so the only thing this bounds is
+        // how long the preview says "capturing".
+        15000,
       )
-      dataUrl = canvas.toDataURL('image/jpeg', 0.85)
-    } catch {
-      /* screenshot is best-effort — the report still submits without one */
+      dataUrl = encodeBounded(canvas)
+    } catch (err) {
+      // Best-effort — the report still submits without a screenshot. But it is
+      // logged, not swallowed: the silent catch is why issue #17 sat open with
+      // "screenshot capture no longer works" and no way to see why.
+      console.warn('[bug-report] screenshot capture failed:', err)
       dataUrl = undefined
     }
     setShot(dataUrl)
