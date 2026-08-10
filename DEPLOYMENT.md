@@ -308,38 +308,98 @@ self-host deployment runs the same server as its own process.
 
 ### 1. Create a personal access token
 
-In the app: **Profile → Agent access → New token**. Name it after the client
-(“Claude on my laptop”), then copy the value **immediately** — DeckScout stores
-only a SHA-256 hash of it, so it is shown exactly once and can never be
-recovered. If you lose it, revoke it and make another.
+1. Sign in at <https://deckscout.io> and open **Profile** (the avatar, top
+   right).
+2. Scroll to **Agent access** and press **New token**.
+3. Name it after the client you are about to connect — e.g. `claude.ai` or
+   `Claude on my laptop` — and press **Create token**.
+4. Copy the value **immediately.** DeckScout stores only a SHA-256 hash, so the
+   token is shown exactly once and can never be recovered. Alongside it you also
+   get a **personal connector URL** of the form
+   `https://deckscout.io/mcp/dsk_…` — copy that too; step 2 may need it.
 
-Tokens are listed by their `dsk_…` prefix with their creation and last-used
-dates, and can be revoked at any time from the same panel.
+Tokens are listed afterwards by their `dsk_…` prefix with their creation and
+last-used dates, and can be revoked from the same panel at any time.
 
-### 2a. claude.ai (custom connector)
+### 2. Add the connector in claude.ai
 
-1. **Settings → Connectors → Add custom connector**.
-2. URL: `https://deckscout.io/mcp`
-3. Add a header: `Authorization` = `Bearer <your token>`
-4. Save, enable the connector in a chat, and ask something like *“what Base Set
-   cards am I still missing, and what would they cost?”*
+In claude.ai: **Settings → Connectors → Add custom connector**. Name it
+`DeckScout`, then use whichever of these the dialog offers you.
 
-### 2b. Claude Code (CLI)
+**A · If the dialog has a “Request headers” section (preferred)**
+
+1. Remote MCP server URL: `https://deckscout.io/mcp`
+2. Open **Request headers**. Choose the header name `authorization` and set the
+   value to `Bearer <your token>` — the word `Bearer`, one space, then the
+   token. Mark it **Required**.
+3. Click **Add**.
+
+Request headers are a beta Anthropic is still rolling out to accounts, so the
+section may not be there. If it isn't, use B.
+
+**B · If there is no header field — use your personal connector URL**
+
+1. Remote MCP server URL: paste `https://deckscout.io/mcp/dsk_…` (the personal
+   connector URL from step 1).
+2. Add no headers. Click **Add**.
+
+That URL *contains* your token, so treat the whole string like a password:
+don't paste it into a screenshot, a shared doc, or a bug report. It is
+revocable and scoped to exactly one user — revoking the token kills the URL.
+The token is in the URL **path**, never a query parameter (the MCP
+authorization spec forbids credentials in the query string).
+
+### 3. Check that it works
+
+Start a new chat, enable DeckScout in the tools menu, and ask:
+
+> what is my collection worth, and which set am I closest to finishing?
+
+You should get your own numbers back. The token's **Last used** date in
+Profile → Agent access updates within a minute.
+
+### 4. Claude Code instead (optional)
 
 ```bash
 claude mcp add --transport http deckscout https://deckscout.io/mcp \
   --header "Authorization: Bearer <your token>"
 ```
 
-Check it with `claude mcp list`, and remove it with
-`claude mcp remove deckscout`.
+`claude mcp list` should then print:
 
-### 2c. Any other MCP client
+```
+deckscout: https://deckscout.io/mcp (HTTP) - ✔ Connected
+```
 
-Point it at `https://deckscout.io/mcp` over **Streamable HTTP** and send the
-token in an `Authorization: Bearer …` header. There is no OAuth flow — the
-endpoint deliberately answers `401` without a `WWW-Authenticate` header so
-clients do not try to start one.
+Remove it with `claude mcp remove deckscout`. Claude Code takes arbitrary
+headers at add time, so option A always works there.
+
+### 5. If it doesn't connect
+
+- Use `https://deckscout.io` **exactly** — not `www.deckscout.io`. The `www`
+  host 308-redirects to the apex, and a redirect to a different host silently
+  drops the `Authorization` header.
+- *"Couldn't reach the MCP server"* or an authorization failure almost always
+  means the token is missing, truncated, or revoked. A token cannot be shown
+  twice, so a partial copy is unrecoverable — create a fresh one and re-paste.
+- In option A, include the word `Bearer` and one space before the token.
+  claude.ai sends the header value exactly as typed and adds no scheme of its
+  own.
+- There is no OAuth flow. The endpoint answers `401` **without** a
+  `WWW-Authenticate` header on purpose, so no client tries to start one.
+
+### 6. Revoking
+
+**Profile → Agent access → Revoke.** It takes effect immediately, on every
+client. The row stays in the list, struck through and marked *Revoked*, so you
+can see it happened. Then delete the connector in claude.ai or give it a new
+token.
+
+### Any other MCP client
+
+Point it at `https://deckscout.io/mcp` over **Streamable HTTP** with an
+`Authorization: Bearer <token>` header, or at
+`https://deckscout.io/mcp/<token>` with no header at all.
 
 ### What the token grants
 

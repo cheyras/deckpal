@@ -96,6 +96,28 @@ function pool(): pg.Pool {
   return _pool;
 }
 
+/**
+ * The caller's personal access token, from either place a client can put it.
+ *
+ * 1. `Authorization: Bearer dsk_…` — the standard, and what Claude Code's
+ *    `--header` flag produces.
+ * 2. The last path segment — `https://deckscout.io/mcp/dsk_…`. claude.ai's
+ *    "Add custom connector" dialog takes a URL and (unless the server runs a
+ *    full OAuth flow) nothing else, so for that client the URL *is* the
+ *    credential. It is exactly the same secret, revocable from the same panel
+ *    and scoped to exactly one user; the UI labels the URL as a password so
+ *    nobody pastes it into a screenshot.
+ *
+ * Nothing else is accepted — in particular no query string, so a token cannot
+ * arrive somewhere a `Referer` header would carry it onward.
+ */
+function tokenFrom(req: Request): string {
+  const auth = req.headers.authorization;
+  if (auth?.startsWith('Bearer ')) return auth.slice(7).trim();
+  const last = (req.path || '/').split('/').filter(Boolean).pop() ?? '';
+  return last.startsWith('dsk_') ? last : '';
+}
+
 /** Bare 401. Deliberately WITHOUT `WWW-Authenticate`: claude.ai reads that header as an OAuth trigger and abandons the manual-token flow (SPEC §2). */
 function unauthorized(res: Response, message: string): void {
   res.status(401).json({ error: { code: 'unauthorized', message } });
@@ -135,8 +157,7 @@ export function createCloudApp(): Express {
         return;
       }
 
-      const auth = req.headers.authorization;
-      const raw = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+      const raw = tokenFrom(req);
 
       // A browser GET (no credential, HTML accepted) gets the endpoint card;
       // an MCP client always sends Authorization and Accept: …/event-stream.
@@ -145,7 +166,11 @@ export function createCloudApp(): Express {
         return;
       }
       if (!raw) {
-        unauthorized(res, 'Missing Authorization: Bearer <token>. Create a token at /profile → Agent access.');
+        unauthorized(
+          res,
+          'No token. Send Authorization: Bearer <token>, or use the personal connector URL ' +
+            'https://deckscout.io/mcp/<token>. Create a token in DeckScout at Profile → Agent access.',
+        );
         return;
       }
 
