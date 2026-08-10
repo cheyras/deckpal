@@ -1,3 +1,19 @@
 packages:
   - 'packages/*'
   - 'apps/*'
+
+# Transitive-only security bumps. These packages are not direct dependencies of
+# anything here -- they arrive under @modelcontextprotocol/node, which pins its
+# own ranges -- so an override is the only lever short of waiting for upstream.
+#
+# pnpm 10 reads `overrides` from THIS file, not from package.json's `pnpm` block.
+# The same key under package.json is silently ignored: `pnpm install` reports
+# success and resolves the old version anyway. Verify with `pnpm why <pkg> -r`
+# rather than trusting a clean install.
+overrides:
+  # GHSA alerts 7/8/9/10: memo() SSR cross-user data disclosure, CORS ReDoS,
+  # Language-middleware algorithmic DoS, Connection-header leak in the proxy
+  # helper. All fixed in 4.12.34. @hono/node-server peer-requires `hono: ^4`, so
+  # this is a patch bump inside the range the parent already accepts, not a
+  # forced major. Drop it once @modelcontextprotocol/node ships a newer floor.
+  hono: '^4.12.34'
