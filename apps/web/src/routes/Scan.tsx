@@ -26,9 +26,67 @@ const CARD_ASPECT = 63 / 88 // TCG card width:height — the guide + capture asp
 // away and probes rotations, so loose framing costs nothing (measured: exact-
 // guide crop of an overflowing card ~81% top-1; margin+trim ~98%).
 const CAPTURE_MARGIN = 1.14
+// Consecutive failed frame scans before the live loop admits something is wrong.
+// The loop used to swallow every error to avoid nagging over one dropped frame,
+// which is exactly how a totally broken scanner presented as "isn't detecting any
+// card" with no error anywhere (issue #20). One blip is still silent; three in a
+// row is a fact the user deserves.
+const FRAME_FAIL_LIMIT = 3
+
+// Upload normalisation. Two hard limits meet here: the hosted API rejects a
+// request body over 4.5 MB before our handler ever sees it, and an iPhone's photo
+// library hands out HEIC, which the server-side decoder does not read. Both are
+// the same fix — draw the picture into a canvas and re-encode it as a modest
+// JPEG, which also strips EXIF and bakes in the rotation. Files that are already
+// small and in a format we decode go over the wire byte-for-byte, so scanning a
+// catalog image still lands at distance 0.
+const DIRECT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const DIRECT_MAX_BYTES = 3 * 1024 * 1024
+const NORMALIZED_EDGE = 1400
 
 function confidencePct(c: number): number {
   return Math.round(c * 100)
+}
+
+/** Decode a picked file to something drawable, honouring EXIF orientation. */
+async function decodeForCanvas(file: File): Promise<CanvasImageSource & { width: number; height: number }> {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      return await createImageBitmap(file, { imageOrientation: 'from-image' })
+    } catch {
+      /* Safari has refused blobs it can still render in an <img>; fall through. */
+    }
+  }
+  const url = URL.createObjectURL(file)
+  try {
+    const img = new Image()
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('that file could not be read as an image'))
+      img.src = url
+    })
+    return { ...(img as unknown as CanvasImageSource), width: img.naturalWidth, height: img.naturalHeight } as never
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+/** The bytes to POST for a picked file — original when safe, re-encoded when not. */
+async function toScanBytes(file: File): Promise<{ bytes: ArrayBuffer; type: string }> {
+  if (DIRECT_TYPES.has(file.type) && file.size <= DIRECT_MAX_BYTES) {
+    return { bytes: await file.arrayBuffer(), type: file.type || 'image/jpeg' }
+  }
+  const src = await decodeForCanvas(file)
+  const scale = Math.min(1, NORMALIZED_EDGE / Math.max(src.width, src.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(src.width * scale))
+  canvas.height = Math.max(1, Math.round(src.height * scale))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('this browser could not prepare the image')
+  ctx.drawImage(src as CanvasImageSource, 0, 0, canvas.width, canvas.height)
+  const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', 0.85))
+  if (!blob) throw new Error('this browser could not prepare the image')
+  return { bytes: await blob.arrayBuffer(), type: 'image/jpeg' }
 }
 
 // Crop the live video frame to the on-screen alignment guide plus a small
@@ -224,6 +282,7 @@ export function Scan() {
   const cancelledRef = useRef(false)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const busyRef = useRef(false) // single in-flight frame scan
+  const frameFailRef = useRef(0) // consecutive failed frame scans
   const abortRef = useRef<AbortController | null>(null)
   const stableRef = useRef<{ cardId: string; count: number }>({ cardId: '', count: 0 })
   const pausedRef = useRef(false) // freeze the loop while a result is shown
@@ -251,6 +310,8 @@ export function Scan() {
       const bytes = await blob.arrayBuffer()
       const res = await api.scan(bytes, 'image/jpeg', 5, 'low', abortRef.current.signal)
       if (pausedRef.current) return
+      frameFailRef.current = 0
+      setError(null)
       const top = res.matched ? res.matches[0] : undefined
       if (top) {
         const s = stableRef.current
@@ -272,7 +333,15 @@ export function Scan() {
       }
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
-        /* transient decode/network blip — keep looping, don't nag the user */
+        // One blip is transient — keep looping. A run of them is not the user
+        // holding the card badly, it is the scanner being down, and pretending
+        // otherwise is what made issue #20 look like "detects nothing".
+        frameFailRef.current += 1
+        if (frameFailRef.current >= FRAME_FAIL_LIMIT) {
+          if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null }
+          setHint('Scanning is unavailable')
+          setError((e as Error).message)
+        }
       }
     } finally {
       busyRef.current = false
@@ -300,6 +369,7 @@ export function Scan() {
       setCamState('live')
       pausedRef.current = false
       stableRef.current = { cardId: '', count: 0 }
+      frameFailRef.current = 0
       setHint('Point the camera at a card')
       if (tickRef.current) clearInterval(tickRef.current)
       tickRef.current = setInterval(() => void scanFrame(), FRAME_MS)
@@ -327,6 +397,7 @@ export function Scan() {
     setPreview(null)
     setError(null)
     stableRef.current = { cardId: '', count: 0 }
+    frameFailRef.current = 0
     pausedRef.current = false
     if (camState === 'live') {
       setHint('Point the camera at a card')
@@ -346,8 +417,8 @@ export function Scan() {
     reader.onload = () => setPreview(reader.result as string)
     reader.readAsDataURL(file)
     try {
-      const bytes = await file.arrayBuffer()
-      const res = await api.scan(bytes, file.type || 'image/jpeg', 5, 'low')
+      const { bytes, type } = await toScanBytes(file)
+      const res = await api.scan(bytes, type, 5, 'low')
       setResult(res)
     } catch (e) {
       setError((e as Error).message)

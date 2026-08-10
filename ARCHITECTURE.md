@@ -306,18 +306,6 @@ scheduler.
 
 ## 10. What is parked and why
 
-### Scanner (Wave 3)
-
-The in-memory scanner loads ~23k 64-bit hashes into typed arrays and ranks them
-with 26 rotation/keystone probes per query. This is incompatible with serverless
-(no persistent memory, no ImageMagick for probe generation).
-
-**Future path:** Hamming distance in SQL. Supabase runs Postgres 15+, which has
-`bit_count()`. A single-probe query over 23k rows benchmarks at ~60ms -- well
-under 100ms. Multi-probe via a Postgres function + client-side WASM probe
-generation can recover most of the current ~99.6% accuracy. The `card_image_phash`
-table and data are preserved; only the query path changes.
-
 ### MCP server (Wave 3)
 
 The MCP auth model (`x-brain-key` shared secret) is fundamentally single-user.
@@ -360,6 +348,31 @@ materialized into `user_set_progress`.
 `(variant, source, currency, captured_at)` with `captured_at` from the source.
 
 `user_id` is on every user-owned row; catalog and pricing tables are global.
+
+### Card scanner — the table is the index
+
+A photo becomes a 64-bit dHash; the catalog's ~22.7k hashes live in
+`card_image_phash`; the match is one SQL query that ranks them by Hamming
+distance. There is no in-process index and no vector extension:
+
+```sql
+LEAST(bit_count(hash_bits # probe.p0), …, bit_count(hash_bits # probe.pN))
+```
+
+`bit_count` is native Postgres 14+. `hash_bits` is a generated `bit(64)` mirror of
+the `bytea` hash — the hash is stored as `bytea` because that round-trips to a JS
+bigint, but Postgres has bitwise XOR only for `bit`, and converting per row per
+probe costs 3x (190 ms vs 64 ms measured). Query time on the live index: 22.6k
+rows × 34 geometry probes, ~69 ms of server time.
+
+Two consequences worth stating plainly. **An indexer run is live immediately** —
+no restart, on either deployment. And **index-time and query-time hashing must be
+one pipeline**: the same decoder, the same resample. Both sides run `sharp`, which
+is also why they can: a serverless function has no system ImageMagick, and the
+shelled-out decoder the scanner shipped with is exactly what made the hosted
+scanner match nothing (issue #20). `ALGO` names the pipeline; changing either side
+means bumping it and re-indexing.
+
 
 ## 13. Frontend
 

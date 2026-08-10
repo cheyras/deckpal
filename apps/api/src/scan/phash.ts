@@ -1,8 +1,9 @@
-import { spawn } from 'node:child_process';
+import sharp from 'sharp';
 
 /**
  * Perceptual hashing for the offline card scanner (Phase 8; reworked for the
- * 2026-07 "scanner is inconsistent" bug report).
+ * 2026-07 "scanner is inconsistent" bug report, and again for the 2026-08 cloud
+ * port — issue #20).
  *
  * Fully local, no ML model, no cloud: an image is decoded to a 72×64 grayscale
  * field, box-averaged down to a 9×8 grid, and turned into a 64-bit **dHash**
@@ -15,14 +16,22 @@ import { spawn } from 'node:child_process';
  *
  * The 72×64 intermediate field exists so those geometric probes can be
  * resampled in pure JS at ~µs cost. CRITICAL INVARIANT: index-time and
- * query-time hashing share the exact same decode (ImageMagick → 72×64 gray)
- * and the exact same JS box-average resample — measured earlier, mixing IM's
- * direct 9×8 Lanczos (old index) with JS-resampled probes cost a 3–19 bit
- * noise floor that swamped the rotation correction. `ALGO` names this pipeline;
- * changing either side means bumping it and re-indexing.
+ * query-time hashing share the exact same decode and the exact same JS
+ * box-average resample — measured earlier, mixing IM's direct 9×8 Lanczos (old
+ * index) with JS-resampled probes cost a 3–19 bit noise floor that swamped the
+ * rotation correction. `ALGO` names this pipeline; changing either side means
+ * bumping it and re-indexing.
  *
- * Decoding is delegated to system **ImageMagick** (`magick`, built with
- * libwebp) — no native node addon (no `sharp`/libvips) is pulled in.
+ * Decoding is **sharp** (libvips), not a shelled-out ImageMagick. The scanner
+ * originally spawned `magick` to keep native addons out of the dependency tree;
+ * that choice is what broke the hosted deployment — a serverless function has no
+ * system ImageMagick, so every scan died with `spawn magick ENOENT` before it
+ * ever reached the index (issue #20). sharp ships prebuilt binaries for the
+ * platforms both deployments run on, so one pipeline now serves self-host and
+ * cloud alike. Measured on this Pi over 300 cached cards, sharp's 72×64 field
+ * differs from ImageMagick's by 0–9 bits (median 2) — far too much to reuse the
+ * old index, which is why `ALGO` moved to `dhash8v3` and everything was
+ * re-hashed. sharp is also ~8× faster (1.5 ms vs 12.3 ms per cached image).
  */
 
 // The 64-bit dHash needs a (W+1)×H = 9×8 grayscale field: 8 horizontal
@@ -40,76 +49,62 @@ const PROBE_H = HASH_H * 8; // 64
 // the 72×64 field.
 const FRAME_ASPECT = 63 / 88;
 
-// dHash over a 72×64 box-averaged field ("v2" — old rows carried 'dhash8',
-// IM's direct 9×8 resize, and are NOT comparable; the indexer upserts over them).
-export const ALGO = 'dhash8v2';
+// dHash over a 72×64 box-averaged field. "v3" is the sharp/libvips decode; "v2"
+// rows were ImageMagick's 72×64 field and differ by a median of 2 bits, so they
+// are NOT comparable. The indexer upserts over them (PK is (card_id, quality)),
+// and the matcher filters on `algo`, so a half-migrated index can only ever
+// under-report matches — never mis-report them.
+export const ALGO = 'dhash8v3';
 
-// ImageMagick v7 ships `magick`; `convert` is the v6-compat entry. Either works
-// with the arg vector below. Overridable for odd installs.
-const IM_BIN = process.env.IMAGEMAGICK_BIN ?? 'magick';
+// Background trim, applied ONLY to a query photo (never to the index). It strips
+// a roughly-uniform border — the table/mat/desk around a card that doesn't fill
+// the phone frame — before the grid is sampled. Without it, a centred card
+// surrounded by 25% background hashes almost entirely to the background gradient
+// and matches nothing (measured: distance 37 → 4 once the border is trimmed).
+// It is a QUERY-ONLY candidate, min-combined with the other probes (see
+// hashQueryCandidates), so it can only ever help. `threshold` is the allowed
+// deviation from the corner colour in 0–255 units; 38 ≈ ImageMagick's `-fuzz 15%`,
+// the value the original benchmark was tuned at.
+const TRIM_THRESHOLD = 38;
 
-// Background-trim ops, applied ONLY to a query photo (never to the index).
-// `-fuzz N% -trim` strips a roughly-uniform border — the table/mat/desk around a
-// card that doesn't fill the phone frame — before the grid is sampled. Without
-// it, a centred card surrounded by 25% background hashes almost entirely to the
-// background gradient and matches nothing (measured: distance 37 → 4 once the
-// border is trimmed). It is a QUERY-ONLY candidate, min-combined with the other
-// probes (see hashQueryCandidates), so it can only ever help.
-const TRIM_OPS = ['-fuzz', '15%', '-trim', '+repage'];
-
-// The decode pipeline, shared by path and buffer inputs. `input` is a file path
-// or `-` (stdin). `pre` are extra ops that run BEFORE grayscale+resize (e.g. a
-// background trim for query photos). Output is raw 8-bit gray, row-major.
-function imArgs(input: string, pre: string[]): string[] {
-  return [input, ...pre, '-colorspace', 'Gray', '-resize', `${PROBE_W}x${PROBE_H}!`, '-depth', '8', 'gray:-'];
-}
+// Hard ceiling on decoded pixels. A 50 MP frame is far beyond any phone camera
+// the client sends and bounds both memory and decode time in a serverless
+// function; anything larger is rejected rather than silently resampled.
+const MAX_INPUT_PIXELS = 50_000_000;
 
 interface GrayInput {
   path?: string;
   buffer?: Buffer;
-  /** Extra ImageMagick ops before grayscale+resize (query-only preprocessing). */
-  pre?: string[];
+  /** Strip a uniform background border first (query-only preprocessing). */
+  trim?: boolean;
 }
 
 /**
- * Decode an image (WebP path from the cache, or an uploaded buffer of any
- * format ImageMagick understands) to the 72×64 probe field.
- * Rejects if the decoder exits non-zero or the output is the wrong size.
+ * Decode an image (WebP path from the cache, or an uploaded buffer of any format
+ * libvips understands) to the 72×64 probe field.
+ *
+ * `autoOrient` matters only for query photos: a phone writes the sensor's native
+ * landscape pixels plus an EXIF rotation tag, and hashing the un-rotated pixels
+ * of a portrait shot compares a sideways card against upright art — a guaranteed
+ * miss that no rotation probe covers (they span ±12°). Cached card art carries no
+ * EXIF, so this is a no-op on the index side and the two stay comparable.
+ *
+ * Rejects if the decoder fails or the output is the wrong size.
  */
-export function decodeGray(input: GrayInput): Promise<Uint8Array> {
-  const fromStdin = input.buffer !== undefined;
+export async function decodeGray(input: GrayInput): Promise<Uint8Array> {
+  const src = input.buffer ?? (input.path as string);
+  let pipeline = sharp(src, { autoOrient: true, limitInputPixels: MAX_INPUT_PIXELS, failOn: 'error' });
+  if (input.trim) pipeline = pipeline.trim({ threshold: TRIM_THRESHOLD });
+  const out = await pipeline
+    .grayscale()
+    .resize(PROBE_W, PROBE_H, { fit: 'fill' })
+    .raw({ depth: 'uchar' })
+    .toBuffer();
   const expected = PROBE_W * PROBE_H;
-  const args = imArgs(fromStdin ? '-' : (input.path as string), input.pre ?? []);
-  return new Promise((resolve, reject) => {
-    const cp = spawn(IM_BIN, args, { stdio: ['pipe', 'pipe', 'pipe'] });
-    const chunks: Buffer[] = [];
-    let err = '';
-    cp.stdout.on('data', (d: Buffer) => chunks.push(d));
-    cp.stderr.on('data', (d: Buffer) => {
-      if (err.length < 2000) err += d.toString();
-    });
-    cp.on('error', (e) => reject(new Error(`imagemagick spawn failed (${IM_BIN}): ${e.message}`)));
-    cp.on('close', (code) => {
-      if (code !== 0) {
-        reject(new Error(`imagemagick exited ${code}: ${err.trim().slice(0, 300)}`));
-        return;
-      }
-      const out = Buffer.concat(chunks);
-      if (out.length !== expected) {
-        reject(new Error(`decode produced ${out.length} bytes, expected ${expected}`));
-        return;
-      }
-      resolve(new Uint8Array(out));
-    });
-    if (fromStdin) {
-      cp.stdin.on('error', () => {
-        /* EPIPE if IM rejects the input before draining stdin; the close/stderr
-           handler surfaces the real reason. */
-      });
-      cp.stdin.write(input.buffer as Buffer);
-      cp.stdin.end();
-    }
-  });
+  if (out.length !== expected) {
+    throw new Error(`decode produced ${out.length} bytes, expected ${expected}`);
+  }
+  return new Uint8Array(out);
 }
 
 /** dHash over a 9×8 grayscale field → 64-bit hash as a bigint (MSB first). */
@@ -280,7 +275,10 @@ const GUIDE_ZOOM = 1 / 1.14;
 export async function hashQueryCandidates(buffer: Buffer): Promise<bigint[]> {
   const [plainField, trimmedField] = await Promise.all([
     decodeGray({ buffer }),
-    decodeGray({ buffer, pre: TRIM_OPS }).catch(() => null),
+    // libvips throws "Image is entirely blank" when the trim eats the whole
+    // frame (a photo of a bare table). That is a probe that did not apply, not
+    // an error — the plain field and its rotations still stand.
+    decodeGray({ buffer, trim: true }).catch(() => null),
   ]);
 
   const seen = new Set<bigint>();

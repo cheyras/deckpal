@@ -31,6 +31,21 @@ function mb(bytes: number): string {
   return `${Math.round(v * 10) / 10} MB`
 }
 
+/** Resolve once the URL is decoded, or after `timeoutMs`, or on failure. Never rejects. */
+function preloadImage(url: string, timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    const done = (): void => {
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(done, timeoutMs)
+    img.onload = done
+    img.onerror = done
+    img.src = url
+  })
+}
+
 /**
  * The current user's photo.
  *
@@ -48,19 +63,7 @@ export function useAvatar() {
   })
 }
 
-/**
- * The photo itself, or the default glyph.
- *
- * `object-cover` matters even though the server stores a square: an <img> with
- * a 1:1 source in a 1:1 box still letterboxes if either rounds to an odd pixel.
- */
-export function AvatarDisc({
-  url,
-  iconSize,
-  alt = '',
-  dimmed = false,
-  fallbackClass = 'text-icon-muted',
-}: {
+interface DiscProps {
   url: string | null | undefined
   iconSize: number
   alt?: string
@@ -71,25 +74,55 @@ export function AvatarDisc({
    * and a second one would silently override it.
    */
   fallbackClass?: string
-}) {
-  const [broken, setBroken] = useState(false)
-  // A replaced photo is a different URL; forget a previous load failure.
-  useEffect(() => setBroken(false), [url])
+}
 
-  if (!url || broken) {
-    return (
-      <div className={`flex h-full w-full items-center justify-center ${fallbackClass}`}>
-        <Icon name="user" size={iconSize} />
-      </div>
-    )
-  }
+/**
+ * The photo itself, or the default glyph.
+ *
+ * The glyph is not an `else` branch — it is a LAYER underneath the image, shown
+ * until the image has actually painted and again if it fails. An `<img>` whose
+ * bytes are still in flight renders nothing at all, so the earlier if/else left
+ * a literal hole in the ring for the length of the fetch: caught in a browser
+ * pass where two uploads landed back to back and the screenshot found an empty
+ * disc while the DOM insisted everything was correct. Once the image loads it
+ * is opaque and object-cover, so it hides the glyph completely — including for
+ * an avatar with transparency, which would otherwise let the glyph bleed
+ * through if the glyph were painted on top or the image were flattened.
+ *
+ * `object-cover` matters even though the server stores a square: an <img> with
+ * a 1:1 source in a 1:1 box still letterboxes if either rounds to an odd pixel.
+ */
+export function AvatarDisc(props: DiscProps) {
+  // Keyed on the URL so a replaced photo starts a genuinely fresh load state.
+  // Resetting it in an effect instead would leave one committed frame where
+  // `loaded` still described the PREVIOUS image — which is the hole again.
+  return <AvatarDiscInner key={props.url ?? '∅'} {...props} />
+}
+
+function AvatarDiscInner({ url, iconSize, alt = '', dimmed = false, fallbackClass = 'text-icon-muted' }: DiscProps) {
+  const [loaded, setLoaded] = useState(false)
+  const [broken, setBroken] = useState(false)
+  const showGlyph = !url || broken || !loaded
+
   return (
-    <img
-      src={url}
-      alt={alt}
-      onError={() => setBroken(true)}
-      className={`h-full w-full object-cover transition-opacity ${dimmed ? 'opacity-40' : 'opacity-100'}`}
-    />
+    <div className="relative h-full w-full">
+      {showGlyph && (
+        <div className={`absolute inset-0 flex items-center justify-center ${fallbackClass}`}>
+          <Icon name="user" size={iconSize} />
+        </div>
+      )}
+      {url && !broken && (
+        <img
+          src={url}
+          alt={alt}
+          onLoad={() => setLoaded(true)}
+          onError={() => setBroken(true)}
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity ${
+            dimmed ? 'opacity-40' : 'opacity-100'
+          }`}
+        />
+      )}
+    </div>
   )
 }
 
@@ -157,6 +190,14 @@ export function useAvatarEditor(): AvatarEditor {
       setBusy('upload')
       try {
         const next = await api.uploadAvatar(file)
+        // Decode the stored image BEFORE handing its URL to the cache. The
+        // local preview stays on screen for those extra few hundred
+        // milliseconds, and the swap then lands on an image the browser
+        // already has — so the profile ring, the header chip and the drawer
+        // all go straight from preview to photo with no default-glyph flash in
+        // between. Bounded, because a hung image must not strand the button in
+        // its uploading state: the photo is stored either way.
+        if (next.avatarUrl) await preloadImage(next.avatarUrl, 4000)
         qc.setQueryData<AvatarState>(AVATAR_KEY, (prev) => ({ ...(prev ?? { enabled: true }), ...next }))
       } catch (err) {
         const msg = (err as Error).message

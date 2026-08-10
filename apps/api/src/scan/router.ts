@@ -1,6 +1,6 @@
-import { Router, raw } from 'express';
+import { Router, raw, type RequestHandler } from 'express';
 import { cardImages, q } from '../db.js';
-import { asyncHandler, badRequest, clampInt, oneOf } from '../http.js';
+import { ApiError, asyncHandler, badRequest, clampInt, oneOf } from '../http.js';
 import { ALGO, hashQueryCandidates, hashToHex } from './phash.js';
 
 /**
@@ -18,70 +18,133 @@ import { ALGO, hashQueryCandidates, hashToHex } from './phash.js';
  *       matches: [ { cardId, name, setId, setName, number, rarity,
  *                    images:{low,high}, distance, confidence } ] }
  *
- * How it matches: we compute the query image's 64-bit dHash and rank the whole
- * indexed hash set by Hamming distance (0 = identical, 64 = opposite). `matched`
- * is true only when the best distance is within CONFIDENT_MAX — an honest "no
- * confident match" for a photo of nothing in the catalog. Read-only.
+ * How it matches: we compute the query image's 64-bit dHash (plus geometry
+ * probes) and rank the whole indexed hash set by Hamming distance (0 = identical,
+ * 64 = opposite). `matched` is true only when the best distance is within
+ * CONFIDENT_MAX — an honest "no confident match" for a photo of nothing in the
+ * catalog. Read-only.
+ *
+ * 🔴 The ranking happens in Postgres, not in this process. The original scanner
+ * read all ~23k hashes into a module-level typed array at first use and kept them
+ * for the process lifetime. That is the right shape for a self-host server that
+ * boots once, and the wrong shape for a serverless function: there is no boot to
+ * hang it off, instances are recycled constantly, and a cold start would pay a
+ * 23k-row read before it could answer. `bit_count(a # b)` is native Postgres
+ * (14+), the table is the index, and the whole ranking is one query — which also
+ * means an indexer run is live immediately instead of after a restart (contract
+ * B5). Measured against the live cloud index: 22,652 rows × 34 probes (770k
+ * popcounts) is 69 ms of server time, 98 ms wall from this Pi including ~29 ms
+ * of network round trip — and a self-match still lands at distance 0.
  */
 
 export const scanRouter: Router = Router();
 
-// dHash bit-distance below which we call it a real match. Re-measured for the
-// multi-probe matcher (2026-07 benchmark, 150 cards × 10 degradations): a real
-// phone-style capture's correct card lands ≤ 6 at p90 (≤ 9 at p99.6), while the
-// min distance a NO-CARD frame reaches across all probes is 10–18 — so 9 keeps
-// ~99.6% of correct scans firing and rejects every junk frame tested. (Beyond
-// junk rejection the threshold can't buy precision: the rare wrong top-1s are
+// dHash bit-distance below which we call it a real match. Re-measured against
+// the live v3 cloud index (2026-08, 60 cards spread across the catalog × 7
+// phone-style degradations = 389 scans: re-encode, JPEG noise, 4°/8° tilt on a
+// mat, off-centre on a mat, 7.5% keystone, dim + glare). The correct card lands
+// at p50=3, p90=8, p95=9, p99=12; five synthetic no-card frames (gradient,
+// plasma, noise, bare mat, printed text) bottom out at 10, 15, 15, 15 and 13.
+// So 9 sits in the gap: 96.9% of correct scans fire and every junk frame is
+// rejected, with 10 already letting the plasma frame through. (Beyond junk
+// rejection the threshold can't buy precision: the rare wrong top-1s are
 // near-identical same-art reprints at distance 1–6.)
 const CONFIDENT_MAX = 9;
-const MAX_UPLOAD = 15 * 1024 * 1024;
 
-// The full hash set, loaded once and cached in memory (the index is static
-// between indexer runs), as parallel typed arrays split into 32-bit halves so
-// the multi-probe matching loop runs on number popcounts (~5 ns each) instead
-// of bigint ops. ~23k entries × 26 query probes is still a few ms.
-interface HashIndex {
-  cardIds: Float64Array; // card ids fit doubles exactly; avoids Int32 overflow fuss
-  hi: Uint32Array;
-  lo: Uint32Array;
-  size: number;
+// Vercel caps a serverless function's request body at 4.5 MB, and the platform
+// rejects a larger POST before this handler ever runs — so accepting more here
+// would only turn a clear 413 into a confusing one. The client downscales
+// anything bigger before sending (apps/web/src/routes/Scan.tsx); 4 MB is far
+// more than the ~40 KB JPEG the camera path produces per frame.
+const MAX_UPLOAD = 4 * 1024 * 1024;
+
+interface MatchRow {
+  index_size: string;
+  distance: number | null;
+  tcgdex_id: string | null;
+  name: string | null;
+  local_id: string | null;
+  rarity: string | null;
+  set_tcgdex_id: string | null;
+  set_name: string | null;
+  series_tcgdex_id: string | null;
 }
-let cache: { quality: string; index: HashIndex } | null = null;
 
-async function loadHashes(quality: string): Promise<HashIndex> {
-  if (cache && cache.quality === quality) return cache.index;
-  const rows = await q<{ card_id: string; hash: Buffer }>(
-    'SELECT card_id, hash FROM card_image_phash WHERE quality = $1 AND algo = $2',
-    [quality, ALGO],
-  );
-  const index: HashIndex = {
-    cardIds: new Float64Array(rows.length),
-    hi: new Uint32Array(rows.length),
-    lo: new Uint32Array(rows.length),
-    size: rows.length,
-  };
-  rows.forEach((r, i) => {
-    index.cardIds[i] = Number(r.card_id);
-    index.hi[i] = r.hash.readUInt32BE(0);
-    index.lo[i] = r.hash.readUInt32BE(4);
+/**
+ * Rank the whole index by MIN Hamming distance across the query probes, hydrate
+ * the k winners' card metadata, and report the index size — all in one round
+ * trip, so a scan costs the connection budget exactly one query (contract B2).
+ *
+ * The probe hashes go in as 16-char hex `$n` params and are converted to bit(64)
+ * exactly once, inside a MATERIALIZED single-row CTE. Without the fence Postgres
+ * inlines the conversion into the scan and re-runs it per row per probe, which
+ * measured 3x slower (190 ms vs 64 ms) — the same trap the generated `hash_bits`
+ * column exists to avoid on the other side of the XOR.
+ *
+ * The joins are LEFT so an empty index (or a query that matches nothing) still
+ * returns the one `sz` row carrying `index_size`, rather than collapsing to no
+ * rows and losing the reason there were no matches.
+ */
+async function rankMatches(hashesHex: string[], quality: string, k: number): Promise<MatchRow[]> {
+  // $1 quality, $2 algo, $3 k, then one param per probe.
+  const probeParams = hashesHex.map((_, i) => `('x' || $${i + 4})::bit(64) AS p${i}`);
+  const perProbe = hashesHex.map((_, i) => `bit_count(ph.hash_bits # probe.p${i})`);
+  // 🔴 `bit_count` returns BIGINT, and node-pg hands BIGINT back as a *string* to
+  // avoid precision loss. Without this cast `distance` reaches the client as
+  // "0" instead of 0 — the API's own contract says number, and `<= threshold`
+  // only kept working by accident of JS coercion. It is a 0–64 count; ::int.
+  const distance = `(${perProbe.length === 1 ? perProbe[0]! : `LEAST(${perProbe.join(', ')})`})::int`;
+
+  const sql = `
+    WITH probe AS MATERIALIZED (SELECT ${probeParams.join(', ')}),
+    sz AS (
+      SELECT count(*)::text AS n FROM card_image_phash WHERE quality = $1 AND algo = $2
+    ),
+    ranked AS (
+      SELECT ph.card_id, ${distance} AS distance
+        FROM card_image_phash ph CROSS JOIN probe
+       WHERE ph.quality = $1 AND ph.algo = $2
+       ORDER BY distance
+       LIMIT $3
+    )
+    SELECT sz.n AS index_size, r.distance, c.tcgdex_id, c.name, c.local_id, c.rarity,
+           cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name,
+           ser.tcgdex_id AS series_tcgdex_id
+      FROM sz
+      LEFT JOIN ranked r    ON true
+      LEFT JOIN card c      ON c.id = r.card_id
+      LEFT JOIN card_set cs ON cs.id = c.set_id
+      LEFT JOIN series ser  ON ser.id = cs.series_id
+     ORDER BY r.distance`;
+
+  return q<MatchRow>(sql, [quality, ALGO, k, ...hashesHex]);
+}
+
+// Accept the raw image body regardless of the declared image/* subtype. Mounted
+// only here so the app-wide express.json() is untouched. body-parser signals an
+// oversize body with a plain Error whose `type` is 'entity.too.large' — left
+// alone it reaches errorMiddleware as an unknown error and the caller is told
+// "Internal server error", which is both wrong and unactionable.
+const rawImageBody = raw({ type: () => true, limit: MAX_UPLOAD });
+const readImageBody: RequestHandler = (req, res, next) => {
+  rawImageBody(req, res, (err?: unknown) => {
+    if (err && (err as { type?: string }).type === 'entity.too.large') {
+      next(
+        new ApiError(
+          413,
+          'payload_too_large',
+          `that image is over the ${MAX_UPLOAD / (1024 * 1024)} MB scan limit — send a smaller or downscaled photo`,
+        ),
+      );
+      return;
+    }
+    next(err);
   });
-  cache = { quality, index };
-  return index;
-}
-
-/** 32-bit popcount (Hacker's Delight); x must be a uint32. */
-function pop32(x: number): number {
-  x -= (x >>> 1) & 0x55555555;
-  x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
-  x = (x + (x >>> 4)) & 0x0f0f0f0f;
-  return (x * 0x01010101) >>> 24;
-}
+};
 
 scanRouter.post(
   '/',
-  // Accept the raw image body regardless of the declared image/* subtype. Mounted
-  // only here so the app-wide express.json() is untouched.
-  raw({ type: () => true, limit: MAX_UPLOAD }),
+  readImageBody,
   asyncHandler(async (req, res) => {
     const body = req.body as Buffer;
     if (!Buffer.isBuffer(body) || body.length === 0) {
@@ -102,98 +165,42 @@ scanRouter.post(
     }
     // The reported hash is the whole-frame one — stable + comparable to the index.
     const queryHash = queryHashes[0]!;
+    const hashesHex = queryHashes.map(hashToHex);
 
-    const index = await loadHashes(quality);
-    if (index.size === 0) {
+    const rows = await rankMatches(hashesHex, quality, k);
+    const indexSize = Number(rows[0]?.index_size ?? 0);
+    if (indexSize === 0) {
       res.json({
         query: { algo: ALGO, hash: hashToHex(queryHash) },
         matched: false,
         threshold: CONFIDENT_MAX,
         indexSize: 0,
         matches: [],
-        note: `no '${quality}' hashes indexed yet — run the scan indexer`,
+        note: `no '${quality}' hashes indexed for ${ALGO} yet — run the scan indexer`,
       });
       return;
     }
 
-    // Rank by Hamming distance: for every entry, MIN over the query probes.
-    // Linear over ~23k entries × ~26 probes of 32-bit XOR+popcount — a few ms.
-    // Keep only the k smallest via a simple bounded insertion (avoids sorting all).
-    const nq = queryHashes.length;
-    const qhi = new Uint32Array(nq);
-    const qlo = new Uint32Array(nq);
-    queryHashes.forEach((h, i) => {
-      qhi[i] = Number((h >> 32n) & 0xffffffffn);
-      qlo[i] = Number(h & 0xffffffffn);
-    });
-    const top: Array<{ cardId: number; distance: number }> = [];
-    let worstKept = 64;
-    for (let i = 0; i < index.size; i++) {
-      const ehi = index.hi[i]!;
-      const elo = index.lo[i]!;
-      let d = 64;
-      for (let j = 0; j < nq; j++) {
-        const dd = pop32(ehi ^ qhi[j]!) + pop32(elo ^ qlo[j]!);
-        if (dd < d) d = dd;
-      }
-      if (top.length < k || d < worstKept) {
-        top.push({ cardId: index.cardIds[i]!, distance: d });
-        top.sort((a, b) => a.distance - b.distance);
-        if (top.length > k) top.pop();
-        worstKept = top[top.length - 1]!.distance;
-      }
-    }
-
-    const best = top[0]?.distance ?? 64;
-    const matched = best <= CONFIDENT_MAX;
-
-    // Hydrate card metadata for the k winners in one query.
-    const ids = top.map((t) => t.cardId);
-    const meta = await q<{
-      id: string;
-      tcgdex_id: string;
-      name: string;
-      local_id: string;
-      rarity: string | null;
-      set_tcgdex_id: string;
-      set_name: string;
-      series_tcgdex_id: string;
-    }>(
-      `SELECT c.id, c.tcgdex_id, c.name, c.local_id, c.rarity,
-              cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name,
-              ser.tcgdex_id AS series_tcgdex_id
-         FROM card c
-         JOIN card_set cs ON cs.id = c.set_id
-         JOIN series ser  ON ser.id = cs.series_id
-        WHERE c.id = ANY($1)`,
-      [ids],
-    );
-    const byId = new Map(meta.map((m) => [Number(m.id), m]));
-
-    const matches = top
-      .map((t) => {
-        const m = byId.get(t.cardId);
-        if (!m) return null;
-        return {
-          cardId: m.tcgdex_id,
-          name: m.name,
-          number: m.local_id,
-          setId: m.set_tcgdex_id,
-          setName: m.set_name,
-          rarity: m.rarity,
-          images: cardImages(m.series_tcgdex_id, m.set_tcgdex_id, m.local_id),
-          distance: t.distance,
-          // Bit-similarity, honest and interpretable: 1.0 = identical hash.
-          confidence: Math.round((1 - t.distance / 64) * 1000) / 1000,
-        };
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null);
+    const matches = rows
+      .filter((m): m is MatchRow & { distance: number; tcgdex_id: string } => m.distance !== null && m.tcgdex_id !== null)
+      .map((m) => ({
+        cardId: m.tcgdex_id,
+        name: m.name ?? '',
+        number: m.local_id ?? '',
+        setId: m.set_tcgdex_id ?? '',
+        setName: m.set_name ?? '',
+        rarity: m.rarity,
+        images: cardImages(m.series_tcgdex_id ?? '', m.set_tcgdex_id ?? '', m.local_id ?? ''),
+        distance: m.distance,
+        // Bit-similarity, honest and interpretable: 1.0 = identical hash.
+        confidence: Math.round((1 - m.distance / 64) * 1000) / 1000,
+      }));
 
     res.json({
       query: { algo: ALGO, hash: hashToHex(queryHash) },
-      matched,
+      matched: (matches[0]?.distance ?? 64) <= CONFIDENT_MAX,
       threshold: CONFIDENT_MAX,
-      indexSize: index.size,
+      indexSize,
       matches,
     });
   }),
