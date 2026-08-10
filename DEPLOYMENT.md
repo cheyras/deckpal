@@ -73,6 +73,10 @@ card-art/
   images/<lang>/<serie>/<set>/<localId>.high.webp
   sets/<setId>/logo.webp
   sets/<setId>/symbol.webp
+  sprites/<dexId>.png                            # Pokédex pixel art
+  sprites/shiny/<dexId>.png
+  sprites/other/official-artwork/<dexId>.png
+  sprites/other/official-artwork/shiny/<dexId>.png
 ```
 
 **You do not have to fill this bucket up front.** The `/deckscout/images/*`
@@ -88,6 +92,29 @@ so they self-heal — an image URL never answers with HTML.
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are all this needs; the service
 role is required because Storage writes are server-side only.
+
+Species sprites are filled the same way, from the PokeAPI commit SHA pinned in
+`scripts/fetch-sprites.sh` (they are the one asset class with no per-file
+manifest row — the pinned SHA *is* their provenance).
+
+**Backfilling from a local cache.** Lazy fill can only recover what upstream
+still serves, and TCGdex does drop and re-encode assets. If you have a populated
+self-host cache, mirror it into the bucket — the object key is the same relative
+path, so it is a plain copy:
+
+```bash
+# set imagery only — ~5 MB, makes every set logo/symbol upstream-independent
+node scripts/storage-backfill.mjs --prefix sets
+
+# just the art that can NEVER be lazily recovered (rows with no source_url)
+node scripts/storage-backfill.mjs --prefix images --missing-source
+
+# the whole corpus — ~2.1 GB, needs Supabase Pro (Free's 1 GB is not enough)
+node scripts/storage-backfill.mjs --prefix images
+```
+
+It refuses to upload any file that has no `image_asset` row, so bytes whose
+origin you cannot state never get published.
 
 ### 4. Create a Vercel project
 

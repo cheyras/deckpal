@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
+  SPRITES_SHA,
   cardCacheKey,
   cardRelativePath,
   cardSourceUrl,
@@ -8,6 +10,8 @@ import {
   parseImagePath,
   setImageCacheKey,
   setImageRelativePath,
+  spriteRelativePath,
+  spriteSourceUrl,
 } from '@deckscout/storage';
 
 /**
@@ -149,12 +153,76 @@ test('set paths only serve logo|symbol .webp', () => {
   assert.equal(parseImagePath('sets/sv03.5').ok, false);
 });
 
-test('unknown route shapes (sprites, arbitrary depth) are not-found, never HTML', () => {
-  for (const p of ['sprites/pixel/6.png', 'sprites/art/shiny/6.png', 'en/sv/sv03.5/102/a/low.webp']) {
+test('unknown route shapes are not-found, never HTML', () => {
+  for (const p of ['en/sv/sv03.5/102/a/low.webp', 'sets/base1/logo/extra.webp', 'nope/nope']) {
     const r = parseImagePath(p);
     assert.equal(r.ok, false);
     assert.ok(!r.ok && r.reason === 'not-found');
   }
+});
+
+// ── Species sprites ──────────────────────────────────────────────────────────
+
+test('parses the four sprite shapes to the pinned-SHA upstream', () => {
+  const cases: Array<[string, string, string]> = [
+    ['sprites/pixel/6.png', 'sprites/6.png', '6.png'],
+    ['sprites/pixel/shiny/6.png', 'sprites/shiny/6.png', 'shiny/6.png'],
+    ['sprites/art/6.png', 'sprites/other/official-artwork/6.png', 'other/official-artwork/6.png'],
+    [
+      'sprites/art/shiny/6.png',
+      'sprites/other/official-artwork/shiny/6.png',
+      'other/official-artwork/shiny/6.png',
+    ],
+  ];
+  for (const [req, objectKey, upstreamSub] of cases) {
+    const r = parseImagePath(req);
+    assert.ok(r.ok && r.asset.kind === 'sprite', `expected a sprite for ${req}`);
+    assert.equal(r.asset.relativePath, objectKey);
+    assert.equal(r.asset.assetKind, 'sprite');
+    assert.equal(
+      r.asset.canonicalSourceUrl,
+      `https://raw.githubusercontent.com/PokeAPI/sprites/${SPRITES_SHA}/sprites/pokemon/${upstreamSub}`,
+    );
+  }
+});
+
+test('sprite object keys and source urls agree with the builders', () => {
+  assert.equal(spriteRelativePath('art', '25', true), 'sprites/other/official-artwork/shiny/25.png');
+  assert.equal(
+    spriteSourceUrl('pixel', '25', false),
+    `https://raw.githubusercontent.com/PokeAPI/sprites/${SPRITES_SHA}/sprites/pokemon/25.png`,
+  );
+});
+
+test('sprite ids are digits-only — that is the traversal defence for this shape', () => {
+  for (const p of [
+    'sprites/pixel/../../etc/passwd.png',
+    'sprites/pixel/%2e%2e.png',
+    'sprites/pixel/6a.png',
+    'sprites/pixel/-1.png',
+    'sprites/pixel/1234567.png', // over the 6-digit bound
+    'sprites/pixel/6.jpg',
+    'sprites/pixel/6.png.txt',
+    'sprites/other/6.png', // style must be pixel|art
+    'sprites/pixel/glossy/6.png', // 4th segment must be exactly 'shiny'
+    'sprites/art/shiny/shiny/6.png',
+    'sprites/pixel',
+  ]) {
+    assert.equal(parseImagePath(p).ok, false, `expected rejection for ${p}`);
+  }
+});
+
+test('the pinned sprite SHA matches scripts/fetch-sprites.sh', () => {
+  // Provenance for the whole sprite tree IS this SHA (there are no per-file
+  // manifest rows), so a silent drift between the script and the code would mean
+  // serving bytes we cannot attribute. Fail loudly instead.
+  const script = readFileSync(
+    new URL('../../../../../scripts/fetch-sprites.sh', import.meta.url),
+    'utf8',
+  );
+  const m = /SPRITES_SHA="([0-9a-f]{40})"/.exec(script);
+  assert.ok(m, 'could not find SPRITES_SHA in scripts/fetch-sprites.sh');
+  assert.equal(SPRITES_SHA, m[1]);
 });
 
 // ── Request-URL extraction ───────────────────────────────────────────────────

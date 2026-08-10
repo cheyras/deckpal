@@ -4,7 +4,7 @@ import {
   IMMUTABLE_CACHE_CONTROL,
   PLACEHOLDER_CONTENT_TYPE,
   PLACEHOLDER_WEBP,
-  fetchSourceBytes,
+  fetchSourceBytesWithExtensionFallback,
   fromUrl,
   getManifestRow,
   imageSubPathFromUrl,
@@ -12,6 +12,7 @@ import {
   parseImagePath,
   publicObjectUrl,
   putStorageAsset,
+  putUnmanifestedObject,
   recordProvenanceIfUnknown,
   type ParsedImage,
 } from '@deckscout/storage';
@@ -75,7 +76,11 @@ function sendRedirect(res: ServerResponse, location: string, cache: 'HIT' | 'FIL
   res.end();
 }
 
-/** A failure answer, shaped by asset kind: cards get a placeholder, sets a 404. */
+/**
+ * A failure answer, shaped by asset kind, matching what apps/images does on a
+ * miss: cards get the placeholder WebP (the grid must not collapse), set imagery
+ * and sprites get a 404 (the SPA already renders its own set mark / dex tile).
+ */
 function sendFailure(res: ServerResponse, asset: ParsedImage, reason: string): void {
   if (asset.kind === 'card') sendPlaceholder(res, 200, reason);
   else sendNotFound(res, reason);
@@ -95,6 +100,12 @@ function sendFailure(res: ServerResponse, asset: ParsedImage, reason: string): v
 async function resolveSourceUrl(
   asset: ParsedImage,
 ): Promise<{ url: string; provenanceWasUnknown: boolean } | null> {
+  // Sprites carry no manifest row by design — their provenance is the pinned
+  // PokeAPI SHA (see @deckscout/storage paths.ts SPRITES_SHA), so the URL is
+  // fully determined by the request path and there is nothing to look up.
+  if (asset.kind === 'sprite') {
+    return { url: asset.canonicalSourceUrl, provenanceWasUnknown: false };
+  }
   const row = await getManifestRow(asset.cacheKey);
   if (!row) return null;
   if (row.source_url) return { url: row.source_url, provenanceWasUnknown: false };
@@ -114,24 +125,43 @@ async function fill(res: ServerResponse, asset: ParsedImage): Promise<void> {
     return;
   }
 
-  const fetched = await fetchSourceBytes(source.url);
+  // A 404 on the recorded URL only rules out that *extension* — TCGdex serves the
+  // same base as .webp/.png/.jpg and does not keep all three forever.
+  const attempt = await fetchSourceBytesWithExtensionFallback(source.url);
+  const fetched = attempt.result;
   if (!fetched.ok) {
     sendFailure(res, asset, `upstream ${fetched.httpStatus}: ${fetched.reason}`);
     return;
   }
+  // Provenance is the URL that ACTUALLY served the bytes, never the one we asked
+  // for first. Content type is the sniffed one, so a PNG served under a .webp
+  // name is stored and served as image/png rather than as a lie.
+  const servedBy = attempt.url;
 
-  await putStorageAsset({
-    cacheKey: asset.cacheKey,
-    kind: asset.assetKind,
-    relativePath: asset.relativePath,
-    bytes: fetched.bytes,
-    // We fetched from this exact URL and got these exact bytes — attested, not assumed.
-    provenance: fromUrl(source.url, fetched.etag),
-    contentType: fetched.contentType,
-  });
+  if (asset.kind === 'sprite') {
+    await putUnmanifestedObject({
+      objectPath: asset.relativePath,
+      bytes: fetched.bytes,
+      provenance: fromUrl(servedBy, fetched.etag),
+      tierProvenanceReason:
+        'sprite tree is pinned to one PokeAPI/sprites commit SHA (paths.ts SPRITES_SHA / ' +
+        'scripts/fetch-sprites.sh); per-file rows would also make self-host manifest:check ' +
+        'report every sprite as a missing file',
+      contentType: fetched.contentType,
+    });
+  } else {
+    await putStorageAsset({
+      cacheKey: asset.cacheKey,
+      kind: asset.assetKind,
+      relativePath: asset.relativePath,
+      bytes: fetched.bytes,
+      provenance: fromUrl(servedBy, fetched.etag),
+      contentType: fetched.contentType,
+    });
 
-  if (source.provenanceWasUnknown) {
-    await recordProvenanceIfUnknown(asset.cacheKey, source.url, fetched.etag);
+    if (source.provenanceWasUnknown) {
+      await recordProvenanceIfUnknown(asset.cacheKey, servedBy, fetched.etag);
+    }
   }
 
   res.setHeader('X-Fill-Ms', String(Date.now() - started));
