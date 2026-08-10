@@ -14,10 +14,12 @@
     "test:auth": "node --import tsx --test src/__tests__/auth.test.ts",
     "test:bugs": "node --import tsx --test src/__tests__/bugs.test.ts",
     "prove:deck": "node --import tsx src/deck/prove.ts",
-    "scan:index": "node --import tsx src/scan/index.ts"
+    "scan:index": "node --import tsx src/scan/index.ts",
+    "test:images": "node --import tsx --test src/images/__tests__/*.test.ts"
   },
   "dependencies": {
     "@deckscout/db": "workspace:*",
+    "@deckscout/storage": "workspace:*",
     "express": "^5.0.0",
     "helmet": "^8.0.0",
     "pdfkit": "^0.19.1",

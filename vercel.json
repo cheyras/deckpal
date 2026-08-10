@@ -1,7 +1,8 @@
 {
-  "buildCommand": "pnpm --filter @deckscout/db build && pnpm --filter deckscout-api build && pnpm --filter deckscout-web build",
+  "buildCommand": "pnpm --filter @deckscout/db build && pnpm --filter @deckscout/storage build && pnpm --filter deckscout-api build && pnpm --filter deckscout-web build",
   "outputDirectory": "apps/web/dist",
   "rewrites": [
+    { "source": "/deckscout/images/(.*)", "destination": "/api/images?p=$1" },
     { "source": "/api/(.*)", "destination": "/api" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
@@ -10,6 +11,10 @@
       "maxDuration": 60,
       "memory": 1024,
       "includeFiles": "apps/api/dist/deck/data/*.json"
+    },
+    "api/images.mjs": {
+      "maxDuration": 30,
+      "memory": 512
     }
   }
 }

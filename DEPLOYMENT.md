@@ -63,15 +63,31 @@ automatically when `SUPABASE_MODE` is unset).
 Create a public storage bucket named `card-art` in the Supabase dashboard
 (Storage > New bucket). Enable public access — card art is not user-private.
 
-The path structure inside the bucket:
+The object key inside the bucket is exactly the `image_asset.relative_path` the
+self-host disk cache uses, so a bulk backfill is a straight upload of the local
+`cache/` tree with no remapping:
 
 ```
 card-art/
-  images/<lang>/<serie>/<set>/<localId>/low.webp
-  images/<lang>/<serie>/<set>/<localId>/high.webp
+  images/<lang>/<serie>/<set>/<localId>.low.webp
+  images/<lang>/<serie>/<set>/<localId>.high.webp
   sets/<setId>/logo.webp
   sets/<setId>/symbol.webp
 ```
+
+**You do not have to fill this bucket up front.** The `/deckscout/images/*`
+serverless function (`api/images.mjs` → `apps/api/src/images/handler.ts`) fills
+it lazily: a request for an object that is not there yet looks the asset up in
+the `image_asset` manifest, fetches it from the `source_url` that row recorded,
+writes bytes and row together through the choke point in `@deckscout/storage`,
+and then redirects to the public object URL. Every later request for that asset
+is a 302 to Supabase's CDN, so the function does no work at all. Cold assets
+that cannot be filled (no manifest row, or upstream no longer serves them) get
+the same small placeholder WebP the self-host service serves, with a short TTL
+so they self-heal — an image URL never answers with HTML.
+
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are all this needs; the service
+role is required because Storage writes are server-side only.
 
 ### 4. Create a Vercel project
 
@@ -110,9 +126,13 @@ card-art/
    (`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`), screenshots are uploaded to
    a `bug-reports` storage bucket and linked in the issue body.
 
-5. Deploy. The `vercel.json` in the repo configures rewrites:
-   - `/api/*` routes to the Express catch-all serverless function (`api/index.ts`)
-   - All other routes serve the SPA (`index.html`)
+5. Deploy. The `vercel.json` in the repo carries the real build command and the
+   rewrites, in this order (order matters — the SPA fallback must stay last, or
+   it swallows everything):
+   - `/deckscout/images/*` → the image function (`api/images.mjs`), which serves
+     card art and set logos/symbols out of the `card-art` bucket
+   - `/api/*` → the Express catch-all serverless function (`api/index.mjs`)
+   - everything else → the SPA (`index.html`)
 
 ### 5. Run the data-migration script (existing data)
 
