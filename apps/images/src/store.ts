@@ -5,6 +5,7 @@ import { absoluteFromRelative } from './layout.js';
 import {
   deleteAsset,
   upsertImageAsset,
+  upsertImageObject,
   upsertPreservingProvenance,
   type ImageAssetKind,
 } from './assets.js';
@@ -34,6 +35,15 @@ import {
  *   3. SERVING NEVER DEPENDS ON THIS. apps/images serves from disk; a missing row
  *      degrades metadata (LRU, stats, provenance), never a page. Do not add a
  *      manifest lookup to the read path.
+ *
+ * Since migration 025 every write here records TWO rows, in one place, together:
+ * the `image_asset` row (identity + provenance, shared by both image tiers) and
+ * an `image_object` row for `tier='disk'` (what this machine's filesystem
+ * actually holds). They are separate because the disk copy and the cloud
+ * object are not always the same bytes — upstream re-encodes between the day a
+ * file is warmed and the day the cloud tier fetches it — and one row cannot
+ * honestly answer "how big is this asset" for both. This app never writes the
+ * `object` tier; that belongs to packages/storage.
  */
 
 // ── Provenance ───────────────────────────────────────────────────────────────
@@ -149,6 +159,15 @@ export async function putAsset(input: PutAssetInput): Promise<PutAssetResult> {
       sourceUrl,
       etag,
     });
+    // The disk tier's own measurement of the copy about to be published. A
+    // filesystem assigns no etag, so that column is honestly null.
+    await upsertImageObject({
+      cacheKey,
+      tier: 'disk',
+      byteSize: bytes.length,
+      contentType,
+      etag: null,
+    });
     await rename(tmp, abs);
   } catch (err) {
     await rm(tmp, { force: true }).catch(() => undefined);
@@ -196,6 +215,13 @@ export async function recordExistingAsset(input: RecordExistingInput): Promise<P
     sourceUrl,
     etag,
   });
+  await upsertImageObject({
+    cacheKey,
+    tier: 'disk',
+    byteSize: st.size,
+    contentType,
+    etag: null,
+  });
 
   return { relativePath, byteSize: st.size, contentType, sourceUrl };
 }
@@ -234,6 +260,16 @@ export async function ensureRecorded(
     byteSize: st.size,
     sourceUrl,
     etag,
+  });
+  // The per-tier row IS refreshed even though provenance is not. Provenance is a
+  // claim only the fetcher can make; size and content type are facts about the
+  // file we just measured, and this caller measured it.
+  await upsertImageObject({
+    cacheKey,
+    tier: 'disk',
+    byteSize: st.size,
+    contentType,
+    etag: null,
   });
 
   return { relativePath, byteSize: st.size, contentType, sourceUrl, inserted };

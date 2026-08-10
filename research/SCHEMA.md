@@ -2429,7 +2429,38 @@ CREATE TABLE image_asset (            -- METADATA ONLY. Bytes live on disk. PRIO
   is_pinned    BOOLEAN NOT NULL DEFAULT FALSE          -- never evict (owned cards, showcase)
 );
 CREATE INDEX image_asset_lru ON image_asset (last_access_on) WHERE NOT is_pinned;
+
+-- Migration 025. One row per PHYSICAL COPY of an asset. image_asset above stays
+-- the identity/provenance record; this is what a given tier actually stored.
+CREATE TABLE image_object (
+  cache_key    TEXT NOT NULL REFERENCES image_asset(cache_key) ON DELETE CASCADE,
+  tier         TEXT NOT NULL CHECK (tier IN ('disk','object')),
+  byte_size    INTEGER NOT NULL CHECK (byte_size > 0),
+  content_type TEXT NOT NULL,
+  etag         TEXT,                 -- storage's validator for THIS copy (Supabase: MD5 hex)
+  stored_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (cache_key, tier)
+);
+CREATE INDEX image_object_by_tier ON image_object (tier, cache_key);
 ```
+
+**Why `image_object` exists.** From the cloud image tier (2026-08-10) an asset has
+two physical copies — a file in the self-host disk cache and an object in the
+Supabase Storage bucket — and they are not always the same bytes, because TCGdex
+re-encodes. Measured: `card:sv03.5-102:low` is 14,906 bytes on disk (what upstream
+served when the Pi warmed it) and 17,954 bytes in the bucket (what upstream serves
+today). `image_asset.byte_size` cannot honestly answer for both, so per-copy facts
+moved to their own row and `image_asset` kept the facts that are genuinely shared:
+identity, path, and where the bytes came from. **Divergence between the tiers is
+not drift** — it is the thing this table exists to record.
+
+The path is deliberately *not* duplicated here: it is a pure function of the
+upstream identifiers and identical in both tiers by contract (the Storage object
+key **is** `image_asset.relative_path`), so a second copy would only be a second
+place for it to be wrong. `etag` means the *storage layer's* validator for the
+stored bytes, not upstream's — Supabase hands back an MD5 hex, which doubles as a
+content check; a POSIX filesystem assigns none, so the disk tier writes NULL
+rather than inventing one.
 
 `last_access_on` is a **DATE, updated at most once per day per asset** (`WHERE last_access_on <
 CURRENT_DATE`). A timestamp updated on every image request would be one row write per image view —

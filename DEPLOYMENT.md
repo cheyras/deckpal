@@ -104,17 +104,38 @@ path, so it is a plain copy:
 
 ```bash
 # set imagery only — ~5 MB, makes every set logo/symbol upstream-independent
-node scripts/storage-backfill.mjs --prefix sets
+pnpm --filter deckscout-images storage:backfill -- --prefix sets
 
 # just the art that can NEVER be lazily recovered (rows with no source_url)
-node scripts/storage-backfill.mjs --prefix images --missing-source
+pnpm --filter deckscout-images storage:backfill -- --missing-source
 
 # the whole corpus — ~2.1 GB, needs Supabase Pro (Free's 1 GB is not enough)
-node scripts/storage-backfill.mjs --prefix images
+pnpm --filter deckscout-images storage:backfill -- --prefix images
+
+# record per-tier rows for objects already in the bucket (repairs a partial run,
+# or bytes some other writer published)
+pnpm --filter deckscout-images storage:backfill -- --reconcile
 ```
 
-It refuses to upload any file that has no `image_asset` row, so bytes whose
-origin you cannot state never get published.
+Every upload goes through the same choke point the lazy fill uses
+(`packages/storage/src/put-asset.ts`), so it refuses to publish a file with no
+`image_asset` row — bytes whose origin you cannot state never get published — and
+it records the per-tier `image_object` row for the copy it just wrote. It is
+idempotent and resumable: an object already in the bucket is not re-sent, but its
+per-tier row is still recorded.
+
+> **`scripts/storage-backfill.mjs` is superseded.** It writes objects directly
+> rather than through the choke point, so it cannot record `image_object` rows;
+> objects it creates will be reported by `manifest:check --object-store` as
+> "objects with no row". Use the command above.
+
+**Auditing the bucket.** The disk tier proves "no byte without a row" by walking a
+directory; the object tier proves it by listing the bucket:
+
+```bash
+# point PG* at the cloud database, then:
+pnpm --filter deckscout-images manifest:check -- --object-store
+```
 
 ### 4. Create a Vercel project
 

@@ -63,19 +63,38 @@ row in Postgres. All writes go through a single choke point with a **required**
 `unknownProvenance('reason')` when the source genuinely cannot be established.
 
 **Cloud:** The choke point is `packages/storage/src/put-asset.ts`, which uploads
-to Supabase Storage and upserts the `image_asset` row.
+to Supabase Storage and upserts the `image_asset` row. `putStorageAssetFromFile()`
+is the same function with the bytes read off local disk (the mirror path) --
+still no default provenance.
 
 **Self-host:** The choke point is `apps/images/src/store.ts` -- `putAsset()`
 with atomic file write + manifest row.
+
+**Two tiers, two rows (migration 025).** `image_asset` is the asset's *identity
+and provenance* -- shared, because where bytes came from does not change when you
+copy them. `image_object` holds **one row per physical copy**
+(`PRIMARY KEY (cache_key, tier)`, `tier IN ('disk','object')`) with that copy's
+`byte_size`, `content_type`, storage `etag` and `stored_at`. The two copies
+legitimately differ: upstream re-encodes between the day the disk cache was
+warmed and the day the cloud tier fetched it. Each choke point writes **only its
+own tier**. `image_object.cache_key` is a FK to `image_asset`, so a stored copy
+of something with no provenance record is unrepresentable, not merely discouraged.
 
 **Why:** Files/objects with no manifest row are orphaned and unauditable. Honest
 `NULL` source beats an invented URL the manifest then spreads.
 
 **Where enforced:** The respective choke point module; verified by
-`pnpm --filter deckscout-images manifest:check` (exits non-zero on drift,
-self-host only). Never `writeFile`/`curl -o`/direct Storage upload outside the
-choke point. Never add loose fill scripts under `scripts/` -- add commands in
-the storage module where the contract lives.
+`pnpm --filter deckscout-images manifest:check` (disk tier; exits non-zero on
+drift) and `manifest:check --object-store` (cloud tier, reconciled against the
+actual bucket contents). Never `writeFile`/`curl -o`/direct Storage upload
+outside the choke point. Never add loose fill scripts under `scripts/` -- add
+commands in the storage module where the contract lives; the supported bulk
+paths are `manifest:backfill --disk-tier` and `storage:backfill`.
+
+**Known exception:** `putUnmanifestedObject()` (sprites only). The sprite tree is
+bulk-cloned from one pinned upstream SHA, so its provenance is recorded once for
+the class rather than per file, and it carries no `image_asset` row -- and
+therefore no `image_object` row either. It still demands provenance.
 
 ### B2 — Connection budget (Supabase pooling)
 
