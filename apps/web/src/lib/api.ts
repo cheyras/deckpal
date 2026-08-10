@@ -65,6 +65,19 @@ async function send<T>(method: 'PATCH' | 'POST' | 'PUT' | 'DELETE', path: string
   return res.json() as Promise<T>
 }
 
+// ── Personal access tokens ─────────────────────────────────────
+// Long-lived bearer credentials for non-browser clients (the /mcp endpoint,
+// scripts). The raw value is returned once by createApiToken and never again;
+// `prefix` is all the server can show afterwards.
+export interface ApiTokenRow {
+  id: string
+  name: string
+  prefix: string
+  createdAt: string
+  lastUsedAt: string | null
+  revokedAt: string | null
+}
+
 // ── Money ──────────────────────────────────────────────────────
 // Prices are objects: null means "no price" → render "—", never $0.
 export interface Price {
@@ -899,6 +912,12 @@ export const api = {
 
   // Insights / gamification (Phase 6)
   overview: (signal?: AbortSignal) => get<InsightsOverview>('/insights/overview', signal),
+
+  // Personal access tokens (Profile → Agent access). `secret` comes back on
+  // create and NOWHERE else — the server stores only a hash of it.
+  apiTokens: (signal?: AbortSignal) => get<{ tokens: ApiTokenRow[] }>('/tokens', signal),
+  createApiToken: (name: string) => send<{ token: ApiTokenRow; secret: string }>('POST', '/tokens', { name }),
+  revokeApiToken: (id: string) => send<{ token: ApiTokenRow }>('DELETE', `/tokens/${encodeURIComponent(id)}`),
 
   submitBug: (body: { text: string; page: string; screenshot?: string; viewport?: string; userAgent?: string }) =>
     send<{ id: string; saved?: string; issueUrl?: string; issueNumber?: number; note?: string }>('POST', '/bugs', body),

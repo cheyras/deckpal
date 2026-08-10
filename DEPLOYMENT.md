@@ -295,3 +295,93 @@ pnpm --filter deckscout-sync catalog:run
 # Daily price sync
 pnpm --filter deckscout-sync prices:run
 ```
+
+---
+
+## Connect an AI assistant (MCP)
+
+DeckScout speaks the **Model Context Protocol**, so an assistant can answer
+questions about *your* collection: what you own, what a set still needs, what a
+deck costs, how it has been performing. The cloud deployment serves it at
+`https://deckscout.io/mcp` (Streamable HTTP) for every signed-up user; a
+self-host deployment runs the same server as its own process.
+
+### 1. Create a personal access token
+
+In the app: **Profile → Agent access → New token**. Name it after the client
+(“Claude on my laptop”), then copy the value **immediately** — DeckScout stores
+only a SHA-256 hash of it, so it is shown exactly once and can never be
+recovered. If you lose it, revoke it and make another.
+
+Tokens are listed by their `dsk_…` prefix with their creation and last-used
+dates, and can be revoked at any time from the same panel.
+
+### 2a. claude.ai (custom connector)
+
+1. **Settings → Connectors → Add custom connector**.
+2. URL: `https://deckscout.io/mcp`
+3. Add a header: `Authorization` = `Bearer <your token>`
+4. Save, enable the connector in a chat, and ask something like *“what Base Set
+   cards am I still missing, and what would they cost?”*
+
+### 2b. Claude Code (CLI)
+
+```bash
+claude mcp add --transport http deckscout https://deckscout.io/mcp \
+  --header "Authorization: Bearer <your token>"
+```
+
+Check it with `claude mcp list`, and remove it with
+`claude mcp remove deckscout`.
+
+### 2c. Any other MCP client
+
+Point it at `https://deckscout.io/mcp` over **Streamable HTTP** and send the
+token in an `Authorization: Bearer …` header. There is no OAuth flow — the
+endpoint deliberately answers `401` without a `WWW-Authenticate` header so
+clients do not try to start one.
+
+### What the token grants
+
+The token acts as **you**, limited to your own data. Whoever holds it can read
+and change your collection, lists, decks and battle logs — the same things you
+can do while signed in — and nothing else: every query it makes runs inside your
+row-level-security context, so it cannot see another user's rows. It cannot
+change your password, and it cannot create or revoke tokens (that needs a real
+browser session). Treat it like a password, and revoke it the moment a client no
+longer needs it.
+
+### Tools
+
+21 tools: `health`, `collection_summary`, `collection_log`, `collection_value`,
+`search_cards`, `get_card`, `set_progress`, `decks`, `save_deck`, `delete_deck`,
+`deck_strategy`, `add_battle_log`, `battle_logs`, `deck_history`,
+`edit_battle_log`, `delete_battle_log`, `lists`, `edit_list`, `delete_list`,
+`log_cards`, `set_cart`. See `apps/mcp/SPEC.md` for the full contract.
+
+### Self-host
+
+The MCP server is a separate long-lived process (`apps/mcp`), not part of the
+API. It binds `127.0.0.1:3704` and is gated by a single shared secret rather
+than per-user tokens, because a self-host deployment has one user:
+
+```bash
+pnpm --filter deckscout-mcp build
+ROTOM_MCP_KEY=$(openssl rand -hex 32) node apps/mcp/dist/index.js
+```
+
+| Variable | Meaning |
+|---|---|
+| `ROTOM_MCP_KEY` | Shared secret required in the `x-brain-key` header. Startup fails without it. |
+| `MCP_ALLOWED_HOSTS` | Comma-separated `Host` allowlist (DNS-rebinding protection). Default `127.0.0.1,localhost`. |
+| `DECKSCOUT_MCP_PORT` | Listen port. Default `3704`. |
+| `DECKSCOUT_API_BASE` | Where the REST API lives. Default `http://127.0.0.1:3700/deckscout/api`. |
+
+Expose it through your reverse proxy at whatever path you like, add the
+`x-brain-key` header there (or have the client send it), and point your MCP
+client at that URL. Personal access tokens created in the UI still work as
+`Authorization: Bearer` credentials against the REST API itself.
+
+Self-hosters who want the per-user endpoint instead can run
+`node apps/mcp/dist/cloud.js` (defaults to `127.0.0.1:3705`), which is the same
+code the cloud function serves and expects `Authorization: Bearer dsk_…`.

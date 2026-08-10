@@ -8,6 +8,7 @@ import { LevelRing } from '../components/LevelRing'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
 import { ChangePassword } from './auth/ChangePassword'
+import { AgentAccess } from '../components/AgentAccess'
 import { fmtUsd } from '../lib/format'
 
 const USERNAME = 'Trainer'
@@ -275,14 +276,15 @@ export function Profile() {
           </div>
         )}
 
-        {/* Account — deliberately outside the `ov &&` block: rotating a password
-            must not depend on the insights API being up. Cloud-only; a
-            self-host deploy has no Supabase account to change. */}
-        {isCloudMode && (
-          <div className="mt-[16px] mb-[8px]">
-            <ChangePassword />
-          </div>
-        )}
+        {/* Account + Agent access — deliberately outside the `ov &&` block:
+            rotating a password or revoking a leaked token must not depend on
+            the insights API being up. ChangePassword is cloud-only (a self-host
+            deploy has no Supabase account); Agent access is not — self-hosters
+            connect assistants too. */}
+        <div className="mt-[16px] mb-[8px] flex flex-col gap-[16px]">
+          {isCloudMode && <ChangePassword />}
+          <AgentAccess />
+        </div>
       </Content>
 
       {/* showcase picker */}

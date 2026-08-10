@@ -21,7 +21,7 @@ export type Goal = 'complete' | 'master' | 'grandmaster';
 /** The user's default completion goal (user_settings.default_goal). */
 export async function defaultGoal(ctx: Ctx): Promise<Goal> {
   const r = await q1<{ default_goal: string }>(
-    ctx.pool,
+    ctx.db,
     'SELECT default_goal FROM user_settings WHERE user_id = $1',
     [ctx.userId],
   );
@@ -83,7 +83,7 @@ export async function summaryText(ctx: Ctx, topN = 10): Promise<string> {
   const goal = await defaultGoal(ctx);
 
   const counts = await q1<CountsRow>(
-    ctx.pool,
+    ctx.db,
     `SELECT count(DISTINCT cv.card_id)  AS distinct_cards,
             COALESCE(sum(ci.quantity), 0)::bigint AS total_copies,
             count(DISTINCT c.set_id)    AS sets_owned
@@ -96,7 +96,7 @@ export async function summaryText(ctx: Ctx, topN = 10): Promise<string> {
 
   // Estimated USD value: Σ qty × best USD market price per owned variant.
   const value = await q1<ValueRow>(
-    ctx.pool,
+    ctx.db,
     `WITH best AS (
        SELECT card_variant_id, max(market_minor) AS best_minor
          FROM price_current
@@ -112,7 +112,7 @@ export async function summaryText(ctx: Ctx, topN = 10): Promise<string> {
   );
 
   const top = await q<TopRow>(
-    ctx.pool,
+    ctx.db,
     `WITH best AS (
        SELECT card_variant_id, max(market_minor) AS best_minor
          FROM price_current
@@ -133,7 +133,7 @@ export async function summaryText(ctx: Ctx, topN = 10): Promise<string> {
   );
 
   const near = await q<NearRow>(
-    ctx.pool,
+    ctx.db,
     `SELECT cs.tcgdex_id AS set_tid, cs.name AS set_name,
             p.owned_required, p.total_required
        FROM user_set_progress p
@@ -279,14 +279,14 @@ export function registerCollectionTools(server: McpServer, ctx: Ctx): void {
 
         const where = conds.join(' AND ');
         const totalRow = await q1<{ total: string }>(
-          ctx.pool,
+          ctx.db,
           `SELECT count(*) AS total FROM collection_event ce WHERE ${where}`,
           params,
         );
         const total = Number(totalRow?.total ?? 0);
 
         const rows = await q<LogRow>(
-          ctx.pool,
+          ctx.db,
           `SELECT ce.occurred_at, ce.delta, ce.quantity_after, ce.source, ce.note,
                   c.name, c.local_id, cs.tcgdex_id AS set_tid, cv.variant_kind_code
              FROM collection_event ce
@@ -369,7 +369,7 @@ export function registerCollectionTools(server: McpServer, ctx: Ctx): void {
     async ({ window }) => {
       try {
         const totals = await q<CurTotalRow>(
-          ctx.pool,
+          ctx.db,
           `WITH best AS (
              SELECT card_variant_id, currency_code, max(market_minor) AS best_minor
                FROM price_current
@@ -385,7 +385,7 @@ export function registerCollectionTools(server: McpServer, ctx: Ctx): void {
           [ctx.userId],
         );
         const unpricedRow = await q1<{ unpriced: string }>(
-          ctx.pool,
+          ctx.db,
           `SELECT count(*) AS unpriced
              FROM collection_item ci
             WHERE ci.user_id = $1 AND ci.quantity > 0
@@ -396,7 +396,7 @@ export function registerCollectionTools(server: McpServer, ctx: Ctx): void {
         );
 
         const points = await q<PointRow>(
-          ctx.pool,
+          ctx.db,
           `SELECT currency_code, to_char(observed_on, 'YYYY-MM-DD') AS d, total_minor
              FROM collection_value_point
             WHERE user_id = $1 AND observed_on >= CURRENT_DATE - $2::int
@@ -408,7 +408,7 @@ export function registerCollectionTools(server: McpServer, ctx: Ctx): void {
         // only carry avg30 on the cardmarket/EUR source, so a USD-only filter
         // would be structurally empty (verified 2026-07-29).
         const movers = await q<MoverRow>(
-          ctx.pool,
+          ctx.db,
           `SELECT tcgdex_id, name, variant_kind_code, currency_code, quantity, market_minor, avg30_minor
              FROM (
                SELECT c.tcgdex_id, c.name, cv.variant_kind_code, pc.currency_code, ci.quantity,

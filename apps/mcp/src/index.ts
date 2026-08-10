@@ -3,7 +3,7 @@ import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import type { RequestHandler } from 'express';
 import { loadEnv } from '@deckscout/db';
-import { buildCtx, type Ctx } from './ctx.js';
+import { buildCtx, type SelfHostCtx } from './ctx.js';
 import { q } from './db.js';
 import { buildServer } from './server.js';
 
@@ -37,7 +37,7 @@ async function main(): Promise<void> {
 
   // Build-once context; includes the fatal SELECT 1 self-check and the
   // default-user resolution. DB unreachable → exit 1 (supervisor restarts us).
-  let ctx: Ctx;
+  let ctx: SelfHostCtx;
   try {
     ctx = await buildCtx();
   } catch (err) {

@@ -102,7 +102,7 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
              GROUP BY cv.card_id)`;
 
         // Count first, with exactly the filter params bound so far.
-        const totalRow = await q1<{ total: string }>(ctx.pool, `${ctes} SELECT count(*) AS total ${fromWhere}`, params);
+        const totalRow = await q1<{ total: string }>(ctx.db, `${ctes} SELECT count(*) AS total ${fromWhere}`, params);
         const total = Number(totalRow?.total ?? 0);
 
         // Page query appends its own params (exact-match ranking, limit, offset).
@@ -110,7 +110,7 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
           ? `ORDER BY (lower(unaccent(c.name)) = lower(unaccent(${p(query)}))) DESC, length(c.name), cs.tcgdex_id, c.number_sort`
           : `ORDER BY c.released_on DESC NULLS LAST, cs.tcgdex_id, c.number_sort`;
         const rows = await q<SearchRow>(
-          ctx.pool,
+          ctx.db,
           `${ctes}
            SELECT c.name, c.tcgdex_id, c.rarity, o.qty AS owned_qty, b.best_minor
            ${fromWhere}
@@ -203,14 +203,14 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
         const card = res.card;
 
         const core = await q1<CardCoreRow>(
-          ctx.pool,
+          ctx.db,
           `SELECT category, rarity, hp, regulation_mark, legal_standard, legal_expanded,
                   released_on::text AS released_on, illustrator
              FROM card WHERE id = $1`,
           [card.id],
         );
         const variants = await q<VariantRow>(
-          ctx.pool,
+          ctx.db,
           `SELECT cv.id, cv.variant_kind_code, cv.display_name, cv.is_primary, cv.tcgplayer_url,
                   vtr.tier, COALESCE(ci.quantity, 0) AS owned_qty
              FROM card_variant cv
@@ -221,7 +221,7 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
           [card.id, ctx.userId],
         );
         const prices = await q<PriceRow>(
-          ctx.pool,
+          ctx.db,
           `SELECT pc.card_variant_id, pc.source_code, pc.currency_code, pc.market_minor
              FROM price_current pc
              JOIN card_variant cv ON cv.id = pc.card_variant_id
@@ -342,7 +342,7 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
           // ORDER BY FILTER clauses is allow-list-safe (house rule).
           const having = `HAVING max(p.owned_required) > 0`;
           const totalRow = await q1<{ total: string }>(
-            ctx.pool,
+            ctx.db,
             `SELECT count(*) AS total FROM (
                SELECT p.set_id FROM user_set_progress p
                 WHERE p.user_id = $1 GROUP BY p.set_id ${having}) s`,
@@ -350,7 +350,7 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
           );
           const total = Number(totalRow?.total ?? 0);
           const rows = await q<OverviewRow>(
-            ctx.pool,
+            ctx.db,
             `SELECT cs.tcgdex_id AS set_tid, cs.name AS set_name,
                     max(p.owned_required) FILTER (WHERE p.goal = 'complete')    AS c_owned,
                     max(p.total_required) FILTER (WHERE p.goal = 'complete')    AS c_total,
@@ -389,7 +389,7 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
 
         // Per-set detail.
         const set = await q1<{ id: string; name: string; tid: string; released_on: string | null }>(
-          ctx.pool,
+          ctx.db,
           `SELECT cs.id, cs.name, cs.tcgdex_id AS tid, cs.released_on::text AS released_on
              FROM card_set cs
              JOIN series s ON s.id = cs.series_id
@@ -402,7 +402,7 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
         const setId = Number(set.id);
 
         const goalRows = await q<GoalRow>(
-          ctx.pool,
+          ctx.db,
           `SELECT goal, owned_required, total_required, total_quantity
              FROM user_set_progress WHERE user_id = $1 AND set_id = $2`,
           [ctx.userId, setId],
@@ -462,7 +462,7 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
         }
 
         const agg = await q1<MissingAggRow>(
-          ctx.pool,
+          ctx.db,
           `WITH ${missingCore}
            SELECT count(*) AS missing, sum(cheap_minor)::bigint AS cost_minor,
                   count(cheap_minor) AS priced, count(*) FILTER (WHERE cheap_minor IS NULL) AS unpriced
@@ -470,7 +470,7 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
           [setId, ctx.userId],
         );
         const missingRows = await q<MissingRow>(
-          ctx.pool,
+          ctx.db,
           `WITH ${missingCore}
            SELECT name, local_id, variant_kind_code, cheap_minor
              FROM rows ORDER BY number_sort, vsort NULLS FIRST
