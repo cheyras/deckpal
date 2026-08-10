@@ -7,6 +7,7 @@ import { Content, Spinner, ErrorState } from '../components/ui'
 import { LevelRing } from '../components/LevelRing'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
+import { ChangePassword } from './auth/ChangePassword'
 import { fmtUsd } from '../lib/format'
 
 const USERNAME = 'Trainer'
@@ -114,8 +115,16 @@ export function Profile() {
       </div>
 
       <Content cap={1000}>
-        {/* avatar + identity, avatar overlaps banner */}
-        <div className="-mt-[54px] flex items-end gap-[16px]">
+        {/* Avatar + identity, deliberately overlapping the banner.
+            `relative z-[1]`: the banner's scrim is an absolutely-positioned
+            child, so it paints above this statically-positioned row whatever
+            the DOM order — it was swallowing clicks on Sign out.
+            `min-h-[96px]`: the LevelRing (96px, and the only thing giving this
+            row height) renders only once the overview query resolves. Without a
+            floor the row collapsed to ~40px, rode the -54px margin up INTO the
+            banner, and took the name, the gear and Sign out with it — so an
+            insights outage left nobody able to sign out. */}
+        <div className="relative z-[1] -mt-[54px] flex min-h-[96px] items-end gap-[16px]">
           {ov && (
             <LevelRing level={ov.trainer.level} intoLevel={ov.trainer.intoLevel} size={96}>
               <div className="flex h-full w-full items-center justify-center bg-surface-tertiary text-icon-muted">
@@ -125,9 +134,22 @@ export function Profile() {
           )}
           <div className="flex items-center gap-[8px] pb-[10px]">
             <span className="text-[24px] font-extrabold text-text-primary">{USERNAME}</span>
-            <span className="text-icon-muted" title="Account settings">
-              <Icon name="gear" size={18} />
-            </span>
+            {isCloudMode ? (
+              // Was a dead decorative glyph; now the shortcut to the Account
+              // card further down (password, signed-in address).
+              <a
+                href="#account"
+                title="Account settings"
+                aria-label="Account settings"
+                className="rounded-full text-icon-muted hover:text-icon-hover"
+              >
+                <Icon name="gear" size={18} />
+              </a>
+            ) : (
+              <span className="text-icon-muted" title="Account settings">
+                <Icon name="gear" size={18} />
+              </span>
+            )}
             {isCloudMode && (
               <button
                 type="button"
@@ -135,7 +157,9 @@ export function Profile() {
                 onClick={async () => {
                   setSigningOut(true)
                   await supabase.auth.signOut()
-                  navigate({ to: '/auth' })
+                  // AuthGuard sends a lost session to the same place, so the two
+                  // cannot race each other to different pages.
+                  navigate({ to: '/signed-out' })
                 }}
                 className="ml-[4px] flex items-center gap-[6px] rounded-full bg-surface-tertiary px-[12px] py-[5px] text-[13px] font-semibold text-text-muted hover:bg-action-default-hover hover:text-text-body disabled:opacity-50"
                 title="Sign out"
@@ -248,6 +272,15 @@ export function Profile() {
                 <Stat label="Pokédex" value={`${ov.pokedex.captured}/${ov.pokedex.total}`} />
               </div>
             </section>
+          </div>
+        )}
+
+        {/* Account — deliberately outside the `ov &&` block: rotating a password
+            must not depend on the insights API being up. Cloud-only; a
+            self-host deploy has no Supabase account to change. */}
+        {isCloudMode && (
+          <div className="mt-[16px] mb-[8px]">
+            <ChangePassword />
           </div>
         )}
       </Content>

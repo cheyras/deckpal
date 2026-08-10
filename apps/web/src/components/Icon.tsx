@@ -43,6 +43,8 @@ export type IconName =
   | 'book'
   | 'history'
   | 'logout'
+  | 'mail'
+  | 'key'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   cards: (
@@ -253,6 +255,18 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
       <path d="M16 17l5-5-5-5M21 12H9" />
+    </>
+  ),
+  mail: (
+    <>
+      <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+      <path d="M3.5 7.5l7.3 5.1a2 2 0 002.4 0l7.3-5.1" />
+    </>
+  ),
+  key: (
+    <>
+      <circle cx="8" cy="12" r="4.2" />
+      <path d="M12.2 12H21M18.2 12v3.2M15.4 12v2.4" />
     </>
   ),
 }
