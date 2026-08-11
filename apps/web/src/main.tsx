@@ -13,6 +13,11 @@ import {
   useRouterState,
 } from '@tanstack/react-router'
 import './theme.css'
+// The premium visual pass. Every rule inside is scoped to `[data-skin='premium']`
+// (set by initSkin below), so importing it is inert until the attribute is on —
+// which is what makes the pass reversible without a rebuild. See lib/skin.ts.
+import './premium.css'
+import { initSkin } from './lib/skin'
 import { registerPwa } from './pwa'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
@@ -348,6 +353,9 @@ declare module '@tanstack/react-router' {
     router: typeof router
   }
 }
+
+// Before first paint, so the skin never flashes from classic to premium.
+initSkin()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Icon, BrandMark, type IconName } from './Icon'
+import { NavIcon } from './NavIcon'
+import { useSkin } from '../lib/useSkin'
 import { AvatarDisc, useAvatar } from './Avatar'
 import { PwaUi } from './PwaUi'
 import { BugButton } from './BugReport'
@@ -106,16 +108,20 @@ function NavRow({
   // is FOR — but it leads to the sign-up form rather than to a page that would
   // immediately bounce there anyway.
   const locked = signedOut && !!item.gated
+  // `px-nav-row` + `data-active` are the premium skin's hooks for the accent
+  // edge and the lit recess (premium.css §5); classic ignores both and keeps
+  // the flat `bg-surface-secondary` block below.
   const body = (
     <span
       className={[
-        'flex h-[56px] items-center',
+        'px-nav-row flex h-[56px] items-center',
         collapsed ? 'justify-center px-0' : 'gap-[14px] px-[24px]',
         active ? 'bg-surface-secondary text-text-primary' : 'text-text-muted hover:text-text-body',
       ].join(' ')}
+      data-active={active ? 'true' : 'false'}
     >
       <span className={active ? 'text-text-primary' : 'text-icon-muted-strong'}>
-        <Icon name={item.icon} size={item.icon === 'discord' ? 20 : 24} />
+        <NavIcon name={item.icon} active={active} size={item.icon === 'discord' ? 20 : 24} />
       </span>
       {!collapsed && (
         <>
@@ -211,12 +217,13 @@ function ExpandableNavRow({
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="block w-full text-left">
         <span
           className={[
-            'flex h-[56px] items-center gap-[14px] px-[24px]',
+            'px-nav-row flex h-[56px] items-center gap-[14px] px-[24px]',
             active ? 'bg-surface-secondary text-text-primary' : 'text-text-muted hover:text-text-body',
           ].join(' ')}
+          data-active={active ? 'true' : 'false'}
         >
           <span className={active ? 'text-text-primary' : 'text-icon-muted-strong'}>
-            <Icon name={item.icon} size={24} />
+            <NavIcon name={item.icon} active={active} size={24} />
           </span>
           <span className="flex-1 text-[14px] font-normal leading-[21px]">{item.label}</span>
           <Icon
