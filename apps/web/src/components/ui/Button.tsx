@@ -11,14 +11,17 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children?: ReactNode
 }
 
-// Variant defines colour, font weight and borders.
+// Variant defines colour, font weight and borders. The three filled variants
+// (primary, secondary, danger) use a mild top-to-bottom gradient — a bit
+// lighter at top, a bit darker at bottom — via the .btn-fill-* classes in
+// theme.css; ghost/dashed stay flat outlines, unaffected.
 const VARIANT: Record<ButtonVariant, string> = {
   primary:
-    'bg-action-primary text-action-primary-text hover:bg-action-primary-hover font-bold',
+    'btn-fill-primary text-action-primary-text font-bold',
   secondary:
-    'bg-surface-tertiary text-text-primary hover:bg-action-default-hover font-semibold',
+    'btn-fill-secondary text-text-primary font-semibold',
   danger:
-    'bg-action-danger text-action-danger-text hover:bg-action-danger-hover font-bold',
+    'btn-fill-danger text-action-danger-text font-bold',
   ghost:
     'border border-action-ghost-border bg-surface-secondary text-text-primary hover:border-surface-raised hover:bg-action-ghost-hover font-semibold',
   dashed:

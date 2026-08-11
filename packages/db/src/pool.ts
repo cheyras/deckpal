@@ -99,7 +99,7 @@ export function makePool(maxOverride?: number): pg.Pool {
   loadEnv();
   const requested = maxOverride ?? Number(process.env.PGPOOL_MAX ?? 3);
   const max = Math.min(Number.isFinite(requested) ? requested : 3, HARD_CAP);
-  return new Pool({
+  const pool = new Pool({
     host: process.env.PGHOST ?? '127.0.0.1',
     port: Number(process.env.PGPORT ?? 5432),
     database: process.env.PGDATABASE ?? 'deckscout',
@@ -113,4 +113,13 @@ export function makePool(maxOverride?: number): pg.Pool {
     connectionTimeoutMillis: 10_000,
     application_name: process.env.PGAPPNAME ?? 'deckscout',
   });
+  // node-postgres docs: an idle client that errors out (e.g. a brief network
+  // blip to the upstream Postgres) emits 'error' on the pool. Without a
+  // listener here, that error is unhandled and the pool is left wedged —
+  // every future pool.connect() times out until the process is restarted.
+  // Logging and letting the pool recover on its own is the documented fix.
+  pool.on('error', (err) => {
+    console.error('[db] idle client error (pool recovers automatically):', err.message);
+  });
+  return pool;
 }

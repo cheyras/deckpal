@@ -8,20 +8,65 @@
  * `static` so every token is emitted even when no utility references it.
  */
 @theme static {
-  /* ── surfaces ─────────────────────────────────────────────── */
-  --color-surface-primary: #15181f;
-  --color-surface-secondary: #1f232d;
-  --color-surface-tertiary: #282d38;
-  --color-surface-tertiary-subtle: rgb(44 48 59 / 0.2);
-  --color-surface-tertiary-transparent: rgb(44 48 59 / 0.5);
-  --color-surface-quaternary: #373d4c;
-  --color-surface-raised: #3e4353;
-  --color-surface-control-active: #484f60;
-  --color-surface-profile-card: #282d38;
-  --color-surface-on-light: #f7f9ff;
-  --color-surface-on-light-border: #e0e4ef;
-  --color-surface-on-light-text: #1f232d;
-  --color-surface-footer: #1b1f27;
+  /* ── brand palette (raw Tailwind scales, 50-950) ─────────────────
+   * Source-of-truth hue scales, not semantic roles — nothing renders off these
+   * directly today. They exist so the semantic tokens below (action-primary,
+   * etc.) can be filtered down to a single brand-*-<shade> reference later
+   * instead of each recolor hand-picking hex per token.
+   *   primary   = Tailwind teal   (current action-primary family)
+   *   secondary = Tailwind indigo
+   *   tertiary  = Tailwind yellow
+   */
+  --color-brand-primary-50: #f0fdfa;
+  --color-brand-primary-100: #ccfbf1;
+  --color-brand-primary-200: #99f6e4;
+  --color-brand-primary-300: #5eead4;
+  --color-brand-primary-400: #2dd4bf;
+  --color-brand-primary-500: #14b8a6;
+  --color-brand-primary-600: #0d9488;
+  --color-brand-primary-700: #0f766e;
+  --color-brand-primary-800: #115e59;
+  --color-brand-primary-900: #134e4a;
+  --color-brand-primary-950: #042f2e;
+
+  --color-brand-secondary-50: #eef2ff;
+  --color-brand-secondary-100: #e0e7ff;
+  --color-brand-secondary-200: #c7d2fe;
+  --color-brand-secondary-300: #a5b4fc;
+  --color-brand-secondary-400: #818cf8;
+  --color-brand-secondary-500: #6366f1;
+  --color-brand-secondary-600: #4f46e5;
+  --color-brand-secondary-700: #4338ca;
+  --color-brand-secondary-800: #3730a3;
+  --color-brand-secondary-900: #312e81;
+  --color-brand-secondary-950: #1e1b4b;
+
+  --color-brand-tertiary-50: #fefce8;
+  --color-brand-tertiary-100: #fef9c3;
+  --color-brand-tertiary-200: #fef08a;
+  --color-brand-tertiary-300: #fde047;
+  --color-brand-tertiary-400: #facc15;
+  --color-brand-tertiary-500: #eab308;
+  --color-brand-tertiary-600: #ca8a04;
+  --color-brand-tertiary-700: #a16207;
+  --color-brand-tertiary-800: #854d0e;
+  --color-brand-tertiary-900: #713f12;
+  --color-brand-tertiary-950: #422006;
+
+  /* ── surfaces (Tailwind neutral scale, +1 brightness stop) ────── */
+  --color-surface-primary: #171717; /* neutral-900 */
+  --color-surface-secondary: #262626; /* neutral-800 */
+  --color-surface-tertiary: #404040; /* neutral-700 */
+  --color-surface-tertiary-subtle: rgb(64 64 64 / 0.2); /* neutral-700 */
+  --color-surface-tertiary-transparent: rgb(64 64 64 / 0.5); /* neutral-700 */
+  --color-surface-quaternary: #525252; /* neutral-600 */
+  --color-surface-raised: #737373; /* neutral-500 */
+  --color-surface-control-active: #a3a3a3; /* neutral-400 */
+  --color-surface-profile-card: #404040; /* neutral-700 */
+  --color-surface-on-light: #f5f5f5; /* neutral-100 */
+  --color-surface-on-light-border: #d4d4d4; /* neutral-300 */
+  --color-surface-on-light-text: #262626; /* neutral-800 */
+  --color-surface-footer: #262626; /* neutral-800 */
 
   /* ── text & links ─────────────────────────────────────────── */
   --color-text-primary: #ffffff;
@@ -29,48 +74,48 @@
   --color-text-secondary: #989eb3;
   --color-text-muted: #7f8596;
   --color-text-primary-on-dark: rgb(255 255 255 / 0.85);
-  --color-link: #32b5ff;
-  --color-link-hover: #45bcff;
+  --color-link: var(--color-brand-secondary-400); /* indigo-400 */
+  --color-link-hover: var(--color-brand-secondary-300); /* indigo-300, brighter on hover */
 
   /* ── actions ──────────────────────────────────────────────── */
-  --color-action-primary: #ffd54a;
-  --color-action-primary-hover: #e6ca5b;
-  --color-action-primary-text: #1f232d;
-  --color-action-primary-strong: #ffe165;
-  --color-action-primary-strong-hover: #ffd63b;
-  --color-action-primary-strong-text: #1f232d;
-  --color-action-default: #282d38;
-  --color-action-default-hover: #3b3f4b;
+  --color-action-primary: #2dd4bf; /* teal-400 */
+  --color-action-primary-hover: #14b8a6; /* teal-500 */
+  --color-action-primary-text: #042f2e; /* teal-950 */
+  --color-action-primary-strong: #5eead4; /* teal-300 */
+  --color-action-primary-strong-hover: #2dd4bf; /* teal-400 */
+  --color-action-primary-strong-text: #042f2e; /* teal-950 */
+  --color-action-default: #262626; /* neutral-800 */
+  --color-action-default-hover: #404040; /* neutral-700 */
   --color-action-default-text: #ffffff;
-  --color-action-ghost-border: #3b3f4b;
-  --color-action-ghost-hover: #282d38;
-  --color-action-ghost-text: #7f8596;
-  --color-action-danger: #ff7893;
-  --color-action-danger-hover: #e6657f;
-  --color-action-danger-text: #15181f;
-  --color-action-brand: #32b5ff;
+  --color-action-ghost-border: #404040; /* neutral-700 */
+  --color-action-ghost-hover: #262626; /* neutral-800 */
+  --color-action-ghost-text: #a3a3a3; /* neutral-400 */
+  --color-action-danger: #ef4444; /* red-500 */
+  --color-action-danger-hover: #dc2626; /* red-600 */
+  --color-action-danger-text: #ffffff;
+  --color-action-brand: #60a5fa; /* blue-400 */
   --color-action-brand-text: #ffffff;
 
-  /* ── status / feedback ────────────────────────────────────── */
-  --color-success: #32ffce;
-  --color-error: #ff7893;
-  --color-change-positive: #35f197;
-  --color-change-negative: #ff6b6b;
-  --color-halo-success: rgb(50 255 206 / 0.1);
-  --color-halo-error: rgb(255 120 147 / 0.1);
+  /* ── status / feedback (Tailwind green/red for status roles) ── */
+  --color-success: #4ade80; /* green-400 */
+  --color-error: #f87171; /* red-400 */
+  --color-change-positive: #22c55e; /* green-500 */
+  --color-change-negative: #ef4444; /* red-500 */
+  --color-halo-success: rgb(74 222 128 / 0.1); /* green-400 */
+  --color-halo-error: rgb(248 113 113 / 0.1); /* red-400 */
   --color-halo-neutral: rgb(255 225 101 / 0.1);
   --color-overlay-scrim: rgb(44 48 59 / 0.7);
   --color-overlay-scrim-strong: rgb(21 24 31 / 0.75);
   --color-overlay-ring: rgb(255 225 101 / 0.2);
-  --color-overlay-ring-error: rgb(255 120 147 / 0.2);
+  --color-overlay-ring-error: rgb(248 113 113 / 0.2); /* red-400 */
   --color-banner-gradient-top: rgb(31 35 45 / 0.8);
   --color-track-subtle: #1a1d24;
 
-  /* ── borders / icons ──────────────────────────────────────── */
-  --color-border-default: #282d38;
-  --color-border-focus: #7f8596;
-  --color-divider-subtle: #383c49;
-  --color-avatar-ring: #282d38;
+  /* ── borders / icons (Tailwind neutral scale, matches surfaces) ── */
+  --color-border-default: #525252; /* neutral-600 */
+  --color-border-focus: #a3a3a3; /* neutral-400 */
+  --color-divider-subtle: #404040; /* neutral-700 */
+  --color-avatar-ring: #525252; /* neutral-600 */
   --color-icon-default: #7f8596;
   --color-icon-hover: #ffffff;
   --color-icon-active: #ffe165;
@@ -213,9 +258,12 @@ button {
 }
 
 /* App logotype — "Pokédex" in the top chrome. Live text, series-logo inspired:
-   heavy weight + slight forward skew, yellow→gold gradient (action-primary family)
-   clipped to the glyphs, and a layered drop-shadow for the chunky outlined depth.
-   drop-shadow (not text-shadow) so the shadow tracks the gradient-clipped glyphs. */
+   heavy weight + slight forward skew, a light-to-dark gradient within the
+   action-primary hue family (all 4 stops, so recoloring action-primary never
+   leaves a foreign-hue fringe at the top/bottom of the glyphs — see
+   DECISIONS.md 2026-08-11) clipped to the glyphs, and a layered drop-shadow for
+   the chunky outlined depth. drop-shadow (not text-shadow) so the shadow
+   tracks the gradient-clipped glyphs. */
 .brand-wordmark {
   display: inline-block;
   font-weight: 900;
@@ -223,16 +271,40 @@ button {
   transform: skewX(-6deg);
   background: linear-gradient(
     180deg,
-    #fff3a6 0%,
+    #ccfbf1 0%,
     var(--color-action-primary-strong) 34%,
     var(--color-action-primary) 62%,
-    #eda921 100%
+    #0f766e 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   filter: drop-shadow(0 1px 0 rgb(0 0 0 / 0.55)) drop-shadow(0 2px 5px rgb(0 0 0 / 0.35));
   user-select: none;
+}
+
+/* Filled button variants (Button.tsx primary/secondary/danger) — a mild
+   top-to-bottom gradient, one Tailwind shade lighter at top and one shade
+   darker at bottom of each variant's base color. Hover shifts the whole
+   gradient one shade further down (same convention as the old flat
+   hover:bg-*-hover classes). */
+.btn-fill-primary {
+  background: linear-gradient(180deg, var(--color-brand-primary-300), var(--color-brand-primary-500));
+}
+.btn-fill-primary:hover {
+  background: linear-gradient(180deg, var(--color-brand-primary-400), var(--color-brand-primary-600));
+}
+.btn-fill-danger {
+  background: linear-gradient(180deg, #f87171, #dc2626); /* red-400 -> red-600 */
+}
+.btn-fill-danger:hover {
+  background: linear-gradient(180deg, #ef4444, #b91c1c); /* red-500 -> red-700 */
+}
+.btn-fill-secondary {
+  background: linear-gradient(180deg, #525252, #262626); /* neutral-600 -> neutral-800 */
+}
+.btn-fill-secondary:hover {
+  background: linear-gradient(180deg, #404040, #171717); /* neutral-700 -> neutral-900 */
 }
 
 /* Thin scrollbars on horizontal chip rows */

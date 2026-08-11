@@ -8,6 +8,7 @@ import { Icon } from '../components/Icon'
 import { fmtDate } from '../lib/format'
 import { useSignedIn } from '../lib/session'
 import { SignInPrompt } from '../components/SignInPrompt'
+import { tailwindGradientStops } from '../lib/gradientPalette'
 
 // ── Sort / group preferences (issue 14i8ys) ────────────────────────────────
 // Persisted to localStorage only when the user hits "Save as default"; otherwise
@@ -60,10 +61,14 @@ function sortSeries(list: SeriesSummary[], key: SortKey, dir: SortDir): SeriesSu
 }
 
 // Overall series completion (issues yscpfd + hln3d0) — owned cards / total cards
-// across the series, drawn as a small ring on the card's right side. Uses the same
-// danger→primary gradient the set-page progress bar uses; the gradient def itself
-// lives once at the page root (see RING_GRADIENT_ID) so cards can share it.
+// across the series, drawn as a small ring on the card's right side. Uses the
+// same derived two-hue-away gradient the set-page progress bar uses (see
+// lib/gradientPalette); the gradient def itself lives once at the page root
+// (see RING_GRADIENT_ID) so cards can share it.
 const RING_GRADIENT_ID = 'series-ring-grad'
+// action-primary-strong is teal-300 (theme.css) — keep this in sync if that
+// token's hue family changes.
+const [RING_GRADIENT_FROM, RING_GRADIENT_TO] = tailwindGradientStops('teal', '300')
 
 function CompletionRing({ owned, total, pct }: { owned: number; total: number; pct: number }) {
   return (
@@ -276,12 +281,12 @@ export function SeriesIndex() {
   return (
     <Content cap={1200}>
       {/* Shared stroke gradient for the per-card completion rings — same
-          danger→primary ramp as the set-page progress bar. */}
+          derived two-hue-away ramp as the set-page progress bar (lib/gradientPalette). */}
       <svg width="0" height="0" className="absolute" aria-hidden="true" focusable="false">
         <defs>
           <linearGradient id={RING_GRADIENT_ID} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="var(--color-action-danger)" />
-            <stop offset="100%" stopColor="var(--color-action-primary-strong)" />
+            <stop offset="0%" stopColor={RING_GRADIENT_FROM} />
+            <stop offset="100%" stopColor={RING_GRADIENT_TO} />
           </linearGradient>
         </defs>
       </svg>
