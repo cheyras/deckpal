@@ -1,6 +1,6 @@
 import { Router, raw, type RequestHandler } from 'express';
 import { cardImages, q } from '../db.js';
-import { ApiError, asyncHandler, badRequest, clampInt, oneOf } from '../http.js';
+import { ApiError, asyncHandler, badRequest, clampInt, oneOf, toBuffer } from '../http.js';
 import { ALGO, hashQueryCandidates, hashToHex } from './phash.js';
 
 /**
@@ -125,8 +125,14 @@ async function rankMatches(hashesHex: string[], quality: string, k: number): Pro
 // oversize body with a plain Error whose `type` is 'entity.too.large' — left
 // alone it reaches errorMiddleware as an unknown error and the caller is told
 // "Internal server error", which is both wrong and unactionable.
+//
+// The Vercel body-consumption dance (see avatar.ts for the full explanation):
+// save `req.body` before express.raw() can overwrite a valid Buffer with an
+// empty one from a drained stream.
 const rawImageBody = raw({ type: () => true, limit: MAX_UPLOAD });
 const readImageBody: RequestHandler = (req, res, next) => {
+  const preExisting = req.body;
+
   rawImageBody(req, res, (err?: unknown) => {
     if (err && (err as { type?: string }).type === 'entity.too.large') {
       next(
@@ -138,7 +144,26 @@ const readImageBody: RequestHandler = (req, res, next) => {
       );
       return;
     }
-    next(err);
+    if (err) { next(err); return; }
+
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      const restored = toBuffer(preExisting);
+      if (restored && restored.length > 0) {
+        if (restored.length > MAX_UPLOAD) {
+          next(
+            new ApiError(
+              413,
+              'payload_too_large',
+              `that image is over the ${MAX_UPLOAD / (1024 * 1024)} MB scan limit — send a smaller or downscaled photo`,
+            ),
+          );
+          return;
+        }
+        req.body = restored;
+      }
+    }
+
+    next();
   });
 };
 
@@ -146,8 +171,8 @@ scanRouter.post(
   '/',
   readImageBody,
   asyncHandler(async (req, res) => {
-    const body = req.body as Buffer;
-    if (!Buffer.isBuffer(body) || body.length === 0) {
+    const body = toBuffer(req.body);
+    if (!body || body.length === 0) {
       throw badRequest('POST the raw image bytes as the request body (Content-Type: image/*).');
     }
     const k = clampInt(req.query.k, 5, 1, 25);
