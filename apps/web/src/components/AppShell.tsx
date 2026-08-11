@@ -89,10 +89,6 @@ const NAV: NavItem[] = [
   { label: 'Pokédex', icon: 'pokedex', to: '/pokedex' },
   { label: 'Insights', icon: 'chart', to: '/insights', gated: true },
   { label: 'Scan Card', icon: 'camera', to: '/scan', gated: true },
-  // Stream Tools is the OBS overlay browser source (chrome-free/transparent), which
-  // renders as a black screen in a normal tab — so it's non-navigable with a "Soon"
-  // badge until there's a real in-app surface for it. The /overlay route still exists.
-  { label: 'Stream Tools', icon: 'stream', soon: true },
 ]
 
 function NavRow({
@@ -453,9 +449,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   // shows AND which authenticated queries are allowed to mount at all.
   const signedIn = useSignedIn()
 
-  // Chrome-free paths: the OBS overlay, every auth surface, and the marketing
-  // landing at `/` — see isChromelessPathname. Rendering the full nav on /auth
-  // fired ProfileChip's overview query which 401'd → handle401 →
+  // Chrome-free paths: every auth surface and the marketing landing at `/` —
+  // see isChromelessPathname. Rendering the full nav on /auth fired
+  // ProfileChip's overview query which 401'd → handle401 →
   // location.assign('/auth') → infinite reload.
   //
   // The public catalog gets the nav (a catalog with no navigation is not a

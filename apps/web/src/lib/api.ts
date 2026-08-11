@@ -995,17 +995,6 @@ export const api = {
 
   submitBug: (body: { text: string; page: string; screenshot?: string; viewport?: string; userAgent?: string }) =>
     send<{ id: string; saved?: string; issueUrl?: string; issueNumber?: number; note?: string }>('POST', '/bugs', body),
-  // Newest-first named collection events (for the stream overlay). `since` is an
-  // ISO timestamp filter; pair it with client-side eventId dedup (the API notes a
-  // microsecond→millisecond `since` precision caveat, so `since` alone can re-return
-  // a just-seen event).
-  collectionEvents: (params?: { since?: string; limit?: number }, signal?: AbortSignal) => {
-    const q = new URLSearchParams()
-    if (params?.since) q.set('since', params.since)
-    if (params?.limit != null) q.set('limit', String(params.limit))
-    const qs = q.toString()
-    return get<CollectionEventsResponse>(`/collection/events${qs ? `?${qs}` : ''}`, signal)
-  },
   insightsValue: (range: ValueRange, currency = 'USD', signal?: AbortSignal) =>
     get<ValueResponse>(`/insights/value?range=${range}&currency=${encodeURIComponent(currency)}`, signal),
   dex: (params: URLSearchParams, signal?: AbortSignal) =>
