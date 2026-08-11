@@ -15,7 +15,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { api, type ApiTokenRow } from '../lib/api'
 import { isCloudMode } from '../lib/supabase'
-import { Field, FormAlert } from '../routes/auth/authUi'
+import { Field, FormAlert } from './ui'
 import { Button } from './ui/Button'
 import { Icon } from './Icon'
 

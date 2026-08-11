@@ -14,11 +14,21 @@
  * NOT a per-control ring — so keyboard focus looks identical on the landing,
  * in the app shell and here.
  * ───────────────────────────────────────────────────────────────────────────── */
-import { useId, type InputHTMLAttributes, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import { BrandMark, Icon, type IconName } from '../../components/Icon'
+import { BrandMark } from '../../components/Icon'
 import { Button, buttonClass } from '../../components/ui/Button'
 import '../landing/landing.css'
+
+// Re-export primitives relocated to components/ui/ so existing
+// `import { Field, FormAlert, StatusPanel } from './authUi'` call sites
+// keep working without a mass import-rewrite.
+export { Field } from '../../components/ui/Field'
+export type { FieldProps } from '../../components/ui/Field'
+export { FormAlert } from '../../components/ui/FormAlert'
+export type { FormAlertProps } from '../../components/ui/FormAlert'
+export { StatusPanel } from '../../components/ui/StatusPanel'
+export type { StatusPanelProps } from '../../components/ui/StatusPanel'
 
 /* ── page frame ───────────────────────────────────────────────────────────── */
 
@@ -106,43 +116,6 @@ export function AuthCard({
 
 /* ── form atoms ───────────────────────────────────────────────────────────── */
 
-type FieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'className' | 'id'> & {
-  label: string
-  /** Validation message shown under the control; also flips `aria-invalid`. */
-  error?: string | null
-  /** Always-visible helper copy (e.g. the password policy). */
-  hint?: string
-}
-
-export function Field({ label, error, hint, ...input }: FieldProps) {
-  const id = useId()
-  const msgId = `${id}-msg`
-  const invalid = Boolean(error)
-  return (
-    <div className="mb-[16px]">
-      <label htmlFor={id} className="mb-[6px] block text-[12px] font-semibold text-text-secondary">
-        {label}
-      </label>
-      <input
-        {...input}
-        id={id}
-        aria-invalid={invalid || undefined}
-        aria-describedby={error || hint ? msgId : undefined}
-        className={[
-          'block w-full rounded-[10px] border bg-surface-tertiary px-[14px] py-[12px] text-[15px] text-text-primary',
-          'placeholder:text-text-muted disabled:opacity-60',
-          invalid ? 'border-error' : 'border-action-ghost-border focus:border-surface-raised',
-        ].join(' ')}
-      />
-      {(error || hint) && (
-        <p id={msgId} className={`mt-[6px] text-[12px] ${invalid ? 'text-error' : 'text-text-muted'}`}>
-          {error || hint}
-        </p>
-      )}
-    </div>
-  )
-}
-
 /** The landing's gold CTA, as a submit button. Thin wrapper around Button. */
 export function SubmitButton({
   loading,
@@ -184,47 +157,3 @@ export const CTA_GHOST = `ls-cta w-full ${buttonClass('ghost', 'lg')}`
 /** Quiet tertiary action under a CTA. */
 export const CTA_QUIET = 'text-[13px] font-semibold text-text-secondary hover:text-link'
 
-/** Inline form-level feedback. `role="alert"` so it is announced on appearance. */
-export function FormAlert({ kind, children }: { kind: 'error' | 'info' | 'success'; children: ReactNode }) {
-  const skin =
-    kind === 'error'
-      ? 'bg-halo-error text-error'
-      : kind === 'success'
-        ? 'bg-halo-success text-success'
-        : 'bg-halo-neutral text-text-body'
-  return (
-    <div role="alert" className={`mb-[16px] rounded-[10px] px-[14px] py-[11px] text-[13px] leading-[1.5] ${skin}`}>
-      {children}
-    </div>
-  )
-}
-
-/** Terminal state: a haloed glyph, a headline, a paragraph and some actions. */
-export function StatusPanel({
-  icon,
-  tone = 'success',
-  title,
-  children,
-  actions,
-}: {
-  icon: IconName
-  tone?: 'success' | 'neutral'
-  title: string
-  children: ReactNode
-  actions?: ReactNode
-}) {
-  return (
-    <div className="rounded-[20px] border border-border-default bg-surface-secondary p-[28px] text-center shadow-panel">
-      <div
-        className={`mx-auto mb-[16px] flex h-[56px] w-[56px] items-center justify-center rounded-full ${
-          tone === 'success' ? 'bg-halo-success text-success' : 'bg-halo-neutral text-action-primary'
-        }`}
-      >
-        <Icon name={icon} size={26} />
-      </div>
-      <h1 className="text-[21px] font-extrabold tracking-[-0.02em] text-text-primary">{title}</h1>
-      <div className="mt-[10px] text-[14px] leading-[1.65] text-text-body">{children}</div>
-      {actions ? <div className="mt-[22px] flex flex-col gap-[10px]">{actions}</div> : null}
-    </div>
-  )
-}

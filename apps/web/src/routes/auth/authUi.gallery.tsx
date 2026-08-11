@@ -4,13 +4,16 @@
  * AuthPage and AuthCard are layout wrappers — cataloged but with simple
  * content-slot previews rather than interactive knobs.
  */
-import { Field, SubmitButton, FormAlert, StatusPanel, AuthPage, AuthCard } from './authUi'
+import { SubmitButton, AuthPage, AuthCard } from './authUi'
+import { Field } from '../../components/ui/Field'
+import { FormAlert } from '../../components/ui/FormAlert'
+import { StatusPanel } from '../../components/ui/StatusPanel'
 import type { GalleryMeta } from '../design/galleryTypes'
 import type { IconName } from '../../components/Icon'
 
 export const fieldGallery = {
   name: 'Field',
-  source: 'apps/web/src/routes/auth/authUi.tsx',
+  source: 'apps/web/src/components/ui/Field.tsx',
   section: 'primitive',
   description: 'Labeled <input> with error/hint text and aria-invalid/aria-describedby wiring. The closest thing to a generic TextInput in this codebase.',
   component: Field,
@@ -64,7 +67,7 @@ export const submitButtonGallery = {
 
 export const formAlertGallery = {
   name: 'FormAlert',
-  source: 'apps/web/src/routes/auth/authUi.tsx',
+  source: 'apps/web/src/components/ui/FormAlert.tsx',
   section: 'primitive',
   description: 'Inline role="alert" banner with error/info/success tone variants.',
   component: FormAlert,
@@ -84,7 +87,7 @@ export const formAlertGallery = {
 
 export const statusPanelGallery = {
   name: 'StatusPanel',
-  source: 'apps/web/src/routes/auth/authUi.tsx',
+  source: 'apps/web/src/components/ui/StatusPanel.tsx',
   section: 'primitive',
   description: 'Terminal-state card: haloed icon + title + body + actions. Used for "check your email" / "reset link sent" screens.',
   component: StatusPanel,
