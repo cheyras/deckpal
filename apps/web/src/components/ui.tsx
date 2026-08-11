@@ -7,6 +7,7 @@ import { EnergyIcon } from './EnergyIcon'
 // call sites keep working without a mass import-rewrite.
 export { Button, buttonClass } from './ui/Button'
 export type { ButtonProps, ButtonVariant, ButtonSize } from './ui/Button'
+export { CounterBox } from './ui/CounterBox'
 
 // Content column: 85% of main with a per-page max-width cap, centred
 // (UI-SPEC §4.1 — gutters are proportional, not fixed).

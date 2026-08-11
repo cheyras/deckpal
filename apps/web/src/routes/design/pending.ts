@@ -20,14 +20,6 @@ export interface PendingItem {
 export const PENDING_ITEMS: PendingItem[] = [
   // ── Component extractions (audit §4) ─────────────────────────────────
   {
-    id: 'C3',
-    label: 'CounterBox dedupe',
-    kind: 'extraction',
-    description:
-      'Byte-identical component in CardTile.tsx and TableView.tsx. Fix #15181f/#fff hex drift.',
-    auditRef: '§4.3, §1.5',
-  },
-  {
     id: 'C4',
     label: 'ProgressBar + ProgressRing',
     kind: 'extraction',
@@ -154,6 +146,6 @@ export const PENDING_ITEMS: PendingItem[] = [
 /** How many of the extraction/adoption items are done (always 0 in Phase 1) */
 export function completionStats(): { done: number; total: number; pct: number } {
   const actionable = PENDING_ITEMS.filter((i) => i.kind !== 'off-theme')
-  const done = 2 // C1 (Button), C2 (Spinner) landed
+  const done = 3 // C1 (Button), C2 (Spinner), C3 (CounterBox) landed
   return { done, total: actionable.length, pct: Math.round((done / actionable.length) * 100) }
 }
