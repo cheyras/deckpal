@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type ScanMatch, type ScanResponse } from '../lib/api'
-import { Content } from '../components/ui'
+import { Content, Spinner } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { CardSheet } from './CardDetail'
 import { Icon } from '../components/Icon'
@@ -543,7 +543,7 @@ export function Scan() {
       {/* status while an upload scan runs */}
       {scanning && (
         <div className="mt-[24px] flex items-center justify-center gap-[12px] py-[24px] text-text-muted">
-          <div className="h-[28px] w-[28px] animate-spin rounded-full border-2 border-surface-tertiary border-t-action-primary" />
+          <Spinner inline size={28} className="text-action-primary" />
           <span className="text-[14px]">Scanning…</span>
         </div>
       )}

@@ -211,10 +211,47 @@ export function SetSymbolTile({
   )
 }
 
-export function Spinner({ label }: { label?: string }) {
+/**
+ * Spinner — the one shared loading indicator.
+ *
+ * `inline` renders a bare ring element suitable for embedding inside text,
+ * buttons (see Button `loading` prop), or horizontal layouts. The ring
+ * colour inherits from `currentColor` so it adapts to any context.
+ *
+ * Without `inline` the spinner is a block-level, vertically-centred element
+ * with an optional text label — the page/section loading state.
+ */
+export function Spinner({
+  label,
+  size,
+  inline = false,
+  className,
+}: {
+  label?: string
+  /** Ring diameter in pixels. Defaults to 40 (block) or 16 (inline). */
+  size?: number
+  /** Render just the ring, no centering/padding — for inline contexts. */
+  inline?: boolean
+  className?: string
+}) {
+  const s = size ?? (inline ? 16 : 40)
+
+  if (inline) {
+    return (
+      <span
+        className={`shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent${className ? ` ${className}` : ''}`}
+        style={{ width: s, height: s }}
+        aria-hidden="true"
+      />
+    )
+  }
+
   return (
     <div className="flex flex-col items-center justify-center gap-[12px] py-[80px] text-text-muted">
-      <div className="h-[40px] w-[40px] animate-spin rounded-full border-2 border-surface-tertiary border-t-action-primary" />
+      <div
+        className="animate-spin rounded-full border-2 border-surface-tertiary border-t-action-primary"
+        style={{ width: s, height: s }}
+      />
       {label && <span className="text-[14px]">{label}</span>}
     </div>
   )

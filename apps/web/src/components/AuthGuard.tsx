@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { supabase, isCloudMode } from '../lib/supabase'
+import { Spinner } from './ui'
 import type { Session } from '@supabase/supabase-js'
 
 export function AuthGuard({ children }: { children: ReactNode }) {
@@ -43,7 +44,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   if (session === undefined) {
     return (
       <div className="flex h-screen items-center justify-center bg-surface-primary">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-action-primary border-t-transparent" />
+        <Spinner inline size={32} className="text-action-primary" />
       </div>
     )
   }

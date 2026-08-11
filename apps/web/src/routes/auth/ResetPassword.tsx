@@ -31,6 +31,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from '@tanstack/react-router'
 import { supabase } from '../../lib/supabase'
 import { PASSWORD_MIN_LENGTH, friendlyAuthError, passwordProblem } from '../../lib/authErrors'
+import { Spinner } from '../../components/ui'
 import {
   AuthCard,
   AuthPage,
@@ -130,7 +131,7 @@ export function ResetPassword() {
     return (
       <AuthPage>
         <div className="flex justify-center py-[40px]">
-          <div className="h-[32px] w-[32px] animate-spin rounded-full border-2 border-action-primary border-t-transparent" />
+          <Spinner inline size={32} className="text-action-primary" />
         </div>
       </AuthPage>
     )
