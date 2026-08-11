@@ -415,7 +415,12 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
         'Create a deck (omit deck_id) or edit one (pass deck_id): rename, change format, and reconcile ' +
         'its card list to the given cards array (only changed rows are touched — adds, quantity sets, ' +
         'removes). To create from a PTCG Live decklist pass ptcgl_text instead of cards (creation only). ' +
-        'Card ids are TCGdex ids (e.g. sv01-25). Defaults to a dry run that prints the exact operations ' +
+        'Card ids are TCGdex ids (e.g. sv01-25). When choosing a card_id for a deck, always use the ' +
+        'cheapest available printing of the named card unless the user explicitly asked for a specific ' +
+        'rarity or alternate art — different printings of the same card are gameplay-identical but can ' +
+        'differ by hundreds of dollars (e.g. a Special Illustration Rare vs the regular version). Use ' +
+        'search_cards to compare prices across printings. ' +
+        'Defaults to a dry run that prints the exact operations ' +
         'without executing — re-run with dry_run: false to apply. ' +
         'Versioning is automatic: card and format changes to a deck version that already has battle ' +
         'logs create a NEW version (its snapshot is kept forever — see deck_history); changes to a ' +
@@ -447,7 +452,8 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
           .optional()
           .describe(
             'The COMPLETE target card list. The deck is reconciled to exactly this (cards not listed are removed). ' +
-              'Omit to leave cards untouched; [] empties the deck.',
+              'Omit to leave cards untouched; [] empties the deck. For each card, use the TCGdex id of the cheapest ' +
+              'printing unless the user specified a particular rarity or art — search_cards shows prices per printing.',
           ),
         ptcgl_text: z
           .string()
@@ -455,7 +461,9 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
           .optional()
           .describe(
             'A PTCG Live decklist to import as a NEW deck (creation only, mutually exclusive with cards). ' +
-              'Unresolvable lines are reported, not silently dropped.',
+              'Unresolvable lines are reported, not silently dropped. When generating a decklist, use the ' +
+              'cheapest printing of each card (set + number) unless the user requested a specific one — ' +
+              'use search_cards to verify which printing is cheapest.',
           ),
         version_note: z
           .string()
