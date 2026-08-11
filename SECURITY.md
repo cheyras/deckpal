@@ -39,6 +39,24 @@ Vercel environment variable and is never exposed to the client.
 - Vercel environment variables marked as server-side are not bundled into the
   SPA.
 
+**Cloud MCP authentication.** `https://deckscout.io/mcp` accepts a personal
+access token (`dsk_…`, table `api_token`) as `Authorization: Bearer <token>`
+or as the URL's last path segment. Only a SHA-256 hash is stored; the raw
+value is shown once, at creation, in Profile -> Agent access, and is
+revocable there at any time. As of 2026-08-10 a token can also be minted
+automatically via a real OAuth 2.1 authorization server (dynamic client
+registration, RFC 7591; authorization-code + PKCE S256, RFC 6749/7636;
+discovery metadata, RFC 8414/9728) -- `apps/api/src/oauthServer.ts` and
+`apps/api/src/routes/oauth.ts`. Every OAuth-registered client is public (no
+secret is issued; PKCE is mandatory instead), `redirect_uri` is exact-matched
+against what the client registered (rejected requests never redirect, closing
+the open-redirect path), authorization codes are single-use with a ~5 minute
+TTL, and the token the flow ultimately mints is the exact same `api_token`
+row the manual flow produces -- OAuth is a bridge onto the existing
+credential, not a second one. `oauth_client` and `oauth_code` have RLS
+enabled with zero grants (migration 033): only the server's RLS-bypassing
+pool connection can ever read or write them.
+
 ### Self-host deployment
 
 **Authentication:** The API has no built-in authentication. It is designed to
