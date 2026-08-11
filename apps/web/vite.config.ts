@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import designEditor from './vite-plugins/design-editor'
 
 // Worktree branches that change the API run their own instance and point the dev
 // proxy at it via DECKSCOUT_DEV_API_PORT (see roadmap/ORCHESTRATION.md port table).
@@ -17,6 +18,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    designEditor(),
     // PWA — injectManifest (hand-written src/sw.ts) so we control the SSO
     // JSON guard, network-only mutations, and the LRU image cap (wiki: Frontend-Research §C.2).
     // start_url/scope inherit base; the SW is emitted at <base>/sw.js and can
