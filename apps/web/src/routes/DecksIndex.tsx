@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CreateDeckBody, type DeckFormat, type DeckSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, Button } from '../components/ui'
+import { Content, Spinner, ErrorState, Button, EmptyState } from '../components/ui'
 import { Modal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
@@ -227,19 +227,18 @@ export function DecksIndex() {
       {error && <ErrorState message={(error as Error).message} />}
 
       {data && decks.length === 0 && (
-        <div className="flex flex-col items-center justify-center gap-[12px] rounded-xl border border-dashed border-border-default py-[80px] text-center">
-          <Icon name="deck" size={44} className="text-icon-muted" />
-          <div className="text-[20px] font-bold text-text-primary">No Decks Yet</div>
-          <p className="text-[14px] text-text-muted">Build one from scratch, or import a Pokémon TCG Live decklist.</p>
-          <div className="mt-[4px] flex gap-[10px]">
-            <Button variant="secondary" onClick={() => setShowImport(true)}>
-              <Icon name="download" size={18} /> Import
-            </Button>
-            <Button onClick={() => setShowNew(true)}>
-              <Icon name="plus" size={18} /> New Deck
-            </Button>
-          </div>
-        </div>
+        <EmptyState
+          icon="deck"
+          title="No Decks Yet"
+          body="Build one from scratch, or import a Pokémon TCG Live decklist."
+        >
+          <Button variant="secondary" onClick={() => setShowImport(true)}>
+            <Icon name="download" size={18} /> Import
+          </Button>
+          <Button onClick={() => setShowNew(true)}>
+            <Icon name="plus" size={18} /> New Deck
+          </Button>
+        </EmptyState>
       )}
 
       {decks.length > 0 && (

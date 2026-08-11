@@ -20,14 +20,6 @@ export interface PendingItem {
 export const PENDING_ITEMS: PendingItem[] = [
   // ── Component extractions (audit §4) ─────────────────────────────────
   {
-    id: 'C5',
-    label: 'EmptyState',
-    kind: 'extraction',
-    description:
-      'Icon + title + body + optional CTA. The documented-but-unbuilt EmptyStateMessage from BEHAVIOR-SPEC.',
-    auditRef: '§4.7',
-  },
-  {
     id: 'C6',
     label: 'Tabs',
     kind: 'extraction',
@@ -130,6 +122,6 @@ export const PENDING_ITEMS: PendingItem[] = [
 /** How many of the extraction/adoption items are done (always 0 in Phase 1) */
 export function completionStats(): { done: number; total: number; pct: number } {
   const actionable = PENDING_ITEMS.filter((i) => i.kind !== 'off-theme')
-  const done = 4 // C1 (Button), C2 (Spinner), C3 (CounterBox), C4 (Progress) landed
+  const done = 5 // C1-C5 (Button, Spinner, CounterBox, Progress, EmptyState) landed
   return { done, total: actionable.length, pct: Math.round((done / actionable.length) * 100) }
 }
