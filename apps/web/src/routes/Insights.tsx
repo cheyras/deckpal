@@ -7,6 +7,7 @@ import { LevelRing } from '../components/LevelRing'
 import { ValueChart } from '../components/ValueChart'
 import { Icon } from '../components/Icon'
 import { AvatarDisc, useAvatar } from '../components/Avatar'
+import { rangeCoverageCaption } from '../lib/insightsCaption'
 
 const RANGES: { key: ValueRange; label: string }[] = [
   { key: '30d', label: '30 Days' },
@@ -192,7 +193,17 @@ export function Insights() {
               {value.isLoading && !val ? (
                 <Spinner label="Loading series…" />
               ) : val && val.series.points.length >= 2 ? (
-                <ValueChart points={val.series.points} currency={val.currency} />
+                <div>
+                  <ValueChart points={val.series.points} currency={val.currency} />
+                  {/* Issue #26: with real history shorter than the selected window, every
+                      range renders the identical chart with no explanation. Say so instead
+                      of silently rendering the same-looking chart under four button labels
+                      — we don't invent data, we just stop hiding what's actually shown. */}
+                  {(() => {
+                    const caption = rangeCoverageCaption(val.series.points, val.series.range)
+                    return caption ? <div className="mt-[8px] text-[12px] text-text-muted">{caption}</div> : null
+                  })()}
+                </div>
               ) : val && val.series.points.length === 1 ? (
                 <div>
                   <ValueChart points={val.series.points} currency={val.currency} height={160} />
