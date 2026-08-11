@@ -305,6 +305,31 @@ pnpm --filter deckscout-images manifest:check
 pnpm --filter deckscout-images manifest:check --object-store
 ```
 
+### 7. AI issue triage (optional)
+
+**`.github/workflows/issue-triage.yml` — runs on every issue opened via the
+in-app reporter.**  A cheap AI model (Claude Haiku) reviews the report and posts
+a draft analysis as a comment — noting missing details for bugs, and ranking
+against current priorities from the wiki.  The comment is clearly labeled as
+AI-generated and non-authoritative; the workflow never modifies labels or issue
+state.
+
+Add one repository secret:
+
+| Secret | Value | Required |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | An Anthropic API key (any tier — Haiku is very cheap) | yes |
+
+```bash
+gh secret set ANTHROPIC_API_KEY --repo cheyras/deckscout
+# paste the key when prompted
+```
+
+Until this secret exists the workflow exits cleanly with a notice — it does not
+fail, because a missing optional enrichment should not break anything.  No other
+secrets are needed: the built-in `GITHUB_TOKEN` is sufficient for posting the
+comment and reading the public wiki.
+
 ### Transactional email (custom SMTP)
 
 Supabase's built-in sender is shared infrastructure capped at **2 emails/hour**
