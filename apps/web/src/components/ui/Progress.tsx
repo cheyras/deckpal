@@ -4,9 +4,12 @@
  * Both use `--color-track-subtle` for the background track (promoted from the
  * 7 hardcoded #1a1d24 occurrences into theme.css by this same commit).
  *
- * The default fill is the danger→primary-strong gradient used by set-progress
- * bars throughout the app. Pass a solid `fill` colour to override.
+ * The default fill is derived from action-primary-strong's Tailwind hue via
+ * `tailwindGradient` (two hue families back, same shade) rather than paired
+ * with an unrelated token — see lib/gradientPalette.ts. Pass a solid `fill`
+ * colour to override.
  */
+import { tailwindGradient } from '../../lib/gradientPalette'
 
 // ── ProgressBar ──────────────────────────────────────────────────────────
 
@@ -15,7 +18,7 @@ export interface ProgressBarProps {
   pct: number
   /** Track height in pixels. Default 6. */
   height?: number
-  /** Fill colour or gradient CSS. Default: the danger→primary-strong gradient. */
+  /** Fill colour or gradient CSS. Default: the derived two-hue-away gradient (see lib/gradientPalette). */
   fill?: string
   /** Milestone dots at specified percentages (e.g. [25, 50, 75]). */
   milestones?: number[]
@@ -24,8 +27,9 @@ export interface ProgressBarProps {
   className?: string
 }
 
-const DEFAULT_GRADIENT =
-  'linear-gradient(90deg, var(--color-action-danger), var(--color-action-primary-strong))'
+// action-primary-strong is teal-300 (theme.css) — keep this in sync if that
+// token's hue family changes.
+const DEFAULT_GRADIENT = tailwindGradient('teal', '300')
 
 export function ProgressBar({
   pct,
