@@ -17,6 +17,7 @@
 import { useId, type InputHTMLAttributes, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { BrandMark, Icon, type IconName } from '../../components/Icon'
+import { Button, buttonClass } from '../../components/ui/Button'
 import '../landing/landing.css'
 
 /* ── page frame ───────────────────────────────────────────────────────────── */
@@ -142,7 +143,7 @@ export function Field({ label, error, hint, ...input }: FieldProps) {
   )
 }
 
-/** The landing's gold CTA, as a submit button. */
+/** The landing's gold CTA, as a submit button. Thin wrapper around Button. */
 export function SubmitButton({
   loading,
   children,
@@ -153,17 +154,15 @@ export function SubmitButton({
   disabled?: boolean
 }) {
   return (
-    <button
+    <Button
       type="submit"
-      disabled={disabled || loading}
-      aria-busy={loading || undefined}
-      className="ls-cta flex h-[48px] w-full items-center justify-center gap-[8px] rounded-full bg-action-primary px-[24px] text-[15px] font-bold text-action-primary-text hover:bg-action-primary-strong disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:transform-none"
+      size="lg"
+      loading={loading}
+      disabled={disabled}
+      className="ls-cta w-full"
     >
-      {loading && (
-        <span className="h-[16px] w-[16px] shrink-0 animate-spin rounded-full border-2 border-action-primary-text border-t-transparent" />
-      )}
       {children}
-    </button>
+    </Button>
   )
 }
 
@@ -174,12 +173,13 @@ export function SubmitButton({
  *
  * Terminal states have exactly one obvious next step — that step gets the
  * gold, never the ghost.
+ *
+ * Now derived from the shared Button primitive's `buttonClass()` so the token
+ * list cannot drift between Button and these link-shaped usages.
  */
-export const CTA_PRIMARY =
-  'ls-cta flex h-[48px] w-full items-center justify-center gap-[8px] rounded-full bg-action-primary px-[24px] text-[15px] font-bold text-action-primary-text hover:bg-action-primary-strong'
+export const CTA_PRIMARY = `ls-cta w-full ${buttonClass('primary', 'lg')}`
 
-export const CTA_GHOST =
-  'ls-cta flex h-[48px] w-full items-center justify-center gap-[8px] rounded-full border border-action-ghost-border bg-surface-secondary px-[22px] text-[15px] font-semibold text-text-primary hover:border-surface-raised hover:bg-action-ghost-hover'
+export const CTA_GHOST = `ls-cta w-full ${buttonClass('ghost', 'lg')}`
 
 /** Quiet tertiary action under a CTA. */
 export const CTA_QUIET = 'text-[13px] font-semibold text-text-secondary hover:text-link'

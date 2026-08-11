@@ -20,16 +20,6 @@ export interface PendingItem {
 export const PENDING_ITEMS: PendingItem[] = [
   // ── Component extractions (audit §4) ─────────────────────────────────
   {
-    id: 'C1',
-    label: 'Button primitive',
-    kind: 'extraction',
-    description:
-      'No Button component exists. Every button is a raw <button> with inline Tailwind. ' +
-      'Variants: primary|secondary|danger|ghost|dashed x sizes sm|md|lg x disabled|loading. ' +
-      'Touches ~10 files on adoption.',
-    auditRef: '§4.1, §4.12',
-  },
-  {
     id: 'C2',
     label: 'Spinner API broadening',
     kind: 'extraction',
@@ -172,6 +162,6 @@ export const PENDING_ITEMS: PendingItem[] = [
 /** How many of the extraction/adoption items are done (always 0 in Phase 1) */
 export function completionStats(): { done: number; total: number; pct: number } {
   const actionable = PENDING_ITEMS.filter((i) => i.kind !== 'off-theme')
-  const done = 0 // Updated as Phase 2 lands items
+  const done = 1 // C1 (Button) landed
   return { done, total: actionable.length, pct: Math.round((done / actionable.length) * 100) }
 }
