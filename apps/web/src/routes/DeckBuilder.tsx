@@ -4,7 +4,7 @@ import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
   api, type DeckDetail, type DeckCard, type DeckFormat, type Violation, type CardRef, type SearchCard, type RevertResult,
 } from '../lib/api'
-import { Content, Spinner, ErrorState, BackPill, Button } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, Button, Tabs } from '../components/ui'
 import { Modal, ConfirmModal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
 import { EnergyIcon, ENERGY_TYPES } from '../components/EnergyIcon'
@@ -692,22 +692,13 @@ export function DeckBuilder() {
               </button>
             </div>
 
-            {/* tabs — Cards · Strategy · Battles (n) · History (CardDetail underline pattern) */}
-            <div className="scroll-x mt-[16px] flex gap-[28px] border-b border-divider-subtle">
-              {tabs.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => patchSearch({ tab: t.key })}
-                  className={`shrink-0 whitespace-nowrap pb-[8px] text-[14px] ${
-                    search.tab === t.key
-                      ? 'border-b border-action-primary font-semibold text-text-primary'
-                      : 'font-medium text-text-muted'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+            {/* tabs — Cards · Strategy · Battles (n) · History */}
+            <Tabs
+              items={tabs}
+              value={search.tab}
+              onChange={(key) => patchSearch({ tab: key as DeckTab })}
+              className="mt-[16px]"
+            />
 
             {search.tab === 'strategy' && <StrategyTab deckId={id} strategyMd={deck.strategyMd} onSaved={onStrategySaved} />}
             {search.tab === 'battles' && <BattlesTab deckId={id} currentVersion={deck.version} />}

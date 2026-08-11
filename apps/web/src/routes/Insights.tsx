@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { api, type ValueRange } from '../lib/api'
-import { Content, Spinner, ErrorState } from '../components/ui'
+import { Content, Spinner, ErrorState, Tabs } from '../components/ui'
 import { LevelRing } from '../components/LevelRing'
 import { ValueChart } from '../components/ValueChart'
 import { Icon } from '../components/Icon'
@@ -46,20 +46,16 @@ export function Insights() {
       <h1 className="text-[32px] font-extrabold leading-[40px] text-text-primary">Insights</h1>
 
       {/* Overview | Trends sub-toggle (pkmn.gg captures §14.4) */}
-      <div className="mt-[16px] inline-flex rounded-full bg-surface-secondary p-[4px]">
-        {(['overview', 'trends'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={[
-              'h-[36px] rounded-full px-[20px] text-[14px] font-semibold capitalize',
-              tab === t ? 'bg-action-primary text-action-primary-text' : 'text-text-muted hover:text-text-body',
-            ].join(' ')}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        variant="pill"
+        items={[
+          { key: 'overview', label: 'Overview' },
+          { key: 'trends', label: 'Trends' },
+        ]}
+        value={tab}
+        onChange={(k) => setTab(k as 'overview' | 'trends')}
+        className="mt-[16px]"
+      />
 
       {overview.isLoading && <Spinner label="Loading insights…" />}
       {overview.error && <ErrorState message={(overview.error as Error).message} />}
@@ -138,20 +134,16 @@ export function Insights() {
                 </div>
               </div>
               {/* currency toggle */}
-              <div className="inline-flex rounded-full bg-surface-tertiary p-[3px]">
-                {(['USD', 'EUR'] as const).map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setCurrency(c)}
-                    className={[
-                      'h-[28px] rounded-full px-[12px] text-[12px] font-bold',
-                      currency === c ? 'bg-surface-raised text-text-primary' : 'text-text-muted',
-                    ].join(' ')}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
+              <Tabs
+                variant="pill"
+                size="sm"
+                items={[
+                  { key: 'USD', label: 'USD' },
+                  { key: 'EUR', label: 'EUR' },
+                ]}
+                value={currency}
+                onChange={(k) => setCurrency(k as 'USD' | 'EUR')}
+              />
             </div>
 
             {/* range chips */}

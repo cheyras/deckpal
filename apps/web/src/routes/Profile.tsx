@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { api } from '../lib/api'
 import { supabase, isCloudMode } from '../lib/supabase'
-import { Content, Spinner, ErrorState } from '../components/ui'
+import { Content, Spinner, ErrorState, Tabs } from '../components/ui'
 import { LevelRing } from '../components/LevelRing'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
@@ -54,13 +54,13 @@ function loadShowcase(): ShowcasePick[] {
 }
 
 const TABS = [
-  { label: 'Profile', to: undefined },
-  { label: 'Collection', to: '/series' },
-  { label: 'Insights', to: '/insights' },
-  { label: 'Activity', to: undefined },
-  { label: 'Lists', to: '/lists' },
-  { label: 'Decks', to: '/decks' },
-  { label: 'Friends', to: undefined },
+  { key: 'profile', label: 'Profile' },
+  { key: 'collection', label: 'Collection', to: '/series' },
+  { key: 'insights', label: 'Insights', to: '/insights' },
+  { key: 'activity', label: 'Activity' },
+  { key: 'lists', label: 'Lists', to: '/lists' },
+  { key: 'decks', label: 'Decks', to: '/decks' },
+  { key: 'friends', label: 'Friends' },
 ] as const
 
 export function Profile() {
@@ -260,24 +260,7 @@ export function Profile() {
         )}
 
         {/* tab strip */}
-        <div className="scroll-x mt-[16px] flex gap-[6px] border-b border-border-default">
-          {TABS.map((t) => {
-            const cls =
-              'shrink-0 border-b-2 px-[12px] pb-[10px] text-[14px] font-semibold ' +
-              (t.label === 'Profile'
-                ? 'border-action-primary text-text-primary'
-                : 'border-transparent text-text-muted hover:text-text-body')
-            return t.to ? (
-              <Link key={t.label} to={t.to} className={cls}>
-                {t.label}
-              </Link>
-            ) : (
-              <span key={t.label} className={cls + ' cursor-default'}>
-                {t.label}
-              </span>
-            )
-          })}
-        </div>
+        <Tabs items={TABS} value="profile" className="mt-[16px]" />
 
         {overview.isLoading && <Spinner label="Loading profile…" />}
         {overview.error && <ErrorState message={(overview.error as Error).message} />}
