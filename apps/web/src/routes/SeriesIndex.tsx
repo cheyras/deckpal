@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { api, type SeriesSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, SetSymbolTile, ProgressRing } from '../components/ui'
+import { Content, Spinner, ErrorState, SetSymbolTile, ProgressRing, useDismiss } from '../components/ui'
 import { SetLogo } from '../components/SetLogo'
 import { Icon } from '../components/Icon'
 import { fmtDate } from '../lib/format'
@@ -197,21 +197,8 @@ function Controls({ prefs, onChange, onSave, saved, signedOut, stacked = false }
 // OwnFilterMenu pattern in PokedexIndex: tap-outside + Escape.
 function MobileControls(props: ControlsProps) {
   const [open, setOpen] = useState(false)
-  const wrapRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDoc)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const close = useCallback(() => setOpen(false), [])
+  const wrapRef = useDismiss<HTMLDivElement>(open, close)
 
   return (
     <div ref={wrapRef} className="relative sm:hidden">
