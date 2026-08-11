@@ -6,7 +6,6 @@ export type IconName =
   | 'lists'
   | 'deck'
   | 'pokedex'
-  | 'stream'
   | 'discord'
   | 'merch'
   | 'pro'
@@ -73,12 +72,6 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <circle cx="12" cy="12" r="9" />
       <path d="M3 12h18" />
       <circle cx="12" cy="12" r="2.5" />
-    </>
-  ),
-  stream: (
-    <>
-      <rect x="3" y="5" width="18" height="12" rx="2" />
-      <path d="M10 9l5 3-5 3z" fill="currentColor" stroke="none" />
     </>
   ),
   discord: (
