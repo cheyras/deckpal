@@ -19,6 +19,12 @@ export type { SelectableCardProps } from './ui/SelectableCard'
 export { StatTile } from './ui/StatTile'
 export type { StatTileProps } from './ui/StatTile'
 export { useDismiss } from './ui/useDismiss'
+export { Field } from './ui/Field'
+export type { FieldProps } from './ui/Field'
+export { FormAlert } from './ui/FormAlert'
+export type { FormAlertProps } from './ui/FormAlert'
+export { StatusPanel } from './ui/StatusPanel'
+export type { StatusPanelProps } from './ui/StatusPanel'
 
 // Content column: 85% of main with a per-page max-width cap, centred
 // (UI-SPEC §4.1 — gutters are proportional, not fixed).
