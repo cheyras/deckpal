@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
 import { api, type CardDetailResponse, type Progress, type SetDetailResponse, type Variant } from '../lib/api'
-import { Content, Spinner, ErrorState, BackPill, SetSymbolTile } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, Tabs } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
@@ -275,7 +275,11 @@ function Chip({ children }: { children: React.ReactNode }) {
   )
 }
 
-const TABS = ['Card', 'Price', 'TCG'] as const
+const TABS = [
+  { key: 'Card', label: 'Card' },
+  { key: 'Price', label: 'Price' },
+  { key: 'TCG', label: 'TCG' },
+] as const
 
 // Standalone route (deep links / direct navigation to /series/$series/$set/$number).
 // Renders the shared body inside the page Content column; on the set page the same
@@ -305,7 +309,7 @@ export function CardDetailBody({
   // the card fetch resolves the authoritative series/set. Never passed in-sheet.
   backTo?: { series: string; set: string }
 }) {
-  const [tab, setTab] = useState<(typeof TABS)[number]>('Card')
+  const [tab, setTab] = useState('Card')
   const [showAdditional, setShowAdditional] = useState(false)
   const qc = useQueryClient()
 
@@ -395,21 +399,7 @@ export function CardDetailBody({
               </div>
 
               {/* tabs */}
-              <div className="mt-[20px] flex gap-[32px] border-b border-divider-subtle">
-                {TABS.map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setTab(t)}
-                    className={`pb-[8px] text-[14px] ${
-                      tab === t
-                        ? 'border-b border-action-primary font-semibold text-text-primary'
-                        : 'font-medium text-text-muted'
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
+              <Tabs items={TABS} value={tab} onChange={setTab} className="mt-[20px]" />
 
               {tab === 'Card' && (
                 <CardTab
