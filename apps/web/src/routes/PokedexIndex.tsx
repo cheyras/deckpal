@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { api, type SpeciesGridRow } from '../lib/api'
-import { Content, Spinner, ErrorState } from '../components/ui'
+import { Content, Spinner, ErrorState, useDismiss } from '../components/ui'
 import { SpriteTile } from '../components/SpriteTile'
 import { fmtNumber, typeColor } from '../lib/format'
 import { useSignedIn } from '../lib/session'
@@ -146,21 +146,8 @@ function VirtualGrid({ species }: { species: SpeciesGridRow[] }) {
 
 function OwnFilterMenu({ value, onChange }: { value: Own; onChange: (o: Own) => void }) {
   const [open, setOpen] = useState(false)
-  const wrapRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDoc)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const close = useCallback(() => setOpen(false), [])
+  const wrapRef = useDismiss<HTMLDivElement>(open, close)
 
   const active = value !== 'all'
 
