@@ -15,6 +15,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../../lib/supabase'
 import { PASSWORD_MIN_LENGTH, friendlyAuthError, passwordProblem } from '../../lib/authErrors'
 import { Field, FormAlert } from './authUi'
+import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/Icon'
 
 export function ChangePassword() {
@@ -140,17 +141,9 @@ export function ChangePassword() {
             }}
           />
 
-          <button
-            type="submit"
-            disabled={saving}
-            aria-busy={saving || undefined}
-            className="ls-cta flex h-[44px] items-center justify-center gap-[8px] rounded-full bg-action-primary px-[22px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-strong disabled:cursor-not-allowed disabled:opacity-55"
-          >
-            {saving && (
-              <span className="h-[15px] w-[15px] animate-spin rounded-full border-2 border-action-primary-text border-t-transparent" />
-            )}
+          <Button type="submit" loading={saving} className="ls-cta">
             {saving ? 'Saving…' : 'Update password'}
-          </button>
+          </Button>
         </form>
       )}
     </section>

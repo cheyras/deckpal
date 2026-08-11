@@ -87,17 +87,22 @@ const spinnerGallery = {
   name: 'Spinner',
   source: 'apps/web/src/components/ui.tsx',
   section: 'primitive',
-  description: 'Centered spin-ring + optional label, used as page/section loading state.',
+  description: 'Spin-ring loading indicator. Block mode (default) for page/section states; inline mode for embedding in buttons/text.',
   component: Spinner,
   defaults: { label: 'Loading...' },
   variants: [
-    { label: 'with label', props: { label: 'Loading cards...' } },
-    { label: 'no label', props: {} },
+    { label: 'block + label', props: { label: 'Loading cards...' } },
+    { label: 'block (no label)', props: {} },
+    { label: 'block small (24)', props: { size: 24 } },
+    { label: 'inline (16)', props: { inline: true, size: 16 } },
+    { label: 'inline (28)', props: { inline: true, size: 28 } },
   ],
   knobs: {
     label: { kind: 'text' },
+    size: { kind: 'number', min: 8, max: 80, step: 2 },
+    inline: { kind: 'boolean' },
   },
-} satisfies GalleryMeta<{ label?: string }>
+} satisfies GalleryMeta<{ label?: string; size?: number; inline?: boolean }>
 
 // ── ErrorState ──────────────────────────────────────────────────────────
 

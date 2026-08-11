@@ -16,6 +16,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { api, type ApiTokenRow } from '../lib/api'
 import { isCloudMode } from '../lib/supabase'
 import { Field, FormAlert } from '../routes/auth/authUi'
+import { Button } from './ui/Button'
 import { Icon } from './Icon'
 
 /**
@@ -278,17 +279,9 @@ export function AgentAccess() {
               if (nameError) setNameError(null)
             }}
           />
-          <button
-            type="submit"
-            disabled={creating}
-            aria-busy={creating || undefined}
-            className="ls-cta flex h-[44px] items-center justify-center gap-[8px] rounded-full bg-action-primary px-[22px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-strong disabled:cursor-not-allowed disabled:opacity-55"
-          >
-            {creating && (
-              <span className="h-[15px] w-[15px] animate-spin rounded-full border-2 border-action-primary-text border-t-transparent" />
-            )}
+          <Button type="submit" loading={creating} className="ls-cta">
             {creating ? 'Creating…' : 'Create token'}
-          </button>
+          </Button>
         </form>
       )}
 

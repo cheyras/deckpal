@@ -18,6 +18,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { supabase, isCloudMode } from '../lib/supabase'
 import { api } from '../lib/api'
 import { Icon } from '../components/Icon'
+import { Spinner } from '../components/ui'
 import { AuthCard, AuthPage, CTA_GHOST, FormAlert, SubmitButton } from './auth/authUi'
 import type { Session } from '@supabase/supabase-js'
 
@@ -116,7 +117,7 @@ export function Authorize() {
   if (session === undefined) {
     return (
       <div className="flex h-screen items-center justify-center bg-surface-primary">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-action-primary border-t-transparent" />
+        <Spinner inline size={32} className="text-action-primary" />
       </div>
     )
   }
@@ -137,7 +138,7 @@ export function Authorize() {
   if (clientName === null) {
     return (
       <div className="flex h-screen items-center justify-center bg-surface-primary">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-action-primary border-t-transparent" />
+        <Spinner inline size={32} className="text-action-primary" />
       </div>
     )
   }

@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type AvatarState } from '../lib/api'
+import { Spinner } from './ui'
 import { Icon } from './Icon'
 
 const AVATAR_KEY = ['avatar'] as const
@@ -271,16 +272,9 @@ export function useAvatarEditor(): AvatarEditor {
 }
 
 /**
- * The spinner shown over the disc while an upload runs. Same construction as
- * the app's other inline spinners (ui.tsx, authUi.tsx) so it reads as one
- * family: a 2px ring in the accent colour with a transparent top arc.
+ * The spinner shown over the disc while an upload runs. Thin wrapper around
+ * the shared Spinner primitive with the accent colour.
  */
 export function AvatarSpinner({ size = 22 }: { size?: number }) {
-  return (
-    <span
-      className="block animate-spin rounded-full border-2 border-action-primary border-t-transparent"
-      style={{ width: size, height: size }}
-      aria-hidden="true"
-    />
-  )
+  return <Spinner inline size={size} className="block text-action-primary" />
 }

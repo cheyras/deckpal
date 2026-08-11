@@ -20,14 +20,6 @@ export interface PendingItem {
 export const PENDING_ITEMS: PendingItem[] = [
   // ── Component extractions (audit §4) ─────────────────────────────────
   {
-    id: 'C2',
-    label: 'Spinner API broadening',
-    kind: 'extraction',
-    description:
-      'Add size and inline props to ui.tsx Spinner. 9 hand-rolled animate-spin rings become calls.',
-    auditRef: '§4.2',
-  },
-  {
     id: 'C3',
     label: 'CounterBox dedupe',
     kind: 'extraction',
@@ -162,6 +154,6 @@ export const PENDING_ITEMS: PendingItem[] = [
 /** How many of the extraction/adoption items are done (always 0 in Phase 1) */
 export function completionStats(): { done: number; total: number; pct: number } {
   const actionable = PENDING_ITEMS.filter((i) => i.kind !== 'off-theme')
-  const done = 1 // C1 (Button) landed
+  const done = 2 // C1 (Button), C2 (Spinner) landed
   return { done, total: actionable.length, pct: Math.round((done / actionable.length) * 100) }
 }
