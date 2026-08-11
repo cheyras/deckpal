@@ -81,6 +81,14 @@ function GalleryEntry({ gallery }: GalleryEntryProps) {
   const [showKnobs, setShowKnobs] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Overlay entries (position: fixed, full-viewport — modals, sheets, popovers)
+  // are never mounted eagerly: see the `overlay` doc comment in galleryTypes.ts.
+  // `openVariant` tracks which variants-grid card (if any) is currently open;
+  // `knobPreviewOpen` tracks the separate "Interactive" knob-preview instance.
+  const isOverlay = gallery.overlay === true
+  const [openVariant, setOpenVariant] = useState<number | null>(null)
+  const [knobPreviewOpen, setKnobPreviewOpen] = useState(false)
+
   const Component = gallery.component as ComponentType<any>
 
   const updateKnob = (key: string, value: any) => {
@@ -117,12 +125,31 @@ function GalleryEntry({ gallery }: GalleryEntryProps) {
               className="rounded-lg border border-border-default bg-surface-primary p-[12px] min-w-[120px]"
             >
               <div className="text-[10px] text-text-muted mb-[8px] font-medium">{variant.label}</div>
-              <ErrorBoundary
-                onError={(msg) => setError(msg)}
-                fallback={<div className="text-[11px] text-error">Render error</div>}
-              >
-                <Component {...variant.props} />
-              </ErrorBoundary>
+              {isOverlay ? (
+                <>
+                  <button
+                    onClick={() => setOpenVariant(i)}
+                    className="w-full rounded-lg border border-dashed border-border-default bg-surface-tertiary/40 px-[10px] py-[16px] text-[11px] text-text-muted hover:border-action-primary hover:text-text-primary"
+                  >
+                    Preview: {gallery.name} — click to open
+                  </button>
+                  {openVariant === i && (
+                    <ErrorBoundary
+                      onError={(msg) => setError(msg)}
+                      fallback={<div className="text-[11px] text-error">Render error</div>}
+                    >
+                      <Component {...variant.props} onClose={() => setOpenVariant(null)} />
+                    </ErrorBoundary>
+                  )}
+                </>
+              ) : (
+                <ErrorBoundary
+                  onError={(msg) => setError(msg)}
+                  fallback={<div className="text-[11px] text-error">Render error</div>}
+                >
+                  <Component {...variant.props} />
+                </ErrorBoundary>
+              )}
             </div>
           ))}
         </div>
@@ -143,12 +170,31 @@ function GalleryEntry({ gallery }: GalleryEntryProps) {
           <div className="flex flex-col gap-[16px] lg:flex-row">
             {/* Preview */}
             <div className="rounded-lg border border-border-default bg-surface-primary p-[16px] min-w-[200px]">
-              <ErrorBoundary
-                onError={() => {}}
-                fallback={<div className="text-[11px] text-error">Render error</div>}
-              >
-                <Component {...knobState} />
-              </ErrorBoundary>
+              {isOverlay ? (
+                <>
+                  <button
+                    onClick={() => setKnobPreviewOpen(true)}
+                    className="w-full rounded-lg border border-dashed border-border-default bg-surface-tertiary/40 px-[10px] py-[16px] text-[11px] text-text-muted hover:border-action-primary hover:text-text-primary"
+                  >
+                    Preview: {gallery.name} (interactive) — click to open
+                  </button>
+                  {knobPreviewOpen && (
+                    <ErrorBoundary
+                      onError={() => {}}
+                      fallback={<div className="text-[11px] text-error">Render error</div>}
+                    >
+                      <Component {...knobState} onClose={() => setKnobPreviewOpen(false)} />
+                    </ErrorBoundary>
+                  )}
+                </>
+              ) : (
+                <ErrorBoundary
+                  onError={() => {}}
+                  fallback={<div className="text-[11px] text-error">Render error</div>}
+                >
+                  <Component {...knobState} />
+                </ErrorBoundary>
+              )}
             </div>
             {/* Knobs */}
             <div className="flex-1 space-y-[6px]">
