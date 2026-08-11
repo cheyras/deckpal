@@ -8,6 +8,7 @@
 import { useState, type ComponentType } from 'react'
 import type { GalleryMeta, KnobDef } from './galleryTypes'
 import { BooleanKnob, PropNumberKnob, TextKnob, SelectKnob } from './knobs'
+import { designApi } from './designApi'
 
 // Glob all gallery files from src/ — eager so they're available synchronously.
 // The path is relative to this file's location (routes/design/).
@@ -214,6 +215,133 @@ function GalleryEntry({ gallery }: GalleryEntryProps) {
                 Reset to defaults
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Send to agent composer (Lane B) */}
+      <AgentComposer gallery={gallery} knobState={knobState} />
+    </div>
+  )
+}
+
+// ── Agent composer ─────────────────────────────────────────────────────
+
+function AgentComposer({
+  gallery,
+  knobState,
+}: {
+  gallery: GalleryMeta<any>
+  knobState: Record<string, any>
+}) {
+  const [open, setOpen] = useState(false)
+  const [intent, setIntent] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; id?: string; error?: string } | null>(null)
+
+  const handleSubmit = async () => {
+    if (!intent.trim()) return
+    setSubmitting(true)
+    setResult(null)
+    try {
+      const context: Record<string, unknown> = {
+        component: gallery.name,
+        source: gallery.source,
+        section: gallery.section,
+      }
+
+      // Include current knob state if any knobs exist and have non-default values
+      if (gallery.knobs && Object.keys(gallery.knobs).length > 0) {
+        const knobDiff: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(knobState)) {
+          if (value !== (gallery.defaults as Record<string, unknown>)[key]) {
+            knobDiff[key] = value
+          }
+        }
+        if (Object.keys(knobDiff).length > 0) {
+          context.currentKnobState = knobDiff
+        }
+      }
+
+      // Include active token overrides if any are on the document root
+      const rootStyle = document.documentElement.style
+      const overrides: Record<string, string> = {}
+      for (let i = 0; i < rootStyle.length; i++) {
+        const prop = rootStyle[i]
+        if (prop.startsWith('--')) {
+          overrides[prop] = rootStyle.getPropertyValue(prop).trim()
+        }
+      }
+      if (Object.keys(overrides).length > 0) {
+        context.activeTokenOverrides = overrides
+      }
+
+      const res = await designApi.submitRequest({
+        kind: 'component-change',
+        target: gallery.name,
+        intent: intent.trim(),
+        context,
+      })
+      setResult({ ok: true, id: res.id })
+      setIntent('')
+    } catch (e: any) {
+      setResult({ ok: false, error: e.message || 'Failed to submit' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="border-t border-border-default">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-[6px] px-[16px] py-[8px] text-[11px] text-text-muted hover:text-text-primary hover:bg-surface-tertiary/30"
+      >
+        <span className="text-[13px]">{open ? '▾' : '▸'}</span>
+        Send to agent
+      </button>
+
+      {open && (
+        <div className="px-[16px] pb-[12px] space-y-[8px]">
+          {/* Pre-filled context display */}
+          <div className="flex flex-wrap gap-[6px]">
+            <span className="rounded bg-surface-quaternary px-[6px] py-[1px] text-[9px] font-mono text-text-muted">
+              {gallery.name}
+            </span>
+            <span className="rounded bg-surface-quaternary px-[6px] py-[1px] text-[9px] font-mono text-text-muted">
+              {gallery.source}
+            </span>
+          </div>
+
+          {/* Intent textarea */}
+          <textarea
+            value={intent}
+            onChange={(e) => setIntent(e.target.value)}
+            placeholder={`Describe what to change in ${gallery.name}... (e.g. "increase the md height to 46px", "add a new outline variant")`}
+            rows={3}
+            className="w-full rounded-lg border border-border-default bg-surface-primary px-[12px] py-[8px] text-[12px] text-text-primary placeholder:text-text-muted/60 focus:border-action-primary focus:outline-none resize-y"
+          />
+
+          <div className="flex items-center justify-between">
+            <button
+              onClick={handleSubmit}
+              disabled={!intent.trim() || submitting}
+              className="h-[28px] rounded-full bg-action-primary px-[14px] text-[11px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50"
+            >
+              {submitting ? 'Submitting...' : 'Submit request'}
+            </button>
+
+            {result && (
+              <span
+                className={`text-[11px] ${
+                  result.ok ? 'text-success' : 'text-error'
+                }`}
+              >
+                {result.ok
+                  ? `Queued (${result.id?.slice(0, 8)}...)`
+                  : result.error}
+              </span>
+            )}
           </div>
         </div>
       )}

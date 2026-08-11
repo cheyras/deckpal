@@ -11,9 +11,10 @@ import { designApi, type HealthResponse } from './designApi'
 import { useTokenOverrides } from './useTokenOverrides'
 import { TokenPanel } from './TokenPanel'
 import { CatalogSection } from './CatalogSection'
+import { RequestsPanel } from './RequestsPanel'
 import { PENDING_ITEMS, completionStats } from './pending'
 
-type TabId = 'tokens' | 'primitives' | 'components' | 'pending'
+type TabId = 'tokens' | 'primitives' | 'components' | 'requests' | 'pending'
 
 export default function DesignSystem() {
   const [activeTab, setActiveTab] = useState<TabId>('tokens')
@@ -30,6 +31,7 @@ export default function DesignSystem() {
     { id: 'tokens', label: 'Tokens' },
     { id: 'primitives', label: 'Primitives' },
     { id: 'components', label: 'Components' },
+    { id: 'requests', label: 'Requests' },
     { id: 'pending', label: 'Pending', badge: `${stats.done}/${stats.total}` },
   ]
 
@@ -90,6 +92,7 @@ export default function DesignSystem() {
           {activeTab === 'tokens' && <TokenPanel overrides={overrides} />}
           {activeTab === 'primitives' && <CatalogSection section="primitive" title="Primitives" />}
           {activeTab === 'components' && <CatalogSection section="component" title="Components" />}
+          {activeTab === 'requests' && <RequestsPanel />}
           {activeTab === 'pending' && <PendingSection />}
         </main>
       </div>

@@ -63,7 +63,7 @@ pokedex-exports/
 deploy/
 
 # ── design-system editor request queue (dev-only, never committed) ───────
-design-requests/
+/design-requests/
 
 # ── machine-local agent instructions (not portable) ─────────────────────
 CLAUDE.local.md
