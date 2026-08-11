@@ -89,6 +89,22 @@
   --color-completion-grandmaster: #9b6bff;
   --color-glow-active: #ffe165;
 
+  /* ── energy-type colours (EnergyIcon) ─────────────────────── */
+  --color-energy-grass: #5fb85f;
+  --color-energy-fire: #e8703a;
+  --color-energy-water: #4a97d6;
+  --color-energy-lightning: #f2c518;
+  --color-energy-psychic: #a45cb0;
+  --color-energy-fighting: #c06a3a;
+  --color-energy-darkness: #4b5566;
+  --color-energy-metal: #8b95a6;
+  --color-energy-fairy: #e58bb8;
+  --color-energy-dragon: #c6a23e;
+  --color-energy-colorless: #d6d2c6;
+
+  /* ── warning ─────────────────────────────────────────────── */
+  --color-warning: #ff9d42;
+
   /* ── variant accents (owned-badge + legend) ───────────────── */
   --color-variant-normal: #ffe165; /* Normal */
   --color-variant-reverse-holo: #32b5ff; /* Reverse Holofoil */

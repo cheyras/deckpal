@@ -30,7 +30,7 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
     <div className="relative overflow-hidden">
       {/* blurred set art / gradient wash behind the block (UI-SPEC §3.7) */}
       <div
-        className="pointer-events-none absolute inset-0 -z-[1]"
+        className="pointer-events-none absolute inset-0 z-(--z-art)"
         style={{
           background: set.images.backgroundUrl
             ? `linear-gradient(to bottom, var(--color-banner-gradient-top), var(--color-surface-primary)), url(${set.images.backgroundUrl}) center/cover`

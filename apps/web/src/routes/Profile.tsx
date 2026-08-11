@@ -112,12 +112,12 @@ export function Profile() {
               {banner[i] ? (
                 <img src={banner[i]!.high} alt="" className="h-full w-full object-cover object-top opacity-40" />
               ) : (
-                <div className="h-full w-full" style={{ background: 'linear-gradient(160deg,#1f232d,#282d38)' }} />
+                <div className="h-full w-full" style={{ background: 'linear-gradient(160deg, var(--color-surface-secondary), var(--color-surface-tertiary))' }} />
               )}
             </div>
           ))}
         </div>
-        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(21,24,31,0.2), var(--color-surface-primary))' }} />
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-surface-primary) 20%, transparent), var(--color-surface-primary))' }} />
       </div>
 
       <Content cap={1000}>
@@ -130,7 +130,7 @@ export function Profile() {
             floor the row collapsed to ~40px, rode the -54px margin up INTO the
             banner, and took the name, the gear and Sign out with it — so an
             insights outage left nobody able to sign out. */}
-        <div className="relative z-[1] -mt-[54px] flex min-h-[96px] items-end gap-[16px]">
+        <div className="relative z-(--z-raised) -mt-[54px] flex min-h-[96px] items-end gap-[16px]">
           {/* The ring renders unconditionally now. It used to be gated on `ov`,
               which meant an insights outage took the profile photo — and its
               upload control — off the page along with the level. The level is
@@ -349,7 +349,7 @@ export function Profile() {
       {/* showcase picker */}
       {picking != null && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-overlay-scrim-strong p-[16px]"
+          className="fixed inset-0 z-(--z-modal) flex items-center justify-center bg-overlay-scrim-strong p-[16px]"
           onClick={() => setPicking(null)}
         >
           <div
