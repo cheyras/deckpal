@@ -993,7 +993,14 @@ export const api = {
   uploadAvatar: (file: Blob) => upload<AvatarState>('/avatar', file),
   removeAvatar: () => send<AvatarState>('DELETE', '/avatar'),
 
-  submitBug: (body: { text: string; page: string; screenshot?: string; viewport?: string; userAgent?: string }) =>
+  submitBug: (body: {
+    text: string
+    page: string
+    screenshot?: string
+    viewport?: string
+    userAgent?: string
+    kind?: 'bug' | 'feature'
+  }) =>
     send<{ id: string; saved?: string; issueUrl?: string; issueNumber?: number; note?: string }>('POST', '/bugs', body),
   insightsValue: (range: ValueRange, currency = 'USD', signal?: AbortSignal) =>
     get<ValueResponse>(`/insights/value?range=${range}&currency=${encodeURIComponent(currency)}`, signal),
