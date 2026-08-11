@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -284,7 +284,7 @@ const signedOutRoute = createRoute({
   component: SignedOut,
 })
 
-const routeTree = rootRoute.addChildren([
+const coreRoutes = [
   indexRoute,
   authRoute,
   authorizeRoute,
@@ -305,7 +305,37 @@ const routeTree = rootRoute.addChildren([
   profileAliasRoute,
   scanRoute,
   searchRoute,
-])
+]
+
+// DEV-only design-system editor route. Vite statically replaces
+// import.meta.env.DEV with false in production builds, so the entire
+// branch — including the dynamic import — is dead-code-eliminated from
+// the prod bundle. No SW precache, no route leak.
+const devRoutes = import.meta.env.DEV
+  ? (() => {
+      const LazyDesignSystem = lazy(() => import('./routes/design/DesignSystem'))
+      const DesignSystemRoute = () => (
+        <Suspense
+          fallback={
+            <div className="flex h-screen items-center justify-center text-text-muted">
+              Loading design system...
+            </div>
+          }
+        >
+          <LazyDesignSystem />
+        </Suspense>
+      )
+      return [
+        createRoute({
+          getParentRoute: () => rootRoute,
+          path: '/design',
+          component: DesignSystemRoute,
+        }),
+      ]
+    })()
+  : []
+
+const routeTree = rootRoute.addChildren([...coreRoutes, ...devRoutes])
 
 const router = createRouter({
   routeTree,
