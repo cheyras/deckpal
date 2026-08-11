@@ -6,6 +6,7 @@ import { AvatarDisc, useAvatar } from './Avatar'
 import { PwaUi } from './PwaUi'
 import { BugButton } from './BugReport'
 import { api } from '../lib/api'
+import { isCloudMode } from '../lib/supabase'
 import { isChromelessPathname } from '../lib/landingRoute'
 import { useSignedIn } from '../lib/session'
 import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
@@ -17,8 +18,13 @@ import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
 // level badge but never the face.
 function ProfileChip() {
   const { data } = useQuery({ queryKey: ['insights', 'overview'], queryFn: ({ signal }) => api.overview(signal) })
+  // Self-host has no per-user account, so no query — 'Trainer' stays the
+  // generic label there, exactly as before (issue #25 is cloud-only). Shares
+  // the ['me'] key with Profile.tsx, so whichever mounts first warms the other.
+  const me = useQuery({ queryKey: ['me'], queryFn: ({ signal }) => api.me(signal), enabled: isCloudMode })
   const avatar = useAvatar()
   const level = data?.trainer.level ?? 0
+  const username = isCloudMode ? (me.data?.username ?? 'Trainer') : 'Trainer'
   return (
     <Link
       to="/profile"
@@ -35,7 +41,7 @@ function ProfileChip() {
           {level}
         </span>
       </span>
-      <span className="text-[14px] font-semibold text-text-primary">Trainer</span>
+      <span className="text-[14px] font-semibold text-text-primary">{username}</span>
     </Link>
   )
 }

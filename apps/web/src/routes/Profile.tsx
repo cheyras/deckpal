@@ -12,7 +12,6 @@ import { ChangePassword } from './auth/ChangePassword'
 import { AgentAccess } from '../components/AgentAccess'
 import { fmtUsd } from '../lib/format'
 
-const USERNAME = 'Trainer'
 const SHOWCASE_KEY = 'deckscout.showcase.v1'
 
 interface ShowcasePick {
@@ -68,6 +67,10 @@ export function Profile() {
   const navigate = useNavigate()
   const overview = useQuery({ queryKey: ['insights', 'overview'], queryFn: ({ signal }) => api.overview(signal) })
   const owned = useOwnedCards()
+  // Self-host has no per-user account, so no query — 'Trainer' stays the
+  // generic label there, exactly as before (issue #25 is cloud-only).
+  const me = useQuery({ queryKey: ['me'], queryFn: ({ signal }) => api.me(signal), enabled: isCloudMode })
+  const username = isCloudMode ? (me.data?.username ?? 'Trainer') : 'Trainer'
   const [signingOut, setSigningOut] = useState(false)
   const photo = useAvatarEditor()
 
@@ -165,7 +168,7 @@ export function Profile() {
             )}
           </div>
           <div className="flex items-center gap-[8px] pb-[10px]">
-            <span className="text-[24px] font-extrabold text-text-primary">{USERNAME}</span>
+            <span className="text-[24px] font-extrabold text-text-primary">{username}</span>
             {isCloudMode ? (
               // Was a dead decorative glyph; now the shortcut to the Account
               // card further down (password, signed-in address).

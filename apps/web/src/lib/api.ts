@@ -715,6 +715,9 @@ export interface InsightsOverview {
   collectionValue: CurrencyTotal[]
   pokedex: { captured: number; total: number; pct: number }
 }
+export interface MeResponse {
+  username: string
+}
 export interface CollectionEvent {
   eventId: string
   occurredAt: string
@@ -954,6 +957,9 @@ export const api = {
     send<{ log: BattleLog }>('PATCH', `/decks/${encodeURIComponent(id)}/logs/${logId}`, body),
   deleteBattleLog: (id: string, logId: number) =>
     send<{ deleted: number }>('DELETE', `/decks/${encodeURIComponent(id)}/logs/${logId}`),
+
+  // Signed-in identity — real username, not the JWT's (often-empty) metadata.
+  me: (signal?: AbortSignal) => get<MeResponse>('/me', signal),
 
   // Insights / gamification (Phase 6)
   overview: (signal?: AbortSignal) => get<InsightsOverview>('/insights/overview', signal),
