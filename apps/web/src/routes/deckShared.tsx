@@ -9,8 +9,7 @@ export const FORMAT_META: Record<DeckFormat, { label: string; short: string; blu
 }
 
 // pkmn.gg shows an orange "Not Legal" pill (DECK-FORMATS §5.6 / BEHAVIOR-SPEC §8.4)
-// and a green legal state. No dedicated orange token in the theme — use an inline hue.
-const ORANGE = '#ff9d42'
+// and a green legal state. Now uses --color-warning from the token system.
 
 export function LegalBadge({ legal, onClick, big }: { legal: boolean; onClick?: () => void; big?: boolean }) {
   const cls = big ? 'px-[14px] py-[7px] text-[13px]' : 'px-[10px] py-[3px] text-[11px]'
@@ -26,7 +25,7 @@ export function LegalBadge({ legal, onClick, big }: { legal: boolean; onClick?: 
     <Tag
       onClick={onClick}
       className={`inline-flex items-center gap-[6px] rounded-full font-bold ${cls} ${onClick ? 'hover:opacity-90' : ''}`}
-      style={{ background: 'rgba(255,157,66,0.18)', color: ORANGE }}
+      style={{ background: 'color-mix(in srgb, var(--color-warning) 18%, transparent)', color: 'var(--color-warning)' }}
     >
       <Icon name="alert" size={big ? 16 : 13} /> Not Legal
     </Tag>

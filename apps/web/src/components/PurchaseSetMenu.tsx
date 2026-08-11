@@ -187,7 +187,7 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
               {busy ? 'Building cart link…' : 'Generate cart link'}
             </Button>
 
-            {error && <p className="text-[13px] text-red-400">{error}</p>}
+            {error && <p className="text-[13px] text-error">{error}</p>}
 
             {result && (
               <div className="flex flex-col gap-[12px] border-t border-border-default pt-[14px]">
@@ -249,7 +249,7 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
                 {result.warnings
                   .filter((w) => !w.includes('no TCGplayer product')) // already rendered above
                   .map((w) => (
-                    <p key={w} className="text-[12px] text-amber-400">
+                    <p key={w} className="text-[12px] text-warning">
                       {w}
                     </p>
                   ))}

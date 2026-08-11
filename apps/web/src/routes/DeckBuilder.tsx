@@ -100,7 +100,7 @@ function LegalityPanel({ detail, onDisclose }: { detail: DeckDetail; onDisclose:
         <div className="mt-[12px] flex flex-col gap-[10px]">
           <p className="text-[12px] text-text-muted">{errors.length} rule{errors.length === 1 ? '' : 's'} failing:</p>
           {errors.map((x, i) => (
-            <div key={i} className="rounded-lg bg-surface-tertiary/60 p-[10px]" style={{ borderLeft: '3px solid #ff9d42' }}>
+            <div key={i} className="rounded-lg bg-surface-tertiary/60 p-[10px]" style={{ borderLeft: '3px solid var(--color-warning)' }}>
               <div className="text-[13px] font-bold text-text-primary">{x.message}</div>
               <div className="mt-[2px] text-[11px] text-text-muted">{x.rule}</div>
               <ViolationThumbs ids={x.card_ids} refs={cardRefs} />
@@ -173,7 +173,7 @@ function DeckCardContext({ card, offending, onSet }: {
       </div>
 
       {offending && (
-        <div className="mt-[12px] flex items-start gap-[8px] rounded-lg px-[10px] py-[8px] text-[12px]" style={{ background: 'rgba(255,157,66,0.10)', color: '#ff9d42' }}>
+        <div className="mt-[12px] flex items-start gap-[8px] rounded-lg bg-warning/10 px-[10px] py-[8px] text-[12px] text-warning">
           <span className="mt-[1px] shrink-0"><Icon name="alert" size={14} /></span>
           <span>This card breaks a rule for the deck's current format — see the legality panel.</span>
         </div>
@@ -221,7 +221,7 @@ function DeckRow({ card, offending, onSet, onRemove, onOpen }: {
           <div className="flex items-center gap-[6px]">
             {basicEnergyType(card) && <EnergyIcon type={basicEnergyType(card)!} size={16} className="shrink-0" />}
             <span className="truncate text-[14px] font-semibold text-text-primary">{card.name}</span>
-            {offending && <span className="shrink-0" style={{ color: '#ff9d42' }}><Icon name="alert" size={13} /></span>}
+            {offending && <span className="shrink-0 text-warning"><Icon name="alert" size={13} /></span>}
           </div>
           <div className="flex items-center gap-[8px] text-[11px] text-text-muted">
             <span>{card.setId.toUpperCase()} {card.number}</span>
@@ -344,7 +344,7 @@ function TestHandModal({ deckId, onClose }: { deckId: string; onClose: () => voi
         {data && (
           <>
             <div className="flex flex-wrap items-center gap-x-[20px] gap-y-[6px] text-[13px]">
-              <span className={data.mulligans > 0 ? 'font-bold text-[#ff9d42]' : 'font-bold text-change-positive'}>
+              <span className={data.mulligans > 0 ? 'font-bold text-warning' : 'font-bold text-change-positive'}>
                 {data.mulligans === 0 ? 'Keepable hand' : `${data.mulligans} mulligan${data.mulligans === 1 ? '' : 's'}`}
               </span>
               <span className="text-text-muted">Opponent draws <span className="font-bold text-text-primary">{data.opponentDraws}</span></span>
@@ -391,16 +391,16 @@ function ExportModal({ deckId, onClose }: { deckId: string; onClose: () => void 
         <textarea readOnly value={data?.text ?? (error ? '' : 'Loading…')} rows={16}
           className="rounded-lg border border-border-default bg-surface-primary px-[14px] py-[10px] font-mono text-[13px] leading-[19px] text-text-primary" />
         {error && (
-          <div className="flex items-center justify-between gap-[10px] text-[12px] text-amber-400">
+          <div className="flex items-center justify-between gap-[10px] text-[12px] text-warning">
             <span>Couldn’t export this deck.</span>
             <button onClick={() => void refetch()} className="rounded-full bg-surface-tertiary px-[12px] py-[6px] font-bold text-text-primary hover:bg-action-default-hover">Retry</button>
           </div>
         )}
         {data && data.warnings.length > 0 && (
-          <div className="flex flex-col gap-[6px] rounded-lg border border-[#ff9d42]/40 bg-[#ff9d42]/10 p-[10px]">
+          <div className="flex flex-col gap-[6px] rounded-lg border border-warning/40 bg-warning/10 p-[10px]">
             {data.warnings.map((w, i) => (
               <div key={i} className="flex gap-[8px] text-[12px] leading-[17px] text-text-primary">
-                <Icon name="alert" size={14} className="mt-[1px] shrink-0 text-[#ff9d42]" />
+                <Icon name="alert" size={14} className="mt-[1px] shrink-0 text-warning" />
                 <span>{w.message}</span>
               </div>
             ))}
@@ -440,7 +440,7 @@ function BuyMissingModal({ deckId, onClose }: { deckId: string; onClose: () => v
             <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[6px] text-[13px]">
               <span className="text-text-muted">Deck value <span className="font-bold text-change-positive">{fmtUsd(data.totalUsd)}</span></span>
               <span className="text-text-muted">You own <span className="font-bold text-change-positive">{fmtUsd(data.ownedValueUsd)}</span></span>
-              <span className="text-text-muted">Missing <span className="font-bold text-[#ff9d42]">{fmtUsd(data.missingValueUsd)}</span> ({data.missing.length} card{data.missing.length === 1 ? '' : 's'})</span>
+              <span className="text-text-muted">Missing <span className="font-bold text-warning">{fmtUsd(data.missingValueUsd)}</span> ({data.missing.length} card{data.missing.length === 1 ? '' : 's'})</span>
             </div>
             {data.missing.length === 0 ? (
               <div className="rounded-lg bg-surface-tertiary/60 p-[16px] text-center text-[14px] text-change-positive">You own every card in this deck!</div>
@@ -465,7 +465,7 @@ function BuyMissingModal({ deckId, onClose }: { deckId: string; onClose: () => v
                     </p>
                   </div>
                 )}
-                {meError != null && <p className="text-[12px] text-amber-400">Couldn’t build the cart link — use the copy list below instead.</p>}
+                {meError != null && <p className="text-[12px] text-warning">Couldn’t build the cart link — use the copy list below instead.</p>}
                 <div className="flex max-h-[300px] flex-col gap-[6px] overflow-y-auto pr-[4px]">
                   {data.missing.map((m) => (
                     <div key={m.cardId} className="flex items-center gap-[10px] rounded-lg bg-surface-tertiary/50 p-[6px] pr-[10px]">
@@ -490,7 +490,7 @@ function BuyMissingModal({ deckId, onClose }: { deckId: string; onClose: () => v
                 )}
                 {me?.warnings
                   .filter((w) => !w.includes('no TCGplayer product')) // already rendered above
-                  .map((w) => <p key={w} className="text-[12px] text-amber-400">{w}</p>)}
+                  .map((w) => <p key={w} className="text-[12px] text-warning">{w}</p>)}
                 {/* fallback: copy the Mass Entry text */}
                 <div className="flex items-center justify-between border-t border-divider-subtle pt-[10px]">
                   <span className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Mass Entry list (fallback)</span>
@@ -803,7 +803,7 @@ export function DeckBuilder() {
             <div className="rounded-xl border border-border-default bg-surface-secondary p-[16px]">
               <div className="flex items-center justify-between text-[13px]">
                 <span className="text-text-muted">Total</span>
-                <span className={`font-bold ${detail.counts.total === 60 ? 'text-text-primary' : 'text-[#ff9d42]'}`}>{detail.counts.total}/60</span>
+                <span className={`font-bold ${detail.counts.total === 60 ? 'text-text-primary' : 'text-warning'}`}>{detail.counts.total}/60</span>
               </div>
               <div className="mt-[6px] flex items-center justify-between text-[13px]">
                 <span className="text-text-muted">Deck value</span>
