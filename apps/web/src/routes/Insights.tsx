@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { api, type ValueRange } from '../lib/api'
-import { Content, Spinner, ErrorState, Tabs } from '../components/ui'
+import { Content, Spinner, ErrorState, Tabs, StatTile } from '../components/ui'
 import { LevelRing } from '../components/LevelRing'
 import { ValueChart } from '../components/ValueChart'
 import { Icon } from '../components/Icon'
@@ -93,10 +93,7 @@ export function Insights() {
             </div>
 
             {/* Collection value card */}
-            <div className="rounded-2xl bg-surface-secondary p-[20px]">
-              <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">
-                Total Estimated Collection Value
-              </div>
+            <StatTile variant="card" label="Total Estimated Collection Value">
               <div className="mt-[6px] flex flex-wrap items-baseline gap-x-[16px] gap-y-[2px]">
                 {ov.collectionValue
                   .slice()
@@ -119,7 +116,7 @@ export function Insights() {
                 {ov.collectionValue[0]?.pricedVariants ?? 0} priced variants · {ov.collectionValue[0]?.quantity ?? 0}{' '}
                 cards · Pokédex {ov.pokedex.captured}/{ov.pokedex.total}
               </div>
-            </div>
+            </StatTile>
           </div>
 
           {/* Value-over-time */}
