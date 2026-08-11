@@ -3,7 +3,7 @@ import type { SetDetailResponse } from '../lib/api'
 import type { Goal } from '../routes/setSearch'
 import { api } from '../lib/api'
 import { fmtDate, fmtUsd } from '../lib/format'
-import { SetSymbolTile } from './ui'
+import { SetSymbolTile, StatTile } from './ui'
 import { SetLogo } from './SetLogo'
 import { ProgressCluster } from './ProgressCluster'
 import { Icon } from './Icon'
@@ -11,16 +11,6 @@ import { PurchaseSetMenu } from './PurchaseSetMenu'
 import { SignInPrompt } from './SignInPrompt'
 import { useSignedIn } from '../lib/session'
 
-function Stat({ label, value, money = false }: { label: string; value: string; money?: boolean }) {
-  return (
-    <div className="min-w-0">
-      <div className="truncate text-[14px] leading-[23px] text-text-muted">{label}</div>
-      <div className={`truncate text-[14px] leading-[23px] ${money ? 'text-change-positive' : 'text-text-primary'}`}>
-        {value}
-      </div>
-    </div>
-  )
-}
 
 export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal }) {
   const { set, progress } = data
@@ -98,7 +88,7 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
 
         {/* 6-column stat strip (UI-SPEC §3.7) */}
         <div className="grid grid-cols-2 gap-[16px] sm:grid-cols-3 nav:grid-cols-6">
-          <Stat label="Set Name" value={set.name} />
+          <StatTile label="Set Name" value={set.name} />
           <div className="min-w-0">
             <div className="text-[14px] leading-[23px] text-text-muted">Series</div>
             <Link
@@ -109,13 +99,13 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
               {set.series.name}
             </Link>
           </div>
-          <Stat label="Release Date" value={fmtDate(set.releasedOn)} />
-          <Stat
+          <StatTile label="Release Date" value={fmtDate(set.releasedOn)} />
+          <StatTile
             label="Cards"
             value={set.secretCount > 0 ? `${set.printedCount} + ${set.secretCount} Secret` : `${set.printedCount}`}
           />
-          <Stat label="Most Expensive Card" value={set.mostExpensiveCard?.name ?? '—'} />
-          <Stat label="Full Set Market Value" value={fmtUsd(set.marketValueUsd)} money />
+          <StatTile label="Most Expensive Card" value={set.mostExpensiveCard?.name ?? '—'} />
+          <StatTile label="Full Set Market Value" value={fmtUsd(set.marketValueUsd)} money />
         </div>
       </div>
     </div>

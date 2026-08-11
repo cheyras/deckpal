@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { api } from '../lib/api'
 import { supabase, isCloudMode } from '../lib/supabase'
-import { Content, Spinner, ErrorState, Tabs } from '../components/ui'
+import { Content, Spinner, ErrorState, Tabs, StatTile } from '../components/ui'
 import { LevelRing } from '../components/LevelRing'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
@@ -327,9 +327,9 @@ export function Profile() {
             <section className="rounded-2xl bg-surface-secondary p-[20px]">
               <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Pokémon TCG (English)</div>
               <div className="mt-[10px] grid grid-cols-3 gap-[12px]">
-                <Stat label="Total Cards" value={ov.trainer.totalCards} />
-                <Stat label="Unique Cards" value={ov.trainer.uniqueCards} />
-                <Stat label="Pokédex" value={`${ov.pokedex.captured}/${ov.pokedex.total}`} />
+                <StatTile variant="boxed" label="Total Cards" value={ov.trainer.totalCards} />
+                <StatTile variant="boxed" label="Unique Cards" value={ov.trainer.uniqueCards} />
+                <StatTile variant="boxed" label="Pokédex" value={`${ov.pokedex.captured}/${ov.pokedex.total}`} />
               </div>
             </section>
           </div>
@@ -385,11 +385,3 @@ export function Profile() {
   )
 }
 
-function Stat({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="rounded-lg bg-surface-tertiary p-[12px] text-center">
-      <div className="text-[22px] font-extrabold text-text-primary">{value}</div>
-      <div className="text-[11px] text-text-muted">{label}</div>
-    </div>
-  )
-}
