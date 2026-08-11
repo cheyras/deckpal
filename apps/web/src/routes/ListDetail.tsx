@@ -6,7 +6,7 @@ import { Content, Spinner, ErrorState, BackPill, ProgressBar, EmptyState, Button
 import { GridView } from '../components/GridView'
 import { TableView } from '../components/TableView'
 import { BinderView } from '../components/BinderView'
-import { SearchBox, ViewToggle } from '../components/FilterControls'
+import { SearchBox, ViewToggle, SortChipStrip, OwnershipButtons } from '../components/FilterControls'
 import { AddCardModal, ConfirmModal, ListFormModal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
 import { fmtUsd, fmtDate } from '../lib/format'
@@ -279,41 +279,27 @@ export function ListDetail() {
           <div className="mt-[20px] flex flex-col gap-[14px]">
             <div className="flex flex-wrap items-center gap-[16px]">
               <SearchBox value={search.q} onChange={(v) => patch({ q: v })} />
-              <div className="scroll-x flex items-center gap-[10px]">
-                {SORTS.map((s) => {
-                  const active = search.sort === s.key
-                  return (
-                    <button
-                      key={s.key}
-                      onClick={() => (active ? patch({ dir: search.dir === 'asc' ? 'desc' : 'asc' }) : patch({ sort: s.key, dir: 'asc' }))}
-                      className={`h-[40px] shrink-0 rounded-lg px-[12px] text-[13px] font-bold ${active ? 'bg-action-primary-strong text-action-primary-strong-text' : 'bg-surface-tertiary text-text-muted'}`}
-                    >
-                      {s.label}
-                    </button>
-                  )
-                })}
-              </div>
+              <SortChipStrip
+                items={SORTS}
+                activeKey={search.sort}
+                activeDir={search.dir}
+                onSort={(key, dir) => patch({ sort: key as ListSortKey, dir })}
+              />
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-[12px]">
               {/* dynamic ownership strip */}
               {list.kind === 'dynamic' ? (
-                <div className="scroll-x flex items-center gap-[20px]">
-                  {[
+                <OwnershipButtons
+                  items={[
                     { key: 'all', label: 'Show All' },
                     { key: 'have', label: `Have (${counts.have})` },
                     { key: 'need', label: `Need (${counts.need})` },
                     { key: 'dupes', label: `Dupes (${counts.dupes})` },
-                  ].map((o) => (
-                    <button
-                      key={o.key}
-                      onClick={() => patch({ own: o.key as ListSearch['own'] })}
-                      className={`whitespace-nowrap text-[14px] ${search.own === o.key ? 'font-semibold text-text-primary' : 'text-text-secondary hover:text-text-body'}`}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
+                  ]}
+                  activeKey={search.own}
+                  onSelect={(key) => patch({ own: key as ListSearch['own'] })}
+                />
               ) : (
                 <div />
               )}
