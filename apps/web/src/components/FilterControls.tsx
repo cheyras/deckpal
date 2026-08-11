@@ -3,7 +3,7 @@ import { Icon } from './Icon'
 
 type Patch = (p: Partial<CardSearch>) => void
 
-const SORTS: { key: SortKey; label: string }[] = [
+const SET_SORTS: { key: SortKey; label: string }[] = [
   { key: 'number', label: 'Number' },
   { key: 'name', label: 'Name' },
   { key: 'rarity', label: 'Rarity' },
@@ -35,22 +35,7 @@ export function OwnershipStrip({
   }
   return (
     <div className="flex flex-wrap items-center gap-[12px]">
-      <div className="scroll-x flex items-center gap-[20px]">
-        {owns.map((o) => {
-          const active = search.own === o.key
-          return (
-            <button
-              key={o.key}
-              onClick={() => patch({ own: o.key })}
-              className={`whitespace-nowrap text-[14px] font-medium ${
-                active ? 'font-semibold text-text-primary' : 'text-text-secondary hover:text-text-body'
-              }`}
-            >
-              {o.label}
-            </button>
-          )
-        })}
-      </div>
+      <OwnershipButtons items={owns} activeKey={search.own} onSelect={(key) => patch({ own: key as Ownership })} />
       {/* goal star switcher (pkmn.gg captures §8) */}
       <button
         onClick={() => {
@@ -66,6 +51,39 @@ export function OwnershipStrip({
           className={search.goal === 'grandmaster' ? 'text-action-primary' : 'text-icon-default'}
         />
       </button>
+    </div>
+  )
+}
+
+/**
+ * A generic row of text-only ownership/filter buttons — reusable across
+ * SetDetail (via OwnershipStrip above) and ListDetail.
+ */
+export function OwnershipButtons({
+  items,
+  activeKey,
+  onSelect,
+}: {
+  items: readonly { key: string; label: string }[]
+  activeKey: string
+  onSelect: (key: string) => void
+}) {
+  return (
+    <div className="scroll-x flex items-center gap-[20px]">
+      {items.map((o) => {
+        const active = o.key === activeKey
+        return (
+          <button
+            key={o.key}
+            onClick={() => onSelect(o.key)}
+            className={`whitespace-nowrap text-[14px] font-medium ${
+              active ? 'font-semibold text-text-primary' : 'text-text-secondary hover:text-text-body'
+            }`}
+          >
+            {o.label}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -86,16 +104,54 @@ export function SearchBox({ value, onChange }: { value: string; onChange: (v: st
   )
 }
 
+/**
+ * SetDetail's SortChips — delegates to the generic SortChipStrip below.
+ * Kept for backward compatibility with the existing `{ search, patch }` API.
+ */
 export function SortChips({ search, patch }: { search: CardSearch; patch: Patch }) {
   return (
-    <div className="scroll-x flex items-center gap-[12px]">
-      {SORTS.map((s) => {
-        const active = search.sort === s.key
+    <SortChipStrip
+      items={SET_SORTS}
+      activeKey={search.sort}
+      activeDir={search.dir}
+      onSort={(key, dir) => patch({ sort: key as SortKey, dir })}
+    />
+  )
+}
+
+/**
+ * Generic sort chip strip — usable by SetDetail, ListDetail, SearchResults,
+ * or any page with a sort + direction UI. The three hex colors the audit
+ * flagged (`#15181f`, `#d3b745`, `#484f60`) are replaced with tokens:
+ *
+ * - Active-direction arrow: `--color-action-primary-strong-text` (dark on gold)
+ * - Inactive-direction arrow: `--color-action-primary-hover` (muted gold on gold)
+ * - Non-active chip arrow: `--color-icon-muted-strong` (dim on dark background)
+ */
+export function SortChipStrip({
+  items,
+  activeKey,
+  activeDir,
+  onSort,
+  className,
+}: {
+  items: readonly { key: string; label: string }[]
+  activeKey: string
+  activeDir: 'asc' | 'desc'
+  onSort: (key: string, dir: 'asc' | 'desc') => void
+  className?: string
+}) {
+  return (
+    <div className={`scroll-x flex items-center gap-[12px]${className ? ` ${className}` : ''}`}>
+      {items.map((s) => {
+        const active = s.key === activeKey
         return (
           <button
             key={s.key}
             onClick={() =>
-              active ? patch({ dir: search.dir === 'asc' ? 'desc' : 'asc' }) : patch({ sort: s.key, dir: 'asc' })
+              active
+                ? onSort(s.key, activeDir === 'asc' ? 'desc' : 'asc')
+                : onSort(s.key, 'asc')
             }
             className={`flex h-[48px] shrink-0 items-center gap-[10px] rounded-lg px-[12px] text-[14px] font-bold ${
               active ? 'bg-action-primary-strong text-action-primary-strong-text' : 'bg-surface-tertiary text-text-muted'
@@ -107,10 +163,10 @@ export function SortChips({ search, patch }: { search: CardSearch; patch: Patch 
                 style={{
                   fontSize: 8,
                   color: active
-                    ? search.dir === 'asc'
-                      ? '#15181f'
-                      : '#d3b745'
-                    : '#484f60',
+                    ? activeDir === 'asc'
+                      ? 'var(--color-action-primary-strong-text)'
+                      : 'var(--color-action-primary-hover)'
+                    : 'var(--color-icon-muted-strong)',
                 }}
               >
                 ▲
@@ -119,10 +175,10 @@ export function SortChips({ search, patch }: { search: CardSearch; patch: Patch 
                 style={{
                   fontSize: 8,
                   color: active
-                    ? search.dir === 'desc'
-                      ? '#15181f'
-                      : '#d3b745'
-                    : '#484f60',
+                    ? activeDir === 'desc'
+                      ? 'var(--color-action-primary-strong-text)'
+                      : 'var(--color-action-primary-hover)'
+                    : 'var(--color-icon-muted-strong)',
                 }}
               >
                 ▼
