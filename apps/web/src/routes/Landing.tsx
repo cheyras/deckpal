@@ -221,7 +221,7 @@ function Nav({ scrolled }: { scrolled: boolean }) {
   return (
     <header
       className={[
-        'fixed inset-x-0 top-0 z-[20] transition-colors duration-300',
+        'fixed inset-x-0 top-0 z-(--z-chrome) transition-colors duration-300',
         scrolled ? 'border-b border-border-default bg-surface-primary/85 backdrop-blur-md' : 'border-b border-transparent',
       ].join(' ')}
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
@@ -909,7 +909,7 @@ export function Landing() {
     <div className="ls min-h-screen bg-surface-primary">
       <a
         href="#main"
-        className="sr-only rounded-full bg-action-primary px-[16px] py-[10px] text-[14px] font-bold text-action-primary-text focus:not-sr-only focus:absolute focus:left-[16px] focus:top-[16px] focus:z-[100]"
+        className="sr-only rounded-full bg-action-primary px-[16px] py-[10px] text-[14px] font-bold text-action-primary-text focus:not-sr-only focus:absolute focus:left-[16px] focus:top-[16px] focus:z-(--z-modal)"
       >
         Skip to content
       </a>

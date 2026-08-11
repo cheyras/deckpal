@@ -361,7 +361,7 @@ export function CardDetailBody({
         <div className="relative">
           {/* blurred hero art behind everything */}
           <div
-            className="pointer-events-none absolute inset-x-0 top-0 -z-[1] h-[400px]"
+            className="pointer-events-none absolute inset-x-0 top-0 z-(--z-art) h-[400px]"
             style={{
               background: `linear-gradient(to bottom, var(--color-banner-gradient-top) 40%, var(--color-surface-primary)), url(${data.card.images.high}) center top/cover`,
               filter: 'blur(24px)',
@@ -486,7 +486,7 @@ export function CardSheet({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center overflow-hidden p-0 nav:items-start nav:p-[16px] nav:pt-[64px]"
+      className="fixed inset-0 z-(--z-modal) flex items-end justify-center overflow-hidden p-0 nav:items-start nav:p-[16px] nav:pt-[64px]"
       style={{
         background: open ? 'var(--color-overlay-scrim-strong)' : 'transparent',
         transition: 'background 240ms ease',

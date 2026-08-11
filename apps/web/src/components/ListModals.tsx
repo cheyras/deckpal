@@ -15,7 +15,7 @@ export function Modal({ title, onClose, children, wide = false }: { title: strin
   }, [onClose])
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center overflow-y-auto p-0 nav:items-start nav:p-[16px] nav:pt-[80px]"
+      className="fixed inset-0 z-(--z-modal) flex items-end justify-center overflow-y-auto p-0 nav:items-start nav:p-[16px] nav:pt-[80px]"
       style={{ background: 'var(--color-overlay-scrim-strong)' }}
       onClick={onClose}
       role="dialog"

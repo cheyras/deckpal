@@ -235,7 +235,7 @@ function Sidebar({ collapsed, onToggle, signedOut }: { collapsed: boolean; onTog
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   return (
     <aside
-      className="fixed left-0 top-0 z-[20] hidden h-screen flex-col border-r border-border-default bg-surface-primary nav:flex"
+      className="fixed left-0 top-0 z-(--z-chrome) hidden h-screen flex-col border-r border-border-default bg-surface-primary nav:flex"
       style={{ width: collapsed ? 82 : 275 }}
     >
       <div
@@ -298,13 +298,13 @@ function MobileDrawer({ open, onClose, signedIn }: { open: boolean; onClose: () 
     <>
       {/* tap-anywhere-outside backdrop */}
       <div
-        className="fixed inset-0 z-[9] nav:hidden"
+        className="fixed inset-0 z-(--z-sticky) nav:hidden"
         style={{ top }}
         onClick={onClose}
         aria-hidden="true"
       />
       <div
-        className="fixed left-0 z-[10] w-[280px] max-w-[85vw] overflow-y-auto border-r border-border-default bg-surface-primary nav:hidden"
+        className="fixed left-0 z-(--z-overlay) w-[280px] max-w-[85vw] overflow-y-auto border-r border-border-default bg-surface-primary nav:hidden"
         style={{ top, height: `calc(100dvh - ${top})`, paddingBottom: 'env(safe-area-inset-bottom)' }}
         role="dialog"
         aria-label="Navigation"
@@ -362,7 +362,7 @@ function Header({ onBurger, drawerOpen, signedIn }: { onBurger: () => void; draw
   }
   return (
     <header
-      className="app-header fixed left-0 right-0 top-0 z-[20] border-b border-border-default bg-surface-secondary"
+      className="app-header fixed left-0 right-0 top-0 z-(--z-chrome) border-b border-border-default bg-surface-secondary"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
         paddingLeft: 'env(safe-area-inset-left)',

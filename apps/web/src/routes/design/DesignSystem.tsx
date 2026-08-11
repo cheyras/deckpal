@@ -104,7 +104,7 @@ export default function DesignSystem() {
 
 function PreviewPill({ overrides }: { overrides: ReturnType<typeof useTokenOverrides> }) {
   return createPortal(
-    <div className="fixed bottom-[16px] left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-[12px] rounded-full bg-surface-tertiary/95 backdrop-blur-sm border border-action-primary/30 px-[16px] py-[8px] shadow-elevated">
+    <div className="fixed bottom-[16px] left-1/2 -translate-x-1/2 z-(--z-toast) flex items-center gap-[12px] rounded-full bg-surface-tertiary/95 backdrop-blur-sm border border-action-primary/30 px-[16px] py-[8px] shadow-elevated">
       <span className="text-[12px] font-medium text-action-primary">
         Design preview active
       </span>

@@ -112,11 +112,11 @@ export function PwaUi() {
   return (
     <>
       {/* bottom-left: install */}
-      <div className="pointer-events-none fixed bottom-[16px] left-[16px] z-[60] nav:left-[98px]">
+      <div className="pointer-events-none fixed bottom-[16px] left-[16px] z-(--z-toast) nav:left-[98px]">
         <InstallButton />
       </div>
       {/* bottom-right: offline banner stacked above the update toast */}
-      <div className="pointer-events-none fixed bottom-[16px] right-[16px] z-[60] flex flex-col items-end gap-[10px]">
+      <div className="pointer-events-none fixed bottom-[16px] right-[16px] z-(--z-toast) flex flex-col items-end gap-[10px]">
         <OfflineBanner />
         <UpdateToast />
       </div>
