@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
-import designEditor from './vite-plugins/design-editor'
+import designEditor from './vite-plugins/design-editor.ts'
 
 // Worktree branches that change the API run their own instance and point the dev
 // proxy at it via DECKSCOUT_DEV_API_PORT (see roadmap/ORCHESTRATION.md port table).

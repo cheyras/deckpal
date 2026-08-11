@@ -14,7 +14,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, append
 import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createHash } from 'node:crypto'
-import { tmpdir } from 'node:os'
+import { dirname } from 'node:path'
 import { execSync } from 'node:child_process'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -364,8 +364,8 @@ export default function designEditorPlugin(): Plugin {
               // Anchored replace
               const updated = anchoredReplace(content, name, expectedValue, newValue)
 
-              // Atomic write: write to temp file, then rename
-              const tmpPath = join(tmpdir(), `theme-css-${Date.now()}.tmp`)
+              // Atomic write: write to temp file in same dir, then rename
+              const tmpPath = join(dirname(themeCssPath), `.theme-css-${Date.now()}.tmp`)
               writeFileSync(tmpPath, updated, 'utf-8')
               renameSync(tmpPath, themeCssPath)
 
