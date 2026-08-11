@@ -194,6 +194,9 @@ importers:
       '@tailwindcss/vite':
         specifier: 4.3.3
         version: 4.3.3(vite@8.2.1(@types/node@26.1.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.2)(tsx@4.23.9))
+      '@types/node':
+        specifier: ^26.1.2
+        version: 26.1.2
       '@types/react':
         specifier: 19.2.18
         version: 19.2.18
@@ -206,6 +209,9 @@ importers:
       tailwindcss:
         specifier: 4.3.3
         version: 4.3.3
+      tsx:
+        specifier: ^4.23.9
+        version: 4.23.9
       typescript:
         specifier: 7.0.2
         version: 7.0.2
