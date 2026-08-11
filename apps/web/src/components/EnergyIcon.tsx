@@ -26,7 +26,7 @@ interface TypeMeta {
 // White glyph on a coloured disc. All paths sized within the 24×24 viewBox.
 const TYPES: Record<string, TypeMeta> = {
   grass: {
-    color: '#5fb85f',
+    color: 'var(--color-energy-grass)',
     // leaf with central vein
     glyph: (
       <path
@@ -40,7 +40,7 @@ const TYPES: Record<string, TypeMeta> = {
     ),
   },
   fire: {
-    color: '#e8703a',
+    color: 'var(--color-energy-fire)',
     // flame
     glyph: (
       <path
@@ -50,27 +50,27 @@ const TYPES: Record<string, TypeMeta> = {
     ),
   },
   water: {
-    color: '#4a97d6',
+    color: 'var(--color-energy-water)',
     // droplet
     glyph: <path d="M12 4c2.7 3.2 5 6 5 8.6a5 5 0 0 1-10 0C7 10 9.3 7.2 12 4z" fill="#fff" />,
   },
   lightning: {
-    color: '#f2c518',
+    color: 'var(--color-energy-lightning)',
     // bolt (dark glyph reads better on bright yellow)
     glyph: <path d="M13.5 3.5 6.5 13H11l-1.5 7.5L18 10h-4.8z" fill="#3a2f00" />,
   },
   psychic: {
-    color: '#a45cb0',
+    color: 'var(--color-energy-psychic)',
     // eye
     glyph: (
       <g>
         <path d="M4 12s3.2-5 8-5 8 5 8 5-3.2 5-8 5-8-5-8-5z" fill="#fff" />
-        <circle cx="12" cy="12" r="2.4" fill="#a45cb0" />
+        <circle cx="12" cy="12" r="2.4" fill="var(--color-energy-psychic)" />
       </g>
     ),
   },
   fighting: {
-    color: '#c06a3a',
+    color: 'var(--color-energy-fighting)',
     // fist
     glyph: (
       <g fill="#fff">
@@ -80,7 +80,7 @@ const TYPES: Record<string, TypeMeta> = {
     ),
   },
   darkness: {
-    color: '#4b5566',
+    color: 'var(--color-energy-darkness)',
     // crescent moon
     glyph: (
       <path
@@ -90,17 +90,17 @@ const TYPES: Record<string, TypeMeta> = {
     ),
   },
   metal: {
-    color: '#8b95a6',
+    color: 'var(--color-energy-metal)',
     // gear / 8-point star (two rotated squares) + hub
     glyph: (
       <g fill="#fff">
         <path d="M12 3l2 2.3 3-.6-.6 3L18.7 12l-2.3 2 .6 3-3-.6L12 21l-2-2.3-3 .6.6-3L5.3 12l2.3-2-.6-3 3 .6z" />
-        <circle cx="12" cy="12" r="2.6" fill="#8b95a6" />
+        <circle cx="12" cy="12" r="2.6" fill="var(--color-energy-metal)" />
       </g>
     ),
   },
   fairy: {
-    color: '#e58bb8',
+    color: 'var(--color-energy-fairy)',
     // heart
     glyph: (
       <path
@@ -110,17 +110,17 @@ const TYPES: Record<string, TypeMeta> = {
     ),
   },
   dragon: {
-    color: '#c6a23e',
+    color: 'var(--color-energy-dragon)',
     // faceted gem
     glyph: (
       <g>
         <path d="M12 4 18 9l-6 11L6 9z" fill="#fff" />
-        <path d="M6 9h12M12 4v16M9 9l3 11 3-11" fill="none" stroke="#c6a23e" strokeWidth="1.1" strokeLinejoin="round" />
+        <path d="M6 9h12M12 4v16M9 9l3 11 3-11" fill="none" stroke="var(--color-energy-dragon)" strokeWidth="1.1" strokeLinejoin="round" />
       </g>
     ),
   },
   colorless: {
-    color: '#d6d2c6',
+    color: 'var(--color-energy-colorless)',
     // 5-point star (dark glyph reads on the pale disc)
     glyph: (
       <path
