@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type ScanMatch, type ScanResponse } from '../lib/api'
-import { Content, Spinner } from '../components/ui'
+import { Content, Spinner, ProgressBar } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { CardSheet } from './CardDetail'
 import { Icon } from '../components/Icon'
@@ -182,15 +182,7 @@ function MatchTile({ match, best }: { match: ScanMatch; best: boolean }) {
             {pct}% <span className="font-normal text-text-muted">· dist {match.distance}</span>
           </span>
         </div>
-        <div className="h-[5px] w-full overflow-hidden rounded-full bg-[#1a1d24]">
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: `${pct}%`,
-              background: best ? 'var(--color-change-positive)' : 'var(--color-action-brand)',
-            }}
-          />
-        </div>
+        <ProgressBar pct={pct} height={5} fill={best ? 'var(--color-change-positive)' : 'var(--color-action-brand)'} />
       </div>
 
       <button

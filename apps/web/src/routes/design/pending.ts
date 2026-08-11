@@ -20,14 +20,6 @@ export interface PendingItem {
 export const PENDING_ITEMS: PendingItem[] = [
   // ── Component extractions (audit §4) ─────────────────────────────────
   {
-    id: 'C4',
-    label: 'ProgressBar + ProgressRing',
-    kind: 'extraction',
-    description:
-      'Track/fill/milestone-dots API. Promote --color-track-subtle: #1a1d24 into theme.css. 6 independent implementations.',
-    auditRef: '§4.4, §1.5',
-  },
-  {
     id: 'C5',
     label: 'EmptyState',
     kind: 'extraction',
@@ -102,14 +94,6 @@ export const PENDING_ITEMS: PendingItem[] = [
 
   // ── Off-theme values (audit §1.5) ──────────────────────────────────
   {
-    id: 'off-theme-track',
-    label: '#1a1d24 progress-bar track',
-    kind: 'off-theme',
-    description:
-      'Untokenized track color, 7 occurrences across 6 files. Should become --color-track-subtle. Addressed by C4.',
-    auditRef: '§1.5',
-  },
-  {
     id: 'off-theme-warning',
     label: '#ff9d42 warning orange',
     kind: 'off-theme',
@@ -146,6 +130,6 @@ export const PENDING_ITEMS: PendingItem[] = [
 /** How many of the extraction/adoption items are done (always 0 in Phase 1) */
 export function completionStats(): { done: number; total: number; pct: number } {
   const actionable = PENDING_ITEMS.filter((i) => i.kind !== 'off-theme')
-  const done = 3 // C1 (Button), C2 (Spinner), C3 (CounterBox) landed
+  const done = 4 // C1 (Button), C2 (Spinner), C3 (CounterBox), C4 (Progress) landed
   return { done, total: actionable.length, pct: Math.round((done / actionable.length) * 100) }
 }

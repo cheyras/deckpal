@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
 import { api, type SetSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, BackPill, SetSymbolTile } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, ProgressBar } from '../components/ui'
 import { SetLogo } from '../components/SetLogo'
 import { fmtDate, setLevelLabel } from '../lib/format'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
@@ -33,15 +33,7 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
         <div className="text-[12px] text-text-muted">{fmtDate(set.releasedOn)}</div>
         {c ? (
           <div className="mt-[6px] flex items-center gap-[8px]">
-            <div className="h-[4px] w-[120px] overflow-hidden rounded-full bg-[#1a1d24]">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${Math.min(100, c.pct)}%`,
-                  background: 'linear-gradient(90deg, var(--color-action-danger), var(--color-action-primary-strong))',
-                }}
-              />
-            </div>
+            <ProgressBar pct={c.pct} height={4} className="w-[120px]" />
             <span className="text-[10px] font-bold text-action-primary">LVL {setLevelLabel(c.pct)}</span>
             <span className="text-[11px] text-text-muted">
               {c.owned}/{c.total}

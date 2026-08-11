@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CreateListBody, type ListKind, type ListSummary } from '../lib/api'
-import { Content, Spinner, ErrorState } from '../components/ui'
+import { Content, Spinner, ErrorState, ProgressBar } from '../components/ui'
 import { ListFormModal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
 import { fmtUsd } from '../lib/format'
@@ -12,20 +12,6 @@ const KIND_META: Record<ListKind, { label: string }> = {
   dynamic: { label: 'Dynamic List' },
   static: { label: 'Static List' },
   pokedex_binder: { label: 'Pokédex Binder' },
-}
-
-function ProgressBar({ pct }: { pct: number }) {
-  return (
-    <div className="h-[6px] w-full overflow-hidden rounded-full bg-[#1a1d24]">
-      <div
-        className="h-full rounded-full"
-        style={{
-          width: `${Math.min(100, pct)}%`,
-          background: 'linear-gradient(90deg, var(--color-action-danger), var(--color-action-primary-strong))',
-        }}
-      />
-    </div>
-  )
 }
 
 function ListCard({ list }: { list: ListSummary }) {
