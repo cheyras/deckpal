@@ -16,6 +16,7 @@ import { collectionRouter } from './routes/collection.js';
 import { listsRouter } from './routes/lists.js';
 import { decksRouter } from './routes/decks.js';
 import { insightsRouter, publicPokedexRouter } from './routes/insights.js';
+import { meRouter } from './routes/me.js';
 import { exportRouter } from './export/router.js';
 import { scanRouter } from './scan/router.js';
 import { bugsRouter } from './routes/bugs.js';
@@ -194,7 +195,7 @@ export function createApp(): express.Express {
     res.json({
       name: 'deckscout-api',
       endpoints: [
-        '/health', '/series', '/series/:seriesSlug', '/sets/:setId', '/sets/:setId/massentry', '/cards/:cardId', '/search', '/dex', '/dex/:speciesId',
+        '/health', '/me', '/series', '/series/:seriesSlug', '/sets/:setId', '/sets/:setId/massentry', '/cards/:cardId', '/search', '/dex', '/dex/:speciesId',
         'PATCH /collection/variants/:variantId', 'POST /collection/variants/:variantId/increment', 'POST /collection/cards/:cardId/have',
         '/lists', '/lists/:id', 'POST /lists', 'PATCH /lists/:id', 'DELETE /lists/:id', 'POST /lists/:id/items', 'DELETE /lists/:id/items/:itemId',
         '/decks', 'POST /decks', '/decks/:id', 'PATCH /decks/:id', 'DELETE /decks/:id',
@@ -247,6 +248,8 @@ export function createApp(): express.Express {
   // Every router below reads it through currentUserId(req) and never branches
   // on deployment. See identity.ts.
   api.use(resolveIdentity);
+
+  api.use('/me', meRouter);
 
   // PDF export routes carry full paths (/decks/:id/pdf, /lists/:id/pdf,
   // /sets/:setId/checklist.pdf) and are mounted first so they resolve here rather
