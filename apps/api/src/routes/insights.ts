@@ -1,16 +1,17 @@
 import { Router } from 'express';
+import { q1 } from '../db.js';
 import { asyncHandler, clampInt, notFound, oneOf, str, userCache } from '../http.js';
 import { currentUserId, optionalUserId } from '../identity.js';
 import { TRAINER_UNIQUE_MODE, trainerLevelProgress } from '../insights/trainerLevel.js';
 import {
+  aggregateValue,
   currentCollectionValue,
-  ownedCounts,
   snapshotCollectionValue,
   topMovers,
   valueSeries,
   type Range,
 } from '../insights/collectionValue.js';
-import { dexCompletion, speciesDetail, speciesGrid } from '../insights/pokedex.js';
+import { speciesDetail, speciesGrid } from '../insights/pokedex.js';
 
 /**
  * Insights / gamification router — Phase 6 backend, mounted at /insights in
@@ -26,9 +27,82 @@ insightsRouter.get(
   '/overview',
   asyncHandler(async (req, res) => {
     const userId = currentUserId(req);
-    const counts = await ownedCounts(userId);
-    const uniqueForLevel = TRAINER_UNIQUE_MODE === 'pairs' ? counts.uniquePairs : counts.uniqueCards;
-    const [value, dex] = await Promise.all([currentCollectionValue(userId), dexCompletion(userId)]);
+
+    // These three result sets (owned counts, collection value, dex completion)
+    // used to be separate queries — ownedCounts() sequentially, then
+    // currentCollectionValue() and dexCompletion() in a Promise.all. That
+    // Promise.all dispatched two concurrent q() calls on the single
+    // per-request RLS PoolClient (SUPABASE_MODE), which node-postgres does
+    // not support — the "parallel" calls were actually serialised, and the
+    // concurrent dispatch wedged the connection pool under real concurrent
+    // traffic (the root cause of #35). /insights/overview fires from AppShell
+    // on every authenticated page, so this one endpoint alone was enough to
+    // starve the 2–3 connection pool on first paint.
+    //
+    // Folded into one statement of independent scalar subqueries: same
+    // sub-plans, same indexes, one round trip instead of three. JS-side
+    // post-processing (aggregateValue for prices, pct rounding for dex)
+    // preserved identically. See the analogous fix in routes/cards.ts.
+    const bundle = await q1<{
+      counts: { unique_cards: number; unique_pairs: number; total_qty: number };
+      price_rows: { currency_code: string; quantity: number; best_minor: number }[];
+      dex: { captured: number; total: number };
+    }>(
+      `SELECT
+         (SELECT json_build_object(
+            'unique_cards', count(DISTINCT cv.card_id),
+            'unique_pairs', count(DISTINCT ci.card_variant_id),
+            'total_qty', COALESCE(sum(ci.quantity), 0)
+          ) FROM collection_item ci
+            JOIN card_variant cv ON cv.id = ci.card_variant_id
+           WHERE ci.user_id = $1 AND ci.quantity > 0
+         ) AS counts,
+         COALESCE((SELECT json_agg(r) FROM (
+           SELECT b.currency_code, ci.quantity, b.best_minor
+             FROM collection_item ci
+             JOIN (
+               SELECT pc.card_variant_id, pc.currency_code,
+                      max(pc.market_minor) AS best_minor
+                 FROM price_current pc
+                WHERE pc.market_minor IS NOT NULL
+                GROUP BY pc.card_variant_id, pc.currency_code
+             ) b ON b.card_variant_id = ci.card_variant_id
+            WHERE ci.user_id = $1 AND ci.quantity > 0
+         ) r), '[]'::json) AS price_rows,
+         (SELECT json_build_object(
+            'captured', (
+              SELECT count(DISTINCT cs.dex_id)
+                FROM collection_item ci
+                JOIN card_variant cv ON cv.id = ci.card_variant_id
+                JOIN card c ON c.id = cv.card_id
+                JOIN card_species cs ON cs.card_id = c.id
+               WHERE ci.user_id = $1 AND ci.quantity > 0
+                 AND c.category = 'Pokemon'
+            ),
+            'total', (SELECT count(*) FROM dex_species)
+         )) AS dex`,
+      [userId],
+    );
+
+    const counts = {
+      uniqueCards: Number(bundle?.counts?.unique_cards ?? 0),
+      uniquePairs: Number(bundle?.counts?.unique_pairs ?? 0),
+      totalQuantity: Number(bundle?.counts?.total_qty ?? 0),
+    };
+    const value = aggregateValue(
+      (bundle?.price_rows ?? []).map((r) => ({
+        currency: String(r.currency_code),
+        qty: Number(r.quantity),
+        bestMinor: Number(r.best_minor),
+      })),
+    );
+    const dexCaptured = Number(bundle?.dex?.captured ?? 0);
+    const dexTotal = Number(bundle?.dex?.total ?? 0);
+    const round1 = (o: number, t: number): number =>
+      o && t ? Math.round((o / t) * 1000) / 10 : 0;
+
+    const uniqueForLevel = TRAINER_UNIQUE_MODE === 'pairs'
+      ? counts.uniquePairs : counts.uniqueCards;
     userCache(res);
     res.json({
       trainer: {
@@ -39,7 +113,11 @@ insightsRouter.get(
         uniquePairs: counts.uniquePairs,
       },
       collectionValue: value,
-      pokedex: { captured: dex.captured, total: dex.total, pct: dex.pct },
+      pokedex: {
+        captured: dexCaptured,
+        total: dexTotal,
+        pct: round1(dexCaptured, dexTotal),
+      },
     });
   }),
 );
@@ -51,11 +129,19 @@ insightsRouter.get(
     const userId = currentUserId(req);
     const range = oneOf<Range>(req.query.range, ['30d', '3m', '6m', '1y'], '30d');
     const currency = oneOf(req.query.currency, ['USD', 'EUR', 'JPY'] as const, 'USD');
-    const [totals, series, movers] = await Promise.all([
-      currentCollectionValue(userId),
-      valueSeries(userId, range, currency),
-      topMovers(userId, currency),
-    ]);
+    // These three calls used to be a Promise.all. In SUPABASE_MODE they share
+    // one RLS PoolClient, so node-postgres serialised them anyway — the
+    // "parallel" dispatch was a lie that, under concurrent traffic, wedged the
+    // connection pool (same root cause as /insights/overview, see #35).
+    // Sequential awaits fix the concurrency bug and make the serialisation
+    // explicit. Combining into one SQL statement (the cards.ts pattern) was
+    // considered, but each function involves non-trivial JS post-processing
+    // (aggregateValue, delta computation, sort/slice) and /value is not on the
+    // every-page-load critical path — the readability win of keeping the module
+    // functions outweighs the marginal round-trip savings here.
+    const totals = await currentCollectionValue(userId);
+    const series = await valueSeries(userId, range, currency);
+    const movers = await topMovers(userId, currency);
     const current = totals.find((t) => t.currency === currency) ?? { currency, totalMinor: 0, total: 0, pricedVariants: 0, quantity: 0 };
     userCache(res);
     res.json({ currency, range, current, series, movers });
