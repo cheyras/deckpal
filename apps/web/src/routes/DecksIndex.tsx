@@ -9,6 +9,7 @@ import { EnergyIcon } from '../components/EnergyIcon'
 import { fmtUsd } from '../lib/format'
 import { FORMAT_META, LegalBadge } from './deckShared'
 import { DECK_SEARCH_DEFAULTS } from './deckSearch'
+import { RecordSpans } from './deck/intelShared'
 
 function DeckCard({ deck }: { deck: DeckSummary }) {
   // Battle record footer line — only once the deck has any scored logs.
@@ -52,15 +53,7 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
             {rec && (
               <>
                 {' · '}
-                <span style={{ color: 'var(--color-success)' }}>{rec.wins}W</span>
-                <span className="text-text-muted">–</span>
-                <span style={{ color: 'var(--color-error)' }}>{rec.losses}L</span>
-                {rec.ties > 0 && (
-                  <>
-                    <span className="text-text-muted">–</span>
-                    <span className="text-text-secondary">{rec.ties}T</span>
-                  </>
-                )}
+                <RecordSpans wins={rec.wins} losses={rec.losses} ties={rec.ties} />
               </>
             )}
           </span>
