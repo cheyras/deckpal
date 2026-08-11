@@ -234,11 +234,26 @@ These are non-negotiable quality gates:
    counts match expectations (not just "no errors").
 5. **Scanner self-match at distance 0** after reindexing (self-host only: query
    a known card's hash and confirm it matches itself with distance 0).
+6. **Docs and wiki sync, in the same sitting.** Before calling a non-trivial
+   task done, work through the trigger table in "Keeping documentation and the
+   wiki current" below — not as a follow-up task, not "if there's time." A
+   feature that works but leaves `DEPLOYMENT.md`/`SECURITY.md`/the wiki
+   describing the old behavior is not done; it is a bug report waiting to be
+   filed by whoever reads the stale doc next. This exact gate was skipped for
+   the 2026-08-10 OAuth work — `DEPLOYMENT.md` got updated, the wiki's
+   `MCP-Setup` and `Decision-Log` did not, and it took the human noticing and
+   asking to catch it. Do not repeat that.
 
-## DECISIONS.md protocol
+## Keeping documentation and the wiki current
 
-`DECISIONS.md` is the running audit trail -- the single most useful file when you
-are confused about why something is the way it is.
+Two things are true at once: `DECISIONS.md` is the running audit trail (the
+single most useful file when you are confused about why something is the way
+it is), and the docs table + wiki below are what a reader trusts to describe
+*current* behavior. A stale doc is worse than no doc -- it actively misleads.
+Both halves below happen together, in the same sitting a non-trivial task is
+finished in, per gate 6 above.
+
+### 1. Append to DECISIONS.md
 
 **Append a dated entry for any non-trivial decision:**
 
@@ -252,20 +267,27 @@ are confused about why something is the way it is.
 
 Start here when something does not make sense. The answer is usually already logged.
 
-## Canonical documentation
+### 2. Work out which other docs the same change made stale
 
-| Document | What it covers |
+Do not rely on memory for this -- use the table. A change usually touches more
+than one row.
+
+| If you changed... | Also update... |
 |---|---|
-| `ARCHITECTURE.md` | Target architecture, RLS model, storage design, sync design |
-| `DEPLOYMENT.md` | Deploy-your-own runbook (Vercel + Supabase) and self-host setup |
-| `research/SCHEMA.md` | Data model (variant taxonomy, tier/goal derivation) |
-| [Wiki: Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) | Data sources, sync strategy |
-| `DECISIONS.md` | Dated audit trail of every decision and correction |
-| `apps/mcp/SPEC.md` | MCP server specification (rotom-mcp) |
-| `SECURITY.md` | Security model and disclosure policy |
-| `CONTRIBUTING.md` | Human contributor onboarding |
+| Auth, MCP/connector behavior, or anything a security reader would care about | `DEPLOYMENT.md`, `SECURITY.md`, `apps/mcp/SPEC.md`, wiki [MCP Setup](https://github.com/cheyras/deckscout/wiki/MCP-Setup) |
+| System architecture, a new subsystem, or cross-cutting data flow | `ARCHITECTURE.md`, wiki [Architecture](https://github.com/cheyras/deckscout/wiki/Architecture) |
+| Anything `research/SCHEMA.md` documents (variant taxonomy, tier/goal derivation, DDL) | `research/SCHEMA.md`, wiki [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) if it covers the same ground |
+| Frontend stack, pattern, or a decision the [Frontend Research](https://github.com/cheyras/deckscout/wiki/Frontend-Research) page already covers | that wiki page |
+| A `README.md` feature bullet, status flag (e.g. "parked for Wave N"), or the apps table | `README.md` |
+| Deploy steps, env vars, or the connect-an-assistant runbook | `DEPLOYMENT.md` |
+| Anything logged in step 1 | `DECISIONS.md` **and** the wiki [Decision Log](https://github.com/cheyras/deckscout/wiki/Decision-Log) -- always both, always together, never one now and the other "later" |
+| Any work session at all, however small | wiki [Contribution Record](https://github.com/cheyras/deckscout/wiki/Contribution-Record) -- one ledger line |
 
-## Wiki (the LLM knowledge base)
+If nothing in the table applies, say so to yourself explicitly rather than
+silently skipping this section -- "no docs affected" is a real, fine answer;
+an un-asked question is not.
+
+### 3. Sync the wiki
 
 The project wiki at <https://github.com/cheyras/deckscout/wiki> holds design
 research and deep-dive documentation. It is cloned locally at
@@ -275,15 +297,11 @@ research and deep-dive documentation. It is cloned locally at
 git clone https://github.com/cheyras/deckscout.wiki.git ~/deckscout.wiki
 ```
 
-**Wiki maintenance is part of done.** After any non-trivial task:
+For every wiki page the table above named:
 
-1. Update the relevant wiki page(s) if the task changed design, architecture,
-   or research findings covered by the wiki.
-2. If you appended an entry to `DECISIONS.md`, sync the
-   [Decision Log](https://github.com/cheyras/deckscout/wiki/Decision-Log)
-   wiki page with the new entry.
-3. Update the page footer: `_Last updated by <agent> on behalf of @<handle> -- <date>_`
-4. Commit and push the wiki repo with the same trailer conventions as the main
+1. Edit the page.
+2. Update its footer: `_Last updated by <agent> on behalf of @<handle> -- <date>_`
+3. Commit and push the wiki repo with the same trailer conventions as the main
    repo (see Attribution below).
 
 Wiki pages:
@@ -296,10 +314,24 @@ Wiki pages:
 | [Frontend Research](https://github.com/cheyras/deckscout/wiki/Frontend-Research) | Frontend stack, virtualization, image delivery, offline/PWA |
 | [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) | Species mapping, sprites, capture semantics |
 | [UI Spec](https://github.com/cheyras/deckscout/wiki/UI-Spec) | Design tokens, components, layout measurements |
+| [MCP Setup](https://github.com/cheyras/deckscout/wiki/MCP-Setup) | Connecting an AI assistant -- tokens, OAuth connect flow, verification, revocation |
 | [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) | Prior art analysis and license landscape |
 | [Project Brief](https://github.com/cheyras/deckscout/wiki/Project-Brief) | Original mission brief (historical) |
 | [Decision Log](https://github.com/cheyras/deckscout/wiki/Decision-Log) | Snapshot of DECISIONS.md |
 | [Contribution Record](https://github.com/cheyras/deckscout/wiki/Contribution-Record) | Attribution ledger |
+
+## Canonical documentation
+
+| Document | What it covers |
+|---|---|
+| `ARCHITECTURE.md` | Target architecture, RLS model, storage design, sync design |
+| `DEPLOYMENT.md` | Deploy-your-own runbook (Vercel + Supabase) and self-host setup |
+| `research/SCHEMA.md` | Data model (variant taxonomy, tier/goal derivation) |
+| [Wiki: Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) | Data sources, sync strategy |
+| `DECISIONS.md` | Dated audit trail of every decision and correction |
+| `apps/mcp/SPEC.md` | MCP server specification (rotom-mcp) |
+| `SECURITY.md` | Security model and disclosure policy |
+| `CONTRIBUTING.md` | Human contributor onboarding |
 
 ## Attribution
 

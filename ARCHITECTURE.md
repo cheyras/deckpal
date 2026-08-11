@@ -349,6 +349,22 @@ account: all ten hostile writes against another user's real ids failed
 closed, and read tools reported zero owner data (DECISIONS.md 2026-08-10,
 "MCP goes multi-user").
 
+**Connecting without a manual token.** As of 2026-08-10 the token above can
+also be minted automatically: a real OAuth 2.1 authorization server
+(`apps/api/src/oauthServer.ts` for the public RFC 7591 dynamic-client-
+registration + RFC 6749 token-exchange endpoints, `apps/api/src/routes/
+oauth.ts` for the session-gated consent decision, `apps/web/src/routes/
+Authorize.tsx` for the `/authorize` consent screen) sits in front of the same
+credential. Any MCP-spec client (claude.ai, ChatGPT, Gemini, Claude Code) adds
+just `https://deckscout.io/mcp` and chooses "Connect"; the client
+self-registers, the user signs in and approves a consent screen naming the
+client and its exact permissions, and the token endpoint mints an ordinary
+`api_token` row — the OAuth layer is a bridge onto the pre-existing
+credential, not a second one. `cloud.ts`'s 401 responses advertise the flow
+via `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-
+protected-resource"` so a compliant client discovers it automatically
+(DECISIONS.md 2026-08-10, "a real OAuth 2.1 authorization server for /mcp").
+
 ## 11. Correctness traps that shape the design
 
 These are verified findings that a reasonable implementation would otherwise get

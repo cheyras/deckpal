@@ -32,9 +32,12 @@ self-hosters.
 - **Image storage** -- ~1.9 GB of WebP card art. Cloud deployments use Supabase
   Storage with CDN; self-host uses a local disk cache with a dedicated image
   server.
-- **MCP server** ("rotom-mcp") -- 21 tools for Claude to query the collection,
-  catalog, prices, and decks, and to log collection changes with attribution.
-  *(Cloud: parked for Wave 3.)*
+- **MCP server** ("rotom-mcp") -- 21 tools for Claude, ChatGPT, Gemini, or any
+  MCP-speaking assistant to query the collection, catalog, prices, and decks,
+  and to log collection changes with attribution. Live and multi-user on
+  cloud: connect with one click via OAuth 2.1 (`https://deckscout.io/mcp`,
+  choose "Connect"), or a personal access token for clients without MCP OAuth
+  support.
 - **PWA** -- installable, offline-capable (tiered: app shell always; visited
   art LRU-cached; owned cards opt-in).
 - **Multi-user with row-level security** -- Supabase Auth (email + OAuth) with
@@ -53,7 +56,7 @@ Supabase (cloud) or plain Postgres (self-host):
 | `apps/api` (`deckscout-api`) | Express API (~49 endpoints), deployed as a Vercel catch-all serverless function |
 | `apps/sync` (`deckscout-sync`) | Catalog import, dex import, price ingest (GitHub Actions scheduled jobs) |
 | `apps/web` (`deckscout-web`) | React 19 + Vite + Tailwind 4 SPA/PWA, deployed as Vercel static output |
-| `apps/mcp` (`deckscout-mcp`) | **rotom-mcp** -- MCP server (Wave 3) |
+| `apps/mcp` (`deckscout-mcp`) | **rotom-mcp** -- MCP server, live and multi-user on cloud |
 | `packages/db` (`@deckscout/db`) | Shared Postgres pool + numbered immutable SQL migrations |
 
 For the full topology, data flow, and design rationale, see
