@@ -30,13 +30,17 @@ function isGalleryMeta(v: unknown): v is GalleryMeta<any> {
 }
 
 function getGalleries(): GalleryMeta<any>[] {
-  const result: GalleryMeta<any>[] = []
+  // Dedupe by object identity: gallery files commonly do both
+  // `export const fooGallery = {...}` and `export default fooGallery` for
+  // convenience, which makes fooGallery show up twice in Object.values(mod).
+  // A Set keyed on reference equality collapses that back to one entry.
+  const seen = new Set<GalleryMeta<any>>()
   for (const mod of Object.values(galleryModules)) {
     for (const exp of Object.values(mod)) {
-      if (isGalleryMeta(exp)) result.push(exp)
+      if (isGalleryMeta(exp)) seen.add(exp)
     }
   }
-  return result
+  return Array.from(seen)
 }
 
 interface CatalogSectionProps {
