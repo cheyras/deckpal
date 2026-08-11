@@ -1,6 +1,6 @@
 import express, { Router, type RequestHandler } from 'express';
 import { q1 } from '../db.js';
-import { ApiError, asyncHandler, badRequest, userCache } from '../http.js';
+import { ApiError, asyncHandler, badRequest, toBuffer, userCache } from '../http.js';
 import { currentUserId } from '../identity.js';
 import {
   ACCEPTED_AVATAR_UPLOAD_TYPES,
@@ -90,8 +90,26 @@ function unavailable(): ApiError {
  */
 const rawImageBody = express.raw({ type: () => true, limit: MAX_AVATAR_UPLOAD_BYTES });
 
-/** Same parser, but `entity.too.large` comes back as a sentence a person can act on. */
+/**
+ * Same parser, but `entity.too.large` comes back as a sentence a person can
+ * act on — and the Vercel body-consumption race is handled.
+ *
+ * Vercel's Node.js helpers (`NODEJS_HELPERS`, on by default) define `req.body`
+ * as a lazy getter that buffers the request body on first access.  Once the
+ * getter fires, the underlying stream is consumed.  If `express.raw()` then
+ * reads the same stream, it gets zero bytes and *overwrites* the valid Buffer
+ * from the getter with an empty one — producing exactly the "No image was
+ * uploaded" error reported in issue #28.
+ *
+ * The fix: snapshot `req.body` before `express.raw()` runs.  If the getter was
+ * already computed (or never existed), this is a harmless `undefined` read.  If
+ * `express.raw()` then produces an empty Buffer, the snapshot is restored.
+ * On a plain Node server (self-host), the getter does not exist, the stream is
+ * untouched, and `express.raw()` works as before.
+ */
 const readImageBody: RequestHandler = (req, res, next) => {
+  const preExisting = req.body;
+
   rawImageBody(req, res, (err: unknown) => {
     if (err && (err as { type?: string }).type === 'entity.too.large') {
       next(
@@ -103,7 +121,28 @@ const readImageBody: RequestHandler = (req, res, next) => {
       );
       return;
     }
-    next(err as Error | undefined);
+    if (err) { next(err); return; }
+
+    // If express.raw() left us with nothing but the runtime had already parsed
+    // the body (Vercel helper, or future middleware), recover the original bytes.
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      const restored = toBuffer(preExisting);
+      if (restored && restored.length > 0) {
+        if (restored.length > MAX_AVATAR_UPLOAD_BYTES) {
+          next(
+            new ApiError(
+              413,
+              'too_large',
+              `That image is larger than ${MAX_MB} MB. Try a smaller photo, or crop it first.`,
+            ),
+          );
+          return;
+        }
+        req.body = restored;
+      }
+    }
+
+    next();
   });
 };
 
@@ -240,8 +279,7 @@ avatarRouter.post(
     if (!hasAvatarStorage()) throw unavailable();
     const userId = currentUserId(req);
 
-    const body: unknown = req.body;
-    const input = Buffer.isBuffer(body) ? body : null;
+    const input = toBuffer(req.body);
     if (!input || input.length === 0) {
       throw badRequest('No image was uploaded.');
     }
