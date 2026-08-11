@@ -14,6 +14,8 @@ export { EmptyState } from './ui/EmptyState'
 export type { EmptyStateProps } from './ui/EmptyState'
 export { Tabs } from './ui/Tabs'
 export type { TabsProps, TabItem } from './ui/Tabs'
+export { SelectableCard } from './ui/SelectableCard'
+export type { SelectableCardProps } from './ui/SelectableCard'
 
 // Content column: 85% of main with a per-page max-width cap, centred
 // (UI-SPEC §4.1 — gutters are proportional, not fixed).
