@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { api, type SeriesSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, SetSymbolTile } from '../components/ui'
+import { Content, Spinner, ErrorState, SetSymbolTile, ProgressRing } from '../components/ui'
 import { SetLogo } from '../components/SetLogo'
 import { Icon } from '../components/Icon'
 import { fmtDate } from '../lib/format'
@@ -66,40 +66,15 @@ function sortSeries(list: SeriesSummary[], key: SortKey, dir: SortDir): SeriesSu
 const RING_GRADIENT_ID = 'series-ring-grad'
 
 function CompletionRing({ owned, total, pct }: { owned: number; total: number; pct: number }) {
-  const size = 56
-  const stroke = 5
-  const r = (size - stroke) / 2
-  const circumference = 2 * Math.PI * r
-  const clamped = Math.min(100, Math.max(0, pct))
-  const label = `Completion: ${owned.toLocaleString()} of ${total.toLocaleString()} cards (${pct}%)`
   return (
-    <div
-      role="img"
-      aria-label={label}
-      title={label}
-      className="relative shrink-0 self-center"
-      style={{ width: size, height: size }}
+    <ProgressRing
+      pct={pct}
+      gradientId={RING_GRADIENT_ID}
+      label={`Completion: ${owned.toLocaleString()} of ${total.toLocaleString()} cards (${pct}%)`}
+      className="self-center"
     >
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="block -rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#1a1d24" strokeWidth={stroke} />
-        {clamped > 0 && (
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={r}
-            fill="none"
-            stroke={`url(#${RING_GRADIENT_ID})`}
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={circumference * (1 - clamped / 100)}
-          />
-        )}
-      </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold leading-none text-text-primary">
-        {pct}%
-      </span>
-    </div>
+      <span className="text-[11px] font-bold leading-none text-text-primary">{pct}%</span>
+    </ProgressRing>
   )
 }
 

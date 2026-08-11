@@ -1,5 +1,6 @@
 import type { Progress } from '../lib/api'
 import { setLevelLabel } from '../lib/format'
+import { ProgressBar } from './ui/Progress'
 
 type Goal = 'complete' | 'master' | 'grandmaster'
 
@@ -23,35 +24,10 @@ export function ProgressCluster({ progress, goal }: { progress: Progress; goal: 
           /{complete.total} Collected
         </div>
         {/* Bar 1 — Complete */}
-        <div className="relative h-[6px] w-full overflow-visible rounded-full bg-[#1a1d24]">
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: `${Math.min(100, complete.pct)}%`,
-              background: 'linear-gradient(90deg, var(--color-action-danger), var(--color-action-primary-strong))',
-            }}
-          />
-          {[25, 50, 75].map((m) => {
-            const passed = complete.pct >= m
-            return (
-              <span
-                key={m}
-                className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-[10px] leading-none"
-                style={{ left: `${m}%`, color: passed ? 'var(--color-action-primary-strong)' : 'var(--color-text-muted)' }}
-              >
-                {passed ? '★' : '●'}
-              </span>
-            )
-          })}
-        </div>
+        <ProgressBar pct={complete.pct} milestones={[25, 50, 75]} milestonePassed={(m) => complete.pct >= m} />
         {/* Bar 2 — Master / Grandmaster (thinner, no dots) */}
         <div className="mt-[4px] flex items-center gap-[8px]">
-          <div className="relative h-[2px] flex-1 rounded-full bg-[#1a1d24]">
-            <div
-              className="h-full rounded-full"
-              style={{ width: `${Math.min(100, second.pct)}%`, background: secondColor }}
-            />
-          </div>
+          <ProgressBar pct={second.pct} height={2} fill={secondColor} className="flex-1" />
           <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: secondColor }}>
             {secondLabel}
           </span>

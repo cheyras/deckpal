@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { api, type ListDetailResponse, type ListItem } from '../lib/api'
-import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, ProgressBar } from '../components/ui'
 import { GridView } from '../components/GridView'
 import { TableView } from '../components/TableView'
 import { BinderView } from '../components/BinderView'
@@ -50,21 +50,7 @@ function ListProgress({ owned, total, pct, copies }: { owned: number; total: num
           <span className="text-[15px] font-extrabold text-text-primary">{owned}</span>/{total} owned
           <span className="ml-[8px] text-text-muted">({copies} copies)</span>
         </div>
-        <div className="relative h-[6px] w-full overflow-visible rounded-full bg-[#1a1d24]">
-          <div
-            className="h-full rounded-full"
-            style={{ width: `${Math.min(100, pct)}%`, background: 'linear-gradient(90deg, var(--color-action-danger), var(--color-action-primary-strong))' }}
-          />
-          {[25, 50, 75].map((m) => (
-            <span
-              key={m}
-              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-[10px] leading-none"
-              style={{ left: `${m}%`, color: pct >= m ? 'var(--color-action-primary-strong)' : 'var(--color-text-muted)' }}
-            >
-              {pct >= m ? '★' : '●'}
-            </span>
-          ))}
-        </div>
+        <ProgressBar pct={pct} milestones={[25, 50, 75]} milestonePassed={(m) => pct >= m} />
       </div>
       <span className="text-[15px] font-extrabold leading-none text-text-primary">{pct}%</span>
     </div>
