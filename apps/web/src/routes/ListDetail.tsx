@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { api, type ListDetailResponse, type ListItem } from '../lib/api'
-import { Content, Spinner, ErrorState, BackPill, ProgressBar } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, ProgressBar, EmptyState, Button } from '../components/ui'
 import { GridView } from '../components/GridView'
 import { TableView } from '../components/TableView'
 import { BinderView } from '../components/BinderView'
@@ -334,13 +334,11 @@ export function ListDetail() {
           {/* body */}
           <div className="mt-[24px]">
             {items.length === 0 ? (
-              <div className="flex flex-col items-center gap-[10px] rounded-xl border border-dashed border-border-default py-[70px] text-center">
-                <Icon name="cards" size={40} className="text-icon-muted" />
-                <div className="text-[16px] font-bold text-text-primary">This list is empty</div>
-                <button onClick={() => setShowAdd(true)} className="mt-[4px] flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+              <EmptyState icon="cards" title="This list is empty">
+                <Button onClick={() => setShowAdd(true)}>
                   <Icon name="plus" size={16} /> Add Cards
-                </button>
-              </div>
+                </Button>
+              </EmptyState>
             ) : reordering && list.kind === 'static' ? (
               <ReorderRows items={items} onMove={moveItem} onRemove={(it) => removeItem.mutate(it.itemId)} />
             ) : view.length === 0 ? (
