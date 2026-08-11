@@ -31,16 +31,20 @@
      tooth; the coarse one is anisotropic (streaky on X) so it reads as laid
      fibre rather than TV static. Alpha is baked into the SVG so these can be
      composited as plain background layers — no overlay element to stack. */
-  /* Alpha is baked into each SVG (the `opacity` on the rect) rather than
-     applied with a blend mode. Blending grey noise onto a near-black surface
-     with soft-light/overlay washes it milky — measured in the browser, not
-     reasoned about — whereas a few percent of light speckle composited
-     normally reads as tooth and leaves the surface colour where it was.
-     Those rect opacities ARE the subtlety knob; turn them down first. */
-  --px-paper-tooth: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23t)' opacity='0.05'/%3E%3C/svg%3E");
-  --px-paper-tooth-soft: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23t)' opacity='0.032'/%3E%3C/svg%3E");
-  --px-paper-fibre: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.006 0.42' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='420' height='420' filter='url(%23f)' opacity='0.028'/%3E%3C/svg%3E");
-  --px-paper-mottle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='600'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.009' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='600' height='600' filter='url(%23m)' opacity='0.03'/%3E%3C/svg%3E");
+  /* Paper tooth, and ONLY tooth.
+     Earlier revisions layered a large-scale "mottle" (sheet variation) and an
+     anisotropic "fibre" over this. Both were wrong: the mottle read as a
+     blurred cloudiness sitting on top of the UI, and the stretched fibre read
+     as brushed metal. What's wanted is the fine grain of a paper surface and
+     nothing else, so this is a single high-frequency layer.
+
+     `numOctaves='1'` matters: extra octaves are what add the low-frequency
+     roll that becomes cloud. One octave at a high baseFrequency is pure tooth.
+     Alpha is baked into the rect rather than applied with a blend mode —
+     blending grey noise onto a near-black surface with soft-light/overlay
+     washes it milky. That rect opacity IS the subtlety knob. */
+  --px-paper-tooth: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='1' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23t)' opacity='0.055'/%3E%3C/svg%3E");
+  --px-paper-tooth-soft: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='1' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23t)' opacity='0.038'/%3E%3C/svg%3E");
 
   /* ── relief (neumorphism) ──────────────────────────────────────────────
      Light comes from the top. `hi` is the specular catch on the top edge,
@@ -58,12 +62,15 @@
     0 16px 32px -16px rgb(0 0 0 / 0.9);
   --px-cast-lift: 0 2px 3px rgb(0 0 0 / 0.5), 0 10px 18px -6px rgb(0 0 0 / 0.5),
     0 30px 50px -22px rgb(0 0 0 / 1);
-  --px-cast-tight: 0 1px 1px rgb(0 0 0 / 0.45), 0 3px 6px -2px rgb(0 0 0 / 0.4);
+  /* Controls, not panels. A button is a small object resting ON the surface,
+     so it gets a contact shadow and no ambient stop — the wide blur that gives
+     a card its lift reads as heaviness at button scale. */
+  --px-cast-tight: 0 1px 1.5px rgb(0 0 0 / 0.25);
 
   /* Recessed: the inverse light model — occluded at the top, catching at the
      bottom lip. Used for inputs, progress tracks, wells and pressed states. */
-  --px-inset: inset 0 2px 4px rgb(0 0 0 / 0.45), inset 0 -1px 0 rgb(255 255 255 / 0.05);
-  --px-inset-deep: inset 0 3px 7px rgb(0 0 0 / 0.55), inset 0 -1px 0 rgb(255 255 255 / 0.06);
+  --px-inset: inset 0 1px 2px rgb(0 0 0 / 0.26), inset 0 -1px 0 rgb(255 255 255 / 0.04);
+  --px-inset-deep: inset 0 1px 3px rgb(0 0 0 / 0.34), inset 0 -1px 0 rgb(255 255 255 / 0.05);
 
   /* ── plastic sheen ───────────────────────────────────────────────────── */
   --px-sheen: linear-gradient(
@@ -111,16 +118,13 @@
    fibre (directional), tooth (fine). `background-blend-mode: overlay` on the
    two big ones keeps them tonal rather than dusty; the tooth stays additive so
    the grain survives on near-black. */
-/* The page: grain over a very slight top-lit wash. Flat #171717 edge-to-edge is
-   what makes a dark UI read as a void; a couple of percent of falloff makes it
-   read as a surface with a light above it, which is what everything else in
-   this file is lit to match. */
+/* The page: grain, and nothing else. No radial "lit from above" wash — at page
+   scale any soft gradient reads as haze rather than as lighting, which was the
+   cloudiness. The relief on the panels carries the light direction instead. */
 :root[data-skin='premium'] body {
   background-color: var(--color-surface-primary);
-  background-image: var(--px-paper-tooth), var(--px-paper-fibre), var(--px-paper-mottle),
-    radial-gradient(120% 70% at 50% -10%, rgb(255 255 255 / 0.045), rgb(255 255 255 / 0) 60%),
-    linear-gradient(180deg, rgb(255 255 255 / 0.012), rgb(0 0 0 / 0.22));
-  background-size: 140px 140px, 420px 420px, 600px 600px, 100% 100%, 100% 100%;
+  background-image: var(--px-paper-tooth);
+  background-size: 120px 120px;
   /* Fixed so the grain belongs to the sheet, not to the scrolling content —
      a tiled noise that scrolls reads as texture-mapped, which is the tell. */
   background-attachment: fixed;
@@ -134,16 +138,14 @@
 }
 
 /* Surfaces that sit on the sheet get their own, weaker tooth so a panel does
-   not read as a hole punched in the textured page. Panels take the tooth only:
-   the mottle's scale (600px) is larger than most panels, so on a card it stops
-   being "sheet variation" and just becomes an uneven patch. */
+   not read as a hole punched in the textured page. */
 :root[data-skin='premium'] .bg-surface-primary,
 :root[data-skin='premium'] .bg-surface-secondary,
 :root[data-skin='premium'] .bg-surface-tertiary,
 :root[data-skin='premium'] .bg-surface-profile-card,
 :root[data-skin='premium'] .bg-surface-footer {
   background-image: var(--px-paper-tooth-soft);
-  background-size: 140px 140px;
+  background-size: 120px 120px;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -168,7 +170,7 @@
      neumorphism look like a sticker rather than a moulded surface. */
   background-image: linear-gradient(180deg, rgb(255 255 255 / 0.028), rgb(255 255 255 / 0) 42%),
     var(--px-paper-tooth-soft);
-  background-size: 100% 100%, 140px 140px;
+  background-size: 100% 100%, 120px 120px;
 }
 
 /* Recessed controls. Inputs are wells the value sits in, not plates on top. */
