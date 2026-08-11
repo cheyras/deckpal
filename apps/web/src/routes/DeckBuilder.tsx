@@ -7,6 +7,7 @@ import {
 import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
 import { Modal, ConfirmModal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
+import { KebabMenu } from '../components/KebabMenu'
 import { EnergyIcon, ENERGY_TYPES } from '../components/EnergyIcon'
 import { fmtUsd, fmtPrice } from '../lib/format'
 import { FORMAT_META, LegalBadge } from './deckShared'
@@ -687,9 +688,13 @@ export function DeckBuilder() {
                   <h1 onClick={() => setEditingName(true)} title="Click to rename" className="cursor-text text-[28px] font-bold leading-[36px] text-text-primary">{deck.name}</h1>
                 )}
               </div>
-              <button onClick={() => setShowDelete(true)} aria-label="Delete deck" className="flex h-[40px] w-[40px] items-center justify-center rounded-full bg-surface-tertiary text-action-danger hover:bg-action-danger hover:text-action-danger-text">
-                <Icon name="close" size={18} />
-              </button>
+              <KebabMenu
+                ariaLabel="Deck options"
+                size={40}
+                items={[
+                  { key: 'delete', label: 'Delete deck', icon: 'close', danger: true, onSelect: () => setShowDelete(true) },
+                ]}
+              />
             </div>
 
             {/* tabs — Cards · Strategy · Battles (n) · History (CardDetail underline pattern) */}
