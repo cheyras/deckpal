@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CreateDeckBody, type DeckFormat, type DeckSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, Button, EmptyState } from '../components/ui'
+import { Content, Spinner, ErrorState, Button, EmptyState, SelectableCard } from '../components/ui'
 import { Modal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
@@ -101,15 +101,10 @@ function NewDeckModal({ busy, error, onClose, onSubmit }: { busy?: boolean; erro
           <span className="text-[13px] font-semibold text-text-secondary">Format</span>
           <div className="grid grid-cols-2 gap-[8px]">
             {FORMATS.map((f) => (
-              <button
-                type="button"
-                key={f}
-                onClick={() => setFormatCode(f)}
-                className={`rounded-lg border-2 px-[12px] py-[10px] text-left ${formatCode === f ? 'border-action-primary bg-surface-tertiary' : 'border-transparent bg-surface-tertiary/50 hover:bg-surface-tertiary'}`}
-              >
+              <SelectableCard key={f} active={formatCode === f} onClick={() => setFormatCode(f)}>
                 <div className="text-[14px] font-bold text-text-primary">{FORMAT_META[f].label}</div>
                 <div className="text-[11px] text-text-muted">{FORMAT_META[f].blurb}</div>
-              </button>
+              </SelectableCard>
             ))}
           </div>
         </div>

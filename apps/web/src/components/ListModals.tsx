@@ -4,6 +4,7 @@ import { api, type CreateListBody, type ListKind, type ListSummary, type ListVis
 import { fmtPrice, fmtNumber } from '../lib/format'
 import { Icon } from './Icon'
 import { Button } from './ui/Button'
+import { SelectableCard } from './ui/SelectableCard'
 
 // ── Modal shell ───────────────────────────────────────────────────────────────
 export function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
@@ -94,20 +95,13 @@ export function ListFormModal({
               {(Object.keys(KIND_LABEL) as ListKind[]).map((k) => {
                 const active = kind === k
                 return (
-                  <button
-                    type="button"
-                    key={k}
-                    onClick={() => setKind(k)}
-                    className={`rounded-lg border-2 px-[14px] py-[10px] text-left ${
-                      active ? 'border-action-primary bg-surface-tertiary' : 'border-transparent bg-surface-tertiary/50 hover:bg-surface-tertiary'
-                    }`}
-                  >
+                  <SelectableCard key={k} active={active} onClick={() => setKind(k)}>
                     <div className="flex items-center justify-between">
                       <span className="text-[14px] font-bold text-text-primary">{KIND_LABEL[k].title}</span>
                       {active && <Icon name="star-filled" size={16} className="text-action-primary" />}
                     </div>
                     <div className="text-[12px] text-text-muted">{KIND_LABEL[k].blurb}</div>
-                  </button>
+                  </SelectableCard>
                 )
               })}
             </div>
@@ -129,16 +123,16 @@ export function ListFormModal({
           <span className="text-[13px] font-semibold text-text-secondary">Visibility</span>
           <div className="flex gap-[10px]">
             {(['private', 'public'] as ListVisibility[]).map((v) => (
-              <button
-                type="button"
+              <SelectableCard
                 key={v}
+                active={visibility === v}
                 onClick={() => setVisibility(v)}
-                className={`flex-1 rounded-lg border-2 px-[14px] py-[10px] text-[14px] font-semibold capitalize ${
-                  visibility === v ? 'border-action-primary bg-surface-tertiary text-text-primary' : 'border-transparent bg-surface-tertiary/50 text-text-muted'
+                className={`flex-1 text-center text-[14px] font-semibold capitalize ${
+                  visibility === v ? 'text-text-primary' : 'text-text-muted'
                 }`}
               >
                 {v}
-              </button>
+              </SelectableCard>
             ))}
           </div>
         </div>
