@@ -3,6 +3,11 @@ import { useState, type ReactNode } from 'react'
 import { Icon } from './Icon'
 import { EnergyIcon } from './EnergyIcon'
 
+// Re-export new primitives from ui/ so existing `import { X } from '../components/ui'`
+// call sites keep working without a mass import-rewrite.
+export { Button, buttonClass } from './ui/Button'
+export type { ButtonProps, ButtonVariant, ButtonSize } from './ui/Button'
+
 // Content column: 85% of main with a per-page max-width cap, centred
 // (UI-SPEC §4.1 — gutters are proportional, not fixed).
 export function Content({ children, cap = 1165 }: { children: ReactNode; cap?: number }) {

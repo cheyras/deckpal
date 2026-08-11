@@ -4,7 +4,7 @@ import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
   api, type DeckDetail, type DeckCard, type DeckFormat, type Violation, type CardRef, type SearchCard, type RevertResult,
 } from '../lib/api'
-import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, Button } from '../components/ui'
 import { Modal, ConfirmModal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
 import { EnergyIcon, ENERGY_TYPES } from '../components/EnergyIcon'
@@ -366,10 +366,10 @@ function TestHandModal({ deckId, onClose }: { deckId: string; onClose: () => voi
           </>
         )}
         <div className="flex justify-end gap-[10px]">
-          <button onClick={onClose} className="h-[44px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover">Close</button>
-          <button onClick={reshuffle} disabled={isFetching} className="flex h-[44px] items-center gap-[8px] rounded-full bg-action-primary px-[22px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50">
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+          <Button onClick={reshuffle} loading={isFetching}>
             <Icon name="shuffle" size={16} /> {isFetching ? 'Shuffling…' : 'Reshuffle'}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
@@ -407,10 +407,10 @@ function ExportModal({ deckId, onClose }: { deckId: string; onClose: () => void 
           </div>
         )}
         <div className="flex justify-end gap-[10px]">
-          <button onClick={onClose} className="h-[44px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover">Close</button>
-          <button onClick={copy} disabled={!data} className="flex h-[44px] items-center gap-[8px] rounded-full bg-action-primary px-[22px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50">
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+          <Button onClick={copy} disabled={!data}>
             <Icon name={copied ? 'check' : 'copy'} size={16} /> {copied ? 'Copied!' : 'Copy to Clipboard'}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

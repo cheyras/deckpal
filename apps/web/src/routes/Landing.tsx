@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { BrandMark, Icon } from '../components/Icon'
+import { buttonClass } from '../components/ui/Button'
 import {
   AgentMockup,
   BinderMockup,
@@ -117,7 +118,7 @@ function PrimaryCta({ children, className = '' }: { children: ReactNode; classNa
     <Link
       to="/auth"
       search={{ mode: 'signup' as const }}
-      className={`ls-cta inline-flex h-[50px] items-center justify-center gap-[8px] rounded-full bg-action-primary px-[26px] text-[15px] font-bold text-action-primary-text hover:bg-action-primary-strong ${className}`}
+      className={`ls-cta ${buttonClass('primary', 'lg')} ${className}`}
     >
       {children}
     </Link>
@@ -145,7 +146,7 @@ function GhostCta({ href, children, className = '' }: { href: string; children: 
       href={href}
       target="_blank"
       rel="noreferrer"
-      className={`ls-cta inline-flex h-[50px] items-center justify-center gap-[9px] rounded-full border border-action-ghost-border bg-surface-secondary px-[24px] text-[15px] font-semibold text-text-primary hover:border-surface-raised hover:bg-action-ghost-hover ${className}`}
+      className={`ls-cta ${buttonClass('ghost', 'lg')} ${className}`}
     >
       {children}
     </a>

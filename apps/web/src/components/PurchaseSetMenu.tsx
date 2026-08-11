@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Goal } from '../routes/setSearch'
 import { Icon } from './Icon'
+import { Button } from './ui/Button'
 import { Modal } from './ListModals'
 
 // "Purchase Set" — preferences menu + TCGplayer Mass Entry deep-link generation
@@ -176,14 +177,15 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
               the preferences panel on TCGplayer’s Mass Entry page after it opens.
             </p>
 
-            <button
+            <Button
               onClick={generate}
-              disabled={busy || (goal !== 'complete' && finishes.size === 0)}
-              className="flex h-[44px] items-center justify-center gap-[8px] rounded-lg bg-action-primary-strong text-[14px] font-bold text-action-primary-strong-text disabled:opacity-50"
+              disabled={goal !== 'complete' && finishes.size === 0}
+              loading={busy}
+              className="rounded-lg bg-action-primary-strong text-action-primary-strong-text hover:bg-action-primary-strong-hover"
             >
               <Icon name="cart" size={16} />
               {busy ? 'Building cart link…' : 'Generate cart link'}
-            </button>
+            </Button>
 
             {error && <p className="text-[13px] text-red-400">{error}</p>}
 

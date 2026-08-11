@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api, type CreateListBody, type ListKind, type ListSummary, type ListVisibility } from '../lib/api'
 import { fmtPrice, fmtNumber } from '../lib/format'
 import { Icon } from './Icon'
+import { Button } from './ui/Button'
 
 // ── Modal shell ───────────────────────────────────────────────────────────────
 export function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
@@ -145,16 +146,12 @@ export function ListFormModal({
         {error && <div className="text-[13px] text-error">{error}</div>}
 
         <div className="mt-[4px] flex justify-end gap-[10px]">
-          <button type="button" onClick={onClose} className="h-[44px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover">
+          <Button variant="secondary" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={busy || !name.trim()}
-            className="h-[44px] rounded-full bg-action-primary px-[24px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50"
-          >
+          </Button>
+          <Button type="submit" disabled={!name.trim()} loading={busy}>
             {busy ? 'Saving…' : mode === 'create' ? 'Create List' : 'Save'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -260,16 +257,12 @@ export function ConfirmModal({ title, message, confirmLabel, onClose, onConfirm,
     <Modal title={title} onClose={onClose}>
       <p className="text-[14px] text-text-body">{message}</p>
       <div className="mt-[20px] flex justify-end gap-[10px]">
-        <button onClick={onClose} className="h-[44px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover">
+        <Button variant="secondary" onClick={onClose}>
           Cancel
-        </button>
-        <button
-          onClick={onConfirm}
-          disabled={busy}
-          className="h-[44px] rounded-full bg-action-danger px-[24px] text-[14px] font-bold text-action-danger-text hover:bg-action-danger-hover disabled:opacity-50"
-        >
+        </Button>
+        <Button variant="danger" onClick={onConfirm} loading={busy}>
           {busy ? 'Working…' : confirmLabel}
-        </button>
+        </Button>
       </div>
     </Modal>
   )

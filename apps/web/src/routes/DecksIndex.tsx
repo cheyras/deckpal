@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CreateDeckBody, type DeckFormat, type DeckSummary } from '../lib/api'
-import { Content, Spinner, ErrorState } from '../components/ui'
+import { Content, Spinner, ErrorState, Button } from '../components/ui'
 import { Modal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
@@ -115,10 +115,10 @@ function NewDeckModal({ busy, error, onClose, onSubmit }: { busy?: boolean; erro
         </div>
         {error && <div className="text-[13px] text-error">{error}</div>}
         <div className="mt-[4px] flex justify-end gap-[10px]">
-          <button type="button" onClick={onClose} className="h-[44px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover">Cancel</button>
-          <button type="submit" disabled={busy || !name.trim()} className="h-[44px] rounded-full bg-action-primary px-[24px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={!name.trim()} loading={busy}>
             {busy ? 'Creating…' : 'Create Deck'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -167,10 +167,10 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
         />
         {error && <div className="text-[13px] text-error">{error}</div>}
         <div className="flex justify-end gap-[10px]">
-          <button type="button" onClick={onClose} className="h-[44px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover">Cancel</button>
-          <button type="submit" disabled={busy || !text.trim()} className="h-[44px] rounded-full bg-action-primary px-[24px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={!text.trim()} loading={busy}>
             {busy ? 'Importing…' : 'Import Deck'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -214,18 +214,12 @@ export function DecksIndex() {
           <p className="text-[14px] text-text-muted">{decks.length} deck{decks.length === 1 ? '' : 's'}</p>
         </div>
         <div className="flex items-center gap-[10px]">
-          <button
-            onClick={() => { setErr(null); setShowImport(true) }}
-            className="flex h-[46px] items-center gap-[8px] rounded-full bg-surface-tertiary px-[18px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover"
-          >
+          <Button variant="secondary" onClick={() => { setErr(null); setShowImport(true) }}>
             <Icon name="download" size={18} /> Import from PTCG Live
-          </button>
-          <button
-            onClick={() => { setErr(null); setShowNew(true) }}
-            className="flex h-[46px] items-center gap-[8px] rounded-full bg-action-primary px-[20px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover"
-          >
+          </Button>
+          <Button onClick={() => { setErr(null); setShowNew(true) }}>
             <Icon name="plus" size={18} /> New Deck
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -238,12 +232,12 @@ export function DecksIndex() {
           <div className="text-[20px] font-bold text-text-primary">No Decks Yet</div>
           <p className="text-[14px] text-text-muted">Build one from scratch, or import a Pokémon TCG Live decklist.</p>
           <div className="mt-[4px] flex gap-[10px]">
-            <button onClick={() => setShowImport(true)} className="flex h-[44px] items-center gap-[8px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
+            <Button variant="secondary" onClick={() => setShowImport(true)}>
               <Icon name="download" size={18} /> Import
-            </button>
-            <button onClick={() => setShowNew(true)} className="flex h-[44px] items-center gap-[8px] rounded-full bg-action-primary px-[20px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+            </Button>
+            <Button onClick={() => setShowNew(true)}>
               <Icon name="plus" size={18} /> New Deck
-            </button>
+            </Button>
           </div>
         </div>
       )}

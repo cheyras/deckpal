@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Modal } from './ListModals'
 import { Icon } from './Icon'
+import { Button } from './ui/Button'
 import { api } from '../lib/api'
 
 // In-app bug reporter. Clicking the top-nav button opens the comment form
@@ -318,21 +319,12 @@ export function BugButton() {
               )}
               {error && <div className="text-[13px] text-error">{error}</div>}
               <div className="flex justify-end gap-[10px]">
-                <button
-                  type="button"
-                  onClick={close}
-                  disabled={busy}
-                  className="h-[44px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover disabled:opacity-50"
-                >
+                <Button variant="secondary" onClick={close} disabled={busy}>
                   Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={busy || !text.trim()}
-                  className="h-[44px] rounded-full bg-action-primary px-[24px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50"
-                >
+                </Button>
+                <Button type="submit" disabled={!text.trim()} loading={busy}>
                   {busy ? 'Saving…' : 'Submit'}
-                </button>
+                </Button>
               </div>
             </form>
           )}
