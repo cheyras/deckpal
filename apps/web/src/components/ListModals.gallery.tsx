@@ -3,6 +3,14 @@
  *
  * Modal is the shared dialog shell. ListFormModal and AddCardModal require
  * live data/queries and are noted in pending.ts; ConfirmModal is standalone.
+ *
+ * Both are `overlay: true` — Modal renders `position: fixed; inset: 0`, a
+ * full-viewport scrim + dialog. CatalogSection never mounts an overlay entry
+ * inline (see the `overlay` doc comment in galleryTypes.ts): it renders a
+ * "click to open" trigger card per variant instead, and wires a real
+ * `onClose` to per-entry state when opened. The `onClose: () => {}` below is
+ * only a placeholder to satisfy the prop type — CatalogSection always
+ * overrides it before mounting, so it is never actually called as a no-op.
  */
 import { Modal, ConfirmModal } from './ListModals'
 import type { GalleryMeta } from '../routes/design/galleryTypes'
@@ -13,6 +21,7 @@ export const modalGallery = {
   section: 'component',
   description: 'Shared dialog shell with title, close button, and scrim overlay.',
   component: Modal,
+  overlay: true,
   defaults: {
     title: 'Edit list',
     onClose: () => {},
@@ -67,6 +76,7 @@ export const confirmModalGallery = {
   section: 'component',
   description: 'Confirmation dialog with message, confirm/cancel buttons, and busy state.',
   component: ConfirmModal,
+  overlay: true,
   defaults: {
     title: 'Delete list',
     message: 'Are you sure you want to delete "My Favorites"? This cannot be undone.',
