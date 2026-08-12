@@ -106,8 +106,19 @@
   --color-action-danger: #ef4444; /* red-500 */
   --color-action-danger-hover: #dc2626; /* red-600 */
   --color-action-danger-text: #ffffff;
-  --color-action-brand: #60a5fa; /* blue-400 */
-  --color-action-brand-text: #ffffff;
+  /* External / commerce actions: Shop, Purchase Set, Buy on TCGplayer, and the
+   * TCGplayer link icons. This was blue-400 — a fourth, unrelated hue that read
+   * as a stray blue dot inside otherwise-neutral chips. It now sits in the
+   * primary family.
+   *
+   * Amber (the tertiary scale, currently unused) would have given this role its
+   * own colour, but PurchaseSetMenu renders `text-warning` orange in the same
+   * panel as the action-brand cart icon, and amber-400 beside warning-orange is
+   * muddy. The role token survives, so differentiating later is one line.
+   *
+   * The text token MUST move with it: white on cyan-400 measures 1.8:1. */
+  --color-action-brand: var(--color-brand-primary-400);
+  --color-action-brand-text: var(--color-brand-primary-950);
 
   /* ── status / feedback (Tailwind green/red for status roles) ── */
   --color-success: #4ade80; /* green-400 */
