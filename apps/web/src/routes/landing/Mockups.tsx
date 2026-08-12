@@ -19,10 +19,10 @@ import { EnergyIcon } from '../../components/EnergyIcon'
 import { Icon } from '../../components/Icon'
 import { tailwindGradient, tailwindGradientStops } from '../../lib/gradientPalette'
 
-// action-primary-strong is teal-300, action-primary is teal-400 (theme.css) —
+// action-primary-strong is cyan-300, action-primary is cyan-400 (theme.css) —
 // keep these in sync if those tokens' hue family changes.
-const PROGRESS_GRADIENT = tailwindGradient('teal', '300')
-const [RING_GRADIENT_FROM] = tailwindGradientStops('teal', '300')
+const PROGRESS_GRADIENT = tailwindGradient('cyan', '300')
+const [RING_GRADIENT_FROM] = tailwindGradientStops('cyan', '300')
 
 type Vars = CSSProperties & Record<`--${string}`, string>
 

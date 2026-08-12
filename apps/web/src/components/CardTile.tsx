@@ -8,18 +8,8 @@ import { useSignedIn } from '../lib/session'
 import { CardImage } from './CardImage'
 import { CounterBox } from './ui/CounterBox'
 import { Icon } from './Icon'
+import { variantMeta } from '../lib/variantStyle'
 import type { CardSearch } from '../routes/setSearch'
-
-// Per-variant accent colour + whether the filled chip needs dark text for
-// legibility (yellow/normal does; purple/blue do not). Mirrors CardDetail's
-// variantColor() + the VariantLegend so the grid counters read as the same system.
-function variantMeta(v: TileVariant): { color: string; dark: boolean; order: number } {
-  const k = v.kind.toLowerCase()
-  if (v.tier === 'special') return { color: 'var(--color-variant-other)', dark: true, order: 3 }
-  if (k.includes('reverse')) return { color: 'var(--color-variant-reverse-holo)', dark: false, order: 2 }
-  if (k.includes('holo')) return { color: 'var(--color-variant-holofoil)', dark: false, order: 1 }
-  return { color: 'var(--color-variant-normal)', dark: true, order: 0 }
-}
 
 // Per-variant quantity counters (pkmn.gg's little count boxes).
 //
@@ -98,6 +88,7 @@ function VariantCounters({ cardId, setId, seed }: { cardId: string; setId: strin
           key={v.variantId}
           label={v.displayName}
           color={meta.color}
+          fill={meta.fill}
           dark={meta.dark}
           qty={v.quantity ?? 0}
           disabled={!online || mutation.isPending}

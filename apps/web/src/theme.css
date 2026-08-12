@@ -13,45 +13,49 @@
    * directly today. They exist so the semantic tokens below (action-primary,
    * etc.) can be filtered down to a single brand-*-<shade> reference later
    * instead of each recolor hand-picking hex per token.
-   *   primary   = Tailwind teal   (current action-primary family)
-   *   secondary = Tailwind indigo
-   *   tertiary  = Tailwind yellow
+   *   primary   = Tailwind cyan   (the action-primary family)
+   *   secondary = Tailwind pink   (links, Holofoil variant)
+   *   tertiary  = Tailwind amber
+   *
+   * Hexes are Tailwind 4's values, converted from its oklch source — v4 shifted
+   * these from v3 (cyan-400 is #00d3f3, not v3's #22d3ee), so anything copied
+   * from a v3 palette chart will be subtly off from the utility classes.
    */
-  --color-brand-primary-50: #f0fdfa;
-  --color-brand-primary-100: #ccfbf1;
-  --color-brand-primary-200: #99f6e4;
-  --color-brand-primary-300: #5eead4;
-  --color-brand-primary-400: #2dd4bf;
-  --color-brand-primary-500: #14b8a6;
-  --color-brand-primary-600: #0d9488;
-  --color-brand-primary-700: #0f766e;
-  --color-brand-primary-800: #115e59;
-  --color-brand-primary-900: #134e4a;
-  --color-brand-primary-950: #042f2e;
+  --color-brand-primary-50: #ecfeff;
+  --color-brand-primary-100: #cefafe;
+  --color-brand-primary-200: #a2f4fd;
+  --color-brand-primary-300: #53eafd;
+  --color-brand-primary-400: #00d3f3;
+  --color-brand-primary-500: #00b8db;
+  --color-brand-primary-600: #0092b8;
+  --color-brand-primary-700: #007595;
+  --color-brand-primary-800: #005f78;
+  --color-brand-primary-900: #104e64;
+  --color-brand-primary-950: #053345;
 
-  --color-brand-secondary-50: #eef2ff;
-  --color-brand-secondary-100: #e0e7ff;
-  --color-brand-secondary-200: #c7d2fe;
-  --color-brand-secondary-300: #a5b4fc;
-  --color-brand-secondary-400: #818cf8;
-  --color-brand-secondary-500: #6366f1;
-  --color-brand-secondary-600: #4f46e5;
-  --color-brand-secondary-700: #4338ca;
-  --color-brand-secondary-800: #3730a3;
-  --color-brand-secondary-900: #312e81;
-  --color-brand-secondary-950: #1e1b4b;
+  --color-brand-secondary-50: #fdf2f8;
+  --color-brand-secondary-100: #fce7f3;
+  --color-brand-secondary-200: #fccee8;
+  --color-brand-secondary-300: #fda5d5;
+  --color-brand-secondary-400: #fb64b6;
+  --color-brand-secondary-500: #f6339a;
+  --color-brand-secondary-600: #e60076;
+  --color-brand-secondary-700: #c6005c;
+  --color-brand-secondary-800: #a3004c;
+  --color-brand-secondary-900: #861043;
+  --color-brand-secondary-950: #510424;
 
-  --color-brand-tertiary-50: #fefce8;
-  --color-brand-tertiary-100: #fef9c3;
-  --color-brand-tertiary-200: #fef08a;
-  --color-brand-tertiary-300: #fde047;
-  --color-brand-tertiary-400: #facc15;
-  --color-brand-tertiary-500: #eab308;
-  --color-brand-tertiary-600: #ca8a04;
-  --color-brand-tertiary-700: #a16207;
-  --color-brand-tertiary-800: #854d0e;
-  --color-brand-tertiary-900: #713f12;
-  --color-brand-tertiary-950: #422006;
+  --color-brand-tertiary-50: #fffbeb;
+  --color-brand-tertiary-100: #fef3c6;
+  --color-brand-tertiary-200: #fee685;
+  --color-brand-tertiary-300: #ffd230;
+  --color-brand-tertiary-400: #ffb900;
+  --color-brand-tertiary-500: #fe9a00;
+  --color-brand-tertiary-600: #e17100;
+  --color-brand-tertiary-700: #bb4d00;
+  --color-brand-tertiary-800: #973c00;
+  --color-brand-tertiary-900: #7b3306;
+  --color-brand-tertiary-950: #461901;
 
   /* ── surfaces (Tailwind neutral scale, +1 brightness stop) ────── */
   --color-surface-primary: #171717; /* neutral-900 */
@@ -74,16 +78,20 @@
   --color-text-secondary: #989eb3;
   --color-text-muted: #7f8596;
   --color-text-primary-on-dark: rgb(255 255 255 / 0.85);
-  --color-link: var(--color-brand-secondary-400); /* indigo-400 */
-  --color-link-hover: var(--color-brand-secondary-300); /* indigo-300, brighter on hover */
+  --color-link: var(--color-brand-secondary-400); /* pink-400 */
+  --color-link-hover: var(--color-brand-secondary-300); /* pink-300, brighter on hover */
 
-  /* ── actions ──────────────────────────────────────────────── */
-  --color-action-primary: #2dd4bf; /* teal-400 */
-  --color-action-primary-hover: #14b8a6; /* teal-500 */
-  --color-action-primary-text: #042f2e; /* teal-950 */
-  --color-action-primary-strong: #5eead4; /* teal-300 */
-  --color-action-primary-strong-hover: #2dd4bf; /* teal-400 */
-  --color-action-primary-strong-text: #042f2e; /* teal-950 */
+  /* ── actions ──────────────────────────────────────────────────
+   * These now reference the brand scale rather than repeating hex, which is
+   * what the scale above was added for: recolouring the primary family is a
+   * one-line change to --color-brand-primary-*, not six hand-picked values
+   * that can drift apart. */
+  --color-action-primary: var(--color-brand-primary-400);
+  --color-action-primary-hover: var(--color-brand-primary-500);
+  --color-action-primary-text: var(--color-brand-primary-950);
+  --color-action-primary-strong: var(--color-brand-primary-300);
+  --color-action-primary-strong-hover: var(--color-brand-primary-400);
+  --color-action-primary-strong-text: var(--color-brand-primary-950);
   --color-action-default: #262626; /* neutral-800 */
   --color-action-default-hover: #404040; /* neutral-700 */
   --color-action-default-text: #ffffff;
@@ -99,7 +107,7 @@
   /* ── status / feedback (Tailwind green/red for status roles) ── */
   --color-success: #4ade80; /* green-400 */
   --color-error: #f87171; /* red-400 */
-  --color-change-positive: #22c55e; /* green-500 */
+  --color-change-positive: #00bc7d; /* emerald-500 */
   --color-change-negative: #ef4444; /* red-500 */
   --color-halo-success: rgb(74 222 128 / 0.1); /* green-400 */
   --color-halo-error: rgb(248 113 113 / 0.1); /* red-400 */
@@ -150,10 +158,19 @@
   /* ── warning ─────────────────────────────────────────────── */
   --color-warning: #ff9d42;
 
-  /* ── variant accents (owned-badge + legend) ───────────────── */
-  --color-variant-normal: #ffe165; /* Normal */
-  --color-variant-reverse-holo: #32b5ff; /* Reverse Holofoil */
-  --color-variant-holofoil: #9b6bff; /* Holofoil */
+  /* ── variant accents (owned-badge + legend) ───────────────────
+   * Normal reads as the plain card stock (neutral white), Reverse Holofoil
+   * takes the brand primary and Holofoil the brand secondary, so the three
+   * tiers sit on the same scale as the rest of the UI instead of being three
+   * unrelated hues.
+   *
+   * These stay SOLID. The matching gradients live in :root below as
+   * --gradient-variant-*, because CounterBox's empty state draws
+   * `border: 2px solid var(…)` and a gradient is not a valid border colour —
+   * the pair is not redundancy, it is what lets the fills be gradients at all. */
+  --color-variant-normal: #e5e5e5; /* Normal — neutral-200 */
+  --color-variant-reverse-holo: var(--color-brand-primary-400); /* cyan-400 */
+  --color-variant-holofoil: var(--color-brand-secondary-400); /* pink-400 */
   --color-variant-other: #a8aebd; /* Additional / special tier */
 
   /* ── radii ────────────────────────────────────────────────── */
@@ -203,6 +220,29 @@
   /* ── breakpoints (UI-SPEC §4.3 — 1068 is the ONE real one) ── */
   --breakpoint-gap: 567px;
   --breakpoint-nav: 1068px;
+}
+
+/* Variant swatch FILLS. Deliberately outside `@theme`: naming them
+   `--color-*` would make Tailwind treat them as colours and emit
+   `bg-…` utilities that resolve to `background-color: linear-gradient(…)`,
+   which is invalid. Consumers apply them with `background:`, never
+   `background-color:`.
+
+   Top-lit (lighter at the top) to match the .btn-fill-* convention, so a
+   variant chip reads as the same moulded material as a button. */
+:root {
+  --gradient-variant-normal: linear-gradient(180deg, #ffffff, #c8c8c8);
+  --gradient-variant-reverse-holo: linear-gradient(
+    180deg,
+    var(--color-brand-primary-300),
+    var(--color-brand-primary-500)
+  );
+  --gradient-variant-holofoil: linear-gradient(
+    180deg,
+    var(--color-brand-secondary-300),
+    var(--color-brand-secondary-500)
+  );
+  --gradient-variant-other: linear-gradient(180deg, #c5cbd8, #8f96a6);
 }
 
 /* z-index layers — plain custom properties */
@@ -271,10 +311,10 @@ button {
   transform: skewX(-6deg);
   background: linear-gradient(
     180deg,
-    #ccfbf1 0%,
+    var(--color-brand-primary-100) 0%,
     var(--color-action-primary-strong) 34%,
     var(--color-action-primary) 62%,
-    #0f766e 100%
+    var(--color-brand-primary-700) 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
@@ -283,11 +323,37 @@ button {
   user-select: none;
 }
 
-/* Filled button variants (Button.tsx primary/secondary/danger) — a mild
-   top-to-bottom gradient, one Tailwind shade lighter at top and one shade
-   darker at bottom of each variant's base color. Hover shifts the whole
-   gradient one shade further down (same convention as the old flat
-   hover:bg-*-hover classes). */
+/* Filled button variants (Button.tsx primary/secondary/danger).
+ *
+ * Both faces sit ELEVATED above the surface — same outer shadow pair, a tight
+ * contact shadow plus a soft ambient one — but they are shaped differently,
+ * the way the two pairs of buttons on an SNES pad are:
+ *
+ *   CONVEX (primary, danger) — a dome. Light from above collects on the crown,
+ *   so the fill runs LIGHT→DARK downward, a bright specular sits on the top
+ *   edge, and the bottom inner edge falls into occlusion.
+ *
+ *   CONCAVE (secondary) — a dish. The near wall of a bowl is in shadow and the
+ *   light pools at the far lip, so everything inverts: the fill runs
+ *   DARK→LIGHT downward, the inner shadow moves to the TOP, and the catch-light
+ *   moves to the bottom. The outer shadows are unchanged, which is what keeps
+ *   it reading as "raised button with a dished face" rather than "hole".
+ *
+ * The convex/concave read lives entirely in the INNER shadows and the gradient
+ * direction; the OUTER shadows carry the elevation. Keeping those two jobs
+ * separate is why the same elevation can host either face.
+ */
+.btn-elevate,
+.btn-fill-primary,
+.btn-fill-secondary,
+.btn-fill-danger {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.4),
+    inset 0 -2px 3px rgb(0 0 0 / 0.18),
+    0 1px 2px rgb(0 0 0 / 0.35),
+    0 5px 10px -4px rgb(0 0 0 / 0.45);
+}
+
 .btn-fill-primary {
   background: linear-gradient(180deg, var(--color-brand-primary-300), var(--color-brand-primary-500));
 }
@@ -300,11 +366,21 @@ button {
 .btn-fill-danger:hover {
   background: linear-gradient(180deg, #ef4444, #b91c1c); /* red-500 -> red-700 */
 }
+
+/* Concave. The old neutral-600 → neutral-800 ramp spanned 44 points of
+   lightness and read as a hard band across the face; this is a 20-point span
+   in the other direction — enough to describe a dish, not enough to look
+   like two stacked colours. */
 .btn-fill-secondary {
-  background: linear-gradient(180deg, #525252, #262626); /* neutral-600 -> neutral-800 */
+  background: linear-gradient(180deg, #363636, #4a4a4a);
+  box-shadow:
+    inset 0 2px 4px rgb(0 0 0 / 0.5),
+    inset 0 -1px 0 rgb(255 255 255 / 0.13),
+    0 1px 2px rgb(0 0 0 / 0.35),
+    0 5px 10px -4px rgb(0 0 0 / 0.45);
 }
 .btn-fill-secondary:hover {
-  background: linear-gradient(180deg, #404040, #171717); /* neutral-700 -> neutral-900 */
+  background: linear-gradient(180deg, #3f3f3f, #545454);
 }
 
 /* Thin scrollbars on horizontal chip rows */

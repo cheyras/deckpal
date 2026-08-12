@@ -9,15 +9,7 @@ import { EnergyIcon } from '../components/EnergyIcon'
 import { fmtPrice, fmtDate, fmtNumber, fmtRelative } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
-
-// Map a variant kind to its accent colour (pkmn.gg captures §12.3).
-function variantColor(v: Variant): string {
-  const k = v.kind.toLowerCase()
-  if (v.tier === 'special') return 'var(--color-variant-other)'
-  if (k.includes('reverse')) return 'var(--color-variant-reverse-holo)'
-  if (k.includes('holo')) return 'var(--color-variant-holofoil)'
-  return 'var(--color-variant-normal)'
-}
+import { variantMeta } from '../lib/variantStyle'
 
 // ── Optimistic progress maths — mirrors the server recompute (SCHEMA §5.3/§9.2)
 // so the three bars move instantly, then reconcile against the authoritative
@@ -138,12 +130,16 @@ function optimisticApply(
 function QtyStepper({
   v,
   color,
+  fill,
   quantity,
   onAdjust,
   pending,
 }: {
   v: Variant
+  /** Solid accent — the idle "+" glyph colour. */
   color: string
+  /** Gradient for the owned/filled state. */
+  fill: string
   quantity: number
   onAdjust: (variantId: number, newQty: number) => void
   pending: boolean
@@ -173,7 +169,12 @@ function QtyStepper({
         disabled={pending || !online}
         aria-label={`Add one ${v.displayName}`}
         className="flex h-[36px] w-[36px] items-center justify-center rounded-lg enabled:hover:opacity-90 disabled:opacity-50"
-        style={{ background: owned ? color : 'var(--color-surface-tertiary)', color: owned ? '#fff' : color }}
+        style={{
+          background: owned ? fill : 'var(--color-surface-tertiary)',
+          // The variant fills are all light now (white, cyan-400, rose-400), so a
+          // white glyph on them measures as low as 1.8:1. Dark on the fill is ~10:1.
+          color: owned ? 'var(--color-surface-primary)' : color,
+        }}
       >
         <Icon name="plus" size={16} />
       </button>
@@ -204,7 +205,7 @@ function VariantRow({
   onAdjust: (variantId: number, newQty: number) => void
   pending: boolean
 }) {
-  const color = variantColor(v)
+  const meta = variantMeta(v)
   const price = v.prices.find((p) => p.currency === 'USD') ?? v.prices[0] ?? null
   return (
     <div className="rounded-lg bg-surface-tertiary p-[16px]" data-owned={(v.quantity ?? 0) > 0 ? 'true' : 'false'}>
@@ -213,7 +214,7 @@ function VariantRow({
         <div className="flex min-w-0 items-start gap-[8px]">
           <span
             className="mt-[5px] inline-block h-[12px] w-[12px] shrink-0 rounded-[3px]"
-            style={{ background: color }}
+            style={{ background: meta.fill }}
           />
           <div className="min-w-0">
             <div className="break-words text-[14px] font-bold text-text-primary">{v.displayName}</div>
@@ -261,7 +262,7 @@ function VariantRow({
               Sign in to track
             </Link>
           ) : (
-            <QtyStepper v={v} color={color} quantity={v.quantity} onAdjust={onAdjust} pending={pending} />
+            <QtyStepper v={v} color={meta.color} fill={meta.fill} quantity={v.quantity} onAdjust={onAdjust} pending={pending} />
           )}
         </div>
       </div>

@@ -6,16 +6,7 @@ import { useOnline } from '../lib/useOnline'
 import { useSignedIn } from '../lib/session'
 import { CounterBox } from './ui/CounterBox'
 import { Icon } from './Icon'
-
-// Per-variant accent colour + dark-text flag. Mirrors CardTile.variantMeta so the
-// table counters read as the same system as the grid tiles' count boxes.
-function variantMeta(v: Variant): { color: string; dark: boolean; order: number } {
-  const k = v.kind.toLowerCase()
-  if (v.tier === 'special') return { color: 'var(--color-variant-other)', dark: true, order: 3 }
-  if (k.includes('reverse')) return { color: 'var(--color-variant-reverse-holo)', dark: false, order: 2 }
-  if (k.includes('holo')) return { color: 'var(--color-variant-holofoil)', dark: false, order: 1 }
-  return { color: 'var(--color-variant-normal)', dark: true, order: 0 }
-}
+import { variantMeta } from '../lib/variantStyle'
 
 // Per-variant quantity counters for a table row — the same mechanism as the grid
 // tiles (CardTile.VariantCounters): read the card's variants from the shared
@@ -72,6 +63,7 @@ function RowCounters({ cardId, setId }: { cardId: string; setId: string }) {
           key={v.variantId}
           label={v.displayName}
           color={meta.color}
+          fill={meta.fill}
           dark={meta.dark}
           qty={v.quantity ?? 0}
           disabled={!online || mutation.isPending}
