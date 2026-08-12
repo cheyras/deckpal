@@ -1,5 +1,8 @@
 @import 'tailwindcss';
-@import '@fontsource-variable/inter/wght.css';
+/* Fraunces needs its FULL axis set, not just wght: it carries `opsz`, which is
+   driven automatically below, plus SOFT and WONK. */
+@import '@fontsource-variable/fraunces/full.css';
+@import '@fontsource-variable/figtree/wght.css';
 
 /*
  * pokedex design-system tokens — the 77 flat semantic roles from UI-SPEC §1.10.
@@ -200,7 +203,16 @@
   --shadow-sticker: 4px 4px 4px 4px rgb(0 0 0 / 0.25);
 
   /* ── typography ───────────────────────────────────────────── */
-  --font-sans: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  /* Two roles, deliberately separate.
+   *   sans    — body/UI. The bulk of this app is 11–15px, so this role wants a
+   *             face drawn for small sizes on screen, not personality.
+   *   display — the app's PROPER NOUNS: page titles, section headings, series /
+   *             set / card / deck / list names, attack names, empty-state
+   *             headlines. A display face used once per page reads as arbitrary
+   *             decoration; giving it a consistent role is what makes it a
+   *             system. See the .font-display rules below §type. */
+  --font-sans: 'Figtree Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
 
   --text-3xs: 9px;
   --text-3xs--line-height: 15px;
@@ -394,6 +406,63 @@ button {
 }
 .btn-fill-secondary:hover {
   background: linear-gradient(180deg, #3e3a37, #544e49); /* stone-tinted */
+}
+
+/* ── type: the display role ──────────────────────────────────────────────
+ * Fraunces carries an optical-size axis and the display role spans 14px (a card
+ * name in a table row) to 48px (the landing hero). A FIXED opsz cannot serve
+ * both — high values are drawn for headlines and go spindly at text sizes, low
+ * values look clumsy large. `font-optical-sizing: auto` tracks opsz to the
+ * rendered size, which is what the axis exists for. SOFT and WONK are set
+ * through font-variation-settings WITHOUT naming opsz, since listing it there
+ * would override that tracking.
+ *
+ * The app marks up real h1/h2/h3, so headings need no per-component change;
+ * `.font-display` is the opt-in for named things that are not headings (card
+ * names, set names, attack names — see the components that carry it).
+ *
+ * Deliberately NOT display: species names in the Pokedex grid (13px — a serif
+ * goes muddy below ~14px), and stat values/labels, which are data, not names. */
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  font-variation-settings: 'SOFT' 30, 'WONK' 1;
+}
+
+/* Tracking is a function of SIZE, not of the face: large type needs pulling in,
+   text-size type does not (tightening 16px set names made them cramped). */
+h1,
+h2 {
+  letter-spacing: -0.015em;
+}
+
+/* Weight compensation for the light display sites.
+   A serif's hairlines are its thinnest strokes, and light-on-dark thins strokes
+   optically on top of that — so Fraunces at 400 reads spindly where Inter at 400
+   read solid. The components stay at their semantic weight; only the light
+   DISPLAY sites lift one step. Bold headings already have the mass.
+   `.font-display.font-normal` scores (0,2,0) against Tailwind's `.font-normal`
+   at (0,1,0), so it wins without !important. */
+.font-display.font-normal {
+  font-weight: 500;
+}
+.font-display.font-medium {
+  font-weight: 600;
+}
+
+/* Figtree is drawn a touch wider than Inter; a hair of negative tracking keeps
+   dense UI rows from loosening. Correction, not styling. */
+body {
+  letter-spacing: -0.006em;
+}
+
+/* Prices, card numbers and the count boxes align in columns, and Figtree does
+   not default to tabular. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums lining;
 }
 
 /* Thin scrollbars on horizontal chip rows */

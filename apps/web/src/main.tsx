@@ -17,10 +17,7 @@ import './theme.css'
 // (set by initSkin below), so importing it is inert until the attribute is on —
 // which is what makes the pass reversible without a rebuild. See lib/skin.ts.
 import './premium.css'
-// TEMPORARY font-pairing experiment — see lib/typeface.ts for teardown.
-import './typefaces.css'
 import { initSkin } from './lib/skin'
-import { initTypeface } from './lib/typeface'
 import { registerPwa } from './pwa'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
@@ -357,9 +354,8 @@ declare module '@tanstack/react-router' {
   }
 }
 
-// Before first paint, so neither the skin nor the typeface flashes.
+// Before first paint, so the skin never flashes from classic to premium.
 initSkin()
-initTypeface()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
