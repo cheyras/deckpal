@@ -202,7 +202,7 @@ export function CardTile({
       {/* Footer block — 74px, uniform for virtualization */}
       <div className="pt-[10px]">
         <div className="flex items-baseline justify-between gap-[8px]">
-          <span className="truncate text-[16px] font-normal leading-[23px] text-text-primary">
+          <span className="font-display truncate text-[16px] font-normal leading-[23px] text-text-primary">
             {card.name}
           </span>
           <span className="shrink-0 text-[16px] font-normal leading-[23px] text-change-positive">

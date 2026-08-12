@@ -108,7 +108,7 @@ function SeriesCard({ s }: { s: SeriesSummary }) {
                 <SetSymbolTile setId={s.repSetId} hasSymbol={s.repHasSymbol} name={s.name} size={48} />
               ))}
           </div>
-          <div className="text-[18px] font-semibold leading-[27px] text-text-primary">{s.name}</div>
+          <div className="font-display text-[18px] font-semibold leading-[27px] text-text-primary">{s.name}</div>
           <div className="mt-[2px] text-[12px] text-text-muted">First released {fmtDate(s.firstReleaseOn)}</div>
         </div>
         <div className="mt-[16px] flex gap-[24px]">

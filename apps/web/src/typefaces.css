@@ -5,6 +5,15 @@
  * for the teardown steps once a winner is picked. Everything font-related for the
  * experiment lives here so deleting this file plus that module removes it whole.
  *
+ * The DISPLAY role is "proper nouns" — the app's named things: page titles,
+ * section headings, series/set/card/deck/list names, attack names, empty-state
+ * headlines. Giving it a consistent role is what stops a display face reading as
+ * arbitrary decoration; used once per page it just looks misplaced.
+ *
+ * Deliberately NOT in the display role: species names in the Pokedex grid
+ * (13px — a serif goes muddy below ~14px), stat values and labels (data, not
+ * names), and anything in the count boxes.
+ *
  * Two roles, deliberately separate:
  *   --font-sans     body/UI. The bulk of this app is 11–15px, so this role wants
  *                   a face engineered for small sizes on screen, not personality.
@@ -53,24 +62,37 @@ h3,
   font-family: var(--font-display);
 }
 
-/* Fraunces ships quite light by default for a display face and has an optical
-   size axis that must be driven, or headings render at the text optical size and
-   look weak. Set it near the top of the range for large type. */
+/* Fraunces carries an optical-size axis, and the display role now spans 14px
+   (a card name in a table row) to 48px (the landing hero). A FIXED opsz cannot
+   serve both: high values are drawn for headlines and go spindly and
+   high-contrast at text sizes, low values look soft and clumsy large.
+   `font-optical-sizing: auto` makes the browser track opsz to the rendered
+   font-size, which is what the axis is for.
+   SOFT and WONK are set through font-variation-settings deliberately WITHOUT
+   naming opsz — listing opsz there would override the automatic tracking. */
 :root[data-type='fraunces'] h1,
 :root[data-type='fraunces'] h2,
+:root[data-type='fraunces'] h3,
 :root[data-type='fraunces'] .font-display {
-  font-variation-settings: 'opsz' 100, 'SOFT' 30, 'WONK' 1;
+  font-optical-sizing: auto;
+  font-variation-settings: 'SOFT' 30, 'WONK' 1;
+}
+/* Tracking is a function of size, not of the face: large type needs pulling in,
+   text-size type does not. */
+:root[data-type='fraunces'] h1,
+:root[data-type='fraunces'] h2 {
   letter-spacing: -0.015em;
 }
-:root[data-type='fraunces'] h3 {
-  font-variation-settings: 'opsz' 40, 'SOFT' 30, 'WONK' 1;
-}
 
-/* Bricolage's opsz behaves the same way — drive it for display sizes. */
+/* Bricolage carries opsz too — same treatment, same reason. */
 :root[data-type='bricolage'] h1,
 :root[data-type='bricolage'] h2,
+:root[data-type='bricolage'] h3,
 :root[data-type='bricolage'] .font-display {
-  font-variation-settings: 'opsz' 48;
+  font-optical-sizing: auto;
+}
+:root[data-type='bricolage'] h1,
+:root[data-type='bricolage'] h2 {
   letter-spacing: -0.02em;
 }
 

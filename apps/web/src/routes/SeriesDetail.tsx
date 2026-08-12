@@ -29,7 +29,7 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[16px] font-semibold text-text-primary">{set.name}</div>
+        <div className="font-display truncate text-[16px] font-semibold text-text-primary">{set.name}</div>
         <div className="text-[12px] text-text-muted">{fmtDate(set.releasedOn)}</div>
         {c ? (
           <div className="mt-[6px] flex items-center gap-[8px]">

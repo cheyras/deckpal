@@ -40,7 +40,7 @@ export function EmptyState({
   return (
     <div className={`${base}${className ? ` ${className}` : ''}`}>
       <Icon name={icon} size={44} className="text-icon-muted" />
-      <div className="text-[20px] font-bold text-text-primary">{title}</div>
+      <div className="font-display text-[20px] font-bold text-text-primary">{title}</div>
       {body && <p className="text-[14px] text-text-muted">{body}</p>}
       {children && <div className="mt-[4px] flex gap-[10px]">{children}</div>}
     </div>
