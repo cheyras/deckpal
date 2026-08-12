@@ -27,9 +27,9 @@ export interface ProgressBarProps {
   className?: string
 }
 
-// action-primary-strong is teal-300 (theme.css) — keep this in sync if that
+// action-primary-strong is cyan-300 (theme.css) — keep this in sync if that
 // token's hue family changes.
-const DEFAULT_GRADIENT = tailwindGradient('teal', '300')
+const DEFAULT_GRADIENT = tailwindGradient('cyan', '300')
 
 export function ProgressBar({
   pct,

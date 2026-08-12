@@ -13,6 +13,7 @@ import { useEffect, useRef } from 'react'
 export function CounterBox({
   label,
   color,
+  fill,
   dark,
   qty,
   disabled,
@@ -20,7 +21,10 @@ export function CounterBox({
   onDec,
 }: {
   label: string
+  /** Solid accent. Used for the empty state's border, where a gradient is invalid. */
   color: string
+  /** Gradient for the filled state. Falls back to the solid when absent. */
+  fill?: string
   dark: boolean
   qty: number
   disabled: boolean
@@ -77,7 +81,7 @@ export function CounterBox({
       className="flex h-[24px] min-w-[22px] items-center justify-center rounded-[6px] px-[5px] text-[12px] font-extrabold leading-none tabular-nums shadow-panel transition-opacity enabled:hover:opacity-90 disabled:opacity-60"
       style={
         qty > 0
-          ? { background: color, color: dark ? 'var(--color-surface-primary)' : 'var(--color-text-primary)' }
+          ? { background: fill ?? color, color: dark ? 'var(--color-surface-primary)' : 'var(--color-text-primary)' }
           : {
               background: 'var(--color-surface-tertiary-transparent)',
               color: 'var(--color-text-muted)',

@@ -8,12 +8,12 @@
  *
  * Four ideas, applied in this order:
  *   1. PAPER   — procedural feTurbulence grain on surfaces. Material, not noise:
- *                two scales (fine tooth + slow mottle) at a few percent alpha.
+ *                a single fine tooth at a few percent alpha.
  *   2. RELIEF  — subtle dark-UI neumorphism. Surfaces are lit from above: a
  *                specular hairline on the top edge, a soft cast shadow below.
  *                Recessed things (inputs, tracks, wells) invert it.
  *   3. SHEEN   — a faint moulded-plastic highlight over filled controls.
- *   4. MOTION  — spring easing, hover lift, press-in, entrance stagger.
+ *   4. MOTION  — spring easing, hover lift, press-in, entrance rise.
  *
  * Reach: most of it hangs off the design system's own utility classes
  * (`.bg-surface-secondary` etc.), so the whole app upgrades without editing
@@ -27,11 +27,7 @@
 
 :root[data-skin='premium'] {
   /* ── procedural paper ──────────────────────────────────────────────────
-     Both are feTurbulence, desaturated, tiled. The fine one is the sheet's
-     tooth; the coarse one is anisotropic (streaky on X) so it reads as laid
-     fibre rather than TV static. Alpha is baked into the SVG so these can be
-     composited as plain background layers — no overlay element to stack. */
-  /* Paper tooth, and ONLY tooth.
+     Paper tooth, and ONLY tooth.
      Earlier revisions layered a large-scale "mottle" (sheet variation) and an
      anisotropic "fibre" over this. Both were wrong: the mottle read as a
      blurred cloudiness sitting on top of the UI, and the stretched fibre read
@@ -95,7 +91,13 @@
   --px-dur-slow: 420ms;
 
   --px-accent: var(--color-action-primary);
-  --px-accent-soft: rgb(45 212 191 / 0.14);
+  /* Channel triplet for the accent, because rgb()/color-mix() need bare
+     channels to build the translucent halos and glows below — a var holding
+     a full colour cannot be given an alpha. Keep in sync with
+     --color-brand-primary-400 in theme.css; that is the ONE place a recolor
+     has to touch here. */
+  --px-accent-rgb: 0 211 243; /* cyan-400 */
+  --px-accent-soft: rgb(var(--px-accent-rgb) / 0.14);
 
   /* ── form ────────────────────────────────────────────────────────────────
      The design system's radii, opened up a step. Tailwind compiles
@@ -114,10 +116,6 @@
    1. Paper
    ───────────────────────────────────────────────────────────────────────── */
 
-/* The page. Three layers: mottle (slow tonal variation, like sheet stock),
-   fibre (directional), tooth (fine). `background-blend-mode: overlay` on the
-   two big ones keeps them tonal rather than dusty; the tooth stays additive so
-   the grain survives on near-black. */
 /* The page: grain, and nothing else. No radial "lit from above" wash — at page
    scale any soft gradient reads as haze rather than as lighting, which was the
    cloudiness. The relief on the panels carries the light direction instead. */
@@ -194,7 +192,7 @@
 :root[data-skin='premium'] textarea:focus,
 :root[data-skin='premium'] select:focus {
   box-shadow: var(--px-inset-deep), 0 0 0 3px var(--px-accent-soft);
-  border-color: rgb(45 212 191 / 0.45);
+  border-color: rgb(var(--px-accent-rgb) / 0.45);
 }
 
 /* The fixed chrome — header and sidebar — is the frame the sheet sits in. It
@@ -211,6 +209,11 @@
    3. Sheen — moulded plastic on filled controls
    ───────────────────────────────────────────────────────────────────────── */
 
+/* NOTE: the .btn-fill-* box-shadow is deliberately NOT set here. Those buttons
+   carry their convex/concave face shaping in theme.css, and this file used to
+   flatten all three with one generic `--px-hi-strong, --px-lo` — which would
+   put a top specular on the CONCAVE secondary and undo the dish. The elevation
+   and the face both belong to whoever defines the shape. */
 :root[data-skin='premium'] .btn-fill-primary,
 :root[data-skin='premium'] .btn-fill-secondary,
 :root[data-skin='premium'] .btn-fill-danger,
@@ -218,14 +221,16 @@
 :root[data-skin='premium'] .bg-action-brand {
   position: relative;
   isolation: isolate;
-  box-shadow: var(--px-hi-strong), var(--px-lo), var(--px-cast-tight);
   overflow: hidden;
+}
+:root[data-skin='premium'] .bg-action-primary,
+:root[data-skin='premium'] .bg-action-brand {
+  box-shadow: var(--px-hi-strong), var(--px-lo), var(--px-cast-tight);
 }
 
 /* The highlight itself. `inherit` on border-radius keeps it inside rounded
    pills; `pointer-events:none` keeps it out of the hit test. */
 :root[data-skin='premium'] .btn-fill-primary::after,
-:root[data-skin='premium'] .btn-fill-secondary::after,
 :root[data-skin='premium'] .btn-fill-danger::after,
 :root[data-skin='premium'] .bg-action-primary::after,
 :root[data-skin='premium'] .bg-action-brand::after {
@@ -234,6 +239,27 @@
   inset: 0;
   border-radius: inherit;
   background: var(--px-sheen);
+  pointer-events: none;
+  z-index: -1;
+  transition: opacity var(--px-dur) var(--px-ease);
+}
+
+/* The concave face gets the sheen upside down: on a dished surface the
+   highlight sits at the BOTTOM lip, where the far wall of the bowl turns back
+   towards the light. Running the convex sheen here is what made the secondary
+   button read as flat-with-a-band. */
+:root[data-skin='premium'] .btn-fill-secondary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    0deg,
+    rgb(255 255 255 / 0.1) 0%,
+    rgb(255 255 255 / 0.03) 38%,
+    rgb(255 255 255 / 0) 62%,
+    rgb(0 0 0 / 0.12) 100%
+  );
   pointer-events: none;
   z-index: -1;
   transition: opacity var(--px-dur) var(--px-ease);
@@ -322,7 +348,7 @@
 /* Focus ring: the flat 2px outline becomes a soft halo that matches the
    relief lighting. */
 :root[data-skin='premium'] :focus-visible {
-  outline: 1px solid rgb(45 212 191 / 0.55);
+  outline: 1px solid rgb(var(--px-accent-rgb) / 0.55);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px var(--px-accent-soft);
 }
@@ -365,7 +391,7 @@
   height: 0;
   border-radius: 0 3px 3px 0;
   background: var(--px-accent);
-  box-shadow: 0 0 12px rgb(45 212 191 / 0.55);
+  box-shadow: 0 0 12px rgb(var(--px-accent-rgb) / 0.55);
   transform: translateY(-50%);
   transition: height var(--px-dur-slow) var(--px-spring);
 }
@@ -374,7 +400,7 @@
 }
 :root[data-skin='premium'] .px-nav-row[data-active='true'] {
   background:
-    linear-gradient(90deg, rgb(45 212 191 / 0.09), rgb(45 212 191 / 0) 55%),
+    linear-gradient(90deg, rgb(var(--px-accent-rgb) / 0.09), rgb(var(--px-accent-rgb) / 0) 55%),
     var(--color-surface-secondary);
   box-shadow: var(--px-inset);
 }
@@ -385,7 +411,7 @@
    classic skin keeps its plain white active icon. */
 :root[data-skin='premium'] .px-nav-row[data-active='true'] .px-icon {
   color: var(--px-accent);
-  filter: drop-shadow(0 0 8px rgb(45 212 191 / 0.35));
+  filter: drop-shadow(0 0 8px rgb(var(--px-accent-rgb) / 0.35));
 }
 /* Idle icons drift up a hair under the pointer — enough to feel live. */
 :root[data-skin='premium'] .px-nav-row .px-icon {
@@ -398,7 +424,7 @@
 /* The wordmark picks up the same top-lit relief as the rest of the chrome. */
 :root[data-skin='premium'] .brand-wordmark {
   filter: drop-shadow(0 1px 0 rgb(0 0 0 / 0.65)) drop-shadow(0 2px 6px rgb(0 0 0 / 0.45))
-    drop-shadow(0 0 14px rgb(45 212 191 / 0.18));
+    drop-shadow(0 0 14px rgb(var(--px-accent-rgb) / 0.18));
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -644,11 +670,27 @@
   content: none;
 }
 
-/* Tabs, underline variant. The indicator gains the accent glow the nav rail
-   uses, so "what is selected" reads the same way everywhere in the app. */
+/* Tabs, underline variant. The selected tab is a raised tile sitting ON the
+   rule: its face is a dark tint of the SAME hue as the indicator beneath it, so
+   the pair reads as one object rather than a label with a stripe. The elevation
+   is a real drop shadow, not a glow — a glow reads as emitted light, which is
+   wrong for a surface that is meant to sit forward of the page.
+
+   The rounding is top-only: the bottom edge has to stay flush with the
+   indicator, or the tile floats off its own underline. */
 :root[data-skin='premium'] .border-b-2.border-action-primary,
 :root[data-skin='premium'] .border-b-2.border-action-primary-strong {
-  box-shadow: 0 2px 10px -2px rgb(45 212 191 / 0.55);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-action-primary) 12%, transparent),
+    color-mix(in srgb, var(--color-action-primary) 26%, transparent)
+  );
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    0 1px 2px rgb(0 0 0 / 0.4),
+    0 6px 12px -6px rgb(0 0 0 / 0.7);
 }
 
 /* Card art. A trading-card app's card images should sit on the page like the

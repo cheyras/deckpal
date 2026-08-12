@@ -66,9 +66,9 @@ function sortSeries(list: SeriesSummary[], key: SortKey, dir: SortDir): SeriesSu
 // lib/gradientPalette); the gradient def itself lives once at the page root
 // (see RING_GRADIENT_ID) so cards can share it.
 const RING_GRADIENT_ID = 'series-ring-grad'
-// action-primary-strong is teal-300 (theme.css) — keep this in sync if that
+// action-primary-strong is cyan-300 (theme.css) — keep this in sync if that
 // token's hue family changes.
-const [RING_GRADIENT_FROM, RING_GRADIENT_TO] = tailwindGradientStops('teal', '300')
+const [RING_GRADIENT_FROM, RING_GRADIENT_TO] = tailwindGradientStops('cyan', '300')
 
 function CompletionRing({ owned, total, pct }: { owned: number; total: number; pct: number }) {
   return (

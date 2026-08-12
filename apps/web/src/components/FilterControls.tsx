@@ -191,8 +191,9 @@ export function SortChipStrip({
   )
 }
 
-// Variant colour legend (pkmn.gg captures §4): yellow=Normal, purple=Holofoil,
-// blue=Reverse Holofoil.
+// Variant colour legend: Normal = neutral card stock, Holofoil = brand
+// secondary, Reverse Holofoil = brand primary. The swatch is a 2px border, so
+// it takes the SOLID token — a gradient is not a valid border colour.
 export function VariantLegend() {
   const items = [
     { label: 'Normal', color: 'var(--color-variant-normal)' },
