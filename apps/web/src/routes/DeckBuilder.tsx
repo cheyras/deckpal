@@ -220,14 +220,17 @@ function DeckRow({ card, offending, onSet, onRemove, onOpen }: {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-[6px]">
             {basicEnergyType(card) && <EnergyIcon type={basicEnergyType(card)!} size={16} className="shrink-0" />}
-            <span className="truncate text-[14px] font-semibold text-text-primary">{card.name}</span>
+            <span className="truncate text-[16px] font-semibold text-text-primary">{card.name}</span>
             {offending && <span className="shrink-0 text-warning"><Icon name="alert" size={13} /></span>}
           </div>
-          <div className="flex items-center gap-[8px] text-[14px] text-text-muted">
-            <span>{card.setId.toUpperCase()} {card.number}</span>
+          {/* At 14px these four items no longer fit on one line at 390px, and
+              each was breaking INSIDE itself ("SWSH1 / 1", "0/1 / owned").
+              Each item is atomic — nowrap — and the row wraps BETWEEN them. */}
+          <div className="flex flex-wrap items-center gap-x-[8px] gap-y-[2px] text-[14px] text-text-muted">
+            <span className="whitespace-nowrap">{card.setId.toUpperCase()} {card.number}</span>
             {card.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
-            <span className={card.have ? 'text-change-positive' : 'text-text-muted'}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>
-            <span className="text-change-positive">{fmtPrice(card.price)}</span>
+            <span className={`whitespace-nowrap ${card.have ? 'text-change-positive' : 'text-text-muted'}`}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>
+            <span className="whitespace-nowrap text-change-positive">{fmtPrice(card.price)}</span>
           </div>
         </div>
       </button>
@@ -315,7 +318,7 @@ function DeckAddModal({ format, onClose, onAdd, addingId }: {
                   </span>
                   {c.regulationMark && <span className="absolute left-[4px] top-[4px] rounded bg-surface-primary/80 px-[4px] text-[14px] font-bold text-text-secondary">{c.regulationMark}</span>}
                 </div>
-                <span className="mt-[4px] truncate text-[14px] font-medium text-text-primary">{c.name}</span>
+                <span className="mt-[4px] truncate text-[16px] font-medium text-text-primary">{c.name}</span>
                 <div className="flex items-center justify-between">
                   <span className="text-[14px] text-text-muted">{c.set.setId.toUpperCase()} {c.number}</span>
                   <span className="text-[14px] text-change-positive">{fmtPrice(c.price)}</span>
@@ -471,7 +474,7 @@ function BuyMissingModal({ deckId, onClose }: { deckId: string; onClose: () => v
                     <div key={m.cardId} className="flex items-center gap-[10px] rounded-lg bg-surface-tertiary/50 p-[6px] pr-[10px]">
                       <img src={m.image} alt={m.name} className="h-[44px] w-[31px] rounded object-cover" />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-[14px] font-semibold text-text-primary">{m.missingQty}× {m.name}</div>
+                        <div className="truncate text-[16px] font-semibold text-text-primary">{m.missingQty}× {m.name}</div>
                         <div className="text-[14px] text-text-muted">{m.setId.toUpperCase()} {m.number} · {fmtUsd(m.lineTotal)}</div>
                       </div>
                       {m.buyUrl && (
