@@ -212,15 +212,20 @@ function VariantRow({
           <div className="min-w-0">
             <div className="break-words text-[14px] font-bold text-text-primary">{v.displayName}</div>
             {v.provenance && <div className="break-words text-[12px] text-text-muted">{v.provenance}</div>}
+            {/* "TCGplayer" is a single unbreakable word, so `truncate` here could
+                only ever clip it to "TCGpl…" — which it did at 390px, where the
+                variant column squeezes this to 54px against a 62px label. A short
+                button label has no useful truncated form, so it keeps its ~98px
+                intrinsic width instead of shrinking. */}
             {v.buyUrl && (
               <a
                 href={v.buyUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-[8px] inline-flex h-[30px] max-w-full items-center gap-[6px] rounded-lg bg-surface-secondary px-[8px] text-[12px] font-bold text-text-primary hover:bg-action-default-hover"
+                className="mt-[8px] inline-flex h-[30px] w-fit shrink-0 items-center gap-[6px] whitespace-nowrap rounded-lg bg-surface-secondary px-[8px] text-[12px] font-bold text-text-primary hover:bg-action-default-hover"
               >
                 <Icon name="external" size={14} className="shrink-0 text-action-brand" />
-                <span className="truncate">TCGplayer</span>
+                <span>TCGplayer</span>
               </a>
             )}
           </div>
