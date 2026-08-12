@@ -72,11 +72,16 @@
   --color-surface-on-light-text: #292524; /* stone-800 */
   --color-surface-footer: #292524; /* stone-800 */
 
-  /* ── text & links ─────────────────────────────────────────── */
+  /* ── text & links ───────────────────────────────────────────
+   * The greys here were blue-cool (#c1c7d8, #7f8596, #484f60 …), which reads
+   * as a colour cast the moment the surfaces went warm. Each was re-derived in
+   * OKLCh: EXACT same lightness, with stone's own chroma and hue interpolated
+   * at that lightness. So nothing got lighter or darker — only the hue moved,
+   * and the whole UI now sits in one family. */
   --color-text-primary: #ffffff;
-  --color-text-body: #c1c7d8;
-  --color-text-secondary: #989eb3;
-  --color-text-muted: #7f8596;
+  --color-text-body: #cac6c4; /* stone-hue, same lightness as the old #c1c7d8 */
+  --color-text-secondary: #a49e98;
+  --color-text-muted: #8b847e;
   --color-text-primary-on-dark: rgb(255 255 255 / 0.85);
   --color-link: var(--color-brand-secondary-400); /* pink-400 */
   --color-link-hover: var(--color-brand-secondary-300); /* pink-300, brighter on hover */
@@ -112,29 +117,29 @@
   --color-halo-success: rgb(74 222 128 / 0.1); /* green-400 */
   --color-halo-error: rgb(248 113 113 / 0.1); /* red-400 */
   --color-halo-neutral: rgb(255 225 101 / 0.1);
-  --color-overlay-scrim: rgb(44 48 59 / 0.7);
-  --color-overlay-scrim-strong: rgb(21 24 31 / 0.75);
+  --color-overlay-scrim: rgb(52 47 45 / 0.7);
+  --color-overlay-scrim-strong: rgb(26 23 22 / 0.75);
   --color-overlay-ring: rgb(255 225 101 / 0.2);
   --color-overlay-ring-error: rgb(248 113 113 / 0.2); /* red-400 */
-  --color-banner-gradient-top: rgb(31 35 45 / 0.8);
-  --color-track-subtle: #1a1d24;
+  --color-banner-gradient-top: rgb(38 34 33 / 0.8);
+  --color-track-subtle: #201c1b;
 
   /* ── borders / icons (Tailwind stone scale, matches surfaces) ── */
   --color-border-default: #57534d; /* stone-600 */
   --color-border-focus: #a6a09b; /* stone-400 */
   --color-divider-subtle: #44403b; /* stone-700 */
   --color-avatar-ring: #57534d; /* stone-600 */
-  --color-icon-default: #7f8596;
+  --color-icon-default: #8b847e;
   --color-icon-hover: #ffffff;
   --color-icon-active: #ffe165;
-  --color-icon-muted: #666f84;
-  --color-icon-muted-strong: #484f60;
-  --color-icon-disabled: #4a4f5c;
-  --color-icon-disabled-strong: #292e3a;
+  --color-icon-muted: #756e68;
+  --color-icon-muted-strong: #534f49;
+  --color-icon-disabled: #534f49;
+  --color-icon-disabled-strong: #322d2b;
 
   /* ── brand / pro / promo ──────────────────────────────────── */
   --color-pro-accent: #45bcff;
-  --color-pro-accent-text: #15181f;
+  --color-pro-accent-text: #1a1716;
   --color-pro-pink: #7f42ff;
   --color-pro-pink-text: #ffffff;
   --color-announcement: #3f52ff;
@@ -168,10 +173,10 @@
    * --gradient-variant-*, because CounterBox's empty state draws
    * `border: 2px solid var(…)` and a gradient is not a valid border colour —
    * the pair is not redundancy, it is what lets the fills be gradients at all. */
-  --color-variant-normal: #e5e5e5; /* Normal — neutral-200 */
+  --color-variant-normal: #e7e5e4; /* Normal — stone-200 */
   --color-variant-reverse-holo: var(--color-brand-primary-400); /* cyan-400 */
   --color-variant-holofoil: var(--color-brand-secondary-400); /* pink-400 */
-  --color-variant-other: #a8aebd; /* Additional / special tier */
+  --color-variant-other: #b2ada9; /* Additional / special tier */
 
   /* ── radii ────────────────────────────────────────────────── */
   --radius-sm: 4px;
@@ -231,7 +236,7 @@
    Top-lit (lighter at the top) to match the .btn-fill-* convention, so a
    variant chip reads as the same moulded material as a button. */
 :root {
-  --gradient-variant-normal: linear-gradient(180deg, #ffffff, #c8c8c8);
+  --gradient-variant-normal: linear-gradient(180deg, #ffffff, #cbc7c5);
   --gradient-variant-reverse-holo: linear-gradient(
     180deg,
     var(--color-brand-primary-300),
@@ -242,7 +247,7 @@
     var(--color-brand-secondary-300),
     var(--color-brand-secondary-500)
   );
-  --gradient-variant-other: linear-gradient(180deg, #c5cbd8, #8f96a6);
+  --gradient-variant-other: linear-gradient(180deg, #cecac8, #9b958f);
 }
 
 /* z-index layers — plain custom properties */
