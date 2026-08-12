@@ -84,6 +84,21 @@ h3,
   letter-spacing: -0.015em;
 }
 
+/* Weight compensation for the light display sites.
+   A serif's hairlines are its thinnest strokes, and light-on-dark thins strokes
+   optically on top of that — so Fraunces at 400 (the card name under the art in
+   a grid tile) reads spindly where Inter at 400 reads solid. Rather than change
+   the components, lift only the LIGHT display sites by one step; bold headings
+   already have the mass and are untouched.
+   `.font-display.font-normal` is (0,2,0) and so beats Tailwind's `.font-normal`
+   at (0,1,0) without !important. */
+:root[data-type='fraunces'] .font-display.font-normal {
+  font-weight: 500;
+}
+:root[data-type='fraunces'] .font-display.font-medium {
+  font-weight: 600;
+}
+
 /* Bricolage carries opsz too — same treatment, same reason. */
 :root[data-type='bricolage'] h1,
 :root[data-type='bricolage'] h2,
