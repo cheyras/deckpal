@@ -50,11 +50,11 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
                 platedImgClassName="max-h-[88px] max-w-[220px]"
                 plateClassName="rounded-lg px-[14px] py-[10px]"
                 onError={(e) => {
-                  e.currentTarget.outerHTML = `<span class="text-[32px] font-black text-text-primary">${set.name}</span>`
+                  e.currentTarget.outerHTML = `<span class="font-display text-[32px] font-black text-text-primary">${set.name}</span>`
                 }}
               />
             ) : (
-              <span className="text-[32px] font-black text-text-primary">{set.name}</span>
+              <span className="font-display text-[32px] font-black text-text-primary">{set.name}</span>
             )}
           </div>
 
