@@ -7,6 +7,7 @@
  */
 import { useState, useEffect } from 'react'
 import { SkinToggle } from './SkinToggle'
+import { TypefaceToggle } from './TypefaceToggle'
 import { createPortal } from 'react-dom'
 import { designApi, type HealthResponse } from './designApi'
 import { useTokenOverrides } from './useTokenOverrides'
@@ -52,6 +53,7 @@ export default function DesignSystem() {
                 )}
               </div>
               <div className="flex items-center gap-[12px]">
+                <TypefaceToggle />
                 <SkinToggle />
                 {overrides.count > 0 && (
                   <span className="rounded-full bg-action-primary/20 px-[10px] py-[3px] text-[11px] font-medium text-action-primary">
