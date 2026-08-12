@@ -107,7 +107,7 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
           reset()
           setOpen(true)
         }}
-        className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover"
+        className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover"
       >
         <Icon name="cart" size={16} className="text-action-brand" /> Purchase Set
       </button>
@@ -115,14 +115,14 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
       {open && (
         <Modal title="Purchase Set" onClose={() => setOpen(false)}>
           <div className="flex flex-col gap-[16px]">
-            <p className="text-[13px] leading-[19px] text-text-secondary">
+            <p className="text-[14px] leading-[19px] text-text-secondary">
               Builds a TCGplayer Mass Entry link that pre-fills a cart with every card you still need. Nothing is
               purchased until you check out on TCGplayer.
             </p>
 
             {/* goal */}
             <fieldset className="flex flex-col gap-[8px]" disabled={busy}>
-              <legend className="mb-[6px] text-[12px] font-bold uppercase tracking-wide text-text-muted">
+              <legend className="mb-[6px] text-[14px] font-bold uppercase tracking-wide text-text-muted">
                 Needed to finish
               </legend>
               {GOALS.map((g) => (
@@ -138,19 +138,19 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
                     className="h-[16px] w-[16px] accent-[var(--color-action-primary)]"
                   />
                   <span className="font-semibold">{g.label}</span>
-                  <span className="text-[12px] text-text-muted">{g.blurb}</span>
+                  <span className="text-[14px] text-text-muted">{g.blurb}</span>
                 </label>
               ))}
             </fieldset>
 
             {/* finishes (variant scope) — only meaningful for master/grandmaster */}
             <fieldset className="flex flex-col gap-[8px]" disabled={busy || goal === 'complete'}>
-              <legend className="mb-[6px] text-[12px] font-bold uppercase tracking-wide text-text-muted">
+              <legend className="mb-[6px] text-[14px] font-bold uppercase tracking-wide text-text-muted">
                 Printings to include
               </legend>
               <div className={`flex flex-wrap gap-x-[16px] gap-y-[8px] ${goal === 'complete' ? 'opacity-40' : ''}`}>
                 {FINISHES.map((f) => (
-                  <label key={f.code} className="flex cursor-pointer items-center gap-[6px] text-[13px] text-text-primary">
+                  <label key={f.code} className="flex cursor-pointer items-center gap-[6px] text-[14px] text-text-primary">
                     <input
                       type="checkbox"
                       checked={finishes.has(f.code)}
@@ -168,11 +168,11 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
                 ))}
               </div>
               {goal === 'complete' && (
-                <p className="text-[12px] text-text-muted">Any one printing completes a card, so all printings count.</p>
+                <p className="text-[14px] text-text-muted">Any one printing completes a card, so all printings count.</p>
               )}
             </fieldset>
 
-            <p className="rounded-lg bg-surface-tertiary px-[12px] py-[10px] text-[12px] leading-[17px] text-text-secondary">
+            <p className="rounded-lg bg-surface-tertiary px-[12px] py-[10px] text-[14px] leading-[17px] text-text-secondary">
               Card condition (NM, LP, …) and the exact printing per card can’t be preselected by link — pick them in
               the preferences panel on TCGplayer’s Mass Entry page after it opens.
             </p>
@@ -187,7 +187,7 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
               {busy ? 'Building cart link…' : 'Generate cart link'}
             </Button>
 
-            {error && <p className="text-[13px] text-error">{error}</p>}
+            {error && <p className="text-[14px] text-error">{error}</p>}
 
             {result && (
               <div className="flex flex-col gap-[12px] border-t border-border-default pt-[14px]">
@@ -197,7 +197,7 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
                   </p>
                 ) : (
                   <>
-                    <p className="text-[13px] text-text-secondary">
+                    <p className="text-[14px] text-text-secondary">
                       <span className="font-semibold text-text-primary">
                         {result.needed.items} card{result.needed.items === 1 ? '' : 's'}
                       </span>{' '}
@@ -212,7 +212,7 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
                           href={u}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex h-[44px] items-center justify-center gap-[8px] rounded-lg bg-surface-tertiary text-[13px] font-bold text-text-primary hover:bg-action-default-hover"
+                          className="flex h-[44px] items-center justify-center gap-[8px] rounded-lg bg-surface-tertiary text-[14px] font-bold text-text-primary hover:bg-action-default-hover"
                         >
                           <Icon name="external" size={15} className="text-action-brand" />
                           {result.urls.length > 1 ? `Open on TCGplayer — part ${i + 1} of ${result.urls.length}` : 'Open cart on TCGplayer'}
@@ -220,12 +220,12 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
                       ))}
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-[12px] font-bold uppercase tracking-wide text-text-muted">
+                      <span className="text-[14px] font-bold uppercase tracking-wide text-text-muted">
                         Mass Entry list (fallback)
                       </span>
                       <button
                         onClick={copyText}
-                        className="flex items-center gap-[6px] text-[12px] font-semibold text-link hover:text-link-hover"
+                        className="flex items-center gap-[6px] text-[14px] font-semibold text-link hover:text-link-hover"
                       >
                         <Icon name={copied ? 'check' : 'copy'} size={14} /> {copied ? 'Copied' : 'Copy list'}
                       </button>

@@ -14,7 +14,7 @@ function EnergyGrid({ size }: { size: number }) {
           className="flex flex-col items-center gap-[4px] rounded-lg bg-surface-tertiary p-[8px] min-w-[60px]"
         >
           <EnergyIcon type={type} size={size} />
-          <span className="text-[9px] text-text-muted capitalize">{type}</span>
+          <span className="text-[14px] text-text-muted capitalize">{type}</span>
         </div>
       ))}
     </div>

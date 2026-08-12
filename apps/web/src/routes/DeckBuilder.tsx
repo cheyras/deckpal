@@ -40,24 +40,24 @@ function FormatSelector({ deck, glcTypes, onFormat, onGlcType }: {
 }) {
   return (
     <div className="flex flex-col gap-[10px]">
-      <div className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Format</div>
+      <div className="text-[14px] font-bold uppercase tracking-wide text-text-muted">Format</div>
       <div className="grid grid-cols-2 gap-[6px]">
         {FORMATS.map((f) => {
           const active = deck.formatCode === f
           return (
             <button key={f} onClick={() => onFormat(f)}
-              className={`rounded-lg px-[10px] py-[8px] text-[13px] font-bold ${active ? 'bg-action-primary-strong text-action-primary-strong-text' : 'bg-surface-tertiary text-text-secondary hover:bg-action-default-hover'}`}>
+              className={`rounded-lg px-[10px] py-[8px] text-[14px] font-bold ${active ? 'bg-action-primary-strong text-action-primary-strong-text' : 'bg-surface-tertiary text-text-secondary hover:bg-action-default-hover'}`}>
               {FORMAT_META[f].short}
             </button>
           )
         })}
       </div>
       {deck.formatCode === 'glc' && (
-        <label className="flex items-center justify-between gap-[8px] text-[12px] text-text-secondary">
+        <label className="flex items-center justify-between gap-[8px] text-[14px] text-text-secondary">
           <span className="font-semibold">Deck type</span>
           <EnergyIcon type={deck.glcType ?? glcTypes[0]} size={20} className="shrink-0" />
           <select value={deck.glcType ?? glcTypes[0]} onChange={(e) => onGlcType(e.target.value)}
-            className="h-[34px] flex-1 rounded-lg border border-border-default bg-surface-primary px-[10px] text-[13px] text-text-primary">
+            className="h-[34px] flex-1 rounded-lg border border-border-default bg-surface-primary px-[10px] text-[14px] text-text-primary">
             {glcTypes.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </label>
@@ -77,7 +77,7 @@ function ViolationThumbs({ ids, refs }: { ids: number[] | undefined; refs: Recor
         if (!r) return null
         return <img key={id} src={r.image} alt={r.name} title={`${r.name} (${r.setId.toUpperCase()} ${r.number})`} className="h-[46px] w-[33px] rounded object-cover ring-1 ring-border-default" />
       })}
-      {ids.length > shown.length && <span className="self-center text-[11px] text-text-muted">+{ids.length - shown.length}</span>}
+      {ids.length > shown.length && <span className="self-center text-[14px] text-text-muted">+{ids.length - shown.length}</span>}
     </div>
   )
 }
@@ -90,19 +90,19 @@ function LegalityPanel({ detail, onDisclose }: { detail: DeckDetail; onDisclose:
     <div className="rounded-xl border border-border-default bg-surface-secondary p-[16px]">
       <div className="flex items-center justify-between">
         <LegalBadge legal={v.legal} big onClick={v.legal ? undefined : onDisclose} />
-        <span className="text-[12px] text-text-muted">{v.counts.total}/60</span>
+        <span className="text-[14px] text-text-muted">{v.counts.total}/60</span>
       </div>
       {v.legal ? (
-        <p className="mt-[10px] text-[13px] text-text-secondary">
+        <p className="mt-[10px] text-[14px] text-text-secondary">
           This deck is legal for {FORMAT_META[detail.deck.formatCode].label}. All construction rules pass.
         </p>
       ) : (
         <div className="mt-[12px] flex flex-col gap-[10px]">
-          <p className="text-[12px] text-text-muted">{errors.length} rule{errors.length === 1 ? '' : 's'} failing:</p>
+          <p className="text-[14px] text-text-muted">{errors.length} rule{errors.length === 1 ? '' : 's'} failing:</p>
           {errors.map((x, i) => (
             <div key={i} className="rounded-lg bg-surface-tertiary/60 p-[10px]" style={{ borderLeft: '3px solid var(--color-warning)' }}>
-              <div className="text-[13px] font-bold text-text-primary">{x.message}</div>
-              <div className="mt-[2px] text-[11px] text-text-muted">{x.rule}</div>
+              <div className="text-[14px] font-bold text-text-primary">{x.message}</div>
+              <div className="mt-[2px] text-[14px] text-text-muted">{x.rule}</div>
               <ViolationThumbs ids={x.card_ids} refs={cardRefs} />
             </div>
           ))}
@@ -111,17 +111,17 @@ function LegalityPanel({ detail, onDisclose }: { detail: DeckDetail; onDisclose:
       {warnings.length > 0 && (
         <div className="mt-[12px] flex flex-col gap-[6px] border-t border-divider-subtle pt-[10px]">
           {warnings.map((w, i) => (
-            <div key={i} className="flex items-start gap-[6px] text-[11px] text-text-muted">
+            <div key={i} className="flex items-start gap-[6px] text-[14px] text-text-muted">
               <Icon name="alert" size={13} className="mt-[1px] shrink-0" />
               <span>{w.message}</span>
             </div>
           ))}
         </div>
       )}
-      <div className="mt-[12px] flex items-center justify-between border-t border-divider-subtle pt-[10px] text-[11px] text-text-muted">
+      <div className="mt-[12px] flex items-center justify-between border-t border-divider-subtle pt-[10px] text-[14px] text-text-muted">
         <span>Pokémon {v.counts.pokemon} · Trainer {v.counts.trainer} · Energy {v.counts.energy}</span>
       </div>
-      <div className="mt-[4px] text-[10px] text-text-muted">Legality data verified {v.format_data_checked_at}.</div>
+      <div className="mt-[4px] text-[14px] text-text-muted">Legality data verified {v.format_data_checked_at}.</div>
     </div>
   )
 }
@@ -148,19 +148,19 @@ function DeckCardContext({ card, offending, onSet }: {
           style={{ aspectRatio: '245 / 337' }}
         />
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-text-muted">In this deck</div>
+          <div className="text-[14px] font-bold uppercase tracking-wide text-text-muted">In this deck</div>
           <div className="mt-[3px] flex items-center gap-[6px]">
             {basicEnergyType(card) && <EnergyIcon type={basicEnergyType(card)!} size={16} className="shrink-0" />}
             <span className="truncate text-[17px] font-bold text-text-primary">{card.name}</span>
           </div>
-          <div className="mt-[2px] text-[12px] text-text-muted">
+          <div className="mt-[2px] text-[14px] text-text-muted">
             {card.setName} · {card.setId.toUpperCase()} {card.number}
             {card.regulationMark && <span className="ml-[6px] rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
           </div>
 
           {/* copies stepper — same mutation the row uses, so the sheet is not read-only */}
           <div className="mt-[10px] flex items-center gap-[8px]">
-            <span className="text-[12px] text-text-muted">Copies</span>
+            <span className="text-[14px] text-text-muted">Copies</span>
             <button onClick={() => onSet(card.quantity - 1)} aria-label="Decrease copies" className="flex h-[28px] w-[28px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
               <Icon name="minus" size={13} />
             </button>
@@ -173,7 +173,7 @@ function DeckCardContext({ card, offending, onSet }: {
       </div>
 
       {offending && (
-        <div className="mt-[12px] flex items-start gap-[8px] rounded-lg bg-warning/10 px-[10px] py-[8px] text-[12px] text-warning">
+        <div className="mt-[12px] flex items-start gap-[8px] rounded-lg bg-warning/10 px-[10px] py-[8px] text-[14px] text-warning">
           <span className="mt-[1px] shrink-0"><Icon name="alert" size={14} /></span>
           <span>This card breaks a rule for the deck's current format — see the legality panel.</span>
         </div>
@@ -181,22 +181,22 @@ function DeckCardContext({ card, offending, onSet }: {
 
       <div className="mt-[12px] grid grid-cols-3 gap-[8px]">
         <div className="rounded-lg bg-surface-primary px-[10px] py-[8px]">
-          <div className="text-[11px] text-text-muted">You own</div>
+          <div className="text-[14px] text-text-muted">You own</div>
           <div className={`text-[15px] font-bold ${short === 0 ? 'text-change-positive' : 'text-text-primary'}`}>
             {card.owned} / {card.quantity}
           </div>
         </div>
         <div className="rounded-lg bg-surface-primary px-[10px] py-[8px]">
-          <div className="text-[11px] text-text-muted">Still needed</div>
+          <div className="text-[14px] text-text-muted">Still needed</div>
           <div className={`text-[15px] font-bold ${short > 0 ? 'text-text-primary' : 'text-change-positive'}`}>
             {short === 0 ? 'None' : short}
           </div>
         </div>
         <div className="rounded-lg bg-surface-primary px-[10px] py-[8px]">
-          <div className="text-[11px] text-text-muted">Deck cost</div>
+          <div className="text-[14px] text-text-muted">Deck cost</div>
           <div className="text-[15px] font-bold text-change-positive">{fmtUsd(lineTotal)}</div>
           {unit != null && card.quantity > 1 && (
-            <div className="text-[10px] text-text-muted">{fmtPrice(card.price)} each</div>
+            <div className="text-[14px] text-text-muted">{fmtPrice(card.price)} each</div>
           )}
         </div>
       </div>
@@ -223,7 +223,7 @@ function DeckRow({ card, offending, onSet, onRemove, onOpen }: {
             <span className="truncate text-[14px] font-semibold text-text-primary">{card.name}</span>
             {offending && <span className="shrink-0 text-warning"><Icon name="alert" size={13} /></span>}
           </div>
-          <div className="flex items-center gap-[8px] text-[11px] text-text-muted">
+          <div className="flex items-center gap-[8px] text-[14px] text-text-muted">
             <span>{card.setId.toUpperCase()} {card.number}</span>
             {card.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
             <span className={card.have ? 'text-change-positive' : 'text-text-muted'}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>
@@ -284,7 +284,7 @@ function DeckAddModal({ format, onClose, onAdd, addingId }: {
             <input autoFocus value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Search cards by name or number…"
               className="h-[46px] w-full rounded-lg border border-border-default bg-surface-primary pl-[44px] pr-[12px] text-[15px] text-text-primary placeholder:text-text-muted" />
           </label>
-          <label className="flex items-center gap-[8px] text-[13px] font-semibold text-text-secondary">
+          <label className="flex items-center gap-[8px] text-[14px] font-semibold text-text-secondary">
             <div className="flex items-center gap-[6px]">
               <button type="button" onClick={() => setQty((q) => Math.max(1, q - 1))} className="flex h-[30px] w-[30px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary"><Icon name="minus" size={14} /></button>
               <span className="w-[20px] text-center text-[15px] font-bold text-text-primary">{qty}</span>
@@ -294,7 +294,7 @@ function DeckAddModal({ format, onClose, onAdd, addingId }: {
           </label>
         </div>
         {pool !== null && (
-          <label className="flex items-center gap-[8px] text-[12px] text-text-secondary">
+          <label className="flex items-center gap-[8px] text-[14px] text-text-secondary">
             <input type="checkbox" checked={legalOnly} onChange={(e) => setLegalOnly(e.target.checked)} />
             Only cards with a {FORMAT_META[format].short}-legal regulation mark ({pool.join(', ')})
           </label>
@@ -310,15 +310,15 @@ function DeckAddModal({ format, onClose, onAdd, addingId }: {
                 className="group flex flex-col rounded-lg border border-transparent p-[6px] text-left hover:border-border-default hover:bg-surface-tertiary disabled:opacity-50">
                 <div className="relative overflow-hidden rounded-md">
                   <img src={c.images.low} alt={c.name} loading="lazy" className="aspect-[245/337] w-full object-cover" />
-                  <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[13px] font-bold text-white opacity-0 group-hover:opacity-100">
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[14px] font-bold text-white opacity-0 group-hover:opacity-100">
                     {addingId === c.cardId ? 'Adding…' : `+ Add ${qty}`}
                   </span>
-                  {c.regulationMark && <span className="absolute left-[4px] top-[4px] rounded bg-surface-primary/80 px-[4px] text-[10px] font-bold text-text-secondary">{c.regulationMark}</span>}
+                  {c.regulationMark && <span className="absolute left-[4px] top-[4px] rounded bg-surface-primary/80 px-[4px] text-[14px] font-bold text-text-secondary">{c.regulationMark}</span>}
                 </div>
-                <span className="mt-[4px] truncate text-[12px] font-medium text-text-primary">{c.name}</span>
+                <span className="mt-[4px] truncate text-[14px] font-medium text-text-primary">{c.name}</span>
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-text-muted">{c.set.setId.toUpperCase()} {c.number}</span>
-                  <span className="text-[11px] text-change-positive">{fmtPrice(c.price)}</span>
+                  <span className="text-[14px] text-text-muted">{c.set.setId.toUpperCase()} {c.number}</span>
+                  <span className="text-[14px] text-change-positive">{fmtPrice(c.price)}</span>
                 </div>
               </button>
             ))}
@@ -343,7 +343,7 @@ function TestHandModal({ deckId, onClose }: { deckId: string; onClose: () => voi
         {!data && <div className="py-[40px] text-center text-[14px] text-text-muted">Shuffling…</div>}
         {data && (
           <>
-            <div className="flex flex-wrap items-center gap-x-[20px] gap-y-[6px] text-[13px]">
+            <div className="flex flex-wrap items-center gap-x-[20px] gap-y-[6px] text-[14px]">
               <span className={data.mulligans > 0 ? 'font-bold text-warning' : 'font-bold text-change-positive'}>
                 {data.mulligans === 0 ? 'Keepable hand' : `${data.mulligans} mulligan${data.mulligans === 1 ? '' : 's'}`}
               </span>
@@ -351,18 +351,18 @@ function TestHandModal({ deckId, onClose }: { deckId: string; onClose: () => voi
               <span className="text-text-muted">Basics in deck <span className="font-bold text-text-primary">{data.basicPokemonCount}</span></span>
               <span className="text-text-muted">P(mulligan) <span className="font-bold text-text-primary">{data.mulliganChancePct}%</span></span>
             </div>
-            <p className="text-[12px] text-text-muted">{data.note}</p>
+            <p className="text-[14px] text-text-muted">{data.note}</p>
             <div className="grid grid-cols-4 gap-[10px] sm:grid-cols-7">
               {data.hand.map((c, i) => (
                 <div key={i} className="flex flex-col items-center gap-[4px]">
                   <div className={`relative overflow-hidden rounded-md ${c.isBasicPokemon ? 'ring-2 ring-change-positive' : ''}`}>
                     {c.image ? <img src={c.image} alt={c.name} className="aspect-[245/337] w-full object-cover" /> : <div className="aspect-[245/337] w-full bg-surface-tertiary" />}
                   </div>
-                  <span className="line-clamp-2 text-center text-[10px] leading-[13px] text-text-secondary">{c.name}</span>
+                  <span className="line-clamp-2 text-center text-[14px] leading-[13px] text-text-secondary">{c.name}</span>
                 </div>
               ))}
             </div>
-            <div className="text-[11px] text-text-muted">Green ring = Basic Pokémon (a keepable hand needs at least one). Seed <span className="font-mono">{data.seed}</span>.</div>
+            <div className="text-[14px] text-text-muted">Green ring = Basic Pokémon (a keepable hand needs at least one). Seed <span className="font-mono">{data.seed}</span>.</div>
           </>
         )}
         <div className="flex justify-end gap-[10px]">
@@ -387,11 +387,11 @@ function ExportModal({ deckId, onClose }: { deckId: string; onClose: () => void 
   return (
     <Modal title="Export to PTCG Live" onClose={onClose} wide>
       <div className="flex flex-col gap-[12px]">
-        <p className="text-[13px] text-text-muted">Copy this list and paste it into Pokémon TCG Live’s deck importer.</p>
+        <p className="text-[14px] text-text-muted">Copy this list and paste it into Pokémon TCG Live’s deck importer.</p>
         <textarea readOnly value={data?.text ?? (error ? '' : 'Loading…')} rows={16}
-          className="rounded-lg border border-border-default bg-surface-primary px-[14px] py-[10px] font-mono text-[13px] leading-[19px] text-text-primary" />
+          className="rounded-lg border border-border-default bg-surface-primary px-[14px] py-[10px] font-mono text-[14px] leading-[19px] text-text-primary" />
         {error && (
-          <div className="flex items-center justify-between gap-[10px] text-[12px] text-warning">
+          <div className="flex items-center justify-between gap-[10px] text-[14px] text-warning">
             <span>Couldn’t export this deck.</span>
             <button onClick={() => void refetch()} className="rounded-full bg-surface-tertiary px-[12px] py-[6px] font-bold text-text-primary hover:bg-action-default-hover">Retry</button>
           </div>
@@ -399,7 +399,7 @@ function ExportModal({ deckId, onClose }: { deckId: string; onClose: () => void 
         {data && data.warnings.length > 0 && (
           <div className="flex flex-col gap-[6px] rounded-lg border border-warning/40 bg-warning/10 p-[10px]">
             {data.warnings.map((w, i) => (
-              <div key={i} className="flex gap-[8px] text-[12px] leading-[17px] text-text-primary">
+              <div key={i} className="flex gap-[8px] text-[14px] leading-[17px] text-text-primary">
                 <Icon name="alert" size={14} className="mt-[1px] shrink-0 text-warning" />
                 <span>{w.message}</span>
               </div>
@@ -437,7 +437,7 @@ function BuyMissingModal({ deckId, onClose }: { deckId: string; onClose: () => v
         {!data && <div className="py-[30px] text-center text-[14px] text-text-muted">Pricing…</div>}
         {data && (
           <>
-            <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[6px] text-[13px]">
+            <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[6px] text-[14px]">
               <span className="text-text-muted">Deck value <span className="font-bold text-change-positive">{fmtUsd(data.totalUsd)}</span></span>
               <span className="text-text-muted">You own <span className="font-bold text-change-positive">{fmtUsd(data.ownedValueUsd)}</span></span>
               <span className="text-text-muted">Missing <span className="font-bold text-warning">{fmtUsd(data.missingValueUsd)}</span> ({data.missing.length} card{data.missing.length === 1 ? '' : 's'})</span>
@@ -450,7 +450,7 @@ function BuyMissingModal({ deckId, onClose }: { deckId: string; onClose: () => v
                 {me && me.urls.length > 0 && (
                   <div className="flex flex-col gap-[8px]">
                     {me.urls.length > 1 && (
-                      <p className="text-[12px] text-text-muted">The list is split into {me.urls.length} links — open each one; they all add to the same cart.</p>
+                      <p className="text-[14px] text-text-muted">The list is split into {me.urls.length} links — open each one; they all add to the same cart.</p>
                     )}
                     {me.urls.map((u, i) => (
                       <a key={u} href={u} target="_blank" rel="noreferrer"
@@ -459,7 +459,7 @@ function BuyMissingModal({ deckId, onClose }: { deckId: string; onClose: () => v
                         {me.urls.length > 1 ? `Open TCGplayer cart — link ${i + 1} of ${me.urls.length}` : 'Fill TCGplayer cart'}
                       </a>
                     ))}
-                    <p className="rounded-lg bg-surface-tertiary px-[12px] py-[10px] text-[12px] leading-[17px] text-text-secondary">
+                    <p className="rounded-lg bg-surface-tertiary px-[12px] py-[10px] text-[14px] leading-[17px] text-text-secondary">
                       Tip: once the cart fills, open TCGplayer’s <span className="font-semibold text-text-primary">Cart Optimizer</span> (inside
                       the cart) — its consolidation mode finds the fewest sellers, or a single seller with everything, so it all ships in one package.
                     </p>
@@ -471,8 +471,8 @@ function BuyMissingModal({ deckId, onClose }: { deckId: string; onClose: () => v
                     <div key={m.cardId} className="flex items-center gap-[10px] rounded-lg bg-surface-tertiary/50 p-[6px] pr-[10px]">
                       <img src={m.image} alt={m.name} className="h-[44px] w-[31px] rounded object-cover" />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-semibold text-text-primary">{m.missingQty}× {m.name}</div>
-                        <div className="text-[11px] text-text-muted">{m.setId.toUpperCase()} {m.number} · {fmtUsd(m.lineTotal)}</div>
+                        <div className="truncate text-[14px] font-semibold text-text-primary">{m.missingQty}× {m.name}</div>
+                        <div className="text-[14px] text-text-muted">{m.setId.toUpperCase()} {m.number} · {fmtUsd(m.lineTotal)}</div>
                       </div>
                       {m.buyUrl && (
                         <a href={m.buyUrl} target="_blank" rel="noreferrer" className="flex h-[32px] items-center gap-[6px] rounded-full bg-surface-tertiary px-[12px] text-[12px] font-bold text-text-primary hover:bg-action-default-hover">
@@ -664,7 +664,7 @@ export function DeckBuilder() {
             <div className="flex flex-wrap items-start justify-between gap-[12px]">
               <div className="min-w-0">
                 <div className="mb-[6px] flex items-center gap-[8px]">
-                  <span className="inline-flex items-center gap-[5px] rounded-full bg-surface-tertiary px-[10px] py-[3px] text-[11px] font-bold text-text-secondary">
+                  <span className="inline-flex items-center gap-[5px] rounded-full bg-surface-tertiary px-[10px] py-[3px] text-[14px] font-bold text-text-secondary">
                     {FORMAT_META[deck.formatCode].short}
                     {deck.formatCode === 'glc' && deck.glcType && (
                       <>
@@ -708,7 +708,7 @@ export function DeckBuilder() {
             <>
             {/* controls */}
             <div className="mt-[16px] flex flex-wrap items-center gap-[10px]">
-              <button onClick={() => setShowAdd(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+              <button onClick={() => setShowAdd(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
                 <Icon name="plus" size={16} /> Add Cards
               </button>
               <label className="relative flex h-[42px] flex-1 items-center" style={{ minWidth: 180, maxWidth: 320 }}>
@@ -717,7 +717,7 @@ export function DeckBuilder() {
                   className="h-[42px] w-full rounded-lg border border-border-default bg-surface-primary pl-[38px] pr-[12px] text-[14px] text-text-primary placeholder:text-text-muted" />
               </label>
               <select value={search.sort} onChange={(e) => patchSearch({ sort: e.target.value as DeckSearch['sort'] })}
-                className="h-[42px] rounded-lg border border-border-default bg-surface-primary px-[10px] text-[13px] text-text-primary">
+                className="h-[42px] rounded-lg border border-border-default bg-surface-primary px-[10px] text-[14px] text-text-primary">
                 <option value="section">Sort: Section</option>
                 <option value="name">Sort: Name</option>
                 <option value="quantity">Sort: Quantity</option>
@@ -725,7 +725,7 @@ export function DeckBuilder() {
               </select>
               <button onClick={() => patchSearch({ missing: !search.missing })} aria-pressed={search.missing}
                 title="Show only cards you still need copies of"
-                className={`h-[42px] rounded-lg border px-[14px] text-[13px] font-semibold ${search.missing ? 'border-action-primary bg-action-primary text-action-primary-text' : 'border-border-default bg-surface-primary text-text-secondary hover:bg-surface-tertiary'}`}>
+                className={`h-[42px] rounded-lg border px-[14px] text-[14px] font-semibold ${search.missing ? 'border-action-primary bg-action-primary text-action-primary-text' : 'border-border-default bg-surface-primary text-text-secondary hover:bg-surface-tertiary'}`}>
                 Missing
               </button>
             </div>
@@ -736,7 +736,7 @@ export function DeckBuilder() {
                 <div className="flex flex-col items-center gap-[10px] rounded-xl border border-dashed border-border-default py-[60px] text-center">
                   <Icon name="deck" size={40} className="text-icon-muted" />
                   <div className="text-[16px] font-bold text-text-primary">This deck is empty</div>
-                  <button onClick={() => setShowAdd(true)} className="mt-[4px] flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+                  <button onClick={() => setShowAdd(true)} className="mt-[4px] flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
                     <Icon name="plus" size={16} /> Add Cards
                   </button>
                 </div>
@@ -748,13 +748,13 @@ export function DeckBuilder() {
                     <>
                       <Icon name="check" size={32} className="text-change-positive" />
                       <div className="text-[15px] font-bold text-text-primary">You own every card in this deck</div>
-                      <div className="text-[13px] text-text-muted">Nothing is missing — turn off the Missing filter to see the full list.</div>
+                      <div className="text-[14px] text-text-muted">Nothing is missing — turn off the Missing filter to see the full list.</div>
                     </>
                   ) : (
                     <>
                       <Icon name="search" size={32} className="text-icon-muted" />
                       <div className="text-[15px] font-bold text-text-primary">No cards match</div>
-                      <div className="text-[13px] text-text-muted">
+                      <div className="text-[14px] text-text-muted">
                         {search.missing ? 'No missing cards match the current filter.' : 'Nothing in this deck matches the filter.'}
                       </div>
                     </>
@@ -767,7 +767,7 @@ export function DeckBuilder() {
                   const count = rows.reduce((n, c) => n + c.quantity, 0)
                   return (
                     <div key={sec}>
-                      <div className="mb-[8px] flex items-center gap-[8px] text-[13px] font-bold text-text-secondary">
+                      <div className="mb-[8px] flex items-center gap-[8px] text-[14px] font-bold text-text-secondary">
                         <span className="uppercase tracking-wide">{SECTION_TITLE[sec]}</span>
                         <span className="text-text-muted">({count})</span>
                       </div>
@@ -801,22 +801,22 @@ export function DeckBuilder() {
             <LegalityPanel detail={detail} onDisclose={() => { /* already expanded */ }} />
 
             <div className="rounded-xl border border-border-default bg-surface-secondary p-[16px]">
-              <div className="flex items-center justify-between text-[13px]">
+              <div className="flex items-center justify-between text-[14px]">
                 <span className="text-text-muted">Total</span>
                 <span className={`font-bold ${detail.counts.total === 60 ? 'text-text-primary' : 'text-warning'}`}>{detail.counts.total}/60</span>
               </div>
-              <div className="mt-[6px] flex items-center justify-between text-[13px]">
+              <div className="mt-[6px] flex items-center justify-between text-[14px]">
                 <span className="text-text-muted">Deck value</span>
                 <span className="font-bold text-change-positive">{fmtUsd(deck.valueUsd)}</span>
               </div>
               <div className="mt-[14px] flex flex-col gap-[8px]">
-                <button onClick={() => setShowTest(true)} className="flex h-[42px] items-center justify-center gap-[8px] rounded-full bg-surface-tertiary text-[13px] font-bold text-text-primary hover:bg-action-default-hover">
+                <button onClick={() => setShowTest(true)} className="flex h-[42px] items-center justify-center gap-[8px] rounded-full bg-surface-tertiary text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
                   <Icon name="shuffle" size={16} /> Test Hand
                 </button>
-                <button onClick={() => setShowBuy(true)} className="flex h-[42px] items-center justify-center gap-[8px] rounded-full bg-surface-tertiary text-[13px] font-bold text-text-primary hover:bg-action-default-hover">
+                <button onClick={() => setShowBuy(true)} className="flex h-[42px] items-center justify-center gap-[8px] rounded-full bg-surface-tertiary text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
                   <Icon name="cart" size={16} /> Buy Missing Cards
                 </button>
-                <button onClick={() => setShowExport(true)} className="flex h-[42px] items-center justify-center gap-[8px] rounded-full bg-surface-tertiary text-[13px] font-bold text-text-primary hover:bg-action-default-hover">
+                <button onClick={() => setShowExport(true)} className="flex h-[42px] items-center justify-center gap-[8px] rounded-full bg-surface-tertiary text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
                   <Icon name="download" size={16} /> Export to PTCG Live
                 </button>
                 <a href={api.deckPdfUrl(id)} target="_blank" rel="noreferrer" className="flex h-[42px] items-center justify-center gap-[8px] rounded-full bg-surface-tertiary text-[13px] font-bold text-text-primary hover:bg-action-default-hover">

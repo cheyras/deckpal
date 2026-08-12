@@ -26,7 +26,7 @@ export const modalGallery = {
     title: 'Edit list',
     onClose: () => {},
     children: (
-      <div className="p-[16px] text-[13px] text-text-body">
+      <div className="p-[16px] text-[14px] text-text-body">
         Modal content goes here.
       </div>
     ),
@@ -39,7 +39,7 @@ export const modalGallery = {
         title: 'Create a new list',
         onClose: () => {},
         children: (
-          <div className="p-[16px] text-[13px] text-text-body">
+          <div className="p-[16px] text-[14px] text-text-body">
             Form fields would go here.
           </div>
         ),
@@ -52,7 +52,7 @@ export const modalGallery = {
         onClose: () => {},
         wide: true,
         children: (
-          <div className="p-[16px] text-[13px] text-text-body">
+          <div className="p-[16px] text-[14px] text-text-body">
             Wide modal for search/card-add flows.
           </div>
         ),

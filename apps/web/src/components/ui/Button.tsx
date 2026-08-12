@@ -34,7 +34,7 @@ const VARIANT: Record<ButtonVariant, string> = {
 
 // Size defines height, text size and inter-child gap.
 const SIZE: Record<ButtonSize, string> = {
-  sm: 'h-[36px] text-[13px] gap-[6px]',
+  sm: 'h-[36px] text-[14px] gap-[6px]',
   md: 'h-[44px] text-[14px] gap-[8px]',
   lg: 'h-[48px] text-[15px] gap-[8px]',
 }

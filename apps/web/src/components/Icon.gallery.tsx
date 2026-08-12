@@ -24,7 +24,7 @@ function IconGrid({ size, strokeWidth }: { size: number; strokeWidth: number }) 
           title={name}
         >
           <Icon name={name} size={size} strokeWidth={strokeWidth} />
-          <span className="text-[9px] text-text-muted">{name}</span>
+          <span className="text-[14px] text-text-muted">{name}</span>
         </div>
       ))}
     </div>

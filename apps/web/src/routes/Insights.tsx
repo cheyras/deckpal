@@ -72,11 +72,11 @@ export function Insights() {
                 <AvatarDisc url={avatar.data?.avatarUrl} iconSize={40} />
               </LevelRing>
               <div className="min-w-0">
-                <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Trainer Level</div>
+                <div className="text-[14px] font-bold uppercase tracking-wide text-text-muted">Trainer Level</div>
                 <div className="text-[32px] font-extrabold leading-[40px] text-text-primary">
                   LVL {ov.trainer.level}
                 </div>
-                <div className="mt-[2px] text-[13px] text-text-body">
+                <div className="mt-[2px] text-[14px] text-text-body">
                   <span className="font-bold text-action-primary">{ov.trainer.uniqueCards}</span> unique cards
                   {' · '}
                   <span className="text-text-muted">
@@ -112,7 +112,7 @@ export function Insights() {
                     </div>
                   ))}
               </div>
-              <div className="mt-[6px] text-[12px] text-text-muted">
+              <div className="mt-[6px] text-[14px] text-text-muted">
                 {ov.collectionValue[0]?.pricedVariants ?? 0} priced variants · {ov.collectionValue[0]?.quantity ?? 0}{' '}
                 cards · Pokédex {ov.pokedex.captured}/{ov.pokedex.total}
               </div>
@@ -123,7 +123,7 @@ export function Insights() {
           <div className="mt-[24px] rounded-2xl bg-surface-secondary p-[20px]">
             <div className="flex flex-wrap items-center justify-between gap-[12px]">
               <div>
-                <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">
+                <div className="text-[14px] font-bold uppercase tracking-wide text-text-muted">
                   Total Estimated Collection Value
                 </div>
                 <div className="text-[28px] font-extrabold leading-[36px] text-text-primary">
@@ -150,7 +150,7 @@ export function Insights() {
                   key={r.key}
                   onClick={() => setRange(r.key)}
                   className={[
-                    'h-[32px] rounded-full px-[14px] text-[13px] font-semibold',
+                    'h-[32px] rounded-full px-[14px] text-[14px] font-semibold',
                     range === r.key
                       ? 'bg-action-primary text-action-primary-text'
                       : 'bg-surface-tertiary text-text-body hover:bg-action-default-hover',
@@ -162,10 +162,10 @@ export function Insights() {
               {PRO_RANGES.map((r) => (
                 <span
                   key={r}
-                  className="flex h-[32px] cursor-not-allowed items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] text-[13px] font-semibold text-icon-disabled"
+                  className="flex h-[32px] cursor-not-allowed items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] text-[14px] font-semibold text-icon-disabled"
                 >
                   {r}
-                  <span className="rounded bg-pro-pink px-[5px] py-[1px] text-[9px] font-extrabold text-pro-pink-text">
+                  <span className="rounded bg-pro-pink px-[5px] py-[1px] text-[14px] font-extrabold text-pro-pink-text">
                     PRO
                   </span>
                 </span>
@@ -173,7 +173,7 @@ export function Insights() {
             </div>
 
             {/* legend */}
-            <div className="mt-[14px] flex items-center gap-[6px] text-[12px] text-text-muted">
+            <div className="mt-[14px] flex items-center gap-[6px] text-[14px] text-text-muted">
               <span className="inline-block h-[10px] w-[10px] rounded-sm bg-action-primary" /> Your Collection
             </div>
 
@@ -190,13 +190,13 @@ export function Insights() {
                       — we don't invent data, we just stop hiding what's actually shown. */}
                   {(() => {
                     const caption = rangeCoverageCaption(val.series.points, val.series.range)
-                    return caption ? <div className="mt-[8px] text-[12px] text-text-muted">{caption}</div> : null
+                    return caption ? <div className="mt-[8px] text-[14px] text-text-muted">{caption}</div> : null
                   })()}
                 </div>
               ) : val && val.series.points.length === 1 ? (
                 <div>
                   <ValueChart points={val.series.points} currency={val.currency} height={160} />
-                  <div className="mt-[8px] rounded-lg border border-border-default bg-surface-tertiary-subtle px-[14px] py-[10px] text-[13px] text-text-body">
+                  <div className="mt-[8px] rounded-lg border border-border-default bg-surface-tertiary-subtle px-[14px] py-[10px] text-[14px] text-text-body">
                     Only one daily snapshot exists so far (started {val.series.points[0]!.date}). A value trend appears
                     once a second day is recorded — we don't draw a line we don't have.
                   </div>
@@ -257,7 +257,7 @@ export function Insights() {
       )}
 
       <div className="mt-[24px]">
-        <Link to="/pokedex" className="text-[13px] font-semibold text-link hover:text-link-hover">
+        <Link to="/pokedex" className="text-[14px] font-semibold text-link hover:text-link-hover">
           View Pokédex →
         </Link>
       </div>

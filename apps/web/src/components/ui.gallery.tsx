@@ -18,7 +18,7 @@ const contentGallery = {
       label: 'default (1165)',
       props: {
         children: (
-          <div className="rounded-lg border border-border-default bg-surface-tertiary p-[16px] text-[12px] text-text-muted">
+          <div className="rounded-lg border border-border-default bg-surface-tertiary p-[16px] text-[14px] text-text-muted">
             Content area at default 1165px cap
           </div>
         ),
@@ -29,7 +29,7 @@ const contentGallery = {
       label: 'narrow (800)',
       props: {
         children: (
-          <div className="rounded-lg border border-border-default bg-surface-tertiary p-[16px] text-[12px] text-text-muted">
+          <div className="rounded-lg border border-border-default bg-surface-tertiary p-[16px] text-[14px] text-text-muted">
             Content area at 800px cap
           </div>
         ),

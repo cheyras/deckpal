@@ -45,7 +45,7 @@ function InstallButton() {
         await deferred.userChoice
         setDeferred(null)
       }}
-      className="pointer-events-auto flex h-[40px] items-center gap-[8px] rounded-full bg-surface-tertiary pl-[14px] pr-[16px] text-[13px] font-semibold text-text-primary shadow-lg ring-1 ring-border-default hover:bg-action-default-hover"
+      className="pointer-events-auto flex h-[40px] items-center gap-[8px] rounded-full bg-surface-tertiary pl-[14px] pr-[16px] text-[14px] font-semibold text-text-primary shadow-lg ring-1 ring-border-default hover:bg-action-default-hover"
       aria-label="Install DeckScout"
     >
       <Icon name="download" size={16} className="text-action-primary" />
@@ -65,7 +65,7 @@ function UpdateToast() {
       <span className="text-[14px] font-bold text-text-primary">Update available</span>
       <button
         onClick={applyUpdate}
-        className="rounded-md bg-action-primary px-[12px] py-[6px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover"
+        className="rounded-md bg-action-primary px-[12px] py-[6px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover"
       >
         Reload
       </button>
@@ -97,7 +97,7 @@ function OfflineBanner() {
       <span className="mt-[1px] text-action-primary">
         <Icon name="alert" size={18} />
       </span>
-      <div className="text-[12px] leading-[17px] text-text-body">
+      <div className="text-[14px] leading-[17px] text-text-body">
         <span className="font-bold text-text-primary">Offline.</span>{' '}
         Browsing cached data — sets, your collection, and art you&apos;ve already viewed.
         Unvisited card art shows placeholders, and collection edits are paused until

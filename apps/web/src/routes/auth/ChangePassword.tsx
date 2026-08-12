@@ -71,7 +71,7 @@ export function ChangePassword() {
 
   return (
     <section id="account" className="scroll-mt-[90px] rounded-2xl bg-surface-secondary p-[20px]">
-      <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Account</div>
+      <div className="text-[14px] font-bold uppercase tracking-wide text-text-muted">Account</div>
       <div className="mt-[10px] flex flex-wrap items-center justify-between gap-[12px]">
         <div className="flex min-w-0 items-center gap-[10px]">
           <span className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-action-primary">
@@ -79,7 +79,7 @@ export function ChangePassword() {
           </span>
           <div className="min-w-0">
             <div className="text-[14px] font-bold text-text-primary">Password</div>
-            <div className="truncate text-[12px] text-text-muted">{email ?? 'Signed in'}</div>
+            <div className="truncate text-[14px] text-text-muted">{email ?? 'Signed in'}</div>
           </div>
         </div>
         <button
@@ -91,7 +91,7 @@ export function ChangePassword() {
           }}
           aria-expanded={open}
           aria-controls="change-password-form"
-          className="rounded-full bg-surface-tertiary px-[14px] py-[8px] text-[13px] font-semibold text-text-primary hover:bg-action-default-hover"
+          className="rounded-full bg-surface-tertiary px-[14px] py-[8px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover"
         >
           {open ? 'Cancel' : 'Change password'}
         </button>

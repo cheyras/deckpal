@@ -73,7 +73,7 @@ function CopyButton({ value, label = 'Copy', className }: { value: string; label
       }}
       className={
         className ??
-        'flex shrink-0 items-center gap-[6px] rounded-full bg-surface-tertiary px-[12px] py-[7px] text-[12px] font-semibold text-text-primary hover:bg-action-default-hover'
+        'flex shrink-0 items-center gap-[6px] rounded-full bg-surface-tertiary px-[12px] py-[7px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover'
       }
       aria-live="polite"
     >
@@ -87,13 +87,13 @@ function CopyButton({ value, label = 'Copy', className }: { value: string; label
 function CodeRow({ value, label }: { value: string; label?: ReactNode }) {
   return (
     <div>
-      {label ? <div className="mb-[6px] text-[12px] font-semibold text-text-secondary">{label}</div> : null}
+      {label ? <div className="mb-[6px] text-[14px] font-semibold text-text-secondary">{label}</div> : null}
       {/* `break-all`, not a horizontal scroller: tokens and CLI commands are one
           unbroken run of characters, and a clipped run with no visible scrollbar
           reads as truncated data at 390px. Wrapping shows the whole value; the
           Copy button is what anyone actually uses. */}
       <div className="flex flex-wrap items-center gap-[8px] rounded-[10px] border border-action-ghost-border bg-surface-tertiary px-[12px] py-[10px]">
-        <code className="min-w-0 flex-1 break-all font-mono text-[12px] leading-[1.55] text-text-primary">
+        <code className="min-w-0 flex-1 break-all font-mono text-[14px] leading-[1.55] text-text-primary">
           {value}
         </code>
         <CopyButton value={value} />
@@ -106,12 +106,12 @@ function CodeRow({ value, label }: { value: string; label?: ReactNode }) {
 function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
   return (
     <div className="flex gap-[10px]">
-      <span className="mt-[1px] flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-[11px] font-bold text-action-primary">
+      <span className="mt-[1px] flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-[14px] font-bold text-action-primary">
         {n}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="mb-[6px] text-[13px] font-bold text-text-primary">{title}</div>
-        <div className="text-[12px] leading-[1.6] text-text-body">{children}</div>
+        <div className="mb-[6px] text-[14px] font-bold text-text-primary">{title}</div>
+        <div className="text-[14px] leading-[1.6] text-text-body">{children}</div>
       </div>
     </div>
   )
@@ -189,7 +189,7 @@ export function AgentAccess() {
 
   return (
     <section id="agent-access" className="scroll-mt-[90px] rounded-2xl bg-surface-secondary p-[20px]">
-      <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Agent access</div>
+      <div className="text-[14px] font-bold uppercase tracking-wide text-text-muted">Agent access</div>
 
       <div className="mt-[10px] flex flex-wrap items-center justify-between gap-[12px]">
         <div className="flex min-w-0 items-center gap-[10px]">
@@ -198,7 +198,7 @@ export function AgentAccess() {
           </span>
           <div className="min-w-0">
             <div className="text-[14px] font-bold text-text-primary">Connect an AI assistant</div>
-            <div className="text-[12px] text-text-muted">
+            <div className="text-[14px] text-text-muted">
               {active.length === 0
                 ? 'Create a token to let Claude read and update your collection.'
                 : `${active.length} active token${active.length === 1 ? '' : 's'}`}
@@ -214,7 +214,7 @@ export function AgentAccess() {
           }}
           aria-expanded={open}
           aria-controls="new-token-form"
-          className="rounded-full bg-surface-tertiary px-[14px] py-[8px] text-[13px] font-semibold text-text-primary hover:bg-action-default-hover"
+          className="rounded-full bg-surface-tertiary px-[14px] py-[8px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover"
         >
           {open ? 'Cancel' : 'New token'}
         </button>
@@ -231,7 +231,7 @@ export function AgentAccess() {
               <div className="text-[14px] font-bold text-text-primary">
                 Copy “{secret.name}” now — you won’t see it again
               </div>
-              <p className="mt-[4px] text-[12px] leading-[1.55] text-text-body">
+              <p className="mt-[4px] text-[14px] leading-[1.55] text-text-body">
                 DeckScout stores only a hash of this token, so it cannot be shown a second time. If you lose it,
                 revoke it and create another.
               </p>
@@ -301,17 +301,17 @@ export function AgentAccess() {
             >
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-[8px]">
-                  <span className={`text-[13px] font-bold ${t.revokedAt ? 'text-text-muted line-through' : 'text-text-primary'}`}>
+                  <span className={`text-[14px] font-bold ${t.revokedAt ? 'text-text-muted line-through' : 'text-text-primary'}`}>
                     {t.name}
                   </span>
-                  <code className="font-mono text-[11px] text-text-muted">{t.prefix}…</code>
+                  <code className="font-mono text-[14px] text-text-muted">{t.prefix}…</code>
                   {t.revokedAt && (
-                    <span className="rounded-full bg-halo-error px-[8px] py-[2px] text-[10px] font-bold uppercase tracking-wide text-error">
+                    <span className="rounded-full bg-halo-error px-[8px] py-[2px] text-[12px] font-bold uppercase tracking-wide text-error">
                       Revoked
                     </span>
                   )}
                 </div>
-                <div className="mt-[2px] text-[11px] text-text-muted">
+                <div className="mt-[2px] text-[14px] text-text-muted">
                   Created {fmtDate(t.createdAt)} · Last used {fmtDate(t.lastUsedAt)}
                 </div>
               </div>
@@ -320,7 +320,7 @@ export function AgentAccess() {
                   type="button"
                   disabled={revoking === t.id}
                   onClick={() => void handleRevoke(t)}
-                  className="shrink-0 rounded-full border border-action-ghost-border px-[12px] py-[6px] text-[12px] font-semibold text-text-muted hover:border-action-danger hover:text-action-danger disabled:opacity-50"
+                  className="shrink-0 rounded-full border border-action-ghost-border px-[12px] py-[6px] text-[14px] font-semibold text-text-muted hover:border-action-danger hover:text-action-danger disabled:opacity-50"
                 >
                   {revoking === t.id ? 'Revoking…' : 'Revoke'}
                 </button>
@@ -336,7 +336,7 @@ export function AgentAccess() {
         onClick={() => setShowHelp((h) => !h)}
         aria-expanded={showHelp}
         aria-controls="agent-access-help"
-        className="mt-[16px] flex items-center gap-[6px] text-[13px] font-semibold text-text-secondary hover:text-link"
+        className="mt-[16px] flex items-center gap-[6px] text-[14px] font-semibold text-text-secondary hover:text-link"
       >
         <Icon name={showHelp ? 'minus' : 'plus'} size={14} />
         How to connect
@@ -360,17 +360,17 @@ export function AgentAccess() {
                 </p>
 
                 <div className="mb-[10px] rounded-[10px] border border-action-ghost-border p-[12px]">
-                  <div className="mb-[6px] text-[12px] font-bold text-text-primary">
+                  <div className="mb-[6px] text-[14px] font-bold text-text-primary">
                     A · If the dialog has a “Request headers” section (preferred)
                   </div>
                   <ol className="ml-[16px] list-decimal leading-[1.7]">
                     <li>
-                      Remote MCP server URL: <code className="font-mono text-[11px] text-text-primary">{mcpUrl()}</code>
+                      Remote MCP server URL: <code className="font-mono text-[14px] text-text-primary">{mcpUrl()}</code>
                     </li>
                     <li>
                       Open <strong className="text-text-body">Request headers</strong>, choose the header name{' '}
-                      <code className="font-mono text-[11px] text-text-primary">authorization</code>, and set the value
-                      to <code className="font-mono text-[11px] text-text-primary">Bearer &lt;your token&gt;</code>{' '}
+                      <code className="font-mono text-[14px] text-text-primary">authorization</code>, and set the value
+                      to <code className="font-mono text-[14px] text-text-primary">Bearer &lt;your token&gt;</code>{' '}
                       (the word <em>Bearer</em>, a space, then the token). Mark it Required.
                     </li>
                     <li>
@@ -389,7 +389,7 @@ export function AgentAccess() {
                   <ol className="ml-[16px] list-decimal leading-[1.7]">
                     <li>
                       Paste your personal connector URL as the Remote MCP server URL. It looks like{' '}
-                      <code className="font-mono text-[11px] text-text-primary">{`${mcpUrl()}/dsk_…`}</code> and is shown
+                      <code className="font-mono text-[14px] text-text-primary">{`${mcpUrl()}/dsk_…`}</code> and is shown
                       once, next to the token, when you create it.
                     </li>
                     <li>Add no headers. Click Add.</li>
@@ -415,17 +415,17 @@ export function AgentAccess() {
                   value={`claude mcp add --transport http deckscout ${mcpUrl()} --header "Authorization: Bearer <token>"`}
                 />
                 <p className="mt-[8px]">
-                  Then <code className="font-mono text-[11px] text-text-primary">claude mcp list</code> should print{' '}
-                  <code className="font-mono text-[11px] text-text-primary">deckscout: {mcpUrl()} (HTTP) - ✔ Connected</code>.
-                  Remove it with <code className="font-mono text-[11px] text-text-primary">claude mcp remove deckscout</code>.
+                  Then <code className="font-mono text-[14px] text-text-primary">claude mcp list</code> should print{' '}
+                  <code className="font-mono text-[14px] text-text-primary">deckscout: {mcpUrl()} (HTTP) - ✔ Connected</code>.
+                  Remove it with <code className="font-mono text-[14px] text-text-primary">claude mcp remove deckscout</code>.
                 </p>
               </Step>
 
               <Step n={5} title="If it doesn’t connect">
                 <ul className="ml-[16px] list-disc leading-[1.7]">
                   <li>
-                    Use <code className="font-mono text-[11px] text-text-primary">{mcpUrl()}</code> exactly — not the{' '}
-                    <code className="font-mono text-[11px]">www.</code> version. That one redirects, and a redirect
+                    Use <code className="font-mono text-[14px] text-text-primary">{mcpUrl()}</code> exactly — not the{' '}
+                    <code className="font-mono text-[14px]">www.</code> version. That one redirects, and a redirect
                     drops the header.
                   </li>
                   <li>
@@ -434,7 +434,7 @@ export function AgentAccess() {
                     partial copy is unrecoverable.
                   </li>
                   <li>
-                    Include the word <code className="font-mono text-[11px] text-text-primary">Bearer</code> and one
+                    Include the word <code className="font-mono text-[14px] text-text-primary">Bearer</code> and one
                     space before the token in option A. claude.ai sends the value exactly as typed.
                   </li>
                 </ul>
@@ -450,10 +450,10 @@ export function AgentAccess() {
             </>
           ) : (
             <p className="text-[12px] leading-[1.6] text-text-body">
-              On a self-hosted deploy the MCP server (<code className="font-mono text-[11px]">rotom-mcp</code>) runs
+              On a self-hosted deploy the MCP server (<code className="font-mono text-[12px]">rotom-mcp</code>) runs
               as its own process behind your reverse proxy — see <span className="font-semibold">DEPLOYMENT.md</span>{' '}
               for the endpoint and how to gate it. Tokens created here work as{' '}
-              <code className="font-mono text-[11px]">Authorization: Bearer</code> credentials against the REST API.
+              <code className="font-mono text-[12px]">Authorization: Bearer</code> credentials against the REST API.
             </p>
           )}
 

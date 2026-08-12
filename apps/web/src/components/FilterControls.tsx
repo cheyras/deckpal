@@ -203,7 +203,7 @@ export function VariantLegend() {
   return (
     <div className="flex flex-wrap items-center gap-x-[16px] gap-y-[6px]">
       {items.map((i) => (
-        <span key={i.label} className="flex items-center gap-[6px] text-[12px] text-text-secondary">
+        <span key={i.label} className="flex items-center gap-[6px] text-[14px] text-text-secondary">
           <span
             className="inline-block h-[14px] w-[14px] rounded-[3px] border-2"
             style={{ borderColor: i.color }}

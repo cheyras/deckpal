@@ -88,7 +88,7 @@ export function AuthPage({ children }: { children: ReactNode }) {
       {/* No "back to home" link here on purpose: the wordmark above is already
           that link, and every terminal state offers its own. A second one only
           wrapped onto two lines at 390px. */}
-      <p className="relative px-[20px] pb-[28px] text-center text-[12px] text-text-muted">
+      <p className="relative px-[20px] pb-[28px] text-center text-[14px] text-text-muted">
         Open-source Pokémon TCG collection tracker
       </p>
     </div>
@@ -155,5 +155,5 @@ export const CTA_PRIMARY = `ls-cta w-full ${buttonClass('primary', 'lg')}`
 export const CTA_GHOST = `ls-cta w-full ${buttonClass('ghost', 'lg')}`
 
 /** Quiet tertiary action under a CTA. */
-export const CTA_QUIET = 'text-[13px] font-semibold text-text-secondary hover:text-link'
+export const CTA_QUIET = 'text-[14px] font-semibold text-text-secondary hover:text-link'
 

@@ -162,7 +162,7 @@ export function CardTile({
           eager={eager}
         />
         {owned === true && qty > 0 && (
-          <span className="absolute bottom-[8px] right-[8px] rounded-md bg-action-primary px-[7px] py-[2px] text-[12px] font-extrabold leading-[16px] text-action-primary-text shadow-panel">
+          <span className="absolute bottom-[8px] right-[8px] rounded-md bg-action-primary px-[7px] py-[2px] text-[14px] font-extrabold leading-[16px] text-action-primary-text shadow-panel">
             ×{qty}
           </span>
         )}
@@ -210,8 +210,8 @@ export function CardTile({
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-[12px] leading-[23px] text-text-muted">{fmtNumber(card.number)}</span>
-          <span className="text-[13px] leading-[23px] text-text-secondary" title={card.rarity ?? ''}>
+          <span className="text-[14px] leading-[23px] text-text-muted">{fmtNumber(card.number)}</span>
+          <span className="text-[14px] leading-[23px] text-text-secondary" title={card.rarity ?? ''}>
             {rarityGlyph(card.rarity)}
           </span>
         </div>

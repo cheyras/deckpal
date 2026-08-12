@@ -57,7 +57,7 @@ export function ProgressBar({
           return (
             <span
               key={m}
-              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-[10px] leading-none"
+              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-[14px] leading-none"
               style={{
                 left: `${m}%`,
                 color: passed

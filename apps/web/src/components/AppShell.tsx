@@ -33,15 +33,18 @@ function ProfileChip() {
       className="flex items-center gap-[8px] rounded-full bg-surface-tertiary py-[6px] pl-[6px] pr-[14px] hover:bg-action-default-hover"
       aria-label="Your profile"
     >
-      <span className="relative flex h-[34px] w-[34px] items-center justify-center rounded-full bg-surface-raised text-icon-default">
-        {/* The disc is clipped in its own element so the level badge, which
-            hangs 3px past the bottom edge, is not clipped with it. */}
-        <span className="h-full w-full overflow-hidden rounded-full">
-          <AvatarDisc url={avatar.data?.avatarUrl} iconSize={20} fallbackClass="text-icon-default" />
-        </span>
-        <span className="absolute -bottom-[3px] left-1/2 -translate-x-1/2 rounded-full bg-action-primary px-[5px] text-[9px] font-extrabold leading-[13px] text-action-primary-text">
-          {level}
-        </span>
+      {/* The level badge used to be absolutely positioned over the avatar's
+          bottom edge. Measured, it resolved its 50% against the CHIP's content
+          box rather than the 34px avatar — pinning position:relative and using
+          inline left/transform did not move it — so it sat ~19px right of the
+          avatar and collided with the username ("0qa" in the header). It is a
+          flex sibling now: no containing-block ambiguity is possible, and at
+          12px it is more legible than it was cramped onto the disc. */}
+      <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-raised text-icon-default">
+        <AvatarDisc url={avatar.data?.avatarUrl} iconSize={20} fallbackClass="text-icon-default" />
+      </span>
+      <span className="shrink-0 rounded-full bg-action-primary px-[6px] py-[1px] text-[12px] font-extrabold leading-[16px] text-action-primary-text">
+        {level}
       </span>
       <span className="text-[14px] font-semibold text-text-primary">{username}</span>
     </Link>
@@ -127,12 +130,12 @@ function NavRow({
         <>
           <span className="flex-1 text-[14px] font-normal leading-[21px]">{item.label}</span>
           {item.soon && (
-            <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[10px] font-bold uppercase tracking-wide text-text-muted">
+            <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[12px] font-bold uppercase tracking-wide text-text-muted">
               Soon
             </span>
           )}
           {locked && (
-            <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[10px] font-bold uppercase tracking-wide text-text-muted">
+            <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[12px] font-bold uppercase tracking-wide text-text-muted">
               Sign in
             </span>
           )}
@@ -166,10 +169,10 @@ function SeriesSubNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const { data, isLoading, error } = useQuery({ queryKey: ['series'], queryFn: ({ signal }) => api.series(signal) })
   if (isLoading) {
-    return <div className="py-[8px] pl-[62px] pr-[24px] text-[13px] text-text-muted">Loading series…</div>
+    return <div className="py-[8px] pl-[62px] pr-[24px] text-[14px] text-text-muted">Loading series…</div>
   }
   if (error || !data?.series.length) {
-    return <div className="py-[8px] pl-[62px] pr-[24px] text-[13px] text-text-muted">No series</div>
+    return <div className="py-[8px] pl-[62px] pr-[24px] text-[14px] text-text-muted">No series</div>
   }
   return (
     <div className="pb-[6px]">
@@ -182,7 +185,7 @@ function SeriesSubNav({ onNavigate }: { onNavigate?: () => void }) {
             params={{ series: s.slug }}
             onClick={onNavigate}
             className={[
-              'block py-[8px] pl-[62px] pr-[24px] text-[13px] leading-[18px]',
+              'block py-[8px] pl-[62px] pr-[24px] text-[14px] leading-[18px]',
               active ? 'font-medium text-text-primary' : 'text-text-muted hover:text-text-body',
             ].join(' ')}
           >

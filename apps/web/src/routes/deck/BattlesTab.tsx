@@ -27,11 +27,11 @@ function LogRow({ deckId, log, onDelete }: { deckId: string; log: BattleLogSumma
             <span className="truncate text-[14px] font-semibold text-text-primary">
               {log.opponent ? `vs ${log.opponent}` : 'Unknown opponent'}
             </span>
-            {log.opponentDeck && <span className="truncate text-[12px] text-text-secondary">{log.opponentDeck}</span>}
+            {log.opponentDeck && <span className="truncate text-[14px] text-text-secondary">{log.opponentDeck}</span>}
             <VersionChip version={log.deckVersion} />
             <SourceChip source={log.source} />
           </div>
-          <div className="mt-[2px] flex flex-wrap items-center gap-x-[10px] gap-y-[2px] text-[11px] text-text-muted">
+          <div className="mt-[2px] flex flex-wrap items-center gap-x-[10px] gap-y-[2px] text-[14px] text-text-muted">
             {log.turns != null && <span>{log.turns} turns</span>}
             {log.prizes && <span>prizes {log.prizes.me}–{log.prizes.opponent}</span>}
             <span>{fmtDate(log.playedAt)}</span>
@@ -39,19 +39,19 @@ function LogRow({ deckId, log, onDelete }: { deckId: string; log: BattleLogSumma
         </div>
         <Icon name="chevron-down" size={16} className={`shrink-0 text-icon-default ${open ? 'rotate-180' : ''}`} />
       </button>
-      {log.notes && <div className="-mt-[4px] px-[12px] pb-[10px] text-[12px] leading-[17px] text-text-secondary">{log.notes}</div>}
+      {log.notes && <div className="-mt-[4px] px-[12px] pb-[10px] text-[14px] leading-[17px] text-text-secondary">{log.notes}</div>}
       {open && (
         <div className="border-t border-divider-subtle p-[12px]">
-          {!data && <div className="py-[16px] text-center text-[13px] text-text-muted">Loading log…</div>}
+          {!data && <div className="py-[16px] text-center text-[14px] text-text-muted">Loading log…</div>}
           {data && (
             <>
-              <pre className="max-h-[400px] overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface-primary p-[12px] font-mono text-[12px] leading-[17px] text-text-secondary">
+              <pre className="max-h-[400px] overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface-primary p-[12px] font-mono text-[14px] leading-[17px] text-text-secondary">
                 {data.log.rawLog}
               </pre>
               <div className="mt-[10px] flex justify-end">
                 <button
                   onClick={onDelete}
-                  className="flex h-[36px] items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] text-[12px] font-bold text-action-danger hover:bg-action-danger hover:text-action-danger-text"
+                  className="flex h-[36px] items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] text-[14px] font-bold text-action-danger hover:bg-action-danger hover:text-action-danger-text"
                 >
                   <Icon name="close" size={14} /> Delete Log
                 </button>
@@ -112,15 +112,15 @@ function LogBattleModal({ deckId, onClose, onLogged }: { deckId: string; onClose
             </span>
             <VersionChip version={saved.attachedToVersion} />
           </div>
-          {saved.log.opponentDeck && <div className="text-[13px] text-text-secondary">Opponent deck: {saved.log.opponentDeck}</div>}
+          {saved.log.opponentDeck && <div className="text-[14px] text-text-secondary">Opponent deck: {saved.log.opponentDeck}</div>}
           {p && (
-            <div className="flex flex-wrap gap-x-[20px] gap-y-[4px] text-[13px] text-text-muted">
+            <div className="flex flex-wrap gap-x-[20px] gap-y-[4px] text-[14px] text-text-muted">
               <span>{p.totalTurns} turns</span>
               <span>Prizes {p.prizesTaken.me}–{p.prizesTaken.opponent}</span>
               {p.wentFirst && <span>You went {p.wentFirst === 'me' ? 'first' : 'second'}</span>}
             </div>
           )}
-          <p className="text-[12px] text-text-muted">
+          <p className="text-[14px] text-text-muted">
             Attached to v{saved.attachedToVersion} — the card list this game was played with.
           </p>
           <div className="flex justify-end">
@@ -139,7 +139,7 @@ function LogBattleModal({ deckId, onClose, onLogged }: { deckId: string; onClose
   return (
     <Modal title="Log a Battle" onClose={onClose} wide>
       <div className="flex flex-col gap-[14px]">
-        <p className="text-[13px] text-text-muted">
+        <p className="text-[14px] text-text-muted">
           Paste the battle log from Pokémon TCG Live. Result, opponent and their deck are parsed automatically — override anything
           below.
         </p>
@@ -153,7 +153,7 @@ function LogBattleModal({ deckId, onClose, onLogged }: { deckId: string; onClose
         />
         <div className="flex flex-wrap gap-[12px]">
           <label className="flex flex-col gap-[6px]">
-            <span className="text-[13px] font-semibold text-text-secondary">Result</span>
+            <span className="text-[14px] font-semibold text-text-secondary">Result</span>
             <select
               value={result}
               onChange={(e) => setResult(e.target.value as 'auto' | BattleResult)}
@@ -166,7 +166,7 @@ function LogBattleModal({ deckId, onClose, onLogged }: { deckId: string; onClose
             </select>
           </label>
           <label className="flex flex-1 flex-col gap-[6px]" style={{ minWidth: 180 }}>
-            <span className="text-[13px] font-semibold text-text-secondary">Opponent deck (optional)</span>
+            <span className="text-[14px] font-semibold text-text-secondary">Opponent deck (optional)</span>
             <input
               value={opponentDeck}
               onChange={(e) => setOpponentDeck(e.target.value)}
@@ -177,7 +177,7 @@ function LogBattleModal({ deckId, onClose, onLogged }: { deckId: string; onClose
           </label>
         </div>
         <label className="flex flex-col gap-[6px]">
-          <span className="text-[13px] font-semibold text-text-secondary">Notes (optional)</span>
+          <span className="text-[14px] font-semibold text-text-secondary">Notes (optional)</span>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -189,7 +189,7 @@ function LogBattleModal({ deckId, onClose, onLogged }: { deckId: string; onClose
         </label>
         {needPlayer && (
           <label className="flex flex-col gap-[6px]">
-            <span className="text-[13px] font-semibold text-text-secondary">Your screen name</span>
+            <span className="text-[14px] font-semibold text-text-secondary">Your screen name</span>
             <input
               autoFocus
               value={playerName}
@@ -200,7 +200,7 @@ function LogBattleModal({ deckId, onClose, onLogged }: { deckId: string; onClose
             />
           </label>
         )}
-        {err && <div className="text-[13px] text-error">{err}</div>}
+        {err && <div className="text-[14px] text-error">{err}</div>}
         <div className="flex justify-end gap-[10px]">
           <button
             onClick={onClose}
@@ -277,7 +277,7 @@ export function BattlesTab({ deckId, currentVersion }: { deckId: string; current
               setVersion(e.target.value === 'all' ? null : Number(e.target.value))
             }}
             aria-label="Filter by deck version"
-            className="h-[42px] rounded-lg border border-border-default bg-surface-primary px-[10px] text-[13px] text-text-primary"
+            className="h-[42px] rounded-lg border border-border-default bg-surface-primary px-[10px] text-[14px] text-text-primary"
           >
             <option value="all">All versions</option>
             {Array.from({ length: currentVersion }, (_, i) => currentVersion - i).map((v) => (
@@ -288,7 +288,7 @@ export function BattlesTab({ deckId, currentVersion }: { deckId: string; current
           </select>
           <button
             onClick={() => setShowLog(true)}
-            className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover"
+            className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover"
           >
             <Icon name="plus" size={16} /> Log a Battle
           </button>
@@ -296,7 +296,7 @@ export function BattlesTab({ deckId, currentVersion }: { deckId: string; current
       </div>
 
       {isLoading && !data && <div className="py-[30px] text-center text-[14px] text-text-muted">Loading battles…</div>}
-      {error && <div className="text-[13px] text-error">{(error as Error).message}</div>}
+      {error && <div className="text-[14px] text-error">{(error as Error).message}</div>}
 
       {data && data.logs.length === 0 && (
         <div className="flex flex-col items-center gap-[10px] rounded-xl border border-dashed border-border-default px-[20px] py-[50px] text-center">
@@ -304,7 +304,7 @@ export function BattlesTab({ deckId, currentVersion }: { deckId: string; current
           <div className="text-[16px] font-bold text-text-primary">
             {version != null ? `No battles logged on v${version}` : 'No battles logged yet'}
           </div>
-          <p className="max-w-[400px] text-[13px] leading-[19px] text-text-muted">
+          <p className="max-w-[400px] text-[14px] leading-[19px] text-text-muted">
             Paste a Pokémon TCG Live battle log to start tracking this deck's record — each log attaches to the version it was
             played with.
           </p>
@@ -320,7 +320,7 @@ export function BattlesTab({ deckId, currentVersion }: { deckId: string; current
       )}
 
       {pageCount > 1 && (
-        <div className="flex items-center justify-center gap-[14px] text-[13px]">
+        <div className="flex items-center justify-center gap-[14px] text-[14px]">
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1}
