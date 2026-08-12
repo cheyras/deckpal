@@ -77,7 +77,7 @@ export function ListFormModal({
         className="flex flex-col gap-[18px]"
       >
         <label className="flex flex-col gap-[6px]">
-          <span className="text-[13px] font-semibold text-text-secondary">Name</span>
+          <span className="text-[14px] font-semibold text-text-secondary">Name</span>
           <input
             autoFocus
             value={name}
@@ -90,7 +90,7 @@ export function ListFormModal({
 
         {mode === 'create' && (
           <div className="flex flex-col gap-[8px]">
-            <span className="text-[13px] font-semibold text-text-secondary">Type</span>
+            <span className="text-[14px] font-semibold text-text-secondary">Type</span>
             <div className="flex flex-col gap-[8px]">
               {(Object.keys(KIND_LABEL) as ListKind[]).map((k) => {
                 const active = kind === k
@@ -100,7 +100,7 @@ export function ListFormModal({
                       <span className="text-[14px] font-bold text-text-primary">{KIND_LABEL[k].title}</span>
                       {active && <Icon name="star-filled" size={16} className="text-action-primary" />}
                     </div>
-                    <div className="text-[12px] text-text-muted">{KIND_LABEL[k].blurb}</div>
+                    <div className="text-[14px] text-text-muted">{KIND_LABEL[k].blurb}</div>
                   </SelectableCard>
                 )
               })}
@@ -109,7 +109,7 @@ export function ListFormModal({
         )}
 
         <label className="flex flex-col gap-[6px]">
-          <span className="text-[13px] font-semibold text-text-secondary">Description (optional)</span>
+          <span className="text-[14px] font-semibold text-text-secondary">Description (optional)</span>
           <textarea
             value={description ?? ''}
             onChange={(e) => setDescription(e.target.value)}
@@ -120,7 +120,7 @@ export function ListFormModal({
         </label>
 
         <div className="flex flex-col gap-[8px]">
-          <span className="text-[13px] font-semibold text-text-secondary">Visibility</span>
+          <span className="text-[14px] font-semibold text-text-secondary">Visibility</span>
           <div className="flex gap-[10px]">
             {(['private', 'public'] as ListVisibility[]).map((v) => (
               <SelectableCard
@@ -137,7 +137,7 @@ export function ListFormModal({
           </div>
         </div>
 
-        {error && <div className="text-[13px] text-error">{error}</div>}
+        {error && <div className="text-[14px] text-error">{error}</div>}
 
         <div className="mt-[4px] flex justify-end gap-[10px]">
           <Button variant="secondary" onClick={onClose}>
@@ -199,7 +199,7 @@ export function AddCardModal({
         </label>
 
         {listKind === 'static' && (
-          <label className="flex items-center gap-[10px] text-[13px] font-semibold text-text-secondary">
+          <label className="flex items-center gap-[10px] text-[14px] font-semibold text-text-secondary">
             Quantity per add
             <div className="flex items-center gap-[6px]">
               <button type="button" onClick={() => setQty((q) => Math.max(1, q - 1))} className="flex h-[30px] w-[30px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary">
@@ -227,14 +227,14 @@ export function AddCardModal({
               >
                 <div className="relative overflow-hidden rounded-md">
                   <img src={c.images.low} alt={c.name} loading="lazy" className="aspect-[245/337] w-full object-cover" />
-                  <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[13px] font-bold text-white opacity-0 group-hover:opacity-100">
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[14px] font-bold text-white opacity-0 group-hover:opacity-100">
                     {addingId === c.cardId ? 'Adding…' : '+ Add'}
                   </span>
                 </div>
-                <span className="mt-[4px] truncate text-[12px] font-medium text-text-primary">{c.name}</span>
+                <span className="mt-[4px] truncate text-[14px] font-medium text-text-primary">{c.name}</span>
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-text-muted">{fmtNumber(c.number)}</span>
-                  <span className="text-[11px] text-change-positive">{fmtPrice(c.price)}</span>
+                  <span className="text-[14px] text-text-muted">{fmtNumber(c.number)}</span>
+                  <span className="text-[14px] text-change-positive">{fmtPrice(c.price)}</span>
                 </div>
               </button>
             ))}

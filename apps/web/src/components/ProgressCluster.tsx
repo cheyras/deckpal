@@ -19,7 +19,7 @@ export function ProgressCluster({ progress, goal }: { progress: Progress; goal: 
   return (
     <div className="flex items-end gap-[16px]">
       <div className="min-w-[220px] flex-1">
-        <div className="mb-[6px] text-[10px] font-bold leading-[15px] text-text-muted">
+        <div className="mb-[6px] text-[14px] font-bold leading-[15px] text-text-muted">
           <span className="text-[15px] font-extrabold text-text-primary">{complete.owned}</span>
           /{complete.total} Collected
         </div>
@@ -28,7 +28,7 @@ export function ProgressCluster({ progress, goal }: { progress: Progress; goal: 
         {/* Bar 2 — Master / Grandmaster (thinner, no dots) */}
         <div className="mt-[4px] flex items-center gap-[8px]">
           <ProgressBar pct={second.pct} height={2} fill={secondColor} className="flex-1" />
-          <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: secondColor }}>
+          <span className="text-[12px] font-bold uppercase tracking-wide" style={{ color: secondColor }}>
             {secondLabel}
           </span>
         </div>
@@ -36,9 +36,9 @@ export function ProgressCluster({ progress, goal }: { progress: Progress; goal: 
 
       {/* Right cluster: LVL, main %, second % */}
       <div className="flex flex-col items-end gap-[1px] pb-[2px]">
-        <span className="text-[9px] font-extrabold leading-[15px] text-action-primary">LVL {lvl}</span>
+        <span className="text-[14px] font-extrabold leading-[15px] text-action-primary">LVL {lvl}</span>
         <span className="text-[15px] font-extrabold leading-[15px] text-text-primary">{complete.pct}%</span>
-        <span className="text-[11px] leading-[15px] text-text-muted">{second.pct}%</span>
+        <span className="text-[14px] leading-[15px] text-text-muted">{second.pct}%</span>
       </div>
     </div>
   )

@@ -75,7 +75,7 @@ export function BackPill({ to, params, label }: { to: string; params?: Record<st
     <Link
       to={to}
       params={params as never}
-      className="inline-flex h-[28px] items-center gap-[4px] rounded-full bg-surface-tertiary px-[12px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover"
+      className="inline-flex h-[28px] items-center gap-[4px] rounded-full bg-surface-tertiary px-[12px] text-[12px] font-bold text-text-primary hover:bg-action-default-hover"
     >
       <Icon name="chevron-left" size={14} />
       {label}

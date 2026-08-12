@@ -43,7 +43,7 @@ export function StatTile({
     return (
       <div className={`rounded-lg bg-surface-tertiary p-[12px] text-center${className ? ` ${className}` : ''}`}>
         <div className="text-[22px] font-extrabold text-text-primary">{children ?? value}</div>
-        <div className="text-[11px] text-text-muted">{label}</div>
+        <div className="text-[14px] text-text-muted">{label}</div>
       </div>
     )
   }

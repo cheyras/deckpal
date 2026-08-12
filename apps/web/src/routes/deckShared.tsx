@@ -12,7 +12,7 @@ export const FORMAT_META: Record<DeckFormat, { label: string; short: string; blu
 // and a green legal state. Now uses --color-warning from the token system.
 
 export function LegalBadge({ legal, onClick, big }: { legal: boolean; onClick?: () => void; big?: boolean }) {
-  const cls = big ? 'px-[14px] py-[7px] text-[13px]' : 'px-[10px] py-[3px] text-[11px]'
+  const cls = big ? 'px-[14px] py-[7px] text-[14px]' : 'px-[10px] py-[3px] text-[12px]'
   if (legal) {
     return (
       <span className={`inline-flex items-center gap-[6px] rounded-full font-bold ${cls}`} style={{ background: 'rgba(50,255,206,0.16)', color: 'var(--color-success)' }}>

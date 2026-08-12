@@ -59,13 +59,13 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
           </div>
 
           <div className="flex items-center gap-[10px]">
-            <a href={tcgSearchUrl} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
+            <a href={tcgSearchUrl} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
               <Icon name="external" size={16} className="text-action-brand" /> Shop
             </a>
             {!signedOut && (
               <>
                 <PurchaseSetMenu setId={set.setId} pageGoal={goal} />
-                <a href={api.setChecklistPdfUrl(set.setId)} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover">
+                <a href={api.setChecklistPdfUrl(set.setId)} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
                   <Icon name="printer" size={16} className="text-action-brand" /> Print Checklist
                 </a>
               </>

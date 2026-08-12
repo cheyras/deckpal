@@ -13,7 +13,7 @@ export default {
     children: (
       <div>
         <div className="text-[14px] font-bold text-text-primary">Standard</div>
-        <div className="text-[11px] text-text-muted">Regulation F and newer cards only</div>
+        <div className="text-[14px] text-text-muted">Regulation F and newer cards only</div>
       </div>
     ),
   },
@@ -25,7 +25,7 @@ export default {
         children: (
           <div>
             <div className="text-[14px] font-bold text-text-primary">Standard</div>
-            <div className="text-[11px] text-text-muted">Regulation F and newer cards only</div>
+            <div className="text-[14px] text-text-muted">Regulation F and newer cards only</div>
           </div>
         ),
       },
@@ -37,7 +37,7 @@ export default {
         children: (
           <div>
             <div className="text-[14px] font-bold text-text-primary">Expanded</div>
-            <div className="text-[11px] text-text-muted">Black & White era and newer</div>
+            <div className="text-[14px] text-text-muted">Black & White era and newer</div>
           </div>
         ),
       },

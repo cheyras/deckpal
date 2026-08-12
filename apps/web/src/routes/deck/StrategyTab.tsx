@@ -40,11 +40,11 @@ export function StrategyTab({
           onChange={(e) => setDraft(e.target.value)}
           maxLength={STRATEGY_MAX}
           placeholder={'# Game plan\n\nHow this deck wins, key lines, matchup notes…'}
-          className="min-h-[380px] rounded-lg border border-border-default bg-surface-primary px-[14px] py-[12px] font-mono text-[13px] leading-[19px] text-text-primary placeholder:text-text-muted"
+          className="min-h-[380px] rounded-lg border border-border-default bg-surface-primary px-[14px] py-[12px] font-mono text-[14px] leading-[19px] text-text-primary placeholder:text-text-muted"
         />
-        {save.isError && <div className="text-[13px] text-error">{(save.error as Error).message}</div>}
+        {save.isError && <div className="text-[14px] text-error">{(save.error as Error).message}</div>}
         <div className="flex flex-wrap items-center justify-between gap-[10px]">
-          <span className="text-[11px] text-text-muted">
+          <span className="text-[14px] text-text-muted">
             Markdown (GFM tables and lists supported). Strategy edits never create a new deck version.
           </span>
           <div className="flex gap-[10px]">
@@ -72,7 +72,7 @@ export function StrategyTab({
       <div className="mt-[18px] flex flex-col items-center gap-[10px] rounded-xl border border-dashed border-border-default px-[20px] py-[60px] text-center">
         <Icon name="book" size={40} className="text-icon-muted" />
         <div className="text-[16px] font-bold text-text-primary">No strategy guide yet</div>
-        <p className="max-w-[400px] text-[13px] leading-[19px] text-text-muted">
+        <p className="max-w-[400px] text-[14px] leading-[19px] text-text-muted">
           Write one, or let an agent add it — the guide travels with the deck and is snapshotted into each version.
         </p>
         <button

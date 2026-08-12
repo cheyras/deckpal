@@ -218,7 +218,7 @@ function VariantRow({
           />
           <div className="min-w-0">
             <div className="break-words text-[14px] font-bold text-text-primary">{v.displayName}</div>
-            {v.provenance && <div className="break-words text-[12px] text-text-muted">{v.provenance}</div>}
+            {v.provenance && <div className="break-words text-[14px] text-text-muted">{v.provenance}</div>}
             {/* "TCGplayer" is a single unbreakable word, so `truncate` here could
                 only ever clip it to "TCGpl…" — which it did at 390px, where the
                 variant column squeezes this to 54px against a 62px label. A short
@@ -229,7 +229,7 @@ function VariantRow({
                 href={v.buyUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-[8px] inline-flex h-[30px] w-fit shrink-0 items-center gap-[6px] whitespace-nowrap rounded-lg bg-surface-secondary px-[8px] text-[12px] font-bold text-text-primary hover:bg-action-default-hover"
+                className="mt-[8px] inline-flex h-[30px] w-fit shrink-0 items-center gap-[6px] whitespace-nowrap rounded-lg bg-surface-secondary px-[8px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover"
               >
                 <Icon name="external" size={14} className="shrink-0 text-action-brand" />
                 <span>TCGplayer</span>
@@ -246,7 +246,7 @@ function VariantRow({
             <div className="text-[14px] text-text-muted">No price</div>
           )}
           {price?.pricedAt && (
-            <div className="text-[10px] leading-[14px] text-text-muted">as of {fmtRelative(price.pricedAt)}</div>
+            <div className="text-[14px] leading-[14px] text-text-muted">as of {fmtRelative(price.pricedAt)}</div>
           )}
         </div>
 
@@ -257,7 +257,7 @@ function VariantRow({
             <Link
               to="/auth"
               search={{ mode: 'signup' } as never}
-              className="flex h-[34px] items-center whitespace-nowrap rounded-lg border border-border-default px-[12px] text-[12px] font-semibold text-text-body hover:border-surface-quaternary hover:text-text-primary"
+              className="flex h-[34px] items-center whitespace-nowrap rounded-lg border border-border-default px-[12px] text-[14px] font-semibold text-text-body hover:border-surface-quaternary hover:text-text-primary"
             >
               Sign in to track
             </Link>
@@ -273,7 +273,7 @@ function VariantRow({
 function Attribute({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="mb-[6px] text-[12px] text-text-muted">{label}</div>
+      <div className="mb-[6px] text-[14px] text-text-muted">{label}</div>
       <div className="flex flex-wrap gap-[8px]">{children}</div>
     </div>
   )
@@ -563,7 +563,7 @@ function CardTab({
     <>
       {/* variant table */}
       <div className="mt-[16px]">
-        <div className={`${VARIANT_GRID} mb-[8px] items-center px-[16px] text-[12px] text-text-muted`}>
+        <div className={`${VARIANT_GRID} mb-[8px] items-center px-[16px] text-[14px] text-text-muted`}>
           <span>Variant</span>
           <span className="text-right">Market Price</span>
           <span className="text-right">Quantity</span>
@@ -600,12 +600,12 @@ function CardTab({
           href={buyUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-[16px] inline-flex h-[40px] items-center gap-[8px] rounded-lg bg-action-brand px-[16px] text-[13px] font-bold text-action-brand-text hover:opacity-90"
+          className="mt-[16px] inline-flex h-[40px] items-center gap-[8px] rounded-lg bg-action-brand px-[16px] text-[14px] font-bold text-action-brand-text hover:opacity-90"
         >
           <Icon name="external" size={16} /> Buy on TCGplayer
         </a>
       )}
-      <p className="mt-[10px] text-[12px] text-text-muted">
+      <p className="mt-[10px] text-[14px] text-text-muted">
         Prices reflect the latest daily sync. Self-hosted feed — no affiliate relationship.
       </p>
 
@@ -627,7 +627,7 @@ function CardTab({
                 </div>
                 {a.damage && (
                   <span className="text-[16px] font-bold text-text-primary">
-                    <span className="mr-[8px] text-[12px] font-normal text-text-muted">Damage</span>
+                    <span className="mr-[8px] text-[14px] font-normal text-text-muted">Damage</span>
                     {a.damage}
                   </span>
                 )}

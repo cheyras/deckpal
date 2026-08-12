@@ -34,7 +34,7 @@ const components: Components = {
   hr: () => <hr className="my-[16px] border-divider-subtle" />,
   table: ({ children }) => (
     <div className="scroll-x mb-[12px]">
-      <table className="w-full border-collapse text-[13px]">{children}</table>
+      <table className="w-full border-collapse text-[14px]">{children}</table>
     </div>
   ),
   th: ({ children }) => (

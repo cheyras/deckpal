@@ -21,7 +21,7 @@ export function Field({ label, error, hint, ...input }: FieldProps) {
   const invalid = Boolean(error)
   return (
     <div className="mb-[16px]">
-      <label htmlFor={id} className="mb-[6px] block text-[12px] font-semibold text-text-secondary">
+      <label htmlFor={id} className="mb-[6px] block text-[14px] font-semibold text-text-secondary">
         {label}
       </label>
       <input
@@ -36,7 +36,7 @@ export function Field({ label, error, hint, ...input }: FieldProps) {
         ].join(' ')}
       />
       {(error || hint) && (
-        <p id={msgId} className={`mt-[6px] text-[12px] ${invalid ? 'text-error' : 'text-text-muted'}`}>
+        <p id={msgId} className={`mt-[6px] text-[14px] ${invalid ? 'text-error' : 'text-text-muted'}`}>
           {error || hint}
         </p>
       )}

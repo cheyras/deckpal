@@ -20,7 +20,7 @@ export function FormAlert({ kind, children }: FormAlertProps) {
         ? 'bg-halo-success text-success'
         : 'bg-halo-neutral text-text-body'
   return (
-    <div role="alert" className={`mb-[16px] rounded-[10px] px-[14px] py-[11px] text-[13px] leading-[1.5] ${skin}`}>
+    <div role="alert" className={`mb-[16px] rounded-[10px] px-[14px] py-[11px] text-[14px] leading-[1.5] ${skin}`}>
       {children}
     </div>
   )

@@ -150,13 +150,13 @@ export function Authorize() {
           <div className="mt-[1px] flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full bg-halo-neutral text-action-primary">
             <Icon name="link" size={16} />
           </div>
-          <div className="text-[13px] leading-[1.55] text-text-body">
+          <div className="text-[14px] leading-[1.55] text-text-body">
             It will be able to view and update your collection, decks, lists and battle logs — the same access
             you have when signed in. It will not see your password and cannot change your account.
           </div>
         </div>
 
-        <p className="mb-[20px] text-[12px] text-text-muted">
+        <p className="mb-[20px] text-[14px] text-text-muted">
           After you approve, you'll be redirected to <span className="font-semibold text-text-secondary">{hostOf(redirectUri!)}</span>.
         </p>
 

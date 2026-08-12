@@ -78,7 +78,7 @@ function CompletionRing({ owned, total, pct }: { owned: number; total: number; p
       label={`Completion: ${owned.toLocaleString()} of ${total.toLocaleString()} cards (${pct}%)`}
       className="self-center"
     >
-      <span className="text-[11px] font-bold leading-none text-text-primary">{pct}%</span>
+      <span className="text-[14px] font-bold leading-none text-text-primary">{pct}%</span>
     </ProgressRing>
   )
 }
@@ -109,15 +109,15 @@ function SeriesCard({ s }: { s: SeriesSummary }) {
               ))}
           </div>
           <div className="font-display text-[18px] font-semibold leading-[27px] text-text-primary">{s.name}</div>
-          <div className="mt-[2px] text-[12px] text-text-muted">First released {fmtDate(s.firstReleaseOn)}</div>
+          <div className="mt-[2px] text-[14px] text-text-muted">First released {fmtDate(s.firstReleaseOn)}</div>
         </div>
         <div className="mt-[16px] flex gap-[24px]">
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-text-muted">Sets</div>
+            <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Sets</div>
             <div className="text-[18px] font-bold text-text-primary">{s.setCount}</div>
           </div>
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-text-muted">Cards</div>
+            <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Cards</div>
             <div className="text-[18px] font-bold text-text-primary">{s.cardCount.toLocaleString()}</div>
           </div>
         </div>
@@ -150,7 +150,7 @@ interface ControlsProps {
 
 function Controls({ prefs, onChange, onSave, saved, signedOut, stacked = false }: ControlsProps & { stacked?: boolean }) {
   const ctrl =
-    'h-[34px] rounded-md border border-border-default bg-surface-tertiary px-[10px] text-[13px] text-text-primary hover:border-surface-quaternary'
+    'h-[34px] rounded-md border border-border-default bg-surface-tertiary px-[10px] text-[14px] text-text-primary hover:border-surface-quaternary'
   // Inline + stacked variants can be mounted at once (mobile popover vs ≥sm
   // toolbar), so the select id must differ between them.
   const sortId = stacked ? 'series-sort-mobile' : 'series-sort'

@@ -196,7 +196,7 @@ export function Profile() {
                   // cannot race each other to different pages.
                   navigate({ to: '/signed-out' })
                 }}
-                className="ml-[4px] flex items-center gap-[6px] rounded-full bg-surface-tertiary px-[12px] py-[5px] text-[13px] font-semibold text-text-muted hover:bg-action-default-hover hover:text-text-body disabled:opacity-50"
+                className="ml-[4px] flex items-center gap-[6px] rounded-full bg-surface-tertiary px-[12px] py-[5px] text-[14px] font-semibold text-text-muted hover:bg-action-default-hover hover:text-text-body disabled:opacity-50"
                 title="Sign out"
               >
                 <Icon name="logout" size={16} />
@@ -212,7 +212,7 @@ export function Profile() {
             one is short, wraps cleanly, and is still adjacent to the avatar.
             The camera badge on the ring is the shortcut; these are the labelled
             path, and the only place "Remove" can be reached. */}
-        <div className="mt-[10px] flex flex-wrap items-center gap-x-[16px] gap-y-[8px] text-[13px]">
+        <div className="mt-[10px] flex flex-wrap items-center gap-x-[16px] gap-y-[8px] text-[14px]">
           <span className="text-text-muted">
             Joined <span className="font-semibold text-text-body">Jul 2026</span>
           </span>
@@ -250,7 +250,7 @@ export function Profile() {
         {photo.error && (
           <div
             role="alert"
-            className="mt-[10px] flex items-start gap-[8px] rounded-[10px] bg-halo-error px-[14px] py-[11px] text-[13px] leading-[1.5] text-error"
+            className="mt-[10px] flex items-start gap-[8px] rounded-[10px] bg-halo-error px-[14px] py-[11px] text-[14px] leading-[1.5] text-error"
           >
             <span className="mt-[1px] shrink-0">
               <Icon name="alert" size={15} />
@@ -271,7 +271,7 @@ export function Profile() {
             <section>
               <div className="mb-[10px] flex items-center justify-between">
                 <h2 className="text-[16px] font-bold text-text-primary">Showcase Cards</h2>
-                <span className="text-[12px] text-text-muted">{slots.filter(Boolean).length}/4 selected</span>
+                <span className="text-[14px] text-text-muted">{slots.filter(Boolean).length}/4 selected</span>
               </div>
               <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-4">
                 {slots.map((pick, i) => (
@@ -293,7 +293,7 @@ export function Profile() {
                         className="flex w-full items-center justify-center rounded-lg border-2 border-dashed border-border-default text-text-muted hover:border-action-primary hover:text-action-primary"
                         style={{ aspectRatio: '245 / 337' }}
                       >
-                        <span className="flex flex-col items-center gap-[6px] text-[13px]">
+                        <span className="flex flex-col items-center gap-[6px] text-[14px]">
                           <Icon name="plus" size={22} />
                           Add card
                         </span>
@@ -302,7 +302,7 @@ export function Profile() {
                   </div>
                 ))}
               </div>
-              <p className="mt-[8px] text-[12px] text-text-muted">
+              <p className="mt-[8px] text-[14px] text-text-muted">
                 Choose up to 4 Showcase Cards from your collection.
               </p>
             </section>
@@ -316,7 +316,7 @@ export function Profile() {
                 <span className="text-[32px] font-extrabold text-change-positive">{fmtUsd(usd?.total ?? null)}</span>
                 <Link
                   to="/insights"
-                  className="inline-flex items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] py-[8px] text-[13px] font-semibold text-text-primary hover:bg-action-default-hover"
+                  className="inline-flex items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] py-[8px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover"
                 >
                   <Icon name="sparkle" size={16} className="text-action-primary" /> Value History
                 </Link>
@@ -373,7 +373,7 @@ export function Profile() {
                 {(owned.data ?? []).map((c) => (
                   <button key={c.cardId} onClick={() => setSlot(picking, c)} className="block text-left">
                     <CardImage low={c.low} high={c.high} alt={c.name} />
-                    <div className="mt-[4px] truncate text-[11px] text-text-body">{c.name}</div>
+                    <div className="mt-[4px] truncate text-[14px] text-text-body">{c.name}</div>
                   </button>
                 ))}
               </div>

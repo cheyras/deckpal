@@ -7,7 +7,7 @@ import { Icon } from '../../components/Icon'
 export function VersionChip({ version, current = false }: { version: number; current?: boolean }) {
   return (
     <span
-      className={`inline-flex shrink-0 items-center rounded-full px-[9px] py-[2px] text-[11px] font-bold ${
+      className={`inline-flex shrink-0 items-center rounded-full px-[9px] py-[2px] text-[12px] font-bold ${
         current ? 'bg-action-primary text-action-primary-text' : 'bg-surface-tertiary text-text-secondary'
       }`}
     >
@@ -22,7 +22,7 @@ export function SourceChip({ source }: { source: string }) {
   if (source === 'web') return null
   const agent = source === 'rotom-mcp'
   return (
-    <span className="inline-flex shrink-0 items-center gap-[4px] rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[10px] font-bold uppercase tracking-wide text-text-muted">
+    <span className="inline-flex shrink-0 items-center gap-[4px] rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[12px] font-bold uppercase tracking-wide text-text-muted">
       {agent && <Icon name="sparkle" size={11} className="text-action-primary" />}
       {agent ? 'agent' : source}
     </span>
@@ -38,7 +38,7 @@ const RESULT_STYLE: Record<BattleResult, { label: string; bg: string; color: str
 export function ResultBadge({ result }: { result: BattleResult | null }) {
   if (!result) {
     return (
-      <span className="inline-flex w-[52px] shrink-0 items-center justify-center rounded-md bg-surface-tertiary py-[3px] text-[11px] font-bold text-text-muted">
+      <span className="inline-flex w-[52px] shrink-0 items-center justify-center rounded-md bg-surface-tertiary py-[3px] text-[14px] font-bold text-text-muted">
         —
       </span>
     )
@@ -46,7 +46,7 @@ export function ResultBadge({ result }: { result: BattleResult | null }) {
   const s = RESULT_STYLE[result]
   return (
     <span
-      className="inline-flex w-[52px] shrink-0 items-center justify-center rounded-md py-[3px] text-[11px] font-bold"
+      className="inline-flex w-[52px] shrink-0 items-center justify-center rounded-md py-[3px] text-[14px] font-bold"
       style={{ background: s.bg, color: s.color }}
     >
       {s.label}
