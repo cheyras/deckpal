@@ -80,28 +80,106 @@ function sslOptionFromEnv(): pg.PoolConfig['ssl'] {
 }
 
 /**
- * A pg Pool with a HARD connection cap.
+ * What a pool is FOR. This is the input that decides both which port it talks
+ * to and how many connections it may hold, because the two roles have opposite
+ * requirements and conflating them is what made the API unusable in cloud dev.
  *
- * 🔴 HARD_CAP 3 is PER-PROCESS — the cluster budget is 4 TOTAL (API 2 + sync
- * 1 + MCP 1; see DECISIONS.md 2026-07-29). Postgres on this box runs at
- * max_connections=20, 3 reserved, ~11 already used by co-hosted apps. See
- * DECISIONS.md 2026-07-24 (storage) and https://github.com/cheyras/deckscout/wiki/Data-Layer §6.5. Never
- * raise past 5 without re-checking headroom AND a Postgres restart (which
- * requires the user's permission).
+ *   'request'  Serves HTTP requests. In SUPABASE_MODE the RLS middleware
+ *              (apps/api/src/index.ts) checks out ONE pooled connection for the
+ *              entire lifetime of every request, so this pool's `max` IS the
+ *              server's maximum concurrent requests. It needs headroom, and it
+ *              needs nothing session-scoped, so it may use transaction pooling.
  *
- * `PGPOOL_MAX` is clamped to HARD_CAP (3) per process regardless of what the
- * environment asks for, so a misconfigured process cannot blow the cluster
- * budget (no single app is allotted more than 2).
+ *   'worker'   Migrations, sync jobs, CLIs, MCP. These need SESSION-scoped
+ *              state that transaction pooling silently breaks:
+ *              `pg_try_advisory_lock` (apps/sync/src/prices/db.ts) is released
+ *              when the session ends, and migration 020 creates a TEMPORARY
+ *              table. They must stay on the session port, and they run one at
+ *              a time, so a tiny cap is correct.
  */
-const HARD_CAP = 3;
+export type PoolRole = 'request' | 'worker';
 
-export function makePool(maxOverride?: number): pg.Pool {
+/**
+ * Supabase's Supavisor exposes SESSION pooling on 5432 and TRANSACTION pooling
+ * on 6543 for the same host. Detecting the pooler by hostname is what keeps
+ * this portable: a plain self-hosted Postgres has no 6543 to move to, so it
+ * keeps using PGPORT for everything.
+ */
+const SUPABASE_POOLER_HOST = /\.pooler\.supabase\.com$/i;
+const SUPABASE_TRANSACTION_PORT = 6543;
+
+/**
+ * 🔴 Connection caps.
+ *
+ * DIRECT_CAP 3 is the original contract and still applies to a DIRECT Postgres:
+ * the reference self-host box runs max_connections=20 with 3 reserved and ~11
+ * used by co-hosted apps, so the cluster budget is 4 total (API 2 + sync 1 +
+ * MCP 1 — DECISIONS.md 2026-07-29, Data-Layer wiki §6.5). Never raise it
+ * without re-checking headroom on that box.
+ *
+ * POOLED_CAP is deliberately much larger, because when the backend is a
+ * connection POOLER that reasoning inverts: the pooler exists precisely so
+ * clients need not ration connections, and it multiplexes them onto a small
+ * server pool of its own. Applying DIRECT_CAP to a pooler host was the bug —
+ * it capped the API at 2 concurrent requests, which one SPA page load exceeds.
+ */
+const DIRECT_CAP = 3;
+const POOLED_CAP = 24;
+
+export interface MakePoolOptions {
+  /** See PoolRole. Defaults to 'worker' — the conservative, session-safe choice. */
+  role?: PoolRole;
+  /** Explicit ceiling. Still clamped by the role/backend cap. */
+  max?: number;
+}
+
+interface Backend {
+  host: string;
+  port: number;
+  cap: number;
+  /** True when this pool is talking to transaction-mode pooling. */
+  transactionPooled: boolean;
+}
+
+function resolveBackend(role: PoolRole): Backend {
+  const host = process.env.PGHOST ?? '127.0.0.1';
+  const sessionPort = Number(process.env.PGPORT ?? 5432);
+  const isPooler = SUPABASE_POOLER_HOST.test(host);
+
+  // Workers always take the session port: their advisory locks and temp tables
+  // do not survive transaction pooling. Same for any direct Postgres, which
+  // has nowhere else to go.
+  if (role === 'worker' || !isPooler) {
+    return { host, port: sessionPort, cap: role === 'request' ? POOLED_CAP : DIRECT_CAP, transactionPooled: false };
+  }
+  return {
+    host,
+    port: Number(process.env.PGPORT_TRANSACTION ?? SUPABASE_TRANSACTION_PORT),
+    cap: POOLED_CAP,
+    transactionPooled: true,
+  };
+}
+
+/** Default size for a role, before any explicit override. */
+function defaultMax(role: PoolRole): number {
+  if (role !== 'request') return 1;
+  // Cloud holds a connection per in-flight request (see PoolRole); self-host
+  // does not mount the RLS middleware at all and only runs transient queries.
+  return process.env.SUPABASE_MODE ? 12 : 2;
+}
+
+export function makePool(opts?: number | MakePoolOptions): pg.Pool {
   loadEnv();
-  const requested = maxOverride ?? Number(process.env.PGPOOL_MAX ?? 3);
-  const max = Math.min(Number.isFinite(requested) ? requested : 3, HARD_CAP);
+  const { role = 'worker', max: maxOverride } = typeof opts === 'number' ? { max: opts } : (opts ?? {});
+  const backend = resolveBackend(role);
+
+  const envMax = Number(process.env.PGPOOL_MAX ?? NaN);
+  const requested = maxOverride ?? (Number.isFinite(envMax) ? envMax : defaultMax(role));
+  const max = Math.max(1, Math.min(Number.isFinite(requested) ? requested : defaultMax(role), backend.cap));
+
   const pool = new Pool({
-    host: process.env.PGHOST ?? '127.0.0.1',
-    port: Number(process.env.PGPORT ?? 5432),
+    host: backend.host,
+    port: backend.port,
     database: process.env.PGDATABASE ?? 'deckscout',
     user: process.env.PGUSER ?? 'deckscout',
     password: process.env.PGPASSWORD,
@@ -113,6 +191,16 @@ export function makePool(maxOverride?: number): pg.Pool {
     connectionTimeoutMillis: 10_000,
     application_name: process.env.PGAPPNAME ?? 'deckscout',
   });
+
+  // One line, once per pool, so that "the backend won't connect" is diagnosable
+  // on a machine nobody has debugged before — which port and which ceiling were
+  // actually chosen is exactly what you need and cannot otherwise see.
+  if (role === 'request' || process.env.PGPOOL_VERBOSE) {
+    console.error(
+      `[db] pool role=${role} ${backend.host}:${backend.port} max=${max} ` +
+        `(${backend.transactionPooled ? 'transaction-pooled' : 'session'})`,
+    );
+  }
   // node-postgres docs: an idle client that errors out (e.g. a brief network
   // blip to the upstream Postgres) emits 'error' on the pool. Without a
   // listener here, that error is unhandled and the pool is left wedged —
