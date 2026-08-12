@@ -187,7 +187,13 @@ function QtyStepper({
 // keep the header labels sitting directly above their data; the variant track
 // (minmax(0,1fr)) absorbs the rest and its min-w-0 lets long names/URLs wrap
 // rather than blow the column out of bounds.
-const VARIANT_GRID = 'grid grid-cols-[minmax(0,1fr)_84px_108px] gap-x-[12px] nav:gap-x-[16px]'
+// The fixed tracks shrink below the `gap` breakpoint (567px). At 320px the
+// 84px+108px pair plus gaps left the minmax(0,1fr) variant track just 20px
+// wide, so "Found in Booster Packs" wrapped down 9 lines, two characters at a
+// time. Narrower price/qty tracks there give the name column ~84px, which
+// wraps on word boundaries like prose instead of shattering.
+const VARIANT_GRID =
+  'grid grid-cols-[minmax(0,1fr)_64px_92px] gap-x-[8px] gap:grid-cols-[minmax(0,1fr)_84px_108px] gap:gap-x-[12px] nav:gap-x-[16px]'
 
 function VariantRow({
   v,

@@ -344,23 +344,6 @@
   animation: px-rise var(--px-dur-slow) var(--px-ease) both;
 }
 
-/* Grid/list stagger. `--px-i` is set per item by the components that opt in
-   (see CardTile / SeriesIndex); anything that doesn't set it animates at 0. */
-@keyframes px-settle {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-:root[data-skin='premium'] .px-stagger > * {
-  animation: px-settle 380ms var(--px-ease) both;
-  animation-delay: calc(var(--px-i, 0) * 22ms);
-}
-
 /* ─────────────────────────────────────────────────────────────────────────
    5. Navigation
    ───────────────────────────────────────────────────────────────────────── */

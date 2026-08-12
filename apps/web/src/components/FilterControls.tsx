@@ -222,13 +222,17 @@ export function ViewToggle({ view, patch }: { view: ViewMode; patch: Patch }) {
   ]
   return (
     <div className="flex items-center justify-end gap-[20px]">
+      {/* min-h: with no vertical padding the hit target was just the 14px line
+          box — measured 21px tall, below the 24px WCAG 2.5.8 floor and well
+          under a comfortable thumb target. It grows the target without moving
+          the label, which stays optically centred. */}
       {items.map((it) => {
         const active = view === it.key
         return (
           <button
             key={it.key}
             onClick={() => patch({ view: it.key })}
-            className="flex items-center gap-[5px] text-[14px] font-medium"
+            className="flex min-h-[36px] items-center gap-[5px] text-[14px] font-medium"
           >
             <Icon name={it.icon} size={16} className={active ? 'text-action-primary' : 'text-icon-default'} />
             <span className={active ? 'text-text-primary' : 'text-text-secondary'}>{it.label}</span>
