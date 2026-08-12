@@ -12,20 +12,24 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 // Variant defines colour, font weight and borders. The three filled variants
-// (primary, secondary, danger) use a mild top-to-bottom gradient — a bit
-// lighter at top, a bit darker at bottom — via the .btn-fill-* classes in
-// theme.css; ghost/dashed stay flat outlines, unaffected.
+// (primary, secondary, danger) carry their convex/concave face and elevation
+// via the .btn-fill-* classes in theme.css; ghost/dashed stay flat outlines.
+//
+// Every label sits one step heavier than the old Inter-era weights. Figtree is
+// a rounder, more open face than Inter and reads lighter at the same numeric
+// weight, and button labels are short bursts of text that need to hold against
+// a saturated fill.
 const VARIANT: Record<ButtonVariant, string> = {
   primary:
-    'btn-fill-primary text-action-primary-text font-bold',
+    'btn-fill-primary text-action-primary-text font-extrabold',
   secondary:
-    'btn-fill-secondary text-text-primary font-semibold',
+    'btn-fill-secondary text-text-primary font-bold',
   danger:
-    'btn-fill-danger text-action-danger-text font-bold',
+    'btn-fill-danger text-action-danger-text font-extrabold',
   ghost:
-    'border border-action-ghost-border bg-surface-secondary text-text-primary hover:border-surface-raised hover:bg-action-ghost-hover font-semibold',
+    'border border-action-ghost-border bg-surface-secondary text-text-primary hover:border-surface-raised hover:bg-action-ghost-hover font-bold',
   dashed:
-    'border border-dashed border-border-default text-text-secondary hover:bg-surface-tertiary font-semibold',
+    'border border-dashed border-border-default text-text-secondary hover:bg-surface-tertiary font-bold',
 }
 
 // Size defines height, text size and inter-child gap.
