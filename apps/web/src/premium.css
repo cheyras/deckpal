@@ -310,10 +310,22 @@
   transform: translateY(1px) scale(0.985);
   transition-duration: var(--px-dur-fast);
 }
+/* Pressed. The CONVEX faces invert — the dome flattens into the surface, so a
+   plain inset is right for them. The CONCAVE secondary must NOT take the same
+   treatment: replacing its whole stack throws away the lip and the shadow line
+   that make it read as a raised object, and it collapses into a hole. Pressing
+   a dish deepens the dish and drops the elevation, so its outer shadows shrink
+   and its inner ones grow, while the rim survives. */
 :root[data-skin='premium'] .btn-fill-primary:active,
-:root[data-skin='premium'] .btn-fill-secondary:active,
 :root[data-skin='premium'] .btn-fill-danger:active {
   box-shadow: var(--px-inset);
+}
+:root[data-skin='premium'] .btn-fill-secondary:active {
+  box-shadow:
+    inset 0 1px 0 rgb(0 0 0 / 0.5),
+    inset 0 6px 10px -4px rgb(0 0 0 / 0.7),
+    inset 0 -4px 6px -4px rgb(255 255 255 / 0.14),
+    0 1px 1px rgb(0 0 0 / 0.4);
 }
 /* The sheen dims as the control is pressed in — the highlight rolls off the
    face when the face tilts away. */
