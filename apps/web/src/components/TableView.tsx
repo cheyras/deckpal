@@ -114,7 +114,7 @@ export function TableView({
             </div>
             <div className="flex flex-1 items-center gap-[16px] px-[16px] py-[12px]">
               <span className="w-[48px] shrink-0 text-[12px] text-text-muted">{fmtNumber(card.number)}</span>
-              <span className="flex-1 truncate text-[14px] font-medium text-text-primary">{card.name}</span>
+              <span className="font-display flex-1 truncate text-[14px] font-medium text-text-primary">{card.name}</span>
               {card.variantCount > 1 && (
                 <span className="hidden text-[12px] text-text-muted sm:inline">{card.variantCount} variants</span>
               )}

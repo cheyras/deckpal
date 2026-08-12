@@ -623,7 +623,7 @@ function CardTab({
                       ))}
                     </span>
                   )}
-                  <span className="text-[16px] font-semibold text-text-primary">{a.name}</span>
+                  <span className="font-display text-[16px] font-semibold text-text-primary">{a.name}</span>
                 </div>
                 {a.damage && (
                   <span className="text-[16px] font-bold text-text-primary">

@@ -41,7 +41,7 @@ function ListCard({ list }: { list: ListSummary }) {
       {/* body */}
       <div className="flex flex-1 flex-col gap-[8px] p-[16px]">
         <div className="flex items-start justify-between gap-[8px]">
-          <span className="truncate text-[16px] font-bold text-text-primary">{list.name}</span>
+          <span className="font-display truncate text-[16px] font-bold text-text-primary">{list.name}</span>
           {list.isFavorite && <Icon name="star-filled" size={16} className="shrink-0 text-action-primary" />}
         </div>
         {list.description && <p className="line-clamp-2 text-[12px] text-text-muted">{list.description}</p>}
