@@ -392,20 +392,46 @@ button {
   background: linear-gradient(180deg, #fb2c36, #c10007); /* red-500 -> red-700 */
 }
 
-/* Concave. The old neutral-600 → neutral-800 ramp spanned 44 points of
-   lightness and read as a hard band across the face; this is a 20-point span
-   in the other direction — enough to describe a dish, not enough to look
-   like two stacked colours. */
+/* Concave — a RAISED button with a dished face, not a recess.
+ *
+ * The first attempt got this wrong: a strong inset shadow at the top with no
+ * rim reads as a hole punched into the surface, because nothing says the object
+ * stands above the page. The fix is that a dished button's RIM is still convex.
+ * So the concavity is built in three parts, and the face gradient is the least
+ * important of them:
+ *
+ *   1. THE LIP — a 1px border, light along the top edge and dark along the
+ *      bottom: an ordinary raised edge catching light from above.
+ *   2. THE SHADOW LINE — `inset 0 1px 0` in black immediately under the lip.
+ *      This is what actually sells it, and it was the missing piece: it
+ *      separates the raised edge from the face, so the face reads as falling
+ *      AWAY behind the lip rather than as a flat panel with a border on it.
+ *   3. THE DISH — a soft inset shadow running down from the top (the far wall
+ *      of the bowl) and light pooling at the bottom (the near wall turning back
+ *      toward the light).
+ *
+ * The face gradient is only 13 points of lightness, DARK to LIGHT downward —
+ * the inverse of the convex variants. It was 44 points originally and 20 after
+ * the first pass; both read as two stacked colours rather than as a surface.
+ * Taking the concavity from the rim and the inner shadows instead is what lets
+ * the face stay this quiet. Compared against the convex primary at 4x zoom. */
 .btn-fill-secondary {
-  background: linear-gradient(180deg, #35312f, #4a4540); /* stone-tinted */
+  background: linear-gradient(180deg, #3c3835 0%, #494542 100%);
+  border: 1px solid;
+  border-top-color: rgb(255 255 255 / 0.28);
+  border-left-color: rgb(255 255 255 / 0.1);
+  border-right-color: rgb(255 255 255 / 0.1);
+  border-bottom-color: rgb(0 0 0 / 0.65);
   box-shadow:
-    inset 0 2px 4px rgb(0 0 0 / 0.5),
-    inset 0 -1px 0 rgb(255 255 255 / 0.13),
-    0 1px 2px rgb(0 0 0 / 0.35),
-    0 5px 10px -4px rgb(0 0 0 / 0.45);
+    inset 0 1px 0 rgb(0 0 0 / 0.45),
+    inset 0 4px 7px -4px rgb(0 0 0 / 0.55),
+    inset 0 -6px 7px -5px rgb(255 255 255 / 0.2),
+    0 1px 2px rgb(0 0 0 / 0.45),
+    0 8px 16px -7px rgb(0 0 0 / 0.6);
 }
 .btn-fill-secondary:hover {
-  background: linear-gradient(180deg, #3e3a37, #544e49); /* stone-tinted */
+  background: linear-gradient(180deg, #454140 0%, #524e4a 100%);
+  border-top-color: rgb(255 255 255 / 0.34);
 }
 
 /* ── type: the display role ──────────────────────────────────────────────
