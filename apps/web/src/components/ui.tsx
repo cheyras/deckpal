@@ -26,15 +26,31 @@ export type { FormAlertProps } from './ui/FormAlert'
 export { StatusPanel } from './ui/StatusPanel'
 export type { StatusPanelProps } from './ui/StatusPanel'
 
-// Content column: 85% of main with a per-page max-width cap, centred
+// Content column: proportional gutters with a per-page max-width cap, centred
 // (UI-SPEC §4.1 — gutters are proportional, not fixed).
 export function Content({ children, cap = 1165 }: { children: ReactNode; cap?: number }) {
-  // At ≥1068 the content column is exactly 85% of MAIN (the 7.5% gutters ARE the
-  // padding) — so no extra horizontal padding at desktop, or the card grid loses
-  // a column (UI-SPEC §4.1: 4×207.81 + 3×53 = 990.25 = 85% of 1165).
+  // At ≥1068 the content column is 85% of MAIN (the 7.5% gutters ARE the
+  // padding) — no extra horizontal padding at desktop, or the card grid loses a
+  // column (UI-SPEC §4.1: 4×207.81 + 3×53 = 990.25 = 85% of 1165).
+  //
+  // The `max(…, min(…))` is a FLOOR under that 85%, and it exists because the
+  // 85% is measured against MAIN — which is the viewport MINUS the 275px
+  // sidebar. The two compound: crossing 1067→1068px, where the sidebar appears,
+  // MAIN drops to 793 and 85% of that is 674px. Measured, the catalog grid went
+  // from 4 columns at 1067px to 2 columns at 1068px, and the set page from
+  // 22,403px tall to 56,439px — the content column got NARROWER as the viewport
+  // got wider, which is the one thing a responsive rule must never do.
+  //
+  // The floor is "whatever fits with mobile's 16px gutters, but never more than
+  // the 990px the grid actually wants". That leaves the documented behaviour at
+  // and above the 1165 cap byte-identical (85% of 1165 = 990.25 still wins) and
+  // only widens the starved 1068–1400 band.
   return (
     <div className="px-[16px] py-[24px] nav:px-0">
-      <div className="mx-auto w-full nav:w-[85%]" style={{ maxWidth: cap }}>
+      <div
+        className="mx-auto w-full nav:w-[max(85%,min(100%_-_32px,990px))]"
+        style={{ maxWidth: cap }}
+      >
         {children}
       </div>
     </div>
