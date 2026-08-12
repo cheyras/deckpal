@@ -57,20 +57,20 @@
   --color-brand-tertiary-900: #7b3306;
   --color-brand-tertiary-950: #461901;
 
-  /* ── surfaces (Tailwind neutral scale, +1 brightness stop) ────── */
-  --color-surface-primary: #171717; /* neutral-900 */
-  --color-surface-secondary: #262626; /* neutral-800 */
-  --color-surface-tertiary: #404040; /* neutral-700 */
-  --color-surface-tertiary-subtle: rgb(64 64 64 / 0.2); /* neutral-700 */
-  --color-surface-tertiary-transparent: rgb(64 64 64 / 0.5); /* neutral-700 */
-  --color-surface-quaternary: #525252; /* neutral-600 */
-  --color-surface-raised: #737373; /* neutral-500 */
-  --color-surface-control-active: #a3a3a3; /* neutral-400 */
-  --color-surface-profile-card: #404040; /* neutral-700 */
-  --color-surface-on-light: #f5f5f5; /* neutral-100 */
-  --color-surface-on-light-border: #d4d4d4; /* neutral-300 */
-  --color-surface-on-light-text: #262626; /* neutral-800 */
-  --color-surface-footer: #262626; /* neutral-800 */
+  /* ── surfaces (Tailwind STONE scale — warm grey) ──────────────── */
+  --color-surface-primary: #1c1917; /* stone-900 */
+  --color-surface-secondary: #292524; /* stone-800 */
+  --color-surface-tertiary: #44403b; /* stone-700 */
+  --color-surface-tertiary-subtle: rgb(68 64 59 / 0.2); /* stone-700 */
+  --color-surface-tertiary-transparent: rgb(68 64 59 / 0.5); /* stone-700 */
+  --color-surface-quaternary: #57534d; /* stone-600 */
+  --color-surface-raised: #79716b; /* stone-500 */
+  --color-surface-control-active: #a6a09b; /* stone-400 */
+  --color-surface-profile-card: #44403b; /* stone-700 */
+  --color-surface-on-light: #f5f5f4; /* stone-100 */
+  --color-surface-on-light-border: #d6d3d1; /* stone-300 */
+  --color-surface-on-light-text: #292524; /* stone-800 */
+  --color-surface-footer: #292524; /* stone-800 */
 
   /* ── text & links ─────────────────────────────────────────── */
   --color-text-primary: #ffffff;
@@ -92,12 +92,12 @@
   --color-action-primary-strong: var(--color-brand-primary-300);
   --color-action-primary-strong-hover: var(--color-brand-primary-400);
   --color-action-primary-strong-text: var(--color-brand-primary-950);
-  --color-action-default: #262626; /* neutral-800 */
-  --color-action-default-hover: #404040; /* neutral-700 */
+  --color-action-default: #292524; /* stone-800 */
+  --color-action-default-hover: #44403b; /* stone-700 */
   --color-action-default-text: #ffffff;
-  --color-action-ghost-border: #404040; /* neutral-700 */
-  --color-action-ghost-hover: #262626; /* neutral-800 */
-  --color-action-ghost-text: #a3a3a3; /* neutral-400 */
+  --color-action-ghost-border: #44403b; /* stone-700 */
+  --color-action-ghost-hover: #292524; /* stone-800 */
+  --color-action-ghost-text: #a6a09b; /* stone-400 */
   --color-action-danger: #ef4444; /* red-500 */
   --color-action-danger-hover: #dc2626; /* red-600 */
   --color-action-danger-text: #ffffff;
@@ -119,11 +119,11 @@
   --color-banner-gradient-top: rgb(31 35 45 / 0.8);
   --color-track-subtle: #1a1d24;
 
-  /* ── borders / icons (Tailwind neutral scale, matches surfaces) ── */
-  --color-border-default: #525252; /* neutral-600 */
-  --color-border-focus: #a3a3a3; /* neutral-400 */
-  --color-divider-subtle: #404040; /* neutral-700 */
-  --color-avatar-ring: #525252; /* neutral-600 */
+  /* ── borders / icons (Tailwind stone scale, matches surfaces) ── */
+  --color-border-default: #57534d; /* stone-600 */
+  --color-border-focus: #a6a09b; /* stone-400 */
+  --color-divider-subtle: #44403b; /* stone-700 */
+  --color-avatar-ring: #57534d; /* stone-600 */
   --color-icon-default: #7f8596;
   --color-icon-hover: #ffffff;
   --color-icon-active: #ffe165;
@@ -372,7 +372,7 @@ button {
    in the other direction — enough to describe a dish, not enough to look
    like two stacked colours. */
 .btn-fill-secondary {
-  background: linear-gradient(180deg, #363636, #4a4a4a);
+  background: linear-gradient(180deg, #35312f, #4a4540); /* stone-tinted */
   box-shadow:
     inset 0 2px 4px rgb(0 0 0 / 0.5),
     inset 0 -1px 0 rgb(255 255 255 / 0.13),
@@ -380,7 +380,7 @@ button {
     0 5px 10px -4px rgb(0 0 0 / 0.45);
 }
 .btn-fill-secondary:hover {
-  background: linear-gradient(180deg, #3f3f3f, #545454);
+  background: linear-gradient(180deg, #3e3a37, #544e49); /* stone-tinted */
 }
 
 /* Thin scrollbars on horizontal chip rows */
