@@ -175,9 +175,15 @@ export function CardTile({
             ×{qty}
           </span>
         )}
+        {/* This badge sits on ARBITRARY card art, so it cannot rely on a
+            half-transparent grey the way a badge on a known surface can:
+            rgb(64 64 64 / 0.5) behind text-text-muted (#7f8596) disappears over
+            the bright half of a card and reads as text spilling off its own
+            background. A dark scrim plus body-weight text holds up over both a
+            black holo border and a pale green frame. */}
         {card.variantCount > 1 && (
-          <span className="absolute bottom-[8px] left-[8px] rounded-md bg-surface-tertiary-transparent px-[8px] py-[3px] text-[12px] font-medium leading-[18px] text-text-muted backdrop-blur-sm">
-            <span className="font-bold text-text-body">+{card.variantCount - 1}</span> Variants
+          <span className="absolute bottom-[8px] left-[8px] rounded-md bg-overlay-scrim-strong px-[8px] py-[3px] text-[12px] font-medium leading-[18px] text-text-body backdrop-blur-sm">
+            <span className="font-bold text-text-primary">+{card.variantCount - 1}</span> Variants
           </span>
         )}
         {badge && (
