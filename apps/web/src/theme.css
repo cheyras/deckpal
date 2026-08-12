@@ -103,8 +103,8 @@
   --color-action-ghost-border: #44403b; /* stone-700 */
   --color-action-ghost-hover: #292524; /* stone-800 */
   --color-action-ghost-text: #a6a09b; /* stone-400 */
-  --color-action-danger: #ef4444; /* red-500 */
-  --color-action-danger-hover: #dc2626; /* red-600 */
+  --color-action-danger: #fb2c36; /* red-500 */
+  --color-action-danger-hover: #e7000b; /* red-600 */
   --color-action-danger-text: #ffffff;
   /* External / commerce actions: Shop, Purchase Set, Buy on TCGplayer, and the
    * TCGplayer link icons. This was blue-400 — a fourth, unrelated hue that read
@@ -121,17 +121,17 @@
   --color-action-brand-text: var(--color-brand-primary-950);
 
   /* ── status / feedback (Tailwind green/red for status roles) ── */
-  --color-success: #4ade80; /* green-400 */
-  --color-error: #f87171; /* red-400 */
+  --color-success: #00d492; /* emerald-400 — same family as change-positive */
+  --color-error: #ff6467; /* red-400 */
   --color-change-positive: #00bc7d; /* emerald-500 */
-  --color-change-negative: #ef4444; /* red-500 */
-  --color-halo-success: rgb(74 222 128 / 0.1); /* green-400 */
-  --color-halo-error: rgb(248 113 113 / 0.1); /* red-400 */
-  --color-halo-neutral: rgb(255 225 101 / 0.1);
+  --color-change-negative: #fb2c36; /* red-500 */
+  --color-halo-success: rgb(0 212 146 / 0.1); /* emerald-400 */
+  --color-halo-error: rgb(255 100 103 / 0.1); /* red-400 */
+  --color-halo-neutral: rgb(0 211 243 / 0.1); /* primary */
   --color-overlay-scrim: rgb(52 47 45 / 0.7);
   --color-overlay-scrim-strong: rgb(26 23 22 / 0.75);
-  --color-overlay-ring: rgb(255 225 101 / 0.2);
-  --color-overlay-ring-error: rgb(248 113 113 / 0.2); /* red-400 */
+  --color-overlay-ring: rgb(0 211 243 / 0.2); /* primary */
+  --color-overlay-ring-error: rgb(255 100 103 / 0.2); /* red-400 */
   --color-banner-gradient-top: rgb(38 34 33 / 0.8);
   --color-track-subtle: #201c1b;
 
@@ -142,21 +142,18 @@
   --color-avatar-ring: #57534d; /* stone-600 */
   --color-icon-default: #8b847e;
   --color-icon-hover: #ffffff;
-  --color-icon-active: #ffe165;
   --color-icon-muted: #756e68;
   --color-icon-muted-strong: #534f49;
   --color-icon-disabled: #534f49;
   --color-icon-disabled-strong: #322d2b;
 
   /* ── brand / pro / promo ──────────────────────────────────── */
-  --color-pro-accent: #45bcff;
-  --color-pro-accent-text: #1a1716;
-  --color-pro-pink: #7f42ff;
+  /* pink-600, not 500: this is a 9px badge, and white on pink-500 measures
+     3.58:1 — under the 4.5:1 needed for text this size. pink-600 gives 4.54:1. */
+  --color-pro-pink: var(--color-brand-secondary-600); /* pink-600 */
   --color-pro-pink-text: #ffffff;
-  --color-announcement: #3f52ff;
-  --color-announcement-text: #ffffff;
-  --color-completion-grandmaster: #9b6bff;
-  --color-glow-active: #ffe165;
+  --color-completion-grandmaster: var(--color-brand-tertiary-400); /* amber-400 — gold reads as the top tier, and pairs against `success` in ProgressCluster */
+  --color-glow-active: var(--color-brand-primary-400);
 
   /* ── energy-type colours (EnergyIcon) ─────────────────────── */
   --color-energy-grass: #5fb85f;
@@ -172,7 +169,7 @@
   --color-energy-colorless: #d6d2c6;
 
   /* ── warning ─────────────────────────────────────────────── */
-  --color-warning: #ff9d42;
+  --color-warning: #ff8904; /* orange-400 */
 
   /* ── variant accents (owned-badge + legend) ───────────────────
    * Normal reads as the plain card stock (neutral white), Reverse Holofoil
@@ -377,10 +374,10 @@ button {
   background: linear-gradient(180deg, var(--color-brand-primary-400), var(--color-brand-primary-600));
 }
 .btn-fill-danger {
-  background: linear-gradient(180deg, #f87171, #dc2626); /* red-400 -> red-600 */
+  background: linear-gradient(180deg, #ff6467, #e7000b); /* red-400 -> red-600 */
 }
 .btn-fill-danger:hover {
-  background: linear-gradient(180deg, #ef4444, #b91c1c); /* red-500 -> red-700 */
+  background: linear-gradient(180deg, #fb2c36, #c10007); /* red-500 -> red-700 */
 }
 
 /* Concave. The old neutral-600 → neutral-800 ramp spanned 44 points of
