@@ -183,7 +183,14 @@
     box-shadow var(--px-dur) var(--px-ease),
     border-color var(--px-dur) var(--px-ease);
 }
-:root[data-skin='premium'] input:focus,
+/* The `:not()` chain is repeated here on purpose. Each `:not([type=…])` argument
+   contributes a class-level unit to specificity, so the resting rule above
+   scores (0,4,1) while a plain `input:focus` scores only (0,3,1) — the resting
+   shadow then wins WHILE THE INPUT IS FOCUSED and the halo silently never
+   appears. Matching the chain takes this to (0,5,1). textarea/select were
+   never affected (no `:not()` on their side of the resting rule), which is
+   exactly why the bug looked like "only text inputs are broken". */
+:root[data-skin='premium'] input:not([type='checkbox']):not([type='radio']):focus,
 :root[data-skin='premium'] textarea:focus,
 :root[data-skin='premium'] select:focus {
   box-shadow: var(--px-inset-deep), 0 0 0 3px var(--px-accent-soft);
