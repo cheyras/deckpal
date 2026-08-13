@@ -44,6 +44,11 @@
   /* The header's cover stock: coarser and stronger again, because it is read
      THROUGH — it sits over blurred content rather than over a flat surface, and
      a fine grain disappears against a soft background. */
+  /* The cover grain must stay SEMI-TRANSPARENT: an opaque noise layer hides
+     the blurred backdrop completely, which measured identical over plain page
+     and over card art — the whole effect gone. So it is a plain light grain,
+     and the value it adds is compensated in the tint below rather than fought
+     with a blend mode. */
   --px-paper-tooth-cover: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23t)' opacity='0.2'/%3E%3C/svg%3E");
 
   /* ── relief (neumorphism) ──────────────────────────────────────────────
@@ -201,20 +206,57 @@
 
 /* The fixed chrome — header and sidebar — is the frame the sheet sits in. It
    gets an edge-light and a cast onto the content rather than panel relief. */
-/* The top bar is a translucent binder cover: content passing behind it is
-   blurred, and the cover's own tooth sits OVER that blur — the element's
-   background paints above whatever backdrop-filter produced, which is exactly
-   the "read through textured plastic" order.
-   The background-color MUST carry alpha or there is nothing to see through;
-   it was opaque bg-surface-secondary before, so the earlier saturate() had
-   nothing to act on. */
+/* ── Top bar ──────────────────────────────────────────────────────────────
+   Two treatments, switchable at runtime via lib/topbar.ts, because the pair
+   has to be compared on VALUE and not on impression.
+
+   'cover' — a translucent binder cover. Content passing behind is blurred AND
+   DARKENED, and the bar's own grain sits over that blur (an element's
+   background paints above whatever backdrop-filter produced).
+
+   The darkening is `brightness()` inside backdrop-filter, which is the only
+   part of this that touches the backdrop ALONE. Doing it with a heavier tint
+   colour instead would darken the bar itself too, and the bar's grey has to
+   stay where it was before the effect existed.
+
+   The grain is composited with `overlay`, not painted straight on. A light
+   noise at any usable opacity LIFTS the value — measured, it took the bar
+   about 14 points lighter than the flat header, which is the "looks lighter
+   now" tell. Overlay against a mid-grey noise leaves the base value where it
+   is and spends the noise on variance instead.
+
+   'flat' — the header exactly as it was before the effect: opaque surface,
+   the ordinary panel grain, no blur. */
 :root[data-skin='premium'] .app-header {
-  background-color: rgb(41 37 36 / 0.72); /* stone-800 */
+  box-shadow: var(--px-hi), 0 1px 0 rgb(0 0 0 / 0.6), 0 10px 26px -18px rgb(0 0 0 / 0.9);
+}
+
+:root[data-skin='premium'][data-topbar='cover'] .app-header {
+  /* stone-700, not stone-800. brightness() darkens the PAGE behind the bar as
+     well as any content, and the bar is meant to sit LIGHTER than the page —
+     so a tint at the bar's own old value composites too dark. Stepping the
+     tint one stop up compensates, and the measured result lands on the flat
+     header's value. */
+  /* Same token as the flat header, at 62%. Measured against flat across a
+     tint sweep, this lands the bar at [49,47,46] versus flat's [48,44,43] —
+     inside the grain's own variance. Deriving it from the token rather than
+     hard-coding the hex means a future surface recolour carries through.
+     The two forces here pull opposite ways and happen to cancel: brightness()
+     darkens the page behind the bar (and the bar is meant to sit LIGHTER than
+     the page), while the semi-transparent light grain lifts it back. */
+  background-color: color-mix(in srgb, var(--color-surface-secondary) 62%, transparent);
   background-image: var(--px-paper-tooth-cover);
   background-size: 140px 140px;
-  backdrop-filter: blur(18px) saturate(1.3);
-  -webkit-backdrop-filter: blur(18px) saturate(1.3);
-  box-shadow: var(--px-hi), 0 1px 0 rgb(0 0 0 / 0.6), 0 10px 26px -18px rgb(0 0 0 / 0.9);
+  backdrop-filter: blur(18px) brightness(0.62) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) brightness(0.62) saturate(1.25);
+}
+
+:root[data-skin='premium'][data-topbar='flat'] .app-header {
+  background-color: var(--color-surface-secondary);
+  background-image: var(--px-paper-tooth-soft);
+  background-size: 120px 120px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 :root[data-skin='premium'] aside {
   box-shadow: inset -1px 0 0 rgb(255 255 255 / 0.035), 6px 0 24px -20px rgb(0 0 0 / 0.9);
