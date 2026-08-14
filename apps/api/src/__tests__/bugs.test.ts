@@ -1,10 +1,10 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatIssueBody, type IssueBodyParams } from '../routes/bugs.js';
+import { formatIssueBody, parseKind, labelsForKind, type IssueBodyParams } from '../routes/bugs.js';
 
 /**
- * Unit tests for the GitHub issue body formatter used by the bug reporter.
- * Pure-function tests — no network, no DB.
+ * Unit tests for the pure helpers behind the bug/feature-request reporter
+ * (issue body formatting, kind parsing, label selection). No network, no DB.
  *
  * Run: node --import tsx --test src/__tests__/bugs.test.ts
  */
@@ -71,5 +71,52 @@ describe('formatIssueBody', () => {
     const reportLine = body.split('\n').find((l) => l.includes('Report-ID'));
     assert.ok(reportLine, 'report ID line not found');
     assert.match(reportLine!, /^`Report-ID: .+`$/);
+  });
+});
+
+describe('parseKind', () => {
+  test('defaults to "bug" when kind is omitted', () => {
+    assert.equal(parseKind(undefined), 'bug');
+  });
+
+  test('accepts "feature"', () => {
+    assert.equal(parseKind('feature'), 'feature');
+  });
+
+  test('falls back to "bug" for an invalid value rather than erroring', () => {
+    assert.equal(parseKind('typo'), 'bug');
+    assert.equal(parseKind(''), 'bug');
+    assert.equal(parseKind(null), 'bug');
+    assert.equal(parseKind(123), 'bug');
+    assert.equal(parseKind({ kind: 'feature' }), 'bug');
+  });
+
+  test('explicit "bug" stays "bug"', () => {
+    assert.equal(parseKind('bug'), 'bug');
+  });
+});
+
+describe('labelsForKind', () => {
+  test('bug reports carry both the umbrella and "bug" labels', () => {
+    const labels = labelsForKind('bug').map((l) => l.name);
+    assert.deepEqual(labels, ['in-app-report', 'bug']);
+  });
+
+  test('feature requests carry both the umbrella and "feature-request" labels', () => {
+    const labels = labelsForKind('feature').map((l) => l.name);
+    assert.deepEqual(labels, ['in-app-report', 'feature-request']);
+  });
+
+  test('the umbrella "in-app-report" label is unchanged across kinds', () => {
+    const bugLabel = labelsForKind('bug')[0]!;
+    const featureLabel = labelsForKind('feature')[0]!;
+    assert.deepEqual(bugLabel, featureLabel);
+    assert.equal(bugLabel.name, 'in-app-report');
+  });
+
+  test('kind-specific labels use distinct colors', () => {
+    const bugColor = labelsForKind('bug')[1]!.color;
+    const featureColor = labelsForKind('feature')[1]!.color;
+    assert.notEqual(bugColor, featureColor);
   });
 });

@@ -1,4 +1,5 @@
 import type { CardSearch, SortKey, ViewMode, Ownership, Goal } from '../routes/setSearch'
+import { GOAL_TITLE } from '../routes/setSearch'
 import { Icon } from './Icon'
 
 type Patch = (p: Partial<CardSearch>) => void
@@ -28,11 +29,6 @@ export function OwnershipStrip({
     { key: 'dupes', label: `Dupes (${counts.dupes})` },
   ]
   const goals: Goal[] = ['complete', 'master', 'grandmaster']
-  const goalTitle: Record<Goal, string> = {
-    complete: 'Complete Set',
-    master: 'Master Set',
-    grandmaster: 'Grandmaster Set',
-  }
   return (
     <div className="flex flex-wrap items-center gap-[12px]">
       <OwnershipButtons items={owns} activeKey={search.own} onSelect={(key) => patch({ own: key as Ownership })} />
@@ -42,7 +38,7 @@ export function OwnershipStrip({
           const next = goals[(goals.indexOf(search.goal) + 1) % goals.length]
           patch({ goal: next })
         }}
-        title={`Goal: ${goalTitle[search.goal]} (click to cycle)`}
+        title={`Goal: ${GOAL_TITLE[search.goal]} (click to cycle)`}
         className="flex h-[36px] w-[36px] items-center justify-center rounded-lg bg-surface-tertiary hover:bg-action-default-hover"
       >
         <Icon

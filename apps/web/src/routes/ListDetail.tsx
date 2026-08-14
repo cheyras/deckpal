@@ -9,6 +9,7 @@ import { BinderView } from '../components/BinderView'
 import { SearchBox, ViewToggle, SortChipStrip, OwnershipButtons } from '../components/FilterControls'
 import { AddCardModal, ConfirmModal, ListFormModal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
+import { KebabMenu } from '../components/KebabMenu'
 import { fmtUsd, fmtDate } from '../lib/format'
 import { type ListSearch, type ListSortKey, LIST_SEARCH_DEFAULTS } from './listSearch'
 
@@ -254,9 +255,13 @@ export function ListDetail() {
                 <button onClick={() => setShowEdit(true)} aria-label="Edit list" className="flex h-[42px] w-[42px] items-center justify-center rounded-full bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
                   <Icon name="sliders" size={18} />
                 </button>
-                <button onClick={() => setShowDelete(true)} aria-label="Delete list" className="flex h-[42px] w-[42px] items-center justify-center rounded-full bg-surface-tertiary text-action-danger hover:bg-action-danger hover:text-action-danger-text">
-                  <Icon name="close" size={18} />
-                </button>
+                <KebabMenu
+                  ariaLabel="List options"
+                  size={42}
+                  items={[
+                    { key: 'delete', label: 'Delete list', icon: 'close', danger: true, onSelect: () => setShowDelete(true) },
+                  ]}
+                />
               </div>
             </div>
 

@@ -1,0 +1,59 @@
+# AI triage — a cheap model reviews every issue filed via the in-app reporter
+# and posts a draft analysis as a comment (comment-only, never modifies labels
+# or issue state).
+#
+# ── Why this workflow exists ────────────────────────────────────────────────
+# The in-app bug/feature reporter (apps/api/src/routes/bugs.ts) creates GitHub
+# issues labeled "in-app-report" plus a kind label ("bug" or "feature-request").
+# This workflow gives the maintainer a second pair of eyes on each report: a
+# draft analysis that notes missing reproduction details (for bugs) and ranks
+# the issue against current project priorities (from the wiki).
+#
+# The output is clearly labeled as AI-generated and non-authoritative.  The
+# workflow NEVER modifies labels, closes/reopens issues, or changes priority.
+# It is a comment, not a decision.
+#
+# ── Scope limits (deliberate) ──────────────────────────────────────────────
+# Full autonomous reproduction (Playwright + QA account) was explicitly deferred
+# as too risky for a first pass.  This workflow does not run tests, does not
+# access the application, and does not claim to have verified anything.
+# See DECISIONS.md 2026-08-11.
+#
+# ── Secrets the repository owner must add ──────────────────────────────────
+# Settings → Secrets and variables → Actions → New repository secret:
+#
+#   ANTHROPIC_API_KEY   ← an Anthropic API key (any tier; Haiku is cheap)
+#
+# Until this secret exists the workflow exits cleanly with a notice — it does
+# not fail loudly, because a missing optional enrichment should not spam
+# every issue author with a red CI notification.  The built-in GITHUB_TOKEN
+# is sufficient for posting the comment; no additional GitHub PAT is needed.
+
+name: Issue triage
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  triage:
+    # Only fire for issues created by the in-app reporter, not hand-filed issues.
+    if: contains(github.event.issue.labels.*.name, 'in-app-report')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      issues: write        # post the comment
+      contents: read       # checkout the repo (for the script)
+
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GH_TOKEN: ${{ github.token }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: AI triage
+        run: bash scripts/triage-issue.sh

@@ -44,6 +44,7 @@ export type IconName =
   | 'logout'
   | 'mail'
   | 'key'
+  | 'kebab'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   cards: (
@@ -260,6 +261,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <circle cx="8" cy="12" r="4.2" />
       <path d="M12.2 12H21M18.2 12v3.2M15.4 12v2.4" />
+    </>
+  ),
+  kebab: (
+    <>
+      <circle cx="12" cy="5" r="1.8" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1.8" fill="currentColor" stroke="none" />
     </>
   ),
 }

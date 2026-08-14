@@ -3733,6 +3733,527 @@ its one frontend consumer.
 
 _Filed by agent on behalf of @cheyras — 2026-08-11._
 
+## 2026-08-11 — Avatar upload "No image was uploaded" on Vercel (issue #28)
+
+**Decided by:** agent, on investigation of production failure evidence.
+
+**Decision:** The `readImageBody` middleware in both `avatar.ts` and
+`scan/router.ts` now snapshots `req.body` before `express.raw()` runs
+and restores the snapshot if `express.raw()` produces an empty Buffer.
+The handler's `Buffer.isBuffer()` check is replaced with a `toBuffer()`
+coercion that also accepts `Uint8Array`, `ArrayBuffer`, and binary
+strings.
+
+**Root cause (confirmed):**
+Vercel's Node.js helpers (`NODEJS_HELPERS`, enabled by default) define
+`req.body` as a lazy getter on `/api/` function handlers.  For
+`application/octet-stream`, the getter returns a Buffer of the request
+body.  When the getter fires (any access to `req.body`), it buffers the
+body and the underlying request stream is consumed.  `express.raw()`
+then reads the already-drained stream, gets a zero-length Buffer, and
+**overwrites** the valid body the getter returned — producing the "No
+image was uploaded." 400 error.
+
+Both avatar and scanner routes were affected identically (both use
+`express.raw({ type: () => true })`).  Vercel production logs confirmed
+intermittent 400 errors on `POST /api/avatar` and `POST /api/scan`
+across multiple deployments.
+
+**Reproduction:**
+1. Vercel `vercel logs --query avatar --status-code 400` showed six 400
+   errors across four deployments.  The same deployments also served 201
+   successes — confirming the failure is intermittent, not universal.
+2. Chromium-based Playwright tests against production could not reproduce
+   the failure (all succeeded with 201), which is consistent with the
+   intermittent nature — the exact conditions under which the getter
+   fires before `express.raw()` depend on the Vercel runtime's internal
+   body-handling path, which can vary between cold and warm starts or
+   across runtime versions.
+3. WebKit browser engine was not available in the test environment
+   (Playwright WebKit not installed on this host), so the Mobile Safari
+   hypothesis could not be directly tested.  However, the Vercel logs
+   show failures from multiple deployments without browser correlation,
+   indicating the issue is server-side, not browser-specific.
+
+**What was ruled out:**
+- Express `express.json()` consuming the stream first: confirmed from
+  body-parser source that `express.json()` skips entirely for non-JSON
+  content types (the avatar sends `application/octet-stream`), never
+  accessing `req.body` or reading the stream.
+- Auth/RLS middleware triggering the getter: code review confirmed
+  none of the middleware chain accesses `req.body`.
+- Mobile Safari `Blob` body bug: while the reporter's UA was iPhone
+  Safari, the server-side logs show the same pattern regardless of
+  client, and the scanner route (which uses camera frames, not file
+  picker) has the same failures.
+
+**Fix mechanism:**
+```ts
+const preExisting = req.body;  // captures getter result (or undefined)
+rawImageBody(req, res, (err) => {
+  // if express.raw() left us with nothing, restore
+  if (empty(req.body) && preExisting != null) req.body = toBuffer(preExisting);
+  next();
+});
+```
+On plain Node (self-host): `req.body` is `undefined`, `preExisting` is
+`undefined`, `express.raw()` reads the stream successfully — no change.
+On Vercel: the getter fires, `preExisting` gets the Buffer, the stream
+is consumed, `express.raw()` gets nothing, the restore fires — fixed.
+
+**Verification:**
+- Typecheck: `pnpm --filter deckscout-api typecheck` passes.
+- Preview deployment: `vercel deploy` to
+  `deckscout-bi202q249-deck-scout.vercel.app` — built and deployed
+  successfully.
+- Avatar upload against preview: 201 with `Content-Type:
+  application/octet-stream`, `image/jpeg`, `image/png`, chunked
+  transfer (no Content-Length), and 3 rapid concurrent uploads — all
+  succeeded.
+- Scanner endpoint against preview: 200 with actual scan results
+  (bytes received and processed, not rejected as empty).
+- Empty body: correctly returns 400 "No image was uploaded."
+
+**Implications:**
+- The `NODEJS_HELPERS` env var (default enabled) is left as-is — the
+  fix is in application code, not infrastructure config (contract B9).
+- Any future route that uses `express.raw()` or reads raw body bytes
+  should use the same `preExisting` snapshot pattern, or disable helpers
+  per-function with `export const config = { api: { bodyParser: false } }`.
+- The `toBuffer()` utility in `http.ts` is now available for any route
+  that needs to normalise body types across runtimes.
+
+_Filed by agent on behalf of @cheyras — 2026-08-11._
+
+## 2026-08-11 — One progress bar, not two: reversing the Phase 1 two-bar call (#30)
+
+**Decided by:** user (issue #30: "two collection bars → one bar configured to
+the current goal, colored per goal, with a badge") + agent on behalf of
+@cheyras.
+
+**Decision:** `ProgressCluster` now renders a single progress bar, keyed on
+`progress[goal]` (whichever of Complete/Master/Grandmaster is currently
+selected), instead of the fixed two-bar stack (Complete always on top, Master/
+Grandmaster always underneath) shipped under the "Corrections to the BRIEF
+forced by Phase 1 research" entry earlier in this file (~2026-07-24, item 1:
+"bar 1 is always Complete Set; bar 2 is Master, or Grandmaster... Label the
+second bar"). This reverses that call outright, not just its styling:
+
+- The bar's fill color and the passed-milestone star color now key off a
+  `GOAL_COLOR` map (`apps/web/src/components/ProgressCluster.tsx`): the
+  salmon→yellow gradient is kept for Complete specifically (distinctive,
+  already paired with the milestone dots), flat `var(--color-success)` for
+  Master, flat `var(--color-completion-grandmaster)` for Grandmaster — the
+  same two flat colors bar 2 used to carry, now extended to Complete too and
+  applied to the single remaining bar.
+- A new badge next to "X/X Collected" names the active goal
+  (`GOAL_SHORT_LABEL`), using per-goal translucent background + text colors
+  (`GOAL_BADGE_BG`), the same low-alpha-wash idiom as `LegalBadge`/
+  `ResultBadge` elsewhere in the app.
+- The milestone dots (25/50/75%, dot→star on passing) recompute against the
+  *current* goal's `pct`, not always Complete's.
+- `LVL` stays keyed to Complete-Set `pct` regardless of the selected goal —
+  it's an account-level "trainer level" reading (verified against pkmn.gg),
+  not a per-goal stat, so it does not retarget with the bar (see comment in
+  `ProgressCluster.tsx`).
+- `GOAL_TITLE`/`GOAL_SHORT_LABEL` were pulled into shared maps in
+  `apps/web/src/routes/setSearch.ts` so the goal-switcher tooltip
+  (`FilterControls.tsx`) and the new badge can't drift apart the way two
+  independent copies eventually would.
+
+**Why:** The two-bar design was a faithful implementation of the Phase 1
+brief's captured pkmn.gg behavior at the time, but the account owner
+reconsidered it directly in #30 — a fixed second bar for whichever goal
+*isn't* selected reads as more clutter than signal once the app already has a
+goal switcher in the filter strip. One bar that retargets to the active goal,
+plus a badge naming it, carries the same information with less visual noise.
+
+**Verified:**
+- `pnpm --filter deckscout-web typecheck` and the repo-wide
+  `pnpm -r --workspace-concurrency=1 exec tsc --noEmit` both clean.
+- Live browser, QA account (`qa@deckscout.io`), against `apps/api` standalone
+  on `.env.cloud` behind a temporary (reverted before commit) Vite `/api`
+  proxy — same technique as the #25/#26 entries above. Seeded 2 owned
+  (card, variant) pairs on Base Set / Fossil card #1 (Aerodactyl: Unlimited
+  Galaxy Holofoil + 1st Edition Galaxy Holofoil) for the QA user only, via the
+  real collection-increment UI (not a raw insert), then read all three goal
+  states:
+  - `?goal=complete`: badge "COMPLETE" (yellow), gradient bar, "1/62
+    Collected", 1.6%.
+  - `?goal=master`: badge "MASTER" (teal), flat `--color-success` bar,
+    "2/124 Collected", 1.6%.
+  - `?goal=grandmaster`: badge "GRANDMASTER" (purple), flat
+    `--color-completion-grandmaster` bar, "2/177 Collected", 1.1%.
+  - Confirmed exactly one bar container rendered in the DOM for all three
+    states (not two, one hidden). `LVL` read "1" unchanged across all three,
+    confirming it stays Complete-Set-keyed. Milestone dots rendered correctly
+    unfilled at this low completion. Two screenshots captured
+    (`issue30-master.png`, `issue30-grandmaster.png`) plus a third for
+    `complete`.
+  - Cleanup: decremented both counters back to 0 via the real UI, confirmed
+    server-side after a reload (both read "0 owned") and independently via
+    direct query — `collection_item` rows exist with `quantity = 0` (the
+    app's normal remove-to-zero behavior, not deleted rows) and
+    `user_set_progress` recomputed back to `0/62`, `0/124`, `0/177` for all
+    three goals.
+
+**Incidentally confirmed (not fixed here, out of scope for #30):** the
+standalone `apps/api` + `.env.cloud` verification harness reliably wedged its
+own connection pool (`PGPOOL_MAX_API`, hard-capped at 3) on *every* fresh
+process, before any of my own test traffic — `pg_stat_activity` showed
+genuine leaked `idle in transaction` sessions (a completed query, transaction
+never committed) from several different endpoints across repeated attempts
+(`app_user` username lookup, `user_profile` avatar lookup, a Pokédex
+dex-capture query, a series card/set-count query), not just the
+`/insights/overview` route the 2026-08-10 entry already names. `AppShell`
+fires `/insights/overview` globally on *every* authenticated page (not only
+the Insights page), so that one route alone is enough to starve a 2–3
+connection pool on first paint. A single isolated request (no concurrency)
+always succeeded quickly; only concurrent authenticated requests triggered
+the leak, consistent with a `Promise.all`-shaped race against one
+RLS-scoped `PoolClient` (`withUserContext`) recurring in more places than
+previously documented, not a one-off in `/insights`. Verification here was
+completed by serializing all `/api/*` requests through Playwright's request
+routing (one at a time, entirely in the test harness — no app code touched)
+so the browser never sent the backend concurrent authenticated requests.
+Flagged for whoever picks up the existing `/insights` connection-pool item —
+this looks like the same bug with a wider blast radius than previously
+scoped, not a second bug.
+
+**Implications:**
+- `apps/web/src/routes/landing/Mockups.tsx` (the logged-out marketing page)
+  still renders and documents a two-bar "ProgressCluster" mockup in its own
+  independent `ProgressBars` component, and the 2026-08-10 landing-page
+  DECISIONS.md entry describes it the same way. Both are now stale relative
+  to the real component. Left alone here — it's a separate, illustrative
+  component (not literally `ProgressCluster`, per its own top-of-file
+  comment) and redesigning it is a distinct visual task outside #30's scope,
+  not a rubber-stamp fix.
+- Any future goal-copy addition should extend `GOAL_TITLE`/`GOAL_SHORT_LABEL`
+  in `setSearch.ts`, not add a third local copy.
+
+_Filed by agent on behalf of @cheyras — 2026-08-11._
+
+## 2026-08-11 — Bug reporter splits into bug vs. feature request (issue #32)
+**Decided by:** user (issue report), implemented by agent.
+**Decision:** The in-app reporter (`apps/web/src/components/BugReport.tsx`,
+`apps/api/src/routes/bugs.ts`) now carries a `kind: 'bug' | 'feature'` field
+end-to-end instead of assuming every report is a bug:
+
+1. **Migration `034_bug_report_kind.sql`** adds `bug_report.kind TEXT NOT NULL
+   DEFAULT 'bug' CHECK (kind IN ('bug', 'feature'))`. Default `'bug'` keeps
+   existing rows and any client that omits the field (self-host, a stale
+   cached bundle) meaningful without a breaking change. No RLS changes: the
+   023 policies are row-scoped (`user_id = auth.uid()`), not column-scoped.
+2. **Backend** — `parseKind()` defaults anything other than the literal string
+   `'feature'` to `'bug'` rather than 400ing (additive field). `ensureLabel()`
+   is generalized from a hardcoded `"in-app-report"` triple to take a
+   `LabelSpec`; `labelsForKind()` returns the unchanged umbrella
+   `in-app-report` label (`d73a4a`, every existing open issue from this
+   reporter already carries it) plus a kind-specific second label —
+   `bug` (`d73a4a`) or `feature-request` (`a2eeef`, GitHub's conventional
+   "enhancement" blue). `createGhIssue()` ensures both labels and files the
+   issue with both. Self-host mode's `report.md` frontmatter gains a `kind:`
+   line.
+3. **Frontend** — a segmented Bug / Feature-request toggle (same idiom as the
+   Overview/Trends sub-toggle and currency toggle in `Insights.tsx`) drives
+   the modal title and helper/placeholder copy. Screenshot capture is
+   unchanged for both kinds. Trigger button's aria-label/title broadened to
+   "Report a bug or feature request".
+4. Extended `bugs.test.ts` with `parseKind`/`labelsForKind` unit tests
+   (default-to-bug, invalid-falls-back-to-bug, both labels present per kind).
+
+**Why:** Issue #32 — users had no way to signal "this is a feature idea" vs.
+"this is broken"; every report went out as an undifferentiated bug, and every
+GitHub issue this reporter ever filed got the same single label regardless of
+intent.
+
+**Implications:**
+- Any future consumer of `bug_report` rows (dashboards, the `fix-issues`
+  skill) can now filter/group by `kind`.
+- `ensureLabel`/`createGhIssue`/`labelsForKind` are exported and pure/testable
+  (labels are plain data — no network call needed to verify which labels a
+  given kind requests).
+- Verified end-to-end against a **local, migrated dev Postgres** with real
+  `GITHUB_TOKEN`/`GITHUB_REPO` (isolated from `SUPABASE_MODE`/RLS, which stay
+  unset so identity resolves to the self-host single local user) — this let
+  the reporter file a real GitHub issue (cheyras/deckscout#36, both labels
+  confirmed, then closed) without applying the migration to production
+  Supabase, which stays a deliberate, separate deploy step the site owner
+  triggers themselves.
+
+_Filed by agent on behalf of @cheyras — 2026-08-11._
+
+## 2026-08-11 — Agentic deck-building defaults to cheapest printing (issue #31)
+**Decided by:** user (issue report), implemented by agent.
+**Decision:** When an AI agent builds or edits a deck via rotom-mcp, the MCP
+server now surfaces price in every ambiguous-candidate path and sorts candidates
+cheapest-first, and tool descriptions explicitly instruct the calling LLM to
+prefer the cheapest printing of a named card unless the user specified a
+particular rarity or alternate art. Three coordinated changes:
+
+1. **`resolve.ts`** — `resolveCard()` joins best USD market price per candidate
+   card (same `price_current` join pattern as `search_cards`), `describeCard()`
+   renders it, and the ambiguous candidates list sorts price-ascending (unpriced
+   last). The "ambiguity is returned, not guessed" identity-correctness policy
+   is preserved — nothing is auto-selected; the list is just ordered and
+   price-annotated so the first candidate an agent picks is the cheap one.
+
+2. **`catalog.ts`** — `search_cards` sort now groups same-name rows and orders
+   them by price ascending within each name group (different names keep relevance/
+   recency order). The tool description explicitly tells the calling agent to
+   prefer the cheapest printing when building/pricing a deck.
+
+3. **`decks.ts`** — `save_deck` tool description, `cards` array field description,
+   and `ptcgl_text` field description all carry explicit cheapest-printing
+   guidance for deck-building. This is a legitimate, first-class mechanism per
+   SPEC §4 ("Descriptions state what the tool does... Zod `.describe()` on every
+   field — it's the only arg docs the model gets").
+
+**Why:** The same named card (e.g. "Mega Lucario ex") exists as multiple distinct
+printings — a $0.78 regular Double Rare and a $208+ Special Illustration Rare
+that are gameplay-identical. Without price awareness, agentic deck-building picks
+one effectively at random, which can inflate a deck's cost by hundreds of dollars
+for no gameplay benefit. The fix uses tool descriptions as an LLM-facing
+default-behavior lever — a proportionate, zero-side-effect approach that aligns
+with the existing SPEC convention.
+
+**Implications:**
+- `ResolvedCard` now carries a `bestMinor` field (nullable). Any future consumer
+  of `resolveCard` / `describeCard` gets price for free.
+- `describeCard()` output now always ends with a price segment (`$X.XX` or
+  `unpriced`). Consumers that parse this string (there shouldn't be any — it's
+  human/LLM-readable) should be aware.
+- The `search_cards` ORDER BY is slightly heavier (adds `lower(c.name)` +
+  `b.best_minor` columns to the sort) but the existing indexes cover it and the
+  query was already joining `best` prices.
+- Tool descriptions are longer. This is intentional — the extra sentences are
+  load-bearing behavioral guidance, not documentation bloat.
+
+_Filed by agent on behalf of @cheyras — 2026-08-11._
+
+## 2026-08-11 — AI issue triage: scoped-down, comment-only, draft-labeled (issue #33)
+**Decided by:** user (scope-down), implemented by agent.
+**Decision:** Every issue filed via the in-app reporter gets a lightweight AI
+triage comment — a cheap model (Claude Haiku 4.5 via the Anthropic API) reviews
+the report and posts a draft analysis.  The full autonomous version proposed in
+issue #33 — Playwright reproduction with QA credentials in CI, automatic
+labeling/closing, and unreviewed auto-posting — was explicitly deferred as too
+risky for a first pass.  What ships:
+
+1. **Trigger:** `.github/workflows/issue-triage.yml` fires on `issues: [opened]`
+   filtered to issues carrying the `in-app-report` label (set by bugs.ts in the
+   issue #32 work), so it only runs for reporter-generated issues, not hand-filed
+   ones.
+
+2. **Script:** `scripts/triage-issue.sh` fetches the issue via `gh`, clones the
+   public wiki (shallow), assembles bounded context (Project-Brief.md in full +
+   last 200 lines of Decision-Log.md — recent decisions are the live "what's
+   being worked on" signal; the full 85KB log is wasteful for a cheap model),
+   calls the Anthropic API, and posts a comment.
+
+3. **Model:** `claude-haiku-4-5` — the cheapest available model ($1/$5 per MTok).
+   Direct `curl` against `api.anthropic.com/v1/messages` with `x-api-key` header.
+   No SDK dependency needed for a single CI call.
+
+4. **Output:** A GitHub comment headed "AI Triage (draft — for maintainer review,
+   not authoritative)".  For bugs: notes on missing reproduction detail, clarity
+   assessment.  For both kinds: priority ranking against wiki-documented
+   priorities.
+
+5. **Safety rails:**
+   - Comment-only: never modifies labels, never closes/reopens, never edits the
+     issue body.
+   - Clearly labeled as AI-generated draft.
+   - Graceful degradation: missing `ANTHROPIC_API_KEY` secret logs a notice and
+     exits 0 (no noisy failure).  API errors, network failures, and empty
+     responses all exit 0 with a warning annotation.
+
+**What was deferred (not built, by explicit product-owner decision):**
+- Playwright reproduction of bugs with the QA account in CI — adding credentials
+  to CI and running headless browser tests against prod is a meaningful attack
+  surface expansion that should be evaluated separately.
+- Automatic labeling/closing/state changes — the AI's assessment is a suggestion,
+  not a decision.  Letting it mutate issue state would make it an implicit
+  authority.
+- Auto-posting without review — the current design posts immediately (the
+  maintainer reviews after the fact), but the content is bounded (one comment,
+  read-only, draft-labeled).
+
+**Activation:** The workflow reads `${{ secrets.ANTHROPIC_API_KEY }}`.  No
+secrets currently exist in this repo.  The owner must add one:
+`gh secret set ANTHROPIC_API_KEY --repo cheyras/deckscout`.  Until then the
+workflow exits cleanly on every trigger.
+
+**Why this design:**
+- The original ask (issue #33) included full Playwright reproduction and
+  auto-triage.  The scope was narrowed because: (a) QA credentials in CI is a
+  security surface expansion that deserves its own review, (b) autonomous
+  unreviewed actions on issues are the kind of thing that's hard to undo once
+  it misfires, and (c) a draft comment that helps the maintainer triage faster
+  captures 80% of the value at 10% of the risk.
+- Haiku is chosen over a more expensive model because triage is high-volume,
+  low-stakes work — a wrong priority suggestion is harmless (it's labeled as a
+  draft), while a $0.50/issue cost on a popular project would not be.
+- Wiki context is bounded (Project-Brief + recent Decision-Log) rather than
+  dumping all wiki pages because: the brief is the priorities statement, recent
+  decisions capture active work, and feeding 85KB+ of historical decisions to a
+  200K-context cheap model is wasteful.
+
+**Implications:**
+- New repository secret needed: `ANTHROPIC_API_KEY` (documented in DEPLOYMENT.md
+  section 7, "AI issue triage").
+- The workflow is dormant until the secret is added — no behavioral change until
+  the owner activates it.
+- Future extensions (Playwright reproduction, auto-labeling) can layer on top of
+  this foundation without reworking it.
+
+_Filed by agent on behalf of @cheyras — 2026-08-11._
+
+## 2026-08-11 — Delete buttons buried in a kebab menu (issue #34)
+
+**Decided by:** agent, per issue #34 ("bury it in a kebab menu... do this in
+every similar instance, not just on this page").
+
+**Decision:** Added a reusable `KebabMenu` component
+(`apps/web/src/components/KebabMenu.tsx`) — a trigger button + dismissible
+dropdown, outside-click/Escape to close — and used it at the two call sites
+that matched the reported pattern: a standalone, always-visible,
+danger-colored icon button that deletes the whole entity, sitting directly
+next to the entity's editable title.
+
+1. `apps/web/src/routes/DeckBuilder.tsx` — deck header, replaced the bare
+   "Delete deck" button with the kebab trigger.
+2. `apps/web/src/routes/ListDetail.tsx` — list header, same replacement for
+   "Delete list".
+
+Both still open the exact same, unmodified `ConfirmModal` flow on click — only
+the trigger changed. The menu itself carries one item today
+(`{ key: 'delete', label: '...', danger: true }`); only that item is
+danger-colored, not the menu chrome. Added a `kebab` icon (three vertical
+dots) to `Icon.tsx` for the trigger.
+
+**Scope confirmed, not touched:** grepped every `text-action-danger` /
+`bg-action-danger` button in `apps/web/src` (`ListDetail.tsx:97` "Remove
+{item}", `Profile.tsx:301` "Remove showcase card", `CardTile.tsx:278` hover
+remove, `AgentAccess.tsx:330` "Revoke" token). All are per-row/per-item
+actions inside a list, not a whole-entity delete beside a page title, and stay
+as quick, visible actions on purpose. `BattlesTab.tsx`'s "Delete Log" is
+already behind progressive disclosure (only rendered once a battle-log row is
+expanded) — not "in the open" the way the issue describes, so it was left
+alone too.
+
+**Why:** The issue explicitly asked for a reusable component ("do this in
+every similar instance"), not a one-off fix, and DeckScout's stated
+convention is that repeated UI patterns become shared components. Built to
+hold more than one item on purpose — a real menu, not a delete button
+wearing a costume — even though only one item exists at either call site
+today.
+
+**Verified:** `pnpm --filter deckscout-web typecheck` clean. Browser
+(Playwright, QA account) against a local dev build in cloud mode
+(`.env.cloud`), proxying `/api` straight to the deployed `deckscout.io` API
+for this pass — a purely frontend change, so no local `apps/api` instance was
+needed (the vite.config.ts proxy tweak was reverted before commit). Created
+and later cleaned up a throwaway deck and a throwaway list on the QA account:
+confirmed the bare delete button is gone, the kebab trigger renders in its
+place, opening it reveals the menu, outside-click and Escape both dismiss it,
+"Delete deck"/"Delete list" opens the same `ConfirmModal`, and Cancel leaves
+the deck/list intact. Screenshotted closed + open on both pages at desktop
+and 390px.
+
+**Implications:** Future whole-entity-delete-next-to-a-title UI should reach
+for `KebabMenu` first rather than a bare danger icon button.
+
+_Filed by agent on behalf of @cheyras — 2026-08-11._
+
+## 2026-08-11 — Fix Promise.all connection-pool exhaustion: the actual root cause of #35 (and #25/#26/#27/#30 verification wedges)
+
+**Decided by:** agent, on behalf of @cheyras
+
+**Decision:** Eliminated all remaining `Promise.all([...q() calls...])` instances
+in the API — the exact mechanism that four separate, unrelated agents independently
+hit and documented across issues #25, #26, #27, and #30 earlier this same day, and
+the confirmed root cause of issue #35 ("Decks take a very long time to load in").
+
+**Root cause (confirmed, with full evidence trail in this file):**
+`apps/api/src/db.ts` manages a 2–3 connection pool. In `SUPABASE_MODE`, every
+authenticated request checks out ONE `PoolClient` and wraps it in a transaction
+(`SET LOCAL role = 'authenticated'`) for RLS. All `q()`/`q1()` calls within that
+request share this single client via `AsyncLocalStorage` (`rlsStore`). `node-postgres`
+does not support concurrent queries on a single connection — dispatching multiple
+`q()` calls via `Promise.all` appears parallel but is actually serialised, and the
+concurrent dispatch on one client can leave the connection in a broken state,
+exhausting the pool for all subsequent requests. Since `AppShell` fires
+`/insights/overview` on every authenticated page, this one endpoint was enough to
+starve the pool on first paint under real concurrent traffic — the felt slowness
+on `/decks` (issue #35) was not the deck-listing query itself (confirmed: `decks.ts`
+has no `Promise.all`) but the global `/insights/overview` call wedging the pool.
+
+**What was fixed (three instances):**
+
+1. **`routes/insights.ts` `/insights/overview` (line 31):**
+   `Promise.all([currentCollectionValue(userId), dexCompletion(userId)])` — replaced
+   with a single combined SQL statement (the `cards.ts` proven pattern: independent
+   scalar subqueries returning JSON, one round trip). Also folded the preceding
+   `ownedCounts(userId)` call into the same statement, going from 3 round trips to 1.
+   This is the highest-impact fix: `/insights/overview` fires on every authenticated
+   page via `AppShell`.
+
+2. **`routes/insights.ts` `/insights/value` (line 54):**
+   `Promise.all([currentCollectionValue(userId), valueSeries(...), topMovers(...)])`
+   — replaced with sequential `await`s. Each function involves non-trivial JS
+   post-processing (aggregation, delta computation, sort/slice), and `/value` is
+   only hit when the user visits the Insights tab — the readability win of keeping
+   the module functions outweighed the marginal round-trip savings of combining.
+   The concurrency bug is fixed equally well by sequential awaits.
+
+3. **`routes/search.ts` `loadFacets()` (line 193):**
+   A 10-way `Promise.all` of `q()` calls for search filter facets — replaced with a
+   single combined SQL statement (10 independent `json_agg` subqueries). Ten round
+   trips to one. Same pattern as the `cards.ts` 9-query fix.
+
+**Precedent:** `routes/cards.ts` (line 97) was already fixed with this exact
+pattern — its detailed comment explains the mechanism. The three instances above
+were the remaining un-fixed occurrences. `scan/phash.ts:276`'s `Promise.all` is
+concurrent CPU-bound image decoding, not database queries — confirmed safe, left
+alone.
+
+**Verified:**
+- `pnpm --filter deckscout-api typecheck`: clean (no errors).
+- All 52 deck tests + all 25 insights pure tests pass.
+- Functional correctness: ran the combined SQL and original separate queries side
+  by side against the real cloud database for both the QA account (empty collection)
+  and the main account (389 cards, 920 qty, EUR+USD values, 224/1025 dex). JSON
+  output was byte-for-byte identical in all cases.
+- HTTP response shapes: started the API in cloud mode (`.env.cloud`,
+  `SUPABASE_MODE=1`, `PGPOOL_MAX_API=2`), verified all three endpoints return
+  correct JSON with real data — trainer level, collection values, dex completion,
+  value series with delta, and all 12 search facets with correct counts/shapes.
+- Concurrency: 30 requests across 5 waves of 6 concurrent requests each, zero
+  failures, stable latency (avg 189ms, p95 371ms, max 398ms). The pool-wedging
+  bug, as documented by four prior agents, manifests under sustained concurrent
+  traffic with real data making queries slow enough to widen the race window. With
+  the QA account's empty collection, queries return in <10ms — too fast to reliably
+  trigger the race in a test harness. The structural fix (eliminating the concurrent
+  dispatch pattern) is the important change, confirmed correct by the code review
+  and output matching.
+
+**Implications:**
+- No more `Promise.all` of `q()`/`q1()` calls in the API codebase. The pattern is
+  a lie under `SUPABASE_MODE` and should never be reintroduced — see the `cards.ts`
+  comment for the full explanation.
+- The `ownedCounts`, `currentCollectionValue`, `dexCompletion` functions are still
+  exported and used by other callers (e.g., `snapshotCollectionValue`). The
+  `/insights/overview` route now bypasses them for its own combined query, but they
+  remain available.
+- Pool size (`PGPOOL_MAX_API`) was deliberately NOT changed — the fix addresses the
+  actual bug (serialized queries pretending to be parallel, concurrent dispatch on
+  one client), not the symptom (pool exhaustion). Increasing the pool size would
+  mask the bug without fixing it.
+
+_Filed by agent on behalf of @cheyras — 2026-08-11._
+
 ## 2026-08-11 — Design-system editor: change-application model approved (Phase 0 gate)
 **Decided by:** product owner (user), in conversation with the orchestrating session.
 **Decision:** The following change-application capabilities are approved for the

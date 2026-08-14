@@ -39,6 +39,20 @@ const VIEWS: ViewMode[] = ['grid', 'table', 'binder']
 const GOALS: Goal[] = ['complete', 'master', 'grandmaster']
 const OWNS: Ownership[] = ['all', 'have', 'need', 'dupes']
 
+// Shared goal copy — used by FilterControls' goal switcher tooltip (full form)
+// and ProgressCluster's goal badge (short form). One map each, so the two
+// call sites can't drift (GitHub #30 cleanup).
+export const GOAL_TITLE: Record<Goal, string> = {
+  complete: 'Complete Set',
+  master: 'Master Set',
+  grandmaster: 'Grandmaster Set',
+}
+export const GOAL_SHORT_LABEL: Record<Goal, string> = {
+  complete: 'Complete',
+  master: 'Master',
+  grandmaster: 'Grandmaster',
+}
+
 function pick<T extends string>(v: unknown, allowed: T[], dflt: T): T {
   return typeof v === 'string' && (allowed as string[]).includes(v) ? (v as T) : dflt
 }
