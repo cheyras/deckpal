@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { q1 } from '../db.js';
+import { q1, SUPABASE_MODE } from '../db.js';
 import { asyncHandler, notFound, userCache } from '../http.js';
 import { currentUserId } from '../identity.js';
 
@@ -21,6 +21,23 @@ interface UsernameRow {
   username: string;
 }
 
+/**
+ * May this account see the /design design-system reference in production?
+ *
+ * Cloud: only the account named by DESIGN_EDITOR_USER_ID (a Supabase auth
+ * UUID, set in the Vercel env) — unset means nobody, so the flag can never
+ * open up by accident. Self-host: always, because a self-host deployment has
+ * exactly one user (the owner) and sits behind the owner's own auth proxy.
+ *
+ * The flag lives here, server-side, so the owner's identity is verified
+ * against the JWT and never baked into the public JS bundle.
+ */
+function isDesignEditor(userId: string): boolean {
+  if (!SUPABASE_MODE) return true;
+  const owner = process.env.DESIGN_EDITOR_USER_ID;
+  return !!owner && userId === owner;
+}
+
 meRouter.get(
   '/',
   asyncHandler(async (req, res) => {
@@ -28,6 +45,6 @@ meRouter.get(
     const userId = currentUserId(req);
     const row = await q1<UsernameRow>('SELECT username FROM app_user WHERE id = $1', [userId]);
     if (!row) throw notFound('No such user');
-    res.json({ username: row.username });
+    res.json({ username: row.username, designEditor: isDesignEditor(userId) });
   }),
 );

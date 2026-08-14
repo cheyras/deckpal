@@ -16,28 +16,11 @@ import { randomUUID } from 'node:crypto'
 import { createHash } from 'node:crypto'
 import { dirname } from 'node:path'
 import { execSync } from 'node:child_process'
+// The parser is shared with the /design route's read-only production fallback
+// (see themeTokens.ts) so the two views can never disagree about what a token is.
+import { parseThemeCss, type TokenCategory } from '../src/routes/design/themeTokens'
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-export type TokenCategory =
-  | 'color'
-  | 'radius'
-  | 'shadow'
-  | 'font'
-  | 'text'
-  | 'ease'
-  | 'breakpoint'
-  | 'z'
-
-export interface TokenInfo {
-  name: string
-  value: string
-  category: TokenCategory
-  section: string
-  block: 'theme' | 'root'
-  livePreviewable: boolean
-  note?: string
-}
 
 interface LedgerEntry {
   ts: string
@@ -61,115 +44,6 @@ export interface ChangeRequest {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const THEME_CSS_RELATIVE = 'src/theme.css'
-
-function categorize(name: string, block: 'theme' | 'root'): TokenCategory {
-  if (block === 'root') return 'z'
-  if (name.startsWith('--color-')) return 'color'
-  if (name.startsWith('--radius-')) return 'radius'
-  if (name.startsWith('--shadow-')) return 'shadow'
-  if (name.startsWith('--font-')) return 'font'
-  if (name.startsWith('--text-')) return 'text'
-  if (name.startsWith('--ease-')) return 'ease'
-  if (name.startsWith('--breakpoint-')) return 'breakpoint'
-  return 'color' // fallback — should not happen with well-formed theme.css
-}
-
-function isLivePreviewable(cat: TokenCategory): boolean {
-  // Breakpoints compile to @media literals; z-index tokens are consumed
-  // via arbitrary-value utilities, not var() references. Shadows use
-  // inlined values in Tailwind's --tw-shadow variable, not var(--shadow-*).
-  // All three are save-then-HMR only.
-  if (cat === 'breakpoint') return false
-  if (cat === 'z') return false
-  // Colors, radii, text, font, ease all use var() references
-  return true
-}
-
-function noteFor(cat: TokenCategory, name: string): string | undefined {
-  if (cat === 'breakpoint') return 'Applies on save only (media queries use literal values)'
-  if (cat === 'z') return 'Declared but not wired — call sites use z-[N] arbitrary values'
-  if (cat === 'shadow') return 'Save-then-HMR (Tailwind inlines shadow values into --tw-shadow)'
-  if (name.endsWith('--line-height')) return 'Paired with its size token'
-  return undefined
-}
-
-/**
- * Parse theme.css into TokenInfo[].
- *
- * The file has two blocks:
- *   @theme static { ... }   — Tailwind tokens
- *   :root { ... }           — z-index layers
- *
- * Within each block, declarations match:
- *   --name: value;          (with optional trailing comments)
- * Section headers are:
- *   /* -- section -- * /
- */
-function parseThemeCss(content: string): TokenInfo[] {
-  const tokens: TokenInfo[] = []
-  const lines = content.split('\n')
-
-  let currentBlock: 'theme' | 'root' | null = null
-  let currentSection = 'uncategorized'
-  let braceDepth = 0
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-
-    // Detect section headers: /* ── section ── */
-    const sectionMatch = trimmed.match(/^\/\*\s*──\s*(.+?)\s*──.*\*\//)
-    if (sectionMatch) {
-      currentSection = sectionMatch[1].trim()
-      continue
-    }
-
-    // Detect block starts
-    if (trimmed.startsWith('@theme')) {
-      currentBlock = 'theme'
-      if (trimmed.includes('{')) braceDepth++
-      continue
-    }
-    if (trimmed === ':root {' || trimmed.startsWith(':root {')) {
-      currentBlock = 'root'
-      braceDepth++
-      continue
-    }
-
-    // Track braces
-    if (trimmed === '{') {
-      braceDepth++
-      continue
-    }
-    if (trimmed === '}') {
-      braceDepth--
-      if (braceDepth <= 0) {
-        currentBlock = null
-        braceDepth = 0
-      }
-      continue
-    }
-
-    if (!currentBlock) continue
-
-    // Parse declarations: --name: value; /* optional comment */
-    const declMatch = trimmed.match(/^(--[a-z0-9-]+(?:--[a-z-]+)?):\s*(.+?)\s*;(.*)$/)
-    if (declMatch) {
-      const [, name, value] = declMatch
-      const cat = categorize(name, currentBlock)
-      tokens.push({
-        name,
-        value,
-        category: cat,
-        section: currentSection,
-        block: currentBlock,
-        livePreviewable: isLivePreviewable(cat),
-        note: noteFor(cat, name),
-      })
-    }
-  }
-
-  return tokens
-}
 
 function fileHash(content: string): string {
   return createHash('sha256').update(content).digest('hex').slice(0, 16)

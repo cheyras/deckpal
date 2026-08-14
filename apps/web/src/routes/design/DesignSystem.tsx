@@ -1,9 +1,12 @@
 /**
  * Design-system editor — the /design route component.
  *
- * DEV-only. Renders the token panel, primitive/component catalog,
- * and the pending-extraction list. The route is dead-code-eliminated
- * from production builds by Vite's static replacement of import.meta.env.DEV.
+ * In dev this is the full editor (token saves + agent lane via the Vite
+ * dev-server plugin). In production it ships as an OWNER-ONLY read-only
+ * reference: main.tsx's beforeLoad gate checks the server-verified
+ * `designEditor` flag on /me and renders the router's not-found page for
+ * anyone else. The /__design endpoints never exist in production, so
+ * `health` stays null there and everything write-shaped hides itself.
  */
 import { useState, useEffect } from 'react'
 import { SkinToggle } from './SkinToggle'
@@ -18,10 +21,15 @@ import { PENDING_ITEMS, completionStats } from './pending'
 
 type TabId = 'tokens' | 'primitives' | 'components' | 'requests' | 'pending'
 
+// Base-aware app links: BASE_URL is '/' on cloud and '/deckscout/' self-host.
+const appHref = (path: string) => `${import.meta.env.BASE_URL}${path}`
+
 export default function DesignSystem() {
   const [activeTab, setActiveTab] = useState<TabId>('tokens')
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const overrides = useTokenOverrides()
+  // Edit capability exists exactly when the dev-server endpoints answer.
+  const editable = health?.ok === true
 
   useEffect(() => {
     designApi.health().then(setHealth).catch(() => {})
@@ -46,9 +54,13 @@ export default function DesignSystem() {
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-[18px] font-bold text-text-primary">Design System</h1>
-                {health && (
+                {health ? (
                   <p className="text-[11px] text-text-muted font-mono mt-[2px]">
                     {health.branch} @ {health.worktree.split('/').slice(-2).join('/')}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-text-muted mt-[2px]">
+                    Read-only — saves need the local dev server
                   </p>
                 )}
               </div>
@@ -61,7 +73,7 @@ export default function DesignSystem() {
                   </span>
                 )}
                 <a
-                  href="/deckscout/series"
+                  href={appHref('series')}
                   className="text-[12px] text-text-muted hover:text-text-primary"
                 >
                   Back to app
@@ -93,10 +105,10 @@ export default function DesignSystem() {
 
         {/* Content */}
         <main className="mx-auto max-w-[1200px] px-[16px] py-[20px]">
-          {activeTab === 'tokens' && <TokenPanel overrides={overrides} />}
-          {activeTab === 'primitives' && <CatalogSection section="primitive" title="Primitives" />}
-          {activeTab === 'components' && <CatalogSection section="component" title="Components" />}
-          {activeTab === 'requests' && <RequestsPanel />}
+          {activeTab === 'tokens' && <TokenPanel overrides={overrides} editable={editable} />}
+          {activeTab === 'primitives' && <CatalogSection section="primitive" title="Primitives" editable={editable} />}
+          {activeTab === 'components' && <CatalogSection section="component" title="Components" editable={editable} />}
+          {activeTab === 'requests' && <RequestsPanel editable={editable} />}
           {activeTab === 'pending' && <PendingSection />}
         </main>
       </div>
@@ -125,7 +137,7 @@ function PreviewPill({ overrides }: { overrides: ReturnType<typeof useTokenOverr
         Reset
       </button>
       <a
-        href="/deckscout/design"
+        href={appHref('design')}
         className="text-[11px] text-action-primary hover:text-action-primary-hover"
       >
         Back to /design
@@ -163,6 +175,11 @@ function PendingSection() {
       {/* Extractions backlog */}
       <div className="space-y-[8px]">
         <h3 className="text-[14px] font-semibold text-text-primary">Extraction backlog (Phase 2)</h3>
+        {extractions.length === 0 && (
+          <p className="text-[12px] text-text-muted">
+            Backlog clear — every planned extraction and adoption (C1–C13) has landed.
+          </p>
+        )}
         {extractions.map((item) => (
           <div key={item.id} className="rounded-lg bg-surface-secondary px-[16px] py-[12px]">
             <div className="flex items-start justify-between">
