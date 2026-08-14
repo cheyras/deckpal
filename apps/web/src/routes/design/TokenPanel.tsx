@@ -1,9 +1,16 @@
 /**
  * Token panel: fetches all design tokens from the dev-server plugin,
  * renders per-category controls, wires live overrides + save/reset.
+ *
+ * When the dev endpoints are absent (production — the /design route ships as
+ * an owner-only read-only reference), tokens are parsed client-side from the
+ * same theme.css source, imported as text. Overrides still preview live;
+ * nothing can be saved.
  */
 import { useState, useEffect, useCallback } from 'react'
 import { designApi, type TokenInfo } from './designApi'
+import { parseThemeCss } from './themeTokens'
+import themeCssRaw from '../../theme.css?raw'
 import { type TokenOverrideStore } from './useTokenOverrides'
 import { ColorKnob, PxKnob, NumberKnob, TextKnob, SelectKnob } from './knobs'
 
@@ -17,6 +24,8 @@ const FONT_OPTIONS = [
 
 interface TokenPanelProps {
   overrides: TokenOverrideStore
+  /** False when the /__design dev endpoints are absent (production) — hides save. */
+  editable: boolean
 }
 
 interface TokenGroup {
@@ -24,7 +33,7 @@ interface TokenGroup {
   tokens: TokenInfo[]
 }
 
-export function TokenPanel({ overrides }: TokenPanelProps) {
+export function TokenPanel({ overrides, editable }: TokenPanelProps) {
   const [tokens, setTokens] = useState<TokenInfo[]>([])
   const [fileHash, setFileHash] = useState('')
   const [loading, setLoading] = useState(true)
@@ -39,8 +48,12 @@ export function TokenPanel({ overrides }: TokenPanelProps) {
       setTokens(data.tokens)
       setFileHash(data.fileHash)
       setError(null)
-    } catch (e: any) {
-      setError(e.message)
+    } catch {
+      // No dev server (production read-only): parse the same theme.css source,
+      // bundled as text. The values are the ones this build shipped with.
+      setTokens(parseThemeCss(themeCssRaw))
+      setFileHash('bundled')
+      setError(null)
     } finally {
       setLoading(false)
     }
@@ -125,12 +138,14 @@ export function TokenPanel({ overrides }: TokenPanelProps) {
             >
               Reset all
             </button>
-            <button
-              onClick={handleSaveAll}
-              className="h-[32px] rounded-full bg-action-primary px-[16px] text-[12px] font-bold text-action-primary-text hover:bg-action-primary-hover"
-            >
-              Save all
-            </button>
+            {editable && (
+              <button
+                onClick={handleSaveAll}
+                className="h-[32px] rounded-full bg-action-primary px-[16px] text-[12px] font-bold text-action-primary-text hover:bg-action-primary-hover"
+              >
+                Save all
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -177,6 +192,7 @@ export function TokenPanel({ overrides }: TokenPanelProps) {
                     overrides={overrides}
                     onSave={() => handleSave(token)}
                     saving={saving === token.name}
+                    editable={editable}
                   />
                 ))}
               </div>
@@ -199,9 +215,10 @@ interface TokenControlProps {
   overrides: TokenOverrideStore
   onSave: () => void
   saving: boolean
+  editable: boolean
 }
 
-function TokenControl({ token, overrides, onSave, saving }: TokenControlProps) {
+function TokenControl({ token, overrides, onSave, saving, editable }: TokenControlProps) {
   const isOverridden = overrides.has(token.name)
   const displayValue = overrides.get(token.name) ?? token.value
 
@@ -279,14 +296,16 @@ function TokenControl({ token, overrides, onSave, saving }: TokenControlProps) {
           >
             Reset
           </button>
-          <button
-            onClick={onSave}
-            disabled={saving}
-            className="h-[24px] rounded bg-action-primary px-[8px] text-[10px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50"
-            title="Save to theme.css"
-          >
-            {saving ? '...' : 'Save'}
-          </button>
+          {editable && (
+            <button
+              onClick={onSave}
+              disabled={saving}
+              className="h-[24px] rounded bg-action-primary px-[8px] text-[10px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50"
+              title="Save to theme.css"
+            >
+              {saving ? '...' : 'Save'}
+            </button>
+          )}
         </div>
       )}
     </div>

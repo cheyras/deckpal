@@ -1,16 +1,13 @@
 /**
  * Thin typed client for the /__design/* dev-server endpoints.
+ *
+ * In production these endpoints do not exist (the SPA fallback answers with
+ * index.html, so `res.json()` rejects) — callers treat any failure here as
+ * "editing offline" and fall back to read-only sources.
  */
+import { type TokenInfo } from './themeTokens'
 
-export interface TokenInfo {
-  name: string
-  value: string
-  category: 'color' | 'radius' | 'shadow' | 'font' | 'text' | 'ease' | 'breakpoint' | 'z'
-  section: string
-  block: 'theme' | 'root'
-  livePreviewable: boolean
-  note?: string
-}
+export { type TokenInfo }
 
 export interface TokensResponse {
   fileHash: string

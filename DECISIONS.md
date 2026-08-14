@@ -4141,3 +4141,74 @@ what a health endpoint should remove. `waiting > 0` with `idle: 0` is queueing;
 total 12 / idle 11 / waiting 0, with a normal request served in 107ms; 12 real
 page loads killed mid-flight leave it at total 1 and a subsequent full load
 succeeds.
+
+## 2026-08-14 — /design ships to production as an owner-only read-only reference
+**Decided by:** Chey (voice directive), implemented by Claude Fable 5
+**Decision:** The design-system surface at `/design` is no longer dev-only. It
+ships in the production bundle, gated to exactly one account: `GET /me` returns
+`designEditor: true` only for the account named by the server-side
+`DESIGN_EDITOR_USER_ID` env var (cloud) or always in self-host (one user, behind
+the owner's auth proxy). The route's `beforeLoad` throws `notFound()` for
+everyone else, so an unauthorized visit is indistinguishable from a URL that
+does not exist. Unset env var = nobody sees it.
+**Why:** The owner wants the token/catalog reference available signed-in on
+production, not only on a dev checkout. Gating server-side keeps the owner's
+identity out of the public JS bundle (a `VITE_*` var would be baked into it).
+**Implications:**
+- Editing capability is unchanged and structurally dev-only: the `/__design`
+  write endpoints still live exclusively in the Vite dev-server plugin. In
+  production the page detects their absence (health probe fails) and renders
+  read-only — token values parsed client-side from the bundled `theme.css`
+  source (same parser as the plugin, extracted to `routes/design/themeTokens.ts`),
+  saves and "Send to agent" composers hidden, live ephemeral overrides still work.
+- The design chunk (~92 KB lazy chunk) is now in the prod bundle and SW
+  precache. The route component itself is public bytes; nothing sensitive is in
+  it, and the gate protects the *rendered surface*, not the code.
+- The plan's "prod-exclusion proof" (DESIGN-SYSTEM-PLAN.md §6.4) is superseded
+  for the route itself; it still holds for the `/__design` endpoints.
+- `DESIGN_EDITOR_USER_ID` documented in DEPLOYMENT.md's env table.
+
+## 2026-08-14 — Pre-merge production-readiness review: six fixes
+**Decided by:** Chey (directive: "make it production ready, fix glaring issues, no visual changes"), review + fixes by Claude Fable 5
+**Decision:** A multi-angle code review of `main...design-system` (8 finder
+angles, adversarial verification) surfaced six defects, all fixed in place:
+1. **RLS cleanup could hand a live client to the next request.** The 'close'
+   and watchdog rollback paths released the pooled client while the route
+   handler could still be running (Express does not cancel handlers). The next
+   request would borrow the same client, set ITS jwt claims, and the slow
+   handler would query inside the wrong user's RLS context. Now only the
+   COMMIT path (res 'finish' — handler done) returns a client to the pool;
+   every rollback path destroys the connection (`release(true)`).
+2. **Button primitive was implicitly `type="submit"`.** The extracted Button
+   dropped the `type="button"` the inline buttons carried, so Cancel in the
+   New List / New Deck / Import Deck / Bug Report modals SUBMITTED the form.
+   The primitive now defaults `type="button"`; submits opt in explicitly.
+   Tabs' internal buttons hardened the same way.
+3. **Direct-Postgres request pools lost the B2 hard cap** (`cap` keyed off
+   role, not backend) — POOLED_CAP 24 applied to the reference self-host box.
+   Caps now follow the backend: pooler 24, direct 3, restoring the
+   "misconfiguration cannot blow the cluster budget" guarantee.
+4. **PGPOOL_MAX leaked into request pools** (old cloud .envs carry
+   PGPOOL_MAX=3 → API re-capped at 3), and **an empty-string pool var became
+   max 1** (Number('')===0). PGPOOL_MAX now applies to workers only; sizes
+   parse via parseInt with a >0 guard.
+5. **`pnpm dev` on a fresh clone died in a buried module cascade** — the
+   first-run build skipped @deckscout/storage and ignored exit codes. It now
+   builds db → storage → api in order and aborts loudly on failure.
+6. **Premium body grain repainted the viewport every scroll frame**
+   (`background-attachment: fixed` cannot be composited on many GPUs, and iOS
+   Safari ignores it — the grain scrolled, the exact "tell" the design
+   rejects). Now a fixed-position body::before compositor layer;
+   `isolation: isolate` on body keeps it above body's background. Verified
+   pixel-identical by RMSE against a same-state screenshot baseline.
+Also: PWA manifest/index.html theme colors updated from retired #15181f to
+stone-900 #1c1917; /design pending meter made honest (13/13, backlog entries
+deleted as the plan prescribes); theme.css parser extracted to
+`routes/design/themeTokens.ts` (multi-line section headers, gradient tokens
+categorized permissively, z tokens live-previewable since C11a); AGENTS.md B2
+rewritten to the role/backend contract.
+**Known, deliberately not fixed here:** topbar.ts/useTopbar mirrors
+skin.ts/useSkin (~230 lines) — deliberate while both toggles exist for
+judging the pass; collapse to one factory if they survive the decision.
+28 of 48 branch commits lack the `On-Behalf-Of` trailer; rewriting pushed
+history mid-PR was judged worse than the gap — noted in the PR instead.

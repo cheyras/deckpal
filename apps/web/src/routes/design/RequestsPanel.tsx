@@ -24,7 +24,7 @@ interface DoneResult {
 
 type RequestWithResult = ChangeRequest & { result?: DoneResult }
 
-export function RequestsPanel() {
+export function RequestsPanel({ editable }: { editable: boolean }) {
   const [requests, setRequests] = useState<RequestWithResult[]>([])
   const [agentAlive, setAgentAlive] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -42,12 +42,28 @@ export function RequestsPanel() {
   }
 
   useEffect(() => {
+    if (!editable) return
     poll()
     intervalRef.current = setInterval(poll, POLL_INTERVAL_MS)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editable])
+
+  // The request queue lives on the dev server's filesystem; without it there
+  // is nothing to poll and nothing to submit.
+  if (!editable) {
+    return (
+      <div className="rounded-lg border border-dashed border-border-default bg-surface-secondary px-[16px] py-[24px] text-center">
+        <p className="text-[13px] text-text-muted">Change requests need the local dev server.</p>
+        <p className="text-[11px] text-text-muted mt-[4px]">
+          This is the read-only view — run <span className="font-mono">pnpm dev</span> in the
+          worktree to queue changes for an agent.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-[12px]">

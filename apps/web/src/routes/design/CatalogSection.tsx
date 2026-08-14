@@ -47,9 +47,11 @@ function getGalleries(): GalleryMeta<any>[] {
 interface CatalogSectionProps {
   section: 'primitive' | 'component'
   title: string
+  /** False in production read-only mode — hides the "Send to agent" composers. */
+  editable: boolean
 }
 
-export function CatalogSection({ section, title }: CatalogSectionProps) {
+export function CatalogSection({ section, title, editable }: CatalogSectionProps) {
   const galleries = getGalleries().filter((g) => g.section === section)
 
   if (galleries.length === 0) {
@@ -65,7 +67,7 @@ export function CatalogSection({ section, title }: CatalogSectionProps) {
     <div className="space-y-[16px]">
       <h3 className="text-[16px] font-semibold text-text-primary">{title}</h3>
       {galleries.map((gallery) => (
-        <GalleryEntry key={gallery.name} gallery={gallery} />
+        <GalleryEntry key={gallery.name} gallery={gallery} editable={editable} />
       ))}
     </div>
   )
@@ -75,9 +77,10 @@ export function CatalogSection({ section, title }: CatalogSectionProps) {
 
 interface GalleryEntryProps {
   gallery: GalleryMeta<any>
+  editable: boolean
 }
 
-function GalleryEntry({ gallery }: GalleryEntryProps) {
+function GalleryEntry({ gallery, editable }: GalleryEntryProps) {
   const [knobState, setKnobState] = useState<Record<string, any>>({ ...gallery.defaults })
   const [showKnobs, setShowKnobs] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -219,8 +222,8 @@ function GalleryEntry({ gallery }: GalleryEntryProps) {
         </div>
       )}
 
-      {/* Send to agent composer (Lane B) */}
-      <AgentComposer gallery={gallery} knobState={knobState} />
+      {/* Send to agent composer (Lane B) — dev server only */}
+      {editable && <AgentComposer gallery={gallery} knobState={knobState} />}
     </div>
   )
 }

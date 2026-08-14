@@ -5,6 +5,7 @@ import {
   createRouter,
   createRootRoute,
   createRoute,
+  notFound,
   redirect,
   retainSearchParams,
   stripSearchParams,
@@ -24,6 +25,7 @@ import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
 import { AuthGuard } from './components/AuthGuard'
 import { isPublicPathname, isSafeNextPath } from './lib/landingRoute'
+import { api } from './lib/api'
 import { supabase, isCloudMode } from './lib/supabase'
 import { Auth } from './routes/Auth'
 import { Authorize } from './routes/Authorize'
@@ -313,35 +315,44 @@ const coreRoutes = [
   searchRoute,
 ]
 
-// DEV-only design-system editor route. Vite statically replaces
-// import.meta.env.DEV with false in production builds, so the entire
-// branch — including the dynamic import — is dead-code-eliminated from
-// the prod bundle. No SW precache, no route leak.
-const devRoutes = import.meta.env.DEV
-  ? (() => {
-      const LazyDesignSystem = lazy(() => import('./routes/design/DesignSystem'))
-      const DesignSystemRoute = () => (
-        <Suspense
-          fallback={
-            <div className="flex h-screen items-center justify-center text-text-muted">
-              Loading design system...
-            </div>
-          }
-        >
-          <LazyDesignSystem />
-        </Suspense>
-      )
-      return [
-        createRoute({
-          getParentRoute: () => rootRoute,
-          path: '/design',
-          component: DesignSystemRoute,
-        }),
-      ]
-    })()
-  : []
+// Design-system route. In dev it is the full editor (the Vite plugin serves
+// the /__design write endpoints). In production it ships as an OWNER-ONLY
+// read-only reference: beforeLoad checks the server-verified `designEditor`
+// flag on /me and throws notFound() for everyone else, so the route is
+// indistinguishable from a URL that does not exist. The flag's identity check
+// lives server-side (DESIGN_EDITOR_USER_ID) — nothing about who the owner is
+// appears in this bundle.
+const LazyDesignSystem = lazy(() => import('./routes/design/DesignSystem'))
+const DesignSystemRoute = () => (
+  <Suspense
+    fallback={
+      <div className="flex h-screen items-center justify-center text-text-muted">
+        Loading design system...
+      </div>
+    }
+  >
+    <LazyDesignSystem />
+  </Suspense>
+)
+const designRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/design',
+  beforeLoad: async () => {
+    if (import.meta.env.DEV) return
+    // Self-host has exactly one user (the owner) behind their own auth proxy.
+    if (!isCloudMode) return
+    try {
+      const me = await api.me()
+      if (me.designEditor) return
+    } catch {
+      // Signed out, or /me unavailable — fall through to not-found.
+    }
+    throw notFound()
+  },
+  component: DesignSystemRoute,
+})
 
-const routeTree = rootRoute.addChildren([...coreRoutes, ...devRoutes])
+const routeTree = rootRoute.addChildren([...coreRoutes, designRoute])
 
 const router = createRouter({
   routeTree,
