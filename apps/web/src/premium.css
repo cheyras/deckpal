@@ -130,11 +130,28 @@
    cloudiness. The relief on the panels carries the light direction instead. */
 :root[data-skin='premium'] body {
   background-color: var(--color-surface-primary);
+  /* Make body a stacking context so the ::before below paints ABOVE body's
+     own background (without this, a negative-z pseudo paints behind it and
+     the grain vanishes — verified by pixel-diff). Everything the app renders
+     lives inside body, so containing z-indexes here changes nothing else. */
+  isolation: isolate;
+}
+
+/* The grain belongs to the sheet, not to the scrolling content — a tiled noise
+   that scrolls reads as texture-mapped, which is the tell. It was
+   `background-attachment: fixed` on body, but that (a) cannot be composited on
+   many GPUs, so every scroll frame repaints the full viewport, and (b) is
+   ignored outright by iOS Safari, which let the grain scroll — the exact tell.
+   A fixed-position overlay is its own compositor layer: same tile, same
+   viewport anchoring, no repaints, and it actually holds still on iOS. */
+:root[data-skin='premium'] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background-image: var(--px-paper-tooth);
   background-size: 120px 120px;
-  /* Fixed so the grain belongs to the sheet, not to the scrolling content —
-     a tiled noise that scrolls reads as texture-mapped, which is the tell. */
-  background-attachment: fixed;
 }
 
 /* The shell's own opaque `bg-surface-primary` would otherwise cover the body

@@ -43,8 +43,8 @@ export default defineConfig({
         scope: basePath,
         display: 'standalone',
         orientation: 'portrait',
-        background_color: '#15181f', // surface-primary (UI-SPEC dark)
-        theme_color: '#15181f',
+        background_color: '#1c1917', // --color-surface-primary (stone-900, theme.css)
+        theme_color: '#1c1917',
         icons: [
           { src: 'pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: 'pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
