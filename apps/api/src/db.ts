@@ -23,10 +23,12 @@ import { loadEnv, makePool } from '@deckscout/db';
  */
 loadEnv();
 
-const apiMax = Number(process.env.PGPOOL_MAX_API ?? NaN);
+// parseInt (not Number): an empty `PGPOOL_MAX_API=` line must fall through to
+// the role default, not coerce to 0 and clamp the pool to a single connection.
+const apiMax = parseInt(process.env.PGPOOL_MAX_API ?? '', 10);
 export const pool: pg.Pool = makePool({
   role: 'request',
-  ...(Number.isFinite(apiMax) ? { max: apiMax } : {}),
+  ...(Number.isFinite(apiMax) && apiMax > 0 ? { max: apiMax } : {}),
 });
 
 // ── Per-request RLS context (defense-in-depth for Supabase deployments) ─────

@@ -121,7 +121,18 @@ export function createApp(): express.Express {
                 setTimeout(() => reject(new Error('rls cleanup timeout')), CLEANUP_MS),
               ),
             ]);
-            client.release();
+            // Only the COMMIT path — res 'finish', meaning the handler ran to
+            // completion — may return the client to the pool. The rollback
+            // paths ('close' on early disconnect, the watchdog) fire while the
+            // route handler may STILL be running: Express does not cancel it,
+            // and its rlsStore reference keeps pointing at this client. If the
+            // client went back to the pool, the next request would check it
+            // out, set ITS user's RLS claims, and the still-running handler
+            // would silently query inside the wrong user's context. Destroying
+            // the connection instead makes the slow handler's next query fail
+            // loudly — the correct outcome, and worth the reconnect.
+            if (mode === 'commit') client.release();
+            else client.release(true);
           } catch {
             // The statement either failed or hung. Handing back a connection
             // that may still be inside a transaction — or still wearing the
