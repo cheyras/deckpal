@@ -69,7 +69,7 @@ export function LevelRing({
       </div>
       {showBadge && (
         <span
-          className="absolute left-1/2 -translate-x-1/2 rounded-full bg-action-primary px-[8px] py-[1px] text-[11px] font-extrabold leading-[15px] text-action-primary-text shadow-panel"
+          className="absolute left-1/2 -translate-x-1/2 rounded-full bg-action-primary px-[8px] py-[1px] text-[12px] font-extrabold leading-[15px] text-action-primary-text shadow-panel"
           style={{ bottom: -6 }}
         >
           {level}

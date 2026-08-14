@@ -6,6 +6,22 @@ contributors.
 
 ---
 
+## Setting up a fresh clone
+
+Run **`/setup-clone`** (`.claude/commands/setup-clone.md`). It walks
+prerequisites → env → database reachability → migrations → build → `pnpm dev`,
+and finishes by VERIFYING the stack rather than assuming it: `/api/health`
+returning a pool census, `/api/series` under a second, and the web app actually
+rendering. It also carries a troubleshooting list of the failure modes this
+project has actually produced, with their real causes.
+
+Short version if you are doing it by hand: `pnpm install`, copy `.env.example`
+to `.env` and fill it, `pnpm migrate`, `pnpm --filter @deckscout/db build &&
+pnpm --filter deckscout-api build`, then `pnpm dev` at the root — never the web
+server on its own, which has no API or image tier behind it.
+
+---
+
 ## Local development
 
 ### Database

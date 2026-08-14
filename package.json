@@ -2,7 +2,7 @@
   "name": "deckscout",
   "private": true,
   "version": "0.1.0",
-  "description": "Self-hosted, single-user TCG collection tracker — catalog, prices, deck builder, card scanner, MCP server, and React PWA.",
+  "description": "Self-hosted, single-user TCG collection tracker \u2014 catalog, prices, deck builder, card scanner, MCP server, and React PWA.",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
@@ -12,6 +12,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "migrate": "pnpm --filter @deckscout/db migrate",
     "migrate:status": "pnpm --filter @deckscout/db migrate:status",
     "build": "pnpm --filter @deckscout/db build && pnpm --filter @deckscout/storage build && pnpm --filter deckscout-api build && pnpm --filter deckscout-images build && pnpm --filter deckscout-sync build",

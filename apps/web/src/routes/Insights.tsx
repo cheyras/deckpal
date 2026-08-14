@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { api, type ValueRange } from '../lib/api'
-import { Content, Spinner, ErrorState } from '../components/ui'
+import { Content, Spinner, ErrorState, Tabs, StatTile } from '../components/ui'
 import { LevelRing } from '../components/LevelRing'
 import { ValueChart } from '../components/ValueChart'
 import { Icon } from '../components/Icon'
@@ -46,20 +46,16 @@ export function Insights() {
       <h1 className="text-[32px] font-extrabold leading-[40px] text-text-primary">Insights</h1>
 
       {/* Overview | Trends sub-toggle (pkmn.gg captures §14.4) */}
-      <div className="mt-[16px] inline-flex rounded-full bg-surface-secondary p-[4px]">
-        {(['overview', 'trends'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={[
-              'h-[36px] rounded-full px-[20px] text-[14px] font-semibold capitalize',
-              tab === t ? 'bg-action-primary text-action-primary-text' : 'text-text-muted hover:text-text-body',
-            ].join(' ')}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        variant="pill"
+        items={[
+          { key: 'overview', label: 'Overview' },
+          { key: 'trends', label: 'Trends' },
+        ]}
+        value={tab}
+        onChange={(k) => setTab(k as 'overview' | 'trends')}
+        className="mt-[16px]"
+      />
 
       {overview.isLoading && <Spinner label="Loading insights…" />}
       {overview.error && <ErrorState message={(overview.error as Error).message} />}
@@ -76,11 +72,11 @@ export function Insights() {
                 <AvatarDisc url={avatar.data?.avatarUrl} iconSize={40} />
               </LevelRing>
               <div className="min-w-0">
-                <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Trainer Level</div>
+                <div className="text-[14px] font-bold uppercase tracking-wide text-text-muted">Trainer Level</div>
                 <div className="text-[32px] font-extrabold leading-[40px] text-text-primary">
                   LVL {ov.trainer.level}
                 </div>
-                <div className="mt-[2px] text-[13px] text-text-body">
+                <div className="mt-[2px] text-[14px] text-text-body">
                   <span className="font-bold text-action-primary">{ov.trainer.uniqueCards}</span> unique cards
                   {' · '}
                   <span className="text-text-muted">
@@ -97,10 +93,7 @@ export function Insights() {
             </div>
 
             {/* Collection value card */}
-            <div className="rounded-2xl bg-surface-secondary p-[20px]">
-              <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">
-                Total Estimated Collection Value
-              </div>
+            <StatTile variant="card" label="Total Estimated Collection Value">
               <div className="mt-[6px] flex flex-wrap items-baseline gap-x-[16px] gap-y-[2px]">
                 {ov.collectionValue
                   .slice()
@@ -119,18 +112,18 @@ export function Insights() {
                     </div>
                   ))}
               </div>
-              <div className="mt-[6px] text-[12px] text-text-muted">
+              <div className="mt-[6px] text-[14px] text-text-muted">
                 {ov.collectionValue[0]?.pricedVariants ?? 0} priced variants · {ov.collectionValue[0]?.quantity ?? 0}{' '}
                 cards · Pokédex {ov.pokedex.captured}/{ov.pokedex.total}
               </div>
-            </div>
+            </StatTile>
           </div>
 
           {/* Value-over-time */}
           <div className="mt-[24px] rounded-2xl bg-surface-secondary p-[20px]">
             <div className="flex flex-wrap items-center justify-between gap-[12px]">
               <div>
-                <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">
+                <div className="text-[14px] font-bold uppercase tracking-wide text-text-muted">
                   Total Estimated Collection Value
                 </div>
                 <div className="text-[28px] font-extrabold leading-[36px] text-text-primary">
@@ -138,20 +131,16 @@ export function Insights() {
                 </div>
               </div>
               {/* currency toggle */}
-              <div className="inline-flex rounded-full bg-surface-tertiary p-[3px]">
-                {(['USD', 'EUR'] as const).map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setCurrency(c)}
-                    className={[
-                      'h-[28px] rounded-full px-[12px] text-[12px] font-bold',
-                      currency === c ? 'bg-surface-raised text-text-primary' : 'text-text-muted',
-                    ].join(' ')}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
+              <Tabs
+                variant="pill"
+                size="sm"
+                items={[
+                  { key: 'USD', label: 'USD' },
+                  { key: 'EUR', label: 'EUR' },
+                ]}
+                value={currency}
+                onChange={(k) => setCurrency(k as 'USD' | 'EUR')}
+              />
             </div>
 
             {/* range chips */}
@@ -161,7 +150,7 @@ export function Insights() {
                   key={r.key}
                   onClick={() => setRange(r.key)}
                   className={[
-                    'h-[32px] rounded-full px-[14px] text-[13px] font-semibold',
+                    'h-[32px] rounded-full px-[14px] text-[14px] font-semibold',
                     range === r.key
                       ? 'bg-action-primary text-action-primary-text'
                       : 'bg-surface-tertiary text-text-body hover:bg-action-default-hover',
@@ -173,10 +162,10 @@ export function Insights() {
               {PRO_RANGES.map((r) => (
                 <span
                   key={r}
-                  className="flex h-[32px] cursor-not-allowed items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] text-[13px] font-semibold text-icon-disabled"
+                  className="flex h-[32px] cursor-not-allowed items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] text-[14px] font-semibold text-icon-disabled"
                 >
                   {r}
-                  <span className="rounded bg-pro-pink px-[5px] py-[1px] text-[9px] font-extrabold text-pro-pink-text">
+                  <span className="rounded bg-pro-pink px-[5px] py-[1px] text-[14px] font-extrabold text-pro-pink-text">
                     PRO
                   </span>
                 </span>
@@ -184,7 +173,7 @@ export function Insights() {
             </div>
 
             {/* legend */}
-            <div className="mt-[14px] flex items-center gap-[6px] text-[12px] text-text-muted">
+            <div className="mt-[14px] flex items-center gap-[6px] text-[14px] text-text-muted">
               <span className="inline-block h-[10px] w-[10px] rounded-sm bg-action-primary" /> Your Collection
             </div>
 
@@ -201,13 +190,13 @@ export function Insights() {
                       — we don't invent data, we just stop hiding what's actually shown. */}
                   {(() => {
                     const caption = rangeCoverageCaption(val.series.points, val.series.range)
-                    return caption ? <div className="mt-[8px] text-[12px] text-text-muted">{caption}</div> : null
+                    return caption ? <div className="mt-[8px] text-[14px] text-text-muted">{caption}</div> : null
                   })()}
                 </div>
               ) : val && val.series.points.length === 1 ? (
                 <div>
                   <ValueChart points={val.series.points} currency={val.currency} height={160} />
-                  <div className="mt-[8px] rounded-lg border border-border-default bg-surface-tertiary-subtle px-[14px] py-[10px] text-[13px] text-text-body">
+                  <div className="mt-[8px] rounded-lg border border-border-default bg-surface-tertiary-subtle px-[14px] py-[10px] text-[14px] text-text-body">
                     Only one daily snapshot exists so far (started {val.series.points[0]!.date}). A value trend appears
                     once a second day is recorded — we don't draw a line we don't have.
                   </div>
@@ -268,7 +257,7 @@ export function Insights() {
       )}
 
       <div className="mt-[24px]">
-        <Link to="/pokedex" className="text-[13px] font-semibold text-link hover:text-link-hover">
+        <Link to="/pokedex" className="text-[14px] font-semibold text-link hover:text-link-hover">
           View Pokédex →
         </Link>
       </div>

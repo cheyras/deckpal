@@ -3,15 +3,54 @@ import { useState, type ReactNode } from 'react'
 import { Icon } from './Icon'
 import { EnergyIcon } from './EnergyIcon'
 
-// Content column: 85% of main with a per-page max-width cap, centred
+// Re-export new primitives from ui/ so existing `import { X } from '../components/ui'`
+// call sites keep working without a mass import-rewrite.
+export { Button, buttonClass } from './ui/Button'
+export type { ButtonProps, ButtonVariant, ButtonSize } from './ui/Button'
+export { CounterBox } from './ui/CounterBox'
+export { ProgressBar, ProgressRing } from './ui/Progress'
+export type { ProgressBarProps, ProgressRingProps } from './ui/Progress'
+export { EmptyState } from './ui/EmptyState'
+export type { EmptyStateProps } from './ui/EmptyState'
+export { Tabs } from './ui/Tabs'
+export type { TabsProps, TabItem } from './ui/Tabs'
+export { SelectableCard } from './ui/SelectableCard'
+export type { SelectableCardProps } from './ui/SelectableCard'
+export { StatTile } from './ui/StatTile'
+export type { StatTileProps } from './ui/StatTile'
+export { useDismiss } from './ui/useDismiss'
+export { Field } from './ui/Field'
+export type { FieldProps } from './ui/Field'
+export { FormAlert } from './ui/FormAlert'
+export type { FormAlertProps } from './ui/FormAlert'
+export { StatusPanel } from './ui/StatusPanel'
+export type { StatusPanelProps } from './ui/StatusPanel'
+
+// Content column: proportional gutters with a per-page max-width cap, centred
 // (UI-SPEC §4.1 — gutters are proportional, not fixed).
 export function Content({ children, cap = 1165 }: { children: ReactNode; cap?: number }) {
-  // At ≥1068 the content column is exactly 85% of MAIN (the 7.5% gutters ARE the
-  // padding) — so no extra horizontal padding at desktop, or the card grid loses
-  // a column (UI-SPEC §4.1: 4×207.81 + 3×53 = 990.25 = 85% of 1165).
+  // At ≥1068 the content column is 85% of MAIN (the 7.5% gutters ARE the
+  // padding) — no extra horizontal padding at desktop, or the card grid loses a
+  // column (UI-SPEC §4.1: 4×207.81 + 3×53 = 990.25 = 85% of 1165).
+  //
+  // The `max(…, min(…))` is a FLOOR under that 85%, and it exists because the
+  // 85% is measured against MAIN — which is the viewport MINUS the 275px
+  // sidebar. The two compound: crossing 1067→1068px, where the sidebar appears,
+  // MAIN drops to 793 and 85% of that is 674px. Measured, the catalog grid went
+  // from 4 columns at 1067px to 2 columns at 1068px, and the set page from
+  // 22,403px tall to 56,439px — the content column got NARROWER as the viewport
+  // got wider, which is the one thing a responsive rule must never do.
+  //
+  // The floor is "whatever fits with mobile's 16px gutters, but never more than
+  // the 990px the grid actually wants". That leaves the documented behaviour at
+  // and above the 1165 cap byte-identical (85% of 1165 = 990.25 still wins) and
+  // only widens the starved 1068–1400 band.
   return (
     <div className="px-[16px] py-[24px] nav:px-0">
-      <div className="mx-auto w-full nav:w-[85%]" style={{ maxWidth: cap }}>
+      <div
+        className="mx-auto w-full nav:w-[max(85%,min(100%_-_32px,990px))]"
+        style={{ maxWidth: cap }}
+      >
         {children}
       </div>
     </div>
@@ -36,7 +75,7 @@ export function BackPill({ to, params, label }: { to: string; params?: Record<st
     <Link
       to={to}
       params={params as never}
-      className="inline-flex h-[28px] items-center gap-[4px] rounded-full bg-surface-tertiary px-[12px] text-[10px] font-bold text-text-primary hover:bg-action-default-hover"
+      className="inline-flex h-[28px] items-center gap-[4px] rounded-full bg-surface-tertiary px-[12px] text-[12px] font-bold text-text-primary hover:bg-action-default-hover"
     >
       <Icon name="chevron-left" size={14} />
       {label}
@@ -206,10 +245,47 @@ export function SetSymbolTile({
   )
 }
 
-export function Spinner({ label }: { label?: string }) {
+/**
+ * Spinner — the one shared loading indicator.
+ *
+ * `inline` renders a bare ring element suitable for embedding inside text,
+ * buttons (see Button `loading` prop), or horizontal layouts. The ring
+ * colour inherits from `currentColor` so it adapts to any context.
+ *
+ * Without `inline` the spinner is a block-level, vertically-centred element
+ * with an optional text label — the page/section loading state.
+ */
+export function Spinner({
+  label,
+  size,
+  inline = false,
+  className,
+}: {
+  label?: string
+  /** Ring diameter in pixels. Defaults to 40 (block) or 16 (inline). */
+  size?: number
+  /** Render just the ring, no centering/padding — for inline contexts. */
+  inline?: boolean
+  className?: string
+}) {
+  const s = size ?? (inline ? 16 : 40)
+
+  if (inline) {
+    return (
+      <span
+        className={`shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent${className ? ` ${className}` : ''}`}
+        style={{ width: s, height: s }}
+        aria-hidden="true"
+      />
+    )
+  }
+
   return (
     <div className="flex flex-col items-center justify-center gap-[12px] py-[80px] text-text-muted">
-      <div className="h-[40px] w-[40px] animate-spin rounded-full border-2 border-surface-tertiary border-t-action-primary" />
+      <div
+        className="animate-spin rounded-full border-2 border-surface-tertiary border-t-action-primary"
+        style={{ width: s, height: s }}
+      />
       {label && <span className="text-[14px]">{label}</span>}
     </div>
   )

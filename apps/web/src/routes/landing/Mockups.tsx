@@ -17,6 +17,12 @@
 import { useId, type CSSProperties, type ReactNode } from 'react'
 import { EnergyIcon } from '../../components/EnergyIcon'
 import { Icon } from '../../components/Icon'
+import { tailwindGradient, tailwindGradientStops } from '../../lib/gradientPalette'
+
+// action-primary-strong is cyan-300, action-primary is cyan-400 (theme.css) —
+// keep these in sync if those tokens' hue family changes.
+const PROGRESS_GRADIENT = tailwindGradient('cyan', '300')
+const [RING_GRADIENT_FROM] = tailwindGradientStops('cyan', '300')
 
 type Vars = CSSProperties & Record<`--${string}`, string>
 
@@ -133,7 +139,7 @@ export function CompletionRing({ pct, size = 112, stroke = 9 }: { pct: number; s
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="block" aria-hidden="true">
         <defs>
           <linearGradient id={gid} x1="0" y1="1" x2="1" y2="0">
-            <stop offset="0%" stopColor="var(--color-action-danger)" />
+            <stop offset="0%" stopColor={RING_GRADIENT_FROM} />
             <stop offset="55%" stopColor="var(--color-action-primary-strong)" />
             <stop offset="100%" stopColor="var(--color-action-primary)" />
           </linearGradient>
@@ -173,7 +179,7 @@ function ProgressBars({ owned, total, pct, second }: { owned: number; total: num
           style={
             {
               '--ls-bar': `${pct}%`,
-              background: 'linear-gradient(90deg, var(--color-action-danger), var(--color-action-primary-strong))',
+              background: PROGRESS_GRADIENT,
             } as Vars
           }
         />
@@ -300,7 +306,7 @@ export function AgentMockup() {
                   {
                     '--ls-bar': '90%',
                     '--ls-delay': '460ms',
-                    background: 'linear-gradient(90deg, var(--color-action-danger), var(--color-action-primary-strong))',
+                    background: PROGRESS_GRADIENT,
                   } as Vars
                 }
               />

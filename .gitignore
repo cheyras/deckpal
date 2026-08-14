@@ -62,6 +62,9 @@ pokedex-exports/
 # deploy/ locally for their own self-host setup.
 deploy/
 
+# ── design-system editor request queue (dev-only, never committed) ───────
+/design-requests/
+
 # ── machine-local agent instructions (not portable) ─────────────────────
 CLAUDE.local.md
 .vercel

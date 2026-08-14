@@ -128,7 +128,7 @@ export function Auth() {
             We sent a confirmation link to <span className="font-semibold text-text-primary">{email.trim()}</span>.
             Open it to activate your account, then sign in.
           </p>
-          <p className="mt-[10px] text-[13px] text-text-muted">
+          <p className="mt-[10px] text-[14px] text-text-muted">
             Nothing in your inbox after a minute? Check spam. If an account already exists for this address, no
             new email is sent — sign in instead, or reset your password.
           </p>
@@ -145,7 +145,7 @@ export function Auth() {
             If an account exists for <span className="font-semibold text-text-primary">{email.trim()}</span>,
             a password reset link is on its way. It is valid for one hour.
           </p>
-          <p className="mt-[10px] text-[13px] text-text-muted">
+          <p className="mt-[10px] text-[14px] text-text-muted">
             Check spam before requesting another — DeckScout can only send a couple of emails an hour, so a
             second request may be throttled.
           </p>
@@ -185,7 +185,7 @@ export function Auth() {
           <button
             type="button"
             onClick={() => goTo('signin')}
-            className="mt-[16px] block w-full text-center text-[13px] font-semibold text-text-secondary hover:text-link"
+            className="mt-[16px] block w-full text-center text-[14px] font-semibold text-text-secondary hover:text-link"
           >
             Back to sign in
           </button>
@@ -268,7 +268,7 @@ export function Auth() {
               <button
                 type="button"
                 onClick={() => goTo('forgot')}
-                className="text-[13px] font-semibold text-text-secondary hover:text-link"
+                className="text-[14px] font-semibold text-text-secondary hover:text-link"
               >
                 Forgot password?
               </button>
@@ -280,7 +280,7 @@ export function Auth() {
           </SubmitButton>
         </form>
 
-        <p className="mt-[18px] text-center text-[13px] text-text-secondary">
+        <p className="mt-[18px] text-center text-[14px] text-text-secondary">
           {isSignup ? (
             <>
               Already have an account?{' '}
@@ -300,7 +300,7 @@ export function Auth() {
       </AuthCard>
 
       {isSignup && (
-        <p className="mt-[16px] text-center text-[12px] leading-[1.6] text-text-muted">
+        <p className="mt-[16px] text-center text-[14px] leading-[1.6] text-text-muted">
           By creating an account you agree to keep it civil. DeckScout is AGPL-3.0 open source —{' '}
           <Link to="/" className="text-text-secondary hover:text-link">
             read what it does

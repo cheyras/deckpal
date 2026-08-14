@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { api, type SeriesSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, SetSymbolTile } from '../components/ui'
+import { Content, Spinner, ErrorState, SetSymbolTile, ProgressRing, useDismiss } from '../components/ui'
 import { SetLogo } from '../components/SetLogo'
 import { Icon } from '../components/Icon'
 import { fmtDate } from '../lib/format'
 import { useSignedIn } from '../lib/session'
 import { SignInPrompt } from '../components/SignInPrompt'
+import { tailwindGradientStops } from '../lib/gradientPalette'
 
 // ── Sort / group preferences (issue 14i8ys) ────────────────────────────────
 // Persisted to localStorage only when the user hits "Save as default"; otherwise
@@ -60,46 +61,25 @@ function sortSeries(list: SeriesSummary[], key: SortKey, dir: SortDir): SeriesSu
 }
 
 // Overall series completion (issues yscpfd + hln3d0) — owned cards / total cards
-// across the series, drawn as a small ring on the card's right side. Uses the same
-// danger→primary gradient the set-page progress bar uses; the gradient def itself
-// lives once at the page root (see RING_GRADIENT_ID) so cards can share it.
+// across the series, drawn as a small ring on the card's right side. Uses the
+// same derived two-hue-away gradient the set-page progress bar uses (see
+// lib/gradientPalette); the gradient def itself lives once at the page root
+// (see RING_GRADIENT_ID) so cards can share it.
 const RING_GRADIENT_ID = 'series-ring-grad'
+// action-primary-strong is cyan-300 (theme.css) — keep this in sync if that
+// token's hue family changes.
+const [RING_GRADIENT_FROM, RING_GRADIENT_TO] = tailwindGradientStops('cyan', '300')
 
 function CompletionRing({ owned, total, pct }: { owned: number; total: number; pct: number }) {
-  const size = 56
-  const stroke = 5
-  const r = (size - stroke) / 2
-  const circumference = 2 * Math.PI * r
-  const clamped = Math.min(100, Math.max(0, pct))
-  const label = `Completion: ${owned.toLocaleString()} of ${total.toLocaleString()} cards (${pct}%)`
   return (
-    <div
-      role="img"
-      aria-label={label}
-      title={label}
-      className="relative shrink-0 self-center"
-      style={{ width: size, height: size }}
+    <ProgressRing
+      pct={pct}
+      gradientId={RING_GRADIENT_ID}
+      label={`Completion: ${owned.toLocaleString()} of ${total.toLocaleString()} cards (${pct}%)`}
+      className="self-center"
     >
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="block -rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#1a1d24" strokeWidth={stroke} />
-        {clamped > 0 && (
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={r}
-            fill="none"
-            stroke={`url(#${RING_GRADIENT_ID})`}
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={circumference * (1 - clamped / 100)}
-          />
-        )}
-      </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold leading-none text-text-primary">
-        {pct}%
-      </span>
-    </div>
+      <span className="text-[14px] font-bold leading-none text-text-primary">{pct}%</span>
+    </ProgressRing>
   )
 }
 
@@ -128,16 +108,16 @@ function SeriesCard({ s }: { s: SeriesSummary }) {
                 <SetSymbolTile setId={s.repSetId} hasSymbol={s.repHasSymbol} name={s.name} size={48} />
               ))}
           </div>
-          <div className="text-[18px] font-semibold leading-[27px] text-text-primary">{s.name}</div>
-          <div className="mt-[2px] text-[12px] text-text-muted">First released {fmtDate(s.firstReleaseOn)}</div>
+          <div className="font-display text-[18px] font-semibold leading-[27px] text-text-primary">{s.name}</div>
+          <div className="mt-[2px] text-[14px] text-text-muted">First released {fmtDate(s.firstReleaseOn)}</div>
         </div>
         <div className="mt-[16px] flex gap-[24px]">
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-text-muted">Sets</div>
+            <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Sets</div>
             <div className="text-[18px] font-bold text-text-primary">{s.setCount}</div>
           </div>
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-text-muted">Cards</div>
+            <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Cards</div>
             <div className="text-[18px] font-bold text-text-primary">{s.cardCount.toLocaleString()}</div>
           </div>
         </div>
@@ -170,7 +150,7 @@ interface ControlsProps {
 
 function Controls({ prefs, onChange, onSave, saved, signedOut, stacked = false }: ControlsProps & { stacked?: boolean }) {
   const ctrl =
-    'h-[34px] rounded-md border border-border-default bg-surface-tertiary px-[10px] text-[13px] text-text-primary hover:border-surface-quaternary'
+    'h-[34px] rounded-md border border-border-default bg-surface-tertiary px-[10px] text-[14px] text-text-primary hover:border-surface-quaternary'
   // Inline + stacked variants can be mounted at once (mobile popover vs ≥sm
   // toolbar), so the select id must differ between them.
   const sortId = stacked ? 'series-sort-mobile' : 'series-sort'
@@ -222,21 +202,8 @@ function Controls({ prefs, onChange, onSave, saved, signedOut, stacked = false }
 // OwnFilterMenu pattern in PokedexIndex: tap-outside + Escape.
 function MobileControls(props: ControlsProps) {
   const [open, setOpen] = useState(false)
-  const wrapRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDoc)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const close = useCallback(() => setOpen(false), [])
+  const wrapRef = useDismiss<HTMLDivElement>(open, close)
 
   return (
     <div ref={wrapRef} className="relative sm:hidden">
@@ -314,12 +281,12 @@ export function SeriesIndex() {
   return (
     <Content cap={1200}>
       {/* Shared stroke gradient for the per-card completion rings — same
-          danger→primary ramp as the set-page progress bar. */}
+          derived two-hue-away ramp as the set-page progress bar (lib/gradientPalette). */}
       <svg width="0" height="0" className="absolute" aria-hidden="true" focusable="false">
         <defs>
           <linearGradient id={RING_GRADIENT_ID} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="var(--color-action-danger)" />
-            <stop offset="100%" stopColor="var(--color-action-primary-strong)" />
+            <stop offset="0%" stopColor={RING_GRADIENT_FROM} />
+            <stop offset="100%" stopColor={RING_GRADIENT_TO} />
           </linearGradient>
         </defs>
       </svg>

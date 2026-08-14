@@ -197,11 +197,11 @@ export function BinderView({
         <div className="flex flex-col">
           <select
             disabled
-            className="h-[36px] rounded-lg bg-surface-tertiary px-[12px] text-[13px] text-text-secondary"
+            className="h-[36px] rounded-lg bg-surface-tertiary px-[12px] text-[14px] text-text-secondary"
           >
             <option>Hide</option>
           </select>
-          <span className="mt-[2px] text-[11px] text-text-muted">Additional Variants</span>
+          <span className="mt-[2px] text-[14px] text-text-muted">Additional Variants</span>
         </div>
       </div>
 

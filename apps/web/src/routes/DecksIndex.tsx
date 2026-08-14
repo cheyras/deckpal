@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CreateDeckBody, type DeckFormat, type DeckSummary } from '../lib/api'
-import { Content, Spinner, ErrorState } from '../components/ui'
+import { Content, Spinner, ErrorState, Button, EmptyState, SelectableCard } from '../components/ui'
 import { Modal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
 import { fmtUsd } from '../lib/format'
 import { FORMAT_META, LegalBadge } from './deckShared'
 import { DECK_SEARCH_DEFAULTS } from './deckSearch'
+import { RecordSpans } from './deck/intelShared'
 
 function DeckCard({ deck }: { deck: DeckSummary }) {
   // Battle record footer line — only once the deck has any scored logs.
@@ -26,7 +27,7 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
         ) : (
           <Icon name="deck" size={40} className="text-icon-muted" />
         )}
-        <span className="absolute right-[10px] top-[10px] inline-flex items-center gap-[4px] rounded-full bg-surface-primary/80 px-[10px] py-[3px] text-[11px] font-bold text-text-secondary backdrop-blur-sm">
+        <span className="absolute right-[10px] top-[10px] inline-flex items-center gap-[4px] rounded-full bg-surface-primary/80 px-[10px] py-[3px] text-[14px] font-bold text-text-secondary backdrop-blur-sm">
           {FORMAT_META[deck.formatCode].short}
           {deck.formatCode === 'glc' && deck.glcType && (
             <>
@@ -42,25 +43,17 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
       </div>
       <div className="flex flex-1 flex-col gap-[8px] p-[16px]">
         <div className="flex items-start justify-between gap-[8px]">
-          <span className="truncate text-[16px] font-bold text-text-primary">{deck.name}</span>
+          <span className="font-display truncate text-[16px] font-bold text-text-primary">{deck.name}</span>
           {deck.isFavorite && <Icon name="star-filled" size={16} className="shrink-0 text-action-primary" />}
         </div>
-        {deck.description && <p className="line-clamp-2 text-[12px] text-text-muted">{deck.description}</p>}
+        {deck.description && <p className="line-clamp-2 text-[14px] text-text-muted">{deck.description}</p>}
         <div className="mt-auto flex items-center justify-between pt-[6px] text-[12px]">
           <span className="font-semibold text-text-secondary">
             {deck.totalCount}/60 cards
             {rec && (
               <>
                 {' · '}
-                <span style={{ color: 'var(--color-success)' }}>{rec.wins}W</span>
-                <span className="text-text-muted">–</span>
-                <span style={{ color: 'var(--color-error)' }}>{rec.losses}L</span>
-                {rec.ties > 0 && (
-                  <>
-                    <span className="text-text-muted">–</span>
-                    <span className="text-text-secondary">{rec.ties}T</span>
-                  </>
-                )}
+                <RecordSpans wins={rec.wins} losses={rec.losses} ties={rec.ties} />
               </>
             )}
           </span>
@@ -87,7 +80,7 @@ function NewDeckModal({ busy, error, onClose, onSubmit }: { busy?: boolean; erro
         className="flex flex-col gap-[18px]"
       >
         <label className="flex flex-col gap-[6px]">
-          <span className="text-[13px] font-semibold text-text-secondary">Name</span>
+          <span className="text-[14px] font-semibold text-text-secondary">Name</span>
           <input
             autoFocus
             value={name}
@@ -98,27 +91,22 @@ function NewDeckModal({ busy, error, onClose, onSubmit }: { busy?: boolean; erro
           />
         </label>
         <div className="flex flex-col gap-[8px]">
-          <span className="text-[13px] font-semibold text-text-secondary">Format</span>
+          <span className="text-[14px] font-semibold text-text-secondary">Format</span>
           <div className="grid grid-cols-2 gap-[8px]">
             {FORMATS.map((f) => (
-              <button
-                type="button"
-                key={f}
-                onClick={() => setFormatCode(f)}
-                className={`rounded-lg border-2 px-[12px] py-[10px] text-left ${formatCode === f ? 'border-action-primary bg-surface-tertiary' : 'border-transparent bg-surface-tertiary/50 hover:bg-surface-tertiary'}`}
-              >
+              <SelectableCard key={f} active={formatCode === f} onClick={() => setFormatCode(f)}>
                 <div className="text-[14px] font-bold text-text-primary">{FORMAT_META[f].label}</div>
-                <div className="text-[11px] text-text-muted">{FORMAT_META[f].blurb}</div>
-              </button>
+                <div className="text-[14px] text-text-muted">{FORMAT_META[f].blurb}</div>
+              </SelectableCard>
             ))}
           </div>
         </div>
-        {error && <div className="text-[13px] text-error">{error}</div>}
+        {error && <div className="text-[14px] text-error">{error}</div>}
         <div className="mt-[4px] flex justify-end gap-[10px]">
-          <button type="button" onClick={onClose} className="h-[44px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover">Cancel</button>
-          <button type="submit" disabled={busy || !name.trim()} className="h-[44px] rounded-full bg-action-primary px-[24px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={!name.trim()} loading={busy}>
             {busy ? 'Creating…' : 'Create Deck'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -139,18 +127,18 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
         }}
         className="flex flex-col gap-[16px]"
       >
-        <p className="text-[13px] text-text-muted">
+        <p className="text-[14px] text-text-muted">
           Paste a decklist exported from Pokémon TCG Live (or the Limitless deck builder). Each line
           resolves to a catalogue card; unresolved lines are reported, never dropped.
         </p>
         <div className="flex flex-wrap items-end gap-[16px]">
           <label className="flex flex-1 flex-col gap-[6px]" style={{ minWidth: 200 }}>
-            <span className="text-[13px] font-semibold text-text-secondary">Deck name (optional)</span>
+            <span className="text-[14px] font-semibold text-text-secondary">Deck name (optional)</span>
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Imported Deck" maxLength={120}
               className="h-[42px] rounded-lg border border-border-default bg-surface-primary px-[14px] text-[14px] text-text-primary placeholder:text-text-muted" />
           </label>
           <label className="flex flex-col gap-[6px]">
-            <span className="text-[13px] font-semibold text-text-secondary">Format</span>
+            <span className="text-[14px] font-semibold text-text-secondary">Format</span>
             <select value={formatCode} onChange={(e) => setFormatCode(e.target.value as DeckFormat)}
               className="h-[42px] rounded-lg border border-border-default bg-surface-primary px-[12px] text-[14px] text-text-primary">
               {FORMATS.map((f) => <option key={f} value={f}>{FORMAT_META[f].label}</option>)}
@@ -163,14 +151,14 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
           onChange={(e) => setText(e.target.value)}
           rows={12}
           placeholder={'Pokémon: 6\n3 Charizard ex OBF 125\n…\n\nTrainer: …\n\nEnergy: …\n\nTotal Cards: 60'}
-          className="rounded-lg border border-border-default bg-surface-primary px-[14px] py-[10px] font-mono text-[13px] leading-[19px] text-text-primary placeholder:text-text-muted"
+          className="rounded-lg border border-border-default bg-surface-primary px-[14px] py-[10px] font-mono text-[14px] leading-[19px] text-text-primary placeholder:text-text-muted"
         />
-        {error && <div className="text-[13px] text-error">{error}</div>}
+        {error && <div className="text-[14px] text-error">{error}</div>}
         <div className="flex justify-end gap-[10px]">
-          <button type="button" onClick={onClose} className="h-[44px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover">Cancel</button>
-          <button type="submit" disabled={busy || !text.trim()} className="h-[44px] rounded-full bg-action-primary px-[24px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={!text.trim()} loading={busy}>
             {busy ? 'Importing…' : 'Import Deck'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -214,18 +202,12 @@ export function DecksIndex() {
           <p className="text-[14px] text-text-muted">{decks.length} deck{decks.length === 1 ? '' : 's'}</p>
         </div>
         <div className="flex items-center gap-[10px]">
-          <button
-            onClick={() => { setErr(null); setShowImport(true) }}
-            className="flex h-[46px] items-center gap-[8px] rounded-full bg-surface-tertiary px-[18px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover"
-          >
+          <Button variant="secondary" onClick={() => { setErr(null); setShowImport(true) }}>
             <Icon name="download" size={18} /> Import from PTCG Live
-          </button>
-          <button
-            onClick={() => { setErr(null); setShowNew(true) }}
-            className="flex h-[46px] items-center gap-[8px] rounded-full bg-action-primary px-[20px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover"
-          >
+          </Button>
+          <Button onClick={() => { setErr(null); setShowNew(true) }}>
             <Icon name="plus" size={18} /> New Deck
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -233,19 +215,18 @@ export function DecksIndex() {
       {error && <ErrorState message={(error as Error).message} />}
 
       {data && decks.length === 0 && (
-        <div className="flex flex-col items-center justify-center gap-[12px] rounded-xl border border-dashed border-border-default py-[80px] text-center">
-          <Icon name="deck" size={44} className="text-icon-muted" />
-          <div className="text-[20px] font-bold text-text-primary">No Decks Yet</div>
-          <p className="text-[14px] text-text-muted">Build one from scratch, or import a Pokémon TCG Live decklist.</p>
-          <div className="mt-[4px] flex gap-[10px]">
-            <button onClick={() => setShowImport(true)} className="flex h-[44px] items-center gap-[8px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
-              <Icon name="download" size={18} /> Import
-            </button>
-            <button onClick={() => setShowNew(true)} className="flex h-[44px] items-center gap-[8px] rounded-full bg-action-primary px-[20px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
-              <Icon name="plus" size={18} /> New Deck
-            </button>
-          </div>
-        </div>
+        <EmptyState
+          icon="deck"
+          title="No Decks Yet"
+          body="Build one from scratch, or import a Pokémon TCG Live decklist."
+        >
+          <Button variant="secondary" onClick={() => setShowImport(true)}>
+            <Icon name="download" size={18} /> Import
+          </Button>
+          <Button onClick={() => setShowNew(true)}>
+            <Icon name="plus" size={18} /> New Deck
+          </Button>
+        </EmptyState>
       )}
 
       {decks.length > 0 && (

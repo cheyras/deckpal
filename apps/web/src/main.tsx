@@ -1,10 +1,11 @@
-import { StrictMode } from 'react'
+import { StrictMode, lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createRouter,
   createRootRoute,
   createRoute,
+  notFound,
   redirect,
   retainSearchParams,
   stripSearchParams,
@@ -13,11 +14,18 @@ import {
   useRouterState,
 } from '@tanstack/react-router'
 import './theme.css'
+// The premium visual pass. Every rule inside is scoped to `[data-skin='premium']`
+// (set by initSkin below), so importing it is inert until the attribute is on —
+// which is what makes the pass reversible without a rebuild. See lib/skin.ts.
+import './premium.css'
+import { initSkin } from './lib/skin'
+import { initTopbar } from './lib/topbar'
 import { registerPwa } from './pwa'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
 import { AuthGuard } from './components/AuthGuard'
 import { isPublicPathname, isSafeNextPath } from './lib/landingRoute'
+import { api } from './lib/api'
 import { supabase, isCloudMode } from './lib/supabase'
 import { Auth } from './routes/Auth'
 import { Authorize } from './routes/Authorize'
@@ -284,7 +292,7 @@ const signedOutRoute = createRoute({
   component: SignedOut,
 })
 
-const routeTree = rootRoute.addChildren([
+const coreRoutes = [
   indexRoute,
   authRoute,
   authorizeRoute,
@@ -305,7 +313,46 @@ const routeTree = rootRoute.addChildren([
   profileAliasRoute,
   scanRoute,
   searchRoute,
-])
+]
+
+// Design-system route. In dev it is the full editor (the Vite plugin serves
+// the /__design write endpoints). In production it ships as an OWNER-ONLY
+// read-only reference: beforeLoad checks the server-verified `designEditor`
+// flag on /me and throws notFound() for everyone else, so the route is
+// indistinguishable from a URL that does not exist. The flag's identity check
+// lives server-side (DESIGN_EDITOR_USER_ID) — nothing about who the owner is
+// appears in this bundle.
+const LazyDesignSystem = lazy(() => import('./routes/design/DesignSystem'))
+const DesignSystemRoute = () => (
+  <Suspense
+    fallback={
+      <div className="flex h-screen items-center justify-center text-text-muted">
+        Loading design system...
+      </div>
+    }
+  >
+    <LazyDesignSystem />
+  </Suspense>
+)
+const designRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/design',
+  beforeLoad: async () => {
+    if (import.meta.env.DEV) return
+    // Self-host has exactly one user (the owner) behind their own auth proxy.
+    if (!isCloudMode) return
+    try {
+      const me = await api.me()
+      if (me.designEditor) return
+    } catch {
+      // Signed out, or /me unavailable — fall through to not-found.
+    }
+    throw notFound()
+  },
+  component: DesignSystemRoute,
+})
+
+const routeTree = rootRoute.addChildren([...coreRoutes, designRoute])
 
 const router = createRouter({
   routeTree,
@@ -318,6 +365,10 @@ declare module '@tanstack/react-router' {
     router: typeof router
   }
 }
+
+// Before first paint, so the skin never flashes from classic to premium.
+initSkin()
+initTopbar()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

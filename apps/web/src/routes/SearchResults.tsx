@@ -3,6 +3,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type CardRow, type SearchCard } from '../lib/api'
 import { Content, Spinner, ErrorState } from '../components/ui'
+import { SortChipStrip } from '../components/FilterControls'
 import { Icon } from '../components/Icon'
 import { GridView } from '../components/GridView'
 import { type GlobalSearch, type GlobalSortKey } from './globalSearch'
@@ -111,28 +112,13 @@ export function SearchResults() {
       </label>
 
       {trimmed.length > 0 && (
-        <div className="scroll-x mt-[16px] flex items-center gap-[12px]">
-          {SORTS.map((s) => {
-            const active = search.sort === s.key
-            return (
-              <button
-                key={s.key}
-                onClick={() =>
-                  active ? patch({ dir: search.dir === 'asc' ? 'desc' : 'asc' }) : patch({ sort: s.key, dir: 'asc' })
-                }
-                className={`flex h-[44px] shrink-0 items-center gap-[10px] rounded-lg px-[12px] text-[14px] font-bold ${
-                  active ? 'bg-action-primary-strong text-action-primary-strong-text' : 'bg-surface-tertiary text-text-muted'
-                }`}
-              >
-                {s.label}
-                <span className="flex flex-col leading-[6px]">
-                  <span style={{ fontSize: 8, color: active ? (search.dir === 'asc' ? '#15181f' : '#d3b745') : '#484f60' }}>▲</span>
-                  <span style={{ fontSize: 8, color: active ? (search.dir === 'desc' ? '#15181f' : '#d3b745') : '#484f60' }}>▼</span>
-                </span>
-              </button>
-            )
-          })}
-        </div>
+        <SortChipStrip
+          items={SORTS}
+          activeKey={search.sort}
+          activeDir={search.dir}
+          onSort={(key, dir) => patch({ sort: key as GlobalSortKey, dir })}
+          className="mt-[16px]"
+        />
       )}
 
       {trimmed.length === 0 ? (

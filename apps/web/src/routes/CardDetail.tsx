@@ -2,22 +2,14 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
 import { api, type CardDetailResponse, type Progress, type SetDetailResponse, type Variant } from '../lib/api'
-import { Content, Spinner, ErrorState, BackPill, SetSymbolTile } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, Tabs } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
 import { fmtPrice, fmtDate, fmtNumber, fmtRelative } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
-
-// Map a variant kind to its accent colour (pkmn.gg captures §12.3).
-function variantColor(v: Variant): string {
-  const k = v.kind.toLowerCase()
-  if (v.tier === 'special') return 'var(--color-variant-other)'
-  if (k.includes('reverse')) return 'var(--color-variant-reverse-holo)'
-  if (k.includes('holo')) return 'var(--color-variant-holofoil)'
-  return 'var(--color-variant-normal)'
-}
+import { variantMeta } from '../lib/variantStyle'
 
 // ── Optimistic progress maths — mirrors the server recompute (SCHEMA §5.3/§9.2)
 // so the three bars move instantly, then reconcile against the authoritative
@@ -138,12 +130,16 @@ function optimisticApply(
 function QtyStepper({
   v,
   color,
+  fill,
   quantity,
   onAdjust,
   pending,
 }: {
   v: Variant
+  /** Solid accent — the idle "+" glyph colour. */
   color: string
+  /** Gradient for the owned/filled state. */
+  fill: string
   quantity: number
   onAdjust: (variantId: number, newQty: number) => void
   pending: boolean
@@ -173,7 +169,12 @@ function QtyStepper({
         disabled={pending || !online}
         aria-label={`Add one ${v.displayName}`}
         className="flex h-[36px] w-[36px] items-center justify-center rounded-lg enabled:hover:opacity-90 disabled:opacity-50"
-        style={{ background: owned ? color : 'var(--color-surface-tertiary)', color: owned ? '#fff' : color }}
+        style={{
+          background: owned ? fill : 'var(--color-surface-tertiary)',
+          // The variant fills are all light now (white, cyan-400, rose-400), so a
+          // white glyph on them measures as low as 1.8:1. Dark on the fill is ~10:1.
+          color: owned ? 'var(--color-surface-primary)' : color,
+        }}
       >
         <Icon name="plus" size={16} />
       </button>
@@ -187,7 +188,13 @@ function QtyStepper({
 // keep the header labels sitting directly above their data; the variant track
 // (minmax(0,1fr)) absorbs the rest and its min-w-0 lets long names/URLs wrap
 // rather than blow the column out of bounds.
-const VARIANT_GRID = 'grid grid-cols-[minmax(0,1fr)_84px_108px] gap-x-[12px] nav:gap-x-[16px]'
+// The fixed tracks shrink below the `gap` breakpoint (567px). At 320px the
+// 84px+108px pair plus gaps left the minmax(0,1fr) variant track just 20px
+// wide, so "Found in Booster Packs" wrapped down 9 lines, two characters at a
+// time. Narrower price/qty tracks there give the name column ~84px, which
+// wraps on word boundaries like prose instead of shattering.
+const VARIANT_GRID =
+  'grid grid-cols-[minmax(0,1fr)_64px_92px] gap-x-[8px] gap:grid-cols-[minmax(0,1fr)_84px_108px] gap:gap-x-[12px] nav:gap-x-[16px]'
 
 function VariantRow({
   v,
@@ -198,7 +205,7 @@ function VariantRow({
   onAdjust: (variantId: number, newQty: number) => void
   pending: boolean
 }) {
-  const color = variantColor(v)
+  const meta = variantMeta(v)
   const price = v.prices.find((p) => p.currency === 'USD') ?? v.prices[0] ?? null
   return (
     <div className="rounded-lg bg-surface-tertiary p-[16px]" data-owned={(v.quantity ?? 0) > 0 ? 'true' : 'false'}>
@@ -207,20 +214,25 @@ function VariantRow({
         <div className="flex min-w-0 items-start gap-[8px]">
           <span
             className="mt-[5px] inline-block h-[12px] w-[12px] shrink-0 rounded-[3px]"
-            style={{ background: color }}
+            style={{ background: meta.fill }}
           />
           <div className="min-w-0">
             <div className="break-words text-[14px] font-bold text-text-primary">{v.displayName}</div>
-            {v.provenance && <div className="break-words text-[12px] text-text-muted">{v.provenance}</div>}
+            {v.provenance && <div className="break-words text-[14px] text-text-muted">{v.provenance}</div>}
+            {/* "TCGplayer" is a single unbreakable word, so `truncate` here could
+                only ever clip it to "TCGpl…" — which it did at 390px, where the
+                variant column squeezes this to 54px against a 62px label. A short
+                button label has no useful truncated form, so it keeps its ~98px
+                intrinsic width instead of shrinking. */}
             {v.buyUrl && (
               <a
                 href={v.buyUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-[8px] inline-flex h-[30px] max-w-full items-center gap-[6px] rounded-lg bg-surface-secondary px-[8px] text-[12px] font-bold text-text-primary hover:bg-action-default-hover"
+                className="mt-[8px] inline-flex h-[30px] w-fit shrink-0 items-center gap-[6px] whitespace-nowrap rounded-lg bg-surface-secondary px-[8px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover"
               >
                 <Icon name="external" size={14} className="shrink-0 text-action-brand" />
-                <span className="truncate">TCGplayer</span>
+                <span>TCGplayer</span>
               </a>
             )}
           </div>
@@ -234,7 +246,7 @@ function VariantRow({
             <div className="text-[14px] text-text-muted">No price</div>
           )}
           {price?.pricedAt && (
-            <div className="text-[10px] leading-[14px] text-text-muted">as of {fmtRelative(price.pricedAt)}</div>
+            <div className="text-[14px] leading-[14px] text-text-muted">as of {fmtRelative(price.pricedAt)}</div>
           )}
         </div>
 
@@ -245,12 +257,12 @@ function VariantRow({
             <Link
               to="/auth"
               search={{ mode: 'signup' } as never}
-              className="flex h-[34px] items-center whitespace-nowrap rounded-lg border border-border-default px-[12px] text-[12px] font-semibold text-text-body hover:border-surface-quaternary hover:text-text-primary"
+              className="flex h-[34px] items-center whitespace-nowrap rounded-lg border border-border-default px-[12px] text-[14px] font-semibold text-text-body hover:border-surface-quaternary hover:text-text-primary"
             >
               Sign in to track
             </Link>
           ) : (
-            <QtyStepper v={v} color={color} quantity={v.quantity} onAdjust={onAdjust} pending={pending} />
+            <QtyStepper v={v} color={meta.color} fill={meta.fill} quantity={v.quantity} onAdjust={onAdjust} pending={pending} />
           )}
         </div>
       </div>
@@ -261,7 +273,7 @@ function VariantRow({
 function Attribute({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="mb-[6px] text-[12px] text-text-muted">{label}</div>
+      <div className="mb-[6px] text-[14px] text-text-muted">{label}</div>
       <div className="flex flex-wrap gap-[8px]">{children}</div>
     </div>
   )
@@ -275,7 +287,11 @@ function Chip({ children }: { children: React.ReactNode }) {
   )
 }
 
-const TABS = ['Card', 'Price', 'TCG'] as const
+const TABS = [
+  { key: 'Card', label: 'Card' },
+  { key: 'Price', label: 'Price' },
+  { key: 'TCG', label: 'TCG' },
+] as const
 
 // Standalone route (deep links / direct navigation to /series/$series/$set/$number).
 // Renders the shared body inside the page Content column; on the set page the same
@@ -305,7 +321,7 @@ export function CardDetailBody({
   // the card fetch resolves the authoritative series/set. Never passed in-sheet.
   backTo?: { series: string; set: string }
 }) {
-  const [tab, setTab] = useState<(typeof TABS)[number]>('Card')
+  const [tab, setTab] = useState('Card')
   const [showAdditional, setShowAdditional] = useState(false)
   const qc = useQueryClient()
 
@@ -357,7 +373,7 @@ export function CardDetailBody({
         <div className="relative">
           {/* blurred hero art behind everything */}
           <div
-            className="pointer-events-none absolute inset-x-0 top-0 -z-[1] h-[400px]"
+            className="pointer-events-none absolute inset-x-0 top-0 z-(--z-art) h-[400px]"
             style={{
               background: `linear-gradient(to bottom, var(--color-banner-gradient-top) 40%, var(--color-surface-primary)), url(${data.card.images.high}) center top/cover`,
               filter: 'blur(24px)',
@@ -395,21 +411,7 @@ export function CardDetailBody({
               </div>
 
               {/* tabs */}
-              <div className="mt-[20px] flex gap-[32px] border-b border-divider-subtle">
-                {TABS.map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setTab(t)}
-                    className={`pb-[8px] text-[14px] ${
-                      tab === t
-                        ? 'border-b border-action-primary font-semibold text-text-primary'
-                        : 'font-medium text-text-muted'
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
+              <Tabs items={TABS} value={tab} onChange={setTab} className="mt-[20px]" />
 
               {tab === 'Card' && (
                 <CardTab
@@ -496,7 +498,7 @@ export function CardSheet({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center overflow-hidden p-0 nav:items-start nav:p-[16px] nav:pt-[64px]"
+      className="fixed inset-0 z-(--z-modal) flex items-end justify-center overflow-hidden p-0 nav:items-start nav:p-[16px] nav:pt-[64px]"
       style={{
         background: open ? 'var(--color-overlay-scrim-strong)' : 'transparent',
         transition: 'background 240ms ease',
@@ -561,7 +563,7 @@ function CardTab({
     <>
       {/* variant table */}
       <div className="mt-[16px]">
-        <div className={`${VARIANT_GRID} mb-[8px] items-center px-[16px] text-[12px] text-text-muted`}>
+        <div className={`${VARIANT_GRID} mb-[8px] items-center px-[16px] text-[14px] text-text-muted`}>
           <span>Variant</span>
           <span className="text-right">Market Price</span>
           <span className="text-right">Quantity</span>
@@ -598,12 +600,12 @@ function CardTab({
           href={buyUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-[16px] inline-flex h-[40px] items-center gap-[8px] rounded-lg bg-action-brand px-[16px] text-[13px] font-bold text-action-brand-text hover:opacity-90"
+          className="mt-[16px] inline-flex h-[40px] items-center gap-[8px] rounded-lg bg-action-brand px-[16px] text-[14px] font-bold text-action-brand-text hover:opacity-90"
         >
           <Icon name="external" size={16} /> Buy on TCGplayer
         </a>
       )}
-      <p className="mt-[10px] text-[12px] text-text-muted">
+      <p className="mt-[10px] text-[14px] text-text-muted">
         Prices reflect the latest daily sync. Self-hosted feed — no affiliate relationship.
       </p>
 
@@ -621,11 +623,11 @@ function CardTab({
                       ))}
                     </span>
                   )}
-                  <span className="text-[16px] font-semibold text-text-primary">{a.name}</span>
+                  <span className="font-display text-[16px] font-semibold text-text-primary">{a.name}</span>
                 </div>
                 {a.damage && (
                   <span className="text-[16px] font-bold text-text-primary">
-                    <span className="mr-[8px] text-[12px] font-normal text-text-muted">Damage</span>
+                    <span className="mr-[8px] text-[14px] font-normal text-text-muted">Damage</span>
                     {a.damage}
                   </span>
                 )}

@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { api, type ListDetailResponse, type ListItem } from '../lib/api'
-import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, ProgressBar, EmptyState, Button } from '../components/ui'
 import { GridView } from '../components/GridView'
 import { TableView } from '../components/TableView'
 import { BinderView } from '../components/BinderView'
-import { SearchBox, ViewToggle } from '../components/FilterControls'
+import { SearchBox, ViewToggle, SortChipStrip, OwnershipButtons } from '../components/FilterControls'
 import { AddCardModal, ConfirmModal, ListFormModal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
 import { KebabMenu } from '../components/KebabMenu'
@@ -47,25 +47,11 @@ function ListProgress({ owned, total, pct, copies }: { owned: number; total: num
   return (
     <div className="flex items-end gap-[16px]">
       <div className="min-w-[220px] flex-1">
-        <div className="mb-[6px] text-[10px] font-bold leading-[15px] text-text-muted">
+        <div className="mb-[6px] text-[14px] font-bold leading-[15px] text-text-muted">
           <span className="text-[15px] font-extrabold text-text-primary">{owned}</span>/{total} owned
           <span className="ml-[8px] text-text-muted">({copies} copies)</span>
         </div>
-        <div className="relative h-[6px] w-full overflow-visible rounded-full bg-[#1a1d24]">
-          <div
-            className="h-full rounded-full"
-            style={{ width: `${Math.min(100, pct)}%`, background: 'linear-gradient(90deg, var(--color-action-danger), var(--color-action-primary-strong))' }}
-          />
-          {[25, 50, 75].map((m) => (
-            <span
-              key={m}
-              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-[10px] leading-none"
-              style={{ left: `${m}%`, color: pct >= m ? 'var(--color-action-primary-strong)' : 'var(--color-text-muted)' }}
-            >
-              {pct >= m ? '★' : '●'}
-            </span>
-          ))}
-        </div>
+        <ProgressBar pct={pct} milestones={[25, 50, 75]} milestonePassed={(m) => pct >= m} />
       </div>
       <span className="text-[15px] font-extrabold leading-none text-text-primary">{pct}%</span>
     </div>
@@ -86,11 +72,11 @@ function ReorderRows({ items, onMove, onRemove }: { items: ListItem[]; onMove: (
               <Icon name="chevron-right" size={16} className="rotate-90" />
             </button>
           </div>
-          <span className="w-[24px] text-center text-[13px] font-bold text-text-muted">{i + 1}</span>
+          <span className="w-[24px] text-center text-[14px] font-bold text-text-muted">{i + 1}</span>
           {it.images.low && <img src={it.images.low} alt="" className="h-[56px] w-[40px] rounded object-cover" />}
           <div className="min-w-0 flex-1">
             <div className="truncate text-[14px] font-semibold text-text-primary">{it.name}</div>
-            <div className="text-[12px] text-text-muted">
+            <div className="text-[14px] text-text-muted">
               {it.setName} · {it.variant?.displayName}
               {it.staticQuantity != null && <span className="ml-[6px] font-bold text-text-secondary">×{it.staticQuantity}</span>}
             </div>
@@ -252,18 +238,18 @@ export function ListDetail() {
             <div className="flex flex-wrap items-start justify-between gap-[16px]">
               <div className="min-w-0">
                 <div className="mb-[6px] flex items-center gap-[10px]">
-                  <span className="rounded-full bg-surface-tertiary px-[10px] py-[3px] text-[11px] font-bold text-text-secondary">{KIND_LABEL[list.kind]}</span>
-                  <span className="text-[11px] font-semibold capitalize text-text-muted">{list.visibility}</span>
+                  <span className="rounded-full bg-surface-tertiary px-[10px] py-[3px] text-[12px] font-bold text-text-secondary">{KIND_LABEL[list.kind]}</span>
+                  <span className="text-[12px] font-semibold capitalize text-text-muted">{list.visibility}</span>
                   {list.isFavorite && <Icon name="star-filled" size={14} className="text-action-primary" />}
                 </div>
                 <h1 className="text-[30px] font-bold leading-[38px] text-text-primary">{list.name}</h1>
                 {list.description && <p className="mt-[4px] max-w-[560px] text-[14px] text-text-muted">{list.description}</p>}
               </div>
               <div className="flex items-center gap-[8px]">
-                <button onClick={() => setShowAdd(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+                <button onClick={() => setShowAdd(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
                   <Icon name="plus" size={16} /> Add Cards
                 </button>
-                <a href={api.listPdfUrl(id)} target="_blank" rel="noreferrer" className="flex h-[42px] items-center gap-[8px] rounded-full bg-surface-tertiary px-[16px] text-[13px] font-bold text-text-primary hover:bg-action-default-hover">
+                <a href={api.listPdfUrl(id)} target="_blank" rel="noreferrer" className="flex h-[42px] items-center gap-[8px] rounded-full bg-surface-tertiary px-[16px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
                   <Icon name="printer" size={16} /> Print checklist
                 </a>
                 <button onClick={() => setShowEdit(true)} aria-label="Edit list" className="flex h-[42px] w-[42px] items-center justify-center rounded-full bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
@@ -280,7 +266,7 @@ export function ListDetail() {
             </div>
 
             {/* info + progress */}
-            <div className="flex flex-wrap items-center gap-x-[28px] gap-y-[8px] border-y border-divider-subtle py-[12px] text-[13px]">
+            <div className="flex flex-wrap items-center gap-x-[28px] gap-y-[8px] border-y border-divider-subtle py-[12px] text-[14px]">
               <span className="text-text-muted">Created <span className="text-text-primary">{fmtDate(list.createdAt)}</span></span>
               <span className="text-text-muted"><span className="font-bold text-text-primary">{list.itemCount}</span> cards</span>
               {list.marketValueUsd != null && (
@@ -298,41 +284,27 @@ export function ListDetail() {
           <div className="mt-[20px] flex flex-col gap-[14px]">
             <div className="flex flex-wrap items-center gap-[16px]">
               <SearchBox value={search.q} onChange={(v) => patch({ q: v })} />
-              <div className="scroll-x flex items-center gap-[10px]">
-                {SORTS.map((s) => {
-                  const active = search.sort === s.key
-                  return (
-                    <button
-                      key={s.key}
-                      onClick={() => (active ? patch({ dir: search.dir === 'asc' ? 'desc' : 'asc' }) : patch({ sort: s.key, dir: 'asc' }))}
-                      className={`h-[40px] shrink-0 rounded-lg px-[12px] text-[13px] font-bold ${active ? 'bg-action-primary-strong text-action-primary-strong-text' : 'bg-surface-tertiary text-text-muted'}`}
-                    >
-                      {s.label}
-                    </button>
-                  )
-                })}
-              </div>
+              <SortChipStrip
+                items={SORTS}
+                activeKey={search.sort}
+                activeDir={search.dir}
+                onSort={(key, dir) => patch({ sort: key as ListSortKey, dir })}
+              />
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-[12px]">
               {/* dynamic ownership strip */}
               {list.kind === 'dynamic' ? (
-                <div className="scroll-x flex items-center gap-[20px]">
-                  {[
+                <OwnershipButtons
+                  items={[
                     { key: 'all', label: 'Show All' },
                     { key: 'have', label: `Have (${counts.have})` },
                     { key: 'need', label: `Need (${counts.need})` },
                     { key: 'dupes', label: `Dupes (${counts.dupes})` },
-                  ].map((o) => (
-                    <button
-                      key={o.key}
-                      onClick={() => patch({ own: o.key as ListSearch['own'] })}
-                      className={`whitespace-nowrap text-[14px] ${search.own === o.key ? 'font-semibold text-text-primary' : 'text-text-secondary hover:text-text-body'}`}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
+                  ]}
+                  activeKey={search.own}
+                  onSelect={(key) => patch({ own: key as ListSearch['own'] })}
+                />
               ) : (
                 <div />
               )}
@@ -340,7 +312,7 @@ export function ListDetail() {
                 {list.kind === 'static' && search.sort === 'custom' && (
                   <button
                     onClick={() => setReordering((r) => !r)}
-                    className={`flex h-[36px] items-center gap-[6px] rounded-lg px-[12px] text-[13px] font-bold ${reordering ? 'bg-action-primary-strong text-action-primary-strong-text' : 'bg-surface-tertiary text-text-secondary'}`}
+                    className={`flex h-[36px] items-center gap-[6px] rounded-lg px-[12px] text-[14px] font-bold ${reordering ? 'bg-action-primary-strong text-action-primary-strong-text' : 'bg-surface-tertiary text-text-secondary'}`}
                   >
                     <Icon name="lists" size={15} /> {reordering ? 'Done' : 'Reorder'}
                   </button>
@@ -353,13 +325,11 @@ export function ListDetail() {
           {/* body */}
           <div className="mt-[24px]">
             {items.length === 0 ? (
-              <div className="flex flex-col items-center gap-[10px] rounded-xl border border-dashed border-border-default py-[70px] text-center">
-                <Icon name="cards" size={40} className="text-icon-muted" />
-                <div className="text-[16px] font-bold text-text-primary">This list is empty</div>
-                <button onClick={() => setShowAdd(true)} className="mt-[4px] flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+              <EmptyState icon="cards" title="This list is empty">
+                <Button onClick={() => setShowAdd(true)}>
                   <Icon name="plus" size={16} /> Add Cards
-                </button>
-              </div>
+                </Button>
+              </EmptyState>
             ) : reordering && list.kind === 'static' ? (
               <ReorderRows items={items} onMove={moveItem} onRemove={(it) => removeItem.mutate(it.itemId)} />
             ) : view.length === 0 ? (

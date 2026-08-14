@@ -717,6 +717,8 @@ export interface InsightsOverview {
 }
 export interface MeResponse {
   username: string
+  /** True when this account may open /design in production (owner only). */
+  designEditor?: boolean
 }
 export interface CollectionEvent {
   eventId: string

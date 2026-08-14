@@ -95,9 +95,75 @@ export function createApp(): express.Express {
   // WHERE user_id = $1 clauses. q(), q1(), and withTx() automatically use the
   // per-request client via AsyncLocalStorage, so routes need no changes.
   if (SUPABASE_MODE) {
+    // How long one request may hold its pooled connection before it is
+    // reclaimed. No endpoint in this API streams or long-polls, so anything
+    // still holding after this is stuck — and holding forever is precisely what
+    // exhausted the pool in production.
+    const MAX_HOLD_MS = Number(process.env.PGRLS_MAX_HOLD_MS ?? 30_000);
+    // COMMIT/ROLLBACK can HANG rather than reject on a half-dead connection.
+    // Unbounded, cleanup never reaches release() and the client is gone for good.
+    const CLEANUP_MS = Number(process.env.PGRLS_CLEANUP_MS ?? 5_000);
+
     api.use((req, res, next) => {
       const userId = req.user?.id ?? null;
       pool.connect().then(async (client) => {
+        let cleaned = false;
+        let watchdog: ReturnType<typeof setTimeout> | null = null;
+
+        const cleanup = async (mode: 'commit' | 'rollback') => {
+          if (cleaned) return;
+          cleaned = true;
+          if (watchdog) { clearTimeout(watchdog); watchdog = null; }
+          try {
+            await Promise.race([
+              client.query(`${mode === 'commit' ? 'COMMIT' : 'ROLLBACK'}; RESET ROLE`),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('rls cleanup timeout')), CLEANUP_MS),
+              ),
+            ]);
+            // Only the COMMIT path — res 'finish', meaning the handler ran to
+            // completion — may return the client to the pool. The rollback
+            // paths ('close' on early disconnect, the watchdog) fire while the
+            // route handler may STILL be running: Express does not cancel it,
+            // and its rlsStore reference keeps pointing at this client. If the
+            // client went back to the pool, the next request would check it
+            // out, set ITS user's RLS claims, and the still-running handler
+            // would silently query inside the wrong user's context. Destroying
+            // the connection instead makes the slow handler's next query fail
+            // loudly — the correct outcome, and worth the reconnect.
+            if (mode === 'commit') client.release();
+            else client.release(true);
+          } catch {
+            // The statement either failed or hung. Handing back a connection
+            // that may still be inside a transaction — or still wearing the
+            // 'authenticated' role — poisons whoever borrows it next, so
+            // discard it instead and let the pool open a fresh one.
+            // release(true) is node-postgres' documented "destroy this client".
+            try { client.release(true); } catch { /* already gone */ }
+          }
+        };
+
+        // ── These listeners are attached BEFORE the first await, deliberately.
+        //
+        // This was the leak. They used to be registered after
+        // `await client.query(setup)`, so a client that disconnected while the
+        // setup statement was still in flight had ALREADY emitted 'close' — the
+        // listener was never called, cleanup never ran, and that connection was
+        // held for the lifetime of the process. A browser navigating away
+        // mid-load does exactly this, so the pool bled a connection at a time
+        // until every one was checked out and every request timed out on
+        // connectionTimeoutMillis. Raising `max` only changed how long it took.
+        res.on('finish', () => void cleanup('commit'));
+        res.on('close', () => void cleanup('rollback'));
+        // ...and for the window before even these existed.
+        if (res.writableEnded || res.destroyed) {
+          void cleanup('rollback');
+          return;
+        }
+        // Last resort: a response that never finishes and never closes would
+        // otherwise hold its connection forever.
+        watchdog = setTimeout(() => void cleanup('rollback'), MAX_HOLD_MS);
+
         try {
           // One round trip, not three. The DB lives in a different AWS region from
           // the function (measured ~90 ms RTT iad1 → aws-1-us-west-2), so each
@@ -125,38 +191,15 @@ export function createApp(): express.Express {
               )}, true); SET LOCAL role = 'authenticated'`
             : `BEGIN; SET LOCAL role = 'anon'`;
           await client.query(setup);
-
-          let cleaned = false;
-          const cleanup = async (mode: 'commit' | 'rollback') => {
-            if (cleaned) return;
-            cleaned = true;
-            // Also one round trip: this runs after the response is flushed, so it
-            // never shows up in TTFB, but it does hold a pooled connection — and
-            // the API's connection budget is 2 (contract B2).
-            try {
-              await client.query(`${mode === 'commit' ? 'COMMIT' : 'ROLLBACK'}; RESET ROLE`);
-            } catch {
-              // Swallow — the connection may already be dead. Fall back to a bare
-              // RESET ROLE so the connection is not returned to the pool still
-              // wearing the 'authenticated' role.
-              try { await client.query('RESET ROLE'); } catch { /* best-effort */ }
-            }
-            client.release();
-          };
-
-          res.on('finish', () => void cleanup('commit'));
-          res.on('close', () => {
-            // Early disconnect before finish — roll back rather than commit.
-            void cleanup('rollback');
-          });
+          // The request may have been aborted while that was in flight; cleanup
+          // has then already run and the client is no longer ours to use.
+          if (cleaned) return;
 
           // Run the rest of the middleware chain inside the RLS store context
           // so q()/q1()/withTx() pick up the client transparently.
           rlsStore.run(client, () => next());
         } catch (err) {
-          try { await client.query('ROLLBACK'); } catch { /* swallow */ }
-          try { await client.query('RESET ROLE'); } catch { /* swallow */ }
-          client.release();
+          void cleanup('rollback');
           next(err);
         }
       }).catch(next);
@@ -185,7 +228,17 @@ export function createApp(): express.Express {
       } catch {
         /* sync_run optional for liveness */
       }
-      res.json({ status: 'ok', db: 'up', syncs });
+      // Pool census. This is here because the pool exhausting itself was
+      // diagnosable only by instrumenting a build and reproducing — which is
+      // exactly the situation a health endpoint should remove. `waiting` above
+      // zero while `idle` is zero means requests are queueing for a connection;
+      // `total` pinned at max with `idle` zero and no traffic means a leak.
+      res.json({
+        status: 'ok',
+        db: 'up',
+        pool: { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount },
+        syncs,
+      });
     }),
   );
 

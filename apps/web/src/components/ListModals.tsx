@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { api, type CreateListBody, type ListKind, type ListSummary, type ListVisibility } from '../lib/api'
 import { fmtPrice, fmtNumber } from '../lib/format'
 import { Icon } from './Icon'
+import { Button } from './ui/Button'
+import { SelectableCard } from './ui/SelectableCard'
 
 // ── Modal shell ───────────────────────────────────────────────────────────────
 export function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
@@ -13,7 +15,7 @@ export function Modal({ title, onClose, children, wide = false }: { title: strin
   }, [onClose])
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center overflow-y-auto p-0 nav:items-start nav:p-[16px] nav:pt-[80px]"
+      className="fixed inset-0 z-(--z-modal) flex items-end justify-center overflow-y-auto p-0 nav:items-start nav:p-[16px] nav:pt-[80px]"
       style={{ background: 'var(--color-overlay-scrim-strong)' }}
       onClick={onClose}
       role="dialog"
@@ -75,7 +77,7 @@ export function ListFormModal({
         className="flex flex-col gap-[18px]"
       >
         <label className="flex flex-col gap-[6px]">
-          <span className="text-[13px] font-semibold text-text-secondary">Name</span>
+          <span className="text-[14px] font-semibold text-text-secondary">Name</span>
           <input
             autoFocus
             value={name}
@@ -88,25 +90,18 @@ export function ListFormModal({
 
         {mode === 'create' && (
           <div className="flex flex-col gap-[8px]">
-            <span className="text-[13px] font-semibold text-text-secondary">Type</span>
+            <span className="text-[14px] font-semibold text-text-secondary">Type</span>
             <div className="flex flex-col gap-[8px]">
               {(Object.keys(KIND_LABEL) as ListKind[]).map((k) => {
                 const active = kind === k
                 return (
-                  <button
-                    type="button"
-                    key={k}
-                    onClick={() => setKind(k)}
-                    className={`rounded-lg border-2 px-[14px] py-[10px] text-left ${
-                      active ? 'border-action-primary bg-surface-tertiary' : 'border-transparent bg-surface-tertiary/50 hover:bg-surface-tertiary'
-                    }`}
-                  >
+                  <SelectableCard key={k} active={active} onClick={() => setKind(k)}>
                     <div className="flex items-center justify-between">
                       <span className="text-[14px] font-bold text-text-primary">{KIND_LABEL[k].title}</span>
                       {active && <Icon name="star-filled" size={16} className="text-action-primary" />}
                     </div>
-                    <div className="text-[12px] text-text-muted">{KIND_LABEL[k].blurb}</div>
-                  </button>
+                    <div className="text-[14px] text-text-muted">{KIND_LABEL[k].blurb}</div>
+                  </SelectableCard>
                 )
               })}
             </div>
@@ -114,7 +109,7 @@ export function ListFormModal({
         )}
 
         <label className="flex flex-col gap-[6px]">
-          <span className="text-[13px] font-semibold text-text-secondary">Description (optional)</span>
+          <span className="text-[14px] font-semibold text-text-secondary">Description (optional)</span>
           <textarea
             value={description ?? ''}
             onChange={(e) => setDescription(e.target.value)}
@@ -125,36 +120,32 @@ export function ListFormModal({
         </label>
 
         <div className="flex flex-col gap-[8px]">
-          <span className="text-[13px] font-semibold text-text-secondary">Visibility</span>
+          <span className="text-[14px] font-semibold text-text-secondary">Visibility</span>
           <div className="flex gap-[10px]">
             {(['private', 'public'] as ListVisibility[]).map((v) => (
-              <button
-                type="button"
+              <SelectableCard
                 key={v}
+                active={visibility === v}
                 onClick={() => setVisibility(v)}
-                className={`flex-1 rounded-lg border-2 px-[14px] py-[10px] text-[14px] font-semibold capitalize ${
-                  visibility === v ? 'border-action-primary bg-surface-tertiary text-text-primary' : 'border-transparent bg-surface-tertiary/50 text-text-muted'
+                className={`flex-1 text-center text-[14px] font-semibold capitalize ${
+                  visibility === v ? 'text-text-primary' : 'text-text-muted'
                 }`}
               >
                 {v}
-              </button>
+              </SelectableCard>
             ))}
           </div>
         </div>
 
-        {error && <div className="text-[13px] text-error">{error}</div>}
+        {error && <div className="text-[14px] text-error">{error}</div>}
 
         <div className="mt-[4px] flex justify-end gap-[10px]">
-          <button type="button" onClick={onClose} className="h-[44px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover">
+          <Button variant="secondary" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={busy || !name.trim()}
-            className="h-[44px] rounded-full bg-action-primary px-[24px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50"
-          >
+          </Button>
+          <Button type="submit" disabled={!name.trim()} loading={busy}>
             {busy ? 'Saving…' : mode === 'create' ? 'Create List' : 'Save'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -208,7 +199,7 @@ export function AddCardModal({
         </label>
 
         {listKind === 'static' && (
-          <label className="flex items-center gap-[10px] text-[13px] font-semibold text-text-secondary">
+          <label className="flex items-center gap-[10px] text-[14px] font-semibold text-text-secondary">
             Quantity per add
             <div className="flex items-center gap-[6px]">
               <button type="button" onClick={() => setQty((q) => Math.max(1, q - 1))} className="flex h-[30px] w-[30px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary">
@@ -236,14 +227,14 @@ export function AddCardModal({
               >
                 <div className="relative overflow-hidden rounded-md">
                   <img src={c.images.low} alt={c.name} loading="lazy" className="aspect-[245/337] w-full object-cover" />
-                  <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[13px] font-bold text-white opacity-0 group-hover:opacity-100">
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[14px] font-bold text-white opacity-0 group-hover:opacity-100">
                     {addingId === c.cardId ? 'Adding…' : '+ Add'}
                   </span>
                 </div>
-                <span className="mt-[4px] truncate text-[12px] font-medium text-text-primary">{c.name}</span>
+                <span className="mt-[4px] truncate text-[14px] font-medium text-text-primary">{c.name}</span>
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-text-muted">{fmtNumber(c.number)}</span>
-                  <span className="text-[11px] text-change-positive">{fmtPrice(c.price)}</span>
+                  <span className="text-[14px] text-text-muted">{fmtNumber(c.number)}</span>
+                  <span className="text-[14px] text-change-positive">{fmtPrice(c.price)}</span>
                 </div>
               </button>
             ))}
@@ -260,16 +251,12 @@ export function ConfirmModal({ title, message, confirmLabel, onClose, onConfirm,
     <Modal title={title} onClose={onClose}>
       <p className="text-[14px] text-text-body">{message}</p>
       <div className="mt-[20px] flex justify-end gap-[10px]">
-        <button onClick={onClose} className="h-[44px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover">
+        <Button variant="secondary" onClick={onClose}>
           Cancel
-        </button>
-        <button
-          onClick={onConfirm}
-          disabled={busy}
-          className="h-[44px] rounded-full bg-action-danger px-[24px] text-[14px] font-bold text-action-danger-text hover:bg-action-danger-hover disabled:opacity-50"
-        >
+        </Button>
+        <Button variant="danger" onClick={onConfirm} loading={busy}>
           {busy ? 'Working…' : confirmLabel}
-        </button>
+        </Button>
       </div>
     </Modal>
   )

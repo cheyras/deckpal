@@ -1,104 +1,12 @@
-import { useEffect, useRef } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CardDetailResponse, type CardRow, type Variant } from '../lib/api'
 import { fmtPrice, fmtNumber } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { useSignedIn } from '../lib/session'
+import { CounterBox } from './ui/CounterBox'
 import { Icon } from './Icon'
-
-// Per-variant accent colour + dark-text flag. Mirrors CardTile.variantMeta so the
-// table counters read as the same system as the grid tiles' count boxes.
-function variantMeta(v: Variant): { color: string; dark: boolean; order: number } {
-  const k = v.kind.toLowerCase()
-  if (v.tier === 'special') return { color: 'var(--color-variant-other)', dark: true, order: 3 }
-  if (k.includes('reverse')) return { color: 'var(--color-variant-reverse-holo)', dark: false, order: 2 }
-  if (k.includes('holo')) return { color: 'var(--color-variant-holofoil)', dark: false, order: 1 }
-  return { color: 'var(--color-variant-normal)', dark: true, order: 0 }
-}
-
-// One tappable count box (one main variant). Tap = +1, long-press / right-click = −1.
-// Lives inside the row's <Link>, so every handler stops propagation to keep the
-// row navigation inert while tapping a counter.
-function CounterBox({
-  label,
-  color,
-  dark,
-  qty,
-  disabled,
-  onInc,
-  onDec,
-}: {
-  label: string
-  color: string
-  dark: boolean
-  qty: number
-  disabled: boolean
-  onInc: () => void
-  onDec: () => void
-}) {
-  const timer = useRef<number | null>(null)
-  const longPressed = useRef(false)
-
-  const clear = () => {
-    if (timer.current != null) {
-      clearTimeout(timer.current)
-      timer.current = null
-    }
-  }
-  useEffect(() => clear, [])
-
-  const startPress = () => {
-    longPressed.current = false
-    clear()
-    timer.current = window.setTimeout(() => {
-      longPressed.current = true
-      if (qty > 0) onDec()
-    }, 500)
-  }
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      aria-label={`${label}: ${qty} owned. Tap to add one, long-press to remove one.`}
-      title={`${label} — ${qty} owned · tap +1, hold −1`}
-      onPointerDown={(e) => {
-        e.stopPropagation()
-        startPress()
-      }}
-      onPointerUp={clear}
-      onPointerLeave={clear}
-      onPointerCancel={clear}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        if (qty > 0) onDec()
-      }}
-      onClick={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        if (longPressed.current) {
-          longPressed.current = false
-          return
-        }
-        onInc()
-      }}
-      className="flex h-[24px] min-w-[22px] items-center justify-center rounded-[6px] px-[5px] text-[12px] font-extrabold leading-none tabular-nums shadow-panel transition-opacity enabled:hover:opacity-90 disabled:opacity-60"
-      style={
-        qty > 0
-          ? { background: color, color: dark ? '#15181f' : '#fff' }
-          : {
-              background: 'var(--color-surface-tertiary-transparent)',
-              color: 'var(--color-text-muted)',
-              border: `2px solid ${color}`,
-            }
-      }
-    >
-      {qty > 0 ? qty : ''}
-    </button>
-  )
-}
+import { variantMeta } from '../lib/variantStyle'
 
 // Per-variant quantity counters for a table row — the same mechanism as the grid
 // tiles (CardTile.VariantCounters): read the card's variants from the shared
@@ -155,6 +63,7 @@ function RowCounters({ cardId, setId }: { cardId: string; setId: string }) {
           key={v.variantId}
           label={v.displayName}
           color={meta.color}
+          fill={meta.fill}
           dark={meta.dark}
           qty={v.quantity ?? 0}
           disabled={!online || mutation.isPending}
@@ -204,10 +113,10 @@ export function TableView({
               />
             </div>
             <div className="flex flex-1 items-center gap-[16px] px-[16px] py-[12px]">
-              <span className="w-[48px] shrink-0 text-[12px] text-text-muted">{fmtNumber(card.number)}</span>
-              <span className="flex-1 truncate text-[14px] font-medium text-text-primary">{card.name}</span>
+              <span className="w-[48px] shrink-0 text-[14px] text-text-muted">{fmtNumber(card.number)}</span>
+              <span className="font-display flex-1 truncate text-[14px] font-medium text-text-primary">{card.name}</span>
               {card.variantCount > 1 && (
-                <span className="hidden text-[12px] text-text-muted sm:inline">{card.variantCount} variants</span>
+                <span className="hidden text-[14px] text-text-muted sm:inline">{card.variantCount} variants</span>
               )}
               <span className="text-[14px] font-medium text-change-positive">{fmtPrice(card.price)}</span>
               {/* Write affordance: hidden signed-out (the API sends no quantities

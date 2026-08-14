@@ -18,6 +18,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { supabase, isCloudMode } from '../lib/supabase'
 import { api } from '../lib/api'
 import { Icon } from '../components/Icon'
+import { Spinner } from '../components/ui'
 import { AuthCard, AuthPage, CTA_GHOST, FormAlert, SubmitButton } from './auth/authUi'
 import type { Session } from '@supabase/supabase-js'
 
@@ -116,7 +117,7 @@ export function Authorize() {
   if (session === undefined) {
     return (
       <div className="flex h-screen items-center justify-center bg-surface-primary">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-action-primary border-t-transparent" />
+        <Spinner inline size={32} className="text-action-primary" />
       </div>
     )
   }
@@ -137,7 +138,7 @@ export function Authorize() {
   if (clientName === null) {
     return (
       <div className="flex h-screen items-center justify-center bg-surface-primary">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-action-primary border-t-transparent" />
+        <Spinner inline size={32} className="text-action-primary" />
       </div>
     )
   }
@@ -149,13 +150,13 @@ export function Authorize() {
           <div className="mt-[1px] flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full bg-halo-neutral text-action-primary">
             <Icon name="link" size={16} />
           </div>
-          <div className="text-[13px] leading-[1.55] text-text-body">
+          <div className="text-[14px] leading-[1.55] text-text-body">
             It will be able to view and update your collection, decks, lists and battle logs — the same access
             you have when signed in. It will not see your password and cannot change your account.
           </div>
         </div>
 
-        <p className="mb-[20px] text-[12px] text-text-muted">
+        <p className="mb-[20px] text-[14px] text-text-muted">
           After you approve, you'll be redirected to <span className="font-semibold text-text-secondary">{hostOf(redirectUri!)}</span>.
         </p>
 

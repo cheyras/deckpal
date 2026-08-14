@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
 import { api, type SetSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, BackPill, SetSymbolTile } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, ProgressBar } from '../components/ui'
 import { SetLogo } from '../components/SetLogo'
 import { fmtDate, setLevelLabel } from '../lib/format'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
@@ -25,30 +25,27 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
             platedImgClassName="max-h-[48px] max-w-[82px]"
           />
         ) : (
-          <span className="px-[6px] text-center text-[12px] text-text-muted">{set.name}</span>
+          <span className="px-[6px] text-center text-[14px] text-text-muted">{set.name}</span>
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[16px] font-semibold text-text-primary">{set.name}</div>
-        <div className="text-[12px] text-text-muted">{fmtDate(set.releasedOn)}</div>
+        <div className="font-display truncate text-[16px] font-semibold text-text-primary">{set.name}</div>
+        <div className="text-[14px] text-text-muted">{fmtDate(set.releasedOn)}</div>
+        {/* At 14px the two labels no longer fit beside a FIXED 120px bar and
+            "LVL 0" wrapped to two lines. The labels are the content and must
+            hold; the bar is the decoration and absorbs the squeeze. */}
         {c ? (
           <div className="mt-[6px] flex items-center gap-[8px]">
-            <div className="h-[4px] w-[120px] overflow-hidden rounded-full bg-[#1a1d24]">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${Math.min(100, c.pct)}%`,
-                  background: 'linear-gradient(90deg, var(--color-action-danger), var(--color-action-primary-strong))',
-                }}
-              />
-            </div>
-            <span className="text-[10px] font-bold text-action-primary">LVL {setLevelLabel(c.pct)}</span>
-            <span className="text-[11px] text-text-muted">
+            <ProgressBar pct={c.pct} height={4} className="w-full min-w-[40px] max-w-[120px] shrink" />
+            <span className="shrink-0 whitespace-nowrap text-[14px] font-bold text-action-primary">
+              LVL {setLevelLabel(c.pct)}
+            </span>
+            <span className="shrink-0 whitespace-nowrap text-[14px] text-text-muted">
               {c.owned}/{c.total}
             </span>
           </div>
         ) : (
-          <div className="mt-[6px] text-[11px] text-text-muted">
+          <div className="mt-[6px] text-[14px] text-text-muted">
             {set.cardCountTotal.toLocaleString()} cards
             {set.secretCount > 0 ? ` · ${set.secretCount} secret` : ''}
           </div>

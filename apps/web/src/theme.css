@@ -1,5 +1,8 @@
 @import 'tailwindcss';
-@import '@fontsource-variable/inter/wght.css';
+/* Fraunces needs its FULL axis set, not just wght: it carries `opsz`, which is
+   driven automatically below, plus SOFT and WONK. */
+@import '@fontsource-variable/fraunces/full.css';
+@import '@fontsource-variable/figtree/wght.css';
 
 /*
  * pokedex design-system tokens — the 77 flat semantic roles from UI-SPEC §1.10.
@@ -8,91 +11,183 @@
  * `static` so every token is emitted even when no utility references it.
  */
 @theme static {
-  /* ── surfaces ─────────────────────────────────────────────── */
-  --color-surface-primary: #15181f;
-  --color-surface-secondary: #1f232d;
-  --color-surface-tertiary: #282d38;
-  --color-surface-tertiary-subtle: rgb(44 48 59 / 0.2);
-  --color-surface-tertiary-transparent: rgb(44 48 59 / 0.5);
-  --color-surface-quaternary: #373d4c;
-  --color-surface-raised: #3e4353;
-  --color-surface-control-active: #484f60;
-  --color-surface-profile-card: #282d38;
-  --color-surface-on-light: #f7f9ff;
-  --color-surface-on-light-border: #e0e4ef;
-  --color-surface-on-light-text: #1f232d;
-  --color-surface-footer: #1b1f27;
+  /* ── brand palette (raw Tailwind scales, 50-950) ─────────────────
+   * Source-of-truth hue scales, not semantic roles — nothing renders off these
+   * directly today. They exist so the semantic tokens below (action-primary,
+   * etc.) can be filtered down to a single brand-*-<shade> reference later
+   * instead of each recolor hand-picking hex per token.
+   *   primary   = Tailwind cyan   (the action-primary family)
+   *   secondary = Tailwind pink   (links, Holofoil variant)
+   *   tertiary  = Tailwind amber
+   *
+   * Hexes are Tailwind 4's values, converted from its oklch source — v4 shifted
+   * these from v3 (cyan-400 is #00d3f3, not v3's #22d3ee), so anything copied
+   * from a v3 palette chart will be subtly off from the utility classes.
+   */
+  --color-brand-primary-50: #ecfeff;
+  --color-brand-primary-100: #cefafe;
+  --color-brand-primary-200: #a2f4fd;
+  --color-brand-primary-300: #53eafd;
+  --color-brand-primary-400: #00d3f3;
+  --color-brand-primary-500: #00b8db;
+  --color-brand-primary-600: #0092b8;
+  --color-brand-primary-700: #007595;
+  --color-brand-primary-800: #005f78;
+  --color-brand-primary-900: #104e64;
+  --color-brand-primary-950: #053345;
 
-  /* ── text & links ─────────────────────────────────────────── */
+  --color-brand-secondary-50: #fdf2f8;
+  --color-brand-secondary-100: #fce7f3;
+  --color-brand-secondary-200: #fccee8;
+  --color-brand-secondary-300: #fda5d5;
+  --color-brand-secondary-400: #fb64b6;
+  --color-brand-secondary-500: #f6339a;
+  --color-brand-secondary-600: #e60076;
+  --color-brand-secondary-700: #c6005c;
+  --color-brand-secondary-800: #a3004c;
+  --color-brand-secondary-900: #861043;
+  --color-brand-secondary-950: #510424;
+
+  --color-brand-tertiary-50: #fffbeb;
+  --color-brand-tertiary-100: #fef3c6;
+  --color-brand-tertiary-200: #fee685;
+  --color-brand-tertiary-300: #ffd230;
+  --color-brand-tertiary-400: #ffb900;
+  --color-brand-tertiary-500: #fe9a00;
+  --color-brand-tertiary-600: #e17100;
+  --color-brand-tertiary-700: #bb4d00;
+  --color-brand-tertiary-800: #973c00;
+  --color-brand-tertiary-900: #7b3306;
+  --color-brand-tertiary-950: #461901;
+
+  /* ── surfaces (Tailwind STONE scale — warm grey) ──────────────── */
+  --color-surface-primary: #1c1917; /* stone-900 */
+  --color-surface-secondary: #292524; /* stone-800 */
+  --color-surface-tertiary: #44403b; /* stone-700 */
+  --color-surface-tertiary-subtle: rgb(68 64 59 / 0.2); /* stone-700 */
+  --color-surface-tertiary-transparent: rgb(68 64 59 / 0.5); /* stone-700 */
+  --color-surface-quaternary: #57534d; /* stone-600 */
+  --color-surface-raised: #79716b; /* stone-500 */
+  --color-surface-control-active: #a6a09b; /* stone-400 */
+  --color-surface-profile-card: #44403b; /* stone-700 */
+  --color-surface-on-light: #f5f5f4; /* stone-100 */
+  --color-surface-on-light-border: #d6d3d1; /* stone-300 */
+  --color-surface-on-light-text: #292524; /* stone-800 */
+  --color-surface-footer: #292524; /* stone-800 */
+
+  /* ── text & links ───────────────────────────────────────────
+   * The greys here were blue-cool (#c1c7d8, #7f8596, #484f60 …), which reads
+   * as a colour cast the moment the surfaces went warm. Each was re-derived in
+   * OKLCh: EXACT same lightness, with stone's own chroma and hue interpolated
+   * at that lightness. So nothing got lighter or darker — only the hue moved,
+   * and the whole UI now sits in one family. */
   --color-text-primary: #ffffff;
-  --color-text-body: #c1c7d8;
-  --color-text-secondary: #989eb3;
-  --color-text-muted: #7f8596;
+  --color-text-body: #cac6c4; /* stone-hue, same lightness as the old #c1c7d8 */
+  --color-text-secondary: #a49e98;
+  --color-text-muted: #8b847e;
   --color-text-primary-on-dark: rgb(255 255 255 / 0.85);
-  --color-link: #32b5ff;
-  --color-link-hover: #45bcff;
+  --color-link: var(--color-brand-secondary-400); /* pink-400 */
+  --color-link-hover: var(--color-brand-secondary-300); /* pink-300, brighter on hover */
 
-  /* ── actions ──────────────────────────────────────────────── */
-  --color-action-primary: #ffd54a;
-  --color-action-primary-hover: #e6ca5b;
-  --color-action-primary-text: #1f232d;
-  --color-action-primary-strong: #ffe165;
-  --color-action-primary-strong-hover: #ffd63b;
-  --color-action-primary-strong-text: #1f232d;
-  --color-action-default: #282d38;
-  --color-action-default-hover: #3b3f4b;
+  /* ── actions ──────────────────────────────────────────────────
+   * These now reference the brand scale rather than repeating hex, which is
+   * what the scale above was added for: recolouring the primary family is a
+   * one-line change to --color-brand-primary-*, not six hand-picked values
+   * that can drift apart. */
+  --color-action-primary: var(--color-brand-primary-400);
+  --color-action-primary-hover: var(--color-brand-primary-500);
+  --color-action-primary-text: var(--color-brand-primary-950);
+  --color-action-primary-strong: var(--color-brand-primary-300);
+  --color-action-primary-strong-hover: var(--color-brand-primary-400);
+  --color-action-primary-strong-text: var(--color-brand-primary-950);
+  --color-action-default: #292524; /* stone-800 */
+  --color-action-default-hover: #44403b; /* stone-700 */
   --color-action-default-text: #ffffff;
-  --color-action-ghost-border: #3b3f4b;
-  --color-action-ghost-hover: #282d38;
-  --color-action-ghost-text: #7f8596;
-  --color-action-danger: #ff7893;
-  --color-action-danger-hover: #e6657f;
-  --color-action-danger-text: #15181f;
-  --color-action-brand: #32b5ff;
-  --color-action-brand-text: #ffffff;
+  --color-action-ghost-border: #44403b; /* stone-700 */
+  --color-action-ghost-hover: #292524; /* stone-800 */
+  --color-action-ghost-text: #a6a09b; /* stone-400 */
+  --color-action-danger: #fb2c36; /* red-500 */
+  --color-action-danger-hover: #e7000b; /* red-600 */
+  --color-action-danger-text: #ffffff;
+  /* External / commerce actions: Shop, Purchase Set, Buy on TCGplayer, and the
+   * TCGplayer link icons. This was blue-400 — a fourth, unrelated hue that read
+   * as a stray blue dot inside otherwise-neutral chips. It now sits in the
+   * primary family.
+   *
+   * Amber (the tertiary scale, currently unused) would have given this role its
+   * own colour, but PurchaseSetMenu renders `text-warning` orange in the same
+   * panel as the action-brand cart icon, and amber-400 beside warning-orange is
+   * muddy. The role token survives, so differentiating later is one line.
+   *
+   * The text token MUST move with it: white on cyan-400 measures 1.8:1. */
+  --color-action-brand: var(--color-brand-primary-400);
+  --color-action-brand-text: var(--color-brand-primary-950);
 
-  /* ── status / feedback ────────────────────────────────────── */
-  --color-success: #32ffce;
-  --color-error: #ff7893;
-  --color-change-positive: #35f197;
-  --color-change-negative: #ff6b6b;
-  --color-halo-success: rgb(50 255 206 / 0.1);
-  --color-halo-error: rgb(255 120 147 / 0.1);
-  --color-halo-neutral: rgb(255 225 101 / 0.1);
-  --color-overlay-scrim: rgb(44 48 59 / 0.7);
-  --color-overlay-scrim-strong: rgb(21 24 31 / 0.75);
-  --color-overlay-ring: rgb(255 225 101 / 0.2);
-  --color-overlay-ring-error: rgb(255 120 147 / 0.2);
-  --color-banner-gradient-top: rgb(31 35 45 / 0.8);
+  /* ── status / feedback (Tailwind green/red for status roles) ── */
+  --color-success: #00d492; /* emerald-400 — same family as change-positive */
+  --color-error: #ff6467; /* red-400 */
+  --color-change-positive: #00bc7d; /* emerald-500 */
+  --color-change-negative: #fb2c36; /* red-500 */
+  --color-halo-success: rgb(0 212 146 / 0.1); /* emerald-400 */
+  --color-halo-error: rgb(255 100 103 / 0.1); /* red-400 */
+  --color-halo-neutral: rgb(0 211 243 / 0.1); /* primary */
+  --color-overlay-scrim: rgb(52 47 45 / 0.7);
+  --color-overlay-scrim-strong: rgb(26 23 22 / 0.75);
+  --color-overlay-ring: rgb(0 211 243 / 0.2); /* primary */
+  --color-overlay-ring-error: rgb(255 100 103 / 0.2); /* red-400 */
+  --color-banner-gradient-top: rgb(38 34 33 / 0.8);
+  --color-track-subtle: #201c1b;
 
-  /* ── borders / icons ──────────────────────────────────────── */
-  --color-border-default: #282d38;
-  --color-border-focus: #7f8596;
-  --color-divider-subtle: #383c49;
-  --color-avatar-ring: #282d38;
-  --color-icon-default: #7f8596;
+  /* ── borders / icons (Tailwind stone scale, matches surfaces) ── */
+  --color-border-default: #57534d; /* stone-600 */
+  --color-border-focus: #a6a09b; /* stone-400 */
+  --color-divider-subtle: #44403b; /* stone-700 */
+  --color-avatar-ring: #57534d; /* stone-600 */
+  --color-icon-default: #8b847e;
   --color-icon-hover: #ffffff;
-  --color-icon-active: #ffe165;
-  --color-icon-muted: #666f84;
-  --color-icon-muted-strong: #484f60;
-  --color-icon-disabled: #4a4f5c;
-  --color-icon-disabled-strong: #292e3a;
+  --color-icon-muted: #756e68;
+  --color-icon-muted-strong: #534f49;
+  --color-icon-disabled: #534f49;
+  --color-icon-disabled-strong: #322d2b;
 
   /* ── brand / pro / promo ──────────────────────────────────── */
-  --color-pro-accent: #45bcff;
-  --color-pro-accent-text: #15181f;
-  --color-pro-pink: #7f42ff;
+  /* pink-600, not 500: this is a 9px badge, and white on pink-500 measures
+     3.58:1 — under the 4.5:1 needed for text this size. pink-600 gives 4.54:1. */
+  --color-pro-pink: var(--color-brand-secondary-600); /* pink-600 */
   --color-pro-pink-text: #ffffff;
-  --color-announcement: #3f52ff;
-  --color-announcement-text: #ffffff;
-  --color-completion-grandmaster: #9b6bff;
-  --color-glow-active: #ffe165;
+  --color-completion-grandmaster: var(--color-brand-tertiary-400); /* amber-400 — gold reads as the top tier, and pairs against `success` in ProgressCluster */
+  --color-glow-active: var(--color-brand-primary-400);
 
-  /* ── variant accents (owned-badge + legend) ───────────────── */
-  --color-variant-normal: #ffe165; /* Normal */
-  --color-variant-reverse-holo: #32b5ff; /* Reverse Holofoil */
-  --color-variant-holofoil: #9b6bff; /* Holofoil */
-  --color-variant-other: #a8aebd; /* Additional / special tier */
+  /* ── energy-type colours (EnergyIcon) ─────────────────────── */
+  --color-energy-grass: #5fb85f;
+  --color-energy-fire: #e8703a;
+  --color-energy-water: #4a97d6;
+  --color-energy-lightning: #f2c518;
+  --color-energy-psychic: #a45cb0;
+  --color-energy-fighting: #c06a3a;
+  --color-energy-darkness: #4b5566;
+  --color-energy-metal: #8b95a6;
+  --color-energy-fairy: #e58bb8;
+  --color-energy-dragon: #c6a23e;
+  --color-energy-colorless: #d6d2c6;
+
+  /* ── warning ─────────────────────────────────────────────── */
+  --color-warning: #ff8904; /* orange-400 */
+
+  /* ── variant accents (owned-badge + legend) ───────────────────
+   * Normal reads as the plain card stock (neutral white), Reverse Holofoil
+   * takes the brand primary and Holofoil the brand secondary, so the three
+   * tiers sit on the same scale as the rest of the UI instead of being three
+   * unrelated hues.
+   *
+   * These stay SOLID. The matching gradients live in :root below as
+   * --gradient-variant-*, because CounterBox's empty state draws
+   * `border: 2px solid var(…)` and a gradient is not a valid border colour —
+   * the pair is not redundancy, it is what lets the fills be gradients at all. */
+  --color-variant-normal: #e7e5e4; /* Normal — stone-200 */
+  --color-variant-reverse-holo: var(--color-brand-primary-400); /* cyan-400 */
+  --color-variant-holofoil: var(--color-brand-secondary-400); /* pink-400 */
+  --color-variant-other: #b2ada9; /* Additional / special tier */
 
   /* ── radii ────────────────────────────────────────────────── */
   --radius-sm: 4px;
@@ -108,7 +203,16 @@
   --shadow-sticker: 4px 4px 4px 4px rgb(0 0 0 / 0.25);
 
   /* ── typography ───────────────────────────────────────────── */
-  --font-sans: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  /* Two roles, deliberately separate.
+   *   sans    — body/UI. The bulk of this app is 11–15px, so this role wants a
+   *             face drawn for small sizes on screen, not personality.
+   *   display — the app's PROPER NOUNS: page titles, section headings, series /
+   *             set / card / deck / list names, attack names, empty-state
+   *             headlines. A display face used once per page reads as arbitrary
+   *             decoration; giving it a consistent role is what makes it a
+   *             system. See the .font-display rules below §type. */
+  --font-sans: 'Figtree Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
 
   --text-3xs: 9px;
   --text-3xs--line-height: 15px;
@@ -141,6 +245,29 @@
   /* ── breakpoints (UI-SPEC §4.3 — 1068 is the ONE real one) ── */
   --breakpoint-gap: 567px;
   --breakpoint-nav: 1068px;
+}
+
+/* Variant swatch FILLS. Deliberately outside `@theme`: naming them
+   `--color-*` would make Tailwind treat them as colours and emit
+   `bg-…` utilities that resolve to `background-color: linear-gradient(…)`,
+   which is invalid. Consumers apply them with `background:`, never
+   `background-color:`.
+
+   Top-lit (lighter at the top) to match the .btn-fill-* convention, so a
+   variant chip reads as the same moulded material as a button. */
+:root {
+  --gradient-variant-normal: linear-gradient(180deg, #ffffff, #cbc7c5);
+  --gradient-variant-reverse-holo: linear-gradient(
+    180deg,
+    var(--color-brand-primary-300),
+    var(--color-brand-primary-500)
+  );
+  --gradient-variant-holofoil: linear-gradient(
+    180deg,
+    var(--color-brand-secondary-300),
+    var(--color-brand-secondary-500)
+  );
+  --gradient-variant-other: linear-gradient(180deg, #cecac8, #9b958f);
 }
 
 /* z-index layers — plain custom properties */
@@ -196,9 +323,12 @@ button {
 }
 
 /* App logotype — "Pokédex" in the top chrome. Live text, series-logo inspired:
-   heavy weight + slight forward skew, yellow→gold gradient (action-primary family)
-   clipped to the glyphs, and a layered drop-shadow for the chunky outlined depth.
-   drop-shadow (not text-shadow) so the shadow tracks the gradient-clipped glyphs. */
+   heavy weight + slight forward skew, a light-to-dark gradient within the
+   action-primary hue family (all 4 stops, so recoloring action-primary never
+   leaves a foreign-hue fringe at the top/bottom of the glyphs — see
+   DECISIONS.md 2026-08-11) clipped to the glyphs, and a layered drop-shadow for
+   the chunky outlined depth. drop-shadow (not text-shadow) so the shadow
+   tracks the gradient-clipped glyphs. */
 .brand-wordmark {
   display: inline-block;
   font-weight: 900;
@@ -206,16 +336,159 @@ button {
   transform: skewX(-6deg);
   background: linear-gradient(
     180deg,
-    #fff3a6 0%,
+    var(--color-brand-primary-100) 0%,
     var(--color-action-primary-strong) 34%,
     var(--color-action-primary) 62%,
-    #eda921 100%
+    var(--color-brand-primary-700) 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   filter: drop-shadow(0 1px 0 rgb(0 0 0 / 0.55)) drop-shadow(0 2px 5px rgb(0 0 0 / 0.35));
   user-select: none;
+}
+
+/* Filled button variants (Button.tsx primary/secondary/danger).
+ *
+ * Both faces sit ELEVATED above the surface — same outer shadow pair, a tight
+ * contact shadow plus a soft ambient one — but they are shaped differently,
+ * the way the two pairs of buttons on an SNES pad are:
+ *
+ *   CONVEX (primary, danger) — a dome. Light from above collects on the crown,
+ *   so the fill runs LIGHT→DARK downward, a bright specular sits on the top
+ *   edge, and the bottom inner edge falls into occlusion.
+ *
+ *   CONCAVE (secondary) — a dish. The near wall of a bowl is in shadow and the
+ *   light pools at the far lip, so everything inverts: the fill runs
+ *   DARK→LIGHT downward, the inner shadow moves to the TOP, and the catch-light
+ *   moves to the bottom. The outer shadows are unchanged, which is what keeps
+ *   it reading as "raised button with a dished face" rather than "hole".
+ *
+ * The convex/concave read lives entirely in the INNER shadows and the gradient
+ * direction; the OUTER shadows carry the elevation. Keeping those two jobs
+ * separate is why the same elevation can host either face.
+ */
+.btn-elevate,
+.btn-fill-primary,
+.btn-fill-secondary,
+.btn-fill-danger {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.4),
+    inset 0 -2px 3px rgb(0 0 0 / 0.18),
+    0 1px 2px rgb(0 0 0 / 0.35),
+    0 5px 10px -4px rgb(0 0 0 / 0.45);
+}
+
+.btn-fill-primary {
+  background: linear-gradient(180deg, var(--color-brand-primary-300), var(--color-brand-primary-500));
+}
+.btn-fill-primary:hover {
+  background: linear-gradient(180deg, var(--color-brand-primary-400), var(--color-brand-primary-600));
+}
+.btn-fill-danger {
+  background: linear-gradient(180deg, #ff6467, #e7000b); /* red-400 -> red-600 */
+}
+.btn-fill-danger:hover {
+  background: linear-gradient(180deg, #fb2c36, #c10007); /* red-500 -> red-700 */
+}
+
+/* Concave — a RAISED button with a dished face, not a recess.
+ *
+ * The first attempt got this wrong: a strong inset shadow at the top with no
+ * rim reads as a hole punched into the surface, because nothing says the object
+ * stands above the page. The fix is that a dished button's RIM is still convex.
+ * So the concavity is built in three parts, and the face gradient is the least
+ * important of them:
+ *
+ *   1. THE LIP — a 1px border, light along the top edge and dark along the
+ *      bottom: an ordinary raised edge catching light from above.
+ *   2. THE SHADOW LINE — `inset 0 1px 0` in black immediately under the lip.
+ *      This is what actually sells it, and it was the missing piece: it
+ *      separates the raised edge from the face, so the face reads as falling
+ *      AWAY behind the lip rather than as a flat panel with a border on it.
+ *   3. THE DISH — a soft inset shadow running down from the top (the far wall
+ *      of the bowl) and light pooling at the bottom (the near wall turning back
+ *      toward the light).
+ *
+ * The face gradient is only 13 points of lightness, DARK to LIGHT downward —
+ * the inverse of the convex variants. It was 44 points originally and 20 after
+ * the first pass; both read as two stacked colours rather than as a surface.
+ * Taking the concavity from the rim and the inner shadows instead is what lets
+ * the face stay this quiet. Compared against the convex primary at 4x zoom. */
+.btn-fill-secondary {
+  background: linear-gradient(180deg, #3c3835 0%, #494542 100%);
+  border: 1px solid;
+  border-top-color: rgb(255 255 255 / 0.28);
+  border-left-color: rgb(255 255 255 / 0.1);
+  border-right-color: rgb(255 255 255 / 0.1);
+  border-bottom-color: rgb(0 0 0 / 0.65);
+  box-shadow:
+    inset 0 1px 0 rgb(0 0 0 / 0.45),
+    inset 0 4px 7px -4px rgb(0 0 0 / 0.55),
+    inset 0 -6px 7px -5px rgb(255 255 255 / 0.2),
+    0 1px 2px rgb(0 0 0 / 0.45),
+    0 8px 16px -7px rgb(0 0 0 / 0.6);
+}
+.btn-fill-secondary:hover {
+  background: linear-gradient(180deg, #454140 0%, #524e4a 100%);
+  border-top-color: rgb(255 255 255 / 0.34);
+}
+
+/* ── type: the display role ──────────────────────────────────────────────
+ * Fraunces carries an optical-size axis and the display role spans 14px (a card
+ * name in a table row) to 48px (the landing hero). A FIXED opsz cannot serve
+ * both — high values are drawn for headlines and go spindly at text sizes, low
+ * values look clumsy large. `font-optical-sizing: auto` tracks opsz to the
+ * rendered size, which is what the axis exists for. SOFT and WONK are set
+ * through font-variation-settings WITHOUT naming opsz, since listing it there
+ * would override that tracking.
+ *
+ * The app marks up real h1/h2/h3, so headings need no per-component change;
+ * `.font-display` is the opt-in for named things that are not headings (card
+ * names, set names, attack names — see the components that carry it).
+ *
+ * Deliberately NOT display: species names in the Pokedex grid (13px — a serif
+ * goes muddy below ~14px), and stat values/labels, which are data, not names. */
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  font-variation-settings: 'SOFT' 30, 'WONK' 1;
+}
+
+/* Tracking is a function of SIZE, not of the face: large type needs pulling in,
+   text-size type does not (tightening 16px set names made them cramped). */
+h1,
+h2 {
+  letter-spacing: -0.015em;
+}
+
+/* Weight compensation for the light display sites.
+   A serif's hairlines are its thinnest strokes, and light-on-dark thins strokes
+   optically on top of that — so Fraunces at 400 reads spindly where Inter at 400
+   read solid. The components stay at their semantic weight; only the light
+   DISPLAY sites lift one step. Bold headings already have the mass.
+   `.font-display.font-normal` scores (0,2,0) against Tailwind's `.font-normal`
+   at (0,1,0), so it wins without !important. */
+.font-display.font-normal {
+  font-weight: 500;
+}
+.font-display.font-medium {
+  font-weight: 600;
+}
+
+/* Figtree is drawn a touch wider than Inter; a hair of negative tracking keeps
+   dense UI rows from loosening. Correction, not styling. */
+body {
+  letter-spacing: -0.006em;
+}
+
+/* Prices, card numbers and the count boxes align in columns, and Figtree does
+   not default to tabular. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums lining;
 }
 
 /* Thin scrollbars on horizontal chip rows */

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { api } from '../lib/api'
 import { supabase, isCloudMode } from '../lib/supabase'
-import { Content, Spinner, ErrorState } from '../components/ui'
+import { Content, Spinner, ErrorState, Tabs, StatTile } from '../components/ui'
 import { LevelRing } from '../components/LevelRing'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
@@ -54,13 +54,13 @@ function loadShowcase(): ShowcasePick[] {
 }
 
 const TABS = [
-  { label: 'Profile', to: undefined },
-  { label: 'Collection', to: '/series' },
-  { label: 'Insights', to: '/insights' },
-  { label: 'Activity', to: undefined },
-  { label: 'Lists', to: '/lists' },
-  { label: 'Decks', to: '/decks' },
-  { label: 'Friends', to: undefined },
+  { key: 'profile', label: 'Profile' },
+  { key: 'collection', label: 'Collection', to: '/series' },
+  { key: 'insights', label: 'Insights', to: '/insights' },
+  { key: 'activity', label: 'Activity' },
+  { key: 'lists', label: 'Lists', to: '/lists' },
+  { key: 'decks', label: 'Decks', to: '/decks' },
+  { key: 'friends', label: 'Friends' },
 ] as const
 
 export function Profile() {
@@ -112,12 +112,12 @@ export function Profile() {
               {banner[i] ? (
                 <img src={banner[i]!.high} alt="" className="h-full w-full object-cover object-top opacity-40" />
               ) : (
-                <div className="h-full w-full" style={{ background: 'linear-gradient(160deg,#1f232d,#282d38)' }} />
+                <div className="h-full w-full" style={{ background: 'linear-gradient(160deg, var(--color-surface-secondary), var(--color-surface-tertiary))' }} />
               )}
             </div>
           ))}
         </div>
-        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(21,24,31,0.2), var(--color-surface-primary))' }} />
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-surface-primary) 20%, transparent), var(--color-surface-primary))' }} />
       </div>
 
       <Content cap={1000}>
@@ -130,7 +130,7 @@ export function Profile() {
             floor the row collapsed to ~40px, rode the -54px margin up INTO the
             banner, and took the name, the gear and Sign out with it — so an
             insights outage left nobody able to sign out. */}
-        <div className="relative z-[1] -mt-[54px] flex min-h-[96px] items-end gap-[16px]">
+        <div className="relative z-(--z-raised) -mt-[54px] flex min-h-[96px] items-end gap-[16px]">
           {/* The ring renders unconditionally now. It used to be gated on `ov`,
               which meant an insights outage took the profile photo — and its
               upload control — off the page along with the level. The level is
@@ -196,7 +196,7 @@ export function Profile() {
                   // cannot race each other to different pages.
                   navigate({ to: '/signed-out' })
                 }}
-                className="ml-[4px] flex items-center gap-[6px] rounded-full bg-surface-tertiary px-[12px] py-[5px] text-[13px] font-semibold text-text-muted hover:bg-action-default-hover hover:text-text-body disabled:opacity-50"
+                className="ml-[4px] flex items-center gap-[6px] rounded-full bg-surface-tertiary px-[12px] py-[5px] text-[14px] font-semibold text-text-muted hover:bg-action-default-hover hover:text-text-body disabled:opacity-50"
                 title="Sign out"
               >
                 <Icon name="logout" size={16} />
@@ -212,7 +212,7 @@ export function Profile() {
             one is short, wraps cleanly, and is still adjacent to the avatar.
             The camera badge on the ring is the shortcut; these are the labelled
             path, and the only place "Remove" can be reached. */}
-        <div className="mt-[10px] flex flex-wrap items-center gap-x-[16px] gap-y-[8px] text-[13px]">
+        <div className="mt-[10px] flex flex-wrap items-center gap-x-[16px] gap-y-[8px] text-[14px]">
           <span className="text-text-muted">
             Joined <span className="font-semibold text-text-body">Jul 2026</span>
           </span>
@@ -250,7 +250,7 @@ export function Profile() {
         {photo.error && (
           <div
             role="alert"
-            className="mt-[10px] flex items-start gap-[8px] rounded-[10px] bg-halo-error px-[14px] py-[11px] text-[13px] leading-[1.5] text-error"
+            className="mt-[10px] flex items-start gap-[8px] rounded-[10px] bg-halo-error px-[14px] py-[11px] text-[14px] leading-[1.5] text-error"
           >
             <span className="mt-[1px] shrink-0">
               <Icon name="alert" size={15} />
@@ -260,24 +260,7 @@ export function Profile() {
         )}
 
         {/* tab strip */}
-        <div className="scroll-x mt-[16px] flex gap-[6px] border-b border-border-default">
-          {TABS.map((t) => {
-            const cls =
-              'shrink-0 border-b-2 px-[12px] pb-[10px] text-[14px] font-semibold ' +
-              (t.label === 'Profile'
-                ? 'border-action-primary text-text-primary'
-                : 'border-transparent text-text-muted hover:text-text-body')
-            return t.to ? (
-              <Link key={t.label} to={t.to} className={cls}>
-                {t.label}
-              </Link>
-            ) : (
-              <span key={t.label} className={cls + ' cursor-default'}>
-                {t.label}
-              </span>
-            )
-          })}
-        </div>
+        <Tabs items={TABS} value="profile" className="mt-[16px]" />
 
         {overview.isLoading && <Spinner label="Loading profile…" />}
         {overview.error && <ErrorState message={(overview.error as Error).message} />}
@@ -288,7 +271,7 @@ export function Profile() {
             <section>
               <div className="mb-[10px] flex items-center justify-between">
                 <h2 className="text-[16px] font-bold text-text-primary">Showcase Cards</h2>
-                <span className="text-[12px] text-text-muted">{slots.filter(Boolean).length}/4 selected</span>
+                <span className="text-[14px] text-text-muted">{slots.filter(Boolean).length}/4 selected</span>
               </div>
               <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-4">
                 {slots.map((pick, i) => (
@@ -310,7 +293,7 @@ export function Profile() {
                         className="flex w-full items-center justify-center rounded-lg border-2 border-dashed border-border-default text-text-muted hover:border-action-primary hover:text-action-primary"
                         style={{ aspectRatio: '245 / 337' }}
                       >
-                        <span className="flex flex-col items-center gap-[6px] text-[13px]">
+                        <span className="flex flex-col items-center gap-[6px] text-[14px]">
                           <Icon name="plus" size={22} />
                           Add card
                         </span>
@@ -319,7 +302,7 @@ export function Profile() {
                   </div>
                 ))}
               </div>
-              <p className="mt-[8px] text-[12px] text-text-muted">
+              <p className="mt-[8px] text-[14px] text-text-muted">
                 Choose up to 4 Showcase Cards from your collection.
               </p>
             </section>
@@ -333,7 +316,7 @@ export function Profile() {
                 <span className="text-[32px] font-extrabold text-change-positive">{fmtUsd(usd?.total ?? null)}</span>
                 <Link
                   to="/insights"
-                  className="inline-flex items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] py-[8px] text-[13px] font-semibold text-text-primary hover:bg-action-default-hover"
+                  className="inline-flex items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] py-[8px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover"
                 >
                   <Icon name="sparkle" size={16} className="text-action-primary" /> Value History
                 </Link>
@@ -344,9 +327,9 @@ export function Profile() {
             <section className="rounded-2xl bg-surface-secondary p-[20px]">
               <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Pokémon TCG (English)</div>
               <div className="mt-[10px] grid grid-cols-3 gap-[12px]">
-                <Stat label="Total Cards" value={ov.trainer.totalCards} />
-                <Stat label="Unique Cards" value={ov.trainer.uniqueCards} />
-                <Stat label="Pokédex" value={`${ov.pokedex.captured}/${ov.pokedex.total}`} />
+                <StatTile variant="boxed" label="Total Cards" value={ov.trainer.totalCards} />
+                <StatTile variant="boxed" label="Unique Cards" value={ov.trainer.uniqueCards} />
+                <StatTile variant="boxed" label="Pokédex" value={`${ov.pokedex.captured}/${ov.pokedex.total}`} />
               </div>
             </section>
           </div>
@@ -366,7 +349,7 @@ export function Profile() {
       {/* showcase picker */}
       {picking != null && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-overlay-scrim-strong p-[16px]"
+          className="fixed inset-0 z-(--z-modal) flex items-center justify-center bg-overlay-scrim-strong p-[16px]"
           onClick={() => setPicking(null)}
         >
           <div
@@ -390,7 +373,7 @@ export function Profile() {
                 {(owned.data ?? []).map((c) => (
                   <button key={c.cardId} onClick={() => setSlot(picking, c)} className="block text-left">
                     <CardImage low={c.low} high={c.high} alt={c.name} />
-                    <div className="mt-[4px] truncate text-[11px] text-text-body">{c.name}</div>
+                    <div className="mt-[4px] truncate text-[14px] text-text-body">{c.name}</div>
                   </button>
                 ))}
               </div>
@@ -402,11 +385,3 @@ export function Profile() {
   )
 }
 
-function Stat({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="rounded-lg bg-surface-tertiary p-[12px] text-center">
-      <div className="text-[22px] font-extrabold text-text-primary">{value}</div>
-      <div className="text-[11px] text-text-muted">{label}</div>
-    </div>
-  )
-}

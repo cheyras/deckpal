@@ -4253,3 +4253,483 @@ alone.
   mask the bug without fixing it.
 
 _Filed by agent on behalf of @cheyras — 2026-08-11._
+
+## 2026-08-11 — Design-system editor: change-application model approved (Phase 0 gate)
+**Decided by:** product owner (user), in conversation with the orchestrating session.
+**Decision:** The following change-application capabilities are approved for the
+design-system editor initiative described in `DESIGN-SYSTEM-PLAN.md`:
+
+1. **Write capability as a category (B9 approval):** A Vite dev-server plugin
+   (`apps/web/vite-plugins/design-editor.ts`) may expose endpoints that write to
+   `apps/web/src/theme.css`, and (in a later phase) an agent may edit files under
+   `apps/web/src/**`. Both are scoped to the local worktree, never committing.
+   The endpoints exist only while `vite dev` runs — they are absent from
+   production builds by construction, not by configuration.
+
+2. **Lane A for deterministic token value swaps (plan §1.2):** Pure token-value
+   changes (e.g. swapping `#ffd54a` for `#f5c832` in a `--color-*` declaration)
+   are applied deterministically by the dev-server plugin via
+   `POST /__design/tokens/apply`, without routing through an agent. This deviates
+   from the literal "everything through an agent" framing but was explicitly
+   approved as strictly better UX for mechanically unambiguous substitutions. The
+   plugin's `tokenLane: 'direct' | 'agent'` option remains available to revert
+   this if the owner later wants agent mediation for tokens too.
+
+**Explicitly NOT approved — out of scope for this and future phases unless
+separately requested:**
+
+3. **Phase 3b (unsupervised SDK daemon):** The `scripts/design-agent/agent.mjs`
+   daemon that uses `@anthropic-ai/claude-agent-sdk` to drain the change-request
+   queue without a human-supervised Claude Code session. This requires separate,
+   later approval and must not be built or scaffolded without it.
+
+**Why:** B9 ("no unilateral infrastructure mutations") requires explicit
+maintainer approval for any agent or endpoint that writes to source files. This
+entry records that approval was granted for items 1 and 2 above, and withheld for
+item 3, before any implementation work begins — per the plan's Phase 0 gate (§5).
+
+**Implications:**
+- Phase 1 implementation may proceed: the dev-server plugin, the `/design` route,
+  the token panel with live overrides and save, and the read-only component catalog.
+- Phase 3a (supervised skill-based queue consumer) is covered by approval #1.
+- Phase 3b (unsupervised daemon) remains blocked until a separate approval is granted.
+- No new npm dependencies are added in phases 1-3a.
+
+_Filed by agent on behalf of @cheyras — 2026-08-11._
+
+## 2026-08-11 — Phase 3a: Agent lane with supervised consumer
+**Decided by:** agent (implementing approved plan §5, Phase 3a)
+**Decision:** Implemented the agent-mediated change-request lane (Lane B) with
+three components: (1) `RequestsPanel.tsx` — polls `GET /__design/requests`
+every 3s, displays each request with kind/target/intent/status, and for
+completed requests shows the agent's summary, files changed, and a
+hot-reload hint; (2) "Send to agent" composers on every gallery entry in
+`CatalogSection.tsx` — free-text intent box with pre-filled context
+(component name, source path, current knob state, active token overrides),
+submitting to `POST /__design/requests`; (3) `.claude/skills/design-requests/SKILL.md`
+— the playbook for a Claude Code session to drain `design-requests/queue/`,
+applying changes with real judgment and writing structured results to
+`done/` or `failed/`.
+
+**Why:** This completes the full composer-queue-agent loop. The queue directory
+is the contract between the UI and the consumer: the UI writes requests, the
+skill drains them, and HMR closes the visual loop. The skill is a supervised
+consumer (the owner has a Claude Code session open in the worktree) — it
+never commits, leaving `git diff` as the review surface. The done/failed
+result file includes both the original request fields and a nested `result`
+object so the RequestsPanel can display the full context alongside the
+agent's output.
+
+**Implications:**
+- Phase 3a is complete: the supervised agent lane is functional end to end.
+- The skill asserts it is operating in the `design-system` worktree before
+  touching anything (safety check per plan §8.3 risk R5).
+- Done/failed result files carry the original request fields (kind, target,
+  intent, createdAt, context) alongside the result sub-object — the GET
+  endpoint reads whatever is in the file and the panel renders it directly.
+- The `.gitignore` entry for `design-requests/` was anchored to `/design-requests/`
+  (root-relative) to avoid accidentally ignoring
+  `.claude/skills/design-requests/` (the skill playbook that must be tracked).
+- Phase 3b (unsupervised SDK daemon) remains explicitly out of scope.
+- No new npm dependencies were added.
+
+_Filed by agent on behalf of @cheyras — 2026-08-11._
+
+---
+
+## 2026-08-11 — Premium visual pass ships as a reversible skin, not a rewrite
+**Decided by:** user (direction), agent (mechanism).
+**Decision:** move the app off its pkmn.gg-derived flat look with a "premium"
+pass — subtle dark neumorphism, procedural paper grain, plastic sheen on
+filled controls, more interaction motion, and animated micro-illustration nav
+icons — delivered as an **additive skin layer** rather than as edits to the
+existing design system.
+
+Every rule lives in `apps/web/src/premium.css`, scoped under
+`:root[data-skin='premium']`. `lib/skin.ts` sets that attribute at boot from
+`?skin=` → localStorage → `DEFAULT_SKIN`. A toggle in the dev design-system
+header flips it live.
+
+**Why a skin and not a redesign of theme.css:**
+- The pass is a taste call being evaluated, not a settled requirement. It has
+  to be reversible *while it is being looked at*, not only by `git revert`.
+- Scoping to an attribute means classic is provably byte-identical: no rule in
+  the file can match when the attribute is absent.
+- Reverting for real is one constant (`DEFAULT_SKIN = 'classic'`), or deleting
+  one CSS import.
+
+**Implications / constraints this created:**
+- The pass hangs off the design system's own utility classes
+  (`.bg-surface-secondary.rounded-lg`, `.bg-track-subtle`, `input`), so ~93
+  components upgraded without being edited. The cost is that those class
+  combinations are now load-bearing for the skin — renaming a surface utility
+  silently drops the relief on whatever used it.
+- `--radius-*` is redefined under the skin. Tailwind compiles `rounded-lg` to
+  `var(--radius-lg)`, so this re-shapes every corner at once. Highest-leverage
+  line in the file; also the one most likely to surprise.
+- Paper grain is composited as low-alpha (~3%) light speckle with a NORMAL
+  blend, not `soft-light`/`overlay`. Measured in the browser: blending grey
+  turbulence onto a near-black surface washes it milky grey. Alpha is baked
+  into each SVG data-URI; those `opacity` values are the subtlety knob.
+- Nav icons needed different *markup*, so `components/NavIcon.tsx` branches on
+  `useSkin()` and falls back to `<Icon>` for classic. It must: the resting
+  states of the animated parts are established by premium.css, so rendering
+  that markup with the stylesheet inert would show every part at once.
+- Animated icons draw on via `animation` keyframes, never a static hidden
+  state. An unselected "Insights" missing its trend line reads as a broken
+  icon, not a subtle one — caught in the browser on the first pass.
+- `prefers-reduced-motion` drops the movement only. Relief, paper and sheen
+  are not motion, so the pass degrades to a still premium look rather than
+  back to flat.
+
+**Not covered:** the signed-in surfaces (lists, decks/DeckBuilder, insights,
+profile, scan) were not visually verified — no local session. They inherit the
+shared surface vocabulary, so they should follow, but they are unconfirmed.
+
+---
+
+## 2026-08-11 — Connection pooling is chosen per ROLE and per BACKEND
+**Decided by:** user ("make this work on whatever machine I clone to"), agent.
+
+**Problem.** The dev API returned 500s that looked like a dead database. It was
+not. Measured: while the API was timing out, a raw `pg` client reached the same
+Supabase pooler in 483ms, and instrumenting the pool showed
+`total=2 idle=0 waiting=13` — the pool was saturated, not broken, and it
+released connections correctly.
+
+Two facts combined into a hard ceiling of **two concurrent requests**:
+1. `makePool` clamped every pool to `HARD_CAP = 3`, and the API asked for 2.
+   That cap was written for one specific co-hosted self-host box
+   (max_connections=20, budget of 4 — DECISIONS.md 2026-07-29). It was applied
+   unconditionally, including against a Supabase pooler where the reasoning is
+   inverted: a pooler exists so clients need NOT ration connections.
+2. In `SUPABASE_MODE`, the RLS middleware (apps/api/src/index.ts) checks out one
+   pooled connection for the ENTIRE lifetime of every request. So the pool's
+   `max` is literally the server's max concurrent requests.
+
+One SPA page load issues well over two parallel calls — doubled again by React
+StrictMode in dev — so the third onward waited out `connectionTimeoutMillis`
+and 500'd. It presented as "the backend lost connection".
+
+**Decision.** `makePool` now takes a ROLE, and resolves port + ceiling from the
+role and the detected backend:
+
+- `role: 'request'` (the API's pool) — may use TRANSACTION pooling. On a
+  `*.pooler.supabase.com` host it is routed to 6543 automatically and sized for
+  real concurrency (default 12 in SUPABASE_MODE, 2 self-host, ceiling 24).
+- `role: 'worker'` (migrations, sync, MCP, CLIs) — ALWAYS the session port and a
+  ceiling of 3, unchanged. This is not a preference: `pg_try_advisory_lock`
+  (apps/sync/src/prices/db.ts) is released when the session ends and migration
+  020 creates a TEMPORARY table. Transaction pooling breaks both SILENTLY,
+  which is the worst possible failure mode for a cross-run lock.
+
+Audited before switching: no LISTEN/NOTIFY, no named prepared statements, no
+session-level `SET` anywhere in the API. Its RLS setup is `BEGIN` /
+`SET LOCAL` / `COMMIT`, which is transaction-scoped by construction.
+
+**Why detection by hostname rather than configuration:** portability was the
+requirement. A plain self-hosted Postgres has no 6543 to move to, so it keeps
+using `PGPORT` for every role and nothing about a fresh clone changes.
+
+**Also, so a clone actually runs:**
+- `pnpm dev` at the root (scripts/dev.mjs, dependency-free) starts api + web +
+  the image shim together. The web app alone is not a working app — it proxies
+  `/api` and `/deckscout/images` — and requiring three hand-started terminals
+  is precisely how this presents as "the backend won't connect".
+- That script loads `.env` and passes it to every child. The image shim reads
+  `process.env` directly and does not call `loadEnv()`, so without this it
+  started fine and then 500'd every image with "SUPABASE_URL ... required".
+- `.env.example` no longer PINS `PGPOOL_MAX_API=2`. Shipping that value as a
+  default is what would reproduce this bug on the next machine; the constrained
+  box's numbers are documented as commented-out overrides instead.
+- The request pool logs its resolved host/port/max once at startup, so "which
+  backend did it actually pick" is answerable on a machine nobody has debugged.
+
+**Verified:** 30/30 concurrent `/api/series` calls return 200 (previously the
+3rd failed); six real page loads across four routes with zero API failures;
+worker pools still land on 5432 with an advisory lock held across statements.
+
+---
+
+## 2026-08-11 — UI-SPEC §4.1's 85% content column gains a floor
+**Decided by:** agent, during the post-premium-pass visual QA sweep.
+
+**Problem.** §4.1 says the desktop content column is 85% of MAIN, with the 7.5%
+gutters serving as the padding. But MAIN is the viewport MINUS the 275px
+sidebar, so the two compound at the 1068px nav breakpoint where the sidebar
+appears. Measured on the set page:
+
+  1067px viewport -> content 1035px, 4 grid columns, page 22,403px tall
+  1068px viewport -> content  674px, 2 grid columns, page 56,439px tall
+
+One pixel wider cost half the columns and made the page 2.5x longer, and four
+columns did not return until 1440px. The content column got NARROWER as the
+viewport got WIDER, which is the one thing a responsive rule must never do. The
+same squeeze starved CardDetail's variant grid: its minmax(0,1fr) name track
+computed to 0px at 1068 and 17px at 1100, rendering "Reverse Holofoil" one
+character per line.
+
+**Decision.** Keep the 85% rule, add a floor under it: `max(85%, min(100% -
+32px, 990px))` — "whatever fits with mobile's 16px gutters, but never wider
+than the 990px the card grid actually wants".
+
+**Why this shape:** at and above the 1165 cap the documented behaviour is
+byte-identical (85% of 1165 = 990.25 still wins), so the design the spec was
+written against is untouched. Only the starved 1068–1400 band widens. The
+residual 4->3 column step at the breakpoint remains and is correct: the sidebar
+costs 275px and four 200px tiles plus gaps need 990, so 4 columns genuinely
+cannot fit until ~1300px. A 4->3 step is honest; 4->2 was not.
+
+**Verified:** 78 width x view combinations from 390 to 1600px, zero horizontal
+overflow. Pre-existing in both skins — not a premium-pass regression.
+
+**Not changed:** the 1165 cap itself. At 2560px the column is centred within
+MAIN with symmetric 543px gutters, which is correct for a sidebar layout and a
+deliberate readable-line-length cap, not stranded content.
+
+---
+
+## 2026-08-12 — Every colour now resolves to a named scale
+**Decided by:** user (direction), agent (mapping).
+
+**Decision.** The palette is: primary = Tailwind **cyan**, secondary = **pink**,
+tertiary = **amber**, surfaces/borders/text = **stone**, positive = **emerald**,
+negative/danger = **red**, warning = **orange**. Semantic tokens reference
+`--color-brand-*` rather than repeating hex, so a future recolour is one line
+per family instead of a hunt.
+
+Hexes are Tailwind **4** values converted from its oklch source. v4 shifted
+these from v3 — cyan-400 is `#00d3f3`, not v3's `#22d3ee`; stone-400 is
+`#a6a09b`, not `#a8a29e` — so anything copied from a v3 chart is subtly off from
+the utility classes.
+
+**The grey problem.** text-body/secondary/muted and the icon ramp were blue-cool
+(`#c1c7d8`, `#7f8596`, `#484f60`). Invisible against neutral surfaces, a clear
+colour cast against warm ones. Each was re-derived in OKLCh: keep its lightness
+EXACTLY, adopt stone's chroma and hue interpolated at that lightness. Contrast is
+therefore preserved by construction — text-body 10.61→10.31, text-secondary
+6.72→6.60, text-muted 4.86→4.75, and 4.11→4.12 on a panel.
+
+**Strays retired:**
+- `action-brand` was blue-400, a fourth unrelated hue, and 5 of its 7 uses are
+  icon tints inside neutral chips. Folded into primary. Amber would have given
+  the external/commerce role its own colour, but PurchaseSetMenu renders
+  `text-warning` orange in the same panel and amber-beside-orange is muddy.
+- `completion-grandmaster` was `#9b6bff`. Now amber — gold reads as the top
+  tier, it pairs against `success` green in ProgressCluster, and it finally
+  gives the tertiary scale a job.
+- `pro-pink` was `#7f42ff`. Now pink-**600**, not 500: it is a 9px badge and
+  white on pink-500 measures 3.58:1, under the 4.5:1 that size needs. 4.54:1.
+- The `#ffe165` leftovers (`glow-active`, `overlay-ring`, `halo-neutral`) were
+  from the original pkmn-derived palette and matched nothing. Now primary.
+- `success` was green-400 while `change-positive` was emerald — two greens.
+  Both emerald now.
+- Deleted with zero usages: `pro-accent`, `pro-accent-text`, `announcement`,
+  `announcement-text`, `icon-active`.
+
+**Deliberately NOT swept:** the eleven `--color-energy-*` tokens. Those are the
+TCG's own type identities (grass green, fire orange, water blue) and are read as
+data, not as brand. Pulling them toward the palette would make them wrong.
+
+**Fixed in passing:** `action-brand-text` was white — 2.54:1 on the old blue,
+and would have been 1.81:1 on cyan. Now cyan-950 at 7.42:1.
+
+---
+
+## 2026-08-12 — Type: Fraunces (display) + Figtree (body)
+**Decided by:** user, after A/B-ing four pairings on real screens.
+
+**Decision.** Fraunces for the display role, Figtree for body/UI. Inter is out.
+Both are OFL and vendored via `@fontsource-variable`, which matters: this repo
+is AGPL and public, so a licensed webfont (the original Gotham idea) could not
+be committed at all.
+
+**The display role is PROPER NOUNS**, not "big text": page titles, section
+headings, series/set/card/deck/list names, attack names, empty-state headlines.
+This was the substantive finding of the trial — used once per page on the h1
+alone, a display face reads as arbitrary decoration. Giving it a consistent
+role is what makes it a system.
+
+Deliberately excluded from the role: species names in the Pokedex grid (13px —
+a serif goes muddy below ~14px, and that grid is thousands of tiny labels), and
+stat values/labels, which are data rather than names.
+
+**Two mechanics that are load-bearing, and easy to break later:**
+
+1. `font-optical-sizing: auto`. The display role spans 14px (a card name in a
+   table row) to 48px (the landing hero) and Fraunces carries an `opsz` axis. A
+   FIXED opsz cannot serve both — high values are drawn for headlines and go
+   spindly at text sizes. SOFT/WONK are set via `font-variation-settings`
+   WITHOUT naming opsz, because listing it there silently overrides the
+   tracking.
+2. `.font-display.font-normal → 500` / `.font-medium → 600`. A serif's hairlines
+   are its thinnest strokes and light-on-dark thins strokes optically on top of
+   that, so Fraunces at 400 reads spindly where Inter at 400 read solid. The
+   components keep their semantic weight; only the light display sites lift.
+   Specificity (0,2,0) beats Tailwind's (0,1,0) without `!important`.
+
+Letter-spacing is applied by SIZE (h1/h2 only), not by face — tightening 16px
+set names made them cramped. Body carries -0.006em because Figtree is drawn a
+touch wider than Inter. `tabular-nums` is forced for prices/numbers/counters:
+Figtree does not default to tabular and those align in columns.
+
+**Button labels lift one step** (primary/danger → extrabold, secondary/ghost/
+dashed → bold). Figtree is rounder and more open than Inter and reads lighter
+at the same numeric weight, and labels are short bursts that must hold against
+a saturated fill.
+
+**Still available if small text ever feels weak:** Inter is measurably the most
+legible face at 11–13px, and this app has a lot of it. The hybrid — Inter for
+`text-3xs`…`text-sm`, Figtree from `text-base` up — was offered and not taken.
+Reinstating it is one `@import` plus a size-scoped `--font-sans` override.
+
+---
+
+## 2026-08-12 — Minimum type size is 14px, with named exceptions
+**Decided by:** user ("aim for 14px at the smallest where actually wise"), agent
+(the exception list and the hierarchy repairs).
+
+**Context.** 66% of the app's 743 arbitrary `text-[Npx]` sites were below 14px —
+a scale inherited from the pkmn.gg-derived spec. None of the `--text-*` design
+tokens are used by any component, so the effective scale WAS the arbitrary values.
+
+**Rule.** Running text has a floor of 14px. Three documented exceptions, applied
+by inspecting each site's context rather than by blanket replace:
+
+1. **ALL-CAPS labels** floor at 12px. Caps at 12 with tracking reads at roughly
+   the apparent size of 14px lowercase; bumping them to 14 makes section labels
+   compete with the values they label.
+2. **Fixed-geometry chips** floor at 12px — the level badge, the per-variant
+   count boxes. Their container is sized in px and the number has to fit it.
+3. **Glyph indicators** (the sort-direction ▲▼) are not text.
+
+**Holistic, not blind.** Raising a floor collapses hierarchies that were
+expressed purely by size. Repairs made where that happened, e.g. the set row:
+name 16 / date 13 / progress 10 became name 16 / date 14 / progress 14, and the
+progress row then no longer fit beside a FIXED 120px bar — "LVL 0" wrapped to
+two lines on every row. Fixed by making the labels `shrink-0 whitespace-nowrap`
+and the bar `w-full max-w-[120px] shrink`: the labels are the content and must
+hold, the bar is decoration and absorbs the squeeze.
+
+**Excluded from the sweep:** `routes/design/**` (dev-only surfaces) and
+`routes/landing/Mockups.tsx` — the landing's fake app screenshots are
+deliberately scaled-down chrome, and enlarging their type breaks the illusion.
+
+**Found while verifying, unrelated to type:** the header level badge resolved
+its `left: 50%` against the CHIP's content box rather than the 34px avatar it is
+nested in — pinning `position: relative` and using inline left/transform did not
+move it — so it sat ~19px right of the avatar and collided with the username
+("0qa"). It is a flex sibling now; no containing-block ambiguity is possible.
+
+---
+
+## 2026-08-12 — The RLS pool leak, and why raising `max` only hid it
+**Decided by:** agent, after the third recurrence.
+
+**Symptom.** The API returned 500s after exactly ~10s (`connectionTimeoutMillis`)
+and looked, three separate times, like "the database went down". It was not: a
+standalone `pg` client reached the same pooler in 263ms while the API's own pool
+was timing out.
+
+**Cause.** In `apps/api/src/index.ts`, the RLS middleware attached its
+`res.on('finish')` / `res.on('close')` release listeners AFTER
+`await client.query(setup)`. A client that disconnected while that statement was
+in flight had already emitted `'close'` — the listener was never called, cleanup
+never ran, and that pooled connection was held for the lifetime of the process.
+A browser navigating away mid-load does exactly this, which is why heavy visual
+QA reproduced it so reliably.
+
+The 2026-08-11 change raised `max` from 2 to 12. That was still correct (2 was
+far too low for one-connection-per-in-flight-request), but it only changed how
+many aborted loads it took to exhaust the pool. Treating a leak as a capacity
+problem bought time and hid the cause.
+
+**Fix.** Listeners attach before the first await; a
+`res.writableEnded || res.destroyed` check covers the window before even those
+exist; cleanup races COMMIT/ROLLBACK against a 5s timeout because it could HANG
+rather than reject on a half-dead connection and so never reach `release()`; on
+failure the client is DESTROYED via `release(true)` rather than returned, since
+a connection still inside a transaction or still wearing the `authenticated`
+role poisons the next borrower; and a 30s watchdog reclaims anything whose
+response never finishes (verified no endpoint streams or long-polls).
+
+**Observability.** `/health` now reports `pool: { total, idle, waiting }`. This
+was diagnosable only by instrumenting a build and reproducing, which is exactly
+what a health endpoint should remove. `waiting > 0` with `idle: 0` is queueing;
+`total` at max with `idle: 0` and no traffic is a leak.
+
+**Verified:** 75 requests aborted inside the setup window leave the pool at
+total 12 / idle 11 / waiting 0, with a normal request served in 107ms; 12 real
+page loads killed mid-flight leave it at total 1 and a subsequent full load
+succeeds.
+
+## 2026-08-14 — /design ships to production as an owner-only read-only reference
+**Decided by:** Chey (voice directive), implemented by Claude Fable 5
+**Decision:** The design-system surface at `/design` is no longer dev-only. It
+ships in the production bundle, gated to exactly one account: `GET /me` returns
+`designEditor: true` only for the account named by the server-side
+`DESIGN_EDITOR_USER_ID` env var (cloud) or always in self-host (one user, behind
+the owner's auth proxy). The route's `beforeLoad` throws `notFound()` for
+everyone else, so an unauthorized visit is indistinguishable from a URL that
+does not exist. Unset env var = nobody sees it.
+**Why:** The owner wants the token/catalog reference available signed-in on
+production, not only on a dev checkout. Gating server-side keeps the owner's
+identity out of the public JS bundle (a `VITE_*` var would be baked into it).
+**Implications:**
+- Editing capability is unchanged and structurally dev-only: the `/__design`
+  write endpoints still live exclusively in the Vite dev-server plugin. In
+  production the page detects their absence (health probe fails) and renders
+  read-only — token values parsed client-side from the bundled `theme.css`
+  source (same parser as the plugin, extracted to `routes/design/themeTokens.ts`),
+  saves and "Send to agent" composers hidden, live ephemeral overrides still work.
+- The design chunk (~92 KB lazy chunk) is now in the prod bundle and SW
+  precache. The route component itself is public bytes; nothing sensitive is in
+  it, and the gate protects the *rendered surface*, not the code.
+- The plan's "prod-exclusion proof" (DESIGN-SYSTEM-PLAN.md §6.4) is superseded
+  for the route itself; it still holds for the `/__design` endpoints.
+- `DESIGN_EDITOR_USER_ID` documented in DEPLOYMENT.md's env table.
+
+## 2026-08-14 — Pre-merge production-readiness review: six fixes
+**Decided by:** Chey (directive: "make it production ready, fix glaring issues, no visual changes"), review + fixes by Claude Fable 5
+**Decision:** A multi-angle code review of `main...design-system` (8 finder
+angles, adversarial verification) surfaced six defects, all fixed in place:
+1. **RLS cleanup could hand a live client to the next request.** The 'close'
+   and watchdog rollback paths released the pooled client while the route
+   handler could still be running (Express does not cancel handlers). The next
+   request would borrow the same client, set ITS jwt claims, and the slow
+   handler would query inside the wrong user's RLS context. Now only the
+   COMMIT path (res 'finish' — handler done) returns a client to the pool;
+   every rollback path destroys the connection (`release(true)`).
+2. **Button primitive was implicitly `type="submit"`.** The extracted Button
+   dropped the `type="button"` the inline buttons carried, so Cancel in the
+   New List / New Deck / Import Deck / Bug Report modals SUBMITTED the form.
+   The primitive now defaults `type="button"`; submits opt in explicitly.
+   Tabs' internal buttons hardened the same way.
+3. **Direct-Postgres request pools lost the B2 hard cap** (`cap` keyed off
+   role, not backend) — POOLED_CAP 24 applied to the reference self-host box.
+   Caps now follow the backend: pooler 24, direct 3, restoring the
+   "misconfiguration cannot blow the cluster budget" guarantee.
+4. **PGPOOL_MAX leaked into request pools** (old cloud .envs carry
+   PGPOOL_MAX=3 → API re-capped at 3), and **an empty-string pool var became
+   max 1** (Number('')===0). PGPOOL_MAX now applies to workers only; sizes
+   parse via parseInt with a >0 guard.
+5. **`pnpm dev` on a fresh clone died in a buried module cascade** — the
+   first-run build skipped @deckscout/storage and ignored exit codes. It now
+   builds db → storage → api in order and aborts loudly on failure.
+6. **Premium body grain repainted the viewport every scroll frame**
+   (`background-attachment: fixed` cannot be composited on many GPUs, and iOS
+   Safari ignores it — the grain scrolled, the exact "tell" the design
+   rejects). Now a fixed-position body::before compositor layer;
+   `isolation: isolate` on body keeps it above body's background. Verified
+   pixel-identical by RMSE against a same-state screenshot baseline.
+Also: PWA manifest/index.html theme colors updated from retired #15181f to
+stone-900 #1c1917; /design pending meter made honest (13/13, backlog entries
+deleted as the plan prescribes); theme.css parser extracted to
+`routes/design/themeTokens.ts` (multi-line section headers, gradient tokens
+categorized permissively, z tokens live-previewable since C11a); AGENTS.md B2
+rewritten to the role/backend contract.
+**Known, deliberately not fixed here:** topbar.ts/useTopbar mirrors
+skin.ts/useSkin (~230 lines) — deliberate while both toggles exist for
+judging the pass; collapse to one factory if they survive the decision.
+28 of 48 branch commits lack the `On-Behalf-Of` trailer; rewriting pushed
+history mid-PR was judged worse than the gap — noted in the PR instead.

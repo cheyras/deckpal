@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { BrandMark, Icon } from '../components/Icon'
+import { buttonClass } from '../components/ui/Button'
 import {
   AgentMockup,
   BinderMockup,
@@ -117,7 +118,7 @@ function PrimaryCta({ children, className = '' }: { children: ReactNode; classNa
     <Link
       to="/auth"
       search={{ mode: 'signup' as const }}
-      className={`ls-cta inline-flex h-[50px] items-center justify-center gap-[8px] rounded-full bg-action-primary px-[26px] text-[15px] font-bold text-action-primary-text hover:bg-action-primary-strong ${className}`}
+      className={`ls-cta ${buttonClass('primary', 'lg')} ${className}`}
     >
       {children}
     </Link>
@@ -145,7 +146,7 @@ function GhostCta({ href, children, className = '' }: { href: string; children: 
       href={href}
       target="_blank"
       rel="noreferrer"
-      className={`ls-cta inline-flex h-[50px] items-center justify-center gap-[9px] rounded-full border border-action-ghost-border bg-surface-secondary px-[24px] text-[15px] font-semibold text-text-primary hover:border-surface-raised hover:bg-action-ghost-hover ${className}`}
+      className={`ls-cta ${buttonClass('ghost', 'lg')} ${className}`}
     >
       {children}
     </a>
@@ -220,7 +221,7 @@ function Nav({ scrolled }: { scrolled: boolean }) {
   return (
     <header
       className={[
-        'fixed inset-x-0 top-0 z-[20] transition-colors duration-300',
+        'fixed inset-x-0 top-0 z-(--z-chrome) transition-colors duration-300',
         scrolled ? 'border-b border-border-default bg-surface-primary/85 backdrop-blur-md' : 'border-b border-transparent',
       ].join(' ')}
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
@@ -310,7 +311,7 @@ function Hero({ scrollY }: { scrollY: number }) {
 
       <div className="ls-wrap">
         <Reveal className="mx-auto max-w-[760px] text-center">
-          <span className="inline-flex items-center gap-[8px] rounded-full border border-action-ghost-border bg-surface-secondary/70 px-[13px] py-[6px] text-[12px] font-semibold text-text-secondary">
+          <span className="inline-flex items-center gap-[8px] rounded-full border border-action-ghost-border bg-surface-secondary/70 px-[13px] py-[6px] text-[14px] font-semibold text-text-secondary">
             <span className="h-[6px] w-[6px] rounded-full bg-success" />
             Connect your own Claude · 21 tools over MCP
           </span>
@@ -338,7 +339,7 @@ function Hero({ scrollY }: { scrollY: number }) {
           </GhostCta>
         </Reveal>
 
-        <Reveal delay={180} as="p" className="mt-[16px] text-center text-[13px] text-text-muted">
+        <Reveal delay={180} as="p" className="mt-[16px] text-center text-[14px] text-text-muted">
           No account needed to browse · free to use · private by default · open source
         </Reveal>
 
@@ -386,7 +387,7 @@ function Stats() {
             </Reveal>
           ))}
         </ul>
-        <Reveal delay={360} as="p" className="mt-[24px] text-center text-[13px] text-text-muted">
+        <Reveal delay={360} as="p" className="mt-[24px] text-center text-[14px] text-text-muted">
           Every English set across 20 series — from Base Set to the latest release — kept in step with the
           official catalog.
         </Reveal>
@@ -420,8 +421,8 @@ const AGENT_STEPS: { icon: 'key' | 'link' | 'sparkle'; title: string; body: Reac
     title: 'Connect Claude',
     body: (
       <>
-        Add <span className="font-mono text-[13px] text-text-body">deckscout.io/mcp</span> as a custom connector
-        in claude.ai, or register it in Claude Code with one <span className="font-mono text-[13px] text-text-body">claude&nbsp;mcp&nbsp;add</span> command.
+        Add <span className="font-mono text-[14px] text-text-body">deckscout.io/mcp</span> as a custom connector
+        in claude.ai, or register it in Claude Code with one <span className="font-mono text-[14px] text-text-body">claude&nbsp;mcp&nbsp;add</span> command.
         Both are supported, and there is nothing to install either way.
       </>
     ),
@@ -498,7 +499,7 @@ function AgentFlow() {
                   <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-xl bg-surface-tertiary text-action-primary">
                     <Icon name={s.icon} size={19} />
                   </span>
-                  <span className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-text-muted">
+                  <span className="text-[12px] font-extrabold uppercase tracking-[0.1em] text-text-muted">
                     Step {i + 1}
                   </span>
                 </div>
@@ -512,7 +513,7 @@ function AgentFlow() {
         <Reveal delay={140} className="mt-[18px] rounded-2xl border border-border-default bg-surface-secondary p-[20px]">
           <div className="flex flex-wrap items-baseline gap-x-[10px] gap-y-[4px]">
             <h3 className="text-[15px] font-bold text-text-primary">21 tools, one connector</h3>
-            <span className="text-[13px] text-text-muted">every one scoped to your account</span>
+            <span className="text-[14px] text-text-muted">every one scoped to your account</span>
           </div>
           <ul className="mt-[12px] flex flex-wrap gap-[6px]">
             {AGENT_TOOLS.map((t) => (
@@ -524,7 +525,7 @@ function AgentFlow() {
               </li>
             ))}
           </ul>
-          <p className="mt-[14px] text-[13px] leading-[1.65] text-text-secondary">
+          <p className="mt-[14px] text-[14px] leading-[1.65] text-text-secondary">
             Works with claude.ai custom connectors and with Claude Code. A token only ever reaches its own
             account — somebody else’s token cannot see your collection, and a write aimed at an id that is not
             yours is refused rather than quietly applied.
@@ -819,7 +820,7 @@ function FinalCta() {
             <GitHubGlyph size={18} /> View on GitHub
           </GhostCta>
         </div>
-        <p className="mt-[16px] text-[13px] text-text-muted">No credit card. Nothing to install.</p>
+        <p className="mt-[16px] text-[14px] text-text-muted">No credit card. Nothing to install.</p>
       </Reveal>
     </section>
   )
@@ -835,14 +836,14 @@ function Footer() {
               <BrandMark size={28} />
               <span className="brand-wordmark text-[18px] leading-none">DeckScout</span>
             </span>
-            <p className="mt-[12px] text-[13px] leading-[1.6] text-text-muted">
+            <p className="mt-[12px] text-[14px] leading-[1.6] text-text-muted">
               An open-source Pokémon TCG collection tracker. Track, build, and master your collection.
             </p>
           </div>
 
           <div className="flex gap-[48px]">
             <div>
-              <h2 className="mb-[10px] text-[11px] font-bold uppercase tracking-[0.1em] text-text-secondary">
+              <h2 className="mb-[10px] text-[12px] font-bold uppercase tracking-[0.1em] text-text-secondary">
                 Product
               </h2>
               <ul className="flex flex-col gap-[8px] text-[14px]">
@@ -864,7 +865,7 @@ function Footer() {
               </ul>
             </div>
             <div>
-              <h2 className="mb-[10px] text-[11px] font-bold uppercase tracking-[0.1em] text-text-secondary">
+              <h2 className="mb-[10px] text-[12px] font-bold uppercase tracking-[0.1em] text-text-secondary">
                 Open source
               </h2>
               <ul className="flex flex-col gap-[8px] text-[14px]">
@@ -908,7 +909,7 @@ export function Landing() {
     <div className="ls min-h-screen bg-surface-primary">
       <a
         href="#main"
-        className="sr-only rounded-full bg-action-primary px-[16px] py-[10px] text-[14px] font-bold text-action-primary-text focus:not-sr-only focus:absolute focus:left-[16px] focus:top-[16px] focus:z-[100]"
+        className="sr-only rounded-full bg-action-primary px-[16px] py-[10px] text-[14px] font-bold text-action-primary-text focus:not-sr-only focus:absolute focus:left-[16px] focus:top-[16px] focus:z-(--z-modal)"
       >
         Skip to content
       </a>

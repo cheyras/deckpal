@@ -1,0 +1,846 @@
+/*
+ * premium.css — the "premium pass" skin.
+ *
+ * EVERY rule in this file is scoped under `[data-skin='premium']` (see
+ * lib/skin.ts). Flip that attribute to 'classic' and the app is byte-for-byte
+ * the pre-pass look — nothing here leaks. That is deliberate: the pass has to
+ * be reversible live while it's being judged, not only by `git revert`.
+ *
+ * Four ideas, applied in this order:
+ *   1. PAPER   — procedural feTurbulence grain on surfaces. Material, not noise:
+ *                a single fine tooth at a few percent alpha.
+ *   2. RELIEF  — subtle dark-UI neumorphism. Surfaces are lit from above: a
+ *                specular hairline on the top edge, a soft cast shadow below.
+ *                Recessed things (inputs, tracks, wells) invert it.
+ *   3. SHEEN   — a faint moulded-plastic highlight over filled controls.
+ *   4. MOTION  — spring easing, hover lift, press-in, entrance rise.
+ *
+ * Reach: most of it hangs off the design system's own utility classes
+ * (`.bg-surface-secondary` etc.), so the whole app upgrades without editing
+ * 93 components. Where markup was genuinely needed — the animated nav icons —
+ * that lives in components/NavIcon.tsx, also skin-gated.
+ */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   0. Tokens
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root[data-skin='premium'] {
+  /* ── procedural paper ──────────────────────────────────────────────────
+     Paper tooth, and ONLY tooth.
+     Earlier revisions layered a large-scale "mottle" (sheet variation) and an
+     anisotropic "fibre" over this. Both were wrong: the mottle read as a
+     blurred cloudiness sitting on top of the UI, and the stretched fibre read
+     as brushed metal. What's wanted is the fine grain of a paper surface and
+     nothing else, so this is a single high-frequency layer.
+
+     `numOctaves='1'` matters: extra octaves are what add the low-frequency
+     roll that becomes cloud. One octave at a high baseFrequency is pure tooth.
+     Alpha is baked into the rect rather than applied with a blend mode —
+     blending grey noise onto a near-black surface with soft-light/overlay
+     washes it milky. That rect opacity IS the subtlety knob. */
+  --px-paper-tooth: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='1' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23t)' opacity='0.13'/%3E%3C/svg%3E");
+  --px-paper-tooth-soft: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='1' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23t)' opacity='0.09'/%3E%3C/svg%3E");
+  /* The header's cover stock: coarser and stronger again, because it is read
+     THROUGH — it sits over blurred content rather than over a flat surface, and
+     a fine grain disappears against a soft background. */
+  /* The cover grain must stay SEMI-TRANSPARENT: an opaque noise layer hides
+     the blurred backdrop completely, which measured identical over plain page
+     and over card art — the whole effect gone. So it is a plain light grain,
+     and the value it adds is compensated in the tint below rather than fought
+     with a blend mode. */
+  --px-paper-tooth-cover: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23t)' opacity='0.2'/%3E%3C/svg%3E");
+
+  /* ── relief (neumorphism) ──────────────────────────────────────────────
+     Light comes from the top. `hi` is the specular catch on the top edge,
+     `lo` the occlusion on the bottom inner edge, `cast` the shadow the
+     surface throws. Two cast stops: a tight contact shadow and a wide soft
+     one, which is what stops dark-on-dark relief from looking like a smudge. */
+  --px-hi: inset 0 1px 0 0 rgb(255 255 255 / 0.085);
+  --px-hi-strong: inset 0 1px 0 0 rgb(255 255 255 / 0.14);
+  --px-lo: inset 0 -1px 0 0 rgb(0 0 0 / 0.5);
+  /* Three stops, not one: a contact shadow that pins the panel to the page, a
+     mid shadow for the body, and a wide ambient one. A single blur reads as a
+     smudge on dark-on-dark; the tight stop is what makes it read as a lifted
+     edge instead. */
+  --px-cast: 0 1px 1px rgb(0 0 0 / 0.5), 0 4px 8px -3px rgb(0 0 0 / 0.45),
+    0 16px 32px -16px rgb(0 0 0 / 0.9);
+  --px-cast-lift: 0 2px 3px rgb(0 0 0 / 0.5), 0 10px 18px -6px rgb(0 0 0 / 0.5),
+    0 30px 50px -22px rgb(0 0 0 / 1);
+  /* Controls, not panels. A button is a small object resting ON the surface,
+     so it gets a contact shadow and no ambient stop — the wide blur that gives
+     a card its lift reads as heaviness at button scale. */
+  --px-cast-tight: 0 1px 1.5px rgb(0 0 0 / 0.25);
+
+  /* Recessed: the inverse light model — occluded at the top, catching at the
+     bottom lip. Used for inputs, progress tracks, wells and pressed states. */
+  --px-inset: inset 0 1px 2px rgb(0 0 0 / 0.26), inset 0 -1px 0 rgb(255 255 255 / 0.04);
+  --px-inset-deep: inset 0 1px 3px rgb(0 0 0 / 0.34), inset 0 -1px 0 rgb(255 255 255 / 0.05);
+
+  /* ── plastic sheen ───────────────────────────────────────────────────── */
+  --px-sheen: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.16) 0%,
+    rgb(255 255 255 / 0.05) 42%,
+    rgb(255 255 255 / 0) 62%,
+    rgb(0 0 0 / 0.06) 100%
+  );
+  --px-sheen-soft: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.07) 0%,
+    rgb(255 255 255 / 0.015) 46%,
+    rgb(255 255 255 / 0) 70%
+  );
+
+  /* ── motion ──────────────────────────────────────────────────────────── */
+  --px-ease: cubic-bezier(0.22, 0.61, 0.36, 1); /* soft decel — the default */
+  --px-spring: cubic-bezier(0.34, 1.42, 0.64, 1); /* slight overshoot — for arrivals */
+  --px-dur-fast: 120ms;
+  --px-dur: 220ms;
+  --px-dur-slow: 420ms;
+
+  --px-accent: var(--color-action-primary);
+  /* Channel triplet for the accent, because rgb()/color-mix() need bare
+     channels to build the translucent halos and glows below — a var holding
+     a full colour cannot be given an alpha. Keep in sync with
+     --color-brand-primary-400 in theme.css; that is the ONE place a recolor
+     has to touch here. */
+  --px-accent-rgb: 0 211 243; /* cyan-400 */
+  --px-accent-soft: rgb(var(--px-accent-rgb) / 0.14);
+
+  /* ── form ────────────────────────────────────────────────────────────────
+     The design system's radii, opened up a step. Tailwind compiles
+     `rounded-lg` to `var(--radius-lg)`, so redefining them here re-shapes
+     every corner in the app at once — the single highest-leverage move in the
+     pass, and one line to undo. Tight corners read as utilitarian; these read
+     as moulded. `--radius-full` is deliberately untouched. */
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 11px;
+  --radius-xl: 15px;
+  --radius-2xl: 20px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   1. Paper
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* The page: grain, and nothing else. No radial "lit from above" wash — at page
+   scale any soft gradient reads as haze rather than as lighting, which was the
+   cloudiness. The relief on the panels carries the light direction instead. */
+:root[data-skin='premium'] body {
+  background-color: var(--color-surface-primary);
+  /* Make body a stacking context so the ::before below paints ABOVE body's
+     own background (without this, a negative-z pseudo paints behind it and
+     the grain vanishes — verified by pixel-diff). Everything the app renders
+     lives inside body, so containing z-indexes here changes nothing else. */
+  isolation: isolate;
+}
+
+/* The grain belongs to the sheet, not to the scrolling content — a tiled noise
+   that scrolls reads as texture-mapped, which is the tell. It was
+   `background-attachment: fixed` on body, but that (a) cannot be composited on
+   many GPUs, so every scroll frame repaints the full viewport, and (b) is
+   ignored outright by iOS Safari, which let the grain scroll — the exact tell.
+   A fixed-position overlay is its own compositor layer: same tile, same
+   viewport anchoring, no repaints, and it actually holds still on iOS. */
+:root[data-skin='premium'] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--px-paper-tooth);
+  background-size: 120px 120px;
+}
+
+/* The shell's own opaque `bg-surface-primary` would otherwise cover the body
+   treatment above, so it carries the wash itself. */
+:root[data-skin='premium'] .min-h-screen.bg-surface-primary {
+  background-color: transparent;
+  background-image: none;
+}
+
+/* Surfaces that sit on the sheet get their own, weaker tooth so a panel does
+   not read as a hole punched in the textured page. */
+:root[data-skin='premium'] .bg-surface-primary,
+:root[data-skin='premium'] .bg-surface-secondary,
+:root[data-skin='premium'] .bg-surface-tertiary,
+:root[data-skin='premium'] .bg-surface-profile-card,
+:root[data-skin='premium'] .bg-surface-footer {
+  background-image: var(--px-paper-tooth-soft);
+  background-size: 120px 120px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   2. Relief
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Raised panels — the app's card/panel vocabulary. Scoped to elements that are
+   already rounded, because that is what "a panel" means in this design system;
+   a full-bleed `bg-surface-secondary` bar (the header) is excluded on purpose
+   and handled separately below. */
+:root[data-skin='premium'] .bg-surface-secondary.rounded-lg,
+:root[data-skin='premium'] .bg-surface-secondary.rounded-xl,
+:root[data-skin='premium'] .bg-surface-secondary.rounded-2xl,
+:root[data-skin='premium'] .bg-surface-tertiary.rounded-lg,
+:root[data-skin='premium'] .bg-surface-tertiary.rounded-xl,
+:root[data-skin='premium'] .bg-surface-tertiary.rounded-2xl,
+:root[data-skin='premium'] .bg-surface-profile-card {
+  box-shadow: var(--px-hi), var(--px-lo), var(--px-cast);
+  border-color: rgb(255 255 255 / 0.06);
+  /* A hair of falloff across the face. Edge lighting alone leaves the middle
+     of a large panel reading flat, which is the thing that makes cheap
+     neumorphism look like a sticker rather than a moulded surface. */
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.028), rgb(255 255 255 / 0) 42%),
+    var(--px-paper-tooth-soft);
+  background-size: 100% 100%, 120px 120px;
+}
+
+/* Recessed controls. Inputs are wells the value sits in, not plates on top. */
+:root[data-skin='premium'] input:not([type='checkbox']):not([type='radio']),
+:root[data-skin='premium'] textarea,
+:root[data-skin='premium'] select {
+  box-shadow: var(--px-inset);
+  border-color: rgb(255 255 255 / 0.05);
+  transition:
+    box-shadow var(--px-dur) var(--px-ease),
+    border-color var(--px-dur) var(--px-ease);
+}
+/* The `:not()` chain is repeated here on purpose. Each `:not([type=…])` argument
+   contributes a class-level unit to specificity, so the resting rule above
+   scores (0,4,1) while a plain `input:focus` scores only (0,3,1) — the resting
+   shadow then wins WHILE THE INPUT IS FOCUSED and the halo silently never
+   appears. Matching the chain takes this to (0,5,1). textarea/select were
+   never affected (no `:not()` on their side of the resting rule), which is
+   exactly why the bug looked like "only text inputs are broken". */
+:root[data-skin='premium'] input:not([type='checkbox']):not([type='radio']):focus,
+:root[data-skin='premium'] textarea:focus,
+:root[data-skin='premium'] select:focus {
+  box-shadow: var(--px-inset-deep), 0 0 0 3px var(--px-accent-soft);
+  border-color: rgb(var(--px-accent-rgb) / 0.45);
+}
+
+/* The fixed chrome — header and sidebar — is the frame the sheet sits in. It
+   gets an edge-light and a cast onto the content rather than panel relief. */
+/* ── Top bar ──────────────────────────────────────────────────────────────
+   Two treatments, switchable at runtime via lib/topbar.ts, because the pair
+   has to be compared on VALUE and not on impression.
+
+   'cover' — a translucent binder cover. Content passing behind is blurred AND
+   DARKENED, and the bar's own grain sits over that blur (an element's
+   background paints above whatever backdrop-filter produced).
+
+   The darkening is `brightness()` inside backdrop-filter, which is the only
+   part of this that touches the backdrop ALONE. Doing it with a heavier tint
+   colour instead would darken the bar itself too, and the bar's grey has to
+   stay where it was before the effect existed.
+
+   The grain is composited with `overlay`, not painted straight on. A light
+   noise at any usable opacity LIFTS the value — measured, it took the bar
+   about 14 points lighter than the flat header, which is the "looks lighter
+   now" tell. Overlay against a mid-grey noise leaves the base value where it
+   is and spends the noise on variance instead.
+
+   'flat' — the header exactly as it was before the effect: opaque surface,
+   the ordinary panel grain, no blur. */
+:root[data-skin='premium'] .app-header {
+  box-shadow: var(--px-hi), 0 1px 0 rgb(0 0 0 / 0.6), 0 10px 26px -18px rgb(0 0 0 / 0.9);
+}
+
+:root[data-skin='premium'][data-topbar='cover'] .app-header {
+  /* stone-700, not stone-800. brightness() darkens the PAGE behind the bar as
+     well as any content, and the bar is meant to sit LIGHTER than the page —
+     so a tint at the bar's own old value composites too dark. Stepping the
+     tint one stop up compensates, and the measured result lands on the flat
+     header's value. */
+  /* Same token as the flat header, at 62%. Measured against flat across a
+     tint sweep, this lands the bar at [49,47,46] versus flat's [48,44,43] —
+     inside the grain's own variance. Deriving it from the token rather than
+     hard-coding the hex means a future surface recolour carries through.
+     The two forces here pull opposite ways and happen to cancel: brightness()
+     darkens the page behind the bar (and the bar is meant to sit LIGHTER than
+     the page), while the semi-transparent light grain lifts it back. */
+  background-color: color-mix(in srgb, var(--color-surface-secondary) 62%, transparent);
+  background-image: var(--px-paper-tooth-cover);
+  background-size: 140px 140px;
+  backdrop-filter: blur(18px) brightness(0.62) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) brightness(0.62) saturate(1.25);
+}
+
+:root[data-skin='premium'][data-topbar='flat'] .app-header {
+  background-color: var(--color-surface-secondary);
+  background-image: var(--px-paper-tooth-soft);
+  background-size: 120px 120px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-skin='premium'] aside {
+  box-shadow: inset -1px 0 0 rgb(255 255 255 / 0.035), 6px 0 24px -20px rgb(0 0 0 / 0.9);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   3. Sheen — moulded plastic on filled controls
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* NOTE: the .btn-fill-* box-shadow is deliberately NOT set here. Those buttons
+   carry their convex/concave face shaping in theme.css, and this file used to
+   flatten all three with one generic `--px-hi-strong, --px-lo` — which would
+   put a top specular on the CONCAVE secondary and undo the dish. The elevation
+   and the face both belong to whoever defines the shape. */
+:root[data-skin='premium'] .btn-fill-primary,
+:root[data-skin='premium'] .btn-fill-secondary,
+:root[data-skin='premium'] .btn-fill-danger,
+:root[data-skin='premium'] .bg-action-primary,
+:root[data-skin='premium'] .bg-action-brand {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+:root[data-skin='premium'] .bg-action-primary,
+:root[data-skin='premium'] .bg-action-brand {
+  box-shadow: var(--px-hi-strong), var(--px-lo), var(--px-cast-tight);
+}
+
+/* The highlight itself. `inherit` on border-radius keeps it inside rounded
+   pills; `pointer-events:none` keeps it out of the hit test. */
+:root[data-skin='premium'] .btn-fill-primary::after,
+:root[data-skin='premium'] .btn-fill-danger::after,
+:root[data-skin='premium'] .bg-action-primary::after,
+:root[data-skin='premium'] .bg-action-brand::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--px-sheen);
+  pointer-events: none;
+  z-index: -1;
+  transition: opacity var(--px-dur) var(--px-ease);
+}
+
+/* The concave face gets the sheen upside down: on a dished surface the
+   highlight sits at the BOTTOM lip, where the far wall of the bowl turns back
+   towards the light. Running the convex sheen here is what made the secondary
+   button read as flat-with-a-band. */
+:root[data-skin='premium'] .btn-fill-secondary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    0deg,
+    rgb(255 255 255 / 0.1) 0%,
+    rgb(255 255 255 / 0.03) 38%,
+    rgb(255 255 255 / 0) 62%,
+    rgb(0 0 0 / 0.12) 100%
+  );
+  pointer-events: none;
+  z-index: -1;
+  transition: opacity var(--px-dur) var(--px-ease);
+}
+
+/* Softer sheen on the neutral CONTROLS — enough to catch a light, not enough
+   to read as gloss. Pills only: a sheen is a highlight rolling off a small
+   curved face, so on a full-width panel the same gradient stops being a
+   highlight and just washes the top third out. */
+:root[data-skin='premium'] .bg-surface-tertiary.rounded-full {
+  position: relative;
+}
+:root[data-skin='premium'] .bg-surface-tertiary.rounded-full::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--px-sheen-soft);
+  pointer-events: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   4. Motion
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* The base contract was `background-color 150ms` on every button. Premium
+   widens it to the properties the relief actually animates, and adds the
+   press. Buttons rise a hair on hover and sink under the finger — the two
+   gestures that make a flat control feel like an object. */
+:root[data-skin='premium'] button,
+:root[data-skin='premium'] a[class*='bg-action'],
+:root[data-skin='premium'] a[class*='btn-fill'] {
+  transition:
+    background-color var(--px-dur-fast) var(--px-ease),
+    box-shadow var(--px-dur) var(--px-ease),
+    transform var(--px-dur) var(--px-spring),
+    opacity var(--px-dur-fast) var(--px-ease),
+    color var(--px-dur-fast) var(--px-ease);
+}
+:root[data-skin='premium'] button:hover:not(:disabled),
+:root[data-skin='premium'] a[class*='bg-action']:hover,
+:root[data-skin='premium'] a[class*='btn-fill']:hover {
+  transform: translateY(-1px);
+}
+:root[data-skin='premium'] button:active:not(:disabled),
+:root[data-skin='premium'] a[class*='bg-action']:active,
+:root[data-skin='premium'] a[class*='btn-fill']:active {
+  transform: translateY(1px) scale(0.985);
+  transition-duration: var(--px-dur-fast);
+}
+/* Pressed. The CONVEX faces invert — the dome flattens into the surface, so a
+   plain inset is right for them. The CONCAVE secondary must NOT take the same
+   treatment: replacing its whole stack throws away the lip and the shadow line
+   that make it read as a raised object, and it collapses into a hole. Pressing
+   a dish deepens the dish and drops the elevation, so its outer shadows shrink
+   and its inner ones grow, while the rim survives. */
+:root[data-skin='premium'] .btn-fill-primary:active,
+:root[data-skin='premium'] .btn-fill-danger:active {
+  box-shadow: var(--px-inset);
+}
+:root[data-skin='premium'] .btn-fill-secondary:active {
+  box-shadow:
+    inset 0 1px 0 rgb(0 0 0 / 0.5),
+    inset 0 6px 10px -4px rgb(0 0 0 / 0.7),
+    inset 0 -4px 6px -4px rgb(255 255 255 / 0.14),
+    0 1px 1px rgb(0 0 0 / 0.4);
+}
+/* The sheen dims as the control is pressed in — the highlight rolls off the
+   face when the face tilts away. */
+:root[data-skin='premium'] .btn-fill-primary:active::after,
+:root[data-skin='premium'] .btn-fill-secondary:active::after,
+:root[data-skin='premium'] .btn-fill-danger:active::after {
+  opacity: 0.35;
+}
+
+/* Panels lift toward the pointer. Only interactive ones — a link or a button
+   wrapping the panel — so static panels stay put. */
+:root[data-skin='premium'] a > .bg-surface-secondary.rounded-lg,
+:root[data-skin='premium'] a > .bg-surface-secondary.rounded-xl,
+:root[data-skin='premium'] a > .bg-surface-secondary.rounded-2xl,
+:root[data-skin='premium'] a.bg-surface-secondary.rounded-lg,
+:root[data-skin='premium'] a.bg-surface-secondary.rounded-xl {
+  transition:
+    box-shadow var(--px-dur) var(--px-ease),
+    transform var(--px-dur) var(--px-spring),
+    border-color var(--px-dur) var(--px-ease);
+}
+:root[data-skin='premium'] a:hover > .bg-surface-secondary.rounded-lg,
+:root[data-skin='premium'] a:hover > .bg-surface-secondary.rounded-xl,
+:root[data-skin='premium'] a:hover > .bg-surface-secondary.rounded-2xl,
+:root[data-skin='premium'] a.bg-surface-secondary.rounded-lg:hover,
+:root[data-skin='premium'] a.bg-surface-secondary.rounded-xl:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--px-hi-strong), var(--px-lo), var(--px-cast-lift);
+  border-color: rgb(255 255 255 / 0.09);
+}
+
+/* Focus ring: the flat 2px outline becomes a soft halo that matches the
+   relief lighting. */
+:root[data-skin='premium'] :focus-visible {
+  outline: 1px solid rgb(var(--px-accent-rgb) / 0.55);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--px-accent-soft);
+}
+
+/* Entrance. Content arrives rather than appearing — a 12px rise with the
+   soft decel. Applied to the routed content wrapper, so every view inherits
+   it once per navigation without a single component knowing about it. */
+@keyframes px-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+:root[data-skin='premium'] .app-content > * {
+  animation: px-rise var(--px-dur-slow) var(--px-ease) both;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   5. Navigation
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* An active row is a lit recess with an accent edge, not a grey block. The
+   edge grows in from the centre so selection reads as a movement. */
+:root[data-skin='premium'] .px-nav-row {
+  position: relative;
+  transition:
+    background-color var(--px-dur) var(--px-ease),
+    color var(--px-dur) var(--px-ease);
+}
+:root[data-skin='premium'] .px-nav-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 0;
+  border-radius: 0 3px 3px 0;
+  background: var(--px-accent);
+  box-shadow: 0 0 12px rgb(var(--px-accent-rgb) / 0.55);
+  transform: translateY(-50%);
+  transition: height var(--px-dur-slow) var(--px-spring);
+}
+:root[data-skin='premium'] .px-nav-row[data-active='true']::before {
+  height: 26px;
+}
+:root[data-skin='premium'] .px-nav-row[data-active='true'] {
+  background:
+    linear-gradient(90deg, rgb(var(--px-accent-rgb) / 0.09), rgb(var(--px-accent-rgb) / 0) 55%),
+    var(--color-surface-secondary);
+  box-shadow: var(--px-inset);
+}
+:root[data-skin='premium'] .px-nav-row:not([data-active='true']):hover {
+  background: rgb(255 255 255 / 0.028);
+}
+/* The selected icon takes the accent. Done here rather than in AppShell so the
+   classic skin keeps its plain white active icon. */
+:root[data-skin='premium'] .px-nav-row[data-active='true'] .px-icon {
+  color: var(--px-accent);
+  filter: drop-shadow(0 0 8px rgb(var(--px-accent-rgb) / 0.35));
+}
+/* Idle icons drift up a hair under the pointer — enough to feel live. */
+:root[data-skin='premium'] .px-nav-row .px-icon {
+  transition: color var(--px-dur) var(--px-ease), transform var(--px-dur) var(--px-spring);
+}
+:root[data-skin='premium'] .px-nav-row:not([data-active='true']):hover .px-icon {
+  transform: translateY(-1px);
+}
+
+/* The wordmark picks up the same top-lit relief as the rest of the chrome. */
+:root[data-skin='premium'] .brand-wordmark {
+  filter: drop-shadow(0 1px 0 rgb(0 0 0 / 0.65)) drop-shadow(0 2px 6px rgb(0 0 0 / 0.45))
+    drop-shadow(0 0 14px rgb(var(--px-accent-rgb) / 0.18));
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   6. Nav icon micro-illustrations (markup in components/NavIcon.tsx)
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Shared: every animated part eases on the same curve so the six icons read as
+   one family even though each tells a different little story. */
+:root[data-skin='premium'] .px-icon * {
+  transition:
+    transform var(--px-dur-slow) var(--px-spring),
+    opacity var(--px-dur) var(--px-ease),
+    fill var(--px-dur) var(--px-ease),
+    stroke var(--px-dur) var(--px-ease),
+    stroke-dashoffset var(--px-dur-slow) var(--px-ease);
+  transform-box: fill-box;
+}
+:root[data-skin='premium'] .px-icon {
+  overflow: visible;
+}
+
+/* Draw-on. The RESTING icon must be the complete drawing — an unselected
+   "Insights" that is missing its trend line reads as a broken icon, not as a
+   subtle one. So the stroke is never statically hidden: the dash is introduced
+   and consumed inside the keyframes, and only while the animation runs. */
+@keyframes px-draw {
+  from {
+    stroke-dasharray: var(--px-len);
+    stroke-dashoffset: var(--px-len);
+  }
+  to {
+    stroke-dasharray: var(--px-len);
+    stroke-dashoffset: 0;
+  }
+}
+
+/* — cards: the back card fans out from behind the front one, and the front
+     card's content lines draw in left-to-right. */
+:root[data-skin='premium'] .px-icon .px-card-back {
+  transform-origin: 20% 90%;
+  transform: rotate(0deg) translateX(0);
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-card-back {
+  transform: rotate(16deg) translateX(1px);
+}
+:root[data-skin='premium'] .px-icon .px-card-line {
+  --px-len: 12;
+  opacity: 0.75;
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-card-line {
+  opacity: 1;
+  animation: px-draw 340ms var(--px-ease) both;
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-card-line-2 {
+  animation-delay: 90ms;
+}
+
+/* — lists: the bullets pop in sequence, then the rules draw out. */
+/* At rest the bullets are the original hollow circles; selecting fills them and
+   pops each one a beat after the last. */
+:root[data-skin='premium'] .px-icon .px-dot {
+  transform-origin: center;
+  transform: scale(1);
+  fill: transparent;
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-dot {
+  fill: currentColor;
+  animation: px-pop 380ms var(--px-spring) both;
+}
+@keyframes px-pop {
+  0% {
+    transform: scale(0.5);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-dot-2 {
+  animation-delay: 70ms;
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-dot-3 {
+  animation-delay: 140ms;
+}
+:root[data-skin='premium'] .px-icon .px-rule {
+  --px-len: 14;
+  opacity: 0.8;
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-rule {
+  opacity: 1;
+  animation: px-draw 360ms var(--px-ease) both;
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-rule-2 {
+  animation-delay: 70ms;
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-rule-3 {
+  animation-delay: 140ms;
+}
+
+/* — deck: the cover swings open on its spine and a card slides up out of it. */
+:root[data-skin='premium'] .px-icon .px-cover {
+  transform-origin: 25% 50%;
+  transform: rotateY(0deg) scaleX(1);
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-cover {
+  transform: scaleX(0.42);
+}
+:root[data-skin='premium'] .px-icon .px-inner-card {
+  opacity: 0;
+  transform: translateY(3px);
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-inner-card {
+  opacity: 1;
+  transform: translateY(-1px);
+  transition-delay: 110ms;
+}
+
+/* — pokedex: the ball tips, the seam holds, the button lights and rings out. */
+:root[data-skin='premium'] .px-icon .px-ball {
+  transform-origin: center;
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-ball {
+  transform: rotate(-12deg);
+}
+:root[data-skin='premium'] .px-icon .px-ball-core {
+  transform-origin: center;
+  transform: scale(1);
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-ball-core {
+  fill: currentColor;
+  transform: scale(1.12);
+  transition-delay: 90ms;
+}
+:root[data-skin='premium'] .px-icon .px-ball-ring {
+  opacity: 0;
+  transform-origin: center;
+  transform: scale(0.5);
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-ball-ring {
+  animation: px-ping 700ms var(--px-ease) 140ms 1;
+}
+@keyframes px-ping {
+  0% {
+    opacity: 0.7;
+    transform: scale(0.5);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.9);
+  }
+}
+
+/* — chart: bars grow from the axis, then the trend line draws over them. */
+:root[data-skin='premium'] .px-icon .px-bar {
+  transform-origin: bottom;
+  transform: scaleY(0);
+  opacity: 0;
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-bar {
+  transform: scaleY(1);
+  opacity: 0.45;
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-bar-2 {
+  transition-delay: 60ms;
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-bar-3 {
+  transition-delay: 120ms;
+}
+:root[data-skin='premium'] .px-icon .px-trend {
+  --px-len: 22;
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-trend {
+  animation: px-draw 460ms var(--px-ease) 120ms both;
+}
+
+/* — camera: the iris stops down and the lens lights; a catch-light pops. */
+:root[data-skin='premium'] .px-icon .px-lens {
+  transform-origin: center;
+  transform: scale(1);
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-lens {
+  animation: px-shutter 480ms var(--px-ease) 1;
+}
+@keyframes px-shutter {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.55);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+:root[data-skin='premium'] .px-icon .px-lens-core {
+  opacity: 0;
+  transform-origin: center;
+  transform: scale(0.4);
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-lens-core {
+  opacity: 1;
+  transform: scale(1);
+  fill: currentColor;
+  transition-delay: 200ms;
+}
+:root[data-skin='premium'] .px-icon .px-flash {
+  opacity: 0;
+  transform-origin: center;
+  transform: scale(0.3);
+}
+:root[data-skin='premium'] .px-icon[data-on='true'] .px-flash {
+  opacity: 1;
+  transform: scale(1);
+  transition-delay: 260ms;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   7. Component polish — the places the generic surface rules can't reach
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ProgressBar (ui/Progress.tsx). The track is a channel cut into the surface;
+   the fill is a rounded bar sitting in it, lit along its top edge. That pair —
+   recess + lit fill — is what makes a progress bar read as a physical gauge
+   rather than two stacked rectangles. */
+:root[data-skin='premium'] .bg-track-subtle {
+  box-shadow: var(--px-inset);
+}
+:root[data-skin='premium'] .bg-track-subtle > div {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.4),
+    inset 0 -2px 3px rgb(0 0 0 / 0.28);
+  /* Width changes are driven by data, so they should ease rather than jump. */
+  transition: width var(--px-dur-slow) var(--px-ease);
+}
+
+/* Tabs, pill variant (ui/Tabs.tsx). The container is a recessed channel and
+   the selected pill is the raised object riding in it — so the sheen rule from
+   §3 must not treat the container itself as a control. */
+:root[data-skin='premium'] .inline-flex.rounded-full.bg-surface-tertiary,
+:root[data-skin='premium'] .inline-flex.rounded-full.bg-surface-secondary {
+  box-shadow: var(--px-inset);
+}
+:root[data-skin='premium'] .inline-flex.rounded-full.bg-surface-tertiary::after {
+  content: none;
+}
+
+/* Tabs, underline variant. The selected tab is a raised tile sitting ON the
+   rule: its face is a dark tint of the SAME hue as the indicator beneath it, so
+   the pair reads as one object rather than a label with a stripe. The elevation
+   is a real drop shadow, not a glow — a glow reads as emitted light, which is
+   wrong for a surface that is meant to sit forward of the page.
+
+   The rounding is top-only: the bottom edge has to stay flush with the
+   indicator, or the tile floats off its own underline. */
+:root[data-skin='premium'] .border-b-2.border-action-primary,
+:root[data-skin='premium'] .border-b-2.border-action-primary-strong {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-action-primary) 12%, transparent),
+    color-mix(in srgb, var(--color-action-primary) 26%, transparent)
+  );
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    0 1px 2px rgb(0 0 0 / 0.4),
+    0 6px 12px -6px rgb(0 0 0 / 0.7);
+}
+
+/* Card art. A trading-card app's card images should sit on the page like the
+   objects they photograph, and lift when you reach for one. */
+:root[data-skin='premium'] a img,
+:root[data-skin='premium'] button img {
+  transition:
+    transform var(--px-dur) var(--px-spring),
+    filter var(--px-dur) var(--px-ease);
+}
+:root[data-skin='premium'] a:hover img,
+:root[data-skin='premium'] button:hover img {
+  transform: translateY(-2px) scale(1.014);
+  filter: drop-shadow(0 8px 14px rgb(0 0 0 / 0.55));
+}
+
+/* Modals and popovers arrive from slightly below and behind, and cast a real
+   shadow onto the scrim. */
+@keyframes px-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+:root[data-skin='premium'] [role='dialog'] {
+  animation: px-modal-in 280ms var(--px-ease) both;
+  box-shadow: var(--px-hi-strong), 0 30px 70px -20px rgb(0 0 0 / 0.9);
+}
+
+/* Skeletons breathe instead of sitting dead while data loads. */
+@keyframes px-shimmer {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+:root[data-skin='premium'] .animate-pulse {
+  animation: px-shimmer 1.8s var(--px-ease) infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   8. Reduced motion
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* The relief, paper and sheen all survive — they are not motion. Only the
+   movement is dropped, so the pass degrades to a still premium look rather
+   than back to flat. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-skin='premium'] *,
+  :root[data-skin='premium'] *::before,
+  :root[data-skin='premium'] *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+  :root[data-skin='premium'] button:hover,
+  :root[data-skin='premium'] a:hover > .bg-surface-secondary {
+    transform: none !important;
+  }
+}

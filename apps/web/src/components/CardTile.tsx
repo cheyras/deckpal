@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CardRow, type TileVariant } from '../lib/api'
@@ -6,102 +6,10 @@ import { fmtPrice, fmtNumber, rarityGlyph } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { useSignedIn } from '../lib/session'
 import { CardImage } from './CardImage'
+import { CounterBox } from './ui/CounterBox'
 import { Icon } from './Icon'
+import { variantMeta } from '../lib/variantStyle'
 import type { CardSearch } from '../routes/setSearch'
-
-// Per-variant accent colour + whether the filled chip needs dark text for
-// legibility (yellow/normal does; purple/blue do not). Mirrors CardDetail's
-// variantColor() + the VariantLegend so the grid counters read as the same system.
-function variantMeta(v: TileVariant): { color: string; dark: boolean; order: number } {
-  const k = v.kind.toLowerCase()
-  if (v.tier === 'special') return { color: 'var(--color-variant-other)', dark: true, order: 3 }
-  if (k.includes('reverse')) return { color: 'var(--color-variant-reverse-holo)', dark: false, order: 2 }
-  if (k.includes('holo')) return { color: 'var(--color-variant-holofoil)', dark: false, order: 1 }
-  return { color: 'var(--color-variant-normal)', dark: true, order: 0 }
-}
-
-// A single tappable count box (one main variant). Tap = +1, long-press or
-// right-click = −1 (floored at 0 via the disabled state). Sits above the card
-// image, so every handler stops propagation to keep the tile's link inert.
-function CounterBox({
-  label,
-  color,
-  dark,
-  qty,
-  disabled,
-  onInc,
-  onDec,
-}: {
-  label: string
-  color: string
-  dark: boolean
-  qty: number
-  disabled: boolean
-  onInc: () => void
-  onDec: () => void
-}) {
-  const timer = useRef<number | null>(null)
-  const longPressed = useRef(false)
-
-  const clear = () => {
-    if (timer.current != null) {
-      clearTimeout(timer.current)
-      timer.current = null
-    }
-  }
-  useEffect(() => clear, [])
-
-  const startPress = () => {
-    longPressed.current = false
-    clear()
-    timer.current = window.setTimeout(() => {
-      longPressed.current = true
-      if (qty > 0) onDec()
-    }, 500)
-  }
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      aria-label={`${label}: ${qty} owned. Tap to add one, long-press to remove one.`}
-      title={`${label} — ${qty} owned · tap +1, hold −1`}
-      onPointerDown={(e) => {
-        e.stopPropagation()
-        startPress()
-      }}
-      onPointerUp={clear}
-      onPointerLeave={clear}
-      onPointerCancel={clear}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        if (qty > 0) onDec()
-      }}
-      onClick={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        if (longPressed.current) {
-          longPressed.current = false
-          return
-        }
-        onInc()
-      }}
-      className="flex h-[24px] min-w-[22px] items-center justify-center rounded-[6px] px-[5px] text-[12px] font-extrabold leading-none tabular-nums shadow-panel transition-opacity enabled:hover:opacity-90 disabled:opacity-60"
-      style={
-        qty > 0
-          ? { background: color, color: dark ? '#15181f' : '#fff' }
-          : {
-              background: 'var(--color-surface-tertiary-transparent)',
-              color: 'var(--color-text-muted)',
-              border: `2px solid ${color}`,
-            }
-      }
-    >
-      {qty > 0 ? qty : ''}
-    </button>
-  )
-}
 
 // Per-variant quantity counters (pkmn.gg's little count boxes).
 //
@@ -180,6 +88,7 @@ function VariantCounters({ cardId, setId, seed }: { cardId: string; setId: strin
           key={v.variantId}
           label={v.displayName}
           color={meta.color}
+          fill={meta.fill}
           dark={meta.dark}
           qty={v.quantity ?? 0}
           disabled={!online || mutation.isPending}
@@ -253,13 +162,19 @@ export function CardTile({
           eager={eager}
         />
         {owned === true && qty > 0 && (
-          <span className="absolute bottom-[8px] right-[8px] rounded-md bg-action-primary px-[7px] py-[2px] text-[12px] font-extrabold leading-[16px] text-action-primary-text shadow-panel">
+          <span className="absolute bottom-[8px] right-[8px] rounded-md bg-action-primary px-[7px] py-[2px] text-[14px] font-extrabold leading-[16px] text-action-primary-text shadow-panel">
             ×{qty}
           </span>
         )}
+        {/* This badge sits on ARBITRARY card art, so it cannot rely on a
+            half-transparent grey the way a badge on a known surface can:
+            rgb(64 64 64 / 0.5) behind text-text-muted (#7f8596) disappears over
+            the bright half of a card and reads as text spilling off its own
+            background. A dark scrim plus body-weight text holds up over both a
+            black holo border and a pale green frame. */}
         {card.variantCount > 1 && (
-          <span className="absolute bottom-[8px] left-[8px] rounded-md bg-surface-tertiary-transparent px-[8px] py-[3px] text-[12px] font-medium leading-[18px] text-text-muted backdrop-blur-sm">
-            <span className="font-bold text-text-body">+{card.variantCount - 1}</span> Variants
+          <span className="absolute bottom-[8px] left-[8px] rounded-md bg-overlay-scrim-strong px-[8px] py-[3px] text-[12px] font-medium leading-[18px] text-text-body backdrop-blur-sm">
+            <span className="font-bold text-text-primary">+{card.variantCount - 1}</span> Variants
           </span>
         )}
         {badge && (
@@ -287,7 +202,7 @@ export function CardTile({
       {/* Footer block — 74px, uniform for virtualization */}
       <div className="pt-[10px]">
         <div className="flex items-baseline justify-between gap-[8px]">
-          <span className="truncate text-[16px] font-normal leading-[23px] text-text-primary">
+          <span className="font-display truncate text-[16px] font-normal leading-[23px] text-text-primary">
             {card.name}
           </span>
           <span className="shrink-0 text-[16px] font-normal leading-[23px] text-change-positive">
@@ -295,8 +210,8 @@ export function CardTile({
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-[12px] leading-[23px] text-text-muted">{fmtNumber(card.number)}</span>
-          <span className="text-[13px] leading-[23px] text-text-secondary" title={card.rarity ?? ''}>
+          <span className="text-[14px] leading-[23px] text-text-muted">{fmtNumber(card.number)}</span>
+          <span className="text-[14px] leading-[23px] text-text-secondary" title={card.rarity ?? ''}>
             {rarityGlyph(card.rarity)}
           </span>
         </div>
