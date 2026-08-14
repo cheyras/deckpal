@@ -96,19 +96,33 @@ bulk-cloned from one pinned upstream SHA, so its provenance is recorded once for
 the class rather than per file, and it carries no `image_asset` row -- and
 therefore no `image_object` row either. It still demands provenance.
 
-### B2 — Connection budget (Supabase pooling)
+### B2 — Connection budget (role- and backend-aware pooling)
 
-**Rule:** Connection pool is managed by Supabase's Supavisor in transaction
-mode. Individual serverless function instances use at most 2 connections.
-Self-host deployments use the `packages/db/src/pool.ts` hard cap
-(`PGPOOL_MAX`, default 3).
+**Rule:** `makePool()` sizes and routes every pool by ROLE and BACKEND
+(DECISIONS.md 2026-08-11):
 
-**Why:** Exhausting connections cascades failures. Serverless functions share a
-pool across instances -- a single function hogging connections starves others.
+- **`request` pools** (the API). In SUPABASE_MODE the RLS middleware holds one
+  pooled connection per in-flight request, so this pool's `max` IS the server's
+  max concurrency. Against Supabase's pooler it uses the transaction port
+  (6543) with default 12, hard cap 24 (`POOLED_CAP`) -- a pooler multiplexes,
+  so clients need not ration. Against a DIRECT Postgres the old contract holds:
+  hard cap 3 (`DIRECT_CAP`), default 2 -- the reference self-host box runs
+  `max_connections=20` with ~11 used by co-hosted apps, and no
+  misconfiguration may blow that budget.
+- **`worker` pools** (migrations, sync, CLIs, MCP) stay on the session port
+  (advisory locks and TEMP tables do not survive transaction pooling), default
+  1, cap 3. `PGPOOL_MAX` applies to workers only; the API is sized by
+  `PGPOOL_MAX_API`.
 
-**Where enforced:** `packages/db/src/pool.ts` hard-caps at `PGPOOL_MAX`;
-Supavisor configuration in the Supabase dashboard. Monitor connection usage in
-the Supabase dashboard.
+**Why:** Exhausting connections cascades failures -- and conflating the two
+roles is what made the API unusable in cloud dev (the pool leak + 2-connection
+cap incident, DECISIONS.md 2026-08-12).
+
+**Where enforced:** `packages/db/src/pool.ts` (`resolveBackend`, `DIRECT_CAP`,
+`POOLED_CAP`); the RLS middleware's connection lifecycle in
+`apps/api/src/index.ts`. `/api/health` reports a live pool census
+(`total/idle/waiting`) -- `waiting > 0` with `idle: 0` means requests are
+queueing; `total` pinned at max with no traffic means a leak.
 
 ### B3 — Never run the TCGdex API server
 

@@ -100,11 +100,24 @@ process.on('SIGTERM', () => shutdown(0));
 
 if (needsBuild) {
   console.log('Building the API once (the image shim imports from apps/api/dist)…');
-  const build = spawn('pnpm', ['--filter', '@deckscout/db', 'build'], { cwd: root, stdio: 'inherit', env: childEnv });
-  build.on('exit', () => {
-    const api = spawn('pnpm', ['--filter', 'deckscout-api', 'build'], { cwd: root, stdio: 'inherit', env: childEnv });
-    api.on('exit', () => SERVICES.forEach(start));
-  });
+  // In dependency order, checking every exit code: on a fresh clone a failed
+  // (or skipped) build used to let all three services start anyway, and the
+  // real error drowned in their interleaved startup logs. @deckscout/storage
+  // is in the list because the image handler resolves its dist/ at runtime —
+  // tsc alone passes without it (its exports map serves types from src/).
+  const BUILDS = ['@deckscout/db', '@deckscout/storage', 'deckscout-api'];
+  const buildNext = (i) => {
+    if (i >= BUILDS.length) return SERVICES.forEach(start);
+    const build = spawn('pnpm', ['--filter', BUILDS[i], 'build'], { cwd: root, stdio: 'inherit', env: childEnv });
+    build.on('exit', (code) => {
+      if (code !== 0) {
+        console.error(`\n  Build of ${BUILDS[i]} failed (exit ${code}) — not starting services.\n`);
+        process.exit(code ?? 1);
+      }
+      buildNext(i + 1);
+    });
+  };
+  buildNext(0);
 } else {
   SERVICES.forEach(start);
 }

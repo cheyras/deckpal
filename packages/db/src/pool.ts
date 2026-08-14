@@ -149,8 +149,15 @@ function resolveBackend(role: PoolRole): Backend {
   // Workers always take the session port: their advisory locks and temp tables
   // do not survive transaction pooling. Same for any direct Postgres, which
   // has nowhere else to go.
+  //
+  // The cap follows the BACKEND, not the role: POOLED_CAP's whole
+  // justification is that a pooler multiplexes client connections onto its
+  // own small server pool. A direct Postgres does no such thing, so it keeps
+  // DIRECT_CAP for every role — that ceiling is what guarantees a
+  // misconfigured PGPOOL_MAX cannot blow the reference box's cluster budget
+  // (max_connections=20, ~11 in use — the original HARD_CAP contract).
   if (role === 'worker' || !isPooler) {
-    return { host, port: sessionPort, cap: role === 'request' ? POOLED_CAP : DIRECT_CAP, transactionPooled: false };
+    return { host, port: sessionPort, cap: DIRECT_CAP, transactionPooled: false };
   }
   return {
     host,
@@ -168,13 +175,30 @@ function defaultMax(role: PoolRole): number {
   return process.env.SUPABASE_MODE ? 12 : 2;
 }
 
+/**
+ * Parse a pool-size env var. Returns undefined for anything that is not a
+ * positive integer — in particular the empty string (`PGPOOL_MAX=` left blank
+ * in a .env template), which Number() would coerce to 0 and thereby clamp the
+ * pool to max 1, serializing the whole API.
+ */
+function poolSizeFromEnv(name: string): number | undefined {
+  const n = parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 export function makePool(opts?: number | MakePoolOptions): pg.Pool {
   loadEnv();
   const { role = 'worker', max: maxOverride } = typeof opts === 'number' ? { max: opts } : (opts ?? {});
   const backend = resolveBackend(role);
 
-  const envMax = Number(process.env.PGPOOL_MAX ?? NaN);
-  const requested = maxOverride ?? (Number.isFinite(envMax) ? envMax : defaultMax(role));
+  // PGPOOL_MAX is the historical WORKER knob (sync 1, migrations 1 — the
+  // self-host cluster budget). It must not leak into request pools: existing
+  // cloud .envs carry PGPOOL_MAX=3 from the old template, and letting it cap
+  // the request pool would quietly reintroduce the exact starvation this
+  // branch fixed. Request pools are sized by their caller (PGPOOL_MAX_API via
+  // apps/api/src/db.ts) or by defaultMax.
+  const envMax = role === 'worker' ? poolSizeFromEnv('PGPOOL_MAX') : undefined;
+  const requested = maxOverride ?? envMax ?? defaultMax(role);
   const max = Math.max(1, Math.min(Number.isFinite(requested) ? requested : defaultMax(role), backend.cap));
 
   const pool = new Pool({
