@@ -1,7 +1,10 @@
 // Shared card + variant resolution for tools that accept "a card" loosely
 // (get_card, log_cards). Policy per SPEC §4: ambiguity is returned, not guessed.
+// Ambiguous candidates carry price and sort cheapest-first so agents default to
+// the cheapest printing (issue #31).
 import type { Ctx } from './ctx.js';
 import { q, q1 } from './db.js';
+import { money } from './format.js';
 
 export interface CardRef {
   card_id?: string; // TCGdex id, e.g. "me05-84"
@@ -19,6 +22,8 @@ export interface ResolvedCard {
   localId: string;
   rarity: string | null;
   category: string;
+  /** Best USD market price in minor units (cents), NULL = unpriced. */
+  bestMinor: number | null;
 }
 
 export type CardResolution =
@@ -28,9 +33,17 @@ export type CardResolution =
 
 const CARD_SELECT = `
   SELECT c.id, c.tcgdex_id, c.name, c.local_id, c.rarity, c.category,
-         cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name
+         cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name,
+         bp.best_minor
     FROM card c
-    JOIN card_set cs ON cs.id = c.set_id`;
+    JOIN card_set cs ON cs.id = c.set_id
+    LEFT JOIN (
+      SELECT cv.card_id, min(pc.market_minor)::int AS best_minor
+        FROM price_current pc
+        JOIN card_variant cv ON cv.id = pc.card_variant_id
+       WHERE pc.currency_code = 'USD' AND pc.market_minor IS NOT NULL
+       GROUP BY cv.card_id
+    ) bp ON bp.card_id = c.id`;
 
 function shape(r: Record<string, unknown>): ResolvedCard {
   return {
@@ -42,11 +55,12 @@ function shape(r: Record<string, unknown>): ResolvedCard {
     localId: String(r.local_id),
     rarity: r.rarity == null ? null : String(r.rarity),
     category: String(r.category),
+    bestMinor: r.best_minor == null ? null : Number(r.best_minor),
   };
 }
 
 export function describeCard(c: ResolvedCard): string {
-  return `${c.name} | ${c.tcgdexId} | ${c.setName} #${c.localId}${c.rarity ? ` | ${c.rarity}` : ''}`;
+  return `${c.name} | ${c.tcgdexId} | ${c.setName} #${c.localId}${c.rarity ? ` | ${c.rarity}` : ''} | ${money(c.bestMinor)}`;
 }
 
 export async function resolveCard(ctx: Ctx, ref: CardRef): Promise<CardResolution> {
@@ -92,7 +106,15 @@ export async function resolveCard(ctx: Ctx, ref: CardRef): Promise<CardResolutio
     return { status: 'not_found', message: `No card matching '${name}'${where ? ` (${where})` : ''}` };
   }
   if (rows.length === 1) return { status: 'ok', card: shape(rows[0]!) };
-  return { status: 'ambiguous', candidates: rows.slice(0, 8).map(shape), total: rows.length };
+  // Sort candidates cheapest-first so agents naturally pick the cheapest
+  // printing; unpriced cards sort last (issue #31).
+  const candidates = rows.slice(0, 8).map(shape).sort((a, b) => {
+    if (a.bestMinor === null && b.bestMinor === null) return 0;
+    if (a.bestMinor === null) return 1;
+    if (b.bestMinor === null) return -1;
+    return a.bestMinor - b.bestMinor;
+  });
+  return { status: 'ambiguous', candidates, total: rows.length };
 }
 
 export interface VariantRef {

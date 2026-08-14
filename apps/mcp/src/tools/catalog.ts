@@ -43,9 +43,13 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
       description:
         'Search cards across the whole catalog by name (accent-insensitive substring) with ' +
         'optional filters: set, category, rarity, Standard legality, owned-only, and minimum ' +
-        'USD market value. Each row shows owned quantity and best USD market price. Use it to ' +
-        'find cards or list slices of the collection; for full detail on ONE card (variants, ' +
-        'tiers, per-source prices) use get_card instead, and for set completion use set_progress.',
+        'USD market value. Each row shows owned quantity and best USD market price. When multiple ' +
+        'printings of the same card name appear (e.g. a regular and a Special Illustration Rare), ' +
+        'they sort cheapest first within that name group. When building or pricing a deck, prefer ' +
+        'the cheapest printing of a named card unless the user specifically asked for a particular ' +
+        'rarity, parallel, or set. Use this to find cards or list slices of the collection; for ' +
+        'full detail on ONE card (variants, tiers, per-source prices) use get_card instead, and ' +
+        'for set completion use set_progress.',
       inputSchema: z.object({
         query: z.string().optional().describe("Card-name substring, accent/case-insensitive, e.g. 'charizard'."),
         set_id: z.string().optional().describe("Limit to one set by TCGdex set id, e.g. 'me05' or 'sv3pt5'."),
@@ -106,9 +110,12 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
         const total = Number(totalRow?.total ?? 0);
 
         // Page query appends its own params (exact-match ranking, limit, offset).
+        // Same-name rows (multiple printings of the same card) sort cheapest first
+        // so an agent picking a card for a deck naturally lands on the cheap one;
+        // genuinely different names keep the existing relevance/recency order (issue #31).
         const orderBy = query
-          ? `ORDER BY (lower(unaccent(c.name)) = lower(unaccent(${p(query)}))) DESC, length(c.name), cs.tcgdex_id, c.number_sort`
-          : `ORDER BY c.released_on DESC NULLS LAST, cs.tcgdex_id, c.number_sort`;
+          ? `ORDER BY (lower(unaccent(c.name)) = lower(unaccent(${p(query)}))) DESC, length(c.name), lower(c.name), b.best_minor ASC NULLS LAST, cs.tcgdex_id, c.number_sort`
+          : `ORDER BY c.released_on DESC NULLS LAST, lower(c.name), b.best_minor ASC NULLS LAST, cs.tcgdex_id, c.number_sort`;
         const rows = await q<SearchRow>(
           ctx.db,
           `${ctes}

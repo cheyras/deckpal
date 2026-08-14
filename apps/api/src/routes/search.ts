@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { cardImages, q, toMajor } from '../db.js';
+import { cardImages, q, q1, toMajor } from '../db.js';
 import { asyncHandler, badRequest, catalogCache, clampInt, oneOf, str, strList } from '../http.js';
 import { raritySortSql } from '../rarity.js';
 
@@ -188,20 +188,83 @@ searchRouter.get(
  * The available filter vocabularies. Some are genuinely empty in the imported
  * data (subTypes, tags were not imported) — reported as empty arrays, never
  * fabricated. `populated: false` flags the gaps.
+ *
+ * These ten result sets used to be a Promise.all of ten q() calls. Like the
+ * cards.ts nine-query fix, in SUPABASE_MODE they serialised on one PoolClient
+ * — ten sequential round trips pretending to be parallel, with the concurrent
+ * dispatch risking pool-wedging under real traffic. Folded into one statement
+ * of independent scalar subqueries: same sub-plans, one round trip instead of
+ * ten.
  */
 async function loadFacets(): Promise<Record<string, unknown>> {
-  const [cardType, energyType, subType, sets, rarity, weakness, resistance, retreat, hpRange, artist] = await Promise.all([
-    q<{ v: string; n: string }>(`SELECT category AS v, count(*) AS n FROM card GROUP BY category ORDER BY 2 DESC`),
-    q<{ v: string; n: string }>(`SELECT type AS v, count(*) AS n FROM card_type GROUP BY type ORDER BY 2 DESC`),
-    q<{ v: string; n: string }>(`SELECT subtype AS v, count(*) AS n FROM card_subtype GROUP BY subtype ORDER BY 2 DESC`),
-    q<{ v: string; label: string }>(`SELECT cs.tcgdex_id AS v, cs.name AS label FROM card_set cs JOIN series s ON s.id=cs.series_id JOIN catalogue cat ON cat.code=s.catalogue_code AND cat.is_enabled ORDER BY cs.released_on DESC NULLS LAST`),
-    q<{ v: string; n: string }>(`SELECT rarity AS v, count(*) AS n FROM card WHERE rarity IS NOT NULL GROUP BY rarity ORDER BY 2 DESC`),
-    q<{ v: string; n: string }>(`SELECT type AS v, count(*) AS n FROM card_matchup WHERE kind='weakness' GROUP BY type ORDER BY 2 DESC`),
-    q<{ v: string; n: string }>(`SELECT type AS v, count(*) AS n FROM card_matchup WHERE kind='resistance' GROUP BY type ORDER BY 2 DESC`),
-    q<{ v: number }>(`SELECT DISTINCT retreat AS v FROM card WHERE retreat IS NOT NULL ORDER BY 1`),
-    q<{ min: number; max: number }>(`SELECT min(hp) AS min, max(hp) AS max FROM card WHERE hp IS NOT NULL`),
-    q<{ v: string; n: string }>(`SELECT illustrator AS v, count(*) AS n FROM card WHERE illustrator IS NOT NULL GROUP BY illustrator ORDER BY 2 DESC`),
-  ]);
+  const bundle = await q1<{
+    card_type: { v: string; n: string }[];
+    energy_type: { v: string; n: string }[];
+    sub_type: { v: string; n: string }[];
+    sets: { v: string; label: string }[];
+    rarity: { v: string; n: string }[];
+    weakness: { v: string; n: string }[];
+    resistance: { v: string; n: string }[];
+    retreat: { v: number }[];
+    hp_range: { min: number; max: number }[];
+    artist: { v: string; n: string }[];
+  }>(
+    `SELECT
+       COALESCE((SELECT json_agg(r) FROM (
+         SELECT category AS v, count(*)::text AS n
+           FROM card GROUP BY category ORDER BY count(*) DESC
+       ) r), '[]'::json) AS card_type,
+       COALESCE((SELECT json_agg(r) FROM (
+         SELECT type AS v, count(*)::text AS n
+           FROM card_type GROUP BY type ORDER BY count(*) DESC
+       ) r), '[]'::json) AS energy_type,
+       COALESCE((SELECT json_agg(r) FROM (
+         SELECT subtype AS v, count(*)::text AS n
+           FROM card_subtype GROUP BY subtype ORDER BY count(*) DESC
+       ) r), '[]'::json) AS sub_type,
+       COALESCE((SELECT json_agg(r) FROM (
+         SELECT cs.tcgdex_id AS v, cs.name AS label
+           FROM card_set cs
+           JOIN series s ON s.id = cs.series_id
+           JOIN catalogue cat ON cat.code = s.catalogue_code AND cat.is_enabled
+          ORDER BY cs.released_on DESC NULLS LAST
+       ) r), '[]'::json) AS sets,
+       COALESCE((SELECT json_agg(r) FROM (
+         SELECT rarity AS v, count(*)::text AS n
+           FROM card WHERE rarity IS NOT NULL GROUP BY rarity ORDER BY count(*) DESC
+       ) r), '[]'::json) AS rarity,
+       COALESCE((SELECT json_agg(r) FROM (
+         SELECT type AS v, count(*)::text AS n
+           FROM card_matchup WHERE kind = 'weakness' GROUP BY type ORDER BY count(*) DESC
+       ) r), '[]'::json) AS weakness,
+       COALESCE((SELECT json_agg(r) FROM (
+         SELECT type AS v, count(*)::text AS n
+           FROM card_matchup WHERE kind = 'resistance' GROUP BY type ORDER BY count(*) DESC
+       ) r), '[]'::json) AS resistance,
+       COALESCE((SELECT json_agg(r) FROM (
+         SELECT DISTINCT retreat AS v FROM card WHERE retreat IS NOT NULL ORDER BY 1
+       ) r), '[]'::json) AS retreat,
+       COALESCE((SELECT json_agg(r) FROM (
+         SELECT min(hp) AS min, max(hp) AS max FROM card WHERE hp IS NOT NULL
+       ) r), '[]'::json) AS hp_range,
+       COALESCE((SELECT json_agg(r) FROM (
+         SELECT illustrator AS v, count(*)::text AS n
+           FROM card WHERE illustrator IS NOT NULL
+          GROUP BY illustrator ORDER BY count(*) DESC
+       ) r), '[]'::json) AS artist`,
+  );
+
+  const cardType = bundle?.card_type ?? [];
+  const energyType = bundle?.energy_type ?? [];
+  const subType = bundle?.sub_type ?? [];
+  const sets = bundle?.sets ?? [];
+  const rarityList = bundle?.rarity ?? [];
+  const weaknessList = bundle?.weakness ?? [];
+  const resistanceList = bundle?.resistance ?? [];
+  const retreatList = bundle?.retreat ?? [];
+  const hpRange = bundle?.hp_range ?? [];
+  const artistList = bundle?.artist ?? [];
+
   const facet = (label: string, values: { v: string; n?: string; label?: string }[]) => ({
     label,
     populated: values.length > 0,
@@ -212,13 +275,13 @@ async function loadFacets(): Promise<Record<string, unknown>> {
     energyType: facet('Energy Type', energyType),
     subType: facet('Sub-Type', subType), // EMPTY in data
     set: facet('Set', sets),
-    rarity: facet('Rarity', rarity),
-    weakness: facet('Weakness', weakness),
-    resistance: facet('Resistance', resistance),
-    retreat: { label: 'Retreat Cost', populated: retreat.length > 0, values: retreat.map((r) => ({ value: r.v })) },
+    rarity: facet('Rarity', rarityList),
+    weakness: facet('Weakness', weaknessList),
+    resistance: facet('Resistance', resistanceList),
+    retreat: { label: 'Retreat Cost', populated: retreatList.length > 0, values: retreatList.map((r) => ({ value: r.v })) },
     hitPoints: { label: 'Hit Points', populated: !!hpRange[0]?.max, range: hpRange[0] ?? null },
     attack: { label: 'Attack Search', populated: true, freeText: true },
     ability: { label: 'Ability Search', populated: true, freeText: true },
-    artist: facet('Artist', artist),
+    artist: facet('Artist', artistList),
   };
 }

@@ -4,11 +4,13 @@ import { Icon } from './Icon'
 import { Button } from './ui/Button'
 import { api } from '../lib/api'
 
-// In-app bug reporter. Clicking the top-nav button opens the comment form
-// *immediately* and captures a screenshot of the current view in the background,
-// attaching it to the preview when ready. Submit POSTs the comment + page URL +
-// screenshot to /deckscout/api/bugs, which persists them under the repo's issues/
-// dir for the `fix-issues` skill to work through.
+// In-app bug / feature-request reporter. Clicking the top-nav button opens the
+// comment form *immediately* and captures a screenshot of the current view in
+// the background, attaching it to the preview when ready. Submit POSTs the
+// comment + kind ('bug' | 'feature') + page URL + screenshot to
+// /deckscout/api/bugs, which — in self-host mode — persists them under the
+// repo's issues/ dir for the `fix-issues` skill to work through (cloud mode
+// files a labeled GitHub issue instead; see apps/api/src/routes/bugs.ts).
 //
 // Why open-first-capture-after: html2canvas walks and re-renders the whole
 // document, which on heavy/virtualized layouts (table view, big grids) can reflow
@@ -137,10 +139,28 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   })
 }
 
+type ReportKind = 'bug' | 'feature'
+
+const KIND_COPY: Record<ReportKind, { title: string; helper: string; placeholder: string }> = {
+  bug: {
+    title: 'Report a bug',
+    helper:
+      "Describe what looks wrong or isn't working. A screenshot of this page and the URL are attached automatically.",
+    placeholder: 'What happened, and what did you expect instead?',
+  },
+  feature: {
+    title: 'Request a feature',
+    helper:
+      "Describe what you'd like to see and why. A screenshot of this page and the URL are attached automatically for context.",
+    placeholder: 'What would you like to see, and why?',
+  },
+}
+
 export function BugButton() {
   const [open, setOpen] = useState(false)
   const [capturing, setCapturing] = useState(false)
   const [shot, setShot] = useState<string | undefined>(undefined)
+  const [kind, setKind] = useState<ReportKind>('bug')
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [savedId, setSavedId] = useState<string | null>(null)
@@ -150,6 +170,7 @@ export function BugButton() {
   // Open the modal right away, then kick off the screenshot in the background.
   function begin() {
     setShot(undefined)
+    setKind('bug')
     setText('')
     setSavedId(null)
     setIssueUrl(null)
@@ -235,6 +256,7 @@ export function BugButton() {
         screenshot: shot,
         viewport: `${window.innerWidth}x${window.innerHeight}`,
         userAgent: navigator.userAgent,
+        kind,
       })
       setSavedId(r.id)
       if (r.issueUrl) setIssueUrl(r.issueUrl)
@@ -254,15 +276,15 @@ export function BugButton() {
     <>
       <button
         onClick={begin}
-        aria-label="Report a bug"
-        title="Report a bug"
+        aria-label="Report a bug or feature request"
+        title="Report a bug or feature request"
         className="flex h-[44px] w-[44px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover hover:text-icon-hover disabled:opacity-60 nav:h-[42px]"
       >
         <Icon name="bug" size={20} />
       </button>
 
       {open && (
-        <Modal title="Report a bug" onClose={close}>
+        <Modal title={KIND_COPY[kind].title} onClose={close}>
           {savedId ? (
             <div className="flex flex-col items-center gap-[10px] py-[24px] text-center">
               <span className="text-action-primary">
@@ -284,16 +306,30 @@ export function BugButton() {
             </div>
           ) : (
             <form onSubmit={submit} className="flex flex-col gap-[14px]">
-              <p className="text-[14px] leading-[19px] text-text-muted">
-                Describe what looks wrong or isn't working. A screenshot of this page and the URL are attached
-                automatically.
-              </p>
+              {/* Bug | Feature request toggle — same segmented-control idiom as the
+                  Overview/Trends sub-toggle in Insights.tsx */}
+              <div className="inline-flex self-start rounded-full bg-surface-tertiary p-[4px]">
+                {(['bug', 'feature'] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setKind(k)}
+                    className={[
+                      'h-[32px] rounded-full px-[16px] text-[13px] font-semibold',
+                      kind === k ? 'bg-action-primary text-action-primary-text' : 'text-text-muted hover:text-text-body',
+                    ].join(' ')}
+                  >
+                    {k === 'bug' ? 'Bug' : 'Feature request'}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[14px] leading-[19px] text-text-muted">{KIND_COPY[kind].helper}</p>
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 autoFocus
                 rows={6}
-                placeholder="What happened, and what did you expect instead?"
+                placeholder={KIND_COPY[kind].placeholder}
                 className="w-full resize-y rounded-lg border border-border-default bg-surface-primary p-[12px] text-[15px] leading-[22px] text-text-primary placeholder:text-text-muted"
               />
               {capturing ? (

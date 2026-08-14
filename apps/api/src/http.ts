@@ -87,3 +87,22 @@ export function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallb
   const hit = allowed.find((a) => a.toLowerCase() === s);
   return hit ?? fallback;
 }
+
+// ── Raw-body helpers (Vercel compat) ────────────────────────────────────────
+
+/**
+ * Coerce an unknown value to a Buffer if it is buffer-like.
+ *
+ * Used by the avatar and scanner routes to normalise `req.body` after the raw-
+ * body middleware runs.  Vercel's Node.js helpers may set `req.body` to a
+ * `Buffer`, `Uint8Array`, or (for text content-types) a `string` before
+ * Express's `express.raw()` can read the stream.  This function unifies them
+ * into a plain `Buffer` the handlers can use.
+ */
+export function toBuffer(val: unknown): Buffer | null {
+  if (Buffer.isBuffer(val)) return val;
+  if (val instanceof Uint8Array) return Buffer.from(val.buffer, val.byteOffset, val.byteLength);
+  if (val instanceof ArrayBuffer) return Buffer.from(val);
+  if (typeof val === 'string' && val.length > 0) return Buffer.from(val, 'latin1');
+  return null;
+}

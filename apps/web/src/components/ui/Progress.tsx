@@ -24,6 +24,8 @@ export interface ProgressBarProps {
   milestones?: number[]
   /** Passed pct for each milestone that should render as a star instead of a dot. */
   milestonePassed?: (m: number) => boolean
+  /** Colour of passed milestone stars. Default action-primary-strong. */
+  milestoneColor?: string
   className?: string
 }
 
@@ -37,6 +39,7 @@ export function ProgressBar({
   fill = DEFAULT_GRADIENT,
   milestones,
   milestonePassed,
+  milestoneColor = 'var(--color-action-primary-strong)',
   className,
 }: ProgressBarProps) {
   const clamped = Math.min(100, Math.max(0, pct))
@@ -60,9 +63,7 @@ export function ProgressBar({
               className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-[14px] leading-none"
               style={{
                 left: `${m}%`,
-                color: passed
-                  ? 'var(--color-action-primary-strong)'
-                  : 'var(--color-text-muted)',
+                color: passed ? milestoneColor : 'var(--color-text-muted)',
               }}
             >
               {passed ? '★' : '●'}
