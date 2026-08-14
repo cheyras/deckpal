@@ -76,12 +76,17 @@ export function buttonClass(
  * yet valid.
  */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = 'primary', size = 'md', loading, disabled, className, children, ...rest },
+  { variant = 'primary', size = 'md', type = 'button', loading, disabled, className, children, ...rest },
   ref,
 ) {
+  // type defaults to "button", NOT the platform's "submit": several call sites
+  // are Cancel/Close buttons inside <form>s, and the inline buttons this
+  // primitive replaced all carried type="button". A submit button opts in with
+  // an explicit type="submit".
   return (
     <button
       ref={ref}
+      type={type}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={`${buttonClass(variant, size)}${className ? ` ${className}` : ''}`}

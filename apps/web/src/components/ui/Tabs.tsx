@@ -61,7 +61,7 @@ export function Tabs({
               : 'bg-action-primary text-action-primary-text'
           const cls = `${itemBase} ${active ? activeCls : 'text-text-muted hover:text-text-body'}`
           return (
-            <button key={item.key} onClick={() => onChange?.(item.key)} className={cls}>
+            <button key={item.key} type="button" onClick={() => onChange?.(item.key)} className={cls}>
               {item.label}
             </button>
           )
@@ -93,7 +93,7 @@ export function Tabs({
 
         if (onChange) {
           return (
-            <button key={item.key} onClick={() => onChange(item.key)} className={cls}>
+            <button key={item.key} type="button" onClick={() => onChange(item.key)} className={cls}>
               {item.label}
             </button>
           )
