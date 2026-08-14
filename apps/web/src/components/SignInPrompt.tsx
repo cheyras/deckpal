@@ -40,19 +40,19 @@ export function SignInPrompt({
     >
       <div className={banner ? 'min-w-0' : 'min-w-0 text-right'}>
         <div className="text-[14px] font-semibold leading-[21px] text-text-primary">{title}</div>
-        {detail && <div className="text-[13px] leading-[19px] text-text-muted">{detail}</div>}
+        {detail && <div className="text-[14px] leading-[19px] text-text-muted">{detail}</div>}
       </div>
       <div className="flex shrink-0 items-center gap-[8px]">
         <Link
           to="/auth"
           search={{ mode: 'signup' } as never}
-          className="flex h-[38px] items-center rounded-lg bg-action-primary px-[16px] text-[13px] font-semibold text-action-primary-text hover:opacity-90"
+          className="flex h-[38px] items-center rounded-lg bg-action-primary px-[16px] text-[14px] font-semibold text-action-primary-text hover:opacity-90"
         >
           Sign up free
         </Link>
         <Link
           to="/auth"
-          className="flex h-[38px] items-center rounded-lg border border-border-default px-[14px] text-[13px] font-semibold text-text-body hover:border-surface-quaternary hover:text-text-primary"
+          className="flex h-[38px] items-center rounded-lg border border-border-default px-[14px] text-[14px] font-semibold text-text-body hover:border-surface-quaternary hover:text-text-primary"
         >
           Sign in
         </Link>

@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Icon, BrandMark, type IconName } from './Icon'
+import { NavIcon } from './NavIcon'
+import { useSkin } from '../lib/useSkin'
 import { AvatarDisc, useAvatar } from './Avatar'
 import { PwaUi } from './PwaUi'
 import { BugButton } from './BugReport'
@@ -31,15 +33,18 @@ function ProfileChip() {
       className="flex items-center gap-[8px] rounded-full bg-surface-tertiary py-[6px] pl-[6px] pr-[14px] hover:bg-action-default-hover"
       aria-label="Your profile"
     >
-      <span className="relative flex h-[34px] w-[34px] items-center justify-center rounded-full bg-surface-raised text-icon-default">
-        {/* The disc is clipped in its own element so the level badge, which
-            hangs 3px past the bottom edge, is not clipped with it. */}
-        <span className="h-full w-full overflow-hidden rounded-full">
-          <AvatarDisc url={avatar.data?.avatarUrl} iconSize={20} fallbackClass="text-icon-default" />
-        </span>
-        <span className="absolute -bottom-[3px] left-1/2 -translate-x-1/2 rounded-full bg-action-primary px-[5px] text-[9px] font-extrabold leading-[13px] text-action-primary-text">
-          {level}
-        </span>
+      {/* The level badge used to be absolutely positioned over the avatar's
+          bottom edge. Measured, it resolved its 50% against the CHIP's content
+          box rather than the 34px avatar — pinning position:relative and using
+          inline left/transform did not move it — so it sat ~19px right of the
+          avatar and collided with the username ("0qa" in the header). It is a
+          flex sibling now: no containing-block ambiguity is possible, and at
+          12px it is more legible than it was cramped onto the disc. */}
+      <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-raised text-icon-default">
+        <AvatarDisc url={avatar.data?.avatarUrl} iconSize={20} fallbackClass="text-icon-default" />
+      </span>
+      <span className="shrink-0 rounded-full bg-action-primary px-[6px] py-[1px] text-[12px] font-extrabold leading-[16px] text-action-primary-text">
+        {level}
       </span>
       <span className="text-[14px] font-semibold text-text-primary">{username}</span>
     </Link>
@@ -106,27 +111,31 @@ function NavRow({
   // is FOR — but it leads to the sign-up form rather than to a page that would
   // immediately bounce there anyway.
   const locked = signedOut && !!item.gated
+  // `px-nav-row` + `data-active` are the premium skin's hooks for the accent
+  // edge and the lit recess (premium.css §5); classic ignores both and keeps
+  // the flat `bg-surface-secondary` block below.
   const body = (
     <span
       className={[
-        'flex h-[56px] items-center',
+        'px-nav-row flex h-[56px] items-center',
         collapsed ? 'justify-center px-0' : 'gap-[14px] px-[24px]',
         active ? 'bg-surface-secondary text-text-primary' : 'text-text-muted hover:text-text-body',
       ].join(' ')}
+      data-active={active ? 'true' : 'false'}
     >
       <span className={active ? 'text-text-primary' : 'text-icon-muted-strong'}>
-        <Icon name={item.icon} size={item.icon === 'discord' ? 20 : 24} />
+        <NavIcon name={item.icon} active={active} size={item.icon === 'discord' ? 20 : 24} />
       </span>
       {!collapsed && (
         <>
           <span className="flex-1 text-[14px] font-normal leading-[21px]">{item.label}</span>
           {item.soon && (
-            <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[10px] font-bold uppercase tracking-wide text-text-muted">
+            <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[12px] font-bold uppercase tracking-wide text-text-muted">
               Soon
             </span>
           )}
           {locked && (
-            <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[10px] font-bold uppercase tracking-wide text-text-muted">
+            <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[12px] font-bold uppercase tracking-wide text-text-muted">
               Sign in
             </span>
           )}
@@ -160,10 +169,10 @@ function SeriesSubNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const { data, isLoading, error } = useQuery({ queryKey: ['series'], queryFn: ({ signal }) => api.series(signal) })
   if (isLoading) {
-    return <div className="py-[8px] pl-[62px] pr-[24px] text-[13px] text-text-muted">Loading series…</div>
+    return <div className="py-[8px] pl-[62px] pr-[24px] text-[14px] text-text-muted">Loading series…</div>
   }
   if (error || !data?.series.length) {
-    return <div className="py-[8px] pl-[62px] pr-[24px] text-[13px] text-text-muted">No series</div>
+    return <div className="py-[8px] pl-[62px] pr-[24px] text-[14px] text-text-muted">No series</div>
   }
   return (
     <div className="pb-[6px]">
@@ -176,7 +185,7 @@ function SeriesSubNav({ onNavigate }: { onNavigate?: () => void }) {
             params={{ series: s.slug }}
             onClick={onNavigate}
             className={[
-              'block py-[8px] pl-[62px] pr-[24px] text-[13px] leading-[18px]',
+              'block py-[8px] pl-[62px] pr-[24px] text-[14px] leading-[18px]',
               active ? 'font-medium text-text-primary' : 'text-text-muted hover:text-text-body',
             ].join(' ')}
           >
@@ -211,12 +220,13 @@ function ExpandableNavRow({
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="block w-full text-left">
         <span
           className={[
-            'flex h-[56px] items-center gap-[14px] px-[24px]',
+            'px-nav-row flex h-[56px] items-center gap-[14px] px-[24px]',
             active ? 'bg-surface-secondary text-text-primary' : 'text-text-muted hover:text-text-body',
           ].join(' ')}
+          data-active={active ? 'true' : 'false'}
         >
           <span className={active ? 'text-text-primary' : 'text-icon-muted-strong'}>
-            <Icon name={item.icon} size={24} />
+            <NavIcon name={item.icon} active={active} size={24} />
           </span>
           <span className="flex-1 text-[14px] font-normal leading-[21px]">{item.label}</span>
           <Icon
@@ -235,7 +245,7 @@ function Sidebar({ collapsed, onToggle, signedOut }: { collapsed: boolean; onTog
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   return (
     <aside
-      className="fixed left-0 top-0 z-[20] hidden h-screen flex-col border-r border-border-default bg-surface-primary nav:flex"
+      className="fixed left-0 top-0 z-(--z-chrome) hidden h-screen flex-col border-r border-border-default bg-surface-primary nav:flex"
       style={{ width: collapsed ? 82 : 275 }}
     >
       <div
@@ -298,13 +308,13 @@ function MobileDrawer({ open, onClose, signedIn }: { open: boolean; onClose: () 
     <>
       {/* tap-anywhere-outside backdrop */}
       <div
-        className="fixed inset-0 z-[9] nav:hidden"
+        className="fixed inset-0 z-(--z-sticky) nav:hidden"
         style={{ top }}
         onClick={onClose}
         aria-hidden="true"
       />
       <div
-        className="fixed left-0 z-[10] w-[280px] max-w-[85vw] overflow-y-auto border-r border-border-default bg-surface-primary nav:hidden"
+        className="fixed left-0 z-(--z-overlay) w-[280px] max-w-[85vw] overflow-y-auto border-r border-border-default bg-surface-primary nav:hidden"
         style={{ top, height: `calc(100dvh - ${top})`, paddingBottom: 'env(safe-area-inset-bottom)' }}
         role="dialog"
         aria-label="Navigation"
@@ -362,7 +372,7 @@ function Header({ onBurger, drawerOpen, signedIn }: { onBurger: () => void; draw
   }
   return (
     <header
-      className="app-header fixed left-0 right-0 top-0 z-[20] border-b border-border-default bg-surface-secondary"
+      className="app-header fixed left-0 right-0 top-0 z-(--z-chrome) border-b border-border-default bg-surface-secondary"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
         paddingLeft: 'env(safe-area-inset-left)',

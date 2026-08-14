@@ -103,16 +103,16 @@ export function SpeciesDetail() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-[10px]">
-                <span className="text-[13px] font-bold text-text-muted">{fmtNumber(String(sp.speciesId))}</span>
-                <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[11px] font-semibold text-text-body">
+                <span className="text-[14px] font-bold text-text-muted">{fmtNumber(String(sp.speciesId))}</span>
+                <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[12px] font-semibold text-text-body">
                   Gen {sp.generation}
                 </span>
                 {sp.captured === undefined ? null : sp.captured ? (
-                  <span className="rounded-full bg-action-primary px-[8px] py-[2px] text-[11px] font-extrabold text-action-primary-text">
+                  <span className="rounded-full bg-action-primary px-[8px] py-[2px] text-[12px] font-extrabold text-action-primary-text">
                     Captured · LVL {sp.levelLabel}
                   </span>
                 ) : (
-                  <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[11px] font-semibold text-text-muted">
+                  <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[12px] font-semibold text-text-muted">
                     Uncaptured
                   </span>
                 )}
@@ -128,14 +128,14 @@ export function SpeciesDetail() {
                 {sp.types.map((t) => (
                   <span
                     key={t}
-                    className="rounded-full px-[10px] py-[2px] text-[11px] font-bold capitalize text-surface-on-light-text"
+                    className="rounded-full px-[10px] py-[2px] text-[12px] font-bold capitalize text-surface-on-light-text"
                     style={{ background: typeColor(t) }}
                   >
                     {t}
                   </span>
                 ))}
               </div>
-              <div className="mt-[10px] text-[13px] text-text-muted">
+              <div className="mt-[10px] text-[14px] text-text-muted">
                 {sp.uniqueOwned === undefined ? (
                   <>
                     <span className="font-bold text-text-body">{sp.cardPool}</span> cards feature {sp.name}.
@@ -156,7 +156,7 @@ export function SpeciesDetail() {
             {sp.captured === undefined ? (
               <SignInPrompt title="Track this Pokémon" />
             ) : (
-              <label className="flex cursor-pointer items-center gap-[8px] text-[13px] text-text-body">
+              <label className="flex cursor-pointer items-center gap-[8px] text-[14px] text-text-body">
                 <input type="checkbox" checked={ownedOnly} onChange={(e) => setOwnedOnly(e.target.checked)} />
                 Owned only
               </label>

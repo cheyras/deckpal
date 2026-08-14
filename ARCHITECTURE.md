@@ -447,3 +447,38 @@ Tailwind 4. Charts via `d3-scale`/`d3-shape`; drag-and-drop via `@dnd-kit`
 always. Tier 1: visited art, LRU-capped ~2,000 images. Tier 2: opt-in pack
 (owned cards + tracked sets). Offline means full metadata browse, search and
 edit everywhere; real art for what you own.
+
+## 14. Design system and the /design editor
+
+The visual language is a token system in `apps/web/src/theme.css`: three brand
+hue scales (cyan / pink / amber, Tailwind-4 values) feed ~77 flat semantic
+roles (surfaces on the warm stone scale, text/borders re-derived in OKLCh to
+match, actions, status, energy types, variant accents, z-layers). Two type
+roles — Figtree (body/UI) and Fraunces (display, reserved for the app's
+proper nouns) — with a 14px floor and named exceptions. Shared primitives
+live in `apps/web/src/components/ui/` (Button, Tabs, Progress, StatTile,
+SelectableCard, EmptyState, CounterBox, Field/FormAlert/StatusPanel,
+useDismiss), each with a co-located `*.gallery.tsx` that type-checks its
+catalog entry against the real prop surface. The premium visual pass
+(`premium.css`) is scoped entirely under `[data-skin='premium']` — a
+reversible skin, toggleable live (`?skin=classic`), same for the top-bar
+treatment (`?topbar=flat`).
+
+**The `/design` surface** renders the token panel, the gallery catalog, and
+the componentization ledger. It has two modes with one structural rule:
+*write capability exists only in the dev server.*
+
+- **Dev:** a Vite dev-server plugin (`apps/web/vite-plugins/design-editor.ts`)
+  serves `/__design/*` endpoints — token reads, anchored single-declaration
+  writes to `theme.css` (Lane A), and a JSON change-request queue drained by
+  an agent with judgment (Lane B, `design-requests/`). The endpoints exist
+  only while `vite dev` runs; they are absent from build output by
+  construction, not by configuration.
+- **Production:** the route ships in the bundle but is gated to the owner:
+  `GET /me` returns a server-verified `designEditor` flag (cloud: the account
+  named by `DESIGN_EDITOR_USER_ID`; self-host: the single user), and the
+  route's `beforeLoad` renders not-found for anyone else. The page detects
+  the missing dev endpoints and runs read-only — tokens parsed client-side
+  from the bundled `theme.css` text by the same parser the plugin uses
+  (`routes/design/themeTokens.ts`), saves and composers hidden, live
+  ephemeral overrides still available.

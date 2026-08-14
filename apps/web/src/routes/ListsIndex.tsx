@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CreateListBody, type ListKind, type ListSummary } from '../lib/api'
-import { Content, Spinner, ErrorState } from '../components/ui'
+import { Content, Spinner, ErrorState, ProgressBar } from '../components/ui'
 import { ListFormModal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
 import { fmtUsd } from '../lib/format'
@@ -12,20 +12,6 @@ const KIND_META: Record<ListKind, { label: string }> = {
   dynamic: { label: 'Dynamic List' },
   static: { label: 'Static List' },
   pokedex_binder: { label: 'Pokédex Binder' },
-}
-
-function ProgressBar({ pct }: { pct: number }) {
-  return (
-    <div className="h-[6px] w-full overflow-hidden rounded-full bg-[#1a1d24]">
-      <div
-        className="h-full rounded-full"
-        style={{
-          width: `${Math.min(100, pct)}%`,
-          background: 'linear-gradient(90deg, var(--color-action-danger), var(--color-action-primary-strong))',
-        }}
-      />
-    </div>
-  )
 }
 
 function ListCard({ list }: { list: ListSummary }) {
@@ -43,11 +29,11 @@ function ListCard({ list }: { list: ListSummary }) {
         ) : (
           <Icon name="lists" size={40} className="text-icon-muted" />
         )}
-        <span className="absolute right-[10px] top-[10px] rounded-full bg-surface-primary/80 px-[10px] py-[3px] text-[11px] font-bold text-text-secondary backdrop-blur-sm">
+        <span className="absolute right-[10px] top-[10px] rounded-full bg-surface-primary/80 px-[10px] py-[3px] text-[14px] font-bold text-text-secondary backdrop-blur-sm">
           {KIND_META[list.kind].label}
         </span>
         {list.visibility === 'public' && (
-          <span className="absolute left-[10px] top-[10px] rounded-full bg-action-primary-strong px-[10px] py-[3px] text-[11px] font-bold text-action-primary-strong-text">
+          <span className="absolute left-[10px] top-[10px] rounded-full bg-action-primary-strong px-[10px] py-[3px] text-[14px] font-bold text-action-primary-strong-text">
             Public
           </span>
         )}
@@ -55,15 +41,15 @@ function ListCard({ list }: { list: ListSummary }) {
       {/* body */}
       <div className="flex flex-1 flex-col gap-[8px] p-[16px]">
         <div className="flex items-start justify-between gap-[8px]">
-          <span className="truncate text-[16px] font-bold text-text-primary">{list.name}</span>
+          <span className="font-display truncate text-[16px] font-bold text-text-primary">{list.name}</span>
           {list.isFavorite && <Icon name="star-filled" size={16} className="shrink-0 text-action-primary" />}
         </div>
-        {list.description && <p className="line-clamp-2 text-[12px] text-text-muted">{list.description}</p>}
+        {list.description && <p className="line-clamp-2 text-[14px] text-text-muted">{list.description}</p>}
         <div className="mt-auto flex flex-col gap-[6px] pt-[6px]">
           {list.progress ? (
             <>
               <ProgressBar pct={list.progress.pct} />
-              <div className="flex items-center justify-between text-[12px]">
+              <div className="flex items-center justify-between text-[14px]">
                 <span className="font-semibold text-text-secondary">
                   {list.progress.owned}/{list.progress.total} owned
                 </span>
@@ -71,7 +57,7 @@ function ListCard({ list }: { list: ListSummary }) {
               </div>
             </>
           ) : (
-            <div className="flex items-center justify-between text-[12px]">
+            <div className="flex items-center justify-between text-[14px]">
               <span className="font-semibold text-text-secondary">{list.itemCount} cards</span>
               <span className="text-change-positive">{fmtUsd(list.marketValueUsd)}</span>
             </div>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type ScanMatch, type ScanResponse } from '../lib/api'
-import { Content } from '../components/ui'
+import { Content, Spinner, ProgressBar } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { CardSheet } from './CardDetail'
 import { Icon } from '../components/Icon'
@@ -145,7 +145,7 @@ function MatchTile({ match, best }: { match: ScanMatch; best: boolean }) {
     <div className="relative">
       <CardImage low={match.images.low} high={match.images.high} alt={`${match.name} — ${fmtNumber(match.number)}`} radius={8} />
       {best && (
-        <span className="absolute left-[8px] top-[8px] rounded-md bg-action-primary-strong px-[8px] py-[3px] text-[11px] font-bold leading-[16px] text-action-primary-strong-text shadow-panel">
+        <span className="absolute left-[8px] top-[8px] rounded-md bg-action-primary-strong px-[8px] py-[3px] text-[14px] font-bold leading-[16px] text-action-primary-strong-text shadow-panel">
           Best match
         </span>
       )}
@@ -168,7 +168,7 @@ function MatchTile({ match, best }: { match: ScanMatch; best: boolean }) {
 
       <div className="min-w-0">
         <div className="truncate text-[15px] font-semibold leading-[20px] text-text-primary">{match.name}</div>
-        <div className="flex items-center justify-between text-[12px] text-text-muted">
+        <div className="flex items-center justify-between text-[14px] text-text-muted">
           <span className="truncate">{match.setName} · {fmtNumber(match.number)}</span>
           {match.rarity && <span className="shrink-0">{match.rarity}</span>}
         </div>
@@ -176,27 +176,19 @@ function MatchTile({ match, best }: { match: ScanMatch; best: boolean }) {
 
       {/* confidence meter — honest bit-similarity, distance shown raw */}
       <div>
-        <div className="mb-[3px] flex items-center justify-between text-[11px]">
+        <div className="mb-[3px] flex items-center justify-between text-[14px]">
           <span className="text-text-muted">Match</span>
           <span className="font-bold text-text-primary">
             {pct}% <span className="font-normal text-text-muted">· dist {match.distance}</span>
           </span>
         </div>
-        <div className="h-[5px] w-full overflow-hidden rounded-full bg-[#1a1d24]">
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: `${pct}%`,
-              background: best ? 'var(--color-change-positive)' : 'var(--color-action-brand)',
-            }}
-          />
-        </div>
+        <ProgressBar pct={pct} height={5} fill={best ? 'var(--color-change-positive)' : 'var(--color-action-brand)'} />
       </div>
 
       <button
         onClick={add}
         disabled={state === 'adding' || state === 'added'}
-        className={`flex h-[38px] items-center justify-center gap-[7px] rounded-full text-[13px] font-bold transition-colors disabled:opacity-70 ${
+        className={`flex h-[38px] items-center justify-center gap-[7px] rounded-full text-[14px] font-bold transition-colors disabled:opacity-70 ${
           state === 'added'
             ? 'bg-change-positive text-surface-primary'
             : 'bg-action-primary text-action-primary-text hover:bg-action-primary-hover'
@@ -256,7 +248,7 @@ function GuideOverlay({ guideRef, hint, active }: { guideRef: React.RefObject<HT
           />
         )}
       </div>
-      <div className="absolute bottom-[14px] left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-[14px] py-[6px] text-[13px] font-semibold text-white backdrop-blur">
+      <div className="absolute bottom-[14px] left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-[14px] py-[6px] text-[14px] font-semibold text-white backdrop-blur">
         {hint}
       </div>
       <style>{`@keyframes scanSweep{0%{top:6%}50%{top:90%}100%{top:6%}}`}</style>
@@ -466,24 +458,24 @@ export function Scan() {
             </div>
           )}
           {camState === 'denied' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-[10px] bg-black/70 p-[20px] text-center text-[13px] text-white">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-[10px] bg-black/70 p-[20px] text-center text-[14px] text-white">
               <Icon name="camera" size={30} />
               <div>Camera access was blocked. Allow it in your browser, or upload an image below.</div>
               <button
                 onClick={() => void startCamera()}
-                className="rounded-full bg-white/15 px-[16px] py-[8px] text-[13px] font-bold text-white hover:bg-white/25"
+                className="rounded-full bg-white/15 px-[16px] py-[8px] text-[14px] font-bold text-white hover:bg-white/25"
               >
                 Try camera again
               </button>
             </div>
           )}
           {camState === 'error' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-[10px] bg-black/70 p-[20px] text-center text-[13px] text-white">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-[10px] bg-black/70 p-[20px] text-center text-[14px] text-white">
               <Icon name="alert" size={28} />
               <div>Couldn’t start the camera.</div>
               <button
                 onClick={() => void startCamera()}
-                className="rounded-full bg-white/15 px-[16px] py-[8px] text-[13px] font-bold text-white hover:bg-white/25"
+                className="rounded-full bg-white/15 px-[16px] py-[8px] text-[14px] font-bold text-white hover:bg-white/25"
               >
                 Retry
               </button>
@@ -496,7 +488,7 @@ export function Scan() {
       {!result && (
         <div className="mt-[16px] flex flex-wrap items-center justify-center gap-[12px]">
           {camState === 'unavailable' && (
-            <div className="w-full rounded-xl border border-border-default bg-surface-secondary p-[14px] text-center text-[13px] text-text-muted">
+            <div className="w-full rounded-xl border border-border-default bg-surface-secondary p-[14px] text-center text-[14px] text-text-muted">
               Live camera isn’t available here (it needs a secure <span className="font-mono">https</span> connection and a
               rear camera). Upload a photo instead — matching works the same way.
             </div>
@@ -533,7 +525,7 @@ export function Scan() {
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            className="rounded-full bg-surface-tertiary px-[16px] py-[8px] text-[13px] font-bold text-text-primary hover:bg-action-default-hover"
+            className="rounded-full bg-surface-tertiary px-[16px] py-[8px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover"
           >
             Browse images
           </button>
@@ -543,7 +535,7 @@ export function Scan() {
       {/* status while an upload scan runs */}
       {scanning && (
         <div className="mt-[24px] flex items-center justify-center gap-[12px] py-[24px] text-text-muted">
-          <div className="h-[28px] w-[28px] animate-spin rounded-full border-2 border-surface-tertiary border-t-action-primary" />
+          <Spinner inline size={28} className="text-action-primary" />
           <span className="text-[14px]">Scanning…</span>
         </div>
       )}
@@ -558,13 +550,13 @@ export function Scan() {
       {showResult && (
         <div className="mt-[24px]">
           <div className="mb-[14px] flex items-center justify-between">
-            <div className="flex items-center gap-[8px] text-[13px] font-bold text-text-secondary">
+            <div className="flex items-center gap-[8px] text-[14px] font-bold text-text-secondary">
               <span className="uppercase tracking-wide">{result!.matched ? 'Matches' : 'Closest guesses'}</span>
               <span className="text-text-muted">({result!.matches.length})</span>
             </div>
             <button
               onClick={scanAnother}
-              className="flex h-[38px] items-center gap-[7px] rounded-full bg-action-primary px-[16px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover"
+              className="flex h-[38px] items-center gap-[7px] rounded-full bg-action-primary px-[16px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover"
             >
               <Icon name="camera" size={16} /> Scan another
             </button>

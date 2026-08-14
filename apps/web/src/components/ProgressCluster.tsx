@@ -2,6 +2,7 @@ import type { Progress } from '../lib/api'
 import type { Goal } from '../routes/setSearch'
 import { GOAL_SHORT_LABEL } from '../routes/setSearch'
 import { setLevelLabel } from '../lib/format'
+import { ProgressBar } from './ui/Progress'
 
 // The progress cluster (UI-SPEC §3.6, pkmn.gg captures §8/§10) — ONE bar,
 // configured to whichever goal is currently selected via the `goal` prop
@@ -24,20 +25,17 @@ const GOAL_COLOR: Record<Goal, string> = {
 }
 // Translucent badge backgrounds, same idiom as LegalBadge/ResultBadge
 // (routes/deckShared.tsx, routes/deck/intelShared.tsx): a low-alpha wash of
-// the same hue as the text color.
+// the same hue as the text color — derived from the goal's own token rather
+// than hardcoded rgb triplets, so a brand recolour carries the badges along.
 const GOAL_BADGE_BG: Record<Goal, string> = {
-  complete: 'rgba(255,225,101,0.16)',
-  master: 'rgba(50,255,206,0.16)',
-  grandmaster: 'rgba(155,107,255,0.18)',
+  complete: 'color-mix(in srgb, var(--color-action-primary-strong) 16%, transparent)',
+  master: 'color-mix(in srgb, var(--color-success) 16%, transparent)',
+  grandmaster: 'color-mix(in srgb, var(--color-completion-grandmaster) 18%, transparent)',
 }
 
 export function ProgressCluster({ progress, goal }: { progress: Progress; goal: Goal }) {
   const current = progress[goal]
   const accent = GOAL_COLOR[goal]
-  const barBackground =
-    goal === 'complete'
-      ? 'linear-gradient(90deg, var(--color-action-danger), var(--color-action-primary-strong))'
-      : accent
   // LVL stays keyed to Complete-Set pct no matter which goal is on screen —
   // it's an account-level "trainer level" reading (verified against
   // pkmn.gg, see lib/format.ts), not a per-goal stat, so it doesn't retarget
@@ -47,7 +45,7 @@ export function ProgressCluster({ progress, goal }: { progress: Progress; goal: 
   return (
     <div className="flex items-end gap-[16px]">
       <div className="min-w-[220px] flex-1">
-        <div className="mb-[6px] flex items-center gap-[8px] text-[10px] font-bold leading-[15px] text-text-muted">
+        <div className="mb-[6px] flex items-center gap-[8px] text-[14px] font-bold leading-[15px] text-text-muted">
           <span>
             <span className="text-[15px] font-extrabold text-text-primary">{current.owned}</span>
             /{current.total} Collected
@@ -59,32 +57,21 @@ export function ProgressCluster({ progress, goal }: { progress: Progress; goal: 
             {GOAL_SHORT_LABEL[goal]}
           </span>
         </div>
-        <div className="relative h-[6px] w-full overflow-visible rounded-full bg-[#1a1d24]">
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: `${Math.min(100, current.pct)}%`,
-              background: barBackground,
-            }}
-          />
-          {[25, 50, 75].map((m) => {
-            const passed = current.pct >= m
-            return (
-              <span
-                key={m}
-                className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-[10px] leading-none"
-                style={{ left: `${m}%`, color: passed ? accent : 'var(--color-text-muted)' }}
-              >
-                {passed ? '★' : '●'}
-              </span>
-            )
-          })}
-        </div>
+        {/* One bar, retargeted to the active goal (#30) — rendered by the
+            ProgressBar primitive (C4). Complete keeps the primitive's default
+            brand gradient; Master/Grandmaster take their flat accent. */}
+        <ProgressBar
+          pct={current.pct}
+          milestones={[25, 50, 75]}
+          milestonePassed={(m) => current.pct >= m}
+          milestoneColor={accent}
+          {...(goal !== 'complete' ? { fill: accent } : {})}
+        />
       </div>
 
       {/* Right cluster: LVL (Complete-Set-based, see above) + the active goal's % */}
       <div className="flex flex-col items-end gap-[1px] pb-[2px]">
-        <span className="text-[9px] font-extrabold leading-[15px] text-action-primary">LVL {lvl}</span>
+        <span className="text-[14px] font-extrabold leading-[15px] text-action-primary">LVL {lvl}</span>
         <span className="text-[15px] font-extrabold leading-[15px] text-text-primary">{current.pct}%</span>
       </div>
     </div>

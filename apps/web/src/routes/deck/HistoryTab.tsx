@@ -29,14 +29,14 @@ function VersionRow({
     <div className="rounded-xl border border-border-default bg-surface-secondary p-[14px]">
       <div className="flex flex-wrap items-center gap-x-[8px] gap-y-[4px]">
         <VersionChip version={v.version} current={v.isCurrent} />
-        {v.isCurrent && <span className="text-[10px] font-bold uppercase tracking-wide text-action-primary">Current</span>}
-        <span className="text-[12px] text-text-muted">{fmtDate(v.createdAt)}</span>
-        <span className="text-[11px] text-text-muted">· {FORMAT_META[v.formatCode].short}</span>
+        {v.isCurrent && <span className="text-[14px] font-bold uppercase tracking-wide text-action-primary">Current</span>}
+        <span className="text-[14px] text-text-muted">{fmtDate(v.createdAt)}</span>
+        <span className="text-[14px] text-text-muted">· {FORMAT_META[v.formatCode].short}</span>
         <SourceChip source={v.source} />
-        <span className="ml-auto text-[12px] text-text-muted">{v.cardCount} cards</span>
+        <span className="ml-auto text-[14px] text-text-muted">{v.cardCount} cards</span>
       </div>
-      {v.note && <div className="mt-[6px] text-[13px] leading-[19px] text-text-secondary">{v.note}</div>}
-      <div className="mt-[8px] text-[12px] font-semibold">
+      {v.note && <div className="mt-[6px] text-[14px] leading-[19px] text-text-secondary">{v.note}</div>}
+      <div className="mt-[8px] text-[14px] font-semibold">
         {v.battleLogs.total > 0 ? (
           <>
             <RecordSpans wins={v.battleLogs.wins} losses={v.battleLogs.losses} ties={v.battleLogs.ties} />
@@ -50,7 +50,7 @@ function VersionRow({
       </div>
 
       {diff && !diffEmpty && (
-        <div className="mt-[10px] flex flex-col gap-[2px] border-t border-divider-subtle pt-[10px] font-mono text-[12px] leading-[17px]">
+        <div className="mt-[10px] flex flex-col gap-[2px] border-t border-divider-subtle pt-[10px] font-mono text-[14px] leading-[17px]">
           {diff.added.map((c) => (
             <div key={`a-${c.tcgdexId}`} style={{ color: 'var(--color-change-positive)' }}>
               +{c.quantity} {c.name}
@@ -153,8 +153,8 @@ export function HistoryTab({
   return (
     <div className="mt-[18px] flex flex-col gap-[10px]">
       {isLoading && !data && <div className="py-[30px] text-center text-[14px] text-text-muted">Loading history…</div>}
-      {error && <div className="text-[13px] text-error">{(error as Error).message}</div>}
-      {revert.isError && <div className="text-[13px] text-error">{(revert.error as Error).message}</div>}
+      {error && <div className="text-[14px] text-error">{(error as Error).message}</div>}
+      {revert.isError && <div className="text-[14px] text-error">{(revert.error as Error).message}</div>}
 
       {versions.map((v, i) => (
         <VersionRow key={v.version} v={v} detail={details[i]?.data} onRevert={() => setRevertTo(v.version)} />

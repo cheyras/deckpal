@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { api, type SpeciesGridRow } from '../lib/api'
-import { Content, Spinner, ErrorState } from '../components/ui'
+import { Content, Spinner, ErrorState, useDismiss } from '../components/ui'
 import { SpriteTile } from '../components/SpriteTile'
 import { fmtNumber, typeColor } from '../lib/format'
 import { useSignedIn } from '../lib/session'
@@ -31,16 +31,16 @@ function SpeciesCard({ s }: { s: SpeciesGridRow }) {
         {/* `captured` is absent for a logged-out visitor: the sprite then renders
             in its plain (un-dimmed) state — an unknown, not an uncaptured. */}
         <SpriteTile src={s.sprite.pixel} alt={s.name} captured={s.captured ?? true} />
-        <span className="absolute left-[6px] top-[6px] rounded bg-surface-primary/70 px-[5px] py-[1px] text-[10px] font-bold text-text-muted backdrop-blur-sm">
+        <span className="absolute left-[6px] top-[6px] rounded bg-surface-primary/70 px-[5px] py-[1px] text-[14px] font-bold text-text-muted backdrop-blur-sm">
           {fmtNumber(String(s.speciesId))}
         </span>
         {s.captured && (
-          <span className="absolute right-[6px] top-[6px] rounded bg-action-primary px-[5px] py-[1px] text-[10px] font-extrabold text-action-primary-text">
+          <span className="absolute right-[6px] top-[6px] rounded bg-action-primary px-[5px] py-[1px] text-[14px] font-extrabold text-action-primary-text">
             LVL {s.levelLabel}
           </span>
         )}
         {s.shiny && (
-          <span className="absolute bottom-[6px] right-[6px] text-[13px] leading-none text-action-primary" title="Shiny (breadth)">
+          <span className="absolute bottom-[6px] right-[6px] text-[14px] leading-none text-action-primary" title="Shiny (breadth)">
             ✦
           </span>
         )}
@@ -48,7 +48,7 @@ function SpeciesCard({ s }: { s: SpeciesGridRow }) {
       <div className="pt-[6px] text-center" style={{ minHeight: NAME_FOOTER }}>
         <div
           className={[
-            'truncate text-[13px] font-medium leading-[18px]',
+            'truncate text-[14px] font-medium leading-[18px]',
             s.captured ? 'text-text-primary' : 'text-text-muted',
           ].join(' ')}
         >
@@ -146,21 +146,8 @@ function VirtualGrid({ species }: { species: SpeciesGridRow[] }) {
 
 function OwnFilterMenu({ value, onChange }: { value: Own; onChange: (o: Own) => void }) {
   const [open, setOpen] = useState(false)
-  const wrapRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDoc)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const close = useCallback(() => setOpen(false), [])
+  const wrapRef = useDismiss<HTMLDivElement>(open, close)
 
   const active = value !== 'all'
 
@@ -200,7 +187,7 @@ function OwnFilterMenu({ value, onChange }: { value: Own; onChange: (o: Own) => 
                 setOpen(false)
               }}
               className={[
-                'flex w-full items-center justify-between px-[14px] py-[8px] text-left text-[13px] font-semibold',
+                'flex w-full items-center justify-between px-[14px] py-[8px] text-left text-[14px] font-semibold',
                 value === o ? 'bg-surface-secondary text-text-primary' : 'text-text-body hover:bg-action-default-hover',
               ].join(' ')}
             >
@@ -270,7 +257,7 @@ export function PokedexIndex() {
               {captured}
               <span className="text-[16px] font-normal text-text-muted"> / {total}</span>
             </div>
-            <div className="text-[13px] text-action-primary">{pct}% captured</div>
+            <div className="text-[14px] text-action-primary">{pct}% captured</div>
           </div>
         )}
       </div>
@@ -288,7 +275,7 @@ export function PokedexIndex() {
               key={g}
               onClick={() => setGen(g)}
               className={[
-                'h-[32px] shrink-0 rounded-full px-[14px] text-[13px] font-semibold',
+                'h-[32px] shrink-0 rounded-full px-[14px] text-[14px] font-semibold',
                 gen === g ? 'bg-action-primary text-action-primary-text' : 'bg-surface-tertiary text-text-body hover:bg-action-default-hover',
               ].join(' ')}
             >

@@ -5,9 +5,17 @@ import { loadEnv, makePool } from '@deckscout/db';
 /**
  * Shared pool + query helpers for the read API.
  *
- * 🔴 Connection budget: the API gets 2 of the 3 total (see .env / DECISIONS.md).
- * makePool() clamps to a HARD_CAP of 3 regardless, so this can never blow the
- * cluster budget even if PGPOOL_MAX_API is misconfigured.
+ * 🔴 Connection budget. This is the 'request' pool, and in SUPABASE_MODE its
+ * `max` IS the server's maximum concurrent requests — the RLS middleware in
+ * index.ts checks out one pooled connection for the whole lifetime of every
+ * request. It was previously pinned at 2 by a cap written for a co-hosted
+ * Postgres box, which meant one SPA page load (6+ parallel calls, doubled
+ * again by React StrictMode in dev) exhausted the pool and everything past
+ * the second call timed out. makePool now sizes and routes this by role; see
+ * packages/db/src/pool.ts and DECISIONS.md 2026-08-11.
+ *
+ * PGPOOL_MAX_API still wins when set, so the constrained self-host deployment
+ * keeps its 2 by configuration rather than by a global ceiling.
  *
  * Every query in this app is parameterized ($1,$2,…). No value from the request
  * is ever concatenated into SQL — sort columns and directions are mapped through
@@ -15,7 +23,13 @@ import { loadEnv, makePool } from '@deckscout/db';
  */
 loadEnv();
 
-export const pool: pg.Pool = makePool(Number(process.env.PGPOOL_MAX_API ?? 2));
+// parseInt (not Number): an empty `PGPOOL_MAX_API=` line must fall through to
+// the role default, not coerce to 0 and clamp the pool to a single connection.
+const apiMax = parseInt(process.env.PGPOOL_MAX_API ?? '', 10);
+export const pool: pg.Pool = makePool({
+  role: 'request',
+  ...(Number.isFinite(apiMax) && apiMax > 0 ? { max: apiMax } : {}),
+});
 
 // ── Per-request RLS context (defense-in-depth for Supabase deployments) ─────
 //

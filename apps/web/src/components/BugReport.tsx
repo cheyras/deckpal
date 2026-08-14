@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Modal } from './ListModals'
 import { Icon } from './Icon'
+import { Button } from './ui/Button'
 import { api } from '../lib/api'
 
 // In-app bug / feature-request reporter. Clicking the top-nav button opens the
@@ -295,12 +296,12 @@ export function BugButton() {
                   href={issueUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[13px] font-medium text-action-primary hover:underline"
+                  className="text-[14px] font-medium text-action-primary hover:underline"
                 >
                   View it on GitHub
                 </a>
               ) : (
-                <p className="font-mono text-[12px] text-text-muted">issues/{savedId}/</p>
+                <p className="font-mono text-[14px] text-text-muted">issues/{savedId}/</p>
               )}
             </div>
           ) : (
@@ -322,7 +323,7 @@ export function BugButton() {
                   </button>
                 ))}
               </div>
-              <p className="text-[13px] leading-[19px] text-text-muted">{KIND_COPY[kind].helper}</p>
+              <p className="text-[14px] leading-[19px] text-text-muted">{KIND_COPY[kind].helper}</p>
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -332,7 +333,7 @@ export function BugButton() {
                 className="w-full resize-y rounded-lg border border-border-default bg-surface-primary p-[12px] text-[15px] leading-[22px] text-text-primary placeholder:text-text-muted"
               />
               {capturing ? (
-                <div className="flex items-center gap-[8px] rounded-lg border border-dashed border-border-default bg-surface-primary px-[12px] py-[16px] text-[12px] text-text-muted">
+                <div className="flex items-center gap-[8px] rounded-lg border border-dashed border-border-default bg-surface-primary px-[12px] py-[16px] text-[14px] text-text-muted">
                   <Icon name="bug" size={16} className="animate-pulse" />
                   Capturing a screenshot of this page…
                 </div>
@@ -343,32 +344,23 @@ export function BugButton() {
                     alt="Screenshot of the current page that will be attached"
                     className="block max-h-[220px] w-full object-cover object-top"
                   />
-                  <figcaption className="bg-surface-tertiary px-[10px] py-[6px] text-[11px] text-text-muted">
+                  <figcaption className="bg-surface-tertiary px-[10px] py-[6px] text-[14px] text-text-muted">
                     Attached screenshot · {window.location.pathname}
                   </figcaption>
                 </figure>
               ) : (
-                <p className="text-[12px] text-text-muted">
+                <p className="text-[14px] text-text-muted">
                   (Couldn't capture a screenshot — the report will be submitted without one.)
                 </p>
               )}
-              {error && <div className="text-[13px] text-error">{error}</div>}
+              {error && <div className="text-[14px] text-error">{error}</div>}
               <div className="flex justify-end gap-[10px]">
-                <button
-                  type="button"
-                  onClick={close}
-                  disabled={busy}
-                  className="h-[44px] rounded-full bg-surface-tertiary px-[20px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover disabled:opacity-50"
-                >
+                <Button variant="secondary" onClick={close} disabled={busy}>
                   Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={busy || !text.trim()}
-                  className="h-[44px] rounded-full bg-action-primary px-[24px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50"
-                >
+                </Button>
+                <Button type="submit" disabled={!text.trim()} loading={busy}>
                   {busy ? 'Saving…' : 'Submit'}
-                </button>
+                </Button>
               </div>
             </form>
           )}

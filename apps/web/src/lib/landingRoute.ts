@@ -33,6 +33,7 @@ const CHROMELESS_PATHS = new Set([
   '/auth/reset', // password-recovery link target
   '/signed-out', // post-sign-out confirmation
   '/authorize', // OAuth "Connect" consent screen — must render signed-out, see Authorize.tsx
+  '/design', // design-system editor — no app chrome; owner-only in prod (gated in main.tsx via /me.designEditor)
 ])
 
 export function isChromelessPathname(pathname: string): boolean {

@@ -185,7 +185,7 @@ export function ValueChart({
 
       {active && (
         <div
-          className="pointer-events-none absolute z-[13] -translate-x-1/2 rounded-lg border border-border-default bg-surface-secondary px-[10px] py-[6px] text-[12px] shadow-panel"
+          className="pointer-events-none absolute z-(--z-popover) -translate-x-1/2 rounded-lg border border-border-default bg-surface-secondary px-[10px] py-[6px] text-[14px] shadow-panel"
           style={{
             left: `${(x(hover!) / W) * 100}%`,
             top: 8,
