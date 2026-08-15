@@ -38,7 +38,7 @@
       "destination": "/api"
     },
     {
-      "source": "/(.*)",
+      "source": "/:path((?!.*\\.(?:png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|css|js|mjs|map|txt|xml|json|webmanifest)$).*)",
       "destination": "/index.html"
     }
   ],

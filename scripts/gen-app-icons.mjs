@@ -5,7 +5,7 @@
 // Two crops of the same render, because the two icon classes are masked
 // differently and want opposite things:
 //
-//   TIGHT  — favicon, apple-touch, brand mark, and the `any` PWA icons. These
+//   TIGHT  — apple-touch, brand mark, and the `any` PWA icons. These
 //            are shown as-is (or with a gentle squircle), so the art is cropped
 //            in to make the face read at 16–32px. Measured against the full
 //            frame at 16px, the trimmed dead space is the difference between a
@@ -76,30 +76,26 @@ await png(
 ).toFile(brand);
 note(brand);
 
-// ── Favicons ─────────────────────────────────────────────────────────────────
-await write(tight(), 32, join(OUT, 'favicon-32.png'));
-note(join(OUT, 'favicon-32.png'));
-
-// favicon.ico bundles 16/32/48 — sharp cannot write ICO, so assemble with
-// ImageMagick from three exact renders (letting `magick` do the downscaling
-// itself produces visibly worse 16px output).
-const tmp = mkdtempSync(join(tmpdir(), 'deckpal-ico-'));
-try {
-  const parts = [];
-  for (const s of [16, 32, 48]) {
-    const p = join(tmp, `${s}.png`);
-    await write(tight(), s, p);
-    parts.push(p);
-  }
-  execFileSync('magick', [...parts, join(OUT, 'favicon.ico')]);
-  note(join(OUT, 'favicon.ico'));
-} finally {
-  rmSync(tmp, { recursive: true, force: true });
-}
+// ── Favicons are NOT generated here ──────────────────────────────────────────
+// favicon-32.png and favicon.ico belong to scripts/gen-favicon.mjs, which draws
+// them as 32x32 pixel art instead of resampling this render. Do not add them
+// back: whichever script ran last would win, and running this one would
+// silently replace the drawn favicon with a mushy downscale.
 
 // ── Home screen ──────────────────────────────────────────────────────────────
-await write(tight(), 180, join(OUT, 'apple-touch-icon.png')); // opaque: iOS over black
+// Opaque: iOS composites a home-screen icon over black.
+await write(tight(), 180, join(OUT, 'apple-touch-icon.png'));
 note(join(OUT, 'apple-touch-icon.png'));
+
+// iOS probes `apple-touch-icon-precomposed.png` at the site root BEFORE it
+// falls back to the <link> tag, whether or not you declare it. It has to be a
+// real file: with a SPA rewrite in front, a missing one answers 200 with the
+// HTML shell, iOS fails to decode that as an image, gives up on the icon
+// entirely and screenshots the page instead — which is how the marketing hero
+// ended up on the home screen. vercel.json now 404s unknown asset paths too,
+// but shipping the file is the belt to that braces.
+await write(tight(), 180, join(OUT, 'apple-touch-icon-precomposed.png'));
+note(join(OUT, 'apple-touch-icon-precomposed.png'));
 
 for (const s of [192, 512]) {
   await write(tight(), s, join(OUT, `pwa-${s}.png`));
