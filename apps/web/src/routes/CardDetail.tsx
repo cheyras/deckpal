@@ -10,6 +10,7 @@ import { fmtPrice, fmtDate, fmtNumber, fmtRelative } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { variantMeta } from '../lib/variantStyle'
+import { Sheet, useSheetClose } from '../components/ui/Sheet'
 
 // ── Optimistic progress maths — mirrors the server recompute (SCHEMA §5.3/§9.2)
 // so the three bars move instantly, then reconcile against the authoritative
@@ -469,74 +470,43 @@ export function CardSheet({
   contextSlot?: ReactNode
   ariaLabel?: string
 }) {
-  const [open, setOpen] = useState(false)
-
-  // Animate in on mount.
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setOpen(true))
-    return () => cancelAnimationFrame(id)
-  }, [])
-
-  // Animate out, then hand back to the caller to drop the ?card= param.
-  const requestClose = useCallback(() => {
-    setOpen(false)
-    const t = window.setTimeout(onClose, 240)
-    return () => window.clearTimeout(t)
-  }, [onClose])
-
-  // Escape to close + scroll-lock the page behind the sheet.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && requestClose()
-    window.addEventListener('keydown', onKey)
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prevOverflow
-    }
-  }, [requestClose])
-
+  // Positioning, scroll-lock, focus, Escape and both animations all live in
+  // Sheet now. This component keeps only its own header (a grab handle plus a
+  // floating close button, which the shared header does not draw) and the body.
   return (
-    <div
-      className="fixed inset-0 z-(--z-modal) flex items-end justify-center overflow-hidden p-0 nav:items-start nav:p-[16px] nav:pt-[64px]"
-      style={{
-        background: open ? 'var(--color-overlay-scrim-strong)' : 'transparent',
-        transition: 'background 240ms ease',
-      }}
-      onClick={requestClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={ariaLabel}
+    <Sheet
+      title="Card details"
+      ariaLabel={ariaLabel}
+      onClose={onClose}
+      size="full"
+      headerSlot={<CardSheetHeader />}
+      contentClassName="!px-[16px] !pt-[4px] nav:!px-[24px]"
     >
-      <div
-        className="relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-border-default bg-surface-primary shadow-xl nav:max-h-[86vh] nav:max-w-[920px] nav:rounded-2xl"
-        style={{
-          transform: open ? 'translateY(0)' : 'translateY(100%)',
-          transition: 'transform 260ms cubic-bezier(0.32, 0.72, 0, 1)',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* header: mobile grab handle + always-present close button */}
-        <div className="relative flex h-[44px] shrink-0 items-center justify-center">
-          <span className="h-[4px] w-[40px] rounded-full bg-surface-tertiary nav:hidden" />
-          <button
-            onClick={requestClose}
-            aria-label="Close"
-            className="absolute right-[10px] top-[6px] flex h-[40px] w-[40px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover"
-          >
-            <Icon name="close" size={22} />
-          </button>
-        </div>
+      {contextSlot}
+      <CardDetailBody cardId={cardId ?? `${set}-${number}`} inSheet />
+    </Sheet>
+  )
+}
 
-        {/* scrollable content */}
-        <div
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-[16px] pb-[24px] nav:px-[24px]"
-          style={{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom))' }}
-        >
-          {contextSlot}
-          <CardDetailBody cardId={cardId ?? `${set}-${number}`} inSheet />
-        </div>
-      </div>
+// Split out so it can call useSheetClose(), which only exists under a <Sheet>.
+// The card art is the heading here, so this row carries no title — just the
+// grab handle and a close button. Laid out with a matching-width spacer rather
+// than absolute positioning, so the handle stays optically centred without
+// depending on which skin's CSS happens to win on `position`.
+function CardSheetHeader() {
+  const close = useSheetClose()
+  return (
+    <div className="flex h-[44px] shrink-0 items-center justify-between px-[10px]">
+      <span aria-hidden className="h-[40px] w-[40px]" />
+      <span className="h-[4px] w-[40px] rounded-full bg-surface-tertiary nav:hidden" />
+      <button
+        type="button"
+        onClick={close}
+        aria-label="Close"
+        className="flex h-[40px] w-[40px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover"
+      >
+        <Icon name="close" size={22} />
+      </button>
     </div>
   )
 }

@@ -10,6 +10,7 @@ import { Icon } from '../components/Icon'
 import { AvatarDisc, AvatarSpinner, useAvatarEditor } from '../components/Avatar'
 import { ChangePassword } from './auth/ChangePassword'
 import { AgentAccess } from '../components/AgentAccess'
+import { Sheet } from '../components/ui/Sheet'
 import { fmtUsd } from '../lib/format'
 
 const SHOWCASE_KEY = 'deckpal.showcase.v1'
@@ -348,20 +349,8 @@ export function Profile() {
 
       {/* showcase picker */}
       {picking != null && (
-        <div
-          className="fixed inset-0 z-(--z-modal) flex items-center justify-center bg-overlay-scrim-strong p-[16px]"
-          onClick={() => setPicking(null)}
-        >
-          <div
-            className="max-h-[80vh] w-full max-w-[560px] overflow-y-auto rounded-2xl bg-surface-secondary p-[20px]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-[12px] flex items-center justify-between">
-              <h3 className="text-[16px] font-bold text-text-primary">Pick a Showcase Card</h3>
-              <button onClick={() => setPicking(null)} className="text-icon-default hover:text-icon-hover">
-                <Icon name="close" size={20} />
-              </button>
-            </div>
+        <Sheet title="Pick a Showcase Card" onClose={() => setPicking(null)} size="md">
+          <>
             {owned.isLoading ? (
               <Spinner label="Loading your cards…" />
             ) : (owned.data ?? []).length === 0 ? (
@@ -378,8 +367,8 @@ export function Profile() {
                 ))}
               </div>
             )}
-          </div>
-        </div>
+          </>
+        </Sheet>
       )}
     </div>
   )
