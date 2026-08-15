@@ -2,13 +2,13 @@ import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import type { RequestHandler } from 'express';
-import { loadEnv } from '@deckscout/db';
+import { loadEnv } from '@deckpal/db';
 import { buildCtx, type SelfHostCtx } from './ctx.js';
 import { q } from './db.js';
 import { buildServer } from './server.js';
 
 /**
- * rotom-mcp — the MCP face of DeckScout (SPEC §1/§2).
+ * deckpal-mcp — the MCP face of DeckPal (SPEC §1/§2).
  *
  * Streamable HTTP on 127.0.0.1:3704/mcp (stateless: fresh McpServer per
  * request via createMcpHandler), plus a plain unauthenticated GET /health for
@@ -30,8 +30,8 @@ const ALLOWED_HOSTS = (process.env.MCP_ALLOWED_HOSTS ?? '127.0.0.1,localhost')
 async function main(): Promise<void> {
   loadEnv();
 
-  if (!process.env.ROTOM_MCP_KEY) {
-    console.error('[deckscout-mcp] FATAL: ROTOM_MCP_KEY is not set — refusing to start.');
+  if (!process.env.DECKPAL_MCP_KEY) {
+    console.error('[deckpal-mcp] FATAL: DECKPAL_MCP_KEY is not set — refusing to start.');
     process.exit(1);
   }
 
@@ -41,25 +41,25 @@ async function main(): Promise<void> {
   try {
     ctx = await buildCtx();
   } catch (err) {
-    console.error(`[deckscout-mcp] FATAL: Postgres self-check failed: ${(err as Error).message}`);
+    console.error(`[deckpal-mcp] FATAL: Postgres self-check failed: ${(err as Error).message}`);
     process.exit(1);
   }
-  console.log(`[deckscout-mcp] db ok · default user id ${ctx.userId}`);
+  console.log(`[deckpal-mcp] db ok · default user id ${ctx.userId}`);
 
   // API self-check is warn-only: direct-SQL read tools still work without it;
   // API-backed tools (decks/lists/log_cards) will fail per-call.
   try {
     await ctx.api.get('/health');
-    console.log(`[deckscout-mcp] deckscout-api ok at ${ctx.config.apiBase}`);
+    console.log(`[deckpal-mcp] deckpal-api ok at ${ctx.config.apiBase}`);
   } catch (err) {
     console.error(
-      `[deckscout-mcp] WARN: deckscout-api unreachable at ${ctx.config.apiBase} (${(err as Error).message}) — API-backed tools will fail per-call.`,
+      `[deckpal-mcp] WARN: deckpal-api unreachable at ${ctx.config.apiBase} (${(err as Error).message}) — API-backed tools will fail per-call.`,
     );
   }
 
   const handler = createMcpHandler(() => buildServer(ctx));
   const nodeHandler = toNodeHandler(handler, {
-    onerror: (err) => console.error(`[deckscout-mcp] mcp handler error: ${err.message}`),
+    onerror: (err) => console.error(`[deckpal-mcp] mcp handler error: ${err.message}`),
   });
 
   const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ALLOWED_HOSTS });
@@ -109,20 +109,20 @@ async function main(): Promise<void> {
   });
 
   const httpServer = app.listen(ctx.config.port, '127.0.0.1', () => {
-    console.log(`[deckscout-mcp] rotom-mcp listening on 127.0.0.1:${ctx.config.port} (/mcp + /health)`);
+    console.log(`[deckpal-mcp] deckpal-mcp listening on 127.0.0.1:${ctx.config.port} (/mcp + /health)`);
   });
 
   let shuttingDown = false;
   const shutdown = (signal: string): void => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`[deckscout-mcp] ${signal} received — shutting down`);
+    console.log(`[deckpal-mcp] ${signal} received — shutting down`);
     httpServer.close(() => {
       void handler
         .close()
-        .catch((err: unknown) => console.error(`[deckscout-mcp] handler close error: ${(err as Error).message}`))
+        .catch((err: unknown) => console.error(`[deckpal-mcp] handler close error: ${(err as Error).message}`))
         .then(() => ctx.pool.end())
-        .catch((err: unknown) => console.error(`[deckscout-mcp] pool end error: ${(err as Error).message}`))
+        .catch((err: unknown) => console.error(`[deckpal-mcp] pool end error: ${(err as Error).message}`))
         .finally(() => process.exit(0));
     });
     // In-flight SSE streams can hold the server open; don't hang restarts.
@@ -140,7 +140,7 @@ const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
 const isMain = entryPath.endsWith('index.js') || entryPath.endsWith('index.ts');
 if (isMain) {
   main().catch((err: unknown) => {
-    console.error(`[deckscout-mcp] FATAL: ${(err as Error).message}`);
+    console.error(`[deckpal-mcp] FATAL: ${(err as Error).message}`);
     process.exit(1);
   });
 }

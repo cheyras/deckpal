@@ -8,7 +8,7 @@ import { api } from '../lib/api'
 // comment form *immediately* and captures a screenshot of the current view in
 // the background, attaching it to the preview when ready. Submit POSTs the
 // comment + kind ('bug' | 'feature') + page URL + screenshot to
-// /deckscout/api/bugs, which — in self-host mode — persists them under the
+// /deckpal/api/bugs, which — in self-host mode — persists them under the
 // repo's issues/ dir for the `fix-issues` skill to work through (cloud mode
 // files a labeled GitHub issue instead; see apps/api/src/routes/bugs.ts).
 //
@@ -21,7 +21,7 @@ import { api } from '../lib/api'
 
 // ── Why the clone's images are inlined before the render walk ────────────────
 //
-// Card art is requested from a *same-origin* path (`/deckscout/images/...`).
+// Card art is requested from a *same-origin* path (`/deckpal/images/...`).
 // On cloud that path 302-redirects to a Supabase Storage object on a different
 // origin, so the bytes that actually arrive are cross-origin. html2canvas only
 // sets `crossOrigin="anonymous"` on URLs that *look* cross-origin

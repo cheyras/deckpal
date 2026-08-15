@@ -146,7 +146,7 @@ export function ResetPassword() {
           actions={
             <>
               <Link to="/series" className={CTA_PRIMARY}>
-                Continue to DeckScout
+                Continue to DeckPal
               </Link>
               <Link to="/profile" className={CTA_QUIET}>
                 Go to your profile

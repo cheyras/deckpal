@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "deckscout-web",
+      "name": "deckpal-web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "deckscout-web", "dev"],
+      "runtimeArgs": ["--filter", "deckpal-web", "dev"],
       "port": 5199
     }
   ]

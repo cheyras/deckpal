@@ -12,7 +12,7 @@ import {
   setImageRelativePath,
   spriteRelativePath,
   spriteSourceUrl,
-} from '@deckscout/storage';
+} from '@deckpal/storage';
 
 /**
  * Pure tests for the image URL parser — no DB, no network, no Supabase.
@@ -229,11 +229,11 @@ test('the pinned sprite SHA matches scripts/fetch-sprites.sh', () => {
 
 test('extracts the sub-path from the literal URL', () => {
   assert.equal(
-    imageSubPathFromUrl('/deckscout/images/en/sv/sv03.5/102/low.webp'),
+    imageSubPathFromUrl('/deckpal/images/en/sv/sv03.5/102/low.webp'),
     'en/sv/sv03.5/102/low.webp',
   );
   assert.equal(
-    imageSubPathFromUrl('/deckscout/images/sets/base1/logo.webp?v=2'),
+    imageSubPathFromUrl('/deckpal/images/sets/base1/logo.webp?v=2'),
     'sets/base1/logo.webp',
   );
 });
@@ -259,15 +259,15 @@ test('leaves %-escapes in ?p= for the parser to decode exactly once', () => {
 test('a non-image URL yields no sub-path (the handler 404s rather than guessing)', () => {
   assert.equal(imageSubPathFromUrl('/api/series'), null);
   assert.equal(imageSubPathFromUrl('/index.html'), null);
-  assert.equal(imageSubPathFromUrl('/deckscout/images/'), null);
+  assert.equal(imageSubPathFromUrl('/deckpal/images/'), null);
   assert.equal(imageSubPathFromUrl(undefined), null);
   assert.equal(imageSubPathFromUrl(''), null);
 });
 
 test('end to end: every traversal attempt is still rejected after URL extraction', () => {
   for (const url of [
-    '/deckscout/images/../../etc/passwd',
-    '/deckscout/images/en/sv/../../../etc/passwd/low.webp',
+    '/deckpal/images/../../etc/passwd',
+    '/deckpal/images/en/sv/../../../etc/passwd/low.webp',
     '/api/images?p=../../etc/passwd',
     '/api/images?p=%2e%2e%2f%2e%2e%2fetc%2fpasswd',
   ]) {

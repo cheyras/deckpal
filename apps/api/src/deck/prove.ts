@@ -1,5 +1,5 @@
 /**
- * DB-backed proof (read-only). Run: `pnpm --filter deckscout-api prove:deck`.
+ * DB-backed proof (read-only). Run: `pnpm --filter deckpal-api prove:deck`.
  * Exercises the engine against real catalogue rows: set-alias resolution of a
  * fixture, fingerprint reprint-collision, the reprint-legality oracle, and a
  * full parse -> resolve -> validate of a real decklist. Closes its pool at the end.

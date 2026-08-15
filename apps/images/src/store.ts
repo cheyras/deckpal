@@ -1,6 +1,6 @@
 import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { sniffContentType } from '@deckscout/storage';
+import { sniffContentType } from '@deckpal/storage';
 import { absoluteFromRelative } from './layout.js';
 import {
   deleteAsset,
@@ -93,10 +93,10 @@ function provenanceColumns(p: Provenance): { sourceUrl: string | null; etag: str
 }
 
 // ── Content-type sniffing ────────────────────────────────────────────────────
-// Truthful content type from magic bytes — defined in @deckscout/storage and
+// Truthful content type from magic bytes — defined in @deckpal/storage and
 // re-exported here (every call site in this app imports it from './store.js').
 // Shared with the cloud tier so both record the same truth about the same bytes.
-export { isWebp, sniffContentType } from '@deckscout/storage';
+export { isWebp, sniffContentType } from '@deckpal/storage';
 
 // ── The choke point ──────────────────────────────────────────────────────────
 export interface PutAssetInput {

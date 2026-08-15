@@ -90,7 +90,7 @@ const SOURCE_SHAPE = /^[a-z0-9][a-z0-9._-]{0,39}$/;
 function parseSource(v: unknown): string {
   if (v === undefined || v === null) return 'web';
   if (typeof v !== 'string' || !SOURCE_SHAPE.test(v)) {
-    throw badRequest("source must match ^[a-z0-9][a-z0-9._-]{0,39}$ (e.g. 'web', 'rotom-mcp')");
+    throw badRequest("source must match ^[a-z0-9][a-z0-9._-]{0,39}$ (e.g. 'web', 'deckpal-mcp')");
   }
   return v;
 }

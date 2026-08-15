@@ -53,7 +53,7 @@ interface SearchRow {
 }
 
 /**
- * GET /deckscout/api/search — the 12-filter advanced search + sorts.
+ * GET /deckpal/api/search — the 12-filter advanced search + sorts.
  *
  * Filters (AND across fields, OR within a field / multi-value):
  *   cardType   (supertype: Pokemon|Trainer|Energy)   — repeatable

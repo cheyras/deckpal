@@ -36,10 +36,10 @@ import { stat } from 'node:fs/promises';
  *
  * Never touches image bytes — metadata only, additive.
  *
- *   pnpm --filter deckscout-images manifest:backfill -- --dry-run
- *   pnpm --filter deckscout-images manifest:backfill
- *   pnpm --filter deckscout-images manifest:backfill -- --probe-cache probe.tsv
- *   pnpm --filter deckscout-images manifest:backfill -- --disk-tier
+ *   pnpm --filter deckpal-images manifest:backfill -- --dry-run
+ *   pnpm --filter deckpal-images manifest:backfill
+ *   pnpm --filter deckpal-images manifest:backfill -- --probe-cache probe.tsv
+ *   pnpm --filter deckpal-images manifest:backfill -- --disk-tier
  *
  * `--disk-tier` is a different job in the same file: it fills the per-tier
  * `image_object` rows migration 025 added (see `backfillDiskTier`), rather than

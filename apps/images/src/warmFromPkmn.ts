@@ -21,9 +21,9 @@ import { fromUrl, isWebp, putAsset, sniffContentType } from './store.js';
  * Both are fixed here: every write goes through store.ts `putAsset` with the real
  * per-card source URL, and the content type is sniffed from the bytes.
  *
- *   pnpm --filter deckscout-images warm:pkmn -- --dry-run
- *   pnpm --filter deckscout-images warm:pkmn -- --set smp
- *   PKMN_AUTH=<path-to-auth-file> pnpm --filter deckscout-images warm:pkmn
+ *   pnpm --filter deckpal-images warm:pkmn -- --dry-run
+ *   pnpm --filter deckpal-images warm:pkmn -- --set smp
+ *   PKMN_AUTH=<path-to-auth-file> pnpm --filter deckpal-images warm:pkmn
  *
  * Secret handling (CLAUDE.md): the auth file is read at RUNTIME from `PKMN_AUTH`,
  * never committed, never logged. Refresh tokens rotate, so run ONE consumer at a time.

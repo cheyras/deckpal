@@ -270,7 +270,7 @@ async function requestImage(asset, seed) {
     model: asset.model,
     prompt: asset.prompt,
     seed,
-    providerOptions: { gateway: { tags: ['feature:marketing-images', 'project:deckscout'] } },
+    providerOptions: { gateway: { tags: ['feature:marketing-images', 'project:deckpal'] } },
   };
 
   try {

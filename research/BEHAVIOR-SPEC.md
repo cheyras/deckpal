@@ -1,6 +1,6 @@
 # BEHAVIOR-SPEC.md — pkmn.gg interaction behaviour, reverse-specified
 
-**Purpose:** a step-by-step written spec of every interaction flow the DeckScout clone must replicate.
+**Purpose:** a step-by-step written spec of every interaction flow the DeckPal clone must replicate.
 **Scope:** behaviour only. No pkmn.gg code, bundles, or private endpoints are referenced or required.
 
 ## Evidence tags — read this first

@@ -146,7 +146,7 @@ export function Auth() {
             a password reset link is on its way. It is valid for one hour.
           </p>
           <p className="mt-[10px] text-[14px] text-text-muted">
-            Check spam before requesting another — DeckScout can only send a couple of emails an hour, so a
+            Check spam before requesting another — DeckPal can only send a couple of emails an hour, so a
             second request may be throttled.
           </p>
         </StatusPanel>
@@ -290,7 +290,7 @@ export function Auth() {
             </>
           ) : (
             <>
-              New to DeckScout?{' '}
+              New to DeckPal?{' '}
               <button type="button" onClick={() => goTo('signup')} className="font-semibold text-link hover:text-link-hover">
                 Create a free account
               </button>
@@ -301,7 +301,7 @@ export function Auth() {
 
       {isSignup && (
         <p className="mt-[16px] text-center text-[14px] leading-[1.6] text-text-muted">
-          By creating an account you agree to keep it civil. DeckScout is AGPL-3.0 open source —{' '}
+          By creating an account you agree to keep it civil. DeckPal is AGPL-3.0 open source —{' '}
           <Link to="/" className="text-text-secondary hover:text-link">
             read what it does
           </Link>

@@ -1,9 +1,9 @@
 ---
-description: Bring a fresh clone of DeckScout to a working dev environment, verified end to end
+description: Bring a fresh clone of DeckPal to a working dev environment, verified end to end
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 
-Bring this clone of DeckScout up to a **verified working** dev environment.
+Bring this clone of DeckPal up to a **verified working** dev environment.
 
 Work through the phases in order. After each phase, confirm the stated check
 actually passed before moving on — the point of this command is that it ends
@@ -66,8 +66,8 @@ slots, not that the credentials are wrong.
 
 ## Phase 5 — Build
 
-`pnpm --filter @deckscout/db build` first (other packages depend on its `dist/`),
-then `pnpm --filter deckscout-api build`. The dev image shim imports from
+`pnpm --filter @deckpal/db build` first (other packages depend on its `dist/`),
+then `pnpm --filter deckpal-api build`. The dev image shim imports from
 `apps/api/dist`, so the API must have been built at least once or `pnpm dev`
 fails with a confusing ESM error.
 
@@ -76,7 +76,7 @@ fails with a confusing ESM error.
 Start everything with **`pnpm dev`** (root) in the background — it runs the API,
 the web app and the image shim together and hands each of them the parsed
 `.env`. Do not start them individually; the web app alone is not a working app,
-it proxies `/api` and `/deckscout/images`.
+it proxies `/api` and `/deckpal/images`.
 
 Then verify, and report the actual numbers:
 

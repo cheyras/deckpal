@@ -76,10 +76,10 @@ export function AuthPage({ children }: { children: ReactNode }) {
           <Link
             to="/"
             className="mx-auto mb-[26px] flex w-fit items-center gap-[10px] rounded-lg"
-            aria-label="DeckScout home"
+            aria-label="DeckPal home"
           >
             <BrandMark size={34} />
-            <span className="brand-wordmark text-[22px] leading-none">DeckScout</span>
+            <span className="brand-wordmark text-[22px] leading-none">DeckPal</span>
           </Link>
           {children}
         </div>

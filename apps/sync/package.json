@@ -1,5 +1,5 @@
 {
-  "name": "deckscout-sync",
+  "name": "deckpal-sync",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -15,7 +15,7 @@
     "prices": "tsx src/prices/cli.ts"
   },
   "dependencies": {
-    "@deckscout/db": "workspace:*",
+    "@deckpal/db": "workspace:*",
     "node-cron": "^4.6.0"
   },
   "devDependencies": {

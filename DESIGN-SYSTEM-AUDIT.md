@@ -1,4 +1,4 @@
-# DeckScout Design-System Audit
+# DeckPal Design-System Audit
 
 **Purpose:** map the terrain for an in-app, live, agent-mediated design-system editor
 (design tokens editable at the top, UI primitives cataloged, repeated components
@@ -146,7 +146,7 @@ build toward one without reading this first:
   pkmn.gg pre-build) is explicit that pkmn.gg itself ships no light theme either, but
   is architecturally *provisioned* for one (asset paths reserve a `/dark/` segment,
   there's a `pkmnDark` class implying a sibling class exists). The wiki's own
-  recommendation for DeckScout, if a light scheme is ever added: key it off
+  recommendation for DeckPal, if a light scheme is ever added: key it off
   `data-theme="dark"|"light"` on `<html>`, define tokens per-scheme under
   `@media (prefers-color-scheme: dark)` as the default with `:root[data-theme="..."]`
   overriding both directions — but explicitly says *"ship dark-only for v1... building
@@ -170,7 +170,7 @@ of `w-8`/`h-8` on spinners) that read as incidental, not intentional design-syst
 usage. Every real spacing decision in this app — button heights, gaps, paddings — is a
 literal pixel value picked per call site, not drawn from a shared scale. There is
 no `--spacing-*` token in `theme.css` at all (Tailwind v4 has a default `--spacing`
-multiplier token it derives its numeric scale from, but DeckScout never touches or
+multiplier token it derives its numeric scale from, but DeckPal never touches or
 overrides it, and the app doesn't use the numeric scale it would drive).
 
 **Implication:** unlike colors/radii/shadows/typography, "editable spacing tokens" is
@@ -247,7 +247,7 @@ occurrence counts with grep. This is common, not rare:
 ## 2. UI primitives — full inventory
 
 **Where the line was drawn:** a primitive is generic and reusable with no knowledge of
-DeckScout's domain (a card, a deck, a list, a species). A feature component knows
+DeckPal's domain (a card, a deck, a list, a species). A feature component knows
 about at least one of those nouns. By that test, the primitive surface of this app is
 much smaller than `components/`'s 23 files suggest — most of that directory is feature
 components (§3). The real primitive count is also *higher* than `ui.tsx` alone,
@@ -366,7 +366,7 @@ Two more shared modules worth knowing about that live **outside** `components/`:
 
 | File | What it does | Used by |
 |---|---|---|
-| `routes/deck/intelShared.tsx` (72 ln) | `VersionChip`, `SourceChip` (labels a change as web vs. `rotom-mcp`-authored, with a sparkle glyph), `ResultBadge`, `RecordSpans` (win/loss/tie) — shared chips for the deck-intelligence sub-tabs | `StrategyTab`, `BattlesTab`, `HistoryTab` — and *should* be used by `DecksIndex.tsx`, which reimplements `RecordSpans`' markup instead (§4) |
+| `routes/deck/intelShared.tsx` (72 ln) | `VersionChip`, `SourceChip` (labels a change as web vs. `deckpal-mcp`-authored, with a sparkle glyph), `ResultBadge`, `RecordSpans` (win/loss/tie) — shared chips for the deck-intelligence sub-tabs | `StrategyTab`, `BattlesTab`, `HistoryTab` — and *should* be used by `DecksIndex.tsx`, which reimplements `RecordSpans`' markup instead (§4) |
 | `routes/deck/MarkdownView.tsx` (52 ln) | Token-styled `react-markdown` renderer (lazy-loaded, its own bundle chunk) for deck strategy guides | `StrategyTab` |
 | `routes/landing/Mockups.tsx` (762 ln) | Six illustrative "product mockup" components (`AgentMockup`, `BinderMockup`, `DeckMockup`, `ProgressMockup`, `ScanMockup`, `ValueMockup`) built from real tokens and the app's own visual idioms (per `DECISIONS.md`: *"DOM/CSS/SVG built from the design tokens and the app's own idioms... no Pokémon card art"*) rather than screenshots, specifically so they don't go stale or leak real data | `Landing.tsx` only |
 | `routes/auth/authUi.tsx` | See §2.4 — genuinely a primitive module, catalogued there |
@@ -582,17 +582,17 @@ Landing and auth) is implied by §4.1 anyway.
   (`tsc --noEmit`), not part of `vite build`. Any new dev-only route/tooling added for
   this initiative should not assume `tsc` errors block the dev server the way they
   might in a webpack/ts-loader setup.
-- **Dev server runs on port 5199**, proxying `/deckscout/api` → the API dev server
-  (port from `DECKSCOUT_DEV_API_PORT`, default `3700`) and `/deckscout/images` → the
-  image service (port `3701`). The `DECKSCOUT_DEV_API_PORT` env var exists
+- **Dev server runs on port 5199**, proxying `/deckpal/api` → the API dev server
+  (port from `DECKPAL_DEV_API_PORT`, default `3700`) and `/deckpal/images` → the
+  image service (port `3701`). The `DECKPAL_DEV_API_PORT` env var exists
   specifically so parallel git worktrees (like this one) can each run their own API
   instance without port collisions — worth knowing if the design-system editor's
   "send to agent" channel needs its own dev-only endpoint, since the port-per-worktree
   convention already exists and should probably be followed rather than hardcoding a
   port.
 - **Base path differs by deployment mode**: `/` on cloud (when `VITE_SUPABASE_URL` is
-  set), `/deckscout/` on self-host. The router's `basepath` in `main.tsx` matches this
-  automatically (`import.meta.env.VITE_SUPABASE_URL ? '' : '/deckscout'`) — any new
+  set), `/deckpal/` on self-host. The router's `basepath` in `main.tsx` matches this
+  automatically (`import.meta.env.VITE_SUPABASE_URL ? '' : '/deckpal'`) — any new
   route added to the tree inherits this for free, no special-casing needed.
 - **PWA / service worker**: the app is a PWA with `injectManifest` (hand-written
   `src/sw.ts`), precaching all route chunks. A new dev-only route would need to either
@@ -657,7 +657,7 @@ both are proven infrastructure for pieces of the problem:
    it — is proven and already shipping; what's new for the design-system editor is
    making that loop live/synchronous rather than async, and having the agent write to
    source files instead of just reading a report.
-2. **rotom-mcp** (`apps/mcp`) is a live, already-deployed MCP server exposing 21
+2. **deckpal-mcp** (`apps/mcp`) is a live, already-deployed MCP server exposing 21
    tools (collection, decks, lists, battle logs, card search, etc.) that read *and
    write* real application data on behalf of an authenticated agent. Two independent,
    working auth channels already feed it: **personal access tokens**

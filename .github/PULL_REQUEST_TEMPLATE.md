@@ -4,8 +4,8 @@
 
 ## Checklist
 
-- [ ] Typecheck passes (`pnpm -r exec tsc --noEmit` after building `@deckscout/db`)
-- [ ] Pure tests pass (`pnpm --filter deckscout-api test:deck`)
+- [ ] Typecheck passes (`pnpm -r exec tsc --noEmit` after building `@deckpal/db`)
+- [ ] Pure tests pass (`pnpm --filter deckpal-api test:deck`)
 - [ ] All affected apps build successfully
 - [ ] UI changes: verified in a real browser at desktop **and** 390px viewport; screenshots attached below
 - [ ] Migrations: new file only (never edited a shipped `.sql`)

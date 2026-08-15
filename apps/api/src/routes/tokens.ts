@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { pool, rlsStore } from '../db.js';
 import { asyncHandler, badRequest, notFound, userCache } from '../http.js';
 import { currentUserId } from '../identity.js';
-import { createToken, listTokens, revokeToken, type Queryable } from '@deckscout/db';
+import { createToken, listTokens, revokeToken, type Queryable } from '@deckpal/db';
 
 /**
  * Personal access tokens — `/tokens` (migration 026).

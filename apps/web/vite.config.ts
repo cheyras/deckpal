@@ -5,19 +5,19 @@ import { VitePWA } from 'vite-plugin-pwa'
 import designEditor from './vite-plugins/design-editor.ts'
 
 // Worktree branches that change the API run their own instance and point the dev
-// proxy at it via DECKSCOUT_DEV_API_PORT (see roadmap/ORCHESTRATION.md port table).
-const devApiPort = process.env.DECKSCOUT_DEV_API_PORT ?? '3700';
+// proxy at it via DECKPAL_DEV_API_PORT (see roadmap/ORCHESTRATION.md port table).
+const devApiPort = process.env.DECKPAL_DEV_API_PORT ?? '3700';
 
 // vite.config.ts runs in plain Node, so process.env doesn't see apps/web/.env.local
 // (Vite only injects .env files into import.meta.env for client code) — loadEnv
 // reads the same files this config needs to branch on cloud vs self-host.
 const fileEnv = loadEnv(process.env.NODE_ENV ?? 'development', process.cwd(), 'VITE_');
 
-// Sub-path deploy: served at /deckscout/ behind nginx (see ARCHITECTURE §4).
+// Sub-path deploy: served at /deckpal/ behind nginx (see ARCHITECTURE §4).
 // Cloud (Vercel): served at / (VITE_SUPABASE_URL signals cloud mode).
 // Trailing slash on base is required. Router basepath matches (minus trailing slash).
 const isCloud = !!(process.env.VITE_SUPABASE_URL || fileEnv.VITE_SUPABASE_URL);
-const basePath = isCloud ? '/' : '/deckscout/';
+const basePath = isCloud ? '/' : '/deckpal/';
 export default defineConfig({
   base: basePath,
   plugins: [
@@ -35,8 +35,8 @@ export default defineConfig({
       registerType: 'prompt',
       injectRegister: false, // we call registerSW() ourselves in src/pwa.ts
       manifest: {
-        name: 'DeckScout',
-        short_name: 'DeckScout',
+        name: 'DeckPal',
+        short_name: 'DeckPal',
         description: 'Self-hosted Pokémon TCG collection tracker',
         id: basePath,
         start_url: basePath,
@@ -68,12 +68,12 @@ export default defineConfig({
           '/api': `http://127.0.0.1:${devApiPort}`,
           // Cloud image tier is normally a Vercel function (api/images.mjs);
           // scripts/dev-images-server.mjs stands in for it locally.
-          '/deckscout/images': 'http://127.0.0.1:3701',
+          '/deckpal/images': 'http://127.0.0.1:3701',
         }
       : {
-          // Dev-only: proxy API + image service so the app talks to /deckscout/... same-origin.
-          '/deckscout/api': `http://127.0.0.1:${devApiPort}`,
-          '/deckscout/images': 'http://127.0.0.1:3701',
+          // Dev-only: proxy API + image service so the app talks to /deckpal/... same-origin.
+          '/deckpal/api': `http://127.0.0.1:${devApiPort}`,
+          '/deckpal/images': 'http://127.0.0.1:3701',
         },
   },
   build: {

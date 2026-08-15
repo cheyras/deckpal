@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// DeckScout — one-time local-data-to-Supabase migration (spec section 8).
+// DeckPal — one-time local-data-to-Supabase migration (spec section 8).
 //
 // Reads the local Postgres database and writes catalog + user data to a
 // Supabase-hosted Postgres.  The single legacy BIGINT user_id is mapped to a
@@ -129,7 +129,7 @@ async function dryRunReport() {
   const pool = makePool(1);
   const client = await pool.connect();
   try {
-    console.log('=== DeckScout Cloud Migration — Dry Run ===\n');
+    console.log('=== DeckPal Cloud Migration — Dry Run ===\n');
 
     // Check local schema version
     const { rows: migrations } = await client.query(

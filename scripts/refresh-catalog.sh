@@ -28,7 +28,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_DIR="$REPO_ROOT/data/catalog/en"
 ENV_FILE="${ENV_FILE:-.env}"
 IMAGE="tcgdex/server:edge"
-CONTAINER="deckscout-catalog-extract-$$"
+CONTAINER="deckpal-catalog-extract-$$"
 
 cleanup() { docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
@@ -98,7 +98,7 @@ if [ -n "$missing" ]; then
 fi
 echo "    target: $PGUSER@$PGHOST:${PGPORT:-5432}/$PGDATABASE"
 
-pnpm --filter deckscout-sync import:catalog
+pnpm --filter deckpal-sync import:catalog
 
 cat <<'EOF'
 

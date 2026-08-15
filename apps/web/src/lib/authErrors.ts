@@ -77,7 +77,7 @@ export function friendlyAuthError(err: unknown): string {
 
   // Network/offline — supabase-js retries fetch failures then throws this.
   if (name === 'AuthRetryableFetchError' || name === 'TypeError') {
-    return "Couldn't reach DeckScout. Check your connection and try again."
+    return "Couldn't reach DeckPal. Check your connection and try again."
   }
 
   switch (code) {

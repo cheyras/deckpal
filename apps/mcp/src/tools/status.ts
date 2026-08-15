@@ -50,7 +50,7 @@ export function registerStatusTools(server: McpServer, ctx: Ctx): void {
     {
       title: 'Pokedex health & data freshness',
       description:
-        'Check that rotom-mcp can reach Postgres and deckscout-api, and how fresh the data is: ' +
+        'Check that deckpal-mcp can reach Postgres and deckpal-api, and how fresh the data is: ' +
         'catalog counts (cards/variants/sets), owned totals, the last sync run per job with its ' +
         'status, and price freshness per source. Use this to answer "is the system up / is my ' +
         'data fresh". Not for collection statistics — use collection_summary for that.',
@@ -78,7 +78,7 @@ export function registerStatusTools(server: McpServer, ctx: Ctx): void {
           apiErr = (err as Error).message;
         }
 
-        const lines: string[] = ['rotom-mcp health'];
+        const lines: string[] = ['deckpal-mcp health'];
         lines.push(
           `db: ${dbOk ? 'ok' : `DOWN (${dbErr})`} · api: ${apiOk ? 'ok' : `DOWN (${apiErr})`}`,
         );

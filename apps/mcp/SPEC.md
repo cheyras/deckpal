@@ -1,20 +1,20 @@
-# rotom-mcp — SPEC (design contract)
+# deckpal-mcp — SPEC (design contract)
 
-> **rotom-mcp** is the MCP face of pokedex: a thin tool layer that lets Claude (Code, claude.ai,
+> **deckpal-mcp** is the MCP face of DeckPal: a thin tool layer that lets Claude (Code, claude.ai,
 > iOS) retrieve collection/catalog/price/deck data and log collection changes with attribution.
-> Named after Rotom, the games' AI assistant. This file is the build contract; implementation
+> This file is the build contract; implementation
 > agents follow it exactly. Deviations get recorded here and in `DECISIONS.md`.
 
 ## 1. Identity & placement
 
 | Thing | Value |
 |---|---|
-| App dir | `/home/cheyras/pokedex/apps/mcp` (pnpm workspace picks up `apps/*` automatically) |
-| Package name | `deckscout-mcp` (matches `deckscout-api` / `deckscout-sync` style) |
-| MCP server name | `rotom-mcp`, version from package.json |
+| App dir | `/home/cheyras/deckpal/apps/mcp` (pnpm workspace picks up `apps/*` automatically) |
+| Package name | `deckpal-mcp` (matches `deckpal-api` / `deckpal-sync` style) |
+| MCP server name | `deckpal-mcp`, version from package.json |
 | Port | **3704**, bind `127.0.0.1` only (3702 = TCGdex escape-hatch slot, 3703 = dev server, per DECISIONS.md) |
-| Env vars | `DECKSCOUT_MCP_PORT=3704`, `ROTOM_MCP_KEY=<hex secret>`, `DECKSCOUT_API_BASE=http://127.0.0.1:3700/deckscout/api`, `PGPOOL_MAX_MCP=1`, `PGAPPNAME=deckscout-mcp` — all in repo-root `.env` (mode 600, gitignored), loaded via `loadEnv()` from `@deckscout/db` |
-| Process name | `deckscout-mcp`, `max_memory_restart: '300M'` |
+| Env vars | `DECKPAL_MCP_PORT=3704`, `DECKPAL_MCP_KEY=<hex secret>`, `DECKPAL_API_BASE=http://127.0.0.1:3700/deckpal/api`, `PGPOOL_MAX_MCP=1`, `PGAPPNAME=deckpal-mcp` — all in repo-root `.env` (mode 600, gitignored), loaded via `loadEnv()` from `@deckpal/db` |
+| Process name | `deckpal-mcp`, `max_memory_restart: '300M'` |
 | MCP endpoint | `POST/GET/DELETE http://127.0.0.1:3704/mcp` (+ plain `GET /health` JSON for supervisors) |
 
 ## 2. Stack (verified 2026-07-29 — do not substitute from memory)
@@ -24,7 +24,7 @@
   `typecheck` = `tsc --noEmit`, `start` = `node dist/index.js`. tsc stays out of the runtime path.
 - **MCP SDK v2** (released 2026-07-27, the stable line): `@modelcontextprotocol/server@^2.0.0`,
   `@modelcontextprotocol/express@^2`, `@modelcontextprotocol/node@^2`, `express` (match the major
-  `deckscout-api` uses), `zod@^4.2` (v2 requires ≥4.2 — 4.0/4.1 silently drops `.describe()`).
+  `deckpal-api` uses), `zod@^4.2` (v2 requires ≥4.2 — 4.0/4.1 silently drops `.describe()`).
 - Core wiring (verified against SDK v2 docs; adapt only if the installed package's types disagree —
   read `node_modules` types, not blog posts):
 
@@ -47,10 +47,10 @@ process.on('SIGTERM'/'SIGINT', async () => { await handler.close(); await pool.e
 ```
 
 - **Auth** (house convention, copied from the Deno MCP fleet): header `x-brain-key` (fallback
-  `?key=` query) must equal `ROTOM_MCP_KEY`; `OPTIONS` passes; failure → bare `401`, **no
+  `?key=` query) must equal `DECKPAL_MCP_KEY`; `OPTIONS` passes; failure → bare `401`, **no
   `WWW-Authenticate` header** (claude.ai treats 401+WWW-Authenticate as an OAuth trigger).
-  Fatal-exit at startup if `ROTOM_MCP_KEY` unset.
-- Startup self-check: ping Postgres (`SELECT 1`) and `GET ${DECKSCOUT_API_BASE}/health`; log clearly
+  Fatal-exit at startup if `DECKPAL_MCP_KEY` unset.
+- Startup self-check: ping Postgres (`SELECT 1`) and `GET ${DECKPAL_API_BASE}/health`; log clearly
   and `process.exit(1)` if the DB is unreachable (the supervisor restarts). API unreachable = warn only
   (read tools still work; API-backed tools will fail per-call).
 - Entry-point detection must handle process-manager fork mode like `apps/api/src/index.ts` does
@@ -58,12 +58,12 @@ process.on('SIGTERM'/'SIGINT', async () => { await handler.close(); await pool.e
 
 ## 3. Data access — the hybrid rule
 
-**Reads go straight to Postgres. Writes (and all deck/list operations) go through deckscout-api on
+**Reads go straight to Postgres. Writes (and all deck/list operations) go through deckpal-api on
 `127.0.0.1:3700`.** Rationale: read queries need MCP-shaped compact aggregation the REST API
 doesn't offer; write logic (upsert → `collection_event` append → `recomputeSetProgress`, one
 transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-sourced.
 
-- Pool: `makePool(1)` from `@deckscout/db`, module scope. This is a **4th** connection against the
+- Pool: `makePool(1)` from `@deckpal/db`, module scope. This is a **4th** connection against the
   documented budget of 3 (API 2 + sync 1). Headroom verified (DECISIONS.md 2026-07-24: 7 spare).
   The budget docs (`.env` comment, `CLAUDE.md`, `DECISIONS.md` dated entry) get updated to
   "4 TOTAL (API 2 + sync 1 + mcp 1)" as part of this build.
@@ -88,17 +88,17 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 
 | Thing | Self-host (`src/index.ts`) | Cloud (`src/cloud.ts` → `api/mcp.mjs`) |
 |---|---|---|
-| Endpoint | `http://127.0.0.1:3704/mcp` behind a reverse proxy | `https://deckscout.io/mcp` (vercel.json rewrite → `api/mcp.mjs`) |
+| Endpoint | `http://127.0.0.1:3704/mcp` behind a reverse proxy | `https://deckpal.app/mcp` (vercel.json rewrite → `api/mcp.mjs`) |
 | Credential | `x-brain-key: <shared secret>` | `Authorization: Bearer dsk_…`, **or** the token as the last path segment (`/mcp/dsk_…`) — personal access tokens, migration 026 |
 | User | lowest `app_user.id`, resolved once at startup | `api_token.user_id` for the presented token, resolved per request |
 | DB access | process pool, no RLS | per-request client inside `withUserContext` — `SET LOCAL role = 'authenticated'` + `request.jwt.claims.sub`, so migration 021's policies fire on every tool query |
-| API-backed tools | unauthenticated call to `127.0.0.1:3700` | same token forwarded as `Authorization: Bearer`, so `deckscout-api` resolves the identical user |
+| API-backed tools | unauthenticated call to `127.0.0.1:3700` | same token forwarded as `Authorization: Bearer`, so `deckpal-api` resolves the identical user |
 | Lifetime | one `McpServer` factory, many requests | one `McpHttpHandler` per HTTP request, closed before the transaction commits |
 
 - `Ctx.db` is a `Queryable` (`pg.Pool` **or** `pg.PoolClient`), which is what lets one set of tools
   run against a process pool and against a per-request RLS transaction unchanged.
 - `Ctx.userId` is a **string** — `app_user.id` has been a UUID since migration 020.
-- Token verification lives in `@deckscout/db` (`src/tokens.ts`) so the API (which mints them) and
+- Token verification lives in `@deckpal/db` (`src/tokens.ts`) so the API (which mints them) and
   the MCP edge (which checks them) can never disagree about the hashing rule. SHA-256 of the raw
   value; the raw value is returned once, at creation, and never stored.
 - Missing / malformed / unknown / revoked token ⇒ bare `401` **with** `WWW-Authenticate: Bearer
@@ -114,16 +114,16 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   (`--header "Authorization: Bearer …"`) as a second path. claude.ai's custom-connector dialog
   exposes headers only through its beta *Request headers* section (allowlisted names, rolled out
   per account); for clients with neither OAuth nor a header field, the URL carries the secret as a
-  third path: `https://deckscout.io/mcp/<token>`. The token goes in the **path**, never the query
+  third path: `https://deckpal.app/mcp/<token>`. The token goes in the **path**, never the query
   string — the MCP authorization spec's "access tokens MUST NOT be included in the URI query
   string" and Anthropic's own "not recommended" both name the query string specifically. The UI
   labels that URL as a password. All three paths resolve to the same `api_token` table and the
   same `resolveToken()` at the `/mcp` edge — OAuth and dynamic client registration are a front
   door onto the existing credential, not a parallel one.
 - `MCP_ALLOWED_HOSTS` still gates the `Host` header; the cloud default is
-  `deckscout.io,www.deckscout.io,localhost,127.0.0.1` plus any `*.vercel.app` alias.
+  `deckpal.app,www.deckpal.app,localhost,127.0.0.1` plus any `*.vercel.app` alias.
 - The REST base is derived from the (already validated) request host — `https://<host>/api` — so
-  there is no environment variable to get wrong. `DECKSCOUT_API_BASE` still overrides.
+  there is no environment variable to get wrong. `DECKPAL_API_BASE` still overrides.
 
 ## 4. Tool conventions
 
@@ -183,7 +183,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
    route — implementer reads that file first and picks the thinner path; label results as
    estimates.
 
-### Decks & lists — via deckscout-api (read parts `readOnlyHint: true`)
+### Decks & lists — via deckpal-api (read parts `readOnlyHint: true`)
 
 Exact request/response shapes: **read `apps/api/src/routes/decks.ts` / `lists.ts` first**; the
 routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST /decks/:id/cards`,
@@ -204,7 +204,7 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
 9. **`save_deck`** — `{ deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
    version_note?, dry_run? = true }`. Create (POST /decks, or POST /decks/import when
    `ptcgl_text` given), rename (PATCH), and reconcile the card list to `cards` via the
-   per-card routes — every write attributed `source: 'rotom-mcp'` (`writeSource` on the
+   per-card routes — every write attributed `source: 'deckpal-mcp'` (`writeSource` on the
    import route, whose `source` names the decklist syntax). `version_note` rides as
    `versionNote` on card ops and format PATCH and lands on the deck_version snapshot (§6b).
    Dry run returns the would-be diff (current vs proposed lines) and changes nothing.
@@ -215,7 +215,7 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
     Creates the list when `list_id` omitted. Item payload shape comes from `lists.ts`.
 13. **`delete_list`** — `{ list_id, dry_run? = true }`. `destructiveHint: true`.
 
-### Collection writes — via deckscout-api
+### Collection writes — via deckpal-api
 
 14. **`log_cards`** — THE write tool. `{ items: [{ card_id? | name?+set_id?+number?,
     variant_id? | variant_kind?, delta? | quantity? }] (1–100), note? (≤500 chars),
@@ -225,14 +225,14 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
     Dry run: resolved variant + `current → new` quantity per item, no writes. Execute:
     sequential calls to `POST /collection/variants/:id/increment` (`{delta, source, note}`) or
     `PATCH /collection/variants/:id` (`{quantity, source, note}`) with **`source:
-    'rotom-mcp'`**. Description must say: this edits the local pokedex collection only —
+    'deckpal-mcp'`**. Description must say: this edits the local DeckPal collection only —
     nothing external. `readOnlyHint: false`, `destructiveHint: false` (dry-run gated,
     delta-reversible).
 
-### Deck intelligence — via deckscout-api (migration 019; semantics in §6b)
+### Deck intelligence — via deckpal-api (migration 019; semantics in §6b)
 
 Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable. All six live in
-`src/tools/deckIntel.ts`; writes carry `source: 'rotom-mcp'`.
+`src/tools/deckIntel.ts`; writes carry `source: 'deckpal-mcp'`.
 
 15. **`deck_strategy`** — `{ deck_id, markdown? }`. Omit `markdown` → the full guide. Provide it →
     `PUT /decks/:id/strategy` replaces the whole guide (empty string clears); the response names
@@ -264,7 +264,7 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
     /decks/:id/logs/:logId` for duplicate/wrong-deck pastes; dry-run gated,
     `destructiveHint: true`, not undoable — descriptions steer corrections to edit_battle_log.
 
-### Shopping — via deckscout-api (`readOnlyHint: true`)
+### Shopping — via deckpal-api (`readOnlyHint: true`)
 
 21. **`set_cart`** — `{ set_id, goal? = default goal, finishes? }`. Thin wrapper over
     `GET /sets/:setId/massentry` (single source of Mass Entry link generation, shared with the
@@ -289,7 +289,7 @@ ALTER TABLE collection_event
   ADD COLUMN note text
     CONSTRAINT collection_event_note_len CHECK (char_length(note) <= 500);
 COMMENT ON COLUMN collection_event.source IS
-  'Who wrote this change: web (UI), rotom-mcp (agent), import/script names. Default web.';
+  'Who wrote this change: web (UI), deckpal-mcp (agent), import/script names. Default web.';
 ```
 
 API changes (`apps/api/src/routes/collection.ts` + wherever the event INSERT lives):
@@ -327,7 +327,7 @@ The versioning semantics the tool descriptions must keep teaching (LOCKED in the
   deck intelligence.
 
 Attribution extends the §6 convention: every deck write accepts optional `source` (same shape,
-default `'web'`) — the tools always send `'rotom-mcp'` — and card ops + format PATCH accept
+default `'web'`) — the tools always send `'deckpal-mcp'` — and card ops + format PATCH accept
 `versionNote` (≤500) which lands on the `deck_version` row. On `POST /decks/import` the writer
 attribution field is **`writeSource`** because `source` was already the decklist-syntax param
 there.
@@ -340,17 +340,17 @@ there.
   Postgres config. No `git push` (no remote). Don't commit — the lead agent reviews and
   commits.
 - Secrets (`.env`, `token-cache.json`): read at runtime only, never log values, never commit.
-- `console.log`/`console.error` with `[deckscout-mcp]` prefix — no logging library.
+- `console.log`/`console.error` with `[deckpal-mcp]` prefix — no logging library.
 - Result-size budgets: Claude Code caps tool output ~25k tokens; claude.ai ~150k chars — the
   paging defaults in §4 exist so we never get near either.
 
 ## 8. Verification gates (what "done" means)
 
-1. `pnpm --filter deckscout-mcp typecheck` clean; API typecheck + tests still clean after §6.
+1. `pnpm --filter deckpal-mcp typecheck` clean; API typecheck + tests still clean after §6.
 2. Real MCP round-trips against `127.0.0.1:3704/mcp` (SDK client or `claude mcp add`-registered):
    every tool called at least once; `collection_summary` numbers reconcile with the web UI /
    known totals; `log_cards` dry-run then a real +1/−1 on a cheap card, confirmed in
-   `collection_log` with `source='rotom-mcp'` and in `user_set_progress` recompute; a deck
+   `collection_log` with `source='deckpal-mcp'` and in `user_set_progress` recompute; a deck
    round-trip: import small PTCGL list → `decks include=[validate,pricing]` → `delete_deck`.
 3. Auth: request without `x-brain-key` → 401; with → 200.
 4. Deployment (separate phase): process-manager entry, reverse-proxy routes for

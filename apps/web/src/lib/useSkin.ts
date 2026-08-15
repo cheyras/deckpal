@@ -11,8 +11,8 @@ export function useSkin(): Skin {
   const [skin, setSkinState] = useState<Skin>(() => readSkin())
   useEffect(() => {
     const onChange = (e: Event) => setSkinState((e as CustomEvent<Skin>).detail)
-    window.addEventListener('deckscout:skinchange', onChange)
-    return () => window.removeEventListener('deckscout:skinchange', onChange)
+    window.addEventListener('deckpal:skinchange', onChange)
+    return () => window.removeEventListener('deckpal:skinchange', onChange)
   }, [])
   return skin
 }

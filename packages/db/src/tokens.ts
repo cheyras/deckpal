@@ -22,13 +22,13 @@ import type pg from 'pg';
  * is known) while the management routes run inside the caller's RLS
  * transaction client.
  *
- * It lives in `@deckscout/db` rather than in either server because BOTH need
- * it and they must agree byte for byte: `deckscout-api` mints and verifies
- * tokens, `deckscout-mcp` verifies them at the /mcp edge. Two copies of a
+ * It lives in `@deckpal/db` rather than in either server because BOTH need
+ * it and they must agree byte for byte: `deckpal-api` mints and verifies
+ * tokens, `deckpal-mcp` verifies them at the /mcp edge. Two copies of a
  * hashing rule is one copy too many.
  */
 
-/** Human-visible prefix so a leaked string is recognisable as a DeckScout key. */
+/** Human-visible prefix so a leaked string is recognisable as a DeckPal key. */
 export const TOKEN_PREFIX = 'dsk_';
 
 /** Characters of the raw token kept for display: 'dsk_' + 8 of the secret. */

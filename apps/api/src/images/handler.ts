@@ -15,10 +15,10 @@ import {
   putUnmanifestedObject,
   recordProvenanceIfUnknown,
   type ParsedImage,
-} from '@deckscout/storage';
+} from '@deckpal/storage';
 
 /**
- * The cloud image tier: `/deckscout/images/*` on Vercel.
+ * The cloud image tier: `/deckpal/images/*` on Vercel.
  *
  * Self-host serves these URLs from `apps/images` off a local WebP cache. The
  * cloud deployment has no such disk, so this function serves them out of the
@@ -29,13 +29,13 @@ import {
  *           asset costs the function nothing after the first request per edge.
  *   MISS  → look the asset up in the `image_asset` manifest, fetch it from its
  *           RECORDED `source_url`, write bytes+row together through the choke
- *           point (`@deckscout/storage` put-asset), then 302 as above.
+ *           point (`@deckpal/storage` put-asset), then 302 as above.
  *   FAIL  → the same ~1 KB placeholder WebP apps/images serves (cards) or a 404
  *           (set imagery, which the SPA already renders its own fallback for),
  *           with a SHORT TTL so it self-heals once the asset becomes fetchable.
  *
  * The rule that produced this file: an image URL must NEVER answer with HTML.
- * Before this existed, `/deckscout/images/*` fell through to the SPA catch-all
+ * Before this existed, `/deckpal/images/*` fell through to the SPA catch-all
  * rewrite and every <img> got `200 text/html` — a silently broken page.
  */
 
@@ -89,7 +89,7 @@ function sendFailure(res: ServerResponse, asset: ParsedImage, reason: string): v
 /**
  * Resolve the upstream URL to fill a cold asset from.
  *
- * Provenance rules (see @deckscout/storage put-asset.ts):
+ * Provenance rules (see @deckpal/storage put-asset.ts):
  *  - a recorded `source_url` is authoritative and always wins;
  *  - a card row with NULL provenance may fall back to the canonical TCGdex URL,
  *    which is a documented *derivation* of the requested path (DATA-LAYER §5.3),
@@ -101,7 +101,7 @@ async function resolveSourceUrl(
   asset: ParsedImage,
 ): Promise<{ url: string; provenanceWasUnknown: boolean } | null> {
   // Sprites carry no manifest row by design — their provenance is the pinned
-  // PokeAPI SHA (see @deckscout/storage paths.ts SPRITES_SHA), so the URL is
+  // PokeAPI SHA (see @deckpal/storage paths.ts SPRITES_SHA), so the URL is
   // fully determined by the request path and there is nothing to look up.
   if (asset.kind === 'sprite') {
     return { url: asset.canonicalSourceUrl, provenanceWasUnknown: false };

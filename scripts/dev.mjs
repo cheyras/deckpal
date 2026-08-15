@@ -1,7 +1,7 @@
 // One-command dev: `pnpm dev` at the repo root.
 //
 // The web app alone is not a working app — it proxies /api to the API server
-// and /deckscout/images to the image tier (see apps/web/vite.config.ts). Before
+// and /deckpal/images to the image tier (see apps/web/vite.config.ts). Before
 // this existed those had to be started by hand in separate terminals, which is
 // how a fresh clone ends up looking like "the backend won't connect".
 //
@@ -57,8 +57,8 @@ const childEnv = { ...readDotEnv(), ...process.env };
 const needsBuild = !existsSync(join(root, 'apps/api/dist/images/handler.js'));
 
 const SERVICES = [
-  { name: 'api  ', color: 36, cmd: 'pnpm', args: ['--filter', 'deckscout-api', 'dev'] },
-  { name: 'web  ', color: 32, cmd: 'pnpm', args: ['--filter', 'deckscout-web', 'dev'] },
+  { name: 'api  ', color: 36, cmd: 'pnpm', args: ['--filter', 'deckpal-api', 'dev'] },
+  { name: 'web  ', color: 32, cmd: 'pnpm', args: ['--filter', 'deckpal-web', 'dev'] },
   { name: 'image', color: 35, cmd: 'node', args: ['scripts/dev-images-server.mjs'] },
 ];
 
@@ -102,10 +102,10 @@ if (needsBuild) {
   console.log('Building the API once (the image shim imports from apps/api/dist)…');
   // In dependency order, checking every exit code: on a fresh clone a failed
   // (or skipped) build used to let all three services start anyway, and the
-  // real error drowned in their interleaved startup logs. @deckscout/storage
+  // real error drowned in their interleaved startup logs. @deckpal/storage
   // is in the list because the image handler resolves its dist/ at runtime —
   // tsc alone passes without it (its exports map serves types from src/).
-  const BUILDS = ['@deckscout/db', '@deckscout/storage', 'deckscout-api'];
+  const BUILDS = ['@deckpal/db', '@deckpal/storage', 'deckpal-api'];
   const buildNext = (i) => {
     if (i >= BUILDS.length) return SERVICES.forEach(start);
     const build = spawn('pnpm', ['--filter', BUILDS[i], 'build'], { cwd: root, stdio: 'inherit', env: childEnv });

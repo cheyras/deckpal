@@ -9,7 +9,7 @@ import {
   upsertImageObjectRow,
   type ImageAssetKind,
   type Provenance,
-} from '@deckscout/storage';
+} from '@deckpal/storage';
 import { absoluteFromRelative } from './layout.js';
 import { closePool, getPool } from './assets.js';
 
@@ -33,10 +33,10 @@ import { closePool, getPool } from './assets.js';
  * there is no URL to fetch and they serve the placeholder forever. Their bytes
  * exist only in this cache. Those are what `--missing-source` targets.
  *
- *   pnpm --filter deckscout-images storage:backfill --missing-source --dry-run
- *   pnpm --filter deckscout-images storage:backfill --missing-source
- *   pnpm --filter deckscout-images storage:backfill --prefix sets
- *   pnpm --filter deckscout-images storage:backfill --reconcile
+ *   pnpm --filter deckpal-images storage:backfill --missing-source --dry-run
+ *   pnpm --filter deckpal-images storage:backfill --missing-source
+ *   pnpm --filter deckpal-images storage:backfill --prefix sets
+ *   pnpm --filter deckpal-images storage:backfill --reconcile
  *
  * Flags:
  *   --missing-source   work-list = rows with source_url IS NULL (the unrecoverable set)

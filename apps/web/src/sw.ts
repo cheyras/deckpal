@@ -1,8 +1,8 @@
 /// <reference lib="webworker" />
-// deckscout service worker (vite-plugin-pwa, injectManifest strategy).
+// deckpal service worker (vite-plugin-pwa, injectManifest strategy).
 //
-// Sub-path scope: this file is emitted to /deckscout/sw.js, so it can only ever
-// control /deckscout/* — exactly what we want (wiki: Frontend-Research §A.6). Do NOT widen it.
+// Sub-path scope: this file is emitted to /deckpal/sw.js, so it can only ever
+// control /deckpal/* — exactly what we want (wiki: Frontend-Research §A.6). Do NOT widen it.
 //
 // Caching model (wiki: Frontend-Research §C.2, tiered offline §C.5):
 //   Tier 0 — app shell (precache, self.__WB_MANIFEST): index.html + hashed JS/CSS
@@ -10,7 +10,7 @@
 //   Tier 1 — visited card/set art: CacheFirst, LRU-capped at 2000 entries.
 //   API GETs — NetworkFirst: fresh catalog/collection online, last-good offline.
 //   API mutations (POST/PATCH/DELETE) — NetworkOnly, never cached (hard rule).
-//   Client-route navigations under /deckscout/ — fall back to the precached shell.
+//   Client-route navigations under /deckpal/ — fall back to the precached shell.
 import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching'
 import { registerRoute, NavigationRoute } from 'workbox-routing'
 import { NetworkFirst, CacheFirst, NetworkOnly } from 'workbox-strategies'
@@ -21,20 +21,20 @@ declare const self: ServiceWorkerGlobalScope
 
 // ── Dynamic base path ────────────────────────────────────────────────────────
 // Derived from the SW's own URL: cloud → '/sw.js' → BASE = '/',
-// self-host → '/deckscout/sw.js' → BASE = '/deckscout/'. No hardcoded paths.
+// self-host → '/deckpal/sw.js' → BASE = '/deckpal/'. No hardcoded paths.
 const BASE = new URL('./', self.location.href).pathname
 
 // ── Fixed image path contract ────────────────────────────────────────────────
 // Unlike API/nav routes below, image URLs are NOT relative to where this SW
-// script itself lives. apps/api/src/db.ts cardImages() emits `/deckscout/images/...`
+// script itself lives. apps/api/src/db.ts cardImages() emits `/deckpal/images/...`
 // verbatim on EVERY deployment: vercel.json rewrites that exact prefix to the
 // cloud image function (api/images.mjs), and self-host nginx proxies the same
 // fixed prefix to apps/images on :3701 (see apps/web/vite.config.ts dev proxy,
-// which maps '/deckscout/images' regardless of basePath). Deriving this from
+// which maps '/deckpal/images' regardless of basePath). Deriving this from
 // BASE broke image caching on cloud, where sw.js is served from the site root
 // (BASE = '/') so the route only ever matched a '/images/' path that the app
 // never requests.
-const IMAGES_PATH = '/deckscout/images/'
+const IMAGES_PATH = '/deckpal/images/'
 
 // ── Tier 0: precache the app shell ────────────────────────────────────────────
 // __WB_MANIFEST is injected at build time with the hashed dist assets.
@@ -42,7 +42,7 @@ precacheAndRoute(self.__WB_MANIFEST)
 cleanupOutdatedCaches()
 
 // ── SPA navigation fallback ───────────────────────────────────────────────────
-// Any client-route navigation (e.g. /deckscout/series/base/base1) resolves to the
+// Any client-route navigation (e.g. /deckpal/series/base/base1) resolves to the
 // precached shell so deep links + offline reloads render. API and image paths are
 // denylisted so a 404 there surfaces as a 404, never as a silently-served HTML
 // shell (the "JSON.parse: unexpected token <" class of bug — wiki: Frontend-Research §C.2).
@@ -72,7 +72,7 @@ const jsonOnlyGuard = {
 registerRoute(
   ({ url, request }) => url.pathname.startsWith(`${BASE}api/`) && request.method === 'GET',
   new NetworkFirst({
-    cacheName: 'deckscout-api-v1',
+    cacheName: 'deckpal-api-v1',
     networkTimeoutSeconds: 5,
     plugins: [
       new CacheableResponsePlugin({ statuses: [200] }),
@@ -92,7 +92,7 @@ for (const method of ['POST', 'PATCH', 'DELETE'] as const) {
 
 // ── Tier 1: card & set art, CacheFirst, LRU-capped at 2000 entries ─────────────
 // statuses: [0, 200] is load-bearing, not defensive: on cloud the same-origin
-// request to /deckscout/images/... answers with a 302 to a cross-origin Supabase
+// request to /deckpal/images/... answers with a 302 to a cross-origin Supabase
 // Storage object URL. Image requests (<img> tags, intercepted by this SW) run in
 // 'no-cors' mode, so the browser follows that redirect and hands back an opaque
 // (status 0) Response — unreadable to JS but fully cacheable and re-servable to
@@ -109,7 +109,7 @@ for (const method of ['POST', 'PATCH', 'DELETE'] as const) {
 registerRoute(
   ({ url }) => url.pathname.startsWith(IMAGES_PATH) && !url.searchParams.has('bugshot'),
   new CacheFirst({
-    cacheName: 'deckscout-img-v1',
+    cacheName: 'deckpal-img-v1',
     plugins: [
       new CacheableResponsePlugin({ statuses: [0, 200] }),
       new ExpirationPlugin({

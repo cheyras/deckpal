@@ -21,7 +21,7 @@ import { PENDING_ITEMS, completionStats } from './pending'
 
 type TabId = 'tokens' | 'primitives' | 'components' | 'requests' | 'pending'
 
-// Base-aware app links: BASE_URL is '/' on cloud and '/deckscout/' self-host.
+// Base-aware app links: BASE_URL is '/' on cloud and '/deckpal/' self-host.
 const appHref = (path: string) => `${import.meta.env.BASE_URL}${path}`
 
 export default function DesignSystem() {

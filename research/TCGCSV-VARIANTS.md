@@ -277,7 +277,7 @@ Recommend that as a one-request follow-up.
 
 ## 6. Fetch log — TCGCSV, 14 requests, all HTTP 200
 
-User-Agent `deckscout/1.0 (+cheyras@gmail.com)`, ~120 ms between requests, gated on
+User-Agent `deckpal/1.0 (+cheyras@gmail.com)`, ~120 ms between requests, gated on
 `last-updated.txt`. No 429/403. Well under the 100-request budget (and the service's 10,000/day
 ceiling). Script: `scratchpad/fetch.js`.
 

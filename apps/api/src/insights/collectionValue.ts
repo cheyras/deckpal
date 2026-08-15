@@ -12,7 +12,7 @@
  *
  * collection_value_point is the value-snapshot time series (SCHEMA §3): it is
  * SEPARATE from catalog price history, so "reset collection" can truncate it.
- * snapshotCollectionValue() is what the deckscout-sync cron calls once a day; it is
+ * snapshotCollectionValue() is what the deckpal-sync cron calls once a day; it is
  * idempotent per (user, day, currency).
  *
  * Pure aggregation lives in aggregateValue(); everything else is a thin DB adapter.
@@ -235,7 +235,7 @@ export interface SnapshotResult {
 
 /**
  * Append today's total (per currency) to collection_value_point. This is the ONE
- * sanctioned write of this module — the daily cron (deckscout-sync) calls it.
+ * sanctioned write of this module — the daily cron (deckpal-sync) calls it.
  *
  * Idempotent per (user, observed_on, currency): a second call on the same day is
  * a no-op (ON CONFLICT DO NOTHING), so a cron double-fire or a same-day manual

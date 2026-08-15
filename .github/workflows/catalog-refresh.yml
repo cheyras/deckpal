@@ -124,10 +124,10 @@ jobs:
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
-      # apps/sync resolves @deckscout/db through its dist/ (main: dist/index.js),
+      # apps/sync resolves @deckpal/db through its dist/ (main: dist/index.js),
       # which a fresh workspace does not have.
-      - name: Build @deckscout/db
-        run: pnpm --filter @deckscout/db build
+      - name: Build @deckpal/db
+        run: pnpm --filter @deckpal/db build
 
       # B3 lives inside this script: docker create + docker cp, never docker run.
       # No `|| true`, no `continue-on-error` — a failure here is the whole point of

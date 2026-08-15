@@ -38,7 +38,7 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
     return;
   }
   // Log the real error server-side; send a generic message to the client.
-  console.error('[deckscout-api] unhandled', err);
+  console.error('[deckpal-api] unhandled', err);
   res.status(500).json({ error: { code: 'internal', message: 'Internal server error' } });
 }
 

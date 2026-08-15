@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { loadEnv, makePool } from '@deckscout/db';
+import { loadEnv, makePool } from '@deckpal/db';
 import { ingestTcgcsvPrices } from './prices/tcgcsv.js';
 import { ingestCardmarket } from './prices/cardmarket.js';
 import { runReconcile, runSnapshotCollection } from './jobs/api-jobs.js';
@@ -7,11 +7,11 @@ import type { Queryable } from './prices/db.js';
 
 // The node-cron scheduler. FOUR of the seven jobs are real (see REAL_JOBS): the two price
 // ingests (prices-tcgcsv, prices-cardmarket) run in-process, and snapshot-collection /
-// reconcile call deckscout-api's internal endpoints over HTTP (jobs/api-jobs.ts — sync must
+// reconcile call deckpal-api's internal endpoints over HTTP (jobs/api-jobs.ts — sync must
 // not import apps/api, whose db.ts opens its own 2-connection pool at module load).
 // catalog / images / products-tcgcsv remain MANUAL per the sync runbook and fire as
 // logging stubs. Cadences and the job list come from wiki: Data-Layer §7.2 and the
-// sync_run.job CHECK. Run any real job once by hand: `pnpm --filter deckscout-sync run-once <job>`.
+// sync_run.job CHECK. Run any real job once by hand: `pnpm --filter deckpal-sync run-once <job>`.
 //
 // `catalog` stays a stub HERE, and is scheduled elsewhere, on purpose. Refreshing the
 // catalog means extracting the compiled JSON out of the tcgdex/server image, which needs
@@ -50,7 +50,7 @@ function registerStub(job: JobName, expr: string): void {
   cron.schedule(expr, () => {
     // Intentionally a no-op in this scaffold. Real jobs: pg_advisory_lock, skip-if-unchanged,
     // one transaction per group, resumable cursor, write sync_run. See ARCHITECTURE §5.4.
-    console.log(`[deckscout-sync] (stub) would run job "${job}" at ${new Date().toISOString()}`);
+    console.log(`[deckpal-sync] (stub) would run job "${job}" at ${new Date().toISOString()}`);
   });
 }
 
@@ -62,9 +62,9 @@ async function runJob(job: JobName, fn: (c: Queryable) => Promise<unknown>): Pro
   const client = (await pool.connect()) as unknown as Queryable & { release(): void };
   try {
     const r = await fn(client);
-    console.log(`[deckscout-sync] ${job} ok:`, JSON.stringify(r));
+    console.log(`[deckpal-sync] ${job} ok:`, JSON.stringify(r));
   } catch (err) {
-    console.error(`[deckscout-sync] ${job} FAILED:`, err instanceof Error ? err.message : err);
+    console.error(`[deckpal-sync] ${job} FAILED:`, err instanceof Error ? err.message : err);
   } finally {
     client.release();
   }
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
     .map((j) => `${j}=${REAL_JOBS[j] ? 'REAL' : 'stub'}`)
     .join(' ');
   console.log(
-    `deckscout-sync up. sync_run rows: ${rows[0]?.n ?? 0}. Registering ${Object.keys(SCHEDULE).length} cron jobs: ${roster}`,
+    `deckpal-sync up. sync_run rows: ${rows[0]?.n ?? 0}. Registering ${Object.keys(SCHEDULE).length} cron jobs: ${roster}`,
   );
   for (const [job, expr] of Object.entries(SCHEDULE)) {
     const real = REAL_JOBS[job as JobName];
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
 const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
 if (entryPath.endsWith('index.js') || entryPath.endsWith('index.ts')) {
   main().catch((err) => {
-    console.error('[deckscout-sync] fatal at boot:', err instanceof Error ? err.message : err);
+    console.error('[deckpal-sync] fatal at boot:', err instanceof Error ? err.message : err);
     process.exit(1);
   });
 }

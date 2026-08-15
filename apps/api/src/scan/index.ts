@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { makePool } from '@deckscout/db';
+import { makePool } from '@deckpal/db';
 import type pg from 'pg';
 import { ALGO, hashPath, hashToBytes } from './phash.js';
 
@@ -16,7 +16,7 @@ import { ALGO, hashPath, hashToBytes } from './phash.js';
  *   • one pooled DB connection, batched upserts (short connection hold).
  *
  * Intended launch (nice + idle IO so it yields to live traffic):
- *   nice -n 15 ionice -c3 pnpm --filter deckscout-api scan:index
+ *   nice -n 15 ionice -c3 pnpm --filter deckpal-api scan:index
  *
  * Flags:
  *   --quality low|high   (default low — smaller/faster, plenty for matching)

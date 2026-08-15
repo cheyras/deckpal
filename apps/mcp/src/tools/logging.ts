@@ -16,10 +16,10 @@ import {
  * each item resolves to one card variant and either increments its owned
  * quantity by a signed `delta` or sets it to an absolute `quantity`.
  *
- * All writes go through deckscout-api (SPEC §3 — write logic stays
+ * All writes go through deckpal-api (SPEC §3 — write logic stays
  * single-sourced): delta → POST /collection/variants/:id/increment,
  * quantity → PATCH /collection/variants/:id, always with
- * `source: 'rotom-mcp'` so `collection_log` attributes the change (migration
+ * `source: 'deckpal-mcp'` so `collection_log` attributes the change (migration
  * 018). Calls are strictly sequential — each mutation recomputes set progress
  * in its own transaction and parallel writes would contend on the same rows.
  *
@@ -28,7 +28,7 @@ import {
  * rest of the batch. `dry_run` defaults to true and writes nothing.
  */
 
-const SOURCE = 'rotom-mcp';
+const SOURCE = 'deckpal-mcp';
 
 const itemSchema = z.object({
   card_id: z
@@ -230,7 +230,7 @@ export function registerLoggingTools(server: McpServer, ctx: Ctx): void {
     {
       title: 'Log collection changes',
       description:
-        'Log card acquisitions/removals to the LOCAL pokedex collection database — this edits ' +
+        'Log card acquisitions/removals to the LOCAL DeckPal collection database — this edits ' +
         'only this app\'s collection tracker, nothing external (no store, no marketplace, no ' +
         'purchases). Batch of 1–100 items; each picks a card (card_id, or name + set_id/number), ' +
         'optionally a variant, and exactly one of delta (signed change, e.g. +1 pulled / -1 traded ' +

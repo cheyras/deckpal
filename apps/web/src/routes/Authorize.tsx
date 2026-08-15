@@ -106,8 +106,8 @@ export function Authorize() {
         <AuthCard title="Invalid connection request" subtitle="This link is missing something an MCP connector request needs.">
           <p className="text-[14px] leading-[1.6] text-text-body">
             {!isCloudMode
-              ? "This DeckScout deployment is self-hosted and doesn't use sign-in-based connections — use the shared key instead."
-              : 'Go back to the app you were connecting DeckScout to and try adding the connector again.'}
+              ? "This DeckPal deployment is self-hosted and doesn't use sign-in-based connections — use the shared key instead."
+              : 'Go back to the app you were connecting DeckPal to and try adding the connector again.'}
           </p>
         </AuthCard>
       </AuthPage>
@@ -145,7 +145,7 @@ export function Authorize() {
 
   return (
     <AuthPage>
-      <AuthCard title="Connect to DeckScout" subtitle={<><span className="font-semibold text-text-primary">{clientName}</span> wants to access your account.</>}>
+      <AuthCard title="Connect to DeckPal" subtitle={<><span className="font-semibold text-text-primary">{clientName}</span> wants to access your account.</>}>
         <div className="mb-[20px] flex items-start gap-[12px] rounded-[12px] border border-action-ghost-border bg-surface-tertiary p-[14px]">
           <div className="mt-[1px] flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full bg-halo-neutral text-action-primary">
             <Icon name="link" size={16} />

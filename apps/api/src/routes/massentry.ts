@@ -5,7 +5,7 @@ import { currentUserId } from '../identity.js';
 import { MASSENTRY_NOTE, buildUrls, meLine, tcgplayerAbbrev } from '../tcgplayer/massentry.js';
 
 /**
- * GET /deckscout/api/sets/:setId/massentry — TCGplayer Mass Entry deep link(s)
+ * GET /deckpal/api/sets/:setId/massentry — TCGplayer Mass Entry deep link(s)
  * for every card still needed to finish the set (issue 2026-07-30_qhfs2f).
  *
  * The Mass Entry mechanics (line grammar, abbreviation vocabulary, URL
@@ -14,7 +14,7 @@ import { MASSENTRY_NOTE, buildUrls, meLine, tcgplayerAbbrev } from '../tcgplayer
  * (goal + optional finish filter below) — printing and condition are chosen
  * on TCGplayer's own page.
  *
- * Missing-for-goal math mirrors rotom-mcp's set_progress (and therefore
+ * Missing-for-goal math mirrors deckpal-mcp's set_progress (and therefore
  * recomputeSetProgress): complete = cards with no owned variant, master =
  * master_required_variant minus owned, grandmaster = every variant minus owned.
  * Variants with no TCGplayer identity are returned as `unlinkable` instead of
@@ -62,7 +62,7 @@ massEntryRouter.get(
     // A full selection is the same as no filter; normalize so responses agree.
     const finishes = rawFinishes.length && rawFinishes.length < FINISHES.length ? [...new Set(rawFinishes)] : null;
 
-    // Missing rows for the goal — same derivation as rotom-mcp set_progress /
+    // Missing rows for the goal — same derivation as deckpal-mcp set_progress /
     // recomputeSetProgress so counts reconcile with user_set_progress.
     let rows: MissingRow[];
     if (goal === 'complete') {

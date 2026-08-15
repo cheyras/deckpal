@@ -7,7 +7,7 @@ import { pagingFooter, row, winLoss } from '../format.js';
 /**
  * Deck-intelligence tools — SPEC §5 #15–#18 (strategy guides, battle logs,
  * version history; migration 019). Same rule as tools/decks.ts: everything
- * goes through deckscout-api via ctx.api — the LOCKED versioning semantics
+ * goes through deckpal-api via ctx.api — the LOCKED versioning semantics
  * (the auto-bump rule in apps/api/src/deck/versions.ts) live server-side and
  * stay single-sourced. No SQL here.
  *
@@ -21,7 +21,7 @@ import { pagingFooter, row, winLoss } from '../format.js';
  *   deck_strategy (improve, with version_note) → new logs land on the new version.
  */
 
-const SOURCE = 'rotom-mcp';
+const SOURCE = 'deckpal-mcp';
 const STRATEGY_MAX = 40000;
 
 // ── API payload shapes (only the fields these tools render) ──────────────────

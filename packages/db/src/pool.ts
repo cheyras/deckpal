@@ -13,7 +13,7 @@ const { Pool } = pg;
  * hostname verification for every one of them. libpq is explicit that
  * `require` means "encrypt, but do not verify the chain" (PostgreSQL docs,
  * libpq §"SSL Support"), so the documented Supabase path
- * (`PGSSLMODE=require pnpm --filter @deckscout/db migrate`) died with
+ * (`PGSSLMODE=require pnpm --filter @deckpal/db migrate`) died with
  * `self-signed certificate in certificate chain` against Supabase's pooler.
  * Deferring to pg here would mean either lying in DEPLOYMENT.md or telling
  * every open-core deployer to set a pg-only value (`no-verify`).
@@ -204,8 +204,8 @@ export function makePool(opts?: number | MakePoolOptions): pg.Pool {
   const pool = new Pool({
     host: backend.host,
     port: backend.port,
-    database: process.env.PGDATABASE ?? 'deckscout',
-    user: process.env.PGUSER ?? 'deckscout',
+    database: process.env.PGDATABASE ?? 'deckpal',
+    user: process.env.PGUSER ?? 'deckpal',
     password: process.env.PGPASSWORD,
     // Explicit, so pg's own PGSSLMODE reader never runs (see sslOptionFromEnv).
     ssl: sslOptionFromEnv(),
@@ -213,7 +213,7 @@ export function makePool(opts?: number | MakePoolOptions): pg.Pool {
     min: 0,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
-    application_name: process.env.PGAPPNAME ?? 'deckscout',
+    application_name: process.env.PGAPPNAME ?? 'deckpal',
   });
 
   // One line, once per pool, so that "the backend won't connect" is diagnosable

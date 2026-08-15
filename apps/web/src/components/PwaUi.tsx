@@ -46,7 +46,7 @@ function InstallButton() {
         setDeferred(null)
       }}
       className="pointer-events-auto flex h-[40px] items-center gap-[8px] rounded-full bg-surface-tertiary pl-[14px] pr-[16px] text-[14px] font-semibold text-text-primary shadow-lg ring-1 ring-border-default hover:bg-action-default-hover"
-      aria-label="Install DeckScout"
+      aria-label="Install DeckPal"
     >
       <Icon name="download" size={16} className="text-action-primary" />
       Install

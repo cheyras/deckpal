@@ -218,9 +218,9 @@ function SetTag({ tag, size = 34 }: { tag: string; size?: number }) {
 /* ── 1 · hero: an assistant grounded in YOUR collection ───────────────────────
  * The differentiator is not "there is a chat" — every product has one of those.
  * It is that the reply is answered out of the visitor's own shelf. So the bubble
- * is deliberately small and the thing it *cites* is large: a real DeckScout
+ * is deliberately small and the thing it *cites* is large: a real DeckPal
  * readiness panel, owned-vs-missing, with the cards you are short on and what
- * they cost. The chrome bar says "your assistant", not a vendor name: DeckScout
+ * they cost. The chrome bar says "your assistant", not a vendor name: DeckPal
  * ships no assistant of its own, you point yours at it.
  *
  * The arithmetic is checked, because a mockup whose numbers do not reconcile is
@@ -245,8 +245,8 @@ const AGENT_MISSING = [
 export function AgentMockup() {
   return (
     <AppFrame
-      label="your assistant · DeckScout connector"
-      ariaLabel="Illustration of an AI assistant connected to DeckScout: the question “what can I build from what I own?”, the DeckScout tools it called, and a reply citing a 54-of-60 deck with the missing cards and their prices."
+      label="your assistant · DeckPal connector"
+      ariaLabel="Illustration of an AI assistant connected to DeckPal: the question “what can I build from what I own?”, the DeckPal tools it called, and a reply citing a 54-of-60 deck with the missing cards and their prices."
     >
       {/* the ask */}
       <div className="flex justify-end">
@@ -261,7 +261,7 @@ export function AgentMockup() {
           className="inline-flex items-center gap-[5px] rounded-full bg-halo-neutral px-[9px] py-[4px] text-[10px] font-bold text-action-primary"
           style={{ boxShadow: 'inset 0 0 0 1px var(--color-overlay-ring)' }}
         >
-          <Icon name="sparkle" size={12} /> DeckScout
+          <Icon name="sparkle" size={12} /> DeckPal
         </span>
         {AGENT_TOOL_CALLS.map((t) => (
           <span
@@ -368,7 +368,7 @@ const VARIANTS = [
 export function ProgressMockup() {
   return (
     <AppFrame
-      label="deckscout.io/series/scarlet-violet/sv08"
+      label="deckpal.app/series/scarlet-violet/sv08"
       ariaLabel="Illustration of a set page: a completion ring at 78 percent, a collected-versus-total progress bar, and per-printing counters."
     >
       <div className="flex items-center gap-[16px]">
@@ -459,7 +459,7 @@ export function ValueMockup() {
 
   return (
     <AppFrame
-      label="deckscout.io/insights"
+      label="deckpal.app/insights"
       ariaLabel="Illustration of the insights page: total collection value with a rising area chart over six months."
     >
       <div className="flex flex-wrap items-end justify-between gap-[10px]">
@@ -576,7 +576,7 @@ const DECK_ROWS: { section: string; count: number; rows: { w: string; qty: numbe
 export function DeckMockup() {
   return (
     <AppFrame
-      label="deckscout.io/decks/42"
+      label="deckpal.app/decks/42"
       ariaLabel="Illustration of the deck builder: sixty cards grouped into Pokémon, Trainer and Energy sections, with a version history and an export-to-PTCG-Live action."
     >
       <div className="mb-[12px] flex flex-wrap items-center gap-[6px]">
@@ -636,7 +636,7 @@ export function DeckMockup() {
 export function ScanMockup() {
   return (
     <AppFrame
-      label="deckscout.io/scan"
+      label="deckpal.app/scan"
       ariaLabel="Illustration of the card scanner: a camera viewport with a focus reticle over a card, and a ranked list of matches below."
     >
       <div className="relative overflow-hidden rounded-xl bg-surface-primary" style={{ aspectRatio: '4 / 3' }}>
@@ -728,7 +728,7 @@ const POCKETS: (string | null)[] = [
 export function BinderMockup() {
   return (
     <AppFrame
-      label="deckscout.io/lists/binder"
+      label="deckpal.app/lists/binder"
       ariaLabel="Illustration of the nine-pocket binder view: a three-by-three page of card slots with two empty pockets."
     >
       <div className="mb-[12px] flex flex-wrap items-center gap-[6px]">

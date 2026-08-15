@@ -1,7 +1,7 @@
-import { loadEnv } from '@deckscout/db';
+import { loadEnv } from '@deckpal/db';
 
 /**
- * Thin fetch client for deckscout-api (SPEC §3: writes and all deck/list
+ * Thin fetch client for deckpal-api (SPEC §3: writes and all deck/list
  * operations go through the REST API so the write logic stays single-sourced).
  * JSON in/out. The API's `{ error: { code, message } }` envelope on non-2xx is
  * surfaced as a thrown Error carrying that message. One retry on ECONNREFUSED
@@ -13,11 +13,11 @@ import { loadEnv } from '@deckscout/db';
  * every call and answers with that user's rows only.
  */
 
-const DEFAULT_BASE = 'http://127.0.0.1:3700/deckscout/api';
+const DEFAULT_BASE = 'http://127.0.0.1:3700/deckpal/api';
 
 export function apiBase(): string {
   loadEnv();
-  return process.env.DECKSCOUT_API_BASE ?? DEFAULT_BASE;
+  return process.env.DECKPAL_API_BASE ?? DEFAULT_BASE;
 }
 
 function isConnRefused(err: unknown): boolean {
@@ -46,7 +46,7 @@ export interface Api {
 /**
  * Build an API client.
  *
- * @param base   Base URL, e.g. `https://deckscout.io/api`.
+ * @param base   Base URL, e.g. `https://deckpal.app/api`.
  * @param bearer Raw credential for the `Authorization: Bearer …` header. Omit
  *               on self-host, where the reverse proxy is the auth boundary.
  *               NEVER logged — not in errors, not in diagnostics.
@@ -69,7 +69,7 @@ export function makeApi(base: string, bearer?: string): Api {
       res = await fetch(url, init);
     } catch (err) {
       if (!isConnRefused(err)) throw err;
-      await sleep(500); // deckscout-api may be mid-restart; one retry only.
+      await sleep(500); // deckpal-api may be mid-restart; one retry only.
       res = await fetch(url, init);
     }
     const text = await res.text();
@@ -81,7 +81,7 @@ export function makeApi(base: string, bearer?: string): Api {
     }
     if (!res.ok) {
       const envelope = (json ?? {}) as ApiErrorBody;
-      const message = envelope.error?.message ?? `deckscout-api ${method} ${path} → ${res.status}`;
+      const message = envelope.error?.message ?? `deckpal-api ${method} ${path} → ${res.status}`;
       throw new Error(message);
     }
     return json;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deckscout — restore a backup produced by scripts/backup.sh (BRIEF §5).
+# deckpal — restore a backup produced by scripts/backup.sh (BRIEF §5).
 #
 # Restores the pokedex database dump + (optionally) the image cache onto a
 # possibly-FRESH Pi. Designed so the documented restore drill can target a
@@ -62,13 +62,13 @@ if [[ -f "$REPO_ROOT/.env" ]]; then
 fi
 IMAGE_CACHE_ROOT="${IMAGE_CACHE_ROOT:-$REPO_ROOT/cache}"
 
-DUMP="$BACKUP_ARG/deckscout-db.dump"
-IMG_TAR="$BACKUP_ARG/deckscout-images.tar"
-[[ -f "$DUMP" ]] || { echo "ERROR: no deckscout-db.dump in '$BACKUP_ARG'." >&2; exit 1; }
+DUMP="$BACKUP_ARG/deckpal-db.dump"
+IMG_TAR="$BACKUP_ARG/deckpal-images.tar"
+[[ -f "$DUMP" ]] || { echo "ERROR: no deckpal-db.dump in '$BACKUP_ARG'." >&2; exit 1; }
 
 psql_su() { sudo -u postgres psql -v ON_ERROR_STOP=1 "$@"; }
 
-echo "deckscout restore"
+echo "deckpal restore"
 echo "  backup : $BACKUP_ARG"
 echo "  target : database '$TARGET_DB'"
 
@@ -126,4 +126,4 @@ echo "Reminder: sprites are NOT in backups — run scripts/fetch-sprites.sh if t
 # The DB dump carries the image_asset manifest and the tar carries the bytes, so a full
 # restore is self-consistent. A partial one (--no-images, or a backup with no image
 # archive) is not — reconcile before trusting the cache.
-echo "Next: rtk pnpm --filter deckscout-images manifest:check   # disk vs image_asset, non-zero on drift"
+echo "Next: rtk pnpm --filter deckpal-images manifest:check   # disk vs image_asset, non-zero on drift"

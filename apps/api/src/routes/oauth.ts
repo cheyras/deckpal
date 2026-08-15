@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db.js';
 import { asyncHandler, badRequest, notFound } from '../http.js';
 import { currentUserId } from '../identity.js';
-import { createAuthCode, getClient } from '@deckscout/db';
+import { createAuthCode, getClient } from '@deckpal/db';
 
 /**
  * The signed-in half of the OAuth "Connect" flow — showing what a client is
@@ -13,7 +13,7 @@ import { createAuthCode, getClient } from '@deckscout/db';
  * approve issuing another one.
  *
  * The public half — registration and the code-for-token exchange, which run
- * before any DeckScout session exists — is oauthServer.ts, mounted at the
+ * before any DeckPal session exists — is oauthServer.ts, mounted at the
  * bare origin.
  *
  * Deliberately queries `pool` directly, never the per-request RLS client:
@@ -43,7 +43,7 @@ oauthRouter.get(
     if (!clientId || !redirectUri) throw badRequest('client_id and redirect_uri are required');
 
     const client = await getClient(pool, clientId);
-    if (!client) throw notFound('Unknown client_id. This connector may not be registered with DeckScout.');
+    if (!client) throw notFound('Unknown client_id. This connector may not be registered with DeckPal.');
     if (!client.redirectUris.includes(redirectUri)) {
       throw badRequest('redirect_uri does not match what this client registered.');
     }

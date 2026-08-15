@@ -20,7 +20,7 @@ parallel without colliding.
       taxonomy from spec (additive-only after this merge; A1's census refines payloads).
 - [ ] Archetype registry (canonical labels + aliases) + the grouping rule `matchup_stats` will use.
 - [ ] `card_impls`, `gauntlet_decks`, `battle_memories` (pgvector) tables.
-- [ ] `CREATE EXTENSION vector` in the deckscout DB (available in cluster at 0.8.0 — verified).
+- [ ] `CREATE EXTENSION vector` in the deckpal DB (available in cluster at 0.8.0 — verified).
 - [ ] Update `research/SCHEMA.md`; migration comments carry the one-table-vs-corpus-table
       rationale (spec Ground Truth #3 states the recommendation — justify or deviate in writing).
 

@@ -21,7 +21,7 @@ import { cacheStats, closePool, touchLastAccess } from './assets.js';
 import { PLACEHOLDER_CONTENT_TYPE, PLACEHOLDER_WEBP } from './placeholder.js';
 
 /**
- * deckscout-images — serves the local WebP cache (ARCHITECTURE §4, §5.2, §7.5).
+ * deckpal-images — serves the local WebP cache (ARCHITECTURE §4, §5.2, §7.5).
  *
  * Contract:
  *  - Cache HIT  → 200 image/webp, immutable long-cache + ETag (via res.sendFile),
@@ -40,7 +40,7 @@ export function createApp(): express.Express {
   const app = express();
   app.disable('x-powered-by');
 
-  app.get('/api/deckscout/images/health', async (_req, res) => {
+  app.get('/api/deckpal/images/health', async (_req, res) => {
     let db: 'up' | 'down' = 'down';
     let stats: Awaited<ReturnType<typeof cacheStats>> | null = null;
     try {
@@ -59,23 +59,23 @@ export function createApp(): express.Express {
 
   // Pokédex species sprites (registered BEFORE the 5-segment card route; these are
   // 3–4 segments so they never collide). id is validated numeric to bar traversal.
-  //   GET /deckscout/images/sprites/pixel/6.png        → {SPRITE_ROOT}/6.png
-  //   GET /deckscout/images/sprites/pixel/shiny/6.png  → {SPRITE_ROOT}/shiny/6.png
-  //   GET /deckscout/images/sprites/art/6.png          → {SPRITE_ROOT}/other/official-artwork/6.png
-  //   GET /deckscout/images/sprites/art/shiny/6.png    → {SPRITE_ROOT}/other/official-artwork/shiny/6.png
-  app.get('/deckscout/images/sprites/:kind/:a', spriteHandler);
-  app.get('/deckscout/images/sprites/:kind/:shiny/:a', spriteHandler);
+  //   GET /deckpal/images/sprites/pixel/6.png        → {SPRITE_ROOT}/6.png
+  //   GET /deckpal/images/sprites/pixel/shiny/6.png  → {SPRITE_ROOT}/shiny/6.png
+  //   GET /deckpal/images/sprites/art/6.png          → {SPRITE_ROOT}/other/official-artwork/6.png
+  //   GET /deckpal/images/sprites/art/shiny/6.png    → {SPRITE_ROOT}/other/official-artwork/shiny/6.png
+  app.get('/deckpal/images/sprites/:kind/:a', spriteHandler);
+  app.get('/deckpal/images/sprites/:kind/:shiny/:a', spriteHandler);
 
   // Set logos + symbols (catalog imagery warmed from card_set base URLs). 4-segment
-  // path after /deckscout/images, so it never collides with the 5-segment card route.
-  //   GET /deckscout/images/sets/sv03.5/logo.webp   → {CACHE_ROOT}/sets/sv03.5/logo.webp
-  //   GET /deckscout/images/sets/base1/symbol.webp  → 404 (no upstream symbol) → client fallback
-  app.get('/deckscout/images/sets/:setId/:file', setHandler);
+  // path after /deckpal/images, so it never collides with the 5-segment card route.
+  //   GET /deckpal/images/sets/sv03.5/logo.webp   → {CACHE_ROOT}/sets/sv03.5/logo.webp
+  //   GET /deckpal/images/sets/base1/symbol.webp  → 404 (no upstream symbol) → client fallback
+  app.get('/deckpal/images/sets/:setId/:file', setHandler);
 
   // Mirrored-upstream card route: the local path is a pure function of the
   // upstream image URL (DATA-LAYER §5.3), so no DB lookup is needed to locate a file.
-  //   GET /deckscout/images/en/sv/sv03.5/006/high.webp
-  app.get('/deckscout/images/:lang/:serie/:set/:localId/:file', cardHandler);
+  //   GET /deckpal/images/en/sv/sv03.5/006/high.webp
+  app.get('/deckpal/images/:lang/:serie/:set/:localId/:file', cardHandler);
 
   return app;
 }
@@ -208,7 +208,7 @@ const isMain = entryPath.endsWith('index.js') || entryPath.endsWith('index.ts');
 if (isMain) {
   const app = createApp();
   const server = app.listen(IMAGES_PORT, '127.0.0.1', () => {
-    console.log(`deckscout-images listening on 127.0.0.1:${IMAGES_PORT} (cache: ${CACHE_ROOT})`);
+    console.log(`deckpal-images listening on 127.0.0.1:${IMAGES_PORT} (cache: ${CACHE_ROOT})`);
   });
   const shutdown = () => {
     server.close(() => {

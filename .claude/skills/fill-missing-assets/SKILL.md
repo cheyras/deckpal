@@ -45,8 +45,8 @@ a plausible-but-unverified URL** — an invented source is worse than an honest 
 hides the gap.
 
 Existing fillers to reuse rather than reinvent — both already write through the choke point:
-- `pnpm --filter deckscout-images warm:gaps` — probes the catalog CDN for cards its manifest omits.
-- `pnpm --filter deckscout-images warm:pkmn` — pkmn.gg fallback for art the CDN 404s.
+- `pnpm --filter deckpal-images warm:gaps` — probes the catalog CDN for cards its manifest omits.
+- `pnpm --filter deckpal-images warm:pkmn` — pkmn.gg fallback for art the CDN 404s.
 
 If you need something they don't do, add a command in `apps/images/src/` — **not** a loose script
 in `scripts/`. Loose scripts are exactly how 1,970 files ended up in the cache with no record of
@@ -60,7 +60,7 @@ Report `N of M` filled and the honest residue (broken down by set/reason).
 **Then prove you left no drift** — this gate is not optional:
 
 ```bash
-rtk pnpm --filter deckscout-images manifest:check     # must exit 0
+rtk pnpm --filter deckpal-images manifest:check     # must exit 0
 ```
 
 Orphans (bytes with no row) and missing-file rows are both defects. The check also reports how

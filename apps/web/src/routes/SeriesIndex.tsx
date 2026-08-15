@@ -21,7 +21,7 @@ interface Prefs {
   groupByOwned: boolean
 }
 const DEFAULT_PREFS: Prefs = { sortKey: 'recency', sortDir: 'desc', groupByOwned: true }
-const PREFS_KEY = 'deckscout.series.prefs'
+const PREFS_KEY = 'deckpal.series.prefs'
 const SORT_KEYS: SortKey[] = ['recency', 'az', 'pct']
 const SORT_DIRS: SortDir[] = ['asc', 'desc']
 

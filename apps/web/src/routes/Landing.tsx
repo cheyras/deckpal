@@ -29,7 +29,7 @@ import './landing/landing.css'
 
 type Vars = CSSProperties & Record<`--${string}`, string>
 
-const REPO = 'https://github.com/cheyras/deckscout'
+const REPO = 'https://github.com/cheyras/deckpal'
 const WIKI = `${REPO}/wiki`
 const LICENSE = `${REPO}/blob/main/LICENSE`
 /* The connector walkthrough — the same six steps the app shows signed-in under
@@ -229,7 +229,7 @@ function Nav({ scrolled }: { scrolled: boolean }) {
       <nav className="ls-wrap flex h-[66px] items-center gap-[10px]" aria-label="Primary">
         <a href="#top" className="flex items-center gap-[9px] rounded-lg">
           <BrandMark size={30} />
-          <span className="brand-wordmark text-[19px] leading-none">DeckScout</span>
+          <span className="brand-wordmark text-[19px] leading-none">DeckPal</span>
         </a>
         <span className="flex-1" />
         {/* Below 480px the four items do not fit; the GitHub icon is the one to
@@ -239,7 +239,7 @@ function Nav({ scrolled }: { scrolled: boolean }) {
           href={REPO}
           target="_blank"
           rel="noreferrer"
-          aria-label="DeckScout on GitHub"
+          aria-label="DeckPal on GitHub"
           className="hidden h-[40px] w-[40px] items-center justify-center rounded-full text-icon-default hover:bg-surface-secondary hover:text-icon-hover min-[480px]:flex"
         >
           <GitHubGlyph />
@@ -325,7 +325,7 @@ function Hero({ scrollY }: { scrollY: number }) {
             className="mx-auto mt-[20px] max-w-[640px] text-text-body"
             style={{ fontSize: 'clamp(16px, 1.5vw, 19px)', lineHeight: 1.6 }}
           >
-            DeckScout tracks every English Pokémon card you own, then hands that collection to Claude over MCP.
+            DeckPal tracks every English Pokémon card you own, then hands that collection to Claude over MCP.
             Bring your own claude.ai or Claude Code — the answers come back from your real cards, prices and match
             history, not generic advice.
           </p>
@@ -399,7 +399,7 @@ function Stats() {
 /* ── agentic flow ─────────────────────────────────────────────────────────────
  * The lead story, spelled out. Everything claimed here is live and verified:
  * the endpoint, the token flow, the 21 tools, both clients, and the isolation
- * guarantee. What is deliberately NOT claimed: that DeckScout ships an
+ * guarantee. What is deliberately NOT claimed: that DeckPal ships an
  * assistant, or anything at all about how good the model is. The product is the
  * connection and the data behind it — the visitor brings the assistant.
  * ───────────────────────────────────────────────────────────────────────────── */
@@ -411,7 +411,7 @@ const AGENT_STEPS: { icon: 'key' | 'link' | 'sparkle'; title: string; body: Reac
     body: (
       <>
         <strong className="font-semibold text-text-body">Profile → Agent access</strong> mints a personal token.
-        It is shown once — DeckScout keeps only a hash — and you can revoke it from that same screen, on every
+        It is shown once — DeckPal keeps only a hash — and you can revoke it from that same screen, on every
         client at once.
       </>
     ),
@@ -421,7 +421,7 @@ const AGENT_STEPS: { icon: 'key' | 'link' | 'sparkle'; title: string; body: Reac
     title: 'Connect Claude',
     body: (
       <>
-        Add <span className="font-mono text-[14px] text-text-body">deckscout.io/mcp</span> as a custom connector
+        Add <span className="font-mono text-[14px] text-text-body">deckpal.app/mcp</span> as a custom connector
         in claude.ai, or register it in Claude Code with one <span className="font-mono text-[14px] text-text-body">claude&nbsp;mcp&nbsp;add</span> command.
         Both are supported, and there is nothing to install either way.
       </>
@@ -485,9 +485,9 @@ function AgentFlow() {
             Point Claude at your own collection.
           </h2>
           <p className="mt-[16px] text-[16px] leading-[1.65] text-text-body">
-            DeckScout speaks MCP. Generate a token, add one connector, and Claude can read your collection, your
+            DeckPal speaks MCP. Generate a token, add one connector, and Claude can read your collection, your
             set progress, your decks, your prices and your battle logs — and write back to them. There is no
-            chatbot to babysit here: you bring the assistant, DeckScout brings the data.
+            chatbot to babysit here: you bring the assistant, DeckPal brings the data.
           </p>
         </Reveal>
 
@@ -603,7 +603,7 @@ const TRUST = [
     at: '24% 4%',
     icon: 'book' as const,
     title: 'AGPL-3.0',
-    body: 'Copyleft, on purpose. Anyone who runs a modified DeckScout has to share the changes back — it cannot quietly become someone else’s closed product.',
+    body: 'Copyleft, on purpose. Anyone who runs a modified DeckPal has to share the changes back — it cannot quietly become someone else’s closed product.',
   },
   {
     accent: 'accent-insights',
@@ -642,7 +642,7 @@ function OpenSource() {
             Built in the open, and yours to keep.
           </h2>
           <p className="mt-[16px] text-[16px] leading-[1.65] text-text-body">
-            DeckScout isn’t a black box with a login screen. The entire project — app, API, database schema
+            DeckPal isn’t a black box with a login screen. The entire project — app, API, database schema
             and the catalog pipeline — lives on GitHub under AGPL-3.0. Read it, fork it, or take your
             collection and run the whole thing yourself.
           </p>
@@ -715,11 +715,11 @@ function OpenSource() {
 const FAQ = [
   {
     q: 'How does the Claude connection work?',
-    a: 'DeckScout exposes your account over MCP at deckscout.io/mcp. Create a personal token in Profile → Agent access, add it as a custom connector in claude.ai or register it in Claude Code, and Claude gets 21 tools scoped to your data — collection, set progress, card search, decks, lists, battle logs, strategy guides and a buy list. DeckScout has no assistant of its own; you bring yours, and you can revoke the token at any time.',
+    a: 'DeckPal exposes your account over MCP at deckpal.app/mcp. Create a personal token in Profile → Agent access, add it as a custom connector in claude.ai or register it in Claude Code, and Claude gets 21 tools scoped to your data — collection, set progress, card search, decks, lists, battle logs, strategy guides and a buy list. DeckPal has no assistant of its own; you bring yours, and you can revoke the token at any time.',
   },
   {
-    q: 'Is DeckScout free?',
-    a: 'Yes. The hosted app at deckscout.io is free to use, and because the source is AGPL-3.0 you can run your own copy at no cost either. There is nothing to buy and no card to enter.',
+    q: 'Is DeckPal free?',
+    a: 'Yes. The hosted app at deckpal.app is free to use, and because the source is AGPL-3.0 you can run your own copy at no cost either. There is nothing to buy and no card to enter.',
   },
   {
     q: 'Which cards does it cover?',
@@ -834,7 +834,7 @@ function Footer() {
           <div className="max-w-[320px]">
             <span className="flex items-center gap-[9px]">
               <BrandMark size={28} />
-              <span className="brand-wordmark text-[18px] leading-none">DeckScout</span>
+              <span className="brand-wordmark text-[18px] leading-none">DeckPal</span>
             </span>
             <p className="mt-[12px] text-[14px] leading-[1.6] text-text-muted">
               An open-source Pokémon TCG collection tracker. Track, build, and master your collection.
@@ -890,8 +890,8 @@ function Footer() {
         </div>
 
         <p className="mt-[36px] border-t border-border-default pt-[20px] text-[12px] leading-[1.6] text-text-muted">
-          DeckScout is an independent, fan-made project. Pokémon and all related names are trademarks of
-          Nintendo, Creatures Inc. and GAME FREAK inc. DeckScout is not affiliated with, endorsed or sponsored
+          DeckPal is an independent, fan-made project. Pokémon and all related names are trademarks of
+          Nintendo, Creatures Inc. and GAME FREAK inc. DeckPal is not affiliated with, endorsed or sponsored
           by them. Interface illustrations on this page are stylised recreations of the product.
         </p>
       </div>
@@ -927,7 +927,7 @@ export function Landing() {
         <Feature
           eyebrow="Collection tracking"
           title="Count the printing, not just the card."
-          body="Most trackers stop at the card. DeckScout tracks each printing of it — Normal, Reverse Holofoil, Holofoil and the special ones — with its own quantity, its own market price and its own place in your completion. Every set carries three goals: Complete, Master and Grandmaster."
+          body="Most trackers stop at the card. DeckPal tracks each printing of it — Normal, Reverse Holofoil, Holofoil and the special ones — with its own quantity, its own market price and its own place in your completion. Every set carries three goals: Complete, Master and Grandmaster."
           bullets={[
             'Tap a counter on the card to add a copy; hold to take one back',
             'Milestones at 25%, 50% and 75% turn from dots into stars',
@@ -940,7 +940,7 @@ export function Landing() {
           flip
           eyebrow="Value & price history"
           title="Know what the binder is worth."
-          body="Market prices sync daily into DeckScout's own database — no affiliate strings attached. Your total collection value is snapshotted every day, so a month in you have a real curve instead of a guess, and the trends tab shows what moved while you weren't looking."
+          body="Market prices sync daily into DeckPal's own database — no affiliate strings attached. Your total collection value is snapshotted every day, so a month in you have a real curve instead of a guess, and the trends tab shows what moved while you weren't looking."
           bullets={[
             'Ranges from 30 days to a full year',
             'Per-printing market prices, each stamped with when it was observed',
@@ -952,7 +952,7 @@ export function Landing() {
         <Feature
           eyebrow="Deck builder & match log"
           title="Build it here. Play it there."
-          body="Paste a Pokémon TCG Live decklist to import it, and export straight back the same way. Every save becomes a version you can diff and revert to. Then paste your battle logs — DeckScout reads the result, who went first and what your opponent played, and keeps a win–loss record per deck version."
+          body="Paste a Pokémon TCG Live decklist to import it, and export straight back the same way. Every save becomes a version you can diff and revert to. Then paste your battle logs — DeckPal reads the result, who went first and what your opponent played, and keeps a win–loss record per deck version."
           bullets={[
             'Standard, Expanded, GLC and Unlimited legality checks',
             'Test hand, deck pricing, and a buy-the-missing-cards handoff',
@@ -965,7 +965,7 @@ export function Landing() {
           flip
           eyebrow="Card scanner"
           title="Point your camera at the card."
-          body="Line a card up inside the frame and hold still. DeckScout matches it against the catalog by perceptual hash — no shutter button, no typing set codes — and adds it to your collection in a tap. No camera to hand? Drop in a photo instead."
+          body="Line a card up inside the frame and hold still. DeckPal matches it against the catalog by perceptual hash — no shutter button, no typing set codes — and adds it to your collection in a tap. No camera to hand? Drop in a photo instead."
           bullets={[
             'Fires on its own once two frames agree',
             'Ranked matches with a confidence score, not a single guess',

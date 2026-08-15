@@ -5,7 +5,7 @@
 #
 # Deliberately NOT run here:
 #   - test:collection (apps/api/src/__tests__) — those are live-DB integration
-#     tests against the PRODUCTION deckscout database (self-cleaning, but CI
+#     tests against the PRODUCTION deckpal database (self-cleaning, but CI
 #     should never mutate prod data on every push). Run them manually.
 #   - No Postgres service container — nothing in this workflow touches a
 #     live database.
@@ -37,32 +37,32 @@ jobs:
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
-      # @deckscout/db is consumed via its dist/ (main: dist/index.js) — a fresh
+      # @deckpal/db is consumed via its dist/ (main: dist/index.js) — a fresh
       # workspace has none until it's built, and both tsc and the test suites
       # resolve the workspace link through it.
-      - name: Build @deckscout/db
-        run: pnpm --filter @deckscout/db build
+      - name: Build @deckpal/db
+        run: pnpm --filter @deckpal/db build
 
-      # @deckscout/storage holds the image path algebra shared by apps/images and
+      # @deckpal/storage holds the image path algebra shared by apps/images and
       # the cloud image function, and is consumed via its dist/ the same way.
-      - name: Build @deckscout/storage
-        run: pnpm --filter @deckscout/storage build
+      - name: Build @deckpal/storage
+        run: pnpm --filter @deckpal/storage build
 
       - name: Typecheck all workspaces
         run: pnpm -r --workspace-concurrency=1 exec tsc --noEmit
 
       - name: Deck engine + battle-log parser tests (pure, no DB)
-        run: pnpm --filter deckscout-api test:deck
+        run: pnpm --filter deckpal-api test:deck
 
       - name: Image path parsing + traversal rejection tests (pure, no DB)
-        run: pnpm --filter deckscout-api test:images
+        run: pnpm --filter deckpal-api test:images
 
       # The storage package's own pure suites: the path algebra (paths.test.ts)
       # and the avatar choke point's guards — key shape, accepted magic bytes,
       # and the record-before-publish ordering that keeps a failed upload from
       # leaving a row behind (contract B1's shape for user uploads).
       - name: Storage path algebra + avatar choke point (pure, no DB)
-        run: pnpm --filter @deckscout/storage test
+        run: pnpm --filter @deckpal/storage test
 
       # JWT verification plus the cloud/self-host identity seam. The live-DB
       # suites that would otherwise catch a self-host regression stay out of CI
@@ -70,23 +70,23 @@ jobs:
       # proves cloud-with-credential, cloud-without-credential (401, no
       # fallback) and self-host (single local user) without a Postgres.
       - name: Auth + request identity tests (pure, no DB)
-        run: pnpm --filter deckscout-api test:auth
+        run: pnpm --filter deckpal-api test:auth
 
       # The address algebra behind `rekey:set` — which manifest rows an upstream
       # set-id rename puts in scope, and what their new path/cache key is. It
       # moves production bytes, so the part that can be proved without a database
       # or a bucket is proved on every push.
       - name: Image re-key address algebra (pure, no DB)
-        run: pnpm --filter deckscout-images test
+        run: pnpm --filter deckpal-images test
 
       - name: Build api
-        run: pnpm --filter deckscout-api build
+        run: pnpm --filter deckpal-api build
 
       - name: Build mcp
-        run: pnpm --filter deckscout-mcp build
+        run: pnpm --filter deckpal-mcp build
 
       - name: Build web
-        run: pnpm --filter deckscout-web build
+        run: pnpm --filter deckpal-web build
 
       - name: Build images
-        run: pnpm --filter deckscout-images build
+        run: pnpm --filter deckpal-images build

@@ -11,8 +11,8 @@ import {
   setImageRelativePath,
   type Quality,
   type SetImageKind,
-} from '@deckscout/storage';
-import type { Queryable } from '@deckscout/db';
+} from '@deckpal/storage';
+import type { Queryable } from '@deckpal/db';
 import { CACHE_ROOT } from './config.js';
 import { absoluteFromRelative } from './layout.js';
 import { closePool, getPool } from './assets.js';
@@ -47,7 +47,7 @@ import { closePool, getPool } from './assets.js';
  * asset does not make its origin any more knowable (AGENTS.md B1).
  *
  * `image_asset.cache_key` DOES change, and it has to. The cache key is a pure
- * function of the request path (`@deckscout/storage` paths.ts `cardCacheKey`), so
+ * function of the request path (`@deckpal/storage` paths.ts `cardCacheKey`), so
  * a request for the renamed card derives `card:swsh9tg-TG01:low` and nothing will
  * ever look up the old key again. Leaving it would strand the row a second way:
  * the LRU (`touchLastAccess`, `evictionCandidates`) and the cloud fill's
@@ -66,8 +66,8 @@ import { closePool, getPool } from './assets.js';
  * Exactly like `manifest:check`, this is one command with two modes, because in
  * the cloud topology the two tiers live in different databases:
  *
- *   pnpm --filter deckscout-images rekey:set --rename swsh9.5tg:swsh9tg --dry-run
- *   pnpm --filter deckscout-images rekey:set --rename swsh9.5tg:swsh9tg
+ *   pnpm --filter deckpal-images rekey:set --rename swsh9.5tg:swsh9tg --dry-run
+ *   pnpm --filter deckpal-images rekey:set --rename swsh9.5tg:swsh9tg
  *   (with .env.cloud loaded) … rekey:set --object-store --rename swsh9.5tg:swsh9tg
  *
  * Default mode moves FILES under IMAGE_CACHE_ROOT; `--object-store` moves OBJECTS
@@ -132,7 +132,7 @@ export interface RekeyReport {
  * Re-derive an asset's address under a different set id.
  *
  * The old `relative_path` is decomposed structurally and the NEW path and key are
- * rebuilt with the shared `@deckscout/storage` constructors — never by string
+ * rebuilt with the shared `@deckpal/storage` constructors — never by string
  * substitution on the old value. Then the OLD address is rebuilt the same way and
  * checked against what the row actually holds: a row that does not round-trip is
  * not a plain card/set asset (a `stale-duplicate:*` key, a hand-written path), and

@@ -14,7 +14,7 @@ import { SignInPrompt } from '../components/SignInPrompt'
 // their image path. We resolve tcgdexId → slug from /series (cached) so GridView's
 // card links resolve correctly across the many sets a species spans.
 function serieFromImagePath(low: string): string | null {
-  // /deckscout/images/en/{serie}/{set}/{localId}/low.webp
+  // /deckpal/images/en/{serie}/{set}/{localId}/low.webp
   const m = /\/images\/[^/]+\/([^/]+)\//.exec(low)
   return m ? m[1]! : null
 }

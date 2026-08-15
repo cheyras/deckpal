@@ -265,7 +265,7 @@ export async function dexCapturedCount(userId: string): Promise<number> {
 
 /** Sprite paths are a pure function of dex id (DEX-DATA §B.2, §D.1). */
 export function speciesSprite(dexId: number): SpeciesGridRow['sprite'] {
-  const base = '/deckscout/images/sprites';
+  const base = '/deckpal/images/sprites';
   return {
     pixel: `${base}/pixel/${dexId}.png`,
     pixelShiny: `${base}/pixel/shiny/${dexId}.png`,

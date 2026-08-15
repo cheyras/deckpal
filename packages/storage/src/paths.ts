@@ -5,7 +5,7 @@
  * it) so that both image tiers share a single definition:
  *
  *   - self-host  — `apps/images` serves these relative paths off local disk;
- *   - cloud      — the Vercel `/deckscout/images/*` function serves them out of
+ *   - cloud      — the Vercel `/deckpal/images/*` function serves them out of
  *                  Supabase Storage, using the SAME relative path as the object
  *                  key. That equality is deliberate: a full backfill is then a
  *                  straight upload of the on-disk cache tree, no remapping.
@@ -125,7 +125,7 @@ export function spriteSourceUrl(style: SpriteStyle, id: string, shiny: boolean):
  * The URL prefix every image request carries, self-host and cloud alike. Kept
  * here so the Vercel rewrite, the Express routes and the tests all agree.
  */
-export const IMAGE_URL_PREFIX = '/deckscout/images/';
+export const IMAGE_URL_PREFIX = '/deckpal/images/';
 
 /**
  * A TCGdex path segment. Ids are `[A-Za-z0-9.-]` after a leading alphanumeric —
@@ -185,7 +185,7 @@ export type ParseImagePathResult =
   | { ok: false; reason: 'bad-request' | 'not-found' };
 
 /**
- * Parse the part of the URL AFTER `/deckscout/images/` into a concrete asset.
+ * Parse the part of the URL AFTER `/deckpal/images/` into a concrete asset.
  *
  * Percent-escapes are decoded FIRST and validated after, so `%2e%2e%2f` is
  * rejected exactly like a literal `../`. A path is only ever accepted when every
@@ -289,7 +289,7 @@ export function parseImagePath(subPath: string): ParseImagePathResult {
  * Two shapes are accepted, because Vercel's rewrite hands us the capture group as
  * `?p=` while a direct/self-host request carries the original URL:
  *   1. `?p=en/sv/sv03.5/102/low.webp`  (the rewrite's capture group)
- *   2. `/deckscout/images/en/sv/sv03.5/102/low.webp` (the literal URL)
+ *   2. `/deckpal/images/en/sv/sv03.5/102/low.webp` (the literal URL)
  * Anything else returns null — and null is a 404, never the SPA shell.
  */
 export function imageSubPathFromUrl(rawUrl: string | undefined | null): string | null {
