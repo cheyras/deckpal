@@ -1,4 +1,4 @@
-# deckscout-api — read API contract
+# deckpal-api — read API contract
 
 The React frontend's contract. TypeScript/Express, ~55 routes.
 
@@ -6,10 +6,10 @@ The React frontend's contract. TypeScript/Express, ~55 routes.
 
 | Mode | Base path | Port | Auth boundary |
 |------|-----------|------|---------------|
-| Self-host | `/deckscout/api` | 3700 (127.0.0.1) | reverse proxy with auth |
+| Self-host | `/deckpal/api` | 3700 (127.0.0.1) | reverse proxy with auth |
 | Cloud (Vercel) | `/api` | serverless | Supabase JWT (Bearer token) |
 
-The base path is set by `API_BASE_PATH` (defaults to `/deckscout/api`). On Vercel
+The base path is set by `API_BASE_PATH` (defaults to `/deckpal/api`). On Vercel
 the Express app is mounted as a catch-all serverless function at `api/index.ts`.
 
 Pure-catalog reads (`/series`, `/sets`, `/cards`, `/search`, `/dex`, the PDF
@@ -19,9 +19,9 @@ exports), the **collection write endpoints** (§Collection) that mutate
 (validate / import / export / test-hand / pricing / versions / battle logs),
 the insights/gamification router, a perceptual-hash card scanner, and an
 in-app bug reporter. All queries parameterized, connection budget **2** (shared
-`@deckscout/db` pool, hard-capped at 3).
+`@deckpal/db` pool, hard-capped at 3).
 
-Base path: **`/deckscout/api`** (self-host) or **`/api`** (Vercel). Examples below
+Base path: **`/deckpal/api`** (self-host) or **`/api`** (Vercel). Examples below
 omit the host.
 
 ## Conventions
@@ -32,12 +32,12 @@ omit the host.
   (the source's observation time, not fetch time). Sources: `tcgcsv` (TCGplayer
   bulk, USD), `tcgdex-cardmarket` (Cardmarket, EUR), `tcgdex-tcgplayer`.
 - **Images.** The API returns image **paths**, never bytes. Card images resolve to
-  `/deckscout/images/en/{serie}/{set}/{localId}/{low|high}.webp`, served by the image
+  `/deckpal/images/en/{serie}/{set}/{localId}/{low|high}.webp`, served by the image
   service on 3701 (behind nginx at the same base). Set chrome (`logoUrl`,
   `symbolUrl`, `backgroundUrl`) are stored upstream URLs and may be `null`.
 - **PDF routes.** `GET /decks/:id/pdf`, `GET /lists/:id/pdf`, and
   `GET /sets/:setId/checklist.pdf` stream `application/pdf` with a
-  `Content-Disposition: attachment` filename. They are mounted at the `/deckscout/api`
+  `Content-Disposition: attachment` filename. They are mounted at the `/deckpal/api`
   base **before** the `/decks`, `/lists`, `/sets` routers so the `…/pdf` and
   `checklist.pdf` paths resolve to the PDF renderer (those routers define no such
   routes — explicit ordering removes the ambiguity). Rendered with pdfkit
@@ -83,17 +83,17 @@ The reverse proxy is the auth boundary. All requests pass through.
 
 ---
 
-## GET /deckscout/api/
+## GET /deckpal/api/
 A tiny index so hitting the base is not a 404. Returns the service name and a flat
 list of the registered endpoint paths (method-prefixed where the method is not
 GET). `public` cached for 1 h.
 ```json
-{ "name": "deckscout-api",
+{ "name": "deckpal-api",
   "endpoints": [ "/health", "/series", "/series/:seriesSlug", "/sets/:setId",
                  "PATCH /collection/variants/:variantId", … ] }
 ```
 
-## GET /deckscout/api/health
+## GET /deckpal/api/health
 DB liveness + latest run per sync job. Never cached.
 ```json
 { "status": "ok", "db": "up",
@@ -103,7 +103,7 @@ DB liveness + latest run per sync job. Never cached.
 ```
 `503 { "status": "degraded", "db": "down", "error": … }` if the DB is unreachable.
 
-## GET /deckscout/api/series
+## GET /deckpal/api/series
 The English-catalogue series list (newest-era ordering via `sortOrder`), each with
 the default user's per-series completion rollup (owned/total cards summed across
 the series' sets for the Complete goal, from the materialised `user_set_progress`).
@@ -118,7 +118,7 @@ Pokémon TCG Pocket (`tcgp`) is a separate game and is excluded. `private` cache
 `repSetId`/`repHasSymbol` describe the series' namesake/flagship set (the set
 sharing the series name, else the earliest non-promo set with a logo).
 
-## GET /deckscout/api/series/:seriesSlug
+## GET /deckpal/api/series/:seriesSlug
 Sets in a series, each with the three-goal completion summary for the default user.
 Zero-card catalogue artifacts (e.g. `base/wp`, `miscellaneous/jumbo`) are hidden.
 ```json
@@ -133,7 +133,7 @@ Zero-card catalogue artifacts (e.g. `base/wp`, `miscellaneous/jumbo`) are hidden
                 "grandmaster": { "owned": 0, "total": 409, "pct": 0 } } } ] }
 ```
 
-## GET /deckscout/api/sets/:setId
+## GET /deckpal/api/sets/:setId
 Set detail: header, the three goals, and the paginated card list.
 
 **Query params**
@@ -167,14 +167,14 @@ variant's TCGplayer/tcgcsv USD market (nulls sink last regardless of `dir`).
   "pagination": { "page":1, "pageSize":60, "total":207, "pageCount":4 },
   "cards": [ { "cardId":"sv03.5-1","number":"001","numberSort":"000000001","name":"Bulbasaur",
                "category":"Pokemon","rarity":"…","artist":"…","variantCount":2,
-               "images": { "low":"/deckscout/images/en/sv/sv03.5/001/low.webp","high":"…/high.webp" },
+               "images": { "low":"/deckpal/images/en/sv/sv03.5/001/low.webp","high":"…/high.webp" },
                "price": { "market": 0.42, "currency":"USD" },
                "ownership": { "totalQuantity":0,"requiredCount":2,"ownedRequired":0,
                               "have":false,"need":true,"dupe":false } } ] }
 ```
 `price` is `null` when the representative variant has no price.
 
-## GET /deckscout/api/cards/:cardId
+## GET /deckpal/api/cards/:cardId
 Card detail: attributes, types/subtypes/tags, attacks/abilities/weaknesses/
 resistances, dex species links, image refs, and every variant with composed
 display name, resolved tier, TCGplayer buy URL, and per-variant prices across all
@@ -188,7 +188,7 @@ sources/currencies.
             "flags": { "aceSpec":false,"radiant":false,"prismStar":false,"ruleBox":false },
             "set": { "setId":"base1","name":"Base Set","slug":"base-set","logoUrl":…,"symbolUrl":… },
             "series": { "slug":"base","name":"Base","tcgdexId":"base" },
-            "images": { "low":"/deckscout/images/en/base/base1/4/low.webp","high":"…" },
+            "images": { "low":"/deckpal/images/en/base/base1/4/low.webp","high":"…" },
             "types":["Fire"], "subtypes":[], "tags":[],
             "attacks":[ { "name":"Fire Spin","cost":"…","damage":"100","effect":"…" } ],
             "abilities":[], "weaknesses":[ { "type":"Water","value":"×2" } ], "resistances":[],
@@ -212,7 +212,7 @@ Empty `prices` ⇒ render "no price". `buyUrl` is `null` when there is no TCGpla
 mapping at all. `quantity` is the default user's owned count of that variant (0 if
 unowned) — the initial value for the card-detail quantity stepper.
 
-## GET /deckscout/api/search
+## GET /deckpal/api/search
 The 12-filter advanced search. AND across fields, OR within a multi-value field.
 
 | param | kind | notes |
@@ -250,7 +250,7 @@ The 12-filter advanced search. AND across fields, OR within a multi-value field.
 ```
 `public` cached for 2 min (pure catalog, no user state).
 
-## GET /deckscout/api/dex
+## GET /deckpal/api/dex
 National-dex species list.
 
 | param | values | default |
@@ -271,7 +271,7 @@ National-dex species list.
 `dex_species.total_card_count` column is unpopulated — 0 everywhere). `captured`
 = the default user owns ≥1 card featuring the species.
 
-## GET /deckscout/api/dex/:speciesId
+## GET /deckpal/api/dex/:speciesId
 A species and every card featuring it (card→species is many-to-many, so tag-team
 cards appear on both species). `sort` = `number`\|`price`\|`rarity`\|`artist`\|
 `released`, `dir` = `asc`\|`desc`.
@@ -316,36 +316,36 @@ own each `(card, standard-variant)` pair (over `master_required_variant`);
 The `/cards/:cardId/have` response omits `variantId`/`delta`/`isFirstAcquisition`
 and adds `cardId` at top level; `card`, `setId`, `progress` are identical in shape.
 
-### PATCH /deckscout/api/collection/variants/:variantId
+### PATCH /deckpal/api/collection/variants/:variantId
 Set the **absolute** owned quantity for a variant. `:variantId` is the numeric
 `card_variant.id`. Body `{ "quantity": N, "source"?, "note"? }` (integer 0–100000).
 Setting 0 keeps a qty-0 row (SCHEMA §9.1). `404` if the variant doesn't exist;
 `400` on a bad quantity.
 
-### POST /deckscout/api/collection/variants/:variantId/increment
+### POST /deckpal/api/collection/variants/:variantId/increment
 Adjust the owned quantity by a **signed delta** (default `+1`). Body
 `{ "delta": N, "source"?, "note"? }` (non-zero integer; floors at 0 — decrementing
 below 0 is a no-op with `delta:0`).
 
-### POST /deckscout/api/collection/cards/:cardId/have
+### POST /deckpal/api/collection/cards/:cardId/have
 Tile-level Have/Need toggle. `:cardId` is the card tcgdex id. Body
 `{ "have": bool, "source"?, "note"? }`. `have:true` owns the primary variant (sets
 it to 1 only if currently 0; never lowers a higher quantity). `have:false` zeroes
 **every** variant of the card (Need = own nothing, one event per zeroed variant).
 One transaction, one recompute.
 
-### POST /deckscout/api/collection/reconcile
+### POST /deckpal/api/collection/reconcile
 Internal nightly consistency sweep — recomputes the three `user_set_progress` rows
 for **every** set that has progress rows, from the live catalog + collection
 (bumps `recomputed_at` AND `reconciled_at`). On a quiet system this never changes
 derived values; it exists to heal drift. One transaction per set, strictly
 sequential (connection budget: the API owns 2 connections total). Called by the
-deckscout-sync `reconcile` cron over HTTP. Any request body is ignored.
+deckpal-sync `reconcile` cron over HTTP. Any request body is ignored.
 ```json
 { "sets": 218, "ms": 412 }
 ```
 
-### GET /deckscout/api/collection/events
+### GET /deckpal/api/collection/events
 The collection activity log, newest first, each event resolved to human fields
 (card/set names, number, variant label, images). Powers the stream overlay
 ("just added Charizard, Base Set, #4") and an Activity view.
@@ -390,7 +390,7 @@ Single default user, `user_id` threaded everywhere. Writes go through `withTx` s
 the item write + position bookkeeping are atomic. `:id` is a UUID;
 `400`-as-`404` on a non-UUID id.
 
-### GET /deckscout/api/lists
+### GET /deckpal/api/lists
 All lists for the default user, favorite-first then `updated_at DESC`, each with
 summary aggregates.
 ```json
@@ -404,7 +404,7 @@ summary aggregates.
 ```
 `progress` is `null` for `static` lists (no collection tie).
 
-### GET /deckscout/api/lists/:id
+### GET /deckpal/api/lists/:id
 One list's summary plus its resolved items in position order. Card items carry
 variant metadata, owned-from-collection quantity, market price, and per-item
 routing slugs (a list spans many sets). `pokedex_binder` items are shaped as a
@@ -431,7 +431,7 @@ species, so the same grid/binder view renders them.
                               "ownedRequired": 1, "have": true, "need": false, "dupe": false } } ] }
 ```
 
-### POST /deckscout/api/lists
+### POST /deckpal/api/lists
 Create a list. Body `{ "name" (required, ≤120), "kind"? = "dynamic"\|"static"\|
 "pokedex_binder", "description"? (≤2000), "visibility"? = "private"\|"public" }`.
 A `pokedex_binder` gets a default `pocketSize` of 9. `201` returns the summary.
@@ -439,7 +439,7 @@ A `pokedex_binder` gets a default `pocketSize` of 9. `201` returns the summary.
 { "list": { …summary shape… } }
 ```
 
-### PATCH /deckscout/api/lists/:id
+### PATCH /deckpal/api/lists/:id
 Rename / edit description / visibility / favorite / cover / pocket size / reorder.
 Body fields are all optional; only the ones present are applied.
 `{ "name"?, "description"?, "visibility"?, "isFavorite"?, "coverRender"? =
@@ -447,10 +447,10 @@ Body fields are all optional; only the ones present are applied.
 integer or null), "itemOrder"? (array of itemIds — rewrites positions 0..n-1;
 items not named keep a high position, appended after) }`. Returns the summary.
 
-### DELETE /deckscout/api/lists/:id
+### DELETE /deckpal/api/lists/:id
 `{ "deleted": "<uuid>" }`. `404` if the list doesn't exist.
 
-### POST /deckscout/api/lists/:id/items
+### POST /deckpal/api/lists/:id/items
 Add a card/variant (or a species slot for a binder). Body depends on the list kind:
 - dynamic / static: `{ "cardVariantId" | "variantId" (positive int, required),
   "position"? (int ≥0, default end), "note"? (≤500), "staticQuantity"? (static
@@ -461,7 +461,7 @@ Add a card/variant (or a species slot for a binder). Body depends on the list ki
 `200 { "itemId": null, "alreadyPresent": true, "list": … }`; `static` always
 inserts a fresh row (`201`). Returns the updated list summary.
 
-### DELETE /deckscout/api/lists/:id/items/:itemId
+### DELETE /deckpal/api/lists/:id/items/:itemId
 `{ "deleted": "<itemId>", "list": …summary or null… }`. `404` if the item isn't in
 the list. Bumps the list's `updated_at`.
 
@@ -485,7 +485,7 @@ metadata (incl. `version`, `strategyMd`, `totalCount`, `valueUsd`, `legal`), the
 `cardRefs` map keyed by numeric card id (for in-place violation highlighting),
 and the GLC type vocabulary.
 
-### GET /deckscout/api/decks
+### GET /deckpal/api/decks
 Index, favorite-first then `updated_at DESC`. Each row carries `record:
 { wins, losses, ties }` aggregated over **all** versions (one query), plus the
 same metadata shape as the detail's `deck` (validated under the stored format).
@@ -496,17 +496,17 @@ same metadata shape as the detail's `deck` (validated under the stored format).
                "record": { "wins": 3, "losses": 1, "ties": 0 }, … } ] }
 ```
 
-### POST /deckscout/api/decks
+### POST /deckpal/api/decks
 Create an **empty** deck (seeds the v1 snapshot). Body `{ "name" (required,
 ≤120), "formatCode"|"format"? = "standard"\|"expanded"\|"glc"\|"unlimited",
 "description"? (≤2000), "glcType"? (required for `glc`, defaults to the first
 type), "source"? }`. `201` returns the full detail payload.
 
-### GET /deckscout/api/decks/:id
+### GET /deckpal/api/decks/:id
 The full detail payload for one deck. `404` if the deck doesn't exist (non-UUID
 ids are also a `404`).
 
-### PATCH /deckscout/api/decks/:id
+### PATCH /deckpal/api/decks/:id
 Rename / edit description / format / glcType / favorite / cover render. Body
 fields all optional: `{ "name"?, "description"?, "formatCode"|"format"?,
 "glcType"?, "isFavorite"?, "coverRender"?, "source"?, "versionNote"? }`. A
@@ -514,33 +514,33 @@ fields all optional: `{ "name"?, "description"?, "formatCode"|"format"?,
 path as a card edit; rename/favorite/cover changes never bump. Returns the detail
 payload.
 
-### DELETE /deckscout/api/decks/:id
+### DELETE /deckpal/api/decks/:id
 `{ "deleted": "<uuid>" }`. Cascades to `deck_card`, `deck_version`,
 `battle_log`.
 
-### POST /deckscout/api/decks/:id/cards
+### POST /deckpal/api/decks/:id/cards
 Additive upsert of a card (quantity clamped to 60). Body `{ "cardId"|"card"
 (required — tcgdex id or numeric catalogue id), "quantity"? = 1, "source"?,
 "versionNote"? }`. On conflict the quantity is **added** (then clamped). Records
 a version snapshot via the auto-bump rule. `201` returns the detail payload.
 
-### PATCH /deckscout/api/decks/:id/cards/:cardId
+### PATCH /deckpal/api/decks/:id/cards/:cardId
 Set the **absolute** quantity for a card in the deck. Body
 `{ "quantity" (int 0–60, required), "source"?, "versionNote"? }`. `quantity: 0`
 removes the row. `:cardId` is a tcgdex id or numeric catalogue id. Records a
 version snapshot. Returns the detail payload.
 
-### DELETE /deckscout/api/decks/:id/cards/:cardId
+### DELETE /deckpal/api/decks/:id/cards/:cardId
 Remove a card from the deck. `:cardId` is a tcgdex id or numeric catalogue id.
 Body `{ "source"?, "versionNote"? }` (optional). Records a version snapshot.
 Returns the detail payload.
 
-### GET /deckscout/api/decks/:id/validate
+### GET /deckpal/api/decks/:id/validate
 Run the legality engine and return `{ validation, cardRefs }` without persisting
 anything. Query `?format=` overrides the stored format for the check (defaults to
 the deck's `format_code`).
 
-### POST /deckscout/api/decks/import
+### POST /deckpal/api/decks/import
 Paste a decklist and create a new deck from it. Body `{ "text" (required, ≤20000),
 "source"? = "ptcgl"\|"massentry" (the decklist syntax — defaults `ptcgl`),
 "writeSource"? (writer attribution, since `source` is taken), "formatCode"|
@@ -555,14 +555,14 @@ two lines is summed (clamped to 60). Unresolved lines are reported, not dropped.
               "warnings": [ { …non-UNRESOLVED import warnings… } ] } }
 ```
 
-### GET /deckscout/api/decks/:id/export
+### GET /deckpal/api/decks/:id/export
 Serialize the deck to interchange text. Query `?format=ptcgl|massentry` (default
 `ptcgl`). Returns `{ "format", "text", "warnings" }`. PTCGL output uses real
 PTCGL vocabulary (set codes, brace Energy, stripped zeros) with structured
 warnings for anything Live cannot resolve; Mass Entry output uses the stored
 per-variant token when present, else a bare name line.
 
-### GET /deckscout/api/decks/:id/testhand
+### GET /deckpal/api/decks/:id/testhand
 Draw a randomized opening hand + prize cards from the deck. Query `?seed=` (uint32;
 omit for a random seed, which is returned). Returns:
 ```json
@@ -577,7 +577,7 @@ omit for a random seed, which is returned). Returns:
 extra mulligan). `mulliganChancePct` is the hypergeometric probability of a
 mulligan for this deck's basic count.
 
-### GET /deckscout/api/decks/:id/pricing
+### GET /deckpal/api/decks/:id/pricing
 Per-card and roll-up pricing for the deck against the collection. Primary-variant
 tcgcsv USD market per card; `owned` is summed across all variants of the print.
 Returns total / owned / missing value, a per-card `cards` array, and a `missing`
@@ -596,22 +596,22 @@ image. `massEntryText` joins the missing lines.
   "massEntryText": "2 Charizard [SVI] 25\n…" }
 ```
 
-### PUT /deckscout/api/decks/:id/strategy
+### PUT /deckpal/api/decks/:id/strategy
 Body `{ "strategyMd": "# …" | null, "source"? }` (≤40000 chars; `null`/`''`
 clears). Updates `deck.strategy_md` **and** the current version's snapshot in
 place — never bumps. Returns the full deck detail payload.
 
-### GET /deckscout/api/decks/:id/versions
+### GET /deckpal/api/decks/:id/versions
 The version timeline, newest first.
 ```json
 { "current": 3,
-  "versions": [ { "version": 3, "note": "added a second attacker", "source": "rotom-mcp",
+  "versions": [ { "version": 3, "note": "added a second attacker", "source": "deckpal-mcp",
                   "createdAt": "2026-07-30T…", "cardCount": 60, "formatCode": "standard",
                   "battleLogs": { "total": 0, "wins": 0, "losses": 0, "ties": 0 },
                   "isCurrent": true } ] }
 ```
 
-### GET /deckscout/api/decks/:id/versions/:v
+### GET /deckpal/api/decks/:id/versions/:v
 One snapshot plus the diff vs `v-1` (`diff` is `null` for v1).
 ```json
 { "version": 2, "isCurrent": false, "formatCode": "standard",
@@ -624,7 +624,7 @@ One snapshot plus the diff vs `v-1` (`diff` is `null` for v1).
             "changed": [ { "name": "Ultra Ball", "tcgdexId": "sv01-196", "from": 3, "to": 4 } ] } }
 ```
 
-### POST /deckscout/api/decks/:id/revert
+### POST /deckpal/api/decks/:id/revert
 Body `{ "toVersion": 1, "includeStrategy"?: true, "note"?, "source"? }`.
 Non-destructive: reconciles `deck_card` to the old snapshot **through the same
 auto-bump path** (bumps if the current version has logs, else amends), note
@@ -634,7 +634,7 @@ Returns the deck detail payload plus
 (`skippedCards` = snapshot entries whose print has vanished from the catalog —
 near-impossible under `ON DELETE RESTRICT` — reported, never silently dropped).
 
-### GET /deckscout/api/decks/:id/logs
+### GET /deckpal/api/decks/:id/logs
 `?version=` (filter to one version) `&page=` `&pageSize=` (default 50, cap 200).
 Summaries only — never `rawLog`. `totals` covers the same filter scope.
 ```json
@@ -647,7 +647,7 @@ Summaries only — never `rawLog`. `totals` covers the same filter scope.
   "pagination": { "page": 1, "pageSize": 50, "total": 4, "pageCount": 1 } }
 ```
 
-### POST /deckscout/api/decks/:id/logs
+### POST /deckpal/api/decks/:id/logs
 Body `{ "rawLog" (required, ≤50000), "result"?, "opponent"?, "opponentDeck"?,
 "notes"? (≤2000), "playedAt"? (ISO), "playerName"?, "source"? }`. Runs the PTCG
 Live parser; parser-derived `result` / `opponent` / `opponentDeck` (deck guess)
@@ -668,16 +668,16 @@ fill any fields the caller omitted. Attaches to the deck's **current** version.
                            "opponentDeckGuess": "Dragapult ex / Dusknoir" } } }
 ```
 
-### GET /deckscout/api/decks/:id/logs/:logId
+### GET /deckpal/api/decks/:id/logs/:logId
 The full row — same `log` shape as the 201 above (summary fields + `rawLog` +
 `parsed` + `createdAt`).
 
-### PATCH /deckscout/api/decks/:id/logs/:logId
+### PATCH /deckpal/api/decks/:id/logs/:logId
 Body: any of `{ "result", "opponent", "opponentDeck", "notes", "playedAt" }`.
 Metadata only — the raw log and its version attachment are immutable. Explicit
 `null` clears everything except `playedAt`. Returns `{ "log": … }` (full shape).
 
-### DELETE /deckscout/api/decks/:id/logs/:logId
+### DELETE /deckpal/api/decks/:id/logs/:logId
 `{ "deleted": 7 }`.
 
 ---
@@ -695,7 +695,7 @@ Printing and condition can never be preselected by link (chosen on TCGplayer's
 page); the response's `note` says so. Cards/variants with no TCGplayer product
 are returned in `unlinkable`, never silently dropped.
 
-### GET /deckscout/api/sets/:setId/massentry
+### GET /deckpal/api/sets/:setId/massentry
 Cart link(s) for every card still needed to finish the set.
 Query: `goal` = `complete` (default) | `master` | `grandmaster`; `finish`
 (repeatable, master/grandmaster only) = `normal`|`reverse`|`holo`|`lenticular`|`metal`.
@@ -710,7 +710,7 @@ Query: `goal` = `complete` (default) | `master` | `grandmaster`; `finish`
   "warnings": [], "note": "Printing … Mass Entry page." }
 ```
 
-### GET /deckscout/api/decks/:id/massentry
+### GET /deckpal/api/decks/:id/massentry
 Cart link(s) for the deck's **missing** cards — same math as `/decks/:id/pricing`
 (`deck_card.quantity` minus owned copies across all variants of the print).
 ```json
@@ -737,22 +737,22 @@ fewest sellers — or one seller with everything — so it ships in one package.
 Read-only, parameterized (ids come from the URL), each streams
 `application/pdf` with a `Content-Disposition: attachment` filename and
 `private, no-cache`. Rendered with pdfkit (pure-JS/ARM-safe). Mounted at the
-`/deckscout/api` base **before** the `/decks`, `/lists`, `/sets` routers.
+`/deckpal/api` base **before** the `/decks`, `/lists`, `/sets` routers.
 
-### GET /deckscout/api/decks/:id/pdf
+### GET /deckpal/api/decks/:id/pdf
 A printable deck list for `:id` (UUID). Loads the deck + cards, runs the legality
 engine (`validateDeck`, with a reprint oracle for pool-checked formats) for the
 verdict, and renders Pokémon/Trainer/Energy sections with owned counts, set codes
 (PTCGL alias), per-section counts, distinct-name count, and a generated-at stamp.
 `404` for a non-UUID id or a missing deck.
 
-### GET /deckscout/api/lists/:id/pdf
+### GET /deckpal/api/lists/:id/pdf
 A printable export of list `:id` (UUID). Renders the list items (card rows with
 variant label + owned flag; `pokedex_binder` species as `Pokédex #<n>`), the
 item/owned counts, and progress for `dynamic`/`pokedex_binder` lists (static
 lists have no progress). `404` for a non-UUID id or a missing list.
 
-### GET /deckscout/api/sets/:setId/checklist.pdf
+### GET /deckpal/api/sets/:setId/checklist.pdf
 A printable set checklist. One row per card (number, name, rarity, category) with
 an owned checkbox; owned = any variant has qty ≥ 1 (the Complete goal's
 card-fraction semantics, matching `/sets/:setId`). Header carries set name, id,
@@ -764,11 +764,11 @@ progress rollup.
 ## Insights — gamification & collection value
 
 Mounted at `/insights`. Every GET is read-only over the collection; the one write
-is `POST /value/snapshot`, which the deckscout-sync daily cron calls over HTTP
+is `POST /value/snapshot`, which the deckpal-sync daily cron calls over HTTP
 (sync must not import this app — its `db.ts` opens a 2-connection pool at module
 load). All `private, no-cache`.
 
-### GET /deckscout/api/insights/overview
+### GET /deckpal/api/insights/overview
 Trainer level + collection value + dex summary in one payload.
 ```json
 { "trainer": { "level": 4, "levelProgress": { "current": 120, "needed": 150, "pct": 80 },
@@ -780,7 +780,7 @@ Trainer level + collection value + dex summary in one payload.
 `uniqueMode` (`cards` or `pairs`) decides whether trainer level counts distinct
 cards or distinct `(card, variant)` pairs.
 
-### GET /deckscout/api/insights/value
+### GET /deckpal/api/insights/value
 Collection value over time + top movers. Query: `range` =
 `30d`\|`3m`\|`6m`\|`1y` (default `30d`); `currency` = `USD`\|`EUR`\|`JPY`
 (default `USD`).
@@ -792,21 +792,21 @@ Collection value over time + top movers. Query: `range` =
                 "fromMinor": 1200, "toMinor": 1800, "pct": 50 } ] }
 ```
 
-### POST /deckscout/api/insights/value/snapshot
+### POST /deckpal/api/insights/value/snapshot
 Internal daily snapshot — appends today's per-currency totals to
 `collection_value_point` for the default user. Idempotent per
 `(user, observed_on, currency)`: a same-day re-run inserts nothing
 (`ON CONFLICT DO NOTHING`) and reports `inserted: 0`. Any request body is
 ignored. Returns the snapshot result (`{ currencies, inserted, observedOn }`).
 
-### GET /deckscout/api/insights/pokedex
+### GET /deckpal/api/insights/pokedex
 The gamified species grid (a richer view than `/dex`). Query: `generation` (1–9),
 `own` = `all`\|`captured`\|`uncaptured` (default `all`), `q` (free text),
 `page`/`pageSize` (1–1025, default 200). Returns the grid payload produced by
 `insights/pokedex.speciesGrid` (species rows with capture state + level/shiny
 roll-ups).
 
-### GET /deckscout/api/insights/pokedex/:speciesId
+### GET /deckpal/api/insights/pokedex/:speciesId
 One species' cards + capture/level/shiny detail. `:speciesId` accepts the numeric
 dex id or the slug. `404` when no such species. Returns the
 `insights/pokedex.speciesDetail` payload.
@@ -815,7 +815,7 @@ dex id or the slug. `404` when no such species. Returns the
 
 ## Scan — perceptual-hash card matcher
 
-### POST /deckscout/api/scan
+### POST /deckpal/api/scan
 Offline card scanner: image → catalog match. Send the **raw image bytes** as the
 request body with an `image/*` Content-Type — **not** multipart, **not** base64
 (`curl --data-binary @photo.jpg -H 'Content-Type: image/jpeg' …`). Max upload
@@ -850,7 +850,7 @@ scan indexer.
 
 ## Bugs — in-app bug reporter
 
-### POST /deckscout/api/bugs
+### POST /deckpal/api/bugs
 The top-nav "Report a bug" button posts here. Body (JSON, 12 MB limit for the
 screenshot data URL):
 `{ "text" (required, ≤20000), "page"? (current route), "userAgent"?, "viewport"?,

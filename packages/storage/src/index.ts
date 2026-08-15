@@ -1,5 +1,5 @@
 /**
- * @deckscout/storage — the cached-image asset layer.
+ * @deckpal/storage — the cached-image asset layer.
  *
  * Two things live here:
  *   1. `paths.ts` — the ONE definition of the path/cache-key algebra, shared by

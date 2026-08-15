@@ -16,11 +16,11 @@ export function VersionChip({ version, current = false }: { version: number; cur
   )
 }
 
-// Attribution chip. 'web' (the default writer) renders nothing; 'rotom-mcp' is
+// Attribution chip. 'web' (the default writer) renders nothing; 'deckpal-mcp' is
 // surfaced as "agent" with a sparkle, anything else shows its raw source name.
 export function SourceChip({ source }: { source: string }) {
   if (source === 'web') return null
-  const agent = source === 'rotom-mcp'
+  const agent = source === 'deckpal-mcp'
   return (
     <span className="inline-flex shrink-0 items-center gap-[4px] rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[12px] font-bold uppercase tracking-wide text-text-muted">
       {agent && <Icon name="sparkle" size={11} className="text-action-primary" />}

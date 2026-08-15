@@ -82,7 +82,7 @@ other games, download the bulk JSON. Extraction ≠ running the service.
 
 ### Step 2 — Map the source to the schema
 
-Read `research/SCHEMA.md` and `wiki: Data-Layer (https://github.com/cheyras/deckscout/wiki/Data-Layer)`, then write a mapping from the source's
+Read `research/SCHEMA.md` and `wiki: Data-Layer (https://github.com/cheyras/deckpal/wiki/Data-Layer)`, then write a mapping from the source's
 fields to the tables above. Decisions you'll make per game:
 
 - **Variant/printing model.** Enumerate the game's printings and map each to a `variant_kind`
@@ -102,7 +102,7 @@ fields to the tables above. Decisions you'll make per game:
 ### Step 3 — Populate the catalog (idempotent, resumable, verified)
 
 Mirror the reference importer (`apps/sync/src/catalog/{cli,import,transform}.ts`, run via
-`pnpm --filter deckscout-sync import:catalog <dataDir>`). Properties to preserve:
+`pnpm --filter deckpal-sync import:catalog <dataDir>`). Properties to preserve:
 
 - **Idempotent** — `ON CONFLICT … DO UPDATE`; re-running is a no-op / clean update.
 - **Batched, one txn per batch, pooled connection** — respect the connection budget (this
@@ -129,8 +129,8 @@ type is added there (with the user's approval) by the `add-image-slot` skill, ne
 <IMAGE_CACHE_ROOT>/sets/<setId>/<logo|symbol>.webp                        ← set imagery
 ```
 
-Served by `apps/images` (`GET /deckscout/images/<lang>/<serie>/<set>/<localId>/<low|high>.webp`
-and `/deckscout/images/sets/<setId>/<logo|symbol>.webp`). A cache **miss serves a ~1 KB
+Served by `apps/images` (`GET /deckpal/images/<lang>/<serie>/<set>/<localId>/<low|high>.webp`
+and `/deckpal/images/sets/<setId>/<logo|symbol>.webp`). A cache **miss serves a ~1 KB
 placeholder** — that's the "no image" users report. See `apps/images/src/layout.ts` for the
 authoritative path functions; replicate them, don't guess.
 
@@ -163,7 +163,7 @@ someone else established.)
 **Bytes on disk with no manifest row are a defect.** Prove you created none:
 
 ```bash
-rtk pnpm --filter deckscout-images manifest:check      # exits non-zero on drift
+rtk pnpm --filter deckpal-images manifest:check      # exits non-zero on drift
 ```
 
 This is how 1,970 orphaned files accumulated before 2026-08-07: ad-hoc gap-fill scripts wrote
@@ -210,14 +210,14 @@ The offline scanner matches an uploaded photo against a **dHash per cached card 
 (`apps/api/src/scan/{index,phash,router}.ts`, table `card_image_phash`, migration
 `016_card_image_phash.sql`). After warming new art:
 
-1. **Rebuild the index** — `pnpm --filter deckscout-api scan:index` (idempotent/resumable; hashes
+1. **Rebuild the index** — `pnpm --filter deckpal-api scan:index` (idempotent/resumable; hashes
    cards that have a cached image but no hash; `--force` to recompute; `nice`/`ionice` it).
 2. **🔴 Restart the scan service (self-host only)** — it loads the index into memory at boot.
    New hashes are invisible until the API process is restarted. (This one bites every time: the
    DB had the hash, self-match was distance 0, but the running service still used the boot-time
    index.) Cloud deployments: the scanner is parked for Wave 3; when implemented, the SQL-based
    scanner reads directly from `card_image_phash` with no restart needed.
-3. **Verify** — feed a known card's own cached art to `POST /deckscout/api/scan`; it must
+3. **Verify** — feed a known card's own cached art to `POST /deckpal/api/scan`; it must
    self-match at **distance 0**. Query-side preprocessing (a background-trim variant,
    min-combined with the plain hash) makes real photos-with-background work — keep the *index*
    plain and only trim the *query* (trimming the index shifts bordered cards and breaks
@@ -301,7 +301,7 @@ keep game-specific specifics in the game's runbook / the slot's `image-slots.md`
 ## Canonical references in this repo
 
 - `research/SCHEMA.md` — the data model (read before mapping).
-- `wiki: Data-Layer (https://github.com/cheyras/deckscout/wiki/Data-Layer)` — source-field → schema details, price/id coverage.
+- `wiki: Data-Layer (https://github.com/cheyras/deckpal/wiki/Data-Layer)` — source-field → schema details, price/id coverage.
 - `ARCHITECTURE.md` — services, ports, the image cache design.
 - The Pokémon-specific sync runbook (per-release procedure, the pkmn.gg
   API map, the image-fallback flow) — the concrete instance of this skill.

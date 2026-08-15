@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deckscout — one-command backup (BRIEF §5, DECISIONS.md 2026-07-24).
+# deckpal — one-command backup (BRIEF §5, DECISIONS.md 2026-07-24).
 #
 # Backs up EXACTLY two things, the only non-reproducible state:
 #   1. the `pokedex` Postgres database  (pg_dump, custom/compressed format)
@@ -10,13 +10,13 @@
 #   - assets/sprites  (re-fetchable via scripts/fetch-sprites.sh — reproducible)
 #   - the git repo    (already in git)
 #
-# Output lands OUTSIDE the repo (default ~/deckscout-backups), in a timestamped
+# Output lands OUTSIDE the repo (default ~/deckpal-backups), in a timestamped
 # dir, so nothing backup-shaped is ever committed. Idempotent + safe to cron:
-# every run makes a fresh dir and prunes to the last N (DECKSCOUT_BACKUP_KEEP).
+# every run makes a fresh dir and prunes to the last N (DECKPAL_BACKUP_KEEP).
 #
 # Usage:   scripts/backup.sh
-# Env:     DECKSCOUT_BACKUP_DIR   (default ~/deckscout-backups)
-#          DECKSCOUT_BACKUP_KEEP  (default 7; 0 = keep everything)
+# Env:     DECKPAL_BACKUP_DIR   (default ~/deckpal-backups)
+#          DECKPAL_BACKUP_KEEP  (default 7; 0 = keep everything)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,13 +33,13 @@ fi
 PGDATABASE="${PGDATABASE:-pokedex}"
 IMAGE_CACHE_ROOT="${IMAGE_CACHE_ROOT:-$REPO_ROOT/cache}"
 IMAGES_DIR="$IMAGE_CACHE_ROOT/images"
-BACKUP_DIR="${DECKSCOUT_BACKUP_DIR:-$HOME/deckscout-backups}"
-KEEP="${DECKSCOUT_BACKUP_KEEP:-7}"
+BACKUP_DIR="${DECKPAL_BACKUP_DIR:-$HOME/deckpal-backups}"
+KEEP="${DECKPAL_BACKUP_KEEP:-7}"
 
 # Refuse to write backups inside the repo (they must never be committable).
 case "$BACKUP_DIR" in
   "$REPO_ROOT"|"$REPO_ROOT"/*)
-    echo "ERROR: DECKSCOUT_BACKUP_DIR ($BACKUP_DIR) is inside the repo. Choose a path outside $REPO_ROOT." >&2
+    echo "ERROR: DECKPAL_BACKUP_DIR ($BACKUP_DIR) is inside the repo. Choose a path outside $REPO_ROOT." >&2
     exit 1 ;;
 esac
 
@@ -53,11 +53,11 @@ TS="$(date +%Y%m%d-%H%M%S)"
 DEST="$BACKUP_DIR/$TS"
 mkdir -p "$DEST"
 
-DUMP="$DEST/deckscout-db.dump"
-IMG_TAR="$DEST/deckscout-images.tar"
+DUMP="$DEST/deckpal-db.dump"
+IMG_TAR="$DEST/deckpal-images.tar"
 MANIFEST="$DEST/manifest.txt"
 
-echo "deckscout backup → $DEST"
+echo "deckpal backup → $DEST"
 
 # ── 1. database dump (custom format, compressed, ONE database) ───────────────
 echo "  [1/2] pg_dump $PGDATABASE (custom format)…"
@@ -86,7 +86,7 @@ COUNTS="$(sudo -u postgres psql -d "$PGDATABASE" -tA -F '=' -c "
   SELECT 'price_current',  count(*) FROM price_current;")"
 
 {
-  echo "deckscout backup manifest"
+  echo "deckpal backup manifest"
   echo "created_at   : $(date -Is)"
   echo "database     : $PGDATABASE (live size $DB_SIZE_HUMAN)"
   echo "pg_dump      : $(pg_dump --version)"

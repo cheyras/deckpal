@@ -240,7 +240,7 @@ export function registerCollectionTools(server: McpServer, ctx: Ctx): void {
       description:
         'The audit trail of collection changes (collection_event), newest first: when, which ' +
         'card/variant, the quantity delta and resulting quantity, who wrote it (source: web UI, ' +
-        'rotom-mcp, imports) and any note. Use it to review recent adds/removals or verify what ' +
+        'deckpal-mcp, imports) and any note. Use it to review recent adds/removals or verify what ' +
         'an agent logged. Not for current totals (collection_summary) or current quantities ' +
         '(get_card).',
       inputSchema: z.object({
@@ -251,7 +251,7 @@ export function registerCollectionTools(server: McpServer, ctx: Ctx): void {
         source: z
           .string()
           .optional()
-          .describe("Only events written by this source, e.g. 'web', 'rotom-mcp', an import script name."),
+          .describe("Only events written by this source, e.g. 'web', 'deckpal-mcp', an import script name."),
         limit: z
           .number()
           .int()

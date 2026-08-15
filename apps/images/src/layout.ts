@@ -6,12 +6,12 @@ import {
   type CardRef,
   type Quality,
   type SetImageKind,
-} from '@deckscout/storage';
+} from '@deckpal/storage';
 
 /**
  * Path + cache-key algebra, self-host edition.
  *
- * The algebra itself now lives in `@deckscout/storage` (`paths.ts`) so that the
+ * The algebra itself now lives in `@deckpal/storage` (`paths.ts`) so that the
  * cloud image tier — a Vercel function with no local disk — resolves the exact
  * same relative paths and cache keys from the exact same request URLs. One
  * definition, two tiers: the object key in Supabase Storage IS the relative path
@@ -36,7 +36,7 @@ export {
   setImageSourceUrl,
   type CardRef,
   type SetImageKind,
-} from '@deckscout/storage';
+} from '@deckpal/storage';
 
 export function cardAbsolutePath(ref: CardRef, quality: Quality): string {
   return join(CACHE_ROOT, cardRelativePath(ref, quality));

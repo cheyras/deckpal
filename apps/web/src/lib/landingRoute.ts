@@ -6,15 +6,15 @@
 // than two subtly different string tests.
 //
 // The router's `location.pathname` carries the deploy's base path in the
-// self-host build (`/deckscout`) and not in the cloud build (`/`), so the base
-// is stripped first and what's left has to be empty. That makes `/deckscout`,
-// `/deckscout/` and `/` all landing, while `/series` and `/deckscout/series`
+// self-host build (`/deckpal`) and not in the cloud build (`/`), so the base
+// is stripped first and what's left has to be empty. That makes `/deckpal`,
+// `/deckpal/` and `/` all landing, while `/series` and `/deckpal/series`
 // are not.
 export function isLandingPathname(pathname: string): boolean {
   return stripBase(pathname) === ''
 }
 
-/** Strips the deploy's base path and any trailing slash. `/deckscout/auth` → `/auth`. */
+/** Strips the deploy's base path and any trailing slash. `/deckpal/auth` → `/auth`. */
 function stripBase(pathname: string): string {
   const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
   let rest = pathname

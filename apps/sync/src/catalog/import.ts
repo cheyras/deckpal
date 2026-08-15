@@ -11,7 +11,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { makePool, loadEnv } from '@deckscout/db';
+import { makePool, loadEnv } from '@deckpal/db';
 
 // Structural client type — avoids a direct `pg` type dependency in this package. pg.PoolClient
 // satisfies it; we only ever call .query here.
@@ -45,7 +45,7 @@ interface RawSeries {
 }
 
 const CATALOGUE = 'en';
-const DEFAULT_USER = process.env.DECKSCOUT_DEFAULT_USER ?? 'cheyras';
+const DEFAULT_USER = process.env.DECKPAL_DEFAULT_USER ?? 'cheyras';
 
 // Where retired card_variant rows are parked so they cannot collide with the live 0..n-1 slots
 // (see the park step in the per-set loop). Must exceed the largest variant count of any single
@@ -334,9 +334,9 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
           summary.renames
             .map(
               (r) =>
-                `    pnpm --filter deckscout-images rekey:set --rename ${r.from}:${r.to}` +
+                `    pnpm --filter deckpal-images rekey:set --rename ${r.from}:${r.to}` +
                 `            # disk tier\n` +
-                `    pnpm --filter deckscout-images rekey:set --object-store --rename ${r.from}:${r.to}  # object tier`,
+                `    pnpm --filter deckpal-images rekey:set --object-store --rename ${r.from}:${r.to}  # object tier`,
             )
             .join('\n'),
       );

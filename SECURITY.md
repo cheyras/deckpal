@@ -2,12 +2,12 @@
 
 ## Reporting a vulnerability
 
-DeckScout is maintained by one person. If you find a security issue, please
+DeckPal is maintained by one person. If you find a security issue, please
 report it privately:
 
-- **Preferred:** [GitHub Security Advisory](https://github.com/cheyras/deckscout/security/advisories/new)
-  on `cheyras/deckscout`.
-- **Alternative:** Email cheyras@gmail.com with "DeckScout security" in the
+- **Preferred:** [GitHub Security Advisory](https://github.com/cheyras/deckpal/security/advisories/new)
+  on `cheyras/deckpal`.
+- **Alternative:** Email cheyras@gmail.com with "DeckPal security" in the
   subject.
 
 There is no bug bounty. I will respond on a best-effort basis -- typically
@@ -15,7 +15,7 @@ within a few days. Please do not open a public issue for security vulnerabilitie
 
 ## Security model
 
-DeckScout has two deployment modes with different security models.
+DeckPal has two deployment modes with different security models.
 
 ### Cloud deployment (Vercel + Supabase)
 
@@ -39,7 +39,7 @@ Vercel environment variable and is never exposed to the client.
 - Vercel environment variables marked as server-side are not bundled into the
   SPA.
 
-**Cloud MCP authentication.** `https://deckscout.io/mcp` accepts a personal
+**Cloud MCP authentication.** `https://deckpal.app/mcp` accepts a personal
 access token (`dsk_…`, table `api_token`) as `Authorization: Bearer <token>`
 or as the URL's last path segment. Only a SHA-256 hash is stored; the raw
 value is shown once, at creation, in Profile -> Agent access, and is
@@ -66,7 +66,7 @@ internet** without a proxy -- doing so makes your entire collection readable
 and writable by anyone.
 
 **The MCP server** (`apps/mcp`) authenticates requests via the `x-brain-key`
-HTTP header, validated against the `ROTOM_MCP_KEY` environment variable.
+HTTP header, validated against the `DECKPAL_MCP_KEY` environment variable.
 Allowed client hosts are configured via `MCP_ALLOWED_HOSTS`.
 
 ### Network binding (self-host)
@@ -78,6 +78,6 @@ proxy is the sole ingress point.
 
 1. Place a reverse proxy with authentication in front of the API.
 2. Keep all services bound to `127.0.0.1`.
-3. Set `ROTOM_MCP_KEY` to a strong random value if you use the MCP server.
+3. Set `DECKPAL_MCP_KEY` to a strong random value if you use the MCP server.
 4. Set `MCP_ALLOWED_HOSTS` to only the hosts that should reach the MCP server.
 5. Never commit `.env` or other files containing credentials.

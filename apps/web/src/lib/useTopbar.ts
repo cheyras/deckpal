@@ -6,8 +6,8 @@ export function useTopbar(): Topbar {
   const [t, setT] = useState<Topbar>(() => readTopbar())
   useEffect(() => {
     const onChange = (e: Event) => setT((e as CustomEvent<Topbar>).detail)
-    window.addEventListener('deckscout:topbarchange', onChange)
-    return () => window.removeEventListener('deckscout:topbarchange', onChange)
+    window.addEventListener('deckpal:topbarchange', onChange)
+    return () => window.removeEventListener('deckpal:topbarchange', onChange)
   }, [])
   return t
 }

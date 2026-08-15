@@ -1,6 +1,6 @@
-# Contributing to DeckScout
+# Contributing to DeckPal
 
-Thanks for considering a contribution. DeckScout is an open-core TCG collection
+Thanks for considering a contribution. DeckPal is an open-core TCG collection
 platform licensed under AGPL-3.0. This guide covers the practical setup,
 conventions, and what a good PR looks like.
 
@@ -37,14 +37,14 @@ contains the engineering contracts every contributor must follow.
 5. **Run migrations:**
    ```bash
    set -a && . ./.env && set +a
-   pnpm --filter @deckscout/db build
-   pnpm --filter @deckscout/db migrate
+   pnpm --filter @deckpal/db build
+   pnpm --filter @deckpal/db migrate
    ```
    For plain Postgres (self-host), skip Supabase-specific migrations (021+).
 6. **Build and run:**
    ```bash
-   pnpm --filter deckscout-web build
-   pnpm --filter deckscout-api build
+   pnpm --filter deckpal-web build
+   pnpm --filter deckpal-api build
    node apps/api/dist/index.js
    ```
 
@@ -74,14 +74,14 @@ contains the engineering contracts every contributor must follow.
 CI (triggered on every push to `main` and on PRs) runs:
 
 1. `pnpm install --frozen-lockfile`
-2. Build `@deckscout/db` (other packages depend on its `dist/`)
+2. Build `@deckpal/db` (other packages depend on its `dist/`)
 3. Typecheck all workspaces
 4. Pure deck engine + battle-log parser tests (no DB)
-5. Build `deckscout-api`, `deckscout-mcp`, `deckscout-web`
+5. Build `deckpal-api`, `deckpal-mcp`, `deckpal-web`
 
 **Live-DB tests are deliberately excluded from CI.** The project does not
 provision ephemeral test databases, and CI should never mutate a production
-database on every push. Run `pnpm --filter deckscout-api test:collection`
+database on every push. Run `pnpm --filter deckpal-api test:collection`
 manually against your own database when your changes touch collection/API logic.
 
 ## Testing expectations
@@ -99,8 +99,8 @@ manually against your own database when your changes touch collection/API logic.
 Before marking a PR ready for review:
 
 - [ ] Typecheck passes (`pnpm -r exec tsc --noEmit` after building
-      `@deckscout/db`)
-- [ ] Pure tests pass (`pnpm --filter deckscout-api test:deck`)
+      `@deckpal/db`)
+- [ ] Pure tests pass (`pnpm --filter deckpal-api test:deck`)
 - [ ] All apps build successfully
 - [ ] UI changes: verified in a real browser at desktop **and** 390px viewport;
       screenshots attached
@@ -110,7 +110,7 @@ Before marking a PR ready for review:
 
 ## Attribution
 
-DeckScout tracks whether a contribution came from a human or an agent, and
+DeckPal tracks whether a contribution came from a human or an agent, and
 which human each agent worked on behalf of.
 
 - **Agent-authored commits** (repo and wiki) carry two trailers:
@@ -119,7 +119,7 @@ which human each agent worked on behalf of.
 - **Human contributors'** own commits carry no `On-Behalf-Of` trailer. The
   absence of that trailer means the commit is directly human-authored.
 - **Wiki page footers** name the last agent + human pair that updated the page.
-- The wiki [Contribution Record](https://github.com/cheyras/deckscout/wiki/Contribution-Record)
+- The wiki [Contribution Record](https://github.com/cheyras/deckpal/wiki/Contribution-Record)
   is the running ledger -- agents append one line per work session.
 
 ## Code of Conduct

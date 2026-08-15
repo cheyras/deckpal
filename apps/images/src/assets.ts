@@ -1,4 +1,4 @@
-import { makePool } from '@deckscout/db';
+import { makePool } from '@deckpal/db';
 
 type Pool = ReturnType<typeof makePool>;
 

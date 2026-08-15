@@ -48,8 +48,8 @@ data/*
 
 # ── backups + exports (never committed; live outside the repo by default) ──
 # Defensive: if a backup/export is ever pointed inside the repo, don't commit it.
-deckscout-backups/
-deckscout-exports/
+deckpal-backups/
+deckpal-exports/
 pokedex-backups/
 pokedex-exports/
 *.dump
@@ -77,3 +77,6 @@ CLAUDE.local.md
 # credential name, because the failure mode is a live password in a public repo.
 .qa-account
 .owner-temp-password
+
+# ── supabase CLI scratch (link state, not portable) ───────────────────────
+supabase/.temp/

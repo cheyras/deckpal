@@ -33,7 +33,7 @@ export const bugsRouter: Router = Router();
 // ── Environment ───────────────────────────────────────────────────────────────
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? '';
-const GITHUB_REPO = process.env.GITHUB_REPO ?? ''; // e.g. "cheyras/deckscout"
+const GITHUB_REPO = process.env.GITHUB_REPO ?? ''; // e.g. "cheyras/deckpal"
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 
@@ -202,7 +202,7 @@ function ghHeaders(): Record<string, string> {
     Authorization: `Bearer ${GITHUB_TOKEN}`,
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
-    'User-Agent': 'deckscout-api',
+    'User-Agent': 'deckpal-api',
   };
 }
 

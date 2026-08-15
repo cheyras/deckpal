@@ -5,7 +5,7 @@
 **Wave 2 — the board component's first life, well before the engine.**
 Worktree: `~/pokedex-worktrees/board-replay` (create when A1 merges) · Depends: A1.
 **Web dev port: 5181**; api dev port 3711 if branch API routes are needed
-(`DECKSCOUT_API_PORT=3711` + `DECKSCOUT_DEV_API_PORT=3711` for the vite proxy).
+(`DECKPAL_API_PORT=3711` + `DECKPAL_DEV_API_PORT=3711` for the vite proxy).
 Spec: §2 (locked UX: one board component, phone-first), §3 Wave 2.
 
 ## Mission

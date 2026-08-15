@@ -3,7 +3,7 @@
 > **Status: shipped.** Generated 2026-08-10 with `bfl/flux-2-pro` through the Vercel AI
 > Gateway — 3 candidates per asset, 18 images, $0.83 total. (The earlier
 > `403 customer_verification_required` block was a team-level payment precondition on
-> the `deck-scout` team, not a credential problem; an account-scoped
+> the `deck-pal` team, not a credential problem; an account-scoped
 > `AI_GATEWAY_API_KEY` cleared it.)
 >
 > Selected candidates, as recorded in `.marketing-raw/picks.json`:
@@ -20,7 +20,7 @@
 > The raw candidates (including the rejects) stay in the gitignored `.marketing-raw/`;
 > only the optimised derivatives are committed.
 
-Every image in this directory is an **original work generated for DeckScout**. Nothing
+Every image in this directory is an **original work generated for DeckPal**. Nothing
 here is stock photography, nothing is traced or derived from third-party artwork, and
 nothing depicts real trading cards, existing TCG art, game characters, mascots, or
 company logos. The imagery is deliberately abstract — light, atmosphere, and geometry
@@ -36,7 +36,7 @@ only — both as a design choice and as a trademark-safety guarantee.
 - **Post-processing:** [`sharp`](https://sharp.pixelplumbing.com/) (libvips) for resizing
   and AVIF/WebP/JPEG encoding. `texture-grid` is additionally mirror-folded into a
   seamless tile, so its edges are continuous by construction rather than by luck.
-- **Licence:** these assets are part of the DeckScout repository and covered by its
+- **Licence:** these assets are part of the DeckPal repository and covered by its
   `AGPL-3.0-only` licence.
 
 ## Reproducing

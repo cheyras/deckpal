@@ -26,10 +26,10 @@ import { oauthRouter } from './routes/oauth.js';
 import { mountOAuthServer } from './oauthServer.js';
 
 /**
- * deckscout-api — the read/write API over the populated catalog.
+ * deckpal-api — the read/write API over the populated catalog.
  *
  * Base path is configurable via API_BASE_PATH:
- *   - Self-host (default): /deckscout/api (behind nginx sub-path)
+ *   - Self-host (default): /deckpal/api (behind nginx sub-path)
  *   - Cloud (Vercel):      /api
  *
  * Auth is layered: in cloud mode SUPABASE_JWT_SECRET enables JWT verification
@@ -214,7 +214,7 @@ export function createApp(): express.Express {
       try {
         await q('SELECT 1');
       } catch (err) {
-        console.error('[deckscout-api] health: db unreachable', (err as Error).message);
+        console.error('[deckpal-api] health: db unreachable', (err as Error).message);
         res.status(503).json({ status: 'degraded', db: 'down', error: 'db unreachable' });
         return;
       }
@@ -246,7 +246,7 @@ export function createApp(): express.Express {
   api.get('/', (_req, res) => {
     catalogCache(res, 3600);
     res.json({
-      name: 'deckscout-api',
+      name: 'deckpal-api',
       endpoints: [
         '/health', '/me', '/series', '/series/:seriesSlug', '/sets/:setId', '/sets/:setId/massentry', '/cards/:cardId', '/search', '/dex', '/dex/:speciesId',
         'PATCH /collection/variants/:variantId', 'POST /collection/variants/:variantId/increment', 'POST /collection/cards/:cardId/have',
@@ -331,16 +331,16 @@ export function createApp(): express.Express {
   // never be able to approve minting another one.
   api.use('/oauth', requireSession, oauthRouter);
 
-  // Base path: /api on Vercel, /deckscout/api on self-host (nginx sub-path).
-  const basePath = process.env.API_BASE_PATH ?? '/deckscout/api';
+  // Base path: /api on Vercel, /deckpal/api on self-host (nginx sub-path).
+  const basePath = process.env.API_BASE_PATH ?? '/deckpal/api';
   app.use(basePath, api);
 
-  // Serve the built SPA. On self-host the sub-path is /deckscout/; on Vercel the
+  // Serve the built SPA. On self-host the sub-path is /deckpal/; on Vercel the
   // SPA is served by Vercel's static layer (outputDirectory in vercel.json), so
   // this block only fires for the self-host entrypoint (process manager / direct node).
   // webDist resolves relative to this compiled file: apps/api/dist -> apps/web/dist.
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
-  const spaBase = process.env.API_BASE_PATH === '/api' ? '/' : '/deckscout';
+  const spaBase = process.env.API_BASE_PATH === '/api' ? '/' : '/deckpal';
   if (existsSync(webDist)) {
     app.use(spaBase, express.static(webDist, { index: false, maxAge: '1h' }));
     const spaApiPrefix = `${spaBase === '/' ? '' : spaBase}/api`;
@@ -364,9 +364,9 @@ const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
 const isMain = entryPath.endsWith('index.js') || entryPath.endsWith('index.ts');
 if (isMain) {
   const app = createApp();
-  const port = Number(process.env.DECKSCOUT_API_PORT ?? 3700);
+  const port = Number(process.env.DECKPAL_API_PORT ?? 3700);
   const server = app.listen(port, '127.0.0.1', () => {
-    console.log(`deckscout-api listening on 127.0.0.1:${port} (base /deckscout/api)`);
+    console.log(`deckpal-api listening on 127.0.0.1:${port} (base /deckpal/api)`);
   });
   const shutdown = (): void => {
     server.close(() => {

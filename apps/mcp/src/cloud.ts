@@ -2,14 +2,14 @@ import express, { type Express, type Request, type Response } from 'express';
 import type pg from 'pg';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
-import { loadEnv, makePool, resolveToken, touchToken } from '@deckscout/db';
+import { loadEnv, makePool, resolveToken, touchToken } from '@deckpal/db';
 import { makeApi } from './api.js';
 import type { Ctx } from './ctx.js';
 import { withUserContext } from './rls.js';
 import { buildServer } from './server.js';
 
 /**
- * rotom-mcp, multi-user — the serverless face of the MCP server.
+ * deckpal-mcp, multi-user — the serverless face of the MCP server.
  *
  * Self-host (`index.ts`) runs one long-lived process for one user behind a
  * shared `x-brain-key`. This entry serves *any* signed-up user from a single
@@ -39,7 +39,7 @@ import { buildServer } from './server.js';
 // of the box. Override with MCP_ALLOWED_HOSTS (comma-separated) — set it to
 // your own domain on a fork. '*' disables the check for hosts that already
 // terminate at a single trusted proxy.
-const DEFAULT_ALLOWED_HOSTS = 'deckscout.io,www.deckscout.io,localhost,127.0.0.1';
+const DEFAULT_ALLOWED_HOSTS = 'deckpal.app,www.deckpal.app,localhost,127.0.0.1';
 
 function allowedHosts(): string[] {
   return (process.env.MCP_ALLOWED_HOSTS ?? DEFAULT_ALLOWED_HOSTS)
@@ -71,11 +71,11 @@ function hostAllowed(req: Request): boolean {
  * Where the REST API lives, derived from the (already host-validated) request
  * rather than configured: the MCP endpoint and the API are the same
  * deployment, so `https://<this host>/api` is true by construction and there
- * is no env var to get wrong. DECKSCOUT_API_BASE still wins when set, which is
+ * is no env var to get wrong. DECKPAL_API_BASE still wins when set, which is
  * what a split-hosting fork or a local `node dist/cloud.js` needs.
  */
 function apiBaseFor(req: Request): string {
-  const configured = process.env.DECKSCOUT_API_BASE;
+  const configured = process.env.DECKPAL_API_BASE;
   if (configured) return configured;
   const host = req.headers.host ?? 'localhost';
   const proto = host.startsWith('localhost') || host.startsWith('127.0.0.1') ? 'http' : 'https';
@@ -90,7 +90,7 @@ let _pool: pg.Pool | undefined;
 function pool(): pg.Pool {
   if (!_pool) {
     loadEnv();
-    process.env.PGAPPNAME ??= 'deckscout-mcp';
+    process.env.PGAPPNAME ??= 'deckpal-mcp';
     _pool = makePool(Number(process.env.PGPOOL_MAX_MCP ?? 2));
   }
   return _pool;
@@ -101,7 +101,7 @@ function pool(): pg.Pool {
  *
  * 1. `Authorization: Bearer dsk_…` — the standard, and what Claude Code's
  *    `--header` flag produces.
- * 2. The last path segment — `https://deckscout.io/mcp/dsk_…`. claude.ai's
+ * 2. The last path segment — `https://deckpal.app/mcp/dsk_…`. claude.ai's
  *    "Add custom connector" dialog takes a URL and (unless the server runs a
  *    full OAuth flow) nothing else, so for that client the URL *is* the
  *    credential. It is exactly the same secret, revocable from the same panel
@@ -125,7 +125,7 @@ function tokenFrom(req: Request): string {
  * (apps/api/src/oauthServer.ts), not under this MCP function.
  */
 function originFor(req: Request): string {
-  const configured = process.env.DECKSCOUT_PUBLIC_ORIGIN;
+  const configured = process.env.DECKPAL_PUBLIC_ORIGIN;
   if (configured) return configured.replace(/\/+$/, '');
   const host = req.headers.host ?? 'localhost';
   const proto = host.startsWith('localhost') || host.startsWith('127.0.0.1') ? 'http' : 'https';
@@ -145,14 +145,14 @@ function unauthorized(req: Request, res: Response, message: string): void {
   res.status(401).json({ error: { code: 'unauthorized', message } });
 }
 
-/** A human hitting https://deckscout.io/mcp in a browser deserves a sentence, not a protocol error. */
+/** A human hitting https://deckpal.app/mcp in a browser deserves a sentence, not a protocol error. */
 function endpointCard(res: Response): void {
   res.status(200).json({
-    name: 'rotom-mcp',
+    name: 'deckpal-mcp',
     transport: 'streamable-http',
     auth: 'OAuth 2.1 ("Connect" in any MCP client), or Authorization: Bearer <personal access token>',
     tokens: 'Sign in and approve at /authorize, or create a token at /profile → Agent access',
-    docs: 'https://github.com/cheyras/deckscout/blob/main/DEPLOYMENT.md#connect-an-ai-assistant-mcp',
+    docs: 'https://github.com/cheyras/deckpal/blob/main/DEPLOYMENT.md#connect-an-ai-assistant-mcp',
   });
 }
 
@@ -192,7 +192,7 @@ export function createCloudApp(): Express {
           req,
           res,
           'No token. Connect via OAuth in your MCP client, send Authorization: Bearer <token>, or use the ' +
-            'personal connector URL https://deckscout.io/mcp/<token>. Create a token in DeckScout at Profile → Agent access.',
+            'personal connector URL https://deckpal.app/mcp/<token>. Create a token in DeckPal at Profile → Agent access.',
         );
         return;
       }
@@ -201,7 +201,7 @@ export function createCloudApp(): Express {
       try {
         resolved = await resolveToken(pool(), raw);
       } catch (err) {
-        console.error('[deckscout-mcp] token lookup failed:', (err as Error).message);
+        console.error('[deckpal-mcp] token lookup failed:', (err as Error).message);
         res.status(503).json({ error: { code: 'unavailable', message: 'Token store unreachable' } });
         return;
       }
@@ -215,7 +215,7 @@ export function createCloudApp(): Express {
       try {
         await touchToken(pool(), resolved.tokenId);
       } catch (err) {
-        console.error('[deckscout-mcp] last_used_at touch failed:', (err as Error).message);
+        console.error('[deckpal-mcp] last_used_at touch failed:', (err as Error).message);
       }
 
       const config = {
@@ -233,18 +233,18 @@ export function createCloudApp(): Express {
             config,
           };
           const handler = createMcpHandler(() => buildServer(ctx), {
-            onerror: (err) => console.error(`[deckscout-mcp] mcp handler error: ${err.message}`),
+            onerror: (err) => console.error(`[deckpal-mcp] mcp handler error: ${err.message}`),
           });
           try {
             await toNodeHandler(handler, {
-              onerror: (err) => console.error(`[deckscout-mcp] adapter error: ${err.message}`),
+              onerror: (err) => console.error(`[deckpal-mcp] adapter error: ${err.message}`),
             })(req, res, req.body);
           } finally {
             await handler.close();
           }
         });
       } catch (err) {
-        console.error('[deckscout-mcp] request failed:', (err as Error).message);
+        console.error('[deckpal-mcp] request failed:', (err as Error).message);
         if (!res.headersSent) {
           res.status(500).json({ error: { code: 'internal', message: 'Internal server error' } });
         }
@@ -259,8 +259,8 @@ export function createCloudApp(): Express {
 // the multi-user path locally without a Vercel deployment.
 const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
 if (entryPath.endsWith('cloud.js') || entryPath.endsWith('cloud.ts')) {
-  const port = Number(process.env.DECKSCOUT_MCP_CLOUD_PORT ?? 3705);
+  const port = Number(process.env.DECKPAL_MCP_CLOUD_PORT ?? 3705);
   createCloudApp().listen(port, '127.0.0.1', () => {
-    console.log(`[deckscout-mcp] multi-user MCP listening on 127.0.0.1:${port}`);
+    console.log(`[deckpal-mcp] multi-user MCP listening on 127.0.0.1:${port}`);
   });
 }

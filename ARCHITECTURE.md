@@ -1,4 +1,4 @@
-# DeckScout — Architecture
+# DeckPal — Architecture
 
 **Status:** Target architecture for the cloud pivot, drafted 2026-08-09. This
 document supersedes the prior self-hosted architecture. Historical design
@@ -11,22 +11,22 @@ where it was measured.
 
 | Document | What it settles |
 |---|---|
-| [Data Layer (wiki)](https://github.com/cheyras/deckscout/wiki/Data-Layer) | Catalog ingest, prices, images, storage engine, sync jobs |
+| [Data Layer (wiki)](https://github.com/cheyras/deckpal/wiki/Data-Layer) | Catalog ingest, prices, images, storage engine, sync jobs |
 | `research/SCHEMA.md` | Tables, DDL, indexes |
 | `research/DECK-FORMATS.md` | Legality rules, PTCGL grammar, format data sources |
-| [Dex Data (wiki)](https://github.com/cheyras/deckscout/wiki/Dex-Data) | Species mapping, sprites, capture semantics |
+| [Dex Data (wiki)](https://github.com/cheyras/deckpal/wiki/Dex-Data) | Species mapping, sprites, capture semantics |
 | `research/BEHAVIOR-SPEC.md` | Product behavior -- the three goals, variants, lists |
 | `research/ROUTE-MAP.md` | URL structure / IA |
-| [UI Spec (wiki)](https://github.com/cheyras/deckscout/wiki/UI-Spec) | Design tokens, components, layout |
-| [Frontend Research (wiki)](https://github.com/cheyras/deckscout/wiki/Frontend-Research) | Frontend stack + performance plan |
-| [Prior Art (wiki)](https://github.com/cheyras/deckscout/wiki/Prior-Art) | What to borrow, what to avoid, license posture |
+| [UI Spec (wiki)](https://github.com/cheyras/deckpal/wiki/UI-Spec) | Design tokens, components, layout |
+| [Frontend Research (wiki)](https://github.com/cheyras/deckpal/wiki/Frontend-Research) | Frontend stack + performance plan |
+| [Prior Art (wiki)](https://github.com/cheyras/deckpal/wiki/Prior-Art) | What to borrow, what to avoid, license posture |
 | `DECISIONS.md` | Locked decisions + corrections to the original brief |
 
 ---
 
 ## 1. The one-paragraph version
 
-DeckScout is a multi-user Pokemon TCG collection platform deployed on Vercel
+DeckPal is a multi-user Pokemon TCG collection platform deployed on Vercel
 (serverless API + SPA) and Supabase (Postgres with RLS, Auth, Storage CDN). It
 holds its own copy of the card catalog, cached card art, and accumulating price
 history -- so it keeps working if every upstream vanishes. Card data is imported
@@ -91,7 +91,7 @@ apps/
 vercel.json             <- rewrites + function config
 ```
 
-**Base path:** The API serves at `/api/*` (previously `/deckscout/api/*` behind
+**Base path:** The API serves at `/api/*` (previously `/deckpal/api/*` behind
 a reverse proxy). The SPA serves from the domain root.
 
 **Why not individual functions or Hono?** The existing SQL is complex (multi-CTE
@@ -244,7 +244,7 @@ on the cloud side rather than self-reported.
 
 **CDN:** Supabase Storage includes a CDN, but the SPA does not link to it
 directly -- it requests the same relative paths self-host does
-(`/deckscout/images/en/<serie>/<set>/<localId>/<low|high>.webp`, built by
+(`/deckpal/images/en/<serie>/<set>/<localId>/<low|high>.webp`, built by
 `cardImages()` in `apps/api/src/db.ts` and `setAssetUrl()` in
 `apps/web/src/components/ui.tsx`). `vercel.json` rewrites that prefix to
 `/api/images?p=…`, a serverless function (`apps/api/src/images/handler.ts`)
@@ -254,7 +254,7 @@ nothing after the first request per edge); a MISS reads the `image_asset`
 row, fetches the bytes from its `source_url`, writes them through
 `putAsset()`, then 302s; a genuine FAIL serves the same ~1 KB placeholder
 self-host uses, or 404 for set imagery. An image URL never answers with HTML
--- the invariant that closed the bug where every `<img>` on deckscout.io was
+-- the invariant that closed the bug where every `<img>` on deckpal.app was
 silently serving the index shell (DECISIONS.md 2026-08-10, "Cloud image tier:
 lazy cache-on-demand out of Supabase Storage"). Image transforms (resize,
 format conversion) are available on Pro.
@@ -336,8 +336,8 @@ scheduler.
 
 ## 10. MCP server — live and multi-user
 
-`rotom-mcp`'s 21 tools are served to any signed-up user at
-`https://deckscout.io/mcp` (`apps/mcp/src/cloud.ts`), authenticated per-user by
+`deckpal-mcp`'s 21 tools are served to any signed-up user at
+`https://deckpal.app/mcp` (`apps/mcp/src/cloud.ts`), authenticated per-user by
 a personal access token (`dsk_…`, SHA-256 hashed, shown once at creation,
 revocable from Profile). Each call resolves the token to a `user_id` and runs
 inside the same `withUserContext` per-request RLS transaction the REST API
@@ -356,7 +356,7 @@ registration + RFC 6749 token-exchange endpoints, `apps/api/src/routes/
 oauth.ts` for the session-gated consent decision, `apps/web/src/routes/
 Authorize.tsx` for the `/authorize` consent screen) sits in front of the same
 credential. Any MCP-spec client (claude.ai, ChatGPT, Gemini, Claude Code) adds
-just `https://deckscout.io/mcp` and chooses "Connect"; the client
+just `https://deckpal.app/mcp` and chooses "Connect"; the client
 self-registers, the user signs in and approves a consent screen naming the
 client and its exact permissions, and the token endpoint mints an ordinary
 `api_token` row — the OAuth layer is a bridge onto the pre-existing
@@ -437,7 +437,7 @@ means bumping it and re-indexing.
 
 ## 13. Frontend
 
-Built against [UI Spec (wiki)](https://github.com/cheyras/deckscout/wiki/UI-Spec). Full rationale: [Frontend Research (wiki)](https://github.com/cheyras/deckscout/wiki/Frontend-Research).
+Built against [UI Spec (wiki)](https://github.com/cheyras/deckpal/wiki/UI-Spec). Full rationale: [Frontend Research (wiki)](https://github.com/cheyras/deckpal/wiki/Frontend-Research).
 
 **Stack:** React 19, TanStack Router, TanStack Query, TanStack Virtual, Vite,
 Tailwind 4. Charts via `d3-scale`/`d3-shape`; drag-and-drop via `@dnd-kit`

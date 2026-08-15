@@ -3,7 +3,7 @@
   "note": "Vendored legality data. Per DECK-FORMATS.md §2.6: vendored JSON is the authority; scrapers only ever propose a diff for human review. A confidently-wrong ban list silently breaks decks, so every list below carries its source and an 'as of' date. Refresh with the sync jobs described in DECK-FORMATS §2.6 (J1-J7).",
   "sources": {
     "formats.json": {
-      "derived_from": "DECK-FORMATS.md §2.1.2 / §3.8 + live deckscout DB (format, format_regulation_mark tables, seeded).",
+      "derived_from": "DECK-FORMATS.md §2.1.2 / §3.8 + live deckpal DB (format, format_regulation_mark tables, seeded).",
       "authority": "The DB `format` + `format_regulation_mark` tables are also authoritative and agree with this file. This file is the offline mirror the validator uses so it needs no DB round-trip for format knobs.",
       "current_standard_marks": "H, I, J (DECK-FORMATS §2.1.2, sources S1+S3). G rotated out 2026-04-10.",
       "todo": "Next rotation ~2027-04-09 (H drops, K enters). Re-verify after reading the January 2027 rotation announcement. Treat legality computed after 2027-04-01 as stale until then."
@@ -26,7 +26,7 @@
       "fetched": "DECK-FORMATS.md §2.3 (as of 2026-07-24)."
     },
     "ace-spec.json": {
-      "sv_era": "DERIVED from the live deckscout DB: SELECT DISTINCT name FROM card WHERE rarity='ACE SPEC Rare' (29 names, verified 2026-07-27). TCGdex has no ACE SPEC field (DECK-FORMATS §3.5) so this rarity scan is the seed the spec recommends.",
+      "sv_era": "DERIVED from the live deckpal DB: SELECT DISTINCT name FROM card WHERE rarity='ACE SPEC Rare' (29 names, verified 2026-07-27). TCGdex has no ACE SPEC field (DECK-FORMATS §3.5) so this rarity scan is the seed the spec recommends.",
       "bw_xy_era": "VENDORED from public documentation (Bulbapedia 'ACE SPEC card' category). BW/XY ACE SPEC Trainers carry no 'ACE SPEC Rare' rarity and no 'ACE SPEC' effect text in TCGdex, so they cannot be derived from the DB. FLAGGED: this sub-list is the least certain data in the module (DECK-FORMATS §7 item 7 rates it 'High impact'). Verify before trusting Expanded legality of a BW/XY ACE SPEC.",
       "todo": "Extend once per set. Re-run the rarity scan after each SV/ME set sync."
     },

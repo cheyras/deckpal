@@ -8,7 +8,7 @@ import { closePool, pool } from '../db.js';
 /**
  * Migration 019 deck intelligence — live-DB integration tests (Deck Intelligence
  * plan §2). Boots the real app on an ephemeral port and walks the whole
- * versioning lifecycle against the live deckscout DB:
+ * versioning lifecycle against the live deckpal DB:
  *
  *   create → card edits amend v1 in place (no logs yet) → battle log attaches to
  *   v1 → next card edit auto-bumps to v2 → versions list carries per-version W/L
@@ -29,7 +29,7 @@ let cardB: string;
 let logId: number;
 
 async function api(method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
-  const res = await fetch(`${base}/deckscout/api${path}`, {
+  const res = await fetch(`${base}/deckpal/api${path}`, {
     method,
     headers: { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -221,7 +221,7 @@ test('revert bumps when the current version has logs; reverting to current is a 
 
 test('PUT /decks/:id/strategy never bumps and lands on the current snapshot', async () => {
   const md = '# Hide and Sneak\n\nMulligan aggressively for the draw engine.';
-  const { status, json } = await api('PUT', `/decks/${deckId}/strategy`, { strategyMd: md, source: 'rotom-mcp' });
+  const { status, json } = await api('PUT', `/decks/${deckId}/strategy`, { strategyMd: md, source: 'deckpal-mcp' });
   assert.equal(status, 200);
   assert.equal(json.deck.version, 3, 'strategy edits never bump');
   assert.equal(json.deck.strategyMd, md);

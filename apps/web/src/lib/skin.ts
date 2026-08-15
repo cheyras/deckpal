@@ -14,7 +14,7 @@ export type Skin = 'premium' | 'classic'
 /** Change this to 'classic' to ship the pre-pass look without touching anything else. */
 export const DEFAULT_SKIN: Skin = 'premium'
 
-const STORAGE_KEY = 'deckscout:skin'
+const STORAGE_KEY = 'deckpal:skin'
 
 function isSkin(v: string | null): v is Skin {
   return v === 'premium' || v === 'classic'
@@ -40,7 +40,7 @@ export function readSkin(): Skin {
 /** Writes the attribute the CSS keys off. Called once at boot and on every toggle. */
 export function applySkin(skin: Skin): void {
   document.documentElement.dataset.skin = skin
-  window.dispatchEvent(new CustomEvent<Skin>('deckscout:skinchange', { detail: skin }))
+  window.dispatchEvent(new CustomEvent<Skin>('deckpal:skinchange', { detail: skin }))
 }
 
 export function setSkin(skin: Skin): void {

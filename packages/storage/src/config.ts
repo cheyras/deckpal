@@ -27,7 +27,7 @@ export const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
  */
 export const FAILURE_CACHE_CONTROL = 'public, max-age=60';
 
-export const USER_AGENT = 'deckscout-images/1.0 (+cheyras@gmail.com)';
+export const USER_AGENT = 'deckpal-images/1.0 (+cheyras@gmail.com)';
 
 let cached: StorageEnv | null = null;
 

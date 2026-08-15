@@ -84,8 +84,8 @@ test('isShiny — own ≥2 distinct cards of the species (default threshold)', (
 
 test('speciesSprite — pure function of dex id, pixel + art + shiny paths', () => {
   const s = speciesSprite(6);
-  assert.equal(s.pixel, '/deckscout/images/sprites/pixel/6.png');
-  assert.equal(s.pixelShiny, '/deckscout/images/sprites/pixel/shiny/6.png');
-  assert.equal(s.art, '/deckscout/images/sprites/art/6.png');
-  assert.equal(s.artShiny, '/deckscout/images/sprites/art/shiny/6.png');
+  assert.equal(s.pixel, '/deckpal/images/sprites/pixel/6.png');
+  assert.equal(s.pixelShiny, '/deckpal/images/sprites/pixel/shiny/6.png');
+  assert.equal(s.art, '/deckpal/images/sprites/art/6.png');
+  assert.equal(s.artShiny, '/deckpal/images/sprites/art/shiny/6.png');
 });

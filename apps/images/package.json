@@ -1,5 +1,5 @@
 {
-  "name": "deckscout-images",
+  "name": "deckpal-images",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -24,8 +24,8 @@
     "storage:backfill": "tsx src/cloudBackfill.ts"
   },
   "dependencies": {
-    "@deckscout/db": "workspace:*",
-    "@deckscout/storage": "workspace:*",
+    "@deckpal/db": "workspace:*",
+    "@deckpal/storage": "workspace:*",
     "express": "^5.0.0"
   },
   "devDependencies": {

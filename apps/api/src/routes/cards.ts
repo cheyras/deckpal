@@ -61,7 +61,7 @@ interface VariantRow {
 }
 
 /**
- * GET /deckscout/api/cards/:cardId — card detail.
+ * GET /deckpal/api/cards/:cardId — card detail.
  * :cardId is the card tcgdex_id (e.g. 'base1-4' for Charizard).
  * Returns all variants (composed display name, resolved tier, per-variant prices
  * across every source/currency with priced_at, TCGplayer buy URL), dex species

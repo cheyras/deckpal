@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
-import { hasStorageEnv, listObjectsRecursive } from '@deckscout/storage';
+import { hasStorageEnv, listObjectsRecursive } from '@deckpal/storage';
 import { CACHE_ROOT } from './config.js';
 import {
   closePool,
@@ -24,11 +24,11 @@ import { sniffFile } from './store.js';
  * NOT wired into CI — CI deliberately excludes live-DB tests. Run it by hand after
  * any warm/gap-fill, or from cron.
  *
- *   pnpm --filter deckscout-images manifest:check            # reconcile (fast)
- *   pnpm --filter deckscout-images manifest:check --deep     # + verify content_type
- *   pnpm --filter deckscout-images manifest:check --strict   # also fail on unknown provenance
- *   pnpm --filter deckscout-images manifest:check --json     # machine-readable
- *   pnpm --filter deckscout-images manifest:check --object-store   # the CLOUD tier
+ *   pnpm --filter deckpal-images manifest:check            # reconcile (fast)
+ *   pnpm --filter deckpal-images manifest:check --deep     # + verify content_type
+ *   pnpm --filter deckpal-images manifest:check --strict   # also fail on unknown provenance
+ *   pnpm --filter deckpal-images manifest:check --json     # machine-readable
+ *   pnpm --filter deckpal-images manifest:check --object-store   # the CLOUD tier
  *
  * ── Two tiers, two modes ────────────────────────────────────────────────────
  * The default mode reconciles the DISK tier: files under CACHE_ROOT against
@@ -354,7 +354,7 @@ export function formatReport(r: DriftReport, strict: boolean): string {
     L.push(sample(r.diskTierMissing));
     L.push('      These files are recorded in image_asset but nothing recorded THIS copy.');
     L.push('      Expected once, on an existing cache, until you run:');
-    L.push('          pnpm --filter deckscout-images manifest:backfill --disk-tier');
+    L.push('          pnpm --filter deckpal-images manifest:backfill --disk-tier');
   }
   L.push('');
   L.push(`  image_object rows in this DB:`);
@@ -423,7 +423,7 @@ export function formatObjectReport(r: ObjectDriftReport): string {
     L.push('      Almost always a direct upload (Supabase dashboard, CLI, or a one-off script):');
     L.push('      it writes objects but cannot write per-tier rows, and so produces exactly');
     L.push('      this. Repair with:');
-    L.push('          pnpm --filter deckscout-images storage:backfill --reconcile');
+    L.push('          pnpm --filter deckpal-images storage:backfill --reconcile');
     L.push('      and prefer that command over any direct upload from now on (AGENTS.md B1).');
   }
   L.push(

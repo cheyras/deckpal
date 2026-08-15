@@ -1,4 +1,4 @@
-# DeckScout
+# DeckPal
 
 An open-core Pokemon TCG collection and agentic strategy platform. Browse a full card catalog, track your
 collection across printings, see prices, connect to Claude or GPT to collaboratively build decks with
@@ -6,7 +6,7 @@ battle-log intelligence, scan cards with a perceptual-hash scanner, and set
 completion goals. Built for Pokemon but the data model, image storage, and
 scanner are **game-agnostic**.
 
-DeckScout is heading toward a hosted service with paid subscriptions. The open
+DeckPal is heading toward a hosted service with paid subscriptions. The open
 core is AGPL-3.0 — anyone can fork and self-host. The architecture is
 cloud-first: Vercel + Supabase for the hosted path, plain Postgres for
 self-hosters.
@@ -32,10 +32,10 @@ self-hosters.
 - **Image storage** -- ~1.9 GB of WebP card art. Cloud deployments use Supabase
   Storage with CDN; self-host uses a local disk cache with a dedicated image
   server.
-- **MCP server** ("rotom-mcp") -- 21 tools for Claude, ChatGPT, Gemini, or any
+- **MCP server** ("deckpal-mcp") -- 21 tools for Claude, ChatGPT, Gemini, or any
   MCP-speaking assistant to query the collection, catalog, prices, and decks,
   and to log collection changes with attribution. Live and multi-user on
-  cloud: connect with one click via OAuth 2.1 (`https://deckscout.io/mcp`,
+  cloud: connect with one click via OAuth 2.1 (`https://deckpal.app/mcp`,
   choose "Connect"), or a personal access token for clients without MCP OAuth
   support.
 - **PWA** -- installable, offline-capable (tiered: app shell always; visited
@@ -53,11 +53,11 @@ Supabase (cloud) or plain Postgres (self-host):
 
 | App | Role |
 |---|---|
-| `apps/api` (`deckscout-api`) | Express API (~49 endpoints), deployed as a Vercel catch-all serverless function |
-| `apps/sync` (`deckscout-sync`) | Catalog import, dex import, price ingest (GitHub Actions scheduled jobs) |
-| `apps/web` (`deckscout-web`) | React 19 + Vite + Tailwind 4 SPA/PWA, deployed as Vercel static output |
-| `apps/mcp` (`deckscout-mcp`) | **rotom-mcp** -- MCP server, live and multi-user on cloud |
-| `packages/db` (`@deckscout/db`) | Shared Postgres pool + numbered immutable SQL migrations |
+| `apps/api` (`deckpal-api`) | Express API (~49 endpoints), deployed as a Vercel catch-all serverless function |
+| `apps/sync` (`deckpal-sync`) | Catalog import, dex import, price ingest (GitHub Actions scheduled jobs) |
+| `apps/web` (`deckpal-web`) | React 19 + Vite + Tailwind 4 SPA/PWA, deployed as Vercel static output |
+| `apps/mcp` (`deckpal-mcp`) | **deckpal-mcp** -- MCP server, live and multi-user on cloud |
+| `packages/db` (`@deckpal/db`) | Shared Postgres pool + numbered immutable SQL migrations |
 
 For the full topology, data flow, and design rationale, see
 [`ARCHITECTURE.md`](ARCHITECTURE.md). The authoritative schema is in
@@ -95,20 +95,20 @@ Prerequisites: Node >= 20, pnpm >= 10, Postgres >= 15.
 3. **Install, migrate, and verify:**
    ```bash
    pnpm install
-   pnpm --filter @deckscout/db build
-   pnpm --filter @deckscout/db migrate       # applies migrations 001-020
-   pnpm --filter @deckscout/db migrate:status # [x] per applied migration
+   pnpm --filter @deckpal/db build
+   pnpm --filter @deckpal/db migrate       # applies migrations 001-020
+   pnpm --filter @deckpal/db migrate:status # [x] per applied migration
    ```
 
 4. **Import the card catalog:**
    ```bash
-   pnpm --filter deckscout-sync catalog:run
+   pnpm --filter deckpal-sync catalog:run
    ```
 
 5. **Build and run:**
    ```bash
-   pnpm --filter deckscout-web build
-   pnpm --filter deckscout-api build
+   pnpm --filter deckpal-web build
+   pnpm --filter deckpal-api build
    node apps/api/dist/index.js
    ```
 
@@ -124,7 +124,7 @@ Self-host deployments skip Supabase-specific migrations (021+) and use the
 
 ## Data sources and credits
 
-DeckScout is built on open data from several sources:
+DeckPal is built on open data from several sources:
 
 - **[TCGdex](https://tcgdex.dev/)** -- card catalog (series, sets, cards,
   variants). Open data, compiled JSON extracted from the published container
@@ -141,8 +141,8 @@ Pokemon and Pokemon character names are trademarks of Nintendo.
 
 ## License
 
-DeckScout is licensed under the [GNU Affero General Public License v3.0
-(AGPL-3.0-only)](LICENSE). If you modify DeckScout and make it available over a
+DeckPal is licensed under the [GNU Affero General Public License v3.0
+(AGPL-3.0-only)](LICENSE). If you modify DeckPal and make it available over a
 network, AGPL section 13 requires you to offer the corresponding source to
 users of that service.
 

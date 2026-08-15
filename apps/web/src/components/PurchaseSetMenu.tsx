@@ -6,7 +6,7 @@ import { Modal } from './ListModals'
 
 // "Purchase Set" — preferences menu + TCGplayer Mass Entry deep-link generation
 // (issue 2026-07-30_qhfs2f). The link generation lives in the API
-// (GET /sets/:setId/massentry) so rotom-mcp can reuse it.
+// (GET /sets/:setId/massentry) so deckpal-mcp can reuse it.
 //
 // Real Mass Entry constraints (research/DECK-FORMATS.md §1.9 + live checks):
 // printing and condition can NOT be preselected by link — TCGplayer's own page
@@ -46,7 +46,7 @@ interface MassEntryResponse {
 async function fetchMassEntry(setId: string, goal: Goal, finishes: FinishCode[] | null, signal: AbortSignal) {
   const params = new URLSearchParams({ goal })
   for (const f of finishes ?? []) params.append('finish', f)
-  const res = await fetch(`/deckscout/api/sets/${encodeURIComponent(setId)}/massentry?${params}`, { signal })
+  const res = await fetch(`/deckpal/api/sets/${encodeURIComponent(setId)}/massentry?${params}`, { signal })
   if (!res.ok) {
     let msg = `HTTP ${res.status}`
     try {

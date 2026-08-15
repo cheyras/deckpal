@@ -182,7 +182,7 @@ export async function putStorageAsset(
   } catch (err) {
     console.warn(
       '[storage] %s uploaded but its image_object row was not recorded: %s — ' +
-        'run `pnpm --filter deckscout-images storage:backfill --reconcile` to repair',
+        'run `pnpm --filter deckpal-images storage:backfill --reconcile` to repair',
       relativePath,
       (err as Error).message,
     );

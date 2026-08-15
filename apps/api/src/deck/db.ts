@@ -9,7 +9,7 @@
  * on demand and closed by the caller — see prove.ts / the DB tests.
  */
 import pg from 'pg';
-import { loadEnv, makePool } from '@deckscout/db';
+import { loadEnv, makePool } from '@deckpal/db';
 import type { CardFacts, Deck, DeckEntry, FormatCode, PokemonType, ValidationWarning } from './types.js';
 import type { ParsedDeck, ParsedLine } from './ptcgl.js';
 import { normalizeName, BRACE_TO_TYPE } from './names.js';

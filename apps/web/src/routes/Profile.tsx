@@ -12,7 +12,7 @@ import { ChangePassword } from './auth/ChangePassword'
 import { AgentAccess } from '../components/AgentAccess'
 import { fmtUsd } from '../lib/format'
 
-const SHOWCASE_KEY = 'deckscout.showcase.v1'
+const SHOWCASE_KEY = 'deckpal.showcase.v1'
 
 interface ShowcasePick {
   cardId: string

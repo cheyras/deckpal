@@ -16,7 +16,7 @@ import {
 
 /**
  * Request identity — PURE tests (no database, no network, no environment
- * mutation). Wired into `pnpm --filter deckscout-api test:auth`, which CI runs.
+ * mutation). Wired into `pnpm --filter deckpal-api test:auth`, which CI runs.
  *
  * These are the compensating control for contract B7: live-DB suites
  * (`test:collection`) stay out of CI by design, so the deployment split that

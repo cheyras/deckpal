@@ -114,17 +114,17 @@ if (renames.length > 0) {
   L.push('```bash');
   L.push('# disk tier (self-host cache, PG* → that box\'s database)');
   for (const r of renames) {
-    L.push(`pnpm --filter deckscout-images rekey:set --rename ${r.from}:${r.to}`);
+    L.push(`pnpm --filter deckpal-images rekey:set --rename ${r.from}:${r.to}`);
   }
   L.push('');
   L.push('# object tier (Supabase Storage, .env.cloud loaded)');
   for (const r of renames) {
-    L.push(`pnpm --filter deckscout-images rekey:set --object-store --rename ${r.from}:${r.to}`);
+    L.push(`pnpm --filter deckpal-images rekey:set --object-store --rename ${r.from}:${r.to}`);
   }
   L.push('');
   L.push('# then, both tiers:');
-  L.push('pnpm --filter deckscout-images manifest:check');
-  L.push('pnpm --filter deckscout-images manifest:check --object-store');
+  L.push('pnpm --filter deckpal-images manifest:check');
+  L.push('pnpm --filter deckpal-images manifest:check --object-store');
   L.push('```');
   L.push('');
   L.push('**This run is marked failed for that reason alone.** Re-run it after the re-key: the ');

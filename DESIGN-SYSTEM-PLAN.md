@@ -1,11 +1,11 @@
-# DeckScout Design-System Editor — Implementation Plan
+# DeckPal Design-System Editor — Implementation Plan
 
 **Status:** proposed — awaiting product-owner sign-off on the items in §8.1 before
 any implementation begins.
 **Prerequisite reading:** `DESIGN-SYSTEM-AUDIT.md` (same directory). This plan
 builds directly on that audit and does not restate its evidence; section
 references of the form "audit §N" point there.
-**Branch/worktree:** `design-system` at `/home/cheyras/deckscout-worktrees/design-system`.
+**Branch/worktree:** `design-system` at `/home/cheyras/deckpal-worktrees/design-system`.
 
 ---
 
@@ -49,7 +49,7 @@ Why this matters and why it wins:
   runs from `apps/web` in the exact worktree whose files need editing. Writing
   `theme.css` from the process that is also watching `theme.css` means the
   write and the hot-reload are inherently consistent — no cross-worktree
-  confusion (the audit flagged the `DECKSCOUT_DEV_API_PORT` port-per-worktree
+  confusion (the audit flagged the `DECKPAL_DEV_API_PORT` port-per-worktree
   convention; this design sidesteps the problem entirely: no new port, no
   proxy entry, the endpoints are same-origin on :5199).
 - **No auth surface needed.** The dev server binds localhost only (no `host`
@@ -122,8 +122,8 @@ different times) requires zero UI changes. This is the "clear seam where a real
 agent could be swapped in" made concrete — except the seam ships *with* a real
 agent consumer (the skill) in the same phase, so there is no stub period.
 
-**Why not MCP (rotom-mcp) as the transport?** Audit §6.4 correctly notes the
-auth/transport is solved there — but rotom-mcp is a *production* server scoped
+**Why not MCP (deckpal-mcp) as the transport?** Audit §6.4 correctly notes the
+auth/transport is solved there — but deckpal-mcp is a *production* server scoped
 to database rows, deployed publicly. Adding "write to `apps/web/src/**`" tools
 to it would put source-file-write capability behind a production endpoint,
 which is exactly the wrong blast radius for a local dev tool. Rejected.
@@ -170,7 +170,7 @@ tokens + editing.
   header (title, "changes pending" indicator, agent-status pill).
 - **Dev-server note for parallel worktrees:** `vite.config.ts` pins port 5199.
   If another worktree's dev server is already up, run this one with
-  `pnpm --filter deckscout-web dev -- --port 5299`. The `/__design` endpoints
+  `pnpm --filter deckpal-web dev -- --port 5299`. The `/__design` endpoints
   are same-origin so no other config changes.
 
 ### 1.4 Complete file map (new files)
@@ -523,7 +523,7 @@ if the owner wants to pursue it; docs/wiki sync finalization (§7).
 
 Every phase: browser verification at desktop width **and** 390px (the token
 panel and catalog must both be usable on mobile width — expect the token grid
-to stack). `pnpm --filter @deckscout/db build && pnpm -r
+to stack). `pnpm --filter @deckpal/db build && pnpm -r
 --workspace-concurrency=1 exec tsc --noEmit` stays green.
 
 Specific proofs, phase by phase:
@@ -533,7 +533,7 @@ Specific proofs, phase by phase:
    picker. Confirm — without any reload — the catalog buttons *and* a real
    page (navigate to `/series`) render magenta. Screenshot before/after.
 2. **Disk-write proof (phase 1):** hit Save, then in a shell:
-   `git -C /home/cheyras/deckscout-worktrees/design-system diff --stat apps/web/src/theme.css`
+   `git -C /home/cheyras/deckpal-worktrees/design-system diff --stat apps/web/src/theme.css`
    → exactly one file, one changed line, correct value. Confirm the Vite log
    shows a CSS HMR update and the page still renders the new value after the
    local override was cleared. Then hard-reload with DevTools open — value
@@ -541,7 +541,7 @@ Specific proofs, phase by phase:
 3. **Stale-write proof (phase 1):** open `/design` in two tabs; save different
    values for the same token; the second tab must get a `409` and refetch, and
    `theme.css` must contain exactly one of the two values, uncorrupted.
-4. **Prod-exclusion proof (phase 1):** `pnpm --filter deckscout-web build`,
+4. **Prod-exclusion proof (phase 1):** `pnpm --filter deckpal-web build`,
    then `grep -r "__design" apps/web/dist/` and check the emitted SW precache
    manifest for any design-route chunk — both must be empty/absent. Also
    confirm no `/__design` route exists on the built preview
@@ -639,7 +639,7 @@ no spacing section until then; the Pending section says why.
 - **R5 — two humans/agents in one worktree.** The queue consumer must run in
   *this* worktree (the skill playbook and daemon both assert
   `/__design/health`'s worktree path matches their cwd before acting). The
-  main `/home/cheyras/deckscout` worktree is never touched.
+  main `/home/cheyras/deckpal` worktree is never touched.
 - **R6 — catalog completeness is a treadmill.** New components added after
   this initiative could skip gallery files. Mitigation: the phase-4 drift
   check, plus a one-line contribution note in `CONTRIBUTING.md`/`AGENTS.md`

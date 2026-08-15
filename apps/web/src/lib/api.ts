@@ -1,10 +1,10 @@
-// API client — consumes deckscout-api (read-only contract, API.md).
-// Cloud: /api (Vercel). Self-host: /deckscout/api (behind nginx proxy).
+// API client — consumes deckpal-api (read-only contract, API.md).
+// Cloud: /api (Vercel). Self-host: /deckpal/api (behind nginx proxy).
 
 import { supabase, isCloudMode } from './supabase'
 import { isPublicPathname } from './landingRoute'
 
-const BASE = isCloudMode ? '/api' : '/deckscout/api'
+const BASE = isCloudMode ? '/api' : '/deckpal/api'
 
 async function authHeaders(): Promise<Record<string, string>> {
   if (!isCloudMode) return {}
@@ -23,7 +23,7 @@ async function handle401(path: string, init: RequestInit): Promise<Response | nu
     // location.assign loop. Same predicate the router and shell use, so the
     // three can never disagree about which pages are safe to sit on.
     if (!isPublicPathname(window.location.pathname)) {
-      window.location.assign(isCloudMode ? '/auth' : '/deckscout/auth')
+      window.location.assign(isCloudMode ? '/auth' : '/deckpal/auth')
     }
     throw new Error('Session expired')
   }
@@ -1009,8 +1009,8 @@ export const api = {
   dex: (params: URLSearchParams, signal?: AbortSignal) =>
     get<SpeciesGridResponse>(`/insights/pokedex?${params.toString()}`, signal),
   species: (id: string, signal?: AbortSignal) =>
-    // `/insights/pokedex/:speciesId` — NOT `/insights/deckscout/…`. The pokedex→
-    // deckscout rename swept this string and 404'd every species page ("No such
+    // `/insights/pokedex/:speciesId` — NOT `/insights/deckpal/…`. The pokedex→
+    // deckpal rename swept this string and 404'd every species page ("No such
     // route"); the route is the Pokédex feature, not the product name.
     get<SpeciesDetailResponse>(`/insights/pokedex/${encodeURIComponent(id)}`, signal),
 }

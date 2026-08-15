@@ -1,4 +1,4 @@
-# DeckScout — Decision Log
+# DeckPal — Decision Log
 
 Running log of locked decisions. Each entry: date, decision, who decided, why.
 `ARCHITECTURE.md` is the synthesis; this file is the audit trail.
@@ -39,7 +39,7 @@ with a single default user.
 ---
 
 ## 2026-07-24 — Never run the self-hosted TCGdex API
-**Decided by:** lead agent, on measured evidence ([Data Layer wiki](https://github.com/cheyras/deckscout/wiki/Data-Layer)).
+**Decided by:** lead agent, on measured evidence ([Data Layer wiki](https://github.com/cheyras/deckpal/wiki/Data-Layer)).
 **Decision:** We do **not** run `tcgdex/cards-database`'s API server, in any
 phase, even ad hoc. We extract the compiled catalog JSON from the published
 image (`docker save` streamed through `tar`, no container ever created) and
@@ -97,7 +97,7 @@ use on this box only for third-party appliances.
 
 ## 2026-07-24 — Database: host Postgres, dedicated DB + role
 **Decided by:** user, at the Phase 1 checkpoint.
-**Decision:** a dedicated `deckscout` database and role on the existing host
+**Decision:** a dedicated `deckpal` database and role on the existing host
 Postgres 17.9, application pool capped at **3** connections. All tuning
 role-scoped. **No `postgresql.conf` change and no Postgres restart.**
 
@@ -138,11 +138,11 @@ nginx `gzip_types` is commented out in `nginx.conf`, so JS/CSS/JSON are served
 in; brotli is not. Any fix should be scoped to pokedex's own location blocks rather
 than editing the global config — raised to the user as a separate observation.
 
-## 2026-07-24 — Brain DBs fully isolated from the deckscout role
+## 2026-07-24 — Brain DBs fully isolated from the deckpal role
 **Decided by:** user. **Done and verified by lead.**
 `REVOKE CONNECT ON DATABASE <co-hosted DBs> FROM PUBLIC`, with explicit
 `GRANT CONNECT` to each DB's owner so the owners are unaffected. Verified: the
-deckscout role now gets `FATAL: permission denied` connecting to either co-hosted DB
+deckpal role now gets `FATAL: permission denied` connecting to either co-hosted DB
 (it could before); owners retain CONNECT (`has_database_privilege` = true); both
 apps' live connections held at 5+5 unbroken across the change. `datacl` is now
 `{=T/<owner>,<owner>=CTc/<owner>}` — PUBLIC keeps TEMP only.
@@ -190,7 +190,7 @@ apps' live connections held at 5+5 unbroken across the change. `datacl` is now
 
 ## Phase 3 progress (the app)
 
-- ✅ **Task 1 — read API** (`apps/api` :3700, `/deckscout/api/*`). Lead-verified against
+- ✅ **Task 1 — read API** (`apps/api` :3700, `/deckpal/api/*`). Lead-verified against
   live data: base1 goals 102/102/409; sv03.5 goals 207/373/384 (Master<Grandmaster,
   distinct pair fractions); `base1-4` Charizard 4 composed variants, Holofoil
   `market` $800.43 USD / €421.11 EUR with full price object (low/mid/high/directLow/
@@ -229,7 +229,7 @@ user consent.
   box's proxy-not-static convention — so nginx never needs to traverse the 700 `$HOME`
   (and `setfacl` isn't installed anyway).
 - **nginx LAN vhost:** one `include` line added after `server_name` for the
-  DeckScout location block. **LAN HTTP access works now**, verified in a browser
+  DeckPal location block. **LAN HTTP access works now**, verified in a browser
   end-to-end (nginx -> api -> images, real art, all 200), and all other co-hosted
   routes still 200.
 - **nginx public vhost** (:443): one `include` after the SSO auth-request include
@@ -294,7 +294,7 @@ reload; delete the managed processes and persist the change.
 
 ## Open — pending Phase 1 research
 - **Storage engine** — data-layer research recommends the **host Postgres 17.9**
-  with a dedicated `deckscout` DB + role and a pool capped at 3 connections
+  with a dedicated `deckpal` DB + role and a pool capped at 3 connections
   (marginal RAM 25–35 MB, vs ~180–250 MB for a second instance, vs ~0 for
   SQLite). Decisive point: `max_connections = 20` with **10 already in use** by
   the co-hosted apps, so a 3-connection pool fits with 7 spare —
@@ -309,7 +309,7 @@ reload; delete the managed processes and persist the change.
   `docker-compose.arm64.yml`) vs a process manager + nginx (this box's actual
   convention). Leaning process-manager config + an nginx location block. This
   **changes a named deliverable**, so it is the user's call.
-- **Fork `pokecollector` vs build clean** — [Prior Art wiki](https://github.com/cheyras/deckscout/wiki/Prior-Art) verdict is *borrow
+- **Fork `pokecollector` vs build clean** — [Prior Art wiki](https://github.com/cheyras/deckpal/wiki/Prior-Art) verdict is *borrow
   heavily, do not fork, build the shell clean*. Lead agent concurs; recorded
   here for user visibility rather than as an open question.
 - **Authenticated pkmn.gg capture session** — roughly half the open questions in
@@ -382,7 +382,7 @@ Recorded so they are not silently re-introduced later:
    special prints" (settings).
 4. **TCGdex has no batch price endpoint** — pricing is one HTTP request per
    card. This reshapes the sync design and promotes TCGCSV from "redundancy" to
-   a primary price path. Source: [Prior Art wiki](https://github.com/cheyras/deckscout/wiki/Prior-Art).
+   a primary price path. Source: [Prior Art wiki](https://github.com/cheyras/deckpal/wiki/Prior-Art).
 5. **TCGdex Cardmarket `*-holo` fields mean *reverse holo*, not holo finish.**
    Verified live on `swsh3-136`. Reading them literally ships wrong prices.
 6. **"Prefer forking pokecollector"** — verdict is *borrow, don't fork*; its
@@ -431,7 +431,7 @@ Every remaining item done and lead-verified against the live stack:
 - ✅ PDF export (deck/list/set checklist) + UI buttons
 - ✅ PWA (manifest, SW, offline shell+visited-art, iOS mitigations)
 - ✅ Card scanner (perceptual-hash, 21,828-card index, ImageMagick decode, no native deps) + UI (upload/camera → match → add), verified dist-0 exact match
-- ✅ Stream overlay (transparent OBS source at /deckscout/overlay)
+- ✅ Stream overlay (transparent OBS source at /deckpal/overlay)
 - ✅ **Demo data zeroed to pristine** (collection/lists/decks/events/value-points/dex/progress all 0; catalog + prices + sprites + set imagery intact; app_user seeded). Empty-state endpoints all 200.
 
 **Genuine follow-ups (not done, by design/limitation):**
@@ -520,11 +520,11 @@ Added a **Report a bug** button to the top nav (`components/BugReport.tsx`, wire
 the modal opens (so the modal is never in the shot) via **html2canvas** (added as an
 `apps/web` dep, **lazy-imported** so it stays out of the initial bundle — it splits into its
 own ~47 KB-gzip chunk fetched only on first click), then opens a comment form. Submit POSTs
-`{text, page, screenshot(JPEG dataURL), viewport, userAgent}` to **`POST /deckscout/api/bugs`**
+`{text, page, screenshot(JPEG dataURL), viewport, userAgent}` to **`POST /deckpal/api/bugs`**
 (`routes/bugs.ts`), which writes each report to **`issues/<id>/`** in the repo (`report.md`
 with YAML frontmatter + `screenshot.jpg`) — reports live in the codebase, not the DB. Raised
 the app-wide `express.json` limit to 12 MB for the screenshot payload (every other route is
-tiny; nginx already allows 50–100 MB on the DeckScout locations). Screenshots are JPEG q0.85 of
+tiny; nginx already allows 50–100 MB on the DeckPal locations). Screenshots are JPEG q0.85 of
 the viewport region (~120 KB).
 
 **Project skill `fix-issues`** (`.claude/skills/fix-issues/SKILL.md`): walks `issues/*/`,
@@ -536,9 +536,9 @@ never resolve without visual confirmation.
 Verified end-to-end (Playwright, desktop 1280 + mobile 390): button renders, capture excludes
 the modal, submit writes `issues/<id>/{report.md,screenshot.jpg}`, success toast → auto-close.
 
-## 2026-07-29 — rotom-mcp: MCP server over the deckscout DB (`apps/mcp`)
+## 2026-07-29 — deckpal-mcp: MCP server over the deckpal DB (`apps/mcp`)
 
-New workspace app **`deckscout-mcp`** ("rotom-mcp", after the games' AI-assistant Pokémon):
+New workspace app **`deckpal-mcp`** ("deckpal-mcp", after the games' AI-assistant Pokémon):
 an MCP streamable-HTTP server on **127.0.0.1:3704** giving Claude (Code / claude.ai / iOS)
 14 tools + a `collection://summary` resource over the collection, catalog, prices, decks,
 and lists. Design contract: `apps/mcp/SPEC.md`. Key decisions:
@@ -546,13 +546,13 @@ and lists. Design contract: `apps/mcp/SPEC.md`. Key decisions:
 - **Hybrid data path.** Reads hit Postgres directly (compact MCP-shaped aggregation,
   precomputed views — `variant_tier_resolved`, `master_required_variant`,
   `user_set_progress` — never re-derived). All writes and every deck/list operation go
-  through deckscout-api on :3700 so the transactional write logic (event append + progress
+  through deckpal-api on :3700 so the transactional write logic (event append + progress
   recompute) and deck logic stay single-sourced.
 - **Connection budget is now 4 TOTAL** (API 2 + sync 1 + **mcp 1**). Headroom re-checked
-  against the 2026-07-24 measurement (7 spare); `makePool(1)`, `PGAPPNAME=deckscout-mcp`.
+  against the 2026-07-24 measurement (7 spare); `makePool(1)`, `PGAPPNAME=deckpal-mcp`.
 - **Migration 018** adds `source` (default `'web'`) + `note` to `collection_event`;
   the three collection write endpoints and `GET /collection/events` carry them. MCP
-  writes are stamped `source='rotom-mcp'` — the "agentic logging" attribution. The
+  writes are stamped `source='deckpal-mcp'` — the "agentic logging" attribution. The
   append-only event log is unchanged otherwise.
 - **SDK v2** (`@modelcontextprotocol/server@2.0.0`, released 2026-07-27 — the stable
   line): stateless `createMcpHandler`, fresh `McpServer` per request. Auth = house
@@ -570,7 +570,7 @@ and lists. Design contract: `apps/mcp/SPEC.md`. Key decisions:
   as `Date` but `deck/db.ts` sorted `releasedOn` with `.localeCompare` (`CardFacts` claims
   ISO string). Normalized at the row boundary (`toFacts`).
 
-## 2026-07-30 — snapshot-collection + reconcile cron jobs wired (HTTP to deckscout-api)
+## 2026-07-30 — snapshot-collection + reconcile cron jobs wired (HTTP to deckpal-api)
 
 The last two daily cron stubs in `apps/sync` are now real: `snapshot-collection`
 (21:00 UTC) and `reconcile` (01:00 UTC). Key decisions:
@@ -578,18 +578,18 @@ The last two daily cron stubs in `apps/sync` are now real: `snapshot-collection`
 - **Wiring is HTTP, not import.** apps/sync must NOT import apps/api —
   `apps/api/src/db.ts` instantiates a 2-connection pool at module load, which inside
   the sync process would blow the 4-connection budget (sync gets 1). Same
-  single-source principle as rotom-mcp (SPEC §3): logic stays in the API, sync calls
+  single-source principle as deckpal-mcp (SPEC §3): logic stays in the API, sync calls
   two new internal endpoints — `POST /insights/value/snapshot` (→
   `snapshotCollectionValue`, idempotent per day) and `POST /collection/reconcile`
   (→ per-set `withTx(recomputeSetProgress)`, strictly sequential; 214 sets ≈ 1.1 s).
-  Base URL `DECKSCOUT_API_BASE ?? http://127.0.0.1:3700/deckscout/api`, 120 s timeout.
+  Base URL `DECKPAL_API_BASE ?? http://127.0.0.1:3700/deckpal/api`, 120 s timeout.
 - **`apps/sync/src/jobs/api-jobs.ts`** reuses the price jobs' plumbing: advisory lock
   (`tryLock`, clean skip if held), a `sync_run` row opened with
   `ON CONFLICT (job) WHERE status='running' DO NOTHING` (honours the
   `sync_run_one_active` partial unique index; conflict → log + skip), closed `ok`
   with `rows_written` (snapshot: `inserted`; reconcile: `sets`) or `failed` with the
   error. Errors re-throw; the scheduler's `runJob` catch is the crash barrier.
-- **`run-once` CLI** (`pnpm --filter deckscout-sync run-once <job>`) runs any
+- **`run-once` CLI** (`pnpm --filter deckpal-sync run-once <job>`) runs any
   `REAL_JOBS` entry on a `makePool(1)` client; exits 1 on failure, 2 on bad job. To
   make `REAL_JOBS` importable, `apps/sync/src/index.ts` gained the same
   `pm_exec_path`/argv isMain guard as apps/api — importing it no longer boots the
@@ -660,7 +660,7 @@ before Special Illustration/Mega Hyper Rares.
   Abbreviations come from TCGCSV `/tcgplayer/3/groups` at runtime (in-process
   cache 24h, 5min negative, 5s timeout, graceful bare-name fallback).
   **TCGCSV 401s UA-less fetches** — send the same `pokedex/1.0` UA as apps/sync.
-- Missing-for-goal math mirrors rotom-mcp `set_progress` (master =
+- Missing-for-goal math mirrors deckpal-mcp `set_progress` (master =
   `master_required_variant`, grandmaster = all variants, complete = card-level);
   verified against `user_set_progress` for me05 (81/152/157) and swsh8 gm
   (501 linkable + 6 unlinkable = 507). Variants without a TCGplayer product are
@@ -714,7 +714,7 @@ before Special Illustration/Mega Hyper Rares.
 **Decision:** decks now compound intelligence: a markdown **strategy guide** per deck,
 **battle logs** (raw PTCG Live pastes, parsed server-side), and **version history** with
 non-destructive revert — so agents can read all logs for a version, synthesize what's
-working, and push an improved list and/or guide via rotom-mcp (the loop the feature exists
+working, and push an improved list and/or guide via deckpal-mcp (the loop the feature exists
 for). Migration `019_deck_intelligence.sql`: `deck.version` + `deck.strategy_md`,
 `deck_version` (per-version snapshot: cards jsonb, strategy, note, source), `battle_log`
 (raw log + parsed jsonb + result/opponent, composite FK to its version). v1 snapshots
@@ -734,7 +734,7 @@ backfilled for existing decks.
 - **Attribution extended to deck writes:** all deck writes accept `source` (collection.ts
   shape); `versionNote` on card ops. Gotcha: on `POST /decks/import` the field is
   **`writeSource`** — `source` was already that endpoint's decklist-syntax param.
-- **rotom-mcp** gains `deck_strategy`, `add_battle_log`, `battle_logs` (include_raw =
+- **deckpal-mcp** gains `deck_strategy`, `add_battle_log`, `battle_logs` (include_raw =
   the synthesis read path), `deck_history` (client-side dry-run diff for revert; the API
   has no dry-run). SPEC §5 now 19 tools (also documented the previously-missing
   `set_cart`). `decks`/`save_deck` descriptions teach the versioning model.
@@ -776,7 +776,7 @@ validated against the two known players (a prefix can never leak into the name).
 tests added; battle #8 healed by re-running the fixed parser over stored raw logs (one-off
 script, result+parsed updated → 3W–3L). **Lesson:** endings vary (prizes, concede, timeout);
 validate-against-known-names is what makes a loose match safe.
-**Tooling gap closed:** rotom-mcp gained `edit_battle_log` (classification-only PATCH; raw log +
+**Tooling gap closed:** deckpal-mcp gained `edit_battle_log` (classification-only PATCH; raw log +
 version immutable; nulls clear) and `delete_battle_log` (dry-run gated) — an agent that spots a
 misparse can now fix it instead of reporting it upstream. SPEC §5 now 21 tools.
 
@@ -799,7 +799,7 @@ misparse can now fix it instead of reporting it upstream. SPEC §5 now 21 tools.
   `GET /decks/:id/massentry`; BuyMissingModal is deep-link-first ("Fill TCGplayer cart") with
   a Cart Optimizer consolidation tip (TCGplayer's own optimizer is the sanctioned
   one-seller/fewest-packages answer — seller choice is not link-encodable); Cards tab gained a
-  Missing filter (URL state `missing`); rotom-mcp `decks include:pricing` now appends the cart
+  Missing filter (URL state `missing`); deckpal-mcp `decks include:pricing` now appends the cart
   URL(s). All verified on the built app at 428/390/1440px.
 
 ## 2026-08-01 — Local git server is the upstream + CI on every push
@@ -824,7 +824,7 @@ consecutive `rtk git push` invocations reported `ok` while actually failing with
 `fatal: no upstream branch` — the workflow files never left the machine. rtk's push filter
 plus `| tail` piping masked both the message and the exit code. Fixed with `git push -u`;
 after that, run creation was instant and CI went green on run 3 (49/49 tests; the one real
-CI catch was `@deckscout/db` needing a build step in a fresh workspace — dist/ doesn't exist
+CI catch was `@deckpal/db` needing a build step in a fresh workspace — dist/ doesn't exist
 there). **Rule: after any push that matters, verify it landed (`git ls-remote origin main`
 vs local HEAD); prefer plain `git push` over rtk for pushes.** Banked as a global memory too.
 
@@ -904,7 +904,7 @@ the two loose scripts, which were rewritten as first-class commands
 files deleted so nobody runs the drifting versions again. `evict.ts` already deleted file
 + row together. **Serving stayed disk-only** — a missing row must never break a page.
 
-**Drift check:** `pnpm --filter deckscout-images manifest:check` reconciles both directions
+**Drift check:** `pnpm --filter deckpal-images manifest:check` reconciles both directions
 (orphans / missing files / size + content-type mismatches / leftover `.tmp`), exits
 non-zero on drift, `--deep` verifies every content type, `--strict` also fails on unknown
 provenance. **Deliberately NOT in CI** — CI excludes live-DB tests by design; this is a
@@ -953,7 +953,7 @@ Two in-app bug reports, both closed on `main` and deployed.
 carried a `<button aria-label="Search">` with **no `onClick`** and an `<input type="search">`
 with **no `value`/`onChange`/submit** — a static mockup, dead on every page, not just the
 `me05` set page the report came from. The deeper gap: the API has shipped a full 12-filter
-`GET /deckscout/api/search` for a long time, and `api.searchCards()` was already used by the
+`GET /deckpal/api/search` for a long time, and `api.searchCards()` was already used by the
 deck builder and list modals, but **the SPA had no search route at all**. Added `/search`
 (`routes/SearchResults.tsx` + `routes/globalSearch.ts`, registered in `main.tsx`) holding
 `q/sort/dir/page` in the URL per the FRONTEND §A.5 idiom, and pointed the header at it —
@@ -990,7 +990,7 @@ Verified in a real browser at 390px and 1440px, first on a main-tree dev server 
 then against the deployed build, zero console errors in both. Deployed: API rebuilt and
 restarted (additive `series` field), web rebuilt.
 
-## 2026-08-09 — Privacy scrub for public repo (github.com/cheyras/deckscout)
+## 2026-08-09 — Privacy scrub for public repo (github.com/cheyras/deckpal)
 
 **Decided by:** user (via agent audit). The repo went public earlier this same day, so
 this scrub trailed the exposure by hours; whether to also rewrite the already-public
@@ -1011,8 +1011,8 @@ history is a separate, still-open decision.
    the LICENSE file).
 3. **Third-party names** — a co-hosted database name and role identifying a real person
    were replaced with generic labels across all files.
-4. **Infrastructure fingerprinting** — the original [Project Brief](https://github.com/cheyras/deckscout/wiki/Project-Brief)'s exhaustive port inventory of the
-   entire host was trimmed to DeckScout's own 3700-3709 block; SSO postmortem
+4. **Infrastructure fingerprinting** — the original [Project Brief](https://github.com/cheyras/deckpal/wiki/Project-Brief)'s exhaustive port inventory of the
+   entire host was trimmed to DeckPal's own 3700-3709 block; SSO postmortem
    specifics (filesystem paths, uid, secret filenames) were reduced to the lesson only.
 5. **Dangling references** — all pointers to deleted files were updated across the tree
    (code comments, research docs, skills, specs). Source-capture citations in code
@@ -1034,13 +1034,13 @@ private specifics are gone.
 3. **Contributor surface** — AGENTS.md (the ten portable engineering contracts + verification standards), CONTRIBUTING.md, SECURITY.md (deployment model: API/images have no auth by design — reverse proxy required), CODE_OF_CONDUCT.md, `.env.example`, issue/PR templates. CLAUDE.md slimmed to deployment-specific operational detail.
 4. **CI** — `.github/workflows/ci.yml` mirroring the prior CI pipeline (db build first, typecheck, pure tests, app builds); every step verified locally before commit.
 
-**Discovered: the DeckScout rename was never deployed.** Current code mounts `/deckscout/*` (since the rename commit), but the live nginx fragments still route `/pokedex/*`, and the running processes are a pre-rename build serving `/pokedex/api` (verified: `:3700/pokedex/api/health` -> 200, `/deckscout/api/health` -> 404). **Restart hazard:** `dist/` on disk is now post-rename, so an unplanned process restart/reboot would boot `/deckscout` code behind `/pokedex` nginx routes and take the app down. The cutover (edit conf fragments to `/deckscout/`, rebuild, restart all, nginx reload, re-install PWA on phone since the start URL changes) needs the user's OK per the shared-infra rule — deliberately NOT done in this pass. `.env` carries both `POKEDEX_*` (read by the running build) and `DECKSCOUT_*` (read by current code) until then.
+**Discovered: the DeckPal rename was never deployed.** Current code mounts `/deckpal/*` (since the rename commit), but the live nginx fragments still route `/pokedex/*`, and the running processes are a pre-rename build serving `/pokedex/api` (verified: `:3700/pokedex/api/health` -> 200, `/deckpal/api/health` -> 404). **Restart hazard:** `dist/` on disk is now post-rename, so an unplanned process restart/reboot would boot `/deckpal` code behind `/pokedex` nginx routes and take the app down. The cutover (edit conf fragments to `/deckpal/`, rebuild, restart all, nginx reload, re-install PWA on phone since the start URL changes) needs the user's OK per the shared-infra rule — deliberately NOT done in this pass. `.env` carries both `POKEDEX_*` (read by the running build) and `DECKPAL_*` (read by current code) until then.
 
 **Still open (user decisions):** history rewrite for the already-public pre-scrub commits; the Poké Ball/wordmark app icons; the nginx cutover above.
 
-## 2026-08-09 — /deckscout nginx cutover (user approved)
+## 2026-08-09 — /deckpal nginx cutover (user approved)
 
-Both vhost fragments now route `/deckscout/*` with a permanent `301` from legacy
+Both vhost fragments now route `/deckpal/*` with a permanent `301` from legacy
 `/pokedex/*` (old bookmarks and the installed PWA redirect instead of breaking; the
 phone PWA should still be reinstalled so its start URL/scope move off the redirect).
 App processes restarted on the post-rename build, nginx reloaded. Verified: API health
@@ -1054,7 +1054,7 @@ trademark exposure in the repo. Replaced the full set (brand/pwa/maskable/
 apple-touch/favicons) with original artwork (fanned generic cards + scout
 magnifier, amber-on-slate), rendered from SVG sources committed next to the
 PNGs. `ICONS-NOTICE.md` documents provenance, mirroring `ENERGY-ICONS-NOTICE.md`.
-The in-app header wordmark ("Pokédex") also became "DeckScout" (the sidebar
+The in-app header wordmark ("Pokédex") also became "DeckPal" (the sidebar
 Pokédex nav item keeps its name — it's the dex feature). Verified in-browser at
 desktop + 390px after a web rebuild.
 
@@ -1074,7 +1074,7 @@ references this leaves in README/ARCHITECTURE/AGENTS/roadmap/skills.
 
 ## 2026-08-09 — Cloud pivot: Vercel + Supabase, multi-user RLS, open core (user directive)
 
-**Decided by:** user. DeckScout is no longer a self-hosted personal project: it is an
+**Decided by:** user. DeckPal is no longer a self-hosted personal project: it is an
 **open-core platform**, cloud-first on Vercel + Supabase, fully multi-user, heading
 toward a paid subscription (not paid yet — no billing code). Forks can self-host the
 open core on plain Postgres.
@@ -1110,10 +1110,10 @@ auth schema and two-user RLS isolation tests; login UI screenshotted and reviewe
 on the box verified unaffected. The local Postgres DB (`pokedex`) is retained as
 the data source for migrate-to-cloud.
 
-## 2026-08-09 — Cloud connection day: Supabase wired, data migrated, deckscout.io live
+## 2026-08-09 — Cloud connection day: Supabase wired, data migrated, deckpal.app live
 **Decided by:** user + agents.
 **Decision:** Full cloud deployment completed in a single session — Supabase project
-wired end-to-end, owner data migrated, and deckscout.io domain live.
+wired end-to-end, owner data migrated, and deckpal.app domain live.
 
 **What landed:**
 - **Migrations 001-024 on Supabase:** all applied, including RLS (021), bug_report
@@ -1132,7 +1132,7 @@ wired end-to-end, owner data migrated, and deckscout.io domain live.
   (environment variable).
 - **Login reload-loop root cause:** the auth callback was redirecting to / which
   re-triggered the auth guard; fixed by redirecting to the intended destination.
-- **deckscout.io wired:** domain configured, Supabase auth URLs updated to use the
+- **deckpal.app wired:** domain configured, Supabase auth URLs updated to use the
   custom domain.
 - **Bug reporter live** with private mapping (user identity stored in DB, not in
   the public GitHub issue).
@@ -1145,7 +1145,7 @@ wired end-to-end, owner data migrated, and deckscout.io domain live.
 - MCP server (Wave 3) needs per-user auth model for cloud.
 - Image corpus migration to Supabase Storage (~1.9 GB, needs paid tier).
 
-**Implications:** The project is now live at deckscout.io with multi-user auth.
+**Implications:** The project is now live at deckpal.app with multi-user auth.
 Self-host path remains fully supported (SUPABASE_MODE unset skips 021+).
 
 ## 2026-08-10 — public marketing landing at `/` for logged-out visitors
@@ -1214,7 +1214,7 @@ numbers in `Landing.tsx` (`STATS`, the hero subhead, the stats caption, the "Whi
 cards does it cover?" FAQ) and the three in `index.html` need revisiting together.
 
 ## 2026-08-10 — the auth surface is a product surface: /auth polish, reset, change-password, /signed-out
-**What:** cloud DeckScout shipped with a single-screen `/auth` (sign in / sign up) and
+**What:** cloud DeckPal shipped with a single-screen `/auth` (sign in / sign up) and
 nothing else. There was **no password reset**, **no way for a signed-in user — including
 the owner — to change their password from inside the app**, and Sign out dumped you on
 the login form as if you had been rejected. Auth failures rendered GoTrue's developer
@@ -1237,7 +1237,7 @@ request this after 47 seconds").
 **Password policy is read, not assumed:** Supabase Management API reports
 `password_min_length = 6`, `password_required_characters = null`,
 `mailer_autoconfirm = false`, `rate_limit_email_sent = 2/hour`, `mailer_otp_exp = 3600`,
-`uri_allow_list = https://deckscout.io/**`. `PASSWORD_MIN_LENGTH` mirrors the first;
+`uri_allow_list = https://deckpal.app/**`. `PASSWORD_MIN_LENGTH` mirrors the first;
 the rate-limit copy ("try again in a few minutes") is honest about the second-to-last —
 the built-in SMTP allows two messages an hour, and custom SMTP is a separate follow-up.
 
@@ -1268,23 +1268,23 @@ used by RootComponent (skip AuthGuard), AppShell (render chrome-free) and `api.t
 
 ## 2026-08-10 — Cloud image tier: lazy cache-on-demand out of Supabase Storage
 **Decided by:** user (chose "lazy cache-on-demand" over a 2.1 GB up-front backfill).
-**Decision:** `/deckscout/images/*` on the Vercel deployment is now served by a
+**Decision:** `/deckpal/images/*` on the Vercel deployment is now served by a
 serverless function (`api/images.mjs` → `apps/api/src/images/handler.ts`) that
 fills a public Supabase Storage bucket (`card-art`) on demand.
 
-**Why:** the SPA asks for card art at `/deckscout/images/en/<serie>/<set>/<localId>/<low|high>.webp`
-and set imagery at `/deckscout/images/sets/<setId>/<logo|symbol>.webp` (built in
+**Why:** the SPA asks for card art at `/deckpal/images/en/<serie>/<set>/<localId>/<low|high>.webp`
+and set imagery at `/deckpal/images/sets/<setId>/<logo|symbol>.webp` (built in
 `apps/api/src/db.ts` `cardImages()` and `apps/web/src/components/ui.tsx`
 `setAssetUrl()`). Self-host answers those from `apps/images` (:3701) off a local
-WebP cache. That service was never ported to the cloud, so on deckscout.io every
+WebP cache. That service was never ported to the cloud, so on deckpal.app every
 one of those URLs fell through to the SPA catch-all rewrite and returned
 **`200 text/html`** — the index shell, as an image. Every `<img>` on every catalog
 page was silently broken, and nothing failed loudly enough to notice. Verified
-before the fix: `curl https://deckscout.io/deckscout/images/en/sv/sv03.5/102/low.webp`
+before the fix: `curl https://deckpal.app/deckpal/images/en/sv/sv03.5/102/low.webp`
 → `200`, `content-type: text/html`, 4,462 bytes.
 
 **Shape:**
-- **Routing.** `vercel.json` gains `{"source": "/deckscout/images/(.*)", "destination": "/api/images?p=$1"}`
+- **Routing.** `vercel.json` gains `{"source": "/deckpal/images/(.*)", "destination": "/api/images?p=$1"}`
   **first** in `rewrites`, ahead of `/api/(.*)` and the `/(.*)` → `/index.html`
   fallback. It cannot shadow `/api/*` (different prefix), and the capture group is
   passed as `?p=` so the handler never has to guess how the platform rewrote the
@@ -1300,18 +1300,18 @@ before the fix: `curl https://deckscout.io/deckscout/images/en/sv/sv03.5/102/low
   **An image URL never answers with HTML** — that is the invariant this whole
   change exists to restore, and it holds for traversal attempts, sprite paths the
   cloud tier does not carry, and internal errors alike.
-- **Validation.** `parseImagePath()` in `@deckscout/storage` is an allow-list:
+- **Validation.** `parseImagePath()` in `@deckpal/storage` is an allow-list:
   decode percent-escapes exactly once, then require `[A-Za-z0-9][A-Za-z0-9.-]*`
   per segment plus an explicit `..` rejection — the same rule
   `apps/images/src/index.ts` applies. The regex contains no separator character,
   so the parsed relative path (which becomes the Storage object key) cannot
   escape its subtree. 29 pure tests in `apps/api/src/images/__tests__/paths.test.ts`,
-  wired into CI as `pnpm --filter deckscout-api test:images`.
+  wired into CI as `pnpm --filter deckpal-api test:images`.
 
 **One copy of the path algebra.** The pure part of `apps/images/src/layout.ts`
 (relative paths, cache keys, canonical source URLs, `LANG`/`QUALITIES`), the
 content-type sniffer and the placeholder moved to a new workspace package,
-`@deckscout/storage`; `apps/images` re-exports them, so every existing import
+`@deckpal/storage`; `apps/images` re-exports them, so every existing import
 site there is unchanged and the two tiers cannot drift. The Storage **object key
 is the `image_asset.relative_path` verbatim**, which is what keeps a future bulk
 backfill a straight upload of `cache/` with no remapping.
@@ -1364,7 +1364,7 @@ exists locally (warmed from pkmn.gg) but is no longer fetchable from TCGdex.
 **Noted, not fixed:** the service worker's Tier-1 image cache does not engage on
 cloud. `apps/web/src/sw.ts` derives `BASE` from its own URL — `/` on cloud — and
 matches images at `` `${BASE}images/` ``, while the API hands out
-`/deckscout/images/...` regardless of deploy target. So cloud image requests
+`/deckpal/images/...` regardless of deploy target. So cloud image requests
 match no SW route and go straight to the network (which is why the cross-origin
 302 works transparently). Out of scope here; worth a follow-up.
 
@@ -1374,7 +1374,7 @@ still missing (for example, we're missing the pitch black set logo)").
 **Decision:** three fixes, each aimed at a *measured* cause, plus an honest
 accounting of what is left.
 
-**1. Sprites are served.** `/deckscout/images/sprites/{pixel|art}[/shiny]/{id}.png`
+**1. Sprites are served.** `/deckpal/images/sprites/{pixel|art}[/shiny]/{id}.png`
 now fills from `PokeAPI/sprites` at the commit SHA pinned in
 `scripts/fetch-sprites.sh`, into `sprites/…` in the bucket, mirroring the on-disk
 `SPRITE_ROOT` layout exactly.
@@ -1684,7 +1684,7 @@ read off disk, and it has **no default provenance argument**, because reading a
 file establishes nothing about where its contents came from.
 
 **Supported path is now a module command**, per B1's "no loose fill scripts under
-`scripts/`": `pnpm --filter deckscout-images storage:backfill`
+`scripts/`": `pnpm --filter deckpal-images storage:backfill`
 (`--missing-source` / `--prefix` / `--reconcile`), idempotent and resumable — an
 object already in the bucket is not re-sent, but its per-tier row is still
 recorded from the object's own metadata, which is what makes a re-run repair a
@@ -1793,9 +1793,9 @@ the same way this did.
 ## 2026-08-10 — MCP goes multi-user: per-user personal access tokens at /mcp
 **Decided by:** user (owner) + agent.
 
-**Decision:** `rotom-mcp` — 21 tools, previously a single-user process behind a
+**Decision:** `deckpal-mcp` — 21 tools, previously a single-user process behind a
 shared `x-brain-key` — is now served to **any signed-up user** from a Vercel
-function at `https://deckscout.io/mcp`, authenticated per-user by a personal
+function at `https://deckpal.app/mcp`, authenticated per-user by a personal
 access token. Self-host keeps the old process, unchanged.
 
 ### The auth model
@@ -1826,10 +1826,10 @@ Authorization: Bearer dsk_…   (or the last path segment of /mcp/dsk_…)
 Every tool therefore has **two independent locks**: the `WHERE user_id = $1`
 bind parameter it already had, and migration 021's row-level policies firing
 underneath it. API-backed tools forward the same token in their own
-`Authorization` header, so `deckscout-api` re-resolves the identity rather than
+`Authorization` header, so `deckpal-api` re-resolves the identity rather than
 trusting anything the MCP layer asserts.
 
-Token *verification* lives in `@deckscout/db` (`src/tokens.ts`) rather than in
+Token *verification* lives in `@deckpal/db` (`src/tokens.ts`) rather than in
 either server, because the minting side (API) and the checking side (MCP edge)
 must agree byte for byte about the hashing rule. `withUserContext` is
 deliberately restated in `apps/mcp/src/rls.ts` instead: the two apps are separate
@@ -1861,7 +1861,7 @@ Standing up an authorization server is the correct long-term answer and is not
 this change. Shipping unauthenticated is not an option. So the endpoint accepts
 the same token in **either** position, and the UI hands out both an
 `Authorization: Bearer` recipe and a personal connector URL
-`https://deckscout.io/mcp/<token>`.
+`https://deckpal.app/mcp/<token>`.
 
 The token is in the **path**, never the query string. Both the MCP spec
 ("Access tokens **MUST NOT** be included in the URI query string") and
@@ -1869,7 +1869,7 @@ Anthropic's guidance name the query string specifically; the path case is
 undocumented territory in both, and the stated rationale (URLs land in logs and
 history) is honestly disclosed in the UI, which labels the whole URL a password.
 It is revocable, scoped to exactly one user, and carries no more authority than
-the header form. `www.deckscout.io` 308-redirects to the apex and a cross-host
+the header form. `www.deckpal.app` 308-redirects to the apex and a cross-host
 redirect silently drops `Authorization`, so every string the UI emits is
 apex-only.
 
@@ -1892,7 +1892,7 @@ Two real bugs surfaced while auditing:
 ### Isolation proof (production, 2026-08-10)
 
 Throwaway Supabase user `mcp-probe`, token created through the real UI on
-deckscout.io; owner `cheyras` holds 426 collection items, 7 decks, 30 battle logs
+deckpal.app; owner `cheyras` holds 426 collection items, 7 decks, 30 battle logs
 in the same database.
 
 Read tools, called with the throwaway token:
@@ -1926,9 +1926,9 @@ fresh scratch databases — plain Postgres (021/023/027/028 correctly skipped) a
 a two-user RLS test on `api_token` showing Alice sees 1 row not 2, cannot find
 Bob's by hash, her UPDATE of his row affects 0 rows, and her INSERT for his
 `user_id` raises "new row violates row-level security policy". `claude mcp add
---transport http deckscout https://deckscout.io/mcp --header "Authorization:
+--transport http deckpal https://deckpal.app/mcp --header "Authorization:
 Bearer …"` verified verbatim: `claude mcp list` reports
-`deckscout: https://deckscout.io/mcp (HTTP) - ✔ Connected`. Token UI
+`deckpal: https://deckpal.app/mcp (HTTP) - ✔ Connected`. Token UI
 screenshotted at 1440 and 390 on the deployed site. Throwaway user and both its
 tokens deleted afterwards.
 
@@ -2023,7 +2023,7 @@ match reality on a second count as well: it told operators to export
 **Decision 3 — `scripts/storage-backfill.mjs` deleted.** It bypassed the B1
 provenance choke point (`packages/storage/src/put-asset.ts`), so it could not write
 `image_object` rows and produced exactly the "objects with no row" defect that
-`manifest:check --object-store` reports. `pnpm --filter deckscout-images
+`manifest:check --object-store` reports. `pnpm --filter deckpal-images
 storage:backfill` fully supersedes it and is verified. The DEPLOYMENT.md callout and
 the `manifestCheck.ts` diagnostic no longer name a file that does not exist; both now
 describe the failure mode (any direct upload) and point only at the supported command.
@@ -2161,7 +2161,7 @@ it is still fetched only when someone opens the reporter.
 **2. Card art taints the canvas, so `toDataURL()` throws after a successful render.**
 With the colour parse fixed, the render completes and then dies on
 `SecurityError: Tainted canvases may not be exported`. Card art is requested from the
-same-origin path `/deckscout/images/…`, which on cloud **302-redirects to Supabase
+same-origin path `/deckpal/images/…`, which on cloud **302-redirects to Supabase
 Storage on another origin**. html2canvas decides whether to send `crossOrigin` from the
 *URL* (`useCORS && !isSameOrigin`), sees a same-origin URL, and loads it with no CORS
 request — so the bytes that arrive are cross-origin and unclean. Setting `crossorigin`
@@ -2283,7 +2283,7 @@ orphaned collection or deck rows and zero duplicate `(card_id, sort_order)` pair
 
 Cloud went 23,444 → **23,546 cards**, and every set now matches upstream exactly
 (23,546/23,546 — no set is short by even one card). MEP 60 → 89. Verified in a real
-browser on deckscout.io as a throwaway confirmed user: `/series/mega-evolution/mep`
+browser on deckpal.app as a throwaway confirmed user: `/series/mega-evolution/mep`
 shows 89 cards, Binacle #087 opens, and **it added to the collection** — the
 reporter's actual complaint — with zero console errors and zero HTTP ≥ 400. The
 throwaway user was then deleted and the cascade removed its row.
@@ -2460,7 +2460,7 @@ later moves to Supabase has no hole.
 ### Verified
 
 Typecheck, 49 deck + 29 auth + 14 token + 6 bug + 11 new storage tests, all five
-builds. End to end on **deckscout.io** as a throwaway confirmed user, in a real
+builds. End to end on **deckpal.app** as a throwaway confirmed user, in a real
 browser at 1440 and 390: add → renders in the profile ring, the desktop header
 chip, the mobile drawer's View Profile button and the insights trainer card;
 reload → persisted; replace → new key, old object reaped; a `.txt` renamed
@@ -2583,7 +2583,7 @@ scans fire, every junk frame is rejected, and 10 would already admit the plasma
 frame. The old 99.6% figure was measured on the v2 pipeline against a different
 degradation set and does not carry over; 96.9% is the honest number for v3.
 
-Verified in a real browser on deckscout.io as a throwaway confirmed user (since
+Verified in a real browser on deckpal.app as a throwaway confirmed user (since
 deleted), at 1440 and at **390** — the reporter's viewport. Uploaded a deliberately
 messy Base Set Charizard (6° tilt on a grey mat, noise, q62) through the actual file
 input: five matches, best **Charizard · Base Set 2 #004 · 92% · dist 5**, Base Set
@@ -2695,7 +2695,7 @@ disk file MD5s identical; old object keys now 400, new ones serve 200.
 `manifest:check --object-store` **CLEAN** (2,946 objects / 2,946 rows, 0 unrecorded, 0
 missing, 0 etag mismatches). In a real browser against production, all 30 `swsh9tg` cards
 plus three from each of the other three sets decode at 300×418 from
-`deckscout.io/deckscout/images/…` — 39/39 real art, zero placeholder headers, zero non-2xx.
+`deckpal.app/deckpal/images/…` — 39/39 real art, zero placeholder headers, zero non-2xx.
 (The SPA's set page is behind auth and no throwaway user was created for this; the
 verification exercises the exact image URLs that page renders.)
 
@@ -2827,7 +2827,7 @@ both widths the POP card goes from a bare Poké Ball to a fully legible mark. Th
 of the /series index shows changed pixels *only* inside the POP card — all 19 other series
 cards are byte-identical. The light-logo control (Expedition, `ecard1`) set page is
 **pixel-identical** before and after, which is the strongest available evidence that the
-good case was not touched. **Not verified on deployed deckscout.io**: /series is behind
+good case was not touched. **Not verified on deployed deckpal.app**: /series is behind
 Supabase auth and this agent had no account and no permission to mint one, so the live-site
 screenshots remain outstanding rather than claimed.
 
@@ -2917,7 +2917,7 @@ historical backfill and did not grow — this change added no bytes) and
 server on the real catalog DB and image service: the series card shows the real
 black "M" on the off-white tile, high contrast on `#282d38`, matching POP and
 Trainer kits beside it; the series page shows year tags on eleven sets and the
-real symbol on 2021. **Not verified on deployed deckscout.io** — /series is behind
+real symbol on 2021. **Not verified on deployed deckpal.app** — /series is behind
 Supabase auth, the temporary owner password an earlier lane used had been removed,
 and minting a session was refused, so the live-site render is outstanding rather
 than claimed. Same gap #16 recorded an hour earlier; the QA account will close it.
@@ -2961,7 +2961,7 @@ part of the rename and are untouched.
 **Implications:** These JSON files are copied verbatim into `dist/deck/data` at
 build time (`apps/api`'s `build` script `cpSync`s `src/deck/data` →
 `dist/deck/data`) — confirmed the currently-running build's copy still has the
-stale ids. **A rebuild + redeploy of `deckscout-api` is required** for this fix
+stale ids. **A rebuild + redeploy of `deckpal-api` is required** for this fix
 to reach production; not done here since another lane has `apps/api` mid-edit
 (auth/identity refactor + the anonymous-catalog routes work) — left for the
 orchestrator to sequence. Added a pure (no-DB) regression test,
@@ -2980,7 +2980,7 @@ _Filed by agent on behalf of @cheyras — 2026-08-10._
 
 **Decided by:** agent on behalf of @cheyras (owner-approved product change)
 
-**Decision:** Logged-out visitors can browse the whole catalog on deckscout.io —
+**Decision:** Logged-out visitors can browse the whole catalog on deckpal.app —
 series index, set pages, card detail, search and the Pokédex. Everything
 per-user stays gated: collection quantities and owned state, completion
 percentages, lists, binders, decks, battle logs, insights, the scanner, profile,
@@ -3134,7 +3134,7 @@ provenance breakdown — the bytes and their source landed together, which is th
 whole point of routing writes through `putAsset` rather than writing files
 directly. `manifest:check --object-store` **CLEAN, exit 0**: 3,060 objects /
 3,060 rows, 0 etag mismatches. The cloud tier now holds 89/89 at both qualities.
-End-to-end against **deployed deckscout.io**, signed in as the new QA account:
+End-to-end against **deployed deckpal.app**, signed in as the new QA account:
 all 178 URLs (89 cards × 2 qualities) return real art, 0 placeholders, 0 HTTP
 failures. Browser at 428×781 — the reporter's own iPhone viewport — scrolled
 through the previously-empty middle of the set: #039–042 and #065–068 render real
@@ -3210,8 +3210,8 @@ rather than dismissed: it should close by itself when upstream ships, and an ope
 alert with a written reason is more honest than a dismissal that hides it.
 
 **Verification.** `pnpm why hono -r` → `4.13.1`; lockfile carries no `4.12.32`
-reference. Full workspace `tsc --noEmit` exit 0. `deckscout-mcp` builds, and the
-server boots for real: DB ok, deckscout-api reachable, `rotom-mcp listening on
+reference. Full workspace `tsc --noEmit` exit 0. `deckpal-mcp` builds, and the
+server boots for real: DB ok, deckpal-api reachable, `deckpal-mcp listening on
 127.0.0.1:3704`.
 
 **Implications.**
@@ -3230,16 +3230,16 @@ server boots for real: DB ok, deckscout-api reachable, `rotom-mcp listening on
 
 _Filed by agent on behalf of @cheyras — 2026-08-10._
 
-## 2026-08-10 — custom SMTP live: Resend on deckscout.io, and four traps on the way
+## 2026-08-10 — custom SMTP live: Resend on deckpal.app, and four traps on the way
 
-**What:** Supabase auth now sends through Resend as `DeckScout <noreply@deckscout.io>`.
+**What:** Supabase auth now sends through Resend as `DeckPal <noreply@deckpal.app>`.
 The built-in shared sender capped signup mail at **2/hour**, which
 `apps/web/src/lib/authErrors.ts` apologises for in copy; the cap is now **100/hour**
 and the apology is no longer load-bearing.
 
-**Config:** `smtp.resend.com:465`, user `resend`, sender `noreply@deckscout.io`,
+**Config:** `smtp.resend.com:465`, user `resend`, sender `noreply@deckpal.app`,
 `rate_limit_email_sent = 100`, `smtp_max_frequency = 60`, `mailer_autoconfirm`
-still false. DNS is three records on Vercel (`deck-scout` scope): a DKIM TXT at
+still false. DNS is three records on Vercel (`deck-pal` scope): a DKIM TXT at
 `resend._domainkey`, an SPF TXT at `send`, and an MX at `send` → `feedback-smtp.
 us-east-1.amazonses.com` priority 10.
 
@@ -3253,11 +3253,11 @@ least; setup is the only thing that ever needed more.
 **Four traps, each of which reported success while being wrong:**
 
 1. **A sending-only key cannot verify a domain.** `GET /domains` returns
-   `401 restricted_api_key`, and sending as `noreply@deckscout.io` returns
+   `401 restricted_api_key`, and sending as `noreply@deckpal.app` returns
    `403 domain is not verified`. SMTP *auth* succeeds on that key the whole time
    (`235 AUTH OK`), so "the credential works" and "mail will reach anyone" are
    separate questions and the first does not imply the second.
-2. **`vercel dns` needs `--scope deck-scout` explicitly.** Without it the CLI says
+2. **`vercel dns` needs `--scope deck-pal` explicitly.** Without it the CLI says
    "You don't have permission to list the domain record" — a permissions error for
    what is actually a scope-resolution problem, on a domain `vercel domains ls`
    happily lists.
@@ -3272,7 +3272,7 @@ least; setup is the only thing that ever needed more.
 **Verification.** Domain `verified` (DKIM, both SPF rows). A real signup driven
 through the public `POST /auth/v1/signup` — the same path a visitor takes — was
 accepted, and **Resend logs the message as `delivered`**, from
-`"DeckScout" <noreply@deckscout.io>`, subject "Confirm your email address".
+`"DeckPal" <noreply@deckpal.app>`, subject "Confirm your email address".
 
 **The first delivery test was a false positive, and the shape of it is worth
 keeping.** Signing up as `cheyras@gmail.com` returned `200` with a *user id that
@@ -3286,7 +3286,7 @@ against the provider's own log rather than the API's status code.
 
 **Implications.**
 
-- `deckscout.io` has no MX record, so it can send but never receive. That is fine
+- `deckpal.app` has no MX record, so it can send but never receive. That is fine
   for transactional mail and is why the QA account can never use password reset.
 - Free tier is 3,000/month and 100/day; `rate_limit_email_sent = 100`/hour sits
   inside the daily cap rather than at it. Raise the Resend plan before the
@@ -3301,7 +3301,7 @@ _Filed by agent on behalf of @cheyras — 2026-08-10._
 
 ## 2026-08-10 — a real OAuth 2.1 authorization server for /mcp (issue #29)
 
-Issue #29: adding the DeckScout connector in claude.ai's UI landed on
+Issue #29: adding the DeckPal connector in claude.ai's UI landed on
 `/authorize?response_type=code&client_id=dsk_…&redirect_uri=https://claude.ai/
 api/mcp/auth_callback&code_challenge=…` and just said "not found." Root cause,
 confirmed with `curl` against the exact URL: `/authorize` matched no
@@ -3316,7 +3316,7 @@ page, and make it work for any MCP-spec client (claude.ai, ChatGPT, Gemini),
 not just claude.ai's quirks.
 
 **Design: a bridge onto the existing credential, not a parallel one.** Every
-personal access token DeckScout has ever issued — `dsk_…`, migration 026 — is
+personal access token DeckPal has ever issued — `dsk_…`, migration 026 — is
 already exactly what `/mcp` accepts and `resolveToken()` already verifies.
 Building a second, OAuth-flavored credential type would have meant two things
 to keep in sync forever. Instead the OAuth token endpoint's entire job, once a
@@ -3328,7 +3328,7 @@ token row indistinguishable from one they typed a name for by hand, revocable
 from the same panel.
 
 **Split by who's asking, not by file.** `apps/api/src/oauthServer.ts` holds the
-four routes a client's own backend calls before any DeckScout session exists —
+four routes a client's own backend calls before any DeckPal session exists —
 `.well-known/oauth-authorization-server`, `.well-known/oauth-protected-
 resource` (RFC 8414/9728), `POST /register` (RFC 7591 dynamic client
 registration, public clients only — PKCE is mandatory on every `/authorize`
@@ -3370,7 +3370,7 @@ the browser lands on the exact `redirectTo` the server returned, `code` and
 **Migrations are additive only** (`CREATE TABLE`, no touch to `api_token` or
 any existing table). Applied to the local dev database first, then — after the
 review below and with the owner's explicit go-ahead — to production, followed
-by a production deploy (`vercel --prod`, aliased to `deckscout.io`).
+by a production deploy (`vercel --prod`, aliased to `deckpal.app`).
 
 **An independent Opus review caught what the local test suite structurally
 could not.** `routes/oauth.ts`'s two handlers originally read through
@@ -3402,14 +3402,14 @@ drifted apart once.
 
 **Verified live, on production, with the QA account — not just locally.**
 After the fixes above, the same flow a real MCP client runs was driven
-end-to-end against `https://deckscout.io`: `POST /register` (a fresh
-`dscl_…` client), sign in as `qa@deckscout.io`, load the real `/authorize` URL
+end-to-end against `https://deckpal.app`: `POST /register` (a fresh
+`dscl_…` client), sign in as `qa@deckpal.app`, load the real `/authorize` URL
 with a genuine PKCE pair, click the real Allow button, capture the real
 redirect to `claude.ai` (sandboxed — never an actual network call to
 claude.ai) with `code` and `state` intact, exchange the code at `POST /token`,
 and call the live `/mcp` endpoint's `initialize` method with the resulting
-token — a real 200 from `rotom-mcp`, not a mock. The minted token appeared in
-Profile → Agent access as `"DeckScout Prod Verification (OAuth)"`,
+token — a real 200 from `deckpal-mcp`, not a mock. The minted token appeared in
+Profile → Agent access as `"DeckPal Prod Verification (OAuth)"`,
 indistinguishable from a hand-created one. Revoking it through the real UI
 (the Revoke button hides behind a native `confirm()` dialog Playwright must
 explicitly accept, or the click silently no-ops) immediately 401'd it against
@@ -3500,8 +3500,8 @@ call sites) and is meaningless on self-host, which has no Supabase at all.
   the metadata key is decorative, not a source of truth, for any account that
   signed up through this app's own form.
 - Verifying this locally against the real cloud DB needed a working `/api/*`
-  path, which `pnpm --filter deckscout-web dev` alone does not provide (no
-  Vite proxy for `/api`, only `/deckscout/api`). `vercel dev` is the
+  path, which `pnpm --filter deckpal-web dev` alone does not provide (no
+  Vite proxy for `/api`, only `/deckpal/api`). `vercel dev` is the
   documented way, but its local function runtime resolves DB credentials
   opaquely (Preview/Production env vars are marked Sensitive and unreadable
   even via `vercel env pull`; "development"-scoped vars were empty) and a
@@ -3571,10 +3571,10 @@ resolves the reported confusion without regressing the shipped feature or
 violating the "don't invent data" principle. `ValueChart.tsx` needed no
 change; it already just renders whatever points it's given.
 **Verified:**
-- `pnpm --filter deckscout-web typecheck` and the repo-wide
+- `pnpm --filter deckpal-web typecheck` and the repo-wide
   `pnpm -r --workspace-concurrency=1 exec tsc --noEmit` both clean.
-- `pnpm --filter deckscout-web test:insights`: 6/6 pass.
-- Live browser, QA account (`qa@deckscout.io`), against `apps/api` standalone
+- `pnpm --filter deckpal-web test:insights`: 6/6 pass.
+- Live browser, QA account (`qa@deckpal.app`), against `apps/api` standalone
   on `.env.cloud` behind a temporary (reverted before commit) Vite `/api`
   proxy — same technique as the #25 entry above:
   - 0-point cold start: unchanged, screenshotted, regression-clean.
@@ -3613,7 +3613,7 @@ feature's own dev verification, not a production cron that has ever run
 continuously). Checked `vercel.json` (no `crons` key), `.github/workflows/`
 (no snapshot workflow — `DEPLOYMENT.md` explicitly says price/snapshot
 ingests "are not yet wired to Actions"), and this machine's `pm2 list` /
-`crontab -l` / `systemctl list-timers` (nothing named deckscout in any of
+`crontab -l` / `systemctl list-timers` (nothing named deckpal in any of
 them). `apps/sync`'s node-cron scheduler needs a persistent long-lived
 process; nothing here runs one for the cloud deployment. Net: **there is
 currently no live, automated mechanism producing `collection_value_point`
@@ -3665,11 +3665,11 @@ Removed:
   which no longer exists. Reworded to drop the overlay mention.
 
 **Deliberately left alone:**
-- `apps/api/src/routes/collection.ts`'s `GET /deckscout/api/collection/events`
+- `apps/api/src/routes/collection.ts`'s `GET /deckpal/api/collection/events`
   and its test coverage in `apps/api/src/__tests__/collection-attribution.test.ts`.
   Confirmed by reading the route's own doc comment and the tests: this is a
   general collection-activity/attribution log (`?source=` filtering exists
-  for e.g. `rotom-mcp`-attributed writes), not stream-tools-specific — the
+  for e.g. `deckpal-mcp`-attributed writes), not stream-tools-specific — the
   overlay was one consumer, not its reason for existing. Its doc comment does
   say it "Powers the stream overlay ... and an Activity view"; only the first
   half of that is now stale prose, not a reason to delete working,
@@ -3681,7 +3681,7 @@ Removed:
   (Pro-gated)". Skimmed both in context: consistent `[D]`/`[O]`/`[I]`
   competitive-research notation throughout, documenting pkmn.gg's *own*
   Stream Tools feature (help-center citations, DOM captures, OBS URL shape)
-  as reference material — not a spec DeckScout was building against. Removing
+  as reference material — not a spec DeckPal was building against. Removing
   factual notes about a competitor doesn't serve "pivoting away," so left
   untouched.
 - `roadmap/`, `.marketing-raw/`, and `apps/web/src/routes/landing/*` — grepped
@@ -3694,10 +3694,10 @@ without deleting reference material or working infrastructure that outlived
 its one frontend consumer.
 
 **Verification:**
-- `pnpm --filter deckscout-web typecheck` and repo-wide
+- `pnpm --filter deckpal-web typecheck` and repo-wide
   `pnpm -r --workspace-concurrency=1 exec tsc --noEmit`: both clean — no
   dangling imports/references from the deleted route or wrapper.
-- Live browser, QA account (`qa@deckscout.io`), against `apps/api` standalone
+- Live browser, QA account (`qa@deckpal.app`), against `apps/api` standalone
   on `.env.cloud` behind a temporary (reverted before commit; `git diff
   apps/web/vite.config.ts` empty) Vite `/api` proxy — same technique as prior
   entries in this log. At both 1440px and 390px on `/series` (where the issue
@@ -3708,7 +3708,7 @@ its one frontend consumer.
   longer in `CHROMELESS_PATHS` and there is no route to match) with the
   router's built-in default "Not Found" text — confirmed no custom
   `notFoundComponent` is configured anywhere in `main.tsx`, so this is
-  TanStack Router's own fallback, not a DeckScout-authored one. No trace of
+  TanStack Router's own fallback, not a DeckPal-authored one. No trace of
   the overlay pop-up UI at that URL.
 - Hit the same pre-existing `Promise.all`-on-one-RLS-client pool-wedging
   bug documented in the #25/#26 entries above while running the standalone
@@ -3802,9 +3802,9 @@ On Vercel: the getter fires, `preExisting` gets the Buffer, the stream
 is consumed, `express.raw()` gets nothing, the restore fires — fixed.
 
 **Verification:**
-- Typecheck: `pnpm --filter deckscout-api typecheck` passes.
+- Typecheck: `pnpm --filter deckpal-api typecheck` passes.
 - Preview deployment: `vercel deploy` to
-  `deckscout-bi202q249-deck-scout.vercel.app` — built and deployed
+  `deckpal-bi202q249-deck-pal.vercel.app` — built and deployed
   successfully.
 - Avatar upload against preview: 201 with `Content-Type:
   application/octet-stream`, `image/jpeg`, `image/png`, chunked
@@ -3869,9 +3869,9 @@ goal switcher in the filter strip. One bar that retargets to the active goal,
 plus a badge naming it, carries the same information with less visual noise.
 
 **Verified:**
-- `pnpm --filter deckscout-web typecheck` and the repo-wide
+- `pnpm --filter deckpal-web typecheck` and the repo-wide
   `pnpm -r --workspace-concurrency=1 exec tsc --noEmit` both clean.
-- Live browser, QA account (`qa@deckscout.io`), against `apps/api` standalone
+- Live browser, QA account (`qa@deckpal.app`), against `apps/api` standalone
   on `.env.cloud` behind a temporary (reverted before commit) Vite `/api`
   proxy — same technique as the #25/#26 entries above. Seeded 2 owned
   (card, variant) pairs on Base Set / Fossil card #1 (Aerodactyl: Unlimited
@@ -3977,7 +3977,7 @@ intent.
 - Verified end-to-end against a **local, migrated dev Postgres** with real
   `GITHUB_TOKEN`/`GITHUB_REPO` (isolated from `SUPABASE_MODE`/RLS, which stay
   unset so identity resolves to the self-host single local user) — this let
-  the reporter file a real GitHub issue (cheyras/deckscout#36, both labels
+  the reporter file a real GitHub issue (cheyras/deckpal#36, both labels
   confirmed, then closed) without applying the migration to production
   Supabase, which stays a deliberate, separate deploy step the site owner
   triggers themselves.
@@ -3986,7 +3986,7 @@ _Filed by agent on behalf of @cheyras — 2026-08-11._
 
 ## 2026-08-11 — Agentic deck-building defaults to cheapest printing (issue #31)
 **Decided by:** user (issue report), implemented by agent.
-**Decision:** When an AI agent builds or edits a deck via rotom-mcp, the MCP
+**Decision:** When an AI agent builds or edits a deck via deckpal-mcp, the MCP
 server now surfaces price in every ambiguous-candidate path and sorts candidates
 cheapest-first, and tool descriptions explicitly instruct the calling LLM to
 prefer the cheapest printing of a named card unless the user specified a
@@ -4082,7 +4082,7 @@ risky for a first pass.  What ships:
 
 **Activation:** The workflow reads `${{ secrets.ANTHROPIC_API_KEY }}`.  No
 secrets currently exist in this repo.  The owner must add one:
-`gh secret set ANTHROPIC_API_KEY --repo cheyras/deckscout`.  Until then the
+`gh secret set ANTHROPIC_API_KEY --repo cheyras/deckpal`.  Until then the
 workflow exits cleanly on every trigger.
 
 **Why this design:**
@@ -4144,15 +4144,15 @@ expanded) — not "in the open" the way the issue describes, so it was left
 alone too.
 
 **Why:** The issue explicitly asked for a reusable component ("do this in
-every similar instance"), not a one-off fix, and DeckScout's stated
+every similar instance"), not a one-off fix, and DeckPal's stated
 convention is that repeated UI patterns become shared components. Built to
 hold more than one item on purpose — a real menu, not a delete button
 wearing a costume — even though only one item exists at either call site
 today.
 
-**Verified:** `pnpm --filter deckscout-web typecheck` clean. Browser
+**Verified:** `pnpm --filter deckpal-web typecheck` clean. Browser
 (Playwright, QA account) against a local dev build in cloud mode
-(`.env.cloud`), proxying `/api` straight to the deployed `deckscout.io` API
+(`.env.cloud`), proxying `/api` straight to the deployed `deckpal.app` API
 for this pass — a purely frontend change, so no local `apps/api` instance was
 needed (the vite.config.ts proxy tweak was reverted before commit). Created
 and later cleaned up a throwaway deck and a throwaway list on the QA account:
@@ -4220,7 +4220,7 @@ concurrent CPU-bound image decoding, not database queries — confirmed safe, le
 alone.
 
 **Verified:**
-- `pnpm --filter deckscout-api typecheck`: clean (no errors).
+- `pnpm --filter deckpal-api typecheck`: clean (no errors).
 - All 52 deck tests + all 25 insights pure tests pass.
 - Functional correctness: ran the combined SQL and original separate queries side
   by side against the real cloud database for both the QA account (empty collection)
@@ -4434,7 +4434,7 @@ using `PGPORT` for every role and nothing about a fresh clone changes.
 **Also, so a clone actually runs:**
 - `pnpm dev` at the root (scripts/dev.mjs, dependency-free) starts api + web +
   the image shim together. The web app alone is not a working app — it proxies
-  `/api` and `/deckscout/images` — and requiring three hand-started terminals
+  `/api` and `/deckpal/images` — and requiring three hand-started terminals
   is precisely how this presents as "the backend won't connect".
 - That script loads `.env` and passes it to every child. The image shim reads
   `process.env` directly and does not call `loadEnv()`, so without this it
@@ -4714,7 +4714,7 @@ angles, adversarial verification) surfaced six defects, all fixed in place:
    max 1** (Number('')===0). PGPOOL_MAX now applies to workers only; sizes
    parse via parseInt with a >0 guard.
 5. **`pnpm dev` on a fresh clone died in a buried module cascade** — the
-   first-run build skipped @deckscout/storage and ignored exit codes. It now
+   first-run build skipped @deckpal/storage and ignored exit codes. It now
    builds db → storage → api in order and aborts loudly on failure.
 6. **Premium body grain repainted the viewport every scroll frame**
    (`background-attachment: fixed` cannot be composited on many GPUs, and iOS

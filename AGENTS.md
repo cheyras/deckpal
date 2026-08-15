@@ -1,4 +1,4 @@
-# AGENTS.md — DeckScout engineering contracts
+# AGENTS.md — DeckPal engineering contracts
 
 Cross-vendor agent instructions for working in this codebase. These contracts apply
 to every contributor -- human or AI, local or cloud, regardless of which LLM or
@@ -12,12 +12,12 @@ deployed on Vercel + Supabase (cloud) or plain Postgres (self-host):
 
 | Package | Filter name | Role |
 |---|---|---|
-| `apps/api` | `deckscout-api` | Express API (~49 endpoints); Vercel catch-all serverless function (cloud) or standalone (self-host) |
-| `apps/sync` | `deckscout-sync` | Catalog import, dex import, price ingest (GitHub Actions or local cron) |
-| `apps/web` | `deckscout-web` | React 19 + Vite + Tailwind 4 SPA |
-| `apps/images` | `deckscout-images` | Self-host image server (card art cache on local disk); cloud path uses Supabase Storage |
-| `apps/mcp` | `deckscout-mcp` | **rotom-mcp** -- MCP server (Wave 3 for cloud; available now for self-host) |
-| `packages/db` | `@deckscout/db` | Shared Postgres pool + numbered SQL migrations |
+| `apps/api` | `deckpal-api` | Express API (~49 endpoints); Vercel catch-all serverless function (cloud) or standalone (self-host) |
+| `apps/sync` | `deckpal-sync` | Catalog import, dex import, price ingest (GitHub Actions or local cron) |
+| `apps/web` | `deckpal-web` | React 19 + Vite + Tailwind 4 SPA |
+| `apps/images` | `deckpal-images` | Self-host image server (card art cache on local disk); cloud path uses Supabase Storage |
+| `apps/mcp` | `deckpal-mcp` | **deckpal-mcp** -- MCP server (Wave 3 for cloud; available now for self-host) |
+| `packages/db` | `@deckpal/db` | Shared Postgres pool + numbered SQL migrations |
 
 Data lives in a Postgres database. Cloud deployments use Supabase Auth (JWT +
 RLS) for multi-user access control. Self-host deployments have no built-in
@@ -38,17 +38,17 @@ set -a && . ./.env && set +a
 
 ```bash
 # Build a single app (substitute the filter name from the table above)
-pnpm --filter deckscout-web build
+pnpm --filter deckpal-web build
 
-# Typecheck all workspaces (build @deckscout/db first -- others depend on its dist/)
-pnpm --filter @deckscout/db build
+# Typecheck all workspaces (build @deckpal/db first -- others depend on its dist/)
+pnpm --filter @deckpal/db build
 pnpm -r --workspace-concurrency=1 exec tsc --noEmit
 
 # Run the pure test suite (no DB required)
-pnpm --filter deckscout-api test:deck
+pnpm --filter deckpal-api test:deck
 ```
 
-Build `@deckscout/db` before typechecking -- other packages resolve it through its
+Build `@deckpal/db` before typechecking -- other packages resolve it through its
 `dist/` output. See `packages/db/package.json` for the `main` field.
 
 ---
@@ -84,7 +84,7 @@ of something with no provenance record is unrepresentable, not merely discourage
 `NULL` source beats an invented URL the manifest then spreads.
 
 **Where enforced:** The respective choke point module; verified by
-`pnpm --filter deckscout-images manifest:check` (disk tier; exits non-zero on
+`pnpm --filter deckpal-images manifest:check` (disk tier; exits non-zero on
 drift) and `manifest:check --object-store` (cloud tier, reconciled against the
 actual bucket contents). Never `writeFile`/`curl -o`/direct Storage upload
 outside the choke point. Never add loose fill scripts under `scripts/` -- add
@@ -151,7 +151,7 @@ Supabase CLI is not used for schema management; our runner is more rigorous
 
 **Rule:** `card_image_phash` is the scanner's only index. The match query ranks it
 in SQL with `bit_count(hash_bits # probe)`; nothing is cached in process memory.
-So `pnpm --filter deckscout-api scan:index` takes effect immediately, on both
+So `pnpm --filter deckpal-api scan:index` takes effect immediately, on both
 deployments, with no restart.
 
 **Why:** The original scanner read all ~23k hashes into typed arrays at first use
@@ -240,7 +240,7 @@ These are non-negotiable quality gates:
    at 390px viewport. Actually look at it -- type-checks and tests verify code
    correctness, not feature correctness.
 2. **`manifest:check` exit 0** after any image work (self-host:
-   `pnpm --filter deckscout-images manifest:check`).
+   `pnpm --filter deckpal-images manifest:check`).
 3. **Verify the artifact, not the report.** A "done" you did not verify is a
    guess. Query the DB, curl the endpoint, load the page -- confirm the real
    thing works.
@@ -288,14 +288,14 @@ than one row.
 
 | If you changed... | Also update... |
 |---|---|
-| Auth, MCP/connector behavior, or anything a security reader would care about | `DEPLOYMENT.md`, `SECURITY.md`, `apps/mcp/SPEC.md`, wiki [MCP Setup](https://github.com/cheyras/deckscout/wiki/MCP-Setup) |
-| System architecture, a new subsystem, or cross-cutting data flow | `ARCHITECTURE.md`, wiki [Architecture](https://github.com/cheyras/deckscout/wiki/Architecture) |
-| Anything `research/SCHEMA.md` documents (variant taxonomy, tier/goal derivation, DDL) | `research/SCHEMA.md`, wiki [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) if it covers the same ground |
-| Frontend stack, pattern, or a decision the [Frontend Research](https://github.com/cheyras/deckscout/wiki/Frontend-Research) page already covers | that wiki page |
+| Auth, MCP/connector behavior, or anything a security reader would care about | `DEPLOYMENT.md`, `SECURITY.md`, `apps/mcp/SPEC.md`, wiki [MCP Setup](https://github.com/cheyras/deckpal/wiki/MCP-Setup) |
+| System architecture, a new subsystem, or cross-cutting data flow | `ARCHITECTURE.md`, wiki [Architecture](https://github.com/cheyras/deckpal/wiki/Architecture) |
+| Anything `research/SCHEMA.md` documents (variant taxonomy, tier/goal derivation, DDL) | `research/SCHEMA.md`, wiki [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) if it covers the same ground |
+| Frontend stack, pattern, or a decision the [Frontend Research](https://github.com/cheyras/deckpal/wiki/Frontend-Research) page already covers | that wiki page |
 | A `README.md` feature bullet, status flag (e.g. "parked for Wave N"), or the apps table | `README.md` |
 | Deploy steps, env vars, or the connect-an-assistant runbook | `DEPLOYMENT.md` |
-| Anything logged in step 1 | `DECISIONS.md` **and** the wiki [Decision Log](https://github.com/cheyras/deckscout/wiki/Decision-Log) -- always both, always together, never one now and the other "later" |
-| Any work session at all, however small | wiki [Contribution Record](https://github.com/cheyras/deckscout/wiki/Contribution-Record) -- one ledger line |
+| Anything logged in step 1 | `DECISIONS.md` **and** the wiki [Decision Log](https://github.com/cheyras/deckpal/wiki/Decision-Log) -- always both, always together, never one now and the other "later" |
+| Any work session at all, however small | wiki [Contribution Record](https://github.com/cheyras/deckpal/wiki/Contribution-Record) -- one ledger line |
 
 If nothing in the table applies, say so to yourself explicitly rather than
 silently skipping this section -- "no docs affected" is a real, fine answer;
@@ -303,12 +303,12 @@ an un-asked question is not.
 
 ### 3. Sync the wiki
 
-The project wiki at <https://github.com/cheyras/deckscout/wiki> holds design
+The project wiki at <https://github.com/cheyras/deckpal/wiki> holds design
 research and deep-dive documentation. It is cloned locally at
-`~/deckscout.wiki`. If absent, clone it:
+`~/deckpal.wiki`. If absent, clone it:
 
 ```bash
-git clone https://github.com/cheyras/deckscout.wiki.git ~/deckscout.wiki
+git clone https://github.com/cheyras/deckpal.wiki.git ~/deckpal.wiki
 ```
 
 For every wiki page the table above named:
@@ -322,17 +322,17 @@ Wiki pages:
 
 | Page | What it covers |
 |---|---|
-| [Home](https://github.com/cheyras/deckscout/wiki) | Index of all wiki pages |
-| [Architecture](https://github.com/cheyras/deckscout/wiki/Architecture) | Architecture deep dives (canonical copy: repo `ARCHITECTURE.md`) |
-| [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) | Catalog ingest, prices, images, storage engine, sync jobs |
-| [Frontend Research](https://github.com/cheyras/deckscout/wiki/Frontend-Research) | Frontend stack, virtualization, image delivery, offline/PWA |
-| [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) | Species mapping, sprites, capture semantics |
-| [UI Spec](https://github.com/cheyras/deckscout/wiki/UI-Spec) | Design tokens, components, layout measurements |
-| [MCP Setup](https://github.com/cheyras/deckscout/wiki/MCP-Setup) | Connecting an AI assistant -- tokens, OAuth connect flow, verification, revocation |
-| [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) | Prior art analysis and license landscape |
-| [Project Brief](https://github.com/cheyras/deckscout/wiki/Project-Brief) | Original mission brief (historical) |
-| [Decision Log](https://github.com/cheyras/deckscout/wiki/Decision-Log) | Snapshot of DECISIONS.md |
-| [Contribution Record](https://github.com/cheyras/deckscout/wiki/Contribution-Record) | Attribution ledger |
+| [Home](https://github.com/cheyras/deckpal/wiki) | Index of all wiki pages |
+| [Architecture](https://github.com/cheyras/deckpal/wiki/Architecture) | Architecture deep dives (canonical copy: repo `ARCHITECTURE.md`) |
+| [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) | Catalog ingest, prices, images, storage engine, sync jobs |
+| [Frontend Research](https://github.com/cheyras/deckpal/wiki/Frontend-Research) | Frontend stack, virtualization, image delivery, offline/PWA |
+| [Dex Data](https://github.com/cheyras/deckpal/wiki/Dex-Data) | Species mapping, sprites, capture semantics |
+| [UI Spec](https://github.com/cheyras/deckpal/wiki/UI-Spec) | Design tokens, components, layout measurements |
+| [MCP Setup](https://github.com/cheyras/deckpal/wiki/MCP-Setup) | Connecting an AI assistant -- tokens, OAuth connect flow, verification, revocation |
+| [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) | Prior art analysis and license landscape |
+| [Project Brief](https://github.com/cheyras/deckpal/wiki/Project-Brief) | Original mission brief (historical) |
+| [Decision Log](https://github.com/cheyras/deckpal/wiki/Decision-Log) | Snapshot of DECISIONS.md |
+| [Contribution Record](https://github.com/cheyras/deckpal/wiki/Contribution-Record) | Attribution ledger |
 
 ## Canonical documentation
 
@@ -341,9 +341,9 @@ Wiki pages:
 | `ARCHITECTURE.md` | Target architecture, RLS model, storage design, sync design |
 | `DEPLOYMENT.md` | Deploy-your-own runbook (Vercel + Supabase) and self-host setup |
 | `research/SCHEMA.md` | Data model (variant taxonomy, tier/goal derivation) |
-| [Wiki: Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) | Data sources, sync strategy |
+| [Wiki: Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) | Data sources, sync strategy |
 | `DECISIONS.md` | Dated audit trail of every decision and correction |
-| `apps/mcp/SPEC.md` | MCP server specification (rotom-mcp) |
+| `apps/mcp/SPEC.md` | MCP server specification (deckpal-mcp) |
 | `SECURITY.md` | Security model and disclosure policy |
 | `CONTRIBUTING.md` | Human contributor onboarding |
 
@@ -360,7 +360,7 @@ of that trailer means the commit is directly human-authored.
 Wiki page footers name the last agent + human pair:
 `_Last updated by <agent> on behalf of @<handle> -- <date>_`
 
-The wiki [Contribution Record](https://github.com/cheyras/deckscout/wiki/Contribution-Record)
+The wiki [Contribution Record](https://github.com/cheyras/deckpal/wiki/Contribution-Record)
 is the running ledger. Agents append one line per work session:
 `| <date> | <agent> | @<handle> | <what> |`
 

@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { defaultUserId, pool } from './db.js';
-import { looksLikeApiToken, resolveToken, touchToken } from '@deckscout/db';
+import { looksLikeApiToken, resolveToken, touchToken } from '@deckpal/db';
 import { makeResolveIdentity, makeResolveOptionalIdentity } from './identity.js';
 
 /**
@@ -316,7 +316,7 @@ export function authMiddleware(req: Request, _res: Response, next: NextFunction)
       .catch((err: unknown) => {
         // A missing table (un-migrated self-host) or a transient DB error must
         // not 500 the request — it stays anonymous and requireAuth decides.
-        console.error('[deckscout-api] api token lookup failed:', (err as Error).message);
+        console.error('[deckpal-api] api token lookup failed:', (err as Error).message);
       })
       .finally(() => next());
     return;

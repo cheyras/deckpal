@@ -8,12 +8,12 @@ import {
   getClient,
   registerClient,
   verifyPkceS256,
-} from '@deckscout/db';
+} from '@deckpal/db';
 
 /**
  * The public, unauthenticated half of the OAuth 2.1 "Connect" flow —
  * everything an MCP client (claude.ai, ChatGPT, Gemini, Claude Code, …) talks
- * to *before* a DeckScout session exists: discovery metadata, dynamic client
+ * to *before* a DeckPal session exists: discovery metadata, dynamic client
  * registration, and the token exchange.
  *
  * The signed-in half — showing the consent screen and recording the user's
@@ -37,14 +37,14 @@ const TOKEN_TTL_HINT = undefined; // access_token does not expire; omit expires_
 const MAX_ACTIVE_TOKENS = 20; // mirrors routes/tokens.ts
 
 function originFor(req: Request): string {
-  const configured = process.env.DECKSCOUT_PUBLIC_ORIGIN;
+  const configured = process.env.DECKPAL_PUBLIC_ORIGIN;
   if (configured) return configured.replace(/\/+$/, '');
   const host = req.headers.host ?? 'localhost';
   const proto = host.startsWith('localhost') || host.startsWith('127.0.0.1') ? 'http' : 'https';
   return `${proto}://${host}`;
 }
 
-const DEFAULT_ALLOWED_HOSTS = 'deckscout.io,www.deckscout.io,localhost,127.0.0.1';
+const DEFAULT_ALLOWED_HOSTS = 'deckpal.app,www.deckpal.app,localhost,127.0.0.1';
 
 /** Same allowlist concern as apps/mcp/src/cloud.ts's hostAllowed — these routes mint URLs FROM the Host header, so an unrecognised host must not be trusted with that. */
 function hostAllowed(req: Request): boolean {
@@ -96,7 +96,7 @@ export function mountOAuthServer(app: Express): void {
   });
 
   // POST /register — RFC 7591 dynamic client registration. Public by design:
-  // any MCP client self-registers before it has ever seen a DeckScout user.
+  // any MCP client self-registers before it has ever seen a DeckPal user.
   app.post('/register', express.json({ limit: '16kb' }), (req, res) => {
     void (async () => {
       if (!hostAllowed(req)) {
@@ -123,7 +123,7 @@ export function mountOAuthServer(app: Express): void {
           oauthError(res, 400, 'invalid_client_metadata', err.message);
           return;
         }
-        console.error('[deckscout-api] /register failed:', (err as Error).message);
+        console.error('[deckpal-api] /register failed:', (err as Error).message);
         oauthError(res, 500, 'server_error');
       }
     })();
@@ -163,7 +163,7 @@ export function mountOAuthServer(app: Express): void {
         try {
           consumed = await consumeAuthCode(pool, code);
         } catch (err) {
-          console.error('[deckscout-api] /token code lookup failed:', (err as Error).message);
+          console.error('[deckpal-api] /token code lookup failed:', (err as Error).message);
           oauthError(res, 500, 'server_error');
           return;
         }
@@ -203,7 +203,7 @@ export function mountOAuthServer(app: Express): void {
             ...(TOKEN_TTL_HINT !== undefined ? { expires_in: TOKEN_TTL_HINT } : {}),
           });
         } catch (err) {
-          console.error('[deckscout-api] /token mint failed:', (err as Error).message);
+          console.error('[deckpal-api] /token mint failed:', (err as Error).message);
           oauthError(res, 500, 'server_error');
         }
       })();

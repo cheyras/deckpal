@@ -22,7 +22,7 @@ its SKILL, and both of Chey's decks implemented card-by-card with tests.
       and a citation comment (verify the compendium's canonical location at build time).
 - [ ] **Per-card tests are part of the definition of done**: a card isn't implemented until at
       least one scenario test asserts its effect in a constructed game state.
-- [ ] Implement **both of Chey's current decks, all 60 cards each** (query rotom/DB for the
+- [ ] Implement **both of Chey's current decks, all 60 cards each** (query deckpal-mcp/DB for the
       lists). `card_impls` rows maintained (`implemented|needs_ruling|blocked` + refs).
 - [ ] Validate the SKILL: at least one card implemented by a fresh subagent from the SKILL.md
       alone, no other guidance — fix the doc until that works.

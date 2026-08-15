@@ -15,7 +15,7 @@ import {
   newAvatarKey,
   putAvatarObject,
   sniffContentType,
-} from '@deckscout/storage';
+} from '@deckpal/storage';
 
 /**
  * Profile photos — `/avatar` (issue #14, migration 029).

@@ -21,7 +21,7 @@ interface SeriesRow {
   total_required: string | null;
 }
 
-/** GET /deckscout/api/series — the series list (English catalogue). */
+/** GET /deckpal/api/series — the series list (English catalogue). */
 seriesRouter.get(
   '/',
   asyncHandler(async (req, res) => {
@@ -32,7 +32,7 @@ seriesRouter.get(
     // rep: the series' base/namesake set — the set sharing the series name (e.g.
     // "Scarlet & Violet" → set sv01), else the earliest non-promo set with a logo
     // (the flagship base set). Represents the whole era rather than a random recent
-    // sub-set. Its logo/symbol are served locally by deckscout-images via the set id
+    // sub-set. Its logo/symbol are served locally by deckpal-images via the set id
     // (the client falls back cleanly when absent).
     //
     // A whole series can have no set logo at all upstream (McDonald's Collection,
@@ -154,7 +154,7 @@ function pct(owned: number | null, total: number | null): number {
 }
 
 /**
- * GET /deckscout/api/series/:seriesSlug — the sets in a series, each with the
+ * GET /deckpal/api/series/:seriesSlug — the sets in a series, each with the
  * three-goal completion summary for the default user (read from
  * user_set_progress; the Master total is a (card,variant) pair fraction).
  */

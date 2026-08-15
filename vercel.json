@@ -1,12 +1,12 @@
 {
-  "buildCommand": "pnpm --filter @deckscout/db build && pnpm --filter @deckscout/storage build && pnpm --filter deckscout-api build && pnpm --filter deckscout-mcp build && pnpm --filter deckscout-web build",
+  "buildCommand": "pnpm --filter @deckpal/db build && pnpm --filter @deckpal/storage build && pnpm --filter deckpal-api build && pnpm --filter deckpal-mcp build && pnpm --filter deckpal-web build",
   "regions": [
     "sfo1"
   ],
   "outputDirectory": "apps/web/dist",
   "rewrites": [
     {
-      "source": "/deckscout/images/(.*)",
+      "source": "/deckpal/images/(.*)",
       "destination": "/api/images?p=$1"
     },
     {

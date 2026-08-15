@@ -13,7 +13,7 @@ import {
   tokenPrefix,
   touchToken,
   type Queryable,
-} from '@deckscout/db';
+} from '@deckpal/db';
 
 /**
  * Unit tests for personal access tokens (migration 026). No database: the

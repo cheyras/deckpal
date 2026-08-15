@@ -15,7 +15,7 @@ views until then.
 ## Quarantine rules
 - All foil work lives on `foil/main` + sub-branches (`foil/patterns`, `foil/masks`,
   `foil/resolver`, `foil/workbench`) that merge back into `foil/main` only.
-- The workbench is its own route (suggest `/deckscout/foil-lab`) — reachable by URL, linked from
+- The workbench is its own route (suggest `/deckpal/foil-lab`) — reachable by URL, linked from
   nowhere in the app shell.
 - Rebase `foil/main` onto main after every root-touching main merge (orchestrator will ping).
 

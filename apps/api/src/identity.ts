@@ -6,7 +6,7 @@ import { ApiError } from './http.js';
  * Request identity — the single seam between "who is calling" and "whose rows
  * do I read/write", valid in both deployments.
  *
- * DeckScout ships two deployments with two different answers to "who is the
+ * DeckPal ships two deployments with two different answers to "who is the
  * current user?":
  *
  *  • **Cloud** — the authenticated subject of a verified Supabase JWT (or of a

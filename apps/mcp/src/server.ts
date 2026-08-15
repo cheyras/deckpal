@@ -24,7 +24,7 @@ const version: string = (() => {
   }
 })();
 
-// Server icon (Rotom on dark gray) advertised per MCP SEP-973 (spec 2025-11-25).
+// Server icon (the DeckPal mark on dark gray) advertised per MCP SEP-973 (spec 2025-11-25).
 // claude.ai doesn't render custom-connector icons yet (shows a globe) — when it
 // ships support, this is what appears. Read once at module load; the file lives
 // in assets/ beside src/ and dist/, so resolve from this file's directory.
@@ -33,7 +33,7 @@ const iconDataUri: string | null = (() => {
     const p = join(dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'icon-128.png');
     return `data:image/png;base64,${readFileSync(p).toString('base64')}`;
   } catch {
-    console.error('[deckscout-mcp] assets/icon-128.png missing — serving without an icon');
+    console.error('[deckpal-mcp] assets/icon-128.png missing — serving without an icon');
     return null;
   }
 })();
@@ -51,9 +51,9 @@ const iconDataUri: string | null = (() => {
  */
 export function buildServer(ctx: Ctx): McpServer {
   const server = new McpServer({
-    name: 'rotom-mcp',
+    name: 'deckpal-mcp',
     version,
-    title: 'Rotom — pokedex collection assistant',
+    title: 'DeckPal — TCG collection assistant',
     ...(iconDataUri
       ? { icons: [{ src: iconDataUri, mimeType: 'image/png', sizes: ['128x128'] }] }
       : {}),

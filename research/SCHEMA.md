@@ -18,7 +18,7 @@ I have tried to make **[X]** conspicuous rather than smooth. Where I am guessing
 
 ## Second-pass revision log — what changed, and why
 
-The first pass was written before [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) and `DECK-FORMATS.md` existed, and flagged its
+The first pass was written before [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) and `DECK-FORMATS.md` existed, and flagged its
 own two biggest weaknesses as unresolved. Both are now resolved. **Corrections are recorded here
 rather than silently folded in**, because a visible correction is more useful than a clean table.
 
@@ -30,8 +30,8 @@ rather than silently folded in**, because a visible correction is more useful th
 | C4 | `stamp` seeded as ~12 values | **116** distinct values, and up to **2 stamps on one variant**. Decisively vindicates the junction table over a scalar column. | §4.5 |
 | C5 | `variant_kind` projected at "60–150 rows" | **323** distinct facet combinations actually occur. | §4.5 |
 | C6 | Tier rule v1 | v1 leaves **432 cards with no standard-tier variant** (Master Set unachievable). Rule **v2** cuts that to 153 and reclassifies 1,269 rows. | §5.3 |
-| C7 | `price_observation` at ~45,000 variants → 2.2 GB/yr | Real priceable rows **31,610** ([Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §4.5). Revised figures and an adopted **hybrid cadence**. | §11 |
-| C8 | `observed_on DATE`, yearly partitions, PK-only index | Adopted [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §7.3's **`captured_at` = the source's own stamp**, **monthly** partitions, and a **BRIN** companion index. My DATE grain was a cruder way to get the same dedupe. | §7.2 |
+| C7 | `price_observation` at ~45,000 variants → 2.2 GB/yr | Real priceable rows **31,610** ([Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §4.5). Revised figures and an adopted **hybrid cadence**. | §11 |
+| C8 | `observed_on DATE`, yearly partitions, PK-only index | Adopted [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §7.3's **`captured_at` = the source's own stamp**, **monthly** partitions, and a **BRIN** companion index. My DATE grain was a cruder way to get the same dedupe. | §7.2 |
 | C9 | §8 decks marked PROVISIONAL | Replaced with `DECK-FORMATS.md`'s evidence-backed model. The `no_rule_box` check is no longer crude; `legal.standard` is **removed** as a legality predicate. | §8 |
 | C10 | `card_count_total` "advisory" — no number | Measured: `Σ cardCount.total` = 23,746 vs 23,444 real cards → **302 phantom cards**. And per-variant `cardCount` fields **exceed the card count in 47 of 214 sets** — unusable as denominators. | §6, §9.2 |
 | C11 | Binder `slot_index` — untested against real layouts | **Survives.** 9/4-pocket spreads, 12/16-pocket single pages, and the zero-pocket inside cover are all pure *render-time* derivations from `slot_index`. No stored page/pocket, no fudge. | §14.2 |
@@ -92,7 +92,7 @@ from the observed `22.3 % / 22.3 %` double reading. Two unrelated methods agreei
 
 ### A correction to a sibling doc
 
-**[Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §3.1 and §8 item 12 are wrong about `cardCount`.** They state that
+**[Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §3.1 and §8 item 12 are wrong about `cardCount`.** They state that
 `cardCount.{holo, reverse, normal, firstEd}` "drive per-variant set-progress denominators" and that
 `official` vs `total` "is exactly the main-set vs master-set distinction … no derivation needed".
 Neither holds:
@@ -112,9 +112,9 @@ real rows. It is now backed by a measurement rather than caution.
 
 | Sibling doc | Status | Consequence |
 |---|---|---|
-| [Data Layer (wiki)](https://github.com/cheyras/deckscout/wiki/Data-Layer) | ✅ read (791 lines) | §7, §11, §15 reconciled. Divergences justified inline. |
+| [Data Layer (wiki)](https://github.com/cheyras/deckpal/wiki/Data-Layer) | ✅ read (791 lines) | §7, §11, §15 reconciled. Divergences justified inline. |
 | `research/DECK-FORMATS.md` | ✅ read (1,554 lines) | §8 rewritten. |
-| `research/INTERACTION-CAPTURE.md` + [UI Spec](https://github.com/cheyras/deckscout/wiki/UI-Spec) §5 | ✅ read | §14.2 binder verified against measured layouts. |
+| `research/INTERACTION-CAPTURE.md` + [UI Spec](https://github.com/cheyras/deckpal/wiki/UI-Spec) §5 | ✅ read | §14.2 binder verified against measured layouts. |
 
 ---
 
@@ -134,7 +134,7 @@ real rows. It is now backed by a measurement rather than caution.
 5. **Indexes are a liability on microSD.** Every index in §13 names the query that forces it. Sorting
    that `BEHAVIOR-SPEC.md` §5.3 documents as *client-side* gets no index at all.
 6. **Surrogate `BIGINT` PKs with `UNIQUE` natural keys, and keep the foreign keys.**
-   [E] [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §3 item 10 — pokecollector had to *drop* `cards.set_id`'s FK to make a
+   [E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §3 item 10 — pokecollector had to *drop* `cards.set_id`'s FK to make a
    composite `{tcgdexId}_{lang}` string PK work, and now joins Set↔Card in Python. Take the
    multi-language concept, reject that implementation.
 
@@ -142,21 +142,21 @@ real rows. It is now backed by a measurement rather than caution.
 
 # 2. How this schema avoids each of pokecollector's four failures
 
-[Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §1 and §4 name four structural defects. Explicitly, one by one:
+[Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §1 and §4 name four structural defects. Explicitly, one by one:
 
 | pokecollector defect | Citation | How pokedex avoids it |
 |---|---|---|
-| **Four booleans on the card row** (`variants_normal/reverse/holo/first_edition`), README: "Variants are now limited to Normal, Holo, Reverse Holo, and First Edition" | [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §1 reason 1, `models.py` L113–116 | Variants are **rows** (`card_variant`, §4). A card may carry 1–8+ of them. Adding `Master Ball Pattern` or a 2027 stamp is an `INSERT`, never DDL. The four booleans cannot even be expressed. |
-| **Free-text `collection.variant TEXT NOT NULL DEFAULT 'Normal'`, no FK to any variant table** | [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §1, §4 item 4 | `collection_item.card_variant_id BIGINT NOT NULL REFERENCES card_variant(id)`. There is no text variant column anywhere on a user row. A typo is a constraint violation, not a silently-orphaned collection entry. |
-| **`price_history UNIQUE(card_id, date)` with five EUR-only columns — no variant, no currency, no source dimension** | [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §1, §4 item 5 | `price_observation` is keyed `(card_variant_id, source_code, currency_code, captured_at)` with `currency_code` and `source_code` as **FK'd, first-class dimensions** (§7). Cardmarket EUR and TCGplayer USD coexist as separate rows, never as separate columns. |
-| **Column names that lie** — `price_market` = `price_mid` = `cardmarket.avg`; `price_high` = `avg30`; and `*-holo` meaning *reverse* holo | [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §4 item 6, §2a "The `-holo` semantics", `DECISIONS.md` correction 5 | Metric names are source-generic and the source→metric mapping is a **data table** (`price_source_field_map`, §7.3) rather than a line of Python. No column named `*_holo` exists anywhere. The Cardmarket `*-holo` fields are ingested onto the **Reverse Holofoil** `card_variant` row, and the mapping rows say so in SQL you can `SELECT`. |
+| **Four booleans on the card row** (`variants_normal/reverse/holo/first_edition`), README: "Variants are now limited to Normal, Holo, Reverse Holo, and First Edition" | [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §1 reason 1, `models.py` L113–116 | Variants are **rows** (`card_variant`, §4). A card may carry 1–8+ of them. Adding `Master Ball Pattern` or a 2027 stamp is an `INSERT`, never DDL. The four booleans cannot even be expressed. |
+| **Free-text `collection.variant TEXT NOT NULL DEFAULT 'Normal'`, no FK to any variant table** | [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §1, §4 item 4 | `collection_item.card_variant_id BIGINT NOT NULL REFERENCES card_variant(id)`. There is no text variant column anywhere on a user row. A typo is a constraint violation, not a silently-orphaned collection entry. |
+| **`price_history UNIQUE(card_id, date)` with five EUR-only columns — no variant, no currency, no source dimension** | [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §1, §4 item 5 | `price_observation` is keyed `(card_variant_id, source_code, currency_code, captured_at)` with `currency_code` and `source_code` as **FK'd, first-class dimensions** (§7). Cardmarket EUR and TCGplayer USD coexist as separate rows, never as separate columns. |
+| **Column names that lie** — `price_market` = `price_mid` = `cardmarket.avg`; `price_high` = `avg30`; and `*-holo` meaning *reverse* holo | [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §4 item 6, §2a "The `-holo` semantics", `DECISIONS.md` correction 5 | Metric names are source-generic and the source→metric mapping is a **data table** (`price_source_field_map`, §7.3) rather than a line of Python. No column named `*_holo` exists anywhere. The Cardmarket `*-holo` fields are ingested onto the **Reverse Holofoil** `card_variant` row, and the mapping rows say so in SQL you can `SELECT`. |
 
 Two more from the do-not-copy list, since they touch the schema:
 
 | Defect | Citation | Avoided by |
 |---|---|---|
-| `ImageCache` as uncapped Postgres `BYTEA` — no TTL, no LRU, no size cap; `pg_dump` then carries the whole image corpus | [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §4 item 1 | `image_asset` (§15) holds **metadata and a filesystem path**. Bytes never enter the DB. Cap and LRU are columns, not hopes. |
-| Migration strategy: `alembic` declared but unused; 108 hand-ordered raw SQL strings in `database.py` | [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §4 item 2 | Out of scope for this document (I write no migrations), but the DDL below is written to be expressible as ordered, reversible migrations. Nothing here depends on `CREATE ... IF NOT EXISTS` idempotency-by-reboot. |
+| `ImageCache` as uncapped Postgres `BYTEA` — no TTL, no LRU, no size cap; `pg_dump` then carries the whole image corpus | [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §4 item 1 | `image_asset` (§15) holds **metadata and a filesystem path**. Bytes never enter the DB. Cap and LRU are columns, not hopes. |
+| Migration strategy: `alembic` declared but unused; 108 hand-ordered raw SQL strings in `database.py` | [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §4 item 2 | Out of scope for this document (I write no migrations), but the DDL below is written to be expressible as ordered, reversible migrations. Nothing here depends on `CREATE ... IF NOT EXISTS` idempotency-by-reboot. |
 
 ---
 
@@ -247,7 +247,7 @@ erDiagram
 that "Variant names are free-text-ish labels, curated by the pkmn.gg team, not a fixed enum. New
 ones are added per card via a moderation flow."
 
-And [E] [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §1 establishes what TCGdex actually ships: a `variants_detailed` array per
+And [E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §1 establishes what TCGdex actually ships: a `variants_detailed` array per
 card carrying `type` / `subtype` / `size` / `stamp` / `foil` — a **facet decomposition**, with
 observed stamps `pokemon-center`, `staff`, `worlds-2024`, `player-rewards-program`, `set-logo`,
 `gamestop`, `eb-games`, `1st-edition`; foils `cosmos`, `gold`, `galaxy`, `league`; and types beyond
@@ -260,7 +260,7 @@ fast.** Those pull against each other.
 
 | Option | Why not |
 |---|---|
-| **A. Free-text column on the collection row** (pokecollector) | No referential integrity, no tier, unjoinable to price, typos become phantom variants. [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §4 item 4. Rejected. |
+| **A. Free-text column on the collection row** (pokecollector) | No referential integrity, no tier, unjoinable to price, typos become phantom variants. [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §4 item 4. Rejected. |
 | **B. Booleans per variant on the card row** (pokecollector) | Cannot express `Master Ball Pattern` without DDL. Rejected. |
 | **C. Postgres native `ENUM`** | `ALTER TYPE ... ADD VALUE` is a schema migration, and the vocabulary demonstrably grows every set (`Master Ball Pattern` is SV-era; `Poke Ball Pattern` newer still). It also does not exist in SQLite. Rejected — a new stamp must not require a deploy. |
 | **D. Pure JSONB facet blob on `card_variant`** | Needs a GIN index to filter, and GIN write-amplification on microSD is exactly the cost §1 principle 5 is trying to avoid. Also unjoinable for the tier logic. Rejected. |
@@ -405,7 +405,7 @@ CREATE UNIQUE INDEX card_variant_one_primary
 
 `UNIQUE (card_id, variant_kind_code)` is safe because the facet tuple already discriminates the four
 `holo` rows on `base1-4` — `holo/unlimited`, `holo/shadowless`, `holo/shadowless+1st-edition`,
-`holo/1999-2000-copyright` — into four distinct `variant_kind.code` values. [E] [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) §A.1.
+`holo/1999-2000-copyright` — into four distinct `variant_kind.code` values. [E] [Dex Data](https://github.com/cheyras/deckpal/wiki/Dex-Data) §A.1.
 This is the concrete reason the facet decomposition is not optional: a name-only vocabulary
 (`'Holofoil'`) **cannot** represent Base Set. It also means the unverified vintage names
 (`1st Edition`, `Shadowless` — [E] `BEHAVIOR-SPEC.md` §1.2 "NOT CONFIRMED", §15 #4) are already
@@ -440,7 +440,7 @@ creates no container) was blocked by the sandbox. So the sweep was run after all
 requests, one per set, 0.3 s apart, ~2 min.** No container was started and the live Postgres was
 never touched.
 
-**Validation:** the sweep independently reproduces [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §3.6's figures exactly —
+**Validation:** the sweep independently reproduces [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §3.6's figures exactly —
 **23,444 cards, 35,648 `variants_detailed` rows, 1.521 mean**. Two unrelated extraction methods
 agreeing to the row is strong evidence both are right.
 
@@ -507,7 +507,7 @@ backfills.
 
 ## 4.6 Third-party IDs — modelling absence explicitly
 
-[E] [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §4.5 measures the join coverage, and it is not total:
+[E] [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §4.5 measures the join coverage, and it is not total:
 
 | Join key | Coverage |
 |---|---|
@@ -536,7 +536,7 @@ ALTER TABLE card_variant
 CHECK ((id_source = 'none') = (tcgplayer_product_id IS NULL AND cardmarket_product_id IS NULL));
 ```
 
-[E] [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §4.5: *"15 % of the corpus with no price is acceptable for a personal
+[E] [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §4.5: *"15 % of the corpus with no price is acceptable for a personal
 collection tool; a wrong price is not."* The `id_confidence` column is what lets the UI grey out a
 derived price instead of presenting it as fact — and the CHECK makes "no id but somehow a price"
 unrepresentable.
@@ -1091,7 +1091,7 @@ correctly with §4.6's `id_source = 'none'`:
   `CHECK (… > 0)` below guarantees a stored zero cannot be mistaken for one.
 
 **The `> 0` CHECKs are the schema-level form of pokecollector's best idea.**
-[E] [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §3 item 2 (`is_valid_price`) and §2b (pokecollect's "never write 0 for a missing
+[E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §3 item 2 (`is_valid_price`) and §2b (pokecollect's "never write 0 for a missing
 price") — two independent projects converged on it. Here it is a constraint rather than a helper
 function: a zero or negative price is *unstorable*, so an outage cannot silently crater the
 portfolio total. NULL means "no price"; there is no encoding of "price of zero".
@@ -1153,13 +1153,13 @@ REVOKE UPDATE, DELETE ON price_observation FROM pokedex;   -- append-only, enfor
 
 *`captured_at` over `observed_on DATE`.* My DATE grain was a blunt instrument for getting idempotent
 daily rows. Anchoring to the source's own stamp achieves the same dedupe **and** is honest about
-when the observation actually happened — which matters because [E] [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §4.4 corrects the
+when the observation actually happened — which matters because [E] [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §4.4 corrects the
 brief: without TCGplayer partner credentials we fall through to TCGCSV's **once-daily ~20:00 UTC**
 publication, so "one point per day per source" is a property of the *upstream*, not something our
 schema should impose. If TCGCSV ever publishes twice, DATE would silently drop the second
 observation; `captured_at` records both.
 
-*Monthly over yearly partitions.* [E] [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §4.6: monthly keeps the per-partition PK
+*Monthly over yearly partitions.* [E] [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §4.6: monthly keeps the per-partition PK
 B-tree at ~600 k entries, keeps autovacuum bounded, and makes cold-storage archival a `DETACH` +
 `pg_dump` rather than a delete. My yearly choice optimised only for the drop-a-year case; monthly
 does that too, just at finer granularity.
@@ -1168,7 +1168,7 @@ does that too, just at finer granularity.
 write-amplification grounds. That was right about a **btree** on `captured_at` (~650 MB at 23 M rows)
 and wrong about **BRIN**, which for an append-only, time-correlated table is a few **kilobytes**.
 The write cost I was protecting against does not exist for BRIN. It serves "all prices captured on
-date X", which the snapshot job and the top-movers surface both need. [E] [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §4.6.
+date X", which the snapshot job and the top-movers surface both need. [E] [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §4.6.
 
 Three deliberate choices in that table:
 
@@ -1176,7 +1176,7 @@ Three deliberate choices in that table:
 be 5–9× the row count for the *same* daily sync, and on microSD the insert count is the cost that
 matters. Wide gives every metric at the write cost of market-only. Crucially this is *not*
 pokecollector's mistake — its defect was the **missing `variant`/`currency`/`source` dimensions**
-([E] [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §4 item 5), not the width. Here all three dimensions are FK'd columns in the key.
+([E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §4 item 5), not the width. Here all three dimensions are FK'd columns in the key.
 
 **(b) The PK column order `(card_variant_id, source_code, currency_code, captured_at)` is the read
 order.** The dominant read is [E] `BEHAVIOR-SPEC.md` §9.2's chart: one card's variants, one source,
@@ -1184,7 +1184,7 @@ a 30d/3m/6m/1y window. That is an exact prefix range scan. The daily bulk insert
 product id ⇒ roughly ascending in this key ⇒ near-sequential B-tree appends, which is the friendliest
 possible write pattern for an SD card.
 
-**(c) Daily grain comes from the upstream, not from us.** [E] [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §4.4 corrects the
+**(c) Daily grain comes from the upstream, not from us.** [E] [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §4.4 corrects the
 brief: without TCGplayer partner credentials the provider chain falls through to TCGCSV, which
 publishes **once per day at ~20:00 UTC**; Cardmarket is likewise daily. So anchoring `captured_at`
 to the source's own stamp yields one row per variant per source per day *by construction*, and a
@@ -1193,7 +1193,7 @@ re-sync is `ON CONFLICT DO NOTHING` — a true no-op, not an overwrite. The UI m
 
 ## 7.3 The reverse-holo trap, made unmisreadable
 
-[E] `DECISIONS.md` correction 5 and [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §2a, verified live on `swsh3-136`: that card has
+[E] `DECISIONS.md` correction 5 and [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §2a, verified live on `swsh3-136`: that card has
 `variants: {holo:false, reverse:true, normal:true}` yet its `pricing.cardmarket` block carries
 `avg-holo`, `low-holo`, `trend-holo`, `avg1/7/30-holo`. **A card with no holo variant cannot have a
 holo price.** Those fields are Cardmarket's *reverse-holo* listing.
@@ -1230,7 +1230,7 @@ INSERT INTO price_source_field_map VALUES
 
 3. **A regression fixture pinned in the schema's own test data:** `swsh3-136` must ingest with a
    NULL price on any `holo` variant and a non-NULL price on its `reverse` variant.
-   [E] [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §3 item 3 — *"Pin it with `swsh3-136`. Highest correctness-per-minute item on
+   [E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §3 item 3 — *"Pin it with `swsh3-136`. Highest correctness-per-minute item on
    this list."*
 
 ## 7.4 FX
@@ -1546,7 +1546,7 @@ handler inside its transaction, after the `deck_card` writes):
 - Deck create and import seed the v1 snapshot in the same transaction; migration
   019 backfilled a v1 snapshot for every pre-existing deck (`source = 'backfill'`).
 
-`source` reuses §9's attribution shape (`web`, `rotom-mcp`, …) so both snapshot
+`source` reuses §9's attribution shape (`web`, `deckpal-mcp`, …) so both snapshot
 and log rows say who wrote them. `battle_log.result` is nullable on purpose: a
 truncated paste with no win/concede line stores as undetermined rather than
 guessing, and the API refuses (400) only when it can identify neither the deck
@@ -1582,7 +1582,7 @@ CREATE TABLE collection_item (
 unchecking "sets quantity = 0", and §5.3/A26 documents a **"First Added"** sort that flips the
 "Recent" sorter. Deleting the row destroys `first_added_at`, so an uncheck-then-recheck would lie
 about when you first got the card. Cost: every ownership predicate must say `quantity > 0`. That is
-also [E] [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) §D.2 rule 3 — *"a 'Need' row with quantity 0 must not capture."*
+also [E] [Dex Data](https://github.com/cheyras/deckpal/wiki/Dex-Data) §D.2 rule 3 — *"a 'Need' row with quantity 0 must not capture."*
 
 `UNIQUE (user_id, card_variant_id)` is the exact key `BEHAVIOR-SPEC.md` §1.1 demands, with `user_id`
 prefixed per `DECISIONS.md`. `card_variant_id` alone carries the card, so a separate `card_id`
@@ -1675,7 +1675,7 @@ ALTER TABLE user_set_progress ADD COLUMN set_level SMALLINT
 
 **Split by scope. Single-set: derive on read. All-sets: materialise.**
 
-The measurement that decides it is [E] [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) §D.3, benchmarked in SQLite **on this exact
+The measurement that decides it is [E] [Dex Data](https://github.com/cheyras/deckpal/wiki/Dex-Data) §D.3, benchmarked in SQLite **on this exact
 Pi** against the real 17,760-row `card_species` mapping:
 
 ```
@@ -1695,7 +1695,7 @@ collection size*. That floor is the whole argument:
   ([E] `BEHAVIOR-SPEC.md` §12.1 "Set progress cards, newest-first"; `ROUTE-MAP.md` §1.9). That
   query's catalog side is the **entire** `card_variant` table — ~45,000 rows [P] vs Q_DEX's 17,760,
   i.e. **≈2.5×**, evaluated three times (once per goal). Scaling the 57.12 ms figure gives
-  **≈140 ms in SQLite [P]**, and [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) §F.1 warns Postgres is *"likely 1.5–3× the SQLite
+  **≈140 ms in SQLite [P]**, and [Dex Data](https://github.com/cheyras/deckpal/wiki/Dex-Data) §F.1 warns Postgres is *"likely 1.5–3× the SQLite
   figures"* → **≈210–430 ms [P]** on the two most-navigated pages in the app, on every load.
   → **materialise.**
 
@@ -1705,7 +1705,7 @@ reconciled by the nightly sweep."* And the doc's own clone requirement: *"On a P
 recomputing Grandmaster progress across ~200 sets on every checkbox tap is not viable."*
 
 **Honesty about that number:** 57.12 ms is measured; 140 ms and 210–430 ms are **[P]** —
-my arithmetic on a different query shape and a different engine. [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) §F.1 explicitly says
+my arithmetic on a different query shape and a different engine. [Dex Data](https://github.com/cheyras/deckpal/wiki/Dex-Data) §F.1 explicitly says
 *"do not carry my numbers forward as Postgres numbers."* I am not; I am carrying forward the *ratio*
 and the fixed-floor insight. This is the first thing I would re-measure (§18 item 1).
 
@@ -1878,7 +1878,7 @@ CREATE TABLE collection_value_point (        -- USER-OWNED. Truncated by Reset C
 
 # 10. Dex, species, capture
 
-Adopted essentially as designed in [E] [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) §D.1, with the changes noted.
+Adopted essentially as designed in [E] [Dex Data](https://github.com/cheyras/deckpal/wiki/Dex-Data) §D.1, with the changes noted.
 
 ```sql
 CREATE TABLE dex_species (              -- vendored PokeAPI CSV, 1025 rows. DEX-DATA §B
@@ -1918,7 +1918,7 @@ COMMENT ON COLUMN card_species.ord IS
    DEX-DATA §A.3 consequence 1.';
 ```
 
-Three non-negotiable data rules, carried verbatim from [E] [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) §D.2:
+Three non-negotiable data rules, carried verbatim from [E] [Dex Data](https://github.com/cheyras/deckpal/wiki/Dex-Data) §D.2:
 
 1. **Gate population on `card.category = 'Pokemon'`.** Four Trainers carry a `dexId`; without the
    gate, the Stadium card `Tropical Tidal Wave` (`dexId [25,183,54,187]`) silently captures Pikachu,
@@ -1938,11 +1938,11 @@ CREATE TABLE card_species_conflict (    -- 13 known upstream errors today. DEX-D
 );
 ```
 
-**This is the 13-card manual-override table** [E] [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) §A.4-F6 — `Caterpie → dexId 251
+**This is the 13-card manual-override table** [E] [Dex Data](https://github.com/cheyras/deckpal/wiki/Dex-Data) §A.4-F6 — `Caterpie → dexId 251
 (Celebi)`, `Inteleon VMAX → 888 (Zacian)` ×4, the Tapu Koko/Lele/Bulu/Fini off-by-one run, etc.
 The sync's cross-check writes `tcgdex_dex_id` and `name_dex_id`; a human writes `resolved_to`.
 Same derived-vs-asserted separation as §5: **the sync never writes `resolved_to`**, so a re-sync
-cannot clobber the review. [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) §A.4-F6: *"Do not silently prefer one source — flag and
+cannot clobber the review. [Dex Data](https://github.com/cheyras/deckpal/wiki/Dex-Data) §A.4-F6: *"Do not silently prefer one source — flag and
 default to `dexId`."*
 
 ```sql
@@ -1954,7 +1954,7 @@ CREATE TABLE user_dex_state (
 );
 ```
 
-**Note what this table is NOT.** [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) §D.1 proposed it with `unique_cards` / `total_copies`
+**Note what this table is NOT.** [Dex Data](https://github.com/cheyras/deckpal/wiki/Dex-Data) §D.1 proposed it with `unique_cards` / `total_copies`
 counters; §D.3 then measured the derive-on-read cost at **19.9–57.1 ms** and concluded *"v1: no
 materialisation."* I have followed the measurement over the sketch and stripped the counters. What
 remains is the one field §D.3 calls out as the exception: *"`first_captured_at` … is the single
@@ -1962,7 +1962,7 @@ field that is **not** recoverable later. If you want a 'caught on' date … you 
 capture time from the outset."* So the table exists purely as an `INSERT … ON CONFLICT DO NOTHING`
 on every collection add. Species level, capture state and shiny state are all derived (§17.3).
 
-**Sprites are a pure function, not rows.** [E] [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) §D.1 —
+**Sprites are a pure function, not rows.** [E] [Dex Data](https://github.com/cheyras/deckpal/wiki/Dex-Data) §D.1 —
 `pixel: sprites/pokemon/{dex_id}.png | shiny/{dex_id}.png`,
 `art: other/official-artwork/{dex_id}.png | shiny/{dex_id}.png`. No table until per-form sprites
 exist. And per `DECISIONS.md` 2026-07-24, sprites are fetched at setup from a pinned SHA, not
@@ -1978,10 +1978,10 @@ Every input is now measured, not projected:
 
 | Quantity | First pass | **Measured** | Source |
 |---|---|---|---|
-| EN cards | 21,058 | **23,444** | [E] [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §3.6; reproduced by my sweep (§4.5) |
+| EN cards | 21,058 | **23,444** | [E] [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §3.6; reproduced by my sweep (§4.5) |
 | Variants per card | ~2.1 **[P]** | **1.521** | §4.5 — my estimate was **38 % high** |
 | `card_variant` rows | ≈45,000 **[P]** | **35,648** | §4.5 |
-| **priceable** variant rows | — | **31,610** (88.7 %) | [E] [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §4.5 — 11.3 % have no third-party id (§4.6) |
+| **priceable** variant rows | — | **31,610** (88.7 %) | [E] [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §4.5 — 11.3 % have no third-party id (§4.6) |
 | Sources | 2 | 2 (TCGplayer USD, Cardmarket EUR) | |
 | ⇒ rows per **full** snapshot | — | **63,220** | 31,610 × 2 |
 
@@ -2006,7 +2006,7 @@ than my first pass suggested, because the true metric count per observation is u
 ## 11.2 Recommendation — **changed to DATA-LAYER's hybrid**
 
 **Adopt the hybrid: a full snapshot weekly, plus a daily snapshot of owned ∪ listed ∪ decked
-variants. ≈780 MB/yr.** [E] [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §4.6.
+variants. ≈780 MB/yr.** [E] [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §4.6.
 
 My first pass recommended "scoped by default, whole-catalog behind a setting". The hybrid is
 strictly better and I am replacing my recommendation with it:
@@ -2015,15 +2015,15 @@ strictly better and I am replacing my recommendation with it:
   portfolio and collection-value charts render — the scoped feed's whole justification.
 - It *also* gives a weekly series for everything else, which is what "top movers across a set"
   needs. My scoped-only default would have made that surface impossible without a schema change.
-- The request budget is the same either way and is not the constraint: [E] [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §7.2
+- The request budget is the same either way and is not the constraint: [E] [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §7.2
   measures the daily TCGCSV price sync at **180 requests**, 1.8 % of TCGCSV's stated 10,000/day
   ceiling, and **exactly 1** request on days when `last-updated.txt` has not moved.
-- ≈780 MB/yr against ~65 GB free is a decade of headroom, and [E] [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §8 item 6 measures
+- ≈780 MB/yr against ~65 GB free is a decade of headroom, and [E] [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §8 item 6 measures
   that this box **already writes 6.84 GB/day at idle** — pokedex adds ~0.8 %. The microSD wear
   concern that motivated my caution is real but is dominated by the existing baseline, and the
   honest framing for the user is backup cadence, not write volume.
 
-**Not adopted: delta/change-only writes.** [E] [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §4.6 flags it as attractive but
+**Not adopted: delta/change-only writes.** [E] [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §4.6 flags it as attractive but
 explicitly unmeasured, and says not to put a number on it until two consecutive TCGCSV snapshots
 have been diffed. Agreed — and the schema needs no change to adopt it later, since skipping an
 unchanged row is a decision made at insert time.
@@ -2035,7 +2035,7 @@ unchanged row is a decision made at insert time.
    full heap rewrite plus a vacuum plus index churn, and would take longer than the Pi's patience.
    [E] `BEHAVIOR-SPEC.md` §9.2 documents 1-year / 3-year retention tiers; monthly boundaries express
    either. **Create next month's partition in the sync job, and create no DEFAULT partition** so a
-   missing partition fails loudly. [E] [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §4.6.
+   missing partition fails loudly. [E] [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §4.6.
 2. **Two indexes: the PK, and a BRIN on `captured_at`** (C8 — revised). Every chart read is a PK
    prefix (§7.2 note (b)). The BRIN costs kilobytes on an append-only, time-correlated table and
    serves date-scan queries; a **btree** on `captured_at` would cost ~650 MB at 23 M rows and is the
@@ -2045,7 +2045,7 @@ unchanged row is a decision made at insert time.
 4. **Batch the daily insert in one transaction with `ON CONFLICT DO UPDATE`** so a re-run of a
    partially-failed sync converges instead of duplicating. Combined with the PK, this is what makes
    the sync idempotent and resumable.
-5. **Do not put the image cache in the DB.** [E] [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §4 item 1 — pokecollector's BYTEA
+5. **Do not put the image cache in the DB.** [E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §4 item 1 — pokecollector's BYTEA
    cache means `pg_dump` backup size tracks cache size. §15's `image_asset` keeps bytes on the filesystem.
 6. **`autovacuum_vacuum_scale_factor` low on `price_current`** — it is UPSERT-heavy at ~50–90 k rows
    and will bloat without attention; it is also small enough that vacuuming it is cheap.
@@ -2106,7 +2106,7 @@ or a screen in `ROUTE-MAP.md`. **Anything not on this list is not created.**
 | I1 | `card (set_id, number_sort)` | **Q1** set-page grid, default `Number` sort | `BEHAVIOR-SPEC.md` §5.3 (Set page: `Number` first) |
 | I2 | `card_variant (card_id, sort_order)` — implied by `UNIQUE (card_id, sort_order)` | **Q2** card-detail variant table `Variant \| Market Price \| Quantity`; **Q3** set progress | §1.1 item 2 |
 | I3 | `collection_item (user_id, card_variant_id)` — the UNIQUE | **Q4** Have/Need/Dupes for a set; **Q5** collection value; **Q6** capture | §2.2, §9.3 |
-| I4 | `card_species (dex_id)` | **Q7** species page ("all cards for that Pokémon"); **Q8** dex grid | [Dex Data](https://github.com/cheyras/deckscout/wiki/Dex-Data) §D.3 — the EXPLAIN shows this index in use; measured |
+| I4 | `card_species (dex_id)` | **Q7** species page ("all cards for that Pokémon"); **Q8** dex grid | [Dex Data](https://github.com/cheyras/deckpal/wiki/Dex-Data) §D.3 — the EXPLAIN shows this index in use; measured |
 | I5 | `card (name_normalized)` — plain btree | **Q9** 4-copy rule grouping; **Q10** ban-list lookup | `BEHAVIOR-SPEC.md` §8.3 ("keys on card **name**"), §8.3 ban tables |
 | I6 | `card USING gin (name_normalized gin_trgm_ops)` | **Q11** global card search (`Umbreon`, `Nest Ball`, `Aerodactyl V 180`) | §5.5 (A35) |
 | I7 | `collection_event (user_id, occurred_at DESC)` | **Q12** activity feed | §2.5 (A27); `ROUTE-MAP.md` §1.9 `/activity` |
@@ -2115,11 +2115,11 @@ or a screen in `ROUTE-MAP.md`. **Anything not on this list is not created.**
 | I10 | `binder_placement (card_list_id, slot_index)` — the UNIQUE | **Q15** binder page render | §7.8 |
 | I11 | `price_current (card_variant_id, source_code, currency_code)` — the PK | **Q16** every price display | §9.1 |
 | I12 | `price_observation` PK `(card_variant_id, source_code, currency_code, captured_at)` | **Q17** the multi-series price chart, 30d/3m/6m/1y | §9.2 |
-| I16 | `price_observation` **BRIN** `(captured_at)` per partition | **Q21** "all prices captured on date X" — the snapshot job and top-movers | [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §4.6 |
-| I17 | `sync_run (job, started_at DESC) WHERE status='ok'` | **Q22** skip-if-unchanged + `/health` | [Data Layer](https://github.com/cheyras/deckscout/wiki/Data-Layer) §7.3, §7.5 |
+| I16 | `price_observation` **BRIN** `(captured_at)` per partition | **Q21** "all prices captured on date X" — the snapshot job and top-movers | [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §4.6 |
+| I17 | `sync_run (job, started_at DESC) WHERE status='ok'` | **Q22** skip-if-unchanged + `/health` | [Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) §7.3, §7.5 |
 | I18 | `card (set_id, local_id_numeric)` | **Q23** PTCGL decklist import join (numeric — padding is inconsistent) | `DECK-FORMATS.md` §1.7.2 |
 | I13 | `deck_card (deck_id, card_id)` — the PK | **Q18** deck render + legality | §8.7 |
-| I14 | `card_variant (tcgdex_variant_id)` — the UNIQUE | **Q19** catalog-sync idempotent upsert | [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §3 item 1 |
+| I14 | `card_variant (tcgdex_variant_id)` — the UNIQUE | **Q19** catalog-sync idempotent upsert | [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §3 item 1 |
 | I15 | `user_set_progress (user_id, set_id, goal)` — the PK | **Q20** `/series` + `/profile` all-sets progress | §12.1; `ROUTE-MAP.md` §1.9 |
 
 ## Indexes deliberately NOT created, and why
@@ -2211,7 +2211,7 @@ rather than a schema change.
 
 ## 14.2 Positioned binder slots — page and pocket
 
-[E] [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §5(a): pokecollector's `BinderCard` has **no page and no slot column** and
+[E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §5(a): pokecollector's `BinderCard` has **no page and no slot column** and
 renders a responsive tile grid; the only genuinely positioned binder is in unlicensed code. So
 *"the 9-pocket positioned binder is ours to build"* (`DECISIONS.md` correction 8).
 
@@ -2240,7 +2240,7 @@ pocket = slot_index % p + 1
 
 ### Verified against the measured layouts (C11)
 
-`INTERACTION-CAPTURE.md` §5 and [UI Spec](https://github.com/cheyras/deckscout/wiki/UI-Spec) measured the real binder, which is more complicated
+`INTERACTION-CAPTURE.md` §5 and [UI Spec](https://github.com/cheyras/deckpal/wiki/UI-Spec) measured the real binder, which is more complicated
 than either `BEHAVIOR-SPEC.md` §7 or my first pass assumed:
 
 | | 9-pocket | 4-pocket | 12-pocket | 16-pocket |
@@ -2369,7 +2369,7 @@ CREATE TABLE sync_run (
   error      TEXT
 );
 CREATE INDEX sync_run_last_ok ON sync_run (job, started_at DESC) WHERE status = 'ok';
--- ^ serves both the skip-if-unchanged lookup and GET /api/deckscout/health's per-job
+-- ^ serves both the skip-if-unchanged lookup and GET /api/deckpal/health's per-job
 --   {last_success, age_hours, status}. [E] DATA-LAYER §7.5
 -- PRIOR-ART §3 item 6: a 'running' row older than 60 min is ORPHANED, so a crashed sync on a Pi
 -- that reboots cannot wedge the scheduler forever. Enforce in the scheduler, record here.
@@ -2391,7 +2391,7 @@ CREATE TABLE sync_cursor (
 ```
 
 **Resumability** is `sync_cursor.next_offset` + the deterministic ordering rule from
-[E] [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §3 item 1 — *"sorts deterministically (oldest attempt first, then
+[E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §3 item 1 — *"sorts deterministically (oldest attempt first, then
 most-recently-added, then id)"*, whose docstring carries its own post-mortem: a previous version put
 IDs through a Python `set` and sliced the first 500, and *"set iteration order is not stable, so
 larger collections could leave some cards unsynced forever by accident."* The cursor makes that bug
@@ -2466,7 +2466,7 @@ rather than inventing one.
 CURRENT_DATE`). A timestamp updated on every image request would be one row write per image view —
 on a page rendering 200 card tiles, 200 writes to a microSD for a cache-hit read path. Day
 granularity is ample for LRU eviction and reduces that to ≤200 writes *per day*. [X] — the DATE
-choice is mine; the requirement for cap + eviction is [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §4 item 1 and `DECISIONS.md`.
+choice is mine; the requirement for cap + eviction is [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §4 item 1 and `DECISIONS.md`.
 
 ---
 
@@ -2785,7 +2785,7 @@ ON CONFLICT (card_variant_id, source_code, currency_code) DO UPDATE SET
 ```
 
 The `COALESCE(EXCLUDED.x, price_current.x)` clauses are
-`preserve_existing_prices_for_invalid_update` ([E] [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §3 item 2) expressed in SQL: an
+`preserve_existing_prices_for_invalid_update` ([E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §3 item 2) expressed in SQL: an
 outage returning zeros becomes `NULLIF(...,0)` → `NULL` → `COALESCE` keeps the last good value.
 Combined with the `CHECK (> 0)`, a bad payload cannot damage the portfolio total.
 
@@ -2807,7 +2807,7 @@ ON CONFLICT ... ;
 The join to `price_source_field_map` is not decoration — it is what makes the mapping a row you can
 `SELECT` and a test you can write, rather than a constant in an extractor function that the next
 reader mis-skims. Regression fixture: `swsh3-136` must end with a priced `reverse` variant and no
-`holo` variant at all. [E] [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §2a, `DECISIONS.md` correction 5.
+`holo` variant at all. [E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §2a, `DECISIONS.md` correction 5.
 
 ### 17.7 The 4-copy rule and a GLC singleton check — **provisional**
 
@@ -2934,7 +2934,7 @@ booleans.
 
 ### 17.8 "What am I missing from this deck, and what does it cost?"
 
-[E] [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §5(b) calls this *"the single largest genuine differentiator available"* and
+[E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §5(b) calls this *"the single largest genuine differentiator available"* and
 notes nobody has built it.
 
 ```sql
@@ -2960,7 +2960,7 @@ GROUP BY c.name, dc.quantity, pc.market_minor, cvp.tcgplayer_product_id, cvp.tcg
 HAVING dc.quantity > COALESCE(SUM(ci.quantity), 0);
 ```
 
-`playable_fingerprint` is what makes this correct across reprints — [E] [Prior Art](https://github.com/cheyras/deckscout/wiki/Prior-Art) §3 item 4:
+`playable_fingerprint` is what makes this correct across reprints — [E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §3 item 4:
 *"'same playable card, different print' as a primitive — and it is exactly what our deck builder
 needs."* The `tcgplayer_mass_entry` column feeds `Purchase Missing Cards` ([E] §9.7).
 

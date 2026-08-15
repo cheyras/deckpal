@@ -1,5 +1,5 @@
 {
-  "name": "deckscout-api",
+  "name": "deckpal-api",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -19,8 +19,8 @@
     "test:images": "node --import tsx --test src/images/__tests__/*.test.ts"
   },
   "dependencies": {
-    "@deckscout/db": "workspace:*",
-    "@deckscout/storage": "workspace:*",
+    "@deckpal/db": "workspace:*",
+    "@deckpal/storage": "workspace:*",
     "express": "^5.0.0",
     "helmet": "^8.0.0",
     "pdfkit": "^0.19.1",

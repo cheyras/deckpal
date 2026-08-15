@@ -29,9 +29,9 @@ careful developer would.
    git rev-parse --abbrev-ref HEAD
    ```
    The branch must be `design-system` and the working directory must be
-   `/home/cheyras/deckscout-worktrees/design-system`. If either check fails,
+   `/home/cheyras/deckpal-worktrees/design-system`. If either check fails,
    **stop immediately** — you may be in the main worktree at
-   `/home/cheyras/deckscout` which must never be touched by this skill.
+   `/home/cheyras/deckpal` which must never be touched by this skill.
 
 2. **Confirm the dev server is running and reports the correct worktree.**
    ```bash
@@ -189,7 +189,7 @@ you processed.
 - **Never pushes.**
 - **Never edits files outside `apps/web/src/`** (except `theme.css` which is
   inside that tree).
-- **Never touches the main worktree** at `/home/cheyras/deckscout`.
+- **Never touches the main worktree** at `/home/cheyras/deckpal`.
 - **Never installs dependencies** — if a change requires a new package, fail
   with an explanation.
 - **Never runs `Phase 3b`** (the unsupervised SDK daemon) — that is explicitly

@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import { loadEnv, makePool } from '@deckscout/db';
+import { loadEnv, makePool } from '@deckpal/db';
 import { apiBase, makeApi, type Api } from './api.js';
 import { q1, type Queryable } from './db.js';
 
@@ -24,11 +24,11 @@ import { q1, type Queryable } from './db.js';
  */
 
 export interface McpConfig {
-  /** Listen port (DECKSCOUT_MCP_PORT, default 3704). Bound to 127.0.0.1 only. */
+  /** Listen port (DECKPAL_MCP_PORT, default 3704). Bound to 127.0.0.1 only. */
   port: number;
-  /** Shared secret gating /mcp (ROTOM_MCP_KEY). Never log this. */
+  /** Shared secret gating /mcp (DECKPAL_MCP_KEY). Never log this. */
   key: string;
-  /** deckscout-api base, e.g. http://127.0.0.1:3700/deckscout/api */
+  /** deckpal-api base, e.g. http://127.0.0.1:3700/deckpal/api */
   apiBase: string;
 }
 
@@ -53,11 +53,11 @@ export async function buildCtx(): Promise<SelfHostCtx> {
   loadEnv();
   // Label this app's connection in pg_stat_activity without leaking the name
   // into sibling apps: PGAPPNAME is set process-locally, never in .env.
-  process.env.PGAPPNAME ??= 'deckscout-mcp';
+  process.env.PGAPPNAME ??= 'deckpal-mcp';
 
   const config: McpConfig = {
-    port: Number(process.env.DECKSCOUT_MCP_PORT ?? 3704),
-    key: process.env.ROTOM_MCP_KEY ?? '',
+    port: Number(process.env.DECKPAL_MCP_PORT ?? 3704),
+    key: process.env.DECKPAL_MCP_KEY ?? '',
     apiBase: apiBase(),
   };
 

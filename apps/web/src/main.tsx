@@ -356,7 +356,7 @@ const routeTree = rootRoute.addChildren([...coreRoutes, designRoute])
 
 const router = createRouter({
   routeTree,
-  basepath: import.meta.env.VITE_SUPABASE_URL ? '' : '/deckscout',
+  basepath: import.meta.env.VITE_SUPABASE_URL ? '' : '/deckpal',
   defaultPreload: 'intent',
 })
 

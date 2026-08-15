@@ -14,7 +14,7 @@ export type Topbar = 'cover' | 'flat'
 /** Set to 'flat' to ship the pre-effect header without touching anything else. */
 export const DEFAULT_TOPBAR: Topbar = 'cover'
 
-const STORAGE_KEY = 'deckscout:topbar'
+const STORAGE_KEY = 'deckpal:topbar'
 
 function isTopbar(v: string | null): v is Topbar {
   return v === 'cover' || v === 'flat'
@@ -38,7 +38,7 @@ export function readTopbar(): Topbar {
 
 export function applyTopbar(t: Topbar): void {
   document.documentElement.dataset.topbar = t
-  window.dispatchEvent(new CustomEvent<Topbar>('deckscout:topbarchange', { detail: t }))
+  window.dispatchEvent(new CustomEvent<Topbar>('deckpal:topbarchange', { detail: t }))
 }
 
 export function setTopbar(t: Topbar): void {

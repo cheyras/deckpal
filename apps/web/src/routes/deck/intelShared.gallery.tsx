@@ -26,15 +26,15 @@ export const sourceChipGallery = {
   name: 'SourceChip',
   source: 'apps/web/src/routes/deck/intelShared.tsx',
   section: 'component',
-  description: 'Labels a change as web vs. rotom-mcp-authored (sparkle glyph for agent).',
+  description: 'Labels a change as web vs. deckpal-mcp-authored (sparkle glyph for agent).',
   component: SourceChip,
   defaults: { source: 'web' },
   variants: [
     { label: 'web', props: { source: 'web' } },
-    { label: 'agent', props: { source: 'rotom-mcp' } },
+    { label: 'agent', props: { source: 'deckpal-mcp' } },
   ],
   knobs: {
-    source: { kind: 'select', options: ['web', 'rotom-mcp'] },
+    source: { kind: 'select', options: ['web', 'deckpal-mcp'] },
   },
 } satisfies GalleryMeta<{ source: string }>
 

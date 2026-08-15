@@ -1,4 +1,4 @@
-# DeckScout — Deployment Guide
+# DeckPal — Deployment Guide
 
 Two deployment paths: **Vercel + Supabase** (recommended, multi-user with auth
 and CDN) or **self-host** (plain Postgres behind your own reverse proxy).
@@ -32,8 +32,8 @@ names — not a connection string:
 
 ```bash
 # Clone the repo and install
-git clone https://github.com/cheyras/deckscout.git
-cd deckscout
+git clone https://github.com/cheyras/deckpal.git
+cd deckpal
 pnpm install
 
 # Point the runner at Supabase. These are the libpq variables; the runner reads
@@ -46,17 +46,17 @@ export PGPASSWORD="<password>"
 export PGSSLMODE=require        # Supabase terminates TLS with its own CA
 
 # Build the db package and run all migrations (001-024)
-pnpm --filter @deckscout/db build
-pnpm --filter @deckscout/db migrate
+pnpm --filter @deckpal/db build
+pnpm --filter @deckpal/db migrate
 
 # Verify
-pnpm --filter @deckscout/db migrate:status
+pnpm --filter @deckpal/db migrate:status
 ```
 
 > **On `PGSSLMODE`.** Supabase serves a certificate chain that is not in the
 > system trust store, so a *verifying* mode fails with `self-signed certificate
 > in certificate chain`. `require` is the right answer and means what libpq says
-> it means — encrypt the connection, do not verify the chain. DeckScout
+> it means — encrypt the connection, do not verify the chain. DeckPal
 > implements the libpq semantics itself (`packages/db/src/pool.ts`) rather than
 > inheriting node-postgres's, which verifies for every mode:
 >
@@ -107,11 +107,11 @@ card-art/
   sprites/other/official-artwork/shiny/<dexId>.png
 ```
 
-**You do not have to fill this bucket up front.** The `/deckscout/images/*`
+**You do not have to fill this bucket up front.** The `/deckpal/images/*`
 serverless function (`api/images.mjs` → `apps/api/src/images/handler.ts`) fills
 it lazily: a request for an object that is not there yet looks the asset up in
 the `image_asset` manifest, fetches it from the `source_url` that row recorded,
-writes bytes and row together through the choke point in `@deckscout/storage`,
+writes bytes and row together through the choke point in `@deckpal/storage`,
 and then redirects to the public object URL. Every later request for that asset
 is a 302 to Supabase's CDN, so the function does no work at all. Cold assets
 that cannot be filled (no manifest row, or upstream no longer serves them) get
@@ -132,17 +132,17 @@ path, so it is a plain copy:
 
 ```bash
 # set imagery only — ~5 MB, makes every set logo/symbol upstream-independent
-pnpm --filter deckscout-images storage:backfill -- --prefix sets
+pnpm --filter deckpal-images storage:backfill -- --prefix sets
 
 # just the art that can NEVER be lazily recovered (rows with no source_url)
-pnpm --filter deckscout-images storage:backfill -- --missing-source
+pnpm --filter deckpal-images storage:backfill -- --missing-source
 
 # the whole corpus — ~2.1 GB, needs Supabase Pro (Free's 1 GB is not enough)
-pnpm --filter deckscout-images storage:backfill -- --prefix images
+pnpm --filter deckpal-images storage:backfill -- --prefix images
 
 # record per-tier rows for objects already in the bucket (repairs a partial run,
 # or bytes some other writer published)
-pnpm --filter deckscout-images storage:backfill -- --reconcile
+pnpm --filter deckpal-images storage:backfill -- --reconcile
 ```
 
 Every upload goes through the same choke point the lazy fill uses
@@ -163,14 +163,14 @@ directory; the object tier proves it by listing the bucket:
 
 ```bash
 # point PG* at the cloud database, then:
-pnpm --filter deckscout-images manifest:check -- --object-store
+pnpm --filter deckpal-images manifest:check -- --object-store
 ```
 
 ### 4. Create a Vercel project
 
 1. Import the repo on [vercel.com](https://vercel.com).
 2. Set the following build configuration:
-   - **Build Command:** `pnpm --filter deckscout-web build`
+   - **Build Command:** `pnpm --filter deckpal-web build`
    - **Output Directory:** `apps/web/dist`
    - **Root Directory:** (leave as repo root)
    - **Install Command:** `pnpm install`
@@ -195,13 +195,13 @@ pnpm --filter deckscout-images manifest:check -- --object-store
 
 4. **(Optional) Bug reporter → GitHub issues:** Create a fine-grained Personal
    Access Token at `github.com/settings/personal-access-tokens/new` with
-   **Issues: Read and write** permission scoped to your `deckscout` repo. Set
+   **Issues: Read and write** permission scoped to your `deckpal` repo. Set
    the two environment variables:
 
    | Variable | Value |
    |---|---|
    | `GITHUB_TOKEN` | `github_pat_...` |
-   | `GITHUB_REPO` | `cheyras/deckscout` |
+   | `GITHUB_REPO` | `cheyras/deckpal` |
 
    When set, in-app bug reports create GitHub issues automatically. The
    reporter's identity is stored privately in the `bug_report` DB table and
@@ -212,7 +212,7 @@ pnpm --filter deckscout-images manifest:check -- --object-store
 5. Deploy. The `vercel.json` in the repo carries the real build command and the
    rewrites, in this order (order matters — the SPA fallback must stay last, or
    it swallows everything):
-   - `/deckscout/images/*` → the image function (`api/images.mjs`), which serves
+   - `/deckpal/images/*` → the image function (`api/images.mjs`), which serves
      card art and set logos/symbols out of the `card-art` bucket
    - `/api/*` → the Express catch-all serverless function (`api/index.mjs`)
    - everything else → the SPA (`index.html`)
@@ -224,12 +224,12 @@ installation):
 
 ```bash
 # Dump the local database
-pg_dump -Fc -f deckscout-local.dump <local-db-name>
+pg_dump -Fc -f deckpal-local.dump <local-db-name>
 
 # Run the migration script
 # (connects to both the local DB and Supabase, copies data with user_id
 # mapped to your Supabase Auth UUID)
-pnpm --filter deckscout-sync migrate-to-cloud
+pnpm --filter deckpal-sync migrate-to-cloud
 ```
 
 The script (`scripts/migrate-to-cloud.ts`):
@@ -248,7 +248,7 @@ The script (`scripts/migrate-to-cloud.ts`):
 
 **`.github/workflows/catalog-refresh.yml` — weekly catalog refresh (Sundays
 04:30 UTC), plus `workflow_dispatch`.** This is the only scheduled data workflow
-that exists today; price and snapshot ingests still run from the `deckscout-sync`
+that exists today; price and snapshot ingests still run from the `deckpal-sync`
 process (Path B below) and are not yet wired to Actions.
 
 Add these repository secrets — Settings → Secrets and variables → Actions → *New
@@ -298,12 +298,12 @@ refetch would destroy art rather than restore it:
 
 ```bash
 # disk tier (self-host cache; PG* pointed at that box's database)
-pnpm --filter deckscout-images rekey:set --rename <old>:<new>
+pnpm --filter deckpal-images rekey:set --rename <old>:<new>
 # object tier (Supabase Storage; .env.cloud loaded)
-pnpm --filter deckscout-images rekey:set --object-store --rename <old>:<new>
+pnpm --filter deckpal-images rekey:set --object-store --rename <old>:<new>
 # then prove both tiers
-pnpm --filter deckscout-images manifest:check
-pnpm --filter deckscout-images manifest:check --object-store
+pnpm --filter deckpal-images manifest:check
+pnpm --filter deckpal-images manifest:check --object-store
 ```
 
 ### 7. AI issue triage (optional)
@@ -322,7 +322,7 @@ Add one repository secret:
 | `ANTHROPIC_API_KEY` | An Anthropic API key (any tier — Haiku is very cheap) | yes |
 
 ```bash
-gh secret set ANTHROPIC_API_KEY --repo cheyras/deckscout
+gh secret set ANTHROPIC_API_KEY --repo cheyras/deckpal
 # paste the key when prompted
 ```
 
@@ -337,7 +337,7 @@ Supabase's built-in sender is shared infrastructure capped at **2 emails/hour**
 across the whole project. That is fine while you are the only account and fatal
 the moment strangers can sign up, so wire your own sender before opening signups.
 
-DeckScout uses [Resend](https://resend.com) (free tier: 3,000/month, 100/day).
+DeckPal uses [Resend](https://resend.com) (free tier: 3,000/month, 100/day).
 Any SMTP provider works — only the DNS records differ.
 
 **1. Verify a sending domain.** Domain management needs a **Full access** API key;
@@ -366,7 +366,7 @@ curl -X PATCH "https://api.supabase.com/v1/projects/<ref>/config/auth" \
   -H "Content-Type: application/json" \
   -d '{"smtp_host":"smtp.resend.com","smtp_port":"465","smtp_user":"resend",
        "smtp_pass":"<SENDING-ONLY key>","smtp_admin_email":"noreply@<domain>",
-       "smtp_sender_name":"DeckScout","rate_limit_email_sent":100}'
+       "smtp_sender_name":"DeckPal","rate_limit_email_sent":100}'
 ```
 
 `smtp_port` must be a **string**; `465` as a number is rejected with
@@ -404,19 +404,19 @@ password reset will not work for any account at that domain.
 ```bash
 PW=$(openssl rand -base64 30 | tr -d '/+=' | head -c 32)
 
-sudo -u postgres psql -c "CREATE ROLE deckscout LOGIN PASSWORD '$PW' \
+sudo -u postgres psql -c "CREATE ROLE deckpal LOGIN PASSWORD '$PW' \
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;"
-sudo -u postgres psql -c "CREATE DATABASE deckscout OWNER deckscout \
+sudo -u postgres psql -c "CREATE DATABASE deckpal OWNER deckpal \
   ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;"
 
 sudo -u postgres psql <<'SQL'
-ALTER ROLE deckscout SET work_mem                            = '16MB';
-ALTER ROLE deckscout SET maintenance_work_mem                = '64MB';
-ALTER ROLE deckscout SET statement_timeout                   = '30s';
-ALTER ROLE deckscout SET idle_in_transaction_session_timeout = '60s';
-ALTER ROLE deckscout SET synchronous_commit                  = off;
-ALTER ROLE deckscout SET jit                                 = off;
-ALTER ROLE deckscout SET random_page_cost                    = 1.5;
+ALTER ROLE deckpal SET work_mem                            = '16MB';
+ALTER ROLE deckpal SET maintenance_work_mem                = '64MB';
+ALTER ROLE deckpal SET statement_timeout                   = '30s';
+ALTER ROLE deckpal SET idle_in_transaction_session_timeout = '60s';
+ALTER ROLE deckpal SET synchronous_commit                  = off;
+ALTER ROLE deckpal SET jit                                 = off;
+ALTER ROLE deckpal SET random_page_cost                    = 1.5;
 SQL
 ```
 
@@ -432,11 +432,11 @@ chmod 600 .env
 
 ```bash
 pnpm install
-pnpm --filter @deckscout/db build
-pnpm --filter @deckscout/db migrate     # applies migrations 001-020 (skip 021+ for self-host)
-pnpm --filter deckscout-sync catalog:run
-pnpm --filter deckscout-web build
-pnpm --filter deckscout-api build
+pnpm --filter @deckpal/db build
+pnpm --filter @deckpal/db migrate     # applies migrations 001-020 (skip 021+ for self-host)
+pnpm --filter deckpal-sync catalog:run
+pnpm --filter deckpal-web build
+pnpm --filter deckpal-api build
 ```
 
 ### 4. Run
@@ -457,7 +457,7 @@ of the API. See [`SECURITY.md`](SECURITY.md) for details.
 
 ### 6. Set up sync jobs
 
-`deckscout-sync` runs the price and collection-snapshot jobs on its own node-cron
+`deckpal-sync` runs the price and collection-snapshot jobs on its own node-cron
 schedule. The **catalog** entry there is a logging stub on purpose: refreshing the
 catalog needs Docker to extract the upstream JSON, so it is a scheduled GitHub
 Actions job for the cloud path (`.github/workflows/catalog-refresh.yml`) and a
@@ -468,13 +468,13 @@ cron/systemd timer calling the script directly for self-host:
 scripts/refresh-catalog.sh                # uses .env
 SKIP_IMPORT=1 scripts/refresh-catalog.sh  # extract + delta report only
 
-# One price ingest by hand (otherwise the deckscout-sync scheduler runs it)
-pnpm --filter deckscout-sync run-once prices-tcgcsv
+# One price ingest by hand (otherwise the deckpal-sync scheduler runs it)
+pnpm --filter deckpal-sync run-once prices-tcgcsv
 ```
 
 Requires Docker on the host. If a refresh reports `renamedSets > 0`, the cached
 card art for those sets is stranded under the old set id — re-address it with
-`pnpm --filter deckscout-images rekey:set --rename <old>:<new>` and confirm with
+`pnpm --filter deckpal-images rekey:set --rename <old>:<new>` and confirm with
 `manifest:check`. See the cloud section above for why this is a re-key and never
 a re-warm.
 
@@ -482,10 +482,10 @@ a re-warm.
 
 ## Connect an AI assistant (MCP)
 
-DeckScout speaks the **Model Context Protocol**, so an assistant can answer
+DeckPal speaks the **Model Context Protocol**, so an assistant can answer
 questions about *your* collection: what you own, what a set still needs, what a
 deck costs, how it has been performing. The cloud deployment serves it at
-`https://deckscout.io/mcp` (Streamable HTTP) for every signed-up user; a
+`https://deckpal.app/mcp` (Streamable HTTP) for every signed-up user; a
 self-host deployment runs the same server as its own process.
 
 ### 1. Connect
@@ -495,10 +495,10 @@ the MCP Authorization spec (OAuth 2.1 + PKCE + dynamic client registration —
 `apps/api/src/oauthServer.ts`).
 
 1. In your client, add a custom MCP connector pointed at
-   `https://deckscout.io/mcp` and choose **Connect** (not a manual-header
+   `https://deckpal.app/mcp` and choose **Connect** (not a manual-header
    option).
-2. Your client registers itself, then opens `https://deckscout.io/authorize`
-   in a browser tab. Sign in to DeckScout if you aren't already.
+2. Your client registers itself, then opens `https://deckpal.app/authorize`
+   in a browser tab. Sign in to DeckPal if you aren't already.
 3. Approve the consent screen — it names the client asking and exactly what
    it can do (read/write your collection, decks, lists, battle logs; not your
    password, not your account settings).
@@ -512,15 +512,15 @@ you created by hand, with the same **Revoke** button.
 
 Some clients (or older versions) only take a static URL or header. For those:
 
-1. Sign in at <https://deckscout.io> and open **Profile** (the avatar, top
+1. Sign in at <https://deckpal.app> and open **Profile** (the avatar, top
    right).
 2. Scroll to **Agent access** and press **New token**.
 3. Name it after the client — e.g. `claude.ai` or `Claude on my laptop` — and
    press **Create token**.
-4. Copy the value **immediately.** DeckScout stores only a SHA-256 hash, so the
+4. Copy the value **immediately.** DeckPal stores only a SHA-256 hash, so the
    token is shown exactly once and can never be recovered. Alongside it you also
    get a **personal connector URL** of the form
-   `https://deckscout.io/mcp/dsk_…` — copy that too.
+   `https://deckpal.app/mcp/dsk_…` — copy that too.
 
 Tokens are listed afterwards by their `dsk_…` prefix with their creation and
 last-used dates, and can be revoked from the same panel at any time — same as
@@ -528,7 +528,7 @@ an OAuth-connected client, because it's the same underlying credential.
 
 **A · If the dialog has a "Request headers" section**
 
-1. Remote MCP server URL: `https://deckscout.io/mcp`
+1. Remote MCP server URL: `https://deckpal.app/mcp`
 2. Open **Request headers**. Choose the header name `authorization` and set the
    value to `Bearer <your token>` — the word `Bearer`, one space, then the
    token. Mark it **Required**.
@@ -536,7 +536,7 @@ an OAuth-connected client, because it's the same underlying credential.
 
 **B · If there is no header field either — use your personal connector URL**
 
-1. Remote MCP server URL: paste `https://deckscout.io/mcp/dsk_…` (the personal
+1. Remote MCP server URL: paste `https://deckpal.app/mcp/dsk_…` (the personal
    connector URL from step 4 above).
 2. Add no headers. Click **Add**.
 
@@ -548,7 +548,7 @@ authorization spec forbids credentials in the query string).
 
 ### 3. Check that it works
 
-Start a new chat, enable DeckScout in the tools menu, and ask:
+Start a new chat, enable DeckPal in the tools menu, and ask:
 
 > what is my collection worth, and which set am I closest to finishing?
 
@@ -558,24 +558,24 @@ Profile → Agent access updates within a minute.
 ### 4. Claude Code
 
 ```bash
-claude mcp add --transport http deckscout https://deckscout.io/mcp
+claude mcp add --transport http deckpal https://deckpal.app/mcp
 ```
 
 Claude Code runs the OAuth flow itself and opens `/authorize` in your browser.
-To use a static token instead: `claude mcp add --transport http deckscout
-https://deckscout.io/mcp --header "Authorization: Bearer <your token>"`.
+To use a static token instead: `claude mcp add --transport http deckpal
+https://deckpal.app/mcp --header "Authorization: Bearer <your token>"`.
 
 `claude mcp list` should then print:
 
 ```
-deckscout: https://deckscout.io/mcp (HTTP) - ✔ Connected
+deckpal: https://deckpal.app/mcp (HTTP) - ✔ Connected
 ```
 
-Remove it with `claude mcp remove deckscout`.
+Remove it with `claude mcp remove deckpal`.
 
 ### 5. If it doesn't connect
 
-- Use `https://deckscout.io` **exactly** — not `www.deckscout.io`. The `www`
+- Use `https://deckpal.app` **exactly** — not `www.deckpal.app`. The `www`
   host 308-redirects to the apex, and a redirect to a different host silently
   drops the `Authorization` header (and breaks the OAuth redirect_uri
   exact-match check).
@@ -601,11 +601,11 @@ client or reconnect to get a new one.
 
 ### Any other MCP client
 
-Point it at `https://deckscout.io/mcp` over **Streamable HTTP** and either let
+Point it at `https://deckpal.app/mcp` over **Streamable HTTP** and either let
 it run OAuth discovery (`.well-known/oauth-protected-resource` →
 `.well-known/oauth-authorization-server` → register → `/authorize` → `/token`),
 or give it an `Authorization: Bearer <token>` header, or point it at
-`https://deckscout.io/mcp/<token>` with no header at all.
+`https://deckpal.app/mcp/<token>` with no header at all.
 
 ### What the token grants
 
@@ -632,16 +632,16 @@ API. It binds `127.0.0.1:3704` and is gated by a single shared secret rather
 than per-user tokens, because a self-host deployment has one user:
 
 ```bash
-pnpm --filter deckscout-mcp build
-ROTOM_MCP_KEY=$(openssl rand -hex 32) node apps/mcp/dist/index.js
+pnpm --filter deckpal-mcp build
+DECKPAL_MCP_KEY=$(openssl rand -hex 32) node apps/mcp/dist/index.js
 ```
 
 | Variable | Meaning |
 |---|---|
-| `ROTOM_MCP_KEY` | Shared secret required in the `x-brain-key` header. Startup fails without it. |
+| `DECKPAL_MCP_KEY` | Shared secret required in the `x-brain-key` header. Startup fails without it. |
 | `MCP_ALLOWED_HOSTS` | Comma-separated `Host` allowlist (DNS-rebinding protection). Default `127.0.0.1,localhost`. |
-| `DECKSCOUT_MCP_PORT` | Listen port. Default `3704`. |
-| `DECKSCOUT_API_BASE` | Where the REST API lives. Default `http://127.0.0.1:3700/deckscout/api`. |
+| `DECKPAL_MCP_PORT` | Listen port. Default `3704`. |
+| `DECKPAL_API_BASE` | Where the REST API lives. Default `http://127.0.0.1:3700/deckpal/api`. |
 
 Expose it through your reverse proxy at whatever path you like, add the
 `x-brain-key` header there (or have the client send it), and point your MCP

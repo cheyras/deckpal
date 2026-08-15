@@ -6,17 +6,17 @@ import { row, winLoss } from '../format.js';
 import { strategyLabel } from './deckIntel.js';
 
 /**
- * Deck tools — SPEC §5 #8–#10. Every operation goes through deckscout-api
+ * Deck tools — SPEC §5 #8–#10. Every operation goes through deckpal-api
  * (apps/api/src/routes/decks.ts is the contract) via ctx.api; no SQL here so
  * deck logic stays single-sourced (SPEC §3). Card identifiers are TCGdex ids
  * (e.g. 'sv01-25') — the deck routes resolve them server-side.
  *
  * Deck intelligence (strategy guides, battle logs, version history) lives in
  * tools/deckIntel.ts — these tools surface its headline numbers (version,
- * W/L record, strategy presence) and attribute writes as source 'rotom-mcp'.
+ * W/L record, strategy presence) and attribute writes as source 'deckpal-mcp'.
  */
 
-const SOURCE = 'rotom-mcp';
+const SOURCE = 'deckpal-mcp';
 const FORMATS = ['standard', 'expanded', 'glc', 'unlimited'] as const;
 const INCLUDES = ['cards', 'validate', 'pricing', 'testhand'] as const;
 

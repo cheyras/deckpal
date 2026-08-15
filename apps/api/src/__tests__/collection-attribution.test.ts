@@ -6,10 +6,10 @@ import { createApp } from '../index.js';
 import { closePool, defaultUserId, pool } from '../db.js';
 
 /**
- * Migration 018 attribution — live-DB integration tests (rotom-mcp SPEC §6).
+ * Migration 018 attribution — live-DB integration tests (deckpal-mcp SPEC §6).
  *
  * Boots the real app on an ephemeral port and exercises the collection write
- * path against the live deckscout DB. Self-cleaning: it targets one real variant,
+ * path against the live deckpal DB. Self-cleaning: it targets one real variant,
  * remembers its starting quantity and the event-id high-water mark, and in
  * `after` restores the quantity (deltas sum to zero across the happy-path
  * tests anyway) and deletes only the event rows this run created
@@ -34,7 +34,7 @@ interface EventJson {
 }
 
 async function api(method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
-  const res = await fetch(`${base}/deckscout/api${path}`, {
+  const res = await fetch(`${base}/deckpal/api${path}`, {
     method,
     headers: { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -102,10 +102,10 @@ test('increment without source → event source defaults to web', async () => {
 });
 
 // (b) explicit source + note round-trip (note trimmed on the way in)
-test('increment with source=rotom-mcp + note round-trips through the events feed', async () => {
+test('increment with source=deckpal-mcp + note round-trips through the events feed', async () => {
   const { status, json } = await api('POST', `/collection/variants/${variantId}/increment`, {
     delta: -1,
-    source: 'rotom-mcp',
+    source: 'deckpal-mcp',
     note: '  pulled from a Stellar Crown pack  ',
   });
   assert.equal(status, 200);
@@ -114,17 +114,17 @@ test('increment with source=rotom-mcp + note round-trips through the events feed
   const [ev] = await eventsForVariant();
   assert.ok(ev);
   assert.equal(ev!.quantityDelta, -1);
-  assert.equal(ev!.source, 'rotom-mcp');
+  assert.equal(ev!.source, 'deckpal-mcp');
   assert.equal(ev!.note, 'pulled from a Stellar Crown pack');
 });
 
 // (c) ?source= filter is an exact match
-test('GET /collection/events?source=rotom-mcp filters to that source', async () => {
-  const { status, json } = await api('GET', '/collection/events?source=rotom-mcp&limit=20');
+test('GET /collection/events?source=deckpal-mcp filters to that source', async () => {
+  const { status, json } = await api('GET', '/collection/events?source=deckpal-mcp&limit=20');
   assert.equal(status, 200);
   const events = json.events as EventJson[];
   assert.ok(events.length >= 1, 'at least the event from (b)');
-  for (const ev of events) assert.equal(ev.source, 'rotom-mcp');
+  for (const ev of events) assert.equal(ev.source, 'deckpal-mcp');
   assert.ok(events.some((e) => e.variantId === variantId));
 
   // And a filter that matches nothing returns an empty feed, not an error.
@@ -137,7 +137,7 @@ test('GET /collection/events?source=rotom-mcp filters to that source', async () 
 test('invalid source rejected with 400 and writes nothing', async () => {
   const qtyBefore = await currentQty();
 
-  for (const bad of ['Rotom MCP', '-starts-with-dash', 'a'.repeat(41), '']) {
+  for (const bad of ['DeckPal MCP', '-starts-with-dash', 'a'.repeat(41), '']) {
     const { status, json } = await api('POST', `/collection/variants/${variantId}/increment`, { delta: 1, source: bad });
     assert.equal(status, 400, `source ${JSON.stringify(bad)} must be rejected`);
     assert.equal(json.error.code, 'bad_request');

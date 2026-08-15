@@ -1,7 +1,7 @@
 /* ─────────────────────────────────────────────────────────────────────────────
  * Agent access — personal access tokens for the MCP endpoint (/profile).
  *
- * This is the surface behind DeckScout's sharpest trick: point Claude at your
+ * This is the surface behind DeckPal's sharpest trick: point Claude at your
  * own collection and decks. A token is minted here, shown ONCE, and pasted into
  * a claude.ai connector or `claude mcp add`. The server keeps only a hash, so
  * "show it again" is not a feature we can add later — the one-time reveal has
@@ -24,13 +24,13 @@ import { Icon } from './Icon'
  *
  * Cloud: the endpoint is a function of this very deployment (`/mcp` on the same
  * origin), so it is derived rather than configured and can never go stale.
- * Self-host: rotom-mcp is a separate long-lived process behind the operator's
+ * Self-host: deckpal-mcp is a separate long-lived process behind the operator's
  * own reverse proxy, so there is no origin-relative answer — the help text says
  * so instead of inventing a URL.
  */
 function mcpUrl(): string {
-  if (typeof window === 'undefined') return 'https://deckscout.io/mcp'
-  // Always the apex host. `www.deckscout.io` 308-redirects here, and a redirect
+  if (typeof window === 'undefined') return 'https://deckpal.app/mcp'
+  // Always the apex host. `www.deckpal.app` 308-redirects here, and a redirect
   // to a different host silently drops the Authorization header — which
   // surfaces inside claude.ai as an authorization failure with no clue why.
   return `${window.location.origin.replace('://www.', '://')}/mcp`
@@ -232,7 +232,7 @@ export function AgentAccess() {
                 Copy “{secret.name}” now — you won’t see it again
               </div>
               <p className="mt-[4px] text-[14px] leading-[1.55] text-text-body">
-                DeckScout stores only a hash of this token, so it cannot be shown a second time. If you lose it,
+                DeckPal stores only a hash of this token, so it cannot be shown a second time. If you lose it,
                 revoke it and create another.
               </p>
             </div>
@@ -356,7 +356,7 @@ export function AgentAccess() {
               <Step n={2} title="Add the connector in claude.ai">
                 <p className="mb-[8px]">
                   In claude.ai: <strong className="text-text-body">Settings → Connectors → Add custom connector</strong>.
-                  Name it <em>DeckScout</em>, then use whichever of these two the dialog offers you.
+                  Name it <em>DeckPal</em>, then use whichever of these two the dialog offers you.
                 </p>
 
                 <div className="mb-[10px] rounded-[10px] border border-action-ghost-border p-[12px]">
@@ -403,7 +403,7 @@ export function AgentAccess() {
 
               <Step n={3} title="Check that it works">
                 <p>
-                  Start a new chat, turn DeckScout on in the tools menu, and ask{' '}
+                  Start a new chat, turn DeckPal on in the tools menu, and ask{' '}
                   <em>“what is my collection worth, and which set am I closest to finishing?”</em> You should get your
                   own numbers back. The token’s <strong className="text-text-body">Last used</strong> date above
                   updates within a minute.
@@ -412,12 +412,12 @@ export function AgentAccess() {
 
               <Step n={4} title="Claude Code instead (optional)">
                 <CodeRow
-                  value={`claude mcp add --transport http deckscout ${mcpUrl()} --header "Authorization: Bearer <token>"`}
+                  value={`claude mcp add --transport http deckpal ${mcpUrl()} --header "Authorization: Bearer <token>"`}
                 />
                 <p className="mt-[8px]">
                   Then <code className="font-mono text-[14px] text-text-primary">claude mcp list</code> should print{' '}
-                  <code className="font-mono text-[14px] text-text-primary">deckscout: {mcpUrl()} (HTTP) - ✔ Connected</code>.
-                  Remove it with <code className="font-mono text-[14px] text-text-primary">claude mcp remove deckscout</code>.
+                  <code className="font-mono text-[14px] text-text-primary">deckpal: {mcpUrl()} (HTTP) - ✔ Connected</code>.
+                  Remove it with <code className="font-mono text-[14px] text-text-primary">claude mcp remove deckpal</code>.
                 </p>
               </Step>
 
@@ -450,7 +450,7 @@ export function AgentAccess() {
             </>
           ) : (
             <p className="text-[12px] leading-[1.6] text-text-body">
-              On a self-hosted deploy the MCP server (<code className="font-mono text-[12px]">rotom-mcp</code>) runs
+              On a self-hosted deploy the MCP server (<code className="font-mono text-[12px]">deckpal-mcp</code>) runs
               as its own process behind your reverse proxy — see <span className="font-semibold">DEPLOYMENT.md</span>{' '}
               for the endpoint and how to gate it. Tokens created here work as{' '}
               <code className="font-mono text-[12px]">Authorization: Bearer</code> credentials against the REST API.
