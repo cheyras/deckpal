@@ -24,16 +24,22 @@ import { loadTailwindPalette } from './tailwind-palette.mjs';
 export const LEGEND = {
   '.': null,            // transparent
   o: 'slate-900',       // outline / pupils
-  O: 'blue-950',        // deep shadow inside the book
+  // The body ramp is CYAN end to end, because cyan IS the brand: theme.css's
+  // --color-brand-primary-* is the Tailwind cyan ramp value for value
+  // (brand-primary-500 === cyan-500 === #00b8db). Sky is a different, bluer
+  // hue — sky-500 is #00a6f4 — so shading a cyan body with sky quietly walks
+  // the mark off-brand. Keep every body step in one family.
   l: 'cyan-200',        // body highlight
   c: 'cyan-300',        // body light
-  C: 'cyan-400',        // body mid  (the main cyan)
-  s: 'sky-500',         // body shade
-  S: 'sky-700',         // body deep shade
+  C: 'cyan-400',        // body mid  (the brand cyan)
+  s: 'cyan-500',        // body shade
+  S: 'cyan-700',        // body deep shade
   w: 'slate-50',        // eye white
   p: 'rose-300',        // mouth light / lip
   P: 'rose-500',        // mouth mid
   R: 'rose-700',        // mouth deep
+  // The bolts stay in the blue family on purpose — in the source render they
+  // read as a distinctly bluer accent against the cyan box, not as brand cyan.
   b: 'blue-700',        // lightning bolt
   B: 'blue-900',        // lightning bolt shade
   g: 'amber-300',       // gold card light
