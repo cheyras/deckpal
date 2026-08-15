@@ -343,7 +343,14 @@
    to read as gloss. Pills only: a sheen is a highlight rolling off a small
    curved face, so on a full-width panel the same gradient stops being a
    highlight and just washes the top third out. */
-:root[data-skin='premium'] .bg-surface-tertiary.rounded-full {
+/* Wrapped in `:where()` so this sits at ZERO specificity and a positioning
+   utility on the element still wins. The sheen only needs SOME containing
+   block and `absolute`/`fixed`/`sticky` each provide one, but at its natural
+   specificity (0,3,0) this rule beat Tailwind's `.absolute` (0,1,0) and
+   silently forced those elements back into flow — it was knocking the card
+   sheet's close button into the middle of the grab handle and the profile
+   level badge out of its ring. Decorative defaults must lose to layout. */
+:where(:root[data-skin='premium'] .bg-surface-tertiary.rounded-full) {
   position: relative;
 }
 :root[data-skin='premium'] .bg-surface-tertiary.rounded-full::after {
@@ -441,7 +448,19 @@
 
 /* Entrance. Content arrives rather than appearing — a 12px rise with the
    soft decel. Applied to the routed content wrapper, so every view inherits
-   it once per navigation without a single component knowing about it. */
+   it once per navigation without a single component knowing about it.
+
+   FILL MODE IS `backwards`, NOT `both`, AND THAT IS LOAD-BEARING. `both`
+   retains the final keyframe forever, and an ANIMATED `transform` resolves to
+   an interpolated matrix rather than the `none` keyword written above — so
+   every routed page kept `transform: matrix(1,0,0,1,0,0)` for the rest of its
+   life. Any transform other than `none` makes an element the containing block
+   for `position: fixed` descendants, so this one line silently re-parented
+   every modal in the app from the viewport to a 20,000px-tall page wrapper:
+   the card sheet opened ~18,000px down a long set page, and the bug reporter
+   landed off-screen. `backwards` applies the from-state ahead of the run and
+   hands the element back to its own styles when it finishes, which is the same
+   picture with nothing retained. Never restore `both` here. */
 @keyframes px-rise {
   from {
     opacity: 0;
@@ -453,7 +472,7 @@
   }
 }
 :root[data-skin='premium'] .app-content > * {
-  animation: px-rise var(--px-dur-slow) var(--px-ease) both;
+  animation: px-rise var(--px-dur-slow) var(--px-ease) backwards;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -793,20 +812,15 @@
   filter: drop-shadow(0 8px 14px rgb(0 0 0 / 0.55));
 }
 
-/* Modals and popovers arrive from slightly below and behind, and cast a real
-   shadow onto the scrim. */
-@keyframes px-modal-in {
-  from {
-    opacity: 0;
-    transform: translateY(14px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-:root[data-skin='premium'] [role='dialog'] {
-  animation: px-modal-in 280ms var(--px-ease) both;
+/* Sheets cast a real shadow onto the scrim. The MOVEMENT lives in theme.css
+   with the primitive, because a sheet has to arrive correctly in either skin —
+   this file only adds the depth.
+
+   Note the target: `.px-sheet-panel`, not `[role='dialog']`. The panel carries
+   the role now, but naming the class keeps the shadow off any other dialog
+   that is not a sheet, and keeps the animation and the shadow from having to
+   share a selector. */
+:root[data-skin='premium'] .px-sheet-panel {
   box-shadow: var(--px-hi-strong), 0 30px 70px -20px rgb(0 0 0 / 0.9);
 }
 

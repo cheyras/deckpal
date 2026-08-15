@@ -508,3 +508,113 @@ body {
   background: var(--color-surface-quaternary);
   border-radius: 9999px;
 }
+
+/* ── Sheets ───────────────────────────────────────────────────────────────
+   Motion for the Sheet primitive (components/ui/Sheet.tsx). Lives in the base
+   theme, not the skin, because a sheet has to arrive correctly in `classic`
+   too — the skin only adds depth on top.
+
+   The scrim FADES and the panel TRAVELS; they are separate elements precisely
+   so the movement does not drag the backdrop with it.
+
+   `animation-fill-mode: backwards` throughout, never `both`. An animated
+   `transform` resolves to a matrix, and a retained matrix turns the element
+   into the containing block for any `position: fixed` inside it — the exact
+   bug that pinned every modal to page coordinates (see px-rise in premium.css).
+   The end states here are the elements' natural styles, so there is nothing
+   worth retaining anyway. */
+@keyframes sheet-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Phones: up from the edge it is anchored to. */
+@keyframes sheet-panel-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* Desktop: a centred dialog has no edge to come from, so it settles instead. */
+@keyframes sheet-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.px-sheet-scrim {
+  animation: sheet-scrim-in 200ms ease-out backwards;
+}
+
+.px-sheet-panel {
+  /* The iOS-sheet curve: quick off the mark, long settle. */
+  animation: sheet-panel-up 300ms cubic-bezier(0.32, 0.72, 0, 1) backwards;
+}
+
+@media (min-width: 1068px) {
+  .px-sheet-panel {
+    animation: sheet-panel-in 220ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .px-sheet-scrim,
+  .px-sheet-panel {
+    animation-duration: 1ms;
+  }
+}
+
+/* Exit. `forwards` is correct here and only here: the element unmounts a frame
+   after the animation ends, so the retained transform has nothing left to
+   trap — and without it the sheet would snap back to open on the last frame. */
+@keyframes sheet-scrim-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-panel-down {
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes sheet-panel-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+}
+
+.px-sheet-scrim[data-closing] {
+  animation: sheet-scrim-out 220ms ease-in forwards;
+}
+
+.px-sheet-panel[data-closing] {
+  animation: sheet-panel-down 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@media (min-width: 1068px) {
+  .px-sheet-panel[data-closing] {
+    animation: sheet-panel-out 180ms ease-in forwards;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .px-sheet-scrim[data-closing],
+  .px-sheet-panel[data-closing] {
+    animation-duration: 1ms;
+  }
+}

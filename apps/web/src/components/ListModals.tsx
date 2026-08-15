@@ -5,37 +5,30 @@ import { fmtPrice, fmtNumber } from '../lib/format'
 import { Icon } from './Icon'
 import { Button } from './ui/Button'
 import { SelectableCard } from './ui/SelectableCard'
+import { Sheet } from './ui/Sheet'
 
 // ── Modal shell ───────────────────────────────────────────────────────────────
-export function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+// Kept as a name so callers read the same, but it is a Sheet now: portalled to
+// the body, capped to the viewport, with its own scroll area. See Sheet.tsx for
+// what that fixes.
+export function Modal({
+  title,
+  onClose,
+  children,
+  wide = false,
+  footer,
+}: {
+  title: string
+  onClose: () => void
+  children: ReactNode
+  wide?: boolean
+  /** Pinned under the scroll area, so actions survive a short screen. */
+  footer?: ReactNode
+}) {
   return (
-    <div
-      className="fixed inset-0 z-(--z-modal) flex items-end justify-center overflow-y-auto p-0 nav:items-start nav:p-[16px] nav:pt-[80px]"
-      style={{ background: 'var(--color-overlay-scrim-strong)' }}
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-    >
-      <div
-        className="w-full rounded-t-2xl border border-border-default bg-surface-secondary shadow-xl nav:rounded-2xl"
-        style={{ maxWidth: wide ? 720 : 480, paddingBottom: 'env(safe-area-inset-bottom)' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-border-default px-[20px] py-[16px] nav:px-[24px] nav:py-[18px]">
-          <h2 className="text-[18px] font-bold text-text-primary">{title}</h2>
-          <button onClick={onClose} aria-label="Close" className="-mr-[6px] flex h-[44px] w-[44px] items-center justify-center rounded-lg text-icon-default hover:bg-surface-tertiary">
-            <Icon name="close" size={22} />
-          </button>
-        </div>
-        <div className="p-[20px] nav:p-[24px]">{children}</div>
-      </div>
-    </div>
+    <Sheet title={title} onClose={onClose} size={wide ? 'lg' : 'md'} footer={footer}>
+      {children}
+    </Sheet>
   )
 }
 
@@ -66,9 +59,24 @@ export function ListFormModal({
   const [description, setDescription] = useState(initial?.description ?? '')
   const [visibility, setVisibility] = useState<ListVisibility>((initial?.visibility as ListVisibility) ?? 'private')
 
+  const formId = 'list-form'
   return (
-    <Modal title={mode === 'create' ? 'New List' : 'Edit List'} onClose={onClose}>
+    <Modal
+      title={mode === 'create' ? 'New List' : 'Edit List'}
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-[10px]">
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" form={formId} disabled={!name.trim()} loading={busy}>
+            {busy ? 'Saving…' : mode === 'create' ? 'Create List' : 'Save'}
+          </Button>
+        </div>
+      }
+    >
       <form
+        id={formId}
         onSubmit={(e) => {
           e.preventDefault()
           if (!name.trim()) return
@@ -79,7 +87,7 @@ export function ListFormModal({
         <label className="flex flex-col gap-[6px]">
           <span className="text-[14px] font-semibold text-text-secondary">Name</span>
           <input
-            autoFocus
+            data-autofocus
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="My Charizard chase list"
@@ -138,15 +146,6 @@ export function ListFormModal({
         </div>
 
         {error && <div className="text-[14px] text-error">{error}</div>}
-
-        <div className="mt-[4px] flex justify-end gap-[10px]">
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={!name.trim()} loading={busy}>
-            {busy ? 'Saving…' : mode === 'create' ? 'Create List' : 'Save'}
-          </Button>
-        </div>
       </form>
     </Modal>
   )
@@ -185,12 +184,16 @@ export function AddCardModal({
   return (
     <Modal title="Add Cards" onClose={onClose} wide>
       <div className="flex flex-col gap-[16px]">
-        <label className="relative flex h-[48px] items-center">
-          <span className="pointer-events-none absolute left-[14px] text-icon-default">
+        {/* Sticky inside the sheet's scroll area: scrolling deep into results
+            should never strand the field you are searching with. -mt/-mx/px
+            pull it flush with the sheet padding so the sticky backdrop covers
+            the full width as rows pass under it. */}
+        <label className="sticky -top-[20px] z-(--z-raised) -mx-[20px] -mt-[20px] flex h-[48px] items-center bg-surface-secondary px-[20px] pt-[8px] nav:-mx-[24px] nav:-top-[24px] nav:px-[24px]">
+          <span className="pointer-events-none absolute left-[34px] text-icon-default nav:left-[38px]">
             <Icon name="search" size={20} />
           </span>
           <input
-            autoFocus
+            data-autofocus
             value={term}
             onChange={(e) => setTerm(e.target.value)}
             placeholder="Search cards by name or number…"
@@ -248,16 +251,22 @@ export function AddCardModal({
 // ── Simple confirm dialog ─────────────────────────────────────────────────────
 export function ConfirmModal({ title, message, confirmLabel, onClose, onConfirm, busy }: { title: string; message: string; confirmLabel: string; onClose: () => void; onConfirm: () => void; busy?: boolean }) {
   return (
-    <Modal title={title} onClose={onClose}>
+    <Sheet
+      title={title}
+      onClose={onClose}
+      size="sm"
+      footer={
+        <div className="flex justify-end gap-[10px]">
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={onConfirm} loading={busy}>
+            {busy ? 'Working…' : confirmLabel}
+          </Button>
+        </div>
+      }
+    >
       <p className="text-[14px] text-text-body">{message}</p>
-      <div className="mt-[20px] flex justify-end gap-[10px]">
-        <Button variant="secondary" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button variant="danger" onClick={onConfirm} loading={busy}>
-          {busy ? 'Working…' : confirmLabel}
-        </Button>
-      </div>
-    </Modal>
+    </Sheet>
   )
 }

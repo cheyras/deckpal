@@ -284,7 +284,29 @@ export function BugButton() {
       </button>
 
       {open && (
-        <Modal title={KIND_COPY[kind].title} onClose={close}>
+        <Modal
+          title={KIND_COPY[kind].title}
+          onClose={close}
+          // Pinned, so Submit is reachable on a short screen and stays put when
+          // the keyboard opens over the textarea. This modal is why: its panel
+          // was 750px tall on a 667px phone, which put the actions off-screen.
+          footer={
+            savedId ? (
+              <div className="flex justify-end">
+                <Button onClick={close}>Done</Button>
+              </div>
+            ) : (
+              <div className="flex justify-end gap-[10px]">
+                <Button variant="secondary" onClick={close} disabled={busy}>
+                  Cancel
+                </Button>
+                <Button type="submit" form="bug-report-form" disabled={!text.trim()} loading={busy}>
+                  {busy ? 'Saving…' : 'Submit'}
+                </Button>
+              </div>
+            )
+          }
+        >
           {savedId ? (
             <div className="flex flex-col items-center gap-[10px] py-[24px] text-center">
               <span className="text-action-primary">
@@ -305,7 +327,7 @@ export function BugButton() {
               )}
             </div>
           ) : (
-            <form onSubmit={submit} className="flex flex-col gap-[14px]">
+            <form id="bug-report-form" onSubmit={submit} className="flex flex-col gap-[14px]">
               {/* Bug | Feature request toggle — same segmented-control idiom as the
                   Overview/Trends sub-toggle in Insights.tsx */}
               <div className="inline-flex self-start rounded-full bg-surface-tertiary p-[4px]">
@@ -327,7 +349,7 @@ export function BugButton() {
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                autoFocus
+                data-autofocus
                 rows={6}
                 placeholder={KIND_COPY[kind].placeholder}
                 className="w-full resize-y rounded-lg border border-border-default bg-surface-primary p-[12px] text-[15px] leading-[22px] text-text-primary placeholder:text-text-muted"
@@ -354,14 +376,6 @@ export function BugButton() {
                 </p>
               )}
               {error && <div className="text-[14px] text-error">{error}</div>}
-              <div className="flex justify-end gap-[10px]">
-                <Button variant="secondary" onClick={close} disabled={busy}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={!text.trim()} loading={busy}>
-                  {busy ? 'Saving…' : 'Submit'}
-                </Button>
-              </div>
             </form>
           )}
         </Modal>
