@@ -81,3 +81,6 @@ CLAUDE.local.md
 # ── supabase CLI scratch (link state, not portable) ───────────────────────
 supabase/.temp/
 
+
+# ── favicon preview sheet (scripts/gen-favicon.mjs --preview) ────────────
+.favicon-preview.png
