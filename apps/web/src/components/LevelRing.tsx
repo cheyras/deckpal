@@ -61,14 +61,9 @@ export function LevelRing({
         })}
       </svg>
       {/* Avatar disc inside the ring */}
-      {/* `position` is set inline, not by the `absolute` utility, because the
-          premium skin has an unlayered sheen rule on `.bg-surface-tertiary
-          .rounded-full` that forces `position: relative` — and unlayered CSS
-          beats @layer utilities whatever the specificity. Inline wins over
-          both. Without it the disc offsets by `inset` instead of filling. */}
       <div
         className="absolute overflow-hidden rounded-full bg-surface-tertiary"
-        style={{ position: 'absolute', inset: stroke + 4 }}
+        style={{ inset: stroke + 4 }}
       >
         {children}
       </div>
