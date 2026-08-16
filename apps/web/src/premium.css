@@ -290,31 +290,21 @@
    and the face both belong to whoever defines the shape. */
 /* These three exist only to give the sheen `::after` something to sit in;
    `absolute`/`fixed`/`sticky` would each serve as well as `relative`.
-
-   CAUTION — this rule silently overrides positioning utilities, and `:where()`
-   does NOT prevent that. This file is UNLAYERED, Tailwind v4 emits its
-   utilities into `@layer utilities`, and unlayered CSS beats layered CSS at ANY
-   specificity. So `.absolute` and `.sr-only` both lose here regardless.
-
-   It has cost real bugs: it dropped the landing page's `sr-only` skip link back
-   into flow (the link carries `bg-action-primary` for its focused state), which
-   opened a 24px band of bare background above the hero.
-
-   Until this file moves into `@layer components`, an element that needs its own
-   `position` and matches one of these selectors has to state it somewhere that
-   outranks an unlayered rule — an inline style, or by not carrying the class
-   until it is visible. Both patterns are in the tree; see Landing.tsx's skip
-   link and LevelRing.tsx's avatar disc. */
-:where(
-  :root[data-skin='premium'] .btn-fill-primary,
-  :root[data-skin='premium'] .btn-fill-secondary,
-  :root[data-skin='premium'] .btn-fill-danger,
-  :root[data-skin='premium'] .bg-action-primary,
-  :root[data-skin='premium'] .bg-action-brand
-) {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
+   Wrapped in `@layer components` so positioning utilities from `@layer
+   utilities` win — the sheen still renders because any positioned value
+   establishes a containing block for the `::after`. */
+@layer components {
+  :where(
+    :root[data-skin='premium'] .btn-fill-primary,
+    :root[data-skin='premium'] .btn-fill-secondary,
+    :root[data-skin='premium'] .btn-fill-danger,
+    :root[data-skin='premium'] .bg-action-primary,
+    :root[data-skin='premium'] .bg-action-brand
+  ) {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
 }
 :root[data-skin='premium'] .bg-action-primary,
 :root[data-skin='premium'] .bg-action-brand {
@@ -362,14 +352,11 @@
    to read as gloss. Pills only: a sheen is a highlight rolling off a small
    curved face, so on a full-width panel the same gradient stops being a
    highlight and just washes the top third out. */
-/* Same caution as the sheen rule on the action-primary fills above: this is
-   unlayered, so it outranks `@layer utilities` whatever `:where()` does to its
-   specificity, and it overrides `position` on anything matching. It was
-   knocking the card sheet's close button into the grab handle and offsetting
-   the avatar disc inside LevelRing. Both now state their position where an
-   unlayered rule cannot reach it. */
-:where(:root[data-skin='premium'] .bg-surface-tertiary.rounded-full) {
-  position: relative;
+/* Same layered treatment as the fills above. */
+@layer components {
+  :where(:root[data-skin='premium'] .bg-surface-tertiary.rounded-full) {
+    position: relative;
+  }
 }
 :root[data-skin='premium'] .bg-surface-tertiary.rounded-full::after {
   content: '';
