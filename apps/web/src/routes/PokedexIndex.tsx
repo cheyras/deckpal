@@ -3,7 +3,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { api, type SpeciesGridRow } from '../lib/api'
-import { Content, Spinner, ErrorState, useDismiss } from '../components/ui'
+import { Content, Spinner, ErrorState, ProgressBar, useDismiss } from '../components/ui'
 import { SpriteTile } from '../components/SpriteTile'
 import { fmtNumber, typeColor } from '../lib/format'
 import { useSignedIn } from '../lib/session'
@@ -262,8 +262,10 @@ export function PokedexIndex() {
         )}
       </div>
       {!signedOut && (
-        <div className="mt-[10px] h-[6px] w-full overflow-hidden rounded-full bg-surface-tertiary">
-          <div className="h-full rounded-full bg-action-primary" style={{ width: `${Math.max(pct, captured > 0 ? 0.5 : 0)}%` }} />
+        <div className="mt-[10px]">
+          {/* Shared ProgressBar primitive (C4) — recessed track + brand gradient
+              fill, same as SeriesIndex/SetDetail/ListDetail (issue #43). */}
+          <ProgressBar pct={Math.max(pct, captured > 0 ? 0.5 : 0)} />
         </div>
       )}
 
