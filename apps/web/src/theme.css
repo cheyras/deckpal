@@ -296,6 +296,27 @@ body {
   overscroll-behavior-x: none;
 }
 
+/* Issue #40 — Safari 26 "Liquid Glass" scroll runway. Safari 26 only
+   composites real page pixels behind its translucent status bar once
+   scrollY is non-zero; at scrollY 0 it paints its fallback root colour there
+   instead, which is what "every page loads slightly scrolled down, title
+   cut off" turned out to be (root-caused via TanStack Router: every route
+   render — including the first — ends with an unconditional internal
+   `scrollTo({ top: 0, left: 0 })`, `router-core/scroll-restoration.js`,
+   which is what was putting every page at the exact scrollY Safari 26
+   mishandles). main.tsx's `router.subscribe('onRendered', ...)` runs after
+   that internal reset and nudges to `{ top: 1 }` instead — this rule just
+   reserves the 1px of scrollable height for it to land on, on every page,
+   including ones short enough that their own content doesn't overflow the
+   viewport. `100dvh` tracks whichever viewport state (toolbar shown or
+   hidden) is current, so the +1px stays a genuine overflow either way; the
+   plain `100vh` line is the pre-`dvh`-support fallback, inert once the
+   calc() line applies. */
+body {
+  min-height: 100vh;
+  min-height: calc(100dvh + 1px);
+}
+
 /* iOS Safari auto-zooms the whole page when a focused input/textarea/select has
    a font-size below 16px — the app ships controls at 13–15px, which trips it and
    throws the layout off (issue tiachw). Forcing ≥16px on non-desktop widths is the
