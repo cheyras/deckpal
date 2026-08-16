@@ -4955,6 +4955,91 @@ with a real regression pass behind it.
 **Smell to watch for meanwhile:** a Tailwind utility that "does nothing" under
 the premium skin. Check premium.css before assuming the markup is wrong.
 
+## 2026-08-16 — Layer the sheen scaffolding in premium.css (executed)
+**Decided by:** Claude (on behalf of @cheyras). Executes the plan logged above; fixes #44.
+**Decision:** Only the two sheen-scaffolding rule blocks (the
+`.btn-fill-*`/`.bg-action-*` group and `.bg-surface-tertiary.rounded-full`)
+moved into `@layer components`. Everything else in premium.css stays
+unlayered. LevelRing's inline-position workaround reverted; the card sheet
+header's spacer layout kept (it is a layout convenience, not a workaround).
+**Why:** As planned — layers resolve before specificity, so the unlayered
+scaffolding beat every positioning utility (`absolute`, `fixed`, `sr-only`)
+on matched elements. `@layer components` sits beneath `utilities` in the
+order declared by `@import 'tailwindcss'`, and any position value hosts a
+`::after` sheen as well as `relative` does.
+**Implications:** The box-shadow/background/radius/transform rules remain
+unlayered by design — making those lose to utilities is a separate decision
+with a 16-selector regression pass behind it. Casualties confirmed fixed:
+Profile avatar edit button, LevelRing level badge and avatar disc (the
+"empty profile image" of #41 was this bug), Pokédex dex-count badge,
+CardTile badge, landing skip-link. Any future scaffolding-only rule in
+premium.css goes inside `@layer components` too.
+
+## 2026-08-16 — Bulk-fill missing Pokédex sprites (IDs 624–1025)
+**Decided by:** Claude (on behalf of @cheyras). Fixes #39.
+**Decision:** Bulk-uploaded the 450 missing pixel sprites to Supabase Storage
+through `putUnmanifestedObject`, sourced from the existing pinned PokeAPI SHA
+(`bf4c47ac82c33b330e33d98b8882d1cedb2f53e7`). No code change — the pipeline
+was correct; the initial fill had only covered IDs 1–623.
+**Why:** The lazy-fill mechanism works per-request but leaves species showing
+Poké-ball placeholders until each is individually visited. Pre-filling makes
+every species render on first load.
+**Implications:** All 1025 pixel sprites now exist in the bucket. Art/shiny
+variants continue to lazy-fill from the species detail page. A future
+generation past #1025 will lazy-fill on demand, or another bulk fill can run
+through the same choke-point path.
+
+## 2026-08-16 — Tabs underline padding: source omission, not a cascade bug
+**Decided by:** Claude (on behalf of @cheyras). Fixes #42.
+**Decision:** Tabs.tsx underline-variant className changed from `pb-[10px]`
+to `py-[10px]`.
+**Why:** `padding-top` was 0px because no `pt-` utility was ever in the
+className string — confirmed via computed styles, which ruled out the
+premium.css layering mechanism (that fix touched sheen scaffolding, not
+tabs; padding was byte-identical under Premium and Classic skins).
+**Implications:** None beyond the fix — the pill variant never had the bug
+and is unchanged. The residual ~2px visual asymmetry is the `border-b-2`
+underline indicator, by design.
+
+## 2026-08-16 — Own the last word on scroll-to-top
+**Decided by:** Claude (on behalf of @cheyras). Fixes #40.
+**Decision:** main.tsx registers a `router.subscribe('onRendered', ...)`
+listener after `createRouter()` that nudges `scrollY` to 1 (not 0) after
+every route render, gated on `scrollY === 0` so native back/forward scroll
+restoration is untouched. theme.css gives `body` a
+`min-height: calc(100dvh + 1px)` so every page has 1px of scroll runway.
+**Why:** TanStack Router's own internal `onRendered` subscriber
+unconditionally resets scroll to exactly 0 on every render (regardless of
+the unset `scrollRestoration` option) — and scrollY 0 is the one state iOS
+Safari 26 ("Liquid Glass") paints its fallback root color behind the
+translucent status bar instead of real content, cutting off page titles.
+Subscriber order = registration order, so registering after `createRouter()`
+gets the final say.
+**Implications:** Any future code wanting the final word on post-render
+scroll must register its `onRendered` subscriber after this one. The
+theme.css runway rule and the main.tsx nudge are a pair — removing either
+alone reintroduces the bug on short pages. Verified mechanically in
+Chromium; the Safari-26 compositor symptom still needs an on-device check
+after deploy.
+
+## 2026-08-16 — TCGPlayer mass entry: Pokemon uses product-name matching, not MTG grammar
+**Decided by:** Claude (on behalf of @cheyras). Fixes #37.
+**Decision:** Mass-entry line generation rewritten to match TCGPlayer's
+actual Pokemon product-name format instead of the assumed MTG
+`qty Name [CODE] number` grammar. Most sets use bare-name form
+(`qty Name [CODE]`); three known sets — 151/MEW, Paldean Fates/PAF,
+Surging Sparks/SSP — use numbered-name form (`qty Name - NNN/TTT [CODE]`).
+The numbered list lives in `NUMBERED_GROUP_IDS` in
+`apps/api/src/tcgplayer/massentry.ts` and is maintained by hand.
+**Why:** The old format returned `InvalidProduct` for every Pokemon card —
+the feature never worked (#37). Empirically verified against the live
+`addtocartandretrieve` API: Pokemon treats everything before `[CODE]` as
+the product name, and a trailing collector number never parses there.
+**Implications:** When TCGPlayer onboards a new set, test empirically
+whether it uses bare or numbered names and update `NUMBERED_GROUP_IDS` if
+numbered. `card_set.card_count_official` must stay populated for numbered
+sets (the catalog importer already does this).
+
 ## 2026-08-18 — Deck-E in three.js: drive normalised channels, not AnimationClips
 **Decided by:** agent, on behalf of @cheyras.
 
