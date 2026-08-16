@@ -909,7 +909,14 @@ export function Landing() {
     <div className="ls min-h-screen bg-surface-primary">
       <a
         href="#main"
-        className="sr-only rounded-full bg-action-primary px-[16px] py-[10px] text-[14px] font-bold text-action-primary-text focus:not-sr-only focus:absolute focus:left-[16px] focus:top-[16px] focus:z-(--z-modal)"
+        // Every decorated class is focus-only, and that is load-bearing, not
+        // tidiness. While the link is hidden it must carry NOTHING but sr-only:
+        // `bg-action-primary` is matched by a premium-skin rule that sets
+        // `position: relative`, premium.css is unlayered, and unlayered CSS beats
+        // anything in @layer utilities no matter its specificity — so sr-only's
+        // `position: absolute` lost, the hidden link dropped back into flow, and
+        // its padding box opened a 24px band of bare background above the hero.
+        className="sr-only focus:not-sr-only focus:absolute focus:left-[16px] focus:top-[16px] focus:z-(--z-modal) focus:rounded-full focus:bg-action-primary focus:px-[16px] focus:py-[10px] focus:text-[14px] focus:font-bold focus:text-action-primary-text"
       >
         Skip to content
       </a>
