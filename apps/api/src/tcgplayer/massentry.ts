@@ -3,13 +3,27 @@
  * (GET /sets/:setId/massentry), the deck routes (GET /decks/:id/massentry,
  * GET /decks/:id/pricing) and — through them — deckpal-mcp.
  *
- * What TCGplayer Mass Entry actually supports (research 2026-07-30, TCGplayer
- * help S11 in research/DECK-FORMATS.md §1.9 + live URL checks):
+ * What TCGplayer Mass Entry actually supports for Pokémon
+ * (empirically verified 2026-08-16 against the live addtocartandretrieve API;
+ * the documented `qty Name [CODE] number` grammar works for MTG but NOT for
+ * Pokémon — see issue #37):
+ *
  *   - URL:  https://www.tcgplayer.com/massentry?productline=Pokemon&c=<lines>
  *     with lines separated by `||` (%7C%7C) and spaces as `+`.
- *   - Line: `<qty> <name> [<SETCODE>] <number>` — set code is TCGplayer's own
- *     abbreviation vocabulary (e.g. PBL for "ME05: Pitch Black"), number is the
- *     collector number without leading zeros.
+ *
+ *   - The name in a line must match TCGplayer's **product name** exactly:
+ *       • Most sets (all pre-SV + most SV):  product name = card name only.
+ *         Line format: `<qty> <name> [CODE]`
+ *         Example:     `1 Boltund V [SWSH08]`
+ *       • Some SV-era sets (see NUMBERED_GROUP_IDS): product name includes the
+ *         zero-padded collector number and set total.
+ *         Line format: `<qty> <name> - <NNN>/<TTT> [CODE]`
+ *         Example:     `1 Pikachu - 025/165 [MEW]`
+ *
+ *     Appending a bare collector number *after* the set code (the format MTG
+ *     uses) always fails for Pokémon — TCGplayer treats it as part of the
+ *     product-name lookup and finds nothing.
+ *
  *   - NOT supported per line or per URL: printing (normal/foil/reverse) and
  *     condition (NM/LP/…) — both are chosen in the Mass Entry page's own
  *     preferences panel after the list is parsed. We therefore never encode them.
@@ -80,17 +94,62 @@ export async function tcgplayerAbbrev(groupId: number | null): Promise<string | 
   return map.get(groupId) ?? null;
 }
 
-// ── Line + URL builders ───────────────────────────────────────────────────────
+// ── Numbered-product-name sets ────────────────────────────────────────────────
+// Some TCGplayer Pokémon sets include the collector number in the product name
+// (e.g. "Pikachu - 025/165") while most use the bare card name ("Pikachu").
+// Mass Entry matches by product name, so lines for numbered sets must include
+// the number as part of the name.  This set was determined empirically
+// (2026-08-16) and must be extended when TCGplayer names a new set's products
+// with collector numbers.  To test a new set: try both `1 <card> [CODE]` and
+// `1 <card> - <NNN>/<TTT> [CODE]` on https://www.tcgplayer.com/massentry —
+// whichever returns SUCCESS is the format for that group.
+const NUMBERED_GROUP_IDS: ReadonlySet<number> = new Set([
+  23237,  // SV: Scarlet & Violet 151 (MEW)
+  23353,  // SV: Paldean Fates (PAF)
+  23651,  // SV08: Surging Sparks (SSP)
+]);
 
-/** Collector number as Mass Entry expects it: leading zeros stripped ("013" → "13"). */
-export function meNumber(localId: string): string {
-  return /^\d+$/.test(localId) ? String(Number(localId)) : localId;
+/** True when TCGplayer's product names for this set include the collector number. */
+export function isNumberedSet(groupId: number | null): boolean {
+  return groupId !== null && NUMBERED_GROUP_IDS.has(groupId);
 }
 
-/** One Mass Entry line. A stored per-variant token wins (re-quantified); else composed. */
-export function meLine(qty: number, name: string, token: string | null, setCode: string | null, localId: string): string {
+// ── Line + URL builders ───────────────────────────────────────────────────────
+
+/** Zero-pad a numeric localId to 3 digits ("6" → "006", "25" → "025"). */
+function padLocalId(localId: string): string {
+  return /^\d+$/.test(localId) ? localId.padStart(3, '0') : localId;
+}
+
+/**
+ * One Mass Entry line.
+ *
+ * Priority: stored per-variant token → composed line → bare name.
+ *
+ * `setCardCount` is required for numbered sets (product name includes the
+ * collector number, e.g. "Pikachu - 025/165") — pass `card_set.card_count_official`.
+ * For un-numbered sets it is ignored.
+ */
+export function meLine(
+  qty: number,
+  name: string,
+  token: string | null,
+  setCode: string | null,
+  localId: string,
+  groupId?: number | null,
+  setCardCount?: number | null,
+): string {
   if (token) return `${qty}${token.replace(/^\d+/, '')}`;
-  if (setCode) return `${qty} ${name} [${setCode}] ${meNumber(localId)}`;
+  if (setCode) {
+    if (isNumberedSet(groupId ?? null) && setCardCount) {
+      // Numbered sets: product name = "Name - NNN/TTT"
+      const num = padLocalId(localId);
+      const total = String(setCardCount).padStart(3, '0');
+      return `${qty} ${name} - ${num}/${total} [${setCode}]`;
+    }
+    // Default: bare name + set code (works for pre-SV and most SV sets)
+    return `${qty} ${name} [${setCode}]`;
+  }
   return `${qty} ${name}`; // no set code available — matches any printing/set
 }
 
