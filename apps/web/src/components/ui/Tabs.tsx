@@ -77,7 +77,7 @@ export function Tabs({
     >
       {items.map((item) => {
         const active = item.key === value
-        const cls = `shrink-0 whitespace-nowrap border-b-2 px-[12px] pb-[10px] text-[14px] ${
+        const cls = `shrink-0 whitespace-nowrap border-b-2 px-[12px] py-[10px] text-[14px] ${
           active
             ? 'border-action-primary font-semibold text-text-primary'
             : 'border-transparent font-medium text-text-muted hover:text-text-body'
