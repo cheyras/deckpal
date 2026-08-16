@@ -413,6 +413,34 @@ declare module '@tanstack/react-router' {
   }
 }
 
+// Issue #40: every page on iOS Safari 26 ("Liquid Glass") loaded initially
+// scrolled down a hair, with the title cut off under the fixed header until
+// the user scrolled up. Root cause is upstream, not ours: TanStack Router
+// installs an internal `onRendered` subscriber (unconditionally — it does
+// not require the opt-in `scrollRestoration` router option we don't set)
+// that ends every route render, including the very first, with
+// `scrollTo({ top: 0, left: 0 })` (`@tanstack/router-core`'s
+// scroll-restoration.js). scrollY 0 is exactly the state Safari 26 won't
+// composite real content behind its translucent status bar for — it paints
+// its fallback root colour there instead, which is what "scrolled down,
+// title cut off" turned out to be (confirmed: it needs the page scrolled by
+// even a device pixel to draw correctly there).
+//
+// `router.subscribe` fires listeners in registration order (a plain Set),
+// and the router's own reset-to-top listener was registered synchronously
+// during `createRouter()` above — so this one, registered after, always
+// runs after it and gets the final say. It nudges to `scrollY: 1` instead of
+// fighting the router for `0`; theme.css's `body { min-height: 100dvh + 1px
+// }` reserves that 1px on every page (even ones shorter than the viewport)
+// so there is always somewhere to land, and it's discarded (gated on
+// `scrollY === 0`) when the browser has just restored a real scrolled
+// position on a back/forward navigation — this must never fight that.
+router.subscribe('onRendered', () => {
+  if (window.scrollY === 0) {
+    window.scrollTo({ top: 1, left: 0 })
+  }
+})
+
 // Before first paint, so the skin never flashes from classic to premium.
 initSkin()
 initTopbar()
