@@ -145,6 +145,7 @@ interface DeckRow {
   tcgplayer_printing: string | null;
   tcgplayer_mass_entry: string | null;
   set_group_id: number | null; // card_set.tcgplayer_group_id → Mass Entry set code
+  set_card_count: number | null; // card_set.card_count_official → Mass Entry numbered-name sets
 }
 
 interface DeckMeta {
@@ -167,7 +168,7 @@ const DECK_CARD_SELECT = `
          c.tcgdex_id, c.local_id, c.local_id_numeric, c.number_sort, c.name, c.name_normalized,
          c.category, c.stage, c.suffix, c.trainer_type, c.energy_type, c.hp, c.retreat,
          c.regulation_mark, c.evolve_from, c.released_on, c.rarity, c.illustrator,
-         s.tcgdex_id AS set_tcgdex_id, s.name AS set_name, s.tcgplayer_group_id AS set_group_id,
+         s.tcgdex_id AS set_tcgdex_id, s.name AS set_name, s.tcgplayer_group_id AS set_group_id, s.card_count_official AS set_card_count,
          ser.tcgdex_id AS series_tcgdex_id, ser.slug AS series_slug,
          price.market_minor, price.currency_code,
          owned.owned_qty,
@@ -835,7 +836,7 @@ async function deckSetCodes(rows: DeckRow[]): Promise<Map<number, string | null>
 /** One deck row's Mass Entry line for `qty` copies (token > composed > bare name). */
 function deckMeLine(r: DeckRow, qty: number, codes: Map<number, string | null>): string {
   const setCode = r.set_group_id !== null ? (codes.get(r.set_group_id) ?? null) : null;
-  return meLine(qty, r.name, r.tcgplayer_mass_entry, setCode, r.local_id);
+  return meLine(qty, r.name, r.tcgplayer_mass_entry, setCode, r.local_id, r.set_group_id, r.set_card_count);
 }
 
 // ── GET /decks/:id/pricing — per-card + total, and the "buy missing" list ─────
@@ -942,7 +943,7 @@ decksRouter.get(
       }
       const setCode = r.set_group_id !== null ? (setCodes.get(r.set_group_id) ?? null) : null;
       if (!r.tcgplayer_mass_entry && !setCode) noSetCode += 1;
-      lines.push(meLine(missingQty, r.name, r.tcgplayer_mass_entry, setCode, r.local_id));
+      lines.push(meLine(missingQty, r.name, r.tcgplayer_mass_entry, setCode, r.local_id, r.set_group_id, r.set_card_count));
       items += missingQty;
     }
 

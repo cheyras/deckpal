@@ -43,8 +43,8 @@ interface MissingRow {
 massEntryRouter.get(
   '/:setId/massentry',
   asyncHandler(async (req, res) => {
-    const set = await q1<{ id: string; tcgdex_id: string; name: string; group_id: number | null }>(
-      `SELECT cs.id, cs.tcgdex_id, cs.name, cs.tcgplayer_group_id AS group_id
+    const set = await q1<{ id: string; tcgdex_id: string; name: string; group_id: number | null; card_count: number | null }>(
+      `SELECT cs.id, cs.tcgdex_id, cs.name, cs.tcgplayer_group_id AS group_id, cs.card_count_official AS card_count
          FROM card_set cs
          JOIN series ser ON ser.id = cs.series_id
         WHERE cs.tcgdex_id = $1
@@ -137,7 +137,7 @@ massEntryRouter.get(
       else byCard.set(key, { qty: 1, name: r.name, local_id: r.local_id, token: r.token });
     }
 
-    const lines = [...byCard.values()].map((a) => meLine(a.qty, a.name, a.token, setCode, a.local_id));
+    const lines = [...byCard.values()].map((a) => meLine(a.qty, a.name, a.token, setCode, a.local_id, set.group_id, set.card_count));
     const urls = buildUrls(lines);
 
     const warnings: string[] = [];
