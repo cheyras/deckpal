@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/check-precache.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test:insights": "node --import tsx --test src/lib/__tests__/*.test.ts"
