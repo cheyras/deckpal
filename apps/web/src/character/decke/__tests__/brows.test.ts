@@ -72,29 +72,52 @@ test('the sign is a COUNTER-rotation, and a sign flip is not survivable', () => 
   assert.ok(BROW_FOLLOW.rotPerBend < 0)
 })
 
-test('the translation is a rigid rotation about a FIXED pivot', () => {
-  // dy and dz are both proportional to the same angle, so their ratio must not
-  // depend on the pose. That is a structural prediction the data did not have to
-  // satisfy — a sloppier "brows drift with bend" model would not produce it —
-  // and it is why two coefficients suffice instead of a per-state table.
-  const ratios = [
-    [-0.7, 2.09],
-    [-0.2, 0],
-    [0, 0.5],
-    [0.35, 0.04],
-  ].map(([b, m]) => {
-    const t = socketAngle(b, m)
-    return (BROW_FOLLOW.dyPerRad * t) / (BROW_FOLLOW.dzPerRad * t)
-  })
-  for (const r of ratios) {
-    assert.ok(Math.abs(r - ratios[0]) < 1e-12, 'the dy:dz ratio must be pose-independent')
+test('the translation really is one rigid rotation, per the measured data', () => {
+  // The model claims the socket's whole displacement is a single rotation about
+  // a FIXED pivot, so dy and dz are each proportional to the same angle and
+  // their ratios to it are the same in every pose.
+  //
+  // An earlier version of this test asserted that by dividing the two fitted
+  // coefficients — `(dyPerRad*t)/(dzPerRad*t)` — which is algebraically constant
+  // for ANY pair of numbers and therefore could never fail. This one checks the
+  // claim against the FILE: each state's measured displacement divided by its
+  // measured angle, compared to the fitted coefficient. Wrong coefficients fail
+  // it; a socket that translated independently of its rotation would fail it too.
+  //
+  // Blender-local socket rest: y -0.0148, z 0.87446.
+  // (state, y, z, rotation_euler.x) at each state's marker + 20 frames.
+  const REST_Y = -0.0148
+  const REST_Z = 0.87446
+  const MEASURED: [string, number, number, number][] = [
+    ['listening', -0.00704, 0.88479, -0.01813],
+    ['sad', 0.00302, 0.8976, -0.03921],
+    ['frustrated', -0.00549, 0.88682, -0.02149],
+    ['proud', -0.03527, 0.84571, 0.04763],
+    ['card_stash', -0.04861, 0.8251, 0.0822],
+    ['card_show', -0.03598, 0.84478, 0.05032],
+    ['card_present', -0.02204, 0.86443, 0.01669],
+    ['sleep', -0.00609, 0.88616, -0.02017],
+  ]
+  // States whose angle is under ~0.01 rad are excluded above: dividing a small
+  // measured displacement by a small measured angle amplifies the noise in both
+  // and says nothing about the model.
+  const TOL = 0.1 // 10% — the measured spread is 7.5% on dy and 5.7% on dz
+
+  let worstY = 0
+  let worstZ = 0
+  for (const [name, y, z, t] of MEASURED) {
+    const ry = (y - REST_Y) / t
+    const rz = (z - REST_Z) / t
+    const ey = Math.abs(ry - BROW_FOLLOW.dyPerRad) / Math.abs(BROW_FOLLOW.dyPerRad)
+    const ez = Math.abs(rz - BROW_FOLLOW.dzPerRad) / Math.abs(BROW_FOLLOW.dzPerRad)
+    worstY = Math.max(worstY, ey)
+    worstZ = Math.max(worstZ, ez)
+    assert.ok(ey < TOL, `${name}: dy/angle ${ry.toFixed(4)} vs fitted ${BROW_FOLLOW.dyPerRad}`)
+    assert.ok(ez < TOL, `${name}: dz/angle ${rz.toFixed(4)} vs fitted ${BROW_FOLLOW.dzPerRad}`)
   }
-  // And that fixed ratio places the pivot where it was measured: the socket
-  // rests at blender (y -0.0148, z 0.87446), so the pivot is (0.590, 0.452).
-  const pivotY = -0.0148 - BROW_FOLLOW.dzPerRad
-  const pivotZ = 0.87446 + BROW_FOLLOW.dyPerRad
-  assert.ok(Math.abs(pivotY - 0.5895) < 1e-3, `pivot y ${pivotY}`)
-  assert.ok(Math.abs(pivotZ - 0.4517) < 1e-3, `pivot z ${pivotZ}`)
+  // Both ratios negative: the socket moves DOWN and BACK as it rotates up.
+  assert.ok(BROW_FOLLOW.dyPerRad < 0 && BROW_FOLLOW.dzPerRad < 0)
+  assert.ok(worstY < TOL && worstZ < TOL, `worst dy ${worstY.toFixed(3)}, dz ${worstZ.toFixed(3)}`)
 })
 
 test('the mouth arch saturates here exactly as it does at the hinge', () => {
