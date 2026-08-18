@@ -485,13 +485,20 @@ the componentization ledger. It has two modes with one structural rule:
 
 ## 15. Deck-E — the 3D character runtime
 
-**Status: complete, dev-only.** Route `/dev/decke`. The whole route — the lazy
-`import()` included — is constructed inside a block guarded by
-`import.meta.env.DEV`, so in a production build the chunk is not emitted at all;
-`beforeLoad` still throws `notFound()` as a second line of defence. Gating only
-`beforeLoad` is not enough: the `import()` stays reachable, rollup emits the
-chunk, and `vite-plugin-pwa` precaches it — 945 kB of three.js downloaded by
-every production user. `models/**` is separately excluded from the precache.
+**Status: complete. Ships to production, owner-only.** Route `/dev/decke`,
+gated the same way as `/design`: `beforeLoad` checks the server-verified `owner`
+flag on `GET /me` and throws `notFound()` for everyone else, so for any other
+visitor the route is indistinguishable from one that never existed. The identity
+check lives server-side (`DESIGN_EDITOR_USER_ID`), so nothing about who the owner
+is enters the bundle, and an unset variable means nobody — it fails closed.
+
+Shipping it means the chunk is emitted (~945 kB of three.js and the runtime) and
+the 5.6 MB of assets sit in `public/models/`. Neither is downloaded by anyone who
+does not open the route, because the import is lazy — **provided both stay out of
+the PWA precache**, which is eager and would otherwise pull 6.5 MB into every
+visitor's cache on first load for a route exactly one account can open.
+`vite.config.ts` excludes `models/**` and `assets/Decke-*.js`; measured, the
+precache is unchanged at 25 entries / 1964 KiB with the route shipping.
 
 Deck-E is a stylized robot deck box who will eventually be the AI assistant's
 body: the LLM drives his animation from the conversation, and when he presents
