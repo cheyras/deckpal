@@ -2,10 +2,11 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "deckpal-web",
+      "name": "deckpal",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "deckpal-web", "dev"],
-      "port": 5199
+      "runtimeArgs": ["dev"],
+      "port": 5199,
+      "url": "http://localhost:5199"
     }
   ]
 }

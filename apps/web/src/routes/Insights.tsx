@@ -267,6 +267,14 @@ export function Insights() {
 
 function DeltaCard({ delta, currency }: { delta: { value: number; pct: number | null }; currency: string }) {
   const up = delta.value >= 0
+  // The labels take a light tint of the panel's own family rather than the grey
+  // text-muted, which turned to dirt against the green/red wash.
+  const labelCls = up
+    ? 'text-[12px] text-change-positive-label'
+    : 'text-[12px] text-change-negative-label'
+  const valueCls = up
+    ? 'text-[24px] font-extrabold text-change-positive'
+    : 'text-[24px] font-extrabold text-change-negative'
   return (
     <div
       className="rounded-2xl p-[20px]"
@@ -276,21 +284,21 @@ function DeltaCard({ delta, currency }: { delta: { value: number; pct: number | 
           : 'linear-gradient(120deg, rgba(255,107,107,0.18), rgba(255,120,147,0.06))',
       }}
     >
-      <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Last 30 Days</div>
+      <div className={`font-bold uppercase tracking-wide ${labelCls}`}>Last 30 Days</div>
       <div className="mt-[8px] flex flex-wrap gap-x-[40px] gap-y-[8px]">
         <div>
-          <div className={up ? 'text-[24px] font-extrabold text-change-positive' : 'text-[24px] font-extrabold text-change-negative'}>
+          <div className={valueCls}>
             {up ? '▲' : '▼'}{' '}
             {new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Math.abs(delta.value))}
           </div>
-          <div className="text-[12px] text-text-muted">Price Change</div>
+          <div className={labelCls}>Price Change</div>
         </div>
         {delta.pct != null && (
           <div>
-            <div className={up ? 'text-[24px] font-extrabold text-change-positive' : 'text-[24px] font-extrabold text-change-negative'}>
+            <div className={valueCls}>
               {up ? '▲' : '▼'} {Math.abs(delta.pct)}%
             </div>
-            <div className="text-[12px] text-text-muted">Percent Change</div>
+            <div className={labelCls}>Percent Change</div>
           </div>
         )}
       </div>

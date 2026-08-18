@@ -48,7 +48,8 @@ const backPillGallery = {
   name: 'BackPill',
   source: 'apps/web/src/components/ui.tsx',
   section: 'primitive',
-  description: 'Pill-shaped "back to X" link, used at the top of every detail page.',
+  description:
+    'The "back to X" link at the top of every detail page. A left-pointing plate stamped into the surface (theme.css .back-plate) — not a raised pill.',
   component: BackPill,
   defaults: { to: '/series', label: 'Back to Series' },
   variants: [

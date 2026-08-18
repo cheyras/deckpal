@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { useState, type ReactNode } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Icon } from './Icon'
 import { EnergyIcon } from './EnergyIcon'
 
@@ -70,15 +70,107 @@ export function setAssetUrl(setId: string, kind: 'logo' | 'symbol'): string {
   return `/deckpal/images/sets/${encodeURIComponent(setId)}/${kind}.webp`
 }
 
+// ── Back plate geometry ──────────────────────────────────────────────────────
+// All in CSS px against a fixed 28px-tall control. Only the two horizontal runs
+// depend on the width, so the point's angle and every corner radius are the same
+// on every back link regardless of label length — which is why the width is
+// measured rather than the path being stretched to fit.
+const PLATE_H = 28
+const PLATE_R = 5 // right-hand corners
+const NOSE_W = 12 // how far the point reaches left of the shoulders
+const SHOULDER = 2.5 // rounding where each slant meets the top/bottom edge
+const TIP_BACK = 5.5 // how far back ALONG THE SLANT the point's rounding starts
+
+// The slant's unit vector, from the point out to a shoulder. Both curves are
+// derived from it so their endpoints sit exactly ON the slants — eyeballing the
+// offsets instead leaves a kink at each end of the curve, which is what made the
+// point read as sharp even though it was nominally rounded.
+const SLANT_LEN = Math.hypot(NOSE_W, PLATE_H / 2)
+const UX = NOSE_W / SLANT_LEN
+const UY = PLATE_H / 2 / SLANT_LEN
+
+// Where each curve leaves the slant. Control points are the true vertices, so
+// every curve is tangent to both edges it joins.
+const SHOULDER_X = NOSE_W - UX * SHOULDER
+const SHOULDER_Y = UY * SHOULDER
+const TIP_X = UX * TIP_BACK
+const TIP_Y = UY * TIP_BACK
+
+const n = (v: number) => v.toFixed(2)
+
+/** The complete silhouette as one closed path: top edge → rounded right corners
+ *  → bottom edge → rounded bottom shoulder → slant → rounded point → slant →
+ *  rounded top shoulder. */
+function platePath(w: number): string {
+  const mid = PLATE_H / 2
+  return [
+    `M ${n(NOSE_W + SHOULDER)} 0`,
+    `L ${n(w - PLATE_R)} 0`,
+    `A ${PLATE_R} ${PLATE_R} 0 0 1 ${n(w)} ${PLATE_R}`,
+    `L ${n(w)} ${PLATE_H - PLATE_R}`,
+    `A ${PLATE_R} ${PLATE_R} 0 0 1 ${n(w - PLATE_R)} ${PLATE_H}`,
+    `L ${n(NOSE_W + SHOULDER)} ${PLATE_H}`,
+    `Q ${NOSE_W} ${PLATE_H} ${n(SHOULDER_X)} ${n(PLATE_H - SHOULDER_Y)}`,
+    `L ${n(TIP_X)} ${n(mid + TIP_Y)}`,
+    `Q 0 ${mid} ${n(TIP_X)} ${n(mid - TIP_Y)}`,
+    `L ${n(SHOULDER_X)} ${n(SHOULDER_Y)}`,
+    `Q ${NOSE_W} 0 ${n(NOSE_W + SHOULDER)} 0`,
+    'Z',
+  ].join(' ')
+}
+
+// The single back control for the whole app. See theme.css `.back-plate` for why
+// the silhouette is one drawn path and not a clipped box. Left padding clears the
+// nose so the chevron never crowds the point.
 export function BackPill({ to, params, label }: { to: string; params?: Record<string, string>; label: string }) {
+  const uid = useId()
+  const clipId = `back-plate-${uid}`
+  const ref = useRef<HTMLAnchorElement>(null)
+  // Measured, not stretched: a viewBox with preserveAspectRatio="none" would make
+  // the point shallower on "Mega Evolution" than on "My Lists" and turn the
+  // corner arcs into ellipses.
+  const [w, setW] = useState(0)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    setW(el.offsetWidth)
+    const ro = new ResizeObserver(() => setW(el.offsetWidth))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const d = w > NOSE_W + SHOULDER * 2 + PLATE_R ? platePath(w) : null
+
   return (
     <Link
+      ref={ref}
       to={to}
       params={params as never}
-      className="inline-flex h-[28px] items-center gap-[4px] rounded-full bg-surface-tertiary px-[12px] text-[12px] font-bold text-text-primary hover:bg-action-default-hover"
+      className="back-plate inline-flex h-[28px] items-center gap-[4px] pr-[13px] pl-[21px] text-[12px] font-bold text-text-primary"
     >
-      <Icon name="chevron-left" size={14} />
-      {label}
+      {d && (
+        <svg aria-hidden="true" className="back-plate-shape" width={w} height={PLATE_H}>
+          <defs>
+            <clipPath id={clipId}>
+              <path d={d} />
+            </clipPath>
+          </defs>
+          <path className="back-face" d={d} />
+          {/* Two copies of the SAME path, nudged and clipped back inside it, so
+              each survives only as a band hugging the silhouette. Kept fine and
+              low-contrast on purpose: the groove should be felt at a glance, not
+              read as a drawn outline. Half the clipped stroke is discarded, so
+              the visible band is half these widths. */}
+          <g clipPath={`url(#${clipId})`} fill="none" style={{ filter: 'blur(0.4px)' }}>
+            <path d={d} transform="translate(0 1.4)" stroke="rgb(0 0 0 / 0.34)" strokeWidth="1.5" />
+            <path d={d} transform="translate(0 -1)" stroke="rgb(255 255 255 / 0.1)" strokeWidth="1" />
+          </g>
+        </svg>
+      )}
+      <span className="relative">
+        <Icon name="chevron-left" size={14} />
+      </span>
+      <span className="relative">{label}</span>
     </Link>
   )
 }

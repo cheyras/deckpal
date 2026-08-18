@@ -8,7 +8,8 @@ export default {
   name: 'LevelRing',
   source: 'apps/web/src/components/LevelRing.tsx',
   section: 'component',
-  description: 'Segmented trainer-level ring (10 arcs, gold-filled by progress).',
+  description:
+    'Segmented trainer-level ring (10 arcs, action-primary-filled by progress). Holds the avatar disc, with the level badge overlaid on its lower edge.',
   component: LevelRing,
   defaults: { level: 5, intoLevel: 65, size: 96, stroke: 6, showBadge: true },
   variants: [

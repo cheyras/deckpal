@@ -294,6 +294,12 @@ const TABS = [
   { key: 'TCG', label: 'TCG' },
 ] as const
 
+// The deck-scoped view is a TAB to the LEFT of Card, not a panel stacked above
+// the card body. As a panel it repeated the card art and the name/set line that
+// the body already shows a few hundred pixels below — the same card twice, once
+// small and once large.
+const DECK_TAB = { key: 'In this deck', label: 'In this deck' } as const
+
 // Standalone route (deep links / direct navigation to /series/$series/$set/$number).
 // Renders the shared body inside the page Content column; on the set page the same
 // body is rendered inside CardSheet instead.
@@ -315,14 +321,20 @@ export function CardDetailBody({
   cardId,
   inSheet = false,
   backTo,
+  deckSlot,
 }: {
   cardId: string
   inSheet?: boolean
   // Optional immediate BackPill target for the standalone route, used only until
   // the card fetch resolves the authoritative series/set. Never passed in-sheet.
   backTo?: { series: string; set: string }
+  // Deck-scoped content for this card, supplied by the deck builder. When
+  // present it becomes the leading tab and the tab strip opens on it — the deck
+  // is why you opened the card from a deck list.
+  deckSlot?: ReactNode
 }) {
-  const [tab, setTab] = useState('Card')
+  const tabs = deckSlot ? [DECK_TAB, ...TABS] : TABS
+  const [tab, setTab] = useState(deckSlot ? DECK_TAB.key : 'Card')
   const [showAdditional, setShowAdditional] = useState(false)
   const qc = useQueryClient()
 
@@ -382,8 +394,11 @@ export function CardDetailBody({
             }}
           />
           <div className="flex flex-col gap-[32px] nav:flex-row">
-            {/* hero image */}
-            <div className="mx-auto w-full max-w-[396px] shrink-0 nav:mx-0">
+            {/* Hero image. On the two-column (desktop) layout it sticks to the
+                top while the detail column scrolls — `self-start` is required or
+                the flex row stretches the item and sticky has no slack to move
+                in. True of every modal built on this body, not just the deck's. */}
+            <div className="mx-auto w-full max-w-[396px] shrink-0 nav:mx-0 nav:sticky nav:top-0 nav:self-start">
               <CardImage low={data.card.images.low} high={data.card.images.high} alt={data.card.name} eager />
             </div>
 
@@ -412,8 +427,9 @@ export function CardDetailBody({
               </div>
 
               {/* tabs */}
-              <Tabs items={TABS} value={tab} onChange={setTab} className="mt-[20px]" />
+              <Tabs items={tabs} value={tab} onChange={setTab} className="mt-[20px]" />
 
+              {tab === DECK_TAB.key && deckSlot}
               {tab === 'Card' && (
                 <CardTab
                   data={data}
@@ -482,8 +498,7 @@ export function CardSheet({
       headerSlot={<CardSheetHeader />}
       contentClassName="!px-[16px] !pt-[4px] nav:!px-[24px]"
     >
-      {contextSlot}
-      <CardDetailBody cardId={cardId ?? `${set}-${number}`} inSheet />
+      <CardDetailBody cardId={cardId ?? `${set}-${number}`} inSheet deckSlot={contextSlot} />
     </Sheet>
   )
 }

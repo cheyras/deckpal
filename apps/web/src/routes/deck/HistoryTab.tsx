@@ -13,6 +13,12 @@ import { fmtDate } from '../../lib/format'
 import { FORMAT_META } from '../deckShared'
 import { SourceChip, VersionChip, RecordSpans } from './intelShared'
 
+// Additions take the brand primary, removals the secondary (rose). These are
+// edits to a list, not wins and losses, so they read in brand colour rather than
+// the status green/red those tokens are reserved for.
+const DIFF_ADD = 'var(--color-action-primary)'
+const DIFF_REMOVE = 'var(--color-brand-secondary-400)'
+
 function VersionRow({
   v,
   detail,
@@ -49,21 +55,27 @@ function VersionRow({
         )}
       </div>
 
+      {/* The diff is the app's own voice, not a terminal: it takes the brand's
+          primary for additions and secondary (rose) for removals, rather than
+          the stark status green/red, and it is set in the UI face. `tabular-nums`
+          keeps the leading counts in a column, which is the only thing the
+          monospace face was really buying. The W/L record above keeps its
+          status colours — that IS a win/loss statement. */}
       {diff && !diffEmpty && (
-        <div className="mt-[10px] flex flex-col gap-[2px] border-t border-divider-subtle pt-[10px] font-mono text-[14px] leading-[17px]">
+        <div className="tabular-nums mt-[10px] flex flex-col gap-[2px] border-t border-divider-subtle pt-[10px] text-[14px] leading-[19px]">
           {diff.added.map((c) => (
-            <div key={`a-${c.tcgdexId}`} style={{ color: 'var(--color-change-positive)' }}>
+            <div key={`a-${c.tcgdexId}`} style={{ color: DIFF_ADD }}>
               +{c.quantity} {c.name}
             </div>
           ))}
           {diff.changed.map((c) => (
-            <div key={`c-${c.tcgdexId}`} style={{ color: c.to > c.from ? 'var(--color-change-positive)' : 'var(--color-change-negative)' }}>
+            <div key={`c-${c.tcgdexId}`} style={{ color: c.to > c.from ? DIFF_ADD : DIFF_REMOVE }}>
               {c.to > c.from ? '+' : '−'}
               {Math.abs(c.to - c.from)} {c.name} ({c.from}→{c.to})
             </div>
           ))}
           {diff.removed.map((c) => (
-            <div key={`r-${c.tcgdexId}`} style={{ color: 'var(--color-change-negative)' }}>
+            <div key={`r-${c.tcgdexId}`} style={{ color: DIFF_REMOVE }}>
               −{c.quantity} {c.name}
             </div>
           ))}
