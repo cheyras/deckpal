@@ -22,17 +22,24 @@ interface UsernameRow {
 }
 
 /**
- * May this account see the /design design-system reference in production?
+ * Is this account the deployment's owner?
  *
  * Cloud: only the account named by DESIGN_EDITOR_USER_ID (a Supabase auth
- * UUID, set in the Vercel env) — unset means nobody, so the flag can never
- * open up by accident. Self-host: always, because a self-host deployment has
- * exactly one user (the owner) and sits behind the owner's own auth proxy.
+ * UUID, set in the Vercel env) — unset means NOBODY, so an owner-only surface
+ * can never open up by accident, only fail closed. Self-host: always, because
+ * a self-host deployment has exactly one user (the owner) and sits behind the
+ * owner's own auth proxy.
  *
- * The flag lives here, server-side, so the owner's identity is verified
- * against the JWT and never baked into the public JS bundle.
+ * This lives here, server-side, so the owner's identity is verified against
+ * the JWT and never baked into the public JS bundle. A client-side check would
+ * be a suggestion, not a gate.
+ *
+ * The env var keeps its original name because it is already set in production
+ * and renaming it would silently close both surfaces on the next deploy. What
+ * it means is "the owner"; `designEditor` was simply the first thing that
+ * needed one.
  */
-function isDesignEditor(userId: string): boolean {
+function isOwner(userId: string): boolean {
   if (!SUPABASE_MODE) return true;
   const owner = process.env.DESIGN_EDITOR_USER_ID;
   return !!owner && userId === owner;
@@ -45,6 +52,10 @@ meRouter.get(
     const userId = currentUserId(req);
     const row = await q1<UsernameRow>('SELECT username FROM app_user WHERE id = $1', [userId]);
     if (!row) throw notFound('No such user');
-    res.json({ username: row.username, designEditor: isDesignEditor(userId) });
+    const owner = isOwner(userId);
+    // `designEditor` is retained for the existing /design gate. `owner` is the
+    // same answer under the name that actually describes it, and is what new
+    // owner-only surfaces should use.
+    res.json({ username: row.username, designEditor: owner, owner });
   }),
 );
