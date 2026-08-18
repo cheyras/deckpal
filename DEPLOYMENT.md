@@ -191,7 +191,7 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `SUPABASE_DB_URL` | `postgresql://postgres:<pw>@db.<project>.supabase.co:5432/postgres` | Reference only — read by `scripts/migrate-to-cloud.mjs`, not by the API |
 | `API_BASE_PATH` | `/api` | |
 | `NODE_ENV` | `production` | |
-| `DESIGN_EDITOR_USER_ID` | `<auth.users UUID>` | Optional. The one account allowed to open the read-only `/design` design-system reference in production (`GET /me` returns `designEditor: true` for it). Unset = nobody. Editing always requires the local dev server; this only gates viewing. |
+| `DESIGN_EDITOR_USER_ID` | `<auth.users UUID>` | Optional, and now gates two surfaces. It names the deployment's **owner**: the one account allowed to open the read-only `/design` design-system reference and the `/dev/decke` character preview in production (`GET /me` returns `designEditor: true` and `owner: true` for it). **Unset = nobody**, so both fail closed. The name is historical — it means "the owner", and `/design` was simply the first thing that needed one. Editing the design system always requires the local dev server; this only gates viewing. |
 
 4. **(Optional) Bug reporter → GitHub issues:** Create a fine-grained Personal
    Access Token at `github.com/settings/personal-access-tokens/new` with
