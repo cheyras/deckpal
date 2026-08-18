@@ -352,7 +352,47 @@ const designRoute = createRoute({
   component: DesignSystemRoute,
 })
 
-const routeTree = rootRoute.addChildren([...coreRoutes, designRoute])
+// Deck-E preview. DEV-ONLY, and gated harder than /design: this repo also ships
+// the live product, and a 3D character debug surface has no read-only value to
+// an owner in production the way the design system does. notFound() makes it
+// indistinguishable from a URL that never existed. Lazy, so three.js and the
+// character runtime never land in the main bundle.
+//
+// The whole route — the `import()` included — lives inside a block guarded by
+// `import.meta.env.DEV`, which Vite inlines to `false` for production. That is
+// what makes the chunk genuinely ABSENT from a production build rather than
+// merely unreachable: with the dynamic import unreachable, rollup never emits
+// it. Registering the route and relying on `beforeLoad` alone still shipped
+// 945 kB of three.js to the CDN for nobody to download.
+function devOnlyRoutes() {
+  if (!import.meta.env.DEV) return []
+  const LazyDecke = lazy(() => import('./routes/dev/Decke'))
+  const DeckeRoute = () => (
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center text-text-muted">
+          Loading Deck-E...
+        </div>
+      }
+    >
+      <LazyDecke />
+    </Suspense>
+  )
+  return [
+    createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/dev/decke',
+      // Belt and braces: if this ever gets registered in a non-dev build, it
+      // must still be indistinguishable from a URL that never existed.
+      beforeLoad: () => {
+        if (!import.meta.env.DEV) throw notFound()
+      },
+      component: DeckeRoute,
+    }),
+  ]
+}
+
+const routeTree = rootRoute.addChildren([...coreRoutes, designRoute, ...devOnlyRoutes()])
 
 const router = createRouter({
   routeTree,
