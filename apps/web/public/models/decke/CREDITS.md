@@ -3,10 +3,12 @@
 Following the precedent set by `apps/web/public/marketing/`: committed binaries
 carry a note saying where they came from and how to regenerate them.
 
-These are **dev-only**. The `/dev/decke` route is built inside a block guarded by
-`import.meta.env.DEV`, so its JS chunk is not even emitted in a production build,
-and `vite.config.ts` excludes `models/**` from the PWA precache. No production
-visitor downloads any of it.
+These ship to production but are **owner-only**. `/dev/decke` is gated on the
+server-verified `owner` flag from `GET /me`, and `vite.config.ts` keeps both
+`models/**` and the route's JS chunk out of the PWA precache — which is eager, so
+without that exclusion every visitor would pull 6.5 MB into their cache on first
+load for a route one account can open. The route's import is lazy, so in practice
+only the owner ever fetches any of this.
 
 | File | Size | Source |
 |---|---|---|

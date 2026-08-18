@@ -4,7 +4,7 @@ A stylized robot deck box who will eventually be the AI assistant's body: the LL
 drives his animation from the conversation, and when he presents part of the UI
 he parks beside that element facing inward.
 
-**Preview:** `/dev/decke` (dev-only). **Status:** complete and measured against the `.blend`; see `PARITY.md` for what is and is not matched.
+**Preview:** `/dev/decke` — always in dev, owner-only in production. **Status:** complete and measured against the `.blend`; see `PARITY.md` for what is and is not matched.
 
 He is authored in Blender in a separate working directory —
 `~/Documents/DeckPal Character/` — which carries its own extensive wiki. That
