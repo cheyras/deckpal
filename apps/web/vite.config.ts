@@ -55,6 +55,11 @@ export default defineConfig({
       injectManifest: {
         // Tier 0: precache the shell + all route chunks, fonts, and icons.
         globPatterns: ['**/*.{js,css,html,woff2,svg,png}'],
+        // The Deck-E character assets live in public/models/ so the dev route can
+        // fetch them by URL, but /dev/decke is dev-only and no production user
+        // will ever load them. Without this the 1 MB SDF glyph atlas lands in
+        // every visitor's precache for a route they cannot reach.
+        globIgnores: ['models/**'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
       devOptions: { enabled: false },
