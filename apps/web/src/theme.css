@@ -128,6 +128,12 @@
   --color-error: #ff6467; /* red-400 */
   --color-change-positive: #00bc7d; /* emerald-500 */
   --color-change-negative: #fb2c36; /* red-500 */
+  /* Labels sitting INSIDE a change-tinted panel (Insights' Last-30-Days card).
+     text-muted grey on a green wash reads as dirt, so the label takes a light
+     tint of the panel's own family: far enough off the emerald/red base to be
+     clearly a different value, still obviously coloured rather than white. */
+  --color-change-positive-label: #a4f4cf; /* emerald-200 */
+  --color-change-negative-label: #ffc9c9; /* red-200 */
   --color-halo-success: rgb(0 212 146 / 0.1); /* emerald-400 */
   --color-halo-error: rgb(255 100 103 / 0.1); /* red-400 */
   --color-halo-neutral: rgb(0 211 243 / 0.1); /* primary */
@@ -510,6 +516,54 @@ body {
    not default to tabular. */
 .tabular-nums {
   font-variant-numeric: tabular-nums lining;
+}
+
+/* The app-wide back control (components/ui.tsx → BackPill).
+ *
+ * Its face is the page surface itself, pressed INTO that surface by a dark inner
+ * edge along the top and a lit edge along the bottom — a shape stamped in, lit
+ * from above.
+ *
+ * WHY IT IS ONE DRAWN SVG PATH and must not go back to a clipped box: an inset
+ * shadow is painted inside the border box and THEN clipped, so a `clip-path`
+ * bevel deletes the shadow exactly where the silhouette is most interesting. The
+ * ring stopped at the corners, survived only along the edges that happened to
+ * coincide with the box, and the point read as a square corner sliced off —
+ * because geometrically that is all it was. A shadow can only follow a bevel if
+ * it is DRAWN, not clipped.
+ *
+ * Splitting it into a box plus a nose SVG does not work either: two shapes have
+ * two outlines, so the bands either seam at the junction or, on a piece as small
+ * as a 12×28 nose, a band wide enough to match the body fills the whole triangle
+ * solid. The silhouette has to be a single continuous path — see BackPill, which
+ * measures its own width to build one (nothing is stretched, so the point's angle
+ * and every corner radius are identical on every back link in the app).
+ *
+ * The edges are then two copies of that one path, nudged off-centre and clipped
+ * back inside it: dark pushed down so it reads along the top and around the
+ * point, light pulled up so it catches along the bottom. Because they are the
+ * same path, the shading runs continuously through the tip, the shoulders and the
+ * right-hand corners without a break.
+ */
+.back-plate {
+  /* No fill. The face IS the surface — the page's own background, texture and
+     all, shows through, which is literally "the same colour as the surface". A
+     solid --color-surface-primary read as a black hole once the skin began
+     painting a textured background behind it. */
+  --back-face: transparent;
+  position: relative;
+}
+.back-plate:hover {
+  --back-face: rgb(255 255 255 / 0.055);
+}
+.back-plate-shape {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.back-plate-shape .back-face {
+  fill: var(--back-face);
+  transition: fill 140ms ease;
 }
 
 /* Thin scrollbars on horizontal chip rows */

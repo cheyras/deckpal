@@ -26,39 +26,33 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
   const tcgSearchUrl = `https://www.tcgplayer.com/search/pokemon/product?productLineName=pokemon&q=${encodeURIComponent(
     set.name,
   )}`
+  // No art/gradient wash behind this block. It used to carry one (UI-SPEC §3.7);
+  // it now sits on the same surface as the rest of the page, so the header reads
+  // as part of the page rather than as a banner pasted onto it.
   return (
-    <div className="relative overflow-hidden">
-      {/* blurred set art / gradient wash behind the block (UI-SPEC §3.7) */}
-      <div
-        className="pointer-events-none absolute inset-0 z-(--z-art)"
-        style={{
-          background: set.images.backgroundUrl
-            ? `linear-gradient(to bottom, var(--color-banner-gradient-top), var(--color-surface-primary)), url(${set.images.backgroundUrl}) center/cover`
-            : 'linear-gradient(to bottom, var(--color-surface-secondary), var(--color-surface-primary))',
-          filter: set.images.backgroundUrl ? 'blur(2px)' : undefined,
-        }}
-      />
+    <div>
       <div className="flex flex-col gap-[20px] pb-[8px] pt-[4px]">
-        {/* logo + actions + symbol + progress */}
+        {/* Row 1 — set identity on the left, actions pushed to the right. */}
         <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[16px]">
-          <div className="flex h-[103px] min-w-[135px] items-center">
+          <div className="flex h-[132px] min-w-[135px] items-center">
             {set.images.logoUrl ? (
               <SetLogo
                 setId={set.setId}
                 alt={set.name}
-                imgClassName="max-h-[103px] max-w-[220px]"
-                platedImgClassName="max-h-[88px] max-w-[220px]"
-                plateClassName="rounded-lg px-[14px] py-[10px]"
+                imgClassName="max-h-[132px] max-w-[290px]"
+                platedImgClassName="max-h-[114px] max-w-[290px]"
+                plateClassName="rounded-lg px-[16px] py-[12px]"
                 onError={(e) => {
-                  e.currentTarget.outerHTML = `<span class="font-display text-[32px] font-black text-text-primary">${set.name}</span>`
+                  e.currentTarget.outerHTML = `<span class="font-display text-[38px] font-black text-text-primary">${set.name}</span>`
                 }}
               />
             ) : (
-              <span className="font-display text-[32px] font-black text-text-primary">{set.name}</span>
+              <span className="font-display text-[38px] font-black text-text-primary">{set.name}</span>
             )}
           </div>
 
-          <div className="flex items-center gap-[10px]">
+          <div className="ml-auto flex items-center gap-[10px]">
+            <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.images.symbolUrl)} name={set.name} size={40} />
             <a href={tcgSearchUrl} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
               <Icon name="external" size={16} className="text-action-brand" /> Shop
             </a>
@@ -71,19 +65,18 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
               </>
             )}
           </div>
+        </div>
 
-          <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.images.symbolUrl)} name={set.name} size={40} />
-
-          <div className="ml-auto min-w-[300px] flex-1">
-            {progress ? (
-              <ProgressCluster progress={progress} goal={goal} />
-            ) : (
-              <SignInPrompt
-                title="Track this set"
-                detail={`Mark which of these ${set.cardCountTotal.toLocaleString()} cards you own.`}
-              />
-            )}
-          </div>
+        {/* Row 2 — the collection/level progress gets the full width to itself. */}
+        <div className="w-full">
+          {progress ? (
+            <ProgressCluster progress={progress} goal={goal} />
+          ) : (
+            <SignInPrompt
+              title="Track this set"
+              detail={`Mark which of these ${set.cardCountTotal.toLocaleString()} cards you own.`}
+            />
+          )}
         </div>
 
         {/* 6-column stat strip (UI-SPEC §3.7) */}

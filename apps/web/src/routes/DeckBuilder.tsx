@@ -140,36 +140,31 @@ function DeckCardContext({ card, offending, onSet }: {
   const lineTotal = unit != null ? unit * card.quantity : null
 
   return (
-    <div className="mb-[8px] rounded-xl border border-border-default bg-surface-secondary p-[14px]">
-      <div className="flex items-start gap-[14px]">
-        <img
-          src={card.images.high || card.images.low}
-          alt={card.name}
-          className="w-[104px] shrink-0 rounded-lg object-cover shadow-panel"
-          style={{ aspectRatio: '245 / 337' }}
-        />
-        <div className="min-w-0 flex-1">
-          <div className="text-[14px] font-bold uppercase tracking-wide text-text-muted">In this deck</div>
-          <div className="mt-[3px] flex items-center gap-[6px]">
-            {basicEnergyType(card) && <EnergyIcon type={basicEnergyType(card)!} size={16} className="shrink-0" />}
-            <span className="truncate text-[17px] font-bold text-text-primary">{card.name}</span>
-          </div>
-          <div className="mt-[2px] text-[14px] text-text-muted">
-            {card.setName} · {card.setId.toUpperCase()} {card.number}
-            {card.regulationMark && <span className="ml-[6px] rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
-          </div>
+    <div className="mt-[16px]">
+      {/* One row per deck ENTRY for this card, mapped over a list rather than
+          hard-coded, because that is the shape variant-scoped deck records need:
+          2 Normal + 1 Reverse Holofoil is two entries, each with its own count.
+          deck_card is still keyed on card today (see its schema comment), so the
+          list has exactly one element until that migration lands.
 
-          {/* copies stepper — same mutation the row uses, so the sheet is not read-only */}
-          <div className="mt-[10px] flex items-center gap-[8px]">
-            <span className="text-[14px] text-text-muted">Copies</span>
-            <button onClick={() => onSet(card.quantity - 1)} aria-label="Decrease copies" className="flex h-[28px] w-[28px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
-              <Icon name="minus" size={13} />
-            </button>
-            <span className="w-[22px] text-center text-[16px] font-bold text-text-primary">{card.quantity}</span>
-            <button onClick={() => onSet(card.quantity + 1)} aria-label="Increase copies" className="flex h-[28px] w-[28px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
-              <Icon name="plus" size={13} />
-            </button>
-          </div>
+          Neither the art nor the name/set heading is repeated here — the card
+          body renders both immediately above this tab strip, and showing them
+          again was the same card twice, once small and once large. */}
+      <div className="flex items-center justify-between gap-[12px] rounded-lg bg-surface-secondary px-[12px] py-[10px]">
+        <div className="min-w-0 text-[14px] text-text-muted">
+          {card.setName} · {card.setId.toUpperCase()} {card.number}
+          {card.regulationMark && <span className="ml-[6px] rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
+        </div>
+        {/* same mutation the deck row uses, so the tab is not read-only */}
+        <div className="flex shrink-0 items-center gap-[8px]">
+          <span className="text-[14px] text-text-muted">Copies</span>
+          <button onClick={() => onSet(card.quantity - 1)} aria-label="Decrease copies" className="flex h-[28px] w-[28px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+            <Icon name="minus" size={13} />
+          </button>
+          <span className="w-[22px] text-center text-[16px] font-bold text-text-primary">{card.quantity}</span>
+          <button onClick={() => onSet(card.quantity + 1)} aria-label="Increase copies" className="flex h-[28px] w-[28px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+            <Icon name="plus" size={13} />
+          </button>
         </div>
       </div>
 
@@ -181,19 +176,19 @@ function DeckCardContext({ card, offending, onSet }: {
       )}
 
       <div className="mt-[12px] grid grid-cols-3 gap-[8px]">
-        <div className="rounded-lg bg-surface-primary px-[10px] py-[8px]">
+        <div className="rounded-lg bg-surface-secondary px-[10px] py-[8px]">
           <div className="text-[14px] text-text-muted">You own</div>
           <div className={`text-[15px] font-bold ${short === 0 ? 'text-change-positive' : 'text-text-primary'}`}>
             {card.owned} / {card.quantity}
           </div>
         </div>
-        <div className="rounded-lg bg-surface-primary px-[10px] py-[8px]">
+        <div className="rounded-lg bg-surface-secondary px-[10px] py-[8px]">
           <div className="text-[14px] text-text-muted">Still needed</div>
           <div className={`text-[15px] font-bold ${short > 0 ? 'text-text-primary' : 'text-change-positive'}`}>
             {short === 0 ? 'None' : short}
           </div>
         </div>
-        <div className="rounded-lg bg-surface-primary px-[10px] py-[8px]">
+        <div className="rounded-lg bg-surface-secondary px-[10px] py-[8px]">
           <div className="text-[14px] text-text-muted">Deck cost</div>
           <div className="text-[15px] font-bold text-change-positive">{fmtUsd(lineTotal)}</div>
           {unit != null && card.quantity > 1 && (

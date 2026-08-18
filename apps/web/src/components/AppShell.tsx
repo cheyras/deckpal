@@ -248,25 +248,47 @@ function Sidebar({ collapsed, onToggle, signedOut }: { collapsed: boolean; onTog
       className="fixed left-0 top-0 z-(--z-chrome) hidden h-screen flex-col border-r border-border-default bg-surface-primary nav:flex"
       style={{ width: collapsed ? 82 : 275 }}
     >
+      {/* Collapsed, the mark and the expand control share ONE centred cell and
+          cross-fade: the mark sits exactly on the rail's centre line with the
+          nav icons below it, instead of being shoved off-centre by a chevron
+          parked beside it. The whole 82×78 header is the hit target, so the
+          affordance is bigger than the old 32px button rather than smaller, and
+          it reveals on focus as well as hover so it stays keyboard-reachable.
+          Expanded there is room for both, and they keep their own targets. */}
       <div
         className={[
           'flex h-[78px] shrink-0 items-center border-b border-border-default',
           collapsed ? 'justify-center px-0' : 'gap-[10px] px-[20px]',
         ].join(' ')}
       >
-        <BrandMark size={33} />
-        {!collapsed && (
-          <span className="flex-1">
-            <span className="brand-wordmark text-[21px] leading-none">DeckPal</span>
-          </span>
+        {collapsed ? (
+          <button
+            onClick={onToggle}
+            aria-label="Expand navigation"
+            className="group relative flex h-full w-full items-center justify-center"
+          >
+            <span className="transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0">
+              <BrandMark size={33} />
+            </span>
+            <span className="absolute inset-0 flex items-center justify-center text-icon-default opacity-0 transition-opacity duration-150 group-hover:text-icon-hover group-hover:opacity-100 group-focus-visible:opacity-100">
+              <Icon name="chevron-right" size={20} />
+            </span>
+          </button>
+        ) : (
+          <>
+            <BrandMark size={33} />
+            <span className="flex-1">
+              <span className="brand-wordmark text-[21px] leading-none">DeckPal</span>
+            </span>
+            <button
+              onClick={onToggle}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-icon-default hover:bg-surface-secondary hover:text-icon-hover"
+              aria-label="Collapse navigation"
+            >
+              <Icon name="chevron-left" size={18} />
+            </button>
+          </>
         )}
-        <button
-          onClick={onToggle}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-icon-default hover:bg-surface-secondary hover:text-icon-hover"
-          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-        >
-          <Icon name={collapsed ? 'chevron-right' : 'chevron-left'} size={18} />
-        </button>
       </div>
       <nav className="flex-1 overflow-y-auto py-[6px]">
         {NAV.map((item) => {

@@ -15,28 +15,47 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
       to="/series/$series/$set"
       params={{ series: seriesSlug, set: set.setId }}
       search={CARD_SEARCH_DEFAULTS}
-      className="flex items-center gap-[16px] overflow-hidden rounded-lg border border-border-default bg-surface-tertiary p-[16px] hover:border-surface-quaternary"
+      className="flex items-stretch overflow-hidden rounded-lg border border-border-default bg-surface-tertiary hover:border-surface-quaternary"
     >
-      <div className="flex h-[72px] w-[110px] shrink-0 items-center justify-center rounded-md bg-surface-secondary">
+      {/* The logo is a full-bleed SECTION of the row, not a window floating in
+          it: it runs to the card's top, left and bottom edges, so its left
+          corners take the card's own radius (via the parent's overflow-hidden)
+          while the right edge stays square and reads as a divide. Its fill is a
+          gradient of its own — the old surface-secondary was near enough to the
+          page background that the panel read as a hole cut through the card. */}
+      <div
+        className="flex w-[132px] shrink-0 items-center justify-center border-r border-border-default p-[10px]"
+        style={{
+          background:
+            'linear-gradient(135deg, var(--color-surface-quaternary), var(--color-surface-tertiary))',
+        }}
+      >
         {set.logoUrl ? (
           <SetLogo
             setId={set.setId}
-            imgClassName="max-h-[56px] max-w-[96px]"
-            platedImgClassName="max-h-[48px] max-w-[82px]"
+            imgClassName="max-h-[64px] max-w-[112px]"
+            platedImgClassName="max-h-[54px] max-w-[96px]"
           />
         ) : (
           <span className="px-[6px] text-center text-[14px] text-text-muted">{set.name}</span>
         )}
       </div>
-      <div className="min-w-0 flex-1">
-        <div className="font-display truncate text-[16px] font-semibold text-text-primary">{set.name}</div>
-        <div className="text-[14px] text-text-muted">{fmtDate(set.releasedOn)}</div>
-        {/* At 14px the two labels no longer fit beside a FIXED 120px bar and
-            "LVL 0" wrapped to two lines. The labels are the content and must
-            hold; the bar is the decoration and absorbs the squeeze. */}
+      <div className="min-w-0 flex-1 p-[14px]">
+        {/* The set symbol shares the title's line, which is what frees the row
+            below to run the full width of the card. */}
+        <div className="flex items-start gap-[10px]">
+          <div className="min-w-0 flex-1">
+            <div className="font-display truncate text-[16px] font-semibold text-text-primary">{set.name}</div>
+            <div className="text-[14px] text-text-muted">{fmtDate(set.releasedOn)}</div>
+          </div>
+          <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.symbolUrl)} name={set.name} size={36} />
+        </div>
+        {/* The bar now takes all the slack instead of being capped at 120px, so
+            it spans to the row's right edge. The labels still hold their size —
+            they are the content, the bar absorbs the squeeze. */}
         {c ? (
-          <div className="mt-[6px] flex items-center gap-[8px]">
-            <ProgressBar pct={c.pct} height={4} className="w-full min-w-[40px] max-w-[120px] shrink" />
+          <div className="mt-[10px] flex items-center gap-[8px]">
+            <ProgressBar pct={c.pct} height={4} className="min-w-[40px] flex-1" />
             <span className="shrink-0 whitespace-nowrap text-[14px] font-bold text-action-primary">
               LVL {setLevelLabel(c.pct)}
             </span>
@@ -45,13 +64,12 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
             </span>
           </div>
         ) : (
-          <div className="mt-[6px] text-[14px] text-text-muted">
+          <div className="mt-[10px] text-[14px] text-text-muted">
             {set.cardCountTotal.toLocaleString()} cards
             {set.secretCount > 0 ? ` · ${set.secretCount} secret` : ''}
           </div>
         )}
       </div>
-      <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.symbolUrl)} name={set.name} size={40} />
     </Link>
   )
 }
