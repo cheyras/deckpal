@@ -230,6 +230,35 @@ have not been created yet.
 **Where enforced:** `apps/api/src/routes/bugs.ts` for the current filesystem
 writer. GitHub Issues is used for project-level issue tracking.
 
+### B11 — Runtime configuration must fail loudly
+
+**Rule:** When a feature's behaviour depends on an environment variable:
+
+1. **Declare it in the same commit as the code.** Add it to `DEPLOYMENT.md`'s
+   environment table when you write the code that reads it, not afterwards.
+2. **Make its absence observable at runtime.** A warning on boot, a field on
+   `/health`, something. "Unset means closed" is a good default; "unset means
+   closed, and nothing says so" is an outage nobody is looking for.
+3. **Never infer that a variable is set.** Either verify it, or hand the
+   maintainer the exact name, value and environment and treat the feature as
+   UNVERIFIED until they confirm. Per B9 you do not set it yourself — production
+   configuration is the maintainer's, and an agent asserting "it's probably
+   already set" is how this rule came to exist.
+
+**Why:** `/design` shipped on 2026-08-14 gated on `DESIGN_EDITOR_USER_ID`. The
+variable was never set in Vercel, so the gate correctly resolved to "nobody" and
+the route was shut to its only intended user — silently, for four days. It
+surfaced on 2026-08-18 only because `/dev/decke` reused the same gate and someone
+went looking. The failure was not the fail-closed default, which is right; it was
+that a deployment-shaped mistake was invisible from both the code and the running
+system. The PR that added `/dev/decke` even asserted in its own description that
+the variable "should be set, since /design works in production today" — an
+inference, never checked, and wrong.
+
+**Where enforced:** `ownerGateStatus()` in `apps/api/src/routes/me.ts`, reported
+on `GET /health` as `ownerGate` and warned about on boot in `createApp()`.
+Environment variables are tabulated in `DEPLOYMENT.md`.
+
 ---
 
 ## Verification standards
