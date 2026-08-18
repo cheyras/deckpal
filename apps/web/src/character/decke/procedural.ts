@@ -108,6 +108,9 @@ export type Blink = { time: number }
 export class Blinker {
   private schedule: number[] = []
   private cursor = 0
+  /** The blinker's own integrated clock. See `at`. */
+  tau = 0
+  private lastT: number | null = null
   private readonly c: number
   private readonly h: number
   private readonly o: number
@@ -159,9 +162,26 @@ export class Blinker {
    * freeze reads as a mode switch rather than a pause.
    */
   at(tSeconds: number, rateMul: number): number {
-    if (rateMul <= 0) return 0
     if (this.schedule.length === 0) return 0
-    const scaled = tSeconds * rateMul
+    // INTEGRATE the rate; never scale `tSeconds` by it. This is the same rule
+    // `IdleFloat.advance` documents two screens up, and the blinker had the bug
+    // that rule exists to prevent: with `scaled = t * rate` and a monotonic
+    // cursor, dropping the rate makes `scaled` jump BACKWARDS while the cursor
+    // stays where it was, so he simply stops blinking until wall-clock catches
+    // up. Measured: happy (1.3) for 120 s then sad (0.45) gave the next blink
+    // at t = 343 s — 3.7 minutes of no blinking, from an ordinary emote change.
+    const prev = this.lastT
+    this.lastT = tSeconds
+    if (prev === null || tSeconds < prev || tSeconds - prev > SEEK_GAP_S) {
+      // First call, or a seek (the parity harness rewinds `elapsed`). Resync
+      // rather than integrate a meaningless delta.
+      this.tau = tSeconds * rateMul
+      this.cursor = 0
+    } else if (rateMul > 0) {
+      this.tau += (tSeconds - prev) * rateMul
+    }
+    if (rateMul <= 0) return 0
+    const scaled = this.tau
     while (this.cursor < this.schedule.length - 1 && this.schedule[this.cursor + 1] <= scaled) {
       this.cursor++
     }
@@ -178,6 +198,15 @@ export class Blinker {
 }
 
 export type GazeOffset = { gx: number; gz: number }
+
+/** How far ahead the gaze schedules are generated, and how close to the end we
+ *  allow the clock to get before extending them. */
+const GAZE_HORIZON_S = 600
+const GAZE_REGEN_MARGIN_S = 60
+
+/** A jump larger than this between successive `at` calls is a SEEK, not a
+ *  frame. Real frames are milliseconds; the parity harness rewinds by minutes. */
+const SEEK_GAP_S = 1
 
 /**
  * Gaze: micro-saccades ("flits") plus blink-masked glance-aways.
@@ -197,6 +226,8 @@ export class Gaze {
   private flits: { t: number; x: number; z: number }[] = []
   private glances: { t: number; x: number; z: number; hold: number }[] = []
   private readonly moveS: number
+  /** How far the generated schedules currently reach, in seconds. */
+  private horizon = 0
 
   constructor(private readonly doc: PlaybookDoc, private readonly rng: Rng) {
     this.moveS = doc.procedural.gaze_flit.move_ms / 1000
@@ -204,6 +235,7 @@ export class Gaze {
   }
 
   private regenerate(durationS: number) {
+    this.horizon = durationS
     const f = this.doc.procedural.gaze_flit
     const g = this.doc.procedural.glance_away
     this.flits = []
@@ -243,7 +275,17 @@ export class Gaze {
     out.gx = 0
     out.gz = 0
     if (frozen) return out
-    if (tSeconds > 500) this.regenerate(tSeconds + 600)
+    // Extend the schedule only when we are actually running out of it. The
+    // guard used to be `tSeconds > 500`, which is true on EVERY frame from 500 s
+    // onward — so past 8m20s this rebuilt both schedules once per frame, and
+    // since each rebuild draws fresh random offsets the pupils became 60 Hz
+    // noise (measured: gx -0.181 -> +0.381 -> -0.037 over three frames) while
+    // the arrays grew without bound. `Blinker` had the correct guard; this did
+    // not. Regenerating on a horizon also keeps the layer DETERMINISTIC, which
+    // a per-frame rebuild had quietly destroyed.
+    if (tSeconds > this.horizon - GAZE_REGEN_MARGIN_S) {
+      this.regenerate(tSeconds + GAZE_HORIZON_S)
+    }
 
     // Saccades are near-instant (66 ms), so the flit is a fast ramp to the new
     // offset which then simply holds until the next one.
