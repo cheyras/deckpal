@@ -55,11 +55,18 @@ export default defineConfig({
       injectManifest: {
         // Tier 0: precache the shell + all route chunks, fonts, and icons.
         globPatterns: ['**/*.{js,css,html,woff2,svg,png}'],
-        // The Deck-E character assets live in public/models/ so the dev route can
-        // fetch them by URL, but /dev/decke is dev-only and no production user
-        // will ever load them. Without this the 1 MB SDF glyph atlas lands in
-        // every visitor's precache for a route they cannot reach.
-        globIgnores: ['models/**'],
+        // /dev/decke ships to production but is owner-only, so its chunk and
+        // its assets exist in the build and almost nobody should ever fetch
+        // them. Both are excluded from the precache manifest:
+        //
+        //   models/**      5.6 MB of glb, HDRI and the SDF glyph atlas
+        //   assets/Decke-* ~945 kB — three.js plus the character runtime
+        //
+        // Precaching is eager: without these, the service worker pulls 6.5 MB
+        // into EVERY visitor's cache on first load, for a route exactly one
+        // account can open. The route is lazy, so with them the cost is paid
+        // only by whoever actually opens it.
+        globIgnores: ['models/**', 'assets/Decke-*.js'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
       devOptions: { enabled: false },

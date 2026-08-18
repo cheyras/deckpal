@@ -352,47 +352,54 @@ const designRoute = createRoute({
   component: DesignSystemRoute,
 })
 
-// Deck-E preview. DEV-ONLY, and gated harder than /design: this repo also ships
-// the live product, and a 3D character debug surface has no read-only value to
-// an owner in production the way the design system does. notFound() makes it
-// indistinguishable from a URL that never existed. Lazy, so three.js and the
-// character runtime never land in the main bundle.
+// Deck-E preview. Ships to production but is OWNER-ONLY, the same shape as
+// /design above: `beforeLoad` checks the server-verified `owner` flag on /me and
+// throws notFound() for everyone else, so for any other visitor — signed in,
+// signed out, or poking at URLs — the route is indistinguishable from one that
+// never existed. The identity check lives server-side (DESIGN_EDITOR_USER_ID);
+// nothing about who the owner is appears in this bundle, and if that variable is
+// unset the answer is nobody. It fails closed.
 //
-// The whole route — the `import()` included — lives inside a block guarded by
-// `import.meta.env.DEV`, which Vite inlines to `false` for production. That is
-// what makes the chunk genuinely ABSENT from a production build rather than
-// merely unreachable: with the dynamic import unreachable, rollup never emits
-// it. Registering the route and relying on `beforeLoad` alone still shipped
-// 945 kB of three.js to the CDN for nobody to download.
-function devOnlyRoutes() {
-  if (!import.meta.env.DEV) return []
-  const LazyDecke = lazy(() => import('./routes/dev/Decke'))
-  const DeckeRoute = () => (
-    <Suspense
-      fallback={
-        <div className="flex h-screen items-center justify-center text-text-muted">
-          Loading Deck-E...
-        </div>
-      }
-    >
-      <LazyDecke />
-    </Suspense>
-  )
-  return [
-    createRoute({
-      getParentRoute: () => rootRoute,
-      path: '/dev/decke',
-      // Belt and braces: if this ever gets registered in a non-dev build, it
-      // must still be indistinguishable from a URL that never existed.
-      beforeLoad: () => {
-        if (!import.meta.env.DEV) throw notFound()
-      },
-      component: DeckeRoute,
-    }),
-  ]
-}
+// COST, AND WHY IT IS NOT PAID BY VISITORS. Shipping the route means rollup does
+// emit the chunk — about 945 kB of three.js and the character runtime — and the
+// character's 5.6 MB of assets sit in public/models. Neither is downloaded by
+// anyone who does not open the route, because the import is lazy. What DOES have
+// to be prevented is the service worker helpfully precaching them for every
+// visitor on first load; `vite.config.ts` excludes both from the manifest, and
+// that exclusion is the only thing standing between this route and a megabyte of
+// dead weight in every session. Do not remove it without re-reading the note
+// there.
+const LazyDecke = lazy(() => import('./routes/dev/Decke'))
+const DeckeRoute = () => (
+  <Suspense
+    fallback={
+      <div className="flex h-screen items-center justify-center text-text-muted">
+        Loading Deck-E...
+      </div>
+    }
+  >
+    <LazyDecke />
+  </Suspense>
+)
+const deckeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/dev/decke',
+  beforeLoad: async () => {
+    if (import.meta.env.DEV) return
+    // Self-host has exactly one user (the owner) behind their own auth proxy.
+    if (!isCloudMode) return
+    try {
+      const me = await api.me()
+      if (me.owner) return
+    } catch {
+      // Signed out, or /me unavailable — fall through to not-found.
+    }
+    throw notFound()
+  },
+  component: DeckeRoute,
+})
 
-const routeTree = rootRoute.addChildren([...coreRoutes, designRoute, ...devOnlyRoutes()])
+const routeTree = rootRoute.addChildren([...coreRoutes, designRoute, deckeRoute])
 
 const router = createRouter({
   routeTree,

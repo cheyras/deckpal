@@ -717,8 +717,12 @@ export interface InsightsOverview {
 }
 export interface MeResponse {
   username: string
-  /** True when this account may open /design in production (owner only). */
+  /** True when this account may open /design in production (owner only).
+   *  Retained for that gate; new surfaces should read `owner`. */
   designEditor?: boolean
+  /** True when this account is the deployment's owner. Server-verified against
+   *  the JWT — the owner's identity never enters this bundle. */
+  owner?: boolean
 }
 export interface CollectionEvent {
   eventId: string
