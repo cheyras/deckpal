@@ -7,8 +7,9 @@
  * validator the eventual tool layer uses, so both paths are exercised from day
  * one rather than the agent path being written blind months later.
  *
- * Dev-only. `beforeLoad` in main.tsx throws notFound() in production, following
- * the /design precedent — this repo also ships the live product.
+ * Always available in dev; in production it ships but is OWNER-ONLY, gated in
+ * main.tsx on the server-verified `owner` flag from GET /me, following the
+ * /design precedent — this repo also ships the live product.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
@@ -143,7 +144,9 @@ export default function Decke() {
         decke.start()
         setStatus('ready')
         // A handle for the screenshot harness and for driving him from the
-        // console. Dev-only route, so this leaks nothing to production.
+        // console. This DOES exist in production — but only inside a route that
+        // no one but the owner can load, and it exposes the character, not any
+        // user data.
         ;(window as unknown as { deckE?: DeckE }).deckE = decke
       } catch (e) {
         if (cancelled) return
