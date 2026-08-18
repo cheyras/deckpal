@@ -79,6 +79,16 @@ Each of these cost someone a debugging pass, upstream or here.
 - **The field is a BODY-SPACE operation.** Applying `field_matrix` as an absolute
   world transform makes the parent-inverse cancel the root's travel, and every
   rider stays behind at the origin — on screen, two characters.
+- **A crossfade must snapshot the BASE pose, not the composited one.** `pose`
+  accumulates the talk overlay, the procedural layers, the resolved facing and
+  the parked anchor. Snapshot that as the blend's `from` and every one of them
+  gets applied twice — measured at 1.4 world units of teleport on any `setState`
+  while parked, which is the flyTo-then-emote path exactly. `basePose` exists
+  for this.
+- **Never scale wall-clock by a rate; integrate the rate.** `IdleFloat.advance`
+  says so and the blinker did it anyway: with `t * rateMul` and a monotonic
+  cursor, lowering the rate makes the clock jump backwards and he stops blinking
+  for minutes. The same shape of bug is waiting in any layer with a schedule.
 - **Facing resolution must run AFTER the procedural layers.** Resolve first and
   the gaze flits bypass the `gx` negation, so every glance goes the wrong way at
   `facing = -1`.
