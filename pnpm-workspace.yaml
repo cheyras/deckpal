@@ -2,14 +2,54 @@ packages:
   - 'packages/*'
   - 'apps/*'
 
-allowBuilds:
-  # esbuild's install script only *verifies* the binary; the actual binary ships
-  # in the platform-specific optional dep (@esbuild/win32-x64 etc.), which pnpm
-  # installs normally. Denying the script keeps installs script-free and still
-  # leaves a working `esbuild --version`. The placeholder that used to sit here
-  # made every `pnpm --filter … run` fail its pre-run deps check with
-  # ERR_PNPM_IGNORED_BUILDS.
-  esbuild: false
+# Which dependencies may run install scripts. NONE may, and saying so
+# explicitly is what stops `pnpm --filter … run` failing its pre-run check with
+# ERR_PNPM_IGNORED_BUILDS. Nothing here needs one: esbuild's script only
+# *verifies* a binary that ships in a platform-specific optional dep, and sharp
+# 0.35 dropped its download script in favour of optional deps too.
+#
+# This key used to live in package.json under `pnpm.onlyBuiltDependencies`.
+# pnpm 10 stopped reading the `pnpm` field there and says so on every install:
+# "The following keys were ignored: pnpm.onlyBuiltDependencies". It has to be
+# here to have any effect.
+onlyBuiltDependencies: []
+
+# esbuild is the only package that asks, and it is knowingly declined. Listing
+# it here is what turns pnpm's "Ignored build scripts" warning into a decision
+# already made — without it, `pnpm --filter … run` fails its pre-run check with
+# ERR_PNPM_IGNORED_BUILDS. esbuild's script only verifies a binary that ships in
+# a platform-specific optional dep, so declining it still leaves a working
+# `esbuild --version`.
+ignoredBuiltDependencies:
+  - esbuild
+
+# Install the musl builds too, even though Vercel runs glibc. This is
+# load-bearing, and it is the opposite of what it looks like it should be.
+#
+# sharp 0.35 ships one optional dependency per platform - 23 of them. pnpm
+# materialises only the matching one, but still leaves the virtual-store path
+# for the others behind, so Vercel's build-output tracer walks the API function
+# (apps/api/src/scan/phash.ts imports sharp), follows sharp's
+# optionalDependencies, and stats a target that was never unpacked:
+#
+#   ENOENT: no such file or directory, stat '/vercel/path0/node_modules/.pnpm/
+#   @img+sharp-linuxmusl-x64@0.35.3/node_modules/@img/sharp-linuxmusl-x64'
+#
+# EXCLUDING musl does not help - it is already excluded, which is precisely why
+# the path is missing. The stat has to succeed, so the package has to be there.
+# Cost is a few MB of unused binaries in the build, which is cheap against a
+# deploy that cannot complete.
+supportedArchitectures:
+  os:
+    - current
+    - linux
+  cpu:
+    - current
+    - x64
+  libc:
+    - current
+    - glibc
+    - musl
 
 # Transitive-only security bumps. These packages are not direct dependencies of
 # anything here -- they arrive under @modelcontextprotocol/node, which pins its
