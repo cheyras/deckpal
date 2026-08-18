@@ -12,6 +12,7 @@
  */
 import type { DeckE } from './DeckE'
 import type { Depth, Side } from './dom'
+import { CHANNEL_RANGE } from './constants'
 
 export type Command =
   | { op: 'state'; value: string; blendMs?: number }
@@ -61,6 +62,10 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
             errors.push(`${at}: unknown state "${cmd.value}". Legal: ${names.join(', ')}`)
             return
           }
+          if (cmd.blendMs !== undefined && (!num(cmd.blendMs) || cmd.blendMs < 0)) {
+            errors.push(`${at}: blendMs must be a non-negative number`)
+            return
+          }
           decke.setState(cmd.value, { blendMs: cmd.blendMs })
           break
         }
@@ -87,17 +92,43 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
             errors.push(`${at}: talk.value must be a boolean`)
             return
           }
+          if (cmd.weight !== undefined && (!num(cmd.weight) || cmd.weight < 0 || cmd.weight > 1)) {
+            errors.push(`${at}: talk.weight must be a number in [0, 1]`)
+            return
+          }
           decke.setOverlay(cmd.value ? 'talk' : null, cmd.weight ?? 1)
           break
         }
 
         case 'channel': {
+          // This is the op a model reaches for most, and it was the one op that
+          // did not honour the reject-never-clamp rule: any string was accepted
+          // as a channel name and any finite number as a value. A typo returned
+          // `applied: 1` and did nothing observable, which is the exact "model
+          // learns nothing" failure this file exists to prevent. Out-of-range
+          // values are worse than useless — `sq <= -1` inverts the body scale,
+          // and a `bend` far outside [-1, 1] drives the brow follow-through
+          // model miles from the data it was fitted to.
           if (typeof cmd.channel !== 'string') {
             errors.push(`${at}: channel must be a string`)
             return
           }
+          const channels = decke.channelNames
+          if (!channels.includes(cmd.channel)) {
+            errors.push(
+              `${at}: unknown channel "${cmd.channel}". Legal: ${channels.join(', ')}`,
+            )
+            return
+          }
           if (cmd.value !== null && !num(cmd.value)) {
             errors.push(`${at}: channel value must be a number, or null to release`)
+            return
+          }
+          const range = CHANNEL_RANGE[cmd.channel as keyof typeof CHANNEL_RANGE]
+          if (cmd.value !== null && range && (cmd.value < range.min || cmd.value > range.max)) {
+            errors.push(
+              `${at}: ${cmd.channel} ${cmd.value} is outside [${range.min}, ${range.max}]`,
+            )
             return
           }
           decke.setChannel(cmd.channel, cmd.value)
@@ -188,7 +219,11 @@ export function commandSchema(stateNames: string[]) {
             },
             {
               type: 'object',
-              properties: { op: { const: 'talk' }, value: { type: 'boolean' } },
+              properties: {
+                op: { const: 'talk' },
+                value: { type: 'boolean' },
+                weight: { type: 'number', minimum: 0, maximum: 1 },
+              },
               required: ['op', 'value'],
             },
             {
