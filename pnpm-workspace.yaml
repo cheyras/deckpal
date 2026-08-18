@@ -2,6 +2,15 @@ packages:
   - 'packages/*'
   - 'apps/*'
 
+allowBuilds:
+  # esbuild's install script only *verifies* the binary; the actual binary ships
+  # in the platform-specific optional dep (@esbuild/win32-x64 etc.), which pnpm
+  # installs normally. Denying the script keeps installs script-free and still
+  # leaves a working `esbuild --version`. The placeholder that used to sit here
+  # made every `pnpm --filter … run` fail its pre-run deps check with
+  # ERR_PNPM_IGNORED_BUILDS.
+  esbuild: false
+
 # Transitive-only security bumps. These packages are not direct dependencies of
 # anything here -- they arrive under @modelcontextprotocol/node, which pins its
 # own ranges -- so an override is the only lever short of waiting for upstream.
