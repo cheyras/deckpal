@@ -120,6 +120,20 @@ export class DeckE {
   private facingT = 1
 
   private readonly pose: Pose = {}
+  /**
+   * The pose as of the BASE layer only — the state clip plus any crossfade, and
+   * nothing after it. This is what a crossfade blends from.
+   *
+   * It has to be a separate copy. `pose` accumulates the talk overlay, the
+   * procedural layers, the resolved facing and the parked anchor on top, and
+   * snapshotting THAT as the crossfade's `from` double-composes every one of
+   * them: the blend lerps toward a base pose from a fully-composited one, and
+   * then the pipeline adds the anchor, the gaze and the facing flip a second
+   * time. Measured: parked beside an element, `setState` threw the root about
+   * 1.4 world units — over half his body height — and snapped back over the
+   * blend. That is precisely the flyTo-then-emote sequence the LLM driver does.
+   */
+  private readonly basePose: Pose = {}
   private readonly scratch: Pose = {}
   private readonly overlayPose: Pose = {}
   private readonly floatOut = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }
@@ -243,6 +257,13 @@ export class DeckE {
   // ---------------------------------------------------------------- control
 
   /** Every authored state, in playbook order. */
+  /** The 47 legal pose channels, in the order the playbook declares them. The
+   *  command validator needs this to reject a misspelled channel rather than
+   *  silently accept it. */
+  get channelNames(): string[] {
+    return Object.keys(this.doc.rest_pose)
+  }
+
   get stateNames(): string[] {
     return this.doc?.order ?? []
   }
@@ -279,8 +300,9 @@ export class DeckE {
     const blend = opts.blendMs ?? (snap || isAlert ? 0 : DEFAULT_BLEND_MS)
 
     if (blend > 0) {
+      // Snapshot the BASE pose, not the composited one — see `basePose`.
       const from: Pose = {}
-      for (const k in this.pose) from[k] = this.pose[k]
+      for (const k in this.basePose) from[k] = this.basePose[k]
       this.transition = { from, started: this.elapsed, durationMs: blend }
     } else {
       this.transition = null
@@ -420,6 +442,10 @@ export class DeckE {
         for (const k in this.pose) this.pose[k] = from[k] + (this.pose[k] - from[k]) * u
       }
     }
+
+    // Everything above this line is the base layer. Everything below composes
+    // ON TOP of it and must not be captured by the next crossfade's snapshot.
+    for (const k in this.pose) this.basePose[k] = this.pose[k]
 
     // ---- talk overlay --------------------------------------------------
     // The composition rule is a DESIGNED CHOICE, not a recovered one: no rule
