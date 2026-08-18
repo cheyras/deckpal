@@ -34,6 +34,7 @@ const CHROMELESS_PATHS = new Set([
   '/signed-out', // post-sign-out confirmation
   '/authorize', // OAuth "Connect" consent screen — must render signed-out, see Authorize.tsx
   '/design', // design-system editor — no app chrome; owner-only in prod (gated in main.tsx via /me.designEditor)
+  '/dev/decke', // Deck-E three.js preview — full-viewport canvas, dev-only (gated in main.tsx)
 ])
 
 export function isChromelessPathname(pathname: string): boolean {
