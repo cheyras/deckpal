@@ -84,3 +84,7 @@ supabase/.temp/
 
 # ── favicon preview sheet (scripts/gen-favicon.mjs --preview) ────────────
 .favicon-preview.png
+
+# Python bytecode from the scripts/decke generators
+__pycache__/
+*.pyc
