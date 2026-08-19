@@ -180,17 +180,20 @@ export async function resolveCardsBatch(ctx: Ctx, refs: readonly CardRef[]): Pro
   }
 
   if (byName.length > 0) {
-    // One query for every (name, set, number) triple, joined against a VALUES
-    // list. `unaccent`/`lower` match resolveCard's tier-1 rule exactly.
-    const triples = byName.map((i) => {
-      const r = refs[i]!;
-      return [r.name!.trim(), r.set_id?.trim() ?? null, r.number?.trim() ?? null];
-    });
+    // One query for every (name, set, number) triple. THREE PARALLEL ARRAYS,
+    // not one array-of-triples: `unnest` on a multi-dimensional array flattens
+    // it completely, so `unnest($1::text[][])` yields scalars and subscripting
+    // them fails ("cannot subscript type text"). The multi-argument form keeps
+    // the columns aligned and handles NULL set/number cleanly.
+    // `unaccent`/`lower` match resolveCard's tier-1 rule exactly.
+    const names = byName.map((i) => refs[i]!.name!.trim());
+    const setIds = byName.map((i) => refs[i]!.set_id?.trim() ?? null);
+    const numbers = byName.map((i) => refs[i]!.number?.trim() ?? null);
     const rows = await q(
       ctx.db,
       `WITH want(idx, nm, sid, num) AS (
-         SELECT (t.ord - 1)::int, t.v[1], t.v[2], t.v[3]
-           FROM unnest($1::text[][]) WITH ORDINALITY AS t(v, ord)
+         SELECT (t.ord - 1)::int, t.nm, t.sid, t.num
+           FROM unnest($1::text[], $2::text[], $3::text[]) WITH ORDINALITY AS t(nm, sid, num, ord)
        )
        SELECT w.idx, sub.*
          FROM want w
@@ -202,7 +205,7 @@ export async function resolveCardsBatch(ctx: Ctx, refs: readonly CardRef[]): Pro
               AND (w.num IS NULL OR c.local_id = w.num)
             LIMIT 2
          ) sub ON true`,
-      [triples],
+      [names, setIds, numbers],
     );
     const hits = new Map<number, Record<string, unknown>[]>();
     for (const r of rows) {

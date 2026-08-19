@@ -259,6 +259,18 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
     deadline, 250 items and 40 distinct sets per batch — sets are the cost driver, each one
     being a full-set CTE recompute.
 
+    **The idempotency key is bucketed by time (15 minutes, and lookups probe the previous
+    bucket too).** Without a bucket the key would be pure content and would live forever, so
+    logging "+1 Pikachu" today would make the identical call next month a silent no-op — the
+    same dishonesty this tool exists to remove, pointing the other way. With one, a retry
+    collides and a genuine second acquisition applies and is FLAGGED (`duplicateOf`).
+
+    One consequence worth knowing: because a key records "this request was processed", logging
+    a batch, reverting it, and immediately logging the identical batch again REPLAYS rather than
+    re-applying, for up to ~15–30 minutes. That is correct idempotency and the output says
+    `REPLAYED`; to genuinely re-apply within the window, pass a different `idempotency_key` (or
+    change the batch).
+
 ### Deck intelligence — via deckpal-api (migration 019; semantics in §6b)
 
 Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable. All six live in
