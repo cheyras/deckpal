@@ -331,18 +331,39 @@ collectionRouter.post(
     const items = parseBatchItems(body.items);
     const { ops, folded } = foldItems(items);
 
-    const callerKey =
-      typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()
-        ? body.idempotencyKey.trim().slice(0, 200)
-        : null;
+    // Truncating would let two distinct keys sharing a 200-char prefix collide,
+    // and the loser would be told its write was a replay. Reject instead.
+    let callerKey: string | null = null;
+    if (typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()) {
+      const trimmed = body.idempotencyKey.trim() as string;
+      if (trimmed.length > 200) throw badRequest('idempotencyKey must be 200 characters or fewer');
+      callerKey = trimmed;
+    }
 
     // The fingerprint is over the FOLDED ops — so the same intent expressed as
     // two `+1`s or one `+2`, or with the items in a different order, hashes the
     // same. The note is deliberately not part of it (see mutations.ts).
+    // A folded 'set' op carries BOTH a target and any delta applied after it
+    // ("set to 5, then +1" = 6), so both go into the fingerprint. Hashing only
+    // the target would make `[{quantity:5},{delta:1}]` and `[{quantity:5}]`
+    // collide on one idempotency key — two different requests, one of which
+    // would then be silently swallowed as a replay.
     const fingerprint = fingerprintOps(
       userId,
-      ops.map((o) => ({ key: o.variantId, op: o.mode, value: o.mode === 'set' ? o.target! : o.delta })),
+      ops.map((o) => ({
+        key: o.variantId,
+        op: o.mode === 'set' ? `set:${o.target!}` : 'delta',
+        value: o.delta,
+      })),
     );
+    // A caller that scopes its own key still deserves the "you applied this
+    // exact batch two days ago" echo, so it may send the unbucketed content
+    // hash alongside. Ours is used when it does not.
+    const clientFingerprint =
+      typeof body.requestFingerprint === 'string' && body.requestFingerprint.trim()
+        ? body.requestFingerprint.trim().slice(0, 200)
+        : null;
+    const echoFingerprint = clientFingerprint ?? fingerprint;
     const keys = callerKey ? [callerKey] : candidateKeys(fingerprint);
 
     // Cheap replay check before any work. A dry run never participates in
@@ -370,7 +391,7 @@ collectionRouter.post(
                 tool: 'collection.batch',
                 note,
                 idempotencyKey: callerKey,
-                fingerprint: callerKey ? null : fingerprint,
+                fingerprint: echoFingerprint,
               });
 
           // ── Resolve every variant in one query ─────────────────────────────
@@ -406,19 +427,27 @@ collectionRouter.post(
           //
           // Both statements order by card_variant_id so two overlapping batches
           // take their locks in the same sequence and cannot deadlock.
+          //
+          // A DRY RUN does NEITHER. It must not create rows (an unlogged,
+          // unrevertable side effect in the release whose whole point is that
+          // everything is logged) and it must not hold locks on up to 250 rows
+          // for a preview. A plain read, with a missing row meaning zero, is
+          // exactly as accurate for a preview and touches nothing.
           const sortedIds = [...variantIds].sort((a, b) => a - b);
-          await client.query(
-            `INSERT INTO collection_item (user_id, card_variant_id, quantity, updated_at)
-             SELECT $1, v, 0, now() FROM unnest($2::bigint[]) AS t(v) ORDER BY v
-             ON CONFLICT (user_id, card_variant_id) DO NOTHING`,
-            [userId, sortedIds],
-          );
+          if (!dryRun) {
+            await client.query(
+              `INSERT INTO collection_item (user_id, card_variant_id, quantity, updated_at)
+               SELECT $1, v, 0, now() FROM unnest($2::bigint[]) AS t(v) ORDER BY v
+               ON CONFLICT (user_id, card_variant_id) DO NOTHING`,
+              [userId, sortedIds],
+            );
+          }
           const locked = await client.query<{ card_variant_id: string; quantity: number }>(
             `SELECT card_variant_id, quantity
                FROM collection_item
               WHERE user_id = $1 AND card_variant_id = ANY($2::bigint[])
               ORDER BY card_variant_id
-                FOR UPDATE`,
+                ${dryRun ? '' : 'FOR UPDATE'}`,
             [userId, sortedIds],
           );
           const current = new Map(locked.rows.map((r) => [Number(r.card_variant_id), Number(r.quantity)]));
@@ -528,7 +557,7 @@ collectionRouter.post(
 
           // An identical request that is NOT a replay (outside the idempotency
           // window) still deserves to be flagged rather than silently doubled.
-          const echo = callerKey ? null : await findFingerprintEcho(client, userId, fingerprint);
+          const echo = await findFingerprintEcho(client, userId, echoFingerprint);
           if (echo) {
             payload.duplicateOf = { batchId: echo.id, at: echo.finished_at ?? echo.started_at, note: echo.note };
           }

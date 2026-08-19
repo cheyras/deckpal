@@ -880,8 +880,17 @@ listsRouter.post(
       }
     }
 
-    if (candidates.length === 0 && unresolved.length === 0) {
+    if (candidates.length === 0 && unresolved.length === 0 && !body.addMissing && !Array.isArray(body.items)) {
       throw badRequest('nothing to add — pass items and/or addMissing');
+    }
+    // Nothing resolvable is a RESULT, not an error: "add everything missing"
+    // against a finished set is a legitimate no-op, and an items list where
+    // every entry was bogus deserves the unresolved report rather than a 500
+    // from an INSERT with an empty VALUES list.
+    if (candidates.length === 0) {
+      userCache(res);
+      res.status(200).json({ listId, dryRun, added: 0, alreadyPresent: 0, unresolved, batchId: null });
+      return;
     }
     if (candidates.length > BULK_MAX) {
       throw badRequest(`that resolves to ${candidates.length} items; the limit is ${BULK_MAX}. Narrow it with rarity/finish/price filters.`);
@@ -992,6 +1001,14 @@ listsRouter.delete(
     // exactly — same id, same position, same note.
     const del = await withTx(async (client: pg.PoolClient) => {
       const batchId = await openBatch(client, { userId, source: parseSource((req.body ?? {}).source), tool: 'list.item.remove' });
+      // The parent must still be live: an agent holding a stale id must not be
+      // able to gut a list the user believes is deleted (and then restore a
+      // hollowed-out list).
+      const parent = await client.query(
+        `SELECT 1 FROM card_list WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+        [listId, userId],
+      );
+      if (!parent.rows[0]) throw notFound(`No list '${listId}'`);
       const gone = await client.query<{
         id: string;
         list_id: string;

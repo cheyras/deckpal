@@ -3,6 +3,7 @@ import type pg from 'pg';
 import { commitRequestTx, q, q1, recomputeSetProgress, withTx } from '../db.js';
 import { asyncHandler, badRequest, clampInt, notFound, str, userCache } from '../http.js';
 import { currentUserId } from '../identity.js';
+import { recordStrategyChange } from '../deck/versions.js';
 import { closeBatch, openBatch, recordEvents, type MutationEventInput } from '../mutations.js';
 
 /**
@@ -317,9 +318,13 @@ async function loadRevertTarget(
       params.push(untilRaw.toISOString());
       extra += ` AND e.occurred_at <= $${params.length}::timestamptz`;
     }
-    if (typeof body.source === 'string') {
-      if (!SOURCE_SHAPE.test(body.source)) throw badRequest('source has the wrong shape');
-      params.push(body.source);
+    // `filterSource` narrows the WINDOW; `source` is who is doing the reverting.
+    // Conflating them meant a caller that always attributes itself (the MCP
+    // does) silently excluded every web and import change from "everything
+    // since T", while claiming to have reverted all of it.
+    if (typeof body.filterSource === 'string') {
+      if (!SOURCE_SHAPE.test(body.filterSource)) throw badRequest('filterSource has the wrong shape');
+      params.push(body.filterSource);
       extra += ` AND e.batch_id IN (SELECT id FROM mutation_batch WHERE user_id = $1 AND source = $${params.length})`;
     }
     const { rows } = await client.query<EventRow>(`${sel} ${extra} ORDER BY e.id DESC LIMIT ${REVERT_MAX_EVENTS + 1}`, params);
@@ -429,7 +434,36 @@ mutationsRouter.post(
       // real operation, but it should be asked for explicitly.
       const plan: PlanEntry[] = [];
       const collectionEvents: EventRow[] = [];
+
+      // A window can contain both a change and the revert that already undid
+      // it. The change is skipped (it has an `undone_by`) but its revert is
+      // not — so undoing the revert would RE-APPLY damage the user already
+      // cleaned up. Pairs that are wholly inside the window annihilate.
+      const inWindow = new Set(target.events.map((e) => Number(e.id)));
+      const annihilated = new Set<number>();
       for (const e of target.events) {
+        const undoes = e.reverts_event_id === null ? null : Number(e.reverts_event_id);
+        if (undoes !== null && inWindow.has(undoes)) {
+          annihilated.add(Number(e.id));
+          annihilated.add(undoes);
+        }
+      }
+
+      for (const e of target.events) {
+        if (annihilated.has(Number(e.id))) {
+          plan.push({
+            eventId: Number(e.id),
+            entityType: e.entity_type,
+            entityId: e.entity_id,
+            operation: e.operation,
+            action: 'already cancelled out',
+            conflicts: [],
+            exact: false,
+            skipped:
+              'this change and its undo are both inside the window, so they already cancel — reverting either would re-apply the other',
+          });
+          continue;
+        }
         if (e.undone_by !== null && !force) {
           plan.push({
             eventId: Number(e.id),
@@ -536,12 +570,22 @@ mutationsRouter.post(
 
       const qtyEntries = actionable.filter((p) => p.entityType === 'collection_item' && p.delta !== 0);
       if (qtyEntries.length > 0) {
+        // COLLAPSE per variant before building VALUES. A window or entity revert
+        // legitimately yields several entries for one card (one per event), and
+        // Postgres does not define which FROM row wins when an updated row
+        // matches more than one — so a duplicate id would leave a
+        // nondeterministic quantity behind while the log confidently recorded a
+        // clean chain. The entries were planned in order against a running
+        // `live` map, so the LAST one already holds the correct final value.
+        const finalByVariant = new Map<number, number>();
+        for (const p of qtyEntries) finalByVariant.set(Number(p.entityId), p.to!);
+
         const upd: string[] = [];
         const params: unknown[] = [userId];
-        for (const p of qtyEntries) {
+        for (const [variantId, qty] of finalByVariant) {
           const b = params.length;
           upd.push(`($${b + 1}::bigint, $${b + 2}::int)`);
-          params.push(Number(p.entityId), p.to!);
+          params.push(variantId, qty);
         }
         await client.query(
           `UPDATE collection_item ci SET quantity = v.qty, updated_at = now()
@@ -588,6 +632,14 @@ mutationsRouter.post(
       for (const p of actionable.filter((x) => x.entityType !== 'collection_item')) {
         const applied = await applyStructural(client, userId, p);
         if (applied) logged.push(applied);
+        else {
+          // The undo matched no row — the list item's slot was taken again, the
+          // parent was purged, the deck no longer exists. Reporting success
+          // would mark the original event undone and make the restore path
+          // permanently unreachable ("already reverted"), so say so instead.
+          p.conflicts.push('nothing to undo — the target no longer exists, or its place has been taken since');
+          p.exact = false;
+        }
       }
 
       await recordEvents(client, batchId, userId, logged);
@@ -694,34 +746,52 @@ async function applyStructural(
   });
 
   switch (e.operation) {
-    case 'list.create':
-      await client.query(`UPDATE card_list SET deleted_at = now() WHERE id = $1 AND user_id = $2`, [e.entity_id, userId]);
-      return log(e.after, null, 'list.delete');
-    case 'list.delete':
-      await client.query(`UPDATE card_list SET deleted_at = NULL, updated_at = now() WHERE id = $1 AND user_id = $2`, [
-        e.entity_id,
-        userId,
-      ]);
-      return log(null, e.before, 'list.restore');
-    case 'list.restore':
-      await client.query(`UPDATE card_list SET deleted_at = now() WHERE id = $1 AND user_id = $2`, [e.entity_id, userId]);
-      return log(e.after, null, 'list.delete');
+    case 'list.create': {
+      const r = await client.query(`UPDATE card_list SET deleted_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`, [e.entity_id, userId]);
+      return r.rowCount ? log(e.after, null, 'list.delete') : null;
+    }
+    case 'list.delete': {
+      const r = await client.query(
+        `UPDATE card_list SET deleted_at = NULL, updated_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NOT NULL`,
+        [e.entity_id, userId],
+      );
+      return r.rowCount ? log(null, e.before, 'list.restore') : null;
+    }
+    case 'list.restore': {
+      const r = await client.query(`UPDATE card_list SET deleted_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`, [e.entity_id, userId]);
+      return r.rowCount ? log(e.after, null, 'list.delete') : null;
+    }
     case 'list.rename': {
       const name = String(e.before?.name ?? '');
       if (!name) return null;
+      // Only undo a rename that is still the current name. Otherwise something
+      // renamed it again since, and putting the old name back would silently
+      // discard that — and log a `before` snapshot that never matched the
+      // database, in an append-only audit trail.
+      const cur = await client.query<{ name: string }>(
+        `SELECT name FROM card_list WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+        [e.entity_id, userId],
+      );
+      const live = cur.rows[0]?.name;
+      if (live === undefined || (e.after?.name !== undefined && live !== e.after.name)) return null;
       await client.query(`UPDATE card_list SET name = $3, updated_at = now() WHERE id = $1 AND user_id = $2`, [
         e.entity_id,
         userId,
         name,
       ]);
-      return log(e.after, e.before, 'list.rename');
+      return log({ name: live }, e.before, 'list.rename');
     }
-    case 'list.item.add':
-      await client.query(`DELETE FROM list_item WHERE id = $1 AND user_id = $2`, [e.entity_id, userId]);
-      return log(e.after, null, 'list.item.remove');
+    case 'list.item.add': {
+      const r = await client.query(`DELETE FROM list_item WHERE id = $1 AND user_id = $2`, [e.entity_id, userId]);
+      return r.rowCount ? log(e.after, null, 'list.item.remove') : null;
+    }
     case 'list.item.remove': {
       const b = e.before ?? {};
-      await client.query(
+      // ON CONFLICT DO NOTHING because a dynamic list has UNIQUE(list_id,
+      // card_variant_id) and the slot may have been retaken — but the rowCount
+      // is CHECKED by the caller, so a swallowed insert becomes a reported
+      // conflict rather than a success that never happened.
+      const r = await client.query(
         `INSERT INTO list_item (id, list_id, user_id, list_kind, position, card_variant_id, dex_id, static_quantity, note)
               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT DO NOTHING`,
@@ -737,24 +807,31 @@ async function applyStructural(
           b.note ?? null,
         ],
       );
-      return log(null, e.before, 'list.item.add');
+      return r.rowCount ? log(null, e.before, 'list.item.add') : null;
     }
-    case 'deck.delete':
-      await client.query(`UPDATE deck SET deleted_at = NULL, updated_at = now() WHERE id = $1 AND user_id = $2`, [
-        e.entity_id,
-        userId,
-      ]);
-      return log(null, e.before, 'deck.restore');
-    case 'deck.restore':
-      await client.query(`UPDATE deck SET deleted_at = now() WHERE id = $1 AND user_id = $2`, [e.entity_id, userId]);
-      return log(e.after, null, 'deck.delete');
+    case 'deck.delete': {
+      const r = await client.query(
+        `UPDATE deck SET deleted_at = NULL, updated_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NOT NULL`,
+        [e.entity_id, userId],
+      );
+      return r.rowCount ? log(null, e.before, 'deck.restore') : null;
+    }
+    case 'deck.restore': {
+      const r = await client.query(`UPDATE deck SET deleted_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`, [e.entity_id, userId]);
+      return r.rowCount ? log(e.after, null, 'deck.delete') : null;
+    }
     case 'deck.strategy.set': {
-      const md = e.before?.strategyMd ?? null;
-      await client.query(`UPDATE deck SET strategy_md = $3, updated_at = now() WHERE id = $1 AND user_id = $2`, [
+      const md = (e.before?.strategyMd ?? null) as string | null;
+      // Go through recordStrategyChange, not a bare UPDATE: every other
+      // strategy write also refreshes the CURRENT deck_version snapshot, and
+      // skipping that leaves the timeline and the PDF export showing the guide
+      // this revert just undid.
+      const owned = await client.query(`SELECT 1 FROM deck WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`, [
         e.entity_id,
         userId,
-        md,
       ]);
+      if (!owned.rows[0]) return null;
+      await recordStrategyChange(client, e.entity_id, md);
       return log(e.after, e.before, 'deck.strategy.set');
     }
     default:

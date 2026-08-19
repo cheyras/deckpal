@@ -72,6 +72,14 @@ function render(r: CartResponse): string[] {
   const lines: string[] = [`${what}${filters.length ? ` (${filters.join('; ')})` : ''} — TCGplayer cart`];
 
   if (r.needed.items === 0 && r.needed.unlinkable === 0) {
+    // "Nothing to buy" and "none of what you asked for exists" are different
+    // answers, and only one of them is good news.
+    if (r.unresolved?.length) {
+      lines.push(`None of the ${r.unresolved.length} card(s) you named could be found in the catalog:`);
+      for (const u of r.unresolved.slice(0, 10)) lines.push(`  ${u}`);
+      if (r.unresolved.length > 10) lines.push(`  …and ${r.unresolved.length - 10} more`);
+      return lines;
+    }
     lines.push(r.source === 'set' ? 'Nothing needed — this goal is already finished.' : 'Nothing to buy.');
     return lines;
   }

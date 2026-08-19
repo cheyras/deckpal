@@ -218,7 +218,13 @@ export function registerHistoryTools(server: McpServer, ctx: Ctx): void {
         event_id: z.number().int().positive().optional().describe('Undo one single change.'),
         since: z.string().optional().describe("Undo every change at/after this ISO 8601 timestamp, e.g. '2026-08-19T02:00:00Z'."),
         until: z.string().optional().describe('With since: stop at this timestamp.'),
-        source: z.string().optional().describe("With since: only undo changes from this source, e.g. 'deckpal-mcp'."),
+        filter_source: z
+          .string()
+          .optional()
+          .describe(
+            "With since: only undo changes written by this source, e.g. 'web' or 'deckpal-mcp'. Omit to undo " +
+              'EVERYTHING in the window regardless of who wrote it.',
+          ),
         entity_type: z
           .enum(['collection_item', 'card_list', 'list_item', 'deck', 'deck_strategy'])
           .optional()
@@ -262,7 +268,7 @@ export function registerHistoryTools(server: McpServer, ctx: Ctx): void {
         if (args.event_id) body.eventId = args.event_id;
         if (args.since) body.since = args.since;
         if (args.until) body.until = args.until;
-        if (args.source) body.source = args.source;
+        if (args.filter_source) body.filterSource = args.filter_source;
         if (args.entity_type) body.entityType = args.entity_type;
         if (args.entity_id) body.entityId = args.entity_id;
         if (args.at) body.at = args.at;

@@ -162,6 +162,8 @@ interface BatchResponse {
   batchId: string | null;
   replayed?: boolean;
   applied: number;
+  /** Dry runs report here; `applied` is 0 by definition. */
+  wouldApply?: number;
   unchanged: number;
   items: BatchItemResult[];
   progress?: Record<string, { complete: GoalProgress; master: GoalProgress; grandmaster: GoalProgress }>;
@@ -301,22 +303,52 @@ async function planBatch(ctx: Ctx, items: readonly Item[]): Promise<{ planned: P
   return { planned, skipped };
 }
 
+/** 15 minutes — the same bucket width the server uses for its own derived keys. */
+const BUCKET_MS = 15 * 60 * 1000;
+
 /**
- * The idempotency key for one chunk.
+ * The content fingerprint for a batch: a hash of the RESOLVED operations, so
+ * the same intent expressed as `card_id` on one attempt and `name`+`number` on
+ * the retry produces the same value.
  *
- * Derived from the RESOLVED operations — so the same intent expressed as
- * `card_id` on one attempt and `name`+`number` on the retry produces the same
- * key — and from the whole batch, so chunk boundaries stay stable across a
- * retry of the same request. The note is excluded on purpose: an agent that
- * rewrites its note on retry ("batch 1" → "batch 1 retry") must not thereby
- * double-apply.
+ * `mode` is folded into the operation label rather than left beside the number,
+ * because "set to 5" and "+5" are different requests that must not share a
+ * fingerprint — and because the canonical form is SORTED, two ops on the same
+ * variant have to be distinguishable by their text alone.
+ *
+ * The note is excluded on purpose: an agent that rewrites its note on retry
+ * ("batch 1" → "batch 1 retry") must not thereby double-apply.
  */
-function chunkKey(userId: string, planned: readonly Planned[], chunkIndex: number): string {
+function batchFingerprint(userId: string, planned: readonly Planned[]): string {
   const canonical = planned
-    .map((p) => `${p.variant.id}:${p.mode}:${p.value}`)
+    .map((p) => `${p.variant.id}:${p.mode === 'quantity' ? `set:${p.value}` : `delta:${p.value}`}`)
     .sort()
     .join('|');
-  return `${createHash('sha256').update(`${userId} ${canonical}`).digest('hex')}#${chunkIndex}`;
+  return createHash('sha256').update(`${userId} ${canonical}`).digest('hex');
+}
+
+/**
+ * The idempotency key for one chunk — fingerprint, TIME BUCKET, chunk index.
+ *
+ * The bucket is the part that took a review to get right. Without it the key is
+ * pure content and lives forever, so "+1 Pikachu" logged today would make the
+ * identical call next month a silent no-op that still reported the old
+ * quantities as current. That is the same dishonesty this tool exists to
+ * remove, pointing the other way — and small identical batches are its normal
+ * usage, not an edge case.
+ *
+ * With it, a retry inside ~15 minutes collides (the lookup probes the previous
+ * bucket too, so a boundary crossing mid-retry still matches) and a genuine
+ * second acquisition next month applies and is FLAGGED rather than swallowed.
+ */
+function chunkKey(fingerprint: string, chunkIndex: number, atMs: number = Date.now()): string {
+  return `${fingerprint}#${Math.floor(atMs / BUCKET_MS)}#${chunkIndex}`;
+}
+
+/** Current and previous bucket keys for one chunk, newest first. */
+function chunkKeyCandidates(fingerprint: string, chunkIndex: number): string[] {
+  const now = Date.now();
+  return [chunkKey(fingerprint, chunkIndex, now), chunkKey(fingerprint, chunkIndex, now - BUCKET_MS)];
 }
 
 export function registerLoggingTools(server: McpServer, ctx: Ctx): void {
@@ -365,6 +397,7 @@ export function registerLoggingTools(server: McpServer, ctx: Ctx): void {
         const chunks: Planned[][] = [];
         for (let i = 0; i < planned.length; i += CHUNK_SIZE) chunks.push(planned.slice(i, i + CHUNK_SIZE));
 
+        const fingerprint = batchFingerprint(ctx.userId, planned);
         const perIndex = new Map<number, BatchItemResult>();
         const progress: Record<string, { complete: GoalProgress; master: GoalProgress; grandmaster: GoalProgress }> = {};
         const keysUsed: string[] = [];
@@ -373,6 +406,7 @@ export function registerLoggingTools(server: McpServer, ctx: Ctx): void {
         let replayed = false;
         let duplicateOf: BatchResponse['duplicateOf'];
         let abandoned: { chunk: number; remaining: number; error: string } | null = null;
+        const landedAfterTimeout: number[] = [];
         const batchIds: string[] = [];
 
         for (const [ci, chunk] of chunks.entries()) {
@@ -384,7 +418,9 @@ export function registerLoggingTools(server: McpServer, ctx: Ctx): void {
             };
             break;
           }
-          const key = idempotency_key ? `${idempotency_key}#${ci}` : chunkKey(ctx.userId, planned, ci);
+          // A caller-supplied key is theirs to scope and is used verbatim.
+          // Otherwise the derived key carries a time bucket (see chunkKey).
+          const key = idempotency_key ? `${idempotency_key}#${ci}` : chunkKey(fingerprint, ci);
           keysUsed.push(key);
           const body = {
             items: chunk.map((p) => ({
@@ -394,6 +430,12 @@ export function registerLoggingTools(server: McpServer, ctx: Ctx): void {
             source: SOURCE,
             note,
             idempotencyKey: key,
+            // The unbucketed hash, so the server can still recognise "you
+            // applied this exact batch two days ago" on a call it correctly
+            // allows through. Without it that warning could never fire for MCP
+            // writes, because a caller-supplied key bypasses the server's own
+            // fingerprinting.
+            requestFingerprint: idempotency_key ? undefined : `${fingerprint}#${ci}`,
             dryRun: dry_run,
           };
 
@@ -401,16 +443,29 @@ export function registerLoggingTools(server: McpServer, ctx: Ctx): void {
           try {
             res = (await withTimeout(ctx.api.send('POST', '/collection/batch', body), API_TIMEOUT_MS)) as BatchResponse;
           } catch (err) {
-            // The response is gone, but the writes may not be. Ask the log.
-            const truth = await whatLanded(ctx, key);
-            abandoned = {
-              chunk: ci,
-              remaining: chunks.slice(ci).reduce((n, c) => n + c.length, 0),
-              error: (err as Error).message,
-            };
+            // The response is gone, but the writes may not be. Ask the log —
+            // this is the question the 2026-08-19 incident could not answer.
+            const truth = await whatLanded(ctx, idempotency_key ? [key] : chunkKeyCandidates(fingerprint, ci));
             if (truth) {
+              // It LANDED. Only the reply was lost, so this chunk is not
+              // abandoned and its items are not unsent — saying otherwise
+              // would reproduce the incident's own dishonesty in miniature.
               res = truth;
+              landedAfterTimeout.push(ci);
+              if (ci + 1 < chunks.length) {
+                abandoned = {
+                  chunk: ci + 1,
+                  remaining: chunks.slice(ci + 1).reduce((n, c) => n + c.length, 0),
+                  error: `chunk ${ci + 1} timed out but landed; stopping rather than risking the rest`,
+                };
+                break;
+              }
             } else {
+              abandoned = {
+                chunk: ci,
+                remaining: chunks.slice(ci).reduce((n, c) => n + c.length, 0),
+                error: (err as Error).message,
+              };
               break;
             }
           }
@@ -418,14 +473,19 @@ export function registerLoggingTools(server: McpServer, ctx: Ctx): void {
           if (res.batchId) batchIds.push(res.batchId);
           if (res.replayed) replayed = true;
           if (res.duplicateOf) duplicateOf = res.duplicateOf;
-          applied += res.applied;
+          applied += dry_run ? (res.wouldApply ?? 0) : res.applied;
           unchanged += res.unchanged;
+          // Several input items can legitimately resolve to the SAME variant —
+          // "+1 Pikachu" twice, or a card_id and a name for one printing. The
+          // API folds them into one result row, so that row belongs to EVERY
+          // input index that produced it; `find` would have given it to the
+          // first and left the rest rendering as "NOT SENT".
           for (const it of res.items) {
-            const p = chunk.find((x) => x.variant.id === it.variantId);
-            if (p) perIndex.set(p.index, it);
+            for (const p of chunk) {
+              if (p.variant.id === it.variantId) perIndex.set(p.index, it);
+            }
           }
           Object.assign(progress, res.progress ?? {});
-          if (abandoned) break;
         }
 
         // ── Render ─────────────────────────────────────────────────────────
@@ -490,6 +550,12 @@ export function registerLoggingTools(server: McpServer, ctx: Ctx): void {
           footer.push(`applied ${applied}, unchanged ${unchanged}, skipped ${skipped.length} (unresolved)`);
           if (batchIds.length) footer.push(`batch id ${batchIds.join(', ')} — undo with revert(batch_id: "${batchIds[0]!}")`);
         }
+        if (landedAfterTimeout.length > 0) {
+          footer.push(
+            `note: chunk(s) ${landedAfterTimeout.map((n) => n + 1).join(', ')} timed out waiting for a reply, but the ` +
+              'mutation log confirms the write COMMITTED. The quantities above are what the database actually holds.',
+          );
+        }
         if (abandoned) {
           footer.push(
             `STOPPED after chunk ${abandoned.chunk + 1}/${chunks.length}: ${abandoned.error}. ` +
@@ -544,14 +610,19 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
  * Returns null when nothing under that key committed — which is a real answer
  * too, and means the caller can retry with confidence.
  */
-async function whatLanded(ctx: Ctx, key: string): Promise<BatchResponse | null> {
+async function whatLanded(ctx: Ctx, keys: readonly string[]): Promise<BatchResponse | null> {
   try {
-    const res = (await withTimeout(
-      ctx.api.get(`/mutations?idempotency_key=${encodeURIComponent(key)}&limit=1`),
-      10_000,
-    )) as { batches?: Array<{ batchId: string; status: string }> };
-    const batch = res.batches?.[0];
-    if (!batch || batch.status !== 'committed') return null;
+    let batch: { batchId: string; status: string } | undefined;
+    for (const key of keys) {
+      const res = (await withTimeout(
+        ctx.api.get(`/mutations?idempotency_key=${encodeURIComponent(key)}&limit=1`),
+        10_000,
+      )) as { batches?: Array<{ batchId: string; status: string }> };
+      batch = res.batches?.[0];
+      if (batch?.status === 'committed') break;
+      batch = undefined;
+    }
+    if (!batch) return null;
     const detail = (await withTimeout(ctx.api.get(`/mutations/${batch.batchId}`), 10_000)) as {
       batch: { batchId: string; response: BatchResponse | null };
     };
