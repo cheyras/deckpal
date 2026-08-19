@@ -4,6 +4,19 @@
     "sfo1"
   ],
   "outputDirectory": "apps/web/dist",
+  "redirects": [
+    {
+      "source": "/:path((?!mcp(?:/|$)|api(?:/|$)|register$|token$|\\.well-known/).*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "deckscout.io"
+        }
+      ],
+      "destination": "https://deckpal.app/:path",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     {
       "source": "/deckpal/images/(.*)",
