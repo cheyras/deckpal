@@ -651,3 +651,61 @@ client at that URL. Personal access tokens created in the UI still work as
 Self-hosters who want the per-user endpoint instead can run
 `node apps/mcp/dist/cloud.js` (defaults to `127.0.0.1:3705`), which is the same
 code the cloud function serves and expects `Authorization: Bearer dsk_…`.
+
+---
+
+## Migrations 036–038 (2026-08-19): mutation log + soft delete
+
+Three new migrations ship together. **037 is `@supabase-only`** — the local
+runner skips it unless `SUPABASE_MODE` is set, so a plain `pnpm migrate` against
+a self-host database applies 036 and 038 and nothing else. That is correct
+(self-host has no `auth` schema and no `authenticated` role; its access control
+is the parameterised `WHERE user_id = $1` in every query), but it means **037 is
+never exercised by a local run**.
+
+Migration 028 exists because that gap bit once already: 021 shipped with a
+missing INSERT policy and every cloud collection write 500'd. So before applying
+to a live Supabase, run the whole set against a scratch Postgres with auth stubs:
+
+```bash
+sudo -u postgres psql -c "CREATE DATABASE deckpal_rlstest OWNER <your db user>"
+sudo -u postgres psql -d deckpal_rlstest <<'SQL'
+CREATE SCHEMA auth;
+CREATE TABLE auth.users (id UUID PRIMARY KEY, email TEXT, raw_user_meta_data JSONB DEFAULT '{}'::jsonb);
+CREATE FUNCTION auth.uid() RETURNS UUID AS $$
+  SELECT NULLIF(current_setting('request.jwt.claims', true)::jsonb ->> 'sub','')::uuid;
+$$ LANGUAGE sql STABLE;
+CREATE ROLE authenticated NOLOGIN;  CREATE ROLE anon NOLOGIN;
+CREATE ROLE service_role NOLOGIN BYPASSRLS;
+-- the auth objects must be owned by the migrating user
+ALTER SCHEMA auth OWNER TO <your db user>;
+ALTER TABLE auth.users OWNER TO <your db user>;
+ALTER FUNCTION auth.uid() OWNER TO <your db user>;
+SQL
+
+PGDATABASE=deckpal_rlstest SUPABASE_MODE=1 pnpm migrate
+```
+
+Then prove the policies actually fire, as two different users under
+`SET LOCAL role = 'authenticated'`: each sees only their own rows, neither can
+insert on the other's behalf, and **nobody can UPDATE `mutation_event`** — that
+last one is the append-only guarantee, and it is a policy property, not a code
+one (see SECURITY.md).
+
+Applying to production:
+
+```bash
+set -a && . ./.env.cloud && set +a && pnpm migrate     # SUPABASE_MODE is set in .env.cloud
+```
+
+Then, before deploying code, confirm the tables answer under a real token:
+
+```bash
+curl -s -H "authorization: Bearer dsk_…" https://deckpal.app/api/mutations?limit=1
+```
+
+Rolling back is `DROP TABLE mutation_event, mutation_batch;`,
+`ALTER TABLE collection_event DROP COLUMN batch_id;`, and
+`ALTER TABLE card_list DROP COLUMN deleted_at; ALTER TABLE deck DROP COLUMN deleted_at;`
+plus deleting the three `schema_migrations` rows — but note that the deployed
+code requires all three, so roll the code back first.

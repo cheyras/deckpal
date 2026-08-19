@@ -87,7 +87,9 @@ exportRouter.get(
     const userId = currentUserId(req);
 
     const meta = await q1<{ id: string; name: string; description: string | null; format_code: FormatCode; glc_type: string | null }>(
-      `SELECT id, name, description, format_code, glc_type FROM deck WHERE id = $1 AND user_id = $2`,
+      // deleted_at IS NULL: a soft-deleted deck (migration 038) is invisible
+      // everywhere, exports included.
+      `SELECT id, name, description, format_code, glc_type FROM deck WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
       [deckId, userId],
     );
     if (!meta) throw notFound(`No deck '${deckId}'`);
@@ -226,7 +228,7 @@ exportRouter.get(
     const userId = currentUserId(req);
 
     const list = await q1<ListRow>(
-      `SELECT name, kind, description FROM card_list WHERE id = $1 AND user_id = $2`,
+      `SELECT name, kind, description FROM card_list WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
       [listId, userId],
     );
     if (!list) throw notFound(`No list '${listId}'`);

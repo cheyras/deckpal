@@ -4,7 +4,8 @@ import { cardImages, pool, q, q1, toMajor, tcgplayerUrl, withTx } from '../db.js
 import { asyncHandler, badRequest, clampInt, notFound, oneOf, str, userCache } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { recordDeckChange, recordStrategyChange, type SnapshotEntry } from '../deck/versions.js';
-import { MASSENTRY_NOTE, buildUrls, meLine, tcgplayerAbbrev } from '../tcgplayer/massentry.js';
+import { closeBatch, openBatch, OPS, recordEvents } from '../mutations.js';
+import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
 import { parseBattleLog } from '../deck/battlelog.js';
 import {
   validateDeck, resolveDeck, buildReprintOracle,
@@ -205,12 +206,17 @@ function sectionOf(cat: DeckRow['category']): Section {
   return cat === 'Pokemon' ? 'pokemon' : cat === 'Trainer' ? 'trainer' : 'energy';
 }
 
+// soft-delete-exempt: a fragment, not a statement — every call site appends its
+// own WHERE with the deleted_at predicate (loadMeta, and the index route which
+// flips it for the recycle bin).
 const DECK_META_SELECT =
   `SELECT id, name, description, format_code, glc_type, is_favorite, cover_card_id, cover_render, version, strategy_md, created_at, updated_at
      FROM deck`;
 
+// Soft delete (migration 038): a deleted deck is invisible everywhere except
+// the recycle bin, which asks for it by name.
 async function loadMeta(deckId: string, userId: string): Promise<DeckMeta | null> {
-  return q1<DeckMeta>(`${DECK_META_SELECT} WHERE id = $1 AND user_id = $2`, [deckId, userId]);
+  return q1<DeckMeta>(`${DECK_META_SELECT} WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`, [deckId, userId]);
 }
 
 async function loadRows(deckId: string, userId: string): Promise<{ rows: DeckRow[]; types: Map<number, PokemonType[]> }> {
@@ -381,8 +387,11 @@ decksRouter.get(
   '/',
   asyncHandler(async (req, res) => {
     const userId = currentUserId(req);
+    // ?deleted=true is the recycle bin: soft-deleted decks, restorable until purged.
+    const deleted = String(req.query.deleted ?? '') === 'true';
     const metas = await q<DeckMeta>(
-      `${DECK_META_SELECT} WHERE user_id = $1 ORDER BY is_favorite DESC, updated_at DESC`,
+      `${DECK_META_SELECT} WHERE user_id = $1 AND deleted_at IS ${deleted ? 'NOT NULL' : 'NULL'}
+        ORDER BY is_favorite DESC, updated_at DESC`,
       [userId],
     );
     // Battle record per deck, aggregated over ALL versions, in one query.
@@ -392,7 +401,7 @@ decksRouter.get(
               count(*) FILTER (WHERE bl.result = 'loss') AS losses,
               count(*) FILTER (WHERE bl.result = 'tie')  AS ties
          FROM battle_log bl JOIN deck d ON d.id = bl.deck_id
-        WHERE d.user_id = $1 GROUP BY bl.deck_id`,
+        WHERE d.user_id = $1 AND d.deleted_at IS NULL GROUP BY bl.deck_id`,
       [userId],
     );
     const recordByDeck = new Map(records.map((r) => [r.deck_id, { wins: Number(r.wins), losses: Number(r.losses), ties: Number(r.ties) }]));
@@ -511,10 +520,92 @@ decksRouter.delete(
   asyncHandler(async (req, res) => {
     const deckId = parseDeckId(String(req.params.id));
     const userId = currentUserId(req);
-    const del = await q1<{ id: string }>(`DELETE FROM deck WHERE id = $1 AND user_id = $2 RETURNING id`, [deckId, userId]);
-    if (!del) throw notFound(`No deck '${deckId}'`);
+    // Soft by default (migration 038). The old behaviour — a hard DELETE that
+    // cascaded the deck's entire version history and every battle log with it,
+    // stated in the tool description as "no undo" — is now `?purge=true`, and
+    // has to be asked for by name.
+    const purge = String(req.query.purge ?? '') === 'true';
+    const source = parseSource((req.body ?? {}).source);
+
+    const out = await withTx(async (client) => {
+      const cur = await client.query<{ id: string; name: string; format_code: string; deleted_at: string | null }>(
+        `SELECT id, name, format_code, deleted_at FROM deck WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+        [deckId, userId],
+      );
+      const deck = cur.rows[0];
+      if (!deck) throw notFound(`No deck '${deckId}'`);
+
+      const batchId = await openBatch(client, { userId, source, tool: purge ? 'deck.purge' : 'deck.delete' });
+      if (purge) {
+        const counts = await client.query<{ versions: string; logs: string; cards: string }>(
+          `SELECT (SELECT count(*) FROM deck_version WHERE deck_id = $1) AS versions,
+                  (SELECT count(*) FROM battle_log  WHERE deck_id = $1) AS logs,
+                  (SELECT count(*) FROM deck_card   WHERE deck_id = $1) AS cards`,
+          [deckId],
+        );
+        // soft-delete-exempt: this IS the purge — the one deliberate hard delete.
+        await client.query(`DELETE FROM deck WHERE id = $1 AND user_id = $2`, [deckId, userId]);
+        await recordEvents(client, batchId, userId, [
+          {
+            entityType: 'deck',
+            entityId: deckId,
+            operation: OPS.deckPurge,
+            before: { name: deck.name, formatCode: deck.format_code, ...counts.rows[0] },
+            after: null,
+          },
+        ]);
+        await closeBatch(client, batchId, { purged: deckId });
+        return { purged: deckId, deleted: deckId, restorable: false };
+      }
+
+      if (deck.deleted_at) return { deleted: deckId, restorable: true, alreadyDeleted: true };
+      await client.query(`UPDATE deck SET deleted_at = now() WHERE id = $1 AND user_id = $2`, [deckId, userId]);
+      await recordEvents(client, batchId, userId, [
+        {
+          entityType: 'deck',
+          entityId: deckId,
+          operation: OPS.deckDelete,
+          before: { name: deck.name, formatCode: deck.format_code },
+          after: null,
+        },
+      ]);
+      await closeBatch(client, batchId, { deleted: deckId });
+      return { deleted: deckId, restorable: true, batchId };
+    });
+
     userCache(res);
-    res.json({ deleted: deckId });
+    res.json(out);
+  }),
+);
+
+// ── POST /decks/:id/restore — undelete ────────────────────────────────────────
+decksRouter.post(
+  '/:id/restore',
+  asyncHandler(async (req, res) => {
+    const deckId = parseDeckId(String(req.params.id));
+    const userId = currentUserId(req);
+    const source = parseSource((req.body ?? {}).source);
+
+    await withTx(async (client) => {
+      const cur = await client.query<{ id: string; name: string; format_code: string; deleted_at: string | null }>(
+        `SELECT id, name, format_code, deleted_at FROM deck WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+        [deckId, userId],
+      );
+      const deck = cur.rows[0];
+      if (!deck) throw notFound(`No deck '${deckId}'`);
+      if (!deck.deleted_at) return;
+      const batchId = await openBatch(client, { userId, source, tool: 'deck.restore' });
+      await client.query(`UPDATE deck SET deleted_at = NULL, updated_at = now() WHERE id = $1 AND user_id = $2`, [deckId, userId]);
+      await recordEvents(client, batchId, userId, [
+        { entityType: 'deck', entityId: deckId, operation: OPS.deckRestore, before: null, after: { name: deck.name } },
+      ]);
+      await closeBatch(client, batchId, { restored: deckId });
+    });
+
+    const meta = await loadMeta(deckId, userId);
+    if (!meta) throw notFound(`No deck '${deckId}'`);
+    userCache(res);
+    res.json({ restored: deckId, deck: await detailPayload(meta, userId) });
   }),
 );
 
@@ -531,8 +622,17 @@ async function resolveCardId(client: pg.PoolClient, ref: string): Promise<number
   return Number(r.rows[0].id);
 }
 
+/**
+ * The lock every deck write takes first. `deleted_at IS NULL` belongs HERE and
+ * not only on the read paths: a soft-deleted deck must be un-writable, or an
+ * agent holding a stale id could keep editing something the user believes is
+ * gone. Restore it first (POST /decks/:id/restore), then edit it.
+ */
 async function assertDeck(client: pg.PoolClient, deckId: string, userId: string): Promise<void> {
-  const r = await client.query(`SELECT 1 FROM deck WHERE id = $1 AND user_id = $2 FOR UPDATE`, [deckId, userId]);
+  const r = await client.query(`SELECT 1 FROM deck WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE`, [
+    deckId,
+    userId,
+  ]);
   if (!r.rows[0]) throw notFound(`No deck '${deckId}'`);
 }
 
@@ -819,24 +919,20 @@ decksRouter.get(
 );
 
 /**
- * Mass Entry set code per deck row. Deck cards span many sets, so this resolves
- * card_set.tcgplayer_group_id → TCGplayer abbreviation per distinct group (the
- * shared 24h in-process cache makes the per-row awaits one fetch at most).
+ * One deck row's Mass Entry line for `qty` copies, or null when the card has no
+ * TCGplayer identity at all.
+ *
+ * `<qty>-<productId>` is exact: it names the TCGplayer product directly, so it
+ * cannot be defeated by a card name that repeats inside its set — which is what
+ * broke every name-based line for modern sets (see ../tcgplayer/massentry.ts).
+ * A curated `tcgplayer_mass_entry` token is the only fallback; there is no
+ * name-guessing tier, because Mass Entry is all-or-nothing and one bad guess
+ * voids the whole cart.
  */
-async function deckSetCodes(rows: DeckRow[]): Promise<Map<number, string | null>> {
-  const codes = new Map<number, string | null>();
-  for (const r of rows) {
-    if (r.set_group_id !== null && !codes.has(r.set_group_id)) {
-      codes.set(r.set_group_id, await tcgplayerAbbrev(r.set_group_id));
-    }
-  }
-  return codes;
-}
-
-/** One deck row's Mass Entry line for `qty` copies (token > composed > bare name). */
-function deckMeLine(r: DeckRow, qty: number, codes: Map<number, string | null>): string {
-  const setCode = r.set_group_id !== null ? (codes.get(r.set_group_id) ?? null) : null;
-  return meLine(qty, r.name, r.tcgplayer_mass_entry, setCode, r.local_id, r.set_group_id, r.set_card_count);
+function deckMeLine(r: DeckRow, qty: number): string | null {
+  if (r.tcgplayer_product_id !== null) return productIdLine(qty, r.tcgplayer_product_id);
+  if (r.tcgplayer_mass_entry) return tokenLine(qty, r.tcgplayer_mass_entry);
+  return null;
 }
 
 // ── GET /decks/:id/pricing — per-card + total, and the "buy missing" list ─────
@@ -848,7 +944,6 @@ decksRouter.get(
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const { rows } = await loadRows(deckId, userId);
-    const setCodes = await deckSetCodes(rows);
 
     let totalMinor = 0;
     let ownedMinor = 0;
@@ -880,10 +975,9 @@ decksRouter.get(
         const lineMinor = (r.market_minor ?? 0) * missingQty;
         missingMinor += lineMinor;
         const buyUrl = tcgplayerUrl(r.tcgplayer_url, r.tcgplayer_product_id, r.tcgplayer_printing);
-        // Shared Mass Entry vocabulary (../tcgplayer/massentry.ts): stored token
-        // first, else `qty Name [CODE] number`; bare name only as last resort
-        // (a bare line matches any set and Mass Entry may reject ambiguous ones).
-        const massEntry = deckMeLine(r, missingQty, setCodes);
+        // Shared Mass Entry vocabulary (../tcgplayer/massentry.ts): the exact
+        // `<qty>-<productId>` form, or a curated token, or nothing at all.
+        const massEntry = deckMeLine(r, missingQty);
         return {
           cardId: r.tcgdex_id,
           name: r.name,
@@ -907,16 +1001,19 @@ decksRouter.get(
       missingValueUsd: toMajor(missingMinor, 'USD'),
       cards,
       missing,
-      massEntryText: missing.map((m) => m.massEntry).join('\n'),
+      massEntryText: missing
+        .map((m) => m.massEntry)
+        .filter((l): l is string => l !== null)
+        .join('\n'),
     });
   }),
 );
 
 // ── GET /decks/:id/massentry — TCGplayer cart deep link(s) for the missing cards ──
 // Same missing math as /pricing (deck_card quantity minus owned across all
-// variants), same line/URL machinery as GET /sets/:setId/massentry
-// (../tcgplayer/massentry.ts). Cards with no TCGplayer identity are returned
-// as `unlinkable`, never silently dropped.
+// variants), same builder as every other cart route (../tcgplayer/massentry.ts).
+// Cards with no TCGplayer product id are returned as `unlinkable`, never
+// silently dropped and never emitted as a name guess.
 decksRouter.get(
   '/:id/massentry',
   asyncHandler(async (req, res) => {
@@ -925,49 +1022,42 @@ decksRouter.get(
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const { rows } = await loadRows(deckId, userId);
-    const setCodes = await deckSetCodes(rows);
 
-    const lines: string[] = [];
-    const unlinkable: Array<{ name: string; number: string; setId: string; variant: string | null }> = [];
-    let items = 0;
-    let noSetCode = 0;
+    const inputs: CartInput[] = [];
     for (const r of rows) {
       const missingQty = Math.max(0, r.quantity - Number(r.owned_qty));
       if (missingQty === 0) continue;
-      const linkable = r.tcgplayer_product_id !== null || r.tcgplayer_mass_entry !== null;
-      if (!linkable) {
-        // `variant` mirrors the set endpoint's unlinkable shape; deck rows are
-        // variant-agnostic so it is always null here.
-        unlinkable.push({ name: r.name, number: r.local_id, setId: r.set_tcgdex_id, variant: null });
-        continue;
-      }
-      const setCode = r.set_group_id !== null ? (setCodes.get(r.set_group_id) ?? null) : null;
-      if (!r.tcgplayer_mass_entry && !setCode) noSetCode += 1;
-      lines.push(meLine(missingQty, r.name, r.tcgplayer_mass_entry, setCode, r.local_id, r.set_group_id, r.set_card_count));
-      items += missingQty;
+      inputs.push({
+        quantity: missingQty,
+        productId: r.tcgplayer_product_id,
+        token: r.tcgplayer_mass_entry,
+        name: r.name,
+        number: r.local_id,
+        setId: r.set_tcgdex_id,
+        // Deck rows are variant-agnostic, so there is no variant label to give.
+        variant: null,
+      });
     }
-
-    const urls = buildUrls(lines);
-    const warnings: string[] = [];
-    if (noSetCode > 0) {
-      warnings.push(
-        `TCGplayer set code unavailable for ${noSetCode} card(s) — those lines carry the card name only and may match printings from other sets.`,
-      );
-    }
-    if (unlinkable.length > 0) {
-      warnings.push(`${unlinkable.length} needed card(s) have no TCGplayer product and are not in the cart link.`);
-    }
+    const build = buildCart(inputs);
 
     userCache(res);
     res.json({
       deck: { id: meta.id, name: meta.name },
-      needed: { cards: lines.length, items, unlinkable: unlinkable.length },
-      lines,
-      text: lines.join('\n'),
-      urls, // ordered; open each in the logged-in browser — all add to one cart
-      unlinkable,
-      warnings,
-      note: MASSENTRY_NOTE,
+      needed: {
+        cards: build.needed.lines,
+        items: build.needed.items,
+        unlinkable: build.needed.unlinkable,
+        exactLines: build.needed.exactLines,
+        bestEffortLines: build.needed.bestEffortLines,
+      },
+      lines: [...build.exact.lines, ...build.bestEffort.lines],
+      text: build.text,
+      urls: build.urls, // ordered; open each in the logged-in browser — all add to one cart
+      exactUrls: build.exact.urls,
+      bestEffortUrls: build.bestEffort.urls,
+      unlinkable: build.unlinkable,
+      warnings: build.warnings,
+      note: build.note,
     });
   }),
 );
@@ -1049,11 +1139,28 @@ decksRouter.put(
       if (body.strategyMd.length > STRATEGY_MAX) throw badRequest(`strategyMd too long (max ${STRATEGY_MAX} chars)`);
       strategyMd = body.strategyMd.trim() ? body.strategyMd : null;
     }
-    parseSource(body.source); // validate shape; strategy edits leave the snapshot's writer as-is
+    const source = parseSource(body.source); // validated shape; strategy edits leave the snapshot's writer as-is
 
     await withTx(async (client) => {
       await assertDeck(client, deckId, userId);
+      // A strategy guide is full-replace, and until now the previous text was
+      // simply gone — the tool only told you the old guide's first heading and
+      // length, which made an accidental overwrite visible but not recoverable.
+      // Snapshotting it here is what makes `revert` able to put it back.
+      // soft-delete-exempt: behind assertDeck's lock, which filters deleted_at.
+      const prev = await client.query<{ strategy_md: string | null }>(`SELECT strategy_md FROM deck WHERE id = $1`, [deckId]);
+      const batchId = await openBatch(client, { userId, source, tool: 'deck.strategy.set' });
       await recordStrategyChange(client, deckId, strategyMd);
+      await recordEvents(client, batchId, userId, [
+        {
+          entityType: 'deck_strategy',
+          entityId: deckId,
+          operation: OPS.deckStrategySet,
+          before: { strategyMd: prev.rows[0]?.strategy_md ?? null },
+          after: { strategyMd },
+        },
+      ]);
+      await closeBatch(client, batchId, { deckId, length: strategyMd?.length ?? 0 });
     });
     const meta = (await loadMeta(deckId, userId))!;
     userCache(res);
@@ -1149,6 +1256,7 @@ decksRouter.post(
 
     const revert = await withTx(async (client) => {
       await assertDeck(client, deckId, userId);
+      // soft-delete-exempt: behind assertDeck's lock, which filters deleted_at.
       const deck = await client.query<{ version: number }>(`SELECT version FROM deck WHERE id = $1`, [deckId]);
       if (toVersion === deck.rows[0]!.version) throw badRequest(`deck is already at version ${toVersion}`);
       const snap = await client.query<VersionRow>(
@@ -1322,6 +1430,7 @@ decksRouter.post(
 
     const out = await withTx(async (client) => {
       await assertDeck(client, deckId, userId);
+      // soft-delete-exempt: behind assertDeck's lock, which filters deleted_at.
       const deck = await client.query<{ version: number }>(`SELECT version FROM deck WHERE id = $1`, [deckId]);
       const version = deck.rows[0]!.version;
       const names = await client.query<{ name: string }>(

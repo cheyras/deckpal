@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CreateListBody, type ListKind, type ListSummary } from '../lib/api'
 import { Content, Spinner, ErrorState, ProgressBar } from '../components/ui'
 import { ListFormModal } from '../components/ListModals'
+import { RecycleBin } from '../components/RecycleBin'
 import { Icon } from '../components/Icon'
 import { fmtUsd } from '../lib/format'
 import { LIST_SEARCH_DEFAULTS } from './listSearch'
@@ -128,6 +129,22 @@ export function ListsIndex() {
           ))}
         </div>
       )}
+
+      {/* Deleting a list is reversible now (migration 038) — this is where the
+          undo lives, and the only place "delete forever" can be reached. */}
+      <RecycleBin
+        kind="list"
+        load={async (signal) =>
+          (await api.deletedLists(signal)).lists.map((l) => ({
+            id: l.id,
+            name: l.name,
+            detail: `${KIND_META[l.kind].label} · ${l.itemCount} card${l.itemCount === 1 ? '' : 's'}`,
+          }))
+        }
+        restore={(id) => api.restoreList(id)}
+        purge={(id) => api.purgeList(id)}
+        invalidate={['lists']}
+      />
 
       {showCreate && (
         <ListFormModal

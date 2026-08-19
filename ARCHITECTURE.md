@@ -586,3 +586,54 @@ Run the unit tests with:
 ```bash
 node --import tsx --test "apps/web/src/character/decke/__tests__/*.test.ts"
 ```
+
+---
+
+## The write path (revised 2026-08-19)
+
+Two shapes of collection write, deliberately:
+
+| | per-variant | batch |
+|---|---|---|
+| endpoint | `PATCH /collection/variants/:id`, `POST …/increment` | `POST /collection/batch` |
+| caller | the web UI's stepper | `log_cards`, imports |
+| transaction | one per variant | ONE for the whole batch |
+| progress recompute | one per call | one per DISTINCT SET |
+| idempotency | none (a human pressing again means it) | keyed |
+
+The batch endpoint exists because the per-variant shape does not scale to a
+pack-opening haul. Driving it in a loop from the MCP cost **0.65 s per item** in
+production — two SQL round trips to resolve, one HTTPS hop, one transaction, one
+full-set CTE — which put a 99-item batch past the serverless wall clock and
+produced the 2026-08-19 silent-success incident (DECISIONS.md). The batch path is
+~25 round trips instead of ~1200.
+
+Its statement order matters and is load-bearing:
+
+1. **insert the idempotency row** — first, so a duplicate collides before
+   anything changes;
+2. **materialise `collection_item` placeholders at quantity 0** — Postgres cannot
+   lock a row that does not exist, and "I just pulled this card" is exactly when
+   it does not; without this, two concurrent batches both read 0 and both write
+   1, losing a delta;
+3. **lock**, ordered by `card_variant_id` (as is step 2's source list, so two
+   overlapping batches cannot deadlock);
+4. compute in JS from the locked values;
+5. one multi-row UPDATE, one first-acquisition query, one event INSERT;
+6. `recomputeSetProgress` per distinct set, ordered by set id;
+7. **explicit COMMIT before the response** (`commitRequestTx`) — the RLS
+   middleware otherwise commits on `res.on('finish')`, i.e. after the response
+   has flushed, which for this endpoint would be the incident's own failure mode
+   in miniature.
+
+## The mutation log
+
+`mutation_batch` (one row per operation) and `mutation_event` (one row per thing
+changed, with `before` and `after`) sit alongside `collection_event` rather than
+replacing it: that table is the collection's activity feed and predates this by
+seven migrations. `collection_event.batch_id` joins them, so one row can answer
+both "what happened to this card" and "which operation did it belong to".
+
+`mutation_event` is append-only at the policy level — SELECT and INSERT, no
+UPDATE — so a revert appends compensating events rather than editing history.
+See SECURITY.md for why that matters on Supabase specifically.

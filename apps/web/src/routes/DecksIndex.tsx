@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CreateDeckBody, type DeckFormat, type DeckSummary } from '../lib/api'
 import { Content, Spinner, ErrorState, Button, EmptyState, SelectableCard } from '../components/ui'
 import { Modal } from '../components/ListModals'
+import { RecycleBin } from '../components/RecycleBin'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
 import { fmtUsd } from '../lib/format'
@@ -234,6 +235,23 @@ export function DecksIndex() {
           {decks.map((d) => <DeckCard key={d.id} deck={d} />)}
         </div>
       )}
+
+      {/* Deleting a deck no longer takes its version history and battle logs
+          with it (migration 038) — this is the undo, and the only route to a
+          real, permanent delete. */}
+      <RecycleBin
+        kind="deck"
+        load={async (signal) =>
+          (await api.deletedDecks(signal)).decks.map((d) => ({
+            id: d.id,
+            name: d.name,
+            detail: `${d.formatCode} · ${d.totalCount} card${d.totalCount === 1 ? '' : 's'} · v${d.version}`,
+          }))
+        }
+        restore={(id) => api.restoreDeck(id)}
+        purge={(id) => api.purgeDeck(id)}
+        invalidate={['decks']}
+      />
 
       {showNew && <NewDeckModal busy={create.isPending} error={err} onClose={() => setShowNew(false)} onSubmit={(b) => create.mutate(b)} />}
       {showImport && <ImportModal busy={importDeck.isPending} error={err} onClose={() => setShowImport(false)} onSubmit={(b) => importDeck.mutate(b)} />}

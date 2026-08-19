@@ -109,6 +109,46 @@ export async function withUserContext<T>(
   }
 }
 
+/**
+ * Commit the per-request RLS transaction NOW, before the response is written.
+ *
+ * The middleware in index.ts commits on `res.on('finish')` — i.e. after the
+ * response has already flushed to the client. For almost every endpoint that is
+ * fine; for one whose entire purpose is truthful accounting of what was
+ * written, it is the same lie in a smaller form: a COMMIT that fails after the
+ * response leaves the caller holding a 200 for writes that never landed.
+ *
+ * So the batch collection endpoint commits explicitly and only then responds.
+ *
+ * Two things this MUST get right:
+ *
+ *  1. `SET LOCAL role` and `set_config(..., true)` are transaction-scoped, so a
+ *     bare `COMMIT; BEGIN` would hand the rest of the request back to the pool
+ *     user — `postgres`, which owns every table and therefore BYPASSES RLS.
+ *     The replacement transaction re-establishes both, in the same
+ *     simple-query batch, exactly as the middleware does.
+ *  2. It must be called with no savepoint open. Committing underneath
+ *     `withTx`'s SAVEPOINT would release a stack that its `finally` still
+ *     expects to exist.
+ *
+ * No-op outside SUPABASE_MODE: self-host has no request transaction, and
+ * `withTx` has already committed its own.
+ */
+export async function commitRequestTx(userId: string | null): Promise<void> {
+  const client = rlsStore.getStore();
+  if (!client) return;
+  const claims = userId
+    ? `SELECT set_config('request.jwt.claims', ${client.escapeLiteral(
+        JSON.stringify({ sub: userId, role: 'authenticated' }),
+      )}, true); SET LOCAL role = 'authenticated'`
+    : `SET LOCAL role = 'anon'`;
+  // One round trip. If the connection has already been destroyed by the
+  // watchdog or an early client disconnect, this throws — which is correct:
+  // the response is unsendable and the error funnel should say so rather than
+  // report a success nobody can verify.
+  await client.query(`COMMIT; BEGIN; ${claims}`);
+}
+
 export async function q<T extends pg.QueryResultRow = pg.QueryResultRow>(
   text: string,
   params: readonly unknown[] = [],

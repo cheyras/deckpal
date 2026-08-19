@@ -891,3 +891,138 @@ skill walks that dir). No DB.
   three non-primary variants carry no price; the buy URL for the `1999-2000
   Copyright` variant is `null` (no TCGplayer product mapping). Rendered as "no
   price", never 0.
+
+---
+
+# Batch collection writes, the mutation log, and carts (added 2026-08-19)
+
+## `POST /collection/batch`
+
+Apply many collection changes as ONE transaction. This is what `log_cards` calls;
+the per-variant endpoints above still exist and are the right shape for a UI
+stepper.
+
+```jsonc
+POST /collection/batch
+{
+  "items": [                       // 1–250, at most 40 DISTINCT SETS
+    { "variantId": 37183, "delta": 1 },
+    { "variantId": 37184, "quantity": 3 }
+  ],
+  "source": "deckpal-mcp",         // ^[a-z0-9][a-z0-9._-]{0,39}$, default "web"
+  "note": "Aug 2026 pack haul",    // ≤500 chars, stored on every event
+  "idempotencyKey": "…",           // optional; see below
+  "dryRun": false                  // true previews and consumes no key
+}
+```
+
+Response:
+
+```jsonc
+{
+  "batchId": "…", "replayed": false, "applied": 99, "unchanged": 0,
+  "items": [{ "variantId": 37183, "cardId": "me05-001", "setId": "me05",
+              "before": 1, "after": 2, "delta": 1, "requestedDelta": 1,
+              "clamped": false }],
+  "progress": { "me05": { "complete": {…}, "master": {…}, "grandmaster": {…} } },
+  "folded": [{ "variantId": 37183, "from": [0, 4] }],
+  "duplicateOf": { "batchId": "…", "at": "…", "note": "…" }   // when applicable
+}
+```
+
+**Ordering is defined.** Repeated variants fold in input order: deltas
+accumulate, an absolute `quantity` discards everything before it for that
+variant, and a delta after an absolute adjusts that value — identical to applying
+the items one at a time. `folded` reports which input indices merged.
+
+**Idempotency.** A caller-supplied `idempotencyKey` is honoured indefinitely.
+Otherwise the server derives one from the batch's resolved contents plus a
+15-minute time bucket. Either way a duplicate returns the ORIGINAL response with
+`replayed: true` and writes nothing. An identical batch outside the window is
+applied AND flagged via `duplicateOf`.
+
+**The response is sent after COMMIT** (see `commitRequestTx`), so a 200 from this
+endpoint means the writes are durable.
+
+Caps are 400s: 250 items, 40 distinct sets. Distinct sets are the cost driver —
+each one is a full-set progress recompute.
+
+## `GET /mutations`
+
+The history feed, newest first. Filters: `since`, `until`, `source`, `tool`,
+`idempotency_key`, `note` (substring), `entity_type`, `entity_id`, `limit`,
+`page`.
+
+```jsonc
+{ "total": 42, "page": 1, "pageSize": 25,
+  "batches": [{ "batchId": "…", "source": "deckpal-mcp", "tool": "collection.batch",
+                "note": "…", "status": "committed", "idempotencyKey": "…",
+                "revertsBatchId": null, "startedAt": "…", "finishedAt": "…",
+                "eventCount": 99, "revertedEventCount": 0 }] }
+```
+
+`?idempotency_key=…` is how a client that lost its response asks what landed.
+
+## `GET /mutations/:batchId`
+
+One operation in full — the batch (including its stored `response`) and every
+event, each with `before`, `after`, `requestedDelta`, `effectiveDelta`,
+`clamped`, and `undoneByEventId`.
+
+## `POST /mutations/revert`
+
+```jsonc
+{ "batchId": "…",          // or eventId, or since (+until, source),
+                           // or entityType + entityId (+at)
+  "strategy": "inverse",   // "inverse" (default) | "restore"
+  "force": false,          // apply conflicted items / re-undo something
+  "dryRun": true,          // DEFAULT
+  "note": "…", "source": "deckpal-mcp" }
+```
+
+Returns a `plan` with one entry per targeted event: the action, `from`/`to`/`delta`
+for quantities, a `conflicts` array, and `exact`. Items with conflicts are
+skipped unless `force`. Conflicts are raised when the original change clamped,
+when the inverse would clamp, or when a later event asserted an absolute quantity
+on the same entity. The revert is itself a logged batch.
+
+## Cart routes
+
+- `GET /sets/:setId/massentry?goal=&finish=&rarity=&rarity_exclude=`
+- `GET /lists/:listId/massentry?missing_only=true`
+- `POST /massentry` — `{ items: [{ variantId | cardId, quantity? }] }` (≤500)
+- `GET /decks/:id/massentry`
+
+All four return the same shape:
+
+```jsonc
+{ "source": "set" | "list" | "items",
+  "needed": { "cards": 111, "items": 151, "unlinkable": 0,
+              "exactLines": 111, "bestEffortLines": 0 },
+  "lines": ["1-704758", "2-704760"],
+  "text": "1-704758\n2-704760",
+  "urls": [...], "exactUrls": [...], "bestEffortUrls": [...],
+  "unlinkable": [{ "name": "…", "number": "…", "setId": "…", "variant": null }],
+  "warnings": [...], "note": "…" }
+```
+
+Lines are `<qty>-<productId>`, aggregated per TCGplayer product id.
+`exactUrls` and `bestEffortUrls` are never mixed: Mass Entry is all-or-nothing,
+so a guess that misses would otherwise void the whole cart.
+
+## List routes
+
+- `POST /lists/:id/items/bulk` — `{ items?: [...], addMissing?: { setId, goal,
+  finishes?, rarity?, rarityExclude?, maxPriceUsd?, pricedOnly? }, dryRun?, source? }`.
+  One transaction, one batch, whatever the count.
+- `POST /lists/:id/restore`, `DELETE /lists/:id?purge=true`
+- `GET /lists?deleted=true` — the recycle bin
+
+## Deck routes
+
+- `POST /decks/:id/restore`, `DELETE /decks/:id?purge=true`
+- `GET /decks?deleted=true` — the recycle bin
+
+`DELETE /lists/:id` and `DELETE /decks/:id` are now soft by default and answer
+`{ deleted, restorable: true, batchId }`; `?purge=true` answers
+`{ purged, restorable: false }`.
