@@ -327,6 +327,10 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
           .string()
           .optional()
           .describe('Deck UUID from the index. Omit to list all decks.'),
+        deleted: z
+          .boolean()
+          .default(false)
+          .describe('true → show DELETED decks (the recycle bin) instead of live ones. Restore one with delete_deck(restore:true).'),
         include: z
           .array(z.enum(INCLUDES))
           .optional()
@@ -336,11 +340,13 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
       }),
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async ({ deck_id, include }) => {
+    async ({ deck_id, deleted, include }) => {
       try {
         if (!deck_id) {
-          const res = (await ctx.api.get('/decks')) as { decks: DeckIndexRow[] };
-          if (res.decks.length === 0) return ok('No decks yet. Create one with save_deck.');
+          const res = (await ctx.api.get(`/decks${deleted ? '?deleted=true' : ''}`)) as { decks: DeckIndexRow[] };
+          if (res.decks.length === 0) {
+            return ok(deleted ? 'Nothing in the recycle bin — no deleted decks.' : 'No decks yet. Create one with save_deck.');
+          }
           const lines = res.decks.map((d) => {
             const games = d.record.wins + d.record.losses + d.record.ties;
             return row(
@@ -590,13 +596,21 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
     {
       title: 'Delete a deck',
       description:
-        'Permanently delete a deck and its card list (the collection is NOT touched — decks only ' +
-        'reference cards). The deck\'s entire version history and all its battle logs cascade with ' +
-        'it — there is no undo. Defaults to a dry run that shows what would be deleted; re-run with ' +
-        'dry_run: false to actually delete. To remove individual cards from a deck use save_deck; ' +
-        'to roll back to an older list keep the deck and use deck_history revert_to instead.',
+        'Delete a deck and its card list (the collection is NOT touched — decks only reference ' +
+        'cards). By default this is REVERSIBLE: the deck disappears from every view but keeps its ' +
+        'version history and battle logs, and can be restored with restore:true or found again ' +
+        'with decks(deleted:true). Defaults to a dry run that shows what would be deleted; re-run ' +
+        'with dry_run:false to delete. purge:true is the exception — it destroys the deck, its ' +
+        'entire version history and every battle log for good, with NO undo, and should only be ' +
+        'used when the user has said they want it gone permanently. To remove individual cards ' +
+        'use save_deck; to roll back to an older list use deck_history revert_to.',
       inputSchema: z.object({
         deck_id: z.string().describe('Deck UUID to delete (from the decks index).'),
+        purge: z
+          .boolean()
+          .default(false)
+          .describe('true → destroy it permanently, taking version history and battle logs with it. NO UNDO.'),
+        restore: z.boolean().default(false).describe('true → restore a deleted deck instead of deleting one.'),
         dry_run: z
           .boolean()
           .default(true)
@@ -604,8 +618,15 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     },
-    async ({ deck_id, dry_run }) => {
+    async ({ deck_id, purge, restore, dry_run }) => {
       try {
+        if (restore) {
+          if (dry_run) return ok(`DRY RUN — would restore deleted deck ${deck_id}.\nRe-run with dry_run: false to restore.`);
+          const r = (await ctx.api.send('POST', `/decks/${encodeURIComponent(deck_id)}/restore`, { source: SOURCE })) as {
+            deck: DeckDetail;
+          };
+          return ok(`Restored deck '${r.deck.deck.name}' (${deck_id}).`);
+        }
         const detail = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
         const versions = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/versions`)) as {
           versions: { battleLogs: { total: number } }[];
@@ -613,12 +634,26 @@ export function registerDeckTools(server: McpServer, ctx: Ctx): void {
         const logCount = versions.versions.reduce((n, v) => n + v.battleLogs.total, 0);
         const what =
           `deck '${detail.deck.name}' (${deck_id}) — ${detail.counts.total} card(s), ${detail.counts.distinctNames} distinct name(s), ` +
-          `${versions.versions.length} version(s) and ${logCount} battle log(s) (history and logs cascade — no undo)`;
+          `${versions.versions.length} version(s) and ${logCount} battle log(s)`;
         if (dry_run) {
-          return ok(`DRY RUN — nothing deleted. Would delete ${what}.\nRe-run with dry_run: false to delete.`);
+          return ok(
+            purge
+              ? `DRY RUN — nothing deleted. Would PERMANENTLY destroy ${what}. History and logs go with it and CANNOT be recovered.\nRe-run with dry_run: false to purge.`
+              : `DRY RUN — nothing deleted. Would delete ${what} (restorable afterwards — history and logs are kept).\nRe-run with dry_run: false to delete.`,
+          );
         }
-        await ctx.api.send('DELETE', `/decks/${encodeURIComponent(deck_id)}`);
-        return ok(`Deleted ${what}.`);
+        const r = (await ctx.api.send(
+          'DELETE',
+          `/decks/${encodeURIComponent(deck_id)}${purge ? '?purge=true' : ''}`,
+          { source: SOURCE },
+        )) as { restorable: boolean; batchId?: string };
+        return ok(
+          r.restorable
+            ? `Deleted ${what}. It is in the recycle bin — restore with delete_deck(deck_id: "${deck_id}", restore: true, dry_run: false)` +
+                (r.batchId ? `, or revert(batch_id: "${r.batchId}")` : '') +
+                '.'
+            : `PURGED ${what}. This is gone for good.`,
+        );
       } catch (err) {
         return fail(`delete_deck failed: ${(err as Error).message}`);
       }

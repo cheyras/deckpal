@@ -64,6 +64,8 @@ export async function recordDeckChange(
   // constraint. Deriving it here rather than threading a 4th argument through
   // seven call sites means a snapshot cannot be attributed to anyone but the
   // deck's owner — and under RLS this SELECT only ever sees the caller's decks.
+  // soft-delete-exempt: internal helper — every caller has already taken the
+  // deck lock through assertDeck(), which filters deleted_at.
   const deck = await client.query<{ version: number; strategy_md: string | null; format_code: string; user_id: string }>(
     `SELECT version, strategy_md, format_code, user_id FROM deck WHERE id = $1`,
     [deckId],
@@ -111,6 +113,8 @@ export async function recordDeckChange(
  */
 export async function recordStrategyChange(client: pg.PoolClient, deckId: string, strategyMd: string | null): Promise<void> {
   await client.query(`UPDATE deck SET strategy_md = $2, updated_at = now() WHERE id = $1`, [deckId, strategyMd]);
+  // soft-delete-exempt: writes the current version snapshot behind the caller's
+  // deck lock; the deck's own liveness was checked by assertDeck().
   await client.query(
     `UPDATE deck_version dv SET strategy_md = $2, updated_at = now()
        FROM deck d

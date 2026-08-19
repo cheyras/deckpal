@@ -32,12 +32,19 @@ self-hosters.
 - **Image storage** -- ~1.9 GB of WebP card art. Cloud deployments use Supabase
   Storage with CDN; self-host uses a local disk cache with a dedicated image
   server.
-- **MCP server** ("deckpal-mcp") -- 21 tools for Claude, ChatGPT, Gemini, or any
+- **MCP server** ("deckpal-mcp") -- 23 tools for Claude, ChatGPT, Gemini, or any
   MCP-speaking assistant to query the collection, catalog, prices, and decks,
   and to log collection changes with attribution. Live and multi-user on
   cloud: connect with one click via OAuth 2.1 (`https://deckpal.app/mcp`,
   choose "Connect"), or a personal access token for clients without MCP OAuth
   support.
+- **Every change is logged and undoable.** Collection edits, list and deck
+  changes and strategy-guide rewrites each record a before/after snapshot;
+  `mutation_history` shows what an operation did and `revert` undoes it (dry-run
+  first, and it refuses rather than half-applying when an exact undo is not
+  possible). Batch writes carry an idempotency key, so retrying after a timeout
+  returns the original result instead of applying twice. Deleting a list or deck
+  is reversible -- *Recently deleted* on each index restores it.
 - **PWA** -- installable, offline-capable (tiered: app shell always; visited
   art LRU-cached; owned cards opt-in).
 - **Multi-user with row-level security** -- Supabase Auth (email + OAuth) with

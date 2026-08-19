@@ -1,8 +1,23 @@
 import { Router } from 'express';
 import type pg from 'pg';
-import { cardImages, q, recomputeSetProgress, withTx, type SetProgress } from '../db.js';
+import { cardImages, commitRequestTx, q, recomputeSetProgress, withTx, type SetProgress } from '../db.js';
 import { asyncHandler, badRequest, clampInt, notFound, str, userCache } from '../http.js';
 import { currentUserId } from '../identity.js';
+import {
+  candidateKeys,
+  closeBatch,
+  fingerprintOps,
+  findCommittedBatch,
+  findFingerprintEcho,
+  loadBatchResponse,
+  openBatch,
+  OPS,
+  parseNote,
+  parseSource,
+  recordEvents,
+  ReplayError,
+  type MutationEventInput,
+} from '../mutations.js';
 
 export const collectionRouter: Router = Router();
 
@@ -65,31 +80,10 @@ function parseDelta(v: unknown): number {
   return n;
 }
 
-// ── Attribution (migration 018) ───────────────────────────────────────────────
-// Every collection_event carries WHO wrote it (source) and an optional note.
-// The shape mirrors the DB CHECK (collection_event_source_shape) exactly, so a
-// bad value is rejected here as a 400 instead of surfacing as a 500 from Postgres.
+// Attribution (migration 018) — `parseSource` / `parseNote` live in
+// ../mutations.ts now, because every mutating route needs them, not just this one.
 
 const SOURCE_SHAPE = /^[a-z0-9][a-z0-9._-]{0,39}$/;
-
-/** Writer attribution for an event; omitted → 'web' (the UI, matching the column default). */
-function parseSource(v: unknown): string {
-  if (v === undefined || v === null) return 'web';
-  if (typeof v !== 'string' || !SOURCE_SHAPE.test(v)) {
-    throw badRequest("source must match ^[a-z0-9][a-z0-9._-]{0,39}$ (e.g. 'web', 'deckpal-mcp')");
-  }
-  return v;
-}
-
-/** Optional free-text note: trimmed, ≤500 chars, empty → null (never stored as ''). */
-function parseNote(v: unknown): string | null {
-  if (v === undefined || v === null) return null;
-  if (typeof v !== 'string') throw badRequest('note must be a string');
-  const trimmed = v.trim();
-  if (trimmed.length === 0) return null;
-  if (trimmed.length > 500) throw badRequest('note too long (max 500 chars)');
-  return trimmed;
-}
 
 /**
  * Apply a new absolute quantity to (user, variant) and recompute set progress, all
@@ -102,11 +96,16 @@ async function applyQuantity(
   resolveQty: (current: number) => number,
   source: string,
   note: string | null,
+  tool: string,
 ): Promise<MutationResult> {
   const variantId = Number(variantIdRaw);
   if (!Number.isInteger(variantId) || variantId <= 0) throw badRequest('variantId must be a positive integer');
 
   return withTx(async (client: pg.PoolClient) => {
+    // Single-variant writes are logged too, so a stepper click in the web UI is
+    // just as revertible as an agent's batch. No idempotency key: a stepper is
+    // a human deciding to press again, not a retry of a lost response.
+    const batchId = await openBatch(client, { userId, source, tool, note });
     // Validate the variant exists and resolve its card + set (for the recompute).
     const look = await client.query<VariantLookup>(
       `SELECT cv.id, cv.card_id, c.tcgdex_id AS card_tcgdex_id, c.set_id, cs.tcgdex_id AS set_tcgdex_id
@@ -150,14 +149,26 @@ async function applyQuantity(
       }
       // Append the activity log (delta <> 0 enforced above and by the CHECK).
       await client.query(
-        `INSERT INTO collection_event (user_id, card_variant_id, delta, quantity_after, is_first_acquisition, source, note)
-              VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [userId, variantId, delta, clamped, isFirstAcquisition, source, note],
+        `INSERT INTO collection_event (user_id, card_variant_id, delta, quantity_after, is_first_acquisition, source, note, batch_id)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [userId, variantId, delta, clamped, isFirstAcquisition, source, note, batchId],
       );
+      await recordEvents(client, batchId, userId, [
+        {
+          entityType: 'collection_item',
+          entityId: String(variantId),
+          operation: tool === 'collection.set' ? OPS.quantitySet : OPS.quantityDelta,
+          before: { quantity: current },
+          after: { quantity: clamped },
+          requestedDelta: target - current,
+          effectiveDelta: delta,
+        },
+      ]);
     }
 
     // Recompute the three progress rows for this (user, set) in the same tx.
     const progress = await recomputeSetProgress(client, userId, Number(v.set_id));
+    await closeBatch(client, batchId, { variantId, quantity: clamped, delta }, { applied: delta === 0 ? 0 : 1 });
 
     // Return the whole card's per-variant quantities + card-level (complete) ownership,
     // so the client can reconcile both the stepper and the tile without a refetch.
@@ -192,6 +203,380 @@ async function applyQuantity(
   });
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /deckpal/api/collection/batch — MANY variants, ONE transaction
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// This endpoint exists because the per-variant endpoints above are the right
+// shape for a stepper click and the wrong shape for a pack-opening haul.
+//
+// deckpal-mcp's `log_cards` used to call them in a loop: one HTTPS round trip
+// per item, each opening its own transaction and recomputing the whole set's
+// progress. Measured in production on 2026-08-19: **0.65 s per item**, flat. A
+// 99-item batch therefore needs ~65 s, and the MCP serverless function's wall
+// clock is 60 s. What the caller saw was a dead stream; what the database saw
+// was 87–99 committed writes. The agent retried — reasonably, because the error
+// said "the server isn't responding" — and quantities inflated up to 4x.
+//
+// So the cost has to go, not the timeout. Same 99 items here:
+//
+//   • one resolution query instead of 2N,
+//   • one placeholder INSERT, one locking SELECT, one UPDATE, one
+//     first-acquisition query, one event INSERT — regardless of item count,
+//   • one `recomputeSetProgress` per DISTINCT SET rather than per item.
+//
+// ~25 round trips instead of ~1200, i.e. ~1–2 s for a full batch. The advertised
+// cap becomes something the budget can actually deliver rather than a number
+// that happened to sit 10% past the cliff.
+//
+// Everything lands in ONE transaction, so there is no such thing as a partially
+// applied batch, and the response is only sent after an explicit COMMIT (see
+// commitRequestTx) — this endpoint of all endpoints must not report success for
+// a write that has not durably landed.
+//
+// Idempotency (migration 036): the batch row is inserted FIRST, so a duplicate
+// key collides before anything changes and gets the original response back.
+
+/** Hard ceilings. Both are about staying inside the API's own 30 s RLS hold. */
+const BATCH_MAX_ITEMS = 250;
+/** Distinct sets, not items, drive the cost: one full-set CTE recompute each. */
+const BATCH_MAX_SETS = 40;
+
+export interface BatchItemInput {
+  variantId: number;
+  delta?: number;
+  quantity?: number;
+}
+
+/** What a folded item resolves to: either a signed delta or an absolute target. */
+export interface FoldedOp {
+  variantId: number;
+  mode: 'delta' | 'set';
+  /** Signed change (mode 'delta') or the change applied after the set (mode 'set'). */
+  delta: number;
+  /** Absolute target before `delta` is applied (mode 'set' only). */
+  target?: number;
+  /** Input indices that merged into this op, for the folding report. */
+  from: number[];
+}
+
+function parseBatchItems(raw: unknown): BatchItemInput[] {
+  if (!Array.isArray(raw) || raw.length === 0) throw badRequest('items must be a non-empty array');
+  if (raw.length > BATCH_MAX_ITEMS) throw badRequest(`items must be ${BATCH_MAX_ITEMS} or fewer (got ${raw.length})`);
+  return raw.map((r, i) => {
+    if (r === null || typeof r !== 'object') throw badRequest(`items[${i}] must be an object`);
+    const o = r as Record<string, unknown>;
+    const vRaw = o.variantId ?? o.cardVariantId;
+    const variantId = typeof vRaw === 'number' ? vRaw : Number(vRaw);
+    if (!Number.isInteger(variantId) || variantId <= 0) throw badRequest(`items[${i}].variantId must be a positive integer`);
+    const hasDelta = o.delta !== undefined && o.delta !== null;
+    const hasQuantity = o.quantity !== undefined && o.quantity !== null;
+    if (hasDelta === hasQuantity) throw badRequest(`items[${i}] needs exactly one of delta or quantity`);
+    if (hasDelta) return { variantId, delta: parseDelta(o.delta) };
+    return { variantId, quantity: parseQuantity(o.quantity) };
+  });
+}
+
+/**
+ * Merge repeated variants into one operation, in input order.
+ *
+ * Order matters and is defined: deltas accumulate; an absolute `quantity`
+ * discards everything before it for that variant and becomes the new base; a
+ * delta after an absolute adjusts that base. This is exactly what applying the
+ * items one at a time would have done, which is the point — folding must be an
+ * optimisation, never a semantic change.
+ */
+export function foldItems(items: readonly BatchItemInput[]): {
+  ops: FoldedOp[];
+  folded: Array<{ variantId: number; from: number[] }>;
+} {
+  const byVariant = new Map<number, FoldedOp>();
+  const order: number[] = [];
+  items.forEach((it, i) => {
+    let op = byVariant.get(it.variantId);
+    if (!op) {
+      op = { variantId: it.variantId, mode: 'delta', delta: 0, from: [] };
+      byVariant.set(it.variantId, op);
+      order.push(it.variantId);
+    }
+    op.from.push(i);
+    if (it.quantity !== undefined) {
+      op.mode = 'set';
+      op.target = it.quantity;
+      op.delta = 0;
+    } else {
+      op.delta += it.delta!;
+    }
+  });
+  const ops = order.map((v) => byVariant.get(v)!);
+  return { ops, folded: ops.filter((o) => o.from.length > 1).map((o) => ({ variantId: o.variantId, from: o.from })) };
+}
+
+interface BatchVariantRow {
+  id: string;
+  card_id: string;
+  card_tcgdex_id: string;
+  set_id: string;
+  set_tcgdex_id: string;
+}
+
+collectionRouter.post(
+  '/batch',
+  asyncHandler(async (req, res) => {
+    const body = req.body ?? {};
+    const userId = currentUserId(req);
+    const source = parseSource(body.source);
+    const note = parseNote(body.note);
+    const dryRun = body.dryRun === true;
+    const items = parseBatchItems(body.items);
+    const { ops, folded } = foldItems(items);
+
+    const callerKey =
+      typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()
+        ? body.idempotencyKey.trim().slice(0, 200)
+        : null;
+
+    // The fingerprint is over the FOLDED ops — so the same intent expressed as
+    // two `+1`s or one `+2`, or with the items in a different order, hashes the
+    // same. The note is deliberately not part of it (see mutations.ts).
+    const fingerprint = fingerprintOps(
+      userId,
+      ops.map((o) => ({ key: o.variantId, op: o.mode, value: o.mode === 'set' ? o.target! : o.delta })),
+    );
+    const keys = callerKey ? [callerKey] : candidateKeys(fingerprint);
+
+    // Cheap replay check before any work. A dry run never participates in
+    // idempotency at all: it writes nothing, so it has nothing to replay.
+    if (!dryRun) {
+      const replay = await withTx((client) => findCommittedBatch(client, userId, keys));
+      if (replay) {
+        userCache(res);
+        res.json({ ...(replay.response as Record<string, unknown>), replayed: true, batchId: replay.id });
+        return;
+      }
+    }
+
+    const result = await (async (): Promise<Record<string, unknown>> => {
+      try {
+        return await withTx(async (client: pg.PoolClient) => {
+          // FIRST statement: claim the idempotency key. A concurrent duplicate
+          // blocks on the unique index here, before anything has changed, and
+          // when we commit it raises 23505 with nothing of its own written.
+          const batchId = dryRun
+            ? null
+            : await openBatch(client, {
+                userId,
+                source,
+                tool: 'collection.batch',
+                note,
+                idempotencyKey: callerKey,
+                fingerprint: callerKey ? null : fingerprint,
+              });
+
+          // ── Resolve every variant in one query ─────────────────────────────
+          const variantIds = ops.map((o) => o.variantId);
+          const look = await client.query<BatchVariantRow>(
+            `SELECT cv.id, cv.card_id, c.tcgdex_id AS card_tcgdex_id, c.set_id, cs.tcgdex_id AS set_tcgdex_id
+               FROM card_variant cv
+               JOIN card c      ON c.id = cv.card_id
+               JOIN card_set cs ON cs.id = c.set_id
+              WHERE cv.id = ANY($1::bigint[])`,
+            [variantIds],
+          );
+          const meta = new Map(look.rows.map((r) => [Number(r.id), r]));
+          const missing = variantIds.filter((v) => !meta.has(v));
+          if (missing.length > 0) {
+            throw notFound(`No variant ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ` (+${missing.length - 5} more)` : ''}`);
+          }
+
+          const setIds = [...new Set(ops.map((o) => Number(meta.get(o.variantId)!.set_id)))].sort((a, b) => a - b);
+          if (setIds.length > BATCH_MAX_SETS) {
+            throw badRequest(
+              `batch touches ${setIds.length} sets; the limit is ${BATCH_MAX_SETS} — each set costs a full progress recompute. Split the batch.`,
+            );
+          }
+
+          // ── Materialise + lock ─────────────────────────────────────────────
+          // Postgres cannot lock a row that does not exist, and "I just pulled
+          // this card" is precisely the case where it does not: two concurrent
+          // batches would both read 0 and both write 1, losing a delta. So
+          // every target row is materialised at quantity 0 first (a no-op for
+          // rows that already exist), and only then locked — after which every
+          // read is under a lock and nothing can be missed.
+          //
+          // Both statements order by card_variant_id so two overlapping batches
+          // take their locks in the same sequence and cannot deadlock.
+          const sortedIds = [...variantIds].sort((a, b) => a - b);
+          await client.query(
+            `INSERT INTO collection_item (user_id, card_variant_id, quantity, updated_at)
+             SELECT $1, v, 0, now() FROM unnest($2::bigint[]) AS t(v) ORDER BY v
+             ON CONFLICT (user_id, card_variant_id) DO NOTHING`,
+            [userId, sortedIds],
+          );
+          const locked = await client.query<{ card_variant_id: string; quantity: number }>(
+            `SELECT card_variant_id, quantity
+               FROM collection_item
+              WHERE user_id = $1 AND card_variant_id = ANY($2::bigint[])
+              ORDER BY card_variant_id
+                FOR UPDATE`,
+            [userId, sortedIds],
+          );
+          const current = new Map(locked.rows.map((r) => [Number(r.card_variant_id), Number(r.quantity)]));
+
+          // ── Compute ────────────────────────────────────────────────────────
+          interface Change {
+            op: FoldedOp;
+            before: number;
+            after: number;
+            requested: number;
+            effective: number;
+          }
+          const changes: Change[] = ops.map((op) => {
+            const before = current.get(op.variantId) ?? 0;
+            const base = op.mode === 'set' ? op.target! : before;
+            const target = base + op.delta;
+            const after = Math.max(0, Math.min(100000, target));
+            return { op, before, after, requested: target - before, effective: after - before };
+          });
+          const moved = changes.filter((c) => c.effective !== 0);
+
+          if (dryRun) {
+            return {
+              dryRun: true,
+              batchId: null,
+              applied: 0,
+              wouldApply: moved.length,
+              unchanged: changes.length - moved.length,
+              items: changes.map((c) => shapeChange(c.op.variantId, c, meta)),
+              folded,
+            };
+          }
+
+          // ── Write ──────────────────────────────────────────────────────────
+          if (moved.length > 0) {
+            const upd: string[] = [];
+            const updParams: unknown[] = [userId];
+            for (const c of moved) {
+              const b = updParams.length;
+              upd.push(`($${b + 1}::bigint, $${b + 2}::int)`);
+              updParams.push(c.op.variantId, c.after);
+            }
+            await client.query(
+              `UPDATE collection_item ci
+                  SET quantity = v.qty, updated_at = now()
+                 FROM (VALUES ${upd.join(', ')}) AS v(variant_id, qty)
+                WHERE ci.user_id = $1 AND ci.card_variant_id = v.variant_id`,
+              updParams,
+            );
+
+            // First acquisition = this (user, variant) has never had a positive
+            // quantity before. One query for the whole batch.
+            const gained = moved.filter((c) => c.after > 0).map((c) => c.op.variantId);
+            const priorRows = gained.length
+              ? await client.query<{ card_variant_id: string }>(
+                  `SELECT DISTINCT card_variant_id FROM collection_event
+                    WHERE user_id = $1 AND card_variant_id = ANY($2::bigint[]) AND quantity_after > 0`,
+                  [userId, gained],
+                )
+              : { rows: [] as Array<{ card_variant_id: string }> };
+            const seen = new Set(priorRows.rows.map((r) => Number(r.card_variant_id)));
+            const firstAcq = new Map(moved.map((c) => [c.op.variantId, c.after > 0 && !seen.has(c.op.variantId)]));
+
+            const evVals: string[] = [];
+            const evParams: unknown[] = [userId, source, note, batchId];
+            for (const c of moved) {
+              const b = evParams.length;
+              evVals.push(`($1, $${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $2, $3, $4)`);
+              evParams.push(c.op.variantId, c.effective, c.after, firstAcq.get(c.op.variantId) ?? false);
+            }
+            await client.query(
+              `INSERT INTO collection_event
+                 (user_id, card_variant_id, delta, quantity_after, is_first_acquisition, source, note, batch_id)
+               VALUES ${evVals.join(', ')}`,
+              evParams,
+            );
+
+            const events: MutationEventInput[] = moved.map((c) => ({
+              entityType: 'collection_item',
+              entityId: String(c.op.variantId),
+              operation: c.op.mode === 'set' ? OPS.quantitySet : OPS.quantityDelta,
+              before: { quantity: c.before },
+              after: { quantity: c.after },
+              requestedDelta: c.requested,
+              effectiveDelta: c.effective,
+            }));
+            await recordEvents(client, batchId!, userId, events);
+          }
+
+          // ── Recompute progress once per distinct set ───────────────────────
+          const progress: Record<string, SetProgress> = {};
+          const setTid = new Map(look.rows.map((r) => [Number(r.set_id), r.set_tcgdex_id]));
+          for (const setId of setIds) {
+            progress[setTid.get(setId)!] = await recomputeSetProgress(client, userId, setId);
+          }
+
+          const payload: Record<string, unknown> = {
+            dryRun: false,
+            batchId,
+            replayed: false,
+            applied: moved.length,
+            unchanged: changes.length - moved.length,
+            items: changes.map((c) => shapeChange(c.op.variantId, c, meta)),
+            progress,
+            folded,
+          };
+
+          // An identical request that is NOT a replay (outside the idempotency
+          // window) still deserves to be flagged rather than silently doubled.
+          const echo = callerKey ? null : await findFingerprintEcho(client, userId, fingerprint);
+          if (echo) {
+            payload.duplicateOf = { batchId: echo.id, at: echo.finished_at ?? echo.started_at, note: echo.note };
+          }
+
+          await closeBatch(client, batchId!, payload, {
+            items: items.length,
+            ops: ops.length,
+            applied: moved.length,
+            sets: setIds.length,
+          });
+          return payload;
+        });
+      } catch (err) {
+        if (!(err instanceof ReplayError)) throw err;
+        // The concurrent winner committed. Its response is the truth.
+        const stored = await withTx((client) => loadBatchResponse(client, userId, keys));
+        return { ...(stored.response as Record<string, unknown>), replayed: true, batchId: stored.id };
+      }
+    })();
+
+    // Durably committed BEFORE the response is written — see commitRequestTx.
+    if (!dryRun) await commitRequestTx(userId);
+    userCache(res);
+    res.json(result);
+  }),
+);
+
+/** Per-item row in the batch response — the same before/after the log stores. */
+function shapeChange(
+  variantId: number,
+  c: { before: number; after: number; requested: number; effective: number },
+  meta: Map<number, BatchVariantRow>,
+): Record<string, unknown> {
+  const m = meta.get(variantId);
+  return {
+    variantId,
+    cardId: m?.card_tcgdex_id ?? null,
+    setId: m?.set_tcgdex_id ?? null,
+    before: c.before,
+    after: c.after,
+    delta: c.effective,
+    requestedDelta: c.requested,
+    // Non-zero only when the [0, 100000] clamp bit. Surfaced because a revert
+    // of a clamped change cannot be exact, and the caller should know now.
+    clamped: c.requested !== c.effective,
+  };
+}
+
 /**
  * PATCH /deckpal/api/collection/variants/:variantId  { quantity, source?, note? }
  * Set the absolute owned quantity for a variant. Idempotent.
@@ -201,7 +586,7 @@ collectionRouter.patch(
   asyncHandler(async (req, res) => {
     const body = req.body ?? {};
     const quantity = parseQuantity(body.quantity);
-    const result = await applyQuantity(currentUserId(req), String(req.params.variantId), () => quantity, parseSource(body.source), parseNote(body.note));
+    const result = await applyQuantity(currentUserId(req), String(req.params.variantId), () => quantity, parseSource(body.source), parseNote(body.note), 'collection.set');
     userCache(res);
     res.json(result);
   }),
@@ -216,7 +601,7 @@ collectionRouter.post(
   asyncHandler(async (req, res) => {
     const body = req.body ?? {};
     const delta = parseDelta(body.delta);
-    const result = await applyQuantity(currentUserId(req), String(req.params.variantId), (cur) => cur + delta, parseSource(body.source), parseNote(body.note));
+    const result = await applyQuantity(currentUserId(req), String(req.params.variantId), (cur) => cur + delta, parseSource(body.source), parseNote(body.note), 'collection.increment');
     userCache(res);
     res.json(result);
   }),
@@ -242,6 +627,8 @@ collectionRouter.post(
     const userId = currentUserId(req);
 
     const result = await withTx(async (client: pg.PoolClient) => {
+      const batchId = await openBatch(client, { userId, source, tool: have ? 'collection.have' : 'collection.need', note });
+      const logged: MutationEventInput[] = [];
       const cardRow = await client.query<{ id: string; set_id: string; set_tcgdex_id: string; primary_variant: string | null }>(
         `SELECT c.id, c.set_id, cs.tcgdex_id AS set_tcgdex_id,
                 (SELECT cv.id FROM card_variant cv WHERE cv.card_id = c.id AND cv.is_primary LIMIT 1) AS primary_variant
@@ -273,10 +660,19 @@ collectionRouter.post(
             [userId, pv],
           );
           await client.query(
-            `INSERT INTO collection_event (user_id, card_variant_id, delta, quantity_after, is_first_acquisition, source, note)
-                  VALUES ($1, $2, 1, 1, $3, $4, $5)`,
-            [userId, pv, Number(prior.rows[0]?.n ?? 0) === 0, source, note],
+            `INSERT INTO collection_event (user_id, card_variant_id, delta, quantity_after, is_first_acquisition, source, note, batch_id)
+                  VALUES ($1, $2, 1, 1, $3, $4, $5, $6)`,
+            [userId, pv, Number(prior.rows[0]?.n ?? 0) === 0, source, note, batchId],
           );
+          logged.push({
+            entityType: 'collection_item',
+            entityId: String(pv),
+            operation: OPS.quantityDelta,
+            before: { quantity: 0 },
+            after: { quantity: 1 },
+            requestedDelta: 1,
+            effectiveDelta: 1,
+          });
         }
       } else {
         // Need: zero every owned variant of the card, logging each non-zero delta.
@@ -294,14 +690,25 @@ collectionRouter.post(
             [userId, row.card_variant_id],
           );
           await client.query(
-            `INSERT INTO collection_event (user_id, card_variant_id, delta, quantity_after, is_first_acquisition, source, note)
-                  VALUES ($1, $2, $3, 0, false, $4, $5)`,
-            [userId, row.card_variant_id, -Number(row.quantity), source, note],
+            `INSERT INTO collection_event (user_id, card_variant_id, delta, quantity_after, is_first_acquisition, source, note, batch_id)
+                  VALUES ($1, $2, $3, 0, false, $4, $5, $6)`,
+            [userId, row.card_variant_id, -Number(row.quantity), source, note, batchId],
           );
+          logged.push({
+            entityType: 'collection_item',
+            entityId: String(row.card_variant_id),
+            operation: OPS.quantityDelta,
+            before: { quantity: Number(row.quantity) },
+            after: { quantity: 0 },
+            requestedDelta: -Number(row.quantity),
+            effectiveDelta: -Number(row.quantity),
+          });
         }
       }
 
+      await recordEvents(client, batchId, userId, logged);
       const progress = await recomputeSetProgress(client, userId, Number(card.set_id));
+      await closeBatch(client, batchId, { cardId: cardTcgdexId, have }, { applied: logged.length });
       const cardVariants = await client.query<CardVariantQty>(
         `SELECT cv.id AS variant_id, COALESCE(ci.quantity, 0) AS quantity
            FROM card_variant cv

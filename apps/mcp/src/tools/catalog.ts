@@ -303,6 +303,13 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
     name: string;
     local_id: string;
     variant_kind_code: string | null;
+    // Rarity is on every missing row now. It used to be absent, which meant an
+    // agent asked for "everything missing except the Special Illustration
+    // Rares" had to call get_card once per card to find out which was which —
+    // ~87 calls to filter a list this tool had already computed. Variant `tier`
+    // does not substitute: an Illustration Rare and a Special Illustration Rare
+    // are both tier 'standard'.
+    rarity: string | null;
     cheap_minor: number | null;
   }
   interface MissingAggRow {
@@ -333,6 +340,21 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
           .enum(GOALS)
           .optional()
           .describe('Which goal to rank by / list missing cards for. Defaults to user_settings.default_goal.'),
+        rarity: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "With set_id: list ONLY these rarities, e.g. ['Illustration rare']. Exact names, case-insensitive; " +
+              'the rarity of every missing row is shown in the output so you can see the vocabulary.',
+          ),
+        rarity_exclude: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "With set_id: leave these rarities OUT, e.g. ['Special illustration rare']. Rarity is NOT variant tier — " +
+              "an Illustration Rare and a Special Illustration Rare are both tier 'standard', so a tier filter cannot " +
+              'express this.',
+          ),
         page: pageArg,
         page_size: pageSizeArg,
       }),
@@ -342,6 +364,19 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
       try {
         const goal: Goal = args.goal ?? (await defaultGoal(ctx));
         const offset = (args.page - 1) * args.page_size;
+
+        // Rarity filters. Bound as $5/$6 for every branch of the query below,
+        // never interpolated; `rarityWhere` emits the predicate that reads
+        // them. Matching is lower() on both sides because the catalog's casing
+        // ("Special illustration rare") is neither TCGplayer's nor what a
+        // person types.
+        const rarityIn = args.rarity?.length ? args.rarity.map((s) => s.trim().toLowerCase()) : null;
+        const rarityOut = args.rarity_exclude?.length ? args.rarity_exclude.map((s) => s.trim().toLowerCase()) : null;
+        // $3/$4 in BOTH queries below (the count and the page share one CTE, so
+        // the numbering has to agree); paging binds $5/$6.
+        const rarityWhere = (col: string): string =>
+          `AND ($3::text[] IS NULL OR lower(${col}) = ANY($3))
+           AND ($4::text[] IS NULL OR ${col} IS NULL OR NOT (lower(${col}) = ANY($4)))`;
 
         if (!args.set_id) {
           // Overview: one line per set with any progress, sorted by goal pct
@@ -427,13 +462,14 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
         if (goal === 'complete') {
           missingCore = `
             missing AS (
-              SELECT c.id AS card_id, c.name, c.local_id, c.number_sort
+              SELECT c.id AS card_id, c.name, c.local_id, c.number_sort, c.rarity
                 FROM card c
                WHERE c.set_id = $1
                  AND NOT EXISTS (
                    SELECT 1 FROM collection_item ci
                    JOIN card_variant cv ON cv.id = ci.card_variant_id
-                  WHERE cv.card_id = c.id AND ci.user_id = $2 AND ci.quantity > 0)),
+                  WHERE cv.card_id = c.id AND ci.user_id = $2 AND ci.quantity > 0)
+                 ${rarityWhere('c.rarity')}),
             cheapest AS (
               SELECT DISTINCT ON (cv.card_id) cv.card_id, cv.variant_kind_code, pc.market_minor AS cheap_minor
                 FROM card_variant cv
@@ -442,7 +478,7 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
                  AND cv.card_id IN (SELECT card_id FROM missing)
                ORDER BY cv.card_id, pc.market_minor ASC),
             rows AS (
-              SELECT m.name, m.local_id, m.number_sort, ch.variant_kind_code, ch.cheap_minor, NULL::smallint AS vsort
+              SELECT m.name, m.local_id, m.number_sort, m.rarity, ch.variant_kind_code, ch.cheap_minor, NULL::smallint AS vsort
                 FROM missing m LEFT JOIN cheapest ch ON ch.card_id = m.card_id)`;
         } else {
           const reqSql =
@@ -461,11 +497,12 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
                  AND card_variant_id IN (SELECT card_variant_id FROM missing)
                GROUP BY card_variant_id),
             rows AS (
-              SELECT c.name, c.local_id, c.number_sort, cv.variant_kind_code, ch.cheap_minor, cv.sort_order AS vsort
+              SELECT c.name, c.local_id, c.number_sort, c.rarity, cv.variant_kind_code, ch.cheap_minor, cv.sort_order AS vsort
                 FROM missing m
                 JOIN card_variant cv ON cv.id = m.card_variant_id
                 JOIN card c          ON c.id = cv.card_id
-                LEFT JOIN cheapest ch ON ch.card_variant_id = m.card_variant_id)`;
+                LEFT JOIN cheapest ch ON ch.card_variant_id = m.card_variant_id
+               WHERE true ${rarityWhere('c.rarity')})`;
         }
 
         const agg = await q1<MissingAggRow>(
@@ -474,15 +511,15 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
            SELECT count(*) AS missing, sum(cheap_minor)::bigint AS cost_minor,
                   count(cheap_minor) AS priced, count(*) FILTER (WHERE cheap_minor IS NULL) AS unpriced
              FROM rows`,
-          [setId, ctx.userId],
+          [setId, ctx.userId, rarityIn, rarityOut],
         );
         const missingRows = await q<MissingRow>(
           ctx.db,
           `WITH ${missingCore}
-           SELECT name, local_id, variant_kind_code, cheap_minor
+           SELECT name, local_id, variant_kind_code, rarity, cheap_minor
              FROM rows ORDER BY number_sort, vsort NULLS FIRST
-            LIMIT $3 OFFSET $4`,
-          [setId, ctx.userId, args.page_size, offset],
+            LIMIT $5 OFFSET $6`,
+          [setId, ctx.userId, rarityIn, rarityOut, args.page_size, offset],
         );
 
         const lines: string[] = [
@@ -505,9 +542,9 @@ export function registerCatalogTools(server: McpServer, ctx: Ctx): void {
         if (missingTotal === 0) {
           lines.push(`missing for '${goal}': none — goal complete`);
         } else {
-          lines.push(`missing for '${goal}' (${missingTotal}) — name | number | variant kind | cheapest USD:`);
+          lines.push(`missing for '${goal}' (${missingTotal}) — name | number | variant kind | rarity | cheapest USD:`);
           for (const m of missingRows) {
-            lines.push('  ' + row(m.name, m.local_id, m.variant_kind_code ?? 'any', money(m.cheap_minor)));
+            lines.push('  ' + row(m.name, m.local_id, m.variant_kind_code ?? 'any', m.rarity, money(m.cheap_minor)));
           }
           lines.push(pagingFooter(args.page, args.page_size, missingTotal));
           const cost = agg?.cost_minor === null || agg?.cost_minor === undefined ? null : Number(agg.cost_minor);

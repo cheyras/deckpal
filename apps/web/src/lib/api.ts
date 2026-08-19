@@ -895,11 +895,16 @@ export const api = {
 
   // Lists
   lists: (signal?: AbortSignal) => get<{ lists: ListSummary[] }>('/lists', signal),
+  /** The recycle bin: lists that were deleted but are still restorable (migration 038). */
+  deletedLists: (signal?: AbortSignal) => get<{ lists: ListSummary[] }>('/lists?deleted=true', signal),
   list: async (id: string, signal?: AbortSignal) =>
     normaliseItems(await get<{ list: ListSummary; items: RawListItem[] }>(`/lists/${encodeURIComponent(id)}`, signal)),
   createList: (body: CreateListBody) => send<{ list: ListSummary }>('POST', '/lists', body),
   updateList: (id: string, body: UpdateListBody) => send<{ list: ListSummary }>('PATCH', `/lists/${encodeURIComponent(id)}`, body),
-  deleteList: (id: string) => send<{ deleted: string }>('DELETE', `/lists/${encodeURIComponent(id)}`),
+  /** Reversible by default; `purge` is the deliberate no-undo path. */
+  deleteList: (id: string) => send<{ deleted: string; restorable: boolean }>('DELETE', `/lists/${encodeURIComponent(id)}`),
+  purgeList: (id: string) => send<{ purged: string }>('DELETE', `/lists/${encodeURIComponent(id)}?purge=true`),
+  restoreList: (id: string) => send<{ restored: string; list: ListSummary }>('POST', `/lists/${encodeURIComponent(id)}/restore`),
   addListItem: (id: string, body: { cardVariantId?: number; dexId?: number; staticQuantity?: number; note?: string }) =>
     send<{ itemId: string | null; alreadyPresent: boolean; list: ListSummary }>('POST', `/lists/${encodeURIComponent(id)}/items`, body),
   removeListItem: (id: string, itemId: string) =>
@@ -909,10 +914,15 @@ export const api = {
 
   // Decks
   decks: (signal?: AbortSignal) => get<{ decks: DeckSummary[] }>('/decks', signal),
+  /** The recycle bin: decks that were deleted but are still restorable (migration 038). */
+  deletedDecks: (signal?: AbortSignal) => get<{ decks: DeckSummary[] }>('/decks?deleted=true', signal),
   deck: (id: string, signal?: AbortSignal) => get<DeckDetail>(`/decks/${encodeURIComponent(id)}`, signal),
   createDeck: (body: CreateDeckBody) => send<DeckDetail>('POST', '/decks', body),
   updateDeck: (id: string, body: UpdateDeckBody) => send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}`, body),
-  deleteDeck: (id: string) => send<{ deleted: string }>('DELETE', `/decks/${encodeURIComponent(id)}`),
+  /** Reversible by default; `purge` also destroys version history and battle logs. */
+  deleteDeck: (id: string) => send<{ deleted: string; restorable: boolean }>('DELETE', `/decks/${encodeURIComponent(id)}`),
+  purgeDeck: (id: string) => send<{ purged: string }>('DELETE', `/decks/${encodeURIComponent(id)}?purge=true`),
+  restoreDeck: (id: string) => send<{ restored: string }>('POST', `/decks/${encodeURIComponent(id)}/restore`),
   importDeck: (body: { text: string; formatCode?: DeckFormat; glcType?: string | null; name?: string; source?: 'ptcgl' | 'massentry' }) =>
     send<DeckDetail>('POST', '/decks/import', body),
   addDeckCard: (id: string, cardId: string, quantity = 1) =>

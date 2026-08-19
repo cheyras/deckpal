@@ -48,21 +48,30 @@ export function registerStatusTools(server: McpServer, ctx: Ctx): void {
   server.registerTool(
     'health',
     {
-      title: 'Pokedex health & data freshness',
+      title: 'DeckPal health & data freshness',
       description:
-        'Check that deckpal-mcp can reach Postgres and deckpal-api, and how fresh the data is: ' +
-        'catalog counts (cards/variants/sets), owned totals, the last sync run per job with its ' +
-        'status, and price freshness per source. Use this to answer "is the system up / is my ' +
-        'data fresh". Not for collection statistics — use collection_summary for that.',
+        'Check that deckpal-mcp can reach Postgres and deckpal-api, how fast those hops are, and ' +
+        'how fresh the data is: catalog counts (cards/variants/sets), owned totals, the last sync ' +
+        'run per job with its status, and price freshness per source. Use this to answer "is the ' +
+        'system up / is my data fresh / is it slow right now". Not for collection statistics — ' +
+        'use collection_summary for that.',
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async () => {
       try {
-        // DB ping first — everything below depends on it.
+        // DB ping first — everything below depends on it. Timed, because "is
+        // it up" and "will my write finish in time" are different questions,
+        // and during the 2026-08-19 incident this tool answered the first one
+        // reassuringly while the second was the actual problem: db and api were
+        // both genuinely fine, and the MCP function was still being killed at
+        // ~60 s because it was making one API round trip per item.
         let dbOk = false;
         let dbErr = '';
+        let dbMs = 0;
         try {
+          const t = Date.now();
           await q(ctx.db, 'SELECT 1');
+          dbMs = Date.now() - t;
           dbOk = true;
         } catch (err) {
           dbErr = (err as Error).message;
@@ -71,20 +80,27 @@ export function registerStatusTools(server: McpServer, ctx: Ctx): void {
         // API ping (warn-only by design — read tools work without it).
         let apiOk = false;
         let apiErr = '';
+        let apiMs = 0;
         try {
+          const t = Date.now();
           await ctx.api.get('/health');
+          apiMs = Date.now() - t;
           apiOk = true;
         } catch (err) {
           apiErr = (err as Error).message;
         }
 
-        const lines: string[] = ['deckpal-mcp health'];
+        const lines: string[] = ['DeckPal health (deckpal-mcp)'];
         lines.push(
-          `db: ${dbOk ? 'ok' : `DOWN (${dbErr})`} · api: ${apiOk ? 'ok' : `DOWN (${apiErr})`}`,
+          `db: ${dbOk ? `ok (${dbMs} ms)` : `DOWN (${dbErr})`} · api: ${apiOk ? `ok (${apiMs} ms)` : `DOWN (${apiErr})`}`,
+        );
+        lines.push(
+          'write budget: log_cards applies up to 250 items in ONE batched transaction (typically well under a ' +
+            'second), and carries an idempotency key so retrying after any error is safe.',
         );
 
         if (!dbOk) {
-          return ok(lines.join('\n'), { db: false, api: apiOk });
+          return ok(lines.join('\n'), { db: false, api: apiOk, apiLatencyMs: apiMs });
         }
 
         const [counts, owned, syncs, freshness] = await Promise.all([
@@ -142,6 +158,8 @@ export function registerStatusTools(server: McpServer, ctx: Ctx): void {
         return ok(lines.join('\n'), {
           db: true,
           api: apiOk,
+          dbLatencyMs: dbMs,
+          apiLatencyMs: apiMs,
           catalog: c ? { cards: Number(c.cards), variants: Number(c.variants), sets: Number(c.sets) } : null,
           owned: o ? { distinctCards: Number(o.owned_cards), totalQuantity: Number(o.total_qty) } : null,
           syncs: syncs.map((s) => ({ job: s.job, status: s.status, finishedAt: s.finished_at })),

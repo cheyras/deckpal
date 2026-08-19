@@ -81,3 +81,47 @@ proxy is the sole ingress point.
 3. Set `DECKPAL_MCP_KEY` to a strong random value if you use the MCP server.
 4. Set `MCP_ALLOWED_HOSTS` to only the hosts that should reach the MCP server.
 5. Never commit `.env` or other files containing credentials.
+
+## Data retention: deleted lists and decks
+
+Since 2026-08-19 (migration 038), deleting a list or a deck is **reversible and
+therefore not immediate erasure**. The row is marked `deleted_at`, disappears
+from every read, and is **kept indefinitely** until the owner purges it.
+
+There is no automatic sweeper. That is a deliberate choice over an unenforced
+"we keep it 30 days", which would read as *gone soon* while the rows sat there
+forever — but it means a user who deletes something and expects it destroyed has
+to say so:
+
+- **Web:** *Recently deleted* on the Lists and Decks pages → **Delete forever**.
+- **REST:** `DELETE /lists/:id?purge=true`, `DELETE /decks/:id?purge=true`.
+- **MCP:** `delete_list(purge: true)`, `delete_deck(purge: true)`.
+
+A purge is a real `DELETE` and cascades exactly as the old behaviour did — for a
+deck that means its version history and every battle log. It is the one path in
+the API with no undo, and it is the only one.
+
+**Account deletion is unaffected.** Every one of these tables cascades from
+`app_user`, so removing a user still removes their soft-deleted rows.
+
+## The mutation log
+
+Migration 036 records every change made through DeckPal — collection quantities,
+lists, decks, strategy guides — with a `before` and an `after` snapshot. Two
+properties are load-bearing:
+
+- **It is per-user and RLS-enforced.** `mutation_batch` and `mutation_event`
+  carry `user_id`, and migration 037 gives them own-row policies matching
+  `collection_event`'s. Verified against a Supabase-shaped database under the
+  real `authenticated` role: a second user sees none of another's rows and
+  cannot insert one on their behalf.
+- **It is append-only, including for its own owner.** `mutation_event` has
+  SELECT and INSERT policies and no UPDATE policy, because RLS policies are not
+  column-scoped and Supabase exposes every policied table through the Data API —
+  an UPDATE policy would let a user rewrite their own `before`/`after` through
+  PostgREST. An audit trail the audited party can edit is not an audit trail.
+  "Was this reverted?" is therefore the presence of a later event pointing at
+  it, not a mutable flag.
+
+The snapshots contain card ids, quantities, list/deck names and strategy-guide
+text — the same user data as the tables they describe, and no more.

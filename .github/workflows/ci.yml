@@ -57,6 +57,12 @@ jobs:
       - name: Image path parsing + traversal rejection tests (pure, no DB)
         run: pnpm --filter deckpal-api test:images
 
+      # Mass Entry line building (product-id lines, the all-or-nothing URL
+      # split), idempotency key derivation, batch folding, and the source guard
+      # that keeps every card_list/deck read filtering deleted_at.
+      - name: Cart, idempotency, batch-fold and soft-delete guards (pure, no DB)
+        run: pnpm --filter deckpal-api test:pure
+
       # The storage package's own pure suites: the path algebra (paths.test.ts)
       # and the avatar choke point's guards — key shape, accepted magic bytes,
       # and the record-before-publish ordering that keeps a failed upload from

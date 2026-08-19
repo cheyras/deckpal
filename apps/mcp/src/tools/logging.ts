@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { Ctx } from '../ctx.js';
@@ -5,30 +6,75 @@ import { fail, ok } from '../envelope.js';
 import {
   describeCard,
   describeVariant,
-  resolveCard,
-  resolveVariant,
+  pickVariant,
+  resolveCardsBatch,
+  variantsOfMany,
+  type CardRef,
   type ResolvedCard,
   type ResolvedVariant,
 } from '../resolve.js';
 
 /**
- * `log_cards` — THE write tool (SPEC §5 #14). Batch-log collection changes:
- * each item resolves to one card variant and either increments its owned
- * quantity by a signed `delta` or sets it to an absolute `quantity`.
+ * `log_cards` — THE write tool (SPEC §5 #14).
  *
- * All writes go through deckpal-api (SPEC §3 — write logic stays
- * single-sourced): delta → POST /collection/variants/:id/increment,
- * quantity → PATCH /collection/variants/:id, always with
- * `source: 'deckpal-mcp'` so `collection_log` attributes the change (migration
- * 018). Calls are strictly sequential — each mutation recomputes set progress
- * in its own transaction and parallel writes would contend on the same rows.
+ * ## What changed, and why (2026-08-19)
  *
- * Failure policy (SPEC §4/§5): ambiguity is returned, never guessed; an
- * unresolvable or invalid item is reported per-item and does NOT block the
- * rest of the batch. `dry_run` defaults to true and writes nothing.
+ * This tool used to be a loop. For each item it ran two SQL round trips to
+ * resolve the card and its variants, then made one HTTPS call to deckpal-api,
+ * which opened its own transaction and recomputed the whole set's progress.
+ * Measured in production: **0.65 s per item**, flat, of which 0.11 s was
+ * resolution and the rest the per-item write.
+ *
+ * The MCP function's wall clock is ~60 s. So a 99-item batch needed ~65 s, and
+ * what happened is exactly what that arithmetic predicts: the function was
+ * killed, the caller got a dead stream, and 87–99 already-committed writes
+ * stayed committed. The calling agent — correctly, given an error that said
+ * "the server isn't responding" — retried. Three times. Quantities inflated up
+ * to 4×, and recovering meant hand-deriving 92 corrective deltas out of
+ * `collection_log`.
+ *
+ * The advertised cap was 100 items. The budget could deliver about 92. That gap
+ * was the whole bug.
+ *
+ * So now:
+ *
+ *  • **Resolution is batched.** Two queries for the whole batch instead of 2N
+ *    (`resolveCardsBatch`, `variantsOfMany`). Ambiguity still falls through to
+ *    the per-item resolver, so candidate lists and substring matching are
+ *    unchanged. 99 cards: 10.8 s → 59 ms.
+ *  • **The write is one call.** `POST /collection/batch` applies everything in
+ *    ONE transaction with one progress recompute per distinct set. 99 items:
+ *    ~65 s → well under a second.
+ *  • **Retries are safe.** The batch carries an idempotency key derived from its
+ *    own resolved content, so re-sending after an ambiguous failure returns the
+ *    original result and writes nothing.
+ *  • **A timeout tells the truth.** If the API call fails or times out, this
+ *    tool asks the mutation log what actually landed under that key, and says
+ *    so — rather than returning a bare error that hides committed work.
+ *
+ * Failure policy is otherwise unchanged (SPEC §4/§5): ambiguity is returned,
+ * never guessed; an unresolvable item is reported per-item and does not block
+ * the rest; `dry_run` defaults to true and writes nothing.
  */
 
 const SOURCE = 'deckpal-mcp';
+
+/**
+ * How long to give the API before giving up on one chunk. Deliberately below
+ * the API's own `PGRLS_MAX_HOLD_MS` (30 s): if the request is going to be
+ * abandoned server-side anyway, waiting past that only burns the caller's
+ * budget. A 250-item chunk measures well under a second.
+ */
+const API_TIMEOUT_MS = 25_000;
+
+/**
+ * Items per API call. The endpoint's own ceiling is 250; this is the same
+ * number so a full 100-item tool call is always a single request.
+ */
+const CHUNK_SIZE = 250;
+
+/** Overall budget for the whole tool call, well inside the function's wall clock. */
+const DEADLINE_MS = 40_000;
 
 const itemSchema = z.object({
   card_id: z
@@ -70,55 +116,83 @@ const inputSchema = z.object({
   items: z
     .array(itemSchema)
     .min(1)
-    .max(100)
-    .describe('1–100 changes to log. Each item picks one card (card_id, or name + set_id/number), optionally a variant, and exactly one of delta or quantity.'),
+    .max(250)
+    .describe(
+      '1–250 changes to log, applied as ONE atomic batch. Each item picks a card (card_id, or name + set_id/number), ' +
+        'optionally a variant, and exactly one of delta or quantity.',
+    ),
   note: z
     .string()
     .max(500)
     .optional()
     .describe("Optional free-text note stored on every event in this batch, e.g. 'pulls from 2 Prismatic packs'."),
+  idempotency_key: z
+    .string()
+    .max(200)
+    .optional()
+    .describe(
+      'Optional. Re-sending the same key returns the ORIGINAL result and writes nothing. Omit it and one is derived ' +
+        'from the batch contents, which already makes a retry within ~15 minutes safe.',
+    ),
   dry_run: z
     .boolean()
     .default(true)
     .describe('true (default): preview current → new per item, write NOTHING. Re-call with false to apply.'),
 });
 
-/** What each mutation endpoint returns (apps/api/src/routes/collection.ts MutationResult). */
+// ── API shapes ───────────────────────────────────────────────────────────────
+
 interface GoalProgress {
   owned: number;
   total: number;
   pct: number;
 }
-interface MutationResult {
+interface BatchItemResult {
   variantId: number;
-  quantity: number;
+  cardId: string | null;
+  setId: string | null;
+  before: number;
+  after: number;
   delta: number;
-  isFirstAcquisition: boolean;
-  setId: string;
-  progress: { complete: GoalProgress; master: GoalProgress; grandmaster: GoalProgress };
+  requestedDelta: number;
+  clamped: boolean;
+}
+interface BatchResponse {
+  dryRun: boolean;
+  batchId: string | null;
+  replayed?: boolean;
+  applied: number;
+  unchanged: number;
+  items: BatchItemResult[];
+  progress?: Record<string, { complete: GoalProgress; master: GoalProgress; grandmaster: GoalProgress }>;
+  folded?: Array<{ variantId: number; from: number[] }>;
+  duplicateOf?: { batchId: string; at: string; note: string | null };
 }
 
-type ItemOutcome = 'applied' | 'would_apply' | 'failed' | 'skipped';
+// ── Per-item planning ────────────────────────────────────────────────────────
 
-interface ItemResult {
+type Outcome = 'planned' | 'skipped';
+
+interface Planned {
   index: number;
-  outcome: ItemOutcome;
+  card: ResolvedCard;
+  variant: ResolvedVariant;
+  mode: 'delta' | 'quantity';
+  value: number;
+}
+
+interface Skipped {
+  index: number;
   lines: string[];
   structured: Record<string, unknown>;
 }
 
-/** Short card label for result rows: name | tcgdex id (set #number is in describeCard for candidates). */
 function cardLabel(c: ResolvedCard): string {
   return `${c.name} | ${c.tcgdexId}`;
 }
 
 function variantLabel(v: ResolvedVariant): string {
   return v.displayName ?? v.kindCode;
-}
-
-function progressLine(setId: string, p: MutationResult['progress']): string {
-  const g = (label: string, gp: GoalProgress): string => `${label} ${gp.owned}/${gp.total} (${gp.pct}%)`;
-  return `set ${setId}: ${g('complete', p.complete)} · ${g('master', p.master)} · ${g('grandmaster', p.grandmaster)}`;
 }
 
 /** Identify the item in error rows without echoing the whole object. */
@@ -129,99 +203,120 @@ function itemRef(item: Item): string {
   return named || '(no card reference)';
 }
 
-async function processItem(ctx: Ctx, index: number, item: Item, note: string | undefined, dryRun: boolean): Promise<ItemResult> {
-  const tag = `#${index + 1}`;
-  const skip = (reason: string, extra: string[] = [], structured: Record<string, unknown> = {}): ItemResult => ({
-    index,
-    outcome: 'skipped',
-    lines: [`${tag} ✗ ${itemRef(item)} — ${reason}`, ...extra.map((l) => `     ${l}`)],
-    structured: { index, outcome: 'skipped', reason, ...structured },
+function progressLine(setId: string, p: { complete: GoalProgress; master: GoalProgress; grandmaster: GoalProgress }): string {
+  const g = (label: string, gp: GoalProgress): string => `${label} ${gp.owned}/${gp.total} (${gp.pct}%)`;
+  return `set ${setId}: ${g('complete', p.complete)} · ${g('master', p.master)} · ${g('grandmaster', p.grandmaster)}`;
+}
+
+/**
+ * Resolve and validate every item, in as few queries as possible.
+ *
+ * Returns the items that are ready to write and, separately, the ones that are
+ * not — with the same per-item explanations the loop used to produce.
+ */
+async function planBatch(ctx: Ctx, items: readonly Item[]): Promise<{ planned: Planned[]; skipped: Skipped[] }> {
+  const planned: Planned[] = [];
+  const skipped: Skipped[] = [];
+
+  const skip = (index: number, item: Item, reason: string, extra: string[] = [], structured: Record<string, unknown> = {}): void => {
+    skipped.push({
+      index,
+      lines: [`#${index + 1} ✗ ${itemRef(item)} — ${reason}`, ...extra.map((l) => `     ${l}`)],
+      structured: { index, outcome: 'skipped', reason, ...structured },
+    });
+  };
+
+  // Exactly one of delta | quantity — a violation is a per-item error, checked
+  // before any query so a malformed batch costs nothing.
+  const resolvable: number[] = [];
+  items.forEach((item, i) => {
+    const hasDelta = item.delta !== undefined;
+    const hasQuantity = item.quantity !== undefined;
+    if (hasDelta === hasQuantity) {
+      skip(i, item, hasDelta ? 'has BOTH delta and quantity — provide exactly one' : 'has NEITHER delta nor quantity — provide exactly one');
+      return;
+    }
+    if (hasDelta && item.delta === 0) {
+      skip(i, item, 'delta must be non-zero (use quantity to assert the current count)');
+      return;
+    }
+    resolvable.push(i);
+  });
+  if (resolvable.length === 0) return { planned, skipped };
+
+  const refs: CardRef[] = resolvable.map((i) => {
+    const it = items[i]!;
+    return { card_id: it.card_id, name: it.name, set_id: it.set_id, number: it.number };
+  });
+  const { resolved, fallback } = await resolveCardsBatch(ctx, refs);
+
+  const cardIds: number[] = [];
+  resolvable.forEach((_inputIdx, pos) => {
+    const card = resolved.get(pos);
+    if (card) cardIds.push(card.id);
+  });
+  const variantsByCard = await variantsOfMany(ctx, cardIds);
+
+  resolvable.forEach((inputIdx, pos) => {
+    const item = items[inputIdx]!;
+    const card = resolved.get(pos);
+    if (!card) {
+      const res = fallback.get(pos);
+      if (res?.status === 'ambiguous') {
+        skip(
+          inputIdx,
+          item,
+          `ambiguous — ${res.total >= 9 ? '9+' : res.total} cards match; pick one by card_id:`,
+          res.candidates.map(describeCard),
+          { candidates: res.candidates.map((c) => c.tcgdexId) },
+        );
+      } else {
+        skip(inputIdx, item, res?.status === 'not_found' ? res.message : 'could not be resolved');
+      }
+      return;
+    }
+
+    const all = variantsByCard.get(card.id) ?? [];
+    const vres = pickVariant(all, item, { forAbsoluteQuantity: item.quantity !== undefined });
+    if (vres.status === 'not_found') {
+      skip(inputIdx, item, `${cardLabel(card)} — ${vres.message}`);
+      return;
+    }
+    if (vres.status === 'ambiguous') {
+      skip(inputIdx, item, `${cardLabel(card)} — ${vres.message}`, vres.variants.map(describeVariant), {
+        cardId: card.tcgdexId,
+        variants: vres.variants.map((v) => v.id),
+      });
+      return;
+    }
+    planned.push({
+      index: inputIdx,
+      card,
+      variant: vres.variant,
+      mode: item.quantity !== undefined ? 'quantity' : 'delta',
+      value: item.quantity !== undefined ? item.quantity : item.delta!,
+    });
   });
 
-  // Exactly one of delta | quantity — a violation is a per-item error (SPEC §5 #14).
-  const hasDelta = item.delta !== undefined;
-  const hasQuantity = item.quantity !== undefined;
-  if (hasDelta === hasQuantity) {
-    return skip(
-      hasDelta ? 'has BOTH delta and quantity — provide exactly one' : 'has NEITHER delta nor quantity — provide exactly one',
-    );
-  }
-  if (hasDelta && item.delta === 0) return skip('delta must be non-zero (use quantity to assert the current count)');
+  return { planned, skipped };
+}
 
-  // Card resolution — ambiguity is returned with candidates, never guessed (SPEC §4).
-  const cardRes = await resolveCard(ctx, item);
-  if (cardRes.status === 'not_found') return skip(cardRes.message);
-  if (cardRes.status === 'ambiguous') {
-    return skip(
-      `ambiguous — ${cardRes.total >= 9 ? '9+' : cardRes.total} cards match; pick one by card_id:`,
-      cardRes.candidates.map(describeCard),
-      { candidates: cardRes.candidates.map((c) => c.tcgdexId) },
-    );
-  }
-  const card = cardRes.card;
-
-  // Variant resolution: explicit id/kind wins; omitted → primary; absolute quantity
-  // on a multi-variant-owned card with no explicit variant → refuse with the list.
-  const variantRes = await resolveVariant(ctx, card.id, item, { forAbsoluteQuantity: hasQuantity });
-  if (variantRes.status === 'not_found') return skip(`${cardLabel(card)} — ${variantRes.message}`);
-  if (variantRes.status === 'ambiguous') {
-    return skip(`${cardLabel(card)} — ${variantRes.message}`, variantRes.variants.map(describeVariant), {
-      cardId: card.tcgdexId,
-      variants: variantRes.variants.map((v) => v.id),
-    });
-  }
-  const variant = variantRes.variant;
-  const current = variant.ownedQty;
-
-  if (dryRun) {
-    // Mirror the API's clamp (floor 0, cap 100000) so the preview matches what
-    // an execute call would actually do.
-    const target = hasQuantity ? item.quantity! : current + item.delta!;
-    const next = Math.max(0, Math.min(100_000, target));
-    const effective = next - current;
-    const floored = hasDelta && effective !== item.delta ? ' — floors at 0' : '';
-    const deltaTxt = effective === 0 ? 'no change' : `Δ${effective > 0 ? '+' : ''}${effective}`;
-    return {
-      index,
-      outcome: 'would_apply',
-      lines: [`${tag} ${cardLabel(card)} | ${variantLabel(variant)} | ${current} → ${next} (${deltaTxt}${floored})`],
-      structured: { index, outcome: 'would_apply', cardId: card.tcgdexId, variantId: variant.id, current, next },
-    };
-  }
-
-  // Execute — the API response is the authoritative new state.
-  try {
-    const raw = hasDelta
-      ? await ctx.api.send('POST', `/collection/variants/${variant.id}/increment`, { delta: item.delta, source: SOURCE, note })
-      : await ctx.api.send('PATCH', `/collection/variants/${variant.id}`, { quantity: item.quantity, source: SOURCE, note });
-    const res = raw as MutationResult;
-    const oldQty = res.quantity - res.delta;
-    const deltaTxt = res.delta === 0 ? 'no change' : `Δ${res.delta > 0 ? '+' : ''}${res.delta}`;
-    return {
-      index,
-      outcome: 'applied',
-      lines: [
-        `${tag} ✓ ${cardLabel(card)} | ${variantLabel(variant)} | ${oldQty} → ${res.quantity} (${deltaTxt})`,
-        `     ${progressLine(res.setId, res.progress)}`,
-      ],
-      structured: {
-        index,
-        outcome: 'applied',
-        cardId: card.tcgdexId,
-        variantId: res.variantId,
-        oldQuantity: oldQty,
-        newQuantity: res.quantity,
-        delta: res.delta,
-      },
-    };
-  } catch (err) {
-    return {
-      index,
-      outcome: 'failed',
-      lines: [`${tag} ✗ ${cardLabel(card)} | ${variantLabel(variant)} — API error: ${(err as Error).message}`],
-      structured: { index, outcome: 'failed', cardId: card.tcgdexId, variantId: variant.id, error: (err as Error).message },
-    };
-  }
+/**
+ * The idempotency key for one chunk.
+ *
+ * Derived from the RESOLVED operations — so the same intent expressed as
+ * `card_id` on one attempt and `name`+`number` on the retry produces the same
+ * key — and from the whole batch, so chunk boundaries stay stable across a
+ * retry of the same request. The note is excluded on purpose: an agent that
+ * rewrites its note on retry ("batch 1" → "batch 1 retry") must not thereby
+ * double-apply.
+ */
+function chunkKey(userId: string, planned: readonly Planned[], chunkIndex: number): string {
+  const canonical = planned
+    .map((p) => `${p.variant.id}:${p.mode}:${p.value}`)
+    .sort()
+    .join('|');
+  return `${createHash('sha256').update(`${userId} ${canonical}`).digest('hex')}#${chunkIndex}`;
 }
 
 export function registerLoggingTools(server: McpServer, ctx: Ctx): void {
@@ -231,52 +326,238 @@ export function registerLoggingTools(server: McpServer, ctx: Ctx): void {
       title: 'Log collection changes',
       description:
         'Log card acquisitions/removals to the LOCAL DeckPal collection database — this edits ' +
-        'only this app\'s collection tracker, nothing external (no store, no marketplace, no ' +
-        'purchases). Batch of 1–100 items; each picks a card (card_id, or name + set_id/number), ' +
-        'optionally a variant, and exactly one of delta (signed change, e.g. +1 pulled / -1 traded ' +
-        'away) or quantity (absolute count). dry_run defaults to TRUE: the first call only ' +
-        'previews current → new quantities; re-call with dry_run:false to actually write. ' +
-        'Unresolvable or ambiguous items are reported individually and never guessed; the rest of ' +
-        'the batch still processes. Do NOT use this to read history — use collection_log for ' +
-        'that, and get_card to check current owned quantities.',
+        "only this app's collection tracker, nothing external (no store, no marketplace, no " +
+        'purchases). Batch of 1–250 items applied as ONE atomic transaction; each picks a card ' +
+        '(card_id, or name + set_id/number), optionally a variant, and exactly one of delta ' +
+        '(signed change, e.g. +1 pulled / -1 traded away) or quantity (absolute count). ' +
+        'dry_run defaults to TRUE: the first call only previews current → new quantities; ' +
+        're-call with dry_run:false to actually write. Retrying after an error is SAFE — the ' +
+        'batch carries an idempotency key, so a repeat returns the original result and writes ' +
+        'nothing. Unresolvable or ambiguous items are reported individually and never guessed; ' +
+        'the rest of the batch still applies. Do NOT use this to read history — use ' +
+        'mutation_history or collection_log for that, and get_card for current quantities.',
       inputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
-    async ({ items, note, dry_run }) => {
+    async ({ items, note, idempotency_key, dry_run }) => {
+      const startedAt = Date.now();
       try {
-        // Strictly sequential — each write recomputes set progress in its own
-        // transaction; parallel calls would contend on the same progress rows.
-        const results: ItemResult[] = [];
-        for (let i = 0; i < items.length; i++) {
-          results.push(await processItem(ctx, i, items[i]!, note, dry_run));
-        }
-
-        const count = (o: ItemOutcome): number => results.filter((r) => r.outcome === o).length;
-        const skipped = count('skipped');
+        const { planned, skipped } = await planBatch(ctx, items);
         const lines: string[] = [];
+        const structured: Record<string, unknown>[] = [];
 
-        if (dry_run) {
-          lines.push(`log_cards DRY RUN — ${items.length} item(s)`);
-          for (const r of results) lines.push(...r.lines);
-          lines.push(`would apply ${count('would_apply')}, skipped ${skipped} (unresolved/invalid)`);
-          lines.push('dry run — nothing written; re-call with dry_run:false to apply');
-        } else {
-          lines.push(`log_cards — ${items.length} item(s)`);
-          for (const r of results) lines.push(...r.lines);
-          lines.push(`applied ${count('applied')}, failed ${count('failed')}, skipped ${skipped} (unresolved)`);
+        if (planned.length === 0) {
+          for (const s of skipped.sort((a, b) => a.index - b.index)) {
+            lines.push(...s.lines);
+            structured.push(s.structured);
+          }
+          lines.push(`nothing to apply — ${skipped.length} item(s) unresolved/invalid`);
+          return ok([`log_cards — ${items.length} item(s)`, ...lines].join('\n'), {
+            dryRun: dry_run,
+            applied: 0,
+            skipped: skipped.length,
+            items: structured,
+          });
         }
 
-        return ok(lines.join('\n'), {
+        // One chunk in the normal case; several only if a caller exceeds the
+        // endpoint's ceiling. Each carries its own stable key.
+        const chunks: Planned[][] = [];
+        for (let i = 0; i < planned.length; i += CHUNK_SIZE) chunks.push(planned.slice(i, i + CHUNK_SIZE));
+
+        const perIndex = new Map<number, BatchItemResult>();
+        const progress: Record<string, { complete: GoalProgress; master: GoalProgress; grandmaster: GoalProgress }> = {};
+        const keysUsed: string[] = [];
+        let applied = 0;
+        let unchanged = 0;
+        let replayed = false;
+        let duplicateOf: BatchResponse['duplicateOf'];
+        let abandoned: { chunk: number; remaining: number; error: string } | null = null;
+        const batchIds: string[] = [];
+
+        for (const [ci, chunk] of chunks.entries()) {
+          if (Date.now() - startedAt > DEADLINE_MS) {
+            abandoned = {
+              chunk: ci,
+              remaining: chunks.slice(ci).reduce((n, c) => n + c.length, 0),
+              error: 'ran out of time before this chunk was sent',
+            };
+            break;
+          }
+          const key = idempotency_key ? `${idempotency_key}#${ci}` : chunkKey(ctx.userId, planned, ci);
+          keysUsed.push(key);
+          const body = {
+            items: chunk.map((p) => ({
+              variantId: p.variant.id,
+              ...(p.mode === 'delta' ? { delta: p.value } : { quantity: p.value }),
+            })),
+            source: SOURCE,
+            note,
+            idempotencyKey: key,
+            dryRun: dry_run,
+          };
+
+          let res: BatchResponse;
+          try {
+            res = (await withTimeout(ctx.api.send('POST', '/collection/batch', body), API_TIMEOUT_MS)) as BatchResponse;
+          } catch (err) {
+            // The response is gone, but the writes may not be. Ask the log.
+            const truth = await whatLanded(ctx, key);
+            abandoned = {
+              chunk: ci,
+              remaining: chunks.slice(ci).reduce((n, c) => n + c.length, 0),
+              error: (err as Error).message,
+            };
+            if (truth) {
+              res = truth;
+            } else {
+              break;
+            }
+          }
+
+          if (res.batchId) batchIds.push(res.batchId);
+          if (res.replayed) replayed = true;
+          if (res.duplicateOf) duplicateOf = res.duplicateOf;
+          applied += res.applied;
+          unchanged += res.unchanged;
+          for (const it of res.items) {
+            const p = chunk.find((x) => x.variant.id === it.variantId);
+            if (p) perIndex.set(p.index, it);
+          }
+          Object.assign(progress, res.progress ?? {});
+          if (abandoned) break;
+        }
+
+        // ── Render ─────────────────────────────────────────────────────────
+        type Row = { index: number; planned?: Planned; skipped?: Skipped };
+        const all: Row[] = [
+          ...planned.map<Row>((p) => ({ index: p.index, planned: p })),
+          ...skipped.map<Row>((s) => ({ index: s.index, skipped: s })),
+        ].sort((a, b) => a.index - b.index);
+
+        for (const row of all) {
+          if (row.skipped) {
+            lines.push(...row.skipped.lines);
+            structured.push(row.skipped.structured);
+            continue;
+          }
+          const p = row.planned!;
+          const r = perIndex.get(p.index);
+          const tag = `#${p.index + 1}`;
+          if (!r) {
+            lines.push(`${tag} … ${cardLabel(p.card)} | ${variantLabel(p.variant)} — NOT SENT (see the note below)`);
+            structured.push({ index: p.index, outcome: 'not_sent', cardId: p.card.tcgdexId, variantId: p.variant.id });
+            continue;
+          }
+          const deltaTxt = r.delta === 0 ? 'no change' : `Δ${r.delta > 0 ? '+' : ''}${r.delta}`;
+          const clampTxt = r.clamped ? ' — clamped' : '';
+          lines.push(
+            `${tag} ${dry_run ? '' : '✓ '}${cardLabel(p.card)} | ${variantLabel(p.variant)} | ${r.before} → ${r.after} (${deltaTxt}${clampTxt})`,
+          );
+          structured.push({
+            index: p.index,
+            outcome: dry_run ? 'would_apply' : 'applied',
+            cardId: p.card.tcgdexId,
+            variantId: r.variantId,
+            oldQuantity: r.before,
+            newQuantity: r.after,
+            delta: r.delta,
+            clamped: r.clamped,
+          });
+        }
+
+        for (const [setId, p] of Object.entries(progress)) lines.push(`     ${progressLine(setId, p)}`);
+
+        const header = dry_run ? `log_cards DRY RUN — ${items.length} item(s)` : `log_cards — ${items.length} item(s)`;
+        const footer: string[] = [];
+        if (replayed) {
+          footer.push(
+            'REPLAYED — an identical batch had already been applied, so this call wrote NOTHING and returned the ' +
+              'original result. Quantities above are the real current values.',
+          );
+        }
+        if (duplicateOf) {
+          footer.push(
+            `note: an identical batch was applied at ${duplicateOf.at}${duplicateOf.note ? ` ("${duplicateOf.note}")` : ''}. ` +
+              'This one was applied as well — if that was a retry rather than a second real acquisition, revert it with ' +
+              `revert(batch_id: "${batchIds[0] ?? duplicateOf.batchId}").`,
+          );
+        }
+        if (dry_run) {
+          footer.push(`would apply ${applied}, unchanged ${unchanged}, skipped ${skipped.length} (unresolved/invalid)`);
+          footer.push('dry run — nothing written; re-call with dry_run:false to apply');
+        } else {
+          footer.push(`applied ${applied}, unchanged ${unchanged}, skipped ${skipped.length} (unresolved)`);
+          if (batchIds.length) footer.push(`batch id ${batchIds.join(', ')} — undo with revert(batch_id: "${batchIds[0]!}")`);
+        }
+        if (abandoned) {
+          footer.push(
+            `STOPPED after chunk ${abandoned.chunk + 1}/${chunks.length}: ${abandoned.error}. ` +
+              `${abandoned.remaining} item(s) were NOT sent. Everything reported above is the state the database ` +
+              'actually holds. Re-calling with the same items is safe — the idempotency key makes already-applied ' +
+              'chunks a no-op.',
+          );
+        }
+
+        return ok([header, ...lines, ...footer].join('\n'), {
           dryRun: dry_run,
-          applied: count('applied'),
-          wouldApply: count('would_apply'),
-          failed: count('failed'),
-          skipped,
-          items: results.map((r) => r.structured),
+          applied,
+          unchanged,
+          skipped: skipped.length,
+          replayed,
+          batchIds,
+          idempotencyKeys: keysUsed,
+          ...(abandoned ? { abandoned } : {}),
+          ...(duplicateOf ? { duplicateOf } : {}),
+          items: structured,
         });
       } catch (err) {
         return fail(`log_cards failed: ${(err as Error).message}`);
       }
     },
   );
+}
+
+/** Reject after `ms` rather than inheriting the platform's wall clock. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`no response within ${Math.round(ms / 1000)}s`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e: unknown) => {
+        clearTimeout(t);
+        reject(e as Error);
+      },
+    );
+  });
+}
+
+/**
+ * "The call failed — did the write land?"
+ *
+ * This is the question the 2026-08-19 incident could not answer. It can now:
+ * the idempotency key is recorded with the batch, so one lookup says whether
+ * the transaction committed, and returns the exact response it produced.
+ * Returns null when nothing under that key committed — which is a real answer
+ * too, and means the caller can retry with confidence.
+ */
+async function whatLanded(ctx: Ctx, key: string): Promise<BatchResponse | null> {
+  try {
+    const res = (await withTimeout(
+      ctx.api.get(`/mutations?idempotency_key=${encodeURIComponent(key)}&limit=1`),
+      10_000,
+    )) as { batches?: Array<{ batchId: string; status: string }> };
+    const batch = res.batches?.[0];
+    if (!batch || batch.status !== 'committed') return null;
+    const detail = (await withTimeout(ctx.api.get(`/mutations/${batch.batchId}`), 10_000)) as {
+      batch: { batchId: string; response: BatchResponse | null };
+    };
+    return detail.batch.response ?? null;
+  } catch {
+    // The log is unreachable too. Say nothing rather than guess.
+    return null;
+  }
 }

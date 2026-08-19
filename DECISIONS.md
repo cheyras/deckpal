@@ -5266,3 +5266,342 @@ dev-only, and the comment in `vite.config.ts` says so.
 surfaces independently, which nothing needs today, and would require setting a
 new Vercel variable before the route worked at all — until then it would deploy
 and 404 for everybody, which is safe but pointless.
+
+## 2026-08-19 — The silent-success incident: `log_cards` was 65 seconds of work inside a 60-second budget
+**Decided by:** Claude (on behalf of @cheyras). Root-cause and fix for the
+2026-08-19 02:12–02:17Z collection-inflation incident.
+
+**What happened.** A 99-item `log_cards` call reported
+`"The connector's server isn't responding"` three times running. Every one of
+those "failures" had committed its writes. The agent retried — correctly, given
+an error that says the request never arrived — and quantities inflated up to 4×
+across 99 cards. Recovery took hand-deriving 92 corrective deltas out of
+`collection_log`.
+
+**Root cause, measured.** `log_cards` was a loop: two SQL round trips to resolve
+each item, then one HTTPS call per item to deckpal-api, each opening its own
+transaction and recomputing the whole set's progress. Production forensics on
+`collection_event`, gap-split at >5 s:
+
+| pass | events | span | s/item |
+|---|---|---|---|
+| 1 | 91 | 58.89 s | 0.654 |
+| 2 | 92 | 58.85 s | 0.647 |
+| 3 | 99 | 64.55 s | 0.659 |
+| 4 (49-item retry) | 49 | 31.09 s | 0.648 |
+
+Pass 3 has no internal gap over 1 s and 99 events across 99 distinct variants,
+so it was one continuous invocation, not a kill-and-retry that the gap heuristic
+merged. `vercel.json` has set `api/mcp.mjs` `maxDuration: 60` since 2026-08-10,
+so the value was not changed under us either.
+
+Reproduced live on production against the QA tenant: 99 items, `dry_run:false` —
+the client saw SSE keepalives and then a dead stream at **60 060 ms**, and the
+database showed **87 of 99 committed** over 58.83 s. A second run of the same
+99 items **succeeded at 56 638 ms**. The Vercel runtime log during the run shows
+one `λ POST /api/collection/variants/<id>/increment` invocation per item at
+0.68 s intervals.
+
+So: a ~60 s wall-clock budget against a 0.65–0.68 s/item cost. The tool
+advertised a 100-item cap that needed ~65 s to deliver — 94–110 % of budget,
+with jitter deciding which side of the cliff a call landed on. Pass 3's 64.55 s
+overrun is not fully explained (Vercel runtime logs for the incident window are
+past retention, and enforcement is evidently not exact to the second); it does
+not change the diagnosis or the fix, both of which hold under either reading.
+
+**Decision.** Make the work cheap rather than the timeout long.
+
+New `POST /collection/batch` applies a whole batch in ONE transaction: one
+resolution query, one placeholder insert, one locking select, one update, one
+first-acquisition query, one event insert, and one `recomputeSetProgress` per
+DISTINCT SET. `log_cards` resolves the whole batch in two queries
+(`resolveCardsBatch`, `variantsOfMany`) instead of 2N, then makes a single API
+call. Measured: 99 items end-to-end through the MCP in **177 ms** locally,
+against ~2.2 s for the old loop on the same box and ~65 s in cloud. Batched
+resolution alone went from 10.8 s to 59 ms against Supabase.
+
+**Why not raise `maxDuration`.** It moves the cliff instead of removing it, and
+it makes correctness depend on a plan tier. The binding budget is actually the
+API's own `PGRLS_MAX_HOLD_MS` (30 s), not the function's 60 — so the MCP's
+per-call timeout is 25 s and its outer deadline 40 s, both under it.
+
+**Why the caps are 250 items and 40 distinct sets.** Items are cheap; distinct
+sets are not, because each one costs a full-set CTE recompute (~31 ms warm
+against Supabase). Bounding items alone would let a 250-item batch spanning 200
+sets run for 20–30 s.
+
+**Implications.**
+- The per-variant endpoints stay — the web UI's stepper is the right shape for
+  them, and they now write to the mutation log too.
+- Retrying `log_cards` after ANY error is safe: see the idempotency entry below.
+- `health` now reports DB and API round-trip latency. During the incident it
+  answered `db: ok · api: ok` truthfully while the actual problem — the MCP
+  function's own wall clock — was something it did not measure.
+- The incident's damage was already repaired in-session. Verified independently
+  on production: over 02:12–03:00Z, net applied delta per variant equals the
+  intended single application for **137 of 137 variants, 0 wrong**.
+
+## 2026-08-19 — Idempotency keys, bucketed by time
+**Decided by:** Claude (on behalf of @cheyras).
+**Decision:** `mutation_batch` carries `UNIQUE (user_id, idempotency_key)`. The
+key row is the FIRST statement of the writing transaction, so a duplicate
+collides before anything changes and the caller gets the ORIGINAL response back
+instead of a second application. A caller-supplied key is honoured indefinitely.
+Otherwise the server derives `<fingerprint>#<15-minute bucket>`, where the
+fingerprint is `sha256(userId | canonical(folded, RESOLVED ops))`.
+
+**Why the note is excluded and the ops are resolved.** An agent that rewrites
+its note on retry ("batch 1" → "batch 1 retry") must not thereby double-apply;
+an agent that expresses the same card as `card_id` on one attempt and
+`name`+`number` on the next must still collide. Both fall out of hashing the
+resolved operations and nothing else.
+
+**Why bucketed rather than forever.** A content-forever key would silently
+swallow a genuine second acquisition of the same cards next month — the same
+dishonesty this whole workstream exists to remove, inverted. Lookup checks the
+current and previous bucket, so the practical replay window is 15–30 minutes and
+a boundary crossing mid-retry still matches. `request_fingerprint` is stored
+WITHOUT the bucket, so a batch that is correctly allowed to apply can still be
+flagged: "an identical batch was applied 2 days ago — if that was a retry,
+revert(batch_id: …)".
+
+**Implications.** `dry_run` never consumes a key. Chunk keys are
+`sha256(wholeBatchFingerprint)#<chunkIndex>`, not per-chunk content, so a retry
+of the same request reuses identical chunk keys while an edited request gets
+entirely fresh ones.
+
+## 2026-08-19 — The mutation log: before AND after, append-only
+**Decided by:** Claude (on behalf of @cheyras). Migrations 036/037.
+**Decision:** Every mutating route opens a `mutation_batch` and appends one
+`mutation_event` per changed thing, each carrying a `before` and an `after`
+snapshot plus `requested_delta` and `effective_delta`.
+`collection_event.batch_id` joins the collection's own feed to it.
+
+**Why before/after and not just deltas.** Reconstructing truth from a stream of
+signed deltas is exactly what made the incident's recovery expensive. A snapshot
+per event answers "what did that call do?" in one query.
+
+**Why both deltas.** The collection clamps to [0, 100000], so a requested −3
+against a quantity of 1 has an effective delta of −1. Reverting the requested
+value would be wrong; reverting the effective one is only right while nothing
+clamped. Storing both is what lets `revert` detect the difference and refuse.
+
+**Why append-only, with no `reverted_by` column.** RLS policies are not
+column-scoped, and on Supabase every policied table is reachable through the
+Data API with a user JWT. An UPDATE policy on `mutation_event` would let a user
+rewrite `before`/`after` on their own history through PostgREST, bypassing this
+app entirely — an audit trail the audited party can edit is not an audit trail.
+So the table has SELECT + INSERT policies only, and "was this reverted?" is the
+presence of a later event whose `reverts_event_id` points at it.
+`mutation_batch` does get an UPDATE policy: it moves pending → committed in the
+same transaction that wrote it, and it holds bookkeeping rather than before/after
+state, so rewriting it cannot falsify what happened to a card.
+
+**Verified** on a scratch Postgres with Supabase auth stubs (roles, `auth.users`,
+`auth.uid()`), running migrations 001→038 with `SUPABASE_MODE=1` so 021/027/033/037
+actually execute — which a plain local run skips. Under the real `authenticated`
+role: Alice writes and reads her own rows; Bob sees 0 of them; Bob cannot forge a
+row as Alice; and **Alice cannot rewrite her own history** (0 rows updated — no
+UPDATE policy).
+
+**Implications.** Revert coverage begins at deploy. History written before
+migration 036 exists only in `collection_event`, which covers collection
+quantities and nothing else.
+
+## 2026-08-19 — Revert defaults to `inverse`, and says when it cannot be exact
+**Decided by:** Claude (on behalf of @cheyras).
+**Decision:** `POST /mutations/revert` (MCP: `revert`) undoes a batch, an event,
+a time window, or one entity. `dry_run` defaults to true. For quantities the
+default strategy is `inverse` — apply the opposite change — because that leaves
+unrelated later edits standing, which is what you want when undoing one of four
+duplicate batches after legitimately buying more cards. `restore` forces the old
+value back and is the only sensible meaning for a name, a strategy guide, or a
+deleted row.
+
+**Where an exact undo is impossible, it refuses.** Three cases are reported as
+conflicts and skipped without `force`:
+1. the original event clamped (`requested ≠ effective`) — its own record is lossy;
+2. the inverse would itself clamp;
+3. a later event asserted an ABSOLUTE quantity on the same entity — subtracting
+   from an asserted count means something different from what was asked.
+
+An event is never marked reverted unless the applied change equalled the exact
+inverse; a partial undo is recorded as an ordinary change, so the original keeps
+showing as outstanding, which is the truth.
+
+**Worked example of case 1** (why no strategy can fix it): quantity 2 → event A
+sets it to 0 (effective −2) → event B asks for −1, floors to an effective 0 and
+is therefore never recorded. Reverting A by inverse gives 2. The counterfactual
+history without A is 2 − 1 = 1. B's intent was destroyed at write time.
+
+## 2026-08-19 — Soft delete for lists and decks, with no retention timer
+**Decided by:** Claude (on behalf of @cheyras). Migration 038.
+**Decision:** `card_list.deleted_at` and `deck.deleted_at`. Delete hides the row
+and keeps it; `?purge=true` is a real DELETE and the one deliberate no-undo path
+in the API. `delete_deck` no longer takes the deck's version history and every
+battle log with it by default.
+
+**Retention is indefinite, and said out loud.** "We keep it 30 days" would need
+a scheduled sweeper this project does not have, and an unenforced retention
+promise is worse than an honest indefinite one: it reads as "gone soon" while
+the rows sit there forever. Indefinite retention is a real privacy consequence,
+so it is stated in SECURITY.md and the purge path is reachable from every
+surface that can delete — REST, MCP, and a "Recently deleted" section on the
+lists and decks indexes with Restore and Delete-forever. An agent that can undo
+something the user cannot is a worse deal, not a better one.
+
+**Enforced by a source guard.** `__tests__/soft-delete.test.ts` fails CI if any
+`FROM`/`JOIN` on either table lacks a `deleted_at` predicate and lacks a
+`-- soft-delete-exempt: <reason>` marker. Writes-by-id are out of scope and the
+test says so: every one is preceded by a locking existence check (`assertDeck`,
+or the route's own `SELECT … deleted_at IS NULL … FOR UPDATE`), and that check
+is the guard.
+
+## 2026-08-19 — TCGplayer Mass Entry: product ids, because names are not unique and one miss voids the cart
+**Decided by:** Claude (on behalf of @cheyras). Supersedes the 2026-08-16
+`NUMBERED_GROUP_IDS` entry, which was a per-set model of a per-product property.
+
+**Two findings, both probed live against
+`POST https://mpgateway.tcgplayer.com/v1/cart/massentry/addtocartandretrieve`:**
+
+1. **Mass Entry is ALL-OR-NOTHING.** `['1 Tropius [PBL]']` adds 1;
+   `['1 Tropius [PBL]', '1 Fomantis [PBL]']` adds **0**. A single unresolvable
+   line makes the whole submission add nothing — which is exactly the reported
+   symptom, "the cart links usually just error, none of the cards can be found".
+2. **A name line only resolves when the card name is unique inside the group.**
+   TCGplayer disambiguates a repeated name by appending the collector number to
+   the *product* name, so within Pitch Black both `"Tropius"` and
+   `"Fomantis - 003/084"` exist. `1 Fomantis [PBL]` → `InvalidProduct`;
+   `1 Fomantis - 003/084 [PBL]` → resolves. Every modern set reprints base-card
+   names as Illustration / Special Illustration / hyper rares, so a large
+   fraction of name lines missed — and by (1), took the cart with them.
+
+**The grammar has a third form.** TCGplayer's own parser
+(`MassEntryExpressions` in the site bundle) accepts `<qty>-<productId>` in every
+branch. That names the product directly: no name matching, no set code, no
+punctuation to get wrong.
+
+**Measured, 40 Pitch Black primaries:** name form → **0 of 40 added**, 11
+`InvalidProduct`. Product-id form → **40 of 40**, zero errors. The full
+master-goal cart (111 lines, 151 copies) replayed through the live endpoint:
+**111 listings, 151 copies, 0 invalid**. A filtered list cart built through the
+new `list_id` path: **104 listings, 144 copies, 0 invalid**.
+
+**Decision.** `buildCart()` in `apps/api/src/tcgplayer/massentry.ts` emits
+`<qty>-<productId>`, aggregated per product id. `NUMBERED_GROUP_IDS` and
+`isNumberedSet` are deleted. A curated `tcgplayer_mass_entry` token is the only
+fallback and its lines go in SEPARATE URLs, so a guess that misses cannot void
+the verified cart. A variant with neither is reported as unlinkable, never
+guessed at.
+
+**No coverage regression:** `linkable` already required
+`tcgplayer_product_id IS NOT NULL OR tcgplayer_mass_entry IS NOT NULL`, and
+`tcgplayer_mass_entry` is NULL for all 41 341 variants — so the 5 474 variants
+without a product id (13.2 %, concentrated in TCG Pocket sets, Black Star Promos
+and pre-2010 sets) were already unlinkable.
+
+**Aggregating per product id is correct, not a rounding-off.** 12 671 product
+ids in the shipped catalog map to exactly two variants — the normal/reverse
+pair — and two missing printings genuinely are two copies to buy. Mass Entry
+cannot preselect a printing per line anyway (it is a page-wide preference), and
+duplicate product-id lines are merged and summed by TCGplayer (verified).
+
+**Side effect worth having:** the cart path no longer needs a TCGplayer set
+abbreviation, so `tcgplayerAbbrev` (a 5-second-timeout fetch to tcgcsv.com) is
+off the hot path entirely.
+
+## 2026-08-19 — A cart can be built from a list, so the list and the cart can never disagree
+**Decided by:** Claude (on behalf of @cheyras).
+**Decision:** `set_cart` takes exactly one of `set_id`, `list_id`, or `items`.
+New routes: `GET /lists/:id/massentry` and `POST /massentry`.
+
+**Why.** The tool only took `set_id` + `goal`, so it always recomputed "what is
+missing from this whole set at this goal". An agent that had built a filtered
+list — everything missing EXCEPT the Special Illustration Rares — had no way to
+cart it: `set_cart` re-derived from the set and put the excluded cards straight
+back in, and the user was told one thing was in the cart while something else
+was. That is a structural hole (the list and the cart had no shared source of
+truth), not a mistake anyone made.
+
+**Verified:** a list built with `rarity_exclude: ['Special illustration rare',
+'Mega Hyper Rare']` carts 144 cards, and Mega Darkrai ex #116/#120 and Gladion's
+Final Battle #118 are absent from that cart and present in the unfiltered set
+cart.
+
+## 2026-08-19 — Rarity is a filter, because variant tier is not rarity
+**Decided by:** Claude (on behalf of @cheyras).
+**Decision:** `set_progress` shows `rarity` on every missing row and accepts
+`rarity` / `rarity_exclude`; so do `set_cart` and `edit_list`'s new
+`add_missing`. Matching is case-insensitive against `card.rarity`, and an
+unrecognised name is a 400 listing the known vocabulary rather than a silently
+empty result.
+
+**Why.** `card_variant.tier` is `standard` or `special` and does NOT line up
+with the game's printed rarities: an Illustration Rare and a Special
+Illustration Rare are both `standard`. An agent asked for "everything missing
+except the Special Illustration Rares" therefore could not express it as a
+filter and had to read `rarity` off ~87 individual `get_card` calls — on a list
+`set_progress` had already computed. The catalog's casing ("Special illustration
+rare") is neither TCGplayer's nor what a person types, hence `lower()` on both
+sides.
+
+## 2026-08-19 — `edit_list` takes the same card reference as `log_cards`, and can derive the list itself
+**Decided by:** Claude (on behalf of @cheyras).
+**Decision:** `add_cards` accepts `card_id` | `name` + `set_id`/`number`, plus
+`variant_kind` — the shape `log_cards` has accepted all along — resolved for the
+whole batch in two queries. New `add_missing` derives the whole list server-side
+from a set + goal + rarity/finish/price filters. New
+`POST /lists/:id/items/bulk` writes them in one transaction.
+
+**Why.** `add_cards` took a `card_id` (silently meaning "the primary variant")
+or an exact numeric `variant_id`, and nothing in between. So the standard flow —
+`set_progress` hands over name, number, variant kind and price for every missing
+card — still cost one `get_card` per card to recover a variant id. Roughly
+ninety calls to add eighty-seven cards the app had already identified.
+Measured after: 144 cards added in one call, 354 ms.
+
+## 2026-08-19 — The response is sent after COMMIT, for the one endpoint that is about truthfulness
+**Decided by:** Claude (on behalf of @cheyras).
+**Decision:** New `commitRequestTx(userId)` in `apps/api/src/db.ts`. The batch
+collection endpoint calls it before `res.json`.
+
+**Why.** The RLS middleware commits on `res.on('finish')` — after the response
+has flushed. For almost every endpoint that is fine; for the one whose entire
+purpose is truthful accounting of what was written, a COMMIT that fails after
+the response leaves the caller holding a 200 for writes that never landed. That
+is the incident's own failure mode in a smaller form.
+
+**The trap it avoids.** `SET LOCAL role` and `set_config(…, true)` are
+transaction-scoped, so a bare `COMMIT; BEGIN` would hand the rest of the request
+back to the pool user — `postgres`, which owns every table and therefore
+BYPASSES RLS. The replacement transaction re-establishes the claims and the role
+in the same simple-query batch. It must also be called with no savepoint open.
+
+**And the escape hatch.** `GET /mutations?idempotency_key=…` lets `log_cards`
+answer "what actually landed?" after any ambiguous failure, instead of returning
+a bare error that hides committed work. That question had no answer during the
+incident.
+
+## 2026-08-19 — Rename: what was finished, and what is the maintainer's to do
+**Decided by:** Claude (on behalf of @cheyras).
+**Decision:** Fixed in code: the `health` tool's title was still
+"Pokedex health & data freshness". Nothing else in application code says
+DeckScout or rotom — the remaining hits are a real Pokémon card in a test
+fixture ("Rotom V"), historical comments inside checksum-locked migrations, and
+`CLAUDE.local.md`'s QA credentials.
+
+**NOT changed, deliberately — these are the maintainer's calls:**
+- **`deckscout.io` is not a redirect.** It returns HTTP 200 serving the app
+  (title "DeckPal — …"), so the product is live on two apex domains. A redirect
+  is one `vercel.json` entry, but `vercel.json` IS Vercel configuration and
+  contract B9 has no in-repo carve-out — and a redirect DROPS the
+  `Authorization` header, so any connector still pointed at
+  `deckscout.io/mcp` would break silently. If it is wanted, it must be scoped to
+  browser page routes and exclude `/mcp*`, `/api*`, `/.well-known/*` and
+  `/deckpal/images/*`.
+- **The claude.ai connector's display name** ("DeckScout") lives in the user's
+  claude.ai account, not in this repo. The server advertises `deckpal-mcp` /
+  "DeckPal — TCG collection assistant" already.
+- **The SMTP sender** is `DeckPal <noreply@deckscout.io>`; the address is on the
+  Resend-verified `deckscout.io` domain, so changing it means verifying
+  `deckpal.app` with Resend first.

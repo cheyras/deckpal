@@ -1,51 +1,81 @@
 /**
  * TCGplayer Mass Entry building blocks, shared by the set route
- * (GET /sets/:setId/massentry), the deck routes (GET /decks/:id/massentry,
- * GET /decks/:id/pricing) and — through them — deckpal-mcp.
+ * (GET /sets/:setId/massentry), the list route (GET /lists/:id/massentry), the
+ * ad-hoc route (POST /massentry), the deck routes (GET /decks/:id/massentry,
+ * GET /decks/:id/pricing) and — through all of them — deckpal-mcp.
  *
- * What TCGplayer Mass Entry actually supports for Pokémon
- * (empirically verified 2026-08-16 against the live addtocartandretrieve API;
- * the documented `qty Name [CODE] number` grammar works for MTG but NOT for
- * Pokémon — see issue #37):
+ * ## What Mass Entry actually does (probed live 2026-08-19, see DECISIONS.md)
  *
- *   - URL:  https://www.tcgplayer.com/massentry?productline=Pokemon&c=<lines>
- *     with lines separated by `||` (%7C%7C) and spaces as `+`.
+ * The page posts to `POST https://mpgateway.tcgplayer.com/v1/cart/massentry/
+ * addtocartandretrieve` with `{products: [{quantity, productId, name, setCode,
+ * cardNumber}], selectedProductLineId, selectedPrintings, selectedConditions,
+ * …}`. Its own parser (`MassEntryExpressions` in the site bundle) is:
  *
- *   - The name in a line must match TCGplayer's **product name** exactly:
- *       • Most sets (all pre-SV + most SV):  product name = card name only.
- *         Line format: `<qty> <name> [CODE]`
- *         Example:     `1 Boltund V [SWSH08]`
- *       • Some SV-era sets (see NUMBERED_GROUP_IDS): product name includes the
- *         zero-padded collector number and set total.
- *         Line format: `<qty> <name> - <NNN>/<TTT> [CODE]`
- *         Example:     `1 Pikachu - 025/165 [MEW]`
+ *   ByProductSetAndNumber  ^(\d+)(\s+(\S.*)|-(\d+))\s+\[(.+)\]\s+(.+)$
+ *   ByProductAndSet        ^(\d+)(\s+(\S.*)|-(\d+))\s+\[(.+)\]$
+ *   ByProduct              ^(\d+)(\s+(\S.*)|-(\d+))$
  *
- *     Appending a bare collector number *after* the set code (the format MTG
- *     uses) always fails for Pokémon — TCGplayer treats it as part of the
- *     product-name lookup and finds nothing.
+ * Note the second alternative in every branch: **`<qty>-<productId>`**. That is
+ * an exact catalog reference — no name matching, no set code, no punctuation to
+ * get wrong — and it is what this module emits whenever we know the product id.
  *
- *   - NOT supported per line or per URL: printing (normal/foil/reverse) and
- *     condition (NM/LP/…) — both are chosen in the Mass Entry page's own
- *     preferences panel after the list is parsed. We therefore never encode them.
- *   - Long URLs 414 — the `c` payload is chunked (~1800 encoded chars) into an
- *     ordered list of URLs; opening each adds to the same cart.
+ * ### Why name lines were the wrong contract
+ *
+ * A name line only resolves when the name is UNIQUE inside the TCGplayer group.
+ * TCGplayer disambiguates a repeated name by appending the collector number to
+ * the *product* name, so within one set both forms coexist:
+ *
+ *   "Tropius"                (unique)      → `1 Tropius [PBL]`          resolves
+ *   "Fomantis - 003/084"     (repeats)     → `1 Fomantis [PBL]`         FAILS
+ *
+ * That is a per-PRODUCT property, not a per-set one, so the old
+ * `NUMBERED_GROUP_IDS` allow-list could not model it and is gone. Every modern
+ * set reprints base-card names as Illustration / Special Illustration / hyper
+ * rares, so a large fraction of name lines miss.
+ *
+ * ### And why one miss is fatal
+ *
+ * Mass Entry is **all-or-nothing**: a single unresolvable line makes the whole
+ * submission add nothing. Measured: `['1 Tropius [PBL]']` adds 1;
+ * `['1 Tropius [PBL]', '1 Fomantis [PBL]']` adds 0. A 40-line Pitch Black cart
+ * in the old name format added 0/40; the same cards as `<qty>-<productId>`
+ * added 40/40.
+ *
+ * The consequence for this module: lines we can PROVE (product id) and lines we
+ * are GUESSING (a stored `tcgplayer_mass_entry` token) are never mixed into the
+ * same URL, so a guess can never void the verified cart.
+ *
+ * ### What still cannot be encoded
+ *
+ * Printing (normal/foil/reverse) and condition are chosen page-wide in Mass
+ * Entry's own preferences panel, never per line. Two missing printings of one
+ * card are therefore two copies of one product id on one line, and the buyer
+ * picks the printing on the page. Duplicate product-id lines are merged and
+ * summed by TCGplayer (verified), so aggregation here is a courtesy, not a
+ * requirement.
  */
 
 const MASSENTRY_BASE = 'https://www.tcgplayer.com/massentry?productline=Pokemon&c=';
 /** Max encoded chars for one URL's `c` payload — well under common 414 limits. */
 const MAX_C_CHARS = 1800;
 
-/** The printing/condition caveat every Mass Entry response carries. */
+/** The caveats every Mass Entry response carries. */
 export const MASSENTRY_NOTE =
   'Printing (normal/foil/reverse) and condition (NM/LP/…) cannot be preselected by link — ' +
-  "choose them in the preferences panel on TCGplayer's Mass Entry page.";
+  "choose them in the preferences panel on TCGplayer's Mass Entry page. Mass Entry is " +
+  'all-or-nothing: if any single line fails to match a product, NOTHING is added to the ' +
+  'cart, which is why proven product-id lines are never mixed with best-effort ones.';
 
 // ── TCGplayer set abbreviations ───────────────────────────────────────────────
 // The catalog stores card_set.tcgplayer_group_id but not the group's
 // abbreviation (the Mass Entry set-code vocabulary). TCGCSV's groups endpoint
 // (already our price feed upstream) carries it; fetched lazily, cached
 // in-process for 24h, 5-minute negative cache, and every failure degrades to
-// bare-name lines rather than an error.
+// a missing code rather than an error.
+//
+// Product-id lines need no set code at all, so callers only reach for this when
+// they have a best-effort line to build or a code to report — which keeps an
+// external HTTP dependency off the normal cart path entirely.
 const ABBREV_TTL_MS = 24 * 60 * 60 * 1000;
 const ABBREV_NEG_TTL_MS = 5 * 60 * 1000;
 let abbrevCache: { at: number; ok: boolean; map: Map<number, string> } | null = null;
@@ -94,63 +124,25 @@ export async function tcgplayerAbbrev(groupId: number | null): Promise<string | 
   return map.get(groupId) ?? null;
 }
 
-// ── Numbered-product-name sets ────────────────────────────────────────────────
-// Some TCGplayer Pokémon sets include the collector number in the product name
-// (e.g. "Pikachu - 025/165") while most use the bare card name ("Pikachu").
-// Mass Entry matches by product name, so lines for numbered sets must include
-// the number as part of the name.  This set was determined empirically
-// (2026-08-16) and must be extended when TCGplayer names a new set's products
-// with collector numbers.  To test a new set: try both `1 <card> [CODE]` and
-// `1 <card> - <NNN>/<TTT> [CODE]` on https://www.tcgplayer.com/massentry —
-// whichever returns SUCCESS is the format for that group.
-const NUMBERED_GROUP_IDS: ReadonlySet<number> = new Set([
-  23237,  // SV: Scarlet & Violet 151 (MEW)
-  23353,  // SV: Paldean Fates (PAF)
-  23651,  // SV08: Surging Sparks (SSP)
-]);
-
-/** True when TCGplayer's product names for this set include the collector number. */
-export function isNumberedSet(groupId: number | null): boolean {
-  return groupId !== null && NUMBERED_GROUP_IDS.has(groupId);
-}
-
 // ── Line + URL builders ───────────────────────────────────────────────────────
 
-/** Zero-pad a numeric localId to 3 digits ("6" → "006", "25" → "025"). */
-function padLocalId(localId: string): string {
-  return /^\d+$/.test(localId) ? localId.padStart(3, '0') : localId;
+/**
+ * The exact line: `<qty>-<productId>`. TCGplayer resolves this against its
+ * catalog directly, so it cannot be defeated by a repeated card name, an
+ * apostrophe, a colon, a hyphen, or a missing set code.
+ */
+export function productIdLine(qty: number, productId: number): string {
+  return `${qty}-${productId}`;
 }
 
 /**
- * One Mass Entry line.
- *
- * Priority: stored per-variant token → composed line → bare name.
- *
- * `setCardCount` is required for numbered sets (product name includes the
- * collector number, e.g. "Pikachu - 025/165") — pass `card_set.card_count_official`.
- * For un-numbered sets it is ignored.
+ * A stored `tcgplayer_mass_entry` token rendered for `qty` copies. The token
+ * carries its own leading quantity, which is replaced. Best-effort only: the
+ * column is NULL for every row in the shipped catalog, so this exists for forks
+ * that populate it and for hand-curated overrides.
  */
-export function meLine(
-  qty: number,
-  name: string,
-  token: string | null,
-  setCode: string | null,
-  localId: string,
-  groupId?: number | null,
-  setCardCount?: number | null,
-): string {
-  if (token) return `${qty}${token.replace(/^\d+/, '')}`;
-  if (setCode) {
-    if (isNumberedSet(groupId ?? null) && setCardCount) {
-      // Numbered sets: product name = "Name - NNN/TTT"
-      const num = padLocalId(localId);
-      const total = String(setCardCount).padStart(3, '0');
-      return `${qty} ${name} - ${num}/${total} [${setCode}]`;
-    }
-    // Default: bare name + set code (works for pre-SV and most SV sets)
-    return `${qty} ${name} [${setCode}]`;
-  }
-  return `${qty} ${name}`; // no set code available — matches any printing/set
+export function tokenLine(qty: number, token: string): string {
+  return `${qty}${token.replace(/^\d+/, '')}`;
 }
 
 /** Encode one line for the `c` param: URL-encoded, spaces as `+` (observed TCGplayer format). */
@@ -174,4 +166,121 @@ export function buildUrls(lines: string[]): string[] {
   }
   if (cur) urls.push(MASSENTRY_BASE + cur);
   return urls;
+}
+
+// ── The cart builder ──────────────────────────────────────────────────────────
+
+/** One thing the buyer needs, already resolved to a catalog row. */
+export interface CartInput {
+  /** Copies to buy. Merged with any other input carrying the same product id. */
+  quantity: number;
+  /** `card_variant.tcgplayer_product_id` — the only field that matches exactly. */
+  productId: number | null;
+  /** `card_variant.tcgplayer_mass_entry`, when a fork has curated one. */
+  token?: string | null;
+  /** Reporting only (unlinkable list, human text). */
+  name: string;
+  number: string;
+  setId: string;
+  variant?: string | null;
+}
+
+export interface CartGroup {
+  lines: string[];
+  urls: string[];
+  /** Physical copies represented (Σ quantities), not lines. */
+  items: number;
+}
+
+export interface UnlinkableEntry {
+  name: string;
+  number: string;
+  setId: string;
+  variant: string | null;
+}
+
+export interface CartBuild {
+  /** Product-id lines. These resolve deterministically. */
+  exact: CartGroup;
+  /**
+   * Curated-token lines. Kept in their OWN urls: Mass Entry is all-or-nothing,
+   * so a guess that misses must not be able to void the exact cart.
+   */
+  bestEffort: CartGroup;
+  /** No TCGplayer identity at all — buy elsewhere. Never emitted as a guess. */
+  unlinkable: UnlinkableEntry[];
+  /** Every url to open, exact first. Each adds to the same cart. */
+  urls: string[];
+  /** Plain-text fallback for tcgplayer.com/massentry, exact lines first. */
+  text: string;
+  needed: { lines: number; items: number; exactLines: number; bestEffortLines: number; unlinkable: number };
+  warnings: string[];
+  note: string;
+}
+
+/**
+ * Turn resolved catalog rows into Mass Entry lines and URLs.
+ *
+ * Aggregation is by product id (several variants of one card legitimately share
+ * one TCGplayer product — 12 671 product ids in the shipped catalog map to
+ * exactly two variants, the normal/reverse pair — and two missing printings
+ * really are two copies to buy). Input order is preserved by first appearance
+ * so the cart reads in catalog order.
+ */
+export function buildCart(inputs: readonly CartInput[]): CartBuild {
+  const byProduct = new Map<number, number>();
+  const byToken = new Map<string, number>();
+  const unlinkable: UnlinkableEntry[] = [];
+
+  for (const it of inputs) {
+    const qty = Math.max(0, Math.trunc(it.quantity));
+    if (qty === 0) continue;
+    if (it.productId !== null && it.productId !== undefined) {
+      byProduct.set(it.productId, (byProduct.get(it.productId) ?? 0) + qty);
+      continue;
+    }
+    if (it.token) {
+      byToken.set(it.token, (byToken.get(it.token) ?? 0) + qty);
+      continue;
+    }
+    unlinkable.push({ name: it.name, number: it.number, setId: it.setId, variant: it.variant ?? null });
+  }
+
+  const exactLines = [...byProduct.entries()].map(([pid, qty]) => productIdLine(qty, pid));
+  const bestEffortLines = [...byToken.entries()].map(([token, qty]) => tokenLine(qty, token));
+  const exactItems = [...byProduct.values()].reduce((s, n) => s + n, 0);
+  const bestEffortItems = [...byToken.values()].reduce((s, n) => s + n, 0);
+
+  const exact: CartGroup = { lines: exactLines, urls: buildUrls(exactLines), items: exactItems };
+  const bestEffort: CartGroup = { lines: bestEffortLines, urls: buildUrls(bestEffortLines), items: bestEffortItems };
+
+  const warnings: string[] = [];
+  if (bestEffortLines.length > 0) {
+    warnings.push(
+      `${bestEffortLines.length} line(s) use a curated Mass Entry token rather than a TCGplayer product id and may not ` +
+        'resolve. They are in separate link(s) so a miss cannot void the exact cart.',
+    );
+  }
+  if (unlinkable.length > 0) {
+    warnings.push(
+      `${unlinkable.length} needed item(s) have no TCGplayer product id and are not in any cart link — buy them elsewhere.`,
+    );
+  }
+
+  return {
+    exact,
+    bestEffort,
+    unlinkable,
+    urls: [...exact.urls, ...bestEffort.urls],
+    text: [...exactLines, ...bestEffortLines].join('\n'),
+    needed: {
+      lines: exactLines.length + bestEffortLines.length,
+      items: exactItems + bestEffortItems,
+      exactLines: exactLines.length,
+      bestEffortLines: bestEffortLines.length,
+      unlinkable: unlinkable.length,
+    },
+    warnings,
+    note: MASSENTRY_NOTE,
+  };
 }

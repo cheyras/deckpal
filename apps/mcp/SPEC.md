@@ -149,13 +149,16 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   (`card_variant.is_primary`); "set absolute quantity" on a card where the user owns multiple
   variants and no variant was given → refuse with the owned-variant list.
 
-## 5. Tool surface (21 tools + 1 resource)
+## 5. Tool surface (23 tools + 1 resource)
 
 ### Reads — direct SQL (`readOnlyHint: true`)
 
-1. **`health`** — no args. DB ok + API ok, catalog counts (cards/variants/sets), owned totals,
-   last `sync_run` per job (+status), price freshness (`max(price_current.fetched_at)` per
-   source). The "is my data fresh" tool.
+1. **`health`** — no args. DB ok + API ok **with round-trip latency for each**, catalog counts
+   (cards/variants/sets), owned totals, last `sync_run` per job (+status), price freshness
+   (`max(price_current.fetched_at)` per source), and a one-line statement of the write budget.
+   The "is my data fresh / is it slow right now" tool. Latency was added 2026-08-19: during the
+   silent-success incident this tool answered `db: ok · api: ok` truthfully while the actual
+   problem — the MCP function's own wall clock — was something it did not measure.
 2. **`collection_summary`** — `{ top_n?: 1–25 = 10 }`. Distinct cards owned, total quantity,
    sets with ownership, estimated USD value (Σ qty × best `market_minor` across sources per
    owned variant; unpriced count reported), top `top_n` owned cards by value, 5 nearest-complete
@@ -169,7 +172,12 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
    regulation mark, legality flags, set + local number), then per-variant rows: kind code,
    display name, tier (from `variant_tier_resolved` — never re-derive), owned qty, market price,
    TCGplayer link when present. Ambiguous → candidate list.
-5. **`set_progress`** — `{ set_id?, goal? ∈ complete|master|grandmaster, page?, page_size? }`.
+5. **`set_progress`** — `{ set_id?, goal? ∈ complete|master|grandmaster, rarity?, rarity_exclude?,
+   page?, page_size? }`. Every missing row carries its **rarity**, and `rarity`/`rarity_exclude`
+   filter on it (case-insensitive; an unknown name is an error listing the vocabulary, never a
+   silently empty result). Rarity is NOT `variant_tier_resolved.tier`: an Illustration Rare and a
+   Special Illustration Rare are both tier `standard`, which is why a tier filter could not
+   express "no special illustrations" and reading `rarity` per card was the only way.
    No `set_id`: all sets with any progress from `user_set_progress` (owned/total per goal, %
    sorted desc, paged). With `set_id`: all three goals' numbers + the missing cards for the
    requested goal (via `master_required_variant` for master; paged) + **cost-to-complete** (Σ
@@ -218,16 +226,38 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
 ### Collection writes — via deckpal-api
 
 14. **`log_cards`** — THE write tool. `{ items: [{ card_id? | name?+set_id?+number?,
-    variant_id? | variant_kind?, delta? | quantity? }] (1–100), note? (≤500 chars),
-    dry_run? = true }`. Per item exactly one of `delta` (signed increment, floors at 0 via the
-    API) or `quantity` (absolute). Resolution per §4; any unresolvable/ambiguous item is
-    reported per-item and **does not block the others** (partial success, per-item results).
-    Dry run: resolved variant + `current → new` quantity per item, no writes. Execute:
-    sequential calls to `POST /collection/variants/:id/increment` (`{delta, source, note}`) or
-    `PATCH /collection/variants/:id` (`{quantity, source, note}`) with **`source:
-    'deckpal-mcp'`**. Description must say: this edits the local DeckPal collection only —
-    nothing external. `readOnlyHint: false`, `destructiveHint: false` (dry-run gated,
-    delta-reversible).
+    variant_id? | variant_kind?, delta? | quantity? }] (1–250), note? (≤500 chars),
+    idempotency_key?, dry_run? = true }`. Per item exactly one of `delta` (signed increment,
+    floors at 0) or `quantity` (absolute). Resolution per §4; any unresolvable/ambiguous item is
+    reported per-item and **does not block the others**. Dry run: resolved variant +
+    `current → new` per item, no writes. Description must say: this edits the local DeckPal
+    collection only — nothing external. `readOnlyHint: false`, `destructiveHint: false`,
+    **`idempotentHint: true`**.
+
+    **Rewritten 2026-08-19 (see DECISIONS.md).** It used to be a loop: two SQL round trips to
+    resolve each item, then one HTTPS call per item, each with its own transaction and its own
+    full-set progress recompute. That measured **0.65 s per item** in production against a ~60 s
+    function budget, so a 99-item batch outran the wall clock, the response died, and the
+    already-committed writes stood. Retrying — which the error invited — inflated quantities up
+    to 4×.
+
+    Now: resolution is batched (`resolveCardsBatch` + `variantsOfMany`, two queries for the whole
+    batch), and the write is a single `POST /collection/batch` applying everything in ONE
+    transaction with one `recomputeSetProgress` per DISTINCT SET. 99 items end-to-end: 177 ms.
+
+    Three properties the contract now guarantees:
+    - **Retry is safe.** Each chunk carries an idempotency key derived from its resolved
+      contents; a repeat returns the ORIGINAL result and writes nothing, and the text output
+      leads with `REPLAYED`.
+    - **A timeout tells the truth.** On any API failure the tool asks
+      `GET /mutations?idempotency_key=…` what actually landed and reports that, rather than a
+      bare error that hides committed work.
+    - **Nothing is half-applied.** The batch is one transaction; a chunk either lands entirely
+      or not at all, and un-sent chunks are named in the output.
+
+    Budgets: 25 s per API call (under the API's own 30 s `PGRLS_MAX_HOLD_MS`), 40 s outer
+    deadline, 250 items and 40 distinct sets per batch — sets are the cost driver, each one
+    being a full-set CTE recompute.
 
 ### Deck intelligence — via deckpal-api (migration 019; semantics in §6b)
 
@@ -266,11 +296,40 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
 
 ### Shopping — via deckpal-api (`readOnlyHint: true`)
 
-21. **`set_cart`** — `{ set_id, goal? = default goal, finishes? }`. Thin wrapper over
-    `GET /sets/:setId/massentry` (single source of Mass Entry link generation, shared with the
-    web UI's Purchase Set button): TCGplayer Mass Entry deep link(s) + plain-text list for
-    everything still needed to finish a set. Builds links only — never buys anything; the user
-    opens them in their own logged-in browser.
+21. **`set_cart`** — exactly one of `{ set_id, goal?, finishes?, rarity?, rarity_exclude? }`,
+    `{ list_id, missing_only? }`, or `{ items: [{ variant_id | card_id, quantity? }] }`. Wraps
+    `GET /sets/:setId/massentry`, `GET /lists/:id/massentry` and `POST /massentry` — one builder
+    (`apps/api/src/tcgplayer/massentry.ts`), shared with the web UI's Purchase Set button.
+    Builds links only — never buys anything; the user opens them in their own logged-in browser.
+
+    `list_id` exists because the tool used to take only `set_id` + `goal` and therefore always
+    re-derived "what is missing from this whole set", so a carefully filtered list could not be
+    carted — the cart put the excluded cards straight back in.
+
+    Lines are `<qty>-<productId>`, aggregated per TCGplayer product id. Name lines were removed:
+    a name only resolves when it is unique inside its set, every modern set reprints base-card
+    names as Illustration/Special-Illustration rares, and Mass Entry is **all-or-nothing** (one
+    unresolvable line adds nothing at all). A variant with no product id is reported as
+    unlinkable rather than guessed at; a curated `tcgplayer_mass_entry` token is the only
+    fallback and its lines go in separate URLs so a guess cannot void the verified cart.
+
+### History and undo — via deckpal-api
+
+22. **`mutation_history`** — `{ batch_id? | since?, until?, source?, tool?, note?, entity_type?,
+    entity_id?, limit?, page? }`. `GET /mutations` / `GET /mutations/:batchId`. Every change made
+    through DeckPal, grouped by the operation that made it, with a before/after snapshot per
+    thing touched. Answers "what did that call actually do?" — the question that had no answer
+    during the 2026-08-19 incident, when recovery meant hand-deriving 92 corrective deltas out of
+    `collection_log`. Coverage begins at the migration-036 deploy.
+23. **`revert`** — exactly one of `{ batch_id }`, `{ event_id }`, `{ since, until?, source? }`, or
+    `{ entity_type, entity_id, at? }`, plus `{ strategy? = inverse, force? = false, note?,
+    dry_run? = true }`. `POST /mutations/revert`. Undoes a whole operation, one change, a time
+    window, or one entity. `inverse` applies the opposite change so unrelated later edits
+    survive; `restore` forces the old value back. Where an exact undo is impossible — the
+    original change clamped at zero, the inverse would clamp, or a later call asserted an
+    absolute quantity — the item is reported as a CONFLICT and skipped rather than half-applied,
+    and the original is never marked reverted. The revert is itself a logged batch, so it can be
+    reverted. `destructiveHint: true`, dry-run by default.
 
 ### Resource
 

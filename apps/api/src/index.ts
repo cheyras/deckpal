@@ -8,7 +8,8 @@ import { asyncHandler, catalogCache, errorMiddleware } from './http.js';
 import { authMiddleware, resolveIdentity, resolveOptionalIdentity, requireSession } from './auth.js';
 import { seriesRouter } from './routes/series.js';
 import { setsRouter } from './routes/sets.js';
-import { massEntryRouter } from './routes/massentry.js';
+import { cartRouter, massEntryRouter } from './routes/massentry.js';
+import { mutationsRouter } from './routes/mutations.js';
 import { cardsRouter } from './routes/cards.js';
 import { searchRouter } from './routes/search.js';
 import { dexRouter } from './routes/dex.js';
@@ -314,6 +315,11 @@ export function createApp(): express.Express {
   // The two never collide: setsRouter's '/:setId' matches one path segment, so
   // '/sets/sv01/massentry' falls straight through it to here.
   api.use('/sets', massEntryRouter);
+  // Cart links that are not scoped to a set: /lists/:id/massentry and the
+  // ad-hoc POST /massentry. Mounted at '/' with full paths, and BEFORE the
+  // /lists router so the two-segment list path resolves here.
+  api.use('/', cartRouter);
+  api.use('/mutations', mutationsRouter);
   api.use('/collection', collectionRouter);
   api.use('/lists', listsRouter);
   api.use('/decks', decksRouter);
