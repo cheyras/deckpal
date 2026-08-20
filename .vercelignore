@@ -20,6 +20,14 @@
 # Mirrors the same negation pair in .gitignore.
 !apps/web/public/marketing/*.webp
 !apps/web/public/marketing/*.avif
+# ...and Deck-E's card back, which hit exactly the failure the comment above
+# predicts. `.gitignore` swallowed it first, so it 404'd in production; adding
+# the negation THERE was not enough, because this file drops it from the upload
+# as well and the two are independent. The build gate in
+# apps/web/scripts/check-precache.mjs is what caught the second half — it failed
+# the Vercel deploy while the identical tree built cleanly from a fresh clone,
+# which is the difference between "in git" and "uploaded".
+!apps/web/public/models/decke/*.webp
 .env
 .env.*
 !.env.example
