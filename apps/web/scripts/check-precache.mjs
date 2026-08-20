@@ -126,6 +126,16 @@ if (missing.length) {
       'production and nowhere else. Check .gitignore — a blanket rule for the ' +
       'image cache has swallowed one of these before.\n',
   )
+  // SELF-DIAGNOSING, because the place this fires is a build log somebody else
+  // owns. Saying "one of five is missing" and stopping there costs a round trip
+  // through a human to find out which five and what was actually there.
+  console.error(`  referenced (${referenced.size}): ${[...referenced].sort().join(', ')}`)
+  const dir = join(DIST, 'models', 'decke')
+  console.error(
+    `  ${dir} contains: ` +
+      (existsSync(dir) ? readdirSync(dir).sort().join(', ') || '(empty)' : '(no such directory)'),
+  )
+  console.error(`  dist root: ${existsSync(DIST) ? readdirSync(DIST).sort().join(', ') : '(missing)'}\n`)
   process.exit(1)
 }
 
