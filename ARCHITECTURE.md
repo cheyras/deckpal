@@ -516,8 +516,10 @@ apps/web/src/character/decke/
   field.ts        the analytic deformation field (ported from the wiki's Python)
   riders.ts       everything that is not a shell, kept attached to the shells
   playbook.ts     the 27 authored states, compiled to per-channel curves
+  sustain.ts      the loop window per state, plus synthesized idle/sleep/outro clips
   curve.ts        Blender-compatible bezier evaluation
   procedural.ts   idle float, blink, gaze — seeded, deterministic
+  look.ts         where the pupils point (the camera constraint that could not export)
   flight.ts       the travel solver
   dom.ts          DOM element -> a place to stand
   commands.ts     the JSON command surface an LLM drives
@@ -525,6 +527,8 @@ apps/web/src/character/decke/
   eyeSocket.ts    Eye_Rig's VERTEX_3 parenting to the morphed lid
   materials.ts    fixups for what the glTF exporter flattened
   eyes/           the analytic eye shader
+apps/web/src/components/ui/elementHighlight.ts   the chasing ring he presents WITH,
+                          which is a design-system primitive and not his
 apps/web/scripts/decke/   generators for the playbook, cards and parity fixtures,
                           plus shrink.mjs (the asset compression step)
 apps/web/public/models/decke/   .glb, playbook.json, markers.json, HDRI, atlas
@@ -536,6 +540,20 @@ apps/web/public/models/decke/   .glb, playbook.json, markers.json, HDRI, atlas
   frame, not TRS tracks. See the 2026-08-18 entry in `DECISIONS.md` for why —
   briefly, one channel fans out to several rig targets through non-linear
   mappings, and the channel semantics are what the LLM driver needs.
+- **A state is ongoing, not a one-shot.** Every clip runs
+  `intro → sustain → outro`, where the sustain LOOPS a window of the clip until
+  something else is asked for; `setState` also takes `durationMs` and `then` so
+  the driver can spend a state as a beat instead of a mood. Without this a clip
+  holds its last beat forever, and since nearly every last beat is the rest pose,
+  "be happy" decays to "be nothing". `idle` is synthesized, because the playbook
+  has no such state and `boot` was standing in for it — badly, since `boot`'s
+  modulation freezes the float and the blink. 2026-08-20 in `DECISIONS.md`.
+- **Constraints do not export, and one of them was load-bearing.** The pupils
+  track the camera in the `.blend`; glTF emitted the target as a childless root
+  node, so the port wrote the gaze into the void and rendered the bind pose,
+  which is a baked sample of the very constraint that was missing. `look.ts`
+  rebuilds the aim. Worth remembering as a class: a frozen constraint is
+  invisible to any parity check taken at the frame it was frozen on.
 - **Vanilla three.js, not react-three-fiber.** The character is driven
   imperatively; the controller never imports React.
 - **The deformation field is evaluated live**, so continuous channel values

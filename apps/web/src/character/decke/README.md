@@ -21,6 +21,14 @@ playbook.json ──> pose (47 normalised channels) ──> rig ──> morphs +
       procedural layers ┘            └ flight solver / LLM channel overrides
 ```
 
+**A state is something he STAYS in.** Every clip runs as
+`intro → sustain → outro`: it plays in, then loops a window of ITSELF until
+something else is asked for. Without that, a clip plays once and holds its last
+beat — and because almost every clip's last beat is the rest pose, "be happy"
+means "be briefly happy, then be nothing". `sustain.ts` owns the windows and
+why each one is where it is. Only `boot` and the two `travel_*` clips end by
+themselves.
+
 There is **no `AnimationMixer` and no glTF animation.** The `.glb` carries
 geometry, materials and morph targets only. Every frame we evaluate a
 47-channel pose and fan it out. `DECISIONS.md` (2026-08-18) records why; the
@@ -38,6 +46,9 @@ mappings, and an `AnimationClip` cannot answer "40% of the way to a frown".
 | `playbook.ts` / `curve.ts` | the 27 states, and Blender-compatible curve evaluation |
 | `procedural.ts` | idle float, blink, gaze — seeded and deterministic |
 | `flight.ts` / `dom.ts` | travel, and choosing where beside an element to stand |
+| `sustain.ts` | the loop window per state, the synthesized `idle`/`sleep`/outro clips |
+| `look.ts` | where the pupils point — the camera constraint that could not export |
+| — | the highlight ring is `components/ui/elementHighlight.ts`, in the design system |
 | `commands.ts` | the JSON surface an LLM drives |
 | `eyeSocket.ts` | `Eye_Rig`'s VERTEX_3 parenting to the morphed lid |
 | `materials.ts` | fixups for what the glTF exporter flattened |
@@ -46,11 +57,15 @@ mappings, and an `AnimationClip` cannot answer "40% of the way to a frown".
 ## Driving him
 
 ```ts
-decke.setState('happy')
-decke.setOverlay('talk', 1)          // an overlay, never a base state
-decke.setFacing(-1)                  // continuous [-1, +1], animated over 867ms
-decke.flyTo({ selector: '#deck-list' }, { depth: 'foreground', side: 'auto' })
-decke.setChannel('bend', 0.37)       // pin a raw channel; null releases it
+decke.setState('happy')                        // ...and STAY happy
+decke.setState('nod_yes', { mode: 'once' })    // one nod, then idle
+decke.setState('thinking', { durationMs: 4000, then: 'listening' })
+decke.setOverlay('talk', 1)                    // an overlay, never a base state
+decke.setFacing(-1)                            // continuous [-1, +1], over 495ms
+decke.flyTo({ selector: '#deck-list' }, { then: 'point' })   // fly, ring it, point
+decke.highlight('#deck-list')                  // ring it without moving
+decke.setChannel('bend', 0.37)                 // pin a raw channel; null releases it
+decke.playKeyframes(beats, { loop: true })     // an agent-authored clip, as a state
 ```
 
 Or declaratively, which is what the eventual tool call carries:
@@ -59,10 +74,18 @@ Or declaratively, which is what the eventual tool call carries:
 { "commands": [
     { "op": "state",  "value": "happy" },
     { "op": "facing", "value": "left" },
-    { "op": "flyTo",  "selector": "#deck-list", "depth": "foreground" },
+    { "op": "flyTo",  "selector": "#deck-list", "then": "point" },
     { "op": "talk",   "value": true }
 ] }
 ```
+
+`state` carries `mode: "once"`, `durationMs` and `then`, so the model can say
+either "hold this" or "do this for a beat and go back to idle" — which for
+`nod_yes` and `shake_no` is the whole difference between a nod and nodding.
+`highlight` / `clearHighlight` ring the element under discussion, and
+`keyframes` lets a model author a clip of its own when nothing in the roster
+fits; it compiles through the same path as the playbook, so it is a state like
+any other.
 
 `runCommands()` **rejects rather than clamps** — an unknown state comes back with
 the list of legal ones. A model that gets silently corrected learns nothing.
@@ -132,6 +155,24 @@ Each of these cost someone a debugging pass, upstream or here.
   convention. Getting it wrong aims the camera along its up axis.
 - **`alert` is a reel POSITION, not an opacity.** Values outside [0,1] are legal
   and are what produce the bounce. Never clamp it, never multiply the symbol by it.
+- **Nothing that has to keep turning may be driven from the LOOPED clip clock.**
+  The card orbit was the first casualty (2700 ms period against an 1800 ms loop);
+  `sym_spin` was the second, and it is why `alert_dizzy`'s authored spin ramp
+  could not survive the state being made loopable. Both now integrate unwrapped
+  state time against a rate from `symbol_atlas`.
+- **The symbol spins about BLENDER'S Y, which is three's −Z.** The glyph lives in
+  the eye's X-Z plane, so the only axis that turns it in that plane is the plane
+  normal. Spinning about three's Y instead tips it edge-on — the spiral "isn't
+  rotating, it's getting all warpy" — and the same 180° right-eye phase becomes a
+  horizontal MIRROR, which is invisible on a star and reads as a backwards `$` on
+  the money glyph. Two reported defects, one axis.
+- **`Ctrl_Target` is a childless ROOT node in the glb.** The constraint that
+  aimed the pupils at it did not export, so writing the gaze onto it moves
+  nothing. `look.ts` rebuilds the aim; the pupils' bind pose is a baked SAMPLE of
+  that constraint, not a rest position, and freezing it is what left him staring
+  up and to the right through every state and every turn. Note that this is
+  invisible to parity: a frozen constraint and a live one agree exactly at the
+  frame the freeze was taken.
 - **One renderer per canvas.** React 19 StrictMode double-invokes effects, and two
   `WebGLRenderer`s on one canvas silently share a GL context.
 - **Blender's EEVEE firefly clamp has to be ported onto the HDRI TEXELS.**
@@ -172,8 +213,8 @@ Parity is checked against ground truth, not vibes. The fixtures are produced by
 **executing the character wiki's own Python**, not by re-transcribing it.
 
 ```bash
-# unit + parity tests (48)
-node --import tsx --test "apps/web/src/character/decke/__tests__/*.test.ts"
+# unit + parity tests (65) -- also runs in CI
+pnpm --filter deckpal-web test:decke
 
 # regenerate the playbook, or assert it still matches its sources
 python apps/web/scripts/decke/gen-playbook.py [--check]
@@ -232,3 +273,12 @@ intensity, so the card emitted pure white and the artwork washed out completely.
 Driving the emissive from the base colour map at Blender's own Emission Strength
 of 0.25 restores both things that matter — the sheen is weak, and it is tinted by
 the artwork rather than by white.
+
+That got the card back to *legible* but not to *holographic*, because a constant
+glow is the one thing foil never is. The sheen itself is now
+`KHR_materials_iridescence` — thin-film interference is the physics foil actually
+works by — over a roughness of 0.38. **The roughness is part of the fix and is
+the same class of defect as the emissive:** `Card_Front_*` carries no
+`roughnessFactor` at all, so three takes glTF's default of 1.0, and at roughness
+1 the specular lobe covers the whole hemisphere, which spreads any tint flat
+across the card as a haze instead of a travelling band.

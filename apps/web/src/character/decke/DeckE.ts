@@ -18,7 +18,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { createStage, type Stage } from './stage'
-import { bindRig, applyPose, resolveFacing, type RigNodes } from './rig'
+import { bindRig, applyLook, applyPose, resolveFacing, type RigNodes } from './rig'
 import { fixupMaterials } from './materials'
 import { createRiderSystem, type RiderSystem } from './riders'
 import { createEyeSocket, type EyeSocket } from './eyeSocket'
@@ -36,25 +36,107 @@ import {
 } from './eyes/eyeMaterial'
 import {
   compilePlaybook,
+  compileState,
   evalState,
   loadPlaybook,
+  type Beat,
   type CompiledState,
   type PlaybookDoc,
   type Pose,
+  type StateClip,
 } from './playbook'
 import { createProcedural } from './procedural'
+import {
+  CLIP_PATCH,
+  IDLE,
+  ONE_SHOT,
+  SUSTAIN,
+  spinRateFor,
+  synthesizedStates,
+  type SustainSpec,
+} from './sustain'
 import { DEG, MOUTH } from './constants'
 import { sampleTrack, solveFlight, type FlightSample, type FlightTrack } from './flight'
-import { parkBeside, resolveRect, shapeFor, type Depth, type FlyTarget, type Side } from './dom'
+import {
+  homeCorner,
+  parkBeside,
+  resolveRect,
+  shapeFor,
+  type Depth,
+  type FlyTarget,
+  type Side,
+} from './dom'
+import {
+  clearHighlight,
+  highlightElement,
+  highlighted,
+} from '../../components/ui/elementHighlight'
 
 /** Facing is a YAW, never a reflection: `scale.x` cannot animate through zero
  *  without collapsing him, so a mirror could only ever be an instant flip, and
  *  he has to be able to turn in full view. */
 const FACING_YAW_DEG = 80.39
-/** 26 frames at 30 fps, measured off `DeckE_Control["facing"]`. */
-const FACING_TURN_MS = 866.7
-/** Measured from the Banjo-Kazooie decompilation, not estimated. */
-const DEFAULT_BLEND_MS = 100
+/**
+ * How long the turn takes.
+ *
+ * The authored value is 866.7 ms — 26 frames at 30 fps, measured off
+ * `DeckE_Control["facing"]`. It was reviewed on screen as too slow: "when I
+ * click these, it could be a bit faster. Like, twice the speed, maybe? Or maybe
+ * just a little bit less than twice the speed." 1.75x is that, and it keeps the
+ * turn long enough that the near/far asymmetry still washes visibly through
+ * zero as he passes face-on, which is the whole reason the turn is a yaw and not
+ * a flip.
+ */
+const FACING_TURN_MS = 866.7 / 1.75
+
+/**
+ * The default crossfade between base states.
+ *
+ * WAS 100 ms, measured from the Banjo-Kazooie decompilation. That number is
+ * right for a game that crossfades CLIPS between poses a few degrees apart; it
+ * is far too short here, where a state's sustain pose and rest can be most of a
+ * body length apart, and a 100 ms move across that distance is a cut. Reviewed
+ * as "it's like snapping, the animation is snapping at the end and it shouldn't
+ * — that makes it look bad", and separately as the general rule "it should never
+ * snap to being done, it should animate to stillness".
+ *
+ * 320 ms with an eased interpolant is the fix. The ease matters as much as the
+ * length: a linear crossfade starts and stops with a velocity step, which reads
+ * as a snap at either end no matter how long you make it.
+ */
+const DEFAULT_BLEND_MS = 320
+
+/** Blend applied when a state changes PHASE — into a synthesized sustain, or out
+ *  through an outro. Phase changes are continuous by construction everywhere
+ *  except `sleep`, whose sustain deliberately closes the mouth the yawn left
+ *  open, so this only ever has visible work to do there. */
+const PHASE_BLEND_MS = 420
+
+/** The reserved name an agent-authored clip is registered under. One slot, so a
+ *  second custom clip replaces the first rather than growing the state table for
+ *  the life of the page. */
+export const CUSTOM_STATE = 'custom'
+
+/** How quiet a resize has to go before a parked presentation chases its
+ *  element's new position. */
+const RE_PARK_SETTLE_MS = 250
+
+/** How long `talk` takes to fade in and out.
+ *
+ *  It used to be a hard 0 -> 1 -> 0 on the weight, so stopping a sentence
+ *  slammed the jaw shut on whatever syllable it was mid-way through: "when it
+ *  stops, it just snaps to a stop. It should always animate to a stop." */
+const TALK_RAMP_MS = 220
+
+export type FlyOptions = {
+  depth?: Depth
+  side?: Side
+  /** Ring the target on arrival. Defaults to true for a selector target and
+   *  false for a bare viewport coordinate, which has nothing to ring. */
+  highlight?: boolean
+  /** A state to enter once he lands — `point`, `card_show`, `happy`. */
+  then?: string
+}
 
 export type DeckEOptions = {
   canvas: HTMLCanvasElement
@@ -68,6 +150,29 @@ export type DeckEOptions = {
 }
 
 type Transition = { from: Pose; started: number; durationMs: number } | null
+
+/** Where a state is in its own life. See `sustain.ts`. */
+export type Phase = 'intro' | 'sustain' | 'outro'
+
+export type SetStateOptions = {
+  blendMs?: number
+  /**
+   * `sustain` (the default) enters the state and STAYS there until something
+   * else is asked for. `once` plays the clip through and hands over to `then`.
+   *
+   * The reviewer asked for both, in one sentence: "I'd like the agent to be able
+   * to tell him to do a state in a way that makes it ongoing and continuous, or
+   * it should be able to tell it to do a state for a set amount of time, after
+   * which it would just go back to idle." `nod_yes` is the case that needs both
+   * — "the LLM that's driving this gets to decide... is it a loop, or is it just
+   * play one and then return to idle?"
+   */
+  mode?: 'sustain' | 'once'
+  /** Sustain for this long, then leave. Implies `mode: 'sustain'`. */
+  durationMs?: number
+  /** Where to go when this state ends. Defaults to `idle`. */
+  then?: string
+}
 
 /**
  * One live instance per canvas, enforced.
@@ -103,15 +208,39 @@ export class DeckE {
   private raf = 0
   private disposed = false
 
-  /** Base-layer state. */
+  /**
+   * Base-layer state, and the little machine that keeps him IN it.
+   *
+   * `intro` plays the clip from 0; `sustain` loops the state's window forever;
+   * `outro` plays the authored (or synthesized) way out. Without a `durationMs`
+   * or an explicit change, a state never leaves `sustain` — which is the whole
+   * point. See `sustain.ts`.
+   */
   private current = 'boot'
+  private phase: Phase = 'intro'
   private stateStart = 0
+  /** When the current phase started, in elapsed seconds. Only `outro` needs its
+   *  own origin; intro and sustain both measure from `stateStart`. */
+  private phaseStart = 0
+  private spec: SustainSpec | null = null
+  /** The compiled synthesized sustain, when the state has one (`sleep`). */
+  private sustainClip: CompiledState | null = null
+  private outroClip: CompiledState | null = null
+  /** Elapsed seconds at which to leave, when the caller asked for a duration. */
+  private leaveAt: number | null = null
+  /** Where to go when this state ends. Defaults to `idle`. */
+  private nextState: string = IDLE
+  /** A state change that is waiting for the current state's outro to finish. */
+  private queued: { name: string; opts: SetStateOptions } | null = null
+  /** The sustain for the agent-authored clip, if it asked to loop. */
+  private customSustain: SustainSpec | null = null
   private transition: Transition = null
 
   /** `talk` is an OVERLAY, never a base state — he has to be able to talk while
    *  happy, while presenting, while thinking. A hub-and-spoke talk state would
    *  force him back to neutral to speak. */
   private talkWeight = 0
+  private talkTarget = 0
   private talkClock = 0
 
   private facing = 1
@@ -138,6 +267,8 @@ export class DeckE {
   private readonly overlayPose: Pose = {}
   private readonly floatOut = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }
   private readonly gazeOut = { gx: 0, gz: 0 }
+  /** The procedural gaze, resolved for facing, in target-space blender units. */
+  private readonly micro = { x: 0, z: 0 }
 
   /** Channel overrides an external driver has pinned. Applied last, so an LLM
    *  can hold `bend` at 0.37 while a state plays underneath. */
@@ -158,7 +289,10 @@ export class DeckE {
    *  anticipation and never arriving, so a move is only chased once it is worth
    *  chasing. */
   private pendingTarget: { target: FlyTarget; depth: Depth; side: Side } | null = null
-  private lastResolveAt = 0
+  /** The pending trailing-edge re-park. See `resize`. */
+  private rePark: ReturnType<typeof setTimeout> | null = null
+  /** Set when a flight is in the air; applied the frame it lands. See `update`. */
+  private onArrive: (() => void) | null = null
 
   constructor(private readonly opts: DeckEOptions) {
     INSTANCES.get(opts.canvas)?.dispose()
@@ -193,6 +327,16 @@ export class DeckE {
 
     this.doc = doc
     this.states = compilePlaybook(doc)
+    // The synthesized states (`idle`, and the sustain/outro clips) compile
+    // through the same path as the authored ones, so nothing downstream — the
+    // evaluator, the crossfade, the command validator — can tell them apart.
+    for (const [name, clip] of Object.entries(synthesizedStates())) {
+      this.states.set(name, compileState(name, clip, doc.rest_pose))
+    }
+    for (const [name, patch] of Object.entries(CLIP_PATCH)) {
+      const base = this.states.get(name)
+      if (base) this.states.set(name, compileState(name, patch(base.clip), doc.rest_pose))
+    }
     this.proc = createProcedural(doc)
 
     const model: Object3D = gltf.scene
@@ -208,7 +352,11 @@ export class DeckE {
 
     for (const k in doc.rest_pose) this.pose[k] = doc.rest_pose[k]
 
-    this.setState('boot', { blendMs: 0 })
+    // `boot` is a lifecycle event, not a state: it plays once and hands over to
+    // `idle`, which is where he lives. Previously it was entered and never left,
+    // and because its modulation is `float_amp: 0, blink_rate: 0` that left a
+    // freshly-loaded page showing a character who never moved at all.
+    this.setState('boot', { blendMs: 0, mode: 'once', then: IDLE })
     this.opts.onReady?.()
   }
 
@@ -265,16 +413,33 @@ export class DeckE {
   }
 
   get stateNames(): string[] {
-    return this.doc?.order ?? []
+    // The synthesized states are real states and the command validator has to
+    // accept them, so this reads the compiled table rather than the document's
+    // authored order. `custom` is deliberately absent until one exists.
+    //
+    // `talk` is EXCLUDED, and that is not tidiness. It is an overlay — the one
+    // thing he must be able to do while happy, while presenting, while thinking
+    // — and a model handed it in the state enum will reach for it as a state,
+    // which forces him to neutral to speak and makes it impossible to combine.
+    // `op: "talk"` is how it is driven; leaving it in the enum invites exactly
+    // the mistake the overlay exists to prevent.
+    return this.states ? [...this.states.keys()].filter((n) => n !== 'talk') : []
   }
 
   getState() {
     return {
       state: this.current,
+      phase: this.phase,
       facing: this.facing,
-      talking: this.talkWeight > 0,
+      talking: this.talkTarget > 0,
       overrides: Object.fromEntries(this.overrides),
       elapsedMs: (this.elapsed - this.stateStart) * 1000,
+      flying: !!this.track,
+      /** Whether anything is ringed, and its id if it has one. `highlighted`
+       *  used to be `el.id || null`, which reports an id-less element as NOT
+       *  highlighted — a lie to the one caller that cannot look at the screen. */
+      highlighting: !!highlighted(),
+      highlighted: highlighted()?.id || null,
     }
   }
 
@@ -286,9 +451,39 @@ export class DeckE {
    * interrupting an emote half-way through look right instead of snapping to
    * rest first.
    */
-  setState(name: string, opts: { blendMs?: number } = {}) {
+  setState(name: string, opts: SetStateOptions = {}) {
     if (!this.states.has(name)) throw new Error(`decke: unknown state "${name}"`)
 
+    // LET THE OUTGOING STATE FINISH ITS SENTENCE. Two states end with something
+    // the viewer is owed rather than a return to rest — `card_stash`'s five
+    // cards are in the air, `loading`'s orbit is deployed — and cutting away
+    // from either makes objects vanish. So the change is queued behind the
+    // outro, exactly as asked: "once told to stop, that's when they all file in
+    // and it animates into him and then he closes."
+    //
+    // The queue is depth ONE and the newest request wins, so a rapid-fire
+    // sequence lands on the last thing asked for rather than replaying a
+    // backlog.
+    // Already playing one: REPLACE the queue, do not cut the outro short. The
+    // guard used to be `phase !== 'outro'`, which meant a second request during
+    // the outro fell straight through to `enter` and abandoned the cards
+    // mid-flight — the exact defect the queue exists to prevent, reachable by
+    // clicking twice. Newest request wins, but it wins the QUEUE.
+    if (this.phase === 'outro') {
+      this.queued = { name, opts }
+      return
+    }
+    if (this.hasOutro(true) && name !== this.current) {
+      this.queued = { name, opts }
+      this.beginOutro()
+      return
+    }
+    this.queued = null
+    this.enter(name, opts)
+  }
+
+  /** Enter a state immediately, skipping any outro. */
+  private enter(name: string, opts: SetStateOptions) {
     // Stepped-register clips turn to mush when crossfaded, so they snap.
     const snap =
       this.doc.transition.snap_states.includes(name) ||
@@ -297,26 +492,93 @@ export class DeckE {
     // with a crouch that reads as anticipation from any pose.
     const isAlert = name.startsWith('alert_')
 
-    const blend = opts.blendMs ?? (snap || isAlert ? 0 : DEFAULT_BLEND_MS)
-
-    if (blend > 0) {
-      // Snapshot the BASE pose, not the composited one — see `basePose`.
-      const from: Pose = {}
-      for (const k in this.basePose) from[k] = this.basePose[k]
-      this.transition = { from, started: this.elapsed, durationMs: blend }
-    } else {
-      this.transition = null
-    }
+    this.blendFrom(opts.blendMs ?? (snap || isAlert ? 0 : DEFAULT_BLEND_MS))
 
     this.current = name
     this.stateStart = this.elapsed
+    this.phaseStart = this.elapsed
+    this.phase = 'intro'
+    this.nextState = opts.then ?? IDLE
+
+    const once = opts.mode === 'once' || ONE_SHOT.has(name)
+    const sustain = name === CUSTOM_STATE ? this.customSustain : (SUSTAIN[name] ?? null)
+    this.spec = once ? null : sustain
+    this.sustainClip =
+      this.spec?.clip ? compileState(`${name}:sustain`, this.spec.clip, this.doc.rest_pose) : null
+    // A SYNTHESIZED outro survives `mode: 'once'`; an authored TAIL does not,
+    // and the asymmetry is not an oversight. The tail is part of the clip, so
+    // playing the clip through has already played it — `card_stash` run once
+    // files its own cards back in at 1900 ms. `loading` has no tail at all (it
+    // loops from its first beat to its last with the orbit fully deployed), so
+    // without its synthesized landing a one-shot `loading` would end with two
+    // cards mid-orbit and simply delete them.
+    this.outroClip = sustain?.outroClip
+      ? compileState(`${name}:outro`, sustain.outroClip, this.doc.rest_pose)
+      : null
+
+    this.leaveAt =
+      opts.durationMs !== undefined ? this.elapsed + opts.durationMs / 1000 : null
+
+    // A state with neither a sustain nor a duration is a one-shot: it ends when
+    // its clip does. Recorded here so `update` has one rule rather than three.
+    if (!this.spec && this.leaveAt === null) {
+      this.leaveAt = this.elapsed + this.states.get(name)!.clip.duration_ms / 1000
+    }
   }
 
+  /**
+   * @param interrupted True when the caller is cutting the state short rather
+   *   than letting it run out. An outro exists to put away what the SUSTAIN put
+   *   on screen, so if the sustain was never reached there is nothing to put
+   *   away — and playing it anyway is actively wrong: `LOADING_LAND`'s first
+   *   beat assumes a fully deployed orbit, so running it from the intro pops two
+   *   cards INTO existence inside the animation whose job is to remove them.
+   */
+  private hasOutro(interrupted = false): boolean {
+    if (interrupted && this.phase !== 'sustain') return false
+    return !!this.outroClip || !!this.spec?.outroTail
+  }
+
+  private beginOutro() {
+    this.phase = 'outro'
+    this.phaseStart = this.elapsed
+    this.leaveAt = null
+    this.blendFrom(PHASE_BLEND_MS)
+  }
+
+  /** Start a crossfade from wherever the BASE layer currently is. */
+  private blendFrom(ms: number) {
+    if (ms <= 0) {
+      this.transition = null
+      return
+    }
+    // Snapshot the BASE pose, not the composited one — see `basePose`.
+    const from: Pose = {}
+    for (const k in this.basePose) from[k] = this.basePose[k]
+    this.transition = { from, started: this.elapsed, durationMs: ms }
+  }
+
+  /**
+   * Stop sustaining and go home — the explicit "he's done now" the whole
+   * sustain design implies. Plays the outro if the state has one.
+   */
+  release(to: string = IDLE) {
+    if (this.current === to && this.phase !== 'outro') return
+    this.setState(to)
+  }
+
+  /**
+   * `talk` is a ramped weight, not a switch.
+   *
+   * Setting it to 0 outright cut the jaw off mid-syllable, which is the
+   * "when it stops, it just snaps to a stop — it should always animate to a
+   * stop" note. The ramp costs 220 ms of tail and removes the whole class.
+   */
   setOverlay(name: 'talk' | null, weight = 1) {
-    this.talkWeight = name === 'talk' ? Math.max(0, Math.min(1, weight)) : 0
+    this.talkTarget = name === 'talk' ? Math.max(0, Math.min(1, weight)) : 0
   }
 
-  /** `facing` is continuous over [-1, +1]. Animated over 867 ms by default. */
+  /** `facing` is continuous over [-1, +1]. Animated over `FACING_TURN_MS`. */
   setFacing(value: number, opts: { animate?: boolean } = {}) {
     const v = Math.max(-1, Math.min(1, value))
     if (opts.animate === false) {
@@ -337,7 +599,7 @@ export class DeckE {
    * He parks BESIDE the target, never on it, and turns to face inward — the
    * whole point is that he presents the thing rather than obscuring it.
    */
-  flyTo(target: FlyTarget, opts: { depth?: Depth; side?: Side } = {}) {
+  flyTo(target: FlyTarget, opts: FlyOptions = {}) {
     const depth = opts.depth ?? 'foreground'
     const side = opts.side ?? 'auto'
     const rect = resolveRect(target)
@@ -349,14 +611,47 @@ export class DeckE {
 
     this.launch(park.position)
     // Hold facing steady for the duration of a presentation; turning mid-flight
-    // fights the flight layer's own yaw.
+    // fights the flight layer's own yaw. `park.facing` is always +/-1, so he
+    // lands on one of his two authored directions rather than somewhere in
+    // between — "he should still have his standard directions, so either this or
+    // this."
     this.setFacing(park.facing)
     this.pendingTarget = { target, depth, side }
+
+    // Presenting is a TWO-part signal: he stands beside the thing, and the thing
+    // is ringed. Doing only the first is a robot standing near a box. Ringing on
+    // ARRIVAL rather than on departure means the highlight appears as he settles
+    // rather than racing him across the page.
+    const selector = 'selector' in target ? target.selector : null
+    const ring = opts.highlight ?? !!selector
+    const then = opts.then
+    // Validate NOW, not on arrival. `onArrive` runs inside the animation frame,
+    // where a throw is an unhandled error in a rAF callback with no call stack
+    // pointing at the mistake — and it would land two seconds after the code
+    // that made it.
+    if (then !== undefined && !this.states.has(then)) {
+      throw new Error(`decke: flyTo "then" names an unknown state "${then}"`)
+    }
+    this.onArrive = () => {
+      if (ring && selector) highlightElement(selector)
+      if (then) this.setState(then)
+    }
+  }
+
+  /** Ring an element without moving. */
+  highlight(target: Element | string, opts: { durationMs?: number } = {}) {
+    highlightElement(target, opts)
+  }
+
+  clearHighlight() {
+    clearHighlight()
   }
 
   returnHome() {
     this.pendingTarget = null
-    this.launch(new Vector3(0, 0, 0))
+    this.onArrive = null
+    clearHighlight()
+    this.launch(homeCorner(this.stage.camera, this.stage.camera.position.length()))
   }
 
   private launch(to: Vector3) {
@@ -372,6 +667,45 @@ export class DeckE {
     })
     this.trackStart = this.elapsed
     this.anchor.copy(to)
+  }
+
+  /**
+   * Play an ad-hoc clip the caller wrote, as a first-class state.
+   *
+   * The reviewer's note on this was the one unambiguously positive one in the
+   * pass: "I like the idea of agents being able to just define some kind of
+   * custom little thing that he can do... it has a set of pre-built animations
+   * it can use, but it can also get creative if it wants."
+   *
+   * So it is not a special case bolted on beside the playbook — the beats are
+   * compiled by the SAME `compileState` the authored clips go through and
+   * registered under a reserved name, which means the crossfade, the sustain
+   * machine, the talk overlay, the procedural layers and the flight all compose
+   * with it exactly as they do with `happy`. A custom clip is a state; it simply
+   * did not exist a moment ago.
+   *
+   * `loop: true` makes it its own sustain and it runs until something else is
+   * asked for. Otherwise it plays once and hands over to `then`.
+   */
+  playKeyframes(
+    beats: Beat[],
+    opts: { loop?: boolean; then?: string; blendMs?: number } = {},
+  ) {
+    const clip: StateClip = {
+      kind: 'clip',
+      symbol: null,
+      duration_ms: beats[beats.length - 1]?.t_ms ?? 0,
+      mod: 'idle',
+      modulation: { float_amp: 1, float_rate: 1, blink_rate: 1 },
+      beats,
+      ...(opts.loop ? { loop: true as const } : {}),
+    }
+    this.states.set(CUSTOM_STATE, compileState(CUSTOM_STATE, clip, this.doc.rest_pose))
+    // Held on the INSTANCE, not written into the shared `SUSTAIN` table: that
+    // table is module state, and one canvas authoring a clip must not change
+    // what another canvas is playing.
+    this.customSustain = opts.loop ? { fromMs: 0, toMs: clip.duration_ms } : null
+    this.setState(CUSTOM_STATE, { blendMs: opts.blendMs, then: opts.then })
   }
 
   /** Pin a raw channel. Pass `null` to release it. */
@@ -404,6 +738,90 @@ export class DeckE {
     cancelAnimationFrame(this.raf)
   }
 
+  /**
+   * Advance the intro -> sustain -> outro machine.
+   *
+   * Loops rather than recursing because `enter` resets the clocks this reads,
+   * and a state can legitimately fall straight through — a zero-length intro
+   * into a sustain, or a one-shot whose successor is itself a one-shot. The
+   * guard is a backstop against a misconfigured pair, not an expected path.
+   */
+  private advancePhase() {
+    for (let guard = 0; guard < 4; guard++) {
+      const tRaw = (this.elapsed - this.stateStart) * 1000
+
+      if (this.phase === 'intro' && this.spec && tRaw >= this.spec.fromMs) {
+        this.phase = 'sustain'
+        this.phaseStart = this.elapsed
+        // Entering a sustain is continuous by construction — the loop starts at
+        // the very beat the intro ended on. The one exception is a SYNTHESIZED
+        // sustain, which is a different clip: `sleep`'s deliberately closes the
+        // mouth and settles the arch the yawn left open, and that wants an
+        // animated settle rather than a cut.
+        if (this.sustainClip) this.blendFrom(PHASE_BLEND_MS)
+      }
+
+      if (this.phase === 'outro') {
+        if ((this.elapsed - this.phaseStart) * 1000 < this.outroDurationMs()) return
+        const q = this.queued
+        this.queued = null
+        this.enter(q?.name ?? this.nextState, q?.opts ?? {})
+        continue
+      }
+
+      if (this.leaveAt !== null && this.elapsed >= this.leaveAt) {
+        // Not an interrupt: the state ran its course, so whatever it deployed is
+        // deployed and the outro has work to do.
+        if (this.hasOutro()) {
+          this.beginOutro()
+          continue
+        }
+        this.enter(this.nextState, {})
+        continue
+      }
+
+      return
+    }
+  }
+
+  private outroDurationMs(): number {
+    if (this.outroClip) return this.outroClip.clip.duration_ms
+    const clip = this.states.get(this.current)!.clip
+    return Math.max(0, clip.duration_ms - (this.spec?.toMs ?? 0))
+  }
+
+  /** The clip the current phase plays — the authored one unless the phase has a
+   *  synthesized clip of its own. */
+  private activeState(): CompiledState {
+    if (this.phase === 'sustain' && this.sustainClip) return this.sustainClip
+    if (this.phase === 'outro' && this.outroClip) return this.outroClip
+    return this.states.get(this.current)!
+  }
+
+  /** Where in that clip we are. */
+  private clipTime(): number {
+    const tRaw = (this.elapsed - this.stateStart) * 1000
+
+    if (this.phase === 'outro') {
+      const tOut = (this.elapsed - this.phaseStart) * 1000
+      // A synthesized outro is its own clip and starts at 0; an authored tail is
+      // the SAME clip resumed at the loop's far end.
+      return this.outroClip ? tOut : (this.spec?.toMs ?? 0) + tOut
+    }
+
+    if (this.phase === 'sustain') {
+      if (this.sustainClip) {
+        return ((this.elapsed - this.phaseStart) * 1000) % this.sustainClip.clip.duration_ms
+      }
+      const spec = this.spec!
+      const span = spec.toMs - spec.fromMs
+      return span > 0 ? spec.fromMs + ((tRaw - spec.fromMs) % span) : spec.fromMs
+    }
+
+    const clip = this.states.get(this.current)!.clip
+    return clip.loop ? tRaw % clip.duration_ms : tRaw
+  }
+
   private update(dt: number) {
     if (!this.rig) return
 
@@ -421,16 +839,18 @@ export class DeckE {
     this.rig.facing.rotation.y = ((1 - this.facing) / 2) * FACING_YAW_DEG * DEG
 
     // ---- base state ----------------------------------------------------
-    const st = this.states.get(this.current)!
+    this.advancePhase()
+    const st = this.activeState()
     const clip = st.clip
-    // Keep BOTH clocks. The clip wraps, but the card orbit is one continuous
-    // rotation whose period (2700 ms) is deliberately not the loop (1800 ms) —
-    // driving it from the wrapped clock jumps it back a third of a turn on
-    // every loop.
+    // Keep BOTH clocks. The phase clock wraps every loop; the card orbit and the
+    // symbol spin are one continuous rotation each, and the orbit's period
+    // (2700 ms) is deliberately not the loop (1800 ms) — driving either from the
+    // wrapped clock jumps it backwards on every wrap. That is the same bug in
+    // two places: it made the orbit stutter a third of a turn, and it is why
+    // `alert_dizzy`'s authored `sym_spin` ramp cannot survive being looped.
     const tRaw = (this.elapsed - this.stateStart) * 1000
-    let t = tRaw
-    if (clip.loop) t %= clip.duration_ms
-    evalState(st, t, this.doc.rest_pose, this.pose)
+    const tClip = this.clipTime()
+    evalState(st, tClip, this.doc.rest_pose, this.pose)
 
     // ---- crossfade -----------------------------------------------------
     if (this.transition) {
@@ -438,8 +858,12 @@ export class DeckE {
       if (u >= 1) {
         this.transition = null
       } else {
+        // EASED, not linear. A linear crossfade arrives and departs at full
+        // speed, so however long you make it the ends still read as cuts —
+        // which is what "the animation is snapping at the end" was describing.
+        const e = u < 0.5 ? 4 * u * u * u : 1 - (-2 * u + 2) ** 3 / 2 // easeInOutCubic
         const from = this.transition.from
-        for (const k in this.pose) this.pose[k] = from[k] + (this.pose[k] - from[k]) * u
+        for (const k in this.pose) this.pose[k] = from[k] + (this.pose[k] - from[k]) * e
       }
     }
 
@@ -447,11 +871,34 @@ export class DeckE {
     // ON TOP of it and must not be captured by the next crossfade's snapshot.
     for (const k in this.pose) this.basePose[k] = this.pose[k]
 
+    // ---- symbol motion ---------------------------------------------------
+    // Applied ABOVE the base layer on purpose, so it is never captured by a
+    // crossfade snapshot: blending a continuously-growing angle from one state's
+    // 3000 degrees down to the next state's zero spins the glyph backwards for
+    // the length of the blend.
+    const spinRate = spinRateFor(clip, this.doc)
+    if (spinRate) this.pose.sym_spin = (tRaw / 1000) * spinRate
+    if (clip.symbol === 'scribble') {
+      // The authored `sym_frame` steps do not start until 625 ms in — "the
+      // scribbles are waiting too long to start animating, they should be
+      // animating from the get go". Driving the frame from the atlas's own
+      // `scribble_hz` starts it on frame one and survives the loop.
+      const hz = this.doc.symbol_atlas.scribble_hz
+      this.pose.sym_frame = Math.floor((tRaw / 1000) * hz) % 3
+    }
+
     // ---- talk overlay --------------------------------------------------
     // The composition rule is a DESIGNED CHOICE, not a recovered one: no rule
     // survives anywhere in the sources. `mouth` takes the max (following the
     // flight layer's precedent, so talk can never close a mouth a state is
     // holding open), and the shape channels blend by weight.
+    if (this.talkWeight !== this.talkTarget) {
+      const step = (dt * 1000) / TALK_RAMP_MS
+      this.talkWeight =
+        this.talkWeight < this.talkTarget
+          ? Math.min(this.talkTarget, this.talkWeight + step)
+          : Math.max(this.talkTarget, this.talkWeight - step)
+    }
     if (this.talkWeight > 0) {
       const talk = this.states.get('talk')!
       this.talkClock = (this.talkClock + dt * 1000) % talk.clip.duration_ms
@@ -489,8 +936,17 @@ export class DeckE {
     // Travel is gaze-locked: his gaze LEADS the move, and a stray glance-away
     // fights the lead. Subtle flits still run.
     this.proc.gaze.at(this.elapsed, !!clip.gaze_lock || !!this.track, frozen, this.gazeOut)
-    this.pose.gx += this.gazeOut.gx
-    this.pose.gz += this.gazeOut.gz
+    // NOT composed into `pose.gx/gz`. The procedural layer is EYE motion, and it
+    // has to survive the aim's roam clamp, which at this staging is saturated
+    // 2.3x over — see the `GazeOffset` note in `look.ts`. It is handed to
+    // `applyLook` instead, which applies it past the clamp.
+    //
+    // That moves the facing negation here, where it is explicit. It used to be
+    // an ordering invariant: the layer composed into `pose.gx` and `resolveFacing`
+    // ran afterwards, and running it early made every glance go the wrong way at
+    // facing = -1. Same correction, stated rather than implied.
+    this.micro.x = this.gazeOut.gx * this.facing
+    this.micro.z = this.gazeOut.gz
 
     // ---- facing resolution ---------------------------------------------
     // MUST run after the procedural layers, not before. Resolve first and the
@@ -517,7 +973,12 @@ export class DeckE {
       this.pose.twist += f.twist
       // The flight lid can never be closed by an expression key — max, not add.
       this.pose.mouth = Math.max(this.pose.mouth, f.mouth)
-      if (tf >= this.track.durationMs) this.track = null
+      if (tf >= this.track.durationMs) {
+        this.track = null
+        const arrived = this.onArrive
+        this.onArrive = null
+        arrived?.()
+      }
     } else {
       // ADD the parked anchor, never overwrite. The authored `px/py/pz` carry
       // the state's OWN motion — the alert pop, the boot bounce, the sad sink —
@@ -569,22 +1030,55 @@ export class DeckE {
     this.cards.apply(this.pose, {
       facing: this.facing,
       state: this.current,
+      phase: this.phase,
       tMs: tRaw,
+      clipTMs: tClip,
+      phaseTMs: (this.elapsed - this.phaseStart) * 1000,
     })
 
     // ---- eye shader ------------------------------------------------------
     // The eye reads the WORLD matrix of seven control empties per side, so the
     // graph has to be flushed here rather than left to the renderer: sampling
     // it first would hand the shader last frame's reel position.
+    this.stage.scene.updateMatrixWorld(true)
+
+    // The look-at solve needs those world matrices and then writes back into
+    // the two eye subtrees, so it sits between the flush and the uniform push.
+    applyLook(this.rig, this.stage.camera, this.pose, this.micro)
+
     if (this.eyes.length) {
-      this.stage.scene.updateMatrixWorld(true)
-      const symbol = this.states.get(this.current)?.clip.symbol ?? null
+      const symbol = clip.symbol
       for (const e of this.eyes) syncEyeUniforms(e.mat, e.ctrls, this.pose, symbol)
     }
   }
 
   resize(width: number, height: number) {
     this.stage.setSize(width, height)
+    // A parked presentation is anchored to a DOM RECT, and the rect moved. Chase
+    // it, but only once the layout has SETTLED — a TRAILING debounce, restarted
+    // by every event, so the move that actually gets chased is the last one.
+    //
+    // A leading-edge throttle looks like the same three lines and is the wrong
+    // shape: it fires on the first event of a drag and drops the trailing edge,
+    // so a continuous resize leaves him parked beside where the element used to
+    // be, which is the failure this is supposed to prevent.
+    if (!this.pendingTarget) return
+    if (this.rePark !== null) clearTimeout(this.rePark)
+    this.rePark = setTimeout(() => {
+      this.rePark = null
+      const p = this.pendingTarget
+      if (!p || this.disposed) return
+      const rect = resolveRect(p.target)
+      if (!rect) return
+      const camera = this.stage.camera
+      const park = parkBeside(camera, rect, {
+        depth: p.depth,
+        side: p.side,
+        baseDistance: camera.position.length(),
+      })
+      this.launch(park.position)
+      this.setFacing(park.facing)
+    }, RE_PARK_SETTLE_MS)
   }
 
   dispose() {
@@ -606,8 +1100,9 @@ export class DeckE {
     })
     this.stage.scene.clear()
     this.stage.dispose()
+    if (this.rePark !== null) clearTimeout(this.rePark)
+    clearHighlight()
     if (INSTANCES.get(this.opts.canvas) === this) INSTANCES.delete(this.opts.canvas)
   }
 }
 
-export const DECKE_HOME = new Vector3(0, 0, 0)
