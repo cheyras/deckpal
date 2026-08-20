@@ -19,7 +19,16 @@ import { dirname, resolve } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { compilePlaybook, compileState, evalState, type PlaybookDoc, type Pose } from '../playbook'
-import { CLIP_PATCH, IDLE, IDLE_STATE, ONE_SHOT, SUSTAIN, spinRateFor } from '../sustain'
+import type { Beat, StateClip } from '../playbook'
+import {
+  CLIP_PATCH,
+  IDLE,
+  IDLE_STATE,
+  ONE_SHOT,
+  SUSTAIN,
+  spinRateFor,
+  windowClip,
+} from '../sustain'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const doc: PlaybookDoc = JSON.parse(
@@ -96,34 +105,188 @@ test('every state is either a sustain or a declared one-shot', () => {
   )
 })
 
-test('a sustain window wraps without a pop', () => {
-  for (const [name, spec] of Object.entries(SUSTAIN)) {
-    // A synthesized sustain is its own clip; the window then describes that clip
-    // rather than the authored one.
-    const clip = spec.clip
-    const a = clip
-      ? evalState(compileState(name, clip, doc.rest_pose), 0, doc.rest_pose, {})
-      : poseAt(name, spec.fromMs)
-    const b = clip
-      ? evalState(
-          compileState(name, clip, doc.rest_pose),
-          clip.duration_ms,
-          doc.rest_pose,
-          {},
-        )
-      : poseAt(name, spec.toMs)
+/**
+ * The compiled sustain, exactly as `DeckE` builds it — the loop window as its
+ * own cyclic clip, not a pair of times into the authored one.
+ */
+function sustainOf(name: string): { clip: StateClip; st: ReturnType<typeof compileState> } | null {
+  const spec = SUSTAIN[name]
+  const src = compiled.get(name)
+  if (!src) return null
+  const clip = spec.clip ?? windowClip(src, spec)
+  if (!clip) return null // a HOLD: a constant has no seam
+  return { clip, st: compileState(name, clip, doc.rest_pose) }
+}
 
+/**
+ * Whether the segment arriving at the seam is a STEP for this channel.
+ *
+ * A stepped channel is SUPPOSED to jump across the wrap: `confused` and
+ * `frustrated` are authored in a robot register and the alerts carry a 15 Hz
+ * `px` vibrate, and all three were explicitly kept — "some of them, that's on
+ * purpose... All of the UNINTENTIONAL pops in the loop should be eliminated."
+ * So the tests below exempt exactly those and nothing else.
+ */
+function steppedAtSeam(clip: StateClip, ch: string): boolean {
+  if (clip.linear_channels?.includes(ch)) return false
+  let ease: Beat['ease'] = 'ease'
+  for (const b of clip.beats) {
+    if (b.t_ms >= clip.duration_ms) break
+    ease = b.ease
+  }
+  return ease === 'step'
+}
+
+test('a sustain window is built with its two ends already equal', () => {
+  // The CONSTRUCTION, not the outcome. A window used to be two hand-picked beat
+  // times that had to be checked for agreement; now the tail beat is a copy of
+  // the head, so no window can drift however it is retuned. This asserts that
+  // property directly, because it is the thing every test below relies on.
+  for (const name of Object.keys(SUSTAIN)) {
+    const spec = SUSTAIN[name]
+    if (spec.clip) continue // hand-written; checked separately
+    const src = compiled.get(name)
+    if (!src) continue
+    const clip = windowClip(src, spec)
+    if (!clip) continue
+    const head = clip.beats[0]
+    const tail = clip.beats[clip.beats.length - 1]
+    assert.equal(head.t_ms, 0, `${name}: window does not start at 0`)
+    assert.equal(tail.t_ms, clip.duration_ms, `${name}: window does not end at its duration`)
+    assert.deepEqual(tail.pose, head.pose, `${name}: the loop's two ends are not the same pose`)
+    // And the head is COMPLETE — every channel the state moves, including the
+    // ones the authored beat at `fromMs` left out. That omission is the whole
+    // defect: `curious`'s beat 1250 has no `pz`, so it read as rest, and the
+    // loop popped him up 0.04 units once a second.
+    assert.deepEqual(
+      new Set(Object.keys(head.pose)),
+      new Set(src.curves.keys()),
+      `${name}: the window's head does not pin every channel the state moves`,
+    )
+  }
+})
+
+test('a sustain window wraps without a pop', () => {
+  for (const name of Object.keys(SUSTAIN)) {
+    const made = sustainOf(name)
+    if (!made) continue
+    const { clip, st } = made
+    // Just before the wrap against just after it. NOT the final key's value: on
+    // a stepped segment that key never renders, because the clock wraps before
+    // it reaches it — which is why the old test read `frustrated` as popping
+    // 0.08 of jaw when what actually plays is a clean two-step chatter.
+    const a = evalState(st, 0, doc.rest_pose, {})
+    const b = evalState(st, clip.duration_ms - 0.001, doc.rest_pose, {})
     for (const ch of Object.keys(a)) {
       if (DRIVEN.has(ch)) continue
+      if (steppedAtSeam(clip, ch)) continue
       const tol = budgetFor(ch)
       const d = Math.abs(a[ch] - b[ch])
       assert.ok(
-        d <= tol,
-        `${name}: channel "${ch}" jumps ${d.toFixed(3)} across the loop wrap ` +
-          `(${spec.fromMs} -> ${spec.toMs}, budget ${tol})`,
+        d < tol,
+        `${name}: channel "${ch}" jumps ${d.toFixed(3)} across the loop wrap (budget ${tol})`,
       )
     }
   }
+})
+
+test('a sustain window wraps without a kick', () => {
+  // The second half of a seam, and the half a value comparison cannot see. The
+  // two ends of a window are INTERIOR keys of the authored clip, and their
+  // tangents were solved for neighbours the window cuts away — `thinking`
+  // measured a 32.6 deg/s step in `ry` across a seam whose values matched
+  // exactly. `cyclic: true` gives the seam one shared tangent instead of two.
+  const H = 0.25 // ms
+  for (const name of Object.keys(SUSTAIN)) {
+    const made = sustainOf(name)
+    if (!made) continue
+    const { clip, st } = made
+    const dur = clip.duration_ms
+    const at = (t: number): Pose => evalState(st, t, doc.rest_pose, {})
+    const a0 = at(0)
+    const a1 = at(H)
+    const b1 = at(dur - H)
+    const b0 = at(dur)
+    for (const ch of Object.keys(a0)) {
+      if (DRIVEN.has(ch)) continue
+      if (steppedAtSeam(clip, ch)) continue
+      // Units per second, one-sided either side of the wrap.
+      const vOut = ((a1[ch] - a0[ch]) / H) * 1000
+      const vIn = ((b0[ch] - b1[ch]) / H) * 1000
+      // Budgeted in the same visible units as the position test, per second: a
+      // channel may not change speed across the seam by more than it is allowed
+      // to change POSITION in a second.
+      const tol = budgetFor(ch) * 4
+      assert.ok(
+        Math.abs(vIn - vOut) < tol,
+        `${name}: channel "${ch}" changes speed by ${Math.abs(vIn - vOut).toFixed(3)}/s across the wrap (budget ${tol.toFixed(3)})`,
+      )
+    }
+  }
+})
+
+test('the intentional register still steps across the wrap', () => {
+  // The other side of the ledger, and the reason the two tests above have an
+  // exemption at all. Over-fixing this is a real risk: a seam rule that smoothed
+  // everything would quietly sand the robot register off `confused` and
+  // `frustrated` and take the vibrate out of every alert, and nothing else in
+  // the suite would notice.
+  const REGISTER: [string, string, number][] = [
+    ['confused', 'rz', 5],
+    ['frustrated', 'mouth', 0.1],
+    ['alert_star', 'px', 0.01],
+    ['alert_dizzy', 'px', 0.01],
+  ]
+  for (const [name, ch, atLeast] of REGISTER) {
+    const made = sustainOf(name)
+    assert.ok(made, `${name} has no sustain clip`)
+    const { clip, st } = made
+    const a = evalState(st, 0, doc.rest_pose, {})
+    const b = evalState(st, clip.duration_ms - 0.001, doc.rest_pose, {})
+    assert.ok(
+      Math.abs(a[ch] - b[ch]) >= atLeast,
+      `${name}: "${ch}" no longer steps across the wrap (${Math.abs(a[ch] - b[ch]).toFixed(3)} < ${atLeast})`,
+    )
+  }
+})
+
+test('confused loops on an even stepped cadence', () => {
+  // "The loop point is a little too quick, so the little back-and-forth motions
+  // he's doing are kind of uneven in feel. I would just pad out the end of that
+  // animation a little bit."
+  //
+  // The unevenness was one EASED beat inside a stepped bar: the old window
+  // opened at 420, which is `ease`, so the loop began with a 140 ms smooth slide
+  // and then snapped into held steps. Every beat inside the window must now step.
+  const made = sustainOf('confused')
+  assert.ok(made)
+  const { clip } = made
+  for (const b of clip.beats.slice(0, -1)) {
+    assert.equal(b.ease, 'step', `confused beat ${b.t_ms} is "${b.ease}", not a step`)
+  }
+  // Even slots, and long enough to breathe. Every shake is one 140 ms slot; the
+  // final gap is the PAD — whole slots of the last head position, so he shakes,
+  // then holds for a beat, then goes again. A head-shake that never pauses reads
+  // as a machine, which is the other half of the note.
+  const gaps = clip.beats.slice(1).map((b, i) => b.t_ms - clip.beats[i].t_ms)
+  const shakes = gaps.slice(0, -1)
+  const pad = gaps[gaps.length - 1]
+  for (const g of shakes) assert.equal(g, 140, `uneven shake: ${gaps.join(', ')}`)
+  assert.equal(pad % 140, 0, `the pad is not a whole slot: ${pad}`)
+  assert.ok(pad > 140, `the end was not padded: ${gaps.join(', ')}`)
+})
+
+test('embarrassed holds the expression instead of shaking', () => {
+  // "He's like rapidly shaking, and I don't really like that. It should just kind
+  // of hold on the facial expression rather than having this vibration."
+  const spec = SUSTAIN.embarrassed
+  assert.equal(spec.fromMs, spec.toMs, 'embarrassed still loops a window')
+  assert.equal(windowClip(compiled.get('embarrassed')!, spec), null)
+  // And the flinch itself survives, in the INTRO — the entrance is good, it was
+  // only holding it forever that was wrong.
+  const flutter = compiled.get('embarrassed')!.clip.beats.filter((b) => b.ease === 'step')
+  assert.equal(flutter.length, 3, 'the flinch beats were removed rather than left to the intro')
+  assert.ok(spec.fromMs > flutter[flutter.length - 1].t_ms, 'the hold lands inside the flutter')
 })
 
 test('a sustain window lies inside its clip and has a forward span', () => {
@@ -140,6 +303,24 @@ test('a sustain window lies inside its clip and has a forward span', () => {
   }
 })
 
+/**
+ * The channels that mean SOMETHING IS ON SCREEN.
+ *
+ * These are what an outro exists to put away — the five stash cards, the two
+ * orbiting ones, the card inside him, the alert reel, the deployed hands. A
+ * state that ends with one of them away from rest has left an object hanging in
+ * the air, and no crossfade can be trusted to clean that up gracefully: `single`
+ * and `card_*` are SCALE, so blending them is a card shrinking in mid-air rather
+ * than a card being put away.
+ */
+const DEPLOYMENT = ['single', 'card_l', 'card_r', 'orb_on', 'hand_l', 'hand_r', 'alert']
+
+/** How far from rest any OTHER channel may end. An outro hands over through the
+ *  ordinary 320 ms crossfade, so an expression is free to end mid-thought — that
+ *  is what lets `card_stash` finish on a small satisfied smile instead of
+ *  snapping to neutral. A whole body length is not. */
+const OUTRO_HANDOVER = 0.8
+
 test('an outro has somewhere to play', () => {
   for (const [name, spec] of Object.entries(SUSTAIN)) {
     if (spec.outroTail) {
@@ -151,18 +332,22 @@ test('an outro has somewhere to play', () => {
     }
     if (spec.outroClip) {
       assert.ok(spec.outroClip.duration_ms > 0, `${name}: outroClip has no duration`)
-      // It has to LAND at rest, or leaving the state strands whatever it left
-      // behind — the exact defect the outro exists to fix.
       const end = evalState(
         compileState(name, spec.outroClip, doc.rest_pose),
         spec.outroClip.duration_ms,
         doc.rest_pose,
         {},
       )
-      for (const ch of Object.keys(end)) {
+      for (const ch of DEPLOYMENT) {
         assert.ok(
           Math.abs(end[ch] - (doc.rest_pose[ch] ?? 0)) < 1e-9,
-          `${name}: outro ends with "${ch}" away from rest`,
+          `${name}: outro ends with "${ch}" deployed — an object is stranded on screen`,
+        )
+      }
+      for (const ch of Object.keys(end)) {
+        assert.ok(
+          Math.abs(end[ch] - (doc.rest_pose[ch] ?? 0)) < OUTRO_HANDOVER,
+          `${name}: outro ends ${Math.abs(end[ch] - (doc.rest_pose[ch] ?? 0)).toFixed(2)} from rest on "${ch}" — too far to hand over in a crossfade`,
         )
       }
     }

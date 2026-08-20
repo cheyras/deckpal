@@ -47,6 +47,10 @@ export type StateClip = {
   modulation: Modulation
   beats: Beat[]
   loop?: true
+  /** The last beat is the FIRST BEAT COME ROUND AGAIN, so every curve gets one
+   *  shared tangent at the seam instead of two terminal ones. Set by
+   *  `windowClip`; see `sustain.ts`. */
+  cyclic?: true
   orbit?: true
   overlay?: true
   spin?: true
@@ -160,7 +164,7 @@ export function compileState(name: string, clip: StateClip, rest: Pose): Compile
       // freezes mid-rotation every time the body ticks.
       interp: forcedLinear.has(ch) ? 'lin' : b.ease,
     }))
-    const c = makeCurve(keys)
+    const c = makeCurve(keys, { cyclic: clip.cyclic })
     if (!c.exact) exact = false
     curves.set(ch, c)
   }

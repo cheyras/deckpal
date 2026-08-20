@@ -16,6 +16,8 @@ import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
 import { DeckE } from '../../character/decke/DeckE'
 import { BLENDER_BACKDROP_LINEAR } from '../../character/decke/stage'
 import { runCommands, type Command } from '../../character/decke/commands'
+import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
+import type { Beacon } from '../../character/decke/beacon'
 
 /**
  * `?parity=1` reproduces Blender's staging exactly for a frame-by-frame
@@ -106,6 +108,8 @@ export default function Decke() {
     ),
   )
   const [jsonResult, setJsonResult] = useState<string | null>(null)
+  const [beacon, setBeacon] = useState<Beacon | null>(null)
+  const [stashCount, setStashCount] = useState(5)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -118,11 +122,16 @@ export default function Decke() {
       baseUrl: import.meta.env.BASE_URL,
       // null keeps Blender's exact staging distance.
       characterHeightPx: parity ? null : 300,
+      // Parity mode compares against Blender's own staging, which is the world
+      // origin — and it is the one position where the framing solve is the
+      // identity. Everywhere else he starts at home.
+      startAt: parity ? 'staging' : 'home',
       clearColor: parity ? BLENDER_BACKDROP_LINEAR : null,
       onError: (e) => {
         setError(String(e))
         setStatus('error')
       },
+      onBeacon: setBeacon,
     })
     deckeRef.current = decke
     // A handle for the screenshot harness and the browser console. Dev route
@@ -247,6 +256,10 @@ export default function Decke() {
         className="pointer-events-none fixed inset-0 z-30 h-full w-full"
       />
 
+      {/* Sits UNDER the canvas at z-25, so the second render pass draws him
+          inside it. See `DeckeBeacon`. */}
+      <DeckeBeacon beacon={beacon} onClick={() => deckeRef.current?.scrollIntoView()} />
+
       <div
         className="relative z-20 mx-auto max-w-[1200px] px-[16px] py-[20px]"
         style={parity ? { display: 'none' } : undefined}
@@ -280,10 +293,18 @@ export default function Decke() {
               <p className="mb-[8px] text-[11px] text-text-muted">
                 A yaw, never a mirror — he turns in full view. Asymmetry is authored
                 near/far, not left/right, so the pose resolves automatically.
+                <br />
+                <b>The sign is in HIS frame.</b> +1 turns him to his own right,
+                which you see as him facing screen&nbsp;left. Getting that
+                backwards is what made him present things with his back to them.
               </p>
               <div className="flex gap-[8px]">
-                <Btn onClick={() => deckeRef.current?.setFacing(1)}>Face right (+1)</Btn>
-                <Btn onClick={() => deckeRef.current?.setFacing(-1)}>Face left (−1)</Btn>
+                <Btn onClick={() => deckeRef.current?.setFacing(1)}>
+                  +1 · his right ↖ screen left
+                </Btn>
+                <Btn onClick={() => deckeRef.current?.setFacing(-1)}>
+                  −1 · his left ↗ screen right
+                </Btn>
               </div>
               <input
                 aria-label="facing"
@@ -328,6 +349,35 @@ export default function Decke() {
                     {label}
                   </Btn>
                 ))}
+              </div>
+            </Panel>
+
+            <Panel title="Cards in a stash">
+              <p className="mb-[8px] text-[11px] text-text-muted">
+                How many cards <code>card_stash</code> shows. The real use is
+                &ldquo;they add a whole bunch of cards to their collection&rdquo;, so
+                the count is an input, not a property of the five meshes in the glb —
+                anything past the fifth is a clone. They lay out on a grid in the
+                plane you are looking at, so no two ever overlap.
+              </p>
+              <div className="flex items-center gap-[8px]">
+                <input
+                  aria-label="stash cards"
+                  type="range"
+                  min={1}
+                  max={12}
+                  step={1}
+                  value={stashCount}
+                  onChange={(e) => {
+                    const n = Number(e.target.value)
+                    setStashCount(n)
+                    deckeRef.current?.setStashCount(n)
+                  }}
+                  className="w-full"
+                />
+                <span className="w-[24px] shrink-0 text-right font-mono text-[11px]">
+                  {stashCount}
+                </span>
               </div>
             </Panel>
 
@@ -519,7 +569,29 @@ export default function Decke() {
                   <code>sustain</code> loops forever, <code>outro</code> is the way out
                   that <code>loading</code> and <code>card_stash</code> owe you.
                 </li>
+                <li>
+                  A sustain is its OWN cyclic clip, not a pair of times into the
+                  authored one: its two ends are the same beat by construction, so the
+                  loop cannot pop. The ticks that survive — the stepped register on{' '}
+                  <code>confused</code> and <code>frustrated</code>, the alerts&rsquo;
+                  vibrate — are authored and deliberate.
+                </li>
+                <li>
+                  Wherever he parks, he is turned to present the SAME view of himself:
+                  canonical yaw, no lean. Only the vertical angle follows his height on
+                  the page — high on screen you look up at him, low you look down. The
+                  lighting rig and the environment ride along, so he is lit identically
+                  in a corner and at the background plane.
+                </li>
+                <li>
+                  A presentation is anchored to the ELEMENT, so he scrolls with it. Go
+                  far enough and he leaves the viewport and a small beacon appears at
+                  the edge, showing what he is doing live; click it to scroll him back.
+                </li>
               </ul>
+              <p className="mt-[8px] text-[11px] text-text-muted">
+                Scroll this page while he is parked beside a target to see both.
+              </p>
             </Panel>
           </div>
         </div>

@@ -40,8 +40,55 @@
  * the two ends of every window agree channel by channel, so the wrap is
  * invisible. A window that drifts fails the test rather than shipping a pop.
  */
-import type { Beat, PlaybookDoc, StateClip } from './playbook'
+import { evalCurve } from './curve'
+import type { Beat, CompiledState, PlaybookDoc, Pose, StateClip } from './playbook'
 
+/**
+ * THE LOOP SEAM, AND WHY A WINDOW IS NOT ENOUGH ON ITS OWN.
+ *
+ * Choosing `[fromMs, toMs]` off the beat table gets the POSE approximately right
+ * at both ends and says nothing at all about the two things that actually make a
+ * wrap visible:
+ *
+ *   1. THE VALUES ONLY NEARLY AGREE. Beats are sparse and a channel missing from
+ *      a beat is at REST at that beat, not held — so `curious`'s beat 1250 omits
+ *      `pz` and the loop dropped him 0.04 units and put him back, once a second,
+ *      forever. That is the reviewer's "it does like a pop upward, boom, boom,
+ *      boom". `happy` did the same with 0.03 of `sq` (3% of his height),
+ *      `proud` with 0.01 (the "he kind of shrinks slightly vertically" note),
+ *      and `listening` and `card_stash` with small drifts on three channels
+ *      each. Every one of them is a state whose sustain is a HELD pose, which is
+ *      why they were the ones reported: against stillness, any jump is the only
+ *      thing moving.
+ *
+ *   2. THE VELOCITIES DISAGREE EVEN WHERE THE VALUES DO NOT. `fromMs` and `toMs`
+ *      are interior keys of the authored clip, and their tangents were solved
+ *      for the neighbours the window cuts away. `thinking` measured a 32.6 deg/s
+ *      step in `ry` across a seam whose values match exactly.
+ *
+ * So the sustain is not a pair of times into the authored clip any more. It is
+ * its OWN clip, built once at load:
+ *
+ *   - the window's interior beats, rebased to zero;
+ *   - a head beat SAMPLED from the compiled curves at `fromMs`, which fills in
+ *     every channel the authored beat left out;
+ *   - a tail beat that is a COPY of the head — so the two ends are equal by
+ *     construction rather than by inspection, and no window can ever drift;
+ *   - `cyclic: true`, which makes `makeCurve` give the seam one shared tangent
+ *     instead of two terminal ones.
+ *
+ * The window ends therefore no longer have to land on authored beats, which is
+ * what makes `confused`'s cadence fixable at all — see its entry below.
+ *
+ * WHAT SURVIVES. A STEPPED channel still steps across the seam, because the
+ * final key of a step segment is never rendered under a modulo loop (the clock
+ * wraps before it reaches it) and the segment holds the previous key's value
+ * right up to the wrap. That is deliberate: `confused` and `frustrated` are
+ * authored in a stepped robot register and the alerts carry a 15 Hz `px`
+ * vibrate, and all three were explicitly kept — "some of them, that's on
+ * purpose... the alerts are supposed to have a little vibration, that's
+ * intentional. All of the UNINTENTIONAL pops in the loop should be eliminated."
+ */
 export type SustainSpec = {
   /** Where the intro ends and the loop begins, in clip ms. */
   fromMs: number
@@ -184,6 +231,45 @@ const LOADING_LAND: StateClip = {
 }
 
 /**
+ * `card_stash`'s way out — the beat its authored tail cannot be.
+ *
+ * The authored tail runs 1900 -> 2800 and SLAMS the mouth shut at 2010, 110 ms
+ * in. That is the right timing for the clip it belongs to, where the five cards
+ * were back inside by 1333 ms and he then sat with his mouth open for half a
+ * second; it is impossible for the way out the reviewer asked for, which has the
+ * cards still travelling: "when they're ready to go in, they all come up
+ * together like this, but hopefully so they're not clipping, and then quickly go
+ * down in."
+ *
+ * So the body gets its own outro, timed to the gather-and-dive in `cards.ts`:
+ * the cards are gathered by 380 ms, filed in by 820, and the lid closes over
+ * them at 900. He leans back and opens wider as they come (an intake), gulps,
+ * and settles into a small satisfied smile with his own card back inside him —
+ * `single` returns to its rest value of 1 on the last beat, which is what "it
+ * animates into him and then he closes" means for the card that was already
+ * there.
+ *
+ * The card timing is COUNT-INDEPENDENT by construction (see `STASH.fileSpanMs`),
+ * so this one clip is the right length for a batch of two and for a batch of
+ * twelve.
+ */
+const STASH_CLOSE: StateClip = {
+  kind: 'clip',
+  symbol: null,
+  duration_ms: 1040,
+  mod: 'happy',
+  modulation: { float_amp: 0.85, float_rate: 0.9, blink_rate: 0.9 },
+  beats: [
+    { t_ms: 0, ease: 'ease', pose: { bend: -0.62, brow: 0.6, mouth: 2.09, pz: 0.14, sq: 0.2, single: 0 } },
+    { t_ms: 380, ease: 'ease', pose: { bend: -0.68, brow: 0.64, mouth: 2.09, pz: 0.2, sq: 0.26, single: 0 } },
+    { t_ms: 620, ease: 'ease', pose: { bend: -0.58, brow: 0.55, mouth: 2.09, pz: 0.12, sq: 0.18, single: 0 } },
+    { t_ms: 820, ease: 'ease', pose: { bend: -0.3, brow: 0.4, mouth: 2.0, pz: 0.0, sq: 0.05, single: 0 } },
+    { t_ms: 900, ease: 'ease', pose: { bend: 0.3, brow: 0.15, mouth: 0.04, lid_u: 0.72, m_curve: -0.35, pz: -0.08, sq: -0.2, single: 0 } },
+    { t_ms: 1040, ease: 'ease', pose: { bend: -0.05, lid_l: 0.32, m_curve: -0.75, pz: 0.04, sq: 0.06 } },
+  ],
+}
+
+/**
  * The loop window per state, with the beat times it was read off.
  *
  * States absent from this table are ONE-SHOTS: they play, then hand over to
@@ -220,12 +306,27 @@ export const SUSTAIN: Record<string, SustainSpec> = {
   // this state is running at `float_rate` 0.55: a slow, heavy breath.
   sad: { fromMs: 1900, toMs: 1900 },
 
-  // Beats 420 / 980 of the authored clip, PLUS the 310 ms spiral prologue that
-  // `withSpiralEyes` inserts ahead of them. The stepped head-shake itself is
-  // what "the back and forth animation just continues to loop" asks for; stepped
-  // beats make the wrap a step too, which is the clip's own language rather than
-  // a pop.
-  confused: { fromMs: 420 + 310, toMs: 980 + 310 },
+  // Beats 560 -> 1260 of the authored clip, PLUS the 310 ms spiral prologue that
+  // `withSpiralEyes` inserts ahead of them.
+  //
+  // WAS 420 -> 980, and that window was the one thing about `confused` that was
+  // wrong: "the loop point is a little too quick, so the little back-and-forth
+  // motions he's doing are kind of uneven in feel. I would just pad out the end
+  // of that animation a little bit."
+  //
+  // BOTH HALVES OF THAT ARE THE SAME MISTAKE. The clip is a stepped register —
+  // beats 560, 700, 840, 980 are `step` and each holds for exactly 140 ms — but
+  // beat 420 is EASED, so a window opening there began with a 140 ms smooth
+  // slide and then snapped into three held steps. One eased beat inside a
+  // stepped bar is precisely "uneven in feel". Starting at 560 makes every step
+  // in the loop the same 140 ms.
+  //
+  // And the padding is then free, because a window end no longer has to land on
+  // a beat: 980's step holds through to 1600, so 1260 is two more 140 ms slots
+  // of the LAST head position. He shakes three times and then holds for a beat
+  // before going again, which is what stops a loop of a head-shake reading as a
+  // machine. 700 ms round, against 560.
+  confused: { fromMs: 560 + 310, toMs: 1260 + 310 },
 
   // Beats 330 / 470 — two steps of the jaw chatter, and the only pair of the
   // five that wraps cleanly. The obvious window (240 -> 540) spans the whole
@@ -235,8 +336,17 @@ export const SUSTAIN: Record<string, SustainSpec> = {
   // "he should stay like that" means for this one.
   frustrated: { fromMs: 330, toMs: 470 },
 
-  // Beats 200 / 330, the flinch-away flutter.
-  embarrassed: { fromMs: 200, toMs: 330 },
+  // A HOLD at beat 1150, not the flutter.
+  //
+  // "He's like rapidly shaking, and I don't really like that. It should just kind
+  // of hold on the facial expression rather than having this vibration."
+  //
+  // The flutter is beats 200/260/330, three stepped shudders, and looping them
+  // shook him indefinitely. It is a good ENTRANCE and a terrible state, so it
+  // stays in the intro — he flinches once, on the way in — and the sustain holds
+  // beat 1150, which is that flinch settled: turned away, brows down, gaze off
+  // to the side. Everything that keeps it alive from there is procedural.
+  embarrassed: { fromMs: 1150, toMs: 1150 },
 
   // Beats 390 / 1250, the head-tilt hold.
   curious: { fromMs: 390, toMs: 1250 },
@@ -274,11 +384,11 @@ export const SUSTAIN: Record<string, SustainSpec> = {
   // stagger keeps the entrance and drops the re-entrance.
   loading: { fromMs: 900, toMs: 1800, outroClip: LOADING_LAND },
 
-  // Beats 400 / 1900, the full 115-degree gape held open. The outro (1900 ->
-  // 2800) is the cards filing back in and the lid closing — the reviewer
-  // described exactly this: "once told to stop, that's when they all file in and
-  // it animates into him and then he closes."
-  card_stash: { fromMs: 400, toMs: 1900, outroTail: true },
+  // Beats 400 / 1900, the full 115-degree gape held open, with the fan of cards
+  // hanging around him for as long as he is asked to hold it. The way out is
+  // SYNTHESIZED rather than the authored tail; see `STASH_CLOSE` for why the
+  // authored one cannot be used once the cards are still in the air.
+  card_stash: { fromMs: 400, toMs: 1900, outroClip: STASH_CLOSE },
 
   // HOLDS at the end of the plateau, for the same reason as `sad`.
   //
@@ -400,10 +510,64 @@ export function synthesizedStates(): Record<string, StateClip> {
   return { [IDLE]: IDLE_STATE }
 }
 
-/** The beats of a sustain window, for the test to compare. */
-export function windowBeats(clip: StateClip, spec: SustainSpec): [Beat, Beat] | null {
-  const at = (t: number) => clip.beats.find((b) => b.t_ms === t)
-  const a = at(spec.fromMs)
-  const b = at(spec.toMs)
-  return a && b ? [a, b] : null
+/** Every channel the state moves, sampled at one instant. Unlike a beat, this is
+ *  COMPLETE: a channel the authored beat omitted comes back with the value the
+ *  curve actually has there. */
+function sampleAt(src: CompiledState, t: number): Pose {
+  const out: Pose = {}
+  for (const [ch, curve] of src.curves) out[ch] = evalCurve(curve, t)
+  return out
+}
+
+/** The interpolation mode governing the segment that CONTAINS `t` — i.e. the
+ *  ease of the last beat at or before it. A window that opens inside a stepped
+ *  hold has to keep stepping. */
+function easeAt(clip: StateClip, t: number): Beat['ease'] {
+  let e: Beat['ease'] = 'ease'
+  for (const b of clip.beats) {
+    if (b.t_ms > t) break
+    e = b.ease
+  }
+  return e
+}
+
+/**
+ * The sustain window, as a clip in its own right. See the note on `SustainSpec`.
+ *
+ * Returns null for a HOLD (`toMs === fromMs`): a constant has no seam, and the
+ * existing hold path already evaluates the authored clip at one frozen instant,
+ * which is both cheaper and exactly equivalent.
+ */
+export function windowClip(src: CompiledState, spec: SustainSpec): StateClip | null {
+  const { fromMs, toMs } = spec
+  const dur = toMs - fromMs
+  if (dur <= 0) return null
+
+  const head: Beat = {
+    t_ms: 0,
+    ease: easeAt(src.clip, fromMs),
+    pose: sampleAt(src, fromMs),
+  }
+  const inner: Beat[] = src.clip.beats
+    .filter((b) => b.t_ms > fromMs && b.t_ms < toMs)
+    .map((b) => ({ ...b, t_ms: b.t_ms - fromMs, pose: { ...b.pose } }))
+  // The tail is the head. Not "the pose at toMs, which should be close" — the
+  // head itself, so a window can never drift and the test that checks it is
+  // checking a construction rather than a coincidence.
+  const tail: Beat = { t_ms: dur, ease: easeAt(src.clip, toMs), pose: { ...head.pose } }
+
+  // Everything else about the state carries over verbatim: the symbol (which is
+  // what `spinRateFor` keys off), the modulation, the gaze lock, the per-channel
+  // linear overrides. Only the timeline is new.
+  const out: StateClip = {
+    ...src.clip,
+    duration_ms: dur,
+    beats: [head, ...inner, tail],
+    loop: true,
+    cyclic: true,
+  }
+  // `flight_spans_ms` are offsets into the AUTHORED timeline and mean nothing
+  // rebased. A stale copy would be read as a flight span that is not there.
+  delete out.flight_spans_ms
+  return out
 }

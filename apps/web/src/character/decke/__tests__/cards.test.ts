@@ -12,6 +12,14 @@ import { join } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { evalCurve, makeCurve } from '../curve'
+import {
+  CARD_HALF,
+  MAX_STASH,
+  STASH,
+  sizeForCount,
+  stashLayout,
+  stationLocal,
+} from '../cards'
 
 const doc = JSON.parse(
   readFileSync(
@@ -133,4 +141,181 @@ test('existence is scale, and the two orbit cards are deliberately out of step',
   for (const k of [...rose, ...amber]) assert.ok(k.v === 0 || k.v === 1, `scale key ${k.v}`)
   const firstFull = (ks: { t: number; v: number }[]) => ks.find((k) => k.v === 1)!.t
   assert.ok(firstFull(amber) - firstFull(rose) > 1000, 'amber spawns a beat after rose')
+})
+
+// ---------------------------------------------------------------- the stash fan
+
+/**
+ * "Not clipping" as a PROPERTY, not as something checked by eye at one count.
+ *
+ * The authored five-card path put every card on the same point and they
+ * interpenetrated — "they're like all clipping through each other, and we need
+ * to not have them do that." The replacement is a computed fan, and what makes
+ * the replacement trustworthy is that its no-overlap claim is checked at every
+ * batch size it will ever be asked for.
+ *
+ * Overlap is judged in the plane the reader sees. The fan is laid out about the
+ * VIEW AXIS, so a station's screen position is `r * sin(lobe)` across and `z`
+ * up, and its depth `r * cos(lobe)` only decides which card is in front. Two
+ * cards are on top of each other when they overlap in BOTH screen axes.
+ */
+test('no two cards in the fan can interpenetrate', () => {
+  // THIS IS THE PROPERTY, and it is not the same as "no two cards overlap on
+  // screen". The reported defect was cards passing THROUGH each other — "they're
+  // like all clipping through each other, and we need to not have them do that"
+  // — which is a 3D intersection. Two cards overlapping on screen at clearly
+  // different depths is not that; it is a hand of cards, and it reads correctly.
+  //
+  // The cards are near-parallel planes all facing the reader, so two of them can
+  // only intersect if they occupy the same depth AND the same patch of screen.
+  // Requiring one or the other is therefore exactly the no-clipping guarantee,
+  // and it is checked at every batch size the fan will ever be asked for.
+  const DEPTH_CLEAR = 0.15 // a card is 0.006 thick; this is comfortable margin
+  for (let n = 1; n <= MAX_STASH; n++) {
+    const s = sizeForCount(n)
+    const halfW = CARD_HALF.w * s
+    const halfH = CARD_HALF.h * s
+    const st = stashLayout(n)
+    assert.equal(st.length, n)
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const apart =
+          Math.abs(st[i].sx - st[j].sx) > halfW * 2 || Math.abs(st[i].z - st[j].z) > halfH * 2
+        const layered = Math.abs(st[i].depth - st[j].depth) > DEPTH_CLEAR
+        assert.ok(
+          apart || layered,
+          `n=${n}: cards ${i} and ${j} share both a screen patch and a depth ` +
+            `(dx ${Math.abs(st[i].sx - st[j].sx).toFixed(2)}, dz ${Math.abs(st[i].z - st[j].z).toFixed(2)}, ` +
+            `ddepth ${Math.abs(st[i].depth - st[j].depth).toFixed(2)})`,
+        )
+      }
+    }
+  }
+})
+
+test('every card is individually legible, not merely non-intersecting', () => {
+  // The other half of the ask: "they need to spawn in a way that they are, like,
+  // all individually visible". A card wholly behind another is not visible
+  // however cleanly it is layered, so every card must show a real fraction of
+  // itself. Measured as the free margin around its centre: no other card's
+  // centre may be inside two thirds of a card in BOTH screen axes at once.
+  for (let n = 1; n <= MAX_STASH; n++) {
+    const s = sizeForCount(n)
+    const st = stashLayout(n)
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const dx = Math.abs(st[i].sx - st[j].sx) / (CARD_HALF.w * s)
+        const dz = Math.abs(st[i].z - st[j].z) / (CARD_HALF.h * s)
+        assert.ok(
+          dx > 1.3 || dz > 1.0,
+          `n=${n}: cards ${i} and ${j} sit almost on top of each other (dx ${dx.toFixed(2)} half-widths, dz ${dz.toFixed(2)} half-heights)`,
+        )
+      }
+    }
+  }
+})
+
+test('no card stands in front of his face', () => {
+  // The middle of the fan is between the reader and him, so a card there covers
+  // the character who is presenting it. The clear column is what keeps that from
+  // happening, and it has to hold at every count — including after the jitter.
+  const BODY_HALF_W = 0.875
+  for (let n = 1; n <= MAX_STASH; n++) {
+    const halfW = CARD_HALF.w * sizeForCount(n)
+    for (const st of stashLayout(n)) {
+      assert.ok(
+        Math.abs(st.sx) - halfW > BODY_HALF_W,
+        `n=${n}: a card's inner edge reaches ${(Math.abs(st.sx) - halfW).toFixed(2)}, inside his ${BODY_HALF_W}`,
+      )
+    }
+  }
+})
+
+test('the fan stays in front of him and stays on screen', () => {
+  // Depth is for LIFE, not for spacing: it must never put a card behind him
+  // (where the reader would not see it) nor so far forward that it reads as a
+  // separate object floating between the reader and the page.
+  for (let n = 1; n <= MAX_STASH; n++) {
+    for (const st of stashLayout(n)) {
+      assert.ok(st.depth > -0.9 && st.depth < 1.2, `depth ${st.depth.toFixed(2)} at n=${n}`)
+    }
+  }
+  // And the whole fan is not wider than about two and a half of him.
+  const widest = Math.max(...stashLayout(MAX_STASH).map((s) => Math.abs(s.sx)))
+  assert.ok(widest < 3.3, `the fan reaches ${widest.toFixed(2)} units out`)
+})
+
+test('the fan is the same fan every time', () => {
+  // Seeded, never `Math.random`: the same batch of cards has to lay out the same
+  // way on every play, or a state that is re-entered reshuffles itself.
+  assert.deepEqual(stashLayout(7), stashLayout(7))
+})
+
+test('a small batch is balanced across the middle', () => {
+  // Slots are filled alternating sides, so he is never standing beside a stack
+  // of cards on one shoulder and nothing on the other.
+  for (let n = 2; n <= MAX_STASH; n += 2) {
+    const left = stashLayout(n).filter((s) => s.sx < 0).length
+    assert.equal(left, n / 2, `n=${n}: ${left} cards on the left`)
+  }
+})
+
+test('cards shrink as the batch grows, but never to confetti', () => {
+  assert.equal(sizeForCount(1), sizeForCount(5), 'small batches share one size')
+  assert.ok(sizeForCount(MAX_STASH) < sizeForCount(5), 'a full batch does not shrink')
+  assert.ok(sizeForCount(MAX_STASH) > 0.3, 'a full batch is unreadably small')
+})
+
+/**
+ * The frame conversion, which every property above is blind to.
+ *
+ * `stashLayout` works in what the reader sees — across, up, and toward. Turning
+ * that into his local frame is one step of trigonometry, and a sign error in it
+ * (screen-right flipped, or the whole fan laid out BEHIND him at `facing = -1`)
+ * would satisfy every overlap, gap and balance test while putting the cards
+ * where nobody can see them.
+ */
+test('a station resolves in front of him, on the side it was laid out', () => {
+  const CAM_BEARING = 40.195 * (Math.PI / 180)
+  const out = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }
+  for (const facing of [1, -1]) {
+    // The direction from him toward the camera, in his local frame.
+    const toward = { x: Math.sin(CAM_BEARING * facing), y: -Math.cos(CAM_BEARING * facing) }
+    for (const st of stashLayout(8)) {
+      stationLocal(st, facing, out)
+      // Depth is measured ALONG that direction. Positive depth must put the card
+      // on the camera's side of him, at BOTH facings.
+      const along = out.x * toward.x + out.y * toward.y
+      assert.ok(
+        Math.abs(along - st.depth) < 1e-9,
+        `facing ${facing}: depth resolved to ${along.toFixed(3)}, not ${st.depth.toFixed(3)}`,
+      )
+      // And `sx` is measured across it, keeping its sign — a card laid out on the
+      // reader's left stays on the reader's left when he turns round.
+      const across = out.x * -toward.y + out.y * toward.x
+      assert.ok(
+        Math.abs(across - st.sx) < 1e-9,
+        `facing ${facing}: sx resolved to ${across.toFixed(3)}, not ${st.sx.toFixed(3)}`,
+      )
+      assert.equal(out.z, st.z)
+    }
+  }
+})
+
+test('a card faces the reader at either facing', () => {
+  // The whole reason the fan is laid out against the view axis rather than
+  // against his forward: a card that is edge-on is not "individually visible".
+  const out = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }
+  for (const facing of [1, -1]) {
+    for (const st of stashLayout(12)) {
+      stationLocal(st, facing, out)
+      // The card's own normal at rotation rz, against the direction to the
+      // camera. Square-on is 1; edge-on is 0.
+      const camBearing = 40.195 * (Math.PI / 180) * facing
+      const normal = { x: Math.sin(out.rz), y: -Math.cos(out.rz) }
+      const toCam = { x: Math.sin(camBearing), y: -Math.cos(camBearing) }
+      const face = Math.abs(normal.x * toCam.x + normal.y * toCam.y)
+      assert.ok(face > 0.82, `a card is ${(Math.acos(face) * 180) / Math.PI}° off square`)
+    }
+  }
 })

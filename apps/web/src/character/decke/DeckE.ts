@@ -18,6 +18,14 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { createStage, type Stage } from './stage'
+import { CENTRE_OFFSET, makeFraming, solveFraming, type Framing } from './framing'
+import {
+  BEACON,
+  beaconRect,
+  scrollableAncestor,
+  scrollToCentre,
+  type Beacon,
+} from './beacon'
 import { bindRig, applyLook, applyPose, resolveFacing, type RigNodes } from './rig'
 import { fixupMaterials } from './materials'
 import { createRiderSystem, type RiderSystem } from './riders'
@@ -53,9 +61,10 @@ import {
   SUSTAIN,
   spinRateFor,
   synthesizedStates,
+  windowClip,
   type SustainSpec,
 } from './sustain'
-import { DEG, MOUTH } from './constants'
+import { blenderToThree, DEG, MOUTH } from './constants'
 import { sampleTrack, solveFlight, type FlightSample, type FlightTrack } from './flight'
 import {
   homeCorner,
@@ -144,10 +153,40 @@ export type DeckEOptions = {
   clearColor?: readonly [number, number, number] | null
   onReady?: () => void
   onError?: (e: unknown) => void
+  /**
+   * Called when he leaves the viewport, and again with null when he comes back.
+   *
+   * The controller owns the GEOMETRY of this — it is the only thing that knows
+   * where he actually is — and the chip itself is a React component, because it
+   * is page chrome with a click target. See `beacon.ts`.
+   */
+  onBeacon?: (beacon: Beacon | null) => void
   /** How tall he should be on screen, in CSS pixels. Dollies the camera along
    *  its own axis, so the 3/4 view the facing system depends on is unchanged. */
   characterHeightPx?: number | null
+  /**
+   * Where he is when the page finishes loading.
+   *
+   * `home` is the product answer and the default — "I'd like it so that when he
+   * first loads, he is at home, not like dead center in the screen." `staging`
+   * leaves him at the world origin, which is the one place the framing solve is
+   * the identity and every parity still was taken from, so the comparison
+   * harness must ask for it.
+   */
+  startAt?: 'home' | 'staging'
 }
+
+/**
+ * Where he is parked, as a thing that can be RE-SOLVED rather than a coordinate.
+ *
+ * A coordinate is wrong for the same reason `homeCorner` is derived from the
+ * viewport rather than stored: the page moves. It scrolls, it resizes, its
+ * layout settles. An element station is a promise to stay beside a DOM rect, and
+ * keeping the promise means recomputing it whenever that rect can have moved.
+ */
+type Station =
+  | { kind: 'home' }
+  | { kind: 'element'; target: FlyTarget; depth: Depth; side: Side }
 
 type Transition = { from: Pose; started: number; durationMs: number } | null
 
@@ -190,9 +229,26 @@ export type SetStateOptions = {
  */
 const INSTANCES = new WeakMap<HTMLCanvasElement, DeckE>()
 
+/** Scratch for the beacon's silhouette probe. Module scope, not per instance:
+ *  it never outlives one call. */
+const _top = new Vector3()
+
 export class DeckE {
   readonly stage: Stage
   private rig!: RigNodes
+  /** The loaded glTF root. The beacon frames its BOUNDS, not just his body — a
+   *  fan of cards is wider than he is. */
+  private model: Object3D | null = null
+  /**
+   * How big his bounds are AT REST, so the beacon can measure how much bigger
+   * than usual he currently is.
+   *
+   * It has to be measured rather than assumed: at rest the model's bounds come
+   * out 4.86 units across against a body that is 2.4 tall, because the exported
+   * meshes carry their morph-target extents and several are authored
+   * pre-transform. See `Stage.renderInset`.
+   */
+  private restExtent = 0
   private riderSystem!: RiderSystem
   /** Null if the parent vertices could not be resolved in the exported mesh. */
   private eyeSocket: EyeSocket | null = null
@@ -201,6 +257,16 @@ export class DeckE {
   /** One entry per eye: the patched material and the empties it reads. */
   private eyes: { mat: EyeMaterial; ctrls: EyeControls }[] = []
   private states!: Map<string, CompiledState>
+  /**
+   * The compiled SUSTAIN clip per state — the loop window as a cyclic clip of
+   * its own. Built once at load rather than on every entry, because a state can
+   * be entered many times a second by an agent and compiling ten curves each
+   * time to get the same answer is work nobody asked for.
+   *
+   * Absent for a hold (`toMs === fromMs`) and for the one-shots; see
+   * `windowClip`.
+   */
+  private sustainClips!: Map<string, CompiledState>
   private proc!: ReturnType<typeof createProcedural>
 
   private readonly clock = new Clock()
@@ -285,10 +351,29 @@ export class DeckE {
     pos: new Vector3(),
     rx: 0, ry: 0, rz: 0, sq: 0, bend: 0, lean: 0, twist: 0, mouth: 0,
   }
-  /** Re-solving on every scroll event would leave him permanently crouched in
-   *  anticipation and never arriving, so a move is only chased once it is worth
-   *  chasing. */
-  private pendingTarget: { target: FlyTarget; depth: Depth; side: Side } | null = null
+  /** Where he is parked, as something re-solvable. See `Station`. */
+  private station: Station = { kind: 'home' }
+  /** Set by the scroll listener; consumed once per frame. Reading a DOMRect is a
+   *  forced layout, so it happens at most once a frame and only when something
+   *  has actually moved. */
+  private stationDirty = false
+  /** Where the current flight was solved to land, and how far the page has moved
+   *  under it since. See `syncStation`. */
+  private readonly trackDest = new Vector3()
+  private readonly trackShift = new Vector3()
+  private readonly onScroll = () => {
+    this.stationDirty = true
+  }
+  /** How he is turned toward the viewer where he stands. See `framing.ts`. */
+  private readonly framing: Framing = makeFraming()
+  private readonly rootThree = new Vector3()
+  /** His centre in world space, and the same point projected to the viewport.
+   *  Both are wanted every frame by the beacon; neither is worth allocating. */
+  private readonly centreThree = new Vector3()
+  private readonly screen = new Vector3()
+  /** The beacon as last reported, so the callback fires on CHANGE rather than
+   *  sixty times a second — it drives React state. */
+  private beacon: Beacon | null = null
   /** The pending trailing-edge re-park. See `resize`. */
   private rePark: ReturnType<typeof setTimeout> | null = null
   /** Set when a flight is in the air; applied the frame it lands. See `update`. */
@@ -337,9 +422,20 @@ export class DeckE {
       const base = this.states.get(name)
       if (base) this.states.set(name, compileState(name, patch(base.clip), doc.rest_pose))
     }
+    // AFTER the patches, not before: `confused`'s window is expressed against
+    // the spiral prologue `withSpiralEyes` inserts, so building its loop from
+    // the unpatched clip would be 310 ms out of step with what plays.
+    this.sustainClips = new Map()
+    for (const [name, spec] of Object.entries(SUSTAIN)) {
+      const src = this.states.get(name)
+      if (!src) continue
+      const clip = spec.clip ?? windowClip(src, spec)
+      if (clip) this.sustainClips.set(name, compileState(`${name}:sustain`, clip, doc.rest_pose))
+    }
     this.proc = createProcedural(doc)
 
     const model: Object3D = gltf.scene
+    this.model = model
     this.stage.scene.add(model)
     // Repair what glTF's fixed material model flattened, before anything binds.
     fixupMaterials(model)
@@ -356,6 +452,42 @@ export class DeckE {
     // `idle`, which is where he lives. Previously it was entered and never left,
     // and because its modulation is `float_amp: 0, blink_rate: 0` that left a
     // freshly-loaded page showing a character who never moved at all.
+    // The beacon's reference size, measured through the REAL pipeline at the
+    // rest pose — the same path a frame takes, so the number means the same
+    // thing as the one measured live. Everything below overwrites this pose on
+    // the first frame, so it costs one throwaway apply at load.
+    applyPose(this.rig, this.pose, { facing: 1 })
+    this.riderSystem.apply(0, 0, 0, 0)
+    this.eyeSocket?.apply()
+    this.cards.apply(this.pose, {
+      facing: 1,
+      state: IDLE,
+      phase: 'intro',
+      tMs: 0,
+      clipTMs: 0,
+      phaseTMs: 0,
+      orbit: false,
+      float: this.floatOut,
+    })
+    this.stage.scene.updateMatrixWorld(true)
+    this.restExtent = this.stage.measureExtent(model)
+
+    // WHERE HE STARTS. "I'd like it so that when he first loads, he is at home,
+    // not like dead center in the screen." The origin is where he is STAGED for
+    // review — it is what the Blender camera frames — and it is the worst place
+    // to leave an assistant on a page, because it is on top of the content. He
+    // is placed there, not flown: `boot` is his arrival and a flight on top of it
+    // would be two entrances at once.
+    if (this.opts.startAt !== 'staging') {
+      this.anchor.copy(homeCorner(this.stage.camera, this.stage.camera.position.length()))
+      this.trackDest.copy(this.anchor)
+    }
+    // A parked presentation is anchored to a DOM RECT, and the page can move
+    // that rect out from under him at any moment. Capture phase so a nested
+    // scroll container counts too — the element he is presenting is very often
+    // inside one.
+    window.addEventListener('scroll', this.onScroll, { passive: true, capture: true })
+
     this.setState('boot', { blendMs: 0, mode: 'once', then: IDLE })
     this.opts.onReady?.()
   }
@@ -392,7 +524,11 @@ export class DeckE {
     for (const s of sides) {
       const mesh = model.getObjectByName(s.mesh) as Mesh | undefined
       if (!mesh) throw new Error(`decke eyes: mesh "${s.mesh}" missing from the glb`)
-      const mat = createEyeMaterial({ side: s.side, atlas })
+      const mat = createEyeMaterial({
+        side: s.side,
+        atlas,
+        spinPhaseDeg: this.doc.symbol_atlas.spin_phase_deg[s.side],
+      })
       mesh.material = mat
       this.eyes.push({ mat, ctrls: { eye: mesh, ...s.ctrls } })
     }
@@ -453,6 +589,14 @@ export class DeckE {
    */
   setState(name: string, opts: SetStateOptions = {}) {
     if (!this.states.has(name)) throw new Error(`decke: unknown state "${name}"`)
+    // Validate NOW, for the reason `flyTo` gives: `then` is consumed later,
+    // inside the animation frame, where a throw is an unhandled error in a rAF
+    // callback with no stack pointing at the mistake — and because `tick`
+    // re-schedules itself BEFORE calling `update`, it then throws on every frame
+    // for the life of the page rather than once.
+    if (opts.then !== undefined && !this.states.has(opts.then)) {
+      throw new Error(`decke: setState "then" names an unknown state "${opts.then}"`)
+    }
 
     // LET THE OUTGOING STATE FINISH ITS SENTENCE. Two states end with something
     // the viewer is owed rather than a return to rest — `card_stash`'s five
@@ -469,6 +613,24 @@ export class DeckE {
     // the outro fell straight through to `enter` and abandoned the cards
     // mid-flight — the exact defect the queue exists to prevent, reachable by
     // clicking twice. Newest request wins, but it wins the QUEUE.
+    // RE-ISSUING THE STATE HE IS ALREADY IN IS A NO-OP, NOT A RESTART.
+    //
+    // An agent that says "still thinking" on three consecutive turns should not
+    // make him re-enter `thinking` three times, and for the two states that
+    // deploy objects a restart is destructive: re-entering `card_stash` mid-hang
+    // reset the clock, which despawned every card in the air and re-dealt them
+    // from the mouth. Only a request that changes the state's LIFETIME — how
+    // long it lasts, or where it goes next — is a real change.
+    if (
+      name === this.current &&
+      this.phase !== 'outro' &&
+      opts.durationMs === undefined &&
+      opts.mode !== 'once' &&
+      (opts.then === undefined || opts.then === this.nextState)
+    ) {
+      return
+    }
+
     if (this.phase === 'outro') {
       this.queued = { name, opts }
       return
@@ -494,6 +656,10 @@ export class DeckE {
 
     this.blendFrom(opts.blendMs ?? (snap || isAlert ? 0 : DEFAULT_BLEND_MS))
 
+    // Before the first frame of the new state, so a pending stash count lands
+    // here and never mid-flight. See `CardSystem.setCount`.
+    this.cards.enter(name)
+
     this.current = name
     this.stateStart = this.elapsed
     this.phaseStart = this.elapsed
@@ -503,8 +669,16 @@ export class DeckE {
     const once = opts.mode === 'once' || ONE_SHOT.has(name)
     const sustain = name === CUSTOM_STATE ? this.customSustain : (SUSTAIN[name] ?? null)
     this.spec = once ? null : sustain
-    this.sustainClip =
-      this.spec?.clip ? compileState(`${name}:sustain`, this.spec.clip, this.doc.rest_pose) : null
+    // `custom` is the one state whose clip did not exist at load, so its window
+    // is compiled here. Everything else is a table lookup.
+    this.sustainClip = !this.spec
+      ? null
+      : name === CUSTOM_STATE
+        ? (() => {
+            const clip = windowClip(this.states.get(name)!, this.spec)
+            return clip ? compileState(`${name}:sustain`, clip, this.doc.rest_pose) : null
+          })()
+        : (this.sustainClips.get(name) ?? null)
     // A SYNTHESIZED outro survives `mode: 'once'`; an authored TAIL does not,
     // and the asymmetry is not an oversight. The tail is part of the clip, so
     // playing the clip through has already played it — `card_stash` run once
@@ -535,8 +709,16 @@ export class DeckE {
    *   cards INTO existence inside the animation whose job is to remove them.
    */
   private hasOutro(interrupted = false): boolean {
-    if (interrupted && this.phase !== 'sustain') return false
-    return !!this.outroClip || !!this.spec?.outroTail
+    if (!this.outroClip && !this.spec?.outroTail) return false
+    if (!interrupted) return true
+    // PHASE IS NOT THE TEST. It was, on the theory that a sustain never reached
+    // has deployed nothing to put away — and that is false for both states that
+    // have an outro. `card_stash`'s first card leaves the mouth inside its
+    // 400 ms intro and `loading`'s left card is fully spawned 200 ms into a
+    // 900 ms one, so cutting away during an intro deleted a card the reader was
+    // looking at. Asking the card system what is actually on screen is the
+    // honest test, and it is exact rather than a timing guess.
+    return this.phase === 'sustain' || this.cards.deployed()
   }
 
   private beginOutro() {
@@ -616,7 +798,7 @@ export class DeckE {
     // between — "he should still have his standard directions, so either this or
     // this."
     this.setFacing(park.facing)
-    this.pendingTarget = { target, depth, side }
+    this.station = { kind: 'element', target, depth, side }
 
     // Presenting is a TWO-part signal: he stands beside the thing, and the thing
     // is ringed. Doing only the first is a robot standing near a box. Ringing on
@@ -638,6 +820,19 @@ export class DeckE {
     }
   }
 
+  /**
+   * How many cards the next `card_stash` shows.
+   *
+   * "This needs to really be dynamic, because it's gonna depend — the way that I
+   * see this being used is like they add a whole bunch of cards to their
+   * collection, and this is his way of showing the actual cards they added going
+   * down into the deck box." So the count is an input, not a property of the
+   * five meshes that happen to be in the glb.
+   */
+  setStashCount(n: number) {
+    this.cards.setCount(n)
+  }
+
   /** Ring an element without moving. */
   highlight(target: Element | string, opts: { durationMs?: number } = {}) {
     highlightElement(target, opts)
@@ -648,10 +843,64 @@ export class DeckE {
   }
 
   returnHome() {
-    this.pendingTarget = null
+    this.station = { kind: 'home' }
     this.onArrive = null
     clearHighlight()
     this.launch(homeCorner(this.stage.camera, this.stage.camera.position.length()))
+  }
+
+  /**
+   * Re-solve the current station, in the Blender frame.
+   *
+   * Returns null when an element station no longer resolves — the element was
+   * removed, or is not laid out yet. Staying where he is beats teleporting to
+   * the origin, which is what a null-means-zero reading would do.
+   */
+  private solveStation(): { position: Vector3; facing?: number } | null {
+    const camera = this.stage.camera
+    const baseDistance = camera.position.length()
+    if (this.station.kind === 'home') {
+      // Home is VIEWPORT-relative, so scrolling does not move it and must not:
+      // at home he is page chrome rather than an annotation on the content.
+      return { position: homeCorner(camera, baseDistance) }
+    }
+    const rect = resolveRect(this.station.target)
+    if (!rect) return null
+    const park = parkBeside(camera, rect, {
+      depth: this.station.depth,
+      side: this.station.side,
+      baseDistance,
+    })
+    return { position: park.position, facing: park.facing }
+  }
+
+  /**
+   * Follow the page.
+   *
+   * "When he's presenting on the DOM, when we scroll, he should really scroll
+   * with it, because he's showing that thing." So this SNAPS rather than easing:
+   * the element is not moving in the document, the viewport is moving over it,
+   * and anything less than exact tracking reads as him sliding off the thing he
+   * is pointing at. His vertical angle follows for free, because `solveFraming`
+   * is re-solved from wherever he ends up — which is the other half of the same
+   * note.
+   *
+   * A flight in the air gets the same treatment, scaled by how far along it is,
+   * so the destination tracks the element while the launch point stays where he
+   * actually took off from.
+   */
+  private syncStation() {
+    if (!this.stationDirty) return
+    this.stationDirty = false
+    const park = this.solveStation()
+    if (!park) return
+    if (this.track) this.trackShift.copy(park.position).sub(this.trackDest)
+    this.anchor.copy(park.position)
+    // Only when it actually changed: `setFacing` restarts the turn, and calling
+    // it every scroll frame would leave him permanently mid-turn.
+    if (park.facing !== undefined && park.facing !== this.facingTarget) {
+      this.setFacing(park.facing)
+    }
   }
 
   private launch(to: Vector3) {
@@ -667,6 +916,8 @@ export class DeckE {
     })
     this.trackStart = this.elapsed
     this.anchor.copy(to)
+    this.trackDest.copy(to)
+    this.trackShift.set(0, 0, 0)
   }
 
   /**
@@ -730,6 +981,16 @@ export class DeckE {
       this.elapsed += dt
       this.update(dt)
       this.stage.renderer.render(this.stage.scene, this.stage.camera)
+      // The beacon's window, drawn into the same canvas over the chip. Second
+      // pass, same context — see `Stage.renderInset`.
+      if (this.beacon) {
+        this.stage.renderInset(
+          beaconRect(this.beacon),
+          this.centreThree,
+          this.model,
+          this.restExtent,
+        )
+      }
     }
     this.raf = requestAnimationFrame(tick)
   }
@@ -753,12 +1014,13 @@ export class DeckE {
       if (this.phase === 'intro' && this.spec && tRaw >= this.spec.fromMs) {
         this.phase = 'sustain'
         this.phaseStart = this.elapsed
-        // Entering a sustain is continuous by construction — the loop starts at
-        // the very beat the intro ended on. The one exception is a SYNTHESIZED
-        // sustain, which is a different clip: `sleep`'s deliberately closes the
-        // mouth and settles the arch the yawn left open, and that wants an
-        // animated settle rather than a cut.
-        if (this.sustainClip) this.blendFrom(PHASE_BLEND_MS)
+        // Entering a sustain is continuous by construction — a window clip's
+        // head beat is SAMPLED at `fromMs`, so it is the pose the intro just
+        // arrived at, to the last digit. The one exception is a hand-written
+        // sustain (`spec.clip`), which is a different animation: `sleep`'s
+        // deliberately closes the mouth and settles the arch the yawn left open,
+        // and that wants an animated settle rather than a cut.
+        if (this.spec.clip) this.blendFrom(PHASE_BLEND_MS)
       }
 
       if (this.phase === 'outro') {
@@ -813,17 +1075,101 @@ export class DeckE {
       if (this.sustainClip) {
         return ((this.elapsed - this.phaseStart) * 1000) % this.sustainClip.clip.duration_ms
       }
-      const spec = this.spec!
-      const span = spec.toMs - spec.fromMs
-      return span > 0 ? spec.fromMs + ((tRaw - spec.fromMs) % span) : spec.fromMs
+      // No sustain clip means a HOLD: `windowClip` returns null for a zero-width
+      // window, because a constant has no seam to make cyclic and evaluating the
+      // authored clip at one frozen instant is both cheaper and identical.
+      return this.spec!.fromMs
     }
 
     const clip = this.states.get(this.current)!.clip
     return clip.loop ? tRaw % clip.duration_ms : tRaw
   }
 
+  /**
+   * Is he off the viewport, and if so where — the beacon's whole input.
+   *
+   * Measured against his SILHOUETTE, not his centre: "as soon as he is visible,
+   * that little indicator would go away", so any part of him on screen means no
+   * chip. His on-screen half-height is derived by projecting a second point one
+   * half-body up, rather than assumed, because his apparent size changes with
+   * depth (`background` parks him at a third scale) and with the dolly.
+   */
+  private updateBeacon() {
+    const cam = this.stage.camera
+    this.centreThree.copy(this.rootThree)
+    this.centreThree.y += CENTRE_OFFSET
+    this.screen.copy(this.centreThree).project(cam)
+    const h = window.innerHeight
+    const cy = (-this.screen.y * 0.5 + 0.5) * h
+    const cx = (this.screen.x * 0.5 + 0.5) * window.innerWidth
+
+    _top.copy(this.centreThree)
+    _top.y += CENTRE_OFFSET
+    _top.project(cam)
+    const halfPx = Math.abs((-_top.y * 0.5 + 0.5) * h - cy)
+
+    // Behind the camera: `project` flips the sign there, and a character behind
+    // you is as absent as one above you. Treat him as past the top rather than
+    // reporting a mirrored position.
+    const behind = this.screen.z > 1
+    const above = cy + halfPx < 0
+    const below = cy - halfPx > h
+    const next: Beacon | null =
+      behind || above || below
+        ? {
+            x: Math.min(
+              window.innerWidth - BEACON.size / 2 - BEACON.sideMargin,
+              Math.max(BEACON.size / 2 + BEACON.sideMargin, cx),
+            ),
+            edge: below ? 'bottom' : 'top',
+          }
+        : null
+
+    const same =
+      (next === null && this.beacon === null) ||
+      (next !== null &&
+        this.beacon !== null &&
+        next.edge === this.beacon.edge &&
+        Math.abs(next.x - this.beacon.x) < 1)
+    if (next === null && this.beacon !== null) this.stage.resetInset()
+    this.beacon = next
+    if (!same) this.opts.onBeacon?.(next)
+  }
+
+  /**
+   * Scroll the page so he is vertically centred.
+   *
+   * Native smooth scrolling rather than a hand-rolled tween: it is eased, it is
+   * interruptible by the user's own scroll, and it respects
+   * `prefers-reduced-motion` without this module having to know that exists.
+   */
+  scrollIntoView() {
+    const cam = this.stage.camera
+    this.centreThree.copy(this.rootThree)
+    this.centreThree.y += CENTRE_OFFSET
+    this.screen.copy(this.centreThree).project(cam)
+    const cy = (-this.screen.y * 0.5 + 0.5) * window.innerHeight
+    // THE SCROLLER MIGHT NOT BE THE DOCUMENT. The scroll listener is
+    // capture-phase precisely so that an element inside a nested scroll
+    // container still drags him along — so the way back has to find the same
+    // container, or clicking the beacon scrolls the page and he does not move.
+    const el =
+      this.station.kind === 'element' && 'selector' in this.station.target
+        ? document.querySelector(this.station.target.selector)
+        : null
+    const scroller = scrollableAncestor(el)
+    if (scroller) {
+      scroller.scrollTo({ top: scrollToCentre(cy, scroller), behavior: 'smooth' })
+      return
+    }
+    window.scrollTo({ top: scrollToCentre(cy), behavior: 'smooth' })
+  }
+
   private update(dt: number) {
     if (!this.rig) return
+
+    // ---- the page may have moved ---------------------------------------
+    this.syncStation()
 
     // ---- facing --------------------------------------------------------
     if (this.facingT < 1) {
@@ -961,9 +1307,12 @@ export class DeckE {
       const tf = (this.elapsed - this.trackStart) * 1000
       sampleTrack(this.track, tf, this.flightSample)
       const f = this.flightSample
-      this.pose.px += f.pos.x
-      this.pose.py += f.pos.y
-      this.pose.pz += f.pos.z
+      // The page moving under a flight shifts its DESTINATION, not its origin —
+      // so the shift ramps in with the flight's own progress. See `syncStation`.
+      const u = Math.min(1, Math.max(0, tf / this.track.durationMs))
+      this.pose.px += f.pos.x + this.trackShift.x * u
+      this.pose.py += f.pos.y + this.trackShift.y * u
+      this.pose.pz += f.pos.z + this.trackShift.z * u
       this.pose.rx += f.rx
       this.pose.ry += f.ry
       this.pose.rz += f.rz
@@ -993,8 +1342,18 @@ export class DeckE {
     // ---- external overrides --------------------------------------------
     for (const [ch, v] of this.overrides) this.pose[ch] = v
 
+    // ---- framing ---------------------------------------------------------
+    // Solved from the FINAL position — after the flight, the anchor and any
+    // pinned channel — because it is a function of where he actually ends up on
+    // screen this frame, not of where he was asked to go. At the staging origin
+    // it is the identity, which is what keeps parity mode honest.
+    blenderToThree(this.pose.px, this.pose.py, this.pose.pz, this.rootThree)
+    solveFraming(this.stage.camera, this.rootThree, this.framing)
+    this.updateBeacon()
+    this.stage.setFraming(this.framing.position, this.framing.quaternion, this.framing.yaw)
+
     // ---- apply ----------------------------------------------------------
-    applyPose(this.rig, this.pose, { facing: this.facing })
+    applyPose(this.rig, this.pose, { facing: this.facing, framing: this.framing })
 
     // The float is the single additive layer and lives on its own node between
     // the keyed root and the squash, because Blender cannot drive and keyframe
@@ -1034,6 +1393,11 @@ export class DeckE {
       tMs: tRaw,
       clipTMs: tClip,
       phaseTMs: (this.elapsed - this.phaseStart) * 1000,
+      // The BASE state's own flag, not the active phase's clip: `loading`'s
+      // synthesized outro is a different clip and does not carry `orbit`, and
+      // the loose cards have to keep obeying the spawn schedule through it.
+      orbit: !!this.states.get(this.current)?.clip.orbit,
+      float: this.floatOut,
     })
 
     // ---- eye shader ------------------------------------------------------
@@ -1062,28 +1426,30 @@ export class DeckE {
     // shape: it fires on the first event of a drag and drops the trailing edge,
     // so a continuous resize leaves him parked beside where the element used to
     // be, which is the failure this is supposed to prevent.
-    if (!this.pendingTarget) return
     if (this.rePark !== null) clearTimeout(this.rePark)
     this.rePark = setTimeout(() => {
       this.rePark = null
-      const p = this.pendingTarget
-      if (!p || this.disposed) return
-      const rect = resolveRect(p.target)
-      if (!rect) return
-      const camera = this.stage.camera
-      const park = parkBeside(camera, rect, {
-        depth: p.depth,
-        side: p.side,
-        baseDistance: camera.position.length(),
-      })
+      if (this.disposed) return
+      const park = this.solveStation()
+      if (!park) return
+      // HOME SNAPS, AN ELEMENT IS FLOWN TO. Home is a parking spot in the
+      // viewport, so after a resize it is simply somewhere else and flying to it
+      // would be a journey to the same place. A presentation has genuinely moved
+      // relative to the content, and the flight is what makes that legible.
+      if (this.station.kind === 'home') {
+        this.anchor.copy(park.position)
+        this.trackDest.copy(this.anchor)
+        return
+      }
       this.launch(park.position)
-      this.setFacing(park.facing)
+      if (park.facing !== undefined) this.setFacing(park.facing)
     }, RE_PARK_SETTLE_MS)
   }
 
   dispose() {
     this.disposed = true
     this.stop()
+    window.removeEventListener('scroll', this.onScroll, { capture: true })
     // Tear the scene down properly, not just the loop. React 19's StrictMode
     // mounts effects twice in dev, so a partial teardown leaves a SECOND
     // WebGLRenderer bound to the same canvas — both keep drawing, and the

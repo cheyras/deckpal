@@ -28,6 +28,7 @@ import {
   MOUTH,
 } from './constants'
 import { hingeFrame } from './field'
+import type { Framing } from './framing'
 import { aimPupil, gazeTarget, type GazeOffset, type PupilAim } from './look'
 import type { Pose } from './playbook'
 
@@ -202,6 +203,12 @@ const _m = new Matrix4()
 export type RigOptions = {
   /** Blender's `facing` in [-1, +1]. Sided channels are resolved against it. */
   facing: number
+  /**
+   * How he is oriented toward the viewer at the place he is standing. Null (or
+   * the identity, which it is at the staging position) leaves the root
+   * unrotated, which is what parity mode wants.
+   */
+  framing?: Framing | null
 }
 
 /**
@@ -213,10 +220,23 @@ export type RigOptions = {
  */
 export function applyPose(rig: RigNodes, pose: Pose, opts: RigOptions) {
   // ---- node chain -------------------------------------------------------
-  // Position lives on the root and the root is NEVER yawed: with the facing
-  // node above it, the yaw rotates his flight PATH, and travel_far measured
-  // 14 of 19 sampled frames entirely off-screen.
-  rig.root.position.copy(blenderToThree(pose.px, pose.py, pose.pz, _v))
+  // Position lives on the root. The root carries no FACING yaw — that belongs
+  // below it, on `DeckE_Facing`, because a yaw here would rotate his flight PATH
+  // and `travel_far` measured 14 of 19 sampled frames entirely off-screen.
+  //
+  // The FRAMING rotation is a different thing and does belong here: it is how he
+  // is turned toward the viewer at the place he is standing, so it has to sit
+  // above everything the character does with his body, and it comes with its own
+  // position because it pivots about his centre rather than his feet. It does
+  // not rotate the flight path either — the path is added to `px/py/pz` before
+  // this point, and the framing is re-solved from the RESULT every frame.
+  if (opts.framing) {
+    rig.root.position.copy(opts.framing.position)
+    rig.root.quaternion.copy(opts.framing.quaternion)
+  } else {
+    rig.root.position.copy(blenderToThree(pose.px, pose.py, pose.pz, _v))
+    rig.root.quaternion.identity()
+  }
 
   // Body rotation lives BELOW the facing node. Above it, rocking about world Y
   // reads as side-to-side only while he faces -Y; turned 80 degrees it becomes
@@ -368,33 +388,26 @@ export function applyPose(rig: RigNodes, pose: Pose, opts: RigOptions) {
   // spiral also rotated its line, and the line must stay horizontal.
   rig.ctrlSymLineL.position.y = symbolY
   rig.ctrlSymLineR.position.y = symbolY
-  // THE SPIN AXIS IS BLENDER'S Y, WHICH IS THREE'S -Z. NOT THREE'S Y.
+  // THE SPIN IS NOT APPLIED TO THESE NODES. It turns the atlas LOOKUP instead,
+  // inside the eye shader, and it does so before the shared parallax offset is
+  // added rather than after.
   //
-  // The glyph is sampled from `cSymbol.x` and `cSymbol.z` — it lives in the
-  // eye's X-Z plane, so the only axis that turns it IN that plane is the plane
-  // normal, blender's +Y, i.e. three's -Z.
+  // Rotating the empty is what the .blend does, and it drags `PLX_off` round
+  // with it — a view offset computed in the eye object's frame but added inside
+  // each control's own frame, which is a fixed shift for the six controls that
+  // never turn and a CIRCLE for the one that turns once a second. Measured with
+  // the character frozen and only `sym_spin` moving: the whole annulus walks a
+  // closed loop of about 3 px. Reported as "the pivot point on the rotate is not
+  // centered, so they're kind of like moving around... a little bit of travel
+  // around in a circle". See the note at LAYERS 5-6 in `eyes/eyeMaterial.ts`.
   //
-  // Spinning about three's `y` instead rotates about blender's Z, which is an
-  // axis lying INSIDE the glyph plane. That does not turn the symbol, it tips
-  // it edge-on: the sampled U axis foreshortens by cos(angle) and collapses
-  // through zero every half turn. On screen the spiral "isn't rotating, it's
-  // getting all warpy and weird", which is how the defect was reported.
-  //
-  // The same error is what made the money symbol read BACKWARDS. A 180-degree
-  // phase about blender Z maps x -> -x with z untouched: a pure horizontal
-  // MIRROR. On the symmetric glyphs (star, warn, error) that is invisible,
-  // which is why it survived; on `$` it is a reversed dollar sign, and on the
-  // spiral it is a spiral winding the wrong way — both visible in the report.
-  //
-  // About the correct axis the same 180 degrees is what it was always meant to
-  // be: half a turn of PHASE, which only reads on something that is actually
-  // turning. So it is applied to the spinning glyphs only. Applied to a static
-  // one it is, again, just a mirror.
-  const spin = pose.sym_spin * DEG
-  const spinning = Math.abs(pose.sym_spin) > 1e-6
-  const phaseR = spinning ? Math.PI : 0
-  rig.ctrlSymbolL.rotation.set(0, 0, -spin)
-  rig.ctrlSymbolR.rotation.set(0, 0, -(spin + phaseR))
+  // The axis reasoning that used to live here moved with it: the glyph is
+  // sampled from `cSymbol.x` and `cSymbol.z`, so the only rotation that turns it
+  // IN its plane is one about the plane normal — which as a lookup rotation is
+  // simply a 2D rotation of that (x, z) pair, with no axis to get wrong. The
+  // per-eye half turn of PHASE moved there too, and is still applied only to a
+  // glyph that is actually turning: on a static one it is a pure horizontal
+  // mirror, which is what once made the money symbol read backwards.
 
   void opts
 }

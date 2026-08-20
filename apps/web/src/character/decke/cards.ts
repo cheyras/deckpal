@@ -43,6 +43,7 @@ import { Object3D, Quaternion, Vector3 } from 'three'
 import { blenderEulerToThree, blenderToThree } from './constants'
 import { evalCurve, makeCurve, type Curve, type Key } from './curve'
 import type { Pose } from './playbook'
+import { Rng } from './procedural'
 
 // ------------------------------------------------------------------ the data
 
@@ -123,11 +124,12 @@ export function bindCards(scene: Object3D, doc: CardsDoc): CardNodes {
 // --------------------------------------------------------------- the mechanics
 
 /** A Blender-frame rigid transform, before axis conversion. */
-type Local = { x: number; y: number; z: number; rx: number; ry: number; rz: number }
+export type Local = { x: number; y: number; z: number; rx: number; ry: number; rz: number }
 
 const _a: Local = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }
 const _b: Local = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }
 const _c: Local = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }
+const _home: Local = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 }
 const _v = new Vector3()
 const _q = new Quaternion()
 
@@ -205,11 +207,61 @@ export type CardFrame = {
   clipTMs: number
   /** Milliseconds since the current phase started. */
   phaseTMs: number
+  /**
+   * Whether the BASE state is the orbit (`loading`), regardless of phase.
+   *
+   * Not `orb_on > 0`: that channel ramps through the crossfade, and a loose
+   * card's existence must be decided by the authored spawn schedule from the
+   * very first frame. See the note in `apply`.
+   */
+  orbit: boolean
+  /**
+   * His idle hover this frame, in blender units and DEGREES — the same numbers
+   * that go on `DeckE_Float`. The hands hang off `Orbit_Root`, which is a
+   * SIBLING of `DeckE_Float`, so nothing he does with his hover has ever reached
+   * the card he is presenting. See `RIDE`.
+   */
+  float: { x: number; y: number; z: number; rx: number; ry: number; rz: number }
 }
 
-export type CardSystem = { apply(pose: Pose, frame: CardFrame): void }
+export type CardSystem = {
+  apply(pose: Pose, frame: CardFrame): void
+  /** How many cards the next `card_stash` shows. Clamped to the pool's cap; see
+   *  `MAX_STASH`. Takes effect on the next ENTRY, never mid-state. */
+  setCount(n: number): void
+  /** Called when the base state changes, before the first frame of the new one.
+   *  The one place a pending layout may safely land. */
+  enter(state: string): void
+  /**
+   * Whether anything this system owns is currently on screen.
+   *
+   * The state machine asks, because "is there something to put away" is the only
+   * honest test for whether an interrupted state owes an outro. Phase is not
+   * that test: `card_stash`'s first card leaves the mouth inside the intro and
+   * `loading`'s left card is fully spawned at 200 ms of a 900 ms one, so cutting
+   * away during an intro used to delete a visible card outright.
+   */
+  deployed(): boolean
+}
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v)
+
+/**
+ * How much of his hover the hands carry.
+ *
+ * "On card present, let's have the card kind of bobbing with him, like it's a
+ * rider on him... maybe have it doing the same motions as him, but a little less
+ * of a magnitude — like half of the amount of movement of him."
+ *
+ * Half, then. It is applied at `Orbit_Root`, which is the parent of both hands
+ * and therefore of the presented card AND the two orbiting ones — a card held
+ * out in front of a character who is bobbing and a card that is not are two
+ * different objects, and the eye reads the second as pinned to the screen rather
+ * than to him.
+ */
+const RIDE = 0.5
+
+const RAD = Math.PI / 180
 
 /**
  * How long the spawn pop takes, having been stretched.
@@ -217,35 +269,29 @@ const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v)
  * The authored pop is 0 -> 1.15 in TWO FRAMES (67 ms). At 30 fps that is not a
  * pop, it is an appearance: "these cards are just appearing, they should be
  * popping in with like a scale up." The overshoot the animator wrote is real and
- * correct — it is just far too fast to see. Stretching the same keys over 280 ms
- * makes the identical curve legible rather than replacing it with a new one.
+ * correct — it is just far too fast to see.
  */
 const POP_MS = 280
 
 /**
- * Stretch the two-frame spawn pop into something the eye can follow.
+ * The spawn pop, as ONE curve every card shares.
  *
- * A monotone TIME WARP rather than a rewritten curve: everything before the
- * spawn key plays at normal speed, the `[spawn, peak]` window is slowed to
- * `POP_MS`, and everything after is shifted by the difference. The animator's
- * overshoot, ease and arc all survive verbatim — they just take long enough to
- * read. Shifting the tail is free now that the tail is a hold rather than a
- * countdown to a despawn.
+ * It used to be read per card, from that card's own baked `s` F-curve. All five
+ * are the same curve at different offsets, and there are only five of them —
+ * which stops being true the moment the batch size is dynamic. Deriving one
+ * curve from the first card keeps the animator's overshoot and its settle
+ * verbatim while making it something a thirteenth card could also use.
  */
-function popStretch(t: number, spawnMs: number, peakMs: number): number {
-  const span = peakMs - spawnMs
-  if (span <= 0 || t <= spawnMs) return t
-  if (t <= spawnMs + POP_MS) return spawnMs + ((t - spawnMs) * span) / POP_MS
-  return t - (POP_MS - span)
-}
-
-/** The wall-clock time at which `popStretch` reaches a given clip time — the
- *  inverse of the above, past the stretched window. */
-function popStretchInverse(clipT: number, spawnMs: number, peakMs: number): number {
-  const span = peakMs - spawnMs
-  if (span <= 0 || clipT <= spawnMs) return clipT
-  if (clipT <= peakMs) return spawnMs + ((clipT - spawnMs) * POP_MS) / span
-  return clipT + (POP_MS - span)
+function popCurveFrom(keys: Key[]): Curve {
+  const peak = keys.reduce((best, k) => (k.v > (best?.v ?? -Infinity) ? k : best), keys[0])
+  const settle = keys.find((k) => k.t > peak.t)
+  const overshoot = peak?.v ?? 1
+  const settleMs = settle ? settle.t - peak.t : POP_MS
+  return makeCurve([
+    { t: 0, v: 0, interp: 'ease' },
+    { t: POP_MS, v: overshoot, interp: 'ease' },
+    { t: POP_MS + settleMs, v: settle?.v ?? 1, interp: 'ease' },
+  ])
 }
 
 /**
@@ -279,12 +325,272 @@ const STASH_FLOAT = {
   releaseMs: 220,
 }
 
+/**
+ * The stash flight, respecified.
+ *
+ * THE AUTHORED PATH CANNOT BE USED. Its five cards all converge on the same
+ * point: their apexes are (-0.378, -0.550, 3.450), (0.342, -0.550, 3.314),
+ * (-0.198, ...), (0.414, ...), (0.054, ...) — an x spread of 0.79 for a card
+ * that is 1.57 wide. They are drawn ON TOP OF EACH OTHER by construction, and
+ * they interpenetrate, which is what the reviewer described: "the way that they
+ * are all here, they're like all clipping through each other, and we need to not
+ * have them do that." The stack also sits directly in front of his face, so the
+ * character presenting them is hidden behind them.
+ *
+ * WHAT IT IS FOR, which is what makes the fix a respecification rather than a
+ * nudge: "the way that I see this being used is like they add a whole bunch of
+ * cards to their collection, and this is his way of showing the actual cards
+ * they added going down into the deck box. So they need to spawn in a way that
+ * they are, like, all individually visible and stay there... I would honestly
+ * have them all spawn so that they are in front of him a little bit and then
+ * spaced out all around him in a randomized way. And then when they're ready to
+ * go in, they all come up together like this, but hopefully so they're not
+ * clipping, and then quickly go down in."
+ *
+ * So: a computed fan, not five baked paths. Every card gets its own station on
+ * an arc around his front, and the arc is sized from the card's own width so
+ * that "not clipping" is a property of the layout rather than something to check
+ * by eye.
+ *
+ * TWO RINGS, BECAUSE ONE CANNOT HOLD THEM. A card of half-width `h` at radius
+ * `r` occupies `2 asin(h/r)` of arc — 45 degrees at full size on the near ring.
+ * Five of those need 225 degrees and there are only 168 usable before a card is
+ * behind him. Alternating cards between a near-low ring and a far-high one
+ * doubles the spacing available to each, and shrinking the cards as the batch
+ * grows (see `sizeForCount`) buys the rest: the layout stays collision-free to
+ * twelve, which is the cap.
+ */
+export const STASH = {
+  /** Where a card is born, in `DeckE_Tilt` local blender coords: the open mouth.
+   *  His feet are z = 0 and he is 2.4 tall, so this is just inside the lid. */
+  mouth: { x: 0, y: -0.2, z: 2.3 },
+  /** The crest it rises to before fanning out — clear of his head, so the fan
+   *  reads as cards leaving him rather than as cards passing through him. */
+  crest: { x: 0, y: -0.6, z: 3.4 },
+  /**
+   * How long the lid takes to get out of the way.
+   *
+   * The authored gape does not reach its full 115 degrees until 400 ms, and the
+   * respecified launch schedule started card 0 at t = 0 — so the first card rose
+   * through a lid that was still opening. The authored `start_ms` values carried
+   * this delay (400, 533, 667, ...) and the respecification dropped it; this puts
+   * it back as a named constant rather than as an accident of the data.
+   */
+  gapeMs: 380,
+  /** Mouth -> crest, then crest -> station. */
+  riseMs: 240,
+  travelMs: 460,
+  /** Between one card leaving and the next. They file out, they do not erupt. */
+  staggerMs: 130,
+
+  // ---- the fan, laid out in what the READER sees ------------------------
+  //
+  // THE LAYOUT IS IN SCREEN AXES, NOT IN HIS. Two goes at this were polar —
+  // cards on rings at even angular spacing — and the second one is why these are
+  // the constants that exist. Even angles are not even positions: `sin` flattens
+  // out near 90 degrees, so a card at 38 degrees and one at 105 degrees on the
+  // same ring land 0.67 units apart on screen when they need 0.78, and they
+  // overlap. `__tests__/cards.test.ts` caught it at five cards.
+  //
+  // So the fan is a grid in the plane the reader is looking at: columns out to
+  // each side, rows up the frame, and a clear column down the middle where he
+  // stands. Depth then only decides which card is in front of which, and can be
+  // used for life rather than for spacing.
+  //
+  // His own bearing relative to the camera is a constant now (see `framing.ts`),
+  // so "the plane the reader is looking at" is expressible in his local frame
+  // without threading a camera down here: it is `CAM_BEARING_DEG * facing`.
+
+  /** Heights, low to high. Rows are `rowStep` apart, which has to clear a card's
+   *  height at the largest size a batch is drawn at. */
+  rowZ: [1.0, 2.15, 3.25],
+  /** The clear column down the middle. Wide enough that a card's inner edge
+   *  still clears his 0.875 half-width. */
+  gapX: 1.5,
+  /** How far apart columns sit, across the screen. */
+  stepX: 0.9,
+  /** How many columns each side may use. Three rows x two sides x two columns is
+   *  twelve slots, which is `MAX_STASH`. */
+  cols: 2,
+  /** How far in front of him (toward the camera) each row sits, and how much
+   *  further each column out. Depth is for LIFE, not for spacing — it stops the
+   *  fan being a flat wall without affecting whether two cards overlap. */
+  depthBase: 0.5,
+  depthPerRow: -0.28,
+  depthPerCol: 0.3,
+  /** Per-card jitter, so the fan reads as scattered rather than as a diagram.
+   *  Drawn from a seeded PRNG — never `Math.random`, so the same batch of cards
+   *  lays out the same way every time it is played. */
+  jitterX: 0.12,
+  jitterZ: 0.16,
+  jitterDepth: 0.2,
+  /**
+   * How far each card turns away from square-on, per unit of screen offset.
+   *
+   * 0 is a readable but dead grid; too much turns the outer cards edge-on, which
+   * is what the polar layout did. This splays the widest card by about 25
+   * degrees, i.e. 90% of its width still facing the reader.
+   */
+  splayPerX: 0.16,
+  jitterTilt: 0.15,
+
+  // ---- the way home -----------------------------------------------------
+  /** Gather to a stack above the mouth, then dive in. */
+  gatherMs: 380,
+  diveMs: 240,
+  /**
+   * How long the whole file-in takes, SHARED between however many cards there
+   * are — not a per-card gap.
+   *
+   * A fixed gap makes the outro's length a function of the batch size, and the
+   * body's way out (`STASH_CLOSE`) is one authored clip. Dividing a fixed span
+   * keeps the two in step at any count: two cards file in leisurely, twelve file
+   * in fast, and the lid closes at the same moment either way.
+   */
+  fileSpanMs: 200,
+  /** Where they gather. Just above and in front of the open lid. */
+  cluster: { x: 0, y: -0.5, z: 3.3 },
+  /** How far apart in the stack, so the gather is a neat pile and not a single
+   *  point five cards deep. */
+  clusterStep: 0.055,
+} as const
+
+/** The card's own half-size, from the mesh: 1.570 x 2.198 at scale 1. */
+export const CARD_HALF = { w: 0.785, h: 1.099 } as const
+
+/**
+ * Where the camera sits in his local frame, in degrees off his forward.
+ *
+ * The staging camera is 40.195 degrees off camera-forward at either end of the
+ * facing sweep — that IS the facing system's 3/4 view, and it is what makes the
+ * sign symmetric. So at `facing = +1` the camera bears +40.195 from his forward
+ * and at -1 it bears -40.195, and in between it interpolates with him.
+ */
+const CAM_BEARING_DEG = 40.195
+
+/** The seed for the stash layout jitter. Its own constant so the layout cannot
+ *  drift when some other layer changes how many draws it makes. */
+const STASH_SEED = 20260820
+
+/**
+ * Cards shrink as the batch grows.
+ *
+ * A dozen cards at full size cannot be spaced without overlap, and they would
+ * also be a wall rather than a hand — the whole point is that the reader can see
+ * WHICH cards they just added. The square-root law keeps the total area they
+ * cover roughly constant, and the floor stops a big batch becoming confetti.
+ */
+/**
+ * The card's size in the fan, at rest.
+ *
+ * The authored card is 1.570 x 2.198 — very nearly the size of the character
+ * himself (1.75 x 2.4), which is right for ONE card held up as a hero and
+ * impossible for a fan of five: at full size they cover him and each other
+ * whatever the spacing. Two thirds is a card he is holding out rather than a
+ * poster he is standing behind.
+ */
+const FAN_SCALE = 0.62
+
+export function sizeForCount(n: number): number {
+  return FAN_SCALE * Math.min(1, Math.max(0.62, Math.sqrt(5 / Math.max(1, n))))
+}
+
 /** An angle folded into (-pi, pi]. The same rotation, expressed as the shortest
  *  one — which is what makes scaling it toward zero a small move. */
 function wrapAngle(a: number): number {
   const turn = 2 * Math.PI
   const m = ((a % turn) + turn) % turn
   return m > Math.PI ? m - turn : m
+}
+
+/** One card's place in the fan, before it is attached to a node. */
+export type StashStation = {
+  /** Across the screen, in blender units. Negative is the reader's left. */
+  sx: number
+  /** How high. */
+  z: number
+  /** Toward the reader from him. Positive is in front. */
+  depth: number
+  /** Resting tilt, added to the resolved bearing. */
+  rz: number
+  rx: number
+  ry: number
+}
+
+/**
+ * Lay out `n` cards in the fan. PURE and DETERMINISTIC: same `n`, same fan,
+ * every time — which is what lets `__tests__/cards.test.ts` assert that the
+ * layout cannot produce two overlapping cards, rather than someone checking by
+ * eye at one count and hoping.
+ *
+ * Slots are filled from the middle outward and alternating sides, so a small
+ * batch is balanced and a large one grows outward rather than piling up on one
+ * side. Rows before columns, because a taller fan reads better than a wider one
+ * and the viewport is wider than it is tall.
+ */
+export function stashLayout(n: number): StashStation[] {
+  const rng = new Rng(STASH_SEED, 48271, 2147483647)
+  const rows = STASH.rowZ.length
+  // Middle row first, then out: the eye starts at his own height.
+  const rowOrder = [...STASH.rowZ.keys()].sort(
+    (a, b) => Math.abs(a - (rows - 1) / 2) - Math.abs(b - (rows - 1) / 2),
+  )
+  const slots: { row: number; side: number; col: number }[] = []
+  for (let col = 0; col < STASH.cols; col++) {
+    for (const row of rowOrder) {
+      for (const side of [-1, 1]) slots.push({ row, side, col })
+    }
+  }
+  const out: StashStation[] = []
+  for (let i = 0; i < Math.min(n, slots.length); i++) {
+    const { row, side, col } = slots[i]
+    const sx = side * (STASH.gapX + (col + 0.5) * STASH.stepX) + (rng.next() - 0.5) * STASH.jitterX
+    out.push({
+      sx,
+      z: STASH.rowZ[row] + (rng.next() - 0.5) * STASH.jitterZ,
+      depth:
+        STASH.depthBase +
+        row * STASH.depthPerRow +
+        col * STASH.depthPerCol +
+        (rng.next() - 0.5) * STASH.jitterDepth,
+      rz: -sx * STASH.splayPerX + (rng.next() - 0.5) * STASH.jitterTilt,
+      rx: (rng.next() - 0.5) * STASH.jitterTilt,
+      ry: (rng.next() - 0.5) * STASH.jitterTilt,
+    })
+  }
+  return out
+}
+
+/** Three rows, two sides, two columns. More than this is confetti: at twelve the
+ *  cards are already down to 62% of the fan size. */
+export const MAX_STASH = STASH.rowZ.length * 2 * STASH.cols
+
+/**
+ * A station, resolved into `DeckE_Tilt` local blender coordinates.
+ *
+ * PURE and exported so the frame conversion is testable. It is the one step of
+ * the layout that is not expressed in what the reader sees, and a sign error
+ * here — screen-right flipped, or the fan laid out behind him at `facing = -1` —
+ * would pass every property test in station space while putting the whole fan
+ * somewhere nobody can see it.
+ */
+export function stationLocal(st: StashStation, facing: number, out: Local): Local {
+  // The view axis in his local frame. His forward is -Y, so a bearing of theta
+  // is the direction (sin, -cos); the camera bears `CAM_BEARING_DEG * facing`.
+  const theta = CAM_BEARING_DEG * RAD * facing
+  const towardX = Math.sin(theta)
+  const towardY = -Math.cos(theta)
+  // Screen-right is that bearing turned a quarter turn.
+  const rightX = Math.cos(theta)
+  const rightY = Math.sin(theta)
+  out.x = towardX * st.depth + rightX * st.sx
+  out.y = towardY * st.depth + rightY * st.sx
+  out.z = st.z
+  out.rx = st.rx
+  out.ry = st.ry
+  // Square to the camera, splayed by how far out it sits.
+  out.rz = theta + st.rz
+  return out
 }
 
 export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
@@ -298,32 +604,96 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
     card_r: makeCurve(doc.loose_cards.card_r.orbit_scale),
   }
 
-  // The stash flight, compiled once. Channels absent from a card (its `rx`/`ry`
-  // never move) simply do not appear.
-  //
-  // The three landmark times are READ OFF the scale curve rather than listed, so
-  // they cannot drift from the data: a card is invisible until its last zero
-  // key (`spawnMs`), overshoots at its maximum key (`popMs`), and has settled to
-  // 1.0 at the key after that (`apexMs`) — which is also the top of its arc, and
-  // therefore where it hangs for the whole sustain.
-  const stash = doc.stash.cards.map((c, i) => {
-    const s = c.channels.s ?? []
-    const peak = s.reduce((best, k) => (k.v > (best?.v ?? -Infinity) ? k : best), s[0])
-    const spawnMs = s.filter((k) => k.v <= 0 && k.t <= (peak?.t ?? 0)).pop()?.t ?? 0
-    const apexMs = s.find((k) => k.t > (peak?.t ?? 0))?.t ?? peak?.t ?? 0
-    return {
-      node: nodes.stash[i],
-      offset: c.parent_offset,
-      phase: i * STASH_FLOAT.phaseStep,
-      spawnMs,
-      popMs: peak?.t ?? 0,
-      apexMs,
-      endMs: s[s.length - 1]?.t ?? 0,
-      curves: Object.fromEntries(
-        Object.entries(c.channels).map(([ch, keys]) => [ch, makeCurve(keys)]),
-      ) as Record<string, Curve>,
+  // ---- the stash fan ---------------------------------------------------
+  // The five exported meshes are a POOL, not the animation. Anything past the
+  // fifth is a clone of one of them (three shares the geometry and the material
+  // by reference, so a clone is a transform and nothing else), because the batch
+  // size is whatever the user just added to their collection — "this needs to
+  // really be dynamic".
+  const stashParent = nodes.stash[0]?.parent ?? null
+  const pool: Object3D[] = [...nodes.stash]
+  const first = doc.stash.cards[0]
+  const popCurve = popCurveFrom(first?.channels.s ?? [])
+
+  function ensurePool(n: number) {
+    if (!stashParent) return
+    while (pool.length < n) {
+      const src = nodes.stash[pool.length % nodes.stash.length]
+      const clone = src.clone(true)
+      clone.name = `${src.name}_x${pool.length}`
+      clone.scale.setScalar(0)
+      stashParent.add(clone)
+      pool.push(clone)
     }
-  })
+  }
+
+  type Station = StashStation & {
+    node: Object3D
+    /** Its own float phase, spaced by the golden angle so no two synchronise. */
+    phase: number
+    /** When it leaves the mouth, when it tops out, and when it arrives. */
+    outMs: number
+    crestMs: number
+    arriveMs: number
+  }
+
+  let count = nodes.stash.length
+  let scale = 1
+  let stations: Station[] = []
+  /** Requested but not yet applied. See `setCount`. */
+  let pendingCount: number | null = null
+  /** Whether anything was drawn last frame. See `CardSystem.deployed`. */
+  let anyDeployed = false
+
+  /**
+   * A count change LANDS ON THE NEXT ENTRY, never mid-state.
+   *
+   * `layout` rebuilds the stations, the card scale AND the per-card timings, so
+   * running it while cards are in the air teleports the ones that exist to a
+   * different fan and pops any extras into being at full size, their launch
+   * long past. The command surface makes this reachable in one message —
+   * `{op: "state", value: "card_stash", count: 9}` sets the count and then
+   * queues the state behind whatever is playing — so it has to be safe, not
+   * merely undocumented.
+   */
+  function setCount(n: number) {
+    pendingCount = n
+  }
+
+  function enter(state: string) {
+    if (state !== 'card_stash' || pendingCount === null) return
+    layout(pendingCount)
+    pendingCount = null
+  }
+
+  function layout(n: number) {
+    count = Math.min(MAX_STASH, Math.max(1, Math.round(n)))
+    if (count !== n) {
+      console.warn(`decke cards: ${n} stash cards requested, showing ${count}`)
+    }
+    ensurePool(count)
+    scale = sizeForCount(count)
+    stations = stashLayout(count).map((st, i) => ({
+      ...st,
+      node: pool[i],
+      phase: i * STASH_FLOAT.phaseStep,
+      outMs: STASH.gapeMs + i * STASH.staggerMs,
+      crestMs: STASH.gapeMs + i * STASH.staggerMs + STASH.riseMs,
+      arriveMs: STASH.gapeMs + i * STASH.staggerMs + STASH.riseMs + STASH.travelMs,
+    }))
+  }
+  layout(nodes.stash.length)
+
+  /**
+   * Resolve a station against the current facing, into `DeckE_Tilt` local
+   * blender coordinates.
+   *
+   * His forward is -Y, so a bearing of zero is straight ahead and the view axis
+   * sits `CAM_BEARING_DEG * facing` off it.
+   */
+  const resolveStation = (st: Station, facing: number, out: Local): Local =>
+    stationLocal(st, facing, out)
+
 
   /**
    * ONE CONTINUOUS ROTATION, not per-card phase.
@@ -365,8 +735,13 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
     },
   ]
 
+  /** The facing of the frame being drawn. `hangPose` needs it and is called from
+   *  two places; threading it would mean passing it through every helper. */
+  let facingNow = 1
+
   function apply(pose: Pose, frame: CardFrame) {
-    const { facing, state, tMs, clipTMs, phase, phaseTMs } = frame
+    const { facing, state, tMs, clipTMs, phase, phaseTMs, orbit, float } = frame
+    facingNow = facing
 
     // ---- the present gate ----------------------------------------------
     // ENUMERATE THE BEATS, DO NOT SAMPLE ONE. There are THREE loose-card beats
@@ -411,6 +786,19 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
     // introduced. Wrapping costs nothing at `orb = 1`, because a rotation is
     // already modulo a full turn, and it makes the unwind at most half a turn.
     _a.rz = orb * wrapAngle(orbitRad(tMs))
+    // HIS HOVER, AT HALF. `Orbit_Root` is a sibling of `DeckE_Float`, so
+    // everything hanging off it — both hands, the presented card, the two
+    // orbiting ones — has never moved with him. See `RIDE`.
+    //
+    // The `k` factors CANCEL the mirror rather than taking it: `writeLocal`
+    // multiplies x, ry and rz by `k`, and his hover is his actual motion, not a
+    // mirrored placement. Multiplying here by the same +/-1 undoes it exactly.
+    _a.x += float.x * RIDE * k
+    _a.y += float.y * RIDE
+    _a.z += float.z * RIDE
+    _a.rx += float.rx * RIDE * RAD
+    _a.ry += float.ry * RIDE * RAD * k
+    _a.rz += float.rz * RIDE * RAD * k
     writeLocal(nodes.orbitRoot, _a, k)
 
     // ---- the hands -------------------------------------------------------
@@ -440,27 +828,35 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
     // why the telescoping product still comes out as `S * (O*H*C) * S`.)
     for (const c of loose) {
       const base = clamp01(pose[c.ch] ?? 0)
-      // During the orbit the authored fade schedule wins over the pose channel,
-      // and it runs on ITS OWN 5400 ms period, not the 1800 ms clip loop. The
-      // playbook channel drops to 0 at every clip boundary, and 1800 ms in the
-      // hand is 240 degrees round — in FRONT of him — so honouring it would pop
-      // a card on and off on camera three times a cycle. Every authored fade
-      // happens while that hand is BEHIND him, and because 5400 ms is exactly
-      // two revolutions the schedule closes seamlessly. Blending by `orb` still
-      // lets the pose channel take the card away as `loading` blends out.
+      // WHILE THE STATE IS THE ORBIT, THE SCHEDULE IS THE ONLY AUTHORITY.
       //
-      // THE SCHEDULE IS A SPAWN, NOT A LOOP, once the orbit is a sustain.
-      // Playing it round and round is what produced "these shouldn't be going
-      // away and then coming back — they should stay just circling him until
-      // told to stop". Its despawns were authored for a clip that ENDED; with
-      // the orbit now running for as long as the work takes, a card that
-      // vanishes every 5.4 s reads as a bug in the loading indicator, which is
-      // the last place you want one. So the fade-in is honoured (it is what
-      // staggers the two cards 1.3 s apart on entry) and everything after it is
-      // held. They leave on the outro, riding the hands home.
-      const orbital =
-        tMs <= c.spawnDoneMs ? evalCurve(c.curve, tMs % c.cfg.loop_ms) : 1
-      c.node.scale.setScalar(base + (orbital - base) * orb)
+      // The two sources disagree on purpose. The playbook channel says both
+      // cards exist from beat 240; the baked fade schedule says the right one
+      // does not spawn until 1533, and staggering them 1.3 s apart is the whole
+      // entrance. The schedule wins.
+      //
+      // It used to win by a LERP on `orb_on` — `base + (orbital - base) * orb` —
+      // and that let the channel leak in through the crossfade, because `orb`
+      // ramps 0 -> 1 over the blend while `base` ramps up alongside it. Measured
+      // on entry to `loading`: the right-hand card reached 19% scale at 150 ms,
+      // travelled a third of the way round the orbit and shrank back to nothing
+      // by 300 ms. That is exactly the report — "right at the beginning we see
+      // one of the cards like very small, zoom off and then disappear, and then
+      // it comes out properly."
+      //
+      // Keying off the STATE rather than off the channel also fixes the same
+      // leak in the other direction: leaving a sustained `loading` before 1533 ms
+      // used to pop the unspawned card into existence at full size, because the
+      // outro's own `card_r` beat is 1.
+      //
+      // THE SCHEDULE IS A SPAWN, NOT A LOOP. Playing it round and round is what
+      // produced "these shouldn't be going away and then coming back — they
+      // should stay just circling him until told to stop". Its despawns were
+      // authored for a clip that ENDED; the fade-in is honoured and everything
+      // after it is held. They leave on the outro, riding the hands home, which
+      // is what `orb` falling to zero does.
+      const schedule = tMs <= c.spawnDoneMs ? evalCurve(c.curve, tMs % c.cfg.loop_ms) : 1
+      c.node.scale.setScalar(orbit ? schedule * orb : base)
     }
 
     // ---- the card inside him ---------------------------------------------
@@ -477,78 +873,161 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
     // ordering note in `DeckE.update`.
     nodes.cardSingle.scale.multiplyScalar(clamp01(pose.single ?? 1))
 
-    // ---- the stash flight ------------------------------------------------
-    // Five cards out of the 115-degree gape and back in, staggered ~133 ms
-    // apart. There is no pose channel for these, so the state name is the gate:
-    // the flight is a scripted one-shot that belongs to `card_stash` alone.
-    // Stashed cards take NO facing compensation — they are children of the tilt
+    // ---- the stash fan ---------------------------------------------------
+    // Cards out of the 115-degree gape, spread around him, held for as long as
+    // he is asked to hold them, then gathered and filed back in. There is no
+    // pose channel for these — the state name is the gate — and the whole path
+    // is computed, because the batch size is dynamic. See `STASH`.
+    //
+    // Stashed cards take NO facing compensation: they are children of the tilt
     // node and rotate rigidly with him, which is correct and was verified three
-    // ways upstream.
-    //
-    // AND THE FLIGHT IS NOW THREE PARTS, driven by the state's phase rather than
-    // by one clock running off the end:
-    //
-    //   intro    each card pops out and rises to its apex
-    //   sustain  it HANGS there, on its own float, for as long as he is asked
-    //            to hold them up
-    //   outro    it files back in and the lid closes over it
-    //
-    // Before this the whole flight played once and every card despawned 1.3 s
-    // in, while the state itself carried on with its mouth open and nothing in
-    // it. The reviewer's description of what it should be is almost the code:
-    // "the card stash state is like it holds with them up and kind of floating
-    // on their own float... and then once told to stop, that's when they all
-    // file in and it animates into him and then he closes."
+    // ways upstream. They also do not take his hover, deliberately — "they're
+    // not floating with him, they're kind of just floating all around" — which
+    // is why `STASH_FLOAT` exists and `RIDE` is not applied here.
     const stashing = state === 'card_stash'
-    for (const c of stash) {
-      if (!stashing) {
-        c.node.scale.setScalar(0)
+    let deployed = false
+    // Where the outro gathers FROM: the moment it began, in the card's own
+    // clock. Evaluating the hang pose there rather than snapping to the station
+    // is what keeps the gather continuous — the cards are on independent floats
+    // and are never exactly at their stations.
+    const tAtOutro = tMs - phaseTMs
+    for (let i = 0; i < pool.length; i++) {
+      const st = stations[i]
+      if (!stashing || !st) {
+        pool[i].scale.setScalar(0)
+        // AND PARK IT INSIDE HIM. A scale-0 node still has a position, and
+        // `Box3.setFromObject` still counts it — so a card abandoned three units
+        // out at its station keeps inflating the character's bounds long after
+        // it is invisible, and the off-screen beacon (which frames those bounds)
+        // silently zooms out to hold a card nobody can see.
+        parkAtMouth(pool[i])
         continue
       }
-      // The card's own clock. Rising and hanging are both "before the apex";
-      // the outro resumes at the apex, so every card takes the same time home
-      // however staggered its launch was, and they land as a set.
-      const t =
-        phase === 'outro'
-          ? c.apexMs + phaseTMs
-          : Math.min(popStretch(tMs, c.spawnMs, c.popMs), c.apexMs)
+      // A card that had not launched when the outro began never appears. Without
+      // this, leaving `card_stash` early — a short `durationMs`, or an agent
+      // changing its mind — popped every unlaunched card into existence at full
+      // size at its station and then filed it in.
+      const born = phase === 'outro' ? tAtOutro : tMs
+      if (born < st.outMs) {
+        pool[i].scale.setScalar(0)
+        parkAtMouth(pool[i])
+        continue
+      }
+      let s = scale * evalCurve(popCurve, born - st.outMs)
 
-      const s = evalCurve(c.curves.s, t)
-      c.node.scale.setScalar(s)
-      if (s <= 0) continue // despawned; no point converting a transform nobody sees
-      const cv = c.curves
-      // THE PARENT INVERSE. Cards 2-5 were parented to `DeckE_Tilt` with Keep
-      // Transform, so in Blender `world = parent * PI * basis` and the F-curve
-      // values are 0.1357 short in z. glTF has no parent inverse — the exporter
-      // folded it into the node, and writing the raw F-curve value over the top
-      // throws it away. Card 1's is identity, which is exactly the kind of
-      // asymmetry that makes this look like a per-card animation bug.
-      _a.x = c.offset[0] + (cv.lx ? evalCurve(cv.lx, t) : 0)
-      _a.y = c.offset[1] + (cv.ly ? evalCurve(cv.ly, t) : 0)
-      _a.z = c.offset[2] + (cv.lz ? evalCurve(cv.lz, t) : 0)
-      _a.rx = cv.rx ? evalCurve(cv.rx, t) : 0
-      _a.ry = cv.ry ? evalCurve(cv.ry, t) : 0
-      _a.rz = cv.rz ? evalCurve(cv.rz, t) : 0
-
-      // The free float, faded in once the card has settled at its apex and out
-      // again as it leaves, so it never switches on or off in view. The fade-out
-      // is the shorter of the two on purpose: the card is already moving by
-      // then, and a long ramp reads as the float fighting the flight home.
-      const settled = tMs - popStretchInverse(c.apexMs, c.spawnMs, c.popMs)
-      const w =
-        phase === 'outro'
-          ? 1 - clamp01(phaseTMs / STASH_FLOAT.releaseMs)
-          : clamp01(settled / STASH_FLOAT.rampMs)
-      if (w > 0) {
-        const th = 2 * Math.PI * STASH_FLOAT.hz * (tMs / 1000) + c.phase
-        _a.x += Math.sin(th * 0.83) * STASH_FLOAT.ampX * w
-        _a.z += Math.sin(th) * STASH_FLOAT.amp * w
-        _a.rz += Math.sin(th * 0.61) * STASH_FLOAT.ampRot * w
+      if (phase === 'outro') {
+        // GATHER, THEN DIVE. "When they're ready to go in, they all come up
+        // together like this, but hopefully so they're not clipping, and then
+        // quickly go down in." The stack is separated along the card's own
+        // normal, which is what makes it a deck rather than five coplanar cards
+        // fighting for the same pixels.
+        //
+        // The float is released over `releaseMs` rather than switched off, so
+        // the gather starts at the speed the hang left off at. Cutting it dead
+        // put a jump of up to 0.18 units — a tenth of a card — on every card at
+        // once, which is the same jutter this pass exists to remove, moved to
+        // the phase boundary.
+        hangPose(st, tAtOutro, 1 - clamp01(phaseTMs / STASH_FLOAT.releaseMs), _b)
+        const g = clamp01(phaseTMs / STASH.gatherMs)
+        const ge = g * g * (3 - 2 * g)
+        const cx = STASH.cluster.x
+        const cy = STASH.cluster.y - i * STASH.clusterStep
+        const cz = STASH.cluster.z
+        const diveAt =
+          STASH.gatherMs + (count > 1 ? (i / (count - 1)) * STASH.fileSpanMs : 0)
+        const d = clamp01((phaseTMs - diveAt) / STASH.diveMs)
+        const de = d * d * d // the dive ACCELERATES; they drop in, they do not glide
+        _a.x = cx + (_b.x - cx) * (1 - ge) + (STASH.mouth.x - cx) * de
+        _a.y = cy + (_b.y - cy) * (1 - ge) + (STASH.mouth.y - cy) * de
+        _a.z = cz + (_b.z - cz) * (1 - ge) + (STASH.mouth.z - cz) * de
+        // Square up as they gather, so the stack is a stack.
+        _a.rx = _b.rx * (1 - ge)
+        _a.ry = _b.ry * (1 - ge)
+        _a.rz = _b.rz * (1 - ge)
+        // Gone by the time the lid meets them: the last third of the dive.
+        s *= 1 - clamp01((d - 0.66) / 0.34)
+      } else {
+        hangPose(st, tMs, 1, _a)
       }
 
-      writeLocal(c.node, _a, 1)
+      if (s <= 0) {
+        pool[i].scale.setScalar(0)
+        parkAtMouth(pool[i])
+        continue
+      }
+      deployed = true
+      // `writeLocal` sets position and rotation; the scale is ours, and it has
+      // to be written AFTER, because existence is scale.
+      writeLocal(pool[i], _a, 1)
+      pool[i].scale.setScalar(s)
     }
+    anyDeployed =
+      deployed ||
+      nodes.cardL.scale.x > 1e-4 ||
+      nodes.cardR.scale.x > 1e-4
   }
 
-  return { apply }
+  function parkAtMouth(node: Object3D) {
+    _c.x = STASH.mouth.x
+    _c.y = STASH.mouth.y
+    _c.z = STASH.mouth.z
+    _c.rx = 0
+    _c.ry = 0
+    _c.rz = 0
+    writeLocal(node, _c, 1)
+  }
+
+  /**
+   * Where a card is at time `t` of its launch-and-hang, float included.
+   *
+   * Written as a function of t alone so the outro can ask where the card WAS
+   * when the outro began, without anything having to be remembered between
+   * frames. `floatW` fades the free float; see the outro branch.
+   */
+  function hangPose(st: Station, t: number, floatW: number, out: Local): Local {
+    const home = resolveStation(st, facingNow, _home)
+    if (t <= st.crestMs) {
+      const u = clamp01((t - st.outMs) / STASH.riseMs)
+      const e = u * u * (3 - 2 * u)
+      out.x = STASH.mouth.x + (STASH.crest.x - STASH.mouth.x) * e
+      out.y = STASH.mouth.y + (STASH.crest.y - STASH.mouth.y) * e
+      out.z = STASH.mouth.z + (STASH.crest.z - STASH.mouth.z) * e
+      out.rx = 0
+      out.ry = 0
+      out.rz = 0
+      return out
+    }
+    const u = clamp01((t - st.crestMs) / STASH.travelMs)
+    const e = 1 - (1 - u) ** 3 // decelerate onto the station
+    out.x = STASH.crest.x + (home.x - STASH.crest.x) * e
+    out.y = STASH.crest.y + (home.y - STASH.crest.y) * e
+    out.z = STASH.crest.z + (home.z - STASH.crest.z) * e
+    // A lift over the middle of the traverse, so the card ARCS out to its place
+    // rather than sliding there in a straight line.
+    out.z += Math.sin(u * Math.PI) * 0.22
+    out.rx = home.rx * e
+    out.ry = home.ry * e
+    out.rz = home.rz * e
+    // The free float fades in as it settles, so it never switches on in view.
+    const w = floatW * clamp01((t - st.arriveMs + STASH_FLOAT.rampMs) / STASH_FLOAT.rampMs)
+    if (w > 0) addStashFloat(out, t, st.phase, w)
+    return out
+  }
+
+  /**
+   * The free float each stashed card takes while it hangs.
+   *
+   * One sine per card per axis, phases spaced by the golden angle so no two
+   * cards ever synchronise and the set never reads as a rigid constellation.
+   * Same reasoning as the idle float's irrational frequency ratios, one
+   * dimension down.
+   */
+  function addStashFloat(t: Local, tMs: number, phase: number, w: number) {
+    const th = 2 * Math.PI * STASH_FLOAT.hz * (tMs / 1000) + phase
+    t.x += Math.sin(th * 0.83) * STASH_FLOAT.ampX * w
+    t.z += Math.sin(th) * STASH_FLOAT.amp * w
+    t.rz += Math.sin(th * 0.61) * STASH_FLOAT.ampRot * w
+  }
+
+  return { apply, setCount, enter, deployed: () => anyDeployed }
 }
