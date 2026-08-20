@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
 import { closePool, pool, q, rlsStore, SUPABASE_MODE, withUserContext } from './db.js';
+import { ownerGateStatus } from './routes/me.js';
 import { asyncHandler, catalogCache, errorMiddleware } from './http.js';
 import { authMiddleware, resolveIdentity, resolveOptionalIdentity, requireSession } from './auth.js';
 import { seriesRouter } from './routes/series.js';
@@ -40,6 +41,18 @@ import { mountOAuthServer } from './oauthServer.js';
  */
 
 export function createApp(): express.Express {
+  // Say it out loud when an owner-only surface is closed to everybody. Failing
+  // closed is correct; failing closed SILENTLY cost four days of `/design`
+  // being shut with nothing to indicate it. One line in the deploy log turns
+  // that into something you notice. See AGENTS.md B11.
+  if (ownerGateStatus() === 'unset') {
+    console.warn(
+      '[deckpal-api] DESIGN_EDITOR_USER_ID is unset — owner-only surfaces ' +
+        '(/design, /dev/decke) are closed to EVERY account. Set it to the ' +
+        "owner's auth.users UUID and redeploy.",
+    );
+  }
+
   const app = express();
   app.disable('x-powered-by');
   // upgrade-insecure-requests (helmet CSP default) is dropped: on plain-HTTP LAN
@@ -239,6 +252,10 @@ export function createApp(): express.Express {
         db: 'up',
         pool: { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount },
         syncs,
+        // Whether an owner is configured — never WHO. `unset` means every
+        // owner-only surface is closed to everyone, which is a deployment
+        // mistake that is otherwise invisible from outside. See AGENTS.md B11.
+        ownerGate: ownerGateStatus(),
       });
     }),
   );
