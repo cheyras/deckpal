@@ -26,6 +26,16 @@ export type Command =
       durationMs?: number
       /** Where to go when it ends. Defaults to `idle`. */
       then?: string
+      /**
+       * How many cards `card_stash` shows. Ignored by every other state.
+       *
+       * "This needs to really be dynamic, because it's gonna depend — the way I
+       * see this being used is like they add a whole bunch of cards to their
+       * collection, and this is his way of showing the actual cards they added
+       * going down into the deck box." So the agent that knows how many cards
+       * were added is the one that says.
+       */
+      count?: number
     }
   | { op: 'idle'; blendMs?: number }
   | { op: 'highlight'; selector: string; durationMs?: number }
@@ -112,6 +122,20 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
           if (cmd.then !== undefined && !names.includes(cmd.then)) {
             errors.push(`${at}: unknown "then" state "${cmd.then}". Legal: ${names.join(', ')}`)
             return
+          }
+          if (cmd.count !== undefined) {
+            if (!num(cmd.count) || cmd.count < 1 || cmd.count !== Math.round(cmd.count)) {
+              errors.push(`${at}: count must be a whole number of cards, at least 1`)
+              return
+            }
+            if (cmd.value !== 'card_stash') {
+              errors.push(`${at}: count only applies to card_stash, not "${cmd.value}"`)
+              return
+            }
+            // Above the cap it clamps and warns rather than failing: an agent
+            // that just added thirty cards is not wrong to say so. It takes
+            // effect on the ENTRY below, never on cards already in the air.
+            decke.setStashCount(cmd.count)
           }
           decke.setState(cmd.value, {
             blendMs: cmd.blendMs,
@@ -356,6 +380,12 @@ export function commandSchema(stateNames: string[]) {
                 then: {
                   enum: stateNames,
                   description: 'Where to go when this state ends. Defaults to "idle".',
+                },
+                count: {
+                  type: 'integer',
+                  minimum: 1,
+                  description:
+                    'card_stash only: how many cards to show. Use the number the user actually added; it is clamped to what fits on screen.',
                 },
                 blendMs: { type: 'number' },
               },

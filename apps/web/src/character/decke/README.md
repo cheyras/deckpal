@@ -48,6 +48,8 @@ mappings, and an `AnimationClip` cannot answer "40% of the way to a frown".
 | `flight.ts` / `dom.ts` | travel, and choosing where beside an element to stand |
 | `sustain.ts` | the loop window per state, the synthesized `idle`/`sleep`/outro clips |
 | `look.ts` | where the pupils point — the camera constraint that could not export |
+| `framing.ts` | how he is SEEN wherever he stands: canonical yaw, no lean, vertical angle by height |
+| `beacon.ts` | where the off-screen chip goes, and how far to scroll to bring him back |
 | — | the highlight ring is `components/ui/elementHighlight.ts`, in the design system |
 | `commands.ts` | the JSON surface an LLM drives |
 | `eyeSocket.ts` | `Eye_Rig`'s VERTEX_3 parenting to the morphed lid |
@@ -66,6 +68,8 @@ decke.flyTo({ selector: '#deck-list' }, { then: 'point' })   // fly, ring it, po
 decke.highlight('#deck-list')                  // ring it without moving
 decke.setChannel('bend', 0.37)                 // pin a raw channel; null releases it
 decke.playKeyframes(beats, { loop: true })     // an agent-authored clip, as a state
+decke.setStashCount(9)                         // how many cards the next card_stash shows
+decke.scrollIntoView()                         // bring him back when he has scrolled off
 ```
 
 Or declaratively, which is what the eventual tool call carries:
@@ -88,7 +92,39 @@ fits; it compiles through the same path as the playbook, so it is a state like
 any other.
 
 `runCommands()` **rejects rather than clamps** — an unknown state comes back with
-the list of legal ones. A model that gets silently corrected learns nothing.
+the list of legal ones. A model that gets silently corrected learns nothing. The
+one exception is `count` on `card_stash`, which clamps and warns: an agent that
+has just added thirty cards is not wrong to say thirty.
+
+---
+
+## Where he is, and how he is seen
+
+Two different problems, and conflating them is what made him lean.
+
+**Where he stands** is a STATION — `home`, or a promise to stay beside a DOM rect
+— not a coordinate. It is re-solved when the page scrolls or resizes, so a
+presentation stays pinned to the thing it is presenting, and home follows the
+viewport. He starts at home.
+
+**How he is seen** is `framing.ts`. The Blender camera is fixed and aimed at the
+origin, so parking him anywhere else changes the 40.195-degree 3/4 angle the
+facing system is defined against, and a camera pitched down keystones anything
+off to one side into a lean. Every position therefore gets its own view frame and
+he is rotated into it — and then the ELEVATION part of that correction is given
+back on purpose, so his vertical angle still follows his height on the page: high
+on screen you look up at him, low on screen you look down. The lighting rig and
+the environment take the same transform.
+
+At the world origin the whole solve is the identity. That is what keeps
+`PARITY.md` meaningful, and `__tests__/framing.test.ts` pins it.
+
+Scroll him out of the viewport and a **beacon** appears at the edge: a 52 px chip
+with a pointer aimed at him and a live second render of the scene inside it, so
+it shows what he is actually doing. Clicking it smooth-scrolls him back to
+centre. The second render is a scissored pass on the same canvas — never a second
+`WebGLRenderer`, which would mean a second GL context on a canvas that already
+enforces one instance.
 
 ---
 

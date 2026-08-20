@@ -13,6 +13,7 @@
  */
 import {
   ACESFilmicToneMapping,
+  Box3,
   AgXToneMapping,
   Color,
   ColorManagement,
@@ -24,6 +25,7 @@ import {
   HalfFloatType,
   MathUtils,
   Matrix4,
+  Object3D,
   PerspectiveCamera,
   PMREMGenerator,
   Quaternion,
@@ -38,6 +40,11 @@ import {
 } from 'three'
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js'
 import { BLENDER_CAMERA, blenderCameraQuaternion, blenderToThree, BODY_H, DEG } from './constants'
+import { BEACON } from './beacon'
+
+/** How much of the beacon chip the character fills. Named here so the render
+ *  pass and the chip's own layout cannot drift apart. */
+const INSET_FILL = BEACON.fill
 
 /** Measured off the world node tree: `Background.Strength = 0.6` exactly, with
  *  NO multiply node between the Environment Texture and the Background. The
@@ -88,6 +95,21 @@ export const ENV_ROT_SWEEP_DEG = 80.39
  */
 export function envRotationForFacing(facing: number): number {
   return -(ENV_ROT_BASE_DEG + ((1 - facing) / 2) * ENV_ROT_SWEEP_DEG) * DEG
+}
+
+/**
+ * The environment's rotation, from BOTH things that turn him.
+ *
+ * NOTE THE MINUS on the framing term. Blender and three rotate the environment
+ * in opposite directions (see `envRotationForFacing`), and the facing pair
+ * already demonstrates the convention on a term that is known correct: turning
+ * the character +80.39 degrees about Y pairs with turning the environment
+ * -80.39. The framing yaw turns him about the same axis in the same sense, so it
+ * carries the same sign — which is what `__tests__/framing.test.ts` checks it
+ * against, rather than against itself.
+ */
+export function envRotation(facing: number, framingYaw: number): number {
+  return envRotationForFacing(facing) - framingYaw
 }
 
 /**
@@ -425,8 +447,66 @@ export type Stage = {
   scene: Scene
   camera: PerspectiveCamera
   lights: RectAreaLight[]
+  /** The node the six area lights hang off. It rides the character; see
+   *  `setFraming`. */
+  lightRig: Object3D
   setEnvironment(hdr: Texture): void
   setFacing(facing: number): void
+  /**
+   * Move the lighting rig and the environment with the character.
+   *
+   * "It seems like the lighting rig isn't traveling with him, which it should
+   * be. So when he's in the background, he's considerably darker than when he's
+   * in the foreground... there's this hard shadow that's running across him,
+   * which is incorrect. Let's make sure that the lighting rig is traveling with
+   * him. It's a rider on him."
+   *
+   * The six lights are transcribed at their Blender world positions, which are
+   * arranged around the ORIGIN — the one place the character is not, once he is
+   * parked beside a DOM element. Fly him to a corner and he walks out of the
+   * key's 5.0 x 0.1 slot, which is what draws the hard edge across him, and off
+   * toward the background plane at a third scale, which is what makes him dark.
+   *
+   * TRANSLATING AND ROTATING THEM WITH HIM IS NOT THE SAME MISTAKE AS YAWING
+   * THEM. The note on `AREA_LIGHTS` forbids yawing the rig WITH HIS FACING, and
+   * that still holds: the facing yaw lives below this and is still cross-faded
+   * against the mirrored twins. This is the FRAMING rotation, which exists
+   * precisely so that he presents the same view of himself wherever he stands —
+   * so carrying his key light round with it is what keeps that true of his
+   * shading too.
+   */
+  setFraming(position: Vector3, quaternion: Quaternion, yaw: number): void
+  /** Forget the inset's smoothed framing distance. Call when the beacon hides,
+   *  or its next appearance eases out of wherever the last one left off. */
+  resetInset(): void
+  /**
+   * Draw the character a SECOND time, into a small rectangle of the same canvas.
+   *
+   * This is the off-screen beacon's window (see `beacon.ts`) and it is a second
+   * pass rather than a second canvas on purpose: a second `WebGLRenderer` means
+   * a second GL context, a second copy of every buffer and texture, and — on
+   * this canvas specifically — the exact hazard `DeckE`'s instance guard exists
+   * to prevent. A scissored viewport shares all of it and costs one more draw of
+   * a character that is already resident.
+   *
+   * The inset camera sits on the SAME SIGHT-LINE as the main one, just closer.
+   * That matters: `framing.ts` has turned him to present his canonical self
+   * along that line, so looking at him from anywhere else would show the beacon
+   * a differently-oriented character than the one who is off screen. Same ray,
+   * same up vector, same silhouette — only nearer, so he fits the chip.
+   *
+   * `rect` is in CSS pixels with a top-left origin, like the DOM. three's
+   * viewport is bottom-left, and the flip happens here so no caller has to know.
+   */
+  renderInset(
+    rect: { x: number; y: number; w: number; h: number },
+    target: Vector3,
+    subject: Object3D | null,
+    restExtent: number,
+  ): void
+  /** The largest dimension of `o`'s world bounds. See `renderInset` for why the
+   *  beacon uses this as a RATIO rather than as a size. */
+  measureExtent(o: Object3D): number
   setSize(width: number, height: number): void
   setCharacterHeight(px: number | null): void
   dispose(): void
@@ -510,6 +590,12 @@ export function createStage(opts: StageOptions): Stage {
     opts.characterHeightPx === undefined ? null : opts.characterHeightPx
 
   RectAreaLightUniformsLib.init()
+  // ONE NODE FOR ALL SIX, so the whole rig is a rigid body that can be carried.
+  // Adding them straight to the scene puts them at fixed world positions, which
+  // is right only while the character is at the origin — see `setFraming`.
+  const lightRig = new Object3D()
+  lightRig.name = 'DeckE_LightRig'
+  scene.add(lightRig)
   const lights: RectAreaLight[] = []
   const mirrors: RectAreaLight[] = []
   for (const spec of AREA_LIGHTS) {
@@ -522,14 +608,23 @@ export function createStage(opts: StageOptions): Stage {
       )
       l.position.copy(blenderToThree(t.pos[0], t.pos[1], t.pos[2]))
       l.quaternion.copy(blenderLightQuaternion(t.dir, t.axisX))
-      scene.add(l)
+      lightRig.add(l)
       return l
     }
     lights.push(make(spec))
     mirrors.push(make(spec.mirror))
   }
 
+  // The environment's rotation is the sum of two independent things, so both are
+  // kept and it is recomputed from them rather than either one writing it.
+  let facingNow = 1
+  let framingYaw = 0
+  function applyEnvRotation() {
+    scene.environmentRotation.y = envRotation(facingNow, framingYaw)
+  }
+
   function setFacing(facing: number) {
+    facingNow = facing
     const w = (1 + facing) / 2
     for (let i = 0; i < lights.length; i++) {
       const spec = AREA_LIGHTS[i]
@@ -537,7 +632,14 @@ export function createStage(opts: StageOptions): Stage {
       lights[i].intensity = base * w
       mirrors[i].intensity = base * (1 - w)
     }
-    scene.environmentRotation.y = envRotationForFacing(facing)
+    applyEnvRotation()
+  }
+
+  function setFraming(position: Vector3, quaternion: Quaternion, yaw: number) {
+    lightRig.position.copy(position)
+    lightRig.quaternion.copy(quaternion)
+    framingYaw = yaw
+    applyEnvRotation()
   }
 
   function setEnvironment(hdr: Texture) {
@@ -614,15 +716,124 @@ export function createStage(opts: StageOptions): Stage {
     applyDolly(renderer.domElement.height / renderer.getPixelRatio())
   }
 
+  // Reused across frames: a camera is a matrix and a projection, and rebuilding
+  // one sixty times a second to look at the same thing is pure garbage.
+  const insetCamera = new PerspectiveCamera(BLENDER_CAMERA.fovDeg, 1, BLENDER_CAMERA.near, BLENDER_CAMERA.far)
+  const _sight = new Vector3()
+  const _up = new Vector3()
+  const _bounds = new Box3()
+  const _size = new Vector3()
+  /** The inset distance, smoothed. See the note in `renderInset`. */
+  let insetDist = 0
+
+  function measureExtent(o: Object3D): number {
+    _bounds.setFromObject(o)
+    if (_bounds.isEmpty()) return 0
+    _bounds.getSize(_size)
+    return Math.max(_size.x, _size.y, _size.z)
+  }
+
+  function renderInset(
+    rect: { x: number; y: number; w: number; h: number },
+    target: Vector3,
+    subject: Object3D | null,
+    restExtent: number,
+  ) {
+    const ratio = renderer.getPixelRatio()
+    const viewW = renderer.domElement.width / ratio
+    const viewH = renderer.domElement.height / ratio
+
+    _sight.copy(target).sub(camera.position)
+    if (_sight.lengthSq() < 1e-9) return
+    _sight.normalize()
+    // An object of height h at distance d fills h / (2 d tan(fov/2)) of the
+    // frame. Solve for the distance that makes him `BEACON.fill` of the chip.
+    const vFov = (camera.fov * Math.PI) / 180
+    // FRAME WHAT IS ACTUALLY THERE, not just the body — but as a RATIO.
+    //
+    // Sizing off `BODY_H` alone is right until he deploys something: the
+    // `card_stash` fan is more than twice his height across, and a chip framed
+    // to his body would clip the cards to the SQUARE of the scissor rect —
+    // corners of card sticking out of a round chip, which reads as a rendering
+    // bug rather than as a character holding cards.
+    //
+    // BUT HIS BOUNDS ARE NOT HIS SIZE. Measured at rest they come out 4.86 units
+    // across against a body that is 2.4 tall, because the exported meshes carry
+    // their morph-target extents in their geometry bounds and several are
+    // authored pre-transform. Using that as an absolute framing distance renders
+    // him at about half the size the chip was designed for — a speck, which
+    // defeats the whole point of the chip showing what he is doing.
+    //
+    // So the bounds are used only for how much BIGGER he is than usual:
+    // `BODY_H` keeps the calibration, and the ratio against his rest extent
+    // pulls the camera back when something is deployed. At rest the ratio is 1
+    // and the framing is exactly the calibrated one, whatever the geometry's
+    // bounds happen to say.
+    let want = BODY_H
+    if (subject && restExtent > 1e-6) {
+      const extent = measureExtent(subject)
+      if (extent > 0) want = BODY_H * Math.max(1, extent / restExtent)
+    }
+    const dist = want / (2 * INSET_FILL * Math.tan(vFov / 2))
+    // Smoothed, because the bounds change every frame a card moves and a chip
+    // that breathes with them is worse than one that lags a little. Snap on the
+    // first frame so the beacon does not zoom in from nowhere when it appears.
+    insetDist = insetDist === 0 ? dist : insetDist + (dist - insetDist) * 0.12
+    insetCamera.position.copy(target).addScaledVector(_sight, -insetDist)
+    _up.set(0, 1, 0).applyQuaternion(camera.quaternion)
+    insetCamera.up.copy(_up)
+    insetCamera.lookAt(target)
+    insetCamera.fov = camera.fov
+    insetCamera.aspect = rect.w / rect.h
+    insetCamera.updateProjectionMatrix()
+
+    // Bottom-left origin, and the SCISSOR is what keeps the second pass inside
+    // the chip: without it the pass would draw over the whole canvas.
+    const y = viewH - rect.y - rect.h
+    const prevAutoClear = renderer.autoClear
+    try {
+      renderer.autoClear = false
+      renderer.setScissorTest(true)
+      renderer.setScissor(rect.x, y, rect.w, rect.h)
+      renderer.setViewport(rect.x, y, rect.w, rect.h)
+      // Depth only. Clearing colour would punch a hole through the main pass,
+      // and the canvas composites over the DOM — the hole would be the page
+      // showing through the chip.
+      renderer.clearDepth()
+      renderer.render(scene, insetCamera)
+    } finally {
+      // ALWAYS. A throw inside the pass — a shader compile, a lost context —
+      // would otherwise leave the scissor on and the viewport 52 px wide for
+      // every subsequent MAIN pass, collapsing the whole character into the
+      // corner chip until the page is reloaded.
+      renderer.setScissorTest(false)
+      renderer.setViewport(0, 0, viewW, viewH)
+      renderer.autoClear = prevAutoClear
+    }
+  }
+
+  /** Forget the smoothed distance, so the next appearance snaps to the right
+   *  framing instead of easing out of a stale one. */
+  function resetInset() {
+    insetDist = 0
+  }
+
   function dispose() {
     for (const l of [...lights, ...mirrors]) l.dispose?.()
+    // The prefiltered environment is a render target, and it is NOT in the scene
+    // graph — so the caller's `scene.traverse` teardown cannot see it. One
+    // cubemap per mount leaks otherwise, and React 19's StrictMode mounts twice
+    // in dev before anyone has clicked anything.
+    scene.environment?.dispose()
+    scene.environment = null
     renderer.dispose()
   }
 
   setFacing(1)
   return {
-    renderer, scene, camera, lights,
-    setEnvironment, setFacing, setSize, setCharacterHeight, dispose,
+    renderer, scene, camera, lights, lightRig,
+    setEnvironment, setFacing, setFraming, renderInset, resetInset, measureExtent,
+    setSize, setCharacterHeight, dispose,
   }
 }
 

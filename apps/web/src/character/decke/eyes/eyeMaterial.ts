@@ -104,6 +104,7 @@ uniform float uSymCol;
 uniform float uSymRow;
 uniform float uSymSize;
 uniform float uSymLineMixFactor;
+uniform float uSymSpin;
 uniform vec3 uSymColor;
 uniform vec3 uSymColor2;
 uniform sampler2D uSymAtlas;
@@ -232,7 +233,10 @@ DeckeEye deckeEyeEval(vec3 worldPos, vec3 incoming) {
   vec3 cLine    = (uCtrlLine    * wp).xyz + PLX_off;
   vec3 cLidU    = (uCtrlLidU    * wp).xyz + PLX_off;
   vec3 cLidL    = (uCtrlLidL    * wp).xyz + PLX_off;
-  vec3 cSymbol  = (uCtrlSymbol  * wp).xyz + PLX_off;
+  // NO PARALLAX HERE — see the spin note at LAYERS 5-6. This is the only one of
+  // the eight coordinates the offset is not folded into at this point, because
+  // it is the only one whose frame rotates.
+  vec3 cSymbolRaw = (uCtrlSymbol * wp).xyz;
   vec3 cSymLine = (uCtrlSymLine * wp).xyz + PLX_off;
   vec3 cIris    = (uCtrlPupil   * wp).xyz + PLX_off;   // same empty as cPupil, own ADD node
 
@@ -309,8 +313,44 @@ DeckeEye deckeEyeEval(vec3 worldPos, vec3 incoming) {
   vec3 L4 = L3 + (kColor003 - L3) * supRing;
 
   // ---- LAYERS 5-6: the atlas glyph -------------------------------------
-  float symAx = blSafeDivide(cSymbol.x, uSymSize) + 0.5;
-  float symAz = blSafeDivide(cSymbol.z, uSymSize) + 0.5;
+  // THE SPIN TURNS THE LOOKUP, NOT THE EMPTY, AND IT TURNS THE PARALLAX WITH IT.
+  //
+  // A glyph is a rigid image that should turn about ITS OWN CENTRE and be
+  // shifted bodily by the view parallax. Written out, the lookup wants to be
+  // atlas(R(theta) * (p - s)) for a sample point p and a fixed centre offset s.
+  // The centre is then at p = s for every theta, which is the whole point.
+  //
+  // Neither of the two obvious spellings does that, and both were tried:
+  //
+  //   rotate the empty, add PLX after   ->  R(-theta)*p + PLX  ->  centre at
+  //                                        R(theta)*(-PLX): a circle.
+  //   rotate the lookup, add PLX after  ->  R(theta)*p + PLX   ->  centre at
+  //                                        R(-theta)*(-PLX): the same circle,
+  //                                        going the other way.
+  //
+  // PLX_off is a view offset computed in the EYE object's frame and added inside
+  // each control's own frame. For the six controls that never turn, either
+  // spelling is a fixed shift. For the one control that turns a revolution a
+  // second it is a fixed shift living on the wrong side of a rotation, and the
+  // glyph's centre walks a circle of that radius -- about 3 px at the staging
+  // framing -- once per revolution.
+  //
+  // Reported as: "the loading wheels are rotating, like the pivot point on the
+  // rotate is not centered, so they're kind of like moving around... they have
+  // like a little bit of travel around in a circle." Measured with the character
+  // completely frozen and only sym_spin moving: the whole annulus translates
+  // through a closed loop as the angle advances. Faithful to the .blend, and
+  // wrong; this is a PRODUCT fix, not a correction to the transcription -- the
+  // same call sustain.ts makes for CLIP_PATCH.
+  //
+  // So the offset goes INSIDE the rotation, which is the s in the expression
+  // above, and uSymSpin carries the per-eye half turn of phase.
+  float symSin = sin(uSymSpin);
+  float symCos = cos(uSymSpin);
+  vec2 symP = vec2(cSymbolRaw.x + PLX_off.x, cSymbolRaw.z + PLX_off.z);
+  vec2 symG = vec2(symCos * symP.x - symSin * symP.y, symSin * symP.x + symCos * symP.y);
+  float symAx = blSafeDivide(symG.x, uSymSize) + 0.5;
+  float symAz = blSafeDivide(symG.y, uSymSize) + 0.5;
   float symDu = blSafeDivide(symAx + uSymCol, 5.0);
   float symDv = blSafeDivide(symAz + uSymRow, 2.0);
   vec4 symTex = blTexClip(uSymAtlas, vec2(symDu, symDv));
@@ -409,12 +449,22 @@ export type EyeUniforms = {
   uSymRow: { value: number }
   uSymSize: { value: number }
   uSymLineMixFactor: { value: number }
+  uSymSpin: { value: number }
   uSymColor: { value: Vector3 }
   uSymColor2: { value: Vector3 }
   uSymAtlas: { value: Texture }
 }
 
-export type EyeMaterial = MeshPhysicalMaterial & { userData: { deckeEye: EyeUniforms } }
+export type EyeMaterial = MeshPhysicalMaterial & {
+  userData: {
+    deckeEye: EyeUniforms
+    /** This eye's share of the spin phase, in radians. The two eyes are half a
+     *  turn apart (`symbol_atlas.spin_phase_deg`), which only reads on a glyph
+     *  that is actually turning — on a static one it is a horizontal mirror,
+     *  which is how the money symbol once came out backwards. */
+    deckeSpinPhase: number
+  }
+}
 
 /** The seven control empties plus the eyeball itself, for one eye. */
 export type EyeControls = {
@@ -436,7 +486,12 @@ function linearRGB(hex: number, out: Vector3): Vector3 {
   return out.set(c.r, c.g, c.b)
 }
 
-export function createEyeMaterial(opts: { side: 'L' | 'R'; atlas: Texture }): EyeMaterial {
+export function createEyeMaterial(opts: {
+  side: 'L' | 'R'
+  atlas: Texture
+  /** From `symbol_atlas.spin_phase_deg`. */
+  spinPhaseDeg: number
+}): EyeMaterial {
   // A 512 px cell lands on roughly 60 screen pixels, so the atlas is MINIFIED
   // about 8x and needs a mip chain. Averaging an SDF is well behaved (that is
   // the point of an SDF), and the in-cell clip still guards against a
@@ -464,6 +519,7 @@ export function createEyeMaterial(opts: { side: 'L' | 'R'; atlas: Texture }): Ey
     uSymSize: { value: warn.size },
     // Unlinked at 0.0 in the dump. See EYE-GLSL.md D.1.
     uSymLineMixFactor: { value: 0 },
+    uSymSpin: { value: 0 },
     uSymColor: { value: linearRGB(warn.under, new Vector3()) },
     uSymColor2: { value: linearRGB(warn.glyph, new Vector3()) },
     uSymAtlas: { value: atlas },
@@ -487,6 +543,7 @@ export function createEyeMaterial(opts: { side: 'L' | 'R'; atlas: Texture }): Ey
 
   mat.name = `Eye_${opts.side}_Face_anim`
   mat.userData.deckeEye = uniforms
+  mat.userData.deckeSpinPhase = (opts.spinPhaseDeg * Math.PI) / 180
 
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms)
@@ -564,6 +621,12 @@ export function syncEyeUniforms(
   symbol: string | null,
 ): void {
   const u = mat.userData.deckeEye
+  // The phase only applies to a glyph that TURNS. On a static one the same half
+  // turn is a pure horizontal mirror — invisible on the symmetric glyphs, a
+  // reversed dollar sign on `money`.
+  const spinning = Math.abs(pose.sym_spin ?? 0) > 1e-6
+  u.uSymSpin.value =
+    ((pose.sym_spin ?? 0) * Math.PI) / 180 + (spinning ? mat.userData.deckeSpinPhase : 0)
 
   setCtrl(u.uCtrlPupil.value, ctrls.pupil)
   setCtrl(u.uCtrlShine.value, ctrls.shine)

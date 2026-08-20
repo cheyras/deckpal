@@ -35,6 +35,25 @@ export class Rng {
   }
 }
 
+/**
+ * A global slow-down on the hover, applied to EVERY state's own `float_rate`.
+ *
+ * "I would have his, like, floating, uh, subtle bob, be a little bit slower all
+ * the time. Right now it's a little bit quick."
+ *
+ * All the time is the operative phrase, which is why this is one multiplier on
+ * the rate rather than an edit to twenty-seven authored `float_rate` values: the
+ * playbook's rates express how a state differs from the others (`sleep` 0.4,
+ * `loading` 1.35), and that RELATIVE structure is right — it was the overall
+ * tempo that was fast. Scaling preserves every relationship and gives the tempo
+ * one number to tune.
+ *
+ * It scales the RATE, which is integrated, so changing it is phase-continuous —
+ * see `IdleFloat.advance`. Setting it as a `t` multiplier instead would put a
+ * pop on the very frame it changed.
+ */
+export const FLOAT_RATE_SCALE = 0.8
+
 export type FloatChannels = { x: number; y: number; z: number; rx: number; ry: number; rz: number }
 const CHANNELS = ['x', 'y', 'z', 'rx', 'ry', 'rz'] as const
 
@@ -76,7 +95,7 @@ export class IdleFloat {
    * clock is integrated separately so a rate change is phase-continuous.
    */
   advance(dtSeconds: number, rateMul = 1): number {
-    this.tau += dtSeconds * rateMul
+    this.tau += dtSeconds * rateMul * FLOAT_RATE_SCALE
     return this.tau
   }
 
@@ -107,6 +126,8 @@ export type Blink = { time: number }
  */
 export class Blinker {
   private schedule: number[] = []
+  /** The next unscheduled moment, in the blinker's own clock. See `extend`. */
+  private next: number | null = null
   private cursor = 0
   /** The blinker's own integrated clock. See `at`. */
   tau = 0
@@ -122,26 +143,34 @@ export class Blinker {
     this.h = b.hold_ms
     this.o = b.open_ms
     this.lowerLidRatio = b.lower_lid_ratio
-    this.regenerate(600)
+    this.extend(SCHEDULE_HORIZON_S)
   }
 
-  /** Pre-generate a schedule. The draw ORDER matters for reproducibility. */
-  private regenerate(durationS: number) {
+  /**
+   * Grow the schedule out to `untilS`. The draw ORDER matters for
+   * reproducibility, so this only ever APPENDS.
+   *
+   * It used to rebuild from zero every time the horizon was reached, which
+   * silently replaced the whole schedule — including the blink he was in the
+   * middle of — once every ten minutes. Extending keeps the cursor valid, keeps
+   * the draws in one unbroken sequence, and means a character that has been on
+   * screen for an hour is running the same schedule he started with.
+   */
+  private extend(untilS: number) {
     const b = this.doc.procedural.blink
-    const out: number[] = []
-    let t = this.rng.range(b.first_offset_s[0], b.first_offset_s[1])
     const total = (this.c + this.h + this.o + b.double_gap_ms) / 1000
-    while (t < durationS) {
-      out.push(t)
+    let t =
+      this.next ?? (this.next = this.rng.range(b.first_offset_s[0], b.first_offset_s[1]))
+    while (t < untilS) {
+      this.schedule.push(t)
       if (this.rng.next() < b.double_p) {
         const t2 = t + total
-        if (t2 < durationS) out.push(t2)
+        this.schedule.push(t2)
         t = t2
       }
       t += this.rng.range(b.interval_s[0], b.interval_s[1])
     }
-    this.schedule = out
-    this.cursor = 0
+    this.next = t
   }
 
   /** 0 = open, 1 = shut. `tMs` is measured from the blink start. */
@@ -192,30 +221,83 @@ export class Blinker {
       if (start === undefined) continue
       v = Math.max(v, this.curve((scaled - start) * 1000))
     }
-    if (scaled > this.schedule[this.schedule.length - 1] + 10) this.regenerate(scaled + 600)
+    if (scaled > this.schedule[this.schedule.length - 1] - SCHEDULE_MARGIN_S) {
+      this.extend(scaled + SCHEDULE_HORIZON_S)
+    }
     return v
   }
 }
 
 export type GazeOffset = { gx: number; gz: number }
 
-/** How far ahead the gaze schedules are generated, and how close to the end we
- *  allow the clock to get before extending them. */
-const GAZE_HORIZON_S = 600
-const GAZE_REGEN_MARGIN_S = 60
+/** How far ahead the schedules are generated, and how close to the end we allow
+ *  the clock to get before extending them. */
+const SCHEDULE_HORIZON_S = 600
+const SCHEDULE_MARGIN_S = 60
 
 /** A jump larger than this between successive `at` calls is a SEEK, not a
  *  frame. Real frames are milliseconds; the parity harness rewinds by minutes. */
 const SEEK_GAP_S = 1
 
+/** How many spent entries to let accumulate behind a cursor before dropping
+ *  them. Trimming on every frame would be a splice per frame for nothing. */
+const PRUNE_AT = 64
+
+/**
+ * The reviewed flit tuning, which OVERRIDES the playbook's authored numbers.
+ *
+ * The playbook is generated from the .blend and its job is to reproduce it
+ * faithfully, so a product decision does not belong in it — the same argument
+ * `sustain.ts` makes for `CLIP_PATCH`. These are product decisions, taken off
+ * the 2026-08-20 screen recording, and they are stated here against the
+ * authored values they replace.
+ *
+ * WHAT WAS WRONG. Three separate things, in the reviewer's words:
+ *
+ *   "The eye flitting back and forth — it's happening too often."
+ *   "Sometimes it'll be like, boom, boom. Like, it'll go really quick."
+ *   "Some of the movements are a little bit too big... put a maximum on that as
+ *    well, to keep them all just kind of micro eye movements."
+ *
+ * and one instruction for how to fix the second: "there needs to be like a gate
+ * on that — because I do want it to be randomized, but there needs to be like a
+ * max frequency. It's at most every half second maybe."
+ *
+ * SO THE GATE IS A GATE, not a wider interval range. `MIN_GAP_S` is enforced on
+ * the generated schedule regardless of what the interval draw returns, which is
+ * what makes "no two flits closer than this" an invariant a test can assert
+ * rather than a property that merely tends to hold. Widening the range alone
+ * would not do it: a uniform draw on [0.45, 1.6] puts two flits 450 ms apart
+ * roughly one time in twenty, which at this cadence is every half-minute — often
+ * enough to be exactly the "boom, boom" that was reported.
+ *
+ * AND THE AMPLITUDE IS IN TARGET SPACE, so its visible size has to be converted
+ * before it can be judged. At the staging camera the left eye sits 5.06 blender
+ * units from it, so `look.ts` turns an offset of `a` into a pupil movement of
+ * `a / 5.06 * GAZE_GAIN`. The authored 0.68 is therefore 0.0345 units of pupil,
+ * against a roam half-width of 0.115 — 30% of the eye's entire travel, per flit.
+ * 0.28 brings that to 12%, which is a flit you notice as life rather than as an
+ * eye moving.
+ */
+const GAZE_TUNING = {
+  /** Was `interval_s: [0.45, 1.6]`. Less often, overall. */
+  intervalS: [1.2, 3.6] as const,
+  /** The gate. No two flits are ever closer than this, whatever the draw says. */
+  minGapS: 0.9,
+  /** Was `amp_x: 0.68`. 12% of the pupil's lateral travel, not 30%. */
+  ampX: 0.28,
+  /** Was `amp_z: 0.46`. */
+  ampZ: 0.22,
+} as const
+
 /**
  * Gaze: micro-saccades ("flits") plus blink-masked glance-aways.
  *
  * Flits are the cheapest single thing that makes him feel alive — he always
- * reads as looking at you, but his eyes never sit perfectly still. The
- * amplitudes here (0.68 / 0.46) are the RECALIBRATED values; the wiki's
- * documented 0.16 / 0.11 produced a pupil movement of about one pixel and was
- * invisible.
+ * reads as looking at you, but his eyes never sit perfectly still. Their
+ * cadence and size come from `GAZE_TUNING` above, NOT from the playbook: the
+ * authored 0.68 / 0.46 were themselves a recalibration of the wiki's invisible
+ * 0.16 / 0.11, and then overshot the other way.
  *
  * Glance-aways are blink-masked on purpose: the brain suppresses visual input
  * during a blink, so he reopens already looking elsewhere and the change is
@@ -225,32 +307,61 @@ const SEEK_GAP_S = 1
 export class Gaze {
   private flits: { t: number; x: number; z: number }[] = []
   private glances: { t: number; x: number; z: number; hold: number }[] = []
+  private lastT = -Infinity
   private readonly moveS: number
   /** How far the generated schedules currently reach, in seconds. */
   private horizon = 0
+  /** The next unscheduled moment for each schedule. See `extend`. */
+  private nextFlit: number | null = null
+  private nextGlance: number | null = null
+  /** How far into each schedule the clock has reached. Both are MONOTONIC in
+   *  wall-clock and are reset by a seek; see `at`. */
+  private flitCursor = 0
+  private glanceCursor = 0
 
   constructor(private readonly doc: PlaybookDoc, private readonly rng: Rng) {
     this.moveS = doc.procedural.gaze_flit.move_ms / 1000
-    this.regenerate(600)
+    this.extend(SCHEDULE_HORIZON_S)
   }
 
-  private regenerate(durationS: number) {
-    this.horizon = durationS
+  /**
+   * Grow both schedules out to `untilS`, APPENDING only.
+   *
+   * This used to rebuild from zero, and that was wrong in two ways that only
+   * showed up past the first horizon. It replaced the live schedule wholesale,
+   * so the flit he was in the middle of jumped to a different one every ten
+   * minutes; and it made the flit gate a property of one generation rather than
+   * of the schedule, because the rebuild's `first_offset` draw could land
+   * arbitrarily close to the last flit of the run it replaced. Extending makes
+   * the gate an invariant over the whole life of the character, which is what a
+   * gate is supposed to be — see `GAZE_TUNING`.
+   *
+   * Both schedules are grown in ONE call, flits first, so the draws stay in a
+   * single documented order however the horizon happens to fall.
+   */
+  private extend(untilS: number) {
     const f = this.doc.procedural.gaze_flit
     const g = this.doc.procedural.glance_away
-    this.flits = []
-    let t = this.rng.range(f.first_offset_s[0], f.first_offset_s[1])
-    while (t < durationS) {
+    const [lo, hi] = GAZE_TUNING.intervalS
+    let t =
+      this.nextFlit ?? (this.nextFlit = this.rng.range(f.first_offset_s[0], f.first_offset_s[1]))
+    while (t < untilS) {
       this.flits.push({
         t,
-        x: this.rng.range(-f.amp_x, f.amp_x),
-        z: this.rng.range(-f.amp_z, f.amp_z),
+        x: this.rng.range(-GAZE_TUNING.ampX, GAZE_TUNING.ampX),
+        z: this.rng.range(-GAZE_TUNING.ampZ, GAZE_TUNING.ampZ),
       })
-      t += this.rng.range(f.interval_s[0], f.interval_s[1])
+      // THE GATE. Clamped after the draw, not folded into it, so the floor holds
+      // even if the range is ever retuned below it — and so the draw ORDER is
+      // untouched, which is what keeps the whole schedule reproducible.
+      t += Math.max(GAZE_TUNING.minGapS, this.rng.range(lo, hi))
     }
-    this.glances = []
-    t = this.rng.range(g.first_offset_s[0], g.first_offset_s[1])
-    while (t < durationS) {
+    this.nextFlit = t
+
+    t =
+      this.nextGlance ??
+      (this.nextGlance = this.rng.range(g.first_offset_s[0], g.first_offset_s[1]))
+    while (t < untilS) {
       const mag = this.rng.range(g.amp_x[0], g.amp_x[1])
       const sign = this.rng.next() < 0.5 ? 1 : -1
       this.glances.push({
@@ -261,6 +372,8 @@ export class Gaze {
       })
       t += this.rng.range(g.interval_s[0], g.interval_s[1])
     }
+    this.nextGlance = t
+    this.horizon = untilS
   }
 
   /**
@@ -281,34 +394,56 @@ export class Gaze {
     // since each rebuild draws fresh random offsets the pupils became 60 Hz
     // noise (measured: gx -0.181 -> +0.381 -> -0.037 over three frames) while
     // the arrays grew without bound. `Blinker` had the correct guard; this did
-    // not. Regenerating on a horizon also keeps the layer DETERMINISTIC, which
-    // a per-frame rebuild had quietly destroyed.
-    if (tSeconds > this.horizon - GAZE_REGEN_MARGIN_S) {
-      this.regenerate(tSeconds + GAZE_HORIZON_S)
+    // not. Extending on a horizon also keeps the layer DETERMINISTIC, which a
+    // per-frame rebuild had quietly destroyed.
+    if (tSeconds > this.horizon - SCHEDULE_MARGIN_S) {
+      this.extend(tSeconds + SCHEDULE_HORIZON_S)
     }
 
-    // Saccades are near-instant (66 ms), so the flit is a fast ramp to the new
-    // offset which then simply holds until the next one.
-    let cur = this.flits[0]
-    for (const f of this.flits) {
-      if (f.t > tSeconds) break
-      cur = f
+    // A CURSOR, not a scan. The schedule now EXTENDS rather than rebuilds, so it
+    // grows for as long as the page is open — about 1500 flits an hour — and
+    // walking it from index 0 on every frame of every layer made the cost of the
+    // gaze grow linearly with session length. `Blinker` always had this; this did
+    // not. Entries behind the cursor are dropped, so the arrays stay small too.
+    if (tSeconds < this.lastT) {
+      // A seek (the parity harness rewinds). Re-find rather than walk backwards.
+      this.flitCursor = 0
+      this.glanceCursor = 0
     }
-    if (cur) {
+    this.lastT = tSeconds
+    while (
+      this.flitCursor + 1 < this.flits.length &&
+      this.flits[this.flitCursor + 1].t <= tSeconds
+    ) {
+      this.flitCursor++
+    }
+    if (this.flitCursor > PRUNE_AT) {
+      this.flits.splice(0, this.flitCursor)
+      this.flitCursor = 0
+    }
+    const cur = this.flits[this.flitCursor]
+    if (cur && cur.t <= tSeconds) {
       const u = Math.min(1, Math.max(0, (tSeconds - cur.t) / this.moveS))
       const e = u * u * (3 - 2 * u)
       out.gx = cur.x * e
       out.gz = cur.z * e
     }
 
+    while (
+      this.glanceCursor + 1 < this.glances.length &&
+      this.glances[this.glanceCursor + 1].t <= tSeconds
+    ) {
+      this.glanceCursor++
+    }
+    if (this.glanceCursor > PRUNE_AT) {
+      this.glances.splice(0, this.glanceCursor)
+      this.glanceCursor = 0
+    }
     if (!gazeLocked) {
-      for (const g of this.glances) {
-        const end = g.t + g.hold / 1000
-        if (tSeconds >= g.t && tSeconds <= end) {
-          out.gx = g.x
-          out.gz = g.z
-          break
-        }
+      const g = this.glances[this.glanceCursor]
+      if (g && tSeconds >= g.t && tSeconds <= g.t + g.hold / 1000) {
+        out.gx = g.x
+        out.gz = g.z
       }
     }
     return out

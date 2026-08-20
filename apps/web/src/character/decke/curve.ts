@@ -125,7 +125,20 @@ function solveBezier(
  * every alert holds through its freeze). A Catmull-Rom or unclamped bezier
  * bulges straight through those and reads as a wobble on a held pose.
  */
-function monotoneTangents(keys: Key[]): number[] {
+/**
+ * @param cyclic Treat the last key as the SAME INSTANT as the first, so the
+ *   curve's velocity flows through the seam instead of stopping dead at it.
+ *
+ * A looped window is a closed curve, and the two ends of it are not two terminal
+ * keys — they are one interior key visited twice. Giving them the terminal
+ * horizontal handle is what makes a loop stall on every wrap; giving them two
+ * DIFFERENT interior tangents is what makes it kick. The seam tangent is
+ * computed from the two secants either side of the wrap, by exactly the rule the
+ * interior keys use, so a plateau still flattens (opposite signs -> zero, which
+ * is the correct answer at `thinking`'s rock reversal) and a motion that
+ * genuinely continues through the seam keeps its speed.
+ */
+function monotoneTangents(keys: Key[], cyclic = false): number[] {
   const n = keys.length
   const m = new Array<number>(n).fill(0)
   if (n < 2) return m
@@ -139,8 +152,10 @@ function monotoneTangents(keys: Key[]): number[] {
   }
 
   // Terminal keys get zero tangent, matching Blender's horizontal end handles.
+  // A cyclic curve overrides this below: its ends are not terminal.
   m[0] = 0
   m[n - 1] = 0
+  if (cyclic && n >= 3) m[0] = m[n - 1] = cyclicSeamTangent(keys)
   for (let i = 1; i < n - 1; i++) {
     const s0 = slope[i - 1]
     const s1 = slope[i]
@@ -163,7 +178,37 @@ function monotoneTangents(keys: Key[]): number[] {
       m[i + 1] = tau * b * slope[i]
     }
   }
+  if (cyclic && n >= 3) {
+    // Re-symmetrise AFTER the monotonicity pass, which clamps the first and last
+    // segments against different neighbours and so can pull the two ends of the
+    // seam apart again. Taking the smaller magnitude keeps whichever clamp was
+    // the stricter one, so neither end segment can overshoot.
+    const a = m[0]
+    const b = m[n - 1]
+    const same = a * b > 0
+    m[0] = m[n - 1] = same ? (Math.abs(a) < Math.abs(b) ? a : b) : 0
+  }
   return m
+}
+
+/** The seam tangent: the interior rule, applied across the wrap. */
+function cyclicSeamTangent(keys: Key[]): number {
+  const n = keys.length
+  const dxPrev = keys[n - 1].t - keys[n - 2].t
+  const dxNext = keys[1].t - keys[0].t
+  const sPrev = dxPrev === 0 ? 0 : (keys[n - 1].v - keys[n - 2].v) / dxPrev
+  const sNext = dxNext === 0 ? 0 : (keys[1].v - keys[0].v) / dxNext
+  // A sign change (or a flat neighbour) is a local extremum: flatten it. Same
+  // rule as the interior keys, and it is the RIGHT answer at a wrap — a rock
+  // that reverses at the seam should reverse, not carry speed through it.
+  return sPrev * sNext <= 0 ? 0 : (sPrev + sNext) / 2
+}
+
+/** Blender's bezier handle for a key with tangent `m`, one third of the way
+ *  along the segment. The cubic Hermite/Bezier identity, so an exact curve and
+ *  an approximated one get the SAME seam. */
+function handleFor(t: number, v: number, m: number, dt: number): [number, number] {
+  return [t + dt / 3, v + (m * dt) / 3]
 }
 
 export type Curve = {
@@ -172,12 +217,56 @@ export type Curve = {
    *  rather than approximated. Surfaced so the dev page can show it. */
   exact: boolean
   tangents?: number[]
+  /** The last key is the same instant as the first. See `monotoneTangents`. */
+  cyclic?: boolean
 }
 
-export function makeCurve(keys: Key[]): Curve {
+export type CurveOptions = {
+  /** The curve LOOPS: its last key is the first key come round again, so the
+   *  seam gets one shared interior tangent instead of two terminal ones. The
+   *  caller is responsible for the two end VALUES agreeing; this only makes the
+   *  velocity agree. */
+  cyclic?: boolean
+}
+
+export function makeCurve(keys: Key[], opts: CurveOptions = {}): Curve {
   const eased = keys.filter((k) => k.interp === 'ease')
   const exact = eased.length === 0 || eased.every((k) => k.hl && k.hr)
-  return { keys, exact, tangents: exact ? undefined : monotoneTangents(keys) }
+  const cyclic = !!opts.cyclic && keys.length >= 3
+  // TANGENTS ARE ALWAYS COMPUTED, even for an exact curve. `exact` only promises
+  // that every EASED key carries handles, and `evalCurve` falls through to the
+  // Hermite path for any segment whose two ends do not BOTH have them — which an
+  // eased key followed by a handleless `lin` or `step` key satisfies. That
+  // combination does not occur in today's data, and if it ever did the
+  // non-null assertion on `tangents` would be a TypeError inside the render
+  // loop. Computing them is a few microseconds at load.
+  if (!cyclic) {
+    return { keys, exact, tangents: monotoneTangents(keys) }
+  }
+  if (!exact) {
+    return { keys, exact, cyclic, tangents: monotoneTangents(keys, true) }
+  }
+  // An EXACT curve carries authored handles, and the two at the seam were
+  // authored for the neighbours the window cut away. Rewrite just those two from
+  // the cyclic tangent — on COPIES, because the key objects are shared with the
+  // source clip and mutating them would silently re-shape the unlooped state.
+  const n = keys.length
+  const m = cyclicSeamTangent(keys)
+  const out = keys.slice()
+  const first = { ...out[0] }
+  const last = { ...out[n - 1] }
+  first.hr = handleFor(first.t, first.v, m, keys[1].t - first.t)
+  last.hl = handleFor(last.t, last.v, m, keys[n - 2].t - last.t)
+  out[0] = first
+  out[n - 1] = last
+  // NOT DEAD CODE, AND IT MUST NOT BE DELETED. Nothing reaches this branch
+  // today, because the generated playbook carries no handles and `cards.ts` never
+  // asks for a cyclic curve. It exists for the day the playbook generator starts
+  // dumping Blender's handles — which is a stated goal, since it is the
+  // difference between exact curves and the documented approximation. On that
+  // day every sustain would silently go back to two terminal handles at the
+  // seam, i.e. to the pop this whole mechanism removes, and nothing would fail.
+  return { keys: out, exact, cyclic, tangents: monotoneTangents(out, true) }
 }
 
 /** Evaluate a curve at time `t` (same units as the keys — milliseconds here). */
