@@ -1,4 +1,4 @@
-import { StrictMode, lazy, Suspense } from 'react'
+import { StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -21,6 +21,7 @@ import './premium.css'
 import { initSkin } from './lib/skin'
 import { initTopbar } from './lib/topbar'
 import { registerPwa } from './pwa'
+import { lazyRoute } from './lib/lazyRoute'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
 import { AuthGuard } from './components/AuthGuard'
@@ -335,7 +336,7 @@ const coreRoutes = [
 // indistinguishable from a URL that does not exist. The flag's identity check
 // lives server-side (DESIGN_EDITOR_USER_ID) — nothing about who the owner is
 // appears in this bundle.
-const LazyDesignSystem = lazy(() => import('./routes/design/DesignSystem'))
+const LazyDesignSystem = lazyRoute(() => import('./routes/design/DesignSystem'))
 const DesignSystemRoute = () => (
   <Suspense
     fallback={
@@ -382,7 +383,7 @@ const designRoute = createRoute({
 // that exclusion is the only thing standing between this route and a megabyte of
 // dead weight in every session. Do not remove it without re-reading the note
 // there.
-const LazyDecke = lazy(() => import('./routes/dev/Decke'))
+const LazyDecke = lazyRoute(() => import('./routes/dev/Decke'))
 const DeckeRoute = () => (
   <Suspense
     fallback={
