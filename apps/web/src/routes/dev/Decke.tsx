@@ -195,6 +195,33 @@ export default function Decke() {
     const ro = new ResizeObserver(measure)
     ro.observe(canvas)
 
+    // AND WATCH THE PIXEL RATIO SEPARATELY. Dragging the window from a Retina
+    // display to an external one changes `devicePixelRatio` without changing the
+    // canvas's CSS box by a single pixel, so the observer never fires and
+    // `setPixelRatio` is never called again — he keeps rendering at the old
+    // resolution until something else resizes him. A `resolution` media query is
+    // the only event for it, and it has to be re-armed after each change because
+    // the query names the ratio it was built for.
+    //
+    // UNVERIFIED HERE, deliberately noted: Chromium's `setDeviceMetricsOverride`
+    // changes `devicePixelRatio` and updates `matches` on both an exact
+    // `resolution` query and a `min-resolution` one, but fires no `change` event
+    // for either — and a `device-pixel-content-box` ResizeObserver does not fire
+    // under it either. So the emulator cannot exercise this path at all; it is
+    // the standard recipe, applied on the standard event, and the only way to
+    // confirm it is a real second display.
+    let dprQuery: MediaQueryList | null = null
+    const onDpr = () => {
+      measure()
+      armDpr()
+    }
+    const armDpr = () => {
+      dprQuery?.removeEventListener('change', onDpr)
+      dprQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+      dprQuery.addEventListener('change', onDpr)
+    }
+    armDpr()
+
     ;(async () => {
       try {
         await decke.load()
@@ -236,6 +263,7 @@ export default function Decke() {
     return () => {
       cancelled = true
       ro.disconnect()
+      dprQuery?.removeEventListener('change', onDpr)
       decke.dispose()
       deckeRef.current = null
       delete (window as unknown as { __decke?: DeckE }).__decke

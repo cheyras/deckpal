@@ -6733,6 +6733,23 @@ foil-versus-plain distinction would need the catalog's rarity to reach the
 character, which is a `cardArt.ts`/`cardSource.ts` change and a product decision,
 not a material constant to guess at.
 
+**Three things the code review caught, one of them mine.** Pinning the canvas to
+`100svh` split the beacon: `beaconRect` is top-anchored from `viewHeight()` and
+the DOM chip was positioned with CSS `bottom`, which resolves against the LAYOUT
+viewport — the same 82px, and this time as daylight between the hole in the chip
+and the character drawn into it, with no way to close it because the canvas ends
+above where the chip is. `beaconRect`'s own comment claims "one function so the
+two can never disagree by a pixel"; the chip now actually uses it. The command
+path's `card_stash` default awaited up to three serial network rungs with no
+bound, on the surface an agent drives and inside a serialized turn — now bounded
+at 700 ms, the same as the dev page always was. And `devicePixelRatio` was never
+observed at all: moving a window to a second display changes it without changing
+the canvas's CSS box, so the ResizeObserver never fires and he keeps rendering at
+the old resolution. That one is pre-existing and its fix is UNVERIFIED — Chromium's
+device-metrics override changes `devicePixelRatio` and updates `matches` on a
+`resolution` query but fires no `change` event, and a `device-pixel-content-box`
+observer does not fire under it either, so the emulator cannot exercise the path.
+
 **Not fixed, and why.** The residual iOS scroll jutter is a frame-rate problem
 between a compositor-driven scroll and a JS-driven character in a fixed canvas,
 and one frame of lag is structural there. The re-travel half of it is fixed above.

@@ -12,6 +12,10 @@
  */
 import type { DeckE } from './DeckE'
 import type { CardArt, CardSlot } from './cardArt'
+
+/** How long a turn will wait for "his own cards" before playing without them.
+ *  Matches the dev page's own bound on the same fetch. */
+const DEFAULT_CARDS_MS = 700
 import { BATCH_MAX, MAX_RUN } from './cards'
 import { artForIds, defaultStash } from './cardSource'
 import type { Depth, Side } from './dom'
@@ -350,7 +354,21 @@ async function runTurn(
             // Silent on failure, same as every other card path here: if
             // nothing resolves, card_stash plays with whatever was already
             // loaded rather than rejecting a turn that named nothing wrong.
-            const cards = await getDefaultCards(BATCH_MAX).catch(() => [])
+            //
+            // BOUNDED, because this is the agent's path and a turn is
+            // serialized. `defaultStash` walks up to three rungs — recently
+            // added, then random owned, then the catalog — and on a slow network
+            // that is several serial requests with nothing capping them. Every
+            // later command in the turn waits behind it, and so does the NEXT
+            // turn, because `TURNS` chains them. The dev page bounds its
+            // identical feature at 700 ms and the surface that actually matters
+            // had no bound at all. Losing the race is not an error: the state
+            // still plays, on whatever cards were already loaded, and the fetch
+            // still completes and warms the source's cache for the next ask.
+            const cards = await Promise.race([
+              getDefaultCards(BATCH_MAX).catch(() => [] as CardArt[]),
+              new Promise<CardArt[]>((r) => setTimeout(() => r([]), DEFAULT_CARDS_MS)),
+            ])
             if (cards.length) decke.setStashCards(cards, { autoClose: false })
           }
           decke.setState(cmd.value, {
