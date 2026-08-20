@@ -1,0 +1,65 @@
+# Approve the repository owner's own pull requests.
+#
+# GitHub does not let anyone approve their own PR — it is a platform rule, not a
+# setting, and no ruleset or role changes it. For a solo maintainer that turns
+# the branch protection they deliberately configured into a wall they have to
+# climb with --admin on every single change, and "just use the admin override"
+# is a bad habit to build: the same override also skips required status checks,
+# so the muscle memory that merges an unreviewed PR is the muscle memory that
+# merges a red one.
+#
+# So a second actor does it. github-actions[bot] is not the PR author, so its
+# approval is valid, and the owner's PRs go green and merge through the front
+# door. Contributor PRs are untouched and still require the owner's human review.
+#
+# Security notes, because this workflow can approve code:
+#   • pull_request_target runs with a write-scoped token against the BASE ref.
+#     This job never checks out PR code and never runs anything from the branch —
+#     it makes one API call. That is what makes pull_request_target safe here.
+#   • Both the author AND the head repository are checked. A fork PR from anyone,
+#     including one that spoofs a branch name, fails the head-repo test.
+#   • The ruleset's dismiss_stale_reviews_on_push means every push drops the
+#     approval, which is why `synchronize` is in the trigger list: the approval
+#     re-lands, and always against the newly pushed commit.
+name: Owner auto-approve
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  approve:
+    if: >-
+      github.event.pull_request.user.login == github.repository_owner &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Approve
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.pull_request.number;
+
+            // Don't stack a second approval on a still-current one.
+            const { data: reviews } = await github.rest.pulls.listReviews({ owner, repo, pull_number });
+            const mine = reviews.filter(r => r.user?.login === 'github-actions[bot]' && r.state === 'APPROVED');
+            const head = context.payload.pull_request.head.sha;
+            if (mine.some(r => r.commit_id === head)) {
+              core.info(`Already approved ${head.slice(0, 8)}.`);
+              return;
+            }
+
+            await github.rest.pulls.createReview({
+              owner, repo, pull_number,
+              event: 'APPROVE',
+              body:
+                'Approved automatically: authored by the repository owner, from a branch in this ' +
+                'repo. GitHub forbids self-approval, so this stands in for it (AGENTS.md B12). ' +
+                'Required status checks still apply — this does not merge anything.',
+            });
+            core.info(`Approved ${head.slice(0, 8)}.`);

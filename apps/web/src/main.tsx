@@ -50,6 +50,7 @@ import { validateGlobalSearch, GLOBAL_SEARCH_DEFAULTS } from './routes/globalSea
 import { validateCardSearch } from './routes/setSearch'
 import { validateListSearch } from './routes/listSearch'
 import { validateDeckSearch, DECK_SEARCH_DEFAULTS } from './routes/deckSearch'
+import { DevBackendRibbon } from './components/DevBackendRibbon'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -72,19 +73,25 @@ function RootComponent() {
   //     are readable without an account. AppShell still renders the nav for
   //     these; what it does NOT do is mount an authenticated query while signed
   //     out (see isChromelessPathname vs isCatalogPathname).
-  if (isPublicPathname(pathname)) {
-    return (
-      <AppShell>
-        <Outlet />
-      </AppShell>
-    )
-  }
-  return (
+  const shell = isPublicPathname(pathname) ? (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  ) : (
     <AuthGuard>
       <AppShell>
         <Outlet />
       </AppShell>
     </AuthGuard>
+  )
+  // Outside AuthGuard on purpose: when the dev server is pointed at production
+  // the warning matters most on the signed-out auth screen, which is exactly
+  // where you are about to type real credentials.
+  return (
+    <>
+      <DevBackendRibbon />
+      {shell}
+    </>
   )
 }
 

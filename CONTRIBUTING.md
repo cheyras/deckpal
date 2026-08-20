@@ -9,44 +9,55 @@ contains the engineering contracts every contributor must follow.
 
 ## Getting started
 
-1. **Fork and clone** the repo.
-2. **Install dependencies:**
-   ```bash
-   pnpm install
-   ```
-3. **Set up a local database.** Two options:
+```bash
+git clone https://github.com/cheyras/deckpal && cd deckpal
+pnpm install
+pnpm dev
+```
 
-   **Option A -- Supabase CLI local stack (recommended for cloud-path work):**
-   ```bash
-   supabase init
-   supabase start       # spins up a local Postgres + Auth + Storage
-   ```
-   This gives you a local Supabase with auth and RLS, matching the cloud
-   deployment. The CLI prints the local URL, anon key, and service role key.
+That is the whole setup. No database, no migrations, no `.env`, no image cache.
 
-   **Option B -- Plain Postgres (for self-host work or simpler setup):**
-   You need a running Postgres instance (15+) with a dedicated database and
-   role. See the [DEPLOYMENT.md](DEPLOYMENT.md) self-host section for details.
+`pnpm dev` runs the web app against the **live deckpal.app backend**: the dev
+server proxies `/api` and the image tier to production and points the SPA at the
+real Supabase project, so you sign in with your ordinary deckpal.app account and
+develop against your own real collection, real prices and real card art. It
+learns the (public) Supabase URL and anon key from `GET /api/public-config` at
+startup, which is why there is nothing to configure and why a rotated key needs
+no commit.
 
-4. **Create your `.env`** from `.env.example`:
-   ```bash
-   cp .env.example .env
-   # Edit .env -- fill in your database credentials (and Supabase keys if
-   # using Option A)
-   ```
-5. **Run migrations:**
-   ```bash
-   set -a && . ./.env && set +a
-   pnpm --filter @deckpal/db build
-   pnpm --filter @deckpal/db migrate
-   ```
-   For plain Postgres (self-host), skip Supabase-specific migrations (021+).
-6. **Build and run:**
-   ```bash
-   pnpm --filter deckpal-web build
-   pnpm --filter deckpal-api build
-   node apps/api/dist/index.js
-   ```
+**You are editing a live product.** An amber `LIVE DATA` ribbon sits at the
+bottom of every page naming the backend and the account you are signed in as.
+Anything you change is a real change to that account — so use an account whose
+data you are willing to break. Contributors: make yourself a throwaway account.
+The maintainer has `.qa-account` for exactly this (see `AGENTS.md` B12). The dev
+server blocks `POST /api/bugs` so a UI test cannot file real issues on the
+tracker.
+
+### When you need the full local stack
+
+Change the API, the database schema, or the image tier and the live backend is
+no longer exercising your work — it is running production's copy of it. Then:
+
+```bash
+cp .env.example .env      # fill in your database credentials
+set -a && . ./.env && set +a
+pnpm --filter @deckpal/db build && pnpm --filter @deckpal/db migrate
+pnpm dev --local
+```
+
+`--local` restores the previous behaviour: local API on :3700, local image tier
+on :3701, everything reading your `.env`. Setting `DECKPAL_DEV_API_PORT`
+(worktree lanes) selects local automatically.
+
+For the database itself, either works:
+
+- **Supabase CLI** (matches the cloud path — auth and RLS): `supabase init && supabase start`.
+  The CLI prints the local URL, anon key, and service role key.
+- **Plain Postgres 15+** (simpler; the self-host path): a dedicated database and
+  role. Skip the Supabase-only migrations (021+). See [DEPLOYMENT.md](DEPLOYMENT.md).
+
+Point the dev server at any other deployment — a preview URL, a fork's — with
+`DECKPAL_DEV_ORIGIN=https://...`.
 
 ## Code conventions
 

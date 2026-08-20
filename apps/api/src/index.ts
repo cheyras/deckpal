@@ -260,13 +260,37 @@ export function createApp(): express.Express {
     }),
   );
 
+  // The two values a browser needs before it can talk to Supabase at all.
+  //
+  // Neither is a secret: both are compiled into the SPA bundle this same
+  // deployment serves, so anyone can already read them with View Source. This
+  // endpoint exists so a *development* server can learn them at startup instead
+  // of the repo having to commit them (see AGENTS.md B12). That indirection is
+  // what makes `pnpm dev` work on a fresh clone with no .env, and it means a
+  // rotated anon key reaches every developer on their next `pnpm dev` rather
+  // than needing a commit.
+  //
+  // ⚠️ Only ever add values here that are already public in the client bundle.
+  // The service-role key and the JWT secret are NOT, and must never be.
+  api.get('/public-config', (_req, res) => {
+    catalogCache(res, 300);
+    res.json({
+      // Self-host answers with empty strings and mode 'self-host': it has no
+      // Supabase, so a dev server pointed at it correctly gets nothing and
+      // stays in self-host shape rather than half-configuring itself.
+      supabaseUrl: SUPABASE_MODE ? (process.env.VITE_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? '') : '',
+      supabaseAnonKey: SUPABASE_MODE ? (process.env.VITE_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '') : '',
+      mode: SUPABASE_MODE ? 'cloud' : 'self-host',
+    });
+  });
+
   // A tiny index so hitting the base is not a 404.
   api.get('/', (_req, res) => {
     catalogCache(res, 3600);
     res.json({
       name: 'deckpal-api',
       endpoints: [
-        '/health', '/me', '/series', '/series/:seriesSlug', '/sets/:setId', '/sets/:setId/massentry', '/cards/:cardId', '/search', '/dex', '/dex/:speciesId',
+        '/health', '/public-config', '/me', '/series', '/series/:seriesSlug', '/sets/:setId', '/sets/:setId/massentry', '/cards/:cardId', '/search', '/dex', '/dex/:speciesId',
         'PATCH /collection/variants/:variantId', 'POST /collection/variants/:variantId/increment', 'POST /collection/cards/:cardId/have',
         '/lists', '/lists/:id', 'POST /lists', 'PATCH /lists/:id', 'DELETE /lists/:id', 'POST /lists/:id/items', 'DELETE /lists/:id/items/:itemId',
         '/decks', 'POST /decks', '/decks/:id', 'PATCH /decks/:id', 'DELETE /decks/:id',

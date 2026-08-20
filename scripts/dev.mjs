@@ -1,9 +1,12 @@
 // One-command dev: `pnpm dev` at the repo root.
 //
-// The web app alone is not a working app — it proxies /api to the API server
-// and /deckpal/images to the image tier (see apps/web/vite.config.ts). Before
-// this existed those had to be started by hand in separate terminals, which is
-// how a fresh clone ends up looking like "the backend won't connect".
+// The web app is never a working app on its own — it proxies /api and
+// /deckpal/images to a backend (see apps/web/vite.config.ts). What changed in
+// 2026-08 is WHICH backend it gets by default: the live deployment, rather than
+// a local API that a fresh clone has to stand up a database for first. Starting
+// those services by hand in separate terminals is how a clone used to end up
+// looking like "the backend won't connect"; needing Postgres, migrations and a
+// warmed image cache before you could see a single card was the rest of it.
 //
 // Dependency-free on purpose (no concurrently/npm-run-all): the repo already
 // keeps its tooling footprint deliberately small, and this is 60 lines of
@@ -16,10 +19,30 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const envPath = join(root, '.env');
 
-if (!existsSync(envPath)) {
+// Two modes (AGENTS.md B12):
+//
+//   pnpm dev            → the web app alone, proxied to the LIVE deployment.
+//                         Real accounts, real data, real images. No .env, no
+//                         database, no migrations — a fresh clone just runs.
+//   pnpm dev --local    → the old full stack: local API + local image tier
+//                         against your own Postgres. For API/schema work.
+//
+// A flag rather than an inline environment variable, because
+// `DECKPAL_DEV_BACKEND=local pnpm dev` is not a thing you can type on Windows
+// cmd, and this repo takes fresh-clone friction seriously.
+const wantsLocal =
+  process.argv.includes('--local') ||
+  process.env.DECKPAL_DEV_BACKEND === 'local' ||
+  // A worktree lane running its own API on its own port is, definitionally,
+  // working locally. Silently proxying it to production would mean its API
+  // changes are never exercised (roadmap/ORCHESTRATION.md port table).
+  !!process.env.DECKPAL_DEV_API_PORT;
+
+if (wantsLocal && !existsSync(envPath)) {
   console.error(
-    '\n  No .env at the repo root. Copy .env.example to .env and fill in your\n' +
-      '  database credentials first — every service below needs it.\n',
+    '\n  No .env at the repo root, and --local needs one: it starts a database-\n' +
+      '  backed API. Copy .env.example to .env and fill it in — or just run\n' +
+      '  `pnpm dev`, which needs no setup at all and talks to the live backend.\n',
   );
   process.exit(1);
 }
@@ -35,6 +58,7 @@ if (!existsSync(envPath)) {
 // dev orchestrator must not import from a package that has to be built first.
 function readDotEnv() {
   const out = {};
+  if (!existsSync(envPath)) return out;
   for (const raw of readFileSync(envPath, 'utf-8').split('\n')) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
@@ -51,16 +75,26 @@ function readDotEnv() {
 
 // Real shell variables win, same precedence as packages/db/src/env.ts.
 const childEnv = { ...readDotEnv(), ...process.env };
+if (wantsLocal) childEnv.DECKPAL_DEV_BACKEND = 'local';
 
 // The image shim imports from apps/api/dist, so the API must be built at least
 // once. Checking here turns a confusing runtime ESM error into a clear message.
-const needsBuild = !existsSync(join(root, 'apps/api/dist/images/handler.js'));
+// Irrelevant in live mode — nothing local is started, so nothing needs building.
+const needsBuild = wantsLocal && !existsSync(join(root, 'apps/api/dist/images/handler.js'));
 
-const SERVICES = [
-  { name: 'api  ', color: 36, cmd: 'pnpm', args: ['--filter', 'deckpal-api', 'dev'] },
-  { name: 'web  ', color: 32, cmd: 'pnpm', args: ['--filter', 'deckpal-web', 'dev'] },
-  { name: 'image', color: 35, cmd: 'node', args: ['scripts/dev-images-server.mjs'] },
-];
+const WEB = { name: 'web  ', color: 32, cmd: 'pnpm', args: ['--filter', 'deckpal-web', 'dev'] };
+
+// Live mode runs the web dev server ONLY. The API and image tier it would
+// otherwise start are already running — in production — and the Vite proxy
+// points at them (apps/web/vite.config.ts). This is what removes the setup
+// cliff: no Postgres, no migrations, no image cache, no .env.
+const SERVICES = wantsLocal
+  ? [
+      { name: 'api  ', color: 36, cmd: 'pnpm', args: ['--filter', 'deckpal-api', 'dev'] },
+      WEB,
+      { name: 'image', color: 35, cmd: 'node', args: ['scripts/dev-images-server.mjs'] },
+    ]
+  : [WEB];
 
 const children = [];
 let shuttingDown = false;

@@ -8,17 +8,34 @@ contributors.
 
 ## Setting up a fresh clone
 
-Run **`/setup-clone`** (`.claude/commands/setup-clone.md`). It walks
-prerequisites → env → database reachability → migrations → build → `pnpm dev`,
-and finishes by VERIFYING the stack rather than assuming it: `/api/health`
-returning a pool census, `/api/series` under a second, and the web app actually
-rendering. It also carries a troubleshooting list of the failure modes this
-project has actually produced, with their real causes.
+```bash
+pnpm install && pnpm dev
+```
 
-Short version if you are doing it by hand: `pnpm install`, copy `.env.example`
-to `.env` and fill it, `pnpm migrate`, `pnpm --filter @deckpal/db build &&
-pnpm --filter deckpal-api build`, then `pnpm dev` at the root — never the web
-server on its own, which has no API or image tier behind it.
+That is all of it. `pnpm dev` runs the web app against the **live deckpal.app
+backend** — real accounts, real data, real images — so there is no database, no
+`.env` and no migration step between a clone and a running app. See `AGENTS.md`
+B12 for what that obliges you to do, the short version being: sign in with the
+QA account from `.qa-account`, never the owner's, because your writes are real.
+
+You are working on the live product. Do not describe this repo as "self-host
+mode" — self-host is a tier this product offers other people.
+
+Only when you are changing the API, the schema, or the image tier do you need
+the full local stack, because the live backend runs production's copy of those
+and will not exercise your changes:
+
+```bash
+cp .env.example .env    # fill it in
+pnpm migrate
+pnpm dev --local
+```
+
+Run **`/setup-clone`** (`.claude/commands/setup-clone.md`) for the guided
+version of that local path — it walks prerequisites → env → database
+reachability → migrations → build, and VERIFIES the stack rather than assuming
+it, with a troubleshooting list of the failure modes this project has actually
+produced.
 
 ---
 

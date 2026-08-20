@@ -20,6 +20,25 @@ user must do themselves.
 - Don't start servers with bare `Bash`; use the project's own scripts, and run
   long-lived processes in the background.
 
+## Phase 0 — Do you actually need any of this?
+
+Most of the time, no. The default dev path needs no database, no `.env` and no
+migrations, because it runs against the live deckpal.app backend:
+
+```bash
+pnpm install && pnpm dev
+```
+
+**Stop here and do only that** unless the task changes `apps/api`, `apps/images`,
+`apps/sync`, `apps/mcp`, or `packages/db` — the tiers the live backend would be
+serving production's copy of, and therefore would NOT exercise. Verify by loading
+the dev URL, confirming the amber `LIVE DATA` ribbon names the backend, and
+signing in with the `.qa-account` credentials.
+
+Everything below is the **`pnpm dev --local`** path: your own Postgres, your own
+API, your own image tier. Only work through it if Phase 0 ruled it in. See
+`AGENTS.md` B12.
+
 ## Phase 1 — Prerequisites
 
 - Node >= 20 (`node -v`) and pnpm (`pnpm -v`). If pnpm is missing, tell the user
@@ -73,10 +92,13 @@ fails with a confusing ESM error.
 
 ## Phase 6 — Run and verify
 
-Start everything with **`pnpm dev`** (root) in the background — it runs the API,
-the web app and the image shim together and hands each of them the parsed
-`.env`. Do not start them individually; the web app alone is not a working app,
-it proxies `/api` and `/deckpal/images`.
+Start everything with **`pnpm dev --local`** (root) in the background — it runs
+the API, the web app and the image shim together and hands each of them the
+parsed `.env`. Do not start them individually; the web app is never a working
+app on its own, it proxies `/api` and `/deckpal/images` to whichever backend the
+mode selected. (Plain `pnpm dev` would proxy to production and start none of the
+local services — correct for most work, but not for this path, which exists to
+exercise the local ones.)
 
 Then verify, and report the actual numbers:
 
