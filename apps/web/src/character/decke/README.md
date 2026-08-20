@@ -145,6 +145,33 @@ enforces one instance.
 
 Each of these cost someone a debugging pass, upstream or here.
 
+- **Never read `window.innerWidth`/`innerHeight` in here.** `viewport.ts` is the
+  one answer, set from the canvas's own box in `DeckE.resize`. On an iPhone
+  `innerHeight` is the VISUAL viewport and moves by the toolbar's height —
+  measured on iOS 18, `100lvh` is 760 while `innerHeight`, `100svh`, `100dvh`, a
+  `fixed inset-0` box and `documentElement.clientHeight` are all 678. Sizing the
+  drawing buffer from one of those and stretching it into a box sized by another
+  is what "he becomes more thin" was.
+- **A crossfade has to cover the MODULATION, not just the pose.** The float's
+  phase keeps advancing while its amplitude is zero, so a state that hands over
+  from `float_amp: 0` to `1` makes the hover appear at whatever point of its cycle
+  it silently reached. Every authored channel is continuous across boot -> idle
+  and it still popped: 0.0174 units in one frame against a 0.0012 ceiling.
+- **Pace is `TRAVEL_RATE`, never the cruise speed.** The flight solver integrates
+  until it arrives, so raising `shapeFor`'s cruise looks like the pace knob. Past
+  about 2x, the stopping-distance law overshoots its settle window every frame and
+  the leg runs to the 600-frame guard instead of landing — 3067 ms became
+  20167 ms, measured.
+- **`durationMs` and the sample index share a time base, and it is not frames.**
+  `sampleTrack` must index by progress. `(tMs / 1000) * FPS` is the same thing
+  only at `TRAVEL_RATE = 1`; when they disagree the past-the-end guard fires
+  early and he teleports the rest of the leg, with every duration still correct.
+- **Headless Chromium runs rAF at about 1 Hz**, so his loop is frozen and
+  `await`ing a wall-clock delay measures a still frame. Stop the loop and step it:
+  `d.stop()`, then `d.elapsed += 1/60; d.update(1/60)`. A float measurement taken
+  the other way reported the deal-in flight and could not tell a 42% amplitude cut
+  from no change at all.
+
 - **Drive morph targets by NAME across every mesh.** `DeckBox_Base` exports as
   two primitives split by material, each with its own full copy of all ten
   targets. Drive one and not the other and the shell tears down the mouth.
