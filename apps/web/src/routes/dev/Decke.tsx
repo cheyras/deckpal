@@ -11,7 +11,8 @@
  * main.tsx on the server-verified `owner` flag from GET /me, following the
  * /design precedent — this repo also ships the live product.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
 import { DeckE } from '../../character/decke/DeckE'
 import { BLENDER_BACKDROP_LINEAR } from '../../character/decke/stage'
@@ -21,12 +22,14 @@ import type { CardArt, CardSlot } from '../../character/decke/cardArt'
 import {
   applyDefaultCards,
   artForIds,
+  defaultStash,
   randomCatalog,
   recentlyAdded,
 } from '../../character/decke/cardSource'
 import { api } from '../../lib/api'
 import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
 import type { Beacon } from '../../character/decke/beacon'
+import { DeckeDiag, diagMode } from './DeckeDiag'
 
 /**
  * `?parity=1` reproduces Blender's staging exactly for a frame-by-frame
@@ -127,6 +130,11 @@ export default function Decke() {
   const [slot, setSlot] = useState<CardSlot>('card_r')
   const [slotQuery, setSlotQuery] = useState('')
   const [slotHits, setSlotHits] = useState<CardArt[]>([])
+  /** "His real cards", cached once fetched — so the ACTIONS `card_stash`
+   *  button (which names no cards at all) does not re-fetch on every press,
+   *  and so a press that beat the network the first time benefits from
+   *  whatever a slower press's wait already picked up. */
+  const defaultStashRef = useRef<CardArt[] | null>(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -155,18 +163,65 @@ export default function Decke() {
     // only, and torn down with the controller.
     ;(window as unknown as { __decke?: DeckE }).__decke = decke
 
-    const resize = () => {
-      decke.resize(window.innerWidth, window.innerHeight)
+    // MEASURE THE CANVAS, NOT THE WINDOW.
+    //
+    // `window.innerHeight` is the VISUAL viewport, and on an iPhone it changes
+    // by the height of Safari's toolbars every time they slide away and come
+    // back. The canvas is `fixed inset-0` at `100lvh`, so its box does not — and
+    // three sizes downstream of this used to be keyed to the number that moves:
+    // the drawing buffer (which is then stretched into a box that did NOT move,
+    // so he rendered non-uniformly scaled — "he becomes more thin"), the camera
+    // dolly, and his own target height in pixels. That is the whole of "his
+    // height scales with that going away, and then he readjusts and snaps back
+    // to his proper size".
+    //
+    // A ResizeObserver on the canvas is both the right trigger and the right
+    // value: it fires when the surface actually changes and hands us the size it
+    // actually is, so the buffer and the box cannot disagree. A `resize`
+    // listener is neither — it fires for toolbar chrome that changes nothing
+    // about the canvas, and it tells you about the window rather than about the
+    // thing being drawn into.
+    const measure = () => {
+      const w = Math.round(canvas.clientWidth) || window.innerWidth
+      const h = Math.round(canvas.clientHeight) || window.innerHeight
+      decke.resize(w, h)
       // Scale him to the viewport rather than pinning a fixed pixel height: 300px
       // is right on a laptop and swallows a 390px phone. Parity mode opts out
       // entirely, since it needs Blender's exact staging distance.
       if (!parity) {
-        const h = Math.round(Math.min(300, window.innerHeight * 0.3, window.innerWidth * 0.55))
-        decke.stage.setCharacterHeight(h)
+        decke.stage.setCharacterHeight(Math.round(Math.min(300, h * 0.3, w * 0.55)))
       }
     }
-    resize()
-    window.addEventListener('resize', resize)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(canvas)
+
+    // AND WATCH THE PIXEL RATIO SEPARATELY. Dragging the window from a Retina
+    // display to an external one changes `devicePixelRatio` without changing the
+    // canvas's CSS box by a single pixel, so the observer never fires and
+    // `setPixelRatio` is never called again — he keeps rendering at the old
+    // resolution until something else resizes him. A `resolution` media query is
+    // the only event for it, and it has to be re-armed after each change because
+    // the query names the ratio it was built for.
+    //
+    // UNVERIFIED HERE, deliberately noted: Chromium's `setDeviceMetricsOverride`
+    // changes `devicePixelRatio` and updates `matches` on both an exact
+    // `resolution` query and a `min-resolution` one, but fires no `change` event
+    // for either — and a `device-pixel-content-box` ResizeObserver does not fire
+    // under it either. So the emulator cannot exercise this path at all; it is
+    // the standard recipe, applied on the standard event, and the only way to
+    // confirm it is a real second display.
+    let dprQuery: MediaQueryList | null = null
+    const onDpr = () => {
+      measure()
+      armDpr()
+    }
+    const armDpr = () => {
+      dprQuery?.removeEventListener('change', onDpr)
+      dprQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+      dprQuery.addEventListener('change', onDpr)
+    }
+    armDpr()
 
     ;(async () => {
       try {
@@ -186,7 +241,13 @@ export default function Decke() {
         // awaited and not allowed to fail loudly: this is decoration, and the
         // placeholder art it replaces is perfectly good decoration.
         void applyDefaultCards(decke).then((cards) => {
-          if (cards.length) setCardNote(`loaded ${cards.map((c) => c.name ?? c.id).join(', ')}`)
+          // `c?.name ?? c?.id` rather than trusting the array is exactly
+          // `CardArt[]`: this note is the one place a malformed entry would
+          // otherwise throw during the RENDER it triggers, and a decorative
+          // status line is not worth taking the page down over.
+          if (cards.length) {
+            setCardNote(`loaded ${cards.map((c) => c?.name ?? c?.id ?? 'a card').join(', ')}`)
+          }
         })
         // A handle for the screenshot harness and for driving him from the
         // console. This DOES exist in production — but only inside a route that
@@ -202,7 +263,8 @@ export default function Decke() {
 
     return () => {
       cancelled = true
-      window.removeEventListener('resize', resize)
+      ro.disconnect()
+      dprQuery?.removeEventListener('change', onDpr)
       decke.dispose()
       deckeRef.current = null
       delete (window as unknown as { __decke?: DeckE }).__decke
@@ -290,17 +352,52 @@ export default function Decke() {
     }
   }, [])
 
+  /**
+   * "His real cards", for anything that plays `card_stash` without naming
+   * which — the ACTIONS panel's bare button below. "For some reason, these
+   * are all fake cards... default needs to not be fake cards": the
+   * AI-generated placeholders baked into the glb are the fallback now, never
+   * the picture, here as everywhere else this character shows a card.
+   *
+   * BOUNDED, the same shape as the texture-preload race in `playStash`: a
+   * press must not hang on a slow network. A draw not back within 700ms
+   * plays with nothing THIS press — which lands on the existing placeholder
+   * fallback below — but the draw is not abandoned, and it caches itself for
+   * the next press either way.
+   */
+  const playDefaultStash = useCallback(async () => {
+    let cards = defaultStashRef.current ?? []
+    if (!cards.length) {
+      const draw = defaultStash(Math.max(stashCount, BATCH_MAX)).then((c) => {
+        if (c.length) defaultStashRef.current = c
+        return c
+      })
+      cards = await Promise.race([
+        draw,
+        new Promise<CardArt[]>((r) => setTimeout(() => r([]), 700)),
+      ])
+    }
+    await playStash(
+      cards.length ? cards.slice(0, stashCount) : new Array(stashCount).fill(null),
+      cards.length ? 'his own cards' : 'placeholder art (no cards yet)',
+    )
+  }, [playStash, stashCount])
+
   const findCards = useCallback(
     () =>
       cardAction('search', async () => {
         const res = await api.searchCards(new URLSearchParams({ q: slotQuery, pageSize: '8' }))
+        // OPTIONAL-CHAINED ON PURPOSE, even though `SearchCard.images` is typed
+        // non-nullable: a card missing its images is a card this panel must
+        // still be able to draw a button for (skipped, rather than a
+        // `<button>` whose `<img>` has no src) rather than a reason to take
+        // the page down.
         setSlotHits(
-          res.cards.map((c) => ({
-            id: c.cardId,
-            front: c.images.low,
-            frontLarge: c.images.high,
-            name: c.name,
-          })),
+          res.cards.flatMap((c) => {
+            const front = c.images?.low ?? c.images?.high
+            if (!front) return []
+            return [{ id: c.cardId, front, frontLarge: c.images?.high ?? front, name: c.name }]
+          }),
         )
         setCardNote(`${res.cards.length} result(s) for \u201c${slotQuery}\u201d`)
       }),
@@ -341,14 +438,37 @@ export default function Decke() {
           idea, so the canvas sits ABOVE the content, not behind it. It is
           `pointer-events-none`, so every click passes straight through to the
           controls underneath. */}
+      {/* `100svh`, NOT `h-full`.
+
+          `h-full` on a `fixed inset-0` box resolves to the DYNAMIC viewport, and
+          on an iPhone that is the number that moves: measured on iOS 18 Safari,
+          `100lvh` is 760 and `100svh`, `100dvh`, `innerHeight`, the fixed box
+          and `documentElement.clientHeight` are all 678 — an 82px toolbar, and
+          five of the six metrics ride it. The renderer was sized from one of
+          them and stretched into another, and the two do not update on the same
+          frame, which is the transient "he becomes more thin" before the resize
+          handler catches up and he "snaps back to his proper size".
+
+          `svh` over `lvh` because both are stable and only one keeps him
+          visible: pinned to the large viewport his lower body sits behind the
+          toolbar whenever it is showing (checked on the simulator, and it does).
+          The cost is an 82px strip at the bottom the canvas does not cover once
+          the toolbar hides — he parks 22% up and never goes there, and the
+          canvas is transparent, so nothing about the page changes. On desktop
+          all three units are the same number and this is a no-op. */}
       <canvas
         ref={canvasRef}
-        className="pointer-events-none fixed inset-0 z-30 h-full w-full"
+        className="pointer-events-none fixed inset-0 z-30 h-[100svh] w-full"
       />
 
       {/* Sits UNDER the canvas at z-25, so the second render pass draws him
           inside it. See `DeckeBeacon`. */}
       <DeckeBeacon beacon={beacon} onClick={() => deckeRef.current?.scrollIntoView()} />
+
+      {/* `?diag=1` — the on-page instrument. The scroll-tracking defect only
+          reproduces on a real phone, which has no console a harness can drive,
+          so the measurements have to render themselves. See `DeckeDiag`. */}
+      {diagMode() ? <DeckeDiag deckeRef={deckeRef} /> : null}
 
       <div
         className="relative z-20 mx-auto max-w-[1200px] px-[16px] py-[20px]"
@@ -442,6 +562,14 @@ export default function Decke() {
               </div>
             </Panel>
 
+            {/* CARD DATA CAN SURPRISE THIS PANEL PAIR IN A WAY NOTHING ELSE ON
+                THE ROUTE CAN: everything else here is static UI, and these
+                two render whatever the catalog and the user's own collection
+                hand back. A render throw anywhere below `Decke` normally
+                takes the WHOLE route down to TanStack Router's catch
+                boundary — `CardPanelBoundary` is the local one, so a
+                card-shaped surprise costs this pair, never the page. */}
+            <CardPanelBoundary>
             <Panel title="Cards in a stash">
               <p className="mb-[8px] text-[11px] text-text-muted">
                 The real use is &ldquo;they add a whole bunch of cards to their
@@ -529,7 +657,14 @@ export default function Decke() {
                 </Btn>
                 <Btn
                   onClick={() =>
-                    void playStash(new Array(stashCount).fill(null), 'placeholder art')
+                    // Through `cardAction` like every other card button here:
+                    // `playStash` does its own network I/O (texture preload)
+                    // and an unwrapped `void` on that would turn a failure
+                    // into a silent, unreported promise rejection instead of
+                    // a note the reader can see.
+                    void cardAction('placeholder art', () =>
+                      playStash(new Array(stashCount).fill(null), 'placeholder art'),
+                    )
                   }
                 >
                   placeholder art
@@ -601,12 +736,25 @@ export default function Decke() {
                 <p className="mt-[8px] font-mono text-[11px] text-text-muted">{cardNote}</p>
               ) : null}
             </Panel>
+            </CardPanelBoundary>
 
             {STATE_GROUPS.map((g) => (
               <Panel key={g.label} title={g.label}>
                 <div className="flex flex-wrap gap-[6px]">
                   {g.states.map((s) => (
-                    <Btn key={s} active={current === s} onClick={() => play(s)}>
+                    <Btn
+                      key={s}
+                      active={current === s}
+                      onClick={() =>
+                        // `card_stash` names no cards at all, so left to `play`
+                        // it would show whatever the character already had —
+                        // the model's placeholders, on a fresh load. Every
+                        // other state has no cards to default.
+                        s === 'card_stash'
+                          ? void cardAction('card_stash', playDefaultStash)
+                          : play(s)
+                      }
+                    >
                       {s}
                     </Btn>
                   ))}
@@ -819,6 +967,46 @@ export default function Decke() {
       </div>
     </div>
   )
+}
+
+/**
+ * A local error boundary around the two card-data panels — see the comment
+ * where it is used. React error boundaries can only be classes; there is no
+ * hook equivalent.
+ */
+class CardPanelBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null }
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error: error instanceof Error ? error : new Error(String(error)) }
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error('decke: card panel crashed', error)
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <section className="rounded border border-action-danger-text/50 bg-surface-secondary/90 p-[12px]">
+          <h2 className="mb-[8px] text-[12px] font-semibold uppercase tracking-wide text-action-danger-text">
+            Card panel crashed
+          </h2>
+          <p className="mb-[8px] font-mono text-[11px] text-text-muted">
+            {this.state.error.message}
+          </p>
+          <button
+            type="button"
+            onClick={() => this.setState({ error: null })}
+            className="rounded border border-border-default bg-surface-tertiary px-[8px] py-[4px] font-mono text-[11px] text-text-primary hover:bg-surface-quaternary"
+          >
+            Try again
+          </button>
+        </section>
+      )
+    }
+    return this.props.children
+  }
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {

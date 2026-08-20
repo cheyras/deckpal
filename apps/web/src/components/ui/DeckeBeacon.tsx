@@ -28,7 +28,7 @@
  * which would teach the reader something false about what it is.
  */
 import { useEffect, useRef } from 'react'
-import { BEACON, type Beacon } from '../../character/decke/beacon'
+import { BEACON, beaconRect, type Beacon } from '../../character/decke/beacon'
 
 export type DeckeBeaconProps = {
   /** Null when he is on screen, which is when there is nothing to draw. */
@@ -73,7 +73,18 @@ export function DeckeBeacon({ beacon, onClick, className }: DeckeBeaconProps) {
       }
       style={{
         left: beacon.x,
-        [top ? 'top' : 'bottom']: BEACON.edgeInset,
+        // TOP-ANCHORED, FROM `beaconRect`, NEVER CSS `bottom`.
+        //
+        // `beaconRect` is what the renderer draws the inset at, and its comment
+        // says "one function so the two can never disagree by a pixel" — which
+        // stopped being true the moment the canvas was pinned to `100svh`. A
+        // `fixed` element's `bottom` resolves against the LAYOUT viewport, which
+        // on an iPhone is the large one; the canvas is the small one. With
+        // Safari's toolbar hidden, that is 82px of daylight between the hole in
+        // the chip and the character drawn into it, and no way to close it —
+        // the canvas ends above where the chip is. Top-anchored, both come from
+        // `viewHeight()` and the claim in that comment holds again.
+        top: beaconRect(beacon).y,
         width: s,
         height: s,
         transform: 'translateX(-50%)',

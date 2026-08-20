@@ -19,6 +19,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { createStage, type Stage } from './stage'
 import { CENTRE_OFFSET, makeFraming, solveFraming, type Framing } from './framing'
+import { setViewport, viewHeight, viewWidth } from './viewport'
 import {
   BEACON,
   beaconRect,
@@ -56,6 +57,7 @@ import {
   loadPlaybook,
   type Beat,
   type CompiledState,
+  type Modulation,
   type PlaybookDoc,
   type Pose,
   type StateClip,
@@ -127,6 +129,19 @@ const DEFAULT_BLEND_MS = 320
  *  except `sleep`, whose sustain deliberately closes the mouth the yawn left
  *  open, so this only ever has visible work to do there. */
 const PHASE_BLEND_MS = 420
+
+/**
+ * While travelling the hover bob is DAMPED, not off. He is under power and
+ * steering, so a full-amplitude idle float on top of a flight path reads as an
+ * unstable wobble rather than as hovering — and the blink rate drops because he
+ * is concentrating.
+ *
+ * This does not go through a state change, so it gets its own ramp. `240` is
+ * shorter than a state blend because the flight it belongs to has already begun
+ * moving him: the damping should be in by the time he is up to speed.
+ */
+const TRAVEL_MOD: Modulation = { float_amp: 0.5, float_rate: 1.15, blink_rate: 0.8 }
+const TRAVEL_MOD_MS = 240
 
 /** The reserved name an agent-authored clip is registered under. One slot, so a
  *  second custom clip replaces the first rather than growing the state table for
@@ -312,6 +327,31 @@ export class DeckE {
   private customSustain: SustainSpec | null = null
   private transition: Transition = null
 
+  /**
+   * The float/blink modulation ACTUALLY in effect, which eases rather than
+   * switching.
+   *
+   * THE DEFECT this exists for: "on the boot animation when he's done there's a
+   * hard jump back into idle... like a frame skip, and it happens every time".
+   * It was not a frame skip and it was not in the pose — every authored channel
+   * is continuous across that handoff, and the camera, the anchor and the
+   * framing quaternion are all byte-identical on either side of it. It was
+   * this: `boot` runs at `float_amp: 0` and `idle` at `1`, the crossfade only
+   * ever covered the POSE, and the float's phase keeps advancing while its
+   * amplitude is zero. So on the frame boot ended, the hover appeared at
+   * whatever point of its cycle it had silently reached — measured at 0.0174
+   * units of travel in a single frame against a 0.0012 ceiling for an ordinary
+   * one, a 14x step, and 0.98 radians on `rx`.
+   *
+   * Blending the modulation on the same schedule as the pose costs nothing when
+   * the two states agree, which is most of them, and is the whole fix when they
+   * do not.
+   */
+  private modNow: Modulation = { float_amp: 1, float_rate: 1, blink_rate: 1 }
+  private modFrom: Modulation | null = null
+  private modStart = 0
+  private modMs = 0
+
   /** `talk` is an OVERLAY, never a base state — he has to be able to talk while
    *  happy, while presenting, while thinking. A hub-and-spoke talk state would
    *  force him back to neutral to speak. */
@@ -375,7 +415,15 @@ export class DeckE {
     this.stationDirty = true
   }
   /** How he is turned toward the viewer where he stands. See `framing.ts`. */
+  /** The last size `resize` was given, so a no-op resize can be recognised. */
+  private viewW = 0
+  private viewH = 0
+  /** The document's own `overscroll-behavior-y`, restored on dispose. */
+  private overscrollWas = ''
   private readonly framing: Framing = makeFraming()
+  /** The same solve with the vertical give-back taken back out, for the beacon
+   *  chip's pass. Solved only on the frames the chip is actually drawn. */
+  private readonly framingLevel: Framing = makeFraming()
   private readonly rootThree = new Vector3()
   /** His centre in world space, and the same point projected to the viewport.
    *  Both are wanted every frame by the beacon; neither is worth allocating. */
@@ -507,6 +555,30 @@ export class DeckE {
     // scroll container counts too — the element he is presenting is very often
     // inside one.
     window.addEventListener('scroll', this.onScroll, { passive: true, capture: true })
+
+    // STOP THE PAGE RUBBER-BANDING OUT FROM UNDER HIM.
+    //
+    //   "When I scroll beyond like the limit, that highlight and him don't go
+    //    down with it, for some reason. Let's fix that. I'm not sure why those
+    //    aren't going down with the rest of the page."
+    //
+    // Because they CANNOT, and this is the one complaint in the round that has
+    // no version of "follow it better". Elastic overscroll is done in the
+    // compositor: the content is drawn translated without anything in the
+    // document model moving, and he and the ring both live in `position: fixed`
+    // layers, which the bounce does not touch. Measured, past the top of the
+    // document every scroll metric a follow could read is pinned flat —
+    // `scrollY` 0, `getBoundingClientRect().top` 0, `visualViewport.offsetTop` 0
+    // and `.pageTop` 0 — through the whole gesture. There is no offset to read,
+    // so there is nothing to chase.
+    //
+    // The disagreement is removable even though the bounce is not observable:
+    // don't let the document bounce while he is on it. That is one line, it
+    // needs no per-frame work, and it makes the page and the character agree by
+    // construction rather than by tracking. Restored on dispose, because it is
+    // his constraint and not the app's.
+    this.overscrollWas = document.documentElement.style.overscrollBehaviorY
+    document.documentElement.style.overscrollBehaviorY = 'none'
 
     this.setState('boot', { blendMs: 0, mode: 'once', then: IDLE })
     this.opts.onReady?.()
@@ -763,7 +835,32 @@ export class DeckE {
   }
 
   /** Start a crossfade from wherever the BASE layer currently is. */
+  /**
+   * Start easing the modulation toward whatever the next frame asks for, from
+   * wherever it actually is now.
+   *
+   * Separate from `blendFrom` because the two things that change modulation do
+   * not both go through a state change: a flight damps the hover to 0.5 without
+   * entering anything. Same treatment either way — snapshot the live value, not
+   * the outgoing clip's nominal one, so interrupting a ramp continues from
+   * mid-ramp instead of restarting.
+   */
+  private rampMod(ms: number) {
+    if (ms <= 0) {
+      this.modFrom = null
+      return
+    }
+    this.modFrom = { ...this.modNow }
+    this.modStart = this.elapsed
+    this.modMs = ms
+  }
+
   private blendFrom(ms: number) {
+    // The modulation rides the pose crossfade: a state that snaps its pose
+    // (`confused`, `frustrated`, `embarrassed`, every `alert_`) is meant to
+    // arrive as a cut, and easing its hover in behind the cut would be a
+    // different kind of wrong.
+    this.rampMod(ms)
     if (ms <= 0) {
       this.transition = null
       return
@@ -971,6 +1068,7 @@ export class DeckE {
       ...shape,
     })
     this.trackStart = this.elapsed
+    this.rampMod(TRAVEL_MOD_MS)
     this.anchor.copy(to)
     this.trackDest.copy(to)
     this.trackShift.set(0, 0, 0)
@@ -1040,12 +1138,36 @@ export class DeckE {
       // The beacon's window, drawn into the same canvas over the chip. Second
       // pass, same context — see `Stage.renderInset`.
       if (this.beacon) {
+        // LEVEL, whatever the page is doing.
+        //
+        //   "When he's in this little pointer, as we go down you notice that his
+        //    angle goes down, and I don't want that to happen when he's in here.
+        //    That really only applies to when he's in the DOM... When he's in
+        //    here I'd like it to be as though the camera is just on his level.
+        //    Vertically centred with him."
+        //
+        // The chip only exists when he has left the screen, which is exactly
+        // when the vertical cue has nothing left to say: it is telling you he is
+        // below you, and so is the chip, twice. Re-solving the framing at
+        // `pitchFollow = 0` gives the alignment WITHOUT the give-back — the
+        // staging elevation, seen along whatever the current line of sight
+        // happens to be — so the chip holds the pose the character was authored
+        // in. His azimuth and his 3/4 facing are untouched; only the vertical
+        // angle is.
+        solveFraming(this.stage.camera, this.rootThree, this.framingLevel, 0)
+        this.rig.root.position.copy(this.framingLevel.position)
+        this.rig.root.quaternion.copy(this.framingLevel.quaternion)
         this.stage.renderInset(
           beaconRect(this.beacon),
           this.centreThree,
           this.model,
           this.restExtent,
         )
+        // Back to the on-screen framing. Nothing reads it between here and the
+        // next `applyPose`, but leaving the rig in the chip's pose would put a
+        // frame of it on screen the moment the beacon stops being drawn.
+        this.rig.root.position.copy(this.framing.position)
+        this.rig.root.quaternion.copy(this.framing.quaternion)
       }
     }
     this.raf = requestAnimationFrame(tick)
@@ -1166,9 +1288,9 @@ export class DeckE {
     this.centreThree.copy(this.rootThree)
     this.centreThree.y += CENTRE_OFFSET
     this.screen.copy(this.centreThree).project(cam)
-    const h = window.innerHeight
+    const h = viewHeight()
     const cy = (-this.screen.y * 0.5 + 0.5) * h
-    const cx = (this.screen.x * 0.5 + 0.5) * window.innerWidth
+    const cx = (this.screen.x * 0.5 + 0.5) * viewWidth()
 
     _top.copy(this.centreThree)
     _top.y += CENTRE_OFFSET
@@ -1185,7 +1307,7 @@ export class DeckE {
       behind || above || below
         ? {
             x: Math.min(
-              window.innerWidth - BEACON.size / 2 - BEACON.sideMargin,
+              viewWidth() - BEACON.size / 2 - BEACON.sideMargin,
               Math.max(BEACON.size / 2 + BEACON.sideMargin, cx),
             ),
             edge: below ? 'bottom' : 'top',
@@ -1215,7 +1337,7 @@ export class DeckE {
     this.centreThree.copy(this.rootThree)
     this.centreThree.y += CENTRE_OFFSET
     this.screen.copy(this.centreThree).project(cam)
-    const cy = (-this.screen.y * 0.5 + 0.5) * window.innerHeight
+    const cy = (-this.screen.y * 0.5 + 0.5) * viewHeight()
     // THE SCROLLER MIGHT NOT BE THE DOCUMENT. The scroll listener is
     // capture-phase precisely so that an element inside a nested scroll
     // container still drags him along — so the way back has to find the same
@@ -1329,9 +1451,33 @@ export class DeckE {
     // steering, so a full-amplitude idle float on top of a flight path reads as
     // an unstable wobble rather than as hovering — and the blink rate drops
     // because he is concentrating.
-    const mod = this.track
-      ? { float_amp: 0.5, float_rate: 1.15, blink_rate: 0.8 }
-      : clip.modulation
+    const want = this.track ? TRAVEL_MOD : clip.modulation
+    const mod = this.modNow
+    if (this.modFrom) {
+      const u = ((this.elapsed - this.modStart) * 1000) / this.modMs
+      if (u >= 1) {
+        this.modFrom = null
+        mod.float_amp = want.float_amp
+        mod.float_rate = want.float_rate
+        mod.blink_rate = want.blink_rate
+      } else {
+        // The same easeInOutCubic the pose crossfade uses, for the same reason:
+        // a linear ramp arrives at full speed, so its far end still reads as
+        // the step it was put there to remove.
+        const e = u < 0.5 ? 4 * u * u * u : 1 - (-2 * u + 2) ** 3 / 2
+        const f = this.modFrom
+        mod.float_amp = f.float_amp + (want.float_amp - f.float_amp) * e
+        mod.float_rate = f.float_rate + (want.float_rate - f.float_rate) * e
+        mod.blink_rate = f.blink_rate + (want.blink_rate - f.blink_rate) * e
+      }
+    } else {
+      mod.float_amp = want.float_amp
+      mod.float_rate = want.float_rate
+      mod.blink_rate = want.blink_rate
+    }
+    // Only a state that has ARRIVED at zero hover is holding still; one still
+    // easing down to it is not, and freezing his gaze early would put the two
+    // layers back out of step in the other direction.
     const frozen = mod.float_amp === 0
     this.proc.float.advance(dt, mod.float_rate)
     this.proc.float.evaluate(mod.float_amp, this.floatOut)
@@ -1391,6 +1537,7 @@ export class DeckE {
       this.pose.mouth = Math.max(this.pose.mouth, f.mouth)
       if (tf >= this.track.durationMs) {
         this.track = null
+        this.rampMod(TRAVEL_MOD_MS)
         const arrived = this.onArrive
         this.onArrive = null
         arrived?.()
@@ -1484,7 +1631,18 @@ export class DeckE {
   }
 
   resize(width: number, height: number) {
+    // THE one place the runtime learns how big the screen is. Everything else
+    // asks `viewport.ts`; see the note there for why that matters on a phone.
+    setViewport(width, height)
     this.stage.setSize(width, height)
+    // A resize that did not change anything is not a resize. Safari's toolbars
+    // slide away on a fast scroll and slide back when it stops, and each of
+    // those fires `resize` — so without this the debounce below re-parks him,
+    // which launches a FLIGHT, which is what "he's down lower and then he has to
+    // re-travel up to the element, and that shouldn't be happening" was.
+    if (width === this.viewW && height === this.viewH) return
+    this.viewW = width
+    this.viewH = height
     // A parked presentation is anchored to a DOM RECT, and the rect moved. Chase
     // it, but only once the layout has SETTLED — a TRAILING debounce, restarted
     // by every event, so the move that actually gets chased is the last one.
@@ -1522,6 +1680,7 @@ export class DeckE {
     // walk's to free) and which are its own.
     this.art?.dispose()
     window.removeEventListener('scroll', this.onScroll, { capture: true })
+    document.documentElement.style.overscrollBehaviorY = this.overscrollWas
     // Tear the scene down properly, not just the loop. React 19's StrictMode
     // mounts effects twice in dev, so a partial teardown leaves a SECOND
     // WebGLRenderer bound to the same canvas — both keep drawing, and the

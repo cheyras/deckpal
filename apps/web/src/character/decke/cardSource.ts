@@ -137,6 +137,43 @@ export async function randomCatalog(n: number, signal?: AbortSignal): Promise<Ca
 }
 
 /**
+ * "His real cards" for anything that plays `card_stash` without being told
+ * WHICH cards — the ACTIONS panel's bare `card_stash` button, and a command
+ * turn that says `{op:'state', value:'card_stash'}` with neither `cards` nor
+ * `count`. "For some reason, these are all fake cards... default needs to not
+ * be fake cards" — the AI-generated placeholders baked into the glb are the
+ * fallback now, never the picture.
+ *
+ * THE FALLBACK CHAIN, in order: the cards this user just added (what the
+ * stash flight is FOR), then a random draw from what they own (recently
+ * added covers everyone whose activity log has anything in it; this covers
+ * an account whose collection predates the log), then a random handful of
+ * the catalog (still real Pokemon, just not theirs yet — better than a
+ * fabricated one for a signed-out visitor or a brand new account). Empty
+ * only when every one of those failed, in which case the caller's own
+ * placeholder fallback is exactly right.
+ */
+export async function defaultStash(n: number, signal?: AbortSignal): Promise<CardArt[]> {
+  try {
+    const recent = await recentlyAdded(n, signal)
+    if (recent.length) return recent
+  } catch {
+    // Fall through to the next rung — see FAILURE IS SILENT AND TOTAL above.
+  }
+  try {
+    const owned = await randomOwned(n, signal)
+    if (owned.length) return owned
+  } catch {
+    // Fall through.
+  }
+  try {
+    return await randomCatalog(n, signal)
+  } catch {
+    return []
+  }
+}
+
+/**
  * Fill his four single-card slots with cards this user owns.
  *
  * "By default it can just pick two random cards that the user owns" — for the

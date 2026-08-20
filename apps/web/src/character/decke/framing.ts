@@ -83,6 +83,27 @@ import { BODY_H } from './constants'
  */
 export const PITCH_FOLLOW = 1
 
+/**
+ * How far the vertical cue is allowed to run before it stops growing, as a
+ * multiple of the camera's HALF vertical fov.
+ *
+ * The parallax is a function of where he is on the page, and the page is taller
+ * than the window — so a rule with no ceiling keeps tilting him further the
+ * further he scrolls past the edge, long after there is any screen left for the
+ * cue to mean anything on. Ten degrees across the window became forty with him
+ * three screens down, which is what the review was looking at:
+ *
+ *   "At the top of the viewport it's like he's a little bit above the camera,
+ *    and at the bottom of the window he's a little bit below the camera. AND
+ *    BEYOND THAT, HE DOESN'T NEED TO SHIFT, REALLY."
+ *
+ * Half the vertical fov is the elevation of the frame edge, so his centre can
+ * only reach this limit by leaving the frame: inside the window the clamp is
+ * never active and the shipped cue is untouched, and outside it the angle simply
+ * holds at what it was when he left.
+ */
+const PITCH_LIMIT_FOVS = 0.5
+
 /** His centre, up the body axis from the rig origin at his feet. Everything here
  *  is measured to the centre, because that is what the eye reads as "him" — and
  *  because rotating about his feet would swing his head across the screen. */
@@ -190,7 +211,15 @@ export function solveFraming(
   // DIFFERENCE from the staging ray is exactly what the alignment removed.
   const e = Math.asin(Math.max(-1, Math.min(1, _w.dot(_camUp))))
   const e0 = Math.asin(Math.max(-1, Math.min(1, _w0.dot(_camUp))))
-  _qPitch.setFromAxisAngle(_r, -(e - e0) * pitchFollow)
+  // CLAMP `e`, NOT `e - e0`. They differ by the staging ray's own elevation —
+  // the Blender camera is aimed a little below his centre — so limiting the
+  // DIFFERENCE starts cutting the cue while he is still comfortably on screen,
+  // which is a change to the shipped framing rather than a bound on it. `e` is
+  // measured against the camera's own optical axis, so `|e| = fov/2` is exactly
+  // the frame edge and nothing inside the window is touched.
+  const limit = ((camera.fov * Math.PI) / 180) * PITCH_LIMIT_FOVS
+  const eClamped = Math.max(-limit, Math.min(limit, e))
+  _qPitch.setFromAxisAngle(_r, -(eClamped - e0) * pitchFollow)
   out.quaternion.copy(_qPitch).multiply(_qAlign)
 
   // Rotate about his CENTRE, not his feet: the rig origin is at his base, and a

@@ -61,8 +61,60 @@ import type {
  * across the whole card as a haze. Tightening the lobe is what turns the same
  * tint into a BAND that travels as the card turns, which is what foil looks
  * like. Compared side by side on the five stash cards in open air.
+ *
+ * TONE MAPPING IS A THIRD DEFECT, and it is not this file's fault but it is
+ * this file's fix. The stage runs a Blender-matched AgX curve (`stage.ts`)
+ * because the CHARACTER is calibrated against Blender's own AgX render, and
+ * that calibration must not move. But AgX desaturates hard BY DESIGN — that is
+ * the whole filmic look — and a 3x3 sRGB patch chart measured through it comes
+ * back at a mean ΔE76 of 38.4 against the source art, with saturated primaries
+ * losing 25-65 points of HSV saturation and bleeding 90-140/255 into their
+ * "off" channels (pure red measured 223,104,90). Isolating the stage's other
+ * knobs one at a time — `environmentIntensity = 0`, this card's own emissive
+ * zeroed — moved that number by under 2%. Only removing tone mapping did:
+ * `toneMapped = false` on the CARD FRONTS ALONE (never on the character —
+ * that is the parity-critical part) drops the mean ΔE76 to 5.6 and the mean
+ * saturation loss to 0.04, with the rest of him untouched.
+ *
+ * Skipping the curve also skips its highlight ROLLOFF, so a lit card that used
+ * to compress gracefully toward white now clips there instead — measured at
+ * 4.6% of the card's pixels blown to a flat 255 on at least one channel at the
+ * old 0.25 emissive strength. Nothing else moves that number: environment
+ * intensity swept 1.0 -> 0.4 changed it not at all, because the emissive term
+ * is ADDITIVE and uncapped once the curve that used to absorb it is gone. Only
+ * the emissive strength itself does, and 0.06 — not 0.25 — is what buys the
+ * clip rate down to 0.44% (the residual is a sliver of the reddest patch
+ * catching the key light dead-on, not a flaw a card ever presents edge-on) while
+ * still holding the ΔE76 win at 8.8, and the "washed to a blank slab" failure
+ * this constant was raised to fix, above, does not reopen at a lower value —
+ * that bug was the emissive drowning the map at intensity 1.0 on top of
+ * the OLD desaturating curve; with the curve gone the base albedo alone already
+ * carries the artwork, so the emissive is doing much less work than it was.
  */
-const CARD_EMISSION_STRENGTH = 0.25
+const CARD_EMISSION_STRENGTH = 0.06
+/**
+ * Despite the name, this is not a "holo pull" branch — every `Card_Front_*`
+ * this fixup touches gets it, because the glb carries no rarity or foil signal
+ * to branch on (checked live: all nine bound front materials, across every
+ * slot and every stash clone, come back with identical `emissive [1,1,1]`, so
+ * all nine take this same path). `CardArt` (this character's per-card input,
+ * see `cardArt.ts`) has no foil field either — that lives on the 2D catalog's
+ * `rarity`/variant data (`lib/format.ts`, `variantStyle.ts`), which nothing
+ * here reads. So "foil" names what this treatment IS (thin-film + a laminate
+ * clearcoat), not a subset of cards it is reserved for. A real foil/plain split
+ * would be a `CardArt` change (out of scope here — see the file header), not a
+ * materials.ts one, and until that exists these constants are the one look
+ * every card gets.
+ *
+ * clearcoat's contribution against these RectAreaLights is real but small at
+ * this magnitude — measured by pushing it to an extreme (1.0 / 0.02) against a
+ * matched clearcoat-0 render: a genuine, angle-dependent 15-24/255 luminance
+ * lift on a dark patch over roughly a 40deg turn, not the 80-100/255 swing a
+ * separate base-layer event produces elsewhere in the same sweep. At 0.35 that
+ * scales down further and reads as a gentle brightening rather than a
+ * travelling glint. Left as-authored rather than tuned down for a "plain card"
+ * bucket that does not exist yet.
+ */
 const CARD_FOIL = {
   iridescence: 0.9,
   /** Above the 1.5 of the card stock, so the film reads as a coating ON it. */
@@ -104,6 +156,13 @@ export function fixupMaterials(root: Object3D): { cardsFixed: number } {
 
       std.emissiveMap = std.map
       std.emissiveIntensity = CARD_EMISSION_STRENGTH
+
+      // Skip the stage's AgX curve for the CARD FRONTS ONLY — see the header
+      // comment above `CARD_EMISSION_STRENGTH` for the measurement. The
+      // character himself keeps it (nothing outside this `if` block is
+      // touched), because the stage's whole calibration is against Blender's
+      // AgX render and that parity must not move.
+      std.toneMapped = false
 
       // `KHR_materials_specular` is on every card front, so the loader has
       // already given them a MeshPhysicalMaterial and the thin-film uniforms

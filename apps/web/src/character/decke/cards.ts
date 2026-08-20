@@ -338,14 +338,28 @@ function popCurveFrom(keys: Key[]): Curve {
  * set never reads as a rigid constellation. Same reasoning as the idle float's
  * irrational frequency ratios, one dimension down.
  */
+/**
+ * THE AMPLITUDES ARE 42% OF WHAT THEY FIRST SHIPPED AS, and the review that
+ * asked for it was unusually specific about the size of the cut:
+ *
+ *   "The card animation, like they're floating — there's too much movement.
+ *    They need to move a lot less. It's just a little bit too much. Like, well,
+ *    actually a LOT too much. Tone it down by like half of the amount of travel,
+ *    or maybe even a little more than half of the amount less."
+ *
+ * `hz` is deliberately NOT touched. Travel was the complaint, and cutting the
+ * amplitude alone already cuts the SPEED by the same factor — velocity here is
+ * amplitude times frequency — so slowing the sine as well would have taken the
+ * motion out twice and left the fan looking frozen rather than calm.
+ */
 const STASH_FLOAT = {
   hz: 0.27,
-  /** Blender units, vertical. About a tenth of a card height. */
-  amp: 0.17,
+  /** Blender units, vertical. About a twenty-fifth of a card height. */
+  amp: 0.07,
   /** Sideways drift, deliberately smaller so the set stays legible. */
-  ampX: 0.07,
+  ampX: 0.03,
   /** Radians of lazy tumble. */
-  ampRot: 0.09,
+  ampRot: 0.038,
   /** The golden angle, in radians. */
   phaseStep: 2.39996,
   /** How long the float takes to reach full amplitude once a card settles, so
