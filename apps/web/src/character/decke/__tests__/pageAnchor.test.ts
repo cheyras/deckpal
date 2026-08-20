@@ -364,3 +364,63 @@ test('a stale scroll offset barely moves him, where it used to move him fully', 
     )
   }
 })
+
+test('a canvas slid off the viewport still parks him where tracking would', () => {
+  // THE ENTRY FIX, as arithmetic. The canvas is one viewport tall and clips what
+  // it does not cover, so pinning it aligned with the viewport means refusing to
+  // pin until his whole silhouette is inside — and his entire entrance, a body
+  // height of scrolling at each edge, then runs on the hand-tracked path. That
+  // was the reviewed defect: "there is still judder specifically when the
+  // character is entering the visible viewport, both coming into the top and
+  // coming into the bottom."
+  //
+  // So the canvas is pinned at a document offset that is NOT the current scroll
+  // position, sliding it off the edge far enough to contain him. Everything
+  // downstream already carries it: the canvas's own top lands at `shift`, the
+  // element's box is cached in canvas coordinates, and the drift starts at
+  // `-shift` instead of 0. What has to hold is that this still puts him exactly
+  // where the un-pinned path would, for any shift.
+  const cam = stagingCamera()
+  const opts = { depth: 'foreground' as const, side: 'auto' as const, baseDistance: cam.position.length() }
+  const viewportRect: RectLike = { left: 120, top: 300, right: 500, width: 380, height: 90 }
+
+  for (const shift of [0, -240, 240, -60, 380]) {
+    cam.clearViewOffset()
+    const tracked = parkBeside(cam, viewportRect, opts).position.clone()
+
+    // What `repin` stores and applies: the box in canvas coordinates, and a
+    // drift of `-shift` rather than zero.
+    const canvasRect: RectLike = { ...viewportRect, top: viewportRect.top - shift }
+    const drift = -shift
+    cam.setViewOffset(VIEW_W, VIEW_H, 0, -drift, VIEW_W, VIEW_H)
+    const pinned = parkBeside(cam, canvasRect, opts).position.clone()
+    cam.clearViewOffset()
+
+    assert.ok(
+      pinned.distanceTo(tracked) < 1e-6,
+      `shift ${shift}: pinned ${pinned.toArray()} vs tracked ${tracked.toArray()}`,
+    )
+  }
+})
+
+test('the pin window always contains him, and prefers to stay aligned', () => {
+  // `canPin`'s choice of shift, as a property. It has to keep his whole
+  // silhouette inside the canvas — that is what stops him being clipped by an
+  // edge nobody can see — and it has to choose 0 whenever 0 works, because a
+  // canvas aligned with the viewport is the case with nothing to go wrong.
+  const H = 820
+  const M = 32
+  const chooseShift = (screenY: number, half: number) => {
+    const lowest = screenY + half + M - H
+    const highest = screenY - half - M
+    return Math.max(lowest, Math.min(0, highest))
+  }
+  const half = 110
+  for (let screenY = -half; screenY <= H + half; screenY += 7) {
+    const shift = chooseShift(screenY, half)
+    assert.ok(screenY - half >= shift + M - 1e-9, `top clipped at screenY ${screenY}`)
+    assert.ok(screenY + half <= shift + H - M + 1e-9, `bottom clipped at screenY ${screenY}`)
+    // Aligned whenever aligned is legal.
+    if (screenY - half >= M && screenY + half <= H - M) assert.equal(shift, 0)
+  }
+})

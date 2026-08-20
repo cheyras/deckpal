@@ -157,16 +157,20 @@ export const CUSTOM_STATE = 'custom'
 const RE_PARK_SETTLE_MS = 250
 
 /**
- * How far inside the viewport his silhouette has to sit before the overlays are
- * handed to the compositor. See `pageAnchor.ts` for what that buys.
+ * How far inside the CANVAS his silhouette has to sit before the overlays are
+ * handed to the compositor — not how far inside the viewport, which is the
+ * distinction that removed the judder on his way onto the screen. The canvas can
+ * be slid off the viewport to accommodate him; see `canPin`.
  *
- * The way back out is a different and much later condition — he has to have left
- * the viewport ENTIRELY, because that is the moment the beacon chip has to be
- * drawn and the chip is drawn into the canvas at viewport coordinates. So the
- * two thresholds are separated by most of a screen and cannot chatter at the
- * boundary, which is the failure a single threshold would have.
+ * It is a margin rather than a strict containment because the canvas draws more
+ * than his silhouette: the stash cards float outboard of him, and a card clipped
+ * by an invisible edge is the same defect as a clipped elbow.
+ *
+ * The way back out is a different condition — he has to have left the viewport
+ * ENTIRELY, because that is the moment the beacon chip has to be drawn and the
+ * chip is drawn into the canvas at viewport coordinates.
  */
-const PIN_MARGIN_PX = 24
+const PIN_MARGIN_PX = 32
 
 /**
  * The BACKSTOP interval for re-reading a pinned element, behind the
@@ -476,6 +480,11 @@ export class DeckE {
   /** The element a pinned park is anchored to, resolved once by `canPin` so the
    *  pin itself does not query the document a second time. */
   private pinEl: Element | null = null
+  /** Where the canvas's top edge sits in the viewport while pinned, in CSS
+   *  pixels — 0 when the canvas and the viewport are aligned, and non-zero when
+   *  the canvas has been slid off the viewport to keep him inside it. See
+   *  `canPin`. */
+  private pinShift = 0
   /** The pinned element's box in CANVAS coordinates — which is to say its
    *  viewport box at the moment of pinning, because that is the moment the two
    *  spaces coincide. Constant for the life of the pin: the element and the
@@ -996,6 +1005,17 @@ export class DeckE {
    * whole point is that he presents the thing rather than obscuring it.
    */
   flyTo(target: FlyTarget, opts: FlyOptions = {}) {
+    // BEFORE THE SOLVE, and this is not tidiness. While he is pinned the camera
+    // carries an off-axis frustum worth the distance scrolled since he parked,
+    // and `parkBeside` unprojects through whatever frustum it is handed — so
+    // solving first aims the flight at a spot exactly `drift` pixels wrong.
+    // `launch` unpins too, but it runs after the destination has been computed,
+    // which is what made this look like: "sometimes when I change where he is on
+    // the screen, he will go to the wrong place, and then as soon as I scroll a
+    // little bit he snaps to the right place." The snap was the next scroll
+    // re-solving him correctly. It only happened after scrolling first, because
+    // an unscrolled pin has a zero offset and hides the bug.
+    this.unpin()
     const depth = opts.depth ?? 'foreground'
     const side = opts.side ?? 'auto'
     const rect = resolveRect(target)
@@ -1079,6 +1099,10 @@ export class DeckE {
   }
 
   returnHome() {
+    // Same trap as `flyTo`: `homeCorner` unprojects through the camera, and it
+    // is evaluated as an ARGUMENT to `launch` — so the pin's frustum offset is
+    // still in place when it runs, however early `launch` unpins.
+    this.unpin()
     this.station = { kind: 'home' }
     this.onArrive = null
     clearHighlight()
@@ -1171,14 +1195,15 @@ export class DeckE {
     if (this.pinnedAt !== null || !this.canPin() || !this.pinEl) return
     const rect = this.pinEl.getBoundingClientRect()
     const y = window.scrollY
-    this.pinnedAt = y
-    this.driftPx = 0
+    const shift = this.pinShift
+    this.pinnedAt = y + shift
     this.pinnedBox.x = rect.left + window.scrollX
     this.pinnedBox.y = rect.top + y
     this.pinnedBox.w = rect.width
     this.pinnedBox.h = rect.height
+    // In CANVAS coordinates, which are the viewport's slid by `shift`.
     this.pinnedRect.left = rect.left
-    this.pinnedRect.top = rect.top
+    this.pinnedRect.top = rect.top - shift
     this.pinnedRect.right = rect.right
     this.pinnedRect.width = rect.width
     this.pinnedRect.height = rect.height
@@ -1194,10 +1219,40 @@ export class DeckE {
       this.pinWatch.observe(this.pinEl)
       this.pinWatch.observe(document.documentElement)
     }
-    // `y` and not some other offset: pinning at the CURRENT scroll position is
-    // what makes the switch invisible. See `pinToPage`.
-    pinToPage(this.opts.canvas, y)
-    setHighlightAnchor(y)
+    pinToPage(this.opts.canvas, this.pinnedAt)
+    setHighlightAnchor(this.pinnedAt)
+    // The canvas has just moved by `shift`, so the frustum has to move with it
+    // in the same frame or the switch is a jump. A pin aligned with the viewport
+    // is the `shift === 0` case of the same line, not a separate path.
+    this.applyDrift(-shift)
+  }
+
+  /**
+   * Put the frustum where the reader's screen is, and re-solve him for it.
+   *
+   * Shared by the pin itself and by every frame that scrolls afterwards, because
+   * they are the same operation: the canvas is somewhere other than the viewport
+   * by `drift` pixels, and the camera has to say so.
+   */
+  private applyDrift(drift: number) {
+    this.driftPx = drift
+    const vw = viewWidth()
+    const vh = viewHeight()
+    this.stage.camera.setViewOffset(vw, vh, 0, -drift, vw, vh)
+    // AFTER the offset, and that ordering is the whole correctness argument.
+    // `viewportToBlender` inverts through the camera's CURRENT projection, so
+    // solving first would place him for the old frustum and the new one would
+    // then shift him again — a double compensation that reads as him sliding
+    // off the element by exactly the distance scrolled. Measured at 390x780
+    // before this was reordered: track error -40 px at 120 px of scroll, -120
+    // at 240, which is one frame's drift every time.
+    const park = this.solveStation(this.pinnedRect)
+    if (park) {
+      this.anchor.copy(park.position)
+      if (park.facing !== undefined && park.facing !== this.facingTarget) {
+        this.setFacing(park.facing)
+      }
+    }
   }
 
   /**
@@ -1224,13 +1279,32 @@ export class DeckE {
     // constant. The character's scroll listener is capture-phase precisely so
     // these still drag him along; they keep the hand-tracked path.
     if (!el || scrollableAncestor(el)) return false
+    // THE CANVAS HAS TO CONTAIN HIM. It does not have to line up with the
+    // viewport, and assuming it did is what made him judder on the way in.
+    //
+    // The canvas is one viewport tall and draws nothing outside itself, so a
+    // character half over the top edge is half clipped. The first version
+    // therefore refused to pin until his whole silhouette was comfortably inside
+    // the VIEWPORT — which meant his entire entrance, a full body height of
+    // scrolling at each end, ran on the hand-tracked path. Reviewed as: "there
+    // is still judder specifically when the character is entering the visible
+    // viewport, both coming into the top and coming into the bottom."
+    //
+    // But the canvas is only pinned to a document offset, and nothing says that
+    // offset has to be the current scroll position. Slide it off the viewport by
+    // `pinShift` and it still covers him while he is half on screen; the part
+    // hanging past the edge simply is not seen. The frustum offset that already
+    // carries the drift carries this too, so it costs no new machinery — see
+    // `syncPinned`.
     const h = viewHeight()
-    if (
-      this.screenY - this.screenHalf <= PIN_MARGIN_PX ||
-      this.screenY + this.screenHalf >= h - PIN_MARGIN_PX
-    ) {
-      return false
-    }
+    // Unless he cannot fit in one at all, which a huge character in a short
+    // window would be.
+    if (this.screenHalf * 2 + PIN_MARGIN_PX * 2 > h) return false
+    // The window of canvas positions that keep his whole silhouette inside, and
+    // aligned with the viewport whenever that is one of them.
+    const lowest = this.screenY + this.screenHalf + PIN_MARGIN_PX - h
+    const highest = this.screenY - this.screenHalf - PIN_MARGIN_PX
+    this.pinShift = Math.max(lowest, Math.min(0, highest))
     this.pinEl = el
     return true
   }
@@ -1292,44 +1366,11 @@ export class DeckE {
    */
   private syncPinned() {
     const drift = window.scrollY - (this.pinnedAt ?? 0)
-    if (drift !== this.driftPx) {
-      this.driftPx = drift
-      // MOVE THE CAMERA, NOT HIM. The element's position INSIDE the pinned
-      // canvas is a constant — both are pinned to the same page — so `pinnedRect`
-      // never changes and neither does where he has to be drawn. What changes is
-      // where the reader's screen is, and an off-axis frustum is how that is
-      // said: shifting the frustum by the drift puts the camera's optical centre
-      // back at the middle of the VIEWPORT rather than the middle of the canvas.
-      // He is then seen from the angle his position on the reader's screen
-      // deserves, while being drawn exactly where the element is.
-      //
-      // THE SIGN IS MEASURED, NOT DERIVED, and the check is worth keeping
-      // because the position of him on screen does not depend on it — an
-      // inverted offset still draws him exactly on his element, because the
-      // solve below inverts through whatever frustum it is handed. What inverts
-      // with it is the LIGHTING AND THE FORESHORTENING: at 430 px of scroll the
-      // wrong sign put his world height at -6.09 where tracking gives 1.92, the
-      // same distance the other way, so he was lit from below while climbing the
-      // screen. The test is `rootY` against the un-pinned path, and it agrees to
-      // three decimals.
-      const vw = viewWidth()
-      const vh = viewHeight()
-      this.stage.camera.setViewOffset(vw, vh, 0, -drift, vw, vh)
-      // AFTER the offset, and that ordering is the whole correctness argument.
-      // `viewportToBlender` inverts through the camera's CURRENT projection, so
-      // solving first would place him for the old frustum and the new one would
-      // then shift him again — a double compensation that reads as him sliding
-      // off the element by exactly the distance scrolled. Measured at 390x780
-      // before this was reordered: track error -40 px at 120 px of scroll, -120
-      // at 240, which is one frame's drift every time.
-      const park = this.solveStation(this.pinnedRect)
-      if (park) {
-        this.anchor.copy(park.position)
-        if (park.facing !== undefined && park.facing !== this.facingTarget) {
-          this.setFacing(park.facing)
-        }
-      }
-    }
+    // MOVE THE CAMERA, NOT HIM. The element's position INSIDE the pinned canvas
+    // is a constant — both are pinned to the same page — so `pinnedRect` never
+    // changes and neither does where he has to be drawn. What changes is where
+    // the reader's screen is, and an off-axis frustum is how that is said.
+    if (drift !== this.driftPx) this.applyDrift(drift)
     // The observer is the trigger and the interval is the backstop, so the
     // common reflow is corrected on the next frame rather than on the next tick.
     const due = this.pinStale || (this.elapsed - this.pinCheckAt) * 1000 >= PIN_RECHECK_MS
@@ -2006,6 +2047,12 @@ export class DeckE {
     this.rePark = setTimeout(() => {
       this.rePark = null
       if (this.disposed) return
+      // AGAIN before the solve. `resize` unpinned him a moment ago, but this is
+      // a trailing debounce and `repin` runs every frame — so by the time it
+      // fires he has usually pinned again, and `solveStation` would unproject
+      // through the pin's frustum. Same trap as `flyTo`, reached down a path
+      // that already looked like it had handled it.
+      this.unpin()
       const park = this.solveStation()
       if (!park) return
       // HOME SNAPS, AN ELEMENT IS FLOWN TO. Home is a parking spot in the
