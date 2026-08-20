@@ -38,7 +38,34 @@ const SMOOTH_TAPS = 5
 const OVERSHOOT_FRAC = 0.035
 const OVERSHOOT_MAX = 0.075
 const SCREEN_MIX = 0.14
-const FPS = 30
+export const FPS = 30
+
+/**
+ * How much faster than the solved profile a leg is actually PLAYED.
+ *
+ * The solver has no duration input — it integrates until it arrives — so the
+ * shipped pace was whatever the controller constants happened to produce, and
+ * what they produced was slow: a measured foreground leg 2733 ms, a background
+ * leg 3067, the trip home 4200.
+ *
+ *   "We need to make the travel a lot quicker from foreground to background.
+ *    Right now it takes way too long. I would make it take like LESS THAN HALF
+ *    of the time that it currently takes for him to get from foreground to
+ *    background and vice versa. Just more snappy."
+ *
+ * Scaling the finished track is the safe half of that. The obvious knob is the
+ * cruise speed in `shapeFor`, and it does not work: the controller's
+ * stopping-distance law assumes a continuous velocity, so past about 2x the
+ * discrete step overshoots the settle window every frame and the leg runs to the
+ * 600-frame cap instead of arriving — 20167 ms, measured. Playing the SOLVED
+ * track faster scales every velocity uniformly, keeps the accel:decel asymmetry,
+ * the arc, the bow and the overshoot exactly as reviewed, and has no feedback
+ * left in it to destabilise.
+ *
+ * 2.2 puts a background leg at 1394 ms — 45% of what it was, inside the "less
+ * than half" that was asked for, with the trip home the longest at 1909.
+ */
+export const TRAVEL_RATE = 2.2
 
 // --- orientation constants -------------------------------------------------
 const LEAD_ACC = 26.0 // degrees. Lean follows ACCELERATION, not speed:
@@ -260,7 +287,7 @@ export function solveFlight(a: Vector3, b: Vector3, opts: SolveOptions): FlightT
 
   const arcs = simulate(pathLen, cruise)
   const nf = arcs.length - 1
-  const durationMs = (nf * 1000) / FPS
+  const durationMs = (nf * 1000) / (FPS * TRAVEL_RATE)
 
   // Position at a given arc length, extrapolating along the end tangent outside
   // the path so anticipation and overshoot have somewhere to go.
@@ -438,7 +465,16 @@ export function sampleTrack(track: FlightTrack, tMs: number, out: FlightSample):
   if (tMs >= track.durationMs) {
     return Object.assign(out, s[s.length - 1], { pos: out.pos.copy(s[s.length - 1].pos) })
   }
-  const f = (tMs / 1000) * FPS
+  // INDEX BY PROGRESS THROUGH THE TRACK, not by wall-clock frames.
+  //
+  // `(tMs / 1000) * FPS` is the same thing only while the track is played at the
+  // rate it was solved at, and it stopped being true the moment `TRAVEL_RATE`
+  // existed: `durationMs` shrank, the indexing did not, and the guard above then
+  // fired at 45% of the way along the path. Measured on a full-width leg — at 99%
+  // of the playback he was 0.47 of the way to the destination, and arrived by
+  // teleporting on the last frame. Identical arithmetic at `TRAVEL_RATE = 1`, and
+  // correct at any other.
+  const f = (tMs / track.durationMs) * (s.length - 1)
   const i = Math.min(s.length - 2, Math.floor(f))
   const u = f - i
   const a = s[i]

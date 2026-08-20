@@ -272,3 +272,65 @@ test('the environment turns with him, by the law the facing pair already sets', 
   // environment the other way twice.
   assert.ok(envRotation(-1, 0.3) < envRotation(1, 0))
 })
+
+test('the vertical cue stops growing once he has left the frame', () => {
+  // "At the top of the viewport it's like he's a little bit above the camera,
+  //  and at the bottom of the window he's a little bit below the camera. AND
+  //  BEYOND THAT, HE DOESN'T NEED TO SHIFT, REALLY."
+  //
+  // The page is taller than the window, so an unbounded rule keeps tilting him
+  // further the further he scrolls past the edge — reviewed from the top of a
+  // long page as "we're like looking at him almost completely from the top down
+  // here". The limit is half the vertical fov, which IS the frame edge, so the
+  // property has two halves and both matter: it must bite outside the window,
+  // and it must not be detectable inside it.
+  const pitch = (y: number) =>
+    apparentPitch(new Vector3(0, 1, 0).applyQuaternion(at(0, y, 0).quaternion), centre(0, y, 0))
+
+  // Far outside the frame, top and bottom, the cue is FLAT — going further
+  // changes nothing.
+  assert.ok(Math.abs(pitch(9) - pitch(14)) < 1e-6, `still moving above the frame`)
+  assert.ok(Math.abs(pitch(-9) - pitch(-14)) < 1e-6, `still moving below the frame`)
+
+  // And it is a clamp, not a cap on the whole cue: the two ends are still a long
+  // way apart, and the middle still moves monotonically between them.
+  assert.ok(pitch(9) - pitch(-9) > 25, `the cue collapsed: ${(pitch(9) - pitch(-9)).toFixed(1)} deg`)
+  let prev = -Infinity
+  for (let y = -3; y <= 3; y += 0.5) {
+    const v = pitch(y)
+    assert.ok(v > prev, `not monotonic through the window at y=${y}`)
+    prev = v
+  }
+})
+
+test('at pitchFollow 0 he is seen from the same angle wherever he is', () => {
+  // What the BEACON CHIP renders with. "When he's in this little pointer, as we
+  // go down you notice that his angle goes down and I don't want that to happen
+  // when he's in here... I'd like it to be as though the camera is just on his
+  // level. Vertically centred with him."
+  //
+  // The chip only exists when he is off screen, which is exactly when the
+  // vertical cue has nothing left to say. Solving at zero give-back leaves the
+  // alignment alone, and the alignment's whole job is to make his relationship
+  // to the LINE OF SIGHT the same everywhere — so this angle must not move at
+  // all, over a sweep far larger than any viewport.
+  const level = makeFraming()
+  const seenFrom = (y: number) => {
+    solveFraming(cam, new Vector3(0, y, 0), level, 0)
+    return apparentPitch(new Vector3(0, 1, 0).applyQuaternion(level.quaternion), centre(0, y, 0))
+  }
+  const ref = seenFrom(0)
+  for (const y of [-14, -9, -5, -2.5, 0, 2.5, 5, 9, 14]) {
+    assert.ok(
+      Math.abs(seenFrom(y) - ref) < 1e-6,
+      `the chip tilts by ${(seenFrom(y) - ref).toFixed(3)} deg at y=${y}`,
+    )
+  }
+  // And it is not the same as the main view, or the chip would not be fixing
+  // anything: at the same place, with the cue on, he is seen from elsewhere.
+  const withCue = apparentPitch(
+    new Vector3(0, 1, 0).applyQuaternion(at(0, 5, 0).quaternion),
+    centre(0, 5, 0),
+  )
+  assert.ok(Math.abs(withCue - ref) > 5, `the cue and the chip agree — is the cue wired up?`)
+})

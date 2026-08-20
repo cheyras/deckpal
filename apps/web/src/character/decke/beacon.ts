@@ -30,6 +30,8 @@
  * 44 px, so the chip is 52 and the character fills a little over half of it.
  */
 
+import { viewHeight } from './viewport'
+
 export const BEACON = {
   /** The chip's diameter, in CSS pixels. The app's round icon buttons are 44. */
   size: 52,
@@ -80,7 +82,7 @@ export function beaconRect(b: Beacon): { x: number; y: number; w: number; h: num
   return {
     x: Math.round(b.x - s / 2),
     y: Math.round(
-      b.edge === 'top' ? BEACON.edgeInset : window.innerHeight - BEACON.edgeInset - s,
+      b.edge === 'top' ? BEACON.edgeInset : viewHeight() - BEACON.edgeInset - s,
     ),
     w: s,
     h: s,
@@ -105,7 +107,7 @@ export function scrollToCentre(centreY: number, scroller?: HTMLElement | null): 
     const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
     return Math.min(max, Math.max(0, target))
   }
-  const target = window.scrollY + centreY - window.innerHeight / 2
-  const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+  const target = window.scrollY + centreY - viewHeight() / 2
+  const max = Math.max(0, document.documentElement.scrollHeight - viewHeight())
   return Math.min(max, Math.max(0, target))
 }

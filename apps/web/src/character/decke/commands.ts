@@ -13,7 +13,7 @@
 import type { DeckE } from './DeckE'
 import type { CardArt, CardSlot } from './cardArt'
 import { BATCH_MAX, MAX_RUN } from './cards'
-import { artForIds } from './cardSource'
+import { artForIds, defaultStash } from './cardSource'
 import type { Depth, Side } from './dom'
 import { CHANNEL_RANGE } from './constants'
 import { IDLE } from './sustain'
@@ -129,6 +129,13 @@ export type CommandResult = {
  *  argument rather than a hard import in the middle of a validator. */
 export type CommandOptions = {
   resolveCards?: (ids: string[]) => Promise<(CardArt | null)[]>
+  /**
+   * Cards to show when `card_stash` is entered with neither `cards` nor
+   * `count` named. "Put them away" with nothing more specific still has to
+   * show the user's OWN cards, not the model's placeholder art — see
+   * `cardSource.defaultStash`, whose fallback chain this defaults to.
+   */
+  defaultCards?: (n: number) => Promise<CardArt[]>
 }
 
 const SLOTS: CardSlot[] = ['card_l', 'card_r', 'single', 'deck']
@@ -195,6 +202,7 @@ async function runTurn(
   const notes: string[] = []
   let applied = 0
   const resolveCards = opts.resolveCards ?? artForIds
+  const getDefaultCards = opts.defaultCards ?? defaultStash
 
   if (!Array.isArray(commands)) {
     return { applied: 0, errors: ['`commands` must be an array'], notes }
@@ -335,6 +343,15 @@ async function runTurn(
               `${at}: autoClose needs cards or count — say what he should be putting away`,
             )
             continue
+          } else if (cmd.value === 'card_stash') {
+            // Neither `cards` nor `count`: a turn that just says "put them
+            // away" is not asking for the model's placeholder Pokemon, it is
+            // asking for whatever "them" already means — his own cards.
+            // Silent on failure, same as every other card path here: if
+            // nothing resolves, card_stash plays with whatever was already
+            // loaded rather than rejecting a turn that named nothing wrong.
+            const cards = await getDefaultCards(BATCH_MAX).catch(() => [])
+            if (cards.length) decke.setStashCards(cards, { autoClose: false })
           }
           decke.setState(cmd.value, {
             blendMs: cmd.blendMs,

@@ -7,6 +7,7 @@
  */
 import { PerspectiveCamera, Plane, Raycaster, Vector2, Vector3 } from 'three'
 import { BODY_H, BODY_W } from './constants'
+import { viewHeight, viewWidth } from './viewport'
 
 export type Depth = 'foreground' | 'background'
 export type Side = 'auto' | 'left' | 'right'
@@ -55,8 +56,8 @@ export function viewportToBlender(
   out = new Vector3(),
 ): Vector3 {
   const ndc = new Vector2(
-    (clientX / window.innerWidth) * 2 - 1,
-    -(clientY / window.innerHeight) * 2 + 1,
+    (clientX / viewWidth()) * 2 - 1,
+    -(clientY / viewHeight()) * 2 + 1,
   )
   const ray = new Raycaster()
   ray.setFromCamera(ndc, camera)
@@ -102,7 +103,7 @@ export function parkBeside(
   // How wide is he, in CSS pixels, at this depth? Needed so the margin is a real
   // gap rather than a guess that collapses at the background plane.
   const vFov = (camera.fov * Math.PI) / 180
-  const worldPerPx = (2 * Math.tan(vFov / 2) * distance) / window.innerHeight
+  const worldPerPx = (2 * Math.tan(vFov / 2) * distance) / viewHeight()
   const bodyPx = BODY_W / worldPerPx
 
   // WHICH SIDE HE STANDS ON IS DECIDED BY THE ELEMENT'S HALF OF THE SCREEN,
@@ -122,7 +123,7 @@ export function parkBeside(
   // between him and the middle of the page, which is where the reader is.
   const centre = rect.left + rect.width / 2
   let side: 'left' | 'right' =
-    opts.side !== 'auto' ? opts.side : centre >= window.innerWidth / 2 ? 'right' : 'left'
+    opts.side !== 'auto' ? opts.side : centre >= viewWidth() / 2 ? 'right' : 'left'
 
   const gap = bodyPx * SIDE_MARGIN
   const margin = bodyPx * 0.6
@@ -132,13 +133,13 @@ export function parkBeside(
   // would be the only exception; I would have him go to the right of it and
   // look that way." Outboard is a preference; being on screen is not.
   const outboard = side === 'right' ? rect.right + gap : rect.left - gap
-  if (outboard < margin || outboard > window.innerWidth - margin) {
+  if (outboard < margin || outboard > viewWidth() - margin) {
     side = side === 'right' ? 'left' : 'right'
   }
 
   let x = side === 'right' ? rect.right + gap : rect.left - gap
   // Never let him leave the viewport, however cramped the layout is.
-  x = Math.max(margin, Math.min(window.innerWidth - margin, x))
+  x = Math.max(margin, Math.min(viewWidth() - margin, x))
   const y = rect.top + rect.height / 2
 
   const position = viewportToBlender(camera, x, y, distance)
@@ -180,8 +181,8 @@ export function parkBeside(
 export function homeCorner(camera: PerspectiveCamera, baseDistance: number): Vector3 {
   const p = viewportToBlender(
     camera,
-    window.innerWidth * (1 - HOME_INSET.x),
-    window.innerHeight * (1 - HOME_INSET.y),
+    viewWidth() * (1 - HOME_INSET.x),
+    viewHeight() * (1 - HOME_INSET.y),
     baseDistance,
   )
   p.z -= BODY_H / 2
@@ -205,6 +206,15 @@ export function shapeFor(a: Vector3, b: Vector3, legIndex: number) {
     bow: Math.min(4, dist * 0.22) * (legIndex % 2 === 0 ? 1 : -1),
     // Short hops are crisper; the long traverse gets a lower cruise so it reads
     // as covering ground rather than darting.
+    //
+    // NOT the knob for overall pace, however much it looks like one. These are
+    // the solver's INTEGRATION speeds, and it integrates until it arrives:
+    // raising them shortens the trip right up to the point where the
+    // stopping-distance law overshoots its own settle window every frame and the
+    // leg limit-cycles out to the 600-frame cap. Measured, raising the long
+    // cruise from 0.08 to 0.185 turned a 3067 ms leg into a 20167 ms one — the
+    // cap exactly. Pace is set by `TRAVEL_RATE` in `flight.ts`, which scales the
+    // finished track and cannot destabilise a controller that has already run.
     cruise: dist > 4 ? 0.08 : 0.1,
   }
 }
