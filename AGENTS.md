@@ -7,8 +7,12 @@ onboarding walkthrough; this file is the reference.
 
 ## Architecture at a glance
 
-pnpm monorepo (ESM, Node >=20, TypeScript strict). Four apps + one shared package,
-deployed on Vercel + Supabase (cloud) or plain Postgres (self-host):
+**This repo is the source of https://deckpal.app**, a live multi-user product on
+Vercel + Supabase. It also supports a self-host tier (plain Postgres, no built-in
+auth) for other people who want to run their own copy — a supported deployment
+target, not the mode you are working in. See B12.
+
+pnpm monorepo (ESM, Node >=20, TypeScript strict). Four apps + one shared package:
 
 | Package | Filter name | Role |
 |---|---|---|
@@ -26,9 +30,21 @@ auth (see `SECURITY.md`).
 
 ## Environment setup
 
-Copy `.env.example` to `.env` and fill in your database credentials and any
-Supabase keys (cloud) or Postgres connection details (self-host). Load it before
-any DB or script work:
+**Default: there isn't any.**
+
+```bash
+pnpm install && pnpm dev
+```
+
+runs the web app against the live backend — real accounts, real data, real
+images, no `.env`, no database, no migrations. Sign in with the QA account from
+`.qa-account`, never the owner's; your writes are real. See B12.
+
+You need the rest of this only to run the API, the database or the image tier
+yourself — which is exactly when you must, because against the live backend your
+changes to those tiers are not being exercised at all. Copy `.env.example` to
+`.env`, fill in your database credentials and any Supabase keys, and use
+`pnpm dev --local`. Load it before any DB or script work:
 
 ```bash
 set -a && . ./.env && set +a
@@ -258,6 +274,66 @@ inference, never checked, and wrong.
 **Where enforced:** `ownerGateStatus()` in `apps/api/src/routes/me.ts`, reported
 on `GET /health` as `ownerGate` and warned about on boot in `createApp()`.
 Environment variables are tabulated in `DEPLOYMENT.md`.
+
+---
+
+### B12 — This repo is the live product
+
+**Rule 1 — Assume you are working on deckpal.app.** This repository is the source
+of a live, multi-user product with real users and real data. Self-hosting is a
+*deployment tier this product supports for other people*; it is not the mode you
+are working in, and it is not the default anything.
+
+Do not tell the maintainer "we're in self-host mode." Before this rule existed
+that sentence was technically true and completely useless: `pnpm dev` read a
+`.env` with local Postgres credentials and no `SUPABASE_MODE`, so every local run
+genuinely was a self-host run, and agents dutifully reported it. The answer was
+to change the default, not to keep narrating it.
+
+If you need to state which tier a *deployment* is running, get it from that
+deployment — `GET /api/health` reports `ownerGate`, `GET /api/public-config`
+reports `mode` — never from the absence of a variable in your shell.
+
+**Rule 2 — `pnpm dev` talks to production. Act accordingly.**
+
+- It proxies `/api` and `/deckpal/images` to `https://deckpal.app` and signs in
+  against the real Supabase project. Writes you make are real writes to the
+  signed-in account.
+- **Sign in with the QA account** (`.qa-account`, gitignored — `qa@deckscout.io`,
+  a scratch collection that exists for this). Never run destructive verification
+  signed in as the owner. RLS scopes the blast radius to whoever is signed in,
+  which is exactly why *who* you sign in as is the whole safety story.
+- The in-app amber ribbon (`src/components/DevBackendRibbon.tsx`) names the
+  backend and the signed-in address. It is in every screenshot on purpose: if you
+  are looking at a verification image and it says LIVE, that was real data.
+- `POST /api/bugs` is blocked by the dev server, because it opens a real issue on
+  the real tracker. `DECKPAL_DEV_ALLOW_BUGS=1` if you actually mean to.
+- Working on the API, the schema, or an orchestration lane? Use `pnpm dev --local`
+  (or set `DECKPAL_DEV_API_PORT`, which selects local automatically). Against the
+  live backend your API changes are not being exercised at all.
+
+**Rule 3 — The owner merges their own PRs. Do not editorialise about it.**
+
+GitHub does not let *anyone* approve their own pull request — that is a platform
+rule, not a repo setting, and repeating it at the maintainer is noise. It also
+does not matter here, because two mechanisms make it moot:
+
+- `.github/workflows/owner-approve.yml` approves PRs authored by the repo owner,
+  so they satisfy the review requirement like any other PR.
+- The `main` ruleset grants repository admins `bypass_mode: always`.
+
+So: for an owner-authored PR, wait for CI, then `gh pr merge <n> --squash`. Fall
+back to `--admin` only if the auto-approval has not landed yet. **Green CI is
+still mandatory** — note that `bypass_mode: always` skips required status checks
+too, so nothing but this sentence stops an admin merging red. Contributor PRs
+keep needing the owner's human review; that gate is deliberate. Granting anyone
+the admin role grants them the full bypass — treat it as a decision, not a
+formality.
+
+**Where enforced:** `apps/web/vite.config.ts` (single source of the cloud/self-host
+decision, injected via `define`), `apps/web/live-backend.ts`,
+`scripts/dev.mjs`, `GET /api/public-config` in `apps/api/src/index.ts`,
+`.github/workflows/owner-approve.yml`.
 
 ---
 
