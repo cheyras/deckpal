@@ -68,7 +68,9 @@ decke.flyTo({ selector: '#deck-list' }, { then: 'point' })   // fly, ring it, po
 decke.highlight('#deck-list')                  // ring it without moving
 decke.setChannel('bend', 0.37)                 // pin a raw channel; null releases it
 decke.playKeyframes(beats, { loop: true })     // an agent-authored clip, as a state
-decke.setStashCount(9)                         // how many cards the next card_stash shows
+decke.setStashCount(9)                         // 9 cards, on the placeholder art
+decke.setStashCards(cards, { autoClose: true })  // THESE cards, batched, closing at the end
+decke.setCardArt('card_r', card)               // the card he holds up in card_present
 decke.scrollIntoView()                         // bring him back when he has scrolled off
 ```
 
@@ -91,10 +93,21 @@ either "hold this" or "do this for a beat and go back to idle" — which for
 fits; it compiles through the same path as the playbook, so it is a state like
 any other.
 
-`runCommands()` **rejects rather than clamps** — an unknown state comes back with
-the list of legal ones. A model that gets silently corrected learns nothing. The
-one exception is `count` on `card_stash`, which clamps and warns: an agent that
-has just added thirty cards is not wrong to say thirty.
+`cardArt` puts a specific catalog card on one of the four faces he shows, and
+`state` on `card_stash` takes `cards: ["sv3pt5-25", …]` — card IDS, never image
+URLs, so a model cannot express "load this arbitrary image into the page". Any
+length: past twelve it plays in batches, and `autoClose` decides whether the last
+batch hangs (the default) or he finishes and shuts the lid.
+
+`runCommands()` is **async**, because naming cards is a catalog lookup and the
+rule below only works if an unresolvable id can be waited for and reported.
+
+It **rejects rather than clamps** — an unknown state comes back with the list of
+legal ones. A model that gets silently corrected learns nothing. The exceptions
+are the ones where the request is REASONABLE but cannot be honoured in full: a
+`count` or a `cards` list longer than a run can carry clamps, and says what it
+dropped in `notes[]`. An agent that has just added two hundred cards is not wrong
+to say two hundred — but it must not be left believing all two hundred went in.
 
 ---
 
@@ -249,7 +262,7 @@ Parity is checked against ground truth, not vibes. The fixtures are produced by
 **executing the character wiki's own Python**, not by re-transcribing it.
 
 ```bash
-# unit + parity tests (65) -- also runs in CI
+# unit + parity tests (114) -- also runs in CI
 pnpm --filter deckpal-web test:decke
 
 # regenerate the playbook, or assert it still matches its sources
@@ -318,3 +331,68 @@ the same class of defect as the emissive:** `Card_Front_*` carries no
 `roughnessFactor` at all, so three takes glTF's default of 1.0, and at roughness
 1 the specular lobe covers the whole hemisphere, which spreads any tint flat
 across the card as a haze instead of a travelling band.
+
+
+### Real card art
+
+The baked textures are AI-generated placeholders — "BLOBULON, 70 HP" — and they
+are the FALLBACK now, not the picture. `cardArt.ts` puts the user's actual cards
+on the four faces he shows and on every card in the stash fan, and `cardSource.ts`
+is the one file in this directory that knows the product's API exists.
+
+Three things about the asset decide the whole design of `cardArt.ts`:
+
+- **The front materials are SHARED.** `Card_Front_Rose3` is one material used by
+  `Card_Loose_Rose_anim` *and* all five `Stash_Card_*` meshes, and the pool clones
+  those meshes for batches past five — three clones share materials by reference.
+  Assign a texture naively and every card shows the same card. Each card node
+  therefore gets its own material, cloned at bind time.
+- **The V axis is glTF's.** The unwrap is a clean 0..1 across both faces, but a
+  texture you make yourself defaults to `flipY = true` and comes out upside down.
+- **`map` and `emissiveMap` move together**, always — the foil above is tinted by
+  the artwork, so leaving `emissiveMap` behind makes a card glow in the shape of a
+  card it is not showing.
+
+The card BACK is the real Pokémon TCG back at
+`public/models/decke/card_back.webp`; provenance is in that directory's
+`CREDITS.md`, and it is the only asset here that is not ours.
+
+**Images carry a `?decke=1` marker and it is not superstition.** Card images come
+from the same-origin `/deckpal/images/…`, which on cloud 302s to Supabase Storage
+on another origin. Every `<img>` in the app fetches those with no `crossOrigin`,
+leaving an OPAQUE cache entry, and WebGL will not upload an image that is not
+origin-clean — so a texture fetch of a URL the card grid has already rendered
+fails, on cloud only, and never in dev. The marker gives the texture its own cache
+entry. Same trap, same fix as the bug reporter's screenshots (`DECISIONS.md`,
+2026-08-10).
+
+### Batches
+
+`card_stash` shows at most `BATCH_MAX` (12) cards at once, because that is where
+the fan stops being collision-free — `__tests__/cards.test.ts` proves the layout
+for every n up to `MAX_STASH`, and `__tests__/batches.test.ts` asserts
+`BATCH_MAX === MAX_STASH` so that proof keeps covering batching. More than twelve
+plays as a RUN of batches, up to `MAX_RUN` (48, four batches), past which the rest
+are dropped loudly.
+
+Every batch but the last is a self-contained cycle on its own clock — launch,
+hang `holdMs`, gather, file in — and the top of the deck in his box becomes
+whichever card most recently finished its dive. **The last batch is exactly the
+animation that was reviewed:** it hangs, and its close is the state's outro, so
+the lid shutting and the final cards diving in stay one authored beat. The card
+system never closes him; it raises `wantsClose()` and the state machine does.
+
+The fan's no-interpenetration claim is now measured rather than approximated:
+`__tests__/cards.test.ts` computes the closest approach between the two card
+QUADS, in Blender coordinates. The two earlier versions of that assertion both
+modelled a card as an axis-aligned box, which is nearly half again the real
+footprint once `splayPerX` turns it — and an over-strict proxy is not harmless,
+because satisfying it made the real minimum separation worse. Driven through the
+render pipeline for forty seconds of hang, the closest two cards ever come is
+0.050 units against a card 0.006 thick.
+
+`batchSchedule` is pure and exported because both bugs this code has produced
+were arithmetic and invisible in a still — a launch span that made twelve cards
+spend 1.4 s merely appearing, and an `endMs` equal to the last dive, which let the
+next batch win the frame and made the deck's top face skip a card at every batch
+boundary.

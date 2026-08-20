@@ -183,8 +183,12 @@ export default defineConfig(async ({ command }) => {
         [apiPrefix]: { target: proxyTarget, changeOrigin: true },
         // Cloud image tier is a Vercel function (api/images.mjs); locally,
         // scripts/dev-images-server.mjs stands in for it. Against the live
-        // backend some paths 302 to Supabase Storage, which the browser
-        // follows directly — fine for <img>.
+        // backend some paths 302 to Supabase Storage, which the browser follows
+        // directly — fine for <img>, and fine for a WebGL texture ONLY because
+        // the Supabase object answers with `access-control-allow-origin: *` and
+        // the first hop is same-origin. Deck-E loads card art as textures and so
+        // depends on both halves of that; see `character/decke/cardArt.ts` for
+        // the cache-poisoning trap that comes with it.
         '/deckpal/images': live
           ? { target: devOrigin, changeOrigin: true }
           : { target: 'http://127.0.0.1:3701', changeOrigin: true },
