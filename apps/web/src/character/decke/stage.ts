@@ -507,7 +507,19 @@ export type Stage = {
   /** The largest dimension of `o`'s world bounds. See `renderInset` for why the
    *  beacon uses this as a RATIO rather than as a size. */
   measureExtent(o: Object3D): number
-  setSize(width: number, height: number): void
+  setSize(width: number, height: number, canvasHeight?: number): void
+  /**
+   * Slide the frustum vertically, in CSS pixels, without moving the camera.
+   *
+   * Two things ride on this and they compose into one call. The canvas is taller
+   * than the viewport (see `viewport.ts`), so the frustum has to cover the extra
+   * surface at the same scale; and while the overlays are pinned to the page the
+   * canvas is somewhere other than the viewport by the distance scrolled, so the
+   * optical centre has to move back to the middle of the reader's screen. Both
+   * are an off-axis shift of the same frustum, so there is one place that sets
+   * it and nothing else touches `setViewOffset`.
+   */
+  setViewShift(px: number): void
   setCharacterHeight(px: number | null): void
   dispose(): void
 }
@@ -693,16 +705,42 @@ export function createStage(opts: StageOptions): Stage {
     pmrem.dispose()
   }
 
-  function setSize(width: number, height: number) {
+  let frameW = 0
+  let frameH = 0
+  let surfaceH = 0
+  let viewShift = 0
+
+  function setSize(width: number, height: number, canvasH = height) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio))
-    renderer.setSize(width, height, false)
+    // The BUFFER is the whole surface; the FRAME the projection is defined
+    // against is the viewport. They differ by the strip a mobile browser's
+    // toolbar vacates, and conflating them is what cut his feet off.
+    renderer.setSize(width, canvasH, false)
+    frameW = width
+    frameH = height
+    surfaceH = canvasH
     // Keep the VERTICAL fov fixed so he stays the same height regardless of
     // viewport shape. Blender's 38.187deg is a square-frame figure, where
     // horizontal and vertical coincide.
+    //
+    // The aspect stays the FRAME's, not the surface's, and that is what keeps
+    // pixels square once the two differ: the view offset below scales the
+    // frustum's height by `canvasH / height` while leaving its width alone, so
+    // the pixels-per-world-unit works out to `height / frustumHeight` on both
+    // axes exactly when `aspect` is the frame's.
     camera.aspect = width / height
     camera.fov = BLENDER_CAMERA.fovDeg
-    camera.updateProjectionMatrix()
+    setViewShift(viewShift)
+    // The dolly is what makes him a chosen number of pixels tall, so it is a
+    // question about the FRAME. Handing it the taller surface would shrink him
+    // by the height of a toolbar.
     applyDolly(height)
+  }
+
+  function setViewShift(px: number) {
+    viewShift = px
+    if (frameW <= 0 || frameH <= 0) return
+    camera.setViewOffset(frameW, frameH, 0, -px, frameW, surfaceH)
   }
 
   /**
@@ -732,7 +770,9 @@ export function createStage(opts: StageOptions): Stage {
 
   function setCharacterHeight(px: number | null) {
     characterHeightPx = px
-    applyDolly(renderer.domElement.height / renderer.getPixelRatio())
+    // The FRAME, not the buffer: the buffer now covers the taller surface, and
+    // deriving his height from it would shrink him by a toolbar.
+    applyDolly(frameH)
   }
 
   // Reused across frames: a camera is a matrix and a projection, and rebuilding
@@ -852,7 +892,7 @@ export function createStage(opts: StageOptions): Stage {
   return {
     renderer, scene, camera, lights, lightRig,
     setEnvironment, setFacing, setFraming, renderInset, resetInset, measureExtent,
-    setSize, setCharacterHeight, dispose,
+    setSize, setViewShift, setCharacterHeight, dispose,
   }
 }
 

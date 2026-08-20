@@ -44,14 +44,55 @@
 
 let w = 0
 let h = 0
+let ch = 0
 
-/** Record the size of the surface being drawn into. Called from `DeckE.resize`,
- *  which is the single entry point for a size change. */
-export function setViewport(width: number, height: number) {
+/**
+ * Record both sizes. Called from `DeckE.resize`, the single entry point for a
+ * size change.
+ *
+ * TWO SIZES, AND THE DIFFERENCE IS THE WHOLE OF THE ONE-BAR-TALL STRIP AT THE
+ * BOTTOM. `height` is the viewport he is ALLOWED to occupy and everything is
+ * measured against — stable, because it is `100svh`, the viewport with Safari's
+ * toolbars showing. `canvasHeight` is how much surface is actually drawn into,
+ * which has to be `100lvh`, the viewport with them hidden, or the moment they
+ * slide away there is a strip of screen the canvas does not reach:
+ *
+ *   "The bottom of him is often getting cut off. It's always cut off at the
+ *    bottom where the full height of the bottom bar in Safari would be... and
+ *    then sometimes he's just cut off a bit at the bottom even in the middle of
+ *    the screen."
+ *
+ * Both of those are one defect. The clip line was `100svh` from the top, which
+ * is a bar's height ABOVE the bottom of a screen whose toolbar has collapsed —
+ * so a character standing low enough was cut off well short of the edge, which
+ * is what "even in the middle of the screen" is describing.
+ *
+ * The naive fix is to size everything from the visible viewport, and that is the
+ * defect this module exists to prevent: `innerHeight` moves as the toolbars
+ * slide, and keying his SIZE to a moving number is "his height scales with that
+ * going away, and then he readjusts and snaps back". Hence two numbers, both
+ * stable, with the larger used only for coverage and the smaller for every
+ * placement decision.
+ */
+export function setViewport(width: number, height: number, canvasHeight = height) {
   if (width > 0) w = width
   if (height > 0) h = height
+  if (canvasHeight > 0) ch = canvasHeight
   // The document's scrollable range moved with it.
-  maxScrollAt = -1e9
+  docHAt = -1e9
+}
+
+/**
+ * The height of the drawing surface, which is at least `viewHeight()` and is
+ * more than it exactly when the browser has furniture that can slide away.
+ *
+ * Only two things may use it: the projection, because NDC spans the canvas and
+ * not the viewport, and the pin's containment test, because the canvas edge is
+ * what clips him. Everything about WHERE he is allowed to stand is
+ * `viewHeight()`.
+ */
+export function canvasHeight(): number {
+  return ch || viewHeight()
 }
 
 /**
@@ -92,21 +133,36 @@ export function viewHeight(): number {
  * forever and the `overscroll-behavior-y` lock stays on to remove the
  * disagreement instead. See `DeckE`.
  */
-let maxScroll = 0
-let maxScrollAt = -1e9
+let docH = 0
+let docHAt = -1e9
+
+/**
+ * How tall the document is, cached on a short TTL.
+ *
+ * `scrollHeight` FORCES LAYOUT, and both callers run every frame — the bounce
+ * probe below, and the pinned path's check that the canvas is not about to be
+ * placed past the end of the page. Reading it per frame would put back a large
+ * part of the cost this whole runtime was restructured to remove.
+ *
+ * A quarter of a second of staleness is safe for both: a document's height
+ * changes when content loads or the viewport changes, neither of which happens
+ * at frame rate, and `setViewport` invalidates it explicitly when the second one
+ * does. The worst it can do is mis-time the first frame of a bottom bounce, or
+ * take one extra tick to notice that a pin would now overhang the page.
+ */
+export function documentHeight(): number {
+  const now = performance.now()
+  if (now - docHAt > 250) {
+    docHAt = now
+    docH = document.documentElement.scrollHeight
+  }
+  return docH
+}
 
 export function elasticOffset(): number {
   const y = window.scrollY
   // Cheap case first, and it is the top bounce — no layout read at all.
   if (y < 0) return y
-  // `scrollHeight` FORCES LAYOUT, and this runs every frame. Cached on a short
-  // TTL: the document's height changes when content loads or the viewport
-  // changes, neither of which happens at frame rate, and being a quarter of a
-  // second stale can only mis-time the very first frame of a bottom bounce.
-  const now = performance.now()
-  if (now - maxScrollAt > 250) {
-    maxScrollAt = now
-    maxScroll = Math.max(0, document.documentElement.scrollHeight - viewHeight())
-  }
+  const maxScroll = Math.max(0, documentHeight() - viewHeight())
   return y > maxScroll ? y - maxScroll : 0
 }

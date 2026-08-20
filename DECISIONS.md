@@ -6820,3 +6820,319 @@ the time of writing — the `OVER` line in the instrument reports it the moment 
 happens. And macOS Safari is known to move `position: fixed` elements during the
 bounce itself (an open WebKit bug, five years unresolved); if it does, the
 translate would double there. Both are one reading of the instrument away.
+
+## 2026-08-20 — He stopped tracking the page and became part of it
+
+The previous entry ended with a specification and no implementation: our frame
+costs 5 ms and the browser calls us every 36, so the only fix that survives is to
+stop needing a frame in order to track. This is that change, and it landed
+differently from the sketch in two ways that were only visible once it was built.
+
+**Document flow, not `animation-timeline: scroll()`.** The sketch offered both.
+The bar the reviewer set was "buttery smooth no matter what device is used", and
+scroll-driven animations are WebKit-only from Safari 26.0 and only threaded from
+26.4 — so that path needs a fallback, and the fallback would then be the thing
+that had to be right. Absolute positioning at a document offset needs no feature
+detection, no version gate and no second code path: it is how every engine has
+laid out in-flow content since before any of them had a compositor. `pageAnchor.ts`
+pins the canvas and the highlight layer at the document offset the viewport
+currently occupies; from that moment the compositor carries both, at the display's
+rate, with no main thread involvement at all. Verified identical under headless
+Chromium, WebKit and Firefox: the canvas holds its document offset to the pixel
+through 300 px of scroll, the ring's error against its element is 0 at every
+sample, and `scrollHeight` does not grow.
+
+It also gets the rubber band for free on **both** engines, including Chrome —
+where the offset is deliberately unreadable from script and `followElastic` can
+therefore never see it. Content in document flow bounces because the bounce is a
+transform on the scrolling contents. Reasoned, not yet measured; noted below.
+
+**Freezing him was wrong, and the measurement that said so.** The obvious
+implementation is to stop solving: his document position is constant, so there is
+nothing to compute. That is what the first version did, and it silently deleted
+the vertical parallax — "at the top of the page it's like he's above the camera,
+at the bottom of the page it's like he's below the camera". The cue lives in the
+FRUSTUM, not in the quaternion (see `framing.ts`), so nothing in the framing solve
+notices its absence, and no test caught it. Rendered side by side at the same
+place on screen, the frozen version shows the top of his head where the tracked
+one is looking up at him from below.
+
+So the world solve stays, at full rate. What goes is the forced layout — the
+element's box inside a pinned canvas is a constant, so `parkBeside` is handed a
+cached rect and the camera's frustum is shifted by the drift instead. Measured:
+**2.95 forced layouts per frame while tracking, 0.32 while pinned**, and none of
+the remainder is per-frame. The division of labour is the point: his POSITION,
+which is what the eye reads as chunk, is moved by the compositor at the display's
+rate; his PERSPECTIVE, a gradual foreshortening, is updated at whatever rate the
+browser gives us, because nobody has ever seen a foreshortening stutter.
+
+**The frustum offset cost two wrong turns, both silent on screen.** First,
+`viewportToBlender` unprojects through the camera's CURRENT projection, so
+solving before applying the offset double-compensates — he still drew exactly on
+his element and still slid off it by one frame's drift (-40 px at 120 px of
+scroll, -120 at 240). Second, the offset's SIGN does not affect his position at
+all, because the solve inverts through whatever frustum it is handed; what it
+inverts is the lighting and the foreshortening, so the wrong sign lit him from
+below while he climbed the screen. Both are now pure tests: the pinned solve must
+equal the un-pinned solve at every drift, to 1e-6.
+
+**What pinning does to a lagging scroll offset, stated honestly.** The first
+version of that test asserted immunity and failed, which was the test being wrong
+and worth keeping. `parkBeside` drops him half a body in world Z to stand him on
+his feet, and that drop is not along the view ray, so a sheared frustum projects
+it slightly differently. Measured at 300 px of staleness: **10.7 px of residual,
+against 289 px on the tracked path.** A stale scroll offset used to move him
+almost its full value — that is "on a fast scroll he'll lose it entirely" — and
+now costs about a thirtieth of a body width.
+
+**On the owner's iPhone**, via the LAN dev server and the instrument:
+
+    PIN    absolute  drift 120px  true 120   y 2241  pin 2121
+    TRACK  spread 30.0px  worst 30.0px  now 0.0
+    VIEW   inner 821  canvas 781  vv 821  dpr 3
+
+`drift` and `true` agree exactly — the canvas rode the page by precisely the
+amount scrolled — and the error settles to 0. The 30 px spread is repeatable and
+is at least partly the instrument measuring itself: it reads the element's rect
+in its own frame while the runtime read `scrollY` in another, and on iOS those are
+two different points of the same gesture. It is NOT established that the number is
+entirely artefact, and it is recorded here rather than explained away.
+
+**`?present=<selector>` on the dev page**, because the phone is the only place
+this reproduces and it took a dozen mis-aimed taps through iPhone Mirroring to get
+from a cold tab to "parked and scrolling" — every time. A URL that arrives already
+presenting turns the setup into one paste. That is an instrument, not a feature,
+and it earned its keep inside the same session that added it.
+
+**Not verified.** Nobody has driven the phone through a rubber band while pinned,
+so the claim that document flow bounces for free is reasoning rather than
+measurement on the device that matters. Firefox's `ResizeObserver` is a frame or
+two slower to report a reflow than the other two, which the 400 ms backstop covers
+and which is why the backstop is still there. And the acceptance test for this
+work is a human looking at a phone; the numbers say the mechanism is right, they
+do not say it feels right.
+
+## 2026-08-20 — Two faults the pinned path had, and neither was the pinning
+
+Review of the compositor change above: *"It's fucking GREAT — for the most part."*
+Two defects, both mine, both introduced by the change and neither by its idea.
+
+**He went to the wrong place when the target changed, then snapped right on the
+next scroll.** Reported precisely: "sometimes when I change where he is on the
+screen, he will go to the wrong place, and then as soon as I scroll a little bit
+he snaps to the right place… this happens when I scroll a little, then change
+targets." The last clause is the diagnosis. While pinned, the camera carries an
+off-axis frustum worth the distance scrolled since he parked, and `parkBeside`
+unprojects through whatever frustum it is handed — so `flyTo` computed its
+destination `drift` pixels wrong. `launch` unpins, but it runs AFTER the
+destination has been computed. With no scrolling the offset is zero and the bug is
+invisible, which is exactly the condition the reviewer identified.
+
+`flyTo` and `returnHome` now unpin before they solve. `returnHome` had the same
+fault by a narrower route: `homeCorner(...)` is evaluated as an ARGUMENT to
+`launch`, so however early `launch` unpins, the solve has already happened. An
+audit of every camera-projection consumer then found a third, down a path that
+looked like it had already handled it: `resize` unpins immediately, but the
+re-park is a 250 ms trailing debounce and `repin` runs every frame, so by the time
+the timer fires he has usually pinned again.
+
+**He juddered on the way into the viewport, at both edges.** The canvas is one
+viewport tall and draws nothing outside itself, so `canPin` refused to pin until
+his whole silhouette was comfortably inside the VIEWPORT — which meant his entire
+entrance, a body height of scrolling at each end, ran on the hand-tracked path.
+The fix is to stop assuming the canvas has to line up with the viewport. It is
+pinned to a document offset, and nothing says that offset must be the current
+scroll position: slide it off the edge by `pinShift` and it still contains him
+while he is half on screen, with the overhang simply unseen. The frustum offset
+that already carries the drift carries this too — an aligned pin is the
+`shift === 0` case of the same line, not a second path — so the change is a
+clamp in `canPin` and one subtraction in `repin`.
+
+Measured on Chromium, WebKit and Firefox: walking him in from the bottom edge and
+down from the top, **zero frames where he is visible and not pinned**, and zero
+tracking-error spread across the whole entry. Switching targets after a 200 px
+scroll now lands him with no correction on the following scroll.
+
+Both faults share a shape worth naming: the frustum offset is a RENDERING concern
+that leaks into SOLVING, because `viewportToBlender` inverts through the live
+projection. Every solve outside `syncPinned` has to run unpinned, and that is now
+stated at all three call sites rather than left as a thing to notice.
+
+## 2026-08-20 — The strip at the bottom, and one pace for every leg
+
+**His feet were being cut off, and the previous pass had written down why and
+called it a cost.** Reported as two symptoms: "it's always cut off at the bottom
+where the full height of the bottom bar in Safari would be… and then sometimes
+he's just cut off a bit at the bottom even in the middle of the screen." They are
+one defect. The canvas was `100svh` — the viewport with Safari's toolbars showing
+— so the moment they slid away there was a bar's height of visible screen with no
+drawing surface in it. The clip line therefore sat well ABOVE the bottom edge,
+which is exactly what "even in the middle of the screen" describes.
+
+`svh` was chosen deliberately last pass, over `100lvh`, because pinning him to
+the large viewport puts his lower body behind the toolbar whenever it is showing.
+Both of those are true, and the mistake was thinking one unit had to serve both
+jobs. The canvas is now `100lvh` so coverage never runs out, and he is PLACED
+against a `100svh` strut so he never stands behind the toolbar. Both units are
+stable; `innerHeight`, the one that moves as the toolbars slide, is used for
+neither — which is the rule `viewport.ts` was written to enforce and this keeps.
+
+The projection follows: NDC spans the canvas, not the viewport, so
+`viewportToBlender` divides by the surface height while every placement decision
+— `parkBeside`'s clamps, `homeCorner`, `beaconRect`, the dolly — keeps the
+viewport height. The frustum covers the taller surface through the same off-axis
+shift the pinned path already uses, so there is one `setViewOffset` call in the
+codebase (`Stage.setViewShift`) carrying both the surface and the scroll drift.
+Keeping `camera.aspect` at the FRAME's ratio rather than the surface's is what
+keeps pixels square once the two differ. Verified with the two heights forced
+apart by 60 px: the canvas bottom stays flush with the screen, his apparent size
+follows the stable height and not the surface, and the tracking error stays 0.
+
+**One rate for every leg was the other thing that was wrong.** "Let's make his
+foreground to background and vice versa travel even a bit more fast, and let's
+make his short travel a bit slower (it feels a little fast currently)." Those pull
+in opposite directions, so `TRAVEL_RATE = 2.2` could not satisfy both.
+
+They separate on DISTANCE by an order of magnitude, which is what makes a single
+ramp enough. Measured at the shipped framing on a 1280x900 page: a tiny nudge is
+0.40 world units, a short hop 1.06, right across the page 2.69 — and a depth
+change is 24.4 to 26.9, because the background plane sits at three times the
+camera distance. So `travelRate(distance)` ramps from 1.7 to 2.95 and nothing has
+to know what KIND of leg it is looking at; a depth change is simply the long end.
+Resulting pace: the nudge 242 -> 309 ms, the hop 303 -> 377, across the page
+470 -> 553, and a depth change 1424 -> 1062.
+
+`shapeFor`'s cruise is still not the pace knob and still switches at 4 units — the
+solver integrates until it arrives, and raising the cruise past about 2x runs the
+leg to its 600-frame guard. That remains the reason pace is applied by scaling the
+finished track.
+
+**A test premise that was wrong.** "A solved leg is played more than twice as
+fast" had been true of every leg and is now deliberately true only of the long
+ones; the short legs in that table are the other half of the same review. The
+assertion is scoped rather than loosened, and the ramp gets its own test — short
+rates below 2.0, depth changes pinned at the top of the ramp, and monotone in
+between so nothing speeds up as it gets shorter.
+
+## 2026-08-20 — The clip was the pin's clamp, and the margin was measured against the wrong thing
+
+The previous entry fixed a real defect — the `100svh` canvas left a strip of
+screen with no drawing surface once the toolbar collapsed — and did not fix the
+one that was reported. The next review said so precisely enough to name the
+cause: "he's still cut off on the bottom. It's whenever he comes in from the
+bottom edge. It rectifies itself if I scroll him out of the top edge and then
+scroll him back in from the top."
+
+Directional, and self-correcting on a re-entry from the other side. That is not a
+CSS unit; that is state, and the state is `pinShift`.
+
+**The clamp was permanent.** The shift is chosen once, at the instant he becomes
+pinnable — which, entering from an edge, is the instant he is MOST constrained, so
+it lands exactly on its clamp. Nothing revisited it. Measured on a 420x820 page
+walking him in from each side:
+
+    from the bottom   shift +194    32 px of surface below his feet
+    from the top      shift -277   526 px of surface below his feet
+
+So a bottom entry pinned him one margin from the canvas edge and kept him there
+for the life of the pin — and as he scrolled inward the canvas edge travelled up
+into the middle of the screen with him. A top entry landed nowhere near its
+clamp, which is why the same code looked correct from one direction only, and
+why re-entering from the top "rectified" it.
+
+The pin now relaxes back to aligned the moment aligned is legal. Re-pinning is
+the ordinary path and is invisible for the same reason the first pin is, so this
+is one condition in `syncPinned` rather than a new mechanism.
+
+**And the margin was measured against his body, which is not his size.**
+`screenHalf` is half of `BODY_H`, projected. What reaches the canvas is more, and
+guessing at how much more was the second half of this defect — 0.6 half-heights
+"looked generous". Read back from the rendered pixels, at a half-height of 112:
+
+    idle           21 px above,   25 px below
+    happy          65 px above,   26 px below
+    card_present   25 px above,   66 px below
+    alert_star    136 px above,   46 px below
+    card_stash    148 px above,   41 px below
+
+The stash cards and the alert reel ride a long way outboard, so the old margin
+was under half of what the worst state needs. 1.6 half-heights covers it with
+headroom, and it stays affordable because he is sized from the viewport: his full
+height is about 0.3 of it, so the span this demands is around 0.78 of a screen.
+
+Verified by reading pixels rather than by trusting the arithmetic: walking him in
+from both edges in `card_stash`, on Chromium, WebKit and Firefox, he never
+reaches the first or last row of the canvas while the canvas edge is inside the
+visible screen. The distinction matters — reaching the bottom row of a canvas
+that is FLUSH with the viewport is just him being half off the screen, which is
+what entering looks like, and an earlier version of that check reported it as a
+failure.
+
+**What this pass got wrong is worth keeping.** A defect was reported, a plausible
+cause was found, fixed, verified, and shipped — and it was a different defect
+that happened to produce a similar symptom. The `svh` strip was real and is
+genuinely fixed. It was not what the reviewer was looking at. The tell was in the
+report all along: "whenever he comes in from the bottom edge" describes a
+direction, and a CSS length has no direction.
+
+## 2026-08-20 — Fable's review of the compositor branch, and the two real defects it found
+
+An independent frontier-model review before merge. It confirmed the coordinate
+algebra by hand — the `setViewOffset` composition, `camera.aspect` at the frame
+ratio, NDC over the canvas, `worldPerPx` over the viewport, `applyDolly(frameH)`
+— and found no fourth sibling to the two frustum bugs already fixed. What it
+found instead were failures of the PREMISE rather than of the arithmetic, which
+is the more useful half.
+
+**A `sticky` or `fixed` target breaks the premise outright.** The whole hand-off
+rests on "his position in document space is constant while he is parked", and a
+stuck header is exactly the case where that is false: its document position
+changes with every scrolled pixel. Nothing would notice quickly either, because a
+stuck element resizes nothing, so the `ResizeObserver` never fires and only the
+400 ms poll corrects — a slide-and-snap cycle that is worse than the hand-tracked
+path it replaced, which handles these perfectly because their rect is constant in
+the space it works in. `parkBeside`'s own edge exception names "the nav over here
+on a standard page" out loud, and navs are the canonical sticky element.
+`ridesThePage()` now refuses them, beside the existing inner-scroller guard.
+
+**A pin near the end of the document grows the page.** The pinned canvas is an
+absolutely positioned box, so any part of it hanging below the document's own end
+extends the scrollable range. Measured on Chromium by parking beside a footer:
+the page grew by **219 px** of blank space the reader can scroll into, which
+snaps shut again the moment he unpins. The earlier claim that `scrollHeight` does
+not grow was verified through 300 px of MID-PAGE scroll, where the canvas bottom
+is nowhere near the document end — true, and not a test of the case that fails.
+`pinWindow` now takes `roomBelow` and refuses rather than overhanging. That costs
+nothing where it bites: it bites at the bottom of a page, where there is no
+scrolling left to be chunky during.
+
+**Fixing it put a forced layout back, and that had to be caught too.** The room
+check needs `scrollHeight`, which forces layout, and the relax check calls it
+every frame — precisely the cost this whole restructure exists to remove.
+`documentHeight()` now caches it on the same 250 ms TTL `elasticOffset` was
+already using for the same read, and both callers share it. Measured with both
+`getBoundingClientRect` and `scrollHeight` hooked: **0.04 forced layouts per
+frame** while pinned, against 2.95 on the tracked path.
+
+**Three smaller ones, all correct.** The ring layer froze EVERY ring while
+pinned, not just the anchored one — `highlightElement` is a design-system
+primitive with other callers coming, and the pin says one element holds still in
+the page, nothing about any other. `pinToPage` rounded the canvas width up, which
+on a fractional viewport overflows the root by half a pixel and lets the page
+scroll sideways for the life of the pin; it floors now. And two comments had
+become lies: `RectLike` described a derived-rect mechanism the code no longer
+uses, and `elementHighlight`'s header still claimed the layer is always fixed.
+
+**Two tests were worthless and one of them was a lie.** "A derived rect parks him
+where a measured one would" compared `parkBeside(x)` against `parkBeside(x)` —
+the two rects were identical expressions — so it could not fail under any change,
+and the mechanism it claimed to check is not what the runtime does. Deleted. The
+pin-window tests re-implemented `idealShift` inline with the constants hardcoded,
+so they would have stayed green through any edit to the real formula; the
+geometry moved into `pageAnchor.ts` as pure exported functions and the tests call
+those.
+
+The lesson worth keeping is the shape of what a fresh reviewer found: not the
+algebra, which had been measured to death, but the assumptions underneath it —
+which targets hold still, and what an absolutely positioned overlay does to the
+document it is placed in. Neither is visible from inside the change.

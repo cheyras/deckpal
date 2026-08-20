@@ -7,7 +7,7 @@
  */
 import { PerspectiveCamera, Plane, Raycaster, Vector2, Vector3 } from 'three'
 import { BODY_H, BODY_W } from './constants'
-import { viewHeight, viewWidth } from './viewport'
+import { canvasHeight, viewHeight, viewWidth } from './viewport'
 
 export type Depth = 'foreground' | 'background'
 export type Side = 'auto' | 'left' | 'right'
@@ -61,9 +61,13 @@ export function viewportToBlender(
   distance: number,
   out = new Vector3(),
 ): Vector3 {
+  // NDC SPANS THE CANVAS, NOT THE VIEWPORT, and those stopped being the same
+  // thing when the canvas grew to cover the strip Safari's toolbar vacates. The
+  // canvas is top-anchored, so a viewport Y and a canvas Y are the same number —
+  // only the denominator differs.
   const ndc = new Vector2(
     (clientX / viewWidth()) * 2 - 1,
-    -(clientY / viewHeight()) * 2 + 1,
+    -(clientY / canvasHeight()) * 2 + 1,
   )
   const ray = new Raycaster()
   ray.setFromCamera(ndc, camera)
@@ -84,12 +88,53 @@ export function viewportToBlender(
   return out.set(hit.x, -hit.z, hit.y)
 }
 
+/**
+ * Does this element hold still in the PAGE, or in the window?
+ *
+ * The compositor hand-off rests on one claim — that while he is parked on an
+ * element and on screen, his position in document space is constant — and a
+ * `sticky` or `fixed` element is precisely the case where that claim is false.
+ * A stuck header's document position changes with every scrolled pixel, so a
+ * pinned character slides off it by the full scroll delta until something
+ * notices; and nothing would, quickly, because a stuck element resizes nothing,
+ * so the `ResizeObserver` never fires and only the slow poll corrects it. The
+ * result is worse than the hand-tracked path it replaced, which handles these
+ * perfectly: their rect is constant in VIEWPORT space, which is the space it
+ * works in.
+ *
+ * Worth guarding rather than treating as exotic, because `parkBeside`'s own edge
+ * exception already names the case out loud — "the nav over here on a standard
+ * page" — and navs are the canonical sticky element.
+ */
+export function ridesThePage(el: Element): boolean {
+  let n: Element | null = el
+  while (n && n !== document.documentElement) {
+    const pos = getComputedStyle(n).position
+    if (pos === 'fixed' || pos === 'sticky') return false
+    n = n.parentElement
+  }
+  return true
+}
+
 export type ParkResult = {
   /** Where to fly to, in the Blender frame. */
   position: Vector3
   /** Which way he should face so he looks INWARD at the element. */
   facing: number
 }
+
+/**
+ * The parts of a `DOMRect` the parking solve actually reads.
+ *
+ * Named, and used in place of `DOMRect`, so that a rect can be held rather than
+ * measured. While the overlays are pinned to the page the element's box INSIDE
+ * THE CANVAS is a constant — the two are pinned to the same page, so neither
+ * moves relative to the other — so `DeckE` caches one of these at the pin and
+ * hands it back every frame. That is the difference between a forced layout
+ * every frame and none at all. See `DeckE.syncPinned`, which pairs it with a
+ * frustum shift rather than with a recomputed rect.
+ */
+export type RectLike = Pick<DOMRect, 'left' | 'top' | 'right' | 'width' | 'height'>
 
 /**
  * Choose a spot beside an element and the facing that looks at it.
@@ -100,7 +145,7 @@ export type ParkResult = {
  */
 export function parkBeside(
   camera: PerspectiveCamera,
-  rect: DOMRect,
+  rect: RectLike,
   opts: { depth: Depth; side: Side; baseDistance: number },
 ): ParkResult {
   const distance =
@@ -219,7 +264,7 @@ export function shapeFor(a: Vector3, b: Vector3, legIndex: number) {
     // stopping-distance law overshoots its own settle window every frame and the
     // leg limit-cycles out to the 600-frame cap. Measured, raising the long
     // cruise from 0.08 to 0.185 turned a 3067 ms leg into a 20167 ms one — the
-    // cap exactly. Pace is set by `TRAVEL_RATE` in `flight.ts`, which scales the
+    // cap exactly. Pace is set by `travelRate()` in `flight.ts`, which scales the
     // finished track and cannot destabilise a controller that has already run.
     cruise: dist > 4 ? 0.08 : 0.1,
   }
