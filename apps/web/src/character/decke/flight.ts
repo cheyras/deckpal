@@ -62,10 +62,40 @@ export const FPS = 30
  * the arc, the bow and the overshoot exactly as reviewed, and has no feedback
  * left in it to destabilise.
  *
- * 2.2 puts a background leg at 1394 ms — 45% of what it was, inside the "less
+ * 2.2 put a background leg at 1394 ms — 45% of what it was, inside the "less
  * than half" that was asked for, with the trip home the longest at 1909.
+ *
+ * ONE RATE FOR EVERY LEG WAS THE PART THAT WAS WRONG, and the next review said
+ * so from both ends at once: "let's make his foreground to background and vice
+ * versa travel even a bit more fast, and let's make his short travel a bit
+ * slower (it feels a little fast currently)." Those pull in opposite directions,
+ * so no single number satisfies them.
+ *
+ * They separate cleanly on DISTANCE, and by an order of magnitude rather than by
+ * a hair — measured at the shipped framing on a 1280x900 page: a tiny nudge is
+ * 0.40 world units, a short hop 1.06, right across the page 2.69, and a depth
+ * change 24.4 to 26.9, because the background plane is three times the camera
+ * distance. So the rate ramps with the length of the trip and nothing has to
+ * know what KIND of leg it is: a depth change is simply the long end.
+ *
+ * At the shipped constants: the nudge goes 242 -> 313 ms and the short hop
+ * 303 -> 385, both about a quarter slower; a depth change goes 1424 -> 1062,
+ * about a quarter faster. `shapeFor`'s cruise still switches at 4 units, and
+ * still is not the pace knob — see the note there.
  */
-export const TRAVEL_RATE = 2.2
+export const TRAVEL_RATE_NEAR = 1.7
+export const TRAVEL_RATE_FAR = 2.95
+/** Where the far rate is reached. Depth changes measure 24-27, so they all sit
+ *  at the top of the ramp; same-depth legs measure under 3 and sit at the
+ *  bottom of it. The ramp between is for whatever a taller page or a
+ *  background-to-background traverse produces. */
+const TRAVEL_RATE_FULL_AT = 20
+
+/** How much faster than solved a leg of this length is played. */
+export function travelRate(distance: number): number {
+  const u = Math.min(1, Math.max(0, distance / TRAVEL_RATE_FULL_AT))
+  return TRAVEL_RATE_NEAR + (TRAVEL_RATE_FAR - TRAVEL_RATE_NEAR) * u
+}
 
 // --- orientation constants -------------------------------------------------
 const LEAD_ACC = 26.0 // degrees. Lean follows ACCELERATION, not speed:
@@ -287,7 +317,7 @@ export function solveFlight(a: Vector3, b: Vector3, opts: SolveOptions): FlightT
 
   const arcs = simulate(pathLen, cruise)
   const nf = arcs.length - 1
-  const durationMs = (nf * 1000) / (FPS * TRAVEL_RATE)
+  const durationMs = (nf * 1000) / (FPS * travelRate(a.distanceTo(b)))
 
   // Position at a given arc length, extrapolating along the end tangent outside
   // the path so anticipation and overshoot have somewhere to go.
@@ -468,11 +498,11 @@ export function sampleTrack(track: FlightTrack, tMs: number, out: FlightSample):
   // INDEX BY PROGRESS THROUGH THE TRACK, not by wall-clock frames.
   //
   // `(tMs / 1000) * FPS` is the same thing only while the track is played at the
-  // rate it was solved at, and it stopped being true the moment `TRAVEL_RATE`
+  // rate it was solved at, and it stopped being true the moment the travel rate
   // existed: `durationMs` shrank, the indexing did not, and the guard above then
   // fired at 45% of the way along the path. Measured on a full-width leg — at 99%
   // of the playback he was 0.47 of the way to the destination, and arrived by
-  // teleporting on the last frame. Identical arithmetic at `TRAVEL_RATE = 1`, and
+  // teleporting on the last frame. Identical arithmetic at a rate of 1, and
   // correct at any other.
   const f = (tMs / track.durationMs) * (s.length - 1)
   const i = Math.min(s.length - 2, Math.floor(f))

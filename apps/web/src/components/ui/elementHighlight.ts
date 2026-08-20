@@ -44,8 +44,14 @@
  *    names from an element some other code may have re-rendered is not.
  *
  * The whole thing is `position: fixed` and follows the element on scroll and
- * resize, so it stays put without the caller having to think about it.
+ * resize, so it stays put without the caller having to think about it — EXCEPT
+ * while `setHighlightAnchor` has pinned the layer into the page, when the ring
+ * on the anchored element stops being recomputed because it no longer needs to
+ * be. Rings on any OTHER element keep following per frame, because for those the
+ * pin's premise does not hold. See `setHighlightAnchor`.
  */
+
+import { pinToPage, unpinToViewport } from '../../character/decke/pageAnchor'
 
 const LAYER_ID = 'decke-highlight-layer'
 const CYCLE_MS = 2600
@@ -69,6 +75,12 @@ type Live = {
 
 let live: Live | null = null
 let raf = 0
+/** The document offset the whole layer is pinned at, or null while it is pinned
+ *  to the viewport. See `setHighlightAnchor`. */
+let anchorDocY: number | null = null
+/** The element the anchor was taken for. A ring on anything else still has to be
+ *  followed by hand — see `follow`. */
+let anchorEl: Element | null = null
 
 function layer(): HTMLElement {
   let el = document.getElementById(LAYER_ID)
@@ -81,6 +93,10 @@ function layer(): HTMLElement {
     'position:fixed;inset:0;pointer-events:none;z-index:25;contain:layout style size'
   document.body.appendChild(el)
   injectKeyframes()
+  // The layer is created LAZILY, the first time anything is ringed — which can
+  // happen while the character is already pinned to the page. A layer born fixed
+  // in the middle of a pinned park would sit still while he rode the page.
+  if (anchorDocY !== null) pinToPage(el, anchorDocY)
   return el
 }
 
@@ -138,8 +154,16 @@ function injectKeyframes() {
 function place(l: Live) {
   const r = l.el.getBoundingClientRect()
   const s = l.ring.style
+  // The ring's offsets are relative to the LAYER, and while the layer is pinned
+  // to the page the layer's top edge is at document `anchorDocY` rather than at
+  // the top of the viewport. Adding the drift back converts a viewport rect into
+  // a layer-relative one, which makes this the same function in both modes —
+  // and, while pinned, an IDEMPOTENT one: `r.top` falls exactly as fast as the
+  // drift rises, so the answer is a constant. That is the whole point, and it is
+  // why `follow` stops calling this the moment the layer is pinned.
+  const drift = anchorDocY === null ? 0 : window.scrollY - anchorDocY
   s.left = `${r.left + INSET}px`
-  s.top = `${r.top + INSET}px`
+  s.top = `${r.top + drift + INSET}px`
   s.width = `${r.width - INSET * 2}px`
   s.height = `${r.height - INSET * 2}px`
 }
@@ -156,7 +180,18 @@ function follow() {
     clearHighlight()
     return
   }
-  place(live)
+  // Pinned, the ring's position within the layer is a constant and the layer is
+  // being moved by the compositor, so there is nothing here to recompute. The
+  // loop keeps running for the unmount check above, which is cheap and is the
+  // only thing that still has to be watched.
+  //
+  // ONLY FOR THE ANCHORED ELEMENT, THOUGH. This is a design-system primitive and
+  // the character is not its only caller — a tour step, a search hit, a row a
+  // background job just changed. The pin says one specific element holds still
+  // in the page; it says nothing about any other, and an element inside an inner
+  // scroller genuinely moves while the document does not. Freezing those was a
+  // ring stuck to the wrong place for the life of the pin.
+  if (anchorDocY === null || live.el !== anchorEl) place(live)
   raf = requestAnimationFrame(follow)
 }
 
@@ -238,4 +273,37 @@ export function setHighlightShift(px: number) {
   const el = document.getElementById(LAYER_ID)
   if (!el) return
   el.style.transform = px === 0 ? '' : `translate3d(0, ${px}px, 0)`
+}
+
+/**
+ * Move the whole ring layer out of the viewport and into the page, at document
+ * offset `docY`; `null` puts it back.
+ *
+ * The ring has exactly the character's problem and had exactly his workaround —
+ * a `position: fixed` layer with a per-frame loop reading the element's rect and
+ * writing the ring's offsets, which is smooth only as often as the browser hands
+ * out frames. Pinned, both stop: the ring's offsets within the layer are
+ * constant (see `place`), and the layer is carried by whatever moves the
+ * scrolling contents.
+ *
+ * THE TWO LAYERS HAVE TO AGREE, which is why this is driven from `DeckE` rather
+ * than decided here. He is drawn into a canvas at `z-30` and the ring sits under
+ * him at `z-25`; one of them riding the compositor while the other chases on the
+ * main thread would put visible daylight between a character and the thing he is
+ * pointing at, which is worse than both of them being chunky together.
+ */
+export function setHighlightAnchor(docY: number | null, el: Element | null = null) {
+  if (docY === anchorDocY && el === anchorEl) return
+  anchorDocY = docY
+  anchorEl = docY === null ? null : el
+  // No layer means nothing is ringed. The offset is still recorded, because
+  // `layer()` reads it when one is created later.
+  const layerEl = document.getElementById(LAYER_ID)
+  if (!layerEl) return
+  if (docY === null) unpinToViewport(layerEl)
+  else pinToPage(layerEl, docY)
+  // Either direction changes what "layer-relative" means, so the ring has to be
+  // re-placed in the same frame — the switch is invisible only if nothing inside
+  // the layer moves while the layer itself does not.
+  if (live) place(live)
 }
