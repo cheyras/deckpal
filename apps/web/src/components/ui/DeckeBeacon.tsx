@@ -18,6 +18,14 @@
  * design tokens for the same reason — but STATIC rather than chasing. The ring
  * says "something is happening at this element" and has to catch the eye; the
  * beacon says "he is over there" and must not. Same family, different volume.
+ *
+ * NO GALLERY ENTRY, DELIBERATELY, and its neighbours in this folder all have
+ * one. `HighlightRing` is a design-system primitive — anything that needs to say
+ * *this element* can use it, and the gallery is how someone finds that out. This
+ * is not: it is one half of a character feature, and the half that matters is
+ * drawn by a WebGL canvas that only exists on the character's route. A gallery
+ * card for it would show an empty ring pinned to the corner of the design page,
+ * which would teach the reader something false about what it is.
  */
 import { useEffect, useRef } from 'react'
 import { BEACON, type Beacon } from '../../character/decke/beacon'
