@@ -45,6 +45,21 @@ function isOwner(userId: string): boolean {
   return !!owner && userId === owner;
 }
 
+/**
+ * Whether an owner is configured at all — NOT who it is.
+ *
+ * Exported so `/health` can report it and boot can warn about it. "Unset means
+ * nobody" is the right default, but it used to be a SILENT default: `/design`
+ * shipped gated on this variable on 2026-08-14, the variable was never set in
+ * Vercel, and nothing anywhere said so. It was found four days later only
+ * because `/dev/decke` reused the same gate and someone went looking. See
+ * AGENTS.md B11.
+ */
+export function ownerGateStatus(): 'configured' | 'unset' | 'self-host' {
+  if (!SUPABASE_MODE) return 'self-host';
+  return process.env.DESIGN_EDITOR_USER_ID ? 'configured' : 'unset';
+}
+
 meRouter.get(
   '/',
   asyncHandler(async (req, res) => {
