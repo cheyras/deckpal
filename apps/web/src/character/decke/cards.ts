@@ -855,7 +855,20 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
       // authored for a clip that ENDED; the fade-in is honoured and everything
       // after it is held. They leave on the outro, riding the hands home, which
       // is what `orb` falling to zero does.
-      const schedule = tMs <= c.spawnDoneMs ? evalCurve(c.curve, tMs % c.cfg.loop_ms) : 1
+      // AND THE SCHEDULE'S CLOCK STOPS WHEN THE OUTRO STARTS.
+      //
+      // `tMs` is the state's own UNWRAPPED clock and it keeps running through
+      // the way out, so a card that had not spawned when the state was cut short
+      // would cross its spawn time DURING the outro and appear — at whatever
+      // `orb_on` had faded to by then. Measured: sustain `loading` for one second
+      // and release, and the right-hand card (whose real spawn is at 1533 ms)
+      // rises to 0.081 and vanishes 170 ms later. That is the same "pops up
+      // small, zooms off and disappears" this rule exists to remove, relocated to
+      // the exit — and it is the same mistake the stash flight makes if its
+      // `born` is not frozen the same way.
+      const schedTMs = phase === 'outro' ? tMs - phaseTMs : tMs
+      const schedule =
+        schedTMs <= c.spawnDoneMs ? evalCurve(c.curve, schedTMs % c.cfg.loop_ms) : 1
       c.node.scale.setScalar(orbit ? schedule * orb : base)
     }
 
