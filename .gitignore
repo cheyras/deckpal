@@ -88,3 +88,6 @@ supabase/.temp/
 # Python bytecode from the scripts/decke generators
 __pycache__/
 *.pyc
+
+# ── crash dumps (a killed node process can drop a multi-GB core here) ─────
+core.*

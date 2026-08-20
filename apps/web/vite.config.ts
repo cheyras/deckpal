@@ -1,96 +1,201 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import designEditor from './vite-plugins/design-editor.ts'
+import { LIVE_ORIGIN, fetchPublicConfig } from './live-backend.ts'
 
-// Worktree branches that change the API run their own instance and point the dev
-// proxy at it via DECKPAL_DEV_API_PORT (see roadmap/ORCHESTRATION.md port table).
-const devApiPort = process.env.DECKPAL_DEV_API_PORT ?? '3700';
+// ─────────────────────────────────────────────────────────────────────────────
+// Which backend does the dev server talk to?
+//
+// Default: the live product (https://deckpal.app) — real accounts, real data,
+// real images, zero setup. See AGENTS.md B12 for why that is the default and
+// what it obliges you to do.
+//
+// This file is the SINGLE place the cloud/self-host decision is made. It used
+// to be made independently in four places (this config, src/lib/supabase.ts,
+// src/main.tsx's router basepath, src/lib/api.ts's BASE) by each reading
+// VITE_SUPABASE_URL for itself. That is fine when the variable comes from a
+// .env file, because they all read the same file — but the moment the dev
+// server started *deriving* a default, they disagreed: main.tsx would put the
+// router on /deckpal while this config served from /, and every route 404'd.
+// So the values are resolved here once and injected with `define`; every
+// consumer keeps reading import.meta.env and cannot drift.
+//
+// The whole mechanism is gated on `command === 'serve'`. `vite build` — what
+// Vercel runs, and what a self-hoster runs — never sees an injected value and
+// behaves exactly as it did before this existed.
+// ─────────────────────────────────────────────────────────────────────────────
 
-// vite.config.ts runs in plain Node, so process.env doesn't see apps/web/.env.local
-// (Vite only injects .env files into import.meta.env for client code) — loadEnv
-// reads the same files this config needs to branch on cloud vs self-host.
-const fileEnv = loadEnv(process.env.NODE_ENV ?? 'development', process.cwd(), 'VITE_');
+/** Reject writes that would land on real production data before they leave the dev box. */
+function devWriteGuard(active: boolean, allowBugs: boolean): Plugin {
+  return {
+    name: 'deckpal-dev-write-guard',
+    configureServer(server) {
+      if (!active) return
+      // Registered here (not in the returned post-hook) so it runs BEFORE
+      // Vite's own proxy middleware and can actually stop the request.
+      server.middlewares.use((req, res, next) => {
+        const isBugPost = req.method === 'POST' && (req.url ?? '').startsWith('/api/bugs')
+        if (!isBugPost || allowBugs) return next()
+        // The bug reporter files a real issue on the real GitHub repo. A
+        // verification loop that clicks it spams the actual tracker, and the
+        // issues are indistinguishable from a user's.
+        res.statusCode = 403
+        res.setHeader('Content-Type', 'application/json')
+        res.end(
+          JSON.stringify({
+            error: {
+              message:
+                'Blocked by the dev server: POST /api/bugs would open a real issue on ' +
+                'github.com/cheyras/deckpal. Re-run with DECKPAL_DEV_ALLOW_BUGS=1 if you mean it.',
+            },
+          }),
+        )
+      })
+    },
+  }
+}
 
-// Sub-path deploy: served at /deckpal/ behind nginx (see ARCHITECTURE §4).
-// Cloud (Vercel): served at / (VITE_SUPABASE_URL signals cloud mode).
-// Trailing slash on base is required. Router basepath matches (minus trailing slash).
-const isCloud = !!(process.env.VITE_SUPABASE_URL || fileEnv.VITE_SUPABASE_URL);
-const basePath = isCloud ? '/' : '/deckpal/';
-export default defineConfig({
-  base: basePath,
-  plugins: [
-    react(),
-    tailwindcss(),
-    designEditor(),
-    // PWA — injectManifest (hand-written src/sw.ts) so we control the SSO
-    // JSON guard, network-only mutations, and the LRU image cap (wiki: Frontend-Research §C.2).
-    // start_url/scope inherit base; the SW is emitted at <base>/sw.js and can
-    // only control <base>/* — exactly the desired scope.
-    VitePWA({
-      strategies: 'injectManifest',
-      srcDir: 'src',
-      filename: 'sw.ts',
-      registerType: 'prompt',
-      injectRegister: false, // we call registerSW() ourselves in src/pwa.ts
-      manifest: {
-        name: 'DeckPal',
-        short_name: 'DeckPal',
-        description: 'Self-hosted Pokémon TCG collection tracker',
-        id: basePath,
-        start_url: basePath,
-        scope: basePath,
-        display: 'standalone',
-        orientation: 'portrait',
-        background_color: '#1c1917', // --color-surface-primary (stone-900, theme.css)
-        theme_color: '#1c1917',
-        icons: [
-          { src: 'pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-          { src: 'pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-          { src: 'pwa-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
-          { src: 'pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-        ],
-      },
-      injectManifest: {
-        // Tier 0: precache the shell + all route chunks, fonts, and icons.
-        globPatterns: ['**/*.{js,css,html,woff2,svg,png}'],
-        // /dev/decke ships to production but is owner-only, so its chunk and
-        // its assets exist in the build and almost nobody should ever fetch
-        // them. Both are excluded from the precache manifest:
-        //
-        //   models/**      5.6 MB of glb, HDRI and the SDF glyph atlas
-        //   assets/Decke-* ~945 kB — three.js plus the character runtime
-        //
-        // Precaching is eager: without these, the service worker pulls 6.5 MB
-        // into EVERY visitor's cache on first load, for a route exactly one
-        // account can open. The route is lazy, so with them the cost is paid
-        // only by whoever actually opens it.
-        globIgnores: ['models/**', 'assets/Decke-*.js'],
-        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
-      },
-      devOptions: { enabled: false },
-    }),
-  ],
-  server: {
-    port: 5199,
-    proxy: isCloud
+export default defineConfig(async ({ command }) => {
+  const isDevServer = command === 'serve'
+
+  // vite.config.ts runs in plain Node, so process.env doesn't see
+  // apps/web/.env.local (Vite only injects .env files into import.meta.env for
+  // client code) — loadEnv reads the same files this config needs to branch on.
+  const fileEnv = loadEnv(process.env.NODE_ENV ?? 'development', process.cwd(), 'VITE_')
+
+  // An explicit VITE_SUPABASE_URL always wins: someone who configured their own
+  // Supabase (a fork, a local supabase CLI stack) means it.
+  const explicitUrl = process.env.VITE_SUPABASE_URL || fileEnv.VITE_SUPABASE_URL || ''
+  const explicitAnon = process.env.VITE_SUPABASE_ANON_KEY || fileEnv.VITE_SUPABASE_ANON_KEY || ''
+
+  // Worktree lanes (roadmap/ORCHESTRATION.md) run their own API on their own
+  // port and point the proxy at it. If that variable is set, the developer is
+  // unambiguously working on a local API — defaulting them to the live backend
+  // would silently NOT exercise the very changes they are testing.
+  const laneApiPort = process.env.DECKPAL_DEV_API_PORT
+  const backend = process.env.DECKPAL_DEV_BACKEND ?? (laneApiPort ? 'local' : 'live')
+  const devOrigin = process.env.DECKPAL_DEV_ORIGIN || LIVE_ORIGIN
+
+  const useLive = isDevServer && backend !== 'local' && !explicitUrl
+  const live = useLive ? await fetchPublicConfig(devOrigin) : null
+
+  if (isDevServer) {
+    const target = live ? `LIVE — ${devOrigin}` : `local — 127.0.0.1:${laneApiPort ?? '3700'}`
+    console.log(`\n  \x1b[1mDeckPal dev backend:\x1b[0m ${target}`)
+    if (live) {
+      console.log('  Real accounts and real data. Sign in with the QA account, not the owner account.')
+      console.log('  Local stack instead: pnpm dev --local\n')
+    } else {
+      console.log('')
+    }
+  }
+
+  const supabaseUrl = explicitUrl || live?.supabaseUrl || ''
+  const supabaseAnon = explicitAnon || live?.supabaseAnonKey || ''
+
+  // Sub-path deploy: served at /deckpal/ behind nginx (see ARCHITECTURE §4).
+  // Cloud (Vercel): served at / (a Supabase URL signals cloud mode).
+  // Trailing slash on base is required. Router basepath matches (minus trailing slash).
+  const isCloud = !!supabaseUrl
+  const basePath = isCloud ? '/' : '/deckpal/'
+  const apiPrefix = isCloud ? '/api' : '/deckpal/api'
+  const proxyTarget = live ? devOrigin : `http://127.0.0.1:${laneApiPort ?? '3700'}`
+
+  return {
+    base: basePath,
+    // Only injected when the dev server derived these itself. On `vite build`
+    // both are undefined and Vite's ordinary .env handling applies untouched.
+    ...(isDevServer && live
       ? {
-          // Dev-only: cloud-mode API base is /api (see apps/api/src/index.ts).
-          '/api': `http://127.0.0.1:${devApiPort}`,
-          // Cloud image tier is normally a Vercel function (api/images.mjs);
-          // scripts/dev-images-server.mjs stands in for it locally.
-          '/deckpal/images': 'http://127.0.0.1:3701',
+          define: {
+            'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
+            'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnon),
+            // Drives the in-app LIVE ribbon (src/components/DevBackendRibbon.tsx).
+            'import.meta.env.VITE_DEV_LIVE_ORIGIN': JSON.stringify(devOrigin),
+          },
         }
-      : {
-          // Dev-only: proxy API + image service so the app talks to /deckpal/... same-origin.
-          '/deckpal/api': `http://127.0.0.1:${devApiPort}`,
-          '/deckpal/images': 'http://127.0.0.1:3701',
+      : {}),
+    plugins: [
+      react(),
+      tailwindcss(),
+      designEditor(),
+      devWriteGuard(!!live, process.env.DECKPAL_DEV_ALLOW_BUGS === '1'),
+      // PWA — injectManifest (hand-written src/sw.ts) so we control the SSO
+      // JSON guard, network-only mutations, and the LRU image cap (wiki: Frontend-Research §C.2).
+      // start_url/scope inherit base; the SW is emitted at <base>/sw.js and can
+      // only control <base>/* — exactly the desired scope.
+      VitePWA({
+        strategies: 'injectManifest',
+        srcDir: 'src',
+        filename: 'sw.ts',
+        registerType: 'prompt',
+        injectRegister: false, // we call registerSW() ourselves in src/pwa.ts
+        manifest: {
+          name: 'DeckPal',
+          short_name: 'DeckPal',
+          description: 'Pokémon TCG collection tracker',
+          id: basePath,
+          start_url: basePath,
+          scope: basePath,
+          display: 'standalone',
+          orientation: 'portrait',
+          background_color: '#1c1917', // --color-surface-primary (stone-900, theme.css)
+          theme_color: '#1c1917',
+          icons: [
+            { src: 'pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+            { src: 'pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+            { src: 'pwa-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+            { src: 'pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          ],
         },
-  },
-  build: {
-    // tsc is intentionally kept out of the build path (Rolldown/Vite 8).
-    target: 'es2022',
-    chunkSizeWarningLimit: 300,
-  },
+        injectManifest: {
+          // Tier 0: precache the shell + all route chunks, fonts, and icons.
+          globPatterns: ['**/*.{js,css,html,woff2,svg,png}'],
+          // /dev/decke ships to production but is owner-only, so its chunk and
+          // its assets exist in the build and almost nobody should ever fetch
+          // them. Both are excluded from the precache manifest:
+          //
+          //   models/**      5.6 MB of glb, HDRI and the SDF glyph atlas
+          //   assets/Decke-* ~945 kB — three.js plus the character runtime
+          //
+          // Precaching is eager: without these, the service worker pulls 6.5 MB
+          // into EVERY visitor's cache on first load, for a route exactly one
+          // account can open. The route is lazy, so with them the cost is paid
+          // only by whoever actually opens it.
+          globIgnores: ['models/**', 'assets/Decke-*.js'],
+          maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+        },
+        // Leave this off. Turning it on would put the service worker in front of
+        // a dev server that now proxies PRODUCTION data, caching real users'
+        // responses to local disk under a localhost origin.
+        devOptions: { enabled: false },
+      }),
+    ],
+    server: {
+      port: 5199,
+      proxy: {
+        // One target, whether it is the live deployment or a local API. The
+        // client asks for `apiPrefix`; both shapes are forwarded verbatim
+        // because the remote serves /api and a local self-host API serves
+        // /deckpal/api — the prefix already encodes which one is in play.
+        [apiPrefix]: { target: proxyTarget, changeOrigin: true },
+        // Cloud image tier is a Vercel function (api/images.mjs); locally,
+        // scripts/dev-images-server.mjs stands in for it. Against the live
+        // backend some paths 302 to Supabase Storage, which the browser
+        // follows directly — fine for <img>.
+        '/deckpal/images': live
+          ? { target: devOrigin, changeOrigin: true }
+          : { target: 'http://127.0.0.1:3701', changeOrigin: true },
+        // So the Connect/agent-access panel shows a URL that actually resolves.
+        '/mcp': { target: proxyTarget, changeOrigin: true },
+      },
+    },
+    build: {
+      // tsc is intentionally kept out of the build path (Rolldown/Vite 8).
+      target: 'es2022',
+      chunkSizeWarningLimit: 300,
+    },
+  }
 })

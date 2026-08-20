@@ -193,6 +193,27 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `NODE_ENV` | `production` | |
 | `DESIGN_EDITOR_USER_ID` | `<auth.users UUID>` | **Set this, or two features are dead.** Gates two surfaces. It names the deployment's **owner**: the one account allowed to open the read-only `/design` design-system reference and the `/dev/decke` character preview in production (`GET /me` returns `designEditor: true` and `owner: true` for it). **Unset = nobody**, so both fail closed — which is correct, but was silent until 2026-08-18: `/design` shipped gated on this and the variable was never set, so the route was shut to its only user for four days. The API now warns on boot and reports `ownerGate` on `GET /health` when it is missing (AGENTS.md B11). The name is historical — it means "the owner", and `/design` was simply the first thing that needed one. Editing the design system always requires the local dev server; this only gates viewing. |
 
+   `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` must be present at **runtime**
+   as well as build time. They are what `GET /api/public-config` serves, which is
+   how a contributor's `pnpm dev` configures itself against this deployment
+   without the repo committing any key (AGENTS.md B12). Both are already public —
+   they are compiled into the SPA bundle this deployment serves — so exposing
+   them on an endpoint reveals nothing new. A self-host deployment has neither,
+   answers `mode: 'self-host'` with empty strings, and a dev server pointed at it
+   refuses with an explanatory error instead of half-configuring itself.
+
+   If you rotate the anon key, redeploy: every developer's next `pnpm dev` picks
+   the new one up automatically, with no commit and no coordination.
+
+   **Dev-server-only variables** (never set these on a deployment):
+
+   | Variable | Effect |
+   |---|---|
+   | `DECKPAL_DEV_ORIGIN` | Deployment `pnpm dev` proxies to. Default `https://deckpal.app`. Point it at a preview URL or a fork. |
+   | `DECKPAL_DEV_BACKEND` | `local` forces the full local stack. Equivalent to `pnpm dev --local`. |
+   | `DECKPAL_DEV_API_PORT` | Worktree lanes; selects `local` automatically (roadmap/ORCHESTRATION.md). |
+   | `DECKPAL_DEV_ALLOW_BUGS` | `1` re-enables `POST /api/bugs` from the dev server. Off by default so UI verification cannot file real issues. |
+
 4. **(Optional) Bug reporter → GitHub issues:** Create a fine-grained Personal
    Access Token at `github.com/settings/personal-access-tokens/new` with
    **Issues: Read and write** permission scoped to your `deckpal` repo. Set
