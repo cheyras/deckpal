@@ -6577,9 +6577,19 @@ passed, and it 404'd only in production. `apps/web/public/marketing/` had alread
 needed the same negation for the same reason and says so in a comment; this was
 the second instance.
 
+**And `.gitignore` was only half of it.** `.vercelignore` carries the same
+blanket `*.webp`, with the same marketing negation, above a comment predicting
+exactly this outcome — "the deployed hero/accents 404 into their CSS gradient
+fallbacks with no build-time error". Two independent lists, and fixing one leaves
+the asset in git and still absent from the deploy. That state is not observable
+from a local build, from CI, or from `git status`: only from a build log.
+
 So `scripts/check-precache.mjs` gained a second gate, and the two are the same
 check from opposite directions: the first says a character asset must never ship
-to every visitor, the second says it must actually ship at all. It scans the
+to every visitor, the second says it must actually ship at all. The gate found
+the `.vercelignore` half within minutes of being written — it failed the Vercel
+deploy while the identical tree built cleanly from a fresh clone using
+`vercel.json`'s own buildCommand, and that discrepancy IS the finding. It scans the
 character's own source for `models/decke/<file>` references — including the ones
 written as template literals, which is most of them — and fails the build if any
 is absent from `dist`. A build from a fresh clone is what CI and Vercel both are,
