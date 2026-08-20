@@ -20,13 +20,13 @@
     "dev:api": "pnpm --filter deckpal-api dev"
   },
   "devDependencies": {
-    "@types/node": "^26.1.2",
-    "ai": "^7.0.58",
+    "@types/node": "^26.2.0",
+    "ai": "^7.0.66",
     "sharp": "^0.35.3",
-    "tsx": "^4.23.9",
+    "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "pg": "^8.22.0"
+    "pg": "^8.23.0"
   }
 }
