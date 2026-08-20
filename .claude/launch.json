@@ -4,9 +4,25 @@
     {
       "name": "deckpal",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev"],
+      "runtimeArgs": [
+        "dev"
+      ],
       "port": 5199,
       "url": "http://localhost:5199"
+    },
+    {
+      "name": "deckpal-preview",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "deckpal-web",
+        "preview",
+        "--port",
+        "5210",
+        "--strictPort"
+      ],
+      "port": 5210,
+      "url": "http://localhost:5210"
     }
   ]
 }
