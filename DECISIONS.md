@@ -6369,6 +6369,20 @@ never saw it); and the first stash card no longer launches through a lid that is
 still opening — the authored `start_ms` carried a 400 ms gape delay that the
 respecification dropped.
 
+**The restructure this points at, recorded so it is not rediscovered.** All four
+of those, and the same-state-restart bug beside them, are one weakness: WHAT IS
+ON SCREEN has three authorities that can disagree — the phase machine in
+`DeckE`, string checks on state names in `cards.ts`, and clip channels. Every
+hole was a disagreement between them under interruption, and each was fixed
+locally. The change that would dissolve the class is to give deployed objects a
+lifecycle of their own — spawned-at / alive / despawning — that the state layer
+REQUESTS rather than implies, so an object can never appear or vanish except
+through its own spawn or despawn animation. Interrupts would then degrade to
+"everything plays its 200 ms despawn" for free, `hasOutro(interrupted)`'s
+special-casing would disappear, and a count change mid-state would become a
+spawn/despawn diff rather than something to defer. That is a bigger change than
+this pass should carry, and it is the right next one.
+
 **What is still open, stated rather than left to be discovered.** The
 intro/sustain/outro machine has no UNIT tests — it needs a WebGL context, so the
 interrupt paths above are covered by a Playwright integration script rather than
