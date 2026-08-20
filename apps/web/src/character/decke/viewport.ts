@@ -50,6 +50,8 @@ let h = 0
 export function setViewport(width: number, height: number) {
   if (width > 0) w = width
   if (height > 0) h = height
+  // The document's scrollable range moved with it.
+  maxScrollAt = -1e9
 }
 
 /**
@@ -64,4 +66,47 @@ export function viewWidth(): number {
 
 export function viewHeight(): number {
   return h || window.innerHeight
+}
+
+/**
+ * How far past the end of the document the page is currently drawn, in CSS
+ * pixels. Negative above the top, positive past the bottom, 0 the rest of the
+ * time — which is almost always.
+ *
+ * THE ELASTIC BOUNCE, WHERE IT IS OBSERVABLE AT ALL. "When I scroll beyond the
+ * limit, that highlight and him don't go down with it." They cannot, in Chrome:
+ * the bounce is a compositor paint transform that never touches the layout tree,
+ * `scrollY` is clamped, and Chrome deliberately shipped
+ * `FixedElementsDontOverscroll` in 2022 so a fixed layer is pinned through it by
+ * design. Measured here under a synthesised compositor gesture: `scrollY`,
+ * `getBoundingClientRect().top`, `visualViewport.offsetTop` and `.pageTop` are
+ * all flat for the whole bounce. There is nothing to read.
+ *
+ * WebKit is the opposite, and it is documented rather than incidental — MDN says
+ * plainly that "Safari responds to overscrolling by updating scrollY beyond the
+ * maximum scroll position", and that it may go negative at the top. So on the
+ * engine the phone actually runs, the offset IS readable, and this returns it.
+ *
+ * So the answer is genuinely per-engine, and the code does not have to choose:
+ * where the number exists it is tracked, and where it does not this returns 0
+ * forever and the `overscroll-behavior-y` lock stays on to remove the
+ * disagreement instead. See `DeckE`.
+ */
+let maxScroll = 0
+let maxScrollAt = -1e9
+
+export function elasticOffset(): number {
+  const y = window.scrollY
+  // Cheap case first, and it is the top bounce — no layout read at all.
+  if (y < 0) return y
+  // `scrollHeight` FORCES LAYOUT, and this runs every frame. Cached on a short
+  // TTL: the document's height changes when content loads or the viewport
+  // changes, neither of which happens at frame rate, and being a quarter of a
+  // second stale can only mis-time the very first frame of a bottom bounce.
+  const now = performance.now()
+  if (now - maxScrollAt > 250) {
+    maxScrollAt = now
+    maxScroll = Math.max(0, document.documentElement.scrollHeight - viewHeight())
+  }
+  return y > maxScroll ? y - maxScroll : 0
 }

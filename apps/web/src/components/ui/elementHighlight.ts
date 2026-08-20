@@ -219,3 +219,23 @@ export function clearHighlight() {
 export function highlighted(): Element | null {
   return live?.el ?? null
 }
+
+/**
+ * Shift the whole ring layer, in CSS pixels, to ride the page's elastic bounce.
+ *
+ * The ring is a `position: fixed` layer, so it does not participate in the
+ * rubber band — "that highlight and him don't go down with it". Where the engine
+ * reports the bounce (WebKit does; Chrome pins every readable metric flat)
+ * `DeckE` reads the offset and hands it here so the ring and the character take
+ * the SAME translation. Anything less and the two overlays disagree with each
+ * other as well as with the page, which is worse than either one being still.
+ *
+ * A transform on the layer rather than on each ring: it is one composited
+ * property on one element, and the per-frame `place()` loop that positions the
+ * rings inside it is left completely alone.
+ */
+export function setHighlightShift(px: number) {
+  const el = document.getElementById(LAYER_ID)
+  if (!el) return
+  el.style.transform = px === 0 ? '' : `translate3d(0, ${px}px, 0)`
+}
