@@ -148,10 +148,23 @@ export function parkBeside(
   // standing on it with his whole body above.
   position.z -= BODY_H / 2
 
-  // Standing to the RIGHT of a thing means facing LEFT to look at it. This
-  // holds after the edge exception too: whichever side he ended up on, he turns
-  // back toward the element.
-  const facing = side === 'right' ? -1 : 1
+  // FACING IS IN HIS FRAME, NOT THE VIEWER'S, AND THIS HAD IT BACKWARDS.
+  //
+  // "When he goes to present something, he's facing away from it, which is
+  // incorrect. He's always facing away from it." Always, and on both sides,
+  // which is the signature of a sign rather than of a rule.
+  //
+  // The rule itself was right: standing to the viewer's right of a thing means
+  // turning toward the viewer's LEFT to look at it. What was wrong is which
+  // `facing` value that is. `facing` is named from HIS point of view — the
+  // reviewer's note is "we need to remember that these are talking about his
+  // right and his left rather than viewer right and viewer left" — so `+1` turns
+  // him to HIS right, which the viewer sees as turning to screen LEFT.
+  // Confirmed on screen at both ends before this was changed.
+  //
+  // So: on the viewer's right of the element, face `+1`. It holds after the edge
+  // exception too — whichever side he ended up on, he turns back across it.
+  const facing = side === 'right' ? 1 : -1
   return { position, facing }
 }
 

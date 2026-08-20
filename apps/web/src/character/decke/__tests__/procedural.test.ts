@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { Blinker, IdleFloat, Rng } from '../procedural'
+import { Blinker, FLOAT_RATE_SCALE, Gaze, IdleFloat, Rng } from '../procedural'
 import type { PlaybookDoc } from '../playbook'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -176,4 +176,79 @@ test('gaze-locked states and the alert freeze are both represented', () => {
   assert.ok(doc.gaze_lock.includes('nod_yes'))
   assert.ok(doc.gaze_lock.includes('shake_no'))
   assert.deepEqual(doc.gaze_lock, fx.gaze_lock)
+})
+
+/**
+ * The flit gate — the one procedural constraint that is stated as an invariant
+ * rather than as a distribution.
+ *
+ * "There needs to be like a gate on that, because I do want it to be randomized,
+ * but there needs to be like a max frequency. It's at most every half second
+ * maybe." A wider interval range is NOT that: a uniform draw satisfies a floor
+ * only on average, and the failure it was asked to prevent — two flits back to
+ * back, "boom, boom" — is exactly the tail of that distribution.
+ */
+test('no two gaze flits ever land closer than the gate', () => {
+  const p = doc.procedural.prng
+  const gaze = new Gaze(doc, new Rng(p.seed, p.a, p.m))
+  const out = { gx: 0, gz: 0 }
+  // Walk a real ten minutes of clock so the schedule regenerates at least once
+  // and the seam between two generated horizons is covered too.
+  const seen: number[] = []
+  let last = -Infinity
+  let minGap = Infinity
+  for (let t = 0; t < 600; t += 0.05) {
+    gaze.at(t, false, false, out)
+    const flits = (gaze as unknown as { flits: { t: number }[] }).flits
+    for (const f of flits) {
+      if (f.t <= last) continue
+      minGap = Math.min(minGap, f.t - last)
+      last = f.t
+      seen.push(f.t)
+    }
+  }
+  assert.ok(seen.length > 100, `only ${seen.length} flits in 10 minutes`)
+  assert.ok(minGap >= 0.9 - 1e-9, `two flits landed ${minGap.toFixed(3)} s apart`)
+  // And "overall less frequent" is a real reduction, not a rounding: the
+  // authored [0.45, 1.6] averages one flit every 1.02 s.
+  const rate = seen.length / seen[seen.length - 1]
+  assert.ok(rate < 0.55, `still ${rate.toFixed(2)} flits/s`)
+})
+
+test('a flit stays a micro-saccade', () => {
+  const p = doc.procedural.prng
+  const gaze = new Gaze(doc, new Rng(p.seed, p.a, p.m))
+  const flits = (gaze as unknown as { flits: { x: number; z: number }[] }).flits
+  // In TARGET units. `look.ts` divides by the eye-to-camera depth (5.06 at the
+  // staging camera) and multiplies by GAZE_GAIN, so 0.28 is 12% of the pupil's
+  // lateral roam — where the authored 0.68 was 30% of it, per flit.
+  let maxX = 0
+  let maxZ = 0
+  for (const f of flits) {
+    maxX = Math.max(maxX, Math.abs(f.x))
+    maxZ = Math.max(maxZ, Math.abs(f.z))
+  }
+  assert.ok(maxX <= 0.28 + 1e-9, `flit x reached ${maxX}`)
+  assert.ok(maxZ <= 0.22 + 1e-9, `flit z reached ${maxZ}`)
+  // Not so small it is invisible again — the wiki's 0.16/0.11 moved the pupil
+  // about a pixel and that was the bug BEFORE this one.
+  assert.ok(maxX > 0.2, `flit x never exceeded ${maxX}`)
+})
+
+test('the hover is slowed by one multiplier, phase-continuously', () => {
+  // "I would have his floating subtle bob be a little bit slower all the time."
+  // ALL THE TIME is why this is a scale on the rate rather than an edit to
+  // twenty-seven authored `float_rate` values: the relative structure between
+  // states (`sleep` 0.4, `loading` 1.35) was right; the tempo was not.
+  assert.ok(FLOAT_RATE_SCALE < 1 && FLOAT_RATE_SCALE > 0.5)
+
+  const f = new IdleFloat(doc)
+  f.advance(1, 1)
+  assert.ok(Math.abs(f.tau - FLOAT_RATE_SCALE) < 1e-12, `tau ${f.tau}`)
+
+  // And a rate CHANGE does not move the clock, which is what keeps a state
+  // entry from putting a pop on the hover. Same rule the class documents.
+  const before = f.tau
+  f.advance(0, 0.4)
+  assert.equal(f.tau, before)
 })

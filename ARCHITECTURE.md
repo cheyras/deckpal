@@ -517,9 +517,11 @@ apps/web/src/character/decke/
   riders.ts       everything that is not a shell, kept attached to the shells
   playbook.ts     the 27 authored states, compiled to per-channel curves
   sustain.ts      the loop window per state, plus synthesized idle/sleep/outro clips
-  curve.ts        Blender-compatible bezier evaluation
+  curve.ts        Blender-compatible bezier evaluation, and cyclic seams
   procedural.ts   idle float, blink, gaze — seeded, deterministic
   look.ts         where the pupils point (the camera constraint that could not export)
+  framing.ts      how he is SEEN wherever he stands — yaw, lean, vertical angle
+  beacon.ts       where the off-screen chip goes, and how far to scroll for him
   flight.ts       the travel solver
   dom.ts          DOM element -> a place to stand
   commands.ts     the JSON command surface an LLM drives
@@ -529,6 +531,7 @@ apps/web/src/character/decke/
   eyes/           the analytic eye shader
 apps/web/src/components/ui/elementHighlight.ts   the chasing ring he presents WITH,
                           which is a design-system primitive and not his
+apps/web/src/components/ui/DeckeBeacon.tsx       the off-screen chip's DOM half
 apps/web/scripts/decke/   generators for the playbook, cards and parity fixtures,
                           plus shrink.mjs (the asset compression step)
 apps/web/public/models/decke/   .glb, playbook.json, markers.json, HDRI, atlas
@@ -554,6 +557,30 @@ apps/web/public/models/decke/   .glb, playbook.json, markers.json, HDRI, atlas
   which is a baked sample of the very constraint that was missing. `look.ts`
   rebuilds the aim. Worth remembering as a class: a frozen constraint is
   invisible to any parity check taken at the frame it was frozen on.
+- **A sustain is its own cyclic clip.** The loop window is compiled once at load
+  into a clip whose tail beat is a COPY of its head and whose seam carries one
+  shared tangent, so the two ends agree in value AND in velocity by construction
+  rather than by inspection. Choosing plausible beat times is not enough: beats
+  are sparse and an omitted channel reads as REST, which is how `curious` came to
+  drop 0.04 units and put them back once a second. A stepped channel still steps
+  across the wrap, because `confused`, `frustrated` and the alerts are authored in
+  a robot register and that tick is the point. 2026-08-20 in `DECISIONS.md`.
+- **Where he stands and how he is SEEN are different problems.** The Blender
+  camera is fixed and aimed at the origin, so parking him anywhere else changes
+  the 3/4 angle the whole facing system is defined against and keystones him into
+  a lean. `framing.ts` gives every position its own view frame and rotates him
+  into it, then deliberately gives back the ELEVATION so his vertical angle still
+  follows his height on the page. At the staging origin the solve is exactly the
+  identity, which is what keeps parity meaningful, and a test pins that. The
+  lighting rig and the environment take the same transform, because a character
+  who presents the same view of himself everywhere should be lit the same way
+  too.
+- **Where he is parked is a STATION, not a coordinate.** An element station is a
+  promise to stay beside a DOM rect, so it is re-solved when the page scrolls or
+  resizes — which is also how he starts at home rather than dead centre. Scroll
+  him out of the viewport and the beacon appears: a chip at the edge holding a
+  LIVE second render of the scene, drawn as a scissored second pass on the same
+  canvas rather than in a second WebGL context.
 - **Vanilla three.js, not react-three-fiber.** The character is driven
   imperatively; the controller never imports React.
 - **The deformation field is evaluated live**, so continuous channel values
@@ -602,8 +629,16 @@ each mesh's node, which the rider system then overwrites — it inflates
 Run the unit tests with:
 
 ```bash
-node --import tsx --test "apps/web/src/character/decke/__tests__/*.test.ts"
+pnpm --filter deckpal-web test:decke
 ```
+
+Three of those are PROPERTY tests over a whole input range rather than examples,
+and two of the three found real defects while they were being written: the stash
+fan cannot produce two overlapping cards at any batch size from 1 to 12 (the
+first, polar, layout failed at five), no card stands in front of his face, and no
+gaze flit ever lands closer than the gate to the one before it (the schedules
+were rebuilding from scratch every ten minutes, which made the gate a property of
+one generation rather than of the run).
 
 ---
 
