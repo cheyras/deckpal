@@ -6369,6 +6369,26 @@ never saw it); and the first stash card no longer launches through a lid that is
 still opening — the authored `start_ms` carried a 400 ms gape delay that the
 respecification dropped.
 
+**And the independent visual pass found a fifth, in the same family.** The
+loose-card schedule runs on the state's UNWRAPPED clock, and that clock keeps
+running through the outro — so sustaining `loading` for one second and then
+leaving let the right-hand card cross its 1533 ms spawn time DURING the way out
+and appear, at whatever `orb_on` had faded to. Measured at 0.081 of scale, 330
+to 500 ms after the release: the same "pops up small, zooms off and disappears"
+this rule exists to remove, relocated to the exit. The schedule's clock is now
+frozen at the moment the outro begins, exactly as the stash flight's `born` is —
+which is the third time in this pass that freezing a clock at the phase boundary
+was the answer, and the reason the restructure below is worth doing.
+
+That pass also reported the framing quaternion as "frozen" for a purely vertical
+move and flagged it as a likely defect. It is the design, and the confusion is
+reasonable enough to be worth writing into `framing.ts`: a straight up-or-down
+move changes neither azimuth nor roll, so the alignment has nothing to correct,
+and the pitch give-back then deliberately adds nothing either — `PITCH_FOLLOW =
+1` means "let the camera do it". Measured over a 780 px vertical sweep the
+quaternion moves by 1e-5 while the angle you look at him from swings 37.5
+degrees.
+
 **The restructure this points at, recorded so it is not rediscovered.** All four
 of those, and the same-state-restart bug beside them, are one weakness: WHAT IS
 ON SCREEN has three authorities that can disagree — the phase machine in

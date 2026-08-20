@@ -51,6 +51,19 @@
  * the middle of the viewport, which is what "camera space is the center of the
  * DOM" means geometrically.
  *
+ * A MOVE STRAIGHT UP OR DOWN PRODUCES ALMOST NO ROTATION AT ALL, and that is
+ * the design rather than a bug. It looks like one: park him at the top of the
+ * page and at the bottom and the quaternion reads as the identity to five
+ * decimal places both times, which invites the conclusion that the vertical cue
+ * is not wired up. It is — it is just not this layer's job. A purely vertical
+ * move changes neither his azimuth nor his roll, so the alignment has nothing to
+ * correct; and the pitch give-back then deliberately adds nothing either,
+ * because `PITCH_FOLLOW = 1` means "let the camera do it". Measured over a
+ * 780 px vertical sweep at the shipped framing: the quaternion moves by 1e-5 and
+ * the angle you are looking at him from swings 37.5 degrees. The rotation this
+ * module produces is for HORIZONTAL travel, which is where the yaw drift and the
+ * keystone lean both live.
+ *
  * WHAT THIS IS NOT. It is not a billboard and it is not a lookAt. He is not
  * turned to face the camera — his own facing yaw still sits underneath this and
  * still turns him a full 80.39 degrees between his two directions. This only
