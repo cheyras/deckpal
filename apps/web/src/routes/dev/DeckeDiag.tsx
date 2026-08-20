@@ -10,13 +10,24 @@
  * simulator takes no input. So the measurements have to render themselves, and
  * be readable in a screenshot taken over iPhone mirroring.
  *
- * THE NUMBER THAT MATTERS IS `track`. Everything else here is context. While he
- * is parked beside an element, the distance between his drawn position and that
- * element's position on screen is a CONSTANT — that is what "parked beside it"
- * means. So any variation in it is exactly the tracking error the eye reads as
- * chunk, in CSS pixels, and it is directly comparable between a device that
- * looks smooth and one that does not. A number that sits at 0 while the page
- * moves is the definition of "he scrolls directly with the page".
+ * THE NUMBER THAT MATTERS IS `track`, WHILE HE IS TRACKING. While he is parked
+ * beside an element, the distance between his drawn position and that element's
+ * position on screen is a CONSTANT — that is what "parked beside it" means. So
+ * any variation in it is exactly the tracking error the eye reads as chunk, in
+ * CSS pixels, and it is directly comparable between a device that looks smooth
+ * and one that does not. A number that sits at 0 while the page moves is the
+ * definition of "he scrolls directly with the page".
+ *
+ * ONCE HE IS PINNED IT MEASURES SOMETHING NARROWER, and `PIN` says which mode
+ * produced it. Pinned, his drawn position is a fixed spot on a canvas the
+ * compositor is carrying, and no number available to JavaScript can see that.
+ * What `track` still catches is every arithmetic error — a wrong anchor, a
+ * missed re-park, a stale drift — and it is genuinely how the sign of the
+ * frustum offset was found. What it also picks up is its own sampling: this
+ * loop reads the element's rect in its frame while the runtime read `scrollY`
+ * in its own, and on iOS those are two different points of the same gesture. A
+ * repeatable ~30 px excursion that settles back to 0 is that, not him. See
+ * `pageAnchor.test.ts` for what a stale offset can and cannot do to him.
  *
  * Shown only for `?diag=1`, on a route only the owner can open.
  */
@@ -129,6 +140,8 @@ export function DeckeDiag({ deckeRef }: { deckeRef: React.RefObject<DeckE | null
         screen?: { x: number; y: number }
         station?: { kind: string; target?: unknown }
         tickMs?: number
+        driftPx?: number
+        pinnedAt?: number | null
         stage?: { renderer: { domElement: HTMLCanvasElement; getPixelRatio(): number } }
       } | null
       if (d && typeof d.tickMs === 'number') tickCost.push(d.tickMs)
@@ -148,8 +161,18 @@ export function DeckeDiag({ deckeRef }: { deckeRef: React.RefObject<DeckE | null
         const box = el.getBoundingClientRect()
         const canvas = d.stage?.renderer.domElement
         const h = canvas ? canvas.clientHeight : window.innerHeight
-        // NDC -> CSS pixels down the canvas.
-        const hisY = (-d.screen.y * 0.5 + 0.5) * h
+        // NDC -> CSS pixels down the canvas, then canvas -> viewport. While he
+        // is pinned to the page those are different spaces by exactly `driftPx`.
+        //
+        // WHAT THIS NUMBER CAN AND CANNOT PROVE once he is pinned. It compares
+        // the position this runtime BELIEVES he is drawn at against the
+        // element's live rect, so it still catches every arithmetic error — a
+        // wrong anchor, a missed re-park, a stale drift. It cannot see the
+        // compositor, so it cannot by itself prove that the canvas is being
+        // carried in step with the page; that claim rests on the canvas being
+        // ordinary in-flow content, and on the eye. `PIN` below says which of
+        // the two paths produced the number.
+        const hisY = (-d.screen.y * 0.5 + 0.5) * h - (d.driftPx ?? 0)
         errNow = hisY - (box.top + box.height / 2)
         trackErr.push(errNow)
       } else {
@@ -178,6 +201,21 @@ export function DeckeDiag({ deckeRef }: { deckeRef: React.RefObject<DeckE | null
         `OURS   tick p95 ${tickCost.p95.toFixed(1)}ms  worst ${tickCost.max.toFixed(1)}ms` +
         `   render @${d?.stage?.renderer.getPixelRatio() ?? '—'}x\n` +
         `SCROLL ${(scrolls / secs).toFixed(0)}/s  worst gap ${scrollGap.max.toFixed(0)}ms\n` +
+        // WHICH PATH IS LIVE. `page` means the canvas is in document flow and the
+        // compositor is carrying it; `viewport` means he is being tracked by hand
+        // once per frame, which is the old behaviour and the chunky one. The two
+        // are chosen per frame, so this is the first thing to read on a device
+        // that still looks wrong.
+        `PIN    ${canvas ? getComputedStyle(canvas).position : '—'}` +
+        `  drift ${(d?.driftPx ?? 0).toFixed(0)}px` +
+        // THE CANCELLATION, CHECKED. Pinned, the canvas has been carried up the
+        // viewport by the compositor and the camera has been offset by `drift`
+        // to match. Those must be the same number. `-canvasTop` is how far it
+        // ACTUALLY moved, measured from the box itself, so any gap between the
+        // two is the error the eye sees — and on iOS the toolbar sliding away is
+        // the thing most likely to open one.
+        `  true ${canvas ? (-canvas.getBoundingClientRect().top).toFixed(0) : '—'}` +
+        `  y ${window.scrollY.toFixed(0)}  pin ${d?.pinnedAt ?? '—'}\n` +
         `OVER   elastic ${maxElastic.toFixed(1)}px   scrollY min ${minScrollY.toFixed(1)}` +
         `  past-end ${maxPastEnd.toFixed(1)}\n` +
         `       vv.offsetTop ${vv ? vv.offsetTop.toFixed(1) : '—'}  pageTop ${vv ? vv.pageTop.toFixed(1) : '—'}\n` +

@@ -254,6 +254,33 @@ export default function Decke() {
         // no one but the owner can load, and it exposes the character, not any
         // user data.
         ;(window as unknown as { deckE?: DeckE }).deckE = decke
+
+        // `?present=<selector>` — set him presenting straight from the URL.
+        //
+        // THIS EXISTS BECAUSE THE PHONE CANNOT BE DRIVEN. The scroll defect this
+        // page is for only reproduces on a real iPhone, the only way in is
+        // iPhone Mirroring, and getting from a cold tab to "parked on an element
+        // and scrolling" through that took a dozen mis-aimed taps and several
+        // minutes — every time. A URL that arrives already presenting turns the
+        // whole setup into one paste of an address, which is the difference
+        // between checking the phone and not bothering.
+        //
+        // Deliberately after `setStatus('ready')`, so a bad selector leaves a
+        // working page with a note rather than a blank one.
+        const wanted = new URLSearchParams(window.location.search).get('present')
+        if (wanted) {
+          const el = document.querySelector(wanted)
+          if (!el) setCardNote(`present: no element matches ${wanted}`)
+          else {
+            // Scrolled to the middle FIRST: he only hands himself to the
+            // compositor while he is comfortably on screen, so arriving with the
+            // target off the bottom would measure the fallback path instead.
+            el.scrollIntoView({ block: 'center' })
+            requestAnimationFrame(() => {
+              if (!cancelled) decke.flyTo({ selector: wanted }, { depth: 'foreground' })
+            })
+          }
+        }
       } catch (e) {
         if (cancelled) return
         setError(e instanceof Error ? e.message : String(e))

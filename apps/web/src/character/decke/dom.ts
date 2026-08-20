@@ -98,9 +98,20 @@ export type ParkResult = {
  * direction turns him toward the element — the whole point is that he presents
  * the thing rather than turning his back on it.
  */
+/**
+ * The parts of a `DOMRect` the parking solve actually reads.
+ *
+ * Named, and used in place of `DOMRect`, so that a rect can be DERIVED as well
+ * as measured. While the overlays are pinned to the page the element's viewport
+ * rect is exactly its cached document box minus the scroll offset, and computing
+ * it that way is the difference between a forced layout every frame and none at
+ * all — see `DeckE.syncPinned`.
+ */
+export type RectLike = Pick<DOMRect, 'left' | 'top' | 'right' | 'width' | 'height'>
+
 export function parkBeside(
   camera: PerspectiveCamera,
-  rect: DOMRect,
+  rect: RectLike,
   opts: { depth: Depth; side: Side; baseDistance: number },
 ): ParkResult {
   const distance =

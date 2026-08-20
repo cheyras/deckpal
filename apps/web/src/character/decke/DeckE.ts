@@ -82,14 +82,17 @@ import {
   shapeFor,
   type Depth,
   type FlyTarget,
+  type RectLike,
   type Side,
 } from './dom'
 import {
   clearHighlight,
   highlightElement,
   highlighted,
+  setHighlightAnchor,
   setHighlightShift,
 } from '../../components/ui/elementHighlight'
+import { pinToPage, unpinToViewport } from './pageAnchor'
 
 /** Facing is a YAW, never a reflection: `scale.x` cannot animate through zero
  *  without collapsing him, so a mirror could only ever be an instant flip, and
@@ -152,6 +155,38 @@ export const CUSTOM_STATE = 'custom'
 /** How quiet a resize has to go before a parked presentation chases its
  *  element's new position. */
 const RE_PARK_SETTLE_MS = 250
+
+/**
+ * How far inside the viewport his silhouette has to sit before the overlays are
+ * handed to the compositor. See `pageAnchor.ts` for what that buys.
+ *
+ * The way back out is a different and much later condition — he has to have left
+ * the viewport ENTIRELY, because that is the moment the beacon chip has to be
+ * drawn and the chip is drawn into the canvas at viewport coordinates. So the
+ * two thresholds are separated by most of a screen and cannot chatter at the
+ * boundary, which is the failure a single threshold would have.
+ */
+const PIN_MARGIN_PX = 24
+
+/**
+ * The BACKSTOP interval for re-reading a pinned element, behind the
+ * `ResizeObserver` that does the real work.
+ *
+ * Pinning trades per-frame correctness for compositor smoothness, so something
+ * has to notice when the trade stops being valid — an image loading above the
+ * fold, an accordion opening, a font swapping in. A poll alone would do it, and
+ * it was the first version, but the lag is visible: a 150 px reflow measured
+ * here left the ring 150 px off its element for as long as the interval, where
+ * the per-frame version it replaces corrected inside one frame. Trading a
+ * scroll-rate defect for a reflow-rate one is not a fix.
+ *
+ * So the trigger is a `ResizeObserver` on the element and on the document, which
+ * fires when a reflow actually happens and gets the correction back to a single
+ * frame for every cause that changes a box. This interval remains for the causes
+ * that do not — an element MOVED by something that resized nothing observable —
+ * at a rate that is 1.5% of the layout reads this whole change removes.
+ */
+const PIN_RECHECK_MS = 400
 
 /** How long `talk` takes to fade in and out.
  *
@@ -430,6 +465,32 @@ export class DeckE {
   /** The bounce currently applied to the overlays, so a no-op frame writes no
    *  style — this runs every frame and is 0 for almost all of them. */
   private elasticNow = 0
+  /** The document offset the overlays are pinned at, or null while they are
+   *  pinned to the viewport and he is tracking by hand. See `pageAnchor.ts`. */
+  private pinnedAt: number | null = null
+  /** The pinned element's box in DOCUMENT coordinates, so a reflow underneath
+   *  him can be recognised without a layout read on the frames that do not need
+   *  one. See `syncPinned`. */
+  private readonly pinnedBox = { x: 0, y: 0, w: 0, h: 0 }
+  private pinCheckAt = 0
+  /** The element a pinned park is anchored to, resolved once by `canPin` so the
+   *  pin itself does not query the document a second time. */
+  private pinEl: Element | null = null
+  /** The pinned element's box in CANVAS coordinates — which is to say its
+   *  viewport box at the moment of pinning, because that is the moment the two
+   *  spaces coincide. Constant for the life of the pin: the element and the
+   *  canvas are pinned to the same page, so neither moves relative to the
+   *  other. See `syncPinned`. */
+  private readonly pinnedRect = { left: 0, top: 0, right: 0, width: 0, height: 0 }
+  /** Watches the pinned element and the document for a reflow. See
+   *  `PIN_RECHECK_MS` for why this exists as well as the interval. */
+  private pinWatch: ResizeObserver | null = null
+  private pinStale = false
+  /** How far the page has scrolled since the overlays were pinned — the
+   *  difference between where the canvas thinks it is and where it is being
+   *  drawn. Zero unless pinned, and read by the beacon, `scrollIntoView` and the
+   *  dev page's instrument, all of which want VIEWPORT coordinates. */
+  driftPx = 0
   private readonly framing: Framing = makeFraming()
   /** The same solve with the vertical give-back taken back out, for the beacon
    *  chip's pass. Solved only on the frames the chip is actually drawn. */
@@ -439,6 +500,13 @@ export class DeckE {
    *  Both are wanted every frame by the beacon; neither is worth allocating. */
   private readonly centreThree = new Vector3()
   private readonly screen = new Vector3()
+  /** His silhouette on the viewport, as `updateBeacon` last measured it: centre
+   *  and half-height in CSS pixels, and whether he is behind the camera. The
+   *  beacon needs it to decide on the chip and `canPin` needs it to decide
+   *  whether he is far enough from the edges to be handed over. */
+  private screenY = 0
+  private screenHalf = 0
+  private screenBehind = false
   /** The beacon as last reported, so the callback fires on CHANGE rather than
    *  sixty times a second — it drives React state. */
   private beacon: Beacon | null = null
@@ -1024,7 +1092,7 @@ export class DeckE {
    * removed, or is not laid out yet. Staying where he is beats teleporting to
    * the origin, which is what a null-means-zero reading would do.
    */
-  private solveStation(): { position: Vector3; facing?: number } | null {
+  private solveStation(known?: RectLike): { position: Vector3; facing?: number } | null {
     const camera = this.stage.camera
     const baseDistance = camera.position.length()
     if (this.station.kind === 'home') {
@@ -1032,7 +1100,9 @@ export class DeckE {
       // at home he is page chrome rather than an annotation on the content.
       return { position: homeCorner(camera, baseDistance) }
     }
-    const rect = resolveRect(this.station.target)
+    // `known` is a rect the caller already has, which while pinned is a rect
+    // nobody had to force a layout to get. See `syncPinned`.
+    const rect = known ?? resolveRect(this.station.target)
     if (!rect) return null
     const park = parkBeside(camera, rect, {
       depth: this.station.depth,
@@ -1081,6 +1151,209 @@ export class DeckE {
     setHighlightShift(-e)
   }
 
+  /**
+   * Decide, once per frame, whether the overlays should be riding the page or
+   * the viewport.
+   *
+   * Called AFTER `updateBeacon`, and that ordering is the whole safety argument.
+   * The chip is drawn into the canvas at viewport coordinates, so the canvas
+   * must be pinned to the viewport on every frame the chip exists; asking the
+   * beacon what it decided — rather than re-deriving it here — makes the two
+   * decisions the same decision, and there is no frame where they can disagree.
+   */
+  private repin() {
+    if (this.beacon !== null) {
+      // He has left the screen entirely, which is exactly when the chip needs a
+      // canvas that is still over the viewport.
+      this.unpin()
+      return
+    }
+    if (this.pinnedAt !== null || !this.canPin() || !this.pinEl) return
+    const rect = this.pinEl.getBoundingClientRect()
+    const y = window.scrollY
+    this.pinnedAt = y
+    this.driftPx = 0
+    this.pinnedBox.x = rect.left + window.scrollX
+    this.pinnedBox.y = rect.top + y
+    this.pinnedBox.w = rect.width
+    this.pinnedBox.h = rect.height
+    this.pinnedRect.left = rect.left
+    this.pinnedRect.top = rect.top
+    this.pinnedRect.right = rect.right
+    this.pinnedRect.width = rect.width
+    this.pinnedRect.height = rect.height
+    this.pinCheckAt = this.elapsed
+    this.pinStale = false
+    if (typeof ResizeObserver !== 'undefined') {
+      this.pinWatch = new ResizeObserver(() => {
+        this.pinStale = true
+      })
+      // The element for its own box, the document for everything that moves the
+      // element without resizing it — content loading in above it being the case
+      // that actually happens.
+      this.pinWatch.observe(this.pinEl)
+      this.pinWatch.observe(document.documentElement)
+    }
+    // `y` and not some other offset: pinning at the CURRENT scroll position is
+    // what makes the switch invisible. See `pinToPage`.
+    pinToPage(this.opts.canvas, y)
+    setHighlightAnchor(y)
+  }
+
+  /**
+   * Is this a park the compositor can be trusted with?
+   *
+   * Every clause is a way the answer "his document position is constant" stops
+   * being true, and each of them was cheaper to enumerate than to debug.
+   */
+  private canPin(): boolean {
+    this.pinEl = null
+    if (this.station.kind !== 'element') return false
+    // HOME IS VIEWPORT-RELATIVE and so is a raw `{x, y}` or `{rect}` target: the
+    // caller named a place on the screen, not a place in the page, and pinning
+    // one would send him scrolling away from the spot he was asked to hold.
+    // Only a selector names something the page owns.
+    if (!('selector' in this.station.target)) return false
+    // A flight is a world-space move every frame, so there is nothing constant
+    // to freeze yet. They are short; he pins when he lands.
+    if (this.track || this.elasticNow !== 0) return false
+    if (this.screenBehind) return false
+    const el = document.querySelector(this.station.target.selector)
+    // AN INNER SCROLLER MOVES ITS CONTENT WITHOUT MOVING THE DOCUMENT, so an
+    // element inside one has a document position that is emphatically not
+    // constant. The character's scroll listener is capture-phase precisely so
+    // these still drag him along; they keep the hand-tracked path.
+    if (!el || scrollableAncestor(el)) return false
+    const h = viewHeight()
+    if (
+      this.screenY - this.screenHalf <= PIN_MARGIN_PX ||
+      this.screenY + this.screenHalf >= h - PIN_MARGIN_PX
+    ) {
+      return false
+    }
+    this.pinEl = el
+    return true
+  }
+
+  private unpin() {
+    if (this.pinnedAt === null) return
+    this.pinnedAt = null
+    this.driftPx = 0
+    this.pinWatch?.disconnect()
+    this.pinWatch = null
+    this.pinStale = false
+    this.pinEl = null
+    // Back on the viewport, the canvas IS the frame again, so the off-axis
+    // frustum `syncPinned` set up has nothing left to cancel.
+    this.stage.camera.clearViewOffset()
+    unpinToViewport(this.opts.canvas)
+    setHighlightAnchor(null)
+    // Everything inside those layers was solved for where the page was when they
+    // were pinned, and they have just been put back on a viewport that has moved
+    // since. Re-solve NOW rather than marking it dirty: this runs inside
+    // `update`, so a re-solve here is drawn by this frame's render and a deferred
+    // one would put a frame of him at the old offset on screen.
+    this.stationDirty = true
+    this.syncStation()
+  }
+
+  /**
+   * The pinned frame: everything `syncStation` did, minus the two things that
+   * were actually expensive.
+   *
+   * IT WOULD BE A MISTAKE TO SIMPLY FREEZE HIM, and the first version of this
+   * did. Pinning makes his position in the page constant, so it is tempting to
+   * stop solving — but his position in the page was never the whole of what the
+   * solve produced. The camera is fixed and aimed at the world origin, so how he
+   * is SEEN depends on where he sits in the frustum, and that is the vertical
+   * parallax the review asked for by name:
+   *
+   *   "At the top of the page it's like he's above the camera, at the bottom of
+   *    the page it's like he's below the camera, in the middle of the page he's
+   *    kind of aligned with the camera, on a vertical."
+   *
+   * Freezing his world position froze that too, and the difference is not
+   * subtle: rendered side by side at the same place on screen, the frozen one
+   * shows the top of his head where the tracked one is looking up at him from
+   * below. See `framing.ts` — the cue is in the frustum, not in the quaternion,
+   * which is why nothing about the framing solve catches it.
+   *
+   * So the world solve stays, at full rate. What goes is the FORCED LAYOUT: the
+   * element's viewport rect is its cached document box minus the scroll offset,
+   * which is arithmetic. And what the world solve would now do to his position
+   * on the canvas is cancelled by an equal offset on the camera, so the canvas
+   * picture holds still while the compositor carries the canvas.
+   *
+   * The division of labour that leaves is the point of the whole change. His
+   * POSITION — the thing the eye reads as chunk when it stutters — is moved by
+   * the compositor at the display's rate. His PERSPECTIVE — a gradual
+   * foreshortening — is updated in here at whatever rate the browser gives us,
+   * because nobody has ever seen a foreshortening stutter.
+   */
+  private syncPinned() {
+    const drift = window.scrollY - (this.pinnedAt ?? 0)
+    if (drift !== this.driftPx) {
+      this.driftPx = drift
+      // MOVE THE CAMERA, NOT HIM. The element's position INSIDE the pinned
+      // canvas is a constant — both are pinned to the same page — so `pinnedRect`
+      // never changes and neither does where he has to be drawn. What changes is
+      // where the reader's screen is, and an off-axis frustum is how that is
+      // said: shifting the frustum by the drift puts the camera's optical centre
+      // back at the middle of the VIEWPORT rather than the middle of the canvas.
+      // He is then seen from the angle his position on the reader's screen
+      // deserves, while being drawn exactly where the element is.
+      //
+      // THE SIGN IS MEASURED, NOT DERIVED, and the check is worth keeping
+      // because the position of him on screen does not depend on it — an
+      // inverted offset still draws him exactly on his element, because the
+      // solve below inverts through whatever frustum it is handed. What inverts
+      // with it is the LIGHTING AND THE FORESHORTENING: at 430 px of scroll the
+      // wrong sign put his world height at -6.09 where tracking gives 1.92, the
+      // same distance the other way, so he was lit from below while climbing the
+      // screen. The test is `rootY` against the un-pinned path, and it agrees to
+      // three decimals.
+      const vw = viewWidth()
+      const vh = viewHeight()
+      this.stage.camera.setViewOffset(vw, vh, 0, -drift, vw, vh)
+      // AFTER the offset, and that ordering is the whole correctness argument.
+      // `viewportToBlender` inverts through the camera's CURRENT projection, so
+      // solving first would place him for the old frustum and the new one would
+      // then shift him again — a double compensation that reads as him sliding
+      // off the element by exactly the distance scrolled. Measured at 390x780
+      // before this was reordered: track error -40 px at 120 px of scroll, -120
+      // at 240, which is one frame's drift every time.
+      const park = this.solveStation(this.pinnedRect)
+      if (park) {
+        this.anchor.copy(park.position)
+        if (park.facing !== undefined && park.facing !== this.facingTarget) {
+          this.setFacing(park.facing)
+        }
+      }
+    }
+    // The observer is the trigger and the interval is the backstop, so the
+    // common reflow is corrected on the next frame rather than on the next tick.
+    const due = this.pinStale || (this.elapsed - this.pinCheckAt) * 1000 >= PIN_RECHECK_MS
+    if (!due) return
+    this.pinStale = false
+    this.pinCheckAt = this.elapsed
+    if (!this.pinEl?.isConnected) {
+      this.unpin()
+      return
+    }
+    const rect = this.pinEl.getBoundingClientRect()
+    const b = this.pinnedBox
+    const moved =
+      Math.abs(rect.left + window.scrollX - b.x) > 0.5 ||
+      Math.abs(rect.top + window.scrollY - b.y) > 0.5 ||
+      Math.abs(rect.width - b.w) > 0.5 ||
+      Math.abs(rect.height - b.h) > 0.5
+    // Unpin rather than adjust in place. `unpin` re-solves him against the live
+    // rect, and `repin` runs later in the same frame and pins again from the new
+    // one — so the correction takes the ordinary path, and there is no second
+    // implementation of it to keep in step with the first.
+    if (moved) this.unpin()
+  }
+
   private syncStation() {
     if (!this.stationDirty) return
     this.stationDirty = false
@@ -1096,6 +1369,11 @@ export class DeckE {
   }
 
   private launch(to: Vector3) {
+    // THE SINGLE CHOKE POINT for every flight, which makes it the right place to
+    // give the page back. A flight is a world-space move on every frame, so
+    // there is no constant document position left to freeze, and `from` below
+    // has to be read in the coordinates he is actually parked in.
+    this.unpin()
     const from = this.track
       ? this.flightSample.pos.clone()
       : this.anchor.clone()
@@ -1333,18 +1611,27 @@ export class DeckE {
     this.centreThree.y += CENTRE_OFFSET
     this.screen.copy(this.centreThree).project(cam)
     const h = viewHeight()
-    const cy = (-this.screen.y * 0.5 + 0.5) * h
+    // PROJECTION ANSWERS IN CANVAS SPACE, and while the overlays are pinned the
+    // canvas is not the viewport — it is a rectangle of the page that the reader
+    // has scrolled `driftPx` past. Every question below is a question about the
+    // viewport ("has he left the screen"), so the drift is taken off here, once,
+    // and everything downstream is in the coordinates it thinks it is in.
+    const cy = (-this.screen.y * 0.5 + 0.5) * h - this.driftPx
     const cx = (this.screen.x * 0.5 + 0.5) * viewWidth()
 
     _top.copy(this.centreThree)
     _top.y += CENTRE_OFFSET
     _top.project(cam)
-    const halfPx = Math.abs((-_top.y * 0.5 + 0.5) * h - cy)
+    // A half-height is a difference, so the drift cancels and is not applied.
+    const halfPx = Math.abs((-_top.y * 0.5 + 0.5) * h - (cy + this.driftPx))
+    this.screenY = cy
+    this.screenHalf = halfPx
+    this.screenBehind = this.screen.z > 1
 
     // Behind the camera: `project` flips the sign there, and a character behind
     // you is as absent as one above you. Treat him as past the top rather than
     // reporting a mirrored position.
-    const behind = this.screen.z > 1
+    const behind = this.screenBehind
     const above = cy + halfPx < 0
     const below = cy - halfPx > h
     const next: Beacon | null =
@@ -1381,7 +1668,10 @@ export class DeckE {
     this.centreThree.copy(this.rootThree)
     this.centreThree.y += CENTRE_OFFSET
     this.screen.copy(this.centreThree).project(cam)
-    const cy = (-this.screen.y * 0.5 + 0.5) * viewHeight()
+    // Viewport coordinates, so the pinned canvas's offset comes off — same
+    // reason as in `updateBeacon`. In practice this is reached from the beacon
+    // chip, which only exists while unpinned, but the caller is public.
+    const cy = (-this.screen.y * 0.5 + 0.5) * viewHeight() - this.driftPx
     // THE SCROLLER MIGHT NOT BE THE DOCUMENT. The scroll listener is
     // capture-phase precisely so that an element inside a nested scroll
     // container still drags him along — so the way back has to find the same
@@ -1402,8 +1692,16 @@ export class DeckE {
     if (!this.rig) return
 
     // ---- the page may have moved ---------------------------------------
-    this.syncStation()
-    this.followElastic()
+    // Or it may have moved him, which is the cheaper of the two and the one this
+    // runtime now aims for. Pinned, the compositor is carrying both overlays and
+    // there is nothing to track and no bounce to apply by hand — see `repin` at
+    // the end of this method, and `pageAnchor.ts` for why.
+    if (this.pinnedAt === null) {
+      this.syncStation()
+      this.followElastic()
+    } else {
+      this.syncPinned()
+    }
 
     // ---- facing --------------------------------------------------------
     if (this.facingT < 1) {
@@ -1609,6 +1907,9 @@ export class DeckE {
     blenderToThree(this.pose.px, this.pose.py, this.pose.pz, this.rootThree)
     solveFraming(this.stage.camera, this.rootThree, this.framing)
     this.updateBeacon()
+    // Immediately after the beacon, because it consumes the beacon's own answer
+    // rather than a second opinion about where he is. See `repin`.
+    this.repin()
     this.stage.setFraming(this.framing.position, this.framing.quaternion, this.framing.yaw)
 
     // ---- apply ----------------------------------------------------------
@@ -1688,6 +1989,11 @@ export class DeckE {
     if (width === this.viewW && height === this.viewH) return
     this.viewW = width
     this.viewH = height
+    // A pinned canvas carries an explicit pixel box, measured from the viewport
+    // it was pinned against. That viewport is now a different size, so the box
+    // is stale — give it back and let `repin` take a fresh one once the re-park
+    // below has settled.
+    this.unpin()
     // A parked presentation is anchored to a DOM RECT, and the rect moved. Chase
     // it, but only once the layout has SETTLED — a TRAILING debounce, restarted
     // by every event, so the move that actually gets chased is the last one.
@@ -1726,6 +2032,17 @@ export class DeckE {
     this.art?.dispose()
     window.removeEventListener('scroll', this.onScroll, { capture: true })
     document.documentElement.style.overscrollBehaviorY = this.overscrollWas
+    // Before `clearHighlight` below, which removes the ring but not the layer:
+    // a layer left pinned would sit at a stale document offset for whatever
+    // rings something next. Not `unpin()` — that re-solves his station, and this
+    // instance is already gone.
+    unpinToViewport(this.opts.canvas)
+    setHighlightAnchor(null)
+    // The observer outlives the controller otherwise: it holds the element, the
+    // document element, and a closure over `this`. React 19's StrictMode mounts
+    // twice in dev, so a leak here is two of everything on the first load.
+    this.pinWatch?.disconnect()
+    this.pinWatch = null
     // Tear the scene down properly, not just the loop. React 19's StrictMode
     // mounts effects twice in dev, so a partial teardown leaves a SECOND
     // WebGLRenderer bound to the same canvas — both keep drawing, and the
