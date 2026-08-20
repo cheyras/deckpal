@@ -132,6 +132,20 @@ function LegalityPanel({ detail, onDisclose }: { detail: DeckDetail; onDisclose:
 // so the sheet leads with the card at a readable size and answers the questions
 // that only make sense *inside a deck* — copies run, shortfall against your
 // collection, and what those copies cost — before the shared card body.
+// The expansion code printed on the card next to its collector number ("PBL"),
+// shown alongside TCGdex's internal set id ("ME05") — which is the id the app
+// keys on but is printed nowhere, so it is not what a player reads off the card
+// in hand (issue #57). Outlined rather than filled so it does not read as a
+// second regulation mark, which sits right beside it and IS a filled chip.
+function PrintedSetCode({ code }: { code: string | null }) {
+  if (!code) return null
+  return (
+    <span className="whitespace-nowrap rounded px-[4px] font-bold text-text-body ring-1 ring-border-default" title="Code printed on the card">
+      {code}
+    </span>
+  )
+}
+
 function DeckCardContext({ card, offending, onSet }: {
   card: DeckCard; offending: boolean; onSet: (q: number) => void
 }) {
@@ -153,6 +167,7 @@ function DeckCardContext({ card, offending, onSet }: {
       <div className="flex items-center justify-between gap-[12px] rounded-lg bg-surface-secondary px-[12px] py-[10px]">
         <div className="min-w-0 text-[14px] text-text-muted">
           {card.setName} · {card.setId.toUpperCase()} {card.number}
+          {card.setCode && <span className="ml-[6px] inline-block"><PrintedSetCode code={card.setCode} /></span>}
           {card.regulationMark && <span className="ml-[6px] rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
         </div>
         {/* same mutation the deck row uses, so the tab is not read-only */}
@@ -224,6 +239,7 @@ function DeckRow({ card, offending, onSet, onRemove, onOpen }: {
               Each item is atomic — nowrap — and the row wraps BETWEEN them. */}
           <div className="flex flex-wrap items-center gap-x-[8px] gap-y-[2px] text-[14px] text-text-muted">
             <span className="whitespace-nowrap">{card.setId.toUpperCase()} {card.number}</span>
+            <PrintedSetCode code={card.setCode} />
             {card.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
             <span className={`whitespace-nowrap ${card.have ? 'text-change-positive' : 'text-text-muted'}`}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>
             <span className="whitespace-nowrap text-change-positive">{fmtPrice(card.price)}</span>
@@ -660,9 +676,16 @@ export function DeckBuilder() {
         <div className="flex flex-col gap-[20px] lg:flex-row lg:items-start">
           {/* left: deck list */}
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-start justify-between gap-[12px]">
-              <div className="min-w-0">
-                <div className="mb-[6px] flex items-center gap-[8px]">
+            {/* The kebab shares the badge row rather than floating beside the whole
+                header block. Under the old `items-start` it aligned its TOP edge to
+                the badges' top, and it is 40px tall against their ~26px, so its
+                centre sat ~7px below theirs — visibly off, with nothing to read the
+                offset as deliberate (issue #48). Sitting in the row it belongs to,
+                `items-center` does the alignment for free, and the deck name below
+                gets the full width instead of ending at the kebab. */}
+            <div>
+              <div className="flex items-center justify-between gap-[12px]">
+                <div className="flex min-w-0 flex-wrap items-center gap-[8px]">
                   <span className="inline-flex items-center gap-[5px] rounded-full bg-surface-tertiary px-[10px] py-[3px] text-[14px] font-bold text-text-secondary">
                     {FORMAT_META[deck.formatCode].short}
                     {deck.formatCode === 'glc' && deck.glcType && (
@@ -675,6 +698,15 @@ export function DeckBuilder() {
                   </span>
                   <LegalBadge legal={deck.legal} />
                 </div>
+                <KebabMenu
+                  ariaLabel="Deck options"
+                  size={40}
+                  items={[
+                    { key: 'delete', label: 'Delete deck', icon: 'close', danger: true, onSelect: () => setShowDelete(true) },
+                  ]}
+                />
+              </div>
+              <div className="mt-[6px] min-w-0">
                 {editingName ? (
                   <input
                     autoFocus defaultValue={deck.name} onFocus={() => setNameDraft(deck.name)}
@@ -686,13 +718,6 @@ export function DeckBuilder() {
                   <h1 onClick={() => setEditingName(true)} title="Click to rename" className="cursor-text text-[28px] font-bold leading-[36px] text-text-primary">{deck.name}</h1>
                 )}
               </div>
-              <KebabMenu
-                ariaLabel="Deck options"
-                size={40}
-                items={[
-                  { key: 'delete', label: 'Delete deck', icon: 'close', danger: true, onSelect: () => setShowDelete(true) },
-                ]}
-              />
             </div>
 
             {/* tabs — Cards · Strategy · Battles (n) · History */}

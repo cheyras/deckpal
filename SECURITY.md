@@ -57,6 +57,16 @@ credential, not a second one. `oauth_client` and `oauth_code` have RLS
 enabled with zero grants (migration 033): only the server's RLS-bypassing
 pool connection can ever read or write them.
 
+**What the browser persists.** Besides Supabase's own session (its
+`sb-<ref>-auth-token` key), the SPA writes two of its own `localStorage` keys,
+neither of which is a credential and neither of which is ever read as one:
+`deckpal:skin` (the visual skin preference) and `deckpal.returning` (a single
+bit, set once a session has existed in this browser, cleared by the explicit
+Sign out control). `deckpal.returning` exists only so `/` can send a visitor
+whose session has lapsed to the sign-in form instead of the marketing page
+(`lib/returningVisitor.ts`); it carries no email, user id or token, and no
+authorization decision anywhere consults it. Clearing site data resets both.
+
 ### Self-host deployment
 
 **Authentication:** The API has no built-in authentication. It is designed to

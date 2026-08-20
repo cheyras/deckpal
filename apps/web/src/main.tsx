@@ -27,6 +27,7 @@ import { AuthGuard } from './components/AuthGuard'
 import { isPublicPathname, isSafeNextPath } from './lib/landingRoute'
 import { api } from './lib/api'
 import { supabase, isCloudMode } from './lib/supabase'
+import { isReturningVisitor } from './lib/returningVisitor'
 import { Auth } from './routes/Auth'
 import { Authorize } from './routes/Authorize'
 import { ResetPassword } from './routes/auth/ResetPassword'
@@ -105,6 +106,10 @@ const rootRoute = createRootRoute({
 //     "Create your free account" button would be a cul-de-sac.
 //   • cloud + signed in         → straight into the app (preserves the old
 //     redirect for every existing user and every bookmarked deep link).
+//   • cloud + session lapsed    → the sign-in form. They have an account; the
+//     pitch to create one is the wrong page, and it is the page they got
+//     (issue #50). "Lapsed" means a session existed in this browser and was
+//     not deliberately signed out of — see lib/returningVisitor.ts.
 //   • cloud + signed out        → the public marketing landing.
 // getSession() reads the persisted session out of localStorage, so the common
 // case resolves in a tick without a network round-trip.
@@ -115,6 +120,7 @@ const indexRoute = createRoute({
     if (!isCloudMode) throw redirect({ to: '/series' })
     const { data } = await supabase.auth.getSession()
     if (data.session) throw redirect({ to: '/series' })
+    if (isReturningVisitor()) throw redirect({ to: '/auth' })
   },
   component: Landing,
 })

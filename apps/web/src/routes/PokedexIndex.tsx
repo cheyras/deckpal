@@ -5,6 +5,7 @@ import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { api, type SpeciesGridRow } from '../lib/api'
 import { Content, Spinner, ErrorState, ProgressBar, useDismiss } from '../components/ui'
 import { SpriteTile } from '../components/SpriteTile'
+import { SpeciesName } from '../components/SpeciesName'
 import { fmtNumber, typeColor } from '../lib/format'
 import { useSignedIn } from '../lib/session'
 import { SignInPrompt } from '../components/SignInPrompt'
@@ -52,7 +53,7 @@ function SpeciesCard({ s }: { s: SpeciesGridRow }) {
             s.captured ? 'text-text-primary' : 'text-text-muted',
           ].join(' ')}
         >
-          {s.name}
+          <SpeciesName name={s.name} />
         </div>
         <div className="mt-[2px] flex justify-center gap-[3px]">
           {s.types.map((t) => (

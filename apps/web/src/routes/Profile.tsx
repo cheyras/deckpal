@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { api } from '../lib/api'
 import { supabase, isCloudMode } from '../lib/supabase'
+import { forgetReturningVisitor } from '../lib/returningVisitor'
 import { Content, Spinner, ErrorState, Tabs, StatTile } from '../components/ui'
 import { LevelRing } from '../components/LevelRing'
 import { CardImage } from '../components/CardImage'
@@ -192,6 +193,10 @@ export function Profile() {
                 disabled={signingOut}
                 onClick={async () => {
                   setSigningOut(true)
+                  // Deliberately signing out is the one event that means "stop
+                  // treating this browser as mine" — an expiring session does
+                  // not, which is why AuthGuard's path leaves the marker alone.
+                  forgetReturningVisitor()
                   await supabase.auth.signOut()
                   // AuthGuard sends a lost session to the same place, so the two
                   // cannot race each other to different pages.
