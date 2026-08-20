@@ -7,7 +7,7 @@
  */
 import { PerspectiveCamera, Plane, Raycaster, Vector2, Vector3 } from 'three'
 import { BODY_H, BODY_W } from './constants'
-import { viewHeight, viewWidth } from './viewport'
+import { canvasHeight, viewHeight, viewWidth } from './viewport'
 
 export type Depth = 'foreground' | 'background'
 export type Side = 'auto' | 'left' | 'right'
@@ -61,9 +61,13 @@ export function viewportToBlender(
   distance: number,
   out = new Vector3(),
 ): Vector3 {
+  // NDC SPANS THE CANVAS, NOT THE VIEWPORT, and those stopped being the same
+  // thing when the canvas grew to cover the strip Safari's toolbar vacates. The
+  // canvas is top-anchored, so a viewport Y and a canvas Y are the same number —
+  // only the denominator differs.
   const ndc = new Vector2(
     (clientX / viewWidth()) * 2 - 1,
-    -(clientY / viewHeight()) * 2 + 1,
+    -(clientY / canvasHeight()) * 2 + 1,
   )
   const ray = new Raycaster()
   ray.setFromCamera(ndc, camera)
@@ -92,13 +96,6 @@ export type ParkResult = {
 }
 
 /**
- * Choose a spot beside an element and the facing that looks at it.
- *
- * `auto` puts him on whichever side has more room. Facing is then whichever
- * direction turns him toward the element — the whole point is that he presents
- * the thing rather than turning his back on it.
- */
-/**
  * The parts of a `DOMRect` the parking solve actually reads.
  *
  * Named, and used in place of `DOMRect`, so that a rect can be DERIVED as well
@@ -109,6 +106,13 @@ export type ParkResult = {
  */
 export type RectLike = Pick<DOMRect, 'left' | 'top' | 'right' | 'width' | 'height'>
 
+/**
+ * Choose a spot beside an element and the facing that looks at it.
+ *
+ * `auto` puts him on whichever side has more room. Facing is then whichever
+ * direction turns him toward the element — the whole point is that he presents
+ * the thing rather than turning his back on it.
+ */
 export function parkBeside(
   camera: PerspectiveCamera,
   rect: RectLike,
@@ -230,7 +234,7 @@ export function shapeFor(a: Vector3, b: Vector3, legIndex: number) {
     // stopping-distance law overshoots its own settle window every frame and the
     // leg limit-cycles out to the 600-frame cap. Measured, raising the long
     // cruise from 0.08 to 0.185 turned a 3067 ms leg into a 20167 ms one — the
-    // cap exactly. Pace is set by `TRAVEL_RATE` in `flight.ts`, which scales the
+    // cap exactly. Pace is set by `travelRate()` in `flight.ts`, which scales the
     // finished track and cannot destabilise a controller that has already run.
     cruise: dist > 4 ? 0.08 : 0.1,
   }

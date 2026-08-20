@@ -19,7 +19,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { createStage, type Stage } from './stage'
 import { CENTRE_OFFSET, makeFraming, solveFraming, type Framing } from './framing'
-import { elasticOffset, setViewport, viewHeight, viewWidth } from './viewport'
+import { canvasHeight, elasticOffset, setViewport, viewHeight, viewWidth } from './viewport'
 import {
   BEACON,
   beaconRect,
@@ -461,6 +461,7 @@ export class DeckE {
   /** The last size `resize` was given, so a no-op resize can be recognised. */
   private viewW = 0
   private viewH = 0
+  private canvasH = 0
   /** The document's own `overscroll-behavior-y`, restored on dispose. */
   private overscrollWas = ''
   /** Set the first time the engine admits to a bounce. Once true the lock is
@@ -1236,9 +1237,7 @@ export class DeckE {
    */
   private applyDrift(drift: number) {
     this.driftPx = drift
-    const vw = viewWidth()
-    const vh = viewHeight()
-    this.stage.camera.setViewOffset(vw, vh, 0, -drift, vw, vh)
+    this.stage.setViewShift(drift)
     // AFTER the offset, and that ordering is the whole correctness argument.
     // `viewportToBlender` inverts through the camera's CURRENT projection, so
     // solving first would place him for the old frustum and the new one would
@@ -1296,7 +1295,7 @@ export class DeckE {
     // hanging past the edge simply is not seen. The frustum offset that already
     // carries the drift carries this too, so it costs no new machinery — see
     // `syncPinned`.
-    const h = viewHeight()
+    const h = canvasHeight()
     // Unless he cannot fit in one at all, which a huge character in a short
     // window would be.
     if (this.screenHalf * 2 + PIN_MARGIN_PX * 2 > h) return false
@@ -1317,9 +1316,9 @@ export class DeckE {
     this.pinWatch = null
     this.pinStale = false
     this.pinEl = null
-    // Back on the viewport, the canvas IS the frame again, so the off-axis
-    // frustum `syncPinned` set up has nothing left to cancel.
-    this.stage.camera.clearViewOffset()
+    // Back to no drift — NOT `clearViewOffset`, which would also throw away the
+    // shift that makes the frustum cover the taller canvas. See `setViewShift`.
+    this.stage.setViewShift(0)
     unpinToViewport(this.opts.canvas)
     setHighlightAnchor(null)
     // Everything inside those layers was solved for where the page was when they
@@ -1651,7 +1650,9 @@ export class DeckE {
     this.centreThree.copy(this.rootThree)
     this.centreThree.y += CENTRE_OFFSET
     this.screen.copy(this.centreThree).project(cam)
-    const h = viewHeight()
+    // NDC spans the CANVAS. `viewHeight()` is where he is allowed to stand; this
+    // is how many pixels the projection actually covers.
+    const h = canvasHeight()
     // PROJECTION ANSWERS IN CANVAS SPACE, and while the overlays are pinned the
     // canvas is not the viewport — it is a rectangle of the page that the reader
     // has scrolled `driftPx` past. Every question below is a question about the
@@ -1712,7 +1713,7 @@ export class DeckE {
     // Viewport coordinates, so the pinned canvas's offset comes off — same
     // reason as in `updateBeacon`. In practice this is reached from the beacon
     // chip, which only exists while unpinned, but the caller is public.
-    const cy = (-this.screen.y * 0.5 + 0.5) * viewHeight() - this.driftPx
+    const cy = (-this.screen.y * 0.5 + 0.5) * canvasHeight() - this.driftPx
     // THE SCROLLER MIGHT NOT BE THE DOCUMENT. The scroll listener is
     // capture-phase precisely so that an element inside a nested scroll
     // container still drags him along — so the way back has to find the same
@@ -2017,19 +2018,20 @@ export class DeckE {
     }
   }
 
-  resize(width: number, height: number) {
+  resize(width: number, height: number, canvasH = height) {
     // THE one place the runtime learns how big the screen is. Everything else
     // asks `viewport.ts`; see the note there for why that matters on a phone.
-    setViewport(width, height)
-    this.stage.setSize(width, height)
+    setViewport(width, height, canvasH)
+    this.stage.setSize(width, height, canvasH)
     // A resize that did not change anything is not a resize. Safari's toolbars
     // slide away on a fast scroll and slide back when it stops, and each of
     // those fires `resize` — so without this the debounce below re-parks him,
     // which launches a FLIGHT, which is what "he's down lower and then he has to
     // re-travel up to the element, and that shouldn't be happening" was.
-    if (width === this.viewW && height === this.viewH) return
+    if (width === this.viewW && height === this.viewH && canvasH === this.canvasH) return
     this.viewW = width
     this.viewH = height
+    this.canvasH = canvasH
     // A pinned canvas carries an explicit pixel box, measured from the viewport
     // it was pinned against. That viewport is now a different size, so the box
     // is stale — give it back and let `repin` take a fresh one once the re-park

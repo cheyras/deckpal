@@ -19,7 +19,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PerspectiveCamera, Vector3 } from 'three'
 import { BLENDER_CAMERA, blenderCameraQuaternion, blenderToThree } from '../constants'
-import { FPS, TRAVEL_RATE, sampleTrack, solveFlight, type FlightSample } from '../flight'
+import {
+  FPS,
+  TRAVEL_RATE_FAR,
+  TRAVEL_RATE_NEAR,
+  sampleTrack,
+  solveFlight,
+  travelRate,
+  type FlightSample,
+} from '../flight'
 import { shapeFor } from '../dom'
 
 function stagingCamera(): PerspectiveCamera {
@@ -56,33 +64,80 @@ const LEGS: [string, Vector3, Vector3][] = [
   ['back home from the background', new Vector3(-2.0, 2.0, -9.0), new Vector3(2.8, -1.7, -2.3)],
 ]
 
-test('a solved leg is played more than twice as fast as it was solved', () => {
+test('a long leg is played more than twice as fast as it was solved', () => {
   // The pace change, pinned where it lives. `durationMs` is the solved frame
   // count divided by the playback rate, so this both fixes the arithmetic and
-  // states the promise: whatever the controller decides a leg is, it reaches the
-  // screen in under half the time it used to.
-  assert.ok(TRAVEL_RATE >= 2, `travel is only ${TRAVEL_RATE}x — "less than half" was the ask`)
+  // states the promise for the legs the promise was made about: a trip out to
+  // the background plane reaches the screen in well under half the time the
+  // controller took to solve it.
+  assert.ok(TRAVEL_RATE_FAR >= 2, `long travel is only ${TRAVEL_RATE_FAR}x — "less than half" was the ask`)
   for (const [name, a, b] of LEGS) {
     const t = leg(a, b)
     const solvedMs = ((t.samples.length - 1) * 1000) / FPS
+    const rate = travelRate(a.distanceTo(b))
     assert.ok(
-      Math.abs(t.durationMs - solvedMs / TRAVEL_RATE) < 1e-6,
-      `${name}: duration is not the solved track scaled`,
+      Math.abs(t.durationMs - solvedMs / rate) < 1e-6,
+      `${name}: duration is not the solved track scaled by its own rate`,
     )
-    assert.ok(t.durationMs < solvedMs / 2, `${name} is not more than twice as fast`)
+    // The "less than half" note was about the long legs — the depth changes and
+    // the trip home. The short ones in this table are deliberately no longer
+    // held to it, which is the other half of the same review; they are covered
+    // by the ramp test below instead.
+    if (a.distanceTo(b) >= 4) {
+      assert.ok(t.durationMs < solvedMs / 2, `${name} is not more than twice as fast`)
+    }
   }
 })
 
-test('the pace is set once, for every leg, rather than per destination', () => {
-  // A rate rather than a per-leg duration is the point: nothing here knows or
-  // cares whether a destination is at the foreground or the background plane, so
-  // the two cannot drift apart the way they would if each were tuned by hand.
-  // Same solved track, same scale factor, every time.
-  const rates = LEGS.map(([, a, b]) => {
-    const t = leg(a, b)
-    return (((t.samples.length - 1) * 1000) / FPS) / t.durationMs
-  })
-  for (const r of rates) assert.ok(Math.abs(r - rates[0]) < 1e-9, `legs play at different rates: ${rates}`)
+test('short travel is slower than long travel, and both by the shipped amounts', () => {
+  // THE TWO ENDS OF THE SAME NOTE: "let's make his foreground to background and
+  // vice versa travel even a bit more fast, and let's make his short travel a
+  // bit slower (it feels a little fast currently)." They pull opposite ways, so
+  // a single rate cannot serve both and the rate ramps with the length of the
+  // trip instead.
+  assert.ok(
+    TRAVEL_RATE_NEAR < TRAVEL_RATE_FAR,
+    'short legs must play slower than long ones, not faster',
+  )
+  // Measured distances at the shipped framing: a nudge is 0.40 units, a hop
+  // 1.06, right across the page 2.69, and a depth change 24.4 to 26.9.
+  const short = [0.4, 1.06, 2.69].map(travelRate)
+  const far = [24.4, 26.9].map(travelRate)
+  for (const r of short) {
+    assert.ok(r < 2.0, `a short leg plays at ${r}x, which is not slower than it was`)
+  }
+  for (const r of far) {
+    assert.equal(r, TRAVEL_RATE_FAR, 'a depth change should sit at the top of the ramp')
+  }
+  // Monotone, so nothing in between speeds up as it gets shorter.
+  let last = -Infinity
+  for (let d = 0; d <= 40; d += 0.5) {
+    const r = travelRate(d)
+    assert.ok(r >= last - 1e-12, `the rate fell going from ${d - 0.5} to ${d}`)
+    last = r
+  }
+})
+
+test('the rate knows the length of a leg and nothing else about it', () => {
+  // A rate rather than a per-destination duration is still the point. It ramps
+  // with distance now, but it is a pure function of distance — nothing here
+  // knows or cares whether a destination is at the foreground or the background
+  // plane, so the two cannot drift apart the way they would if each were tuned
+  // by hand. Two different legs of the same length play at the same rate.
+  const a = new Vector3(2.8, -1.7, -2.3)
+  const b = new Vector3(-2.0, 2.0, -9.0)
+  const d = a.distanceTo(b)
+  const sameLength = new Vector3(0, 0, 0)
+  const alsoSameLength = new Vector3(d, 0, 0)
+  assert.equal(travelRate(sameLength.distanceTo(alsoSameLength)), travelRate(d))
+  for (const [name, p, q] of LEGS) {
+    const t = leg(p, q)
+    const rate = (((t.samples.length - 1) * 1000) / FPS) / t.durationMs
+    assert.ok(
+      Math.abs(rate - travelRate(p.distanceTo(q))) < 1e-9,
+      `${name} played at ${rate}, not at its distance's rate`,
+    )
+  }
 })
 
 test('the solver arrives rather than running out of iterations', () => {

@@ -157,14 +157,18 @@ Each of these cost someone a debugging pass, upstream or here.
   from `float_amp: 0` to `1` makes the hover appear at whatever point of its cycle
   it silently reached. Every authored channel is continuous across boot -> idle
   and it still popped: 0.0174 units in one frame against a 0.0012 ceiling.
-- **Pace is `TRAVEL_RATE`, never the cruise speed.** The flight solver integrates
+- **Pace is `travelRate()`, never the cruise speed.** It ramps with the length of
+  the leg — short hops play slower and depth changes faster, because the review
+  asked for both at once and a single number cannot do both. A depth change is
+  24-27 world units where every same-depth leg is under 3, so distance alone
+  separates them and nothing needs to know what kind of leg it is. The flight solver integrates
   until it arrives, so raising `shapeFor`'s cruise looks like the pace knob. Past
   about 2x, the stopping-distance law overshoots its settle window every frame and
   the leg runs to the 600-frame guard instead of landing — 3067 ms became
   20167 ms, measured.
 - **`durationMs` and the sample index share a time base, and it is not frames.**
   `sampleTrack` must index by progress. `(tMs / 1000) * FPS` is the same thing
-  only at `TRAVEL_RATE = 1`; when they disagree the past-the-end guard fires
+  only at a rate of 1; when they disagree the past-the-end guard fires
   early and he teleports the rest of the leg, with every duration still correct.
 - **Headless Chromium runs rAF at about 1 Hz**, so his loop is frozen and
   `await`ing a wall-clock delay measures a still frame. Stop the loop and step it:

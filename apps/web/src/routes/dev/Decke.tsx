@@ -93,6 +93,9 @@ type Status = 'loading' | 'ready' | 'error'
 
 export default function Decke() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  /** A zero-width `100svh` strut, so the always-visible height is measured from
+   *  CSS rather than from `innerHeight`, which moves as the toolbar slides. */
+  const probeRef = useRef<HTMLDivElement | null>(null)
   const deckeRef = useRef<DeckE | null>(null)
   const [status, setStatus] = useState<Status>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -183,8 +186,14 @@ export default function Decke() {
     // thing being drawn into.
     const measure = () => {
       const w = Math.round(canvas.clientWidth) || window.innerWidth
-      const h = Math.round(canvas.clientHeight) || window.innerHeight
-      decke.resize(w, h)
+      // TWO HEIGHTS. The canvas is `100lvh` so it covers the screen even once
+      // the toolbar has slid away; the probe is `100svh`, the part of the screen
+      // that is visible whatever the toolbar is doing, and that is what he is
+      // placed against. Both are CSS-derived and therefore stable — the number
+      // that moves, `innerHeight`, is used for neither. See `viewport.ts`.
+      const canvasH = Math.round(canvas.clientHeight) || window.innerHeight
+      const h = Math.round(probeRef.current?.clientHeight ?? 0) || canvasH
+      decke.resize(w, h, canvasH)
       // Scale him to the viewport rather than pinning a fixed pixel height: 300px
       // is right on a laptop and swallows a 390px phone. Parity mode opts out
       // entirely, since it needs Blender's exact staging distance.
@@ -195,6 +204,7 @@ export default function Decke() {
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(canvas)
+    if (probeRef.current) ro.observe(probeRef.current)
 
     // AND WATCH THE PIXEL RATIO SEPARATELY. Dragging the window from a Retina
     // display to an external one changes `devicePixelRatio` without changing the
@@ -476,16 +486,29 @@ export default function Decke() {
           frame, which is the transient "he becomes more thin" before the resize
           handler catches up and he "snaps back to his proper size".
 
-          `svh` over `lvh` because both are stable and only one keeps him
-          visible: pinned to the large viewport his lower body sits behind the
-          toolbar whenever it is showing (checked on the simulator, and it does).
-          The cost is an 82px strip at the bottom the canvas does not cover once
-          the toolbar hides — he parks 22% up and never goes there, and the
-          canvas is transparent, so nothing about the page changes. On desktop
-          all three units are the same number and this is a no-op. */}
+          BOTH, FOR DIFFERENT JOBS, because picking one loses either his feet or
+          his size. The canvas is `100lvh` — the screen with the toolbar hidden —
+          so there is never a strip of visible screen it does not reach. The
+          earlier `100svh` canvas left exactly that: a bar's height at the bottom
+          with no surface in it, which clipped him well short of the edge and was
+          reported as "it's always cut off at the bottom where the full height of
+          the bottom bar in Safari would be... and then sometimes he's just cut
+          off a bit at the bottom even in the middle of the screen."
+
+          But he is still PLACED against `100svh`, measured by the strut below,
+          because that is the part of the screen visible whatever the toolbar is
+          doing — park him in the large viewport and his lower body sits behind
+          the toolbar whenever it is showing. Both units are stable; the one that
+          moves, `innerHeight`, is used for neither. On desktop they are the same
+          number and all of this is a no-op. */}
+      <div
+        ref={probeRef}
+        aria-hidden
+        className="pointer-events-none fixed left-0 top-0 h-[100svh] w-0 invisible"
+      />
       <canvas
         ref={canvasRef}
-        className="pointer-events-none fixed inset-0 z-30 h-[100svh] w-full"
+        className="pointer-events-none fixed inset-0 z-30 h-[100lvh] w-full"
       />
 
       {/* Sits UNDER the canvas at z-25, so the second render pass draws him
