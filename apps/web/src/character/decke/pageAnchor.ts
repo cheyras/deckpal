@@ -54,6 +54,16 @@
  * is one is a fact about whatever page mounted the overlay rather than something
  * a character runtime gets to decide. So it is measured, twice a park, instead
  * of being asserted in a comment and silently violated later.
+ *
+ * THE ONE THING IT DOES ASSUME, stated here so the next mount does not discover
+ * it: that the containing block SCROLLS WITH THE DOCUMENT. Measuring where it is
+ * says nothing about whether it moves. Mount either overlay inside a
+ * `position: fixed` ancestor — or inside a transformed descendant of one — and
+ * the pinned box stays glued to the viewport while the character runtime shears
+ * its frustum every frame to compensate for a scroll that never reaches it: he
+ * would sit frozen on screen while his element scrolls away. The dev page mounts
+ * the canvas under plain static divs and the ring layer on `body`, and anything
+ * else has to keep that property.
  */
 
 /** Everything this module writes, so unpinning is an exact round trip rather
@@ -104,7 +114,12 @@ export function pinToPage(el: HTMLElement, docY: number): void {
   // viewport. Those agree here and are not guaranteed to agree elsewhere.
   // Rounded, so the canvas's ResizeObserver sees the size it already had and the
   // no-op guard in `DeckE.resize` recognises it as no change.
-  el.style.width = `${Math.round(box.width)}px`
+  // FLOOR THE WIDTH, round the height. A fractional viewport — browser zoom, or
+  // a fractional device scale — rounds 1279.5 up to 1280, and half a pixel of
+  // overflow past the root's edge is the classic "the page can suddenly be
+  // scrolled sideways" artefact, for the whole life of the pin. Half a pixel of
+  // missing height costs nothing against a margin measured in tens.
+  el.style.width = `${Math.floor(box.width)}px`
   el.style.height = `${Math.round(box.height)}px`
 }
 
@@ -119,4 +134,74 @@ export function unpinToViewport(el: HTMLElement): void {
     if (was[p]) el.style.setProperty(p, was[p])
     else el.style.removeProperty(p)
   }
+}
+
+
+// --- where the canvas goes ---------------------------------------------------
+
+/**
+ * How much surface has to sit between the character and the canvas edge, given
+ * his on-screen half-height.
+ *
+ * The fraction is not a guess. `halfPx` is his BODY — half of `BODY_H`,
+ * projected — and what actually reaches the canvas is a good deal more. Measured
+ * at the shipped framing by reading rendered pixels back and finding his real
+ * top and bottom rows, against what the body half-height claims, at 112 px:
+ *
+ *     idle           21 px above,   25 px below
+ *     happy          65 px above,   26 px below
+ *     card_present   25 px above,   66 px below
+ *     alert_star    136 px above,   46 px below
+ *     card_stash    148 px above,   41 px below
+ *
+ * The stash cards and the alert reel ride a long way outboard of the body, so a
+ * margin of 0.6 half-heights — 67 px, which looked generous — was under half of
+ * what the worst state needs, and it cut his feet off. 1.6 covers the measured
+ * worst with headroom. A fraction rather than a pixel count because he is sized
+ * from the viewport, so no constant is right on both a phone and a desktop.
+ */
+export const PIN_MARGIN_PX = 32
+export const PIN_MARGIN_FRAC = 1.6
+
+export function pinMargin(halfPx: number): number {
+  return Math.max(PIN_MARGIN_PX, halfPx * PIN_MARGIN_FRAC)
+}
+
+/**
+ * Where the canvas's top edge goes, in viewport pixels, or null if there is
+ * nowhere it can go.
+ *
+ * Zero — the canvas over the viewport, covering the whole screen — whenever zero
+ * is one of the answers, and only as far off the edge as it has to be otherwise.
+ * Sliding it off is what lets him be pinned while he is still half on screen,
+ * which is the difference between a smooth entrance and a juddering one.
+ *
+ * `roomBelow` is the constraint that is easy to miss and ugly when missed. The
+ * pinned canvas is an absolutely positioned box, so any part of it hanging below
+ * the document's own end EXTENDS THE SCROLLABLE RANGE — measured on Chromium,
+ * parking beside a footer grew the page by 219 px of blank space, which the
+ * reader can scroll into and which snaps shut again the moment he unpins. So the
+ * canvas is not allowed past the end of the document, and when that cannot be
+ * reconciled with containing him this returns null and he keeps the hand-tracked
+ * path. That costs nothing where it bites: it bites at the bottom of the page,
+ * where there is no scrolling left to be chunky during.
+ */
+export function pinWindow(opts: {
+  /** His centre, in viewport pixels. */
+  screenY: number
+  /** Half his body height, in pixels. */
+  halfPx: number
+  /** The height of the drawing surface. */
+  canvasH: number
+  /** How far the canvas top may sit below the viewport top before the canvas
+   *  would hang past the end of the document. May be negative. */
+  roomBelow: number
+}): number | null {
+  const m = pinMargin(opts.halfPx)
+  const lowest = opts.screenY + opts.halfPx + m - opts.canvasH
+  const highest = Math.min(opts.screenY - opts.halfPx - m, opts.roomBelow)
+  // Covers both ways this fails: a character too tall for the surface, and a
+  // surface that cannot be placed without growing the page.
+  if (lowest > highest) return null
+  return Math.max(lowest, Math.min(0, highest))
 }

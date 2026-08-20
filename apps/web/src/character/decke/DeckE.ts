@@ -19,7 +19,14 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { createStage, type Stage } from './stage'
 import { CENTRE_OFFSET, makeFraming, solveFraming, type Framing } from './framing'
-import { canvasHeight, elasticOffset, setViewport, viewHeight, viewWidth } from './viewport'
+import {
+  canvasHeight,
+  documentHeight,
+  elasticOffset,
+  setViewport,
+  viewHeight,
+  viewWidth,
+} from './viewport'
 import {
   BEACON,
   beaconRect,
@@ -80,6 +87,7 @@ import {
   parkBeside,
   resolveRect,
   shapeFor,
+  ridesThePage,
   type Depth,
   type FlyTarget,
   type RectLike,
@@ -92,7 +100,7 @@ import {
   setHighlightAnchor,
   setHighlightShift,
 } from '../../components/ui/elementHighlight'
-import { pinToPage, unpinToViewport } from './pageAnchor'
+import { pinToPage, pinWindow, unpinToViewport } from './pageAnchor'
 
 /** Facing is a YAW, never a reflection: `scale.x` cannot animate through zero
  *  without collapsing him, so a mirror could only ever be an instant flip, and
@@ -156,50 +164,6 @@ export const CUSTOM_STATE = 'custom'
  *  element's new position. */
 const RE_PARK_SETTLE_MS = 250
 
-/**
- * How far inside the CANVAS his silhouette has to sit before the overlays are
- * handed to the compositor — not how far inside the viewport, which is the
- * distinction that removed the judder on his way onto the screen. The canvas can
- * be slid off the viewport to accommodate him; see `canPin`.
- *
- * It is a margin rather than a strict containment because the canvas draws more
- * than his silhouette: the stash cards float outboard of him, and a card clipped
- * by an invisible edge is the same defect as a clipped elbow.
- *
- * The way back out is a different condition — he has to have left the viewport
- * ENTIRELY, because that is the moment the beacon chip has to be drawn and the
- * chip is drawn into the canvas at viewport coordinates.
- */
-const PIN_MARGIN_PX = 32
-
-/**
- * The same clearance as a fraction of his on-screen half-height, whichever is
- * larger. This is the number that was cutting his feet off, and it was wrong
- * because the thing it is measured against is not his size.
- *
- * `screenHalf` is the BODY: half of `BODY_H`, projected. What actually reaches
- * the canvas is a good deal more, and it is worth writing down how much, because
- * every guess at this was too small. Measured at the shipped framing by reading
- * the rendered pixels back and finding his real top and bottom rows, against
- * what `screenHalf` claims, with a half-height of 112 px:
- *
- *     idle           21 px above,   25 px below
- *     happy          65 px above,   26 px below
- *     card_present   25 px above,   66 px below
- *     alert_star    136 px above,   46 px below
- *     card_stash    148 px above,   41 px below
- *
- * The stash cards and the alert reel ride a long way outboard of the body, so a
- * margin of 0.6 half-heights — 67 px, which looked generous — was under half of
- * what the worst state needs. 1.6 covers the measured worst with headroom, and
- * it is a fraction rather than a constant so that it holds on a phone and on a
- * 1600 px desktop, where no single pixel count is right for both.
- *
- * It stays affordable because he is sized from the viewport: his full height is
- * about 0.3 of it, so the span this demands is around 0.78 of a screen and he
- * fits at every shape that matters.
- */
-const PIN_MARGIN_FRAC = 1.6
 
 /**
  * The BACKSTOP interval for re-reading a pinned element, behind the
@@ -1250,7 +1214,7 @@ export class DeckE {
       this.pinWatch.observe(document.documentElement)
     }
     pinToPage(this.opts.canvas, this.pinnedAt)
-    setHighlightAnchor(this.pinnedAt)
+    setHighlightAnchor(this.pinnedAt, this.pinEl)
     // The canvas has just moved by `shift`, so the frustum has to move with it
     // in the same frame or the switch is a jump. A pin aligned with the viewport
     // is the `shift === 0` case of the same line, not a separate path.
@@ -1307,6 +1271,9 @@ export class DeckE {
     // constant. The character's scroll listener is capture-phase precisely so
     // these still drag him along; they keep the hand-tracked path.
     if (!el || scrollableAncestor(el)) return false
+    // AND AN ELEMENT THAT HOLDS STILL IN THE WINDOW rather than in the page is
+    // the same problem by a different route. See `ridesThePage`.
+    if (!ridesThePage(el)) return false
     // THE CANVAS HAS TO CONTAIN HIM. It does not have to line up with the
     // viewport, and assuming it did is what made him judder on the way in.
     //
@@ -1324,35 +1291,28 @@ export class DeckE {
     // hanging past the edge simply is not seen. The frustum offset that already
     // carries the drift carries this too, so it costs no new machinery — see
     // `syncPinned`.
-    const h = canvasHeight()
-    const m = this.pinMargin()
-    // Unless he cannot fit in one at all, which a huge character in a short
-    // window would be.
-    if (this.screenHalf * 2 + m * 2 > h) return false
-    this.pinShift = this.idealShift()
+    const shift = this.idealShift()
+    if (shift === null) return false
+    this.pinShift = shift
     this.pinEl = el
     return true
   }
 
-  /** How much surface has to sit between him and the canvas edge. */
-  private pinMargin(): number {
-    return Math.max(PIN_MARGIN_PX, this.screenHalf * PIN_MARGIN_FRAC)
-  }
-
   /**
-   * Where the canvas's top edge wants to be, in viewport pixels, for his whole
-   * silhouette to sit inside it with clearance.
-   *
-   * Zero — the canvas over the viewport, covering the whole screen — whenever
-   * zero is one of the answers, and only as far off the edge as it has to be
-   * otherwise.
+   * Where the canvas's top edge wants to be, or null if there is nowhere legal.
+   * The geometry lives in `pageAnchor.ts`, where it is a pure function and the
+   * tests can reach the real one instead of a copy of it.
    */
-  private idealShift(): number {
-    const h = canvasHeight()
-    const m = this.pinMargin()
-    const lowest = this.screenY + this.screenHalf + m - h
-    const highest = this.screenY - this.screenHalf - m
-    return Math.max(lowest, Math.min(0, highest))
+  private idealShift(): number | null {
+    return pinWindow({
+      screenY: this.screenY,
+      halfPx: this.screenHalf,
+      canvasH: canvasHeight(),
+      // Cached on a TTL — see `documentHeight`. Reading `scrollHeight` here
+      // per frame would put back a forced layout on exactly the path that
+      // exists to have none.
+      roomBelow: documentHeight() - canvasHeight() - window.scrollY,
+    })
   }
 
   private unpin() {

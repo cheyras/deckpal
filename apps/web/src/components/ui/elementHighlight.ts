@@ -44,7 +44,11 @@
  *    names from an element some other code may have re-rendered is not.
  *
  * The whole thing is `position: fixed` and follows the element on scroll and
- * resize, so it stays put without the caller having to think about it.
+ * resize, so it stays put without the caller having to think about it — EXCEPT
+ * while `setHighlightAnchor` has pinned the layer into the page, when the ring
+ * on the anchored element stops being recomputed because it no longer needs to
+ * be. Rings on any OTHER element keep following per frame, because for those the
+ * pin's premise does not hold. See `setHighlightAnchor`.
  */
 
 import { pinToPage, unpinToViewport } from '../../character/decke/pageAnchor'
@@ -74,6 +78,9 @@ let raf = 0
 /** The document offset the whole layer is pinned at, or null while it is pinned
  *  to the viewport. See `setHighlightAnchor`. */
 let anchorDocY: number | null = null
+/** The element the anchor was taken for. A ring on anything else still has to be
+ *  followed by hand — see `follow`. */
+let anchorEl: Element | null = null
 
 function layer(): HTMLElement {
   let el = document.getElementById(LAYER_ID)
@@ -177,7 +184,14 @@ function follow() {
   // being moved by the compositor, so there is nothing here to recompute. The
   // loop keeps running for the unmount check above, which is cheap and is the
   // only thing that still has to be watched.
-  if (anchorDocY === null) place(live)
+  //
+  // ONLY FOR THE ANCHORED ELEMENT, THOUGH. This is a design-system primitive and
+  // the character is not its only caller — a tour step, a search hit, a row a
+  // background job just changed. The pin says one specific element holds still
+  // in the page; it says nothing about any other, and an element inside an inner
+  // scroller genuinely moves while the document does not. Freezing those was a
+  // ring stuck to the wrong place for the life of the pin.
+  if (anchorDocY === null || live.el !== anchorEl) place(live)
   raf = requestAnimationFrame(follow)
 }
 
@@ -278,15 +292,16 @@ export function setHighlightShift(px: number) {
  * main thread would put visible daylight between a character and the thing he is
  * pointing at, which is worse than both of them being chunky together.
  */
-export function setHighlightAnchor(docY: number | null) {
-  if (docY === anchorDocY) return
+export function setHighlightAnchor(docY: number | null, el: Element | null = null) {
+  if (docY === anchorDocY && el === anchorEl) return
   anchorDocY = docY
-  const el = document.getElementById(LAYER_ID)
+  anchorEl = docY === null ? null : el
   // No layer means nothing is ringed. The offset is still recorded, because
   // `layer()` reads it when one is created later.
-  if (!el) return
-  if (docY === null) unpinToViewport(el)
-  else pinToPage(el, docY)
+  const layerEl = document.getElementById(LAYER_ID)
+  if (!layerEl) return
+  if (docY === null) unpinToViewport(layerEl)
+  else pinToPage(layerEl, docY)
   // Either direction changes what "layer-relative" means, so the ring has to be
   // re-placed in the same frame — the switch is invisible only if nothing inside
   // the layer moves while the layer itself does not.

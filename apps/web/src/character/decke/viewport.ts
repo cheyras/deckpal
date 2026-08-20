@@ -79,7 +79,7 @@ export function setViewport(width: number, height: number, canvasHeight = height
   if (height > 0) h = height
   if (canvasHeight > 0) ch = canvasHeight
   // The document's scrollable range moved with it.
-  maxScrollAt = -1e9
+  docHAt = -1e9
 }
 
 /**
@@ -133,21 +133,36 @@ export function viewHeight(): number {
  * forever and the `overscroll-behavior-y` lock stays on to remove the
  * disagreement instead. See `DeckE`.
  */
-let maxScroll = 0
-let maxScrollAt = -1e9
+let docH = 0
+let docHAt = -1e9
+
+/**
+ * How tall the document is, cached on a short TTL.
+ *
+ * `scrollHeight` FORCES LAYOUT, and both callers run every frame — the bounce
+ * probe below, and the pinned path's check that the canvas is not about to be
+ * placed past the end of the page. Reading it per frame would put back a large
+ * part of the cost this whole runtime was restructured to remove.
+ *
+ * A quarter of a second of staleness is safe for both: a document's height
+ * changes when content loads or the viewport changes, neither of which happens
+ * at frame rate, and `setViewport` invalidates it explicitly when the second one
+ * does. The worst it can do is mis-time the first frame of a bottom bounce, or
+ * take one extra tick to notice that a pin would now overhang the page.
+ */
+export function documentHeight(): number {
+  const now = performance.now()
+  if (now - docHAt > 250) {
+    docHAt = now
+    docH = document.documentElement.scrollHeight
+  }
+  return docH
+}
 
 export function elasticOffset(): number {
   const y = window.scrollY
   // Cheap case first, and it is the top bounce — no layout read at all.
   if (y < 0) return y
-  // `scrollHeight` FORCES LAYOUT, and this runs every frame. Cached on a short
-  // TTL: the document's height changes when content loads or the viewport
-  // changes, neither of which happens at frame rate, and being a quarter of a
-  // second stale can only mis-time the very first frame of a bottom bounce.
-  const now = performance.now()
-  if (now - maxScrollAt > 250) {
-    maxScrollAt = now
-    maxScroll = Math.max(0, document.documentElement.scrollHeight - viewHeight())
-  }
+  const maxScroll = Math.max(0, documentHeight() - viewHeight())
   return y > maxScroll ? y - maxScroll : 0
 }

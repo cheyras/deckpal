@@ -26,7 +26,7 @@ import { PerspectiveCamera } from 'three'
 import { BLENDER_CAMERA, blenderCameraQuaternion, blenderToThree } from '../constants'
 import { parkBeside, type RectLike } from '../dom'
 import { setViewport } from '../viewport'
-import { pinToPage, unpinToViewport, isPinned } from '../pageAnchor'
+import { pinToPage, pinWindow, pinMargin, unpinToViewport, isPinned } from '../pageAnchor'
 
 const VIEW_W = 1000
 const VIEW_H = 800
@@ -196,39 +196,12 @@ function stagingCamera(): PerspectiveCamera {
   return cam
 }
 
-test('a derived rect parks him where a measured one would', () => {
-  const cam = stagingCamera()
-  const opts = { depth: 'foreground' as const, side: 'auto' as const, baseDistance: cam.position.length() }
-  // The element's box in DOCUMENT space, which is what a pin caches.
-  const doc = { x: 120, y: 2000, w: 380, h: 90 }
-  const pinAt = 1700
-
-  for (const drift of [0, 11, 55, 190, 430, -220]) {
-    const scrollY = pinAt + drift
-    // What `getBoundingClientRect` would return at this scroll position.
-    const measured: RectLike = {
-      left: doc.x,
-      top: doc.y - scrollY,
-      right: doc.x + doc.w,
-      width: doc.w,
-      height: doc.h,
-    }
-    // What `syncPinned` derives instead, from the cache and the scroll offset.
-    const derived: RectLike = {
-      left: doc.x - 0,
-      top: doc.y - scrollY,
-      right: doc.x - 0 + doc.w,
-      width: doc.w,
-      height: doc.h,
-    }
-    const a = parkBeside(cam, measured, opts)
-    const b = parkBeside(cam, derived, opts)
-    assert.equal(b.position.distanceTo(a.position), 0, `derived rect diverged at drift ${drift}`)
-    assert.equal(b.facing, a.facing)
-  }
-})
-
-test('the derived rect moves him by the scroll, and only by the scroll', () => {
+test('the park solve rises with the page, monotonically', () => {
+  // Not about pinning at all — it is the property the pinned path has to
+  // REPRODUCE, and the reason freezing his world position was wrong. Scrolling
+  // down moves the element up the viewport, and the solve has to carry him up
+  // with it in world space, because the vertical parallax cue lives in where he
+  // sits in the frustum rather than in any rotation. See `framing.ts`.
   const cam = stagingCamera()
   const opts = { depth: 'foreground' as const, side: 'auto' as const, baseDistance: cam.position.length() }
   const doc = { x: 120, y: 2000, w: 380, h: 90 }
@@ -404,45 +377,32 @@ test('a canvas slid off the viewport still parks him where tracking would', () =
 })
 
 test('the pin window clears his DRAWN extent, not just his silhouette', () => {
-  // `canPin`'s choice of shift, as a property, with the margin that cut his feet
-  // off replaced by one that survives what he actually draws.
+  // Calls `pinWindow`, not a copy of it — an earlier version of this test
+  // re-implemented the formula inline and hardcoded the constants, so it would
+  // have stayed green through any change to either.
   //
-  // The measurement this is defending, taken by reading rendered pixels back at
-  // a half-height of 112 px: he reaches 148 px above and 66 px below what
-  // `screenHalf` claims, because the stash cards and the alert reel ride well
-  // outboard of the body. Anything under that clips him — and clips him
-  // invisibly, because the canvas edge has no appearance of its own.
+  // The measurement it defends, taken by reading rendered pixels back at a body
+  // half-height of 112 px: he reaches 148 px above and 66 px below what the
+  // half-height claims, because the stash cards and the alert reel ride well
+  // outboard. Anything under that clips him, and clips him invisibly, because a
+  // canvas edge has no appearance of its own.
   const H = 820
   const half = 112
-  const MARGIN = Math.max(32, half * 1.6)
-  const WORST_OVERHANG_ABOVE = 148
-  const WORST_OVERHANG_BELOW = 66
-  assert.ok(
-    MARGIN > WORST_OVERHANG_ABOVE && MARGIN > WORST_OVERHANG_BELOW,
-    `a margin of ${MARGIN} does not clear a measured overhang of ${WORST_OVERHANG_ABOVE}`,
-  )
-
-  const idealShift = (screenY: number) => {
-    const lowest = screenY + half + MARGIN - H
-    const highest = screenY - half - MARGIN
-    return Math.max(lowest, Math.min(0, highest))
-  }
+  const ABOVE = 148
+  const BELOW = 66
+  const m = pinMargin(half)
+  assert.ok(m > ABOVE && m > BELOW, `a margin of ${m} does not clear an overhang of ${ABOVE}`)
 
   for (let screenY = -half; screenY <= H + half; screenY += 7) {
-    const shift = idealShift(screenY)
+    const shift = pinWindow({ screenY, halfPx: half, canvasH: H, roomBelow: Infinity })
+    assert.ok(shift !== null, `refused to pin at screenY ${screenY}`)
     // Everything he draws has to be inside the canvas, which spans
     // [shift, shift + H] in viewport pixels.
-    assert.ok(
-      screenY - half - WORST_OVERHANG_ABOVE >= shift - 1e-9,
-      `clipped above at screenY ${screenY}`,
-    )
-    assert.ok(
-      screenY + half + WORST_OVERHANG_BELOW <= shift + H + 1e-9,
-      `clipped below at screenY ${screenY}`,
-    )
-    // Aligned whenever aligned is legal — a canvas over the viewport is the case
-    // with nothing to go wrong, and it covers the whole screen.
-    if (screenY - half >= MARGIN && screenY + half <= H - MARGIN) assert.equal(shift, 0)
+    assert.ok(screenY - half - ABOVE >= shift - 1e-9, `clipped above at screenY ${screenY}`)
+    assert.ok(screenY + half + BELOW <= shift + H + 1e-9, `clipped below at screenY ${screenY}`)
+    // Aligned whenever aligned is legal: a canvas over the viewport covers the
+    // whole screen and is the case with nothing to go wrong.
+    if (screenY - half >= m && screenY + half <= H - m) assert.equal(shift, 0)
   }
 })
 
@@ -457,20 +417,33 @@ test('a shift taken at an edge relaxes to aligned once he is inside', () => {
   //
   // Entering from the top happens to land nowhere near its clamp, which is why
   // the same code looked correct from one direction and not the other.
-  const H = 820
-  const half = 112
-  const MARGIN = Math.max(32, half * 1.6)
-  const idealShift = (screenY: number) => {
-    const lowest = screenY + half + MARGIN - H
-    const highest = screenY - half - MARGIN
-    return Math.max(lowest, Math.min(0, highest))
+  const at = (screenY: number) =>
+    pinWindow({ screenY, halfPx: 112, canvasH: 820, roomBelow: Infinity })
+  assert.ok((at(780) ?? 0) > 0, 'a bottom entry should need the canvas slid down')
+  assert.ok((at(40) ?? 0) < 0, 'a top entry should need the canvas slid up')
+  // Scrolled into the middle, aligned is legal — which is the condition
+  // `syncPinned` watches for before re-taking the pin.
+  assert.equal(at(410), 0)
+})
+
+test('the canvas is never placed past the end of the document', () => {
+  // The pinned canvas is an absolutely positioned box, so any part of it hanging
+  // below the document's own end EXTENDS THE SCROLLABLE RANGE. Measured on
+  // Chromium before this guard: parking beside a footer grew the page by 219 px
+  // of blank space, which the reader can scroll into and which snaps shut the
+  // moment he unpins.
+  //
+  // `roomBelow` is how far the canvas top may sit below the viewport top before
+  // that happens, so the answer must never exceed it.
+  for (const roomBelow of [-90, -1, 0, 40, 300]) {
+    for (let screenY = 0; screenY <= 820; screenY += 20) {
+      const shift = pinWindow({ screenY, halfPx: 112, canvasH: 820, roomBelow })
+      if (shift === null) continue
+      assert.ok(shift <= roomBelow + 1e-9, `shift ${shift} hangs past the document at ${screenY}`)
+    }
   }
-  // Arriving from the bottom edge: constrained, so the shift is positive.
-  const arriving = idealShift(H - 40)
-  assert.ok(arriving > 0, 'a bottom entry should need the canvas slid down')
-  // Once he has scrolled into the middle, aligned is legal and the pin is
-  // re-taken there — which is the condition `syncPinned` watches for.
-  assert.equal(idealShift(H / 2), 0)
-  // And symmetrically from the top.
-  assert.ok(idealShift(40) < 0, 'a top entry should need the canvas slid up')
+  // And when containing him cannot be reconciled with that, it refuses rather
+  // than growing the page — he keeps the hand-tracked path, which costs nothing
+  // at the bottom of a document because there is no scrolling left to be chunky.
+  assert.equal(pinWindow({ screenY: 780, halfPx: 112, canvasH: 820, roomBelow: 0 }), null)
 })
