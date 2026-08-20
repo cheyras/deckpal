@@ -11,6 +11,9 @@
  * legal values.
  */
 import type { DeckE } from './DeckE'
+import type { CardArt, CardSlot } from './cardArt'
+import { BATCH_MAX, MAX_RUN } from './cards'
+import { artForIds } from './cardSource'
 import type { Depth, Side } from './dom'
 import { CHANNEL_RANGE } from './constants'
 import { IDLE } from './sustain'
@@ -36,6 +39,46 @@ export type Command =
        * were added is the one that says.
        */
       count?: number
+      /**
+       * WHICH cards, by catalog id — `card_stash` only.
+       *
+       * The whole point of the flight is "this is his way of showing the ACTUAL
+       * cards they added going down into the deck box", so the agent that knows
+       * which cards were added is the one that says. Any length: past what fits
+       * on screen at once it plays in batches.
+       *
+       * Ids, never image URLs. A model naming a catalog card is asking for a
+       * card; a model naming a URL is asking us to load an arbitrary image into
+       * the page, which is not a thing this surface should be able to express.
+       */
+      cards?: string[]
+      /**
+       * Whether the run finishes by itself — `card_stash` only, and only
+       * meaningful with `cards` or `count`.
+       *
+       * Off (the default) is every earlier review's behaviour: the last batch
+       * hangs, and he puts them away when told. On is the complete gesture —
+       * "until ALL cards called for are in, then he closes."
+       */
+      autoClose?: boolean
+    }
+  | {
+      /**
+       * Put a specific card on one of the four faces he shows, by catalog id.
+       *
+       * `card_r` is the card he holds up in `card_present` and points at in
+       * `travel_point`, so it is the one to set before presenting a card.
+       * `card_l` joins it in the `loading` orbit. `single` is the card inside
+       * him; `deck` is the face on top of the stack in the box, which the stash
+       * flight also updates as cards land on it.
+       *
+       * `card: null` restores the placeholder art baked into the model. That is
+       * an escape hatch, not a default — placeholder cards are Pokemon that do
+       * not exist.
+       */
+      op: 'cardArt'
+      slot: CardSlot
+      card: string | null
     }
   | { op: 'idle'; blendMs?: number }
   | { op: 'highlight'; selector: string; durationMs?: number }
@@ -65,7 +108,30 @@ export type Command =
   | { op: 'home' }
   | { op: 'clearChannels' }
 
-export type CommandResult = { applied: number; errors: string[] }
+export type CommandResult = {
+  applied: number
+  errors: string[]
+  /**
+   * Things that were done, but not quite as asked.
+   *
+   * The reject-loudly rule has a gap: a request that is REASONABLE but cannot be
+   * honoured in full is neither an error nor a success. "I added two hundred
+   * cards" is a true statement about the world and the right thing to do is show
+   * as many as an animation can carry — but a model told only `applied: 1` has
+   * no way to know that a hundred and fifty of them were not shown, and will
+   * happily narrate otherwise.
+   */
+  notes: string[]
+}
+
+/** Where card ids become artwork. Injected so the surface can be exercised
+ *  without a network, and so this file's dependency on the catalog is one
+ *  argument rather than a hard import in the middle of a validator. */
+export type CommandOptions = {
+  resolveCards?: (ids: string[]) => Promise<(CardArt | null)[]>
+}
+
+const SLOTS: CardSlot[] = ['card_l', 'card_r', 'single', 'deck']
 
 const DEPTHS: Depth[] = ['foreground', 'background']
 const SIDES: Side[] = ['auto', 'left', 'right']
@@ -86,15 +152,60 @@ function num(v: unknown): v is number {
  * does not stop the rest — a partially-understood turn should still do the parts
  * it understood, which is nearly always better than freezing.
  */
-export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
+/**
+ * One turn at a time, per character.
+ *
+ * `runCommands` became async so that naming a card could be a catalog lookup,
+ * and that quietly cost something the synchronous version had for free: a turn
+ * was ATOMIC. Now a second turn arriving while the first is awaiting a slow
+ * lookup interleaves with it — and the interleaving that matters is the one this
+ * feature is built on, because `setStashCards` and `setState` are two calls that
+ * mean nothing apart. Turn two's `setState` landing between them shows turn one's
+ * cards under turn two's instruction.
+ *
+ * A model is perfectly capable of sending two turns in quick succession; it is
+ * how "I found four cards… and here they are" is written. So turns queue.
+ */
+const TURNS = new WeakMap<DeckE, Promise<unknown>>()
+
+export function runCommands(
+  decke: DeckE,
+  commands: Command[],
+  opts: CommandOptions = {},
+): Promise<CommandResult> {
+  const prev = TURNS.get(decke) ?? Promise.resolve()
+  // `.then` on both settlements: a turn that throws must not wedge the queue for
+  // the life of the page.
+  const next = prev.then(
+    () => runTurn(decke, commands, opts),
+    () => runTurn(decke, commands, opts),
+  )
+  TURNS.set(decke, next.then(noop, noop))
+  return next
+}
+
+function noop() {}
+
+async function runTurn(
+  decke: DeckE,
+  commands: Command[],
+  opts: CommandOptions,
+): Promise<CommandResult> {
   const errors: string[] = []
+  const notes: string[] = []
   let applied = 0
+  const resolveCards = opts.resolveCards ?? artForIds
 
   if (!Array.isArray(commands)) {
-    return { applied: 0, errors: ['`commands` must be an array'] }
+    return { applied: 0, errors: ['`commands` must be an array'], notes }
   }
 
-  commands.forEach((cmd, i) => {
+  // AWAITED IN ORDER, not `forEach`. Naming cards is a lookup, and a turn that
+  // says "put these twelve away, then look pleased" has to do those two things
+  // in that order — which a fire-and-forget resolve inside a synchronous loop
+  // cannot promise. It also buys the thing the reject-loudly rule needs most: an
+  // id that does not exist can be REPORTED, because we waited to find out.
+  for (const [i, cmd] of commands.entries()) {
     const at = `commands[${i}]`
     try {
       switch (cmd?.op) {
@@ -102,40 +213,128 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
           const names = decke.stateNames
           if (!names.includes(cmd.value)) {
             errors.push(`${at}: unknown state "${cmd.value}". Legal: ${names.join(', ')}`)
-            return
+            continue
           }
           if (cmd.blendMs !== undefined && (!num(cmd.blendMs) || cmd.blendMs < 0)) {
             errors.push(`${at}: blendMs must be a non-negative number`)
-            return
+            continue
           }
           if (cmd.mode !== undefined && cmd.mode !== 'sustain' && cmd.mode !== 'once') {
             errors.push(`${at}: mode must be "sustain" or "once"`)
-            return
+            continue
           }
           if (
             cmd.durationMs !== undefined &&
             (!num(cmd.durationMs) || cmd.durationMs <= 0)
           ) {
             errors.push(`${at}: durationMs must be a positive number of milliseconds`)
-            return
+            continue
           }
           if (cmd.then !== undefined && !names.includes(cmd.then)) {
             errors.push(`${at}: unknown "then" state "${cmd.then}". Legal: ${names.join(', ')}`)
-            return
+            continue
           }
-          if (cmd.count !== undefined) {
+          const stashOnly = (field: string): boolean => {
+            if (cmd.value === 'card_stash') return true
+            errors.push(`${at}: ${field} only applies to card_stash, not "${cmd.value}"`)
+            return false
+          }
+          if (cmd.count !== undefined && cmd.cards !== undefined) {
+            errors.push(
+              `${at}: give either count or cards, not both — cards already says how many`,
+            )
+            continue
+          }
+          if (cmd.autoClose !== undefined) {
+            if (typeof cmd.autoClose !== 'boolean') {
+              errors.push(`${at}: autoClose must be a boolean`)
+              continue
+            }
+            if (!stashOnly('autoClose')) continue
+          }
+          if (cmd.cards !== undefined) {
+            if (
+              !Array.isArray(cmd.cards) ||
+              !cmd.cards.length ||
+              cmd.cards.some((c) => typeof c !== 'string' || !c)
+            ) {
+              errors.push(`${at}: cards must be a non-empty array of catalog card ids`)
+              continue
+            }
+            if (!stashOnly('cards')) continue
+            // THE LOOKUP HAPPENS HERE, before the state is entered. An id that
+            // does not resolve is reported and its slot left as the placeholder,
+            // rather than silently shifting every later card up one — which
+            // would put the wrong art on the right card and look like a
+            // rendering bug for a week.
+            // CAPPED BEFORE THE LOOKUP, not after. `splitBatches` drops the
+            // tail anyway, so resolving two hundred ids to show forty-eight is
+            // a hundred and fifty catalog requests whose answers are thrown
+            // away — fired in parallel, from a page that is also loading
+            // textures.
+            const asked = cmd.cards
+            const wanted = asked.slice(0, MAX_RUN)
+            if (asked.length > wanted.length) {
+              notes.push(
+                `${at}: ${asked.length} cards asked for; the first ${MAX_RUN} will be shown, in batches`,
+              )
+            }
+            const art = await resolveCards(wanted)
+            const missing = wanted.filter((_, k) => !art[k])
+            if (missing.length === wanted.length) {
+              // NONE of them resolved, so there is nothing of the user's to
+              // show. Playing anyway would put a fan of AI-generated Pokemon
+              // that do not exist in front of them and call it their collection,
+              // which is worse than not playing — and it would look like the
+              // feature working. A partial failure still plays; a total one is a
+              // rejection.
+              errors.push(
+                `${at}: none of those card ids are in the catalog: ${wanted.slice(0, 8).join(', ')}${wanted.length > 8 ? ', …' : ''}`,
+              )
+              continue
+            }
+            if (missing.length) {
+              // A NOTE, NOT AN ERROR, and the distinction is the whole contract:
+              // everywhere else in this file an entry in `errors` means the
+              // command did NOT run — every one of them is followed by
+              // `continue`. This command does run, with the rest of the cards.
+              // Reporting it as an error leaves a model unable to tell which of
+              // `{applied: 1, errors: [...]}` it is looking at.
+              notes.push(
+                `${at}: ${missing.length} card id(s) are not in the catalog and will show placeholder art: ${missing.slice(0, 8).join(', ')}${missing.length > 8 ? ', …' : ''}`,
+              )
+            }
+            decke.setStashCards(art, { autoClose: cmd.autoClose === true })
+          } else if (cmd.count !== undefined) {
             if (!num(cmd.count) || cmd.count < 1 || cmd.count !== Math.round(cmd.count)) {
               errors.push(`${at}: count must be a whole number of cards, at least 1`)
-              return
+              continue
             }
-            if (cmd.value !== 'card_stash') {
-              errors.push(`${at}: count only applies to card_stash, not "${cmd.value}"`)
-              return
-            }
+            if (!stashOnly('count')) continue
             // Above the cap it clamps and warns rather than failing: an agent
             // that just added thirty cards is not wrong to say so. It takes
             // effect on the ENTRY below, never on cards already in the air.
-            decke.setStashCount(cmd.count)
+            //
+            // AND IT SHOWS PLACEHOLDER ART, because a count says how many and
+            // not which. That is the fallback, not the feature — `cards` is how
+            // an agent shows the user their own cards.
+            if (cmd.count > MAX_RUN) {
+              notes.push(
+                `${at}: ${cmd.count} cards asked for; ${MAX_RUN} will be shown, in batches`,
+              )
+            }
+            // One write, not two: `setStashCount` is sugar for exactly this
+            // call, and doing both leaves the first `pending` to be overwritten
+            // by the second — which works, and is the kind of thing that stops
+            // working the moment `pending` grows a field.
+            decke.setStashCards(new Array(Math.min(cmd.count, MAX_RUN)).fill(null), {
+              autoClose: cmd.autoClose === true,
+            })
+          } else if (cmd.autoClose !== undefined) {
+            errors.push(
+              `${at}: autoClose needs cards or count — say what he should be putting away`,
+            )
+            continue
           }
           decke.setState(cmd.value, {
             blendMs: cmd.blendMs,
@@ -146,6 +345,28 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
           break
         }
 
+        case 'cardArt': {
+          if (!SLOTS.includes(cmd.slot)) {
+            errors.push(`${at}: unknown card slot "${cmd.slot}". Legal: ${SLOTS.join(', ')}`)
+            continue
+          }
+          if (cmd.card !== null && (typeof cmd.card !== 'string' || !cmd.card)) {
+            errors.push(`${at}: card must be a catalog card id, or null for placeholder art`)
+            continue
+          }
+          if (cmd.card === null) {
+            decke.setCardArt(cmd.slot, null)
+            break
+          }
+          const [art] = await resolveCards([cmd.card])
+          if (!art) {
+            errors.push(`${at}: no card "${cmd.card}" in the catalog`)
+            continue
+          }
+          decke.setCardArt(cmd.slot, art)
+          break
+        }
+
         case 'idle':
           decke.setState(IDLE, { blendMs: cmd.blendMs })
           break
@@ -153,11 +374,11 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
         case 'highlight': {
           if (typeof cmd.selector !== 'string') {
             errors.push(`${at}: highlight needs a selector`)
-            return
+            continue
           }
           if (!document.querySelector(cmd.selector)) {
             errors.push(`${at}: no element matches "${cmd.selector}"`)
-            return
+            continue
           }
           decke.highlight(cmd.selector, { durationMs: cmd.durationMs })
           break
@@ -171,11 +392,11 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
           const beats = cmd.beats
           if (!Array.isArray(beats) || beats.length < 2) {
             errors.push(`${at}: keyframes needs at least two beats`)
-            return
+            continue
           }
           if (beats.length > MAX_KEYFRAMES) {
             errors.push(`${at}: at most ${MAX_KEYFRAMES} beats (got ${beats.length})`)
-            return
+            continue
           }
           const channels = decke.channelNames
           let last = -1
@@ -213,15 +434,15 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
           }
           if (bad) {
             errors.push(`${at}: ${bad}`)
-            return
+            continue
           }
           if (last > MAX_KEYFRAME_MS) {
             errors.push(`${at}: a custom clip may not run past ${MAX_KEYFRAME_MS} ms`)
-            return
+            continue
           }
           if (cmd.then !== undefined && !decke.stateNames.includes(cmd.then)) {
             errors.push(`${at}: unknown "then" state "${cmd.then}"`)
-            return
+            continue
           }
           decke.playKeyframes(
             beats.map((b) => ({ t_ms: b.t_ms, ease: b.ease ?? 'ease', pose: b.pose })),
@@ -237,11 +458,11 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
           else if (num(cmd.value)) f = cmd.value
           else {
             errors.push(`${at}: facing must be "left", "right", or a number in [-1, 1]`)
-            return
+            continue
           }
           if (f < -1 || f > 1) {
             errors.push(`${at}: facing ${f} is outside [-1, 1]`)
-            return
+            continue
           }
           decke.setFacing(f, { animate: cmd.animate !== false })
           break
@@ -250,11 +471,11 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
         case 'talk': {
           if (typeof cmd.value !== 'boolean') {
             errors.push(`${at}: talk.value must be a boolean`)
-            return
+            continue
           }
           if (cmd.weight !== undefined && (!num(cmd.weight) || cmd.weight < 0 || cmd.weight > 1)) {
             errors.push(`${at}: talk.weight must be a number in [0, 1]`)
-            return
+            continue
           }
           decke.setOverlay(cmd.value ? 'talk' : null, cmd.weight ?? 1)
           break
@@ -271,25 +492,25 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
           // model miles from the data it was fitted to.
           if (typeof cmd.channel !== 'string') {
             errors.push(`${at}: channel must be a string`)
-            return
+            continue
           }
           const channels = decke.channelNames
           if (!channels.includes(cmd.channel)) {
             errors.push(
               `${at}: unknown channel "${cmd.channel}". Legal: ${channels.join(', ')}`,
             )
-            return
+            continue
           }
           if (cmd.value !== null && !num(cmd.value)) {
             errors.push(`${at}: channel value must be a number, or null to release`)
-            return
+            continue
           }
           const range = CHANNEL_RANGE[cmd.channel as keyof typeof CHANNEL_RANGE]
           if (cmd.value !== null && range && (cmd.value < range.min || cmd.value > range.max)) {
             errors.push(
               `${at}: ${cmd.channel} ${cmd.value} is outside [${range.min}, ${range.max}]`,
             )
-            return
+            continue
           }
           decke.setChannel(cmd.channel, cmd.value)
           break
@@ -300,28 +521,28 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
           const side = cmd.side ?? 'auto'
           if (!DEPTHS.includes(depth)) {
             errors.push(`${at}: depth must be one of ${DEPTHS.join(' | ')}`)
-            return
+            continue
           }
           if (!SIDES.includes(side)) {
             errors.push(`${at}: side must be one of ${SIDES.join(' | ')}`)
-            return
+            continue
           }
           if (cmd.then !== undefined && !decke.stateNames.includes(cmd.then)) {
             errors.push(`${at}: unknown "then" state "${cmd.then}"`)
-            return
+            continue
           }
           const fly = { depth, side, highlight: cmd.highlight, then: cmd.then }
           if (cmd.selector) {
             if (!document.querySelector(cmd.selector)) {
               errors.push(`${at}: no element matches "${cmd.selector}"`)
-              return
+              continue
             }
             decke.flyTo({ selector: cmd.selector }, fly)
           } else if (num(cmd.x) && num(cmd.y)) {
             decke.flyTo({ x: cmd.x, y: cmd.y }, fly)
           } else {
             errors.push(`${at}: flyTo needs either a selector or both x and y`)
-            return
+            continue
           }
           break
         }
@@ -336,15 +557,15 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
 
         default:
           errors.push(`${at}: unknown op "${(cmd as { op?: string })?.op}"`)
-          return
+          continue
       }
       applied++
     } catch (e) {
       errors.push(`${at}: ${e instanceof Error ? e.message : String(e)}`)
     }
-  })
+  }
 
-  return { applied, errors }
+  return { applied, errors, notes }
 }
 
 /**
@@ -385,11 +606,37 @@ export function commandSchema(stateNames: string[]) {
                   type: 'integer',
                   minimum: 1,
                   description:
-                    'card_stash only: how many cards to show. Use the number the user actually added; it is clamped to what fits on screen.',
+                    'card_stash only, and the FALLBACK: how many cards to show, on generic placeholder art. Prefer `cards`, which shows the user their own cards. Mutually exclusive with `cards`.',
+                },
+                cards: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  minItems: 1,
+                  description:
+                    `card_stash only: WHICH cards go in, by catalog card id (e.g. "sv3pt5-25"), in the order they should file in. Any length — past ${BATCH_MAX} they are shown in batches of ${BATCH_MAX}, up to ${MAX_RUN} in total. This is the point of the animation: use the cards the user actually added.`,
+                },
+                autoClose: {
+                  type: 'boolean',
+                  description:
+                    'card_stash only: play the whole run through and shut the lid at the end, instead of holding the last batch up until something else is asked for. Default false.',
                 },
                 blendMs: { type: 'number' },
               },
               required: ['op', 'value'],
+            },
+            {
+              type: 'object',
+              description:
+                'Put a specific card on one of the faces he shows. `card_r` is the card he holds up in card_present and travel_point — set it before presenting a card. `card_l` joins it in the loading orbit. `single` is the card inside him and `deck` is the top of the stack in his box. Pass card: null to go back to the model\'s generic placeholder art.',
+              properties: {
+                op: { const: 'cardArt' },
+                slot: { enum: SLOTS },
+                card: {
+                  type: ['string', 'null'],
+                  description: 'A catalog card id, or null for placeholder art.',
+                },
+              },
+              required: ['op', 'slot', 'card'],
             },
             {
               type: 'object',

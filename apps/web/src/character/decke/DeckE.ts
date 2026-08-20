@@ -27,6 +27,13 @@ import {
   type Beacon,
 } from './beacon'
 import { bindRig, applyLook, applyPose, resolveFacing, type RigNodes } from './rig'
+import {
+  CARD_BACK_URL,
+  createCardArt,
+  type CardArt,
+  type CardArtSystem,
+  type CardSlot,
+} from './cardArt'
 import { fixupMaterials } from './materials'
 import { createRiderSystem, type RiderSystem } from './riders'
 import { createEyeSocket, type EyeSocket } from './eyeSocket'
@@ -253,6 +260,9 @@ export class DeckE {
   /** Null if the parent vertices could not be resolved in the exported mesh. */
   private eyeSocket: EyeSocket | null = null
   private cards!: CardSystem
+  /** The artwork on the cards he handles. Public because the app layer decides
+   *  WHICH cards; see `cardSource.ts`. */
+  art!: CardArtSystem
   private doc!: PlaybookDoc
   /** One entry per eye: the patched material and the empties it reads. */
   private eyes: { mat: EyeMaterial; ctrls: EyeControls }[] = []
@@ -442,7 +452,17 @@ export class DeckE {
     this.rig = bindRig(model)
     this.riderSystem = createRiderSystem(model)
     this.eyeSocket = createEyeSocket(model)
-    this.cards = createCardSystem(cards, bindCards(model, cards))
+    // Before the card system, which drives it: the art has to exist before
+    // anything can be put in a slot, and the pool's clones have to be adopted at
+    // the moment they are made.
+    this.art = createCardArt(model, {
+      maxAnisotropy: this.stage.renderer.capabilities.getMaxAnisotropy(),
+    })
+    this.cards = createCardSystem(cards, bindCards(model, cards), this.art)
+    // The real back, from the first frame. Not deferred behind a setting: the
+    // baked one is AI-generated placeholder art, and a card whose back is not the
+    // back of a card is wrong in the same way its front would be.
+    this.art.setBack(`${baseUrl}${CARD_BACK_URL}`)
     atlas.colorSpace = NoColorSpace
     this.bindEyes(model, atlas)
 
@@ -621,11 +641,20 @@ export class DeckE {
     // reset the clock, which despawned every card in the air and re-dealt them
     // from the mouth. Only a request that changes the state's LIFETIME — how
     // long it lasts, or where it goes next — is a real change.
+    //
+    // A PENDING STASH RUN IS A REAL CHANGE, for the same reason `durationMs` is.
+    // "Now put these other cards away" arrives as `setStashCards` followed by
+    // `setState('card_stash')`, and while he is already in `card_stash` that
+    // second call used to be swallowed here — so the run sat pending, waiting
+    // for an entry that might never come, and he went on holding up the previous
+    // batch as though nothing had been asked. Silently showing the wrong cards
+    // is the one failure this whole feature cannot have.
     if (
       name === this.current &&
       this.phase !== 'outro' &&
       opts.durationMs === undefined &&
       opts.mode !== 'once' &&
+      !this.cards.hasPending(name) &&
       (opts.then === undefined || opts.then === this.nextState)
     ) {
       return
@@ -635,7 +664,12 @@ export class DeckE {
       this.queued = { name, opts }
       return
     }
-    if (this.hasOutro(true) && name !== this.current) {
+    // `name !== this.current` normally, so that a lifetime-only change does not
+    // make him put everything away and start again — EXCEPT when the change is a
+    // new set of cards, where putting the old ones away first is exactly right.
+    // He is holding twelve cards up; "show these twenty instead" should file
+    // those twelve in and then deal the new lot, not swap them mid-air.
+    if (this.hasOutro(true) && (name !== this.current || this.cards.hasPending(name))) {
       this.queued = { name, opts }
       this.beginOutro()
       return
@@ -833,6 +867,28 @@ export class DeckE {
     this.cards.setCount(n)
   }
 
+  /**
+   * The actual cards the next `card_stash` puts away.
+   *
+   * Any length: past what fits on screen at once the flight runs in batches, and
+   * `autoClose` decides whether the last batch hangs (the reviewed behaviour, and
+   * the default) or files itself in and closes him too — which is what "until ALL
+   * cards called for are in, then he closes" describes for a run that is a
+   * complete gesture rather than an ongoing display.
+   *
+   * Takes effect on the next ENTRY. Setting it while cards are in the air would
+   * re-deal the ones on screen; see `CardSystem.setStashCards`.
+   */
+  setStashCards(arts: (CardArt | null)[], opts: { autoClose?: boolean } = {}) {
+    this.cards.setStashCards(arts, opts)
+  }
+
+  /** Put art in one of the four single-card slots, or `null` for the
+   *  placeholder baked into the model. */
+  setCardArt(slot: CardSlot, art: CardArt | null) {
+    this.art.set(slot, art)
+  }
+
   /** Ring an element without moving. */
   highlight(target: Element | string, opts: { durationMs?: number } = {}) {
     highlightElement(target, opts)
@@ -1028,6 +1084,17 @@ export class DeckE {
         const q = this.queued
         this.queued = null
         this.enter(q?.name ?? this.nextState, q?.opts ?? {})
+        continue
+      }
+
+      // THE STASH RUN CAN END ITSELF. A run given a card list and asked to play
+      // through says so when its last batch has been up long enough — "until ALL
+      // cards called for are in, then he closes" — and the closing is this
+      // machine's outro, not the card system's business. Routed through
+      // `beginOutro` rather than through `leaveAt` because the outro is the point:
+      // the lid shutting and the final batch diving in are one authored beat.
+      if (this.cards.wantsClose()) {
+        this.beginOutro()
         continue
       }
 
@@ -1449,6 +1516,11 @@ export class DeckE {
   dispose() {
     this.disposed = true
     this.stop()
+    // Before the scene walk below, which disposes every material it finds: the
+    // art system owns CLONED materials and the textures it fetched, and it is
+    // the only thing that knows which textures came from the glb (and are the
+    // walk's to free) and which are its own.
+    this.art?.dispose()
     window.removeEventListener('scroll', this.onScroll, { capture: true })
     // Tear the scene down properly, not just the loop. React 19's StrictMode
     // mounts effects twice in dev, so a partial teardown leaves a SECOND
