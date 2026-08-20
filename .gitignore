@@ -32,6 +32,16 @@ assets/sprites/
 !apps/web/public/marketing/*.webp
 !apps/web/public/marketing/*.avif
 
+# And so is Deck-E's card back, for exactly the same reason and with exactly the
+# same failure when it is missing. `**/*.webp` above swallowed it silently: `git
+# add -A` reported nothing, the commit looked complete, the local build worked
+# (the file was on disk), CI passed, and it 404'd only in production — where the
+# character's cards would have shown the AI-generated placeholder back forever.
+# The other assets in that directory are .glb/.json/.hdr/.png and were never
+# caught by the rule, which is what made it look like a routing problem.
+!apps/web/public/models/decke/
+!apps/web/public/models/decke/*.webp
+
 # Raw, full-size generations from scripts/gen-marketing-images.mjs — originals and
 # rejected candidates. Only the optimised derivatives get committed.
 .marketing-raw/
