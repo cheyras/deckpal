@@ -19,7 +19,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { createStage, type Stage } from './stage'
 import { CENTRE_OFFSET, makeFraming, solveFraming, type Framing } from './framing'
-import { setViewport, viewHeight, viewWidth } from './viewport'
+import { elasticOffset, setViewport, viewHeight, viewWidth } from './viewport'
 import {
   BEACON,
   beaconRect,
@@ -88,6 +88,7 @@ import {
   clearHighlight,
   highlightElement,
   highlighted,
+  setHighlightShift,
 } from '../../components/ui/elementHighlight'
 
 /** Facing is a YAW, never a reflection: `scale.x` cannot animate through zero
@@ -415,11 +416,20 @@ export class DeckE {
     this.stationDirty = true
   }
   /** How he is turned toward the viewer where he stands. See `framing.ts`. */
+  /** How long the last frame took INSIDE this class — update, render, and the
+   *  beacon's second pass. Read by the dev page's instrument. */
+  tickMs = 0
   /** The last size `resize` was given, so a no-op resize can be recognised. */
   private viewW = 0
   private viewH = 0
   /** The document's own `overscroll-behavior-y`, restored on dispose. */
   private overscrollWas = ''
+  /** Set the first time the engine admits to a bounce. Once true the lock is
+   *  released for the life of the page and the offset is followed instead. */
+  private reportsElastic = false
+  /** The bounce currently applied to the overlays, so a no-op frame writes no
+   *  style — this runs every frame and is 0 for almost all of them. */
+  private elasticNow = 0
   private readonly framing: Framing = makeFraming()
   /** The same solve with the vertical give-back taken back out, for the beacon
    *  chip's pass. Solved only on the frames the chip is actually drawn. */
@@ -578,6 +588,11 @@ export class DeckE {
     // construction rather than by tracking. Restored on dispose, because it is
     // his constraint and not the app's.
     this.overscrollWas = document.documentElement.style.overscrollBehaviorY
+    // The lock is the FALLBACK, not the policy. It goes on now and comes off the
+    // first frame the engine reports a bounce, because an engine that reports one
+    // can be followed and does not need its bounce taken away. On WebKit that is
+    // the first overscroll the user performs; on Chrome it never happens and the
+    // lock stays, which is correct there.
     document.documentElement.style.overscrollBehaviorY = 'none'
 
     this.setState('boot', { blendMs: 0, mode: 'once', then: IDLE })
@@ -1042,6 +1057,30 @@ export class DeckE {
    * so the destination tracks the element while the launch point stays where he
    * actually took off from.
    */
+  /**
+   * Ride the rubber band, where there is one to ride.
+   *
+   * Applied as a TRANSFORM on the overlays rather than by moving him in world
+   * space, for two reasons. It is what the compositor is already doing to the
+   * page — so the character, the highlight ring and the content all take the
+   * same translation and cannot disagree — and it is a composited property, so
+   * it costs no layout and does not re-render the WebGL scene at the exact
+   * moment the main thread is busiest.
+   */
+  private followElastic() {
+    const e = elasticOffset()
+    if (e !== 0 && !this.reportsElastic) {
+      // Evidence beats the default. This engine reports the bounce, so it can be
+      // followed, so it does not need to be suppressed.
+      this.reportsElastic = true
+      document.documentElement.style.overscrollBehaviorY = this.overscrollWas
+    }
+    if (e === this.elasticNow) return
+    this.elasticNow = e
+    this.opts.canvas.style.transform = e === 0 ? '' : `translate3d(0, ${-e}px, 0)`
+    setHighlightShift(-e)
+  }
+
   private syncStation() {
     if (!this.stationDirty) return
     this.stationDirty = false
@@ -1132,6 +1171,10 @@ export class DeckE {
       this.raf = requestAnimationFrame(tick)
       // Clamp dt so a backgrounded tab cannot hand the integrators a huge step.
       const dt = Math.min(this.clock.getDelta(), 0.1)
+      // What OUR frame actually costs, so a slow character can be told apart
+      // from a browser that is not calling us often — on a phone those look
+      // identical from the outside and have completely different fixes.
+      const t0 = performance.now()
       this.elapsed += dt
       this.update(dt)
       this.stage.renderer.render(this.stage.scene, this.stage.camera)
@@ -1169,6 +1212,7 @@ export class DeckE {
         this.rig.root.position.copy(this.framing.position)
         this.rig.root.quaternion.copy(this.framing.quaternion)
       }
+      this.tickMs = performance.now() - t0
     }
     this.raf = requestAnimationFrame(tick)
   }
@@ -1359,6 +1403,7 @@ export class DeckE {
 
     // ---- the page may have moved ---------------------------------------
     this.syncStation()
+    this.followElastic()
 
     // ---- facing --------------------------------------------------------
     if (this.facingT < 1) {

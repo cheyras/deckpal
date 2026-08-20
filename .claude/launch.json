@@ -23,6 +23,21 @@
       ],
       "port": 5210,
       "url": "http://localhost:5210"
+    },
+    {
+      "name": "deckpal-lan",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "deckpal-web",
+        "dev",
+        "--host",
+        "--port",
+        "5299",
+        "--strictPort"
+      ],
+      "port": 5299,
+      "url": "http://localhost:5299"
     }
   ]
 }

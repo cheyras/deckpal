@@ -512,12 +512,31 @@ export type Stage = {
   dispose(): void
 }
 
+/**
+ * How much of the display's pixel density to render at.
+ *
+ * 2 AND NOT LESS, and that is a measured decision rather than an unexamined
+ * default. His loop was running at 38 fps on the owner's iPhone, so the obvious
+ * move was to cut fill rate — at `dpr 3` a cap of 2 is 804x1748 pixels of a PBR
+ * scene with three area lights, a PMREM environment and a second inset pass. It
+ * bought NOTHING: dropping the cap to 1.5, which is 44% of the pixels, left the
+ * frame interval at exactly 37 ms p95. The instrument then said why. Our own
+ * tick — update, render, beacon pass — costs 5 ms p95 and 7 ms at worst. The
+ * browser simply calls us every 37 ms and we spend 32 of those idle.
+ *
+ * So he is not fill-rate bound, he is not CPU bound, and the sharpness a lower
+ * cap costs would have been paid for nothing. See `DeckeDiag`, and the
+ * scroll-tracking note in DECISIONS.md — the frame rate is the browser's, and
+ * the only fix that survives it is to stop needing a frame in order to track.
+ */
+const MAX_PIXEL_RATIO = 2
+
 export function createStage(opts: StageOptions): Stage {
   const {
     canvas,
     clearColor = null,
     toneMapping = 'agx',
-    maxPixelRatio = 2,
+    maxPixelRatio = MAX_PIXEL_RATIO,
   } = opts
 
   // Must be on before any Color is constructed from a hex string, otherwise the

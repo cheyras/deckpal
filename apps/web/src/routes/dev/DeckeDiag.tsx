@@ -67,6 +67,7 @@ export function DeckeDiag({ deckeRef }: { deckeRef: React.RefObject<DeckE | null
     const frameGap = new Roll(240)
     const scrollGap = new Roll(240)
     const trackErr = new Roll(240)
+    const tickCost = new Roll(240)
     let lastFrame = 0
     let lastScroll = 0
     let frames = 0
@@ -98,6 +99,7 @@ export function DeckeDiag({ deckeRef }: { deckeRef: React.RefObject<DeckE | null
       frameGap.clear()
       scrollGap.clear()
       trackErr.clear()
+      tickCost.clear()
       frames = 0
       scrolls = 0
       worstFrame = 0
@@ -126,8 +128,10 @@ export function DeckeDiag({ deckeRef }: { deckeRef: React.RefObject<DeckE | null
       const d = deckeRef.current as unknown as {
         screen?: { x: number; y: number }
         station?: { kind: string; target?: unknown }
+        tickMs?: number
         stage?: { renderer: { domElement: HTMLCanvasElement; getPixelRatio(): number } }
       } | null
+      if (d && typeof d.tickMs === 'number') tickCost.push(d.tickMs)
 
       // --- tracking error -------------------------------------------------
       // His drawn position minus the element's, which is constant while parked.
@@ -171,6 +175,8 @@ export function DeckeDiag({ deckeRef }: { deckeRef: React.RefObject<DeckE | null
         `TRACK  spread ${spread.toFixed(1)}px   worst ${worstTrack.toFixed(1)}px` +
         `   now ${errNow === null ? '—' : errNow.toFixed(1)}\n` +
         `FRAME  ${(frames / secs).toFixed(0)}/s  p95 gap ${frameGap.p95.toFixed(1)}ms  worst ${worstFrame.toFixed(0)}ms\n` +
+        `OURS   tick p95 ${tickCost.p95.toFixed(1)}ms  worst ${tickCost.max.toFixed(1)}ms` +
+        `   render @${d?.stage?.renderer.getPixelRatio() ?? '—'}x\n` +
         `SCROLL ${(scrolls / secs).toFixed(0)}/s  worst gap ${scrollGap.max.toFixed(0)}ms\n` +
         `OVER   elastic ${maxElastic.toFixed(1)}px   scrollY min ${minScrollY.toFixed(1)}` +
         `  past-end ${maxPastEnd.toFixed(1)}\n` +
