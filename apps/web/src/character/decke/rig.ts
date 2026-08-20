@@ -6,7 +6,15 @@
  * angles and shader uniforms. Most of the character's non-obvious behaviour
  * lives in this file, and nearly every rule in it was learned from a defect.
  */
-import { Euler, Matrix4, Object3D, Quaternion, Vector3, type Mesh } from 'three'
+import {
+  Euler,
+  Matrix4,
+  Object3D,
+  Quaternion,
+  Vector3,
+  type Mesh,
+  type PerspectiveCamera,
+} from 'three'
 import {
   blenderEulerToThree,
   blenderToThree,
@@ -20,6 +28,7 @@ import {
   MOUTH,
 } from './constants'
 import { hingeFrame } from './field'
+import { aimPupil, gazeTarget, type GazeOffset, type PupilAim } from './look'
 import type { Pose } from './playbook'
 
 /** Meshes that carry the ten body/mouth morph targets. */
@@ -38,6 +47,10 @@ export type RigNodes = {
   lid: Object3D
   base: Object3D
   eyeRig: Object3D
+  /** The per-eye frames the pupil, line and lids are positioned in. `look.ts`
+   *  needs them because the pupil aim is solved in this frame. */
+  eyeL: Object3D
+  eyeR: Object3D
   ctrlTarget: Object3D
   ctrlBrows: Object3D
   ctrlBrowL: Object3D
@@ -82,7 +95,7 @@ export type RigNodes = {
  * earlier reading derived the travel as the gap between the two drums (1.4579)
  * because `Ctrl_Pupil` rests at 0.158, "exactly the height of `Ctrl_Line`" —
  * but that argument is circular: `Ctrl_Line` only sits there because it COPIES
- * the pupil (the `FollowPupil` constraint, reproduced in `applyPose`), so the
+ * the pupil (the `FollowPupil` constraint, reproduced in `applyLook`), so the
  * two agreeing says nothing about where the symbol belongs. Measured against
  * the frame-1052 reference, 1.4579 floats the glyph ~24 px too high; one drum
  * lands it within ~3 px, which is the whole-eye alignment error at that frame.
@@ -131,6 +144,8 @@ export function bindRig(scene: Object3D): RigNodes {
     lid: req(scene, 'DeckBox_Lid_anim'),
     base: req(scene, 'DeckBox_Base_anim'),
     eyeRig: req(scene, 'Eye_Rig_anim'),
+    eyeL: req(scene, 'Eye_L_anim'),
+    eyeR: req(scene, 'Eye_R_anim'),
     ctrlTarget: req(scene, 'Ctrl_Target_anim'),
     ctrlBrows: req(scene, 'Ctrl_Brows_anim'),
     ctrlBrowL: req(scene, 'Ctrl_Brow_L_anim'),
@@ -329,8 +344,8 @@ export function applyPose(rig: RigNodes, pose: Pose, opts: RigOptions) {
   // ---- gaze -------------------------------------------------------------
   // `Ctrl_Target` carries a Copy Location from the camera with use_offset, so
   // (0,0,0) means "looking exactly at the camera" wherever the camera is, and
-  // every gaze behaviour is just an offset on top.
-  rig.ctrlTarget.position.copy(blenderToThree(pose.gx, pose.gy, pose.gz, _v))
+  // every gaze behaviour is just an offset on top. It is resolved in
+  // `applyLook`, which runs after the world matrices are flushed.
 
   // ---- the alert reel ---------------------------------------------------
   // `alert` is a REEL POSITION, not an opacity: the old pupil rolls up and out
@@ -339,32 +354,103 @@ export function applyPose(rig: RigNodes, pose: Pose, opts: RigOptions) {
   // the springy bounce, so this must NOT be clamped.
   const reel = pose.alert
   // Offsets from the authored rest, sharing one travel — see `ReelRest`.
-  const pupilY = rig.reel.pupilY + reel * rig.reel.travel
+  //
+  // THE PUPIL DRUM IS NOT WRITTEN HERE ANY MORE. Its seat used to be
+  // `rig.reel.pupilY`, the glb's bind value — but that value is a baked sample
+  // of the look-at constraint, not a rest position, and freezing it is what
+  // left him staring up and to the right forever. `applyLook` writes the pupil
+  // and its line from the live aim plus this same reel offset. The symbol drum
+  // has no gaze and stays here.
   const symbolY = rig.reel.symbolY + reel * rig.reel.travel
-  rig.ctrlPupilL.position.y = pupilY
-  rig.ctrlPupilR.position.y = pupilY
   rig.ctrlSymbolL.position.y = symbolY
   rig.ctrlSymbolR.position.y = symbolY
   // The symbol's line is a NON-ROTATING twin: rotating Ctrl_Symbol to spin the
   // spiral also rotated its line, and the line must stay horizontal.
   rig.ctrlSymLineL.position.y = symbolY
   rig.ctrlSymLineR.position.y = symbolY
+  // THE SPIN AXIS IS BLENDER'S Y, WHICH IS THREE'S -Z. NOT THREE'S Y.
+  //
+  // The glyph is sampled from `cSymbol.x` and `cSymbol.z` — it lives in the
+  // eye's X-Z plane, so the only axis that turns it IN that plane is the plane
+  // normal, blender's +Y, i.e. three's -Z.
+  //
+  // Spinning about three's `y` instead rotates about blender's Z, which is an
+  // axis lying INSIDE the glyph plane. That does not turn the symbol, it tips
+  // it edge-on: the sampled U axis foreshortens by cos(angle) and collapses
+  // through zero every half turn. On screen the spiral "isn't rotating, it's
+  // getting all warpy and weird", which is how the defect was reported.
+  //
+  // The same error is what made the money symbol read BACKWARDS. A 180-degree
+  // phase about blender Z maps x -> -x with z untouched: a pure horizontal
+  // MIRROR. On the symmetric glyphs (star, warn, error) that is invisible,
+  // which is why it survived; on `$` it is a reversed dollar sign, and on the
+  // spiral it is a spiral winding the wrong way — both visible in the report.
+  //
+  // About the correct axis the same 180 degrees is what it was always meant to
+  // be: half a turn of PHASE, which only reads on something that is actually
+  // turning. So it is applied to the spinning glyphs only. Applied to a static
+  // one it is, again, just a mirror.
+  const spin = pose.sym_spin * DEG
+  const spinning = Math.abs(pose.sym_spin) > 1e-6
+  const phaseR = spinning ? Math.PI : 0
+  rig.ctrlSymbolL.rotation.set(0, 0, -spin)
+  rig.ctrlSymbolR.rotation.set(0, 0, -(spin + phaseR))
+
+  void opts
+}
+
+/**
+ * Point the pupils at the gaze target, and slide the eye lines with them.
+ *
+ * SEPARATE FROM `applyPose` BECAUSE IT NEEDS WORLD MATRICES. The aim is solved
+ * in each eye's own frame, and that frame is only correct once the whole chain
+ * above it — root, facing, tilt, float, the deformation field, the lid hinge and
+ * the vertex-parented `Eye_Rig` — has been applied and flushed. So the caller
+ * runs this after `updateMatrixWorld`, and then refreshes the two eye subtrees
+ * (which are four leaf empties each) before pushing the shader uniforms. Using
+ * the previous frame's matrices instead would put the gaze one frame behind the
+ * head, which is exactly the artefact `syncEyeUniforms` warns about for the
+ * reel.
+ *
+ * See `look.ts` for why any of this is needed and how the gain was calibrated.
+ */
+const _aimL: PupilAim = { x: 0, z: 0 }
+const _aimR: PupilAim = { x: 0, z: 0 }
+const _target = new Vector3()
+
+export function applyLook(
+  rig: RigNodes,
+  camera: PerspectiveCamera,
+  pose: Pose,
+  micro: GazeOffset,
+): void {
+  gazeTarget(camera, pose.gx, pose.gy, pose.gz, _target)
+
+  // Kept in sync for anything that inspects the rig — it is the empty the
+  // .blend aims at, and writing it makes the port's intent legible even though
+  // no exported node is parented to it.
+  rig.ctrlTarget.position.copy(blenderToThree(_target.x, _target.y, _target.z, _v))
+
+  aimPupil(rig.eyeL, _target, pose.alert, micro, _aimL)
+  aimPupil(rig.eyeR, _target, pose.alert, micro, _aimR)
+
+  const reel = pose.alert * rig.reel.travel
+  rig.ctrlPupilL.position.x = _aimL.x
+  rig.ctrlPupilR.position.x = _aimR.x
+  rig.ctrlPupilL.position.y = _aimL.z + reel
+  rig.ctrlPupilR.position.y = _aimR.z + reel
   // `FollowPupil`: `Ctrl_Line_{L,R}_anim` carry a COPY_LOCATION off
   // `Ctrl_Pupil_{L,R}_anim`, LOCAL/LOCAL, Z ONLY (blender/02-06-objects-rig.md).
   // The eye line is part of the pupil drum and rides it off the top of the eye,
   // which is why an alert frame shows ONE thin gold line — the symbol's own —
   // and not the pupil's dark one. Leaving the line behind strands a hard dark
-  // bar across the glyph.
-  rig.ctrlLineL.position.y = pupilY
-  rig.ctrlLineR.position.y = pupilY
+  // bar across the glyph. Z-only is also why the line's bind x is 0 while the
+  // pupil's is 0.115: the line never takes the lateral roam.
+  rig.ctrlLineL.position.y = _aimL.z + reel
+  rig.ctrlLineR.position.y = _aimR.z + reel
 
-  const spin = pose.sym_spin * DEG
-  rig.ctrlSymbolL.rotation.y = spin
-  // The two eyes are offset 180 degrees so the spinner arcs sit on opposite
-  // sides. Deliberate visual interest, not a bug.
-  rig.ctrlSymbolR.rotation.y = spin + Math.PI
-
-  void opts
+  rig.eyeL.updateMatrixWorld(true)
+  rig.eyeR.updateMatrixWorld(true)
 }
 
 /**

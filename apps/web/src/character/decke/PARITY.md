@@ -1,3 +1,17 @@
+> **Status note (2026-08-20): the gaze in these stills is no longer what the port
+> renders.** Every still and clip below was captured while the pupils sat at their
+> glb bind pose, which nobody had noticed was a BAKED SAMPLE of a camera-tracking
+> constraint that never exported — see `look.ts`. The pupils now aim, so any frame
+> where the gaze has since moved is a comparison against a different thing. That
+> is intended: the frozen pose was the defect.
+>
+> It is also worth recording HOW this survived. A frozen constraint and a
+> correctly-evaluated one agree *exactly* at the frame the freeze was taken, and
+> every still here is taken at the staging camera — the frame it was frozen on.
+> Fourteen poses, three clips and a 0.991 IoU on `alert_star` could not see it,
+> and no tighter tolerance would have. What found it was a human watching him
+> turn his head.
+>
 > **Status note — this report is a snapshot, and all six of its defects are now
 > resolved.** The body below is preserved as written, because the reasoning in it
 > is still how each defect was found. What follows is where things stand.

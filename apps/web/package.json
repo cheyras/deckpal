@@ -9,7 +9,8 @@
     "build": "vite build && node scripts/check-precache.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test:insights": "node --import tsx --test src/lib/__tests__/*.test.ts"
+    "test:insights": "node --import tsx --test src/lib/__tests__/*.test.ts",
+    "test:decke": "node --import tsx --test src/character/decke/__tests__/*.test.ts"
   },
   "dependencies": {
     "@fontsource-variable/figtree": "^5.3.0",

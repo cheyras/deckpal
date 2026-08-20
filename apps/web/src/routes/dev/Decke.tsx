@@ -31,7 +31,10 @@ function parityMode(): boolean {
 /** Grouped so the panel reads like the character's own vocabulary rather than
  *  an alphabetical dump. Mirrors the roster in the animation wiki. */
 const STATE_GROUPS: { label: string; states: string[] }[] = [
-  { label: 'Rest & lifecycle', states: ['boot', 'listening', 'thinking', 'sleep'] },
+  // `idle` leads, because it is where he lives and because it is the button that
+  // makes every other one releasable by hand: "we need to have a button here for
+  // idle, so it can trigger to go back to idle."
+  { label: 'Rest & lifecycle', states: ['idle', 'boot', 'listening', 'thinking', 'sleep'] },
   {
     label: 'Emotes',
     states: ['happy', 'sad', 'confused', 'frustrated', 'embarrassed', 'curious', 'proud'],
@@ -49,7 +52,12 @@ const STATE_GROUPS: { label: string; states: string[] }[] = [
     ],
   },
   { label: 'Actions', states: ['loading', 'card_stash', 'card_show', 'card_present', 'point'] },
-  { label: 'Travel', states: ['travel_point', 'travel_far'] },
+  // Not destinations — these are the BODY LANGUAGE of a flight, authored against
+  // two specific Blender legs, and they are the only states besides `boot` that
+  // deliberately play once and hand back to idle. `travel_point` also gates a
+  // loose card, which is why it reads as a presentation rather than a point;
+  // that is authored, not a bug.
+  { label: 'Travel (flight body language, plays once)', states: ['travel_point', 'travel_far'] },
 ]
 
 /** Channels worth exposing as continuous sliders — the ones an LLM would plausibly
@@ -75,6 +83,11 @@ export default function Decke() {
   const [status, setStatus] = useState<Status>('loading')
   const [error, setError] = useState<string | null>(null)
   const [current, setCurrent] = useState('boot')
+  const [phase, setPhase] = useState('intro')
+  /** How the state buttons drive `setState`. The whole point of the sustain work
+   *  is that these are three different behaviours and all three have to be
+   *  checkable by hand, not just by the agent. */
+  const [mode, setMode] = useState<'sustain' | 'once' | 'timed'>('sustain')
   const [facing, setFacing] = useState(1)
   const [talking, setTalking] = useState(false)
   const [overrides, setOverrides] = useState<Record<string, number>>({})
@@ -172,15 +185,22 @@ export default function Decke() {
       if (!d) return
       const s = d.getState()
       setCurrent(s.state)
+      setPhase(s.phase)
       setFacing(Number(s.facing.toFixed(3)))
       setTalking(s.talking)
     }, 200)
     return () => clearInterval(id)
   }, [])
 
-  const play = useCallback((name: string) => {
-    deckeRef.current?.setState(name)
-  }, [])
+  const play = useCallback(
+    (name: string) => {
+      deckeRef.current?.setState(name, {
+        mode: mode === 'once' ? 'once' : 'sustain',
+        durationMs: mode === 'timed' ? 2500 : undefined,
+      })
+    },
+    [mode],
+  )
 
   const onSlider = useCallback((ch: string, v: number | null) => {
     deckeRef.current?.setChannel(ch, v)
@@ -234,7 +254,8 @@ export default function Decke() {
         <header className="mb-[16px]">
           <h1 className="text-[18px] font-bold">Deck-E — three.js preview</h1>
           <p className="mt-[2px] font-mono text-[11px] text-text-muted">
-            state <span className="text-text-primary">{current}</span> · facing{' '}
+            state <span className="text-text-primary">{current}</span>
+            <span className="text-text-muted">·{phase}</span> · facing{' '}
             <span className="text-text-primary">{facing}</span>
             {talking ? ' · talking' : ''} ·{' '}
             {status === 'ready' ? (
@@ -286,6 +307,27 @@ export default function Decke() {
               <div className="flex gap-[8px]">
                 <Btn onClick={() => deckeRef.current?.setOverlay('talk', 1)}>Start talking</Btn>
                 <Btn onClick={() => deckeRef.current?.setOverlay(null)}>Stop</Btn>
+              </div>
+            </Panel>
+
+            <Panel title="How a state is entered">
+              <p className="mb-[8px] text-[11px] text-text-muted">
+                A state SUSTAINS by default — it loops its own window until something
+                else is asked for. The other two are what the agent uses for a beat
+                rather than a mood.
+              </p>
+              <div className="flex gap-[6px]">
+                {(
+                  [
+                    ['sustain', 'sustain (hold)'],
+                    ['once', 'once → idle'],
+                    ['timed', '2.5 s → idle'],
+                  ] as const
+                ).map(([m, label]) => (
+                  <Btn key={m} active={mode === m} onClick={() => setMode(m)}>
+                    {label}
+                  </Btn>
+                ))}
               </div>
             </Panel>
 
@@ -344,9 +386,18 @@ export default function Decke() {
           <div className="flex flex-col gap-[16px]">
             <Panel title="Fly to a DOM element">
               <p className="mb-[8px] text-[11px] text-text-muted">
-                He parks beside the element — never on it — and faces inward. Depth
+                He parks OUTBOARD of the element — right of it if it is on the right
+                half of the screen, left of it if it is on the left — and faces back
+                inward across it, so the element sits between him and the middle of
+                the page. The only exception is an element against a viewport edge,
+                where he takes the other side rather than leaving the screen. Depth
                 chooses the foreground plane or the background plane at ⅓ apparent
-                scale.
+                scale. <b>present</b> flies, rings the element and points at it.
+                <br />
+                <b>fly here</b> and <b>present</b> target the BUTTON, not the card —
+                a target is whatever selector you hand it, and the smaller it is the
+                closer he stands. <b>background</b> targets the whole card, for
+                comparison.
               </p>
               <div className="grid grid-cols-2 gap-[10px]">
                 {['a', 'b', 'c', 'd'].map((id) => (
@@ -357,10 +408,19 @@ export default function Decke() {
                   >
                     <p className="text-[12px] font-semibold">Target {id.toUpperCase()}</p>
                     <div className="mt-[8px] flex flex-wrap gap-[6px]">
+                      {/* THE BUTTON, NOT THE CARD. "I would make it so it's
+                          actually the button that was clicked, and I would put
+                          him right next to it, like on the 'fly here'." Parking
+                          beside a 400px card puts him a long way from the thing
+                          the reader just touched; parking beside the control
+                          itself is the behaviour the product will actually want,
+                          since an agent presenting a row means a cell, not the
+                          table. */}
                       <Btn
+                        id={`fly-${id}`}
                         onClick={() =>
                           deckeRef.current?.flyTo(
-                            { selector: `#target-${id}` },
+                            { selector: `#fly-${id}` },
                             { depth: 'foreground' },
                           )
                         }
@@ -377,12 +437,29 @@ export default function Decke() {
                       >
                         background
                       </Btn>
+                      <Btn
+                        id={`present-${id}`}
+                        onClick={() =>
+                          deckeRef.current?.flyTo(
+                            { selector: `#present-${id}` },
+                            { depth: 'foreground', then: 'point' },
+                          )
+                        }
+                      >
+                        present
+                      </Btn>
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="mt-[10px]">
-                <Btn onClick={() => deckeRef.current?.returnHome()}>Return home</Btn>
+              <div className="mt-[10px] flex flex-wrap gap-[8px]">
+                <Btn onClick={() => deckeRef.current?.returnHome()}>
+                  Return home (bottom right)
+                </Btn>
+                <Btn onClick={() => deckeRef.current?.highlight('#target-c')}>
+                  Highlight C only
+                </Btn>
+                <Btn onClick={() => deckeRef.current?.clearHighlight()}>Clear highlight</Btn>
               </div>
             </Panel>
 
@@ -413,8 +490,15 @@ export default function Decke() {
             <Panel title="Notes">
               <ul className="list-disc pl-[16px] text-[11px] text-text-muted">
                 <li>
-                  Every state button above is in the playbook; {stateNames.size} of the 27
-                  are grouped here.
+                  {stateNames.size} states are grouped here: the 26 drivable ones from
+                  the playbook — <code>talk</code> is the 27th and is an OVERLAY, not a
+                  state — plus the synthesized <code>idle</code>, which is where he
+                  lives when nothing else is asked of him.
+                </li>
+                <li>
+                  A state SUSTAINS: it plays in, then loops a window of itself forever.
+                  Only <code>boot</code> and the two <code>travel_*</code> clips end by
+                  themselves.
                 </li>
                 <li>
                   The idle float, blink and gaze layers run underneath everything and are
@@ -422,7 +506,18 @@ export default function Decke() {
                 </li>
                 <li>
                   Alert states freeze the float and suppress blinking entirely — the
-                  absence of motion is what makes the mode switch read.
+                  absence of motion is what makes the mode switch read, and the pupils
+                  let go of the gaze so the reel runs straight.
+                </li>
+                <li>
+                  His pupils aim at the CAMERA, in each eye's own frame, clamped to the
+                  authored roam ellipse — so he keeps looking at you through a turn,
+                  a flight and a scroll.
+                </li>
+                <li>
+                  The status line shows the phase: <code>intro</code> plays in,{' '}
+                  <code>sustain</code> loops forever, <code>outro</code> is the way out
+                  that <code>loading</code> and <code>card_stash</code> owe you.
                 </li>
               </ul>
             </Panel>
@@ -448,13 +543,16 @@ function Btn({
   children,
   onClick,
   active,
+  id,
 }: {
   children: React.ReactNode
   onClick: () => void
   active?: boolean
+  id?: string
 }) {
   return (
     <button
+      id={id}
       type="button"
       onClick={onClick}
       className={
