@@ -29,6 +29,7 @@ import {
 import { api } from '../../lib/api'
 import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
 import type { Beacon } from '../../character/decke/beacon'
+import { DeckeDiag, diagMode } from './DeckeDiag'
 
 /**
  * `?parity=1` reproduces Blender's staging exactly for a frame-by-frame
@@ -463,6 +464,11 @@ export default function Decke() {
       {/* Sits UNDER the canvas at z-25, so the second render pass draws him
           inside it. See `DeckeBeacon`. */}
       <DeckeBeacon beacon={beacon} onClick={() => deckeRef.current?.scrollIntoView()} />
+
+      {/* `?diag=1` — the on-page instrument. The scroll-tracking defect only
+          reproduces on a real phone, which has no console a harness can drive,
+          so the measurements have to render themselves. See `DeckeDiag`. */}
+      {diagMode() ? <DeckeDiag deckeRef={deckeRef} /> : null}
 
       <div
         className="relative z-20 mx-auto max-w-[1200px] px-[16px] py-[20px]"

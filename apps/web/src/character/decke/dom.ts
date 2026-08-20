@@ -40,6 +40,12 @@ export function resolveRect(target: FlyTarget): DOMRect | null {
     return el ? el.getBoundingClientRect() : null
   }
   if ('rect' in target) return target.rect
+  // A `{x, y}` that is not actually a point — an Element passed by mistake, most
+  // often — used to produce a DOMRect of NaN rather than a failure. NaN survives
+  // `parkBeside`, survives the flight solve, and lands him at a position no test
+  // asserts on and no error names; it cost a debugging session. `flyTo` already
+  // throws a clear message when this returns null.
+  if (!Number.isFinite(target.x) || !Number.isFinite(target.y)) return null
   return new DOMRect(target.x, target.y, 0, 0)
 }
 
