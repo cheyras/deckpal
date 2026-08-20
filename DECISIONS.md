@@ -6569,6 +6569,22 @@ thick. Nothing intersects, at any count, at any moment. What the visual pass saw
 is one card in FRONT of another, which this layout has always allowed on purpose
 — a hand of cards reads correctly and a wall of evenly-spaced ones does not.
 
+**And the asset did not ship, which is the part worth recording.**
+`.gitignore` carries a blanket `**/*.webp` for the fetched card-image cache, and
+it swallowed the card back silently — `git add -A` said nothing, the commit
+looked complete, the local build worked because the file was still on disk, CI
+passed, and it 404'd only in production. `apps/web/public/marketing/` had already
+needed the same negation for the same reason and says so in a comment; this was
+the second instance.
+
+So `scripts/check-precache.mjs` gained a second gate, and the two are the same
+check from opposite directions: the first says a character asset must never ship
+to every visitor, the second says it must actually ship at all. It scans the
+character's own source for `models/decke/<file>` references — including the ones
+written as template literals, which is most of them — and fails the build if any
+is absent from `dist`. A build from a fresh clone is what CI and Vercel both are,
+so that is where this would have been caught.
+
 **Known and deliberate.** The default cards come from `/collection/events`,**Known and deliberate.** The default cards come from `/collection/events`, which
 is an activity FEED and not an owned-cards table: it biases toward recent
 acquisitions and will not surface a card bought a year ago. It is the only
