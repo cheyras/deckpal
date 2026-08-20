@@ -173,6 +173,35 @@ const RE_PARK_SETTLE_MS = 250
 const PIN_MARGIN_PX = 32
 
 /**
+ * The same clearance as a fraction of his on-screen half-height, whichever is
+ * larger. This is the number that was cutting his feet off, and it was wrong
+ * because the thing it is measured against is not his size.
+ *
+ * `screenHalf` is the BODY: half of `BODY_H`, projected. What actually reaches
+ * the canvas is a good deal more, and it is worth writing down how much, because
+ * every guess at this was too small. Measured at the shipped framing by reading
+ * the rendered pixels back and finding his real top and bottom rows, against
+ * what `screenHalf` claims, with a half-height of 112 px:
+ *
+ *     idle           21 px above,   25 px below
+ *     happy          65 px above,   26 px below
+ *     card_present   25 px above,   66 px below
+ *     alert_star    136 px above,   46 px below
+ *     card_stash    148 px above,   41 px below
+ *
+ * The stash cards and the alert reel ride a long way outboard of the body, so a
+ * margin of 0.6 half-heights — 67 px, which looked generous — was under half of
+ * what the worst state needs. 1.6 covers the measured worst with headroom, and
+ * it is a fraction rather than a constant so that it holds on a phone and on a
+ * 1600 px desktop, where no single pixel count is right for both.
+ *
+ * It stays affordable because he is sized from the viewport: his full height is
+ * about 0.3 of it, so the span this demands is around 0.78 of a screen and he
+ * fits at every shape that matters.
+ */
+const PIN_MARGIN_FRAC = 1.6
+
+/**
  * The BACKSTOP interval for re-reading a pinned element, behind the
  * `ResizeObserver` that does the real work.
  *
@@ -1296,16 +1325,34 @@ export class DeckE {
     // carries the drift carries this too, so it costs no new machinery — see
     // `syncPinned`.
     const h = canvasHeight()
+    const m = this.pinMargin()
     // Unless he cannot fit in one at all, which a huge character in a short
     // window would be.
-    if (this.screenHalf * 2 + PIN_MARGIN_PX * 2 > h) return false
-    // The window of canvas positions that keep his whole silhouette inside, and
-    // aligned with the viewport whenever that is one of them.
-    const lowest = this.screenY + this.screenHalf + PIN_MARGIN_PX - h
-    const highest = this.screenY - this.screenHalf - PIN_MARGIN_PX
-    this.pinShift = Math.max(lowest, Math.min(0, highest))
+    if (this.screenHalf * 2 + m * 2 > h) return false
+    this.pinShift = this.idealShift()
     this.pinEl = el
     return true
+  }
+
+  /** How much surface has to sit between him and the canvas edge. */
+  private pinMargin(): number {
+    return Math.max(PIN_MARGIN_PX, this.screenHalf * PIN_MARGIN_FRAC)
+  }
+
+  /**
+   * Where the canvas's top edge wants to be, in viewport pixels, for his whole
+   * silhouette to sit inside it with clearance.
+   *
+   * Zero — the canvas over the viewport, covering the whole screen — whenever
+   * zero is one of the answers, and only as far off the edge as it has to be
+   * otherwise.
+   */
+  private idealShift(): number {
+    const h = canvasHeight()
+    const m = this.pinMargin()
+    const lowest = this.screenY + this.screenHalf + m - h
+    const highest = this.screenY - this.screenHalf - m
+    return Math.max(lowest, Math.min(0, highest))
   }
 
   private unpin() {
@@ -1364,6 +1411,31 @@ export class DeckE {
    * because nobody has ever seen a foreshortening stutter.
    */
   private syncPinned() {
+    // RELAX BACK TO ALIGNED THE MOMENT HE FITS, and this is not tidiness either.
+    //
+    // The shift is chosen once, at the instant he becomes pinnable — which for a
+    // character arriving from the bottom edge is the instant he is MOST
+    // constrained, so it lands on the clamp and puts his feet the bare margin
+    // from the canvas edge. Nothing revisited it, so that bare margin was
+    // permanent: as he scrolled inward the canvas edge rose with him into the
+    // middle of the screen and cut him off there, for the whole life of the pin.
+    //
+    //   "He's still cut off on the bottom. It's whenever he comes in from the
+    //    bottom edge. It rectifies itself if I scroll him out of the top edge
+    //    and then scroll him back in from the top."
+    //
+    // Which is the tell: entering from the top lands the shift nowhere near its
+    // clamp (measured -277 against a -526 clearance, where the bottom entry got
+    // +194 and 32), so the same code looked correct from one direction only.
+    //
+    // Re-pinning is the ordinary path — `unpin` re-solves him against the live
+    // rect and `repin` takes a fresh shift later in the same frame — and it is
+    // invisible for the same reason the first pin is. It happens once per
+    // entrance, when zero becomes legal.
+    if (this.pinShift !== 0 && this.idealShift() === 0) {
+      this.unpin()
+      return
+    }
     const drift = window.scrollY - (this.pinnedAt ?? 0)
     // MOVE THE CAMERA, NOT HIM. The element's position INSIDE the pinned canvas
     // is a constant — both are pinned to the same page — so `pinnedRect` never

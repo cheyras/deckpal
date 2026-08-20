@@ -403,24 +403,74 @@ test('a canvas slid off the viewport still parks him where tracking would', () =
   }
 })
 
-test('the pin window always contains him, and prefers to stay aligned', () => {
-  // `canPin`'s choice of shift, as a property. It has to keep his whole
-  // silhouette inside the canvas — that is what stops him being clipped by an
-  // edge nobody can see — and it has to choose 0 whenever 0 works, because a
-  // canvas aligned with the viewport is the case with nothing to go wrong.
+test('the pin window clears his DRAWN extent, not just his silhouette', () => {
+  // `canPin`'s choice of shift, as a property, with the margin that cut his feet
+  // off replaced by one that survives what he actually draws.
+  //
+  // The measurement this is defending, taken by reading rendered pixels back at
+  // a half-height of 112 px: he reaches 148 px above and 66 px below what
+  // `screenHalf` claims, because the stash cards and the alert reel ride well
+  // outboard of the body. Anything under that clips him — and clips him
+  // invisibly, because the canvas edge has no appearance of its own.
   const H = 820
-  const M = 32
-  const chooseShift = (screenY: number, half: number) => {
-    const lowest = screenY + half + M - H
-    const highest = screenY - half - M
+  const half = 112
+  const MARGIN = Math.max(32, half * 1.6)
+  const WORST_OVERHANG_ABOVE = 148
+  const WORST_OVERHANG_BELOW = 66
+  assert.ok(
+    MARGIN > WORST_OVERHANG_ABOVE && MARGIN > WORST_OVERHANG_BELOW,
+    `a margin of ${MARGIN} does not clear a measured overhang of ${WORST_OVERHANG_ABOVE}`,
+  )
+
+  const idealShift = (screenY: number) => {
+    const lowest = screenY + half + MARGIN - H
+    const highest = screenY - half - MARGIN
     return Math.max(lowest, Math.min(0, highest))
   }
-  const half = 110
+
   for (let screenY = -half; screenY <= H + half; screenY += 7) {
-    const shift = chooseShift(screenY, half)
-    assert.ok(screenY - half >= shift + M - 1e-9, `top clipped at screenY ${screenY}`)
-    assert.ok(screenY + half <= shift + H - M + 1e-9, `bottom clipped at screenY ${screenY}`)
-    // Aligned whenever aligned is legal.
-    if (screenY - half >= M && screenY + half <= H - M) assert.equal(shift, 0)
+    const shift = idealShift(screenY)
+    // Everything he draws has to be inside the canvas, which spans
+    // [shift, shift + H] in viewport pixels.
+    assert.ok(
+      screenY - half - WORST_OVERHANG_ABOVE >= shift - 1e-9,
+      `clipped above at screenY ${screenY}`,
+    )
+    assert.ok(
+      screenY + half + WORST_OVERHANG_BELOW <= shift + H + 1e-9,
+      `clipped below at screenY ${screenY}`,
+    )
+    // Aligned whenever aligned is legal — a canvas over the viewport is the case
+    // with nothing to go wrong, and it covers the whole screen.
+    if (screenY - half >= MARGIN && screenY + half <= H - MARGIN) assert.equal(shift, 0)
   }
+})
+
+test('a shift taken at an edge relaxes to aligned once he is inside', () => {
+  // THE DEFECT, as arithmetic. The shift is chosen at the instant he becomes
+  // pinnable, which entering from an edge is the instant he is most constrained,
+  // so it lands on the clamp. Nothing revisited it, so the clamp was permanent
+  // and the canvas edge travelled into the middle of the screen with him:
+  //
+  //   "It's whenever he comes in from the bottom edge. It rectifies itself if I
+  //    scroll him out of the top edge and then scroll him back in from the top."
+  //
+  // Entering from the top happens to land nowhere near its clamp, which is why
+  // the same code looked correct from one direction and not the other.
+  const H = 820
+  const half = 112
+  const MARGIN = Math.max(32, half * 1.6)
+  const idealShift = (screenY: number) => {
+    const lowest = screenY + half + MARGIN - H
+    const highest = screenY - half - MARGIN
+    return Math.max(lowest, Math.min(0, highest))
+  }
+  // Arriving from the bottom edge: constrained, so the shift is positive.
+  const arriving = idealShift(H - 40)
+  assert.ok(arriving > 0, 'a bottom entry should need the canvas slid down')
+  // Once he has scrolled into the middle, aligned is legal and the pin is
+  // re-taken there — which is the condition `syncPinned` watches for.
+  assert.equal(idealShift(H / 2), 0)
+  // And symmetrically from the top.
+  assert.ok(idealShift(40) < 0, 'a top entry should need the canvas slid up')
 })
