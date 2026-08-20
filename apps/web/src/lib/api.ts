@@ -914,6 +914,19 @@ export const api = {
   searchCards: (params: URLSearchParams, signal?: AbortSignal) =>
     get<SearchResponse>(`/search?${params.toString()}`, signal),
 
+  /**
+   * The collection activity log, newest first.
+   *
+   * It is an ACTIVITY FEED, not an owned-cards table — removals and
+   * quantity-decreases appear alongside acquisitions, and a card bought a year
+   * ago with no activity since will not appear at all. That makes it the wrong
+   * answer to "what does this user own" and the right answer to "what did they
+   * just add", which is the question Deck-E's stash flight asks. Callers that
+   * want acquisitions must filter on `quantityDelta > 0`.
+   */
+  collectionEvents: (limit = 50, signal?: AbortSignal) =>
+    get<CollectionEventsResponse>(`/collection/events?limit=${limit}`, signal),
+
   // Decks
   decks: (signal?: AbortSignal) => get<{ decks: DeckSummary[] }>('/decks', signal),
   /** The recycle bin: decks that were deleted but are still restorable (migration 038). */

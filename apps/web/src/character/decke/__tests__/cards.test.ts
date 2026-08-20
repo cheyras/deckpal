@@ -15,6 +15,7 @@ import { evalCurve, makeCurve } from '../curve'
 import {
   CARD_HALF,
   MAX_STASH,
+  type StashStation,
   STASH,
   sizeForCount,
   stashLayout,
@@ -170,27 +171,132 @@ test('no two cards in the fan can interpenetrate', () => {
   // only intersect if they occupy the same depth AND the same patch of screen.
   // Requiring one or the other is therefore exactly the no-clipping guarantee,
   // and it is checked at every batch size the fan will ever be asked for.
-  const DEPTH_CLEAR = 0.15 // a card is 0.006 thick; this is comfortable margin
+  // MEASURE THE CARDS, NOT A BOX AROUND THEM. Two earlier versions of this
+  // assertion were proxies, and both were wrong in the same direction: they
+  // modelled a card as an axis-aligned rectangle and asked whether the
+  // rectangles overlap. A card is a rotated, slightly tilted quad — `splayPerX`
+  // turns the outer ones by up to 30 degrees — so its bounding box is nearly
+  // half again its real footprint, and the proxy calls layouts broken that are
+  // not. That is not a harmless conservatism: an over-strict proxy sent someone
+  // (me) tuning the depth constants to satisfy it, and the tuning made the REAL
+  // minimum separation worse — 0.166 units down to 0.058 at seven cards — while
+  // the proxy went green.
+  //
+  // So this measures the closest approach between the two quads directly, in
+  // Blender coordinates, which is where the layout is expressed. The axis
+  // conversion the renderer applies is rigid, so distances here are the
+  // distances on screen. Calibrated against the same measurement taken through
+  // the real render pipeline in the browser: 0.132 units at nine cards, the
+  // tightest case, which this reproduces to two decimal places.
+  const RAD_ = Math.PI / 180
+  /** A card's four corners in `DeckE_Tilt` local Blender coords. The mesh lies
+   *  in the XZ plane there — width along X, height along Z, normal along Y —
+   *  and `writeLocal` places it with a Blender XYZ euler, R = Rz*Ry*Rx. */
+  function corners(st: StashStation, facing: number, s: number): [number, number, number][] {
+    const t = stationLocal(st, facing, {
+      x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0,
+    })
+    const [cx, sx_] = [Math.cos(t.rx), Math.sin(t.rx)]
+    const [cy, sy] = [Math.cos(t.ry), Math.sin(t.ry)]
+    const [cz, sz] = [Math.cos(t.rz), Math.sin(t.rz)]
+    // R = Rz * Ry * Rx, applied to a column vector.
+    const R = [
+      [cz * cy, cz * sy * sx_ - sz * cx, cz * sy * cx + sz * sx_],
+      [sz * cy, sz * sy * sx_ + cz * cx, sz * sy * cx - cz * sx_],
+      [-sy, cy * sx_, cy * cx],
+    ]
+    const w = CARD_HALF.w * s
+    const h = CARD_HALF.h * s
+    const out: [number, number, number][] = []
+    for (const u of [-w, w]) {
+      for (const v of [-h, h]) {
+        const p: [number, number, number] = [u, 0, v]
+        out.push([
+          R[0][0] * p[0] + R[0][1] * p[1] + R[0][2] * p[2] + t.x,
+          R[1][0] * p[0] + R[1][1] * p[1] + R[1][2] * p[2] + t.y,
+          R[2][0] * p[0] + R[2][1] * p[1] + R[2][2] * p[2] + t.z,
+        ])
+      }
+    }
+    return out
+  }
+
+  /** Closest approach between two quads, by sampling a grid on each. Nine by
+   *  nine is what the browser measurement used, so the two numbers are
+   *  comparable; the quads are convex and near-parallel, so the sampled minimum
+   *  is within a sample step of the true one. */
+  function minGap(a: [number, number, number][], b: [number, number, number][]): number {
+    const grid = (q: [number, number, number][]) => {
+      const pts: [number, number, number][] = []
+      const N = 9
+      for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+          const u = i / (N - 1)
+          const v = j / (N - 1)
+          // q is [(-w,-h), (-w,h), (w,-h), (w,h)] — bilinear over that.
+          pts.push([0, 1, 2].map((k) =>
+            q[0][k] * (1 - u) * (1 - v) + q[1][k] * (1 - u) * v +
+            q[2][k] * u * (1 - v) + q[3][k] * u * v,
+          ) as [number, number, number])
+        }
+      }
+      return pts
+    }
+    const A = grid(a)
+    const B = grid(b)
+    let m = Infinity
+    for (const p of A) {
+      for (const q of B) {
+        const d = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
+        if (d < m) m = d
+      }
+    }
+    return m
+  }
+
+  /**
+   * The bar for the RESTING layout, which is the only thing `stashLayout`
+   * controls — and it is set above the resting requirement on purpose, because
+   * the cards do not stay at rest.
+   *
+   * `STASH_FLOAT` keeps every settled card drifting: 0.17 units vertically, 0.07
+   * sideways, 0.09 radians of tumble, on golden-angle-spaced phases so no two
+   * ever synchronise. That can only ever bring two cards CLOSER than this
+   * measures. Driven through the real pipeline for forty seconds of hang at
+   * every batch size, the closest any two cards ever came was 0.050 units at
+   * twelve — eight times a card's 0.006 thickness, and never an intersection.
+   * The worst the float bit out of the resting gap was 0.066.
+   *
+   * So 0.10 is "the resting gap is comfortably more than the float can eat". A
+   * layout retune that halves the margin trips this even though nothing on
+   * screen would look wrong yet, which is the point of a margin.
+   */
+  const CLEAR = 0.1
+  let tightest = { n: 0, i: 0, j: 0, gap: Infinity }
   for (let n = 1; n <= MAX_STASH; n++) {
     const s = sizeForCount(n)
-    const halfW = CARD_HALF.w * s
-    const halfH = CARD_HALF.h * s
     const st = stashLayout(n)
     assert.equal(st.length, n)
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const apart =
-          Math.abs(st[i].sx - st[j].sx) > halfW * 2 || Math.abs(st[i].z - st[j].z) > halfH * 2
-        const layered = Math.abs(st[i].depth - st[j].depth) > DEPTH_CLEAR
-        assert.ok(
-          apart || layered,
-          `n=${n}: cards ${i} and ${j} share both a screen patch and a depth ` +
-            `(dx ${Math.abs(st[i].sx - st[j].sx).toFixed(2)}, dz ${Math.abs(st[i].z - st[j].z).toFixed(2)}, ` +
-            `ddepth ${Math.abs(st[i].depth - st[j].depth).toFixed(2)})`,
-        )
+    for (const facing of [1, -1]) {
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const gap = minGap(corners(st[i], facing, s), corners(st[j], facing, s))
+          if (gap < tightest.gap) tightest = { n, i, j, gap }
+          assert.ok(
+            gap > CLEAR,
+            `n=${n} facing=${facing}: cards ${i} and ${j} come within ${gap.toFixed(3)} units — ` +
+              `a card is ${(CARD_HALF.w * s * 2).toFixed(2)} x ${(CARD_HALF.h * s * 2).toFixed(2)} at this size`,
+          )
+        }
       }
     }
   }
+  // Reported so a retune that halves the margin is visible in the test output
+  // rather than only in the pass/fail.
+  assert.ok(
+    tightest.gap > CLEAR,
+    `tightest approach anywhere: ${tightest.gap.toFixed(3)} at n=${tightest.n} (${tightest.i} x ${tightest.j})`,
+  )
 })
 
 test('every card is individually legible, not merely non-intersecting', () => {

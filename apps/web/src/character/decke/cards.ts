@@ -40,6 +40,7 @@
  *    an un-turn. See `writeLocal` below.
  */
 import { Object3D, Quaternion, Vector3 } from 'three'
+import type { CardArt, CardArtSystem } from './cardArt'
 import { blenderEulerToThree, blenderToThree } from './constants'
 import { evalCurve, makeCurve, type Curve, type Key } from './curve'
 import type { Pose } from './playbook'
@@ -226,9 +227,38 @@ export type CardFrame = {
 
 export type CardSystem = {
   apply(pose: Pose, frame: CardFrame): void
-  /** How many cards the next `card_stash` shows. Clamped to the pool's cap; see
-   *  `MAX_STASH`. Takes effect on the next ENTRY, never mid-state. */
+  /** How many cards the next `card_stash` shows, on the placeholder art baked
+   *  into the glb. Sugar for `setStashCards` with a run of nulls. Takes effect
+   *  on the next ENTRY, never mid-state. */
   setCount(n: number): void
+  /**
+   * The cards the next `card_stash` shows, in order.
+   *
+   * Longer than `MAX_STASH` is not an error — it is the normal case, and it is
+   * what makes this a run of BATCHES rather than one fan. `autoClose` makes the
+   * last batch file itself in too, so the whole run is a complete gesture; left
+   * off, the last batch hangs until something releases him, which is the
+   * behaviour every earlier review was given.
+   */
+  setStashCards(arts: (CardArt | null)[], opts?: { autoClose?: boolean }): void
+  /**
+   * Whether entering `state` would apply a run that has been set but not shown.
+   *
+   * The state machine asks, and it has to: re-issuing the state he is already in
+   * is deliberately a NO-OP (an agent saying "still thinking" three turns
+   * running must not restart him), and that rule silently swallowed "now show
+   * these OTHER cards" — the run landed as pending and waited for an entry that
+   * might never come, so he went on holding up the previous batch. A pending run
+   * is a real change, the same way `durationMs` and `then` are.
+   */
+  hasPending(state: string): boolean
+  /**
+   * Whether the stash run has shown everything it was asked to and is waiting
+   * to be let go. Only ever true when the run asked for `autoClose`; the state
+   * machine polls it and starts the outro, so that the lid closing and the last
+   * batch diving in stay the single choreographed beat they were authored as.
+   */
+  wantsClose(): boolean
   /** Called when the base state changes, before the first frame of the new one.
    *  The one place a pending layout may safely land. */
   enter(state: string): void
@@ -382,6 +412,30 @@ export const STASH = {
   travelMs: 460,
   /** Between one card leaving and the next. They file out, they do not erupt. */
   staggerMs: 130,
+  /**
+   * The most the launch may take in total, however many cards there are.
+   *
+   * A fixed per-card gap is right up to about seven cards and wrong at twelve:
+   * 130 ms x 11 is 1.4 seconds during which nothing has happened but cards
+   * appearing, and with several batches to get through that is most of the
+   * animation. Capping the SPAN keeps the authored cadence exactly where it was
+   * reviewed (any batch of seven or fewer is unchanged to the millisecond) and
+   * tightens only the batches that did not exist then. Same reasoning as
+   * `fileSpanMs`, which already does this for the way in.
+   */
+  launchSpanMaxMs: 900,
+  /**
+   * How long a batch hangs there before it files in, when another batch is
+   * waiting behind it.
+   *
+   * "The next X-card batch pops up for a little, then goes in." Long enough to
+   * read a card and see that it is a different card from the last lot; short
+   * enough that four batches is a flourish rather than a wait. Measured from the
+   * LAST card's arrival, so a big batch is not cut short by its own stagger.
+   *
+   * The FINAL batch ignores this and hangs — see `run.autoClose`.
+   */
+  holdMs: 900,
 
   // ---- the fan, laid out in what the READER sees ------------------------
   //
@@ -412,9 +466,11 @@ export const STASH = {
   /** How many columns each side may use. Three rows x two sides x two columns is
    *  twelve slots, which is `MAX_STASH`. */
   cols: 2,
-  /** How far in front of him (toward the camera) each row sits, and how much
-   *  further each column out. Depth is for LIFE, not for spacing — it stops the
-   *  fan being a flat wall without affecting whether two cards overlap. */
+  /**
+   * How far in front of him (toward the camera) each row sits, and how much
+   * further each column out. Depth is for LIFE, not for spacing — it stops the
+   * fan being a flat wall without affecting whether two cards overlap.
+   */
   depthBase: 0.5,
   depthPerRow: -0.28,
   depthPerCol: 0.3,
@@ -448,6 +504,20 @@ export const STASH = {
    * in fast, and the lid closes at the same moment either way.
    */
   fileSpanMs: 200,
+  /**
+   * A beat between one batch going in and the next coming out.
+   *
+   * NOT DECORATION. Without it the next batch starts on the exact frame the last
+   * card of the previous one finishes its dive, and "exact frame" is a race the
+   * dive loses: the batch advances first, so the final card of every
+   * intermediate batch vanished without ever reaching the top of the deck. The
+   * observable symptom was the stack's face skipping a card at every batch
+   * boundary — c10 straight to c12 in a twenty-card run.
+   *
+   * It also reads better than an instant restart: one card lands, the deck shows
+   * it, and then the next lot comes up.
+   */
+  betweenMs: 200,
   /** Where they gather. Just above and in front of the open lid. */
   cluster: { x: 0, y: -0.5, z: 3.3 },
   /** How far apart in the stack, so the gather is a neat pile and not a single
@@ -473,14 +543,6 @@ const CAM_BEARING_DEG = 40.195
 const STASH_SEED = 20260820
 
 /**
- * Cards shrink as the batch grows.
- *
- * A dozen cards at full size cannot be spaced without overlap, and they would
- * also be a wall rather than a hand — the whole point is that the reader can see
- * WHICH cards they just added. The square-root law keeps the total area they
- * cover roughly constant, and the floor stops a big batch becoming confetti.
- */
-/**
  * The card's size in the fan, at rest.
  *
  * The authored card is 1.570 x 2.198 — very nearly the size of the character
@@ -491,8 +553,22 @@ const STASH_SEED = 20260820
  */
 const FAN_SCALE = 0.62
 
+/**
+ * And they shrink further as the batch grows.
+ *
+ * A dozen cards at full size cannot be spaced without overlap, and they would be
+ * a wall rather than a hand — the whole point is that the reader can see WHICH
+ * cards they just added. The square-root law keeps the total area they cover
+ * roughly constant; the floor stops a big batch becoming confetti.
+ *
+ * The floor being 0.62 as well is a COINCIDENCE, not a relationship: one is what
+ * a card he is holding out looks like, the other is how small a card may get
+ * before it stops being readable. They are free to diverge.
+ */
+const FAN_FLOOR = 0.62
+
 export function sizeForCount(n: number): number {
-  return FAN_SCALE * Math.min(1, Math.max(0.62, Math.sqrt(5 / Math.max(1, n))))
+  return FAN_SCALE * Math.min(1, Math.max(FAN_FLOOR, Math.sqrt(5 / Math.max(1, n))))
 }
 
 /** An angle folded into (-pi, pi]. The same rotation, expressed as the shortest
@@ -562,8 +638,147 @@ export function stashLayout(n: number): StashStation[] {
 }
 
 /** Three rows, two sides, two columns. More than this is confetti: at twelve the
- *  cards are already down to 62% of the fan size. */
+ *  cards are already down to 62% of the fan size. It is therefore also the most
+ *  that can be on screen AT ONCE — see `BATCH_MAX`. */
 export const MAX_STASH = STASH.rowZ.length * 2 * STASH.cols
+
+/**
+ * The most cards one batch shows.
+ *
+ * The fan is collision-free to twelve and no further, so this is the layout's
+ * limit rather than a taste call — which is exactly why the answer to "they
+ * added thirty" is more batches and not a bigger fan. See `splitBatches`.
+ */
+export const BATCH_MAX = MAX_STASH
+
+/**
+ * The most batches one run plays.
+ *
+ * Four batches of twelve is around sixteen seconds, which is already a long
+ * time to watch a deck box eat cards. Someone who imports a two-hundred-card
+ * collection is not owed a two-minute animation, and the alternative to a cap
+ * is that the character is unavailable for other work for minutes at a time.
+ * Anything past this is dropped and SAID SO — see `splitBatches`, which warns
+ * rather than truncating quietly.
+ */
+export const MAX_BATCHES = 4
+
+/** The most cards a single run will show. Past this the rest are dropped. */
+export const MAX_RUN = BATCH_MAX * MAX_BATCHES
+
+/**
+ * Split a run into batches, filling each to the brim before starting the next.
+ *
+ * NOT BALANCED ACROSS BATCHES on purpose. Thirteen cards could be 7 + 6, and
+ * that reads as two half-hearted fans; 12 + 1 reads as "here they are" followed
+ * by "and one more", which is what actually happened. The count is information.
+ */
+/**
+ * How far into GIVING UP ITS CARDS a batch is, or null while it is still holding
+ * them up.
+ *
+ * PURE AND EXPORTED because this one expression is where the worst bug in the
+ * batching work lived, and it is invisible in a still frame. Two clocks can
+ * start a close and they have to COMPOSE, not choose:
+ *
+ *   - a batch that is not the last closes on its OWN clock, at `closeAt`;
+ *   - ANY batch closes when the state outros, because the outro is the lid
+ *     coming down and nothing may still be in the air when it does.
+ *
+ * Choosing between them was the defect. The batch clock `tb` freezes when the
+ * outro begins — it has to, or an unlaunched card would spawn inside the
+ * animation whose job is to put things away — so an intermediate batch that had
+ * not reached `closeAt` yet froze with it. Measured: cut a thirty-card run at
+ * 2.1 s and all twelve cards hung motionless at a mean height of 2.11 for a full
+ * second, float and all, and then vanished at the state change. That is exactly
+ * the "objects deleted out from under the reader" the outro machinery exists to
+ * prevent, reintroduced by batching.
+ *
+ * So the answer is the batch's own progress AT THE FREEZE, continued by the
+ * state's outro clock. For a last batch the frozen progress is zero and this is
+ * exactly `outroTMs`, which is the animation that was reviewed and signed off.
+ * For an intermediate batch mid-gather it picks up where it left off, so the
+ * gather can never jump backwards.
+ *
+ * @param tb       the batch's own clock, already frozen if the state is outroing
+ * @param closeAt  when this batch closes itself, or null if it hangs
+ * @param outroTMs ms since the state's outro began, or null if it is not
+ */
+export function closeProgress(
+  tb: number,
+  closeAt: number | null,
+  outroTMs: number | null,
+): number | null {
+  const own = closeAt === null ? null : tb - closeAt
+  if (outroTMs !== null) return Math.max(0, own ?? 0) + outroTMs
+  return own !== null && own >= 0 ? own : null
+}
+
+/** When one card leaves the mouth, tops out and reaches its station — all in the
+ *  BATCH's own clock, which restarts for every batch. */
+export type Launch = { outMs: number; crestMs: number; arriveMs: number }
+
+/**
+ * A batch's whole timeline, as arithmetic on `STASH` and nothing else.
+ *
+ * PURE AND EXPORTED because the two things that went wrong here are both
+ * arithmetic, and neither is visible in a screenshot until you already know to
+ * look. The first is the launch span (a fixed per-card gap makes a twelve-card
+ * batch spend 1.4 seconds doing nothing but appearing). The second is the
+ * boundary: `endMs` has to be strictly LATER than the last card's dive, because
+ * the batch advances on `>=` and the dive completes on `>=`, so an `endMs` equal
+ * to the last dive means the next batch wins the frame and the final card of
+ * every intermediate batch vanishes without ever reaching the top of the deck.
+ * That one shipped as "the stack's face skips a card at every boundary".
+ *
+ * @param first Whether this batch has to wait for the lid. Only the first does.
+ * @param last  The last batch HANGS: its close is the state's outro, so that the
+ *   lid shutting and the cards diving in stay one authored beat. `closeAt` is
+ *   null and `endMs` is what the run WOULD take if something closed it.
+ */
+export function batchSchedule(
+  n: number,
+  { first, last }: { first: boolean; last: boolean },
+): { launch: Launch[]; closeAt: number | null; endMs: number } {
+  const count = Math.max(1, Math.round(n))
+  const gape = first ? STASH.gapeMs : 0
+  const span = Math.min(STASH.staggerMs * (count - 1), STASH.launchSpanMaxMs)
+  const step = count > 1 ? span / (count - 1) : 0
+  const launch: Launch[] = []
+  for (let i = 0; i < count; i++) {
+    const outMs = gape + i * step
+    launch.push({
+      outMs,
+      crestMs: outMs + STASH.riseMs,
+      arriveMs: outMs + STASH.riseMs + STASH.travelMs,
+    })
+  }
+  const settled = launch[launch.length - 1].arriveMs + STASH.holdMs
+  return {
+    launch,
+    closeAt: last ? null : settled,
+    endMs: settled + STASH.gatherMs + STASH.fileSpanMs + STASH.diveMs + STASH.betweenMs,
+  }
+}
+
+export function splitBatches<T>(items: T[], size = BATCH_MAX): T[][] {
+  // No cards is NO BATCHES, not one empty one. A zero-length batch divides by
+  // zero in the file-in stagger and lays out a fan of nothing, and the clamp
+  // that produced it (`Math.max(1, ...)` on the cap) read as defensive.
+  // `createCardSystem.enter` substitutes a single placeholder card long before
+  // this is reached, so nothing depends on the old behaviour — but a function
+  // that CAN emit a degenerate batch is one somebody eventually gets from.
+  if (!items.length) return []
+  const cap = Math.min(items.length, size * MAX_BATCHES)
+  if (items.length > cap) {
+    console.warn(
+      `decke cards: ${items.length} stash cards requested, showing ${cap} (${MAX_BATCHES} batches of ${size})`,
+    )
+  }
+  const out: T[][] = []
+  for (let i = 0; i < cap; i += size) out.push(items.slice(i, Math.min(i + size, cap)))
+  return out
+}
 
 /**
  * A station, resolved into `DeckE_Tilt` local blender coordinates.
@@ -593,7 +808,19 @@ export function stationLocal(st: StashStation, facing: number, out: Local): Loca
   return out
 }
 
-export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
+/**
+ * @param art The artwork system, if there is one. OPTIONAL because the flight
+ *   is meaningful without it — the glb ships placeholder card art and every
+ *   earlier review was done on it — and because the pure geometry is then
+ *   testable without a WebGL context. When it is present, this module is what
+ *   drives it: it is the only thing that knows which card is in which slot of
+ *   which batch, and the only thing that knows the moment a card lands.
+ */
+export function createCardSystem(
+  doc: CardsDoc,
+  nodes: CardNodes,
+  art?: CardArtSystem,
+): CardSystem {
   const gate = new Map<string, Curve>()
   for (const [state, keys] of Object.entries(doc.present_gate.states)) {
     gate.set(state, makeCurve(keys))
@@ -624,6 +851,10 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
       clone.scale.setScalar(0)
       stashParent.add(clone)
       pool.push(clone)
+      // A clone shares its source's MATERIAL, which by now may be carrying
+      // another card's art. Giving it its own is not an optimisation; without it
+      // the thirteenth card and the first are the same card, forever.
+      art?.adoptStash(clone)
     }
   }
 
@@ -631,58 +862,168 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
     node: Object3D
     /** Its own float phase, spaced by the golden angle so no two synchronise. */
     phase: number
-    /** When it leaves the mouth, when it tops out, and when it arrives. */
+    /** When it leaves the mouth, when it tops out, and when it arrives — all in
+     *  the BATCH's own clock, not the state's. */
     outMs: number
     crestMs: number
     arriveMs: number
   }
 
-  let count = nodes.stash.length
-  let scale = 1
-  let stations: Station[] = []
-  /** Requested but not yet applied. See `setCount`. */
-  let pendingCount: number | null = null
+  /**
+   * One batch of the run: a fan, the cards in it, and when it gives up its
+   * cards.
+   *
+   * `closeAt` is the batch's local time at which the gather begins, and `null`
+   * means "hangs" — which is what the LAST batch does, because the last batch is
+   * exactly the animation every earlier review looked at. See `runClose`.
+   */
+  type Batch = {
+    stations: Station[]
+    arts: (CardArt | null)[]
+    scale: number
+    /** State-clock ms at which this batch's own clock starts. */
+    startMs: number
+    closeAt: number | null
+    /** Local ms at which the last card is fully inside him. */
+    endMs: number
+  }
+
+  let batches: Batch[] = []
+  let batchIndex = 0
+  let autoClose = false
+  /** Set once the final batch has hung long enough and the run asked to finish
+   *  by itself. Read by the state machine; see `CardSystem.wantsClose`. */
+  let closeWanted = false
+  /** Requested but not yet applied. See `setStashCards`. */
+  let pending: { arts: (CardArt | null)[]; autoClose: boolean } | null = null
   /** Whether anything was drawn last frame. See `CardSystem.deployed`. */
   let anyDeployed = false
+  /** Which pool index most recently finished its dive, so the deck's top card
+   *  can become that card. -1 while nothing has landed this batch. */
+  let landed = -1
 
   /**
-   * A count change LANDS ON THE NEXT ENTRY, never mid-state.
+   * A RUN CHANGE LANDS ON THE NEXT ENTRY, never mid-state.
    *
-   * `layout` rebuilds the stations, the card scale AND the per-card timings, so
-   * running it while cards are in the air teleports the ones that exist to a
-   * different fan and pops any extras into being at full size, their launch
-   * long past. The command surface makes this reachable in one message —
-   * `{op: "state", value: "card_stash", count: 9}` sets the count and then
+   * Building the batches rebuilds the stations, the card scale AND the per-card
+   * timings, so doing it while cards are in the air teleports the ones that
+   * exist to a different fan and pops any extras into being at full size, their
+   * launch long past. The command surface makes this reachable in one message —
+   * `{op: "state", value: "card_stash", cards: [...]}` sets the run and then
    * queues the state behind whatever is playing — so it has to be safe, not
    * merely undocumented.
    */
+  function setStashCards(arts: (CardArt | null)[], opts: { autoClose?: boolean } = {}) {
+    pending = { arts, autoClose: opts.autoClose === true }
+  }
+
   function setCount(n: number) {
-    pendingCount = n
+    const count = Math.max(1, Math.round(n))
+    setStashCards(new Array(count).fill(null))
   }
 
   function enter(state: string) {
-    if (state !== 'card_stash' || pendingCount === null) return
-    layout(pendingCount)
-    pendingCount = null
+    // Cleared for EVERY state, not just this one. It is a request made of the
+    // state machine, and a request that outlives the state that made it would
+    // fire `beginOutro` on whatever he did next — an outro for `idle`, which
+    // has none.
+    closeWanted = false
+    if (state !== 'card_stash') return
+    // Re-entering with nothing new asked for replays the run he was given, which
+    // is what an agent saying "show that again" means. A count of zero cannot
+    // arise: `setCount` floors at one and `splitBatches` at one batch.
+    if (pending) {
+      buildRun(pending.arts, pending.autoClose)
+      pending = null
+    }
+    batchIndex = 0
+    landed = -1
+    applyBatchArt(0)
   }
 
-  function layout(n: number) {
-    count = Math.min(MAX_STASH, Math.max(1, Math.round(n)))
-    if (count !== n) {
-      console.warn(`decke cards: ${n} stash cards requested, showing ${count}`)
-    }
-    ensurePool(count)
-    scale = sizeForCount(count)
-    stations = stashLayout(count).map((st, i) => ({
-      ...st,
-      node: pool[i],
-      phase: i * STASH_FLOAT.phaseStep,
-      outMs: STASH.gapeMs + i * STASH.staggerMs,
-      crestMs: STASH.gapeMs + i * STASH.staggerMs + STASH.riseMs,
-      arriveMs: STASH.gapeMs + i * STASH.staggerMs + STASH.riseMs + STASH.travelMs,
-    }))
+  function buildRun(arts: (CardArt | null)[], auto: boolean) {
+    autoClose = auto
+    const groups = splitBatches(arts.length ? arts : [null])
+    let startMs = 0
+    batches = groups.map((group, gi) => {
+      const n = group.length
+      ensurePool(n)
+      const sched = batchSchedule(n, { first: gi === 0, last: gi === groups.length - 1 })
+      const stations: Station[] = stashLayout(n).map((st, i) => ({
+        ...st,
+        node: pool[i],
+        phase: i * STASH_FLOAT.phaseStep,
+        ...sched.launch[i],
+      }))
+      const batch: Batch = {
+        stations,
+        arts: group,
+        scale: sizeForCount(n),
+        startMs,
+        closeAt: sched.closeAt,
+        endMs: sched.endMs,
+      }
+      startMs += sched.endMs
+      return batch
+    })
   }
-  layout(nodes.stash.length)
+
+  /**
+   * Which batch is on screen, advancing the run as batches finish.
+   *
+   * THE RUN IS FROZEN DURING THE OUTRO, for the same reason the loose cards'
+   * spawn schedule is: the state clock keeps running through the way out, so a
+   * run left to advance would start the next batch INSIDE the animation whose
+   * whole job is to put the current one away. `card_stash` only ever reaches an
+   * outro on its last batch anyway — but "only ever" held for the loose cards
+   * too, right up until a sustain made it false.
+   */
+  function currentBatch(
+    tMs: number,
+    phase: 'intro' | 'sustain' | 'outro',
+    phaseTMs: number,
+  ): Batch | null {
+    if (!batches.length) return null
+    const t = phase === 'outro' ? tMs - phaseTMs : tMs
+    // The close is happening. Asking for it again would re-enter the outro every
+    // frame and it would never finish.
+    if (phase === 'outro') closeWanted = false
+    if (phase !== 'outro') {
+      while (
+        batchIndex < batches.length - 1 &&
+        t >= batches[batchIndex].startMs + batches[batchIndex].endMs
+      ) {
+        batchIndex++
+        landed = -1
+        applyBatchArt(batchIndex)
+      }
+    }
+    const b = batches[batchIndex]
+    // The last batch hangs. If the run was asked to finish by itself, this is
+    // where it says so — and it says so rather than acting, because the thing
+    // that has to happen next is the LID closing, which belongs to the state
+    // machine. See `CardSystem.wantsClose`.
+    if (autoClose && phase !== 'outro' && b.closeAt === null) {
+      const lastArrive = b.stations.length ? b.stations[b.stations.length - 1].arriveMs : 0
+      if (t - b.startMs >= lastArrive + STASH.holdMs) closeWanted = true
+    }
+    return b
+  }
+
+  /** Put this batch's cards on the pool nodes, and warm the batch behind it so
+   *  its first card does not pop in on a placeholder. */
+  function applyBatchArt(index: number) {
+    const b = batches[index]
+    if (!b || !art) return
+    art.setStash(
+      b.stations.map((st) => st.node),
+      b.arts,
+    )
+    const next = batches[index + 1]
+    if (next) void art.preload(next.arts)
+  }
+
+  buildRun([null, null, null, null, null], false)
 
   /**
    * Resolve a station against the current facing, into `DeckE_Tilt` local
@@ -904,6 +1245,36 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
     // is what keeps the gather continuous — the cards are on independent floats
     // and are never exactly at their stations.
     const tAtOutro = tMs - phaseTMs
+
+    // ---- which batch, and where in it ------------------------------------
+    //
+    // A RUN IS A SEQUENCE OF BATCHES ON ONE CLOCK. "If the user is adding more
+    // cards than that, the animation will play in multiple batches: X cards show
+    // up, go in neatly... he does not close until all batches are in, then the
+    // next X-card batch pops up for a little, then goes in — until ALL cards
+    // called for are in, then he closes."
+    //
+    // Every batch but the last is a complete cycle with its own local clock, and
+    // the LAST batch is exactly the animation that shipped: it hangs, and its
+    // close is the state's outro, so the lid shutting and the cards diving in
+    // stay one choreographed beat rather than two things that have to be kept in
+    // step. `closeAt` carries that distinction and nothing else does.
+    const batch = stashing ? currentBatch(tMs, phase, phaseTMs) : null
+    const stations = batch?.stations ?? []
+    const count = stations.length
+    const scale = batch?.scale ?? 1
+    // The batch's own clock, frozen at the outro exactly as the state clock is —
+    // see the loose cards above for why a schedule that keeps running through
+    // the way out spawns things nobody asked for.
+    const tb = (phase === 'outro' ? tAtOutro : tMs) - (batch?.startMs ?? 0)
+    // Ms since this batch began giving its cards up, or null while it hangs.
+    // Two clocks can start that and they compose rather than choose — see
+    // `closeProgress`, which is where the worst bug in this work lived.
+    const closeT =
+      batch === null
+        ? null
+        : closeProgress(tb, batch.closeAt, phase === 'outro' ? phaseTMs : null)
+
     for (let i = 0; i < pool.length; i++) {
       const st = stations[i]
       if (!stashing || !st) {
@@ -920,7 +1291,7 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
       // this, leaving `card_stash` early — a short `durationMs`, or an agent
       // changing its mind — popped every unlaunched card into existence at full
       // size at its station and then filed it in.
-      const born = phase === 'outro' ? tAtOutro : tMs
+      const born = tb
       if (born < st.outMs) {
         pool[i].scale.setScalar(0)
         parkAtMouth(pool[i])
@@ -928,7 +1299,7 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
       }
       let s = scale * evalCurve(popCurve, born - st.outMs)
 
-      if (phase === 'outro') {
+      if (closeT !== null) {
         // GATHER, THEN DIVE. "When they're ready to go in, they all come up
         // together like this, but hopefully so they're not clipping, and then
         // quickly go down in." The stack is separated along the card's own
@@ -940,15 +1311,19 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
         // put a jump of up to 0.18 units — a tenth of a card — on every card at
         // once, which is the same jutter this pass exists to remove, moved to
         // the phase boundary.
-        hangPose(st, tAtOutro, 1 - clamp01(phaseTMs / STASH_FLOAT.releaseMs), _b)
-        const g = clamp01(phaseTMs / STASH.gatherMs)
+        // The hang is evaluated at the moment the close began — the cards are on
+        // independent floats and are never exactly at their stations, so
+        // gathering from where each one WAS is what keeps it continuous.
+        const tAtClose = tb - closeT
+        hangPose(st, tAtClose, 1 - clamp01(closeT / STASH_FLOAT.releaseMs), _b)
+        const g = clamp01(closeT / STASH.gatherMs)
         const ge = g * g * (3 - 2 * g)
         const cx = STASH.cluster.x
         const cy = STASH.cluster.y - i * STASH.clusterStep
         const cz = STASH.cluster.z
         const diveAt =
           STASH.gatherMs + (count > 1 ? (i / (count - 1)) * STASH.fileSpanMs : 0)
-        const d = clamp01((phaseTMs - diveAt) / STASH.diveMs)
+        const d = clamp01((closeT - diveAt) / STASH.diveMs)
         const de = d * d * d // the dive ACCELERATES; they drop in, they do not glide
         _a.x = cx + (_b.x - cx) * (1 - ge) + (STASH.mouth.x - cx) * de
         _a.y = cy + (_b.y - cy) * (1 - ge) + (STASH.mouth.y - cy) * de
@@ -959,8 +1334,18 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
         _a.rz = _b.rz * (1 - ge)
         // Gone by the time the lid meets them: the last third of the dive.
         s *= 1 - clamp01((d - 0.66) / 0.34)
+        // THE TOP OF THE STACK IS THE CARD THAT JUST WENT IN. "The topmost
+        // facing card in the stack should update to the card that most recently
+        // went all the way in." The dive is staggered, so this fires once per
+        // card, in the order they file — which is what makes the deck read as
+        // filling up rather than as one cut at the end.
+        if (d >= 1 && i > landed) {
+          landed = i
+          const a = batch!.arts[i]
+          if (a && art) art.set('deck', a)
+        }
       } else {
-        hangPose(st, tMs, 1, _a)
+        hangPose(st, tb, 1, _a)
       }
 
       if (s <= 0) {
@@ -1042,5 +1427,13 @@ export function createCardSystem(doc: CardsDoc, nodes: CardNodes): CardSystem {
     t.rz += Math.sin(th * 0.61) * STASH_FLOAT.ampRot * w
   }
 
-  return { apply, setCount, enter, deployed: () => anyDeployed }
+  return {
+    apply,
+    setCount,
+    setStashCards,
+    hasPending: (state) => state === 'card_stash' && pending !== null,
+    enter,
+    wantsClose: () => closeWanted,
+    deployed: () => anyDeployed,
+  }
 }

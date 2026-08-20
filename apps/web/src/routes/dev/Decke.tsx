@@ -16,6 +16,15 @@ import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
 import { DeckE } from '../../character/decke/DeckE'
 import { BLENDER_BACKDROP_LINEAR } from '../../character/decke/stage'
 import { runCommands, type Command } from '../../character/decke/commands'
+import { BATCH_MAX, MAX_RUN } from '../../character/decke/cards'
+import type { CardArt, CardSlot } from '../../character/decke/cardArt'
+import {
+  applyDefaultCards,
+  artForIds,
+  randomCatalog,
+  recentlyAdded,
+} from '../../character/decke/cardSource'
+import { api } from '../../lib/api'
 import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
 import type { Beacon } from '../../character/decke/beacon'
 
@@ -110,6 +119,14 @@ export default function Decke() {
   const [jsonResult, setJsonResult] = useState<string | null>(null)
   const [beacon, setBeacon] = useState<Beacon | null>(null)
   const [stashCount, setStashCount] = useState(5)
+  const [autoClose, setAutoClose] = useState(false)
+  /** What the last card action did, in one line. The card paths do network I/O
+   *  and can legitimately come back empty — signed out, empty collection — and a
+   *  button that silently does nothing is indistinguishable from a broken one. */
+  const [cardNote, setCardNote] = useState<string | null>(null)
+  const [slot, setSlot] = useState<CardSlot>('card_r')
+  const [slotQuery, setSlotQuery] = useState('')
+  const [slotHits, setSlotHits] = useState<CardArt[]>([])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -165,6 +182,12 @@ export default function Decke() {
         decke.setEnvironment(hdr)
         decke.start()
         setStatus('ready')
+        // THE CARDS HE IS HOLDING ARE THE USER'S OWN, from the first frame. Not
+        // awaited and not allowed to fail loudly: this is decoration, and the
+        // placeholder art it replaces is perfectly good decoration.
+        void applyDefaultCards(decke).then((cards) => {
+          if (cards.length) setCardNote(`loaded ${cards.map((c) => c.name ?? c.id).join(', ')}`)
+        })
         // A handle for the screenshot harness and for driving him from the
         // console. This DOES exist in production — but only inside a route that
         // no one but the owner can load, and it exposes the character, not any
@@ -221,18 +244,85 @@ export default function Decke() {
     })
   }, [])
 
-  const runJson = useCallback(() => {
+  /**
+   * Play a stash run from a list of cards.
+   *
+   * `setStashCards` then `setState` in that order, always: a run lands on the
+   * next ENTRY, so setting it after the state change would show this run's cards
+   * on the NEXT one. The textures are warmed first for the same reason the card
+   * system warms the next batch — a card that pops in on a placeholder and
+   * swaps a frame later reads as a glitch.
+   */
+  const playStash = useCallback(
+    async (arts: (CardArt | null)[], label: string) => {
+      const d = deckeRef.current
+      if (!d) return
+      setCardNote(`${label}: ${arts.length} card${arts.length === 1 ? '' : 's'}…`)
+      // WARM, BUT ON A DEADLINE. The card system warms each batch behind the one
+      // on screen, so only the FIRST batch has nothing ahead of it — worth
+      // waiting for, because a card that pops in on a placeholder and swaps a
+      // frame later reads as a glitch. Worth waiting for is not worth waiting
+      // indefinitely for: on a slow connection an unbounded await is a button
+      // that does nothing, and the art lands correctly whenever it arrives
+      // anyway. The first card does not leave the mouth for `gapeMs` regardless.
+      await Promise.race([
+        d.art.preload(arts.slice(0, BATCH_MAX)),
+        new Promise((r) => setTimeout(r, 700)),
+      ])
+      d.setStashCards(arts, { autoClose })
+      d.setState('card_stash')
+      const batches = Math.ceil(Math.min(arts.length, MAX_RUN) / BATCH_MAX)
+      setCardNote(
+        `${label}: ${Math.min(arts.length, MAX_RUN)} card${arts.length === 1 ? '' : 's'}` +
+          ` in ${batches} batch${batches === 1 ? '' : 'es'}${autoClose ? ', closing at the end' : ''}`,
+      )
+    },
+    [autoClose],
+  )
+
+  /** A guard for every card button: they all do network I/O and they can all
+   *  legitimately return nothing, and "nothing happened" has to be readable. */
+  const cardAction = useCallback(async (label: string, run: () => Promise<void>) => {
+    try {
+      await run()
+    } catch (e) {
+      setCardNote(`${label} failed: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }, [])
+
+  const findCards = useCallback(
+    () =>
+      cardAction('search', async () => {
+        const res = await api.searchCards(new URLSearchParams({ q: slotQuery, pageSize: '8' }))
+        setSlotHits(
+          res.cards.map((c) => ({
+            id: c.cardId,
+            front: c.images.low,
+            frontLarge: c.images.high,
+            name: c.name,
+          })),
+        )
+        setCardNote(`${res.cards.length} result(s) for \u201c${slotQuery}\u201d`)
+      }),
+    [cardAction, slotQuery],
+  )
+
+  const runJson = useCallback(async () => {
     const d = deckeRef.current
     if (!d) return
     try {
       const parsed = JSON.parse(json) as { commands?: Command[] }
-      const result = runCommands(d, parsed.commands ?? [])
-      setJsonResult(
+      // Awaited now that naming cards is a catalog lookup — the console has to
+      // show what a model would be told, and a model is told after the lookup.
+      const result = await runCommands(d, parsed.commands ?? [])
+      const lines = [
         result.errors.length
-          ? `${result.applied} applied, ${result.errors.length} rejected:\n` +
-              result.errors.join('\n')
+          ? `${result.applied} applied, ${result.errors.length} rejected:`
           : `${result.applied} command(s) applied.`,
-      )
+        ...result.errors,
+        ...result.notes.map((n) => `note: ${n}`),
+      ]
+      setJsonResult(lines.join('\n'))
     } catch (e) {
       setJsonResult(`Parse error: ${e instanceof Error ? e.message : String(e)}`)
     }
@@ -354,31 +444,162 @@ export default function Decke() {
 
             <Panel title="Cards in a stash">
               <p className="mb-[8px] text-[11px] text-text-muted">
-                How many cards <code>card_stash</code> shows. The real use is
-                &ldquo;they add a whole bunch of cards to their collection&rdquo;, so
-                the count is an input, not a property of the five meshes in the glb —
-                anything past the fifth is a clone. They lay out on a grid in the
-                plane you are looking at, so no two ever overlap.
+                The real use is &ldquo;they add a whole bunch of cards to their
+                collection, and this is his way of showing the actual cards they added
+                going down into the deck box&rdquo;. So the cards are an input, not a
+                property of the five meshes in the glb — anything past the fifth is a
+                clone, and anything past{' '}
+                <b>{BATCH_MAX}</b> is a second batch: a batch comes up, files in, and
+                the top of the stack in his box becomes whichever card went in last.
+                He does not close until every batch is in.
               </p>
               <div className="flex items-center gap-[8px]">
                 <input
                   aria-label="stash cards"
                   type="range"
                   min={1}
-                  max={12}
+                  max={MAX_RUN}
                   step={1}
                   value={stashCount}
-                  onChange={(e) => {
-                    const n = Number(e.target.value)
-                    setStashCount(n)
-                    deckeRef.current?.setStashCount(n)
-                  }}
+                  onChange={(e) => setStashCount(Number(e.target.value))}
                   className="w-full"
                 />
-                <span className="w-[24px] shrink-0 text-right font-mono text-[11px]">
+                <span className="w-[52px] shrink-0 text-right font-mono text-[11px]">
                   {stashCount}
+                  <span className="text-text-muted">
+                    /{Math.ceil(stashCount / BATCH_MAX)}b
+                  </span>
                 </span>
               </div>
+              <label className="mt-[6px] flex items-center gap-[6px] text-[11px] text-text-muted">
+                <input
+                  type="checkbox"
+                  checked={autoClose}
+                  onChange={(e) => setAutoClose(e.target.checked)}
+                />
+                close by himself once every batch is in
+              </label>
+              <div className="mt-[8px] flex flex-wrap gap-[6px]">
+                <Btn
+                  onClick={() =>
+                    void cardAction('recently added', async () => {
+                      const cards = await recentlyAdded(stashCount)
+                      if (!cards.length) {
+                        setCardNote('no recent additions to show — signed out, or nothing added yet')
+                        return
+                      }
+                      await playStash(cards, 'recently added')
+                    })
+                  }
+                >
+                  cards I just added
+                </Btn>
+                <Btn
+                  onClick={() =>
+                    void cardAction('random catalog', async () => {
+                      const cards = await randomCatalog(stashCount)
+                      if (!cards.length) {
+                        setCardNote('the catalog returned nothing')
+                        return
+                      }
+                      await playStash(cards, 'random catalog')
+                    })
+                  }
+                >
+                  random from catalog
+                </Btn>
+                <Btn
+                  onClick={() =>
+                    void cardAction('surprise me', async () => {
+                      // A RANDOM NUMBER TOO, which is the point: the counts that
+                      // break a layout are the ones nobody thinks to type. This
+                      // is the button that found the batch-boundary skip.
+                      const n = 1 + Math.floor(Math.random() * MAX_RUN)
+                      setStashCount(n)
+                      const cards = await randomCatalog(n)
+                      if (!cards.length) {
+                        setCardNote('the catalog returned nothing')
+                        return
+                      }
+                      await playStash(cards, `surprise (${n})`)
+                    })
+                  }
+                >
+                  surprise me
+                </Btn>
+                <Btn
+                  onClick={() =>
+                    void playStash(new Array(stashCount).fill(null), 'placeholder art')
+                  }
+                >
+                  placeholder art
+                </Btn>
+              </div>
+            </Panel>
+
+            <Panel title="Card art">
+              <p className="mb-[8px] text-[11px] text-text-muted">
+                The four faces he shows, and what is on them.{' '}
+                <code>card_r</code> is the card he holds up in{' '}
+                <code>card_present</code> — L and R are <b>his</b>, as everywhere
+                else here. <code>deck</code> is the top of the stack in his box, which
+                the stash flight rewrites as cards land on it.
+              </p>
+              <div className="mb-[8px] flex flex-wrap gap-[6px]">
+                {(['card_l', 'card_r', 'single', 'deck'] as CardSlot[]).map((sl) => (
+                  <Btn key={sl} active={slot === sl} onClick={() => setSlot(sl)}>
+                    {sl}
+                  </Btn>
+                ))}
+                <Btn
+                  onClick={() => {
+                    deckeRef.current?.setCardArt(slot, null)
+                    setCardNote(`${slot}: back to placeholder art`)
+                  }}
+                >
+                  placeholder
+                </Btn>
+              </div>
+              <form
+                className="flex gap-[6px]"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  void findCards()
+                }}
+              >
+                <input
+                  aria-label="card search"
+                  value={slotQuery}
+                  onChange={(e) => setSlotQuery(e.target.value)}
+                  placeholder="charizard"
+                  className="w-full rounded border border-border-default bg-surface-secondary px-[6px] py-[3px] font-mono text-[11px]"
+                />
+                {/* `Btn` renders type="button", which does NOT submit a form — so
+                    this calls the search itself rather than relying on the
+                    submit it looks like it would trigger. */}
+                <Btn onClick={() => void findCards()}>find</Btn>
+              </form>
+              {slotHits.length ? (
+                <div className="mt-[8px] flex flex-wrap gap-[6px]">
+                  {slotHits.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      title={`${c.name} — put on ${slot}`}
+                      onClick={() => {
+                        deckeRef.current?.setCardArt(slot, c)
+                        setCardNote(`${slot}: ${c.name}`)
+                      }}
+                      className="overflow-hidden rounded border border-border-default"
+                    >
+                      <img src={c.front} alt={c.name} className="block h-[64px] w-auto" />
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {cardNote ? (
+                <p className="mt-[8px] font-mono text-[11px] text-text-muted">{cardNote}</p>
+              ) : null}
             </Panel>
 
             {STATE_GROUPS.map((g) => (
