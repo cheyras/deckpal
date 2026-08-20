@@ -13,9 +13,30 @@
 import type { DeckE } from './DeckE'
 import type { Depth, Side } from './dom'
 import { CHANNEL_RANGE } from './constants'
+import { IDLE } from './sustain'
 
 export type Command =
-  | { op: 'state'; value: string; blendMs?: number }
+  | {
+      op: 'state'
+      value: string
+      blendMs?: number
+      /** `sustain` (the default) stays in the state; `once` plays it through. */
+      mode?: 'sustain' | 'once'
+      /** Stay for this long, then leave. */
+      durationMs?: number
+      /** Where to go when it ends. Defaults to `idle`. */
+      then?: string
+    }
+  | { op: 'idle'; blendMs?: number }
+  | { op: 'highlight'; selector: string; durationMs?: number }
+  | { op: 'clearHighlight' }
+  | {
+      op: 'keyframes'
+      beats: { t_ms: number; ease?: 'ease' | 'lin' | 'step'; pose: Record<string, number> }[]
+      loop?: boolean
+      then?: string
+      blendMs?: number
+    }
   | { op: 'facing'; value: 'left' | 'right' | number; animate?: boolean }
   | { op: 'talk'; value: boolean; weight?: number }
   | { op: 'channel'; channel: string; value: number | null }
@@ -26,6 +47,10 @@ export type Command =
       y?: number
       depth?: Depth
       side?: Side
+      /** Ring the target on arrival. Defaults on for a selector. */
+      highlight?: boolean
+      /** A state to enter once he lands. */
+      then?: string
     }
   | { op: 'home' }
   | { op: 'clearChannels' }
@@ -34,6 +59,13 @@ export type CommandResult = { applied: number; errors: string[] }
 
 const DEPTHS: Depth[] = ['foreground', 'background']
 const SIDES: Side[] = ['auto', 'left', 'right']
+const EASES = ['ease', 'lin', 'step'] as const
+
+/** Bounds on an agent-authored clip. Not arbitrary: 32 beats at 30 fps is a
+ *  second of fully-keyed animation, and 20 s is longer than any authored state.
+ *  A model that wants more than either is describing a sequence, not a clip. */
+const MAX_KEYFRAMES = 32
+const MAX_KEYFRAME_MS = 20000
 
 function num(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v)
@@ -66,7 +98,111 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
             errors.push(`${at}: blendMs must be a non-negative number`)
             return
           }
-          decke.setState(cmd.value, { blendMs: cmd.blendMs })
+          if (cmd.mode !== undefined && cmd.mode !== 'sustain' && cmd.mode !== 'once') {
+            errors.push(`${at}: mode must be "sustain" or "once"`)
+            return
+          }
+          if (
+            cmd.durationMs !== undefined &&
+            (!num(cmd.durationMs) || cmd.durationMs <= 0)
+          ) {
+            errors.push(`${at}: durationMs must be a positive number of milliseconds`)
+            return
+          }
+          if (cmd.then !== undefined && !names.includes(cmd.then)) {
+            errors.push(`${at}: unknown "then" state "${cmd.then}". Legal: ${names.join(', ')}`)
+            return
+          }
+          decke.setState(cmd.value, {
+            blendMs: cmd.blendMs,
+            mode: cmd.mode,
+            durationMs: cmd.durationMs,
+            then: cmd.then,
+          })
+          break
+        }
+
+        case 'idle':
+          decke.setState(IDLE, { blendMs: cmd.blendMs })
+          break
+
+        case 'highlight': {
+          if (typeof cmd.selector !== 'string') {
+            errors.push(`${at}: highlight needs a selector`)
+            return
+          }
+          if (!document.querySelector(cmd.selector)) {
+            errors.push(`${at}: no element matches "${cmd.selector}"`)
+            return
+          }
+          decke.highlight(cmd.selector, { durationMs: cmd.durationMs })
+          break
+        }
+
+        case 'clearHighlight':
+          decke.clearHighlight()
+          break
+
+        case 'keyframes': {
+          const beats = cmd.beats
+          if (!Array.isArray(beats) || beats.length < 2) {
+            errors.push(`${at}: keyframes needs at least two beats`)
+            return
+          }
+          if (beats.length > MAX_KEYFRAMES) {
+            errors.push(`${at}: at most ${MAX_KEYFRAMES} beats (got ${beats.length})`)
+            return
+          }
+          const channels = decke.channelNames
+          let last = -1
+          let bad: string | null = null
+          for (const [bi, b] of beats.entries()) {
+            if (!num(b?.t_ms) || b.t_ms < 0 || b.t_ms <= last) {
+              bad = `beats[${bi}].t_ms must be a number strictly greater than the previous beat's`
+              break
+            }
+            last = b.t_ms
+            if (b.ease !== undefined && !EASES.includes(b.ease)) {
+              bad = `beats[${bi}].ease must be one of ${EASES.join(' | ')}`
+              break
+            }
+            if (!b.pose || typeof b.pose !== 'object') {
+              bad = `beats[${bi}].pose must be an object of channel values`
+              break
+            }
+            for (const [ch, v] of Object.entries(b.pose)) {
+              if (!channels.includes(ch)) {
+                bad = `beats[${bi}].pose has unknown channel "${ch}". Legal: ${channels.join(', ')}`
+                break
+              }
+              if (!num(v)) {
+                bad = `beats[${bi}].pose.${ch} must be a number`
+                break
+              }
+              const r = CHANNEL_RANGE[ch as keyof typeof CHANNEL_RANGE]
+              if (r && (v < r.min || v > r.max)) {
+                bad = `beats[${bi}].pose.${ch} ${v} is outside [${r.min}, ${r.max}]`
+                break
+              }
+            }
+            if (bad) break
+          }
+          if (bad) {
+            errors.push(`${at}: ${bad}`)
+            return
+          }
+          if (last > MAX_KEYFRAME_MS) {
+            errors.push(`${at}: a custom clip may not run past ${MAX_KEYFRAME_MS} ms`)
+            return
+          }
+          if (cmd.then !== undefined && !decke.stateNames.includes(cmd.then)) {
+            errors.push(`${at}: unknown "then" state "${cmd.then}"`)
+            return
+          }
+          decke.playKeyframes(
+            beats.map((b) => ({ t_ms: b.t_ms, ease: b.ease ?? 'ease', pose: b.pose })),
+            { loop: cmd.loop === true, then: cmd.then, blendMs: cmd.blendMs },
+          )
           break
         }
 
@@ -146,14 +282,19 @@ export function runCommands(decke: DeckE, commands: Command[]): CommandResult {
             errors.push(`${at}: side must be one of ${SIDES.join(' | ')}`)
             return
           }
+          if (cmd.then !== undefined && !decke.stateNames.includes(cmd.then)) {
+            errors.push(`${at}: unknown "then" state "${cmd.then}"`)
+            return
+          }
+          const fly = { depth, side, highlight: cmd.highlight, then: cmd.then }
           if (cmd.selector) {
             if (!document.querySelector(cmd.selector)) {
               errors.push(`${at}: no element matches "${cmd.selector}"`)
               return
             }
-            decke.flyTo({ selector: cmd.selector }, { depth, side })
+            decke.flyTo({ selector: cmd.selector }, fly)
           } else if (num(cmd.x) && num(cmd.y)) {
-            decke.flyTo({ x: cmd.x, y: cmd.y }, { depth, side })
+            decke.flyTo({ x: cmd.x, y: cmd.y }, fly)
           } else {
             errors.push(`${at}: flyTo needs either a selector or both x and y`)
             return
@@ -198,12 +339,74 @@ export function commandSchema(stateNames: string[]) {
           oneOf: [
             {
               type: 'object',
+              description:
+                'Enter a state. By DEFAULT he stays in it until told otherwise — states are ongoing, not one-shots. Give durationMs to leave after a while, or mode "once" to play it through and return.',
               properties: {
                 op: { const: 'state' },
                 value: { enum: stateNames },
+                mode: {
+                  enum: ['sustain', 'once'],
+                  description:
+                    '"sustain" (default) holds the state; "once" plays the clip and hands over to `then`.',
+                },
+                durationMs: {
+                  type: 'number',
+                  description: 'Sustain for this long, then go to `then`.',
+                },
+                then: {
+                  enum: stateNames,
+                  description: 'Where to go when this state ends. Defaults to "idle".',
+                },
                 blendMs: { type: 'number' },
               },
               required: ['op', 'value'],
+            },
+            {
+              type: 'object',
+              description: 'Return to the resting idle. Equivalent to state "idle".',
+              properties: { op: { const: 'idle' }, blendMs: { type: 'number' } },
+              required: ['op'],
+            },
+            {
+              type: 'object',
+              description:
+                'Ring an element with the chasing highlight, so the reader can see which thing is being talked about. Pair with flyTo.',
+              properties: {
+                op: { const: 'highlight' },
+                selector: { type: 'string' },
+                durationMs: { type: 'number' },
+              },
+              required: ['op', 'selector'],
+            },
+            {
+              type: 'object',
+              properties: { op: { const: 'clearHighlight' } },
+              required: ['op'],
+            },
+            {
+              type: 'object',
+              description:
+                'Author a one-off animation instead of picking a named state. Beats are complete poses in ascending t_ms; every channel omitted from a beat is at rest there. Use this when nothing in the roster fits.',
+              properties: {
+                op: { const: 'keyframes' },
+                beats: {
+                  type: 'array',
+                  minItems: 2,
+                  maxItems: MAX_KEYFRAMES,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      t_ms: { type: 'number' },
+                      ease: { enum: [...EASES] },
+                      pose: { type: 'object', additionalProperties: { type: 'number' } },
+                    },
+                    required: ['t_ms', 'pose'],
+                  },
+                },
+                loop: { type: 'boolean', description: 'Sustain the clip on repeat.' },
+                then: { enum: stateNames },
+              },
+              required: ['op', 'beats'],
             },
             {
               type: 'object',
@@ -235,6 +438,14 @@ export function commandSchema(stateNames: string[]) {
                 y: { type: 'number' },
                 depth: { enum: DEPTHS },
                 side: { enum: SIDES },
+                highlight: {
+                  type: 'boolean',
+                  description: 'Ring the target on arrival. Defaults to true for a selector.',
+                },
+                then: {
+                  enum: stateNames,
+                  description: 'A state to enter once he lands, e.g. "point".',
+                },
               },
               required: ['op'],
             },
