@@ -10,7 +10,7 @@ import { parseBattleLog } from '../deck/battlelog.js';
 import {
   validateDeck, resolveDeck, buildReprintOracle,
   parsePtcgl, parseMassEntry, serializeMassEntry,
-  buildPtcglExport, findLiveReprint,
+  buildPtcglExport, findLiveReprint, ptcglCodeForSet,
   expandLibrary, drawOpeningHand, mulberry32, hypergeometricMulligan,
   formatConfig, glcTypes, normalizeName,
   type FormatCode, type PokemonType, type CardFacts, type Deck, type DeckEntry,
@@ -307,6 +307,12 @@ function shapeCard(r: DeckRow) {
     artist: r.illustrator,
     regulationMark: r.regulation_mark,
     setId: r.set_tcgdex_id,
+    // The expansion code actually PRINTED on the card, next to the collector
+    // number ("PBL 39"), which is what a player reads off the card in hand —
+    // our `setId` is TCGdex's internal id ("me05") and is printed nowhere
+    // (issue #57). Null for sets with no PTCGL/Limitless code at all. The
+    // authority is the vendored alias table, never card_set.ptcgl_code.
+    setCode: ptcglCodeForSet(r.set_tcgdex_id)?.code ?? null,
     setName: r.set_name,
     seriesSlug: r.series_slug,
     quantity: r.quantity,

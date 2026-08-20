@@ -96,6 +96,14 @@ const NAV: NavItem[] = [
   { label: 'Scan Card', icon: 'camera', to: '/scan', gated: true },
 ]
 
+// Whether a nav row points at the page you are on. One definition, because the
+// rail and the mobile drawer render the same NAV array and drifted apart once
+// already: the drawer passed a hardcoded `active={false}`, so on a phone — where
+// the drawer is the ONLY nav — nothing was ever highlighted (issue #52).
+function isNavActive(pathname: string, item: NavItem): boolean {
+  return !!item.to && (pathname === item.to || pathname.startsWith(`${item.to}/`))
+}
+
 function NavRow({
   item,
   active,
@@ -211,7 +219,7 @@ function ExpandableNavRow({
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const [open, setOpen] = useState(false)
-  const active = !!item.to && (pathname === item.to || pathname.startsWith(`${item.to}/`))
+  const active = isNavActive(pathname, item)
   if (collapsed) {
     return <NavRow item={item} active={active} collapsed />
   }
@@ -295,8 +303,15 @@ function Sidebar({ collapsed, onToggle, signedOut }: { collapsed: boolean; onTog
           if (item.expandable) {
             return <ExpandableNavRow key={item.label} item={item} collapsed={collapsed} />
           }
-          const active = !!item.to && (pathname === item.to || pathname.startsWith(`${item.to}/`))
-          return <NavRow key={item.label} item={item} active={active} collapsed={collapsed} signedOut={signedOut} />
+          return (
+            <NavRow
+              key={item.label}
+              item={item}
+              active={isNavActive(pathname, item)}
+              collapsed={collapsed}
+              signedOut={signedOut}
+            />
+          )
         })}
       </nav>
     </aside>
@@ -318,6 +333,7 @@ function MobileDrawer({ open, onClose, signedIn }: { open: boolean; onClose: () 
   // drawer fired it too.
   const signedOut = signedIn === false
   const avatar = useAvatar(signedIn === true)
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
@@ -369,7 +385,7 @@ function MobileDrawer({ open, onClose, signedIn }: { open: boolean; onClose: () 
               <ExpandableNavRow key={item.label} item={item} collapsed={false} onNavigate={onClose} />
             ) : (
               <div key={item.label} onClick={item.to ? onClose : undefined}>
-                <NavRow item={item} active={false} collapsed={false} signedOut={signedOut} />
+                <NavRow item={item} active={isNavActive(pathname, item)} collapsed={false} signedOut={signedOut} />
               </div>
             ),
           )}

@@ -5889,3 +5889,164 @@ everyone.
 Uses `pull_request_target` and never checks out PR code — it makes one API call —
 which is what makes that trigger safe here. Both the author and the head
 repository are checked, so a fork PR cannot reach it.
+
+## 2026-08-20 — The issue sweep for #46–#57, and what "already fixed" turned out to mean
+**Decided by:** Claude Opus 5 on behalf of @cheyras.
+
+**Decision:** Work the ten open in-app reports as one sweep, but verify each one
+against the RUNNING product before writing any code — production first, the
+local stack second — rather than trusting the report, the code, or a previous
+commit's claim to have fixed it.
+
+**Why:** Four of the ten (#46, #47, #49, #53) were already fixed and nobody had
+noticed. #46 and #47 were the recovered `design-system` stash that landed as
+6baf4cc, filed the day before that commit; #53 was collateral damage from
+premium.css being unlayered (#44) and was healed by the layering fix in 148cc77.
+Reading those four as open work would have meant re-fixing code that was already
+correct — and reading the *commit message* as proof would have been the same
+mistake in the other direction. Both were settled by loading the pages.
+
+**Implications:**
+- Verified live on deckpal.app: the back control renders as the recessed
+  left-pointing plate (#46); series rows bleed the logo panel to the card's
+  top/left/bottom edges (#47); the LVL badge sits inside the sprite tile (#53).
+  Closed as fixed, with the commit that fixed each.
+- #49 ("a lot of animation I'm not seeing") is the one with no defect behind it.
+  Diffing the design-system base (fcbef90) against HEAD shows nothing
+  motion-related was lost: every removal is a documented replacement —
+  `px-rise` `both`→`backwards` (the containing-block trap), `px-modal-in` folded
+  into the Sheet primitive in theme.css, and `background-attachment: fixed`
+  swapped for a fixed-position overlay *precisely because iOS Safari ignores the
+  former*. Driven in a browser, `px-rise`, `px-draw`, `px-ping`,
+  `sheet-scrim-in`, `sheet-panel-up` and the nav-row transitions all run, on
+  cold load and on client-side navigation alike. The remaining explanation is
+  the reporter's own `prefers-reduced-motion`, which the skin deliberately
+  honours by collapsing every duration to 1ms. Left open pending the owner
+  checking iOS Reduce Motion — an agent must not close a report by asserting a
+  device setting it cannot see.
+- The QA account's collection is empty, which HIDES the surfaces several of
+  these issues live on (no LVL badge, no collected series, no series links). The
+  fix was to stage the read with a Playwright route interception rather than
+  write capture data to the live backend — the component under test stays the
+  real one, only its data is staged.
+
+## 2026-08-20 — One definition of "which nav row is the page you are on"
+**Decided by:** Claude Opus 5 on behalf of @cheyras.
+
+**Decision:** `isNavActive(pathname, item)` in AppShell.tsx is the single test,
+used by the rail, the expandable row and the mobile drawer.
+
+**Why:** The drawer passed a hardcoded `active={false}` while the rail computed
+the answer inline (#52). On a phone the drawer is the ONLY navigation, so the
+one surface that got it wrong was the one where being wrong cost the most: the
+current page was never highlighted, on any route. Two copies of an expression
+that must agree is the shape of that bug, so there is now one copy.
+
+**Implications:** Adding a nav surface means calling `isNavActive`, not
+re-deriving it. Verified in the browser: `data-active` is `true` on My Lists in
+both the rail and the drawer at 390px, and the premium skin's lit recess and
+accent edge now appear in the drawer.
+
+## 2026-08-20 — Show the code that is printed on the card
+**Decided by:** user (issue #57), implemented by Claude Opus 5.
+
+**Decision:** Deck rows show the expansion code printed on the physical card
+("PBL") beside TCGdex's internal set id ("ME05"), as a new `setCode` field on
+the deck detail payload. The authority is `ptcglCodeForSet()` over the vendored
+`ptcgl-set-alias.json`.
+
+**Why:** `setId` is what the app keys on and is printed nowhere; `PBL 39` is
+what a player reads off the card in hand and what every decklist and tournament
+report uses. The alias table already existed for the exporter's reverse join, so
+this is a second reader of a verified mapping, not a new source of truth — and
+explicitly NOT `card_set.ptcgl_code`, which is abandoned TCGdex `tcgOnline` data
+that the sync's `ON CONFLICT` would overwrite anyway (`_provenance.json`).
+
+**Implications:** Rendered as an OUTLINED tag, because the regulation mark sits
+immediately beside it and is a FILLED chip — two filled chips would read as one
+control. `null` for sets with no PTCGL/Limitless code, and the tag is then
+omitted rather than rendered empty. At 390px the metadata row now wraps the
+price onto a second line; that row is explicitly built to wrap between atomic
+items, so this is the designed behaviour and the cost of the extra information.
+
+## 2026-08-20 — A lapsed session is not a stranger
+**Decided by:** user (issue #50), implemented by Claude Opus 5.
+
+**Decision:** `/` sends a visitor whose session has lapsed to `/auth`, not to
+the marketing landing. "Lapsed" = a session has existed in this browser and was
+not deliberately signed out of, recorded as one bit in `localStorage`
+(`deckpal.returning`, `lib/returningVisitor.ts`).
+
+**Why:** Pitching "create your free account" to somebody who already has one is
+the wrong page. AuthGuard's existing `hadSession` ref cannot answer this: the
+visit in question is a COLD load, so nothing is in memory. Supabase's own
+storage key cannot either — when a refresh token is rejected, supabase-js
+deletes the persisted session, so by the time `getSession()` resolves to null
+the evidence that there ever was one is gone.
+
+**Implications:**
+- The marker is cleared ONLY by the explicit Sign out control, never by
+  AuthGuard's expiry path. Both end in a signed-out state and they mean opposite
+  things; clearing on expiry would erase the very fact this exists to remember.
+- It is a routing hint and never an authorization input. It holds no identity —
+  no email, no user id, no token — and is documented as such in SECURITY.md.
+- It is written from ONE place, the `onAuthStateChange` subscription in
+  `lib/supabase.ts`, because that module owns the client. The several components
+  that also watch auth do not each have to remember to record it.
+- Verified all four cases in a browser: new visitor → landing, signed in →
+  /series, session dropped with the marker kept → /auth ("Welcome back"),
+  marker cleared → landing.
+
+## 2026-08-20 — Draw the Venus and Mars signs; do not typeset them
+**Decided by:** Claude Opus 5 on behalf of @cheyras (issue #54).
+
+**Decision:** `components/SpeciesName.tsx` renders the ♀/♂ in species names as
+inline SVG marks, cap-height tall and sitting on the baseline.
+
+**Why:** Figtree has no glyph for either character. The browser falls back
+per-glyph to whatever system font does — DejaVu on Linux, Apple Symbols on iOS —
+and that font's metrics are not Figtree's, so the mark lands below the baseline
+and is then sheared off by the Pokédex tile's `truncate` box, whose line is only
+18px tall. Raising the line-height would have papered over the clipping on one
+platform while leaving the mark sitting low on all of them.
+
+**Implications:** Deterministic on every platform, and unclippable by
+construction — the box is exactly cap-height, so no part of the mark can fall
+below the baseline. Same authored-mark call the set symbols already make
+(`PromoStarMark`). Carries `role="img"` + `aria-label` so the sign is still
+announced. Adopted at both render sites (the Pokédex grid and the species
+heading); measured in the browser at 5px inside the box bottom at 390/428/1280.
+
+## 2026-08-20 — Revealing the uncollected series is one-way
+**Decided by:** user (issue #51), implemented by Claude Opus 5.
+
+**Decision:** On /series, the "Show N series with no cards collected" control and
+the rule above it are removed once used, instead of becoming a "Hide" toggle.
+
+**Why:** Once you have asked for the rest of the catalog, the control and its
+divider have said everything they had to say; leaving a "Hide" in their place
+parks a row of chrome between the two groups for the rest of the session. The
+top-level collected/not-collected split is unchanged — the 24px group gap
+carries it, not the divider.
+
+**Implications:** No way to re-hide within a session; a reload restores the
+collapsed state. Verified: card count 5 → 20 on click, with zero reveal buttons
+and zero `.border-t` dividers remaining.
+
+## 2026-08-20 — The deck kebab belongs to the badge row
+**Decided by:** user (issue #48), implemented by Claude Opus 5.
+
+**Decision:** On the deck header, the options kebab is a sibling of the
+format/legality badges inside one `items-center` row, rather than floating
+beside the whole header block under `items-start`.
+
+**Why:** `items-start` aligned the 40px kebab's TOP edge to the badges' top, and
+they are ~26px tall, so its centre sat ~7px below theirs — visibly off, with
+nothing to read the offset as deliberate. Putting it in the row it visually
+belongs to makes `items-center` do the alignment, so there is no measurement to
+maintain and no way for it to drift again.
+
+**Implications:** The deck name below is no longer boxed out by the kebab and
+takes the full column width, which is a straight gain on a phone where long
+names were wrapping early. Measured: kebab centre and badge centre both at
+y=151 (delta 0) at 390px, 428px and 1280px.

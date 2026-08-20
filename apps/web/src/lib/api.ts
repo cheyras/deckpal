@@ -465,6 +465,8 @@ export interface DeckCard {
   artist: string | null
   regulationMark: string | null
   setId: string
+  /** Expansion code printed on the card itself ("PBL"); null when the set has none. */
+  setCode: string | null
   setName: string
   seriesSlug: string
   quantity: number

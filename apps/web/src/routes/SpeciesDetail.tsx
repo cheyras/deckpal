@@ -5,6 +5,7 @@ import { api, type CardRow, type SpeciesDetailCard } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
 import { GridView } from '../components/GridView'
 import { SpriteTile } from '../components/SpriteTile'
+import { SpeciesName } from '../components/SpeciesName'
 import { CardSheet } from './CardDetail'
 import { fmtNumber, typeColor } from '../lib/format'
 import { SignInPrompt } from '../components/SignInPrompt'
@@ -122,7 +123,9 @@ export function SpeciesDetail() {
                   </span>
                 )}
               </div>
-              <h1 className="mt-[6px] text-[32px] font-extrabold leading-[40px] text-text-primary">{sp.name}</h1>
+              <h1 className="mt-[6px] text-[32px] font-extrabold leading-[40px] text-text-primary">
+                <SpeciesName name={sp.name} />
+              </h1>
               {sp.genus && <div className="text-[14px] text-text-secondary">{sp.genus}</div>}
               <div className="mt-[8px] flex flex-wrap items-center gap-[6px]">
                 {sp.types.map((t) => (
