@@ -481,7 +481,10 @@ optional `source` attribution and (for card ops + format-changing `PATCH`) a
 revert): `{ deck, counts, cards, validation, cardRefs, glcTypes }` — the deck
 metadata (incl. `version`, `strategyMd`, `totalCount`, `valueUsd`, `legal`), the
 {total, pokemon, trainer, energy, distinctNames} counts, the grouped card rows
-(each with owned/have/price/images), the engine's `ValidationResult`, a
+(each with owned/have/price/images, plus `setCode` — the expansion code PRINTED
+on the card, e.g. `"PBL"`, resolved from the vendored PTCGL alias table and
+`null` for sets that have no such code; `setId` beside it is TCGdex's internal
+id, which is printed nowhere), the engine's `ValidationResult`, a
 `cardRefs` map keyed by numeric card id (for in-place violation highlighting),
 and the GLC type vocabulary.
 

@@ -333,26 +333,28 @@ export function SeriesIndex() {
             <p className="text-[14px] text-text-muted">No series collected yet — expand below to browse them all.</p>
           )}
 
-          {others.length > 0 && (
-            <div className="border-t border-border-default pt-[20px]">
-              <button
-                type="button"
-                onClick={() => setShowOthers((v) => !v)}
-                aria-expanded={showOthers}
-                className="flex w-full items-center justify-between rounded-lg border border-border-default bg-surface-tertiary px-[16px] py-[12px] text-[14px] font-semibold text-text-primary hover:border-surface-quaternary"
-              >
-                <span>
-                  {showOthers ? 'Hide' : 'Show'} {others.length} series with no cards collected
-                </span>
-                <span className="text-text-muted">{showOthers ? '▲' : '▼'}</span>
-              </button>
-              {showOthers && (
-                <div className="mt-[24px]">
-                  <CardGrid list={others} />
-                </div>
-              )}
-            </div>
-          )}
+          {/* Revealing the uncollected series is one-way, and the control does not
+              become its own undo (issue #51): once you have asked for the rest of
+              the catalog, the button and the rule that introduced it have said
+              everything they had to say, and leaving a "Hide" in their place put a
+              row of chrome between the two groups for the rest of the session. The
+              top-level split by collected/not-collected is unchanged — it is the
+              24px group gap that carries it, not the divider. */}
+          {others.length > 0 &&
+            (showOthers ? (
+              <CardGrid list={others} />
+            ) : (
+              <div className="border-t border-border-default pt-[20px]">
+                <button
+                  type="button"
+                  onClick={() => setShowOthers(true)}
+                  className="flex w-full items-center justify-between rounded-lg border border-border-default bg-surface-tertiary px-[16px] py-[12px] text-[14px] font-semibold text-text-primary hover:border-surface-quaternary"
+                >
+                  <span>Show {others.length} series with no cards collected</span>
+                  <span className="text-text-muted">▼</span>
+                </button>
+              </div>
+            ))}
         </div>
       )}
     </Content>
