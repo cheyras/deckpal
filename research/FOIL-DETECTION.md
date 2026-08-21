@@ -1,9 +1,18 @@
 # Foil / variant detection — measurement findings
 
-**Status: a working discriminator, with one dependency.** Reverse holo separates
-from normal at **AUC 0.988** (leave-one-pair-out, 5-frame window, worst pair 0.95)
-using a single parameter-free statistic — *provided* a per-card baseline is
-available. It does not work as an absolute threshold. Details below.
+**Status: a real signal, NOT shippable as auto-detection on this evidence.**
+
+Reverse holo separates from normal at **AUC 0.988** when card AND lighting are
+held constant. But at scan time you know the card (pHash names it) and you do not
+know the light — and the across-lighting spread of the statistic is, for one of
+the three cards tested, larger than the foil effect itself. Held-out-lighting
+accuracy is 15/17, and **both errors are confident rather than marginal**, so an
+abstain band does not catch them.
+
+A collection tracker that confidently mislabels a printing is worse than one that
+asks. **Ship the one-tap variant choice** (done — `DECISIONS.md` 2026-08-21) and
+treat detection as unproven until the dataset is wider. What follows is what was
+measured, including the two dead ends, so this is not re-litigated from scratch.
 
 Dataset: three narrated clips shot by the owner 2026-08-21, 4K, ~4.5 min total
 (`~/iPad/IMG_0690.mov`, `IMG_0691.mov`, `IMG_0693.mov`). Ground truth is the
@@ -51,9 +60,13 @@ normalisation. There is nothing in it to leak.
 Combining `corrLS` with `meanSat` made it *worse* (0.911) — `meanSat` flips sign
 on two pairs. The single feature is the answer.
 
-Window size matters, and this is the temporal payoff: per single frame the same
-statistic is only ~0.85. Averaging over ~5 frames takes it to ~0.99, because the
-sheen fires intermittently and one frame may catch the card at a dead angle.
+Window size matters, but NOT for the reason first assumed: per single frame the
+statistic is ~0.85, and averaging ~5 frames takes it to ~0.99. That is ordinary
+noise reduction on the mean. The *variance* across a window — the "foil swings as
+it tilts, matte stays put" idea — carries nothing: measured on the rectified
+frames it scores **AUC 0.50 (sd) and 0.52 (rng)**, i.e. exactly chance. Comparing
+a card to itself over a window does not work, which is what killed the one
+approach that would have needed no reference at all.
 
 ## It is RELATIVE, not absolute
 
@@ -75,11 +88,24 @@ Reverse is more negative in **8 of 8** pairs. But a Kakuna reverse holo (+0.125)
 scores *higher* than a Ninetales normal (−0.306), so the number is meaningless
 without knowing which card it is.
 
-**This is fine, because the scanner already knows.** pHash identifies the card
-before variant is ever in question, so the comparison can be made against a
-per-card reference. The obvious source is the catalog image of the normal
-printing — a flat digital scan with no specular component, i.e. exactly the
-"no highlight" baseline. Establishing that reference is the remaining work.
+pHash names the card before variant is ever in question, so a per-card reference
+is obtainable in principle. **It is not sufficient in practice**, because the
+statistic also moves with the light:
+
+| Card | normal across 3 lights | spread | reverse across 3 lights | spread |
+|---|---|---|---|---|
+| Weedle | −0.181 / −0.055 / −0.138 | 0.126 | −0.323 / −0.309 / −0.327 | 0.017 |
+| Kakuna | +0.160 / −0.095 / +0.089 | **0.255** | +0.125 / −0.282 / −0.088 | **0.407** |
+| Ninetales | −0.306 / −0.210 | 0.096 | −0.369 / −0.501 / −0.369 | 0.133 |
+
+Weedle and Ninetales stay separable under a fixed per-card threshold. **Kakuna does
+not** — its normal in dim light (−0.095) scores *below* its reverse holo in
+daylight (+0.125). Leave-one-lighting-out, fitting a per-card threshold on two
+lightings and testing the third, gives **15/17**; both failures are Kakuna, and
+both miss by 0.17–0.22, far outside any sensible abstain band.
+
+One card in three breaking it, confidently, is disqualifying for a feature whose
+entire job is recording what someone owns.
 
 ## Lighting: the prediction was backwards
 
@@ -103,8 +129,11 @@ effect lives in. Detection taps the client-side canvas instead, and can run
 entirely on-device — it needs pixels, not the catalog.
 
 **The sheen is intermittent with tilt angle.** The same reverse-holo Weedle is
-strongly sheened at t=24/28/40 s and flat at t=32/44/48 s. This is why the window
-matters and why a single still is near a coin flip.
+strongly sheened at t=24/28/40 s and flat at t=32/44/48 s — visually obvious in
+the frames. It is why a single still is near a coin flip, and why averaging a
+window helps. It is NOT usable as a signal in itself: see the variance result
+above, which is chance. Intermittency raises the noise; it does not carry the
+information.
 
 **SV-era reverse holo foils the WHOLE card, art window included.** An earlier
 assumption — that it foils only the frame, so a region mask could separate
@@ -139,13 +168,23 @@ dataset. Rectify the tilt, never reject it.
 
 ## What is left
 
-1. **A per-card `corrLS` reference.** Compute it over catalog images and check
-   that catalog-vs-photo baseline shift is smaller than the foil delta. If it is
-   not, derive the reference from user scans instead.
-2. **Re-shoot through the app's own scan guide.** These clips are wide handheld
-   shots; production frames are card-filling. Rectification bridges the gap but a
-   native capture removes a whole class of doubt.
-3. **The `Holofoil` (holo rare) class is untested** — the dataset is normal vs
+The blocker is no longer "is there a signal" — there is. It is **lighting
+invariance**, and it needs data this capture cannot supply.
+
+1. **More cards.** Three is too few to know whether Kakuna is the exception or the
+   rule. Its art is a bright saturated sunset, which is exactly the kind of
+   high-luminance high-saturation content that should perturb a luminance/
+   saturation correlation. That is a hypothesis, not a finding.
+2. **A lighting-invariant formulation.** The statistic must be normalised by
+   something in-frame that tracks the illumination. The card's white border is the
+   obvious candidate and the obvious problem — SV/ME-era reverse holo foils the
+   border too.
+3. **Catalog images as the reference are NOT worth pursuing yet.** A single flat
+   scan cannot track a per-card spread of 0.255 across lighting. It would have to
+   come after (2), not before.
+4. **Re-shoot through the app's own scan guide.** These are wide handheld shots;
+   production frames are card-filling.
+5. **The `Holofoil` (holo rare) class is untested** — this dataset is normal vs
    reverse holo only.
 
 ## Shipping shape
