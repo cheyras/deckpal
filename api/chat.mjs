@@ -90,7 +90,14 @@ const json = (body, status) =>
     headers: { 'content-type': 'application/json' },
   })
 
-export default async function handler(request) {
+/**
+ * The request pipeline, written against web standards.
+ *
+ * Kept in this shape because the AI SDK speaks it — `createUIMessageStreamResponse`
+ * hands back a `Response` whose body is a `ReadableStream`. The Node adapter at
+ * the bottom of this file is what bridges it to the runtime.
+ */
+async function serve(request) {
   if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405)
 
   const key = gatewayKey()
@@ -249,4 +256,72 @@ function stripPriorCommands(messages) {
     )
     return parts.length === m.parts.length ? m : { ...m, parts }
   })
+}
+
+
+/** Collect a Node request body into a buffer. */
+async function readBody(req) {
+  const chunks = []
+  for await (const chunk of req) chunks.push(chunk)
+  return Buffer.concat(chunks)
+}
+
+/**
+ * THE RUNTIME HANDS US NODE'S `(req, res)`, NOT A WEB `Request`.
+ *
+ * This file was written as `(request) => Response` and deployed that way, and
+ * every request died on `request.headers.get is not a function` — thrown inside
+ * `userFromRequest`, which runs before the body is ever read. That detail sent
+ * the first two diagnoses the wrong way: a malformed body came back 500 instead
+ * of 400, which reads exactly like a module that failed to load, when in fact the
+ * module loaded fine and the handler crashed on its first line of real work.
+ *
+ * `images.mjs` takes `(req, res)`; `index.mjs` and `mcp.mjs` export Express apps,
+ * which are also `(req, res)`. Every function in this project that has ever
+ * worked uses the Node signature. This one now does too.
+ *
+ * The web-standard shape is kept above rather than rewritten, because the AI SDK
+ * produces a `Response` and streaming it is the point. So the boundary adapts:
+ * a `Request` in, and the response body pumped out chunk by chunk — flushed per
+ * chunk, since an SSE stream that arrives in one buffer at the end is not a
+ * stream.
+ */
+export default async function handler(req, res) {
+  try {
+    const host = req.headers.host ?? 'localhost'
+    const url = `https://${host}${req.url ?? '/'}`
+    const method = req.method ?? 'GET'
+    const body = method === 'GET' || method === 'HEAD' ? undefined : await readBody(req)
+    const out = await serve(new Request(url, { method, headers: req.headers, body }))
+
+    res.statusCode = out.status
+    out.headers.forEach((value, name) => res.setHeader(name, value))
+    if (!out.body) {
+      res.end()
+      return
+    }
+    const reader = out.body.getReader()
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        res.write(Buffer.from(value))
+        if (typeof res.flush === 'function') res.flush()
+      }
+    } finally {
+      res.end()
+    }
+  } catch (err) {
+    // Surfaced, not swallowed: an unhandled throw here is an opaque
+    // FUNCTION_INVOCATION_FAILED with no stack in the response, which is what
+    // made this bug take three deploys to find.
+    console.error('[decke] /api/chat failed:', err)
+    if (!res.headersSent) {
+      res.statusCode = 500
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ error: 'deck-e could not answer that' }))
+    } else {
+      res.end()
+    }
+  }
 }
