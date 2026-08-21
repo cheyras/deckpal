@@ -9,7 +9,7 @@
  */
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { chooseVariant, COMMIT_FRAMES, emptyRip, onFrame, removeEntry, setQuantity, setVariants, TRUST_DISTANCE, type RipState, type ScanHit } from '../ripSession'
+import { chooseVariant, COMMIT_FRAMES, LEAVE_FRAMES, emptyRip, onFrame, removeEntry, setQuantity, setVariants, TRUST_DISTANCE, type RipState, type ScanHit } from '../ripSession'
 
 const hit = (cardId: string, distance = 3): ScanHit => ({ cardId, name: cardId, distance })
 
@@ -39,7 +39,11 @@ test('it counts again only after the card has LEFT the frame', () => {
   const held = Array(10).fill(hit('a'))
   const gone = Array(3).fill(null)
   const s = feed(emptyRip(), [...held, ...gone, ...held])
-  assert.equal(s.entries.length, 2, 'departure then return is a second event')
+  // A second EVENT, recorded as a quantity on the one row for that card rather
+  // than a second row — see the header note on why a duplicate cardId is a
+  // corruption rather than a representation choice.
+  assert.equal(s.entries.length, 1, 'still one row for the card')
+  assert.equal(s.entries[0]!.quantity, 2, 'departure then return is a second event')
 })
 
 test('a card glimpsed for one frame is not a pull', () => {
@@ -66,7 +70,8 @@ test('but a real departure still counts', () => {
   // Two consecutive empty frames is longer than a wobble and shorter than the
   // gap between pulling two cards.
   const s = feed(emptyRip(), [...Array(5).fill(hit('a')), null, null, ...Array(5).fill(hit('a'))])
-  assert.equal(s.entries.length, 2)
+  assert.equal(s.entries.length, 1)
+  assert.equal(s.entries[0]!.quantity, 2)
 })
 
 test('two different cards in sequence are two entries', () => {
@@ -145,4 +150,59 @@ test('a catalog answer for a removed card is ignored', () => {
   let s = removeEntry(committed(), 'a')
   s = setVariants(s, 'a', VARIANTS)
   assert.equal(s.entries.length, 0)
+})
+
+test('re-showing a card bumps its quantity instead of adding a second row', () => {
+  let s = emptyRip()
+  let t = 0
+  for (let i = 0; i < COMMIT_FRAMES; i++) s = onFrame(s, hit('a'), t++).state
+  assert.equal(s.entries.length, 1)
+
+  // It leaves the frame, which releases the refractory hold...
+  for (let i = 0; i < LEAVE_FRAMES + 1; i++) s = onFrame(s, null, t++).state
+  assert.equal(s.refractory.size, 0)
+
+  // ...and is shown again. That is a second event and it counts — but on the
+  // row that already exists, because every consumer addresses a row by cardId.
+  let last
+  for (let i = 0; i < COMMIT_FRAMES; i++) { last = onFrame(s, hit('a'), t++); s = last.state }
+  assert.equal(s.entries.length, 1, 'one row per card, always')
+  assert.equal(s.entries[0]!.quantity, 2, 'the return counted')
+  assert.equal(last!.committed?.quantity, 2, 'and the UI is told what changed')
+})
+
+test('no two rows may ever share a cardId', () => {
+  // The invariant the whole design rests on: React keys off cardId, and
+  // setQuantity/removeEntry match on it.
+  let s = emptyRip()
+  let t = 0
+  for (let round = 0; round < 4; round++) {
+    for (let i = 0; i < COMMIT_FRAMES; i++) s = onFrame(s, hit('a'), t++).state
+    for (let i = 0; i < LEAVE_FRAMES + 1; i++) s = onFrame(s, null, t++).state
+  }
+  const ids = s.entries.map((e) => e.cardId)
+  assert.deepEqual(ids, [...new Set(ids)], 'no duplicate cardIds')
+  assert.equal(s.entries[0]!.quantity, 4)
+})
+
+test('editing a re-shown card touches exactly one row', () => {
+  let s = emptyRip()
+  let t = 0
+  for (let i = 0; i < COMMIT_FRAMES; i++) s = onFrame(s, hit('a'), t++).state
+  for (let i = 0; i < LEAVE_FRAMES + 1; i++) s = onFrame(s, null, t++).state
+  for (let i = 0; i < COMMIT_FRAMES; i++) s = onFrame(s, hit('a'), t++).state
+  assert.equal(removeEntry(s, 'a').entries.length, 0, 'removing takes the one row')
+  assert.equal(setQuantity(s, 'a', 7).entries[0]!.quantity, 7)
+  assert.equal(setQuantity(s, 'a', 7).entries.length, 1)
+})
+
+test('a removed card can be rescanned immediately', () => {
+  let s = emptyRip()
+  let t = 0
+  for (let i = 0; i < COMMIT_FRAMES; i++) s = onFrame(s, hit('a'), t++).state
+  s = removeEntry(s, 'a')
+  assert.equal(s.entries.length, 0)
+  // No departure needed: `removeEntry` drops the refractory hold too.
+  for (let i = 0; i < COMMIT_FRAMES; i++) s = onFrame(s, hit('a'), t++).state
+  assert.equal(s.entries.length, 1, 'a corrected mis-read is scannable again')
 })

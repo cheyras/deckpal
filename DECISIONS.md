@@ -7691,3 +7691,45 @@ optional layer on top rather than a prerequisite.
 - Sized 13px to match the sibling quantity input. `theme.css:326` forces form
   controls to 16px below the nav breakpoint so iOS Safari does not auto-zoom on
   focus, so 13px is what desktop sees. Verified in-browser at 390px and 1280px.
+
+## 2026-08-21 — Rip mode: one row per card, a return is a quantity
+**Decided by:** Claude. Found while wiring Deck-E into the scan flow.
+**Decision:** A card that leaves the frame and comes back increments the quantity
+on its existing row. It no longer appends a second row.
+
+**Why:** The previous behaviour appended a second `RipEntry` with the same
+`cardId`, and every consumer addresses a row BY `cardId` — React keys off it,
+`setQuantity` and `removeEntry` match on it. So two rows sharing one id meant a
+duplicate React key, editing either row edited both, and deleting the duplicate
+took the original with it. The intent behind the old test ("departure then return
+is a second event") was right; the representation was not.
+
+The module's header claimed quantity was "a user action, never inferred", which
+the same file's own tests contradicted. Corrected to what is actually true: a
+return proposes a count, the reader adjusts it in an editable field, and what is
+never inferred is a quantity from a card merely re-stabilising while still held —
+which is the failure the departure rule exists to prevent.
+
+**Implications:** covered by four tests, including an explicit invariant that no
+two rows may share a `cardId`. Two pre-existing tests were updated to the new
+representation rather than deleted, since their semantics still hold.
+
+## 2026-08-21 — Deck-E attends a pack rip
+**Decided by:** Claude, per the original brief.
+**Decision:** `character/host/ripPresence.ts`. He flies to the rip list when one
+exists and reacts once per card as it lands: `alert_star` for a chase pull,
+`nod_yes` otherwise, both `mode: 'once'`.
+
+**Implications:**
+- **Every export is a no-op when he is not loaded, and nothing throws into the
+  rip path.** The scanner is a core feature; he is an enhancement behind an
+  entitlement, so the rip may never depend on him.
+- Reaction fires on the catalog's answer, not on commit — commit knows a name and
+  a hash, not whether the pull was worth anything.
+- The rarity bar is set at the CHASE tiers, not at "rare": every pack contains a
+  guaranteed rare, so reacting to that is reacting to nothing.
+- Rarity is matched as a LOOSE SUBSTRING pattern rather than by copying
+  `apps/api/src/rarity.ts`'s 40-entry ladder across the app boundary. A second
+  copy would rot silently; a substring miss costs a nod instead of a gasp.
+- `once` not `sustain` — sustaining `alert_star` would leave him permanently
+  startled at a list that has moved on.

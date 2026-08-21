@@ -15,9 +15,17 @@
  * because it matched again; it is new because it LEFT and something came back.
  *
  * So a committed card is REFRACTORY until the stream stops seeing it. Only then
- * can the same id count again — and even then it is genuinely ambiguous whether
- * the reader pulled a second copy or simply re-showed the first, which no
- * heuristic can resolve. Quantity is therefore a user action, never inferred.
+ * can the same id count again — and when it does, it counts as a QUANTITY on the
+ * row that already exists, never as a second row. Everything downstream addresses
+ * a row by `cardId`, so two rows sharing one is a corruption: editing either edits
+ * both, and deleting the duplicate takes the original with it.
+ *
+ * A return is still genuinely ambiguous — a second copy and a re-shown first copy
+ * are identical to the stream — so the count it produces is a PROPOSAL. It is put
+ * in an editable field on the row precisely because the machine cannot know, and
+ * the reader can. What the machine will not do is infer a quantity from a card
+ * merely re-stabilising while it is still being held, which is the failure the
+ * departure rule above exists to prevent.
  */
 
 /** One ranked match as `POST /scan` returns it. */
@@ -143,6 +151,23 @@ export function onFrame(
   const streak = state.streak + 1
   if (streak < COMMIT_FRAMES) {
     return { state: { ...state, streak, missStreak: 0 }, committed: null }
+  }
+
+  // ALREADY IN THE LIST — a departure and a return, which is a second event.
+  // It counts, but as a QUANTITY on the existing row rather than a second row.
+  //
+  // A second row would be a latent corruption: every consumer addresses a row by
+  // `cardId` — React keys off it, `setQuantity` and `removeEntry` match on it —
+  // so two rows sharing one would mean editing either edits both, and deleting
+  // the duplicate takes the original with it.
+  const existing = state.entries.findIndex((e) => e.cardId === hit.cardId)
+  if (existing !== -1) {
+    const refractory = new Set(state.refractory)
+    refractory.add(hit.cardId)
+    const bumped = { ...state.entries[existing]!, quantity: state.entries[existing]!.quantity + 1 }
+    const entries = [...state.entries]
+    entries[existing] = bumped
+    return { state: { ...state, entries, streak, refractory, missStreak: 0 }, committed: bumped }
   }
 
   const entry: RipEntry = {
