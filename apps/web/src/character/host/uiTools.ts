@@ -89,12 +89,24 @@ export async function runUiTool(
         const { el, refused } = resolveTarget(String(input.selector ?? ''))
         if (refused) return { ok: false, reason: refused }
         if (!el) return { ok: false, reason: 'there is nothing like that on this page' }
+        // VIA THE BACKGROUND when it is a real journey, straight there when it
+        // is not. Measured in the engine's own notes: a depth change is 24-27
+        // world units while every same-depth leg is under 3, so routing a short
+        // hop through the far plane spends most of the trip going nowhere. The
+        // threshold is "is he even near it" — a third of the viewport.
+        const here = ctx.decke.getState()
+        const target = el.getBoundingClientRect()
+        const far =
+          !here.flying &&
+          Math.abs(target.left + target.width / 2 - window.innerWidth / 2) >
+            window.innerWidth / 3
         ctx.decke.flyTo(
           { selector: String(input.selector) },
           {
             depth: 'foreground',
             highlight: input.highlight !== false,
             then: input.point === true ? 'point' : undefined,
+            via: far ? 'background' : undefined,
           },
         )
         return { ok: true }
@@ -166,7 +178,14 @@ function travelAfterRoute(
         return true
       }
       if (!el) return false
-      ctx.decke.flyTo({ selector }, { depth: 'foreground', highlight: true, then: 'point' })
+      // ALWAYS via the background after a navigation. The page under him has
+      // just been replaced, so there is no continuity to preserve by going
+      // straight — pulling back and coming in is what makes the load read as
+      // him travelling rather than as him teleporting.
+      ctx.decke.flyTo(
+        { selector },
+        { depth: 'foreground', highlight: true, then: 'point', via: 'background' },
+      )
       resolve({ ok: true })
       return true
     }

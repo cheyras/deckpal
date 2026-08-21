@@ -213,6 +213,20 @@ export type FlyOptions = {
    * Facing is left alone, because a point has no inward to face.
    */
   centre?: boolean
+  /**
+   * Go via the background plane instead of straight there.
+   *
+   * Two legs: out to the far plane above the destination's column, then in to
+   * the destination. It reads as him pulling back, crossing, and coming in —
+   * which is what a character moving a long way across a page should look like,
+   * and what a straight line between two foreground points never does.
+   *
+   * NOT free, and not always right. A short hop is worse this way: the depth
+   * change is 24-27 world units against a same-depth leg of under 3, so a
+   * two-leg trip across a card grid spends most of its time going nowhere. The
+   * caller decides; `flyTo` does not guess.
+   */
+  via?: 'background'
 }
 
 export type DeckEOptions = {
@@ -1034,7 +1048,22 @@ export class DeckE {
       ? { position: parkOn(camera, rect.left + rect.width / 2, rect.top + rect.height / 2, { depth, baseDistance }), facing: this.facingTarget }
       : parkBeside(camera, rect, { depth, side, baseDistance })
 
-    this.launch(park.position)
+    // VIA THE BACKGROUND: queue the destination, fly the waypoint first. The
+    // waypoint is directly above the destination's column on the far plane, so
+    // the second leg comes straight in rather than crossing twice.
+    if (opts.via === 'background') {
+      const waypoint = parkOn(
+        camera,
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2,
+        { depth: 'background', baseDistance },
+      )
+      this.legQueue = [park.position.clone()]
+      this.launch(waypoint)
+    } else {
+      this.legQueue.length = 0
+      this.launch(park.position)
+    }
     // Hold facing steady for the duration of a presentation; turning mid-flight
     // fights the flight layer's own yaw. `park.facing` is always +/-1, so he
     // lands on one of his two authored directions rather than somewhere in
@@ -1454,6 +1483,18 @@ export class DeckE {
       this.setFacing(park.facing)
     }
   }
+
+  /**
+   * Legs still to fly after the current one.
+   *
+   * A flight is ONE leg — `solveFlight` interpolates a straight line between two
+   * points with a lateral bow and a vertical arc, and `onArrive` is a single
+   * slot that cannot start another. Anything multi-leg has to be queued, and
+   * this is the queue: `launch` shifts the next one when a leg lands, before
+   * the arrival callback runs, so `then` fires once at the END of the journey
+   * rather than once per leg.
+   */
+  private legQueue: Vector3[] = []
 
   private launch(to: Vector3) {
     // THE SINGLE CHOKE POINT for every flight, which makes it the right place to
@@ -1969,10 +2010,18 @@ export class DeckE {
       this.pose.mouth = Math.max(this.pose.mouth, f.mouth)
       if (tf >= this.track.durationMs) {
         this.track = null
-        this.rampMod(TRAVEL_MOD_MS)
-        const arrived = this.onArrive
-        this.onArrive = null
-        arrived?.()
+        // MID-JOURNEY LEGS DO NOT ARRIVE. Only the last one does — `onArrive`
+        // rings the target and enters a state, and firing it at a waypoint
+        // would have him pointing at nothing from halfway across the page.
+        const next = this.legQueue.shift()
+        if (next) {
+          this.launch(next)
+        } else {
+          this.rampMod(TRAVEL_MOD_MS)
+          const arrived = this.onArrive
+          this.onArrive = null
+          arrived?.()
+        }
       }
     } else {
       // ADD the parked anchor, never overwrite. The authored `px/py/pz` carry
