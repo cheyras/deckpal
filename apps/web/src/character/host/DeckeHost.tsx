@@ -32,7 +32,13 @@ import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
 import { isChromelessPathname } from '../../lib/landingRoute'
 import { deckeEntitled } from './entitlement'
 import { DeckeButton } from './DeckeButton'
-import { DeckeChat, STAND_DESKTOP, STAND_MOBILE } from './DeckeChat'
+import {
+  DeckeChat,
+  NAV_BREAKPOINT,
+  PARK_LANDMARK,
+  STAND_DESKTOP,
+  STAND_MOBILE,
+} from './DeckeChat'
 import { DeckeBubble, type Rect } from './DeckeBubble'
 import { useDeckeChat } from './useDeckeChat'
 import {
@@ -44,20 +50,37 @@ import {
 } from './runtime'
 
 /**
+ * How much of himself he keeps while a phone is being used to talk to him.
+ *
+ * At full size he is 55% of a 390 px screen wide, which was fine when the panel
+ * was an opaque sheet he stood in front of and wrong the moment the panel became
+ * glass: he sat in the middle of the conversation with his shoulders across the
+ * text. Half is small enough to live in the corner beside the composer and still
+ * large enough to read as a character rather than an avatar.
+ */
+const CHAT_COMPACT = 0.5
+
+/**
  * HOW TALL HE IS, and this is the ONLY place that decides.
  *
- * ONE SIZE, INCLUDING IN CHAT. An earlier version shrank him for the chat panel
- * and it was a mistake twice over: two writers fought over the value, and more
- * fundamentally `setCharacterHeight` DOLLIES THE CAMERA rather than scaling him,
- * so changing it moves the pixel-to-world mapping for the whole scene and any
- * position solved at the old distance lands somewhere else. He keeps his size
- * and moves on the page instead.
+ * ONE WRITER, which is the part that was learned the hard way. An earlier
+ * version had the chat panel set its own height for him, and the two callers
+ * fought: every `ResizeObserver` fire — a phone toolbar sliding is enough — put
+ * the page's value back and he grew again mid-conversation. So the chat does not
+ * set a height; it is an ARGUMENT to the one function that does.
+ *
+ * The other half of that lesson still stands: `setCharacterHeight` DOLLIES THE
+ * CAMERA rather than scaling him, so changing it moves the pixel-to-world
+ * mapping for the whole scene and any position solved at the old distance lands
+ * somewhere else. Callers must apply the height BEFORE solving a destination
+ * against it — see the chat effect below, which does exactly that.
  *
  * 300 px suits a laptop and swallows a 390 px phone, so it scales with the
  * viewport.
  */
-function characterHeightFor(w: number, h: number): number {
-  return Math.round(Math.min(300, h * 0.3, w * 0.55))
+function characterHeightFor(w: number, h: number, compact: boolean): number {
+  const full = Math.min(300, h * 0.3, w * 0.55)
+  return Math.round(compact ? full * CHAT_COMPACT : full)
 }
 
 type Phase = 'idle' | 'loading' | 'ready' | 'failed'
@@ -83,6 +106,22 @@ export function DeckeHost() {
   const [beacon, setBeacon] = useState<Beacon | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [live, setLive] = useState<DeckEInstance | null>(null)
+  /** His on-screen height in CSS px, published so the chat can leave room. */
+  const [charPx, setCharPx] = useState(0)
+  /**
+   * Wide enough for the desktop composition?
+   *
+   * Held HERE rather than in the panel, because crossing the breakpoint is not
+   * only a layout change: it changes his size and moves his mark from a DOM box
+   * in the panel's corner to a fraction of the open page. The panel used to own
+   * this and the host re-read `window.innerWidth` inside its flight, so a
+   * rotation while the chat was open re-laid the panel and left him where he
+   * was — pinned to a landmark that had just unmounted, which `solveStation`
+   * correctly refuses to re-solve. One writer, and the flight depends on it.
+   */
+  const [wide, setWide] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth >= NAV_BREAKPOINT,
+  )
   /** Where he is on screen, sampled while he is out on the page. */
   const [himRect, setHimRect] = useState<Rect | null>(null)
   /** True while he is away from the chat doing something on the page. */
@@ -92,8 +131,24 @@ export function DeckeHost() {
    *  CSS, not `innerHeight` — see the measurement note below. */
   const probeRef = useRef<HTMLDivElement | null>(null)
   const deckeRef = useRef<DeckEInstance | null>(null)
+  /**
+   * Re-solve his size from the current viewport. Owned by the setup effect,
+   * which is where the canvas and the controller are; exposed so the chat effect
+   * can force the dolly to settle before it solves a destination against it.
+   */
+  const measureRef = useRef<(() => void) | null>(null)
+  /** Read inside `measure`, which is not re-created when the chat opens. */
+  const chatOpenRef = useRef(false)
+  chatOpenRef.current = chatOpen
   const navigate = useNavigate()
   const chat = useDeckeChat(live, (to) => navigate({ to }), () => setTravelling(true))
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(min-width: ${NAV_BREAKPOINT}px)`)
+    const on = () => setWide(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
 
   useEffect(() => {
     let live = true
@@ -146,23 +201,33 @@ export function DeckeHost() {
     if (!chatOpen) setTravelling(false)
   }, [chatOpen])
 
-  // OPENING THE CHAT MOVES HIM, and that is all it does to him.
+  // OPENING THE CHAT RESIZES HIM, THEN MOVES HIM — in that order, and the order
+  // is load-bearing.
   //
-  // He keeps his size — see `characterHeightFor`. He flies to a spot on the page
-  // beside the panel, at his normal scale, using the same `flyTo` that parks him
-  // next to a deck list. The canvas sits above the scrim, so he stays sharp
-  // while the page behind him blurs: he has stepped forward to talk.
+  // `setCharacterHeight` dollies the camera, so it changes the mapping between
+  // screen pixels and world units for the whole scene. A destination solved
+  // before the dolly lands somewhere else after it. `measure()` first therefore
+  // is not tidiness: it is the difference between him standing in the corner and
+  // him standing wherever that corner used to be.
   //
-  // `centre: true` because a stand point is a place to BE, not a thing to
-  // present. The default parks him outboard of a target with a gap, which is
-  // right for pointing at an element and wrong for "stand here".
+  // On the way back out the same order runs in reverse — restore the page size,
+  // THEN send him home, because `homeCorner` unprojects through the camera too.
+  //
+  // He flies to a spot beside the panel using the same `flyTo` that parks him
+  // next to a deck list. On a phone that spot is the panel's own park box, so
+  // the layout and the character are working from one geometry; on desktop it is
+  // a viewport fraction out on the open page. `centre: true` either way, because
+  // a stand point is a place to BE — the default parks him outboard of a target
+  // with a gap, which is right for pointing at something and wrong for "stand
+  // here".
   //
   // The 320 ms wait is the panel's entrance: `getBoundingClientRect` on an
   // element mid-transform reports where it IS, not where it lands, and the rAF
-  // after it lets any dolly change settle before the park is solved against it.
+  // after it lets the dolly settle before the park is solved against it.
   useEffect(() => {
     const d = deckeRef.current
     if (!d) return
+    measureRef.current?.()
     if (!chatOpen) {
       d.returnHome()
       return
@@ -170,8 +235,18 @@ export function DeckeHost() {
     let raf = 0
     const t = window.setTimeout(() => {
       raf = requestAnimationFrame(() => {
-        const desktop = window.innerWidth >= 1068
-        const at = desktop ? STAND_DESKTOP : STAND_MOBILE
+        // The park box only exists while the phone panel is mounted AND he has
+        // a measured size. `flyTo` THROWS on a selector that resolves to
+        // nothing, so this asks rather than assumes — and falls back to the
+        // same corner expressed as a fraction.
+        if (!wide && document.querySelector(`[${PARK_LANDMARK}]`)) {
+          d.flyTo(
+            { selector: `[${PARK_LANDMARK}]` },
+            { depth: 'foreground', highlight: false, centre: true },
+          )
+          return
+        }
+        const at = wide ? STAND_DESKTOP : STAND_MOBILE
         d.flyTo(
           { x: window.innerWidth * at.x, y: window.innerHeight * at.y },
           { depth: 'foreground', highlight: false, centre: true },
@@ -182,7 +257,10 @@ export function DeckeHost() {
       window.clearTimeout(t)
       cancelAnimationFrame(raf)
     }
-  }, [chatOpen, live])
+    // `wide` is a dependency, not a value read inside: crossing the breakpoint
+    // with the chat open swaps which mark he is standing on, and re-running is
+    // what moves him to the new one.
+  }, [chatOpen, live, wide])
 
   // ONE BOOLEAN, not `phase`, drives the setup effect.
   //
@@ -247,8 +325,14 @@ export function DeckeHost() {
         const canvasH = Math.round(canvas.clientHeight) || window.innerHeight
         const h = Math.round(probeRef.current?.clientHeight ?? 0) || canvasH
         decke.resize(w, h, canvasH)
-        decke.stage.setCharacterHeight(characterHeightFor(w, h))
+        // Compact only on a phone: on desktop the panel is a card in the corner
+        // and he stands out on the open page, where there is nothing to crowd.
+        const compact = chatOpenRef.current && w < NAV_BREAKPOINT
+        const px = characterHeightFor(w, h, compact)
+        decke.stage.setCharacterHeight(px)
+        setCharPx((prev) => (prev === px ? prev : px))
       }
+      measureRef.current = measure
 
       if (acquired.fresh) {
         try {
@@ -308,8 +392,13 @@ export function DeckeHost() {
       cancelled = true
       ro?.disconnect()
       if (onDpr) dprQuery?.removeEventListener('change', onDpr)
+      measureRef.current = null
       deckeRef.current = null
       setLive(null)
+      // Back to "no size", which is what the chat reads as "nothing to leave
+      // room for". A stale height would reserve a gutter for a character that is
+      // no longer on the page.
+      setCharPx(0)
       // Deferred inside `releaseDeckE`, so StrictMode's synchronous remount
       // reclaims the same controller instead of reloading the character.
       releaseDeckE(canvas)
@@ -360,6 +449,8 @@ export function DeckeHost() {
         messages={chat.messages}
         onSend={chat.send}
         busy={chat.busy}
+        desktop={wide}
+        characterPx={charPx}
       />
 
       {/* His words while the transcript is minimised. Anchored to him and

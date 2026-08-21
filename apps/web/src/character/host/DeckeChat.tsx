@@ -13,27 +13,39 @@
  * is off-screen, so on-screen he would draw twice — two Deck-Es, one of them in
  * a box.
  *
- * So the panel leaves a transparent well and sits BELOW the canvas, and the
- * character's own `flyTo` machinery parks him in it. That machinery already
- * pins to a DOM rect through scroll and resize, so the well behaves like any
- * other element he can stand beside. One render pass, no new stacking rules,
- * and the open reads as *he comes over to talk* rather than *a picture of him
- * appears* — which is the better animation anyway.
+ * So the panel sits BELOW the canvas and puts an empty MARK on the page for him
+ * to stand on, and the character's own `flyTo` machinery parks him there. That
+ * machinery already pins to a DOM rect through scroll and resize, so the mark
+ * behaves like any other element he can stand beside. One render pass, no new
+ * stacking rules, and the open reads as *he comes over to talk* rather than *a
+ * picture of him appears* — which is the better animation anyway.
+ *
+ * WHICH MAKES HIM UNSTACKABLE, and the phone layout is built around that fact
+ * rather than fighting it. He is painted by a canvas above everything the panel
+ * lays out, so no z-index will ever put a bubble in front of him: the column
+ * leaves him a gutter instead. See `--decke-gutter` and the CSS in `theme.css`.
+ *
+ * ON A PHONE THE PANEL IS GLASS. It has no background of its own — the scrim
+ * below it darkens and blurs the page, and the reader can still see where they
+ * are while he talks. That also makes it a sheet over a live page, so it takes
+ * no pointer events except on the parts that are actually something; a tap on
+ * the blurred page closes him.
  *
  * Stacking, against the tokens in `theme.css`:
- *   scrim   z-15   above content (0), below chrome (20) — desktop chrome stays sharp
- *   panel   z-25   below the canvas, with a transparent character well
+ *   scrim   z-15 desktop / z-24 phone — desktop chrome stays sharp above it,
+ *                                       a phone's chrome is part of what recedes
+ *   panel   z-25   below the canvas; opaque card on desktop, glass on a phone
  *   canvas  z-30   (owned by DeckeHost)
  *   modals  100 / toasts 9999 still paint over him, which is correct and rare.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { lockScroll, unlockScroll } from '../../components/ui/Sheet'
 import { Icon } from '../../components/Icon'
 import type { DeckEInstance } from './runtime'
 import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
 
 /**
- * WHERE HE STANDS WHILE THE CHAT IS OPEN, as a fraction of the viewport.
+ * WHERE HE STANDS WHILE THE CHAT IS OPEN.
  *
  * NOT INSIDE THE PANEL, and that is a considered reversal. The panel first cut
  * a transparent "well" for him to stand in, on the theory that the off-screen
@@ -47,19 +59,77 @@ import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
  *   character standing on a page, and it reads as a dramatic tilt inside a small
  *   box in the corner.
  *
- * So he does what the engine is built for: he stands ON THE PAGE, at his normal
- * size, beside the conversation. The canvas is above the scrim, so he stays
- * sharp while the page behind him blurs — which reads as him stepping forward to
- * talk, and needs no new engine behaviour at all.
+ * So he does what the engine is built for: he stands ON THE PAGE, beside the
+ * conversation. The canvas is above the scrim, so he stays sharp while the page
+ * behind him blurs — which reads as him stepping forward to talk, and needs no
+ * new engine behaviour at all.
  *
- * Left of centre on desktop (the panel is bottom-right); upper-middle on mobile,
- * where the panel is full-screen and the transcript starts lower.
+ * Desktop keeps a viewport fraction: the panel is a card in the bottom-right
+ * corner and he stands out on the page, left of centre, where nothing is.
+ *
+ * MOBILE PARKS HIM AGAINST A REAL ELEMENT instead — the landmark below. The
+ * phone panel is full-bleed, so his spot is not "somewhere on the page", it is a
+ * specific corner of a layout that has to leave room for him. Expressing it as a
+ * DOM box means one geometry serves both jobs: `flyTo` parks him in it, and the
+ * transcript measures it to know what to keep clear. A fraction would be two
+ * numbers that have to agree by hand, and they would stop agreeing.
  */
 export const STAND_DESKTOP = { x: 0.36, y: 0.58 }
-export const STAND_MOBILE = { x: 0.5, y: 0.3 }
+
+/** The mobile park box, as `DeckeHost` looks for it. */
+export const PARK_LANDMARK = 'data-decke-park'
+
+/**
+ * Fallback stand point if the landmark is not in the DOM — he is parked before
+ * the panel has laid out, or someone renders the host without the chat.
+ * Deliberately the same lower-left corner the landmark describes.
+ */
+export const STAND_MOBILE = { x: 0.14, y: 0.84 }
 
 /** `--breakpoint-nav` in theme.css. Below this the panel goes full-screen. */
-const NAV_BREAKPOINT = 1068
+export const NAV_BREAKPOINT = 1068
+
+/** The panel's own content padding, and the base the gutter is measured from. */
+const CONTENT_PAD = 16
+
+/** How far the park box sits from the panel's left and bottom edges. */
+const PARK_LEFT = 10
+const PARK_BOTTOM = 6
+
+/**
+ * HIS DRAWN SILHOUETTE, as multiples of `characterPx`.
+ *
+ * MEASURED, not derived, and the difference matters. `characterPx` is what
+ * `BODY_H` — the deck box — spans on screen, and he is not only a deck box: the
+ * bolts sit outside it, and the 3/4 view turns his 1.15-deep body so that some
+ * of its DEPTH counts toward his width. Sizing the mark from `BODY_W / BODY_H`
+ * therefore describes a box he does not fit in, which on a phone means his
+ * shoulder over the text and his bolt off the edge of the screen.
+ *
+ * Taken off a composite at 390x844 with `characterPx` at 107, thresholding the
+ * corner strip where nothing but him is drawn: 103 x 136, so 1.27 tall and 0.76
+ * as wide as he is tall. `DeckE.screenRect` still uses the nominal ratio, and
+ * says why — it is placing a speech bubble, where a few pixels closer than
+ * intended is not a defect. A clearance is the case where it is.
+ *
+ * The mark is his SILHOUETTE because both of its jobs are about his outline:
+ * keeping him on screen, and keeping text out from under him.
+ * `flyTo(..., centre: true)` aims his BODY centre at the mark's centre, so the
+ * fit is good to a few pixels rather than exact.
+ */
+const SILHOUETTE = 1.28
+const SILHOUETTE_ASPECT = 0.76
+
+/** Air between his widest point and the text beside him. */
+const PARK_GAP = 12
+
+/**
+ * How far above his head a bubble must sit before it slides left.
+ *
+ * Zero would let a bubble come to rest with its baseline exactly level with the
+ * top of his bolts, which looks like a collision even though it is not one.
+ */
+const CLEAR_PAD = 10
 
 export type ChatMessage = {
   id: string
@@ -85,6 +155,8 @@ export function DeckeChat({
   messages,
   onSend,
   busy,
+  desktop,
+  characterPx,
 }: {
   open: boolean
   /** He has gone out onto the page; the transcript gets out of the way. */
@@ -95,20 +167,41 @@ export function DeckeChat({
   messages: ChatMessage[]
   onSend: (text: string) => void
   busy: boolean
+  /**
+   * Is the viewport wide enough for the desktop composition?
+   *
+   * Passed in rather than watched here, and for the same reason `characterPx`
+   * is: `DeckeHost` has to know too — crossing the breakpoint changes both his
+   * size and where he is meant to stand, so it re-flies him — and two components
+   * each holding their own answer is two answers that can be out of step for a
+   * render. One writer, one query.
+   */
+  desktop: boolean
+  /**
+   * How tall he is on screen right now, in CSS pixels.
+   *
+   * Passed in rather than measured off `decke.screenRect()`, and the difference
+   * matters: his live rect MOVES — it is mid-flight for most of a second after
+   * the panel opens — and a layout that tracked it would have the whole column
+   * creeping sideways while he travelled. `DeckeHost` owns the single number
+   * that decides his size, so the layout can be solved from it once, before he
+   * has even set off, and be right when he arrives.
+   */
+  characterPx: number
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const transcriptRef = useRef<HTMLDivElement | null>(null)
+  const parkRef = useRef<HTMLDivElement | null>(null)
   const [draft, setDraft] = useState('')
-  const [desktop, setDesktop] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth >= NAV_BREAKPOINT,
-  )
 
-  useEffect(() => {
-    const mq = window.matchMedia(`(min-width: ${NAV_BREAKPOINT}px)`)
-    const on = () => setDesktop(mq.matches)
-    mq.addEventListener('change', on)
-    return () => mq.removeEventListener('change', on)
-  }, [])
+  // HIS FOOTPRINT, from the one number that decides his size.
+  //
+  // Zero until the engine has measured, which is correct: before he exists there
+  // is nothing to leave room for, and the column simply uses the full width.
+  const parkH = Math.round(characterPx * SILHOUETTE)
+  const parkW = Math.round(parkH * SILHOUETTE_ASPECT)
+  const gutter =
+    desktop || !characterPx ? 0 : Math.max(0, PARK_LEFT + parkW + PARK_GAP - CONTENT_PAD)
 
   // ── Scroll authority ──────────────────────────────────────────────────────
   //
@@ -145,11 +238,65 @@ export function DeckeChat({
     }
   }, [open, onClose])
 
-  // Keep the newest message in view as it streams.
-  useEffect(() => {
+  // ── Who is standing behind whom ───────────────────────────────────────────
+  //
+  // One pass over the transcript, marking each of his own bubbles as clear of
+  // him or not. The test is geometric and absolute — the bubble's bottom edge
+  // against the top of the box he is parked in — rather than an index into the
+  // list, because a bubble crosses that line by being SCROLLED as often as by
+  // having something arrive underneath it.
+  //
+  // WRITTEN STRAIGHT TO THE DOM, not through state. This flips while a finger is
+  // dragging the transcript; re-rendering the message list at scroll rate to
+  // move one margin is how a chat starts to feel expensive. The CSS in
+  // `theme.css` owns what the attribute means and animates the change.
+  const reflow = useCallback(() => {
+    const list = transcriptRef.current
+    if (!list) return
+    // No park box means no obstruction — desktop, or before he has a size. An
+    // infinite limit marks everything clear, which collapses to the old layout.
+    const park = parkRef.current
+    const limit = park ? park.getBoundingClientRect().top - CLEAR_PAD : Infinity
+    for (const el of list.querySelectorAll<HTMLElement>('.decke-shift')) {
+      if (el.getBoundingClientRect().bottom <= limit) el.setAttribute('data-clear', 'true')
+      else el.removeAttribute('data-clear')
+    }
+  }, [])
+
+  // Keep the newest message in view as it streams, then re-solve what that
+  // pushed past him.
+  //
+  // BEFORE PAINT, so a message that mounts already clear of him is simply drawn
+  // there. Running this after paint would give the browser a previous computed
+  // margin to interpolate from, and every arriving message would slide in from
+  // under his feet — an animation for something that never moved.
+  useLayoutEffect(() => {
     const el = transcriptRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [messages])
+    reflow()
+  }, [messages, reflow, gutter])
+
+  // Dragging the transcript moves bubbles past him too. rAF-coalesced: `scroll`
+  // can fire several times per frame and the pass reads layout.
+  useEffect(() => {
+    const el = transcriptRef.current
+    if (!open || minimised || !el) return
+    let raf = 0
+    const on = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        reflow()
+      })
+    }
+    el.addEventListener('scroll', on, { passive: true })
+    window.addEventListener('resize', on)
+    return () => {
+      el.removeEventListener('scroll', on)
+      window.removeEventListener('resize', on)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [open, minimised, reflow])
 
   const submit = useCallback(
     (e: React.FormEvent) => {
@@ -183,7 +330,7 @@ export function DeckeChat({
           'fixed inset-x-[12px] bottom-[12px] z-[25] flex items-center gap-[10px]',
           'rounded-full border border-border-default bg-surface-raised/95 px-[16px] py-[10px]',
           'text-left shadow-xl backdrop-blur-sm nav:inset-x-auto nav:right-[24px] nav:w-[420px]',
-          'motion-safe:animate-[decke-chat-in_220ms_cubic-bezier(0.2,0.9,0.3,1)_both]',
+          'motion-safe:animate-[decke-chat-in_220ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]',
         ].join(' ')}
       >
         <span className="min-w-0 flex-1 truncate text-[13px] text-text-muted">
@@ -209,42 +356,72 @@ export function DeckeChat({
         onClick={onClose}
         className={[
           'fixed inset-0 cursor-default bg-black/45 backdrop-blur-[3px]',
-          'motion-safe:animate-[sheet-scrim-in_180ms_ease-out_both]',
+          'motion-safe:animate-[sheet-scrim-in_180ms_ease-out_backwards]',
           desktop ? 'z-[15]' : 'z-[24]',
         ].join(' ')}
       />
 
+      {/*
+        THE PHONE PANEL HAS NO BACKGROUND OF ITS OWN. The scrim above already
+        darkens and blurs the page; painting `surface-primary` over the top of
+        that threw the blur away and replaced the app with a blank sheet. The
+        reader should be able to see where they are while he talks.
+
+        Which makes the panel a sheet of glass over a live page, and glass must
+        not swallow taps: it is `pointer-events-none` on mobile, and only the
+        parts that ARE something — the close button, the message list, the
+        composer — take them back. Everything else falls through to the scrim,
+        so a tap on the blurred page dismisses him, which is what a page you can
+        still see invites you to do.
+      */}
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Chat with Deck-E"
+        style={{ '--decke-gutter': `${gutter}px` } as React.CSSProperties}
         className={[
           'fixed z-[25] flex flex-col',
-          'border-border-default bg-surface-primary',
           desktop
-            ? 'bottom-[24px] right-[24px] h-[min(620px,calc(100vh-140px))] w-[420px] rounded-[18px] border shadow-2xl motion-safe:animate-[decke-chat-in_280ms_cubic-bezier(0.2,0.9,0.3,1)_both]'
-            : 'inset-0 motion-safe:animate-[sheet-panel-up_260ms_cubic-bezier(0.2,0.9,0.3,1)_both]',
+            ? 'bottom-[24px] right-[24px] h-[min(620px,calc(100vh-140px))] w-[420px] rounded-[18px] border border-border-default bg-surface-primary shadow-2xl motion-safe:animate-[decke-chat-in_280ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]'
+            : 'pointer-events-none inset-0 motion-safe:animate-[sheet-panel-up_260ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]',
         ].join(' ')}
       >
-        <header className="flex shrink-0 items-center justify-between border-b border-border-default px-[16px] py-[12px]">
+        <header
+          className={[
+            'flex shrink-0 items-center justify-between px-[16px] py-[12px]',
+            desktop ? 'border-b border-border-default' : '',
+          ].join(' ')}
+        >
           <span className="text-[15px] font-semibold text-text-primary">Deck-E</span>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close chat"
-            className="flex h-[32px] w-[32px] items-center justify-center rounded-full text-icon-default hover:bg-surface-secondary hover:text-icon-hover"
+            className="pointer-events-auto flex h-[32px] w-[32px] items-center justify-center rounded-full text-icon-default hover:bg-surface-secondary hover:text-icon-hover"
           >
             <Icon name="close" size={18} />
           </button>
         </header>
 
-        <div ref={transcriptRef} className="flex-1 overflow-y-auto px-[16px] pb-[12px]">
+        {/*
+          BOTTOM-ALIGNED BY `mt-auto` ON THE LIST, never by `justify-end` on the
+          scroller. `align-items`/`justify-content` pushing content past a flex
+          container's START edge makes that overflow unreachable — `scrollHeight`
+          comes back equal to `clientHeight` and the earliest messages cannot be
+          scrolled to at all. That trap has already cost this codebase one
+          unusable panel; see the Sheet primitive's notes. An auto margin does
+          the same visual job and leaves the scroll range intact.
+        */}
+        <div
+          ref={transcriptRef}
+          className="flex flex-1 flex-col overflow-y-auto px-[16px] pb-[12px]"
+        >
           {messages.length === 0 ? (
-            <p className="py-[8px] text-[14px] leading-[21px] text-text-muted">
+            <p className="decke-bubble decke-shift mt-auto py-[8px] text-[14px] leading-[21px] text-text-muted">
               Ask me about your collection, or tell me to show you something.
             </p>
           ) : (
-            <ul className="flex flex-col gap-[10px]">
+            <ul className="pointer-events-auto mt-auto flex flex-col gap-[10px]">
               {messages.map((m) => (
                 <li
                   key={m.id}
@@ -259,10 +436,10 @@ export function DeckeChat({
                   {m.text ? (
                     <div
                       className={[
-                        'max-w-[85%] rounded-[14px] px-[12px] py-[8px] text-[14px] leading-[21px]',
+                        'decke-bubble rounded-[14px] px-[12px] py-[8px] text-[14px] leading-[21px]',
                         m.role === 'user'
                           ? 'self-end bg-action-primary text-action-primary-text'
-                          : 'self-start bg-surface-secondary text-text-body',
+                          : 'decke-shift self-start bg-surface-secondary text-text-body',
                       ].join(' ')}
                     >
                       {m.text}
@@ -271,16 +448,51 @@ export function DeckeChat({
                   {/* Full width rather than inside the bubble: a panel is a
                       figure, and an 85%-wide column with a card grid in it is a
                       column of one card. */}
-                  {m.screen ? <DeckeScreen spec={m.screen} /> : null}
+                  {m.screen ? (
+                    <div className="decke-figure decke-shift">
+                      <DeckeScreen spec={m.screen} />
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>
           )}
         </div>
 
+        {/*
+          WHERE HE STANDS, as a box rather than a coordinate.
+
+          `DeckeHost` flies him to its centre and the transcript measures its top
+          edge to decide what has cleared him, so his position and the space kept
+          for him are the same fact stated once.
+
+          Offset from the panel's bottom-left corner by a hair, because he is
+          meant to sit IN the corner — and tall enough that his head is well
+          above the composer's band while about half of him overlaps it. That
+          overlap is the point: it puts him BESIDE the input rather than in a row
+          of his own above it.
+        */}
+        {!desktop && characterPx > 0 ? (
+          <div
+            ref={parkRef}
+            {...{ [PARK_LANDMARK]: '' }}
+            aria-hidden
+            className="pointer-events-none absolute opacity-0"
+            style={{
+              left: `${PARK_LEFT}px`,
+              bottom: `${PARK_BOTTOM}px`,
+              width: `${parkW}px`,
+              height: `${parkH}px`,
+            }}
+          />
+        ) : null}
+
         <form
           onSubmit={submit}
-          className="flex shrink-0 items-center gap-[8px] border-t border-border-default px-[12px] py-[10px]"
+          className={[
+            'decke-composer pointer-events-auto flex shrink-0 items-center gap-[8px] py-[10px] pr-[16px]',
+            desktop ? 'border-t border-border-default' : '',
+          ].join(' ')}
         >
           <input
             ref={inputRef}
