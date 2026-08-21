@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type ScanMatch, type ScanResponse } from '../lib/api'
 import { emptyRip, onFrame, removeEntry, setQuantity, type RipState } from '../character/host/ripSession'
+import { commitRip } from '../character/host/ripCommit'
 import { Content, Spinner, ProgressBar } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { CardSheet } from './CardDetail'
@@ -293,6 +294,7 @@ export function Scan() {
   ripRef.current = ripState
   const ripOnRef = useRef(false)
   ripOnRef.current = rip
+  const [committing, setCommitting] = useState(false)
 
   const supportsCamera = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia
 
@@ -482,6 +484,98 @@ export function Scan() {
         {result ? result.indexSize.toLocaleString() : '22,770'}-card catalog by perceptual hash and add it to your
         collection in one tap. No shutter button; it triggers on its own.
       </p>
+
+      {/* ── rip mode: the running list ──────────────────────────────────
+          BESIDE the camera, never over it. The whole point of the visual
+          feedback is knowing he got the card so you know to move on, and a
+          list that covers the lens defeats the thing it is confirming. */}
+      {showStage && supportsCamera && (
+        <div className="mx-auto mb-[12px] flex w-full max-w-[440px] items-center justify-between gap-[10px]">
+          <button
+            type="button"
+            onClick={() => { setRip((r) => !r); setRipState(emptyRip()); setResult(null) }}
+            className={[
+              'h-[36px] rounded-full px-[14px] text-[13px] font-semibold transition-colors',
+              rip
+                ? 'bg-action-primary text-action-primary-text'
+                : 'bg-surface-secondary text-text-body hover:text-text-primary',
+            ].join(' ')}
+          >
+            {rip ? 'Ripping a pack' : 'Rip a pack'}
+          </button>
+          {rip && (
+            <span className="text-[13px] text-text-muted">
+              {ripState.entries.length === 0
+                ? 'Show me each card as you pull it'
+                : `${ripState.entries.reduce((n, e) => n + e.quantity, 0)} card${
+                    ripState.entries.reduce((n, e) => n + e.quantity, 0) === 1 ? '' : 's'
+                  } so far`}
+            </span>
+          )}
+        </div>
+      )}
+
+      {rip && ripState.entries.length > 0 && (
+        <div className="mx-auto mb-[12px] w-full max-w-[440px] rounded-2xl border border-border-default bg-surface-secondary p-[10px]">
+          <ul className="flex max-h-[220px] flex-col gap-[6px] overflow-y-auto">
+            {ripState.entries.map((e) => (
+              <li
+                key={e.cardId}
+                className="flex items-center gap-[8px] rounded-lg bg-surface-primary px-[10px] py-[7px] motion-safe:animate-[sheet-panel-in_200ms_ease-out_both]"
+              >
+                <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary">{e.name}</span>
+                {/* The confidence of the frame that committed it. Surfaced
+                    because the rare wrong top-1 is a near-identical same-art
+                    reprint at distance 1-6, and a list presented as fact with
+                    no way to see which rows were marginal is worse than a
+                    list you can audit. */}
+                <span className="shrink-0 font-mono text-[11px] text-text-muted" title="match distance — lower is more certain">
+                  d{e.distance}
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  value={e.quantity}
+                  aria-label={`How many ${e.name}`}
+                  onChange={(ev) => setRipState((st) => setQuantity(st, e.cardId, Number(ev.target.value)))}
+                  className="h-[28px] w-[52px] shrink-0 rounded bg-surface-secondary px-[6px] text-center text-[13px] text-text-primary"
+                />
+                <button
+                  type="button"
+                  aria-label={`Remove ${e.name}`}
+                  onClick={() => setRipState((st) => removeEntry(st, e.cardId))}
+                  className="flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full text-icon-muted hover:bg-surface-secondary hover:text-icon-hover"
+                >
+                  <Icon name="close" size={14} />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            disabled={committing}
+            onClick={async () => {
+              setCommitting(true)
+              try {
+                const r = await commitRip(ripState.entries)
+                setRipState(emptyRip())
+                setHint(
+                  r.unresolved.length
+                    ? `Added ${r.applied}. I could not place ${r.unresolved.map((u) => u.name).join(', ')}.`
+                    : `Added ${r.applied} to your collection`,
+                )
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'that did not save')
+              } finally {
+                setCommitting(false)
+              }
+            }}
+            className="mt-[8px] h-[40px] w-full rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text disabled:opacity-50"
+          >
+            {committing ? 'Adding…' : `Add ${ripState.entries.reduce((n, e) => n + e.quantity, 0)} to my collection`}
+          </button>
+        </div>
+      )}
 
       {/* ── live camera stage (single, always-mounted <video>) ────────── */}
       {showStage && (
