@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type ScanMatch, type ScanResponse } from '../lib/api'
+import { emptyRip, onFrame, removeEntry, setQuantity, type RipState } from '../character/host/ripSession'
 import { Content, Spinner, ProgressBar } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { CardSheet } from './CardDetail'
@@ -279,6 +280,20 @@ export function Scan() {
   const stableRef = useRef<{ cardId: string; count: number }>({ cardId: '', count: 0 })
   const pausedRef = useRef(false) // freeze the loop while a result is shown
 
+  // ── Rip mode ────────────────────────────────────────────────────────────────
+  //
+  // The single-card flow above STOPS once a match is stable, which is right when
+  // you are checking one card and wrong for a pack. Rip mode keeps the loop
+  // running and accumulates distinct cards instead; `ripSession.ts` owns the
+  // "distinct" part, which is the hard half — a card held steady re-stabilises
+  // about every 1.4 s, so the obvious dedup rule logs one card three times.
+  const [rip, setRip] = useState(false)
+  const [ripState, setRipState] = useState<RipState>(emptyRip)
+  const ripRef = useRef<RipState>(ripState)
+  ripRef.current = ripState
+  const ripOnRef = useRef(false)
+  ripOnRef.current = rip
+
   const supportsCamera = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia
 
   const stopStream = useCallback(() => {
@@ -305,6 +320,27 @@ export function Scan() {
       frameFailRef.current = 0
       setError(null)
       const top = res.matched ? res.matches[0] : undefined
+
+      // RIP MODE NEVER PAUSES. Every frame is fed to the session machine, which
+      // decides whether anything new arrived; the loop just keeps going.
+      if (ripOnRef.current) {
+        const { state, committed } = onFrame(
+          ripRef.current,
+          top ? { cardId: top.cardId, name: top.name, distance: top.distance } : null,
+          Date.now(),
+        )
+        ripRef.current = state
+        setRipState(state)
+        setHint(
+          committed
+            ? `Got it — ${committed.name}`
+            : top
+              ? 'Hold steady…'
+              : 'Show me the next card',
+        )
+        return
+      }
+
       if (top) {
         const s = stableRef.current
         s.count = s.cardId === top.cardId ? s.count + 1 : 1
