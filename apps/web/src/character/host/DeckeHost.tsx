@@ -27,7 +27,7 @@
  * who just came back.
  */
 import { useEffect, useRef, useState } from 'react'
-import { useRouterState } from '@tanstack/react-router'
+import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
 import { isChromelessPathname } from '../../lib/landingRoute'
 import { deckeEntitled } from './entitlement'
@@ -87,7 +87,8 @@ export function DeckeHost() {
    *  CSS, not `innerHeight` — see the measurement note below. */
   const probeRef = useRef<HTMLDivElement | null>(null)
   const deckeRef = useRef<DeckEInstance | null>(null)
-  const chat = useDeckeChat(live)
+  const navigate = useNavigate()
+  const chat = useDeckeChat(live, (to) => navigate({ to }))
 
   useEffect(() => {
     let live = true

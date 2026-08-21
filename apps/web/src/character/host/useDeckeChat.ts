@@ -20,6 +20,7 @@ import { useCallback, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import type { ChatMessage } from './DeckeChat'
 import type { DeckEInstance } from './runtime'
+import { runUiTool, type UiToolResult } from './uiTools'
 
 /** A command as the server's `express` tool emits it. Mirrors `decke/tools.ts`. */
 type WireCommand = {
@@ -36,7 +37,10 @@ type WireCommand = {
 let seq = 0
 const nextId = () => `m${++seq}`
 
-export function useDeckeChat(decke: DeckEInstance | null) {
+/** A browser-side tool the model asked for, captured mid-stream. */
+type PendingTool = { id: string; name: string; input: Record<string, unknown> }
+
+export function useDeckeChat(decke: DeckEInstance | null, navigate: (to: string) => void) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
@@ -67,6 +71,7 @@ export function useDeckeChat(decke: DeckEInstance | null) {
       decke.setState('thinking')
 
       let spoke = false
+      const pending: PendingTool[] = []
       try {
         const { data } = await supabase.auth.getSession()
         const token = data.session?.access_token
@@ -115,7 +120,14 @@ export function useDeckeChat(decke: DeckEInstance | null) {
             if (!line.startsWith('data:')) continue
             const payload = line.slice(5).trim()
             if (!payload || payload === '[DONE]') continue
-            let part: { type?: string; delta?: string; data?: { commands?: WireCommand[] } }
+            let part: {
+              type?: string
+              delta?: string
+              data?: { commands?: WireCommand[] }
+              state?: string
+              toolCallId?: string
+              input?: unknown
+            }
             try {
               part = JSON.parse(payload)
             } catch {
@@ -134,7 +146,48 @@ export function useDeckeChat(decke: DeckEInstance | null) {
               setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, text: x.text + chunk } : x)))
             } else if (part.type === 'data-decke' && part.data?.commands) {
               apply(decke, part.data.commands)
+            } else if (
+              typeof part.type === 'string' &&
+              part.type.startsWith('tool-') &&
+              part.state === 'input-available' &&
+              part.toolCallId
+            ) {
+              // A tool with no server-side `execute` arrives here for the
+              // BROWSER to run. Collected rather than run inline: the stream is
+              // still open, and starting a flight mid-sentence would have him
+              // moving before he has finished saying where he is going.
+              pending.push({
+                id: part.toolCallId,
+                name: part.type.slice('tool-'.length),
+                input: (part.input ?? {}) as Record<string, unknown>,
+              })
             }
+          }
+        }
+
+        // ── The tools he asked the browser to run ────────────────────────────
+        //
+        // Executed AFTER the stream, not during it: starting a flight
+        // mid-sentence has him moving before he has finished saying where he is
+        // going, and the words are what tell the reader why the page is about
+        // to change.
+        //
+        // Their results go back as a follow-up turn, which is the whole reason
+        // these are tools rather than fire-and-forget commands — "there is
+        // nothing like that on this page" is something he has to be able to say.
+        // ONE follow-up round, deliberately: each round re-bills the entire
+        // system prompt, and a model that needs three attempts to point at
+        // something is not going to find it on the fourth.
+        if (pending.length && !ac.signal.aborted) {
+          const results: { call: PendingTool; result: UiToolResult }[] = []
+          for (const call of pending) {
+            results.push({ call, result: await runUiTool({ decke, navigate }, call.name, call.input) })
+          }
+          const followUp = await sendToolResults(currentRef.current, text, results, ac.signal)
+          if (followUp) {
+            setMessages((m) =>
+              m.map((x) => (x.id === replyId ? { ...x, text: (x.text + ' ' + followUp).trim() } : x)),
+            )
           }
         }
       } catch (e) {
@@ -159,6 +212,81 @@ export function useDeckeChat(decke: DeckEInstance | null) {
   const stop = useCallback(() => abortRef.current?.abort(), [])
 
   return { messages, busy, send, stop }
+}
+
+/**
+ * Send the browser-side tool results back and read whatever he says about them.
+ *
+ * The wire shape matters: `convertToModelMessages` on the server needs the
+ * assistant's tool CALL and the tool's OUTPUT as parts of the same conversation,
+ * or the model sees a result for something it never asked for. So the assistant
+ * turn is replayed carrying `state: 'output-available'` parts with both the
+ * input it sent and the output it got back.
+ *
+ * Returns only the new text, or null. Errors are swallowed on purpose — the
+ * primary turn already said something useful, and a failed footnote should not
+ * replace it with an apology.
+ */
+async function sendToolResults(
+  history: ChatMessage[],
+  saidSoFar: string,
+  results: { call: PendingTool; result: UiToolResult }[],
+  signal: AbortSignal,
+): Promise<string | null> {
+  try {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    const assistantParts: unknown[] = []
+    if (saidSoFar.trim()) assistantParts.push({ type: 'text', text: saidSoFar })
+    for (const { call, result } of results) {
+      assistantParts.push({
+        type: `tool-${call.name}`,
+        toolCallId: call.id,
+        state: 'output-available',
+        input: call.input,
+        output: result,
+      })
+    }
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      signal,
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        messages: [...messagesToWire(history), { role: 'assistant', parts: assistantParts }],
+        route: window.location.pathname,
+        landmarks: collectLandmarks(),
+      }),
+    })
+    if (!res.ok || !res.body) return null
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    let out = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue
+        const payload = line.slice(5).trim()
+        if (!payload || payload === '[DONE]') continue
+        try {
+          const part = JSON.parse(payload)
+          if (part.type === 'text-delta' && typeof part.delta === 'string') out += part.delta
+        } catch {
+          /* a partial frame; the next chunk completes it */
+        }
+      }
+    }
+    return out.trim() || null
+  } catch {
+    return null
+  }
 }
 
 function messagesToWire(msgs: ChatMessage[]) {
