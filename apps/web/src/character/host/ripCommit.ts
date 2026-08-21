@@ -41,11 +41,13 @@ export async function commitRip(entries: RipEntry[], note?: string): Promise<Com
   const items: { variantId: number; delta: number }[] = []
   const unresolved: { cardId: string; name: string }[] = []
 
-  // Resolved in parallel: a ten-card pack is ten independent lookups, and doing
-  // them in series adds a second of dead time to the one moment the reader is
-  // watching a spinner.
+  // THE READER'S CHOICE WINS, and costs no request. `variantId` is set the
+  // moment the catalog answers in the rip list, and changed from there if they
+  // say it is a reverse holo — so by commit time the answer is usually already
+  // known and this is a lookup only for rows whose fetch failed or had not landed.
   const looked = await Promise.all(
     entries.map(async (e) => {
+      if (e.variantId != null) return { entry: e, variantId: e.variantId }
       try {
         const card = await api.card(e.cardId)
         const primary = card.variants.find((v) => v.isPrimary) ?? card.variants[0]
@@ -73,7 +75,11 @@ export async function commitRip(entries: RipEntry[], note?: string): Promise<Com
     // contents when none is given, which protects a double-tap — but a key tied
     // to THIS session's contents is what protects the case above: a request that
     // half-succeeded and was retried.
-    idempotencyKey: `rip-${entries.map((e) => `${e.cardId}x${e.quantity}`).sort().join(',')}`.slice(0, 200),
+    // Keyed on the RESOLVED items, so the printing is part of the identity. Keyed
+    // on card id alone, a reader who added a pack, spotted that one row was set to
+    // normal when they pulled the reverse holo, fixed it and committed again would
+    // have the correction silently swallowed as a duplicate.
+    idempotencyKey: `rip-${items.map((i) => `${i.variantId}x${i.delta}`).sort().join(',')}`.slice(0, 200),
   })
   return { applied: res.applied, unresolved }
 }

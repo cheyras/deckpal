@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type ScanMatch, type ScanResponse } from '../lib/api'
-import { emptyRip, onFrame, removeEntry, setQuantity, type RipState } from '../character/host/ripSession'
+import {
+  chooseVariant,
+  emptyRip,
+  onFrame,
+  removeEntry,
+  setQuantity,
+  setVariants,
+  type RipState,
+} from '../character/host/ripSession'
 import { commitRip } from '../character/host/ripCommit'
 import { Content, Spinner, ProgressBar } from '../components/ui'
 import { CardImage } from '../components/CardImage'
@@ -294,6 +302,33 @@ export function Scan() {
   ripRef.current = ripState
   const ripOnRef = useRef(false)
   ripOnRef.current = rip
+
+  // Cards whose variants have been requested, so a card re-shown after leaving
+  // the frame does not fire a second identical lookup.
+  const variantsAsked = useRef(new Set<string>())
+  const loadVariants = useCallback(async (cardId: string) => {
+    if (variantsAsked.current.has(cardId)) return
+    variantsAsked.current.add(cardId)
+    try {
+      const card = await api.card(cardId)
+      setRipState((st) =>
+        setVariants(
+          st,
+          cardId,
+          card.variants.map((v) => ({
+            variantId: v.variantId,
+            displayName: v.displayName,
+            isPrimary: v.isPrimary,
+          })),
+        ),
+      )
+    } catch {
+      // Left silent on purpose. The row still commits — `commitRip` falls back to
+      // resolving the primary printing itself — so a failed lookup costs the
+      // reader the CHOICE, not the card.
+      variantsAsked.current.delete(cardId)
+    }
+  }, [])
   const [committing, setCommitting] = useState(false)
 
   const supportsCamera = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia
@@ -333,6 +368,11 @@ export function Scan() {
         )
         ripRef.current = state
         setRipState(state)
+        // Ask the catalog what printings this card has, once, as it lands. Doing
+        // it here rather than at commit means the reader can correct a reverse
+        // holo while the pack is still in their hand, which is the only moment
+        // they actually remember which one it was.
+        if (committed) void loadVariants(committed.cardId)
         setHint(
           committed
             ? `Got it — ${committed.name}`
@@ -521,8 +561,9 @@ export function Scan() {
             {ripState.entries.map((e) => (
               <li
                 key={e.cardId}
-                className="flex items-center gap-[8px] rounded-lg bg-surface-primary px-[10px] py-[7px] motion-safe:animate-[sheet-panel-in_200ms_ease-out_both]"
+                className="flex flex-col gap-[6px] rounded-lg bg-surface-primary px-[10px] py-[7px] motion-safe:animate-[sheet-panel-in_200ms_ease-out_both]"
               >
+                <div className="flex items-center gap-[8px]">
                 <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary">{e.name}</span>
                 {/* The confidence of the frame that committed it. Surfaced
                     because the rare wrong top-1 is a near-identical same-art
@@ -548,6 +589,36 @@ export function Scan() {
                 >
                   <Icon name="close" size={14} />
                 </button>
+                </div>
+                {/* WHICH PRINTING. Shown only when there is a real choice — a
+                    card with one printing gets no control, because a select with
+                    a single option is furniture that teaches the reader to stop
+                    reading this row. The scanner matches artwork, and a card and
+                    its reverse holo share artwork, so this cannot be inferred:
+                    every pack has reverse holos in it, and without this the whole
+                    pack files as normal.
+
+                    Sized 13px to match the quantity input beside it. Below the
+                    nav breakpoint `theme.css` forces every form control to 16px
+                    so iOS Safari does not auto-zoom on focus, so 13px is what
+                    desktop sees — anything smaller would only show up there, as
+                    a control quietly out of step with its own row. */}
+                {e.variants.length > 1 && (
+                  <select
+                    value={e.variantId ?? ''}
+                    aria-label={`Printing of ${e.name}`}
+                    onChange={(ev) =>
+                      setRipState((st) => chooseVariant(st, e.cardId, Number(ev.target.value)))
+                    }
+                    className="h-[28px] w-full rounded bg-surface-secondary px-[6px] text-[13px] text-text-body"
+                  >
+                    {e.variants.map((v) => (
+                      <option key={v.variantId} value={v.variantId}>
+                        {v.displayName}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </li>
             ))}
           </ul>

@@ -9,7 +9,7 @@
  */
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { COMMIT_FRAMES, emptyRip, onFrame, removeEntry, setQuantity, TRUST_DISTANCE, type RipState, type ScanHit } from '../ripSession'
+import { chooseVariant, COMMIT_FRAMES, emptyRip, onFrame, removeEntry, setQuantity, setVariants, TRUST_DISTANCE, type RipState, type ScanHit } from '../ripSession'
 
 const hit = (cardId: string, distance = 3): ScanHit => ({ cardId, name: cardId, distance })
 
@@ -91,4 +91,58 @@ test('removing a mis-read lets it be rescanned immediately', () => {
   // frame — so a correction would look like the scanner ignoring you.
   s = feed(s, Array(6).fill(hit('a')))
   assert.equal(s.entries.length, 1)
+})
+
+// ── which printing ───────────────────────────────────────────────────────────
+// The scanner matches ARTWORK, and a card and its reverse holo share artwork, so
+// the printing can never be inferred from a hash. Every pack contains reverse
+// holos, which makes this the difference between a correct haul and a haul that
+// is silently wrong on a predictable fraction of its rows.
+
+const VARIANTS = [
+  { variantId: 10, displayName: 'Normal', isPrimary: true },
+  { variantId: 11, displayName: 'Reverse Holofoil', isPrimary: false },
+]
+
+/** Feed one card through to a commit. */
+function committed(cardId = 'a'): RipState {
+  let s = emptyRip()
+  for (let i = 0; i < COMMIT_FRAMES; i++) s = onFrame(s, hit(cardId), i).state
+  return s
+}
+
+test('a newly committed card has no printing chosen yet', () => {
+  const s = committed()
+  assert.equal(s.entries[0]!.variantId, null)
+  assert.deepEqual(s.entries[0]!.variants, [])
+})
+
+test('the catalog answer defaults the selection to the primary printing', () => {
+  const s = setVariants(committed(), 'a', VARIANTS)
+  assert.equal(s.entries[0]!.variantId, 10, 'matches what the Have toggle does in SQL')
+  assert.equal(s.entries[0]!.variants.length, 2)
+})
+
+test('a reader choice survives a later catalog answer', () => {
+  let s = setVariants(committed(), 'a', VARIANTS)
+  s = chooseVariant(s, 'a', 11)
+  s = setVariants(s, 'a', VARIANTS) // a second, late response
+  assert.equal(s.entries[0]!.variantId, 11, 'must not be reset to primary')
+})
+
+test('choosing a printing touches only that row', () => {
+  let s = committed('a')
+  for (let i = 0; i < COMMIT_FRAMES; i++) s = onFrame(s, null, 100 + i).state
+  for (let i = 0; i < COMMIT_FRAMES; i++) s = onFrame(s, hit('b'), 200 + i).state
+  s = setVariants(s, 'a', VARIANTS)
+  s = setVariants(s, 'b', VARIANTS)
+  s = chooseVariant(s, 'b', 11)
+  assert.equal(s.entries.find((e) => e.cardId === 'a')!.variantId, 10)
+  assert.equal(s.entries.find((e) => e.cardId === 'b')!.variantId, 11)
+})
+
+test('a catalog answer for a removed card is ignored', () => {
+  let s = removeEntry(committed(), 'a')
+  s = setVariants(s, 'a', VARIANTS)
+  assert.equal(s.entries.length, 0)
 })

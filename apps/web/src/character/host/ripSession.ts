@@ -23,6 +23,13 @@
 /** One ranked match as `POST /scan` returns it. */
 export type ScanHit = { cardId: string; name: string; distance: number }
 
+/** One printing a card can be. A subset of the catalog's `Variant`. */
+export type RipVariant = {
+  variantId: number
+  displayName: string
+  isPrimary: boolean
+}
+
 export type RipEntry = {
   cardId: string
   name: string
@@ -32,6 +39,17 @@ export type RipEntry = {
   distance: number
   /** Ordering, and what the UI animates in. */
   at: number
+  /**
+   * WHICH PRINTING. Null until the catalog answers, and it must stay a reader's
+   * choice rather than an inference: the scanner matches ARTWORK, and a card and
+   * its reverse holo share the same artwork, so the hash cannot tell them apart
+   * even in principle. Every booster pack contains reverse holos, so defaulting
+   * silently to the primary variant does not mis-file an edge case — it mis-files
+   * a guaranteed fraction of every pack opened.
+   */
+  variantId: number | null
+  /** What this card can be. Empty until `api.card` answers. */
+  variants: RipVariant[]
 }
 
 export type RipState = {
@@ -133,12 +151,44 @@ export function onFrame(
     quantity: 1,
     distance: hit.distance,
     at: now,
+    variantId: null,
+    variants: [],
   }
   const refractory = new Set(state.refractory)
   refractory.add(hit.cardId)
   return {
     state: { ...state, entries: [...state.entries, entry], streak, refractory, missStreak: 0 },
     committed: entry,
+  }
+}
+
+/**
+ * The catalog answered: here is what this card can be.
+ *
+ * Defaults the selection to the primary printing, which matches what
+ * `POST /collection/cards/:cardId/have` does in SQL — so a card added by the
+ * scanner and one added by the Have toggle land in the same row. The default is
+ * a starting point the reader can change, not a decision made for them.
+ *
+ * Late arrivals are ignored for a card the reader has already removed, and a
+ * selection they have already made is preserved rather than reset.
+ */
+export function setVariants(state: RipState, cardId: string, variants: RipVariant[]): RipState {
+  return {
+    ...state,
+    entries: state.entries.map((e) => {
+      if (e.cardId !== cardId) return e
+      const primary = variants.find((v) => v.isPrimary) ?? variants[0]
+      return { ...e, variants, variantId: e.variantId ?? primary?.variantId ?? null }
+    }),
+  }
+}
+
+/** The reader says which printing it is. */
+export function chooseVariant(state: RipState, cardId: string, variantId: number): RipState {
+  return {
+    ...state,
+    entries: state.entries.map((e) => (e.cardId === cardId ? { ...e, variantId } : e)),
   }
 }
 
