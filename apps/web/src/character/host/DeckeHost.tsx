@@ -33,6 +33,7 @@ import { isChromelessPathname } from '../../lib/landingRoute'
 import { deckeEntitled } from './entitlement'
 import { DeckeButton } from './DeckeButton'
 import { DeckeChat, STAND_DESKTOP, STAND_MOBILE } from './DeckeChat'
+import { DeckeBubble, type Rect } from './DeckeBubble'
 import { useDeckeChat } from './useDeckeChat'
 import {
   acquireDeckE,
@@ -82,13 +83,17 @@ export function DeckeHost() {
   const [beacon, setBeacon] = useState<Beacon | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [live, setLive] = useState<DeckEInstance | null>(null)
+  /** Where he is on screen, sampled while he is out on the page. */
+  const [himRect, setHimRect] = useState<Rect | null>(null)
+  /** True while he is away from the chat doing something on the page. */
+  const [travelling, setTravelling] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   /** A zero-width `100svh` strut. The always-visible height has to come from
    *  CSS, not `innerHeight` — see the measurement note below. */
   const probeRef = useRef<HTMLDivElement | null>(null)
   const deckeRef = useRef<DeckEInstance | null>(null)
   const navigate = useNavigate()
-  const chat = useDeckeChat(live, (to) => navigate({ to }))
+  const chat = useDeckeChat(live, (to) => navigate({ to }), () => setTravelling(true))
 
   useEffect(() => {
     let live = true
@@ -115,6 +120,31 @@ export function DeckeHost() {
     const t = setTimeout(start, 1500)
     return () => clearTimeout(t)
   }, [entitled, chromeless, phase])
+
+  // SAMPLE HIS POSITION WHILE HE IS OUT, and only while he is out.
+  //
+  // Polled at 8 Hz rather than bound to the render loop. Re-rendering React
+  // sixty times a second to move one bubble is the kind of thing that makes a
+  // 3D character feel expensive, and a bubble that lags his flight by an eighth
+  // of a second is not something anyone can see — the engine's own dev page
+  // polls its readouts at 5 Hz for the same reason.
+  useEffect(() => {
+    if (!live || !travelling) {
+      setHimRect(null)
+      return
+    }
+    const tick = () => setHimRect(live.screenRect())
+    tick()
+    const id = window.setInterval(tick, 125)
+    return () => window.clearInterval(id)
+  }, [live, travelling])
+
+  // He is "travelling" from the moment a UI tool moves him until the chat is
+  // closed. That is what minimises the transcript and hands his words to the
+  // bubble instead.
+  useEffect(() => {
+    if (!chatOpen) setTravelling(false)
+  }, [chatOpen])
 
   // OPENING THE CHAT MOVES HIM, and that is all it does to him.
   //
@@ -323,12 +353,25 @@ export function DeckeHost() {
 
       <DeckeChat
         open={chatOpen}
+        minimised={travelling}
+        onExpand={() => setTravelling(false)}
         onClose={() => setChatOpen(false)}
         decke={live}
         messages={chat.messages}
         onSend={chat.send}
         busy={chat.busy}
       />
+
+      {/* His words while the transcript is minimised. Anchored to him and
+          solved against the highlight so it can never cover what he is
+          pointing at — see DeckeBubble. */}
+      {chatOpen && travelling ? (
+        <DeckeBubble
+          text={chat.messages.filter((m) => m.role === 'assistant').at(-1)?.text ?? ''}
+          himRect={himRect}
+          avoidSelector={live?.getState().highlighted ?? null}
+        />
+      ) : null}
     </>
   )
 }

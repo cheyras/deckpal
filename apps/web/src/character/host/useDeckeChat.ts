@@ -40,7 +40,11 @@ const nextId = () => `m${++seq}`
 /** A browser-side tool the model asked for, captured mid-stream. */
 type PendingTool = { id: string; name: string; input: Record<string, unknown> }
 
-export function useDeckeChat(decke: DeckEInstance | null, navigate: (to: string) => void) {
+export function useDeckeChat(
+  decke: DeckEInstance | null,
+  navigate: (to: string) => void,
+  onTravel?: () => void,
+) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
@@ -180,6 +184,9 @@ export function useDeckeChat(decke: DeckEInstance | null, navigate: (to: string)
         // something is not going to find it on the fourth.
         if (pending.length && !ac.signal.aborted) {
           const results: { call: PendingTool; result: UiToolResult }[] = []
+          // Tell the host BEFORE running them: the transcript should already be
+          // out of the way when he starts moving, not a beat behind him.
+          if (pending.some((c) => c.name !== 'scrollToMe')) onTravel?.()
           for (const call of pending) {
             results.push({ call, result: await runUiTool({ decke, navigate }, call.name, call.input) })
           }

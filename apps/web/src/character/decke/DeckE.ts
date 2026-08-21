@@ -80,7 +80,7 @@ import {
   windowClip,
   type SustainSpec,
 } from './sustain'
-import { blenderToThree, DEG, MOUTH } from './constants'
+import { blenderToThree, BODY_H, BODY_W, DEG, MOUTH } from './constants'
 import { sampleTrack, solveFlight, type FlightSample, type FlightTrack } from './flight'
 import {
   homeCorner,
@@ -777,6 +777,47 @@ export class DeckE {
     // `op: "talk"` is how it is driven; leaving it in the enum invites exactly
     // the mistake the overlay exists to prevent.
     return this.states ? [...this.states.keys()].filter((n) => n !== 'talk') : []
+  }
+
+  /**
+   * Roughly where he is on screen, in viewport pixels.
+   *
+   * For callers that need to position DOM beside him — the speech bubble, today.
+   * Deliberately APPROXIMATE and deliberately cheap: it projects his anchor and
+   * the top of his reference body, and takes `BODY_W` as the width. It is not
+   * his silhouette, which is a good deal larger once the bolts, the open lid and
+   * the deformation field are counted, and which would cost a per-frame bounds
+   * computation over every mesh to know exactly.
+   *
+   * That is the right trade here. A bubble placed against a box that is a little
+   * smaller than he is sits slightly closer to him than intended; a bubble that
+   * cost a full scene traversal every frame would be a real regression in the
+   * render loop for a few pixels of placement.
+   *
+   * Returns null while he has no resolved position — before the model loads.
+   */
+  screenRect(): { left: number; top: number; right: number; bottom: number; width: number; height: number } | null {
+    if (!this.rig) return null
+    const cam = this.stage.camera
+    const base = this.track ? this.flightSample.pos : this.anchor
+    const toScreen = (v: Vector3) => {
+      const p = v.clone().project(cam)
+      return {
+        x: ((p.x + 1) / 2) * viewWidth(),
+        y: ((1 - p.y) / 2) * canvasHeight(),
+      }
+    }
+    const feet = toScreen(base)
+    const head = toScreen(new Vector3(base.x, base.y, base.z + BODY_H))
+    const height = Math.abs(feet.y - head.y)
+    // Width from the same projection ratio rather than a second unproject: his
+    // reference body is 1.75 wide against 2.4 tall, and at this distance the
+    // perspective difference across that span is smaller than the approximation
+    // already accepted above.
+    const width = height * (BODY_W / BODY_H)
+    const top = Math.min(feet.y, head.y)
+    const left = feet.x - width / 2
+    return { left, top, right: left + width, bottom: top + height, width, height }
   }
 
   getState() {

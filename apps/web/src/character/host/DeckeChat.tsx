@@ -68,6 +68,8 @@ export type ChatMessage = {
 
 export function DeckeChat({
   open,
+  minimised,
+  onExpand,
   onClose,
   decke,
   messages,
@@ -75,6 +77,9 @@ export function DeckeChat({
   busy,
 }: {
   open: boolean
+  /** He has gone out onto the page; the transcript gets out of the way. */
+  minimised: boolean
+  onExpand: () => void
   onClose: () => void
   decke: DeckEInstance | null
   messages: ChatMessage[]
@@ -107,11 +112,11 @@ export function DeckeChat({
   //
   // Sending him home releases the pin first. Only then is it safe to freeze.
   useEffect(() => {
-    if (!open) return
+    if (!open || minimised) return
     decke?.returnHome()
     lockScroll()
     return () => unlockScroll()
-  }, [open, decke])
+  }, [open, minimised, decke])
 
   // Escape closes; focus lands in the composer.
   useEffect(() => {
@@ -148,6 +153,36 @@ export function DeckeChat({
   )
 
   if (!open) return null
+
+  // MINIMISED: the conversation does not vanish while he is out on the page —
+  // it collapses to a bar showing the last thing the READER said, which is the
+  // context they need to make sense of what he is doing. What HE says goes to
+  // the speech bubble beside him instead, so the words are where the action is.
+  //
+  // No scrim: the page has to be visible for showing them something on it to
+  // mean anything, and the scroll lock is released for the same reason — he may
+  // be driving the page under himself.
+  if (minimised) {
+    const lastAsked = [...messages].reverse().find((m) => m.role === 'user')?.text
+    return (
+      <button
+        type="button"
+        onClick={onExpand}
+        aria-label="Back to the conversation"
+        className={[
+          'fixed inset-x-[12px] bottom-[12px] z-[25] flex items-center gap-[10px]',
+          'rounded-full border border-border-default bg-surface-raised/95 px-[16px] py-[10px]',
+          'text-left shadow-xl backdrop-blur-sm nav:inset-x-auto nav:right-[24px] nav:w-[420px]',
+          'motion-safe:animate-[decke-chat-in_220ms_cubic-bezier(0.2,0.9,0.3,1)_both]',
+        ].join(' ')}
+      >
+        <span className="min-w-0 flex-1 truncate text-[13px] text-text-muted">
+          {lastAsked ? `“${lastAsked}”` : 'Back to the conversation'}
+        </span>
+        <Icon name="chevron-down" size={16} className="shrink-0 rotate-180 text-icon-muted" />
+      </button>
+    )
+  }
 
   return (
     <>
