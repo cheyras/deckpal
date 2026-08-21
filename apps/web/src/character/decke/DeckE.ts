@@ -84,11 +84,11 @@ import { blenderToThree, BODY_H, BODY_W, DEG, MOUTH } from './constants'
 import { sampleTrack, solveFlight, type FlightSample, type FlightTrack } from './flight'
 import {
   homeCorner,
-  parkBeside,
   parkOn,
   resolveRect,
   shapeFor,
   ridesThePage,
+  solvePark,
   type Depth,
   type FlyTarget,
   type RectLike,
@@ -280,7 +280,27 @@ export type DeckEOptions = {
  */
 type Station =
   | { kind: 'home' }
-  | { kind: 'element'; target: FlyTarget; depth: Depth; side: Side }
+  | {
+      kind: 'element'
+      target: FlyTarget
+      depth: Depth
+      side: Side
+      /**
+       * ON the target rather than beside it — `flyTo`'s `centre` option, kept.
+       *
+       * It has to live here and not just in the flight, and leaving it out was a
+       * bug with a long fuse: `centre` was honoured for the LAUNCH and forgotten
+       * by the re-solve, so he flew to the middle of his mark and then the first
+       * resize, scroll or dirty-station poll quietly moved him beside it. On a
+       * target in the middle of the page that reads as a small drift. On one
+       * against the left edge it is not small at all — `parkBeside` has an edge
+       * exception that flips him to the far side of anything he would otherwise
+       * hang off the screen for, so a mark in the bottom-left corner threw him a
+       * body's width to the RIGHT, on top of the thing the mark existed to keep
+       * him clear of.
+       */
+      centre: boolean
+    }
 
 type Transition = { from: Pose; started: number; durationMs: number } | null
 
@@ -1097,9 +1117,7 @@ export class DeckE {
 
     const camera = this.stage.camera
     const baseDistance = camera.position.length()
-    const park = opts.centre
-      ? { position: parkOn(camera, rect.left + rect.width / 2, rect.top + rect.height / 2, { depth, baseDistance }), facing: this.facingTarget }
-      : parkBeside(camera, rect, { depth, side, baseDistance })
+    const park = solvePark(camera, rect, { depth, side, baseDistance, centre: opts.centre })
 
     // SCROLL INTENT, computed before the launch that consumes it.
     //
@@ -1135,8 +1153,10 @@ export class DeckE {
     // lands on one of his two authored directions rather than somewhere in
     // between — "he should still have his standard directions, so either this or
     // this."
-    this.setFacing(park.facing)
-    this.station = { kind: 'element', target, depth, side }
+    // A centre park returns no facing — a point has no inward — so his current
+    // heading is re-asserted rather than replaced.
+    this.setFacing(park.facing ?? this.facingTarget)
+    this.station = { kind: 'element', target, depth, side, centre: !!opts.centre }
 
     // Presenting is a TWO-part signal: he stands beside the thing, and the thing
     // is ringed. Doing only the first is a robot standing near a box. Ringing on
@@ -1232,12 +1252,15 @@ export class DeckE {
     // nobody had to force a layout to get. See `syncPinned`.
     const rect = known ?? resolveRect(this.station.target)
     if (!rect) return null
-    const park = parkBeside(camera, rect, {
+    // THE SAME SOLVE `flyTo` USED TO GET HERE — literally the same function, so
+    // a re-solve reproduces the launch rather than quietly replacing it with a
+    // different intent. See `solvePark`.
+    return solvePark(camera, rect, {
       depth: this.station.depth,
       side: this.station.side,
       baseDistance,
+      centre: this.station.centre,
     })
-    return { position: park.position, facing: park.facing }
   }
 
   /**
