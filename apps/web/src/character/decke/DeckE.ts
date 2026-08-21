@@ -85,6 +85,7 @@ import { sampleTrack, solveFlight, type FlightSample, type FlightTrack } from '.
 import {
   homeCorner,
   parkBeside,
+  parkOn,
   resolveRect,
   shapeFor,
   ridesThePage,
@@ -200,6 +201,18 @@ export type FlyOptions = {
   highlight?: boolean
   /** A state to enter once he lands — `point`, `card_show`, `happy`. */
   then?: string
+  /**
+   * Stand ON the target rather than beside it.
+   *
+   * The default is to park OUTBOARD, which is what presenting an element wants:
+   * the element ends up between him and the middle of the page. A container he
+   * is meant to sit INSIDE wants the opposite, and the outboard gap pushes him
+   * halfway out of it — measured at ~150 px outside a 393 px chat panel.
+   *
+   * Only meaningful for a point or a rect whose centre is the intended spot.
+   * Facing is left alone, because a point has no inward to face.
+   */
+  centre?: boolean
 }
 
 export type DeckEOptions = {
@@ -1017,7 +1030,9 @@ export class DeckE {
 
     const camera = this.stage.camera
     const baseDistance = camera.position.length()
-    const park = parkBeside(camera, rect, { depth, side, baseDistance })
+    const park = opts.centre
+      ? { position: parkOn(camera, rect.left + rect.width / 2, rect.top + rect.height / 2, { depth, baseDistance }), facing: this.facingTarget }
+      : parkBeside(camera, rect, { depth, side, baseDistance })
 
     this.launch(park.position)
     // Hold facing steady for the duration of a presentation; turning mid-flight

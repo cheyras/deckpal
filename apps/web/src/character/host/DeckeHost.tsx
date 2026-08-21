@@ -31,6 +31,9 @@ import { useRouterState } from '@tanstack/react-router'
 import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
 import { isChromelessPathname } from '../../lib/landingRoute'
 import { deckeEntitled } from './entitlement'
+import { DeckeButton } from './DeckeButton'
+import { DeckeChat, STAND_DESKTOP, STAND_MOBILE } from './DeckeChat'
+import { useDeckeChat } from './useDeckeChat'
 import {
   acquireDeckE,
   loadDeckeRuntime,
@@ -39,8 +42,19 @@ import {
   type DeckEInstance,
 } from './runtime'
 
-/** His on-screen height, matching `/dev/decke` so the two cannot drift.
- *  300 px is right on a laptop and swallows a 390 px phone, so it scales. */
+/**
+ * HOW TALL HE IS, and this is the ONLY place that decides.
+ *
+ * ONE SIZE, INCLUDING IN CHAT. An earlier version shrank him for the chat panel
+ * and it was a mistake twice over: two writers fought over the value, and more
+ * fundamentally `setCharacterHeight` DOLLIES THE CAMERA rather than scaling him,
+ * so changing it moves the pixel-to-world mapping for the whole scene and any
+ * position solved at the old distance lands somewhere else. He keeps his size
+ * and moves on the page instead.
+ *
+ * 300 px suits a laptop and swallows a 390 px phone, so it scales with the
+ * viewport.
+ */
 function characterHeightFor(w: number, h: number): number {
   return Math.round(Math.min(300, h * 0.3, w * 0.55))
 }
@@ -66,11 +80,14 @@ export function DeckeHost() {
   const [entitled, setEntitled] = useState(false)
   const [phase, setPhase] = useState<Phase>('idle')
   const [beacon, setBeacon] = useState<Beacon | null>(null)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [live, setLive] = useState<DeckEInstance | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   /** A zero-width `100svh` strut. The always-visible height has to come from
    *  CSS, not `innerHeight` — see the measurement note below. */
   const probeRef = useRef<HTMLDivElement | null>(null)
   const deckeRef = useRef<DeckEInstance | null>(null)
+  const chat = useDeckeChat(live)
 
   useEffect(() => {
     let live = true
@@ -97,6 +114,44 @@ export function DeckeHost() {
     const t = setTimeout(start, 1500)
     return () => clearTimeout(t)
   }, [entitled, chromeless, phase])
+
+  // OPENING THE CHAT MOVES HIM, and that is all it does to him.
+  //
+  // He keeps his size — see `characterHeightFor`. He flies to a spot on the page
+  // beside the panel, at his normal scale, using the same `flyTo` that parks him
+  // next to a deck list. The canvas sits above the scrim, so he stays sharp
+  // while the page behind him blurs: he has stepped forward to talk.
+  //
+  // `centre: true` because a stand point is a place to BE, not a thing to
+  // present. The default parks him outboard of a target with a gap, which is
+  // right for pointing at an element and wrong for "stand here".
+  //
+  // The 320 ms wait is the panel's entrance: `getBoundingClientRect` on an
+  // element mid-transform reports where it IS, not where it lands, and the rAF
+  // after it lets any dolly change settle before the park is solved against it.
+  useEffect(() => {
+    const d = deckeRef.current
+    if (!d) return
+    if (!chatOpen) {
+      d.returnHome()
+      return
+    }
+    let raf = 0
+    const t = window.setTimeout(() => {
+      raf = requestAnimationFrame(() => {
+        const desktop = window.innerWidth >= 1068
+        const at = desktop ? STAND_DESKTOP : STAND_MOBILE
+        d.flyTo(
+          { x: window.innerWidth * at.x, y: window.innerHeight * at.y },
+          { depth: 'foreground', highlight: false, centre: true },
+        )
+      })
+    }, 320)
+    return () => {
+      window.clearTimeout(t)
+      cancelAnimationFrame(raf)
+    }
+  }, [chatOpen, live])
 
   // ONE BOOLEAN, not `phase`, drives the setup effect.
   //
@@ -201,7 +256,10 @@ export function DeckeHost() {
       arm()
 
       decke.start()
-      if (!cancelled) setPhase('ready')
+      if (!cancelled) {
+        setPhase('ready')
+        setLive(decke)
+      }
 
       // A handle for verification harnesses, DEV ONLY — stripped from the
       // production bundle by the constant folding on `import.meta.env.DEV`.
@@ -220,6 +278,7 @@ export function DeckeHost() {
       ro?.disconnect()
       if (onDpr) dprQuery?.removeEventListener('change', onDpr)
       deckeRef.current = null
+      setLive(null)
       // Deferred inside `releaseDeckE`, so StrictMode's synchronous remount
       // reclaims the same controller instead of reloading the character.
       releaseDeckE(canvas)
@@ -250,6 +309,25 @@ export function DeckeHost() {
           middle — the character himself is rendered into that rectangle by a
           second scissored pass on the same canvas. It is a hole, not a picture. */}
       <DeckeBeacon beacon={beacon} onClick={() => deckeRef.current?.scrollIntoView()} />
+
+      {/* The entry point. Hidden while the chat is open, because he has left
+          the button and is standing in the panel — leaving a second copy of him
+          in the corner would be two Deck-Es, which is the exact thing the whole
+          well design exists to avoid. */}
+      <DeckeButton
+        hidden={chatOpen}
+        onOpen={() => setChatOpen(true)}
+        onWarm={() => setPhase((p) => (p === 'idle' ? 'loading' : p))}
+      />
+
+      <DeckeChat
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        decke={live}
+        messages={chat.messages}
+        onSend={chat.send}
+        busy={chat.busy}
+      />
     </>
   )
 }
