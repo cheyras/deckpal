@@ -227,6 +227,18 @@ export type FlyOptions = {
    * caller decides; `flyTo` does not guess.
    */
   via?: 'background'
+  /**
+   * Scroll the page under him while he travels, so the net effect is HIM moving
+   * through the page rather than the page jumping and him following.
+   *
+   * Only meaningful for a target that is off-screen or near an edge; a target
+   * already comfortably in view needs no scroll and gets none.
+   *
+   * A USER SCROLL CANCELS IT. Native smooth scrolling was chosen everywhere else
+   * in this file precisely because it is interruptible, and a driven scroll that
+   * fights the reader's own wheel is worse than no scroll at all.
+   */
+  scrollWith?: boolean
 }
 
 export type DeckEOptions = {
@@ -1048,6 +1060,19 @@ export class DeckE {
       ? { position: parkOn(camera, rect.left + rect.width / 2, rect.top + rect.height / 2, { depth, baseDistance }), facing: this.facingTarget }
       : parkBeside(camera, rect, { depth, side, baseDistance })
 
+    // SCROLL INTENT, computed before the launch that consumes it.
+    //
+    // Only when the destination is actually out of comfortable view: a target
+    // already on screen needs no scroll, and driving one anyway makes a short
+    // hop lurch. `scrollToCentre` clamps to the document's own range, so a
+    // target near the top or bottom simply gets as centred as it can.
+    if (opts.scrollWith) {
+      const cy = rect.top + rect.height / 2
+      const h = window.innerHeight
+      const offscreen = cy < h * 0.2 || cy > h * 0.8
+      this.pendingScroll = offscreen ? scrollToCentre(cy, scrollableAncestor(document.body)) : null
+    }
+
     // VIA THE BACKGROUND: queue the destination, fly the waypoint first. The
     // waypoint is directly above the destination's column on the far plane, so
     // the second leg comes straight in rather than crossing twice.
@@ -1470,6 +1495,34 @@ export class DeckE {
     if (moved) this.unpin()
   }
 
+  /**
+   * Move the page under him, and stop the moment the reader disagrees.
+   *
+   * The eased position is written every frame from the flight's own progress,
+   * so the scroll and the character share one clock — which is what makes the
+   * page appear to move BECAUSE he is moving, rather than alongside him.
+   *
+   * THE CANCEL IS THE IMPORTANT HALF. Between frames, `window.scrollY` should
+   * equal what this last wrote; anything else is the reader's wheel, their
+   * trackpad, or a keyboard, and a driven scroll that fights them is worse than
+   * none. `DeckE.scrollIntoView` uses native smooth scrolling for exactly this
+   * reason, and it is not available here because a native scroll cannot be
+   * slaved to a flight's progress.
+   */
+  private driveScroll(t: number) {
+    const d = this.scrollDrive
+    if (!d) return
+    if (Math.abs(window.scrollY - d.own) > 2) {
+      this.scrollDrive = null
+      return
+    }
+    // Eased on the same curve the flight uses, so neither leads the other.
+    const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+    const y = Math.round(d.from + (d.to - d.from) * Math.min(1, Math.max(0, e)))
+    d.own = y
+    window.scrollTo(0, y)
+  }
+
   private syncStation() {
     if (!this.stationDirty) return
     this.stationDirty = false
@@ -1496,6 +1549,17 @@ export class DeckE {
    */
   private legQueue: Vector3[] = []
 
+  /**
+   * The page scroll being driven by the current flight, if any.
+   *
+   * `from`/`to` are absolute scroll offsets; `own` is the last value this code
+   * wrote. Anything that moves the scroll away from `own` between frames was
+   * the reader, and the drive gives up immediately — see `driveScroll`.
+   */
+  private scrollDrive: { from: number; to: number; own: number } | null = null
+  /** Set by `flyTo` immediately before `launch`, consumed there. */
+  private pendingScroll: number | null = null
+
   private launch(to: Vector3) {
     // THE SINGLE CHOKE POINT for every flight, which makes it the right place to
     // give the page back. A flight is a world-space move on every frame, so
@@ -1514,6 +1578,17 @@ export class DeckE {
     })
     this.trackStart = this.elapsed
     this.rampMod(TRAVEL_MOD_MS)
+    // A queued leg inherits the drive already in progress; only a fresh flight
+    // starts or clears one, and `flyTo` sets it just before calling in.
+    if (!this.legQueue.length && this.pendingScroll === null) this.scrollDrive = null
+    if (this.pendingScroll !== null) {
+      const from = window.scrollY
+      this.scrollDrive =
+        Math.abs(this.pendingScroll - from) < 8
+          ? null
+          : { from, to: this.pendingScroll, own: from }
+      this.pendingScroll = null
+    }
     this.anchor.copy(to)
     this.trackDest.copy(to)
     this.trackShift.set(0, 0, 0)
@@ -2008,6 +2083,7 @@ export class DeckE {
       this.pose.twist += f.twist
       // The flight lid can never be closed by an expression key — max, not add.
       this.pose.mouth = Math.max(this.pose.mouth, f.mouth)
+      this.driveScroll(tf / this.track.durationMs)
       if (tf >= this.track.durationMs) {
         this.track = null
         // MID-JOURNEY LEGS DO NOT ARRIVE. Only the last one does — `onArrive`

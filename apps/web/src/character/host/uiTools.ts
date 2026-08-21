@@ -107,6 +107,7 @@ export async function runUiTool(
             highlight: input.highlight !== false,
             then: input.point === true ? 'point' : undefined,
             via: far ? 'background' : undefined,
+            scrollWith: true,
           },
         )
         return { ok: true }
@@ -184,7 +185,7 @@ function travelAfterRoute(
       // him travelling rather than as him teleporting.
       ctx.decke.flyTo(
         { selector },
-        { depth: 'foreground', highlight: true, then: 'point', via: 'background' },
+        { depth: 'foreground', highlight: true, then: 'point', via: 'background', scrollWith: true },
       )
       resolve({ ok: true })
       return true
