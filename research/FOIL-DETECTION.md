@@ -293,3 +293,115 @@ overlapping confidence intervals; the ranking is indicative, not established.
 What would settle it: more **cards** (three cannot tell whether Kakuna is the
 exception or the rule), and more **lighting conditions per card**, captured
 through the app's own scan guide so the framing matches production.
+
+---
+
+# Round 3 — the layout is the control
+
+Two research passes (CV/optics literature + prior art; browser speech) plus a
+correction to something I had recorded as fact.
+
+## I had the foil layout backwards
+
+Round 2 recorded "SV-era reverse holo foils the WHOLE card, art window included",
+from reading sparkle across the artwork in the Weedle footage. **That was wrong.**
+Per Bulbapedia's taxonomy, and confirmed by measurement here:
+
+- **Reverse Holo** — foil on the card BODY, artwork excluded
+- **Holofoil** — foil on the ARTWORK, body excluded
+- **Normal** — neither
+
+What I read as sparkle on the art is the clear varnish, which coats *both*
+printings and is therefore common-mode. The measurable difference is in the body.
+
+**Four EX-era sets invert this** (EX Hidden Legends, FireRed & LeafGreen, Team
+Rocket Returns, Deoxys put reverse foil inside the artwork). The set is known from
+the hash, so that is an era→mask lookup, not a defect.
+
+## Why this matters: the layout gives an in-frame control
+
+Every earlier failure came from comparing a number against a value measured at a
+different time, under a different light. The layout removes that. Body and art are
+in the **same frame**, on the **same object**, under the **same** illuminant,
+exposure and sensor gain — so illuminant colour, brightness, camera gain and the
+varnish all cancel between them.
+
+## The measurement
+
+White-balance each frame **against the catalog image** — for a known card the
+reference is effectively a colour chart, which turns illuminant estimation from a
+hard inverse problem into a least-squares fit. Then per region compute the
+**signed** shift of saturation from the catalog's own, excluding clipped pixels
+(glare bleaches; it does not inform):
+
+    exBody = mean( sat(observed) − sat(catalog) )  over the card body
+    exArt  = same, over the art window
+    exDiff = exBody − exArt
+
+Signed, not clipped: a foiled region is **desaturated** relative to its printed
+albedo because an achromatic highlight is being added to it. An earlier clipped
+version discarded exactly the half that carries the signal.
+
+| Feature | fixed ZERO threshold, no calibration | fixed per-card threshold | leave-one-lighting-out |
+|---|---|---|---|
+| **`exBody`** | **15/17** | 2/3 cards | **14/17** |
+| `exDiff` | 11/17 | 2/3 cards | 13/17 |
+| `moveRatio` (body÷art temporal) | 8/17 | 1/3 | 8/17 |
+| `relSd` (round 2 best) | — | 1/3 | 13/17 |
+| `corrLS` (round 1, on clean data) | — | 0/3 | 9/17 |
+
+Kakuna and Ninetales separate under a fixed per-card threshold with clear gaps
+(0.028, 0.049) — **including Kakuna, which broke every previous approach.** Both
+of `exBody`'s errors are Weedle, the one unsleeved card.
+
+**Do not over-read the 15/17 fixed-zero result.** Zero works because the per-card
+offset happens to sit above it for normals on these three cards; there is nothing
+principled about the value. The defensible framings are the per-card threshold, or
+`exDiff` with the art window as the in-frame control.
+
+## Confirmed by the visualisation
+
+Per-pixel shift maps show the body region moving between printings while border
+artifacts stay outside the masked area, and the art window reading uniformly
+offset in all four cases — global white balance, which is what `exDiff` cancels.
+`research/foil-harness/satviz.py`.
+
+## What the prior art says
+
+**Nobody has shipped this.** TCGplayer, ManaBox, Delver Lens and Ludex all expose
+a manual printing control set *before* scanning. TAG Grading has the best optical
+rig in the industry — photometric stereo, multi-angle LEDs — and still routes
+variant identification to humans.
+
+The one granted patent that claims automatic foil detection, **US 12,400,308 B2**
+(TCG Machines, Aug 2025), works by putting the card in a **darkened chamber** with
+a point source outside the camera's field of view and counting bright pixels in
+HSV. It works by killing ambient light. It is also binary foil/non-foil.
+
+So a manual toggle is the industry norm, not a shortfall — and the **holo vs
+reverse-holo three-way split appears genuinely unclaimed**.
+
+The transferable literature is ID-document / optically-variable-device
+verification, which operates on phone video under deliberately varied lighting.
+Its unanimous conclusion matches round 2's: the signal is **temporal and
+multi-frame in a rectified frame**, not single-image. Public dataset: MIDV-Holo
+(700 clips, iPhone 12 / Galaxy S10, five lighting conditions, **5 fps**).
+
+## Two facts that constrain any future approach
+
+- **SV/ME-era reverse holos use mirror (metallic) foil, not diffractive.** Rainbow
+  dispersion is therefore *absent in the newest and most-scanned sets*. Do not
+  build on hue.
+- **Torch/flash is Chrome-on-Android only.** `applyConstraints({torch:true})` is
+  unsupported on iOS and not planned, so the commercially proven approach —
+  controlled point-source illumination — is unavailable to the primary user.
+
+## Free improvements not yet made
+
+1. **Stop feeding the detector JPEG.** q0.85 at 4:2:0 halves chroma resolution,
+   and every feature that works here is chroma-based. `drawImage` + `getImageData`
+   gives raw RGBA for free.
+2. **Raise the frame rate.** The capture loop samples at ~1.4 fps; the OVD field
+   uses 5 fps, and the temporal features are the ones that generalise.
+3. **Use the TCGdex `variants` map.** Many cards have no reverse printing at all,
+   so there is no decision to make — pure accuracy, zero optics.
