@@ -62,6 +62,16 @@ jobs:
       - name: Deck-E screen schema tests (pure, no DB)
         run: pnpm --filter deckpal-api test:decke
 
+      # Every serverless function must LOAD. The unit tests exercise the pieces
+      # a function imports and never the function itself, so a package that is
+      # imported but not declared resolves locally by hoisting and 500s in
+      # production. That shipped once; this is the guard.
+      - name: Serverless functions load and export a handler
+        run: |
+          pnpm --filter deckpal-api build
+          pnpm --filter deckpal-mcp build
+          node scripts/check-functions.mjs
+
       # Deck-E's rig, playbook and procedural layers, checked against the
       # generated fixtures and against the glb's own bind pose. These existed
       # before this step did and were only ever run by hand -- which is how a
