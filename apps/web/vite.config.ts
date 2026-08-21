@@ -200,6 +200,37 @@ export default defineConfig(async ({ command }) => {
       // tsc is intentionally kept out of the build path (Rolldown/Vite 8).
       target: 'es2022',
       chunkSizeWarningLimit: 300,
+      rollupOptions: {
+        output: {
+          // ONE CHUNK FOR THE CHARACTER, AND IT IS NAMED.
+          //
+          // `globIgnores` below excludes the character from the service worker's
+          // precache BY NAME (`assets/Decke-*.js`), and `check-precache.mjs`
+          // gate ONE fails the build if a precached script CONTAINS three.js —
+          // by content, precisely because the name-based exclusion is fragile.
+          //
+          // It became fragile the moment a second module lazily imported the
+          // engine. `/dev/decke` was the only importer, so its route chunk was
+          // `Decke-<hash>.js` and the glob matched. The persistent host is a
+          // second dynamic importer of the same modules, so the bundler hoists
+          // three.js and `character/decke/**` into a SHARED chunk whose name it
+          // picks — and a shared chunk named anything else is 945 kB of three.js
+          // in every visitor's precache, which is the exact failure the gate's
+          // own header comment predicts.
+          //
+          // Naming the group pins it: `[name]` resolves to `Decke-runtime`, the
+          // emitted file is `assets/Decke-runtime-<hash>.js`, and it matches the
+          // glob no matter how many modules import the engine from now on.
+          advancedChunks: {
+            groups: [
+              {
+                name: 'Decke-runtime',
+                test: /[\\/]node_modules[\\/]three[\\/]|[\\/]src[\\/]character[\\/]decke[\\/]/,
+              },
+            ],
+          },
+        },
+      },
     },
   }
 })

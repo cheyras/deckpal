@@ -162,7 +162,22 @@ function NavRow({
   }
   if (item.to) {
     return (
-      <Link to={item.to} className="block">
+      // `data-decke-landmark` is what makes this reachable by Deck-E, and its
+      // ABSENCE is what makes everything else unreachable. He resolves selectors
+      // through an allowlist keyed on this attribute, so an element without it
+      // cannot be travelled to, ringed or clicked however a model phrases the
+      // request — which matters because the text he reads (card names, deck
+      // descriptions, lists other people shared) is attacker-influenceable.
+      //
+      // Nav items carry it because "where do I find my decks" is the question
+      // this feature exists to answer by showing rather than telling.
+      <Link
+        to={item.to}
+        className="block"
+        data-decke-landmark={`[data-decke-nav="${item.to}"]`}
+        data-decke-nav={item.to}
+        data-decke-label={`the ${item.label} link in the sidebar`}
+      >
         {body}
       </Link>
     )

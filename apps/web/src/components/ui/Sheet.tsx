@@ -74,7 +74,21 @@ function prefersReducedMotion() {
 let lockCount = 0
 let restore: (() => void) | null = null
 
-function lockScroll() {
+/**
+ * EXPORTED for Deck-E's chat overlay, which freezes the page the same way and
+ * must share this refcount rather than keep its own. Two independent locks race
+ * on `body.style` and the second one to unlock restores a stale scroll position.
+ *
+ * Two things a second caller has to know. It captures `window.scrollY` at lock
+ * time and pins the body with `position: fixed`, so **`window.scrollY` reads 0
+ * for as long as the lock is held** — anything computing a delta against a
+ * previously-recorded scroll offset (the character's pinned-station drift, for
+ * one) must be released BEFORE locking. And `restore()` closes over the scroll
+ * position captured at lock time, so a lock/unlock/lock cycle around a
+ * programmatic scroll re-captures correctly, but reusing a stale `restore`
+ * would not.
+ */
+export function lockScroll() {
   if (lockCount++ > 0) return
   const { body } = document
   const scrollY = window.scrollY
@@ -101,7 +115,7 @@ function lockScroll() {
   }
 }
 
-function unlockScroll() {
+export function unlockScroll() {
   if (--lockCount > 0) return
   lockCount = 0
   restore?.()

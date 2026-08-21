@@ -57,6 +57,11 @@ jobs:
       - name: Image path parsing + traversal rejection tests (pure, no DB)
         run: pnpm --filter deckpal-api test:images
 
+      # Deck-E's server surface: the ad-hoc screen schema, whose whole guarantee
+      # is that a model cannot express markup through it. Pure, no DB, no model.
+      - name: Deck-E screen schema tests (pure, no DB)
+        run: pnpm --filter deckpal-api test:decke
+
       # Deck-E's rig, playbook and procedural layers, checked against the
       # generated fixtures and against the glb's own bind pose. These existed
       # before this step did and were only ever run by hand -- which is how a

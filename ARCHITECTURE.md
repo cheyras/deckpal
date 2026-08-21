@@ -500,9 +500,10 @@ visitor's cache on first load for a route exactly one account can open.
 `vite.config.ts` excludes `models/**` and `assets/Decke-*.js`; measured, the
 precache is unchanged at 25 entries / 1964 KiB with the route shipping.
 
-Deck-E is a stylized robot deck box who will eventually be the AI assistant's
-body: the LLM drives his animation from the conversation, and when he presents
-part of the UI he parks beside that element facing inward. He is authored in
+Deck-E is a stylized robot deck box who IS the AI assistant's body: the LLM
+drives his animation from the conversation, and when he presents part of the UI
+he parks beside that element facing inward. §15b covers that layer — the runtime
+below is only the body. He is authored in
 Blender in a separate working directory (`~/Documents/DeckPal Character`, which
 carries its own wiki) and re-implemented here.
 
@@ -639,6 +640,69 @@ first, polar, layout failed at five), no card stands in front of his face, and n
 gaze flit ever lands closer than the gate to the one before it (the schedules
 were rebuilding from scratch every ten minutes, which made the gate a property of
 one generation rather than of the run).
+
+
+## 15b. Deck-E — the assistant layer
+
+**Status: built, verified against the live gateway, NOT yet deployed.** It needs
+`DECKE_VERCEL_AI_GATEWAY_KEY` in the Vercel project; it fails closed without one
+and reports its own readiness on `/api/health`.
+
+Where §15 is the body, this is everything that decides what the body does. Three
+boundaries carry the design.
+
+**The command channel is invisible.** The model never emits animation syntax into
+its prose. It calls an `express` tool, whose `execute` validates the commands and
+writes them to a **transient** data part — `writer.write({ type: 'data-decke',
+…, transient: true })`. Transient parts reach the browser and never enter message
+history, so there is no token for a half-parsed command to leak through and
+nothing for the next turn to imitate. The same mechanism carries `showScreen`.
+
+**Everything the model can point at is allowlisted.** `uiTools.resolveTarget`
+resolves a selector only if it lands inside `[data-decke-landmark]`, and
+navigation only to `ROUTE_ALLOWLIST`. The screen palette is the same rule applied
+to markup: `screens.ts` defines a closed set of block kinds whose props are
+enums, numbers and plain strings, and `DeckeScreen.tsx` is a switch that renders
+`null` for anything it does not recognise. There is no field anywhere in that
+schema that carries HTML, a class name, a style, a URL or a selector — so it is
+not a sanitised injection surface, it is not an injection surface.
+
+**One controller, one writer.** `runtime.ts` holds a single WebGL context with
+deferred disposal so React StrictMode's double-mount does not build two. Exactly
+one place computes his height, because two writers fought over it and the
+ResizeObserver won.
+
+```
+apps/web/src/character/host/
+  DeckeHost.tsx    mounted beside the shell, so he survives route changes
+  DeckeChat.tsx    the overlay; messages carry an optional composed screen
+  useDeckeChat.ts  hand-rolled SSE reader, client-tool execution, one round
+  uiTools.ts       flyTo / highlight / goTo / scrollToMe + the allowlists
+  DeckeScreen.tsx  the renderer half of the screen palette
+  DeckeBubble.tsx  speech bubble placement — never covers what he highlights
+  ripSession.ts    pack-rip dedup state machine (pure)
+  ripCommit.ts     cardId -> variantId, one batched write
+  ripPresence.ts   his behaviour during a rip; every export a no-op if unloaded
+  runtime.ts       lazy engine load + single-controller guard
+  entitlement.ts   the single gate
+
+apps/api/src/decke/   models (routing), prompt, tools, screens, gate
+api/chat.mjs          the standalone serverless brain
+```
+
+`api/chat.mjs` is deliberately standalone rather than a route on the Express app:
+production needs streaming under the RLS-authenticated request, and the two did
+not compose. It is a web-standard handler using `createGateway({ apiKey })` —
+passing the key as a header is silently ignored and bills the wrong account.
+
+The turn ends when one step both **spoke and acted**, where acting is `express`
+or `showScreen`. Stopping on the tool call alone silenced him, because he does
+not reliably speak before he moves; leaving it out entirely made him deliver two
+near-identical closing lines. Both were measured.
+
+**Not shipped:** foil/variant auto-detection. `research/FOIL-DETECTION.md` has
+the measurement — the signal is real but not lighting-invariant, so the printing
+is a one-tap reader choice in the rip list instead.
 
 ---
 

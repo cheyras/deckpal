@@ -80,11 +80,12 @@ import {
   windowClip,
   type SustainSpec,
 } from './sustain'
-import { blenderToThree, DEG, MOUTH } from './constants'
+import { blenderToThree, BODY_H, BODY_W, DEG, MOUTH } from './constants'
 import { sampleTrack, solveFlight, type FlightSample, type FlightTrack } from './flight'
 import {
   homeCorner,
   parkBeside,
+  parkOn,
   resolveRect,
   shapeFor,
   ridesThePage,
@@ -200,6 +201,44 @@ export type FlyOptions = {
   highlight?: boolean
   /** A state to enter once he lands — `point`, `card_show`, `happy`. */
   then?: string
+  /**
+   * Stand ON the target rather than beside it.
+   *
+   * The default is to park OUTBOARD, which is what presenting an element wants:
+   * the element ends up between him and the middle of the page. A container he
+   * is meant to sit INSIDE wants the opposite, and the outboard gap pushes him
+   * halfway out of it — measured at ~150 px outside a 393 px chat panel.
+   *
+   * Only meaningful for a point or a rect whose centre is the intended spot.
+   * Facing is left alone, because a point has no inward to face.
+   */
+  centre?: boolean
+  /**
+   * Go via the background plane instead of straight there.
+   *
+   * Two legs: out to the far plane above the destination's column, then in to
+   * the destination. It reads as him pulling back, crossing, and coming in —
+   * which is what a character moving a long way across a page should look like,
+   * and what a straight line between two foreground points never does.
+   *
+   * NOT free, and not always right. A short hop is worse this way: the depth
+   * change is 24-27 world units against a same-depth leg of under 3, so a
+   * two-leg trip across a card grid spends most of its time going nowhere. The
+   * caller decides; `flyTo` does not guess.
+   */
+  via?: 'background'
+  /**
+   * Scroll the page under him while he travels, so the net effect is HIM moving
+   * through the page rather than the page jumping and him following.
+   *
+   * Only meaningful for a target that is off-screen or near an edge; a target
+   * already comfortably in view needs no scroll and gets none.
+   *
+   * A USER SCROLL CANCELS IT. Native smooth scrolling was chosen everywhere else
+   * in this file precisely because it is interruptible, and a driven scroll that
+   * fights the reader's own wheel is worse than no scroll at all.
+   */
+  scrollWith?: boolean
 }
 
 export type DeckEOptions = {
@@ -740,6 +779,47 @@ export class DeckE {
     return this.states ? [...this.states.keys()].filter((n) => n !== 'talk') : []
   }
 
+  /**
+   * Roughly where he is on screen, in viewport pixels.
+   *
+   * For callers that need to position DOM beside him — the speech bubble, today.
+   * Deliberately APPROXIMATE and deliberately cheap: it projects his anchor and
+   * the top of his reference body, and takes `BODY_W` as the width. It is not
+   * his silhouette, which is a good deal larger once the bolts, the open lid and
+   * the deformation field are counted, and which would cost a per-frame bounds
+   * computation over every mesh to know exactly.
+   *
+   * That is the right trade here. A bubble placed against a box that is a little
+   * smaller than he is sits slightly closer to him than intended; a bubble that
+   * cost a full scene traversal every frame would be a real regression in the
+   * render loop for a few pixels of placement.
+   *
+   * Returns null while he has no resolved position — before the model loads.
+   */
+  screenRect(): { left: number; top: number; right: number; bottom: number; width: number; height: number } | null {
+    if (!this.rig) return null
+    const cam = this.stage.camera
+    const base = this.track ? this.flightSample.pos : this.anchor
+    const toScreen = (v: Vector3) => {
+      const p = v.clone().project(cam)
+      return {
+        x: ((p.x + 1) / 2) * viewWidth(),
+        y: ((1 - p.y) / 2) * canvasHeight(),
+      }
+    }
+    const feet = toScreen(base)
+    const head = toScreen(new Vector3(base.x, base.y, base.z + BODY_H))
+    const height = Math.abs(feet.y - head.y)
+    // Width from the same projection ratio rather than a second unproject: his
+    // reference body is 1.75 wide against 2.4 tall, and at this distance the
+    // perspective difference across that span is smaller than the approximation
+    // already accepted above.
+    const width = height * (BODY_W / BODY_H)
+    const top = Math.min(feet.y, head.y)
+    const left = feet.x - width / 2
+    return { left, top, right: left + width, bottom: top + height, width, height }
+  }
+
   getState() {
     return {
       state: this.current,
@@ -1017,9 +1097,39 @@ export class DeckE {
 
     const camera = this.stage.camera
     const baseDistance = camera.position.length()
-    const park = parkBeside(camera, rect, { depth, side, baseDistance })
+    const park = opts.centre
+      ? { position: parkOn(camera, rect.left + rect.width / 2, rect.top + rect.height / 2, { depth, baseDistance }), facing: this.facingTarget }
+      : parkBeside(camera, rect, { depth, side, baseDistance })
 
-    this.launch(park.position)
+    // SCROLL INTENT, computed before the launch that consumes it.
+    //
+    // Only when the destination is actually out of comfortable view: a target
+    // already on screen needs no scroll, and driving one anyway makes a short
+    // hop lurch. `scrollToCentre` clamps to the document's own range, so a
+    // target near the top or bottom simply gets as centred as it can.
+    if (opts.scrollWith) {
+      const cy = rect.top + rect.height / 2
+      const h = window.innerHeight
+      const offscreen = cy < h * 0.2 || cy > h * 0.8
+      this.pendingScroll = offscreen ? scrollToCentre(cy, scrollableAncestor(document.body)) : null
+    }
+
+    // VIA THE BACKGROUND: queue the destination, fly the waypoint first. The
+    // waypoint is directly above the destination's column on the far plane, so
+    // the second leg comes straight in rather than crossing twice.
+    if (opts.via === 'background') {
+      const waypoint = parkOn(
+        camera,
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2,
+        { depth: 'background', baseDistance },
+      )
+      this.legQueue = [park.position.clone()]
+      this.launch(waypoint)
+    } else {
+      this.legQueue.length = 0
+      this.launch(park.position)
+    }
     // Hold facing steady for the duration of a presentation; turning mid-flight
     // fights the flight layer's own yaw. `park.facing` is always +/-1, so he
     // lands on one of his two authored directions rather than somewhere in
@@ -1426,6 +1536,34 @@ export class DeckE {
     if (moved) this.unpin()
   }
 
+  /**
+   * Move the page under him, and stop the moment the reader disagrees.
+   *
+   * The eased position is written every frame from the flight's own progress,
+   * so the scroll and the character share one clock — which is what makes the
+   * page appear to move BECAUSE he is moving, rather than alongside him.
+   *
+   * THE CANCEL IS THE IMPORTANT HALF. Between frames, `window.scrollY` should
+   * equal what this last wrote; anything else is the reader's wheel, their
+   * trackpad, or a keyboard, and a driven scroll that fights them is worse than
+   * none. `DeckE.scrollIntoView` uses native smooth scrolling for exactly this
+   * reason, and it is not available here because a native scroll cannot be
+   * slaved to a flight's progress.
+   */
+  private driveScroll(t: number) {
+    const d = this.scrollDrive
+    if (!d) return
+    if (Math.abs(window.scrollY - d.own) > 2) {
+      this.scrollDrive = null
+      return
+    }
+    // Eased on the same curve the flight uses, so neither leads the other.
+    const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+    const y = Math.round(d.from + (d.to - d.from) * Math.min(1, Math.max(0, e)))
+    d.own = y
+    window.scrollTo(0, y)
+  }
+
   private syncStation() {
     if (!this.stationDirty) return
     this.stationDirty = false
@@ -1439,6 +1577,29 @@ export class DeckE {
       this.setFacing(park.facing)
     }
   }
+
+  /**
+   * Legs still to fly after the current one.
+   *
+   * A flight is ONE leg — `solveFlight` interpolates a straight line between two
+   * points with a lateral bow and a vertical arc, and `onArrive` is a single
+   * slot that cannot start another. Anything multi-leg has to be queued, and
+   * this is the queue: `launch` shifts the next one when a leg lands, before
+   * the arrival callback runs, so `then` fires once at the END of the journey
+   * rather than once per leg.
+   */
+  private legQueue: Vector3[] = []
+
+  /**
+   * The page scroll being driven by the current flight, if any.
+   *
+   * `from`/`to` are absolute scroll offsets; `own` is the last value this code
+   * wrote. Anything that moves the scroll away from `own` between frames was
+   * the reader, and the drive gives up immediately — see `driveScroll`.
+   */
+  private scrollDrive: { from: number; to: number; own: number } | null = null
+  /** Set by `flyTo` immediately before `launch`, consumed there. */
+  private pendingScroll: number | null = null
 
   private launch(to: Vector3) {
     // THE SINGLE CHOKE POINT for every flight, which makes it the right place to
@@ -1458,6 +1619,17 @@ export class DeckE {
     })
     this.trackStart = this.elapsed
     this.rampMod(TRAVEL_MOD_MS)
+    // A queued leg inherits the drive already in progress; only a fresh flight
+    // starts or clears one, and `flyTo` sets it just before calling in.
+    if (!this.legQueue.length && this.pendingScroll === null) this.scrollDrive = null
+    if (this.pendingScroll !== null) {
+      const from = window.scrollY
+      this.scrollDrive =
+        Math.abs(this.pendingScroll - from) < 8
+          ? null
+          : { from, to: this.pendingScroll, own: from }
+      this.pendingScroll = null
+    }
     this.anchor.copy(to)
     this.trackDest.copy(to)
     this.trackShift.set(0, 0, 0)
@@ -1952,12 +2124,21 @@ export class DeckE {
       this.pose.twist += f.twist
       // The flight lid can never be closed by an expression key — max, not add.
       this.pose.mouth = Math.max(this.pose.mouth, f.mouth)
+      this.driveScroll(tf / this.track.durationMs)
       if (tf >= this.track.durationMs) {
         this.track = null
-        this.rampMod(TRAVEL_MOD_MS)
-        const arrived = this.onArrive
-        this.onArrive = null
-        arrived?.()
+        // MID-JOURNEY LEGS DO NOT ARRIVE. Only the last one does — `onArrive`
+        // rings the target and enters a state, and firing it at a waypoint
+        // would have him pointing at nothing from halfway across the page.
+        const next = this.legQueue.shift()
+        if (next) {
+          this.launch(next)
+        } else {
+          this.rampMod(TRAVEL_MOD_MS)
+          const arrived = this.onArrive
+          this.onArrive = null
+          arrived?.()
+        }
       }
     } else {
       // ADD the parked anchor, never overwrite. The authored `px/py/pz` carry

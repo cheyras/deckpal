@@ -1,0 +1,43 @@
+{
+  "_note": "Ground truth from owner narration (whisper transcript) + frame verification. variant: normal|reverse. sleeve: none|glossy|matte.",
+  "clips": [
+    {
+      "file": "IMG_0690.mov",
+      "light": "overhead-LED",
+      "fps": 30,
+      "segments": [
+        { "id": "led-weedle-normal",     "card": "Weedle",    "variant": "normal",  "sleeve": "none",   "start": 11, "end": 20 },
+        { "id": "led-weedle-reverse",    "card": "Weedle",    "variant": "reverse", "sleeve": "none",   "start": 23, "end": 49 },
+        { "id": "led-kakuna-normal",     "card": "Kakuna",    "variant": "normal",  "sleeve": "glossy", "start": 51, "end": 92 },
+        { "id": "led-kakuna-reverse",    "card": "Kakuna",    "variant": "reverse", "sleeve": "matte",  "start": 96, "end": 112 },
+        { "id": "led-ninetales-reverse", "card": "Ninetales", "variant": "reverse", "sleeve": "matte",  "start": 116, "end": 142 }
+      ]
+    },
+    {
+      "file": "IMG_0691.mov",
+      "light": "window-daylight",
+      "fps": 30,
+      "segments": [
+        { "id": "day-weedle-normal",     "card": "Weedle",    "variant": "normal",  "sleeve": "none",   "start": 13, "end": 17 },
+        { "id": "day-weedle-reverse",    "card": "Weedle",    "variant": "reverse", "sleeve": "none",   "start": 19, "end": 23 },
+        { "id": "day-kakuna-normal",     "card": "Kakuna",    "variant": "normal",  "sleeve": "glossy", "start": 24, "end": 29 },
+        { "id": "day-kakuna-reverse",    "card": "Kakuna",    "variant": "reverse", "sleeve": "matte",  "start": 31, "end": 36 },
+        { "id": "day-ninetales-normal",  "card": "Ninetales", "variant": "normal",  "sleeve": "glossy", "start": 37, "end": 49 },
+        { "id": "day-ninetales-reverse", "card": "Ninetales", "variant": "reverse", "sleeve": "matte",  "start": 51, "end": 56 }
+      ]
+    },
+    {
+      "file": "IMG_0693.mov",
+      "light": "dim-neon",
+      "fps": 120,
+      "segments": [
+        { "id": "dim-weedle-normal",     "card": "Weedle",    "variant": "normal",  "sleeve": "none",   "start": 12, "end": 17 },
+        { "id": "dim-weedle-reverse",    "card": "Weedle",    "variant": "reverse", "sleeve": "none",   "start": 18, "end": 22 },
+        { "id": "dim-ninetales-normal",  "card": "Ninetales", "variant": "normal",  "sleeve": "glossy", "start": 24, "end": 46 },
+        { "id": "dim-ninetales-reverse", "card": "Ninetales", "variant": "reverse", "sleeve": "matte",  "start": 49, "end": 55 },
+        { "id": "dim-kakuna-normal",     "card": "Kakuna",    "variant": "normal",  "sleeve": "glossy", "start": 57, "end": 64 },
+        { "id": "dim-kakuna-reverse",    "card": "Kakuna",    "variant": "reverse", "sleeve": "glossy", "start": 66, "end": 71 }
+      ]
+    }
+  ]
+}
