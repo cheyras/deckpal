@@ -7136,3 +7136,715 @@ The lesson worth keeping is the shape of what a fresh reviewer found: not the
 algebra, which had been measured to death, but the assumptions underneath it —
 which targets hold still, and what an absolutely positioned overlay does to the
 document it is placed in. Neither is visible from inside the change.
+
+---
+
+## 2026-08-21 — Deck-E's body is mounted once, above the route tree
+**Decided by:** Claude Opus 5 on behalf of @cheyras.
+**Decision:** the character canvas mounts in `RootComponent` as a sibling of
+`{shell}` — the slot `DevBackendRibbon` occupies — and not inside `AppShell`,
+not in a route. It is hidden on every chromeless path, the engine is loaded on
+idle rather than eagerly, and the whole runtime is pinned into one named chunk.
+
+**Why:** `RootComponent` returns one of two element trees depending on
+`isPublicPathname(pathname)`. Crossing that boundary — `/series` → `/decks`, the
+everyday case — changes the element TYPE at that position from `AppShell` to
+`AuthGuard`, so React unmounts the entire subtree. A canvas inside `AppShell`
+would tear down its GL context and re-fetch 5.7 MB of character on exactly the
+navigation the feature exists to survive. Verified in a browser rather than
+argued: after the change, the SAME canvas node survives the crossing and
+`decke.glb` is fetched exactly **once** across it.
+
+**Implications:**
+
+- **The precache gate had to move first, and would otherwise have failed the
+  build.** `check-precache.mjs` gate ONE fails if a precached script *contains*
+  three.js, and `vite.config.ts` excludes the character by NAME
+  (`assets/Decke-*.js`). A second lazy importer of the engine makes the bundler
+  hoist it into a SHARED chunk whose name it picks, which the glob would miss —
+  the failure that file's own header comment predicts. `build.rollupOptions`
+  `output.advancedChunks` now pins the group to `Decke-runtime`, so the name
+  holds no matter how many modules import the engine.
+- **`isChromelessPathname` is the guard, reused rather than re-listed.**
+  `/dev/decke` builds its own controller on its own canvas; mounting the host
+  there put two Deck-Es and two GL contexts on one page and hung the route hard
+  enough to time out a 30 s navigation. `landingRoute.ts` says its call sites
+  must agree; a private copy of that set is how they stop agreeing.
+- **The setup effect keys on a derived boolean, not on `phase`.** Keying it on
+  `phase` re-runs on the transition the effect itself performs (tearing the
+  controller down in a loop), and does NOT re-run when a chromeless route
+  unmounts the canvas and a later navigation mounts a fresh one — leaving a live
+  controller bound to a node no longer in the document.
+- **Disposal drops the GL context explicitly** (`forceContextLoss()`, plus a
+  `pagehide` handler). `renderer.dispose()` frees three's objects but not the
+  context, and browsers cap live contexts per page at a low number.
+- **Entitlement is one function.** `deckeEntitled()` is the only thing any entry
+  point asks. It reuses the owner gate rather than inventing a launch flag,
+  because a new environment variable owes B11 a declaration, a boot warning and
+  a `/health` field — for a gate that is temporary by construction. There is no
+  entitlement/plan concept in the schema (checked: zero matches across all 38
+  migrations), so this cannot consult one yet.
+
+**Measured, and worth writing down because it looks like a defect and is not:**
+disposing the engine under headless SwiftShader takes **~28–37 s**, which stalls
+any full-document navigation away from a page holding a live context. It is
+**pre-existing and not caused by this change** — the untouched `/dev/decke`
+measures 28.5 s on `main` by the same probe. It is software-rasterizer teardown
+of a 2.85 MB mesh plus a 1k HDRI and its PMREM, and it does not occur on real
+hardware. Anyone verifying the character headlessly will hit it and should not
+go looking for a bug in the mount.
+
+Two more headless traps, both of which cost a wrong conclusion here first: rAF
+runs at about **1 Hz**, so a screenshot after a wall-clock wait photographs a
+frozen frame — stop the loop and step it (`d.stop(); d.elapsed += 1/60;
+d.update(1/60)`). And the procedural blinker and gaze are **seeded**, so a fixed
+step count lands on the same frame of the same blink every run; a shot at 90
+frames caught him mid-blink and read as "his eyes have no pupils". `nod_yes` is
+in the playbook's `gaze_lock` list and pins the pupils forward for a clean look.
+
+---
+
+## 2026-08-21 — Deck-E's brain: its own function, and the schema keyword that cost an afternoon
+**Decided by:** Claude Opus 5 on behalf of @cheyras.
+**Decision:** `POST /api/chat` is a standalone Vercel function (`api/chat.mjs`),
+not a route on the Express app. Animation commands reach the browser as
+TRANSIENT data parts emitted from inside a tool's `execute`. Consequential UI
+actions are client-side tools. `navigate` is allowlisted at the tool layer.
+Model routing lives in `apps/api/src/decke/models.ts` with every rejection
+recorded next to its evidence.
+
+**Why the separate function:** `apps/api/src/index.ts:119` holds one pooled
+Postgres connection for the life of every request and reclaims it at 30 s, on
+the written assumption that "No endpoint in this API streams or long-polls." A
+streaming chat route inside Express would cap concurrent Deck-E users at the
+pool max (12, contract B2) and sever every conversation at thirty seconds — and
+because the RLS path is `SUPABASE_MODE`-gated, none of it reproduces locally. A
+production-only failure. Vercel gives filesystem routes precedence over
+`vercel.json` rewrites, so the new file claims the path with no config change.
+
+**Why commands are transient data parts:** the model calls a tool and the TOOL
+writes the commands. There is no inline syntax to leak, no parser to half-parse,
+and no stripping pass to get wrong — the brief's "commands must never be
+visible" becomes structurally impossible rather than defended against. Verified
+under five adversarial turns: no `{"op":` shaped text ever reached the text
+channel.
+
+### The bug that ate the afternoon, and the measurement error under it
+
+`grok-4.1-fast` accepts `minLength` only at the TOP level of a tool's parameter
+object. Nested deeper — a string inside an array inside an array item, which is
+exactly what `z.string().min(1)` produced for the `cards` field — xAI rejects
+the ENTIRE request. It arrives as an `error` part on an HTTP 200, the tool is
+never called, and nothing in the message names the offending field. Bisected
+against the live API: baseline PASS, `+ minLength` FAIL, `+ additionalProperties`
+PASS, both FAIL. `maxLength`, `pattern` and numeric bounds are fine at any
+depth. `grok-4.1-fast-non-reasoning` and `-reasoning` both fail;
+`grok-4.20-non-reasoning` passes, so it is a 4.1-fast family defect.
+
+**The real lesson is the measurement, not the keyword.** Hours went into blaming
+`z.union`/`anyOf`, tool descriptions, the em-dash in a description, the writer
+object and the UI-stream wrapper — all wrong, and all "confirmed" by tests that
+drained the stream with `for await (const _ of result.fullStream) {}`. **An
+`error` part is not a thrown exception**, so that loop reports success on a
+stream that carried nothing but an error. Every "20/20 passing" result was a
+false pass, and each one was then used to rule out the actual cause. What broke
+the deadlock was capturing the real HTTP request with a `fetch` interceptor and
+diffing a passing call against a failing one: byte-identical url, headers and
+body, which proved the difference had to be in the harness rather than the
+payload.
+
+Two rules worth keeping: **assert a positive** (non-empty text, or a real tool
+call) rather than only catching exceptions; and **go to the wire early** — the
+capture took two minutes and disproved a theory that had already cost dozens of
+calls.
+
+### Three fixes for one duplicate-reply bug
+
+A tool call opens another step, and in that step a model that has already
+answered answers again, near-verbatim. Two obvious fixes both shipped a worse
+bug: `hasToolCall('express')` as a stop condition SILENCED him (he does not
+reliably speak before he moves, so stopping on the call ends the turn with zero
+text — all five probe turns went silent), and a "you are done" note in the tool
+result was unreliable, fixing one run and regressing the next. The working fix
+is a stop condition on "this step produced BOTH visible text AND an `express`
+call" — precisely a finished turn, while a step that only moves him leaves the
+loop open so he can still speak.
+
+### Other things measured
+
+- **`claude-haiku-4.5` is NOT a safe fallback for this tool.** In both trials it
+  emitted `{"op":"nod_yes"}` — `nod_yes` is a `value`, not an `op`, and is not in
+  the `op` enum. Systematic, so `validateCommand` would drop the first half of
+  every reaction. The fallback is `google/gemini-2.5-flash`, one of only two
+  models measured to produce clean arguments (1784 ms TTFT against grok's 593 —
+  a real regression, but a fallback runs when the primary is down, where
+  correct-and-slower beats fast-and-wrong).
+- **Nothing but grok rejected the envelope.** nova-lite, haiku-4.5, gpt-5-mini,
+  gpt-4.1-mini and both Geminis all accept it; `gpt-5-nano` accepts it and then
+  spends its entire token budget on hidden reasoning, returning nothing.
+- **The Gateway key must go through `createGateway({ apiKey })`.** Passing it as
+  a `headers` entry is silently ignored and the call goes out on the ambient
+  `AI_GATEWAY_API_KEY` — with two keys on different billing, that means spending
+  the wrong one while believing otherwise.
+- `convertToModelMessages` is **async** in ai@7; unawaited it fails deep inside
+  `standardizePrompt` as "messages.some is not a function".
+- `@ai-sdk/gateway` must match what `ai` pins (4.0.52). Installing 4.0.59
+  alongside it produces "Unsupported gateway protocol version".
+- A free-tier Gateway key authenticates, lists all 350 models, and then returns
+  a bare 429 on every one of them — no `retry-after`, no `x-ratelimit-*`. Model
+  fallback does not help; it is a billing state, not an outage.
+
+**Implications:** `DECKE_VERCEL_AI_GATEWAY_KEY` is declared in `DEPLOYMENT.md`
+and `.env.example`, warned about at boot, and reported on `GET /health` as
+`deckeGate` (B11). `ai` moved from root devDependencies to a real dependency of
+`deckpal-api`. The command schema is flat with an `op` enum plus
+`validateCommand`; a union is the stronger contract and is now known to work on
+grok, so it is worth revisiting — `gpt-5-mini` and `gpt-4.1-mini` both "stuff
+every optional field", which a union prevents by construction.
+
+---
+
+## 2026-08-21 — Deck-E's chat: he stands on the page, not inside the panel
+**Decided by:** Claude Opus 5 on behalf of @cheyras.
+**Decision:** opening the chat darkens and freezes the page, opens a panel
+(bottom-right on desktop, full-screen below the 1068 px `nav` breakpoint), and
+flies Deck-E to a spot on the PAGE beside it at his normal size. The panel does
+not contain him.
+
+**Why not inside the panel — this was tried and reverted.** The first design cut
+a transparent "well" into the panel for him to stand in, reasoning from the
+off-screen beacon, which is "a hole, not a picture" with the canvas above it.
+That part was right and it works. What does not generalise is the sizing:
+
+**`setCharacterHeight` does not scale him — it dollies the camera.** Shrinking
+him to fit a 210 px well moved the camera from 18.26 to 69.18 world units, which
+changes the pixel-to-world mapping for the ENTIRE scene, so any position solved
+at one distance lands somewhere else at another. `framing.ts` then rotates him
+into a per-position view frame — correct for a character standing on a page, and
+it reads as a dramatic tilt inside a small box in the corner. Measured
+calibration, for anyone who needs it: his on-screen silhouette is about **2.4x**
+the `setCharacterHeight` value (170 -> 416 px, 120 -> 289, 90 -> 213, 70 -> 165,
+linear across the range), because `BODY_H` is the deck box and the bolts, lid
+and eyes sit outside it. Setting it to the pixel height you want lands him at
+roughly two and a half times that.
+
+Standing on the page needs no new engine behaviour, keeps one size everywhere,
+and reads better: the canvas is above the scrim, so he stays sharp while the page
+blurs behind him — he has stepped forward to talk.
+
+**Implications and the things that bit:**
+
+- **One writer for character height.** The chat set it and the host's
+  ResizeObserver set it straight back; the observer won because opening the panel
+  resizes things. `characterHeightFor()` in `DeckeHost` is now the only caller.
+- **Entrance animations need `fill-mode: both`.** Without it the panel was in the
+  DOM, `opacity: 1` computed, and invisible in a screenshot — the animation's
+  `from { opacity: 0 }` with no retained end state. Same class of bug `Sheet.tsx`
+  documents for transforms. Every entrance here now ends in `_both`.
+- **`parkOn()` is new** (`dom.ts`), reached by `flyTo(..., { centre: true })`.
+  `parkBeside` puts him OUTBOARD of a target with a gap, which is right for
+  presenting an element and wrong for "stand here" — it left him ~150 px outside
+  a 393 px panel. Verified: target x=1046 -> actual x=1046.
+- **`lockScroll`/`unlockScroll` are exported from `Sheet.tsx`** so the overlay
+  shares one refcount. Two independent locks race on `body.style` and the second
+  to unlock restores a stale position. Note that a held lock pins the body with
+  `position: fixed`, so `window.scrollY` reads 0 — anything computing a delta
+  against a recorded scroll offset must be released before locking.
+- **The button does not load the runtime.** It is a CSS chip in the product's own
+  brand hues; the 5.7 MB character warms on pointer-enter/touch or when the page
+  goes idle. Verified: the button renders with `window.__decke` still undefined.
+- **The transport is hand-rolled**, not `@ai-sdk/react`'s `useChat`. The
+  interesting part of the stream is the `data-decke` parts, which must reach the
+  engine immediately and never touch the transcript; a reader we own makes that
+  split explicit and impossible to break by upgrade.
+
+**Not settled:** his exact stand point. Measured on a 390x844 phone, a requested
+`y: 0.3` lands him at about `0.67` — there is a systematic downward offset
+(`parkOn` drops him by half a body, and the canvas is `100lvh` against a `100svh`
+placement height) that has not been characterised. It looks fine; it is not
+understood, and it is the owner's eye that should settle it.
+
+---
+
+## 2026-08-21 — Deck-E's UI actions: an allowlist, not a selector
+**Decided by:** Claude Opus 5 on behalf of @cheyras.
+**Decision:** the tools Deck-E runs in the browser (`flyTo`, `highlight`,
+`goTo`, `scrollToMe`) resolve targets ONLY through elements carrying
+`data-decke-landmark`, and navigate only to an allowlisted route. Their results
+come back to the model as a follow-up turn.
+
+**Why an allowlist rather than a selector.** A CSS selector is a capability:
+`document.querySelector` will happily return the sign-out button or a token
+field, and the text he reads — card names, deck descriptions, lists other people
+have shared — is attacker-influenceable. Marking the elements he may reach
+inverts the default from "anything not forbidden" to "nothing not offered",
+which is the only version that survives a card being NAMED something hostile.
+The check is duplicated client-side, not because the server's is unreliable, but
+because the check that matters is the one nearest the thing it protects: the
+browser function is what actually changes the URL of an authenticated session.
+
+**Why results go back at all.** These are tools rather than fire-and-forget
+commands precisely because they can FAIL, and every result is phrased as a
+sentence he can say — "there is nothing like that on this page", "we are on the
+page, but I could not find that part of it". A model told nothing narrates a
+thing that did not happen. ONE follow-up round: each re-bills the whole system
+prompt, and a model that needs three attempts to point at something will not
+find it on the fourth.
+
+**"After the route settles" is not an event the router can give you.** A route
+renders, its data resolves, and the list it renders appears — seconds later on a
+cold cache, or never on an empty page. `goTo` therefore watches for the element
+with a bounded MutationObserver (6 s) and, on timeout, reports which half
+worked, because "I took you there but cannot find it" is a different fact from
+a shrug.
+
+**The speech bubble is solved, not placed.** It reads three rectangles — his,
+the highlight's, and the viewport — prefers above him, falls through to below
+and then the sides, rejects any candidate overlapping the highlight, and clamps
+into the viewport. Degenerate case (a highlight filling the screen) takes the
+least-bad candidate, because some of the words beats none of them. Six tests in
+`character/host/__tests__/bubble.test.ts` pin it, including the one that matters:
+the target sitting exactly in the preferred slot, where the solve has to reject
+its own first choice. `pnpm --filter deckpal-web test:decke` now runs the host
+tests too — 142 total.
+
+---
+
+## 2026-08-21 — Background-first travel is a leg queue, and the caller chooses
+**Decided by:** Claude Opus 5 on behalf of @cheyras.
+**Decision:** `flyTo(..., { via: 'background' })` flies two legs — out to the far
+plane above the destination's column, then in — implemented as a `legQueue` in
+`DeckE`, shifted in `update` when a leg lands. `goTo` always uses it after a
+navigation; `flyTo` uses it only when the target is more than a third of the
+viewport from centre.
+
+**Why it had to be built.** The brief asks for "he always travels to the
+background first", and the engine could not do it: `launch` takes ONE
+destination, `solveFlight` interpolates a straight line with a lateral bow and a
+vertical arc, and `onArrive` is a single slot that cannot start another flight.
+The swooping impression the existing flights give comes from `bow` saturating at
+4 world units with its sign alternating per leg — which exists to keep long
+moves OFF the view axis, the opposite of going via the background.
+
+**Mid-journey legs do not arrive.** The queue is shifted BEFORE `onArrive`
+fires, so `then` runs once at the end of the journey rather than once per leg.
+Firing it at a waypoint would have him pointing at nothing from the far plane.
+
+**Not always right, so not automatic.** A depth change is 24-27 world units
+against under 3 for any same-depth leg, so routing a short hop through the far
+plane spends most of the trip going nowhere. Measured: 55 frames direct against
+139 via the background for the same target, a 2.5x difference. After a
+navigation it is always worth it — the page under him has just been replaced, so
+there is no continuity to preserve, and pulling back and coming in is what makes
+a route change read as travel rather than teleportation.
+
+**It is seamless by construction.** Legs chain inside a single frame, so
+`flying` never drops between them — which also means a test cannot count legs by
+watching that flag. Duration is the observable difference.
+
+---
+
+## 2026-08-21 — Flying scroll: one clock, and the reader always wins
+**Decided by:** Claude Opus 5 on behalf of @cheyras.
+**Decision:** `flyTo(..., { scrollWith: true })` drives `window.scrollTo` every
+frame from the flight's own normalised progress, so the page and the character
+share one clock. Any scroll the character did not write cancels the drive
+immediately.
+
+**Why it had to be built.** "Scrolling should look like flying" was in the brief
+and absent from the engine: the only writes to scroll position in
+`character/decke/` are two native `scrollTo({behavior:'smooth'})` calls inside
+`scrollIntoView()`, reachable only by clicking the beacon chip, and nothing calls
+it from `flyTo`, `launch`, `update` or `onArrive`. What existed was the inverse —
+the reader scrolls and he follows, via the compositor.
+
+**Why not native smooth scrolling, which this file prefers everywhere else.**
+`scrollIntoView`'s comment gives three good reasons for it: eased, interruptible,
+and it respects `prefers-reduced-motion` without this module knowing that exists.
+All still true — and a native scroll cannot be slaved to a flight's progress,
+which is the entire effect. Driving it per frame is what makes the page appear to
+move BECAUSE he is moving rather than alongside him.
+
+**The cancel is the important half.** Between frames `window.scrollY` should
+equal what the drive last wrote; anything else is the reader's wheel, trackpad or
+keyboard, and a driven scroll that fights them is worse than none at all.
+Verified: mid-flight the drive had reached 222, a simulated reader jumped to 622,
+and the page stayed at 622 for the remainder of the flight.
+
+**Only when it is needed.** The drive arms only if the destination is outside the
+middle 60% of the viewport — a target already comfortably in view needs no
+scroll, and driving one anyway makes a short hop lurch. `scrollToCentre` clamps
+to the document's own range, so a target near either end simply gets as centred
+as it can. Verified: 0 -> 2480 on a page with somewhere to go.
+
+**Queued legs inherit the drive** rather than restarting it, so a background-first
+journey scrolls once across both legs instead of twice.
+
+---
+
+## 2026-08-21 — The transcript gets out of the way when he does
+**Decided by:** Claude Opus 5 on behalf of @cheyras.
+**Decision:** while Deck-E is out on the page running a UI tool, the chat panel
+collapses to a bar showing the last thing the READER said, and his own words
+move to a speech bubble anchored beside him. `DeckE.screenRect()` is new, and is
+what the bubble is positioned against.
+
+**Why the reader's line and not his.** The panel is minimised precisely because
+the page underneath is the point — so the one thing worth keeping on screen is
+the question that explains why he is moving. His answer belongs next to the
+thing he is answering with.
+
+**No scrim and no scroll lock while minimised.** Both exist to make the overlay
+the only thing that matters, and while he is showing you something on the page
+the opposite is true. The lock in particular has to go: he may be driving the
+page under himself, and a locked body would fight that.
+
+**`screenRect()` is deliberately approximate.** It projects his anchor and the
+top of the reference body and takes `BODY_W` as the width. That is not his
+silhouette — measured, the real thing is about 2.4x taller once bolts, lid and
+the deformation field are counted — and knowing it exactly would mean a bounds
+computation over every mesh, every frame, to move one bubble a few pixels. A
+bubble placed against a slightly small box sits slightly closer to him than
+intended, which is not a defect anyone can see.
+
+**Polled at 8 Hz, not bound to the render loop.** Re-rendering React sixty times
+a second to move a bubble is how a 3D character starts feeling expensive; the
+engine's own dev page polls its readouts at 5 Hz for the same reason.
+
+**Verified end to end on the real `DECKE_VERCEL_AI_GATEWAY_KEY`** now that
+credits are attached. Five adversarial turns: correct states including
+`frustrated` aimed at scalpers rather than the user, no command syntax in any
+visible text, and the injection probe refused. The duplicate-reply bug is
+confirmed fixed by the `spoke && moved` stop condition — a stale test harness
+still carrying `stepCountIs(3)` alone reproduced it, and matching the harness to
+the handler removed it.
+
+---
+
+## 2026-08-21 — Booster-rip dedup is departure-then-return, not a time window
+**Decided by:** Claude Opus 5 on behalf of @cheyras.
+**Decision:** `ripSession.ts` is a pure state machine over the scanner's
+per-frame matches. A card commits after `COMMIT_FRAMES` (3) consecutive frames
+under `TRUST_DISTANCE` (7), then becomes REFRACTORY until the stream has missed
+it for `LEAVE_FRAMES` (2) consecutive frames. Quantity is a user action.
+
+**The obvious rule is inverted, and that is the whole difficulty.** "Same card
+id within N seconds is the same card" reads correctly and is backwards: at the
+scanner's 700 ms cadence with two-frame stability, a card held steady
+re-stabilises about every 1.4 s, so holding ONE card for four seconds logs it
+three times. A card is not new because it matched again — it is new because it
+LEFT and something came back.
+
+**`LEAVE_FRAMES` is 2 because 1 reintroduces the same bug by another route.**
+The first version cleared the refractory set on a single missed frame. Cards
+wobble — a hand shifts, a reflection catches the lens — and one frame comes back
+over threshold, at which point the card is re-logged the moment it steadies. Two
+frames (~1.4 s) is longer than a wobble and shorter than the gap between pulling
+two cards. A test pins each side.
+
+**Stricter than the single-card scanner, deliberately.** That flow uses 2 frames
+at distance 9 and then STOPS to show the reader a result they can reject. A rip
+runs unattended for minutes, so a false positive is not caught by anyone — it
+just lands in the list. 3 frames at distance 7 costs a moment more hold time per
+card and is the difference between a list you check and a list you rewrite.
+
+**Quantity is never inferred.** Whether a second sighting is a second copy or a
+re-show of the first is genuinely ambiguous, and no heuristic resolves it. The
+row carries a stepper; the machine does not guess. Removing a mis-read also
+clears it from the refractory set, so a correction can be rescanned immediately
+rather than being invisible until the card leaves frame.
+
+**The `cardId` -> `variantId` bridge needs no API change.** `POST
+/collection/batch` takes integer `variantId`s and `/scan` returns string
+`cardId`s, but `api.card(cardId)` already returns `variants[]`, so the client
+resolves it before committing. `POST /collection/cards/:cardId/have` does the
+same resolution server-side via `card_variant.is_primary`, which is the
+precedent for picking the primary when the reader has not said otherwise.
+
+---
+
+## 2026-08-21 — Ad-hoc screens: the model picks components, and cannot write markup
+**Decided by:** Claude Opus 5 on behalf of @cheyras.
+**Decision:** `apps/api/src/decke/screens.ts` defines a closed palette of seven
+blocks (`heading`, `text`, `cardGrid`, `statTile`, `progress`, `status`,
+`empty`) with typed props. A screen is a title and 1-8 blocks. Unknown kinds are
+refused by the schema; malformed blocks are dropped with a reason and the rest
+of the screen still renders.
+
+**The guarantee is structural, not a filter.** There is no field anywhere in the
+schema that carries HTML, a class name, a style, a URL or a selector — so there
+is nothing to inject into and nothing to sanitize. A test asserts the exact
+field list, so that adding an interpreted field is a deliberate act someone has
+to walk past rather than an accident.
+
+**It cannot look like slop for the same reason.** Every block is a component the
+design system already owns; the model chooses arrangement, never appearance.
+`Sheet` is deliberately absent from the palette — it is the container a screen
+is rendered inside, not a block a model picks.
+
+**Flat with a `kind` enum**, matching `tools.ts`. `validateBlock` enforces what
+the flat schema cannot express (a `statTile` needs both a label and a value;
+`quantities` must line up positionally with `cards`), and rejects rather than
+clamps — a quantity below 1 is not a card anyone owns, and silently correcting
+it teaches the model nothing.
+
+**One bad block does not take the screen down.** These are usually "here is what
+I just added", so losing a panel is a shame and losing the confirmation that
+their cards went in is a bug report.
+
+Seven tests, wired into CI as a new pure step.
+
+---
+
+## 2026-08-21 — Committing a rip: resolve, then ONE write
+**Decided by:** Claude Opus 5 on behalf of @cheyras.
+**Decision:** `ripCommit.ts` resolves every scanned `cardId` to a `variantId` in
+parallel via `api.card()`, then writes the whole pack with a single
+`POST /collection/batch`. `api.collectionBatch()` is new on the client; the
+endpoint already existed.
+
+**The two halves of the feature spoke different languages.** `/scan` identifies
+a CARD (`"sv8pt5-1"`) and `/collection/batch` owns VARIANTS (`37183`) — one card
+can have several: normal, reverse holo, a promo stamp. Nothing bridged them, and
+it needed no API change: `api.card()` already returns `variants[]`.
+
+**Which variant, absent an instruction, is the primary one** — and that is not a
+convention invented here. `POST /collection/cards/:cardId/have` makes the same
+choice in SQL via `card_variant.is_primary`, so a card added by the scanner and
+the same card added by the Have toggle land in the same row rather than two.
+
+**One request is correctness, not speed.** Called per item the per-variant
+endpoints cost ~0.65 s each, measured in production, which put a 99-item batch
+past the serverless wall clock: the caller saw a dead stream, the database saw
+most of the writes committed, and the retry inflated quantities up to 4x.
+`/collection/batch` exists because of that. The idempotency key is derived from
+the session's own contents so a retry of a half-succeeded request is a no-op.
+
+**An unresolvable card is named, never dropped.** The other nine cards in the
+pack are still the reader's and still belong in their collection.
+
+**Rip mode never pauses.** The single-card loop stops itself after two stable
+frames (`Scan.tsx:308`), which is right when you are checking one card and wrong
+for a pack. In rip mode every frame goes to `ripSession.onFrame` and the loop
+keeps running.
+
+## 2026-08-21 — Foil detection: luminance/saturation correlation, per-card baseline
+**Decided by:** Claude, from measurement; owner supplied the dataset.
+**Decision:** Reverse-holo detection uses **`corrLS`** — the Pearson correlation
+between per-pixel luminance and saturation over the rectified card face, averaged
+across a ~5-frame window — compared against a **per-card baseline**. Not an
+absolute threshold.
+
+**Why:** A specular highlight is achromatic, so where foil catches light it goes
+white and luminance anticorrelates with saturation; matte card brightness is
+bright *art*, which keeps its hue. Measured over 146 labelled frames (3 cards ×
+2 variants × 3 lightings, with sleeve-finish crossed against variant):
+leave-one-pair-out **AUC 0.988**, worst pair 0.95, 8/8 pairs agreeing on
+direction. The statistic is a bounded correlation coefficient — no fitted
+parameters, so there is nothing to overfit.
+
+**Implications:**
+- **Needs a per-card reference.** Absolute values are set by the artwork (Kakuna
+  sits at +0.16, Ninetales at −0.31); a global threshold overlaps by 0.431. This
+  is affordable because pHash identifies the card before variant is asked.
+- **Runs client-side.** The signal survives the live scanner's 480 px/q0.85
+  encode but is destroyed by `phash.ts`'s 72×64 greyscale field, so detection
+  taps the canvas rather than the hash path, and needs no upload.
+- **Multi-frame is mandatory** — the sheen fires intermittently with tilt angle.
+  Single-frame AUC is ~0.85; five frames is ~0.99.
+- **Ships as a confidence-gated preselect** with an abstain path. The abstain path
+  is a one-tap variant choice, which is also the total-failure fallback, so it is
+  built first regardless.
+- Rejected: texture/sparkle features (at or below chance, and they flip sign),
+  and rejecting tilted frames (that selects against the signal — see
+  `research/FOIL-DETECTION.md`).
+
+**Supersedes** the assumption in `roadmap/plans/foil-main.md` that reverse holo
+foils only the card frame: in the SV era it foils the whole card, art included,
+so era layout rects are not a dependency for *detection*.
+
+## 2026-08-21 — Rip mode: the printing is a reader's choice, never inferred
+**Decided by:** Claude, from the foil measurement.
+**Decision:** Each row in the rip list carries its own printing selector,
+defaulted to the primary variant and changeable by the reader. `commitRip` writes
+the chosen `variantId`; the idempotency key is derived from resolved items so a
+correction is not swallowed as a duplicate.
+
+**Why:** The scanner matches **artwork**, and a card and its reverse holo share
+artwork — the hash cannot separate them even in principle. Every booster pack
+contains reverse holos, so the previous behaviour (always resolve `isPrimary`) did
+not mis-file an edge case, it mis-filed a guaranteed fraction of every pack.
+
+This is also the abstain path that foil detection needs: `research/FOIL-DETECTION.md`
+concludes detection can only ever be a confidence-gated preselect, because under
+bright diffuse light there is no signal to find. The one-tap control is required
+whether or not detection ships, so it is built first and detection becomes an
+optional layer on top rather than a prerequisite.
+
+**Implications:**
+- Variants are fetched as each card lands, not at commit — the reader can only
+  correct a printing while the pack is still in their hand.
+- A failed lookup costs the CHOICE, not the card: `commitRip` still falls back to
+  resolving the primary printing itself.
+- The selector renders only when there is more than one printing. A select with a
+  single option is furniture that teaches readers to stop reading the row.
+- Sized 13px to match the sibling quantity input. `theme.css:326` forces form
+  controls to 16px below the nav breakpoint so iOS Safari does not auto-zoom on
+  focus, so 13px is what desktop sees. Verified in-browser at 390px and 1280px.
+
+## 2026-08-21 — Rip mode: one row per card, a return is a quantity
+**Decided by:** Claude. Found while wiring Deck-E into the scan flow.
+**Decision:** A card that leaves the frame and comes back increments the quantity
+on its existing row. It no longer appends a second row.
+
+**Why:** The previous behaviour appended a second `RipEntry` with the same
+`cardId`, and every consumer addresses a row BY `cardId` — React keys off it,
+`setQuantity` and `removeEntry` match on it. So two rows sharing one id meant a
+duplicate React key, editing either row edited both, and deleting the duplicate
+took the original with it. The intent behind the old test ("departure then return
+is a second event") was right; the representation was not.
+
+The module's header claimed quantity was "a user action, never inferred", which
+the same file's own tests contradicted. Corrected to what is actually true: a
+return proposes a count, the reader adjusts it in an editable field, and what is
+never inferred is a quantity from a card merely re-stabilising while still held —
+which is the failure the departure rule exists to prevent.
+
+**Implications:** covered by four tests, including an explicit invariant that no
+two rows may share a `cardId`. Two pre-existing tests were updated to the new
+representation rather than deleted, since their semantics still hold.
+
+## 2026-08-21 — Deck-E attends a pack rip
+**Decided by:** Claude, per the original brief.
+**Decision:** `character/host/ripPresence.ts`. He flies to the rip list when one
+exists and reacts once per card as it lands: `alert_star` for a chase pull,
+`nod_yes` otherwise, both `mode: 'once'`.
+
+**Implications:**
+- **Every export is a no-op when he is not loaded, and nothing throws into the
+  rip path.** The scanner is a core feature; he is an enhancement behind an
+  entitlement, so the rip may never depend on him.
+- Reaction fires on the catalog's answer, not on commit — commit knows a name and
+  a hash, not whether the pull was worth anything.
+- The rarity bar is set at the CHASE tiers, not at "rare": every pack contains a
+  guaranteed rare, so reacting to that is reacting to nothing.
+- Rarity is matched as a LOOSE SUBSTRING pattern rather than by copying
+  `apps/api/src/rarity.ts`'s 40-entry ladder across the app boundary. A second
+  copy would rot silently; a substring miss costs a nod instead of a gasp.
+- `once` not `sustain` — sustaining `alert_star` would leave him permanently
+  startled at a list that has moved on.
+
+## 2026-08-21 — `showScreen`: the palette gets a producer
+**Decided by:** Claude, per the original brief ("ad-hoc screens composed from a
+fixed component library").
+**Decision:** A `showScreen` server tool takes a `Screen`, sanitises it, and puts
+it on a **transient** `data-decke-screen` part. The client attaches it to the
+message being streamed and renders it full-width beneath the bubble.
+
+**Why now:** the schema, the renderer and their tests all existed and nothing
+produced one — the whole palette was dead code.
+
+**Implications:**
+- **Held on the MESSAGE, not as one "current screen".** Scrolling back to a haul
+  from four questions ago should show that haul.
+- **Transient**, like `express`: a screen echoed into history is re-read as
+  context next turn and invites the model to rebuild it.
+- **`showScreen` counts as acting in the stop condition.** Left out, a step that
+  spoke AND drew a panel failed "spoke && moved", the loop opened another step,
+  and he delivered a second closing line. Measured on the probe before the fix.
+- **An empty bubble is not rendered**, so a panel-only turn does not open with a
+  stray empty pill.
+
+## 2026-08-21 — A short `quantities` array is normalised, not rejected
+**Decided by:** Claude, from live probe evidence.
+**Decision:** In `sanitizeScreen`, a `cardGrid` whose `quantities` is shorter than
+`cards` is padded with 1s. Longer than `cards` is still rejected, as is a
+quantity below 1.
+
+**Why:** it was the most common rejection in practice — models list quantities
+only where they differ from one. And rejecting it was an inconsistency in the
+schema rather than a safety property: omitting `quantities` ENTIRELY already means
+every card is a single, so "the ones I did not mention are singles" is the same
+rule, not a guess about intent. A longer array has no such reading, so it still
+rejects.
+
+This does not soften the reject-loudly doctrine anywhere else. Measured after the
+change: six consecutive live runs, one screen each, no `showScreen` rejections.
+
+## 2026-08-21 — Foil auto-detection is NOT shipped; the one-tap choice is the answer
+**Decided by:** Claude, from measurement. Reverses the optimistic reading of the
+earlier entry the same day.
+**Decision:** `corrLS` is a real discriminator (AUC 0.988 with card and lighting
+held constant) but is **not shipped as auto-detection**. The variant stays a
+one-tap reader choice.
+
+**Why:** at scan time pHash names the CARD but nothing names the LIGHT, and the
+statistic moves with both. For one of three cards tested (Kakuna) the
+across-lighting spread of `corrLS` is 0.255 for the normal printing alone —
+larger than the foil effect on most pairs — and its normal in dim light scores
+*below* its reverse holo in daylight. Leave-one-lighting-out with a per-card
+threshold: **15/17**, both failures on that card, both missing by 0.17–0.22 and
+therefore CONFIDENTLY wrong rather than marginal. An abstain band does not catch
+them.
+
+A collection tracker exists to record what someone owns. Confidently writing the
+wrong printing is worse than asking, so it asks.
+
+**Also killed:** comparing a card to itself across a window — "foil swings as it
+tilts, matte stays put". That would have needed no reference at all, which made it
+the most attractive option. On rectified frames it scores AUC 0.50/0.52, exactly
+chance. Window averaging helps only as ordinary noise reduction on the mean.
+
+**What would change this:** more cards (three is too few to know whether Kakuna is
+the exception or the rule), and a lighting-invariant formulation. Catalog images
+as a per-card reference are not worth pursuing until then — a single flat scan
+cannot track a 0.255 spread. Full write-up: `research/FOIL-DETECTION.md`.
+
+## 2026-08-21 — Adversarial review: five real defects, and a clean security verdict
+**Decided by:** Claude, acting on a Fable 5 adversarial review (step 7 of the
+owner's original sequence).
+
+**Security verdict, recorded because a negative result is worth as much as a
+finding:** no path was found from a model-supplied string to markup, `href`,
+`src`, a URL, a class name, or an unintended navigation. The landmark allowlist
+(`el.closest('[data-decke-landmark]')`), the route allowlist (with `//` and `/\`
+smuggling both rejected), and the markup-free screen schema all hold. The
+reviewer states plainly that there is no `click` tool, so `flyTo`/`highlight` can
+only move and ring.
+
+**Fixed:**
+1. **`variantsAsked` was never cleared** (`Scan.tsx`). The per-card variant cache
+   outlived the session it belonged to, so from the SECOND pack onwards a
+   repeated card early-returned, kept `variants: []`, rendered no printing
+   selector and committed as primary — reinstating the exact mis-filing the
+   selector was added the same day to prevent. Now cleared with the session
+   (`resetRip`) and per committed card.
+2. **The client swallowed `error` parts** (`useDeckeChat.ts`). An error part is a
+   VALUE on a 200 stream, not a thrown exception; with no branch it was dropped,
+   the stream ended `done`, and the `catch` never ran. A dead turn was
+   indistinguishable from a turn he chose not to answer. This is the same trap
+   that cost an afternoon server-side, one layer out.
+3. **`thinking` was latched** (`useDeckeChat.ts`). It is a sustained state and the
+   turn boundary never left it; the `talk` overlay is additive, so it looked
+   correct while he spoke and only showed afterwards. On any turn where the model
+   set no state — which the prompt actively encourages — he looped in it forever.
+4. **Cards scanned during the commit request were discarded** (`Scan.tsx`). Rip
+   mode never pauses, `commitRip` closed over the list at click time, and the
+   handler then emptied the whole session. Now only committed rows are removed.
+5. **Clearing the quantity box deleted the row** (`ripSession.ts` + `Scan.tsx`).
+   `Number('') === 0` and 0 meant delete, so the row vanished as the reader
+   pressed backspace to retype — and `setQuantity` does not release `refractory`,
+   so the card could not be rescanned until it left the lens. An empty field is
+   an absence, not a zero: the component maps it to `NaN` and the reducer refuses
+   non-numbers. An explicit 0 still deletes.
+6. **Cross-turn cleanup race** (`useDeckeChat.ts`). `busy` is React state, so two
+   sends in one frame both passed the guard; the superseded turn's `finally` then
+   cleared the live turn's overlay and overrides. Cleanup now runs only if the
+   turn still owns `abortRef`.
+
+**Left as noted, not fixed:** `WireCommand`'s op union, `commandSchema`'s enum and
+`apply()`'s switch must agree by hand, as must `BLOCK_KINDS` and `DeckeScreen`'s
+switch. Both are real extension hazards. Both are also the fail-closed direction —
+an unknown op or kind is dropped, never rendered — so the cost of drift is a
+silently ignored command, not a broken page. Worth a shared type when either list
+next changes.

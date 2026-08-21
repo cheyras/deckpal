@@ -229,6 +229,32 @@ export function parkBeside(
  * assistant on a page, because it is on top of the content. Deriving it from the
  * viewport also means it survives a resize, which a world coordinate cannot.
  */
+/**
+ * Stand ON a viewport point, rather than beside it.
+ *
+ * `parkBeside` is the right solve for presenting: it puts him OUTBOARD of an
+ * element so the element sits between him and the middle of the page. That is
+ * wrong for a space he is meant to occupy — a well cut into a panel, say —
+ * where the gap it adds pushes him half out of the container.
+ *
+ * This is the same geometry `homeCorner` already uses, generalised: unproject
+ * the point onto the depth plane, then drop by half a body so his ROOT sits
+ * below the point and his centre lands on it. His facing is left to the caller,
+ * because a point has no inward.
+ */
+export function parkOn(
+  camera: PerspectiveCamera,
+  x: number,
+  y: number,
+  opts: { depth: Depth; baseDistance: number },
+): Vector3 {
+  const distance =
+    opts.depth === 'background' ? opts.baseDistance / BACKGROUND_SCALE : opts.baseDistance
+  const p = viewportToBlender(camera, x, y, distance)
+  p.z -= BODY_H / 2
+  return p
+}
+
 export function homeCorner(camera: PerspectiveCamera, baseDistance: number): Vector3 {
   const p = viewportToBlender(
     camera,

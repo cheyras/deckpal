@@ -329,6 +329,14 @@ export interface CardDetailResponse {
   variants: Variant[]
 }
 
+export interface CollectionBatchResponse {
+  batchId: string
+  replayed: boolean
+  applied: number
+  unchanged: number
+  items: { variantId: number; cardId: string; before: number; after: number; clamped: boolean }[]
+}
+
 // ── Collection mutations (write API) ───────────────────────────
 // The set of quantities changes; the server recomputes the affected set's three
 // progress goals in the same transaction and returns them authoritatively.
@@ -864,6 +872,20 @@ export const api = {
   incrementVariant: (variantId: number, delta: number) =>
     send<CollectionMutationResponse>('POST', `/collection/variants/${variantId}/increment`, { delta }),
   // Tile-level Have/Need toggle by card id (owns/zeroes the primary variant).
+  /**
+   * MANY variants, ONE transaction — the endpoint a pack haul belongs in.
+   *
+   * The per-variant endpoints are the right shape for a stepper click and the
+   * wrong one for a rip: called in a loop they cost ~0.65 s each, which put a
+   * 99-item batch past the serverless wall clock and inflated quantities up to
+   * 4x when the caller retried a request that had actually half-succeeded. See
+   * `apps/api/src/routes/collection.ts` and `API.md`.
+   */
+  collectionBatch: (
+    items: { variantId: number; delta?: number; quantity?: number }[],
+    opts: { source?: string; note?: string; idempotencyKey?: string } = {},
+  ) => send<CollectionBatchResponse>('POST', '/collection/batch', { items, ...opts }),
+
   setCardHave: (cardId: string, have: boolean) =>
     send<HaveMutationResponse>('POST', `/collection/cards/${encodeURIComponent(cardId)}/have`, { have }),
 

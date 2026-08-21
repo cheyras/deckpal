@@ -53,6 +53,7 @@ import { validateCardSearch } from './routes/setSearch'
 import { validateListSearch } from './routes/listSearch'
 import { validateDeckSearch, DECK_SEARCH_DEFAULTS } from './routes/deckSearch'
 import { DevBackendRibbon } from './components/DevBackendRibbon'
+import { DeckeHost } from './character/host/DeckeHost'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -89,10 +90,18 @@ function RootComponent() {
   // Outside AuthGuard on purpose: when the dev server is pointed at production
   // the warning matters most on the signed-out auth screen, which is exactly
   // where you are about to type real credentials.
+  //
+  // `DeckeHost` is here for a related but stricter reason. `shell` above is two
+  // different element trees, and crossing the public/private boundary swaps
+  // `<AppShell>` for `<AuthGuard>` at this position — which unmounts everything
+  // inside it. Deck-E must survive `/series` → `/decks` with his GL context and
+  // his pose intact, so he cannot live in there; a sibling of `{shell}` is the
+  // only tree position that survives every in-app navigation. See DeckeHost.
   return (
     <>
       <DevBackendRibbon />
       {shell}
+      <DeckeHost />
     </>
   )
 }

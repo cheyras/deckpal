@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type ScanMatch, type ScanResponse } from '../lib/api'
+import {
+  chooseVariant,
+  emptyRip,
+  onFrame,
+  removeEntry,
+  setQuantity,
+  setVariants,
+  type RipState,
+} from '../character/host/ripSession'
+import { commitRip } from '../character/host/ripCommit'
+import { attendRip, reactToPull, RIP_LANDMARK } from '../character/host/ripPresence'
 import { Content, Spinner, ProgressBar } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { CardSheet } from './CardDetail'
@@ -279,6 +290,76 @@ export function Scan() {
   const stableRef = useRef<{ cardId: string; count: number }>({ cardId: '', count: 0 })
   const pausedRef = useRef(false) // freeze the loop while a result is shown
 
+  // ── Rip mode ────────────────────────────────────────────────────────────────
+  //
+  // The single-card flow above STOPS once a match is stable, which is right when
+  // you are checking one card and wrong for a pack. Rip mode keeps the loop
+  // running and accumulates distinct cards instead; `ripSession.ts` owns the
+  // "distinct" part, which is the hard half — a card held steady re-stabilises
+  // about every 1.4 s, so the obvious dedup rule logs one card three times.
+  const [rip, setRip] = useState(false)
+  const [ripState, setRipState] = useState<RipState>(emptyRip)
+  const ripRef = useRef<RipState>(ripState)
+  ripRef.current = ripState
+  const ripOnRef = useRef(false)
+  ripOnRef.current = rip
+
+  // He comes over when there is a list to stand next to, and goes back to his
+  // own business when it is gone. Keyed on the list EXISTING rather than on rip
+  // mode being on, because the panel is what he flies to and it is not in the
+  // DOM until the first card lands.
+  const hasRipList = rip && ripState.entries.length > 0
+  useEffect(() => {
+    attendRip(hasRipList)
+    return () => attendRip(false)
+  }, [hasRipList])
+
+  // Cards whose variants have been requested, so a card re-shown after leaving
+  // the frame does not fire a second identical lookup.
+  const variantsAsked = useRef(new Set<string>())
+  /**
+   * Start a fresh session.
+   *
+   * The two must be cleared TOGETHER. `variantsAsked` exists so a card re-shown
+   * during one rip does not refetch, but it outlived the session it belonged to:
+   * on the second pack the same card early-returned, so its row kept
+   * `variants: []`, no printing selector rendered, and it committed as the
+   * primary printing — reinstating, from pack two onwards, the exact mis-filing
+   * the selector was added to prevent.
+   */
+  const resetRip = useCallback(() => {
+    setRipState(emptyRip())
+    variantsAsked.current.clear()
+  }, [])
+  const loadVariants = useCallback(async (cardId: string) => {
+    if (variantsAsked.current.has(cardId)) return
+    variantsAsked.current.add(cardId)
+    try {
+      const card = await api.card(cardId)
+      // He reacts on the CATALOG's answer rather than on the commit, because the
+      // commit knows a name and a hash and not whether the pull was worth
+      // anything. One reaction per card, chosen once the rarity is known.
+      reactToPull(card.card.rarity)
+      setRipState((st) =>
+        setVariants(
+          st,
+          cardId,
+          card.variants.map((v) => ({
+            variantId: v.variantId,
+            displayName: v.displayName,
+            isPrimary: v.isPrimary,
+          })),
+        ),
+      )
+    } catch {
+      // Left silent on purpose. The row still commits — `commitRip` falls back to
+      // resolving the primary printing itself — so a failed lookup costs the
+      // reader the CHOICE, not the card.
+      variantsAsked.current.delete(cardId)
+    }
+  }, [])
+  const [committing, setCommitting] = useState(false)
+
   const supportsCamera = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia
 
   const stopStream = useCallback(() => {
@@ -305,6 +386,32 @@ export function Scan() {
       frameFailRef.current = 0
       setError(null)
       const top = res.matched ? res.matches[0] : undefined
+
+      // RIP MODE NEVER PAUSES. Every frame is fed to the session machine, which
+      // decides whether anything new arrived; the loop just keeps going.
+      if (ripOnRef.current) {
+        const { state, committed } = onFrame(
+          ripRef.current,
+          top ? { cardId: top.cardId, name: top.name, distance: top.distance } : null,
+          Date.now(),
+        )
+        ripRef.current = state
+        setRipState(state)
+        // Ask the catalog what printings this card has, once, as it lands. Doing
+        // it here rather than at commit means the reader can correct a reverse
+        // holo while the pack is still in their hand, which is the only moment
+        // they actually remember which one it was.
+        if (committed) void loadVariants(committed.cardId)
+        setHint(
+          committed
+            ? `Got it — ${committed.name}`
+            : top
+              ? 'Hold steady…'
+              : 'Show me the next card',
+        )
+        return
+      }
+
       if (top) {
         const s = stableRef.current
         s.count = s.cardId === top.cardId ? s.count + 1 : 1
@@ -446,6 +553,147 @@ export function Scan() {
         {result ? result.indexSize.toLocaleString() : '22,770'}-card catalog by perceptual hash and add it to your
         collection in one tap. No shutter button; it triggers on its own.
       </p>
+
+      {/* ── rip mode: the running list ──────────────────────────────────
+          BESIDE the camera, never over it. The whole point of the visual
+          feedback is knowing he got the card so you know to move on, and a
+          list that covers the lens defeats the thing it is confirming. */}
+      {showStage && supportsCamera && (
+        <div className="mx-auto mb-[12px] flex w-full max-w-[440px] items-center justify-between gap-[10px]">
+          <button
+            type="button"
+            onClick={() => { setRip((r) => !r); resetRip(); setResult(null) }}
+            className={[
+              'h-[36px] rounded-full px-[14px] text-[13px] font-semibold transition-colors',
+              rip
+                ? 'bg-action-primary text-action-primary-text'
+                : 'bg-surface-secondary text-text-body hover:text-text-primary',
+            ].join(' ')}
+          >
+            {rip ? 'Ripping a pack' : 'Rip a pack'}
+          </button>
+          {rip && (
+            <span className="text-[13px] text-text-muted">
+              {ripState.entries.length === 0
+                ? 'Show me each card as you pull it'
+                : `${ripState.entries.reduce((n, e) => n + e.quantity, 0)} card${
+                    ripState.entries.reduce((n, e) => n + e.quantity, 0) === 1 ? '' : 's'
+                  } so far`}
+            </span>
+          )}
+        </div>
+      )}
+
+      {rip && ripState.entries.length > 0 && (
+        <div
+          {...{ [RIP_LANDMARK]: '' }}
+          className="mx-auto mb-[12px] w-full max-w-[440px] rounded-2xl border border-border-default bg-surface-secondary p-[10px]"
+        >
+          <ul className="flex max-h-[220px] flex-col gap-[6px] overflow-y-auto">
+            {ripState.entries.map((e) => (
+              <li
+                key={e.cardId}
+                className="flex flex-col gap-[6px] rounded-lg bg-surface-primary px-[10px] py-[7px] motion-safe:animate-[sheet-panel-in_200ms_ease-out_both]"
+              >
+                <div className="flex items-center gap-[8px]">
+                <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary">{e.name}</span>
+                {/* The confidence of the frame that committed it. Surfaced
+                    because the rare wrong top-1 is a near-identical same-art
+                    reprint at distance 1-6, and a list presented as fact with
+                    no way to see which rows were marginal is worse than a
+                    list you can audit. */}
+                <span className="shrink-0 font-mono text-[11px] text-text-muted" title="match distance — lower is more certain">
+                  d{e.distance}
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  value={e.quantity}
+                  aria-label={`How many ${e.name}`}
+                  onChange={(ev) =>
+                    setRipState((st) =>
+                      setQuantity(st, e.cardId, ev.target.value === '' ? NaN : Number(ev.target.value)),
+                    )
+                  }
+                  className="h-[28px] w-[52px] shrink-0 rounded bg-surface-secondary px-[6px] text-center text-[13px] text-text-primary"
+                />
+                <button
+                  type="button"
+                  aria-label={`Remove ${e.name}`}
+                  onClick={() => setRipState((st) => removeEntry(st, e.cardId))}
+                  className="flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full text-icon-muted hover:bg-surface-secondary hover:text-icon-hover"
+                >
+                  <Icon name="close" size={14} />
+                </button>
+                </div>
+                {/* WHICH PRINTING. Shown only when there is a real choice — a
+                    card with one printing gets no control, because a select with
+                    a single option is furniture that teaches the reader to stop
+                    reading this row. The scanner matches artwork, and a card and
+                    its reverse holo share artwork, so this cannot be inferred:
+                    every pack has reverse holos in it, and without this the whole
+                    pack files as normal.
+
+                    Sized 13px to match the quantity input beside it. Below the
+                    nav breakpoint `theme.css` forces every form control to 16px
+                    so iOS Safari does not auto-zoom on focus, so 13px is what
+                    desktop sees — anything smaller would only show up there, as
+                    a control quietly out of step with its own row. */}
+                {e.variants.length > 1 && (
+                  <select
+                    value={e.variantId ?? ''}
+                    aria-label={`Printing of ${e.name}`}
+                    onChange={(ev) =>
+                      setRipState((st) => chooseVariant(st, e.cardId, Number(ev.target.value)))
+                    }
+                    className="h-[28px] w-full rounded bg-surface-secondary px-[6px] text-[13px] text-text-body"
+                  >
+                    {e.variants.map((v) => (
+                      <option key={v.variantId} value={v.variantId}>
+                        {v.displayName}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            disabled={committing}
+            onClick={async () => {
+              setCommitting(true)
+              try {
+                const committedNow = ripState.entries
+                const r = await commitRip(committedNow)
+                // ONLY WHAT WAS COMMITTED. `commitRip` closed over the list as
+                // it was at click time, and rip mode never pauses — a card shown
+                // while the request was in flight is in `ripState` but was not
+                // written. Emptying the whole session here threw that card away
+                // silently, which is the one outcome a scanner must never have.
+                const done = new Set(committedNow.map((e) => e.cardId))
+                setRipState((st) => ({
+                  ...st,
+                  entries: st.entries.filter((e) => !done.has(e.cardId)),
+                }))
+                for (const e of committedNow) variantsAsked.current.delete(e.cardId)
+                setHint(
+                  r.unresolved.length
+                    ? `Added ${r.applied}. I could not place ${r.unresolved.map((u) => u.name).join(', ')}.`
+                    : `Added ${r.applied} to your collection`,
+                )
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'that did not save')
+              } finally {
+                setCommitting(false)
+              }
+            }}
+            className="mt-[8px] h-[40px] w-full rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text disabled:opacity-50"
+          >
+            {committing ? 'Adding…' : `Add ${ripState.entries.reduce((n, e) => n + e.quantity, 0)} to my collection`}
+          </button>
+        </div>
+      )}
 
       {/* ── live camera stage (single, always-mounted <video>) ────────── */}
       {showStage && (

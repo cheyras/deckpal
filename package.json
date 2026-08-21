@@ -2,7 +2,7 @@
   "name": "deckpal",
   "private": true,
   "version": "0.1.0",
-  "description": "Self-hosted, single-user TCG collection tracker \u2014 catalog, prices, deck builder, card scanner, MCP server, and React PWA.",
+  "description": "Self-hosted, single-user TCG collection tracker — catalog, prices, deck builder, card scanner, MCP server, and React PWA.",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
@@ -22,12 +22,13 @@
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
-    "ai": "^7.0.66",
     "sharp": "^0.35.3",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "pg": "^8.23.0"
+    "ai": "7.0.66",
+    "pg": "^8.23.0",
+    "zod": "4.4.3"
   }
 }

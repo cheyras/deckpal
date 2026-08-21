@@ -25,7 +25,10 @@ self-hosters.
   battle-log intelligence (record matches, track win rates, get strategy
   analysis).
 - **Card scanner** -- perceptual-hash index against stored card art; identify a
-  card from a photo. *(Cloud: parked for Wave 3 -- see Roadmap.)*
+  card from a photo, or run **rip mode** to log a whole booster pack without
+  stopping between cards. The scanner matches artwork, so it names the card and
+  you say which printing -- a card and its reverse holo are the same picture.
+  *(Cloud: parked for Wave 3 -- see Roadmap.)*
 - **Completion goals** -- Complete Set, Master Set, Grandmaster tiers with
   accurate progress tracking.
 - **Pokedex** -- species data from PokeAPI, linked to the cards they appear on.

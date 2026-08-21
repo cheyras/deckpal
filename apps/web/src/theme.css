@@ -693,3 +693,98 @@ body {
     animation-duration: 1ms;
   }
 }
+
+/* Deck-E's chat panel, desktop.
+ *
+ * It GROWS OUT OF THE BUTTON rather than settling in place like a dialog, so
+ * the transform origin is the bottom-right corner the button occupies. The
+ * brief's "nothing pops in" applies most visibly here: this is the moment the
+ * character is summoned, and a panel that simply appears reads as a webpage
+ * while one that expands from where you clicked reads as him arriving. */
+@keyframes decke-chat-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Deck-E's button chip ────────────────────────────────────────────────────
+ *
+ * A 2D stand-in for the character, drawn in CSS. It exists so the floating
+ * button costs nothing: the real runtime is 5.7 MB of assets plus ~945 kB of
+ * three.js, and it loads on intent, not on page load.
+ *
+ * The palette is the PRODUCT'S OWN brand scales, the same three the highlight
+ * ring reads — cyan body, pink mouth, amber bolt. That is not decoration: it is
+ * what makes a flat chip read as the same character as the render, and it
+ * restyles with the theme instead of pinning hex values here. */
+.decke-chip {
+  position: relative;
+  display: block;
+  width: 32px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(
+    155deg,
+    var(--color-brand-primary-300, #5ee9ff) 0%,
+    var(--color-brand-primary-500, #00b8d4) 62%,
+    var(--color-brand-primary-600, #0092ab) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 45%),
+    inset 0 -2px 3px rgb(0 0 0 / 18%);
+}
+
+.decke-chip__eye {
+  position: absolute;
+  top: 7px;
+  width: 8px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgb(232 250 255 / 92%);
+  transition: height 180ms ease, top 180ms ease;
+}
+.decke-chip__eye--l { left: 6px; }
+.decke-chip__eye--r { right: 6px; }
+
+.decke-chip__mouth {
+  position: absolute;
+  bottom: 5px;
+  left: 50%;
+  width: 14px;
+  height: 4px;
+  transform: translateX(-50%);
+  border-bottom: 2px solid var(--color-brand-secondary-400, #fb64b6);
+  border-radius: 0 0 10px 10px;
+  transition: width 180ms ease, opacity 180ms ease;
+}
+
+/* Dozing: lids down to a slit, mouth relaxes. Same two properties the eye
+ * shader animates, which is why it still reads as him rather than as an icon
+ * swapping frames. */
+.decke-chip--doze .decke-chip__eye {
+  height: 2px;
+  top: 11px;
+}
+.decke-chip--doze .decke-chip__mouth {
+  width: 8px;
+  opacity: 0.6;
+}
+
+/* The idle float, ported. The engine's own is a three-sine sum; one sine at the
+ * base rate is the honest 2D approximation and does not pretend otherwise. */
+@keyframes decke-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-2px); }
+}
+
+/* Arriving. Nothing pops in — the brief says so, and the button is the first
+ * thing anyone sees of him. */
+@keyframes decke-button-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.9); }
+  to   { opacity: 1; transform: none; }
+}

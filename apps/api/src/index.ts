@@ -5,6 +5,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { closePool, pool, q, rlsStore, SUPABASE_MODE, withUserContext } from './db.js';
 import { ownerGateStatus } from './routes/me.js';
+import { deckeGateStatus, deckeGateWarning } from './decke/gate.js';
 import { asyncHandler, catalogCache, errorMiddleware } from './http.js';
 import { authMiddleware, resolveIdentity, resolveOptionalIdentity, requireSession } from './auth.js';
 import { seriesRouter } from './routes/series.js';
@@ -52,6 +53,11 @@ export function createApp(): express.Express {
         "owner's auth.users UUID and redeploy.",
     );
   }
+
+  // Same rule, same reason, for the feature that also costs money when it is
+  // configured and costs a support ticket when it is not.
+  const deckeWarning = deckeGateWarning();
+  if (deckeWarning) console.warn(deckeWarning);
 
   const app = express();
   app.disable('x-powered-by');
@@ -256,6 +262,10 @@ export function createApp(): express.Express {
         // owner-only surface is closed to everyone, which is a deployment
         // mistake that is otherwise invisible from outside. See AGENTS.md B11.
         ownerGate: ownerGateStatus(),
+        // Whether Deck-E's brain has a Gateway credential — never which one,
+        // and never any part of its value. `unset` means POST /api/chat 503s
+        // for everybody, which is otherwise invisible from outside. B11 again.
+        deckeGate: deckeGateStatus(),
       });
     }),
   );
