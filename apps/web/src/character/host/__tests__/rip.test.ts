@@ -206,3 +206,27 @@ test('a removed card can be rescanned immediately', () => {
   for (let i = 0; i < COMMIT_FRAMES; i++) s = onFrame(s, hit('a'), t++).state
   assert.equal(s.entries.length, 1, 'a corrected mis-read is scannable again')
 })
+
+// ── quantity editing ─────────────────────────────────────────────────────────
+// Found by adversarial review: the control is <input type="number">, and
+// clearing it to retype yields '', which Number('') makes 0 — which setQuantity
+// read as "delete this row".
+
+test('a non-numeric quantity leaves the row untouched', () => {
+  let s = emptyRip()
+  for (let i = 0; i < COMMIT_FRAMES; i++) s = onFrame(s, hit('a'), i).state
+  // NOTE the split of responsibility, because it is easy to get wrong:
+  // `Number('')` is 0, NOT NaN, so guarding here alone would not have helped.
+  // The COMPONENT maps an empty field to NaN — an empty box is an absence, not
+  // a zero — and this function refuses to act on a non-number.
+  const mid = setQuantity(s, 'a', NaN)
+  assert.equal(mid.entries.length, 1, 'clearing the box is not a delete')
+  assert.equal(mid.entries[0]!.quantity, 1)
+  assert.equal(setQuantity(s, 'a', Number.POSITIVE_INFINITY).entries.length, 1)
+})
+
+test('an explicit zero is still a delete', () => {
+  let s = emptyRip()
+  for (let i = 0; i < COMMIT_FRAMES; i++) s = onFrame(s, hit('a'), i).state
+  assert.equal(setQuantity(s, 'a', 0).entries.length, 0, 'typing 0 still means none')
+})

@@ -219,6 +219,13 @@ export function chooseVariant(state: RipState, cardId: string, variantId: number
 
 /** The reader says they pulled more than one. Only they can say this. */
 export function setQuantity(state: RipState, cardId: string, quantity: number): RipState {
+  // A NON-NUMBER LEAVES THE ROW ALONE. The control is `<input type="number">`,
+  // and clearing it to retype yields `''`, which `Number('')` turns into 0 — so
+  // the row deleted itself the moment the reader selected the digit and pressed
+  // backspace. Worse, `setQuantity` does not touch `refractory` the way
+  // `removeEntry` does, so the card they were mid-edit on could not be rescanned
+  // until it physically left the lens.
+  if (!Number.isFinite(quantity)) return state
   const q = Math.max(0, Math.round(quantity))
   return {
     ...state,

@@ -53,6 +53,9 @@ export function useDeckeChat(
   // a stale array between renders.
   const currentRef = useRef<ChatMessage[]>([])
   currentRef.current = messages
+  // Did the MODEL set a state this turn? If not, the turn boundary has to leave
+  // `thinking` itself — see the `finally` below.
+  const movedRef = useRef(false)
 
   const send = useCallback(
     async (text: string) => {
@@ -71,11 +74,13 @@ export function useDeckeChat(
       abortRef.current = ac
 
       // ENGINE-DRIVEN, not model-driven: the app knows a request started before
-      // the model could possibly say so, and knows it sooner. `thinking` holds
-      // until the first token arrives.
+      // the model could possibly say so, and knows it sooner. `thinking` is
+      // sustained, so the turn boundary below is responsible for leaving it.
       decke.setState('thinking')
+      movedRef.current = false
 
       let spoke = false
+      let streamError: string | null = null
       const pending: PendingTool[] = []
       try {
         const { data } = await supabase.auth.getSession()
@@ -128,6 +133,8 @@ export function useDeckeChat(
             let part: {
               type?: string
               delta?: string
+              errorText?: string
+              error?: unknown
               data?: { commands?: WireCommand[]; screen?: ScreenSpec }
               state?: string
               toolCallId?: string
@@ -151,6 +158,17 @@ export function useDeckeChat(
               setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, text: x.text + chunk } : x)))
             } else if (part.type === 'data-decke' && part.data?.commands) {
               apply(decke, part.data.commands)
+              movedRef.current = true
+            } else if (part.type === 'error') {
+              // AN ERROR PART IS NOT A THROWN EXCEPTION. The request already
+              // returned 200 and the stream is well-formed; the failure arrives
+              // as a value on it. With no branch here it matched nothing, was
+              // dropped, and the stream ended `done` — so the catch below never
+              // ran either and a dead turn was indistinguishable from a turn he
+              // chose not to answer. This is the same trap that cost an
+              // afternoon server-side, one layer out.
+              streamError = String(part.errorText ?? part.error ?? 'unknown')
+              break
             } else if (part.type === 'data-decke-screen' && part.data?.screen) {
               // Attached to the reply being streamed, so it stays with its turn.
               // The server has already dropped any block it could not render and
@@ -176,6 +194,27 @@ export function useDeckeChat(
               })
             }
           }
+          // The `break` above leaves the LINE loop; this leaves the read loop.
+          // Without it the reader keeps draining a stream whose turn has already
+          // failed.
+          if (streamError) break
+        }
+
+        if (streamError) {
+          // Said out loud, in his voice, rather than swallowed. The reader gets
+          // a reply and the character reacts, which is what distinguishes a
+          // failure from a silence.
+          setMessages((m) =>
+            m.map((x) =>
+              x.id === replyId && !x.text
+                ? { ...x, text: 'My brain glitched on that one — try me again?' }
+                : x,
+            ),
+          )
+          decke.setState('alert_error', { mode: 'once' })
+          movedRef.current = true
+          console.error('[decke] stream error:', streamError)
+          return
         }
 
         // ── The tools he asked the browser to run ────────────────────────────
@@ -214,12 +253,29 @@ export function useDeckeChat(
           decke.setState('alert_error', { mode: 'once' })
         }
       } finally {
-        // TURN BOUNDARY. Both of these must happen on every exit path including
-        // an abort: an un-released `talk` overlay chatters forever, and a
-        // channel override left pinned permanently deforms him.
-        decke.setOverlay(null)
-        decke.clearOverrides()
-        setBusy(false)
+        // TURN BOUNDARY. All three must happen on every exit path including an
+        // abort: an un-released `talk` overlay chatters forever, a channel
+        // override left pinned permanently deforms him, and `thinking` is a
+        // SUSTAINED state, so if nothing replaced it he loops in it forever.
+        //
+        // That last one is easy to miss because `talk` masks it. The overlay is
+        // additive on top of the body pose, so while he is speaking he looks
+        // right; the moment the overlay releases he is still rocking in
+        // `thinking`. It only shows on a turn where the model set no state of
+        // its own — which the prompt explicitly encourages ("silence is a valid
+        // emission"), so it is the common case, not the rare one.
+        //
+        // ONLY IF THIS TURN IS STILL THE LIVE ONE. `busy` is React state, so two
+        // sends dispatched in the same frame both pass the guard above; the
+        // second aborts the first, and the first then arrives here and tears
+        // down the overlay and overrides the second has already set. Comparing
+        // the controller identifies whose turn this cleanup belongs to.
+        if (abortRef.current === ac) {
+          if (!movedRef.current) decke.setState('idle')
+          decke.setOverlay(null)
+          decke.clearOverrides()
+          setBusy(false)
+        }
       }
     },
     [decke],

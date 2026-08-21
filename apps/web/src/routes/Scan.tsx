@@ -317,6 +317,20 @@ export function Scan() {
   // Cards whose variants have been requested, so a card re-shown after leaving
   // the frame does not fire a second identical lookup.
   const variantsAsked = useRef(new Set<string>())
+  /**
+   * Start a fresh session.
+   *
+   * The two must be cleared TOGETHER. `variantsAsked` exists so a card re-shown
+   * during one rip does not refetch, but it outlived the session it belonged to:
+   * on the second pack the same card early-returned, so its row kept
+   * `variants: []`, no printing selector rendered, and it committed as the
+   * primary printing — reinstating, from pack two onwards, the exact mis-filing
+   * the selector was added to prevent.
+   */
+  const resetRip = useCallback(() => {
+    setRipState(emptyRip())
+    variantsAsked.current.clear()
+  }, [])
   const loadVariants = useCallback(async (cardId: string) => {
     if (variantsAsked.current.has(cardId)) return
     variantsAsked.current.add(cardId)
@@ -548,7 +562,7 @@ export function Scan() {
         <div className="mx-auto mb-[12px] flex w-full max-w-[440px] items-center justify-between gap-[10px]">
           <button
             type="button"
-            onClick={() => { setRip((r) => !r); setRipState(emptyRip()); setResult(null) }}
+            onClick={() => { setRip((r) => !r); resetRip(); setResult(null) }}
             className={[
               'h-[36px] rounded-full px-[14px] text-[13px] font-semibold transition-colors',
               rip
@@ -596,7 +610,11 @@ export function Scan() {
                   min={1}
                   value={e.quantity}
                   aria-label={`How many ${e.name}`}
-                  onChange={(ev) => setRipState((st) => setQuantity(st, e.cardId, Number(ev.target.value)))}
+                  onChange={(ev) =>
+                    setRipState((st) =>
+                      setQuantity(st, e.cardId, ev.target.value === '' ? NaN : Number(ev.target.value)),
+                    )
+                  }
                   className="h-[28px] w-[52px] shrink-0 rounded bg-surface-secondary px-[6px] text-center text-[13px] text-text-primary"
                 />
                 <button
@@ -646,8 +664,19 @@ export function Scan() {
             onClick={async () => {
               setCommitting(true)
               try {
-                const r = await commitRip(ripState.entries)
-                setRipState(emptyRip())
+                const committedNow = ripState.entries
+                const r = await commitRip(committedNow)
+                // ONLY WHAT WAS COMMITTED. `commitRip` closed over the list as
+                // it was at click time, and rip mode never pauses — a card shown
+                // while the request was in flight is in `ripState` but was not
+                // written. Emptying the whole session here threw that card away
+                // silently, which is the one outcome a scanner must never have.
+                const done = new Set(committedNow.map((e) => e.cardId))
+                setRipState((st) => ({
+                  ...st,
+                  entries: st.entries.filter((e) => !done.has(e.cardId)),
+                }))
+                for (const e of committedNow) variantsAsked.current.delete(e.cardId)
                 setHint(
                   r.unresolved.length
                     ? `Added ${r.applied}. I could not place ${r.unresolved.map((u) => u.name).join(', ')}.`

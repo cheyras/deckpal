@@ -29,7 +29,6 @@ import {
   createUIMessageStreamResponse,
   streamText,
   stepCountIs,
-  hasToolCall,
   toUIMessageStream,
 } from 'ai'
 import { createGateway } from '@ai-sdk/gateway'
