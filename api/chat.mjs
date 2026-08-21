@@ -44,8 +44,6 @@ import { buildSystemPrompt } from '../apps/api/dist/decke/prompt.js'
 import { buildTools } from '../apps/api/dist/decke/tools.js'
 import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
 
-export const config = { runtime: 'nodejs' }
-
 /**
  * The Deck-E Gateway credential.
  *
