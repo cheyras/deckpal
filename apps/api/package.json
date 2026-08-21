@@ -20,13 +20,16 @@
     "test:pure": "node --import tsx --test src/__tests__/massentry.test.ts src/__tests__/mutations.test.ts src/__tests__/batch-fold.test.ts src/__tests__/soft-delete.test.ts src/__tests__/fingerprint-fold.test.ts"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "^4.0.52",
     "@deckpal/db": "workspace:*",
     "@deckpal/storage": "workspace:*",
+    "ai": "7.0.66",
     "express": "^5.0.0",
     "helmet": "^8.0.0",
     "pdfkit": "^0.19.1",
     "pg": "^8.23.0",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
