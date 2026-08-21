@@ -255,6 +255,43 @@ export function parkOn(
   return p
 }
 
+/**
+ * A STATION BECOMES A POSITION HERE, and only here.
+ *
+ * `flyTo` and the station re-solve are the same question asked at two different
+ * moments — where does he stand, given this target? — and they were two
+ * different pieces of code. So they could disagree, and they did: `flyTo`
+ * honoured `centre` and the re-solve did not, which meant he flew to the middle
+ * of his mark and the first resize, scroll or dirty-station poll quietly moved
+ * him beside it instead.
+ *
+ * That is not a small drift when the mark is against the left edge of the
+ * screen. `parkBeside` has an edge exception that flips him to the far side of
+ * anything he would otherwise hang off the screen for, so a mark in the
+ * bottom-left corner threw him a body's width to the RIGHT — on top of the
+ * layout the mark existed to keep him clear of.
+ *
+ * One function, both callers, so the two can no longer drift apart.
+ *
+ * `facing` is absent for a centre park, deliberately: a point has no inward, so
+ * the caller's facing is left alone rather than being invented here.
+ */
+export function solvePark(
+  camera: PerspectiveCamera,
+  rect: RectLike,
+  opts: { depth: Depth; side: Side; baseDistance: number; centre?: boolean },
+): { position: Vector3; facing?: number } {
+  if (opts.centre) {
+    return {
+      position: parkOn(camera, rect.left + rect.width / 2, rect.top + rect.height / 2, {
+        depth: opts.depth,
+        baseDistance: opts.baseDistance,
+      }),
+    }
+  }
+  return parkBeside(camera, rect, opts)
+}
+
 export function homeCorner(camera: PerspectiveCamera, baseDistance: number): Vector3 {
   const p = viewportToBlender(
     camera,

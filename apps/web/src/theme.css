@@ -788,3 +788,61 @@ body {
   from { opacity: 0; transform: translateY(10px) scale(0.9); }
   to   { opacity: 1; transform: none; }
 }
+
+/* ── Deck-E's chat: the column he stands in ──────────────────────────────────
+ *
+ * ON A PHONE HE IS PART OF THE LAYOUT WITHOUT BEING IN IT. He is drawn by the
+ * WebGL canvas at z-30, above the panel at z-25, so nothing the panel lays out
+ * can ever stack over him and no amount of z-index will change that. The layout
+ * therefore gets out of his way instead: `--decke-gutter` is how far a line of
+ * content must start to the RIGHT of the panel's own padding to clear his body.
+ *
+ * The gutter is derived from HIS ACTUAL HEIGHT — `DeckeHost` owns that number
+ * and is the only writer of it — so a phone that renders him smaller reclaims
+ * the space rather than leaving a hole where he used to be. On desktop he
+ * stands out on the page beside the panel, the gutter is 0, and every rule here
+ * collapses to what the panel did before.
+ */
+
+/* HIS SIDE OF THE COLUMN. A reply low enough to sit beside him is indented past
+ * him; one that has scrolled clear of his head slides back to the left edge.
+ *
+ * The transition is on `margin-left` ALONE, and the width is pinned by the
+ * `max-width` rules below rather than left to the flex container. Animating the
+ * available width instead would re-wrap the text on every frame of the slide —
+ * a paragraph reflowing mid-move reads as a rendering fault, where a bubble
+ * that simply travels reads as the deliberate thing it is. */
+.decke-shift {
+  margin-left: var(--decke-gutter, 0px);
+  transition: margin-left 320ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+/* Set by the transcript's own measurement pass — see `reflow` in DeckeChat.tsx.
+ * It is a DOM attribute rather than React state on purpose: this flips while the
+ * reader drags the transcript, and re-rendering the message list at scroll rate
+ * to move one margin is exactly the kind of thing that makes a chat feel heavy. */
+.decke-shift[data-clear='true'] {
+  margin-left: 0;
+}
+
+/* A bubble is conversational: it keeps the rag it has on desktop, and on a phone
+ * it additionally may not grow into his half of the screen. */
+.decke-bubble {
+  max-width: min(85%, calc(100% - var(--decke-gutter, 0px)));
+}
+
+/* A panel he composed is a FIGURE, not a remark — it takes the full column so a
+ * card grid is a grid rather than a stack of one. It still stops at his edge. */
+.decke-figure {
+  max-width: calc(100% - var(--decke-gutter, 0px));
+}
+
+/* The composer's left padding is the same clearance, so the input never starts
+ * underneath him. `16px` is the panel's own content padding. */
+.decke-composer {
+  padding-left: calc(16px + var(--decke-gutter, 0px));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .decke-shift { transition-duration: 1ms; }
+}
