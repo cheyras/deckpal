@@ -405,3 +405,96 @@ multi-frame in a rectified frame**, not single-image. Public dataset: MIDV-Holo
    uses 5 fps, and the temporal features are the ones that generalise.
 3. **Use the TCGdex `variants` map.** Many cards have no reverse printing at all,
    so there is no decision to make — pure accuracy, zero optics.
+
+---
+
+# Round 4 — the ink tell (owner-observed), and the first 3/3
+
+**The owner spotted something no amount of optics research had found: in the
+current era the reverse-holo printing is physically DIFFERENT INK.** Around the
+lower-left tag block — illustrator credit, regulation mark, set code, collector
+number — the reverse print carries a **white keyline** around every glyph. The
+normal print does not.
+
+It is obvious once seen, and it makes print-design sense: the reverse holo's body
+is foiled, so dark text on a metallic ground loses legibility and the keyline is
+knocked out behind it to restore contrast.
+
+**This changes the category of the problem.** Every signal chased in rounds 1–3
+was optical — it needed a highlight to exist, which needed the right light at the
+right angle, which is exactly what would not generalise. A keyline is printed into
+the albedo. It does not care about the illuminant, the angle, or whether the hand
+moved, and **one frame is enough**.
+
+## Measuring it took three attempts
+
+1. **Threshold dark pixels in the photograph, dilate, measure the ring.** Failed,
+   and the control caught it: the catalog image — which *is* the normal printing —
+   scored HIGHER than real normals. Dilating glyphs found their own antialiased
+   edges, which are mid-bright on any printing.
+2. **Compare absolute brightness against the registered reference.** Failed on
+   exposure: dim-light frames sit 90–120 levels below the catalog even after gain
+   matching, because a phone in a dark room reshapes the tone curve rather than
+   scaling it.
+3. **Take glyph positions from the REFERENCE; measure the halo inside the
+   photograph.** Works. The reference supplies noise-free glyph locations, and the
+   question asked is entirely within one frame — is the ring just outside the ink
+   brighter and less saturated than the body around it? Exposure, white balance
+   and gain all cancel because both terms come from the same patch.
+
+A silent bug cost a run in between: `cv2.dilate(src, kernel, 3)` passes 3 as
+**`dst`**, not `iterations`. The two dilations were identical, the ring was empty,
+and the measurement returned nothing. `iterations=` is required.
+
+    haloDesat = mean(saturation of body) − mean(saturation of ring)
+
+Positive means the ring is whiter than the body: a keyline. The catalog control
+reads −0.065 to −0.141 on all three cards, correctly identifying itself as normal.
+
+## Combined with the optical signal: the first 3/3
+
+`haloDesat` (ink) and `−exBody` (optics — the foiled body desaturates against its
+own catalog albedo) are **physically independent**: one is what was printed, the
+other is how the surface reflects. Their errors do not correlate.
+
+| Signal | within-pair | fixed zero | fixed per-card threshold | leave-one-lighting-out |
+|---|---|---|---|---|
+| ink `haloDesat` | 8/8 | 13/17 | 2/3 | 14/17 |
+| optics `−exBody` | 8/8 | 15/17 | 2/3 | 14/17 |
+| **ink + optics** | **8/8** | 12/17 | **3/3** | **15/17** |
+
+Combined by summing each feature standardised on the OTHER cards (leave-one-card-
+out), so the card under test contributes nothing to its own scaling. All three
+cards separate with margins of 0.51, 0.64 and 1.55 standard units.
+
+Progression across the whole investigation, on registered card-only data:
+
+| Round | Best feature | per-card | LOLO |
+|---|---|---|---|
+| 1 | `corrLS` | 0/3 | 9/17 |
+| 2 | `relSd` (temporal) | 1/3 | 13/17 |
+| 3 | `exBody` (layout control) | 2/3 | 14/17 |
+| **4** | **ink + optics** | **3/3** | **15/17** |
+
+## What this changes for the product
+
+- **A single frame may be enough.** The ink tell needs no tilt, no motion, no
+  specular event. That removes the "user must wave the card about" requirement
+  the temporal approach implied, and it works on the first frame that registers.
+- **It is checkable independently.** Unlike an optical claim, this one can be
+  confirmed by eye on any two cards, and by anyone.
+- **It composes with the optical signal for free**, since registration is already
+  needed for both.
+
+## Caveats, stated plainly
+
+- **Era-scoped.** The owner reports observing it in the current era only. Nothing
+  here establishes it for older sets, and rounds 1–3 already found one era-specific
+  layout inversion. Treat it as current-era until checked.
+- **n is still 17 segments across 3 cards.** 3/3 on three cards is three
+  successes, not a validated rate.
+- **The combination's 3/3 is a "does a threshold exist" result**, not a
+  prediction; 15/17 leave-one-lighting-out is the predictive number.
+- **Depends on registration**, which is now solid (139/146) but is another moving
+  part, and the keyline is thin — it will be the first thing lost to JPEG chroma
+  subsampling and low capture resolution.
