@@ -14,8 +14,15 @@
  *
  * So this asserts the only thing those tests could not: that each function file
  * imports cleanly, from the repository root, with the same resolution rules the
- * deployment uses, and exports a handler. It runs against built `apps/api/dist`
- * output, which is what the functions import and what the Vercel build produces.
+ * deployment uses, and exports a handler.
+ *
+ * IT NEEDS THE SAME BUILDS THE DEPLOYMENT DOES. The functions import from
+ * `apps/api/dist` and `apps/mcp/dist`, so whatever runs this must build both
+ * first — `vercel.json`'s `buildCommand` is the list to keep it honest against.
+ * On its first CI run this check failed on `mcp.mjs` for exactly that reason,
+ * which is the guard working: locally the directory happened to exist from an
+ * earlier build, and a check that only passes because of leftover state is worth
+ * nothing.
  */
 import { readdirSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'

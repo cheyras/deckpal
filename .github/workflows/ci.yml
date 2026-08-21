@@ -69,6 +69,7 @@ jobs:
       - name: Serverless functions load and export a handler
         run: |
           pnpm --filter deckpal-api build
+          pnpm --filter deckpal-mcp build
           node scripts/check-functions.mjs
 
       # Deck-E's rig, playbook and procedural layers, checked against the
