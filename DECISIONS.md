@@ -7733,3 +7733,40 @@ exists and reacts once per card as it lands: `alert_star` for a chase pull,
   copy would rot silently; a substring miss costs a nod instead of a gasp.
 - `once` not `sustain` — sustaining `alert_star` would leave him permanently
   startled at a list that has moved on.
+
+## 2026-08-21 — `showScreen`: the palette gets a producer
+**Decided by:** Claude, per the original brief ("ad-hoc screens composed from a
+fixed component library").
+**Decision:** A `showScreen` server tool takes a `Screen`, sanitises it, and puts
+it on a **transient** `data-decke-screen` part. The client attaches it to the
+message being streamed and renders it full-width beneath the bubble.
+
+**Why now:** the schema, the renderer and their tests all existed and nothing
+produced one — the whole palette was dead code.
+
+**Implications:**
+- **Held on the MESSAGE, not as one "current screen".** Scrolling back to a haul
+  from four questions ago should show that haul.
+- **Transient**, like `express`: a screen echoed into history is re-read as
+  context next turn and invites the model to rebuild it.
+- **`showScreen` counts as acting in the stop condition.** Left out, a step that
+  spoke AND drew a panel failed "spoke && moved", the loop opened another step,
+  and he delivered a second closing line. Measured on the probe before the fix.
+- **An empty bubble is not rendered**, so a panel-only turn does not open with a
+  stray empty pill.
+
+## 2026-08-21 — A short `quantities` array is normalised, not rejected
+**Decided by:** Claude, from live probe evidence.
+**Decision:** In `sanitizeScreen`, a `cardGrid` whose `quantities` is shorter than
+`cards` is padded with 1s. Longer than `cards` is still rejected, as is a
+quantity below 1.
+
+**Why:** it was the most common rejection in practice — models list quantities
+only where they differ from one. And rejecting it was an inconsistency in the
+schema rather than a safety property: omitting `quantities` ENTIRELY already means
+every card is a single, so "the ones I did not mention are singles" is the same
+rule, not a guess about intent. A longer array has no such reading, so it still
+rejects.
+
+This does not soften the reject-loudly doctrine anywhere else. Measured after the
+change: six consecutive live runs, one screen each, no `showScreen` rejections.

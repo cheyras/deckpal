@@ -19,6 +19,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import type { ChatMessage } from './DeckeChat'
+import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
 import { runUiTool, type UiToolResult } from './uiTools'
 
@@ -127,7 +128,7 @@ export function useDeckeChat(
             let part: {
               type?: string
               delta?: string
-              data?: { commands?: WireCommand[] }
+              data?: { commands?: WireCommand[]; screen?: ScreenSpec }
               state?: string
               toolCallId?: string
               input?: unknown
@@ -150,6 +151,14 @@ export function useDeckeChat(
               setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, text: x.text + chunk } : x)))
             } else if (part.type === 'data-decke' && part.data?.commands) {
               apply(decke, part.data.commands)
+            } else if (part.type === 'data-decke-screen' && part.data?.screen) {
+              // Attached to the reply being streamed, so it stays with its turn.
+              // The server has already dropped any block it could not render and
+              // `DeckeScreen` returns null for a kind it does not know, so this
+              // needs no validation of its own — and must not invent one, or the
+              // two layers drift and a block passes one and vanishes at the other.
+              const screen = part.data.screen as ScreenSpec
+              setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, screen } : x)))
             } else if (
               typeof part.type === 'string' &&
               part.type.startsWith('tool-') &&

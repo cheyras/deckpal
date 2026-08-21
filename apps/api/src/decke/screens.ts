@@ -54,7 +54,9 @@ const blockSchema = z.object({
     .array(z.number().int())
     .max(60)
     .optional()
-    .describe('cardGrid only: how many of each, positionally matching `cards`.'),
+    .describe(
+      'cardGrid only: how many of each, positionally matching `cards`. Omit it entirely if every card is a single, or stop early — any card you do not give a number is a single.',
+    ),
   value: z
     .string()
     .max(40)
@@ -92,8 +94,11 @@ export function validateBlock(b: ScreenBlock): string | null {
       return b.text ? null : `${b.kind} needs text`
     case 'cardGrid': {
       if (!b.cards?.length) return 'cardGrid needs at least one card id'
-      if (b.quantities && b.quantities.length !== b.cards.length) {
-        return 'quantities must line up with cards, one per card'
+      // A SHORT `quantities` is normalised, not rejected — see `normalizeBlock`.
+      // A LONG one still is: quantities for cards that are not there have no
+      // reading that is not a guess about which ones were meant.
+      if (b.quantities && b.quantities.length > b.cards.length) {
+        return 'more quantities than cards — one per card, or leave the rest off'
       }
       if (b.quantities?.some((q) => q < 1)) return 'a quantity below 1 is not a card you own'
       return null
@@ -112,6 +117,29 @@ export function validateBlock(b: ScreenBlock): string | null {
 }
 
 /**
+ * Fill in what has an unambiguous reading, before judging the block.
+ *
+ * ONLY ONE THING QUALIFIES, and it earns it: a `quantities` array shorter than
+ * `cards`. Omitting `quantities` ALTOGETHER already means every card is a
+ * single, so "the ones I did not mention are singles" is not a guess about
+ * intent — it is the same rule the field already follows. Rejecting a partial
+ * array while accepting an absent one was an inconsistency in this schema rather
+ * than a safety property, and it was the single most common rejection in
+ * practice: models naturally list quantities only where they differ from one.
+ *
+ * This is NOT a licence to clamp generally. Everything else still rejects
+ * loudly, because a model that is silently corrected learns nothing and repeats
+ * the mistake next turn.
+ */
+function normalizeBlock(b: ScreenBlock): ScreenBlock {
+  if (b.kind !== 'cardGrid' || !b.cards || !b.quantities) return b
+  if (b.quantities.length >= b.cards.length) return b
+  const quantities = [...b.quantities]
+  while (quantities.length < b.cards.length) quantities.push(1)
+  return { ...b, quantities }
+}
+
+/**
  * Drop what cannot be rendered, keep what can, and say what went.
  *
  * A screen is a RESULT — usually "here is what I just added" — so a single bad
@@ -120,10 +148,12 @@ export function validateBlock(b: ScreenBlock): string | null {
  */
 export function sanitizeScreen(screen: Screen): { screen: Screen; dropped: string[] } {
   const dropped: string[] = []
-  const blocks = screen.blocks.filter((b, i) => {
+  const blocks: ScreenBlock[] = []
+  screen.blocks.forEach((raw, i) => {
+    const b = normalizeBlock(raw)
     const bad = validateBlock(b)
     if (bad) dropped.push(`blocks[${i}]: ${bad}`)
-    return !bad
+    else blocks.push(b)
   })
   return { screen: { ...screen, blocks }, dropped }
 }

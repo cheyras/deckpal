@@ -184,7 +184,15 @@ export default async function handler(request) {
             const last = steps[steps.length - 1]
             if (!last) return false
             const spoke = (last.text ?? '').trim().length > 0
-            const moved = (last.toolCalls ?? []).some((c) => c.toolName === 'express')
+            // `showScreen` counts as acting for exactly the same reason
+            // `express` does: the step produced something the user can see, so
+            // the turn is finished. Left out, a step that spoke AND drew a panel
+            // failed the test, the loop opened another step, and he said his
+            // closing line a second time — measured on the probe:
+            //   [step 1] "Nice pulls! That 91 looks chase-y. Add 'em to the collection?"
+            //   [step 2] "Say the word and I'll stash these in your collection."
+            const ACTS = new Set(['express', 'showScreen'])
+            const moved = (last.toolCalls ?? []).some((c) => ACTS.has(c.toolName))
             return spoke && moved
           },
         ],

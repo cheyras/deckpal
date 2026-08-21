@@ -24,6 +24,7 @@
 import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
 import { ALLOWED_STATES } from './prompt.js'
+import { sanitizeScreen, screenSchema } from './screens.js'
 
 /**
  * Routes Deck-E may navigate to.
@@ -297,6 +298,37 @@ export function buildTools(writer: CommandWriter): ToolSet {
       description:
         'Scroll the page so the user can see you. Use when you have parked beside something below the fold.',
       inputSchema: z.object({}),
+    }),
+
+    showScreen: tool({
+      description:
+        'Show a small panel of results in the chat — a summary, a haul, a set of figures. You choose which components to use and what goes in them; you never write markup, styling or layout. Use it when the answer is a SHAPE (a list of cards, a few numbers, a progress bar) rather than a sentence. For a sentence, just say the sentence.',
+      inputSchema: screenSchema,
+      execute: async (screen) => {
+        // Same contract as `express`: sanitise here, report what was dropped,
+        // and put the payload on a TRANSIENT part so it renders once and never
+        // enters message history. A screen echoed back into history would be
+        // re-read as context next turn and invite the model to rebuild it.
+        const { screen: clean, dropped } = sanitizeScreen(screen)
+        if (clean.blocks.length) {
+          writer.write({ type: 'data-decke-screen', data: { screen: clean }, transient: true })
+        }
+        // A screen that lost every block is a failure the model must hear about,
+        // not a silent no-op — otherwise it believes it answered and moves on.
+        if (!clean.blocks.length) {
+          return {
+            shown: false,
+            errors: dropped,
+            done: 'Nothing could be rendered. Say the answer in words instead of retrying the panel.',
+          }
+        }
+        const done =
+          'The panel is on screen and the user can read it. Do not repeat its contents in words — ' +
+          'add only what the panel does not already say.'
+        return dropped.length
+          ? { shown: true, blocks: clean.blocks.length, errors: dropped, done }
+          : { shown: true, blocks: clean.blocks.length, done }
+      },
     }),
   }
 }

@@ -30,6 +30,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { lockScroll, unlockScroll } from '../../components/ui/Sheet'
 import { Icon } from '../../components/Icon'
 import type { DeckEInstance } from './runtime'
+import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
 
 /**
  * WHERE HE STANDS WHILE THE CHAT IS OPEN, as a fraction of the viewport.
@@ -64,6 +65,15 @@ export type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
   text: string
+  /**
+   * A panel he composed, if he composed one.
+   *
+   * Held on the MESSAGE rather than as one "current screen" on the hook, so a
+   * panel stays attached to the turn that produced it. Scrolling back to a haul
+   * from four questions ago should still show the haul, not whatever was
+   * rendered last.
+   */
+  screen?: ScreenSpec
 }
 
 export function DeckeChat({
@@ -239,13 +249,29 @@ export function DeckeChat({
                 <li
                   key={m.id}
                   className={[
-                    'max-w-[85%] rounded-[14px] px-[12px] py-[8px] text-[14px] leading-[21px]',
-                    m.role === 'user'
-                      ? 'self-end bg-action-primary text-action-primary-text'
-                      : 'self-start bg-surface-secondary text-text-body',
+                    'flex flex-col gap-[8px]',
+                    m.role === 'user' ? 'items-end' : 'items-stretch',
                   ].join(' ')}
                 >
-                  {m.text}
+                  {/* An empty bubble is not rendered at all. A turn that answers
+                      purely with a panel would otherwise open with a stray empty
+                      pill above it. */}
+                  {m.text ? (
+                    <div
+                      className={[
+                        'max-w-[85%] rounded-[14px] px-[12px] py-[8px] text-[14px] leading-[21px]',
+                        m.role === 'user'
+                          ? 'self-end bg-action-primary text-action-primary-text'
+                          : 'self-start bg-surface-secondary text-text-body',
+                      ].join(' ')}
+                    >
+                      {m.text}
+                    </div>
+                  ) : null}
+                  {/* Full width rather than inside the bubble: a panel is a
+                      figure, and an 85%-wide column with a card grid in it is a
+                      column of one card. */}
+                  {m.screen ? <DeckeScreen spec={m.screen} /> : null}
                 </li>
               ))}
             </ul>

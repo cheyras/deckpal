@@ -48,12 +48,15 @@ test('a bad block is dropped, not the whole screen', () => {
   assert.match(dropped[0]!, /statTile needs both/);
 });
 
-test('quantities must line up with cards', () => {
-  assert.match(
-    validateBlock({ kind: 'cardGrid', cards: ['a', 'b'], quantities: [1] })!,
-    /line up/,
-  );
+test('quantities may stop early but may not overrun', () => {
+  // Short is normalised by `sanitizeScreen` (see below) and so is valid here:
+  // omitting the array entirely already means every card is a single.
+  assert.equal(validateBlock({ kind: 'cardGrid', cards: ['a', 'b'], quantities: [1] }), null);
   assert.equal(validateBlock({ kind: 'cardGrid', cards: ['a', 'b'], quantities: [1, 2] }), null);
+  assert.match(
+    validateBlock({ kind: 'cardGrid', cards: ['a'], quantities: [1, 2] })!,
+    /more quantities than cards/,
+  );
 });
 
 test('a quantity below one is refused rather than clamped', () => {
@@ -75,3 +78,33 @@ test('a screen must have at least one block and at most eight', () => {
   const nine = Array(9).fill({ kind: 'text', text: 'a' });
   assert.equal(screenSchema.safeParse({ title: 'x', blocks: nine }).success, false);
 });
+
+test('a short quantities array is filled in rather than rejected', () => {
+  // Omitting `quantities` entirely already means "every card is a single", so
+  // stopping early has exactly the same reading. This was the most common
+  // rejection in practice — models list quantities only where they differ.
+  const { screen, dropped } = sanitizeScreen({
+    title: 'Haul',
+    blocks: [{ kind: 'cardGrid', cards: ['a', 'b', 'c', 'd'], quantities: [1, 1, 2] }],
+  })
+  assert.deepEqual(dropped, [])
+  assert.deepEqual(screen.blocks[0]!.quantities, [1, 1, 2, 1])
+})
+
+test('more quantities than cards is still rejected', () => {
+  const { screen, dropped } = sanitizeScreen({
+    title: 'Haul',
+    blocks: [{ kind: 'cardGrid', cards: ['a'], quantities: [1, 2] }],
+  })
+  assert.equal(screen.blocks.length, 0)
+  assert.match(dropped[0]!, /more quantities than cards/)
+})
+
+test('normalising does not rescue a genuinely bad quantity', () => {
+  const { screen, dropped } = sanitizeScreen({
+    title: 'Haul',
+    blocks: [{ kind: 'cardGrid', cards: ['a', 'b'], quantities: [0] }],
+  })
+  assert.equal(screen.blocks.length, 0, 'a zero is still not a card you own')
+  assert.match(dropped[0]!, /below 1/)
+})
