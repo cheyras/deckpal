@@ -49,6 +49,21 @@ for (const file of files) {
       failed++
       continue
     }
+    // SIGNATURE, not just existence. The runtime invokes these with Node's
+    // `(req, res)`. A handler written web-style as `(request) => Response` loads
+    // perfectly, exports a function, passes every check that only asks "does it
+    // import" — and then throws `request.headers.get is not a function` on its
+    // first real request. That shipped, and cost three deploys to find, because
+    // the crash lands before the body is read and therefore looks like a module
+    // that never loaded. Express apps are `(req, res, next)`, so 2 is the floor.
+    if (mod.default.length < 2) {
+      console.error(
+        `  FAIL ${file} — handler takes ${mod.default.length} argument(s); the runtime calls it with (req, res).` +
+          ` A web-style (request) => Response handler will throw on request.headers.get.`,
+      )
+      failed++
+      continue
+    }
     console.log(`  ok   ${file}`)
   } catch (err) {
     console.error(`  FAIL ${file} — ${err.code ?? 'error'}: ${String(err.message).split('\n')[0]}`)
