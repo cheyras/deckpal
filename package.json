@@ -27,6 +27,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "4.0.52",
     "ai": "7.0.66",
     "pg": "^8.23.0",
     "zod": "4.4.3"
