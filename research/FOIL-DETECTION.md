@@ -1,6 +1,9 @@
 # Foil / variant detection — measurement findings
 
-**Status: a real signal, NOT shippable as auto-detection on this evidence.**
+**Status: round 2 — the approach changed, and the earlier headline number was
+partly an artifact. Read `## Round 2` below before anything else.**
+
+**Status (round 1, superseded in part): a real signal, NOT shippable as auto-detection on this evidence.**
 
 Reverse holo separates from normal at **AUC 0.988** when card AND lighting are
 held constant. But at scan time you know the card (pHash names it) and you do not
@@ -195,3 +198,98 @@ and the abstain path is a one-tap variant choice.
 
 That one-tap control is also the total-failure fallback. **Build it first**; it is
 needed either way, and it turns detection from a gamble into an optional layer.
+
+
+---
+
+# Round 2 — registration, and measuring change instead of appearance
+
+Prompted by a decision not to give up on this. Three things came out of it: the
+round-1 headline was inflated, registration was the thing blocking every idea,
+and the right signal is **how the card changes as it tilts**, not how it looks in
+any one frame.
+
+## The round-1 number was partly an artifact
+
+`corrLS` scored 15/17 leave-one-lighting-out on the round-1 crops. Those crops
+were roughly 40% hand, sleeve and table. Measured on properly registered,
+**card-only** pixels, the same feature scores **9/17** — barely above the 8.5/17
+coin flip.
+
+Some of that 15/17 was hand and background, which a well-framed production scan
+would not contain. Any future claim here has to be made on registered card pixels.
+
+## Registration is solved, and it was the real blocker
+
+Three hand-rolled attempts failed, each looking like a different bug: a focus/
+brightness blob that grabbed the sleeve; a similarity search whose range could not
+reach the answer (every frame pinned against the scale ceiling); then coordinate
+descent that settled into local optima, because card art is repetitive enough —
+rows of text, a border, a frame — that a partial overlap scores well.
+
+All three were the same mistake: **trying to find a projective transform without
+correspondences.** SIFT + RANSAC against the catalog image registers **139/146
+frames** with hundreds of inliers, pixel-accurate. `research/foil-harness/register.py`.
+
+This is a reusable asset independent of foil: it puts any frame into canonical
+card space, which is also what a grading pre-check or a centring measurement would
+need.
+
+## Dividing the artwork out works — and exposes the next confound
+
+The catalog image is a flat scan, so it approximates the card's diffuse albedo.
+Under the dichromatic model `O = A·S·L + R·L`, dividing gives `O/A = L·(S + R/A)`:
+the artwork cancels, leaving shading plus specular, with the specular term
+amplified where the albedo is dark.
+
+It does what it was meant to. Within a lighting condition, `ratioSpread` is **8/8
+unanimous** and `ratioSd` averages **AUC 0.86** — better *consistency* than
+`corrLS` ever had, and Kakuna's bright sunset no longer dominates.
+
+But across lighting it scores **10/17**. Removing the art confound exposed an
+illumination-geometry confound: a small directional source lays a strong smooth
+gradient across the card, diffuse light lays almost none, and the foil term rides
+on a base that moves further than it does. Separating the residual by spatial
+scale (shading is low-frequency, specular is localised) did not fix it — twelve
+scale-separated features, best 11/17.
+
+**No single-frame feature achieves a fixed per-card threshold across all three
+lightings for more than one card of three.** That is the shippable requirement,
+and single-frame appearance does not meet it.
+
+## What does work: measure the CHANGE, not the appearance
+
+A difference between two frames of the same card under the same light **cancels
+the illumination**. What is left is what changed: the hand moved, so a
+view-dependent surface redistributes its highlight and a matte surface does not.
+
+Two refinements make it a measurement rather than a motion detector:
+
+- Confine it to **flat regions of the artwork** (from the catalog's own gradient),
+  because registration error shows up at albedo edges.
+- Normalise by the change **at** those edges. Both scale with how far the hand
+  moved and with registration slop; only the flat-region change is inflated by a
+  highlight sliding across the card.
+
+| Feature | within-pair | fixed per-card threshold | leave-one-lighting-out |
+|---|---|---|---|
+| `moveSd` (raw change, flat regions) | **8/8** | 0/3 | 10/17 |
+| **`relSd` (flat ÷ edge)** | 7/8 | **1/3** | **13/17** |
+| `corrLS` (round 1, on clean data) | — | 0/3 | 9/17 |
+
+`relSd` is the best result on registered data, and it is illumination-normalised
+*by construction* rather than by calibration. Three of its four errors are Kakuna;
+Ninetales misses a fixed threshold by 0.005, which is a tie, and its overhead-LED
+normal cell is missing from the dataset entirely.
+
+## The binding constraint is now data, not ideas
+
+Seventeen segments, one per (card × lighting × variant), several with only two or
+three frame-pairs, and one cell absent. A per-card threshold cannot be fitted or
+validated from that — every evaluation here derives a threshold from two points.
+15/17 versus 13/17 versus 9/17 are two-to-three-item differences with heavily
+overlapping confidence intervals; the ranking is indicative, not established.
+
+What would settle it: more **cards** (three cannot tell whether Kakuna is the
+exception or the rule), and more **lighting conditions per card**, captured
+through the app's own scan guide so the framing matches production.
