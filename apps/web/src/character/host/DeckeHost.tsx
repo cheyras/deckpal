@@ -449,6 +449,9 @@ export function DeckeHost() {
         messages={chat.messages}
         onSend={chat.send}
         busy={chat.busy}
+        asking={chat.asking}
+        onApprove={chat.approve}
+        onDeny={chat.deny}
         desktop={wide}
         characterPx={charPx}
       />

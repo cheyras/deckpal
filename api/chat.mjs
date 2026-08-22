@@ -300,6 +300,34 @@ async function serve(request) {
     signal: abortSignal,
   }
 
+  /**
+   * Tool-call lifecycle, onto the stream, as a transient part.
+   *
+   * WHY THIS EXISTS: work is currently indistinguishable from theatre. The
+   * `thinking` state is driven by request latency, so a fabricated answer and a
+   * researched one look exactly the same while they are being produced. The
+   * reader has no way to tell "he is reading my collection" from "he is
+   * composing a sentence about my collection".
+   *
+   * EMITTED HERE, never by the model. A chip the model could ask for would be a
+   * second surface to fabricate on — "Checking your collection…" with no lookup
+   * behind it is strictly worse than no chip at all, because it manufactures
+   * evidence. These come from the adapter's own execute wrapper, so every chip
+   * corresponds 1:1 to a real invocation of a real handler by construction.
+   *
+   * TRANSIENT, like the animation commands: progress is about a moment, and a
+   * finished turn should not carry "Checking your collection…" in its history
+   * for ever, nor re-bill it on the next turn.
+   */
+  const emitToolEvent = (writer) => (event) => {
+    try {
+      writer.write({ type: 'data-decke-tool', data: event, transient: true })
+    } catch {
+      // A closed stream is the ordinary end of an aborted turn. A chip that
+      // cannot be delivered must never take the tool call down with it.
+    }
+  }
+
   const choice = MODELS.chat
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
@@ -331,7 +359,7 @@ async function serve(request) {
           // GENERATED FROM THE TOOLS HE IS ACTUALLY HOLDING, three lines below.
           // Hand-writing this list is how the previous prompt came to spend
           // every turn offering to look things up with no tool that could look.
-          dataTools: dataToolSummary(),
+          dataTools: dataToolSummary({ include: () => true }),
         }),
         // AWAITED: `convertToModelMessages` is async in ai@7 and returns a
         // Promise<ModelMessage[]>. Passing it unawaited fails deep inside
@@ -358,7 +386,15 @@ async function serve(request) {
         // function keep the property it was created for.
         tools: {
           ...buildTools(writer),
-          ...buildDataTools(toolCtx),
+          // READS AND WRITES, because the approval round-trip now exists.
+          //
+          // `include: () => true` is not "no filter" — every write is still
+          // gated by the adapter's `needsApproval`, which the SDK ENFORCES by
+          // not running the tool. What changes here is only whether the model
+          // can ask. Before the client could carry an approval, a write tool
+          // would have stalled the turn: the SDK holds the call, nothing
+          // executes, and nobody is listening for the request.
+          ...buildDataTools({ ...toolCtx, include: () => true, onEvent: emitToolEvent(writer) }),
           // THE DEEP TIER. Four sub-agents, each with its own model, step
           // budget and tool subset — see `decke/deep.ts`.
           //
@@ -374,6 +410,7 @@ async function serve(request) {
             ctx: toolCtx,
             gateway,
             charge: async () => charge(user.id, 'deep_calls'),
+            onEvent: emitToolEvent(writer),
           }),
         },
         // Bounded: each step re-bills the entire prompt, so an unbounded loop on

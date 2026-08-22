@@ -43,6 +43,7 @@ import { lockScroll, unlockScroll } from '../../components/ui/Sheet'
 import { Icon } from '../../components/Icon'
 import type { DeckEInstance } from './runtime'
 import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
+import type { PendingApproval, ToolChip } from './useDeckeChat'
 
 /**
  * WHERE HE STANDS WHILE THE CHAT IS OPEN.
@@ -144,6 +145,16 @@ export type ChatMessage = {
    * rendered last.
    */
   screen?: ScreenSpec
+  /**
+   * What he actually DID this turn, as chips.
+   *
+   * Held on the message for the same reason the screen is: the record of a
+   * lookup belongs to the turn that made it. It is also what gets replayed,
+   * compacted, as the NEXT turn's evidence — see `messagesToWire`. Without it,
+   * turn N+1 has no record that turn N read 604 cards, only its own prose about
+   * them, and prose is exactly the thing that drifts.
+   */
+  tools?: ToolChip[]
 }
 
 export function DeckeChat({
@@ -155,6 +166,9 @@ export function DeckeChat({
   messages,
   onSend,
   busy,
+  asking,
+  onApprove,
+  onDeny,
   desktop,
   characterPx,
 }: {
@@ -167,6 +181,15 @@ export function DeckeChat({
   messages: ChatMessage[]
   onSend: (text: string) => void
   busy: boolean
+  /**
+   * Writes he is holding, waiting on a person. Null when nothing is pending.
+   *
+   * The SDK genuinely has not run them — this is not a courtesy prompt in front
+   * of work already done.
+   */
+  asking: PendingApproval[] | null
+  onApprove: () => void
+  onDeny: () => void
   /**
    * Is the viewport wide enough for the desktop composition?
    *
@@ -445,6 +468,43 @@ export function DeckeChat({
                       {m.text}
                     </div>
                   ) : null}
+                  {/*
+                    WHAT HE ACTUALLY DID, as chips.
+
+                    Work has been indistinguishable from theatre: `thinking` is
+                    driven by request latency, so a fabricated answer and a
+                    researched one looked exactly the same while they were being
+                    produced. These are emitted by the server's own execute
+                    wrapper, one per real invocation, so a chip cannot appear
+                    for a lookup that did not happen.
+
+                    Rendered ABOVE his words on purpose — the reading order is
+                    "I checked your collection" then "you've got 70 of them",
+                    which is the order that makes the second sentence
+                    trustworthy.
+                  */}
+                  {m.tools?.length ? (
+                    <ul className="decke-shift flex flex-wrap gap-[6px] self-start">
+                      {m.tools.map((t) => (
+                        <li
+                          key={t.id}
+                          className={[
+                            'rounded-full px-[10px] py-[3px] text-[12px] leading-[18px]',
+                            'border border-border-subtle bg-surface-secondary',
+                            t.phase === 'error' ? 'text-text-muted line-through' : 'text-text-muted',
+                          ].join(' ')}
+                          // The summary is the first line of the real tool
+                          // result. Kept in a title rather than shown, because
+                          // the chip is a reassurance and the answer is the
+                          // answer — a chip that competes with his reply for
+                          // attention is a worse chip.
+                          title={t.summary ?? undefined}
+                        >
+                          {t.phase === 'start' ? `${t.title}…` : t.title}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                   {/* Full width rather than inside the bubble: a panel is a
                       figure, and an 85%-wide column with a card grid in it is a
                       column of one card. */}
@@ -485,6 +545,48 @@ export function DeckeChat({
               height: `${parkH}px`,
             }}
           />
+        ) : null}
+
+        {/*
+          THE APPROVAL GATE.
+
+          Above the composer, because it is the thing to answer before saying
+          anything else — and because a decision that scrolls away with the
+          transcript is a decision people will miss and then be surprised by.
+
+          The buttons are deliberately not symmetrical. "Leave it" is the plain
+          one and comes first in reading order; going ahead takes the deliberate
+          click. This is the only place in the app where a model asks to change
+          the reader's collection, and the default posture should be no.
+        */}
+        {asking?.length ? (
+          <div
+            className="pointer-events-auto shrink-0 border-t border-border-default px-[16px] py-[12px]"
+            role="alertdialog"
+            aria-label="Deck-E is asking permission"
+          >
+            <p className="text-[13px] leading-[19px] text-text-body">
+              {asking.length === 1
+                ? `Let him ${asking[0].title.toLowerCase()}?`
+                : `Let him make ${asking.length} changes?`}
+            </p>
+            <div className="mt-[8px] flex gap-[8px]">
+              <button
+                type="button"
+                onClick={onDeny}
+                className="rounded-[10px] border border-border-default px-[12px] py-[6px] text-[13px] text-text-body"
+              >
+                Leave it
+              </button>
+              <button
+                type="button"
+                onClick={onApprove}
+                className="rounded-[10px] bg-action-primary px-[12px] py-[6px] text-[13px] text-action-primary-text"
+              >
+                Go ahead
+              </button>
+            </div>
+          </div>
         ) : null}
 
         <form

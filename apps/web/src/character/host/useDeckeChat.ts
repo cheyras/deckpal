@@ -83,10 +83,35 @@ type PendingTool = { id: string; name: string; input: Record<string, unknown> }
 type WirePart = Record<string, unknown>
 type WireMessage = { role: 'user' | 'assistant'; parts: WirePart[] }
 
+/**
+ * A tool call the reader has to authorise before it runs.
+ *
+ * The SDK holds the call and emits `tool-approval-request`; nothing executes
+ * until an approval goes back. That is a real control rather than a prompt
+ * instruction — the tool's `execute` is genuinely not invoked.
+ */
+export type PendingApproval = {
+  approvalId: string
+  toolCallId: string
+  /** The tool's own title, once its `tool-input-available` chunk arrives. */
+  title: string
+  name: string
+}
+
+/** One tool call's progress, as a chip. */
+export type ToolChip = {
+  id: string
+  name: string
+  title: string
+  phase: 'start' | 'ok' | 'error'
+  summary?: string
+}
+
 /** Everything one request's stream produced. */
 type LegOutcome = {
   text: string
   pending: PendingTool[]
+  approvals: PendingApproval[]
   screen: ScreenSpec | null
   /** A failure that arrived as a VALUE on a 200 stream. */
   error: string | null
@@ -125,6 +150,33 @@ export function useDeckeChat(
   const onTravelRef = useRef(onTravel)
   onTravelRef.current = onTravel
 
+  // ── The approval gate ──────────────────────────────────────────────────────
+  //
+  // When the SDK holds a write, the turn stops here and waits for a person.
+  // `asking` is what the UI renders; `resolver` is the turn's continuation,
+  // parked until someone answers.
+  //
+  // A PROMISE PARKED IN A REF is the right shape because the decision is not
+  // React state that the turn polls — the turn is inside an `await` and needs
+  // to be woken exactly once, with an answer.
+  const [asking, setAsking] = useState<PendingApproval[] | null>(null)
+  const askingRef = useRef<PendingApproval[] | null>(null)
+  askingRef.current = asking
+  const resolverRef = useRef<((answers: Map<string, boolean>) => void) | null>(null)
+
+  /** Settle whatever is being asked, once, and clear the prompt. */
+  const settle = useCallback((approved: boolean) => {
+    const resolve = resolverRef.current
+    const list = askingRef.current ?? []
+    resolverRef.current = null
+    askingRef.current = null
+    setAsking(null)
+    resolve?.(new Map(list.map((a) => [a.approvalId, approved])))
+  }, [])
+
+  const approve = useCallback(() => settle(true), [settle])
+  const deny = useCallback(() => settle(false), [settle])
+
   const send = useCallback(
     async (text: string) => {
       if (!decke) return
@@ -157,6 +209,28 @@ export function useDeckeChat(
       // replay the READER's words back as the assistant's own.
       let saidSoFar = ''
       let travelAnnounced = false
+
+      /**
+       * Put the question to the reader and wait.
+       *
+       * ABORT RESOLVES IT, as a denial. Without that, pressing stop while an
+       * approval is on screen leaves this promise parked for ever and the turn
+       * never reaches its `finally` — so `thinking` never clears and he rocks
+       * in place until the page is reloaded. An abandoned question is a "no".
+       */
+      const askApproval = (list: PendingApproval[]): Promise<Map<string, boolean>> =>
+        new Promise((resolve) => {
+          resolverRef.current = resolve
+          askingRef.current = list
+          setAsking(list)
+          ac.signal.addEventListener(
+            'abort',
+            () => {
+              if (resolverRef.current === resolve) settle(false)
+            },
+            { once: true },
+          )
+        })
       const appendText = (chunk: string) => {
         saidSoFar += chunk
         setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, text: x.text + chunk } : x)))
@@ -188,6 +262,23 @@ export function useDeckeChat(
               // needs no validation of its own — and must not invent one, or the
               // two layers drift and a block passes one and vanishes at the other.
               setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, screen } : x)))
+            },
+            onToolChip: (chip) => {
+              // Held on the MESSAGE, like the screen, so the record of what he
+              // did stays attached to the turn that did it. Keyed by tool call
+              // id so `start` is REPLACED by `ok` rather than accumulating —
+              // "Checking your collection…" then "Read 604 cards" is one chip
+              // changing, not two chips.
+              setMessages((m) =>
+                m.map((x) =>
+                  x.id === replyId
+                    ? {
+                        ...x,
+                        tools: [...(x.tools ?? []).filter((c) => c.id !== chip.id), chip],
+                      }
+                    : x,
+                ),
+              )
             },
             onHttpError: (status) => {
               const why =
@@ -222,6 +313,37 @@ export function useDeckeChat(
             movedRef.current = true
             console.error('[decke] stream error:', outcome.error)
             return
+          }
+
+          // ── He is asking permission ───────────────────────────────────────
+          //
+          // The SDK is holding one or more calls: their `execute` has NOT run
+          // and will not until an approval goes back. So the turn pauses here
+          // and the decision becomes the reader's.
+          //
+          // This is a real control rather than a prompt instruction, which is
+          // the whole point — this codebase records twice, in the same words,
+          // that "a prompt is not an enforcement mechanism."
+          if (outcome.approvals.length) {
+            if (ac.signal.aborted) return
+            const answers = await askApproval(outcome.approvals)
+            if (ac.signal.aborted) return
+
+            const parts: WirePart[] = []
+            if (outcome.text.trim()) parts.push({ type: 'text', text: outcome.text })
+            for (const a of outcome.approvals) {
+              parts.push({
+                type: 'tool-approval-response',
+                approvalId: a.approvalId,
+                approved: answers.get(a.approvalId) === true,
+                // A DENIAL IS AN ANSWER, not a silence. Sending it back lets him
+                // say "alright, left it alone" instead of stopping mid-turn with
+                // no explanation, which reads as a crash.
+                ...(answers.get(a.approvalId) === true ? {} : { reason: 'the reader declined' }),
+              })
+            }
+            wire.push({ role: 'assistant', parts })
+            continue
           }
 
           if (!outcome.pending.length) break
@@ -318,14 +440,33 @@ export function useDeckeChat(
 
   const stop = useCallback(() => abortRef.current?.abort(), [])
 
-  return { messages, busy, send, stop }
+  return { messages, busy, send, stop, asking, approve, deny }
 }
 
 type LegHandlers = {
   onText: (chunk: string) => void
   onCommands: (commands: WireCommand[]) => void
   onScreen: (screen: ScreenSpec) => void
+  onToolChip: (chip: ToolChip) => void
   onHttpError: (status: number) => void
+}
+
+/**
+ * A readable name for a tool, when the server has not supplied its title.
+ *
+ * An approval request carries only ids, and no chip is emitted for a call the
+ * SDK is holding — its `execute` never ran, and emitting one would be a chip
+ * for work that has not happened. So the reader would otherwise be asked to
+ * authorise `call_a7f3`.
+ *
+ * `log_cards` becomes "Log cards". Crude, and better than an id: the reader is
+ * being asked to permit something, and the one thing that must be legible is
+ * WHAT.
+ */
+function titleFor(name: string): string {
+  if (!name) return 'Make that change'
+  const words = name.replace(/_/g, ' ').trim()
+  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 /**
@@ -346,7 +487,20 @@ async function streamLeg(
   signal: AbortSignal,
   handlers: LegHandlers,
 ): Promise<LegOutcome> {
-  const out: LegOutcome = { text: '', pending: [], screen: null, error: null, refused: false }
+  const out: LegOutcome = {
+    text: '',
+    pending: [],
+    approvals: [],
+    screen: null,
+    error: null,
+    refused: false,
+  }
+
+  // A tool-approval request carries only ids. The NAME arrived earlier, on
+  // that call's `tool-input-available` chunk, so it is remembered here —
+  // otherwise the reader is asked to approve 'call_a7f3'.
+  const approvalNames = new Map<string, string>()
+  const approvalTitles = new Map<string, string>()
 
   const { data } = await supabase.auth.getSession()
   const token = data.session?.access_token
@@ -395,6 +549,7 @@ async function streamLeg(
         toolCallId?: string
         toolName?: string
         input?: unknown
+        approvalId?: string
       }
       try {
         part = JSON.parse(payload)
@@ -419,6 +574,36 @@ async function streamLeg(
       } else if (part.type === 'data-decke-screen' && part.data?.screen) {
         out.screen = part.data.screen
         handlers.onScreen(part.data.screen)
+      } else if (part.type === 'data-decke-tool' && part.data) {
+        // A tool-call chip. Emitted by the SERVER's execute wrapper, never by
+        // the model, so it corresponds 1:1 to a real invocation of a real
+        // handler. That is the whole point: work has been indistinguishable
+        // from theatre, because `thinking` is driven by request latency and a
+        // fabricated answer looks exactly like a researched one while it is
+        // being produced.
+        handlers.onToolChip(part.data as unknown as ToolChip)
+      } else if (part.type === 'tool-approval-request' && typeof part.approvalId === 'string') {
+        // HE IS ASKING PERMISSION, and the SDK is holding the call. Nothing has
+        // run: the tool's `execute` is genuinely not invoked until an approval
+        // goes back. Collected rather than answered here, because the answer is
+        // the reader's and this loop is still draining a stream.
+        out.approvals.push({
+          approvalId: part.approvalId,
+          toolCallId: String(part.toolCallId ?? ''),
+          name: approvalNames.get(String(part.toolCallId ?? '')) ?? 'that change',
+          title: approvalTitles.get(String(part.toolCallId ?? '')) ?? 'Make that change',
+        })
+      } else if (
+        part.type === 'tool-input-available' &&
+        typeof part.toolCallId === 'string' &&
+        !isClientTool(part.toolName)
+      ) {
+        // A SERVER tool announcing itself. Not ours to run — but the approval
+        // request that may follow carries only ids, so this is where the name
+        // is learned. Kept even when no approval follows; the map is per-leg
+        // and costs nothing.
+        approvalNames.set(part.toolCallId, String(part.toolName ?? ''))
+        approvalTitles.set(part.toolCallId, titleFor(String(part.toolName ?? '')))
       } else if (
         part.type === 'tool-input-available' &&
         typeof part.toolCallId === 'string' &&
@@ -448,10 +633,61 @@ async function streamLeg(
   return out
 }
 
+/**
+ * The transcript, as the server wants it back.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * WHY A TURN'S LOOKUPS ARE REPLAYED, COMPACTED (spec §2.3)
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * This used to keep text and nothing else. So turn N+1 had no record that turn
+ * N had read 604 cards — only its own prose about them. Which re-creates the
+ * original pathology in a new form: he asserts from his own earlier sentences
+ * rather than from data, and a sentence is exactly the thing that can drift.
+ * "You've got 70 of them" becomes "you've got most of them" becomes a number
+ * nobody looked up.
+ *
+ * Three options were on the table and the owner chose this one:
+ *
+ *   replay everything     truthful, and the input bill grows without bound on
+ *                         a long conversation — colliding with the per-turn
+ *                         input budget the tool ceiling exists to defend
+ *   re-read per turn      always fresh, never stale, and costs a tool call and
+ *                         a round trip on every follow-up question
+ *   replay COMPACTED      what a lookup FOUND, in one line, not its 200 rows
+ *
+ * The compact form is the chip's own summary — the first line of the real tool
+ * result, produced by the server's execute wrapper. So the record cannot
+ * describe a lookup that did not happen: there is no chip without an
+ * invocation.
+ *
+ * MARKED AS A RECORD, not folded into his speech. Appending "I read 604 cards"
+ * to his words would put sentences in his mouth he never said, and the next
+ * turn would replay them as if he had. It is a separate part, prefixed, and
+ * plainly not dialogue.
+ */
+const TOOL_RECORD_PREFIX = '[lookups on that turn, for your own reference —'
+
 function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
   return msgs
-    .filter((m) => m.text.trim().length > 0)
-    .map((m) => ({ role: m.role, parts: [{ type: 'text', text: m.text }] }))
+    .filter((m) => m.text.trim().length > 0 || (m.tools?.length ?? 0) > 0)
+    .map((m) => {
+      const parts: WirePart[] = []
+      if (m.text.trim().length > 0) parts.push({ type: 'text', text: m.text })
+      const done = (m.tools ?? []).filter((t) => t.phase === 'ok' && t.summary)
+      if (done.length) {
+        parts.push({
+          type: 'text',
+          text:
+            `${TOOL_RECORD_PREFIX} you actually ran these, so the figures in them are real ` +
+            `and yours are not a guess]\n` +
+            done.map((t) => `${t.name}: ${t.summary}`).join('\n'),
+        })
+      }
+      // A turn that produced only tool records and no speech still has to be a
+      // valid message; the filter above lets it through, so guard the shape.
+      return { role: m.role, parts: parts.length ? parts : [{ type: 'text', text: m.text }] }
+    })
 }
 
 /**
