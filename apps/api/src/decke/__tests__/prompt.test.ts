@@ -136,3 +136,24 @@ test('the no-plumbing rule names the exact thing he actually did', () => {
   assert.match(p, /Not in a code fence either/i)
   assert.match(p, /CALL `showScreen`/)
 })
+
+test('he is told never to NAME a card he has not looked up', () => {
+  // Measured on the deployed preview, and isolated to one variable. Same card,
+  // same request shape, only the quantity differs:
+  //
+  //   "Add 1 copy of me05-013"     -> get_card, dry run, "Goldeen", correct 0->1
+  //   "Add 4000 copies of me05-013" -> ZERO tools, "4000 copies of Meowscarada ex?"
+  //
+  // me05-013 is a Goldeen. No card named Meowscarada ex exists in that set. An
+  // absurd quantity flips him into answering conversationally, and in that mode
+  // he fills the blanks in from nothing — including a card name he was handed
+  // an id for and could have resolved in one call.
+  //
+  // The existing rule forbade asserting a card does NOT exist without looking.
+  // It never forbade inventing one that does not.
+  const p = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.match(p, /Never NAME a card you have not looked up/i)
+  assert.match(p, /an id is not a name|that id is not a name/i)
+  // And the reason it happens, named, because the rule alone did not hold.
+  assert.match(p, /A silly request is still a request/i)
+})
