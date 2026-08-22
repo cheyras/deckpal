@@ -269,7 +269,10 @@ The script (`scripts/migrate-to-cloud.ts`):
 4. Preserves all FKs and IDs
 
 **Verify after migration:**
-- Card count matches (`SELECT COUNT(*) FROM card` = 23,444)
+- Card count matches (`SELECT COUNT(*) FROM card` = 23,546 as of 2026-08-22,
+  verified against production's own `/api/search` rather than copied forward —
+  this line read 23,444 for a fortnight after the 2026-08-10 catalog refresh,
+  which made a correct migration look like a failed one)
 - Variant count matches (`SELECT COUNT(*) FROM card_variant` = 35,648+)
 - Collection items are owned by the correct user
 - Run reconcile to recompute progress

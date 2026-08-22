@@ -21,12 +21,22 @@
  * deliverable. Neither ships alone.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * READ TOOLS ONLY, until the approval flow exists
+ * READ-ONLY BY DEFAULT — but the conversation is no longer a default caller
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * `include` defaults to read-only. The write half is gated on the SDK's native
- * approval round-trip, and until that is built, a write tool reachable from a
- * conversational model is a tool that will eventually be called by accident.
+ * This heading used to read "READ TOOLS ONLY, until the approval flow exists",
+ * and it outlived the condition it named. The approval round-trip HAS been
+ * built (`needsApproval` below, and §15e of `ARCHITECTURE.md`), and
+ * `api/chat.mjs` now passes `include: () => true`, so all 23 tools reach the
+ * conversational model and the write half is held by the SDK rather than
+ * filtered out here. A header describing a policy the file's own code
+ * contradicts twenty lines later is worse than no header, which is why this
+ * says what changed rather than being quietly deleted.
+ *
+ * `include` still DEFAULTS to read-only, and that default still earns its keep:
+ * the deep-tier sub-agents (`deep.ts`) take it as-is, and a write tool reachable
+ * from an unattended sub-agent — one with no reader watching a dialog — is a
+ * tool that will eventually be called by accident.
  *
  * The filter is on `annotations.readOnlyHint` and NEVER on the verb in the
  * name. That distinction is load-bearing: `set_cart` sounds like a write and
