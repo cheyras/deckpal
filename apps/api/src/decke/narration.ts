@@ -39,22 +39,74 @@
  * DELIBERATELY NARROW
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * Only the seven tool names, as elements. A general markup filter WOULD be the
- * "stripping pass to get wrong" that `tools.ts` warns about: card names contain
- * angle brackets, prices contain `<`, and a filter that eats those is worse
- * than the problem. `<b>` survives. `10% < 15%` survives.
+ * Anchored on OUR seven tool names in every form it matches. A general markup
+ * filter WOULD be the "stripping pass to get wrong" that `tools.ts` warns
+ * about: card names contain angle brackets, prices contain `<`, and a filter
+ * that eats those is worse than the problem. `<b>` survives.
+ * `10% < 15%` survives. `<input name="email">` survives.
  */
 
 const TOOL_TAGS = 'express|showScreen|flyTo|goTo|highlight|scrollToMe|click';
 
+/**
+ * ── THE THREE SHAPES, BECAUSE MATCHING ON TAG NAME WAS NOT ENOUGH ───────────
+ *
+ * The first version of this file matched `<express>`, `<flyTo>` and friends as
+ * ELEMENT NAMES. The gate suite then caught two forms that walk straight past
+ * that, both verbatim from the deployed preview:
+ *
+ *   <function_call name="flyTo">          <- the tool name is an ATTRIBUTE
+ *     <parameter name="selector">…</parameter>
+ *   </function_call>
+ *
+ *   <xai:showScreen>…</xai:showScreen>    <- NAMESPACE prefix defeats `<name\b`
+ *
+ * Both reached the reader. The first one also meant the flight never happened —
+ * zero tools on the wire, and a gate failed for it.
+ *
+ * The lesson is the one this whole effort keeps relearning: a filter written
+ * against the shape you HAPPENED TO SEE is a filter that catches that shape.
+ * The model is not emitting our tag names, it is emitting whatever
+ * function-call syntax its training suggests, and there are more spellings of
+ * that than anyone will enumerate.
+ *
+ * So match the SHAPE: an element whose name is one of ours, ANY namespace
+ * prefix allowed; or an element that carries `name="<one of ours>"` as an
+ * attribute, whatever the element is called. Still narrow — it is anchored on
+ * OUR seven names either way — so `<b>` and `10% < 15%` survive, which the
+ * tests check.
+ */
+const NS = '(?:[A-Za-z_][\\w.-]*:)?';
+const NAMED = `name\\s*=\\s*["'](?:${TOOL_TAGS})["']`;
+
 /** A whole element — opening tag through closing tag, content included. */
-const TOOL_ELEMENT = new RegExp(`<(${TOOL_TAGS})\\b[^>]*>[\\s\\S]*?</\\1>`, 'gi');
+const TOOL_ELEMENT = new RegExp(
+  [
+    // <express …>…</express>, <xai:express …>…</xai:express>
+    `<(${NS}(?:${TOOL_TAGS}))\\b[^>]*>[\\s\\S]*?</\\1\\s*>`,
+    // <function_call name="flyTo">…</function_call>, any element name
+    `<(${NS}[\\w.-]+)\\b[^>]*${NAMED}[^>]*>[\\s\\S]*?</\\2\\s*>`,
+  ].join('|'),
+  'gi',
+);
+
 /** A stray tag with no partner: the tail of a truncated emission. */
-const TOOL_TAG = new RegExp(`</?(?:${TOOL_TAGS})\\b[^>]*>`, 'gi');
+const TOOL_TAG = new RegExp(
+  `</?${NS}(?:${TOOL_TAGS})\\b[^>]*>|</?${NS}[\\w.-]+\\b[^>]*${NAMED}[^>]*>`,
+  'gi',
+);
+
+/**
+ * `<parameter …>` and `</parameter>` — the scaffolding INSIDE the forms above.
+ *
+ * Removed only after an element has been stripped, never on its own: a card
+ * could plausibly be discussed with the word "parameter" in a sentence, and
+ * this must not become a general markup filter. See `removeElements`.
+ */
+const PARAMETER_TAG = new RegExp(`</?${NS}parameter\\b[^>]*>`, 'gi');
 /** An OPENING tool tag. After complete elements are removed, one of these means
  *  an element is still in progress and everything after it must be held. */
-const OPEN_TAG = new RegExp(`^<(?:${TOOL_TAGS})\\b`, 'i');
-const NAMES = TOOL_TAGS.split('|');
+const OPEN_TAG = new RegExp(`^<${NS}(?:${TOOL_TAGS})\\b|^<${NS}[\\w.-]+\\b[^>]*${NAMED}`, 'i');
 
 /**
  * The earliest point from which text must be held back, or -1.
@@ -65,21 +117,33 @@ const NAMES = TOOL_TAGS.split('|');
  * went straight to the reader and the buffer dutifully guarded the fragment
  * after it.
  *
- * Two things qualify. A complete opening tag of a tool, because complete
- * ELEMENTS have already been removed, so one still standing means its closing
- * tag has not arrived yet. And a trailing fragment that is a proper prefix of
- * some tool tag — `<expr`, `</showS`, or a bare `<` — because the next chunk
- * may complete it.
+ * Two things qualify: a complete opening tag of ours, and ANY tag that has not
+ * been closed yet — see the second case below for why the net is that wide.
  */
 function holdFrom(s: string): number {
   for (let i = s.indexOf('<'); i !== -1; i = s.indexOf('<', i + 1)) {
     const frag = s.slice(i);
+
+    // A complete opening tag of ours — by name, or by a `name="..."` attribute.
+    // Complete ELEMENTS were already removed, so one still standing means its
+    // closing tag has not arrived yet.
     if (OPEN_TAG.test(frag)) return i;
-    // Only the TAIL can be an incomplete fragment; a `<` with more text after
-    // it that did not match above is ordinary prose ("10% < 15%").
-    if (!/^<\/?[A-Za-z]*$/.test(frag)) continue;
-    const bare = frag.replace(/^<\/?/, '').toLowerCase();
-    if (NAMES.some((n) => n.toLowerCase().startsWith(bare))) return i;
+
+    // ── ANY UNCLOSED TAG IS HELD, WHATEVER IT IS CALLED ────────────────────
+    //
+    // The attribute form forced this, and it looks over-broad until you try the
+    // alternative. `<function_call na` cannot be judged yet: the attribute that
+    // condemns it — `name="express"` — has not arrived. Releasing it now is
+    // IRREVERSIBLE, because once words are on the reader's screen no later
+    // chunk can take them back, and that is exactly how the split-delta case
+    // slipped through.
+    //
+    // So an unclosed tag of any name waits for its `>`, at which point
+    // `OPEN_TAG` and `TOOL_ELEMENT` decide properly. The cost is bounded and
+    // small: `<b` is held only until the rest of the tag arrives, usually in
+    // the same chunk, and prose with no `<` in it is never held at all — which
+    // is nearly all prose.
+    if (!frag.includes('>')) return i;
   }
   return -1;
 }
@@ -105,7 +169,14 @@ export function createNarrationFilter(): {
   const removeElements = (): void => {
     const before = pending;
     pending = pending.replace(TOOL_ELEMENT, '');
-    if (pending !== before) didStrip = true;
+    if (pending !== before) {
+      didStrip = true;
+      // ONLY once an element was actually removed. `<parameter>` is scaffolding
+      // that lives inside the forms above; stripping it unconditionally would
+      // make this a general markup filter, which is the thing `tools.ts` warns
+      // against and which would eat a card name.
+      pending = pending.replace(PARAMETER_TAG, '');
+    }
   };
 
   return {

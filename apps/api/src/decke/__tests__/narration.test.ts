@@ -101,3 +101,56 @@ test('every forwarded tool name is covered, not just express', () => {
     assert.equal(out, 'Sure.  Done.', `${name} leaked`)
   }
 })
+
+test('the tool name as an ATTRIBUTE, which walked past the first filter', () => {
+  // Verbatim from the deployed preview, gate 6, both runs. The element is
+  // called `function_call`; the tool name is an attribute. The first version of
+  // this filter matched element NAMES, so this reached the reader in full — and
+  // because it was text rather than a tool call, the flight never happened.
+  const out = through([
+    '<function_call name="flyTo">\n',
+    '<parameter name="selector">[data-decke-goal-switcher]</parameter>\n',
+    '<parameter name="point">true</parameter>\n',
+    '</function_call>\n\n',
+    'Right there. Click the goal switcher.',
+  ])
+  assert.equal(out.trim(), 'Right there. Click the goal switcher.')
+  assert.equal(out.includes('function_call'), false)
+  assert.equal(out.includes('parameter'), false)
+  assert.equal(out.includes('data-decke-goal-switcher'), false)
+})
+
+test('a NAMESPACED element, which walked past it the other way', () => {
+  // Also verbatim, gate 17. `<xai:showScreen>` defeats an anchor of `<name\b`.
+  const out = through([
+    '<xai:showScreen>\n<parameter name="title">Pitch Black</parameter>\n</xai:showScreen>',
+    ' Here you go.',
+  ])
+  assert.equal(out.trim(), 'Here you go.')
+  assert.equal(out.includes('xai:'), false)
+})
+
+test('both new forms survive being split across deltas', () => {
+  // The buffer has to hold a tag whose CONDEMNING attribute has not arrived
+  // yet — `<function_call name="fly` is not judgeable at that moment.
+  const attr = through(['Sure. <function_call na', 'me="express">', '<parameter name="commands">[]</parameter>', '</function_call> Done.'])
+  assert.equal(attr, 'Sure.  Done.')
+
+  const ns = through(['Sure. <xai:sho', 'wScreen><parameter name="t">x</parameter></xai:showScreen> Done.'])
+  assert.equal(ns, 'Sure.  Done.')
+})
+
+test('a NON-tool element with a name attribute is left alone', () => {
+  // The attribute rule is anchored on OUR seven names. An ordinary form input
+  // is not tool syntax and must survive, or this becomes the general markup
+  // filter that tools.ts warns against.
+  const out = through(['Fill in <input name="email"> and submit.'])
+  assert.equal(out, 'Fill in <input name="email"> and submit.')
+})
+
+test('the word parameter in ordinary prose is untouched', () => {
+  // `<parameter>` is only stripped after an element was actually removed, so a
+  // sentence that merely mentions one is safe.
+  const out = through(['The parameter you want is the completion goal.'])
+  assert.equal(out, 'The parameter you want is the completion goal.')
+})
