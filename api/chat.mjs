@@ -173,20 +173,32 @@ async function charge(userId, tier) {
   const cap = capFor(tier)
   if (cap <= 0) return { allowed: false, used: 0, cap }
 
+  /**
+   * Race against a deadline, and CLEAR THE TIMER when the race settles.
+   *
+   * Both halves matter and they pull opposite ways. A timer left running keeps
+   * this function alive for the full five seconds after a meter that answered
+   * in ninety milliseconds — on a serverless platform billed by wall clock, on
+   * the hot path of every single turn. And `unref()`ing it instead is the bug
+   * CI just caught one layer down in `rls.ts`: an unref'd timer does not hold
+   * the loop open, so the case the timer EXISTS for — something that never
+   * settles — is exactly the case where the process can exit with the race
+   * pending.
+   *
+   * Clearing on settle is the version that is right in both directions.
+   */
+  const withDeadline = (promise, what) => {
+    let timer
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`meter: ${what} timed out`)), METER_TIMEOUT_MS)
+    })
+    return Promise.race([promise, deadline]).finally(() => clearTimeout(timer))
+  }
+
   let client
   try {
-    client = await Promise.race([
-      chatPool().connect(),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('meter: pool connect timed out')), METER_TIMEOUT_MS),
-      ),
-    ])
-    const res = await Promise.race([
-      client.query(chargeSql(tier), [userId, cap]),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('meter: query timed out')), METER_TIMEOUT_MS),
-      ),
-    ])
+    client = await withDeadline(chatPool().connect(), 'pool connect')
+    const res = await withDeadline(client.query(chargeSql(tier), [userId, cap]), 'query')
     return verdictFrom(res.rows, cap)
   } catch (err) {
     // THE CODE AND THE NAME, NEVER THE MESSAGE.

@@ -261,13 +261,24 @@ export async function openRlsSession(
  * clean up and nothing to await.
  */
 function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<never>((_, reject) => {
-      const t = setTimeout(() => reject(new ToolHoldTimeout(ms)), ms);
-      // Never keep a serverless instance alive for a timer whose only job is to
-      // give up.
-      t.unref?.();
-    }),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new ToolHoldTimeout(ms)), ms);
+  });
+  // CLEARED WHEN THE RACE SETTLES, rather than `unref()`d.
+  //
+  // `unref()` was the obvious way to avoid holding a serverless instance open
+  // for a timer whose only job is to give up. It is also wrong, and CI proved
+  // it: an unref'd timer does not keep the event loop alive, so when the thing
+  // being raced never settles — which is the ONLY case this timer exists for —
+  // Node can decide there is nothing left to do and exit with the race pending.
+  // Six tests were cancelled with "Promise resolution is still pending but the
+  // event loop has already resolved", and they were the six after the one that
+  // deliberately hangs a query.
+  //
+  // Clearing on settle is strictly better anyway. The timer holds the loop only
+  // while a query is genuinely in flight — exactly when the process should be
+  // alive — and is gone the instant the query returns, so the ordinary path
+  // leaves nothing dangling either.
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
 }
