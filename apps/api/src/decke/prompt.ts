@@ -93,7 +93,22 @@ const MODEL_STATES: ReadonlyArray<{ state: string; when: string }> = [
     when:
       'Cards were just added to their collection. Pass `cards` with the real catalog ids — this animation exists to show them THEIR cards going into the box. Add `autoClose: true` for the complete gesture.',
   },
-  { state: 'point', when: 'Parked beside an element you are talking about. Best used as flyTo\'s `then`.' },
+  // NAMED A PARAMETER THAT DOES NOT EXIST. This line used to read "Best used as
+  // flyTo's `then`" — but `then` is an INTERNAL option of the browser-side
+  // engine (`uiTools.ts` derives it from `input.point === true`), and `flyTo`'s
+  // tool schema has never had such a field. So the prompt was pointing the model
+  // at a way to point that it could not express, while the way it CAN express is
+  // `point: true`.
+  //
+  // That is the likeliest source of `{"op":"point","value":"point"}`, observed on
+  // the preview: told to reach for a `point` that lives somewhere it cannot see,
+  // the model invented an `op` out of the state's name. `point` is a state, so
+  // the only legal spelling is `{"op":"state","value":"point"}`.
+  {
+    state: 'point',
+    when:
+      'Parked beside an element you are talking about. You rarely need it by hand — `flyTo` with `point: true` puts you in it on arrival, which is the normal way to point at something.',
+  },
 ]
 
 /**
@@ -125,6 +140,85 @@ const ENGINE_STATES = [
  * is `flyTo`.
  */
 export const RETIRED_STATES = ['travel_point', 'travel_far'] as const
+
+/**
+ * The URL shapes the app actually owns, and why the model has to be handed them.
+ *
+ * ── THE ROUTE ALLOWLIST IS A LIST OF PREFIXES, AND NOTHING SAID SO ──────────
+ *
+ * `ROUTE_ALLOWLIST` in `tools.ts` is matched with
+ * `clean === r || clean.startsWith(r + '/')`, so `/series/mega-evolution/me05`
+ * has always been permitted — there is a test on each side of the mirror
+ * asserting exactly that. But the only thing the model was ever shown was
+ * `Allowed: /series, /lists, /decks, …`, which reads as an enumeration of every
+ * legal VALUE. That is a completely reasonable reading of a list called
+ * "allowed", and it is the wrong one.
+ *
+ * Measured on the deployed preview (spec §13.2 gate 5, failing 3/3): asked "Take
+ * me to it" one turn after `set_progress` had returned `Pitch Black (me05) —
+ * released 2026-07-17 · series mega-evolution`, he emitted **no `goTo` at all**.
+ * The gate starts him on `/series`, which was the only `/series` path he had
+ * ever been told about, so navigating there looked like a no-op — and he
+ * reached for `flyTo({selector: '[data-decke-series="mega-evolution"]'})`
+ * instead, an invented selector for an element that is not a landmark. The
+ * reader sat on the series index while he narrated an arrival.
+ *
+ * So the bug was never the guard and never the data. §7.1 added the series slug
+ * to `search_cards`, `get_card` and `set_progress` for exactly one purpose — so
+ * a caller could build this path — and the slug did reach his context. What was
+ * missing was the sentence saying what to DO with it. The slug bought nothing
+ * until something spelled out the template it goes into.
+ *
+ * ── WHY IT LIVES HERE AND NOT BESIDE THE ALLOWLIST ──────────────────────
+ *
+ * Next to `ROUTE_ALLOWLIST` is where this reads best, and it cannot go there:
+ * `tools.ts` imports `ALLOWED_STATES` from this file at module-evaluation time
+ * (`commandSchema` interpolates it), so an import back the other way is a cycle
+ * that resolves as a TDZ `ReferenceError` on whichever module loads second.
+ * This file is the leaf that holds the model-facing vocabulary and `tools.ts`
+ * consumes it — the same arrangement `ALLOWED_STATES` already uses — so the
+ * shapes go here and the `goTo` schema imports them.
+ *
+ * The invariant that keeps the two honest: **every shape below must start with
+ * an entry in `ROUTE_ALLOWLIST`.** A shape naming a prefix the allowlist refuses
+ * would surface as a tool result the model cannot act on, one turn later, in a
+ * browser. `/profile` has no shape here for the same reason it has no entry
+ * there — it mints API tokens.
+ */
+const ROUTE_SHAPES: ReadonlyArray<{ shape: string; what: string }> = [
+  { shape: '/series', what: 'every series' },
+  { shape: '/series/<seriesSlug>', what: 'one series and the sets in it' },
+  {
+    shape: '/series/<seriesSlug>/<setId>',
+    what:
+      'ONE SET, on its own page — e.g. /series/mega-evolution/me05 is Pitch Black. There is no /series/<setId>: a set id without its series slug renders nothing at all',
+  },
+  {
+    shape: '/series/<seriesSlug>/<setId>/<number>',
+    what: 'one card — e.g. /series/mega-evolution/me05/013',
+  },
+  { shape: '/lists', what: 'saved lists' },
+  { shape: '/lists/<id>', what: 'one list' },
+  { shape: '/decks', what: 'decks' },
+  { shape: '/decks/<id>', what: 'one deck' },
+  { shape: '/pokedex', what: 'the dex' },
+  { shape: '/pokedex/<speciesId>', what: 'one species' },
+  { shape: '/insights', what: 'collection figures' },
+  { shape: '/scan', what: 'the card scanner' },
+  { shape: '/search?q=<text>', what: 'global search' },
+]
+
+/**
+ * The shapes as lines of text, for the prompt and for `goTo`'s own schema.
+ *
+ * Both, deliberately. The prompt is where he learns what "take me to it" means;
+ * the tool schema is what he is looking at in the moment he fills in `route`,
+ * and a rule three thousand tokens upstream is not where that decision gets
+ * made. One array, rendered twice, so they cannot drift.
+ */
+export const ROUTE_SHAPE_LINES: readonly string[] = ROUTE_SHAPES.map(
+  (r) => `${r.shape} — ${r.what}`,
+)
 
 /** Every state the model is allowed to name, for validating its output. */
 export const ALLOWED_STATES: readonly string[] = MODEL_STATES.map((s) => s.state)
@@ -161,6 +255,7 @@ export function buildSystemPrompt(opts: {
   const data = opts.dataTools?.length
     ? opts.dataTools.map((t) => `- \`${t.name}\` — ${t.title}`).join('\n')
     : null
+  const routeShapes = ROUTE_SHAPES.map((r) => `- \`${r.shape}\` — ${r.what}`).join('\n')
   const landmarks = opts.landmarks?.length
     ? opts.landmarks.map((l) => `- \`${l.selector}\` — ${l.label}`).join('\n')
     : '(nothing on this page is registered as a landmark)'
@@ -285,6 +380,28 @@ Move when SHOWING is the answer — "where do I add a card", "what does this pag
 do". Do not move to do something you could simply do: if they ask you to add
 cards, add them and show the result. Nobody wants to watch you click through
 something you could have executed.
+
+### Where things live
+
+Pages have addresses, and the \`<angled>\` parts below are values you fill in —
+they are not literal text:
+
+${routeShapes}
+
+**"Take me to it" means \`goTo\`, and it means the page for the thing itself.**
+A set is a page. A card is a page. A deck is a page. When they ask to be taken
+to one, build its url and go — do not stay where you are and \`flyTo\` something
+that looks related, and do not stop at the index one level up. Being already on
+\`/series\` is not being on a set's page.
+
+**The url is built from the data, so read the data first.** A set page needs
+BOTH its series slug and its set id, and \`search_cards\`, \`get_card\` and
+\`set_progress\` all hand you the slug on every row — "Pitch Black (me05) …
+series mega-evolution" is \`/series/mega-evolution/me05\`. Slugs are not
+guessable from names ("Scarlet & Violet" is \`scarlet-violet\`, "McDonald's
+Collection" is \`mcdonald-s-collection\`), so if you do not have one, look it up
+rather than inventing it or dropping it — \`/series/me05\` renders a blank page,
+which looks to the reader exactly like you took them nowhere.
 
 When you move, keep what you say SHORT — one or two lines, three at the very
 most. Your words appear in a small speech bubble beside you, not in the chat.

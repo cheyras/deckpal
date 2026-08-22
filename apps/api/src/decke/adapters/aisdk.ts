@@ -69,6 +69,16 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
   /** Receives the lifecycle events above. Optional; the chips are a UI concern. */
   onEvent?: (e: ToolEvent) => void;
   /**
+   * Collects the card ids these tools return, so `showScreen` can refuse to
+   * render an id no tool produced.
+   *
+   * Fed from the RESULT TEXT of every successful call — the same text the model
+   * sees — so the evidence and the claim come from exactly one source. If they
+   * ever came from two, the check would eventually be verifying something other
+   * than what the model was told.
+   */
+  grounding?: { observe(text: string): void };
+  /**
    * Where the human approval for these tools was obtained.
    *
    * `'here'` (the default) means each write pauses the turn and asks — the
@@ -325,6 +335,10 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           const effective = requiresApproval(def, args) ? args : forcePreview(def, args);
           const result = await withToolCtx(opts, (ctx: Ctx) => def.handler(effective, ctx));
           const text = clampToolText(result.text, maxChars);
+          // BEFORE the clamp would have been wrong: an id cut off by the
+          // ceiling is an id the model never saw, and grounding it would let a
+          // half-read page license a full grid. Observe exactly what he gets.
+          if (!result.isError) opts.grounding?.observe(text);
           opts.onEvent?.({
             phase: result.isError ? 'error' : 'ok',
             ...chip,

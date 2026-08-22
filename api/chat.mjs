@@ -63,6 +63,7 @@ import { apiBaseFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
 import { createNarrationFilter } from '../apps/api/dist/decke/narration.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
+import { createGrounding } from '../apps/api/dist/decke/grounding.js'
 import { makePool } from '@deckpal/db'
 
 /**
@@ -405,8 +406,13 @@ async function serve(request) {
       // failure mode is spending the wrong one while believing otherwise.
       const gateway = createGateway({ apiKey: key })
 
+      // ONE PER TURN, shared by every tool in it. What a data tool returns on
+      // step one is what `showScreen` may draw on step three — evidence is a
+      // property of the turn, not of a call.
+      const grounding = createGrounding()
+
       const allDeckeTools = {
-        ...buildTools(writer),
+        ...buildTools(writer, grounding),
         // READS AND WRITES, because the approval round-trip now exists.
         //
         // `include: () => true` is not "no filter" — every write is still
@@ -415,7 +421,12 @@ async function serve(request) {
         // can ask. Before the client could carry an approval, a write tool
         // would have stalled the turn: the SDK holds the call, nothing
         // executes, and nobody is listening for the request.
-        ...buildDataTools({ ...toolCtx, include: () => true, onEvent: emitToolEvent(writer) }),
+        ...buildDataTools({
+          ...toolCtx,
+          include: () => true,
+          onEvent: emitToolEvent(writer),
+          grounding,
+        }),
         // THE DEEP TIER. Four sub-agents, each with its own model, step
         // budget and tool subset — see `decke/deep.ts`.
         //

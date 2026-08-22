@@ -23,8 +23,9 @@
  */
 import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
-import { ALLOWED_STATES } from './prompt.js'
+import { ALLOWED_STATES, ROUTE_SHAPE_LINES } from './prompt.js'
 import { sanitizeScreen, screenSchema } from './screens.js'
+import type { Grounding } from './grounding.js'
 
 /**
  * Routes Deck-E may navigate to.
@@ -45,6 +46,14 @@ const ROUTE_ALLOWLIST = [
   '/scan',
   '/search',
 ] as const
+
+// EVERY ENTRY IS A PREFIX, and the matcher below says so: a deeper path under
+// one of these is allowed, which is what makes `/series/mega-evolution/me05`
+// reachable at all. The model was never told that, read `Allowed: /series, …`
+// as the complete list of destinations, and stopped at the series index — see
+// `ROUTE_SHAPES` in `prompt.ts`, which is where the shapes behind these
+// prefixes are written down and why. Every shape there must begin with an entry
+// here; that is the invariant that keeps the two lists from disagreeing.
 
 export function isAllowedRoute(path: string): boolean {
   if (typeof path !== 'string' || !path.startsWith('/')) return false
@@ -214,7 +223,18 @@ export type CommandWriter = {
 // unportable — and pinning the exact inferred shape here would make every
 // SDK patch release a potential compile error in a file that does not care
 // about those internals.
-export function buildTools(writer: CommandWriter): ToolSet {
+export function buildTools(
+  writer: CommandWriter,
+  /**
+   * The card ids a data tool has returned THIS TURN.
+   *
+   * Passed in rather than reached for, because `buildTools` is also used by the
+   * dev preview and the tests, where there is no turn and no evidence — and its
+   * absence means "no evidence either way", not "nothing allowed". See
+   * `grounding.ts`.
+   */
+  grounding?: Grounding,
+): ToolSet {
   return {
     express: tool({
       description:
@@ -294,9 +314,17 @@ export function buildTools(writer: CommandWriter): ToolSet {
 
     goTo: tool({
       description:
-        'Take the user to another page, then travel to something on it once it has loaded. One call — do not try to chain a navigation and a flyTo yourself.',
+        'Take the user to another page, then travel to something on it once it has loaded. One call — do not try to chain a navigation and a flyTo yourself. ' +
+        'Use this whenever they ask to be TAKEN or SHOWN somewhere that is a page — a set, a card, a deck, a list, their insights — including when the page you want sits UNDER the one you are already on. ' +
+        'A set has its own page and you reach it by building its url, not by pointing at something on the series index. ' +
+        'Build the path from what the data tools gave you: the series slug and the set id go into /series/<seriesSlug>/<setId>, so "Pitch Black, me05, series mega-evolution" is /series/mega-evolution/me05. ' +
+        'If you do not have the slug, look it up first — search_cards, get_card and set_progress all return it — rather than guessing or leaving it out.',
       inputSchema: z.object({
-        route: z.string().describe(`An in-app path. Allowed: ${ROUTE_ALLOWLIST.join(', ')}`),
+        route: z
+          .string()
+          .describe(
+            `An in-app path, built to one of these shapes — the <angled> parts are values you fill in, not literals:\n${ROUTE_SHAPE_LINES.map((l) => `  ${l}`).join('\n')}`,
+          ),
         selector: selector.optional().describe('Something to travel to once the page settles.'),
       }),
     }),
@@ -359,7 +387,12 @@ export function buildTools(writer: CommandWriter): ToolSet {
         // and put the payload on a TRANSIENT part so it renders once and never
         // enters message history. A screen echoed back into history would be
         // re-read as context next turn and invite the model to rebuild it.
-        const { screen: clean, dropped } = sanitizeScreen(screen)
+        // GROUNDED, so a card id no tool returned this turn cannot be
+        // rendered. He invented five of them on the deployed preview and the
+        // reader had no way to tell: an invented id draws real card art for
+        // somebody else's card. The prompt forbids it and the prompt is not an
+        // enforcement mechanism; this is.
+        const { screen: clean, dropped } = sanitizeScreen(screen, grounding)
         if (clean.blocks.length) {
           writer.write({ type: 'data-decke-screen', data: { screen: clean }, transient: true })
         }
