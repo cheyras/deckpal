@@ -52,6 +52,14 @@ export interface ToolCtxOptions {
   apiBase: string;
   /** The turn's abort signal. Propagated into reads AND outbound fetches. */
   signal?: AbortSignal;
+  /**
+   * Headers to forward on the self-hop to deckpal-api.
+   *
+   * Writes go through the REST API, which means this function calls its own
+   * deployment over the public hostname — so whatever guards that hostname
+   * guards us. See makeApi.
+   */
+  selfHopHeaders?: Record<string, string>;
 }
 
 /**
@@ -128,7 +136,7 @@ export async function withToolCtx<T>(
 
   const ctx: Ctx = {
     db,
-    api: abortableApi(makeApi(opts.apiBase, opts.jwt), opts.signal),
+    api: abortableApi(makeApi(opts.apiBase, opts.jwt, opts.selfHopHeaders), opts.signal),
     userId: opts.userId,
   };
 

@@ -61,6 +61,7 @@ import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/de
 import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
+import { createNarrationFilter } from '../apps/api/dist/decke/narration.js'
 import { makePool } from '@deckpal/db'
 
 /**
@@ -332,12 +333,34 @@ async function serve(request) {
   // Built once and shared by both tool sets. The database handle inside it is
   // LAZY — nothing is checked out until a tool actually queries, and it is
   // released when that call returns.
+  // ── THE SELF-HOP, AND WHAT GUARDS IT ──────────────────────────────────────
+  //
+  // Writes go through deckpal-api rather than straight to Postgres, so the
+  // write logic stays single-sourced (SPEC §3). Which means this function calls
+  // its OWN DEPLOYMENT over the public hostname — and anything guarding that
+  // hostname guards us.
+  //
+  // Measured on a protected Vercel preview: `log_cards` came back "NOT SENT …
+  // applied 0 … STOPPED: Protected deployment", the mutation ledger never
+  // moved, and the approval flow it was verifying could not be tested end to
+  // end. The bypass header can be put on a browser's requests and on curl's; it
+  // cannot be put on a fetch the server makes to itself unless the server
+  // forwards it, which is this.
+  //
+  // Forwarded ONLY if the incoming request carried it — so it is present
+  // exactly when the platform put it there, and absent in production where
+  // there is nothing to bypass. It is a deployment-access token, not a user
+  // credential: it grants nothing beyond reaching a deployment that is already
+  // answering this very request.
+  const bypass = request.headers.get('x-vercel-protection-bypass')
+
   const toolCtx = {
     pool: chatPool(),
     userId: user.id,
     jwt: user.token,
     apiBase: apiBaseFor(host),
     signal: abortSignal,
+    ...(bypass ? { selfHopHeaders: { 'x-vercel-protection-bypass': bypass } } : {}),
   }
 
   /**
@@ -572,7 +595,9 @@ async function serve(request) {
       // "expected array, received undefined" at `choices`, which reads like a
       // Gateway protocol problem and is not. Every doc example and both local
       // Vercel skills still show the method form.
-      writer.merge(toUIMessageStream({ stream: result.fullStream, sendReasoning: false }))
+      writer.merge(
+        stripToolSyntax(toUIMessageStream({ stream: result.fullStream, sendReasoning: false })),
+      )
     },
   })
 
@@ -598,6 +623,52 @@ function stripPriorCommands(messages) {
   })
 }
 
+
+/**
+ * Tool syntax that reached the reader as prose, removed.
+ *
+ * The algorithm and the reasoning live in `decke/narration.ts` — moved there so
+ * it could be TESTED, which mattered: the first version held from the last `<`
+ * rather than the first, so given `<express><comm` it released the opening tag
+ * and carefully guarded the fragment after it. Nine tests, every one fed in
+ * FRAGMENTS, because the measured failure arrived split across deltas and a
+ * whole-string test would have passed while production kept leaking.
+ */
+function stripToolSyntax(stream) {
+  const filter = createNarrationFilter()
+  let warned = false
+  const warnOnce = () => {
+    if (warned || !filter.stripped()) return
+    warned = true
+    console.warn(
+      '[deck-e] stripped tool syntax from visible text — the model narrated its own ' +
+        'plumbing instead of calling the tool, so the action did NOT happen',
+    )
+  }
+  return stream.pipeThrough(
+    new TransformStream({
+      transform(part, controller) {
+        if (part?.type === 'text-delta' && typeof part.delta === 'string') {
+          const out = filter.push(part.delta)
+          warnOnce()
+          if (out) controller.enqueue({ ...part, delta: out })
+          return
+        }
+        // A non-text part ends the text run: release what is held, so words
+        // never sit behind a panel or a command.
+        const tail = filter.end()
+        warnOnce()
+        if (tail) controller.enqueue({ type: 'text-delta', id: 'narration', delta: tail })
+        controller.enqueue(part)
+      },
+      flush(controller) {
+        const tail = filter.end()
+        warnOnce()
+        if (tail) controller.enqueue({ type: 'text-delta', id: 'narration', delta: tail })
+      },
+    }),
+  )
+}
 
 /** Collect a Node request body into a buffer. */
 async function readBody(req) {
