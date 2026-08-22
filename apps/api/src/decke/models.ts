@@ -84,6 +84,35 @@ export const MODELS: Record<Job, ModelChoice> = {
     // arguments (the other, gemini-3-flash, is ~340 ms slower). It costs 1784 ms
     // TTFT against grok's 593, which is a real regression — but a fallback runs
     // when the primary is down, where correct-and-slower beats fast-and-wrong.
+    // ── RE-BAKED 2026-08-21, AGAINST THE NEW JOB ────────────────────────────
+    //
+    // The choice above was made on 593 ms TTFT for a SIX-TOOL COSMETIC LOOP.
+    // The job then changed: converse, LOOK THINGS UP, and know when to escalate.
+    // A model chosen for how fast it can nod is not automatically the right one
+    // for that, so it was re-run rather than assumed — 5 trials per scenario,
+    // 150 calls, against the real prompt and a tool set including the data
+    // tools:
+    //
+    //   model                     lookup  correction  nav   malformed  restraint  TTFT
+    //   grok-4.1-fast-non-reas.   100%    100%        100%  2/19       100%       663 ms
+    //   gemini-2.5-flash          100%    100%        100%  0/5         80%      1251 ms
+    //   gpt-5-mini                  0%    100%         40%  6/6         10%       618 ms
+    //   claude-haiku-4.5          100%    100%         40%  never fired 20%       999 ms
+    //   gpt-4.1-mini              100%    100%          0%  never fired 70%       505 ms
+    //
+    // The incumbent kept the job: the only model clean on all five, and also the
+    // fastest. Nothing was changed on vibes and nothing was left unmeasured.
+    //
+    // THE FINDING THAT MATTERS MOST is not in the table. Lookup rate went from
+    // NEVER — a 20-sample probe of the shipped system saw not one attempt — to
+    // 100%. The model was never the problem. There was nothing to look with.
+    //
+    // Two failures worth keeping, because both look like model quality and are
+    // not: `gpt-5-mini` answered "which one should I look up?" and then never
+    // looked, and stuffed every optional field onto every `express` command
+    // (6/6 malformed) — the pattern `tools.ts` already records for it.
+    // `gpt-4.1-mini` treated "take me to my decks" as an in-page gesture,
+    // calling `flyTo` 5/5 times and never `goTo`; it never leaves the page.
     fallback: 'google/gemini-2.5-flash',
     maxOutputTokens: 1200,
   },

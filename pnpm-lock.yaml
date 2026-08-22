@@ -45,6 +45,9 @@ importers:
       '@ai-sdk/gateway':
         specifier: ^4.0.52
         version: 4.0.52(zod@4.4.3)
+      '@deckpal/agent-tools':
+        specifier: workspace:*
+        version: link:../../packages/agent-tools
       '@deckpal/db':
         specifier: workspace:*
         version: link:../../packages/db

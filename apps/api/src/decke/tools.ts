@@ -128,6 +128,13 @@ const commandSchema = z.object({
   // Nothing is lost: an empty-string card id was never going to resolve in the
   // catalog anyway, and `validateCommand` rejects it below with a message the
   // model can actually act on, which the schema never gave it.
+  //
+  // RE-CHECKED 2026-08-21, and it still reproduces — so this stays. The failure
+  // MODE has changed, which is worth recording because it changes what to look
+  // for: it is no longer an `error` part on an HTTP 200, it is a hard
+  // `AI_APICallError` with HTTP 400 and an EMPTY message from the Vertex-routed
+  // provider. Same cause, same fix, and now even less to go on if someone
+  // re-adds the constraint.
   cards: z
     .array(z.string())
     .max(48)

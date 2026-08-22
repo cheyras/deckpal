@@ -58,6 +58,8 @@ import { buildTools } from '../apps/api/dist/decke/tools.js'
 import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
 import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
+import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
+import { apiBaseFor } from '../apps/api/dist/decke/ctx.js'
 import { makePool } from '@deckpal/db'
 
 /**
@@ -270,6 +272,22 @@ async function serve(request) {
     return json({ error: refusalText('chat_turns', meter.cap), retryAfterDay: true }, 429)
   }
 
+  // Where this instance is reachable, for the API hop a tool makes. Derived
+  // from the request rather than hardcoded, so a preview deployment talks to
+  // ITSELF instead of to production — which matters most when the thing being
+  // verified is a preview deployment.
+  const host = request.headers.get('host') ?? undefined
+
+  // THE TURN'S ABORT SIGNAL, threaded everywhere that can outlive the reader.
+  //
+  // Aborts are routine here, not exceptional: the client aborts the previous
+  // stream on every new send, and there is a stop button. When the response
+  // socket dies, this function's pump loop returns but `execute` below keeps
+  // running — and Vercel then freezes the instance. Anything still in flight at
+  // that moment is in flight for ever: a pooled connection stays checked out, a
+  // model call keeps billing.
+  const abortSignal = request.signal
+
   const choice = MODELS.chat
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
@@ -292,14 +310,50 @@ async function serve(request) {
         instructions: buildSystemPrompt({
           route: typeof route === 'string' ? route : '/',
           signedIn: true,
-          landmarks: Array.isArray(landmarks) ? landmarks.slice(0, 24) : [],
+          // MIRRORS `LANDMARK_CAP` in `apps/web/src/character/host/useDeckeChat.ts`,
+          // which explains why the cap exists (prompt size, re-billed per leg)
+          // and what it costs. Sliced again here because the browser chooses
+          // what to send and this is the side that pays for it. Change one,
+          // change both.
+          landmarks: Array.isArray(landmarks) ? landmarks.slice(0, 40) : [],
+          // GENERATED FROM THE TOOLS HE IS ACTUALLY HOLDING, three lines below.
+          // Hand-writing this list is how the previous prompt came to spend
+          // every turn offering to look things up with no tool that could look.
+          dataTools: dataToolSummary(),
         }),
         // AWAITED: `convertToModelMessages` is async in ai@7 and returns a
         // Promise<ModelMessage[]>. Passing it unawaited fails deep inside
         // `standardizePrompt` as "messages.some is not a function" — which
         // names neither this call nor the missing await.
         messages: await convertToModelMessages(stripPriorCommands(messages)),
-        tools: buildTools(writer),
+        // THE BODY AND THE DATA, in one set.
+        //
+        // `buildTools` is the six cosmetic ones — express, showScreen, and the
+        // four the browser runs. `buildDataTools` is the read half of the same
+        // 23 tools the MCP server exposes, through the other adapter onto the
+        // same definitions. Until this line, every factual claim Deck-E made
+        // was the model's training data, because there was nothing else for it
+        // to be.
+        //
+        // READ-ONLY, by the adapter's default: the write half is gated on an
+        // approval round-trip that does not exist yet, and a write tool
+        // reachable from a conversational model before then is a tool that gets
+        // called by accident.
+        //
+        // The context is built PER TOOL CALL, not here — the database handle is
+        // lazy and the connection is held for one call and released. Nothing in
+        // this stream ever holds a connection, which is the rule that lets this
+        // function keep the property it was created for.
+        tools: {
+          ...buildTools(writer),
+          ...buildDataTools({
+            pool: chatPool(),
+            userId: user.id,
+            jwt: user.token,
+            apiBase: apiBaseFor(host),
+            signal: abortSignal,
+          }),
+        },
         // Bounded: each step re-bills the entire prompt, so an unbounded loop on
         // a per-user paid feature is a billing incident waiting to happen. Four
         // covers "fly there, see what happened, react".
@@ -330,8 +384,19 @@ async function serve(request) {
         // Client tools are unaffected either way: the browser fulfils `flyTo`,
         // `goTo` and friends and answers with `addToolOutput`, which opens a
         // fresh request rather than continuing this one.
+        //
+        // RAISED FROM 4 TO 12 (spec §8.5). Four was sized for a loop with six
+        // cosmetic tools, where a step could only ever be "move" or "speak".
+        // A turn that reads now legitimately needs several: look the set up,
+        // check what they own of it, then answer. Four made "what am I missing
+        // from Pitch Black, and what's it worth" unanswerable in one turn.
+        //
+        // Note this governs SERVER-side steps only. Navigation legs are
+        // governed by the browser's MAX_LEGS, because a client tool has no
+        // server `execute` and therefore ENDS the server turn — raising this
+        // number does nothing at all for a journey.
         stopWhen: [
-          stepCountIs(4),
+          stepCountIs(12),
           ({ steps }) => {
             const last = steps[steps.length - 1]
             if (!last) return false
@@ -349,6 +414,11 @@ async function serve(request) {
           },
         ],
         maxOutputTokens: budgetFor(choice),
+        // A sub-agent that ignores the signal bills for up to five minutes
+        // after the user gave up. This is the same signal every tool call and
+        // every outbound API fetch carries, so one abort stops the whole turn
+        // rather than only the visible part of it.
+        abortSignal,
         onError: ({ error }) => {
           // Surfaced rather than swallowed: a silent empty turn is
           // indistinguishable from a broken feature.
@@ -440,7 +510,26 @@ export default async function handler(req, res) {
     const url = `https://${host}${req.url ?? '/'}`
     const method = req.method ?? 'GET'
     const body = method === 'GET' || method === 'HEAD' ? undefined : await readBody(req)
-    const out = await serve(new Request(url, { method, headers: req.headers, body }))
+    // ONE CONTROLLER PER REQUEST, aborted when the socket dies.
+    //
+    // Node tells us the client went away; the AI SDK and the tool layer both
+    // take an `AbortSignal`; nothing was connecting the two. Without this,
+    // pressing stop left the model streaming to nobody — billing the whole
+    // time — and left any tool call holding its pooled connection on an
+    // instance about to be frozen.
+    //
+    // Guarded on `writableEnded` so a NORMAL completion, which also emits
+    // 'close', does not fire an abort that downstream code would read as "the
+    // reader gave up".
+    const ac = new AbortController()
+    const onClose = () => {
+      if (!res.writableEnded) ac.abort()
+    }
+    res.on('close', onClose)
+
+    const out = await serve(
+      new Request(url, { method, headers: req.headers, body, signal: ac.signal }),
+    )
 
     res.statusCode = out.status
     out.headers.forEach((value, name) => res.setHeader(name, value))
