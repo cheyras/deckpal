@@ -157,6 +157,28 @@ export type ChatMessage = {
   tools?: ToolChip[]
 }
 
+/**
+ * The last completed tool result on the transcript, for the approval prompt.
+ *
+ * WHICH IS ALWAYS THE DRY RUN, in the shape this protocol produces: the preview
+ * executes (it changes nothing, so it needs no permission), and the real write
+ * is the one held. So the most recent finished tool call at the moment the
+ * question appears is, by construction, the preview of the thing being asked
+ * about.
+ *
+ * Read off the chips rather than from his words, because the chips come from
+ * the server's own execute wrapper — a summary here cannot describe a preview
+ * that did not run.
+ */
+function previewOf(messages: ChatMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const done = (messages[i].tools ?? []).filter((t) => t.phase === 'ok' && t.summary)
+    const last = done[done.length - 1]
+    if (last?.summary) return last.summary
+  }
+  return null
+}
+
 export function DeckeChat({
   open,
   minimised,
@@ -581,6 +603,28 @@ export function DeckeChat({
                 ? `Let him ${asking[0].title.toLowerCase()}?`
                 : `Let him make ${asking.length} changes?`}
             </p>
+            {/*
+              THE PREVIEW, SHOWN — not left to him to remember to narrate.
+
+              Measured against the deployed preview: asked to add a card, he ran
+              `log_cards` with `dry_run: true`, then called it for real and the
+              SDK held it — and he produced NO TEXT at all that turn. The reader
+              was asked "Let him log cards?" with nothing whatsoever about what
+              would change.
+
+              The prompt tells him to state it in numbers, and he may well
+              start; but a consent dialog whose content depends on a model
+              remembering to speak is a consent dialog that will sometimes be
+              blank. The dry run ALREADY RAN and its result is already on the
+              message as a chip. Showing that is the same fact, from the tool
+              rather than from him — which is the version that cannot be
+              forgotten or embellished.
+            */}
+            {previewOf(messages) ? (
+              <p className="mt-[4px] text-[12px] leading-[18px] text-text-muted">
+                {previewOf(messages)}
+              </p>
+            ) : null}
             <div className="mt-[8px] flex gap-[8px]">
               <button
                 type="button"
