@@ -104,7 +104,7 @@ export async function withToolCtx<T>(
       if (!held.session) {
         held.session = await openRlsSession(opts.pool, opts.userId, opts.signal);
       }
-      return held.session.client.query(text, params);
+      return held.session.query(text, params);
     },
   };
 

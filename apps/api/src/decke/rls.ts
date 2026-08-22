@@ -98,6 +98,19 @@ export class ToolHoldTimeout extends Error {
  */
 export interface RlsSession {
   client: pg.PoolClient;
+  /**
+   * Run one query under the session's deadline.
+   *
+   * USE THIS, not `client.query`. The watchdog destroys the CONNECTION when it
+   * fires, which does not necessarily settle a query already in flight on it —
+   * so a caller awaiting `client.query` directly can wait for ever on a
+   * connection that no longer exists. That is the watchdog defeating itself:
+   * the pool is protected and the request hangs anyway.
+   */
+  query<R extends pg.QueryResultRow = pg.QueryResultRow>(
+    text: string,
+    params?: unknown[],
+  ): Promise<pg.QueryResult<R>>;
   /** Commit and return the connection to the pool. */
   finish(): Promise<void>;
   /** Roll back and return it. */
@@ -119,8 +132,32 @@ export async function openRlsSession(
   if (signal?.aborted) throw new Error('aborted before the read started');
 
   const budget = maxHoldMs();
-  const client = await withDeadline(pool.connect(), budget);
+
+  // RECLAIM A LATE CONNECTION. `Promise.race` abandons the loser, it does not
+  // cancel it — so a `pool.connect()` that resolves AFTER we stopped waiting
+  // hands us a checked-out client with nobody holding a reference to release
+  // it. That client is then checked out for the life of the instance, which is
+  // exactly the pool exhaustion this whole file exists to prevent, arriving
+  // through the code written to prevent it.
+  const connecting = pool.connect();
+  const client = await withDeadline(connecting, budget).catch((err: unknown) => {
+    void connecting.then(
+      (late) => {
+        try {
+          late.release(true);
+        } catch {
+          /* nothing further to do */
+        }
+      },
+      () => {
+        /* it failed rather than arriving late; nothing to reclaim */
+      },
+    );
+    throw err;
+  });
   let ended = false;
+  // Absolute, so every query measures against the SAME deadline.
+  const deadlineAt = Date.now() + budget;
 
   // RELEASE WITH `true`, which DESTROYS the client rather than pooling it. That
   // is the important half. A watchdog or an abort fires while the tool's query
@@ -186,6 +223,30 @@ export async function openRlsSession(
 
   return {
     client,
+    // Every query is bounded by what is LEFT of the session's budget, not by a
+    // fresh copy of it. Otherwise ten queries of nine seconds each are ninety
+    // seconds inside a ten-second session, and the deadline means nothing.
+    query: <R extends pg.QueryResultRow = pg.QueryResultRow>(text: string, params?: unknown[]) => {
+      if (ended) {
+        return Promise.reject(new ToolHoldTimeout(budget));
+      }
+      const left = Math.max(1, deadlineAt - Date.now());
+      return withDeadline(client.query<R>(text, params as never), left).catch((err: unknown) => {
+        // DESTROY IT HERE, rather than leaving it to the watchdog.
+        //
+        // The two fire at almost the same instant and the order is not
+        // guaranteed, so relying on the watchdog leaves a window where this
+        // rejects while the connection is still pooled — with a statement
+        // Postgres is very much still running on it, inside an open
+        // transaction, carrying this turn's RLS claims. The next borrower would
+        // set its own claims on top.
+        //
+        // A timed-out query is by definition a connection in an unknown state.
+        // There is no version of that which is safe to hand to someone else.
+        if (err instanceof ToolHoldTimeout) destroy();
+        throw err;
+      });
+    },
     finish: () => close('commit'),
     discard: () => close('rollback'),
   };
