@@ -59,7 +59,23 @@ const searchCardsTool = defineTool({
   name: 'search_cards',
   title: 'Search the card catalog',
   description:
-    'Search cards across the whole catalog by name (accent-insensitive substring) with ' +
+    // SAYS WHAT IT DOES NOT MATCH, because the omission cost four calls a turn.
+    //
+    // Observed on the deployed preview: asked to open the Pitch Black set page,
+    // he called `search_cards` for "Pitch Black" FOUR times — with a set
+    // filter, without one, at two page sizes, and lower-cased — before trying
+    // `set_progress`, which answered immediately. "Pitch Black" is a SET name,
+    // and `query` matches CARD names, so every one of those was guaranteed
+    // empty before it was sent.
+    //
+    // Nothing in the description said so, and an empty result reads as "not
+    // found" rather than "wrong index" — which is the same shape as the bug
+    // where a wrong `set_id` made him announce a card does not exist.
+    'Search cards by NAME. `query` matches CARD names only — never a set name, ' +
+    'a series name or an artist. To find a SET, call set_progress with no set_id ' +
+    'and match the name in the list; searching for a set name here always returns ' +
+    'nothing, however many ways you spell it. ' +
+    'Accent-insensitive substring, with ' +
     'optional filters: set, category, rarity, Standard legality, owned-only, and minimum ' +
     'USD market value. Each row shows owned quantity and best USD market price. When multiple ' +
     'printings of the same card name appear (e.g. a regular and a Special Illustration Rare), ' +
