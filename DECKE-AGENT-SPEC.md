@@ -5,7 +5,30 @@
 > the models to use it well, and a body that actually moves. Implementation
 > agents follow this exactly. Deviations get recorded here and in `DECISIONS.md`.
 
-**Status:** proposed, rev 2, 2026-08-22. Author: Claude (Opus 5). Owner sign-off pending.
+**Status:** IMPLEMENTED, rev 2, 2026-08-22 (PR #74). Author: Claude (Opus 5).
+Owner sign-off taken on §14 before implementation began.
+
+### What implementation found that rev 2 did not
+
+Rev 2 corrected three false premises from rev 1. Building it turned up seven
+more things, recorded here because a spec that is never marked up against
+reality is a spec the next person trusts too much.
+
+| Rev 2 said | Building it found |
+|---|---|
+| The client protocol is broken (§2) | **Correct, and confirmed against the SDK rather than by reading it.** `wire.test.ts` drives the real tools through the real stream: no `state` field, and `express` announces identically to `goTo` — so the `CLIENT_TOOLS` filter is not optional. |
+| `stop()` exists (§6.2) | **It exists and nothing ever called it.** `DeckeChat.submit` also early-returns while busy, so sending again could not abort either. Every downstream abort handler was unreachable code. Measured: 47 KB streamed to completion with an interrupt entered. |
+| Writes need a real control (§10) | Right, and the SDK's is real — verified, `execute` ran 0 times. But a write handed to a SUB-AGENT is not gated, it is **suspended for ever**: nothing drains an approval channel inside `streamText`. `write_strategy_guide` reported "stored" and wrote nothing. |
+| Bake off the fast model (§8.6) | Done, 150 calls. **The incumbent won on all five metrics.** The finding that matters is not in the table: lookup rate went from *never* to 100%. The model was never the problem. |
+| `gatewayTools` is not exported at runtime (§8.3) | Confirmed. Moot in the end — the owner chose the in-list `o3-deep-research`, so the `include_domains` injection control is unavailable and the compensating controls had to be structural instead. |
+| Landmarks are famine (§9.1) | Worse than stated on the page that matters most: **`/series` renders zero landmarks for a collector who owns nothing** — every new account, and the QA account the gates run as. |
+| — | **Two connection leaks in the watchdog written to prevent leaks**, found by testing failure paths rather than the happy one. A late `pool.connect()` was abandoned still checked out; a timed-out query could be pooled back mid-statement with another user's claims about to be set on it. |
+
+Two things rev 2 asked for were **not** built, deliberately, and both are
+recorded in `DECISIONS.md` rather than quietly dropped: `ModelChoice.effort` is
+still only a token-reserve multiplier (nothing sends a reasoning-effort
+parameter to any provider, and wiring it needs a live probe per vendor rather
+than an inference), and the two retired `travel_*` states (§14.6) are untouched.
 
 ### What rev 2 corrects
 
