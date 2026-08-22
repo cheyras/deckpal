@@ -171,11 +171,40 @@ function NavRow({
       //
       // Nav items carry it because "where do I find my decks" is the question
       // this feature exists to answer by showing rather than telling.
+      //
+      // PRESSABLE, and reviewed as such. `data-decke-clickable` is a SECOND
+      // authorisation on top of the landmark, because pointable is not
+      // pressable — see `resolveClickTarget` in `character/host/uiTools.ts`.
+      //
+      // This row earns it on all four counts:
+      //   1. NO WRITE. This branch is a bare `<Link to={item.to}>` with no
+      //      `onClick` of any kind. It issues no request; the destination route
+      //      loads its own data on arrival, exactly as it would for a person.
+      //      (The mobile drawer wraps this in a `<div onClick={onClose}>` to
+      //      shut the drawer — closing a drawer is chrome, not a write, and it
+      //      is what a real tap does too.)
+      //   2. NAVIGATION STAYS ON THE ALLOWLIST. Every `to` in `NAV` above is on
+      //      `ROUTE_ALLOWLIST`, which the audit test in
+      //      `character/host/__tests__/uiTools.test.ts` pins by reading this
+      //      array and running each `to` through `routeAllowed`. It has to be
+      //      pinned rather than eyeballed because `to` is a VARIABLE here: a
+      //      seventh `NAV` entry pointing at `/profile` would inherit this
+      //      marking silently. `resolveClickTarget` refuses an off-allowlist or
+      //      cross-origin `href` at press time as well, so the check exists in
+      //      both places on purpose.
+      //   3. NOT AUTH. The signed-out gated row is the `locked` branch ABOVE,
+      //      which returns its own `<Link to="/auth">` carrying neither
+      //      attribute — so the sign-up path is not reachable, pointable or
+      //      pressable. Nothing here touches sign-out, tokens or billing.
+      //   4. GENUINE NAVIGATION. Moving between top-level pages is the whole
+      //      reason the click tool exists; "where do I find my decks" answered
+      //      by walking someone there.
       <Link
         to={item.to}
         className="block"
         data-decke-landmark={`[data-decke-nav="${item.to}"]`}
         data-decke-nav={item.to}
+        data-decke-clickable
         data-decke-label={`the ${item.label} link in the sidebar`}
       >
         {body}

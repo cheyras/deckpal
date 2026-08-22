@@ -96,8 +96,22 @@ function SeriesCard({ s }: { s: SeriesSummary }) {
       // rewritten more than once. It keys off the series SLUG, which is a
       // catalog identifier; the series NAME goes in the label instead, because
       // the label is prose he says out loud and the selector is a capability.
+      //
+      // PRESSABLE, and reviewed as such — the second authorisation on top of
+      // the landmark (`resolveClickTarget`, `character/host/uiTools.ts`):
+      //   1. NO WRITE. The whole card is one `<Link>` with no `onClick`, no
+      //      mutation and no request of its own.
+      //   2. ALLOWLISTED. It resolves to `/series/<slug>`, and `/series` is on
+      //      `ROUTE_ALLOWLIST`. The slug is a catalog identifier from the API,
+      //      not free text, and `resolveClickTarget` re-checks the resolved
+      //      `href` against the same allowlist and origin at press time.
+      //   3. NOT AUTH. No token, sign-out, billing or destructive surface is
+      //      anywhere in this subtree.
+      //   4. GENUINE NAVIGATION — the hop from /series to a series page is the
+      //      middle leg of the journey this attribute exists to make possible.
       data-decke-series={s.slug}
       data-decke-landmark={`[data-decke-series="${s.slug}"]`}
+      data-decke-clickable
       data-decke-label={`the ${s.name} series card`}
     >
       <div className="flex min-w-0 flex-1 flex-col justify-between">
