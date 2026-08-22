@@ -1,8 +1,8 @@
-import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { Ctx } from '../ctx.js';
 import { q, q1 } from '../db.js';
-import { fail, ok } from '../envelope.js';
+import { defineTool, type ToolDefinition } from '../registry.js';
+import { fail, ok } from '../result.js';
 import { money, row } from '../format.js';
 
 /**
@@ -189,308 +189,306 @@ export async function summaryText(ctx: Ctx, topN = 10): Promise<string> {
 
 // ── registration ─────────────────────────────────────────────────────────────
 
-export function registerCollectionTools(server: McpServer, ctx: Ctx): void {
-  server.registerTool(
-    'collection_summary',
-    {
-      title: 'Collection summary',
-      description:
-        'The default entry point for collection questions: distinct cards owned, total copies, ' +
-        'sets with ownership, estimated USD value (with the unpriced-variant count), the top-N ' +
-        'owned cards by value, and the 5 nearest-complete sets for your default goal. Answers ' +
-        'most "how is my collection doing" questions in one call. Not for per-set detail ' +
-        '(use set_progress) or per-card detail (use get_card).',
-      inputSchema: z.object({
-        top_n: z
-          .number()
-          .int()
-          .min(1)
-          .max(25)
-          .default(10)
-          .describe('How many top owned cards by value to list (1–25, default 10).'),
-      }),
-      annotations: { readOnlyHint: true, idempotentHint: true },
-    },
-    async ({ top_n }) => {
-      try {
-        return ok(await summaryText(ctx, top_n));
-      } catch (err) {
-        return fail(`collection_summary failed: ${errText(err)}`);
-      }
-    },
-  );
+const collectionSummaryTool = defineTool({
+  name: 'collection_summary',
+  title: 'Collection summary',
+  description:
+    'The default entry point for collection questions: distinct cards owned, total copies, ' +
+    'sets with ownership, estimated USD value (with the unpriced-variant count), the top-N ' +
+    'owned cards by value, and the 5 nearest-complete sets for your default goal. Answers ' +
+    'most "how is my collection doing" questions in one call. Not for per-set detail ' +
+    '(use set_progress) or per-card detail (use get_card).',
+  inputSchema: z.object({
+    top_n: z
+      .number()
+      .int()
+      .min(1)
+      .max(25)
+      .default(10)
+      .describe('How many top owned cards by value to list (1–25, default 10).'),
+  }),
+  annotations: { readOnlyHint: true, idempotentHint: true },
+  handler: async ({ top_n }, ctx) => {
+    try {
+      return ok(await summaryText(ctx, top_n));
+    } catch (err) {
+      return fail(`collection_summary failed: ${errText(err)}`);
+    }
+  },
+});
 
-  // ── collection_log — SPEC §5 #6 ────────────────────────────────────────────
-  interface LogRow {
-    occurred_at: Date | string;
-    delta: number;
-    quantity_after: number;
-    source: string;
-    note: string | null;
-    name: string;
-    local_id: string;
-    set_tid: string;
-    variant_kind_code: string;
-  }
-
-  server.registerTool(
-    'collection_log',
-    {
-      title: 'Collection change log',
-      description:
-        'The audit trail of collection changes (collection_event), newest first: when, which ' +
-        'card/variant, the quantity delta and resulting quantity, who wrote it (source: web UI, ' +
-        'deckpal-mcp, imports) and any note. Use it to review recent adds/removals or verify what ' +
-        'an agent logged. Not for current totals (collection_summary) or current quantities ' +
-        '(get_card).',
-      inputSchema: z.object({
-        since: z
-          .string()
-          .optional()
-          .describe("Only events at/after this ISO 8601 timestamp, e.g. '2026-07-01' or '2026-07-28T15:00:00Z'."),
-        source: z
-          .string()
-          .optional()
-          .describe("Only events written by this source, e.g. 'web', 'deckpal-mcp', an import script name."),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(200)
-          .default(50)
-          .describe('Maximum events to return (1–200, default 50, newest first).'),
-      }),
-      annotations: { readOnlyHint: true, idempotentHint: true },
-    },
-    async ({ since, source, limit }) => {
-      try {
-        const conds: string[] = ['ce.user_id = $1'];
-        const params: unknown[] = [ctx.userId];
-        const p = (v: unknown): string => {
-          params.push(v);
-          return `$${params.length}`;
-        };
-        if (since !== undefined) {
-          const t = Date.parse(since);
-          if (Number.isNaN(t)) return fail(`since '${since}' is not a parseable ISO 8601 timestamp`);
-          conds.push(`ce.occurred_at >= ${p(new Date(t).toISOString())}::timestamptz`);
-        }
-        if (source !== undefined) conds.push(`ce.source = ${p(source.trim())}`);
-
-        const where = conds.join(' AND ');
-        const totalRow = await q1<{ total: string }>(
-          ctx.db,
-          `SELECT count(*) AS total FROM collection_event ce WHERE ${where}`,
-          params,
-        );
-        const total = Number(totalRow?.total ?? 0);
-
-        const rows = await q<LogRow>(
-          ctx.db,
-          `SELECT ce.occurred_at, ce.delta, ce.quantity_after, ce.source, ce.note,
-                  c.name, c.local_id, cs.tcgdex_id AS set_tid, cv.variant_kind_code
-             FROM collection_event ce
-             JOIN card_variant cv ON cv.id = ce.card_variant_id
-             JOIN card c          ON c.id = cv.card_id
-             JOIN card_set cs     ON cs.id = c.set_id
-            WHERE ${where}
-            ORDER BY ce.occurred_at DESC, ce.id DESC
-            LIMIT ${p(limit)}`,
-          params,
-        );
-
-        if (rows.length === 0) return ok('No collection events match.');
-        const lines = rows.map((r) =>
-          row(
-            stamp(r.occurred_at),
-            `${r.name} (${r.set_tid} #${r.local_id})`,
-            r.variant_kind_code,
-            `${r.delta > 0 ? '+' : ''}${r.delta} → ${r.quantity_after}`,
-            r.source,
-            r.note,
-          ),
-        );
-        const footer =
-          rows.length < total ? `showing latest ${rows.length} of ${total} — raise limit or filter with since/source` : `all ${total} matching events`;
-        return ok([...lines, footer].join('\n'), { total, returned: rows.length });
-      } catch (err) {
-        return fail(`collection_log failed: ${errText(err)}`);
-      }
-    },
-  );
-
-  // ── collection_value — SPEC §5 #7 ──────────────────────────────────────────
-  // Implemented directly against price_current / collection_value_point,
-  // following apps/api/src/insights/collectionValue.ts (value-now = Σ qty ×
-  // best per currency; window delta = first→last collection_value_point in the
-  // window; movers = market vs avg30 × qty). Direct SQL rather than the
-  // GET /insights/value route because that route's range enum (30d|3m|6m|1y)
-  // cannot express this tool's 7d/90d windows.
-  const WINDOW_DAYS: Record<'7d' | '30d' | '90d', number> = { '7d': 7, '30d': 30, '90d': 90 };
-
-  interface CurTotalRow {
-    currency_code: string;
-    total_minor: string;
-    priced_variants: string;
-    qty: string;
-  }
-  interface PointRow {
-    currency_code: string;
-    d: string;
-    total_minor: string;
-  }
-  interface MoverRow {
-    tcgdex_id: string;
-    name: string;
-    variant_kind_code: string;
-    currency_code: string;
-    quantity: number;
-    market_minor: number;
-    avg30_minor: number;
-  }
-
-  server.registerTool(
-    'collection_value',
-    {
-      title: 'Collection value & movers',
-      description:
-        'Estimated collection value right now (per currency, best market price × quantity), how ' +
-        'it changed over a window (from the daily value snapshots), and the biggest owned price ' +
-        'movers vs their 30-day average. All figures are market-price estimates, not appraisals. ' +
-        'For overall collection stats use collection_summary; for one card\'s prices use get_card.',
-      inputSchema: z.object({
-        window: z
-          .enum(['7d', '30d', '90d'])
-          .default('30d')
-          .describe('Change-over-time window for the snapshot delta (default 30d).'),
-      }),
-      annotations: { readOnlyHint: true, idempotentHint: true },
-    },
-    async ({ window }) => {
-      try {
-        const totals = await q<CurTotalRow>(
-          ctx.db,
-          `WITH best AS (
-             SELECT card_variant_id, currency_code, max(market_minor) AS best_minor
-               FROM price_current
-              WHERE market_minor IS NOT NULL
-              GROUP BY card_variant_id, currency_code)
-           SELECT b.currency_code, sum(ci.quantity * b.best_minor)::bigint AS total_minor,
-                  count(*) AS priced_variants, sum(ci.quantity)::bigint AS qty
-             FROM collection_item ci
-             JOIN best b ON b.card_variant_id = ci.card_variant_id
-            WHERE ci.user_id = $1 AND ci.quantity > 0
-            GROUP BY b.currency_code
-            ORDER BY b.currency_code`,
-          [ctx.userId],
-        );
-        const unpricedRow = await q1<{ unpriced: string }>(
-          ctx.db,
-          `SELECT count(*) AS unpriced
-             FROM collection_item ci
-            WHERE ci.user_id = $1 AND ci.quantity > 0
-              AND NOT EXISTS (SELECT 1 FROM price_current pc
-                               WHERE pc.card_variant_id = ci.card_variant_id
-                                 AND pc.market_minor IS NOT NULL)`,
-          [ctx.userId],
-        );
-
-        const points = await q<PointRow>(
-          ctx.db,
-          `SELECT currency_code, to_char(observed_on, 'YYYY-MM-DD') AS d, total_minor
-             FROM collection_value_point
-            WHERE user_id = $1 AND observed_on >= CURRENT_DATE - $2::int
-            ORDER BY currency_code, observed_on`,
-          [ctx.userId, WINDOW_DAYS[window]],
-        );
-
-        // Movers vs the 30-day average, top 5 PER CURRENCY — the current feeds
-        // only carry avg30 on the cardmarket/EUR source, so a USD-only filter
-        // would be structurally empty (verified 2026-07-29).
-        const movers = await q<MoverRow>(
-          ctx.db,
-          `SELECT tcgdex_id, name, variant_kind_code, currency_code, quantity, market_minor, avg30_minor
-             FROM (
-               SELECT c.tcgdex_id, c.name, cv.variant_kind_code, pc.currency_code, ci.quantity,
-                      pc.market_minor, pc.avg30_minor,
-                      row_number() OVER (PARTITION BY pc.currency_code
-                        ORDER BY abs((pc.market_minor - pc.avg30_minor)::bigint * ci.quantity) DESC) AS rn
-                 FROM collection_item ci
-                 JOIN card_variant cv ON cv.id = ci.card_variant_id
-                 JOIN card c          ON c.id = cv.card_id
-                 JOIN price_current pc ON pc.card_variant_id = cv.id
-                WHERE ci.user_id = $1 AND ci.quantity > 0
-                  AND pc.market_minor IS NOT NULL AND pc.avg30_minor IS NOT NULL) t
-            WHERE rn <= 5
-            ORDER BY currency_code, rn`,
-          [ctx.userId],
-        );
-
-        const lines: string[] = [`Collection value — estimates (best market price × qty, per currency)`];
-        if (totals.length === 0) {
-          lines.push('now: no owned variants carry a market price');
-        } else {
-          for (const t of totals) {
-            const cur = t.currency_code.trim();
-            lines.push(
-              `now: ${money(Number(t.total_minor), cur)} ${cur} across ${nfmt(t.priced_variants)} priced owned variants (${nfmt(t.qty)} copies)`,
-            );
-          }
-        }
-        const unpriced = Number(unpricedRow?.unpriced ?? 0);
-        if (unpriced > 0) lines.push(`unpriced: ${nfmt(unpriced)} owned variants have no market price in any currency (excluded, never $0)`);
-
-        // first→last delta per currency within the window.
-        const byCur = new Map<string, PointRow[]>();
-        for (const pt of points) {
-          const cur = pt.currency_code.trim();
-          const arr = byCur.get(cur) ?? [];
-          arr.push(pt);
-          byCur.set(cur, arr);
-        }
-        if (byCur.size === 0) {
-          lines.push(`change (${window}): no value snapshots in the window yet — the daily snapshot job populates collection_value_point`);
-        } else {
-          for (const [cur, pts] of byCur) {
-            const first = pts[0];
-            const last = pts[pts.length - 1];
-            if (!first || !last || pts.length < 2) {
-              lines.push(`change (${window}, ${cur}): only ${pts.length} snapshot in window — need 2+ for a delta`);
-              continue;
-            }
-            const dMinor = Number(last.total_minor) - Number(first.total_minor);
-            const pctTxt = Number(first.total_minor) > 0 ? ` (${dMinor >= 0 ? '+' : ''}${((dMinor / Number(first.total_minor)) * 100).toFixed(1)}%)` : '';
-            lines.push(
-              `change (${window}, ${cur}): ${dMinor >= 0 ? '+' : '-'}${money(Math.abs(dMinor), cur)}${pctTxt} — ${first.d} ${money(Number(first.total_minor), cur)} → ${last.d} ${money(Number(last.total_minor), cur)}`,
-            );
-          }
-        }
-
-        if (movers.length > 0) {
-          lines.push('top movers per currency (owned, current market vs 30-day average — reference is always 30d):');
-          for (const m of movers) {
-            const cur = m.currency_code.trim();
-            const change = (m.market_minor - m.avg30_minor) * m.quantity;
-            const pctText = m.avg30_minor > 0 ? ` (${change >= 0 ? '+' : ''}${(((m.market_minor - m.avg30_minor) / m.avg30_minor) * 100).toFixed(1)}%)` : '';
-            lines.push(
-              '  ' +
-                row(
-                  m.name,
-                  m.tcgdex_id,
-                  m.variant_kind_code,
-                  `x${m.quantity}`,
-                  `${money(m.avg30_minor, cur)} avg → ${money(m.market_minor, cur)} now`,
-                  `${change >= 0 ? '+' : '-'}${money(Math.abs(change), cur)}${pctText}`,
-                ),
-            );
-          }
-        } else {
-          lines.push('top movers: none (no owned variant has both a market and a 30-day-average quote in any currency)');
-        }
-        return ok(lines.join('\n'));
-      } catch (err) {
-        return fail(`collection_value failed: ${errText(err)}`);
-      }
-    },
-  );
+// ── collection_log — SPEC §5 #6 ────────────────────────────────────────────
+interface LogRow {
+  occurred_at: Date | string;
+  delta: number;
+  quantity_after: number;
+  source: string;
+  note: string | null;
+  name: string;
+  local_id: string;
+  set_tid: string;
+  variant_kind_code: string;
 }
+
+const collectionLogTool = defineTool({
+  name: 'collection_log',
+  title: 'Collection change log',
+  description:
+    'The audit trail of collection changes (collection_event), newest first: when, which ' +
+    'card/variant, the quantity delta and resulting quantity, who wrote it (source: web UI, ' +
+    'deckpal-mcp, imports) and any note. Use it to review recent adds/removals or verify what ' +
+    'an agent logged. Not for current totals (collection_summary) or current quantities ' +
+    '(get_card).',
+  inputSchema: z.object({
+    since: z
+      .string()
+      .optional()
+      .describe("Only events at/after this ISO 8601 timestamp, e.g. '2026-07-01' or '2026-07-28T15:00:00Z'."),
+    source: z
+      .string()
+      .optional()
+      .describe("Only events written by this source, e.g. 'web', 'deckpal-mcp', an import script name."),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(200)
+      .default(50)
+      .describe('Maximum events to return (1–200, default 50, newest first).'),
+  }),
+  annotations: { readOnlyHint: true, idempotentHint: true },
+  handler: async ({ since, source, limit }, ctx) => {
+    try {
+      const conds: string[] = ['ce.user_id = $1'];
+      const params: unknown[] = [ctx.userId];
+      const p = (v: unknown): string => {
+        params.push(v);
+        return `$${params.length}`;
+      };
+      if (since !== undefined) {
+        const t = Date.parse(since);
+        if (Number.isNaN(t)) return fail(`since '${since}' is not a parseable ISO 8601 timestamp`);
+        conds.push(`ce.occurred_at >= ${p(new Date(t).toISOString())}::timestamptz`);
+      }
+      if (source !== undefined) conds.push(`ce.source = ${p(source.trim())}`);
+
+      const where = conds.join(' AND ');
+      const totalRow = await q1<{ total: string }>(
+        ctx.db,
+        `SELECT count(*) AS total FROM collection_event ce WHERE ${where}`,
+        params,
+      );
+      const total = Number(totalRow?.total ?? 0);
+
+      const rows = await q<LogRow>(
+        ctx.db,
+        `SELECT ce.occurred_at, ce.delta, ce.quantity_after, ce.source, ce.note,
+                c.name, c.local_id, cs.tcgdex_id AS set_tid, cv.variant_kind_code
+           FROM collection_event ce
+           JOIN card_variant cv ON cv.id = ce.card_variant_id
+           JOIN card c          ON c.id = cv.card_id
+           JOIN card_set cs     ON cs.id = c.set_id
+          WHERE ${where}
+          ORDER BY ce.occurred_at DESC, ce.id DESC
+          LIMIT ${p(limit)}`,
+        params,
+      );
+
+      if (rows.length === 0) return ok('No collection events match.');
+      const lines = rows.map((r) =>
+        row(
+          stamp(r.occurred_at),
+          `${r.name} (${r.set_tid} #${r.local_id})`,
+          r.variant_kind_code,
+          `${r.delta > 0 ? '+' : ''}${r.delta} → ${r.quantity_after}`,
+          r.source,
+          r.note,
+        ),
+      );
+      const footer =
+        rows.length < total ? `showing latest ${rows.length} of ${total} — raise limit or filter with since/source` : `all ${total} matching events`;
+      return ok([...lines, footer].join('\n'), { total, returned: rows.length });
+    } catch (err) {
+      return fail(`collection_log failed: ${errText(err)}`);
+    }
+  },
+});
+
+// ── collection_value — SPEC §5 #7 ──────────────────────────────────────────
+// Implemented directly against price_current / collection_value_point,
+// following apps/api/src/insights/collectionValue.ts (value-now = Σ qty ×
+// best per currency; window delta = first→last collection_value_point in the
+// window; movers = market vs avg30 × qty). Direct SQL rather than the
+// GET /insights/value route because that route's range enum (30d|3m|6m|1y)
+// cannot express this tool's 7d/90d windows.
+const WINDOW_DAYS: Record<'7d' | '30d' | '90d', number> = { '7d': 7, '30d': 30, '90d': 90 };
+
+interface CurTotalRow {
+  currency_code: string;
+  total_minor: string;
+  priced_variants: string;
+  qty: string;
+}
+interface PointRow {
+  currency_code: string;
+  d: string;
+  total_minor: string;
+}
+interface MoverRow {
+  tcgdex_id: string;
+  name: string;
+  variant_kind_code: string;
+  currency_code: string;
+  quantity: number;
+  market_minor: number;
+  avg30_minor: number;
+}
+
+const collectionValueTool = defineTool({
+  name: 'collection_value',
+  title: 'Collection value & movers',
+  description:
+    'Estimated collection value right now (per currency, best market price × quantity), how ' +
+    'it changed over a window (from the daily value snapshots), and the biggest owned price ' +
+    'movers vs their 30-day average. All figures are market-price estimates, not appraisals. ' +
+    'For overall collection stats use collection_summary; for one card\'s prices use get_card.',
+  inputSchema: z.object({
+    window: z
+      .enum(['7d', '30d', '90d'])
+      .default('30d')
+      .describe('Change-over-time window for the snapshot delta (default 30d).'),
+  }),
+  annotations: { readOnlyHint: true, idempotentHint: true },
+  handler: async ({ window }, ctx) => {
+    try {
+      const totals = await q<CurTotalRow>(
+        ctx.db,
+        `WITH best AS (
+           SELECT card_variant_id, currency_code, max(market_minor) AS best_minor
+             FROM price_current
+            WHERE market_minor IS NOT NULL
+            GROUP BY card_variant_id, currency_code)
+         SELECT b.currency_code, sum(ci.quantity * b.best_minor)::bigint AS total_minor,
+                count(*) AS priced_variants, sum(ci.quantity)::bigint AS qty
+           FROM collection_item ci
+           JOIN best b ON b.card_variant_id = ci.card_variant_id
+          WHERE ci.user_id = $1 AND ci.quantity > 0
+          GROUP BY b.currency_code
+          ORDER BY b.currency_code`,
+        [ctx.userId],
+      );
+      const unpricedRow = await q1<{ unpriced: string }>(
+        ctx.db,
+        `SELECT count(*) AS unpriced
+           FROM collection_item ci
+          WHERE ci.user_id = $1 AND ci.quantity > 0
+            AND NOT EXISTS (SELECT 1 FROM price_current pc
+                             WHERE pc.card_variant_id = ci.card_variant_id
+                               AND pc.market_minor IS NOT NULL)`,
+        [ctx.userId],
+      );
+
+      const points = await q<PointRow>(
+        ctx.db,
+        `SELECT currency_code, to_char(observed_on, 'YYYY-MM-DD') AS d, total_minor
+           FROM collection_value_point
+          WHERE user_id = $1 AND observed_on >= CURRENT_DATE - $2::int
+          ORDER BY currency_code, observed_on`,
+        [ctx.userId, WINDOW_DAYS[window]],
+      );
+
+      // Movers vs the 30-day average, top 5 PER CURRENCY — the current feeds
+      // only carry avg30 on the cardmarket/EUR source, so a USD-only filter
+      // would be structurally empty (verified 2026-07-29).
+      const movers = await q<MoverRow>(
+        ctx.db,
+        `SELECT tcgdex_id, name, variant_kind_code, currency_code, quantity, market_minor, avg30_minor
+           FROM (
+             SELECT c.tcgdex_id, c.name, cv.variant_kind_code, pc.currency_code, ci.quantity,
+                    pc.market_minor, pc.avg30_minor,
+                    row_number() OVER (PARTITION BY pc.currency_code
+                      ORDER BY abs((pc.market_minor - pc.avg30_minor)::bigint * ci.quantity) DESC) AS rn
+               FROM collection_item ci
+               JOIN card_variant cv ON cv.id = ci.card_variant_id
+               JOIN card c          ON c.id = cv.card_id
+               JOIN price_current pc ON pc.card_variant_id = cv.id
+              WHERE ci.user_id = $1 AND ci.quantity > 0
+                AND pc.market_minor IS NOT NULL AND pc.avg30_minor IS NOT NULL) t
+          WHERE rn <= 5
+          ORDER BY currency_code, rn`,
+        [ctx.userId],
+      );
+
+      const lines: string[] = [`Collection value — estimates (best market price × qty, per currency)`];
+      if (totals.length === 0) {
+        lines.push('now: no owned variants carry a market price');
+      } else {
+        for (const t of totals) {
+          const cur = t.currency_code.trim();
+          lines.push(
+            `now: ${money(Number(t.total_minor), cur)} ${cur} across ${nfmt(t.priced_variants)} priced owned variants (${nfmt(t.qty)} copies)`,
+          );
+        }
+      }
+      const unpriced = Number(unpricedRow?.unpriced ?? 0);
+      if (unpriced > 0) lines.push(`unpriced: ${nfmt(unpriced)} owned variants have no market price in any currency (excluded, never $0)`);
+
+      // first→last delta per currency within the window.
+      const byCur = new Map<string, PointRow[]>();
+      for (const pt of points) {
+        const cur = pt.currency_code.trim();
+        const arr = byCur.get(cur) ?? [];
+        arr.push(pt);
+        byCur.set(cur, arr);
+      }
+      if (byCur.size === 0) {
+        lines.push(`change (${window}): no value snapshots in the window yet — the daily snapshot job populates collection_value_point`);
+      } else {
+        for (const [cur, pts] of byCur) {
+          const first = pts[0];
+          const last = pts[pts.length - 1];
+          if (!first || !last || pts.length < 2) {
+            lines.push(`change (${window}, ${cur}): only ${pts.length} snapshot in window — need 2+ for a delta`);
+            continue;
+          }
+          const dMinor = Number(last.total_minor) - Number(first.total_minor);
+          const pctTxt = Number(first.total_minor) > 0 ? ` (${dMinor >= 0 ? '+' : ''}${((dMinor / Number(first.total_minor)) * 100).toFixed(1)}%)` : '';
+          lines.push(
+            `change (${window}, ${cur}): ${dMinor >= 0 ? '+' : '-'}${money(Math.abs(dMinor), cur)}${pctTxt} — ${first.d} ${money(Number(first.total_minor), cur)} → ${last.d} ${money(Number(last.total_minor), cur)}`,
+          );
+        }
+      }
+
+      if (movers.length > 0) {
+        lines.push('top movers per currency (owned, current market vs 30-day average — reference is always 30d):');
+        for (const m of movers) {
+          const cur = m.currency_code.trim();
+          const change = (m.market_minor - m.avg30_minor) * m.quantity;
+          const pctText = m.avg30_minor > 0 ? ` (${change >= 0 ? '+' : ''}${(((m.market_minor - m.avg30_minor) / m.avg30_minor) * 100).toFixed(1)}%)` : '';
+          lines.push(
+            '  ' +
+              row(
+                m.name,
+                m.tcgdex_id,
+                m.variant_kind_code,
+                `x${m.quantity}`,
+                `${money(m.avg30_minor, cur)} avg → ${money(m.market_minor, cur)} now`,
+                `${change >= 0 ? '+' : '-'}${money(Math.abs(change), cur)}${pctText}`,
+              ),
+          );
+        }
+      } else {
+        lines.push('top movers: none (no owned variant has both a market and a 30-day-average quote in any currency)');
+      }
+      return ok(lines.join('\n'));
+    } catch (err) {
+      return fail(`collection_value failed: ${errText(err)}`);
+    }
+  },
+});
+
+export const collectionTools: ToolDefinition[] = [
+  collectionSummaryTool,
+  collectionLogTool,
+  collectionValueTool,
+];

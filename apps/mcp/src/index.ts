@@ -3,8 +3,8 @@ import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import type { RequestHandler } from 'express';
 import { loadEnv } from '@deckpal/db';
+import { q } from '@deckpal/agent-tools';
 import { buildCtx, type SelfHostCtx } from './ctx.js';
-import { q } from './db.js';
 import { buildServer } from './server.js';
 
 /**

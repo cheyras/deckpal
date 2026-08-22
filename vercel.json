@@ -1,5 +1,5 @@
 {
-  "buildCommand": "pnpm --filter @deckpal/db build && pnpm --filter @deckpal/storage build && pnpm --filter deckpal-api build && pnpm --filter deckpal-mcp build && pnpm --filter deckpal-web build",
+  "buildCommand": "pnpm --filter @deckpal/db build && pnpm --filter @deckpal/storage build && pnpm --filter @deckpal/agent-tools build && pnpm --filter deckpal-api build && pnpm --filter deckpal-mcp build && pnpm --filter deckpal-web build",
   "regions": [
     "sfo1"
   ],

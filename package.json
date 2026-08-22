@@ -16,7 +16,7 @@
     "dev:local": "node scripts/dev.mjs --local",
     "migrate": "pnpm --filter @deckpal/db migrate",
     "migrate:status": "pnpm --filter @deckpal/db migrate:status",
-    "build": "pnpm --filter @deckpal/db build && pnpm --filter @deckpal/storage build && pnpm --filter deckpal-api build && pnpm --filter deckpal-images build && pnpm --filter deckpal-sync build",
+    "build": "pnpm --filter @deckpal/db build && pnpm --filter @deckpal/storage build && pnpm --filter @deckpal/agent-tools build && pnpm --filter deckpal-api build && pnpm --filter deckpal-images build && pnpm --filter deckpal-sync build",
     "typecheck": "pnpm -r typecheck",
     "dev:api": "pnpm --filter deckpal-api dev"
   },

@@ -3,8 +3,7 @@ import type pg from 'pg';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { loadEnv, makePool, resolveToken, touchToken } from '@deckpal/db';
-import { makeApi } from './api.js';
-import type { Ctx } from './ctx.js';
+import { makeApi, type Ctx } from '@deckpal/agent-tools';
 import { withUserContext } from './rls.js';
 import { buildServer } from './server.js';
 
@@ -218,19 +217,18 @@ export function createCloudApp(): Express {
         console.error('[deckpal-mcp] last_used_at touch failed:', (err as Error).message);
       }
 
-      const config = {
-        port: 0, // never listens here — Vercel owns the socket
-        key: '',
-        apiBase: apiBaseFor(req),
-      };
+      // Just the REST base. This used to be a whole McpConfig — including a
+      // `port: 0` and an empty `key` with a comment saying the function never
+      // listens — purely because Ctx demanded one. Ctx now asks for the three
+      // fields a tool actually reads, so the placeholders are gone with it.
+      const base = apiBaseFor(req);
 
       try {
         await withUserContext(pool(), resolved.userId, async (client) => {
           const ctx: Ctx = {
             db: client,
-            api: makeApi(config.apiBase, raw),
+            api: makeApi(base, raw),
             userId: resolved.userId,
-            config,
           };
           const handler = createMcpHandler(() => buildServer(ctx), {
             onerror: (err) => console.error(`[deckpal-mcp] mcp handler error: ${err.message}`),

@@ -1,0 +1,29 @@
+{
+  "name": "@deckpal/agent-tools",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pg": "^8.23.0",
+    "zod": "^4.2",
+    "@deckpal/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/pg": "^8.21.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}

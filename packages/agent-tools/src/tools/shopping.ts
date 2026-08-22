@@ -1,7 +1,6 @@
 import { z } from 'zod';
-import type { McpServer } from '@modelcontextprotocol/server';
-import type { Ctx } from '../ctx.js';
-import { fail, ok } from '../envelope.js';
+import { defineTool, type ToolDefinition } from '../registry.js';
+import { fail, ok } from '../result.js';
 
 /**
  * `set_cart` — TCGplayer Mass Entry deep links, built from a set, a saved list,
@@ -113,111 +112,111 @@ function render(r: CartResponse): string[] {
   return lines;
 }
 
-export function registerShoppingTools(server: McpServer, ctx: Ctx): void {
-  server.registerTool(
-    'set_cart',
-    {
-      title: 'Build a TCGplayer cart',
-      description:
-        'Build TCGplayer Mass Entry deep link(s) that pre-fill a shopping cart, from ONE of: a ' +
-        'set (everything still needed for a goal), a saved list (list_id), or an explicit set of ' +
-        'cards (items). Use list_id when you have already built and filtered a list — that way ' +
-        'the cart contains exactly what the list contains, instead of being re-derived from the ' +
-        'set. This tool only BUILDS links — it does not purchase anything, does not touch ' +
-        'TCGplayer, and cannot add to a cart by itself: the user must open the link(s) in their ' +
-        'own logged-in browser (a long list is split across several links; opening each adds to ' +
-        'the same cart). Printing and condition cannot be preselected by link — they are chosen ' +
-        "on TCGplayer's Mass Entry page. For what is missing and its cost use set_progress; for " +
-        'buying deck gaps use decks with include=[pricing].',
-      inputSchema: z.object({
-        set_id: z.string().optional().describe("TCGdex set id, e.g. 'me05'. Carts what you still need from that set."),
-        list_id: z.string().optional().describe('List UUID (from the lists tool). Carts that list\'s own contents — nothing re-derived.'),
-        items: z
-          .array(
-            z.object({
-              variant_id: z.number().int().positive().optional().describe('Exact card_variant id — the most precise choice.'),
-              card_id: z.string().optional().describe("TCGdex card id, e.g. 'me05-003'. Resolves to its cheapest printing."),
-              quantity: z.number().int().min(1).max(100).default(1).describe('Copies to buy (default 1).'),
-            }),
-          )
-          .max(500)
-          .optional()
-          .describe('An explicit set of cards to cart, when you have not saved them as a list. Each needs variant_id or card_id.'),
-        goal: z
-          .enum(GOALS)
-          .optional()
-          .describe(
-            "set_id only. What 'needed' means: complete = one of any variant per card (default), " +
-              'master = every standard-tier variant, grandmaster = every variant.',
-          ),
-        finishes: z
-          .array(z.enum(FINISHES))
-          .optional()
-          .describe('set_id only. Restrict to these finishes (master/grandmaster; ignored for complete).'),
-        rarity: z
-          .array(z.string())
-          .optional()
-          .describe("set_id only. ONLY these rarities, e.g. ['Illustration rare']. Case-insensitive, exact names."),
-        rarity_exclude: z
-          .array(z.string())
-          .optional()
-          .describe(
-            "set_id only. Leave these rarities OUT, e.g. ['Special illustration rare']. Note that variant tier " +
-              "('standard'/'special') is NOT rarity — an Illustration Rare and a Special Illustration Rare are both " +
-              "tier 'standard', so use this rather than a tier filter.",
-          ),
-        missing_only: z
-          .boolean()
-          .default(false)
-          .describe('list_id only. true → cart only the list rows you do not already own.'),
-      }),
-      annotations: { readOnlyHint: true, idempotentHint: true },
-    },
-    async (args) => {
-      try {
-        const given = [args.set_id, args.list_id, args.items].filter((x) => x !== undefined);
-        if (given.length === 0) return fail('Pass one of set_id, list_id, or items.');
-        if (given.length > 1) return fail('Pass exactly ONE of set_id, list_id, or items — they are three different sources.');
+const setCartTool = defineTool({
+  name: 'set_cart',
+  title: 'Build a TCGplayer cart',
+  description:
+    'Build TCGplayer Mass Entry deep link(s) that pre-fill a shopping cart, from ONE of: a ' +
+    'set (everything still needed for a goal), a saved list (list_id), or an explicit set of ' +
+    'cards (items). Use list_id when you have already built and filtered a list — that way ' +
+    'the cart contains exactly what the list contains, instead of being re-derived from the ' +
+    'set. This tool only BUILDS links — it does not purchase anything, does not touch ' +
+    'TCGplayer, and cannot add to a cart by itself: the user must open the link(s) in their ' +
+    'own logged-in browser (a long list is split across several links; opening each adds to ' +
+    'the same cart). Printing and condition cannot be preselected by link — they are chosen ' +
+    "on TCGplayer's Mass Entry page. For what is missing and its cost use set_progress; for " +
+    'buying deck gaps use decks with include=[pricing].',
+  inputSchema: z.object({
+    set_id: z.string().optional().describe("TCGdex set id, e.g. 'me05'. Carts what you still need from that set."),
+    list_id: z.string().optional().describe('List UUID (from the lists tool). Carts that list\'s own contents — nothing re-derived.'),
+    items: z
+      .array(
+        z.object({
+          variant_id: z.number().int().positive().optional().describe('Exact card_variant id — the most precise choice.'),
+          card_id: z.string().optional().describe("TCGdex card id, e.g. 'me05-003'. Resolves to its cheapest printing."),
+          quantity: z.number().int().min(1).max(100).default(1).describe('Copies to buy (default 1).'),
+        }),
+      )
+      .max(500)
+      .optional()
+      .describe('An explicit set of cards to cart, when you have not saved them as a list. Each needs variant_id or card_id.'),
+    goal: z
+      .enum(GOALS)
+      .optional()
+      .describe(
+        "set_id only. What 'needed' means: complete = one of any variant per card (default), " +
+          'master = every standard-tier variant, grandmaster = every variant.',
+      ),
+    finishes: z
+      .array(z.enum(FINISHES))
+      .optional()
+      .describe('set_id only. Restrict to these finishes (master/grandmaster; ignored for complete).'),
+    rarity: z
+      .array(z.string())
+      .optional()
+      .describe("set_id only. ONLY these rarities, e.g. ['Illustration rare']. Case-insensitive, exact names."),
+    rarity_exclude: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "set_id only. Leave these rarities OUT, e.g. ['Special illustration rare']. Note that variant tier " +
+          "('standard'/'special') is NOT rarity — an Illustration Rare and a Special Illustration Rare are both " +
+          "tier 'standard', so use this rather than a tier filter.",
+      ),
+    missing_only: z
+      .boolean()
+      .default(false)
+      .describe('list_id only. true → cart only the list rows you do not already own.'),
+  }),
+  annotations: { readOnlyHint: true, idempotentHint: true },
+  handler: async (args, ctx) => {
+    try {
+      const given = [args.set_id, args.list_id, args.items].filter((x) => x !== undefined);
+      if (given.length === 0) return fail('Pass one of set_id, list_id, or items.');
+      if (given.length > 1) return fail('Pass exactly ONE of set_id, list_id, or items — they are three different sources.');
 
-        let r: CartResponse;
-        if (args.set_id) {
-          const params = new URLSearchParams({ goal: args.goal ?? 'complete' });
-          for (const f of args.finishes ?? []) params.append('finish', f);
-          for (const v of args.rarity ?? []) params.append('rarity', v);
-          for (const v of args.rarity_exclude ?? []) params.append('rarity_exclude', v);
-          r = (await ctx.api.get(`/sets/${encodeURIComponent(args.set_id.trim())}/massentry?${params.toString()}`)) as CartResponse;
-        } else if (args.list_id) {
-          const params = new URLSearchParams();
-          if (args.missing_only) params.set('missing_only', 'true');
-          r = (await ctx.api.get(
-            `/lists/${encodeURIComponent(args.list_id.trim())}/massentry${params.size ? `?${params.toString()}` : ''}`,
-          )) as CartResponse;
-        } else {
-          r = (await ctx.api.send('POST', '/massentry', {
-            items: args.items!.map((i) => ({
-              ...(i.variant_id !== undefined ? { variantId: i.variant_id } : {}),
-              ...(i.card_id !== undefined ? { cardId: i.card_id } : {}),
-              quantity: i.quantity,
-            })),
-          })) as CartResponse;
-        }
-
-        return ok(render(r).join('\n'), {
-          source: r.source,
-          set: r.set?.setId,
-          list: r.list?.id,
-          goal: r.goal,
-          needed: r.needed,
-          urls: r.urls,
-          exactUrls: r.exactUrls,
-          bestEffortUrls: r.bestEffortUrls,
-          text: r.text,
-          unlinkable: r.unlinkable,
-          ...(r.unresolved ? { unresolved: r.unresolved } : {}),
-        });
-      } catch (err) {
-        return fail(`set_cart failed: ${(err as Error).message}`);
+      let r: CartResponse;
+      if (args.set_id) {
+        const params = new URLSearchParams({ goal: args.goal ?? 'complete' });
+        for (const f of args.finishes ?? []) params.append('finish', f);
+        for (const v of args.rarity ?? []) params.append('rarity', v);
+        for (const v of args.rarity_exclude ?? []) params.append('rarity_exclude', v);
+        r = (await ctx.api.get(`/sets/${encodeURIComponent(args.set_id.trim())}/massentry?${params.toString()}`)) as CartResponse;
+      } else if (args.list_id) {
+        const params = new URLSearchParams();
+        if (args.missing_only) params.set('missing_only', 'true');
+        r = (await ctx.api.get(
+          `/lists/${encodeURIComponent(args.list_id.trim())}/massentry${params.size ? `?${params.toString()}` : ''}`,
+        )) as CartResponse;
+      } else {
+        r = (await ctx.api.send('POST', '/massentry', {
+          items: args.items!.map((i) => ({
+            ...(i.variant_id !== undefined ? { variantId: i.variant_id } : {}),
+            ...(i.card_id !== undefined ? { cardId: i.card_id } : {}),
+            quantity: i.quantity,
+          })),
+        })) as CartResponse;
       }
-    },
-  );
-}
+
+      return ok(render(r).join('\n'), {
+        source: r.source,
+        set: r.set?.setId,
+        list: r.list?.id,
+        goal: r.goal,
+        needed: r.needed,
+        urls: r.urls,
+        exactUrls: r.exactUrls,
+        bestEffortUrls: r.bestEffortUrls,
+        text: r.text,
+        unlinkable: r.unlinkable,
+        ...(r.unresolved ? { unresolved: r.unresolved } : {}),
+      });
+    } catch (err) {
+      return fail(`set_cart failed: ${(err as Error).message}`);
+    }
+  },
+});
+
+export const shoppingTools: ToolDefinition[] = [
+  setCartTool,
+];

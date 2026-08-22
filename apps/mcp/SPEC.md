@@ -274,7 +274,7 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
 ### Deck intelligence — via deckpal-api (migration 019; semantics in §6b)
 
 Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable. All six live in
-`src/tools/deckIntel.ts`; writes carry `source: 'deckpal-mcp'`.
+`packages/agent-tools/src/tools/deckIntel.ts`; writes carry `source: 'deckpal-mcp'`.
 
 15. **`deck_strategy`** — `{ deck_id, markdown? }`. Omit `markdown` → the full guide. Provide it →
     `PUT /decks/:id/strategy` replaces the whole guide (empty string clears); the response names

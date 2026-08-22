@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import type { McpServer } from '@modelcontextprotocol/server';
 import type { Ctx } from '../ctx.js';
-import { fail, ok } from '../envelope.js';
+import { defineTool, type ToolDefinition } from '../registry.js';
+import { fail, ok } from '../result.js';
 import { row } from '../format.js';
 import { describeCard, describeVariant, pickVariant, resolveCardsBatch, variantsOfMany, type CardRef } from '../resolve.js';
 
@@ -237,309 +237,307 @@ async function resolveAdds(
 
 // ── Tool registration ─────────────────────────────────────────────────────────
 
-export function registerListTools(server: McpServer, ctx: Ctx): void {
-  server.registerTool(
-    'lists',
-    {
-      title: 'Browse card lists',
-      description:
-        'Read card lists (dynamic lists track collection ownership live; static lists are fixed bags ' +
-        'with quantities; pokedex_binder lists track one slot per species). Without list_id: the list ' +
-        'index with progress and value. With list_id: the list plus every item (item ids are needed to ' +
-        'remove items via edit_list). Pass deleted:true for the recycle bin — lists that were deleted ' +
-        'but can still be restored. Read-only — use edit_list to create/change, delete_list to delete.',
-      inputSchema: z.object({
-        list_id: z.string().optional().describe('List UUID from the index. Omit to list all lists.'),
-        deleted: z
-          .boolean()
-          .default(false)
-          .describe('true → show DELETED lists (the recycle bin) instead of live ones. Restore one with edit_list(restore:true).'),
-      }),
-      annotations: { readOnlyHint: true, idempotentHint: true },
-    },
-    async ({ list_id, deleted }) => {
-      try {
-        if (!list_id) {
-          const res = (await ctx.api.get(`/lists${deleted ? '?deleted=true' : ''}`)) as { lists: ListSummary[] };
-          if (res.lists.length === 0) {
-            return ok(deleted ? 'Nothing in the recycle bin — no deleted lists.' : 'No lists yet. Create one with edit_list.');
-          }
-          const lines = res.lists.map(summaryLine);
-          lines.push(
-            deleted
-              ? `${res.lists.length} deleted list(s) — restore one with edit_list(list_id, restore: true)`
-              : `${res.lists.length} list(s)`,
-          );
-          return ok(lines.join('\n'));
+const listsTool = defineTool({
+  name: 'lists',
+  title: 'Browse card lists',
+  description:
+    'Read card lists (dynamic lists track collection ownership live; static lists are fixed bags ' +
+    'with quantities; pokedex_binder lists track one slot per species). Without list_id: the list ' +
+    'index with progress and value. With list_id: the list plus every item (item ids are needed to ' +
+    'remove items via edit_list). Pass deleted:true for the recycle bin — lists that were deleted ' +
+    'but can still be restored. Read-only — use edit_list to create/change, delete_list to delete.',
+  inputSchema: z.object({
+    list_id: z.string().optional().describe('List UUID from the index. Omit to list all lists.'),
+    deleted: z
+      .boolean()
+      .default(false)
+      .describe('true → show DELETED lists (the recycle bin) instead of live ones. Restore one with edit_list(restore:true).'),
+  }),
+  annotations: { readOnlyHint: true, idempotentHint: true },
+  handler: async ({ list_id, deleted }, ctx) => {
+    try {
+      if (!list_id) {
+        const res = (await ctx.api.get(`/lists${deleted ? '?deleted=true' : ''}`)) as { lists: ListSummary[] };
+        if (res.lists.length === 0) {
+          return ok(deleted ? 'Nothing in the recycle bin — no deleted lists.' : 'No lists yet. Create one with edit_list.');
         }
-        const detail = (await ctx.api.get(`/lists/${encodeURIComponent(list_id)}`)) as ListDetail;
-        const lines = [summaryLine(detail.list)];
-        if (detail.items.length === 0) lines.push('(list is empty)');
-        for (const it of detail.items) lines.push(`  ${itemLine(it, detail.list.kind)}`);
-        return ok(lines.join('\n'));
-      } catch (err) {
-        return fail(`lists failed: ${(err as Error).message}`);
-      }
-    },
-  );
-
-  server.registerTool(
-    'edit_list',
-    {
-      title: 'Create or edit a card list',
-      description:
-        'Create a list (omit list_id) or edit one (pass list_id): rename, add cards, remove items, ' +
-        'or restore a deleted list. add_cards takes the same card reference as log_cards — a ' +
-        "TCGdex card_id, or name + set_id/number, plus an optional variant_kind ('reverse', " +
-        "'holo', …) — so you do NOT need to look up variant ids first. add_missing does the whole " +
-        'job server-side: "everything missing for this goal in this set, optionally minus certain ' +
-        'rarities or above a price" in one call. remove_item_ids are the item UUIDs shown by the ' +
-        'lists tool. Defaults to a dry run that prints the exact operations without executing — ' +
-        're-run with dry_run:false to apply. Lists never modify the collection itself.',
-      inputSchema: z.object({
-        list_id: z.string().optional().describe('List UUID to edit. Omit to create a new list.'),
-        name: z.string().max(120).optional().describe('List name — required when creating; renames when editing.'),
-        kind: z
-          .enum(KINDS)
-          .default('dynamic')
-          .describe("List kind when creating (default 'dynamic'). Ignored when editing — kind cannot change."),
-        add_cards: z
-          .array(addCardSchema)
-          .max(500)
-          .optional()
-          .describe('Cards to ADD (existing items are kept). Each entry: exactly one of card_id/name, variant_id, or dex_id.'),
-        add_missing: z
-          .object({
-            set_id: z.string().describe("TCGdex set id, e.g. 'me05'."),
-            goal: z
-              .enum(GOALS)
-              .default('complete')
-              .describe('complete = one of any variant per card, master = every standard-tier variant, grandmaster = every variant.'),
-            finishes: z.array(z.enum(FINISHES)).optional().describe('Only these finishes (master/grandmaster).'),
-            rarity: z.array(z.string()).optional().describe("ONLY these rarities, e.g. ['Illustration rare']. Case-insensitive."),
-            rarity_exclude: z
-              .array(z.string())
-              .optional()
-              .describe(
-                "Leave these rarities OUT, e.g. ['Special illustration rare']. Rarity is NOT the same as variant tier — " +
-                  "an Illustration Rare and a Special Illustration Rare are both tier 'standard'.",
-              ),
-            max_price_usd: z.number().min(0).optional().describe('Only cards whose cheapest USD market price is at or below this.'),
-            priced_only: z.boolean().optional().describe('Drop cards with no USD price at all.'),
-          })
-          .optional()
-          .describe('Add everything still missing from a set, filtered. Resolved server-side in one call.'),
-        remove_item_ids: z.array(z.string()).optional().describe('Item UUIDs to remove (from the lists tool output), not card ids.'),
-        restore: z.boolean().default(false).describe('true → restore this deleted list (see lists(deleted:true)).'),
-        dry_run: z.boolean().default(true).describe('true (default): only print what would happen. false: execute.'),
-      }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-    },
-    async ({ list_id, name, kind, add_cards, add_missing, remove_item_ids, restore, dry_run }) => {
-      try {
-        if (restore) {
-          if (!list_id) return fail('restore needs list_id.');
-          if (dry_run) {
-            return ok(`DRY RUN — would restore deleted list ${list_id}.\nRe-run with dry_run: false to restore.`);
-          }
-          const r = (await ctx.api.send('POST', `/lists/${encodeURIComponent(list_id)}/restore`, { source: 'deckpal-mcp' })) as {
-            list: ListSummary;
-          };
-          return ok(`Restored ${summaryLine(r.list)}`);
-        }
-
-        let current: ListDetail | null = null;
-        if (list_id) {
-          current = (await ctx.api.get(`/lists/${encodeURIComponent(list_id)}`)) as ListDetail;
-        } else if (!name) {
-          return fail('name is required to create a list.');
-        }
-        const listKind = current?.list.kind ?? kind;
-
-        // Resolve adds up front (read-only, safe in a dry run too).
-        const adds = add_cards?.length ? await resolveAdds(ctx, add_cards, listKind) : [];
-
-        // add_missing is resolved by the API — ask it for the preview so the
-        // dry run reports exactly what the execute call will add.
-        let missingPreview: { wouldAdd: number; items: Array<{ label: string }> } | null = null;
-        if (add_missing) {
-          if (!list_id) {
-            return fail('add_missing needs an existing list_id — create the list first, then add to it.');
-          }
-          missingPreview = (await ctx.api.send('POST', `/lists/${encodeURIComponent(list_id)}/items/bulk`, {
-            addMissing: {
-              setId: add_missing.set_id,
-              goal: add_missing.goal,
-              finishes: add_missing.finishes,
-              rarity: add_missing.rarity,
-              rarityExclude: add_missing.rarity_exclude,
-              maxPriceUsd: add_missing.max_price_usd,
-              pricedOnly: add_missing.priced_only,
-            },
-            dryRun: true,
-            source: 'deckpal-mcp',
-          })) as { wouldAdd: number; items: Array<{ label: string }> };
-        }
-
-        // ── Plan ─────────────────────────────────────────────────────────────
-        const plan: string[] = [];
-        if (!current) plan.push(`create ${listKind} list '${name!}'`);
-        else if (name !== undefined && name !== current.list.name) plan.push(`rename '${current.list.name}' → '${name}'`);
-        for (const a of adds) {
-          plan.push(a.ok ? `add ${a.label}` : `add ${a.label} — UNRESOLVABLE: ${a.error}`);
-          if (!a.ok && a.detail) for (const d of a.detail) plan.push(`     ${d}`);
-        }
-        if (missingPreview) {
-          plan.push(`add ${missingPreview.wouldAdd} missing card(s) from ${add_missing!.set_id} (goal ${add_missing!.goal})`);
-          for (const it of missingPreview.items.slice(0, 15)) plan.push(`     ${it.label}`);
-          if (missingPreview.items.length > 15) plan.push(`     …and ${missingPreview.items.length - 15} more`);
-        }
-        const knownItems = new Set((current?.items ?? []).map((i) => i.itemId));
-        for (const id of remove_item_ids ?? []) {
-          plan.push(`remove item ${id}${current && !knownItems.has(id) ? ' — NOT IN THIS LIST (will fail)' : ''}`);
-        }
-        if (plan.length === 0) return ok(`No changes — list '${current!.list.name}' already matches the requested state.`);
-
-        if (dry_run) {
-          return ok(
-            ['DRY RUN — nothing executed. Would:', ...plan.map((p) => `  ${p}`), 'Re-run with dry_run: false to execute.'].join('\n'),
-          );
-        }
-
-        // ── Execute ──────────────────────────────────────────────────────────
-        const lines: string[] = [];
-        let failures = 0;
-        let targetId = list_id;
-        if (!current) {
-          const created = (await ctx.api.send('POST', '/lists', { name, kind: listKind, source: 'deckpal-mcp' })) as {
-            list: ListSummary;
-          };
-          targetId = created.list.id;
-          lines.push(`Created ${created.list.kind} list '${created.list.name}' — id ${targetId}`);
-        } else if (name !== undefined && name !== current.list.name) {
-          try {
-            await ctx.api.send('PATCH', `/lists/${targetId}`, { name, source: 'deckpal-mcp' });
-            lines.push(`  done: rename → '${name}'`);
-          } catch (err) {
-            failures++;
-            lines.push(`  FAILED: rename — ${(err as Error).message}`);
-          }
-        }
-
-        // Adds go through the bulk endpoint: one transaction, one round trip,
-        // whatever the count. Unresolvable entries never leave this process.
-        const resolvedAdds = adds.filter((a): a is ResolvedAdd => a.ok);
-        for (const a of adds) {
-          if (!a.ok) {
-            failures++;
-            lines.push(`  FAILED: add ${a.label} — ${a.error}`);
-          }
-        }
-        if (resolvedAdds.length > 0 || add_missing) {
-          try {
-            const res = (await ctx.api.send('POST', `/lists/${targetId}/items/bulk`, {
-              items: resolvedAdds.map((a) => ({
-                cardVariantId: a.body.cardVariantId,
-                dexId: a.body.dexId,
-                quantity: a.body.staticQuantity ?? 1,
-                note: a.body.note,
-              })),
-              ...(add_missing
-                ? {
-                    addMissing: {
-                      setId: add_missing.set_id,
-                      goal: add_missing.goal,
-                      finishes: add_missing.finishes,
-                      rarity: add_missing.rarity,
-                      rarityExclude: add_missing.rarity_exclude,
-                      maxPriceUsd: add_missing.max_price_usd,
-                      pricedOnly: add_missing.priced_only,
-                    },
-                  }
-                : {}),
-              source: 'deckpal-mcp',
-            })) as { added: number; alreadyPresent: number; unresolved: string[]; batchId: string };
-            lines.push(
-              `  done: added ${res.added}` +
-                (res.alreadyPresent ? `, ${res.alreadyPresent} already in the list` : '') +
-                (res.unresolved.length ? `, ${res.unresolved.length} unresolved` : ''),
-            );
-            if (res.batchId) lines.push(`  undo with revert(batch_id: "${res.batchId}")`);
-          } catch (err) {
-            failures++;
-            lines.push(`  FAILED: bulk add — ${(err as Error).message}`);
-          }
-        }
-
-        for (const id of remove_item_ids ?? []) {
-          try {
-            await ctx.api.send('DELETE', `/lists/${targetId}/items/${encodeURIComponent(id)}`);
-            lines.push(`  done: remove item ${id}`);
-          } catch (err) {
-            failures++;
-            lines.push(`  FAILED: remove item ${id} — ${(err as Error).message}`);
-          }
-        }
-
-        const after = (await ctx.api.get(`/lists/${targetId}`)) as ListDetail;
+        const lines = res.lists.map(summaryLine);
         lines.push(
-          `${failures ? `${failures} operation(s) FAILED — applied partially. ` : ''}List '${after.list.name}' now has ${after.list.itemCount} item(s).`,
+          deleted
+            ? `${res.lists.length} deleted list(s) — restore one with edit_list(list_id, restore: true)`
+            : `${res.lists.length} list(s)`,
         );
-        return ok(lines.join('\n'), { listId: targetId, itemCount: after.list.itemCount, failures });
-      } catch (err) {
-        return fail(`edit_list failed: ${(err as Error).message}`);
+        return ok(lines.join('\n'));
       }
-    },
-  );
+      const detail = (await ctx.api.get(`/lists/${encodeURIComponent(list_id)}`)) as ListDetail;
+      const lines = [summaryLine(detail.list)];
+      if (detail.items.length === 0) lines.push('(list is empty)');
+      for (const it of detail.items) lines.push(`  ${itemLine(it, detail.list.kind)}`);
+      return ok(lines.join('\n'));
+    } catch (err) {
+      return fail(`lists failed: ${(err as Error).message}`);
+    }
+  },
+});
 
-  server.registerTool(
-    'delete_list',
-    {
-      title: 'Delete a card list',
-      description:
-        'Delete a list. By default this is REVERSIBLE: the list disappears from every view but is ' +
-        'kept and can be restored with edit_list(list_id, restore:true), or found again with ' +
-        'lists(deleted:true). The collection itself is never touched — lists only reference cards. ' +
-        'Defaults to a dry run; re-run with dry_run:false to delete. purge:true is the exception: ' +
-        'it destroys the list and its items for good, with no undo, and should only be used when ' +
-        'the user has said they want it gone permanently. To remove individual items keep the ' +
-        'list and use edit_list.',
-      inputSchema: z.object({
-        list_id: z.string().describe('List UUID to delete (from the lists index).'),
-        purge: z
-          .boolean()
-          .default(false)
-          .describe('true → destroy it permanently instead of moving it to the recycle bin. NO UNDO.'),
-        dry_run: z.boolean().default(true).describe('true (default): only report what would be deleted. false: delete.'),
-      }),
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-    },
-    async ({ list_id, purge, dry_run }) => {
-      try {
-        const detail = (await ctx.api.get(`/lists/${encodeURIComponent(list_id)}`)) as ListDetail;
-        const what = `${detail.list.kind} list '${detail.list.name}' (${list_id}) — ${detail.list.itemCount} item(s)`;
+const editListTool = defineTool({
+  name: 'edit_list',
+  title: 'Create or edit a card list',
+  description:
+    'Create a list (omit list_id) or edit one (pass list_id): rename, add cards, remove items, ' +
+    'or restore a deleted list. add_cards takes the same card reference as log_cards — a ' +
+    "TCGdex card_id, or name + set_id/number, plus an optional variant_kind ('reverse', " +
+    "'holo', …) — so you do NOT need to look up variant ids first. add_missing does the whole " +
+    'job server-side: "everything missing for this goal in this set, optionally minus certain ' +
+    'rarities or above a price" in one call. remove_item_ids are the item UUIDs shown by the ' +
+    'lists tool. Defaults to a dry run that prints the exact operations without executing — ' +
+    're-run with dry_run:false to apply. Lists never modify the collection itself.',
+  inputSchema: z.object({
+    list_id: z.string().optional().describe('List UUID to edit. Omit to create a new list.'),
+    name: z.string().max(120).optional().describe('List name — required when creating; renames when editing.'),
+    kind: z
+      .enum(KINDS)
+      .default('dynamic')
+      .describe("List kind when creating (default 'dynamic'). Ignored when editing — kind cannot change."),
+    add_cards: z
+      .array(addCardSchema)
+      .max(500)
+      .optional()
+      .describe('Cards to ADD (existing items are kept). Each entry: exactly one of card_id/name, variant_id, or dex_id.'),
+    add_missing: z
+      .object({
+        set_id: z.string().describe("TCGdex set id, e.g. 'me05'."),
+        goal: z
+          .enum(GOALS)
+          .default('complete')
+          .describe('complete = one of any variant per card, master = every standard-tier variant, grandmaster = every variant.'),
+        finishes: z.array(z.enum(FINISHES)).optional().describe('Only these finishes (master/grandmaster).'),
+        rarity: z.array(z.string()).optional().describe("ONLY these rarities, e.g. ['Illustration rare']. Case-insensitive."),
+        rarity_exclude: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Leave these rarities OUT, e.g. ['Special illustration rare']. Rarity is NOT the same as variant tier — " +
+              "an Illustration Rare and a Special Illustration Rare are both tier 'standard'.",
+          ),
+        max_price_usd: z.number().min(0).optional().describe('Only cards whose cheapest USD market price is at or below this.'),
+        priced_only: z.boolean().optional().describe('Drop cards with no USD price at all.'),
+      })
+      .optional()
+      .describe('Add everything still missing from a set, filtered. Resolved server-side in one call.'),
+    remove_item_ids: z.array(z.string()).optional().describe('Item UUIDs to remove (from the lists tool output), not card ids.'),
+    restore: z.boolean().default(false).describe('true → restore this deleted list (see lists(deleted:true)).'),
+    dry_run: z.boolean().default(true).describe('true (default): only print what would happen. false: execute.'),
+  }),
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  handler: async ({ list_id, name, kind, add_cards, add_missing, remove_item_ids, restore, dry_run }, ctx) => {
+    try {
+      if (restore) {
+        if (!list_id) return fail('restore needs list_id.');
         if (dry_run) {
-          return ok(
-            purge
-              ? `DRY RUN — nothing deleted. Would PERMANENTLY destroy ${what}. This cannot be undone.\nRe-run with dry_run: false to purge.`
-              : `DRY RUN — nothing deleted. Would delete ${what} (restorable afterwards).\nRe-run with dry_run: false to delete.`,
-          );
+          return ok(`DRY RUN — would restore deleted list ${list_id}.\nRe-run with dry_run: false to restore.`);
         }
-        const r = (await ctx.api.send(
-          'DELETE',
-          `/lists/${encodeURIComponent(list_id)}${purge ? '?purge=true' : ''}`,
-          { source: 'deckpal-mcp' },
-        )) as { restorable: boolean; batchId?: string };
-        return ok(
-          r.restorable
-            ? `Deleted ${what}. It is in the recycle bin — restore with edit_list(list_id: "${list_id}", restore: true)` +
-                (r.batchId ? `, or revert(batch_id: "${r.batchId}")` : '') +
-                '.'
-            : `PURGED ${what}. This is gone for good.`,
-        );
-      } catch (err) {
-        return fail(`delete_list failed: ${(err as Error).message}`);
+        const r = (await ctx.api.send('POST', `/lists/${encodeURIComponent(list_id)}/restore`, { source: 'deckpal-mcp' })) as {
+          list: ListSummary;
+        };
+        return ok(`Restored ${summaryLine(r.list)}`);
       }
-    },
-  );
-}
+
+      let current: ListDetail | null = null;
+      if (list_id) {
+        current = (await ctx.api.get(`/lists/${encodeURIComponent(list_id)}`)) as ListDetail;
+      } else if (!name) {
+        return fail('name is required to create a list.');
+      }
+      const listKind = current?.list.kind ?? kind;
+
+      // Resolve adds up front (read-only, safe in a dry run too).
+      const adds = add_cards?.length ? await resolveAdds(ctx, add_cards, listKind) : [];
+
+      // add_missing is resolved by the API — ask it for the preview so the
+      // dry run reports exactly what the execute call will add.
+      let missingPreview: { wouldAdd: number; items: Array<{ label: string }> } | null = null;
+      if (add_missing) {
+        if (!list_id) {
+          return fail('add_missing needs an existing list_id — create the list first, then add to it.');
+        }
+        missingPreview = (await ctx.api.send('POST', `/lists/${encodeURIComponent(list_id)}/items/bulk`, {
+          addMissing: {
+            setId: add_missing.set_id,
+            goal: add_missing.goal,
+            finishes: add_missing.finishes,
+            rarity: add_missing.rarity,
+            rarityExclude: add_missing.rarity_exclude,
+            maxPriceUsd: add_missing.max_price_usd,
+            pricedOnly: add_missing.priced_only,
+          },
+          dryRun: true,
+          source: 'deckpal-mcp',
+        })) as { wouldAdd: number; items: Array<{ label: string }> };
+      }
+
+      // ── Plan ─────────────────────────────────────────────────────────────
+      const plan: string[] = [];
+      if (!current) plan.push(`create ${listKind} list '${name!}'`);
+      else if (name !== undefined && name !== current.list.name) plan.push(`rename '${current.list.name}' → '${name}'`);
+      for (const a of adds) {
+        plan.push(a.ok ? `add ${a.label}` : `add ${a.label} — UNRESOLVABLE: ${a.error}`);
+        if (!a.ok && a.detail) for (const d of a.detail) plan.push(`     ${d}`);
+      }
+      if (missingPreview) {
+        plan.push(`add ${missingPreview.wouldAdd} missing card(s) from ${add_missing!.set_id} (goal ${add_missing!.goal})`);
+        for (const it of missingPreview.items.slice(0, 15)) plan.push(`     ${it.label}`);
+        if (missingPreview.items.length > 15) plan.push(`     …and ${missingPreview.items.length - 15} more`);
+      }
+      const knownItems = new Set((current?.items ?? []).map((i) => i.itemId));
+      for (const id of remove_item_ids ?? []) {
+        plan.push(`remove item ${id}${current && !knownItems.has(id) ? ' — NOT IN THIS LIST (will fail)' : ''}`);
+      }
+      if (plan.length === 0) return ok(`No changes — list '${current!.list.name}' already matches the requested state.`);
+
+      if (dry_run) {
+        return ok(
+          ['DRY RUN — nothing executed. Would:', ...plan.map((p) => `  ${p}`), 'Re-run with dry_run: false to execute.'].join('\n'),
+        );
+      }
+
+      // ── Execute ──────────────────────────────────────────────────────────
+      const lines: string[] = [];
+      let failures = 0;
+      let targetId = list_id;
+      if (!current) {
+        const created = (await ctx.api.send('POST', '/lists', { name, kind: listKind, source: 'deckpal-mcp' })) as {
+          list: ListSummary;
+        };
+        targetId = created.list.id;
+        lines.push(`Created ${created.list.kind} list '${created.list.name}' — id ${targetId}`);
+      } else if (name !== undefined && name !== current.list.name) {
+        try {
+          await ctx.api.send('PATCH', `/lists/${targetId}`, { name, source: 'deckpal-mcp' });
+          lines.push(`  done: rename → '${name}'`);
+        } catch (err) {
+          failures++;
+          lines.push(`  FAILED: rename — ${(err as Error).message}`);
+        }
+      }
+
+      // Adds go through the bulk endpoint: one transaction, one round trip,
+      // whatever the count. Unresolvable entries never leave this process.
+      const resolvedAdds = adds.filter((a): a is ResolvedAdd => a.ok);
+      for (const a of adds) {
+        if (!a.ok) {
+          failures++;
+          lines.push(`  FAILED: add ${a.label} — ${a.error}`);
+        }
+      }
+      if (resolvedAdds.length > 0 || add_missing) {
+        try {
+          const res = (await ctx.api.send('POST', `/lists/${targetId}/items/bulk`, {
+            items: resolvedAdds.map((a) => ({
+              cardVariantId: a.body.cardVariantId,
+              dexId: a.body.dexId,
+              quantity: a.body.staticQuantity ?? 1,
+              note: a.body.note,
+            })),
+            ...(add_missing
+              ? {
+                  addMissing: {
+                    setId: add_missing.set_id,
+                    goal: add_missing.goal,
+                    finishes: add_missing.finishes,
+                    rarity: add_missing.rarity,
+                    rarityExclude: add_missing.rarity_exclude,
+                    maxPriceUsd: add_missing.max_price_usd,
+                    pricedOnly: add_missing.priced_only,
+                  },
+                }
+              : {}),
+            source: 'deckpal-mcp',
+          })) as { added: number; alreadyPresent: number; unresolved: string[]; batchId: string };
+          lines.push(
+            `  done: added ${res.added}` +
+              (res.alreadyPresent ? `, ${res.alreadyPresent} already in the list` : '') +
+              (res.unresolved.length ? `, ${res.unresolved.length} unresolved` : ''),
+          );
+          if (res.batchId) lines.push(`  undo with revert(batch_id: "${res.batchId}")`);
+        } catch (err) {
+          failures++;
+          lines.push(`  FAILED: bulk add — ${(err as Error).message}`);
+        }
+      }
+
+      for (const id of remove_item_ids ?? []) {
+        try {
+          await ctx.api.send('DELETE', `/lists/${targetId}/items/${encodeURIComponent(id)}`);
+          lines.push(`  done: remove item ${id}`);
+        } catch (err) {
+          failures++;
+          lines.push(`  FAILED: remove item ${id} — ${(err as Error).message}`);
+        }
+      }
+
+      const after = (await ctx.api.get(`/lists/${targetId}`)) as ListDetail;
+      lines.push(
+        `${failures ? `${failures} operation(s) FAILED — applied partially. ` : ''}List '${after.list.name}' now has ${after.list.itemCount} item(s).`,
+      );
+      return ok(lines.join('\n'), { listId: targetId, itemCount: after.list.itemCount, failures });
+    } catch (err) {
+      return fail(`edit_list failed: ${(err as Error).message}`);
+    }
+  },
+});
+
+const deleteListTool = defineTool({
+  name: 'delete_list',
+  title: 'Delete a card list',
+  description:
+    'Delete a list. By default this is REVERSIBLE: the list disappears from every view but is ' +
+    'kept and can be restored with edit_list(list_id, restore:true), or found again with ' +
+    'lists(deleted:true). The collection itself is never touched — lists only reference cards. ' +
+    'Defaults to a dry run; re-run with dry_run:false to delete. purge:true is the exception: ' +
+    'it destroys the list and its items for good, with no undo, and should only be used when ' +
+    'the user has said they want it gone permanently. To remove individual items keep the ' +
+    'list and use edit_list.',
+  inputSchema: z.object({
+    list_id: z.string().describe('List UUID to delete (from the lists index).'),
+    purge: z
+      .boolean()
+      .default(false)
+      .describe('true → destroy it permanently instead of moving it to the recycle bin. NO UNDO.'),
+    dry_run: z.boolean().default(true).describe('true (default): only report what would be deleted. false: delete.'),
+  }),
+  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  handler: async ({ list_id, purge, dry_run }, ctx) => {
+    try {
+      const detail = (await ctx.api.get(`/lists/${encodeURIComponent(list_id)}`)) as ListDetail;
+      const what = `${detail.list.kind} list '${detail.list.name}' (${list_id}) — ${detail.list.itemCount} item(s)`;
+      if (dry_run) {
+        return ok(
+          purge
+            ? `DRY RUN — nothing deleted. Would PERMANENTLY destroy ${what}. This cannot be undone.\nRe-run with dry_run: false to purge.`
+            : `DRY RUN — nothing deleted. Would delete ${what} (restorable afterwards).\nRe-run with dry_run: false to delete.`,
+        );
+      }
+      const r = (await ctx.api.send(
+        'DELETE',
+        `/lists/${encodeURIComponent(list_id)}${purge ? '?purge=true' : ''}`,
+        { source: 'deckpal-mcp' },
+      )) as { restorable: boolean; batchId?: string };
+      return ok(
+        r.restorable
+          ? `Deleted ${what}. It is in the recycle bin — restore with edit_list(list_id: "${list_id}", restore: true)` +
+              (r.batchId ? `, or revert(batch_id: "${r.batchId}")` : '') +
+              '.'
+          : `PURGED ${what}. This is gone for good.`,
+      );
+    } catch (err) {
+      return fail(`delete_list failed: ${(err as Error).message}`);
+    }
+  },
+});
+
+export const listTools: ToolDefinition[] = [
+  listsTool,
+  editListTool,
+  deleteListTool,
+];

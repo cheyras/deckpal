@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import type { McpServer } from '@modelcontextprotocol/server';
 import type { Ctx } from '../ctx.js';
-import { fail, ok } from '../envelope.js';
+import { defineTool, type ToolDefinition } from '../registry.js';
+import { fail, ok } from '../result.js';
 import { row, winLoss } from '../format.js';
 import { strategyLabel } from './deckIntel.js';
 
@@ -306,357 +306,355 @@ async function runOps(ctx: Ctx, deckId: string, ops: Op[], versionNote?: string)
 
 // ── Tool registration ─────────────────────────────────────────────────────────
 
-export function registerDeckTools(server: McpServer, ctx: Ctx): void {
-  server.registerTool(
-    'decks',
-    {
-      title: 'Browse decks',
-      description:
-        'Read decks. Without deck_id: the deck index (id, name, format, version, card count, ' +
-        'legality, value, battle record). With deck_id: full deck detail — version, win/loss record, ' +
-        'strategy-guide presence, battle-log count — plus any requested includes: cards (the deck ' +
-        'list with owned counts), validate (format-legality violations), pricing (the ' +
-        'buy-the-missing-cards gap analysis: owned vs needed per card, cost to close, TCGplayer ' +
-        'mass-entry lines + cart deep link(s) the user can open to pre-fill a TCGplayer cart), ' +
-        'testhand (a sample opening hand). Read-only. To create or edit a deck ' +
-        'use save_deck; to delete use delete_deck. Deck intelligence has its own tools: ' +
-        'deck_strategy (the full strategy guide), battle_logs (game results per version), ' +
-        'deck_history (version timeline, snapshots, revert).',
-      inputSchema: z.object({
-        deck_id: z
-          .string()
-          .optional()
-          .describe('Deck UUID from the index. Omit to list all decks.'),
-        deleted: z
-          .boolean()
-          .default(false)
-          .describe('true → show DELETED decks (the recycle bin) instead of live ones. Restore one with delete_deck(restore:true).'),
-        include: z
-          .array(z.enum(INCLUDES))
-          .optional()
-          .describe(
-            "Extra sections to fetch for one deck: 'cards', 'validate', 'pricing', 'testhand'. Ignored without deck_id.",
-          ),
-      }),
-      annotations: { readOnlyHint: true, idempotentHint: true },
-    },
-    async ({ deck_id, deleted, include }) => {
-      try {
-        if (!deck_id) {
-          const res = (await ctx.api.get(`/decks${deleted ? '?deleted=true' : ''}`)) as { decks: DeckIndexRow[] };
-          if (res.decks.length === 0) {
-            return ok(deleted ? 'Nothing in the recycle bin — no deleted decks.' : 'No decks yet. Create one with save_deck.');
-          }
-          const lines = res.decks.map((d) => {
-            const games = d.record.wins + d.record.losses + d.record.ties;
-            return row(
-              d.name,
-              d.id,
-              d.formatCode,
-              `v${d.version}`,
-              `${d.totalCount} cards`,
-              d.legal ? 'legal' : 'NOT legal',
-              `value ${usd(d.valueUsd)}`,
-              games > 0 ? winLoss(d.record) : null,
-            );
-          });
-          lines.push(`${res.decks.length} deck(s)`);
-          return ok(lines.join('\n'));
+const decksTool = defineTool({
+  name: 'decks',
+  title: 'Browse decks',
+  description:
+    'Read decks. Without deck_id: the deck index (id, name, format, version, card count, ' +
+    'legality, value, battle record). With deck_id: full deck detail — version, win/loss record, ' +
+    'strategy-guide presence, battle-log count — plus any requested includes: cards (the deck ' +
+    'list with owned counts), validate (format-legality violations), pricing (the ' +
+    'buy-the-missing-cards gap analysis: owned vs needed per card, cost to close, TCGplayer ' +
+    'mass-entry lines + cart deep link(s) the user can open to pre-fill a TCGplayer cart), ' +
+    'testhand (a sample opening hand). Read-only. To create or edit a deck ' +
+    'use save_deck; to delete use delete_deck. Deck intelligence has its own tools: ' +
+    'deck_strategy (the full strategy guide), battle_logs (game results per version), ' +
+    'deck_history (version timeline, snapshots, revert).',
+  inputSchema: z.object({
+    deck_id: z
+      .string()
+      .optional()
+      .describe('Deck UUID from the index. Omit to list all decks.'),
+    deleted: z
+      .boolean()
+      .default(false)
+      .describe('true → show DELETED decks (the recycle bin) instead of live ones. Restore one with delete_deck(restore:true).'),
+    include: z
+      .array(z.enum(INCLUDES))
+      .optional()
+      .describe(
+        "Extra sections to fetch for one deck: 'cards', 'validate', 'pricing', 'testhand'. Ignored without deck_id.",
+      ),
+  }),
+  annotations: { readOnlyHint: true, idempotentHint: true },
+  handler: async ({ deck_id, deleted, include }, ctx) => {
+    try {
+      if (!deck_id) {
+        const res = (await ctx.api.get(`/decks${deleted ? '?deleted=true' : ''}`)) as { decks: DeckIndexRow[] };
+        if (res.decks.length === 0) {
+          return ok(deleted ? 'Nothing in the recycle bin — no deleted decks.' : 'No decks yet. Create one with save_deck.');
         }
-
-        const detail = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
-        const want = new Set(include ?? []);
-        const lines: string[] = [deckHeader(detail)];
-
-        // Intelligence headline: battle record + strategy presence, one cheap call.
-        const logs = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/logs?pageSize=1`)) as LogTotals;
-        lines.push(
-          row(
-            `record ${winLoss(logs.totals)} (${logs.totals.total} battle log(s))`,
-            `strategy ${strategyLabel(detail.deck.strategyMd)}`,
-            'more via deck_strategy / battle_logs / deck_history',
-          ),
-        );
-
-        if (want.has('cards')) {
-          lines.push('cards:');
-          if (detail.cards.length === 0) lines.push('  (deck is empty)');
-          for (const l of cardLines(detail.cards)) lines.push(`  ${l}`);
-        }
-        if (want.has('validate')) {
-          const v = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/validate`)) as { validation: Validation };
-          lines.push(...validationLines(v.validation));
-        }
-        if (want.has('pricing')) {
-          const p = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/pricing`)) as Pricing;
-          // Cart deep links are additive — a massentry failure (e.g. TCGCSV
-          // unreachable) must not sink the whole gap analysis.
-          let me: DeckMassEntry | null = null;
-          try {
-            me = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/massentry`)) as DeckMassEntry;
-          } catch {
-            /* links omitted; the mass-entry text above still works */
-          }
-          lines.push(...pricingLines(p, detail.cards, me));
-        }
-        if (want.has('testhand')) {
-          const t = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/testhand`)) as TestHand;
-          lines.push(...testhandLines(t));
-        }
-        if (want.size === 0) {
-          lines.push("(pass include: ['cards','validate','pricing','testhand'] for detail sections)");
-        }
+        const lines = res.decks.map((d) => {
+          const games = d.record.wins + d.record.losses + d.record.ties;
+          return row(
+            d.name,
+            d.id,
+            d.formatCode,
+            `v${d.version}`,
+            `${d.totalCount} cards`,
+            d.legal ? 'legal' : 'NOT legal',
+            `value ${usd(d.valueUsd)}`,
+            games > 0 ? winLoss(d.record) : null,
+          );
+        });
+        lines.push(`${res.decks.length} deck(s)`);
         return ok(lines.join('\n'));
-      } catch (err) {
-        return fail(`decks failed: ${(err as Error).message}`);
       }
-    },
-  );
 
-  server.registerTool(
-    'save_deck',
-    {
-      title: 'Create or edit a deck',
-      description:
-        'Create a deck (omit deck_id) or edit one (pass deck_id): rename, change format, and reconcile ' +
-        'its card list to the given cards array (only changed rows are touched — adds, quantity sets, ' +
-        'removes). To create from a PTCG Live decklist pass ptcgl_text instead of cards (creation only). ' +
-        'Card ids are TCGdex ids (e.g. sv01-25). When choosing a card_id for a deck, always use the ' +
-        'cheapest available printing of the named card unless the user explicitly asked for a specific ' +
-        'rarity or alternate art — different printings of the same card are gameplay-identical but can ' +
-        'differ by hundreds of dollars (e.g. a Special Illustration Rare vs the regular version). Use ' +
-        'search_cards to compare prices across printings. ' +
-        'Defaults to a dry run that prints the exact operations ' +
-        'without executing — re-run with dry_run: false to apply. ' +
-        'Versioning is automatic: card and format changes to a deck version that already has battle ' +
-        'logs create a NEW version (its snapshot is kept forever — see deck_history); changes to a ' +
-        'logless version just amend the current snapshot, so a burst of edits stays one version. ' +
-        "Pass version_note to record WHY the list changed (e.g. 'cut Switch for Jet Energy after v2 " +
-        "losses to Dragapult') — future agents read it in deck_history. Strategy guides are edited " +
-        'with deck_strategy, not here. Not for reading (use decks) or deleting (use delete_deck).',
-      inputSchema: z.object({
-        deck_id: z
-          .string()
-          .optional()
-          .describe('Deck UUID to edit. Omit to create a new deck.'),
-        name: z
-          .string()
-          .max(120)
-          .optional()
-          .describe('Deck name — required when creating without ptcgl_text; renames when editing.'),
-        format: z
-          .enum(FORMATS)
-          .optional()
-          .describe("Deck format (default 'standard' on create; changes the format when editing)."),
-        cards: z
-          .array(
-            z.object({
-              card_id: z.string().describe("TCGdex card id, e.g. 'sv01-25'."),
-              quantity: z.number().int().min(1).max(60).describe('Copies of this card the deck should contain (1–60).'),
-            }),
-          )
-          .optional()
-          .describe(
-            'The COMPLETE target card list. The deck is reconciled to exactly this (cards not listed are removed). ' +
-              'Omit to leave cards untouched; [] empties the deck. For each card, use the TCGdex id of the cheapest ' +
-              'printing unless the user specified a particular rarity or art — search_cards shows prices per printing.',
-          ),
-        ptcgl_text: z
-          .string()
-          .max(20000)
-          .optional()
-          .describe(
-            'A PTCG Live decklist to import as a NEW deck (creation only, mutually exclusive with cards). ' +
-              'Unresolvable lines are reported, not silently dropped. When generating a decklist, use the ' +
-              'cheapest printing of each card (set + number) unless the user requested a specific one — ' +
-              'use search_cards to verify which printing is cheapest.',
-          ),
-        version_note: z
-          .string()
-          .max(500)
-          .optional()
-          .describe(
-            'Why the card list is changing (max 500 chars) — recorded on the deck_version snapshot ' +
-              'and shown in deck_history. Ignored when nothing version-relevant changes.',
-          ),
-        dry_run: z
-          .boolean()
-          .default(true)
-          .describe('true (default): only print what would happen. false: execute.'),
-      }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-    },
-    async ({ deck_id, name, format, cards, ptcgl_text, version_note, dry_run }) => {
-      try {
-        if (ptcgl_text !== undefined && cards !== undefined) {
-          return fail('Pass either ptcgl_text or cards, not both.');
+      const detail = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
+      const want = new Set(include ?? []);
+      const lines: string[] = [deckHeader(detail)];
+
+      // Intelligence headline: battle record + strategy presence, one cheap call.
+      const logs = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/logs?pageSize=1`)) as LogTotals;
+      lines.push(
+        row(
+          `record ${winLoss(logs.totals)} (${logs.totals.total} battle log(s))`,
+          `strategy ${strategyLabel(detail.deck.strategyMd)}`,
+          'more via deck_strategy / battle_logs / deck_history',
+        ),
+      );
+
+      if (want.has('cards')) {
+        lines.push('cards:');
+        if (detail.cards.length === 0) lines.push('  (deck is empty)');
+        for (const l of cardLines(detail.cards)) lines.push(`  ${l}`);
+      }
+      if (want.has('validate')) {
+        const v = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/validate`)) as { validation: Validation };
+        lines.push(...validationLines(v.validation));
+      }
+      if (want.has('pricing')) {
+        const p = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/pricing`)) as Pricing;
+        // Cart deep links are additive — a massentry failure (e.g. TCGCSV
+        // unreachable) must not sink the whole gap analysis.
+        let me: DeckMassEntry | null = null;
+        try {
+          me = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/massentry`)) as DeckMassEntry;
+        } catch {
+          /* links omitted; the mass-entry text above still works */
         }
+        lines.push(...pricingLines(p, detail.cards, me));
+      }
+      if (want.has('testhand')) {
+        const t = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/testhand`)) as TestHand;
+        lines.push(...testhandLines(t));
+      }
+      if (want.size === 0) {
+        lines.push("(pass include: ['cards','validate','pricing','testhand'] for detail sections)");
+      }
+      return ok(lines.join('\n'));
+    } catch (err) {
+      return fail(`decks failed: ${(err as Error).message}`);
+    }
+  },
+});
 
-        // ── Create ────────────────────────────────────────────────────────────
-        if (!deck_id) {
-          if (ptcgl_text !== undefined) {
-            const lineCount = ptcgl_text.split(/\r?\n/).filter((l) => /^\d/.test(l.trim())).length;
-            if (dry_run) {
-              return ok(
-                [
-                  'DRY RUN — nothing executed. Would:',
-                  `  import a PTCGL decklist (${lineCount} card line(s)) as new deck '${name ?? 'Imported Deck'}' (${format ?? 'standard'})`,
-                  'Card resolution happens at import time; unresolved lines will be reported.',
-                  'Re-run with dry_run: false to execute.',
-                ].join('\n'),
-              );
-            }
-            const res = (await ctx.api.send('POST', '/decks/import', {
-              text: ptcgl_text,
-              ...(name !== undefined ? { name } : {}),
-              ...(format !== undefined ? { format } : {}),
-              // On /decks/import the attribution field is writeSource ('source'
-              // is the decklist-syntax param on this one endpoint).
-              writeSource: SOURCE,
-            })) as ImportResult;
-            const lines = [
-              `Imported deck '${res.deck.name}' (${res.deck.formatCode}) — id ${res.deck.id}`,
-              `  resolved ${res.import.resolvedEntries} line(s) → ${res.import.distinctCards} distinct card(s), ${res.counts.total} cards total`,
-            ];
-            for (const u of res.import.unresolved) lines.push(`  UNRESOLVED: ${u}`);
-            for (const w of res.import.warnings) lines.push(`  warning: ${w.message}`);
-            lines.push(res.validation.legal ? 'Deck is format-legal.' : 'Deck is NOT format-legal — call decks with include: [validate].');
-            return ok(lines.join('\n'));
-          }
+const saveDeckTool = defineTool({
+  name: 'save_deck',
+  title: 'Create or edit a deck',
+  description:
+    'Create a deck (omit deck_id) or edit one (pass deck_id): rename, change format, and reconcile ' +
+    'its card list to the given cards array (only changed rows are touched — adds, quantity sets, ' +
+    'removes). To create from a PTCG Live decklist pass ptcgl_text instead of cards (creation only). ' +
+    'Card ids are TCGdex ids (e.g. sv01-25). When choosing a card_id for a deck, always use the ' +
+    'cheapest available printing of the named card unless the user explicitly asked for a specific ' +
+    'rarity or alternate art — different printings of the same card are gameplay-identical but can ' +
+    'differ by hundreds of dollars (e.g. a Special Illustration Rare vs the regular version). Use ' +
+    'search_cards to compare prices across printings. ' +
+    'Defaults to a dry run that prints the exact operations ' +
+    'without executing — re-run with dry_run: false to apply. ' +
+    'Versioning is automatic: card and format changes to a deck version that already has battle ' +
+    'logs create a NEW version (its snapshot is kept forever — see deck_history); changes to a ' +
+    'logless version just amend the current snapshot, so a burst of edits stays one version. ' +
+    "Pass version_note to record WHY the list changed (e.g. 'cut Switch for Jet Energy after v2 " +
+    "losses to Dragapult') — future agents read it in deck_history. Strategy guides are edited " +
+    'with deck_strategy, not here. Not for reading (use decks) or deleting (use delete_deck).',
+  inputSchema: z.object({
+    deck_id: z
+      .string()
+      .optional()
+      .describe('Deck UUID to edit. Omit to create a new deck.'),
+    name: z
+      .string()
+      .max(120)
+      .optional()
+      .describe('Deck name — required when creating without ptcgl_text; renames when editing.'),
+    format: z
+      .enum(FORMATS)
+      .optional()
+      .describe("Deck format (default 'standard' on create; changes the format when editing)."),
+    cards: z
+      .array(
+        z.object({
+          card_id: z.string().describe("TCGdex card id, e.g. 'sv01-25'."),
+          quantity: z.number().int().min(1).max(60).describe('Copies of this card the deck should contain (1–60).'),
+        }),
+      )
+      .optional()
+      .describe(
+        'The COMPLETE target card list. The deck is reconciled to exactly this (cards not listed are removed). ' +
+          'Omit to leave cards untouched; [] empties the deck. For each card, use the TCGdex id of the cheapest ' +
+          'printing unless the user specified a particular rarity or art — search_cards shows prices per printing.',
+      ),
+    ptcgl_text: z
+      .string()
+      .max(20000)
+      .optional()
+      .describe(
+        'A PTCG Live decklist to import as a NEW deck (creation only, mutually exclusive with cards). ' +
+          'Unresolvable lines are reported, not silently dropped. When generating a decklist, use the ' +
+          'cheapest printing of each card (set + number) unless the user requested a specific one — ' +
+          'use search_cards to verify which printing is cheapest.',
+      ),
+    version_note: z
+      .string()
+      .max(500)
+      .optional()
+      .describe(
+        'Why the card list is changing (max 500 chars) — recorded on the deck_version snapshot ' +
+          'and shown in deck_history. Ignored when nothing version-relevant changes.',
+      ),
+    dry_run: z
+      .boolean()
+      .default(true)
+      .describe('true (default): only print what would happen. false: execute.'),
+  }),
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  handler: async ({ deck_id, name, format, cards, ptcgl_text, version_note, dry_run }, ctx) => {
+    try {
+      if (ptcgl_text !== undefined && cards !== undefined) {
+        return fail('Pass either ptcgl_text or cards, not both.');
+      }
 
-          if (!name) return fail('name is required to create a deck (or pass ptcgl_text).');
-          const target = aggregate(cards ?? []);
+      // ── Create ────────────────────────────────────────────────────────────
+      if (!deck_id) {
+        if (ptcgl_text !== undefined) {
+          const lineCount = ptcgl_text.split(/\r?\n/).filter((l) => /^\d/.test(l.trim())).length;
           if (dry_run) {
-            const lines = ['DRY RUN — nothing executed. Would:', `  create deck '${name}' (${format ?? 'standard'})`];
-            for (const [cardId, qty] of target) lines.push(`  ${describeOp({ kind: 'add', cardId, qty })}`);
-            lines.push('Re-run with dry_run: false to execute.');
-            return ok(lines.join('\n'));
-          }
-          const created = (await ctx.api.send('POST', '/decks', {
-            name,
-            ...(format !== undefined ? { format } : {}),
-            source: SOURCE,
-          })) as DeckDetail;
-          const lines = [`Created deck '${created.deck.name}' (${created.deck.formatCode}) — id ${created.deck.id}`];
-          const ops: Op[] = [...target].map(([cardId, qty]) => ({ kind: 'add', cardId, qty }));
-          if (ops.length > 0) {
-            const { lines: opLines, failures } = await runOps(ctx, created.deck.id, ops, version_note);
-            lines.push(...opLines);
-            const after = (await ctx.api.get(`/decks/${created.deck.id}`)) as DeckDetail;
-            lines.push(
-              `${failures ? `${failures} operation(s) FAILED — deck saved partially. ` : ''}Deck now has ${after.counts.total} card(s).`,
+            return ok(
+              [
+                'DRY RUN — nothing executed. Would:',
+                `  import a PTCGL decklist (${lineCount} card line(s)) as new deck '${name ?? 'Imported Deck'}' (${format ?? 'standard'})`,
+                'Card resolution happens at import time; unresolved lines will be reported.',
+                'Re-run with dry_run: false to execute.',
+              ].join('\n'),
             );
           }
+          const res = (await ctx.api.send('POST', '/decks/import', {
+            text: ptcgl_text,
+            ...(name !== undefined ? { name } : {}),
+            ...(format !== undefined ? { format } : {}),
+            // On /decks/import the attribution field is writeSource ('source'
+            // is the decklist-syntax param on this one endpoint).
+            writeSource: SOURCE,
+          })) as ImportResult;
+          const lines = [
+            `Imported deck '${res.deck.name}' (${res.deck.formatCode}) — id ${res.deck.id}`,
+            `  resolved ${res.import.resolvedEntries} line(s) → ${res.import.distinctCards} distinct card(s), ${res.counts.total} cards total`,
+          ];
+          for (const u of res.import.unresolved) lines.push(`  UNRESOLVED: ${u}`);
+          for (const w of res.import.warnings) lines.push(`  warning: ${w.message}`);
+          lines.push(res.validation.legal ? 'Deck is format-legal.' : 'Deck is NOT format-legal — call decks with include: [validate].');
           return ok(lines.join('\n'));
         }
 
-        // ── Edit ──────────────────────────────────────────────────────────────
-        if (ptcgl_text !== undefined) {
-          return fail('ptcgl_text imports always create a NEW deck — to edit an existing deck pass cards instead.');
-        }
-        const current = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
-        const ops: Op[] = [];
-        if (name !== undefined && name !== current.deck.name) {
-          ops.push({ kind: 'rename', from: current.deck.name, to: name });
-        }
-        if (format !== undefined && format !== current.deck.formatCode) {
-          ops.push({ kind: 'format', from: current.deck.formatCode, to: format });
-        }
-        if (cards !== undefined) ops.push(...diffCards(current.cards, aggregate(cards)));
-
-        if (ops.length === 0) {
-          return ok(`No changes — deck '${current.deck.name}' already matches the requested state.`);
-        }
+        if (!name) return fail('name is required to create a deck (or pass ptcgl_text).');
+        const target = aggregate(cards ?? []);
         if (dry_run) {
-          const lines = [`DRY RUN — nothing executed. Would apply to deck '${current.deck.name}' (${deck_id}):`];
-          for (const op of ops) lines.push(`  ${describeOp(op)}`);
+          const lines = ['DRY RUN — nothing executed. Would:', `  create deck '${name}' (${format ?? 'standard'})`];
+          for (const [cardId, qty] of target) lines.push(`  ${describeOp({ kind: 'add', cardId, qty })}`);
           lines.push('Re-run with dry_run: false to execute.');
           return ok(lines.join('\n'));
         }
-        const { lines: opLines, failures } = await runOps(ctx, deck_id, ops, version_note);
-        const after = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
-        const lines = [`Updated deck '${after.deck.name}' (${deck_id}):`, ...opLines];
-        const versionChanged = after.deck.version !== current.deck.version;
-        lines.push(
-          `${failures ? `${failures} operation(s) FAILED — applied partially. ` : ''}Deck now has ${after.counts.total} card(s), ${after.validation.legal ? 'legal' : 'NOT legal'}, at v${after.deck.version}${
-            versionChanged
-              ? ` (bumped from v${current.deck.version} — the previous version had battle logs; its snapshot is kept in deck_history)`
-              : ''
-          }.`,
-        );
-        return ok(lines.join('\n'));
-      } catch (err) {
-        return fail(`save_deck failed: ${(err as Error).message}`);
-      }
-    },
-  );
-
-  server.registerTool(
-    'delete_deck',
-    {
-      title: 'Delete a deck',
-      description:
-        'Delete a deck and its card list (the collection is NOT touched — decks only reference ' +
-        'cards). By default this is REVERSIBLE: the deck disappears from every view but keeps its ' +
-        'version history and battle logs, and can be restored with restore:true or found again ' +
-        'with decks(deleted:true). Defaults to a dry run that shows what would be deleted; re-run ' +
-        'with dry_run:false to delete. purge:true is the exception — it destroys the deck, its ' +
-        'entire version history and every battle log for good, with NO undo, and should only be ' +
-        'used when the user has said they want it gone permanently. To remove individual cards ' +
-        'use save_deck; to roll back to an older list use deck_history revert_to.',
-      inputSchema: z.object({
-        deck_id: z.string().describe('Deck UUID to delete (from the decks index).'),
-        purge: z
-          .boolean()
-          .default(false)
-          .describe('true → destroy it permanently, taking version history and battle logs with it. NO UNDO.'),
-        restore: z.boolean().default(false).describe('true → restore a deleted deck instead of deleting one.'),
-        dry_run: z
-          .boolean()
-          .default(true)
-          .describe('true (default): only report what would be deleted. false: delete.'),
-      }),
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-    },
-    async ({ deck_id, purge, restore, dry_run }) => {
-      try {
-        if (restore) {
-          if (dry_run) return ok(`DRY RUN — would restore deleted deck ${deck_id}.\nRe-run with dry_run: false to restore.`);
-          const r = (await ctx.api.send('POST', `/decks/${encodeURIComponent(deck_id)}/restore`, { source: SOURCE })) as {
-            deck: DeckDetail;
-          };
-          return ok(`Restored deck '${r.deck.deck.name}' (${deck_id}).`);
-        }
-        const detail = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
-        const versions = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/versions`)) as {
-          versions: { battleLogs: { total: number } }[];
-        };
-        const logCount = versions.versions.reduce((n, v) => n + v.battleLogs.total, 0);
-        const what =
-          `deck '${detail.deck.name}' (${deck_id}) — ${detail.counts.total} card(s), ${detail.counts.distinctNames} distinct name(s), ` +
-          `${versions.versions.length} version(s) and ${logCount} battle log(s)`;
-        if (dry_run) {
-          return ok(
-            purge
-              ? `DRY RUN — nothing deleted. Would PERMANENTLY destroy ${what}. History and logs go with it and CANNOT be recovered.\nRe-run with dry_run: false to purge.`
-              : `DRY RUN — nothing deleted. Would delete ${what} (restorable afterwards — history and logs are kept).\nRe-run with dry_run: false to delete.`,
+        const created = (await ctx.api.send('POST', '/decks', {
+          name,
+          ...(format !== undefined ? { format } : {}),
+          source: SOURCE,
+        })) as DeckDetail;
+        const lines = [`Created deck '${created.deck.name}' (${created.deck.formatCode}) — id ${created.deck.id}`];
+        const ops: Op[] = [...target].map(([cardId, qty]) => ({ kind: 'add', cardId, qty }));
+        if (ops.length > 0) {
+          const { lines: opLines, failures } = await runOps(ctx, created.deck.id, ops, version_note);
+          lines.push(...opLines);
+          const after = (await ctx.api.get(`/decks/${created.deck.id}`)) as DeckDetail;
+          lines.push(
+            `${failures ? `${failures} operation(s) FAILED — deck saved partially. ` : ''}Deck now has ${after.counts.total} card(s).`,
           );
         }
-        const r = (await ctx.api.send(
-          'DELETE',
-          `/decks/${encodeURIComponent(deck_id)}${purge ? '?purge=true' : ''}`,
-          { source: SOURCE },
-        )) as { restorable: boolean; batchId?: string };
-        return ok(
-          r.restorable
-            ? `Deleted ${what}. It is in the recycle bin — restore with delete_deck(deck_id: "${deck_id}", restore: true, dry_run: false)` +
-                (r.batchId ? `, or revert(batch_id: "${r.batchId}")` : '') +
-                '.'
-            : `PURGED ${what}. This is gone for good.`,
-        );
-      } catch (err) {
-        return fail(`delete_deck failed: ${(err as Error).message}`);
+        return ok(lines.join('\n'));
       }
-    },
-  );
-}
+
+      // ── Edit ──────────────────────────────────────────────────────────────
+      if (ptcgl_text !== undefined) {
+        return fail('ptcgl_text imports always create a NEW deck — to edit an existing deck pass cards instead.');
+      }
+      const current = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
+      const ops: Op[] = [];
+      if (name !== undefined && name !== current.deck.name) {
+        ops.push({ kind: 'rename', from: current.deck.name, to: name });
+      }
+      if (format !== undefined && format !== current.deck.formatCode) {
+        ops.push({ kind: 'format', from: current.deck.formatCode, to: format });
+      }
+      if (cards !== undefined) ops.push(...diffCards(current.cards, aggregate(cards)));
+
+      if (ops.length === 0) {
+        return ok(`No changes — deck '${current.deck.name}' already matches the requested state.`);
+      }
+      if (dry_run) {
+        const lines = [`DRY RUN — nothing executed. Would apply to deck '${current.deck.name}' (${deck_id}):`];
+        for (const op of ops) lines.push(`  ${describeOp(op)}`);
+        lines.push('Re-run with dry_run: false to execute.');
+        return ok(lines.join('\n'));
+      }
+      const { lines: opLines, failures } = await runOps(ctx, deck_id, ops, version_note);
+      const after = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
+      const lines = [`Updated deck '${after.deck.name}' (${deck_id}):`, ...opLines];
+      const versionChanged = after.deck.version !== current.deck.version;
+      lines.push(
+        `${failures ? `${failures} operation(s) FAILED — applied partially. ` : ''}Deck now has ${after.counts.total} card(s), ${after.validation.legal ? 'legal' : 'NOT legal'}, at v${after.deck.version}${
+          versionChanged
+            ? ` (bumped from v${current.deck.version} — the previous version had battle logs; its snapshot is kept in deck_history)`
+            : ''
+        }.`,
+      );
+      return ok(lines.join('\n'));
+    } catch (err) {
+      return fail(`save_deck failed: ${(err as Error).message}`);
+    }
+  },
+});
+
+const deleteDeckTool = defineTool({
+  name: 'delete_deck',
+  title: 'Delete a deck',
+  description:
+    'Delete a deck and its card list (the collection is NOT touched — decks only reference ' +
+    'cards). By default this is REVERSIBLE: the deck disappears from every view but keeps its ' +
+    'version history and battle logs, and can be restored with restore:true or found again ' +
+    'with decks(deleted:true). Defaults to a dry run that shows what would be deleted; re-run ' +
+    'with dry_run:false to delete. purge:true is the exception — it destroys the deck, its ' +
+    'entire version history and every battle log for good, with NO undo, and should only be ' +
+    'used when the user has said they want it gone permanently. To remove individual cards ' +
+    'use save_deck; to roll back to an older list use deck_history revert_to.',
+  inputSchema: z.object({
+    deck_id: z.string().describe('Deck UUID to delete (from the decks index).'),
+    purge: z
+      .boolean()
+      .default(false)
+      .describe('true → destroy it permanently, taking version history and battle logs with it. NO UNDO.'),
+    restore: z.boolean().default(false).describe('true → restore a deleted deck instead of deleting one.'),
+    dry_run: z
+      .boolean()
+      .default(true)
+      .describe('true (default): only report what would be deleted. false: delete.'),
+  }),
+  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+  handler: async ({ deck_id, purge, restore, dry_run }, ctx) => {
+    try {
+      if (restore) {
+        if (dry_run) return ok(`DRY RUN — would restore deleted deck ${deck_id}.\nRe-run with dry_run: false to restore.`);
+        const r = (await ctx.api.send('POST', `/decks/${encodeURIComponent(deck_id)}/restore`, { source: SOURCE })) as {
+          deck: DeckDetail;
+        };
+        return ok(`Restored deck '${r.deck.deck.name}' (${deck_id}).`);
+      }
+      const detail = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
+      const versions = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/versions`)) as {
+        versions: { battleLogs: { total: number } }[];
+      };
+      const logCount = versions.versions.reduce((n, v) => n + v.battleLogs.total, 0);
+      const what =
+        `deck '${detail.deck.name}' (${deck_id}) — ${detail.counts.total} card(s), ${detail.counts.distinctNames} distinct name(s), ` +
+        `${versions.versions.length} version(s) and ${logCount} battle log(s)`;
+      if (dry_run) {
+        return ok(
+          purge
+            ? `DRY RUN — nothing deleted. Would PERMANENTLY destroy ${what}. History and logs go with it and CANNOT be recovered.\nRe-run with dry_run: false to purge.`
+            : `DRY RUN — nothing deleted. Would delete ${what} (restorable afterwards — history and logs are kept).\nRe-run with dry_run: false to delete.`,
+        );
+      }
+      const r = (await ctx.api.send(
+        'DELETE',
+        `/decks/${encodeURIComponent(deck_id)}${purge ? '?purge=true' : ''}`,
+        { source: SOURCE },
+      )) as { restorable: boolean; batchId?: string };
+      return ok(
+        r.restorable
+          ? `Deleted ${what}. It is in the recycle bin — restore with delete_deck(deck_id: "${deck_id}", restore: true, dry_run: false)` +
+              (r.batchId ? `, or revert(batch_id: "${r.batchId}")` : '') +
+              '.'
+          : `PURGED ${what}. This is gone for good.`,
+      );
+    } catch (err) {
+      return fail(`delete_deck failed: ${(err as Error).message}`);
+    }
+  },
+});
+
+export const deckTools: ToolDefinition[] = [
+  decksTool,
+  saveDeckTool,
+  deleteDeckTool,
+];
