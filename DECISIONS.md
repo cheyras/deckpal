@@ -7937,3 +7937,273 @@ happen AFTER the chat opens. `DeckeHost` schedules the park as
 `setTimeout(320)` -> `requestAnimationFrame`, so a no-op rAF means the flight is
 never issued at all — and he then stands where he booted, which reads exactly
 like a layout bug in the thing under test.
+
+## 2026-08-21 — Deck-E's browser tools had never executed, and nothing said so
+**Decided by:** Claude (Opus 5), on behalf of @cheyras. Implementing
+`DECKE-AGENT-SPEC.md` rev 2.
+
+**What was wrong.** `flyTo`, `goTo`, `highlight` and `scrollToMe` had never run.
+Not once, for anyone, since the day they shipped. `useDeckeChat.ts` collected
+forwarded tool calls with `part.type.startsWith('tool-') && part.state ===
+'input-available'`, and `state` is not a field on that wire chunk. It is a field
+on a UI MESSAGE PART — a different object that happens to share the vocabulary.
+So the guard evaluated `undefined === 'input-available'` on every chunk that
+ever arrived, `pending` never filled, and he narrated journeys the browser was
+never told to take.
+
+Nothing failed. No type error, no exception, no log line. A stream chunk that
+matches no branch is not an error, it is silence.
+
+**Proven rather than assumed.** `apps/api/src/decke/__tests__/wire.test.ts`
+drives the real `buildTools()` through the real `createUIMessageStream` and
+asserts the bytes: `{"type":"tool-input-available","toolCallId":"call_1",
+"toolName":"goTo","input":{"route":"/decks"}}`. No `state`.
+
+**Three repairs, because fixing only the first is wrong in a new way.**
+
+1. Match `type === 'tool-input-available'`, name from `toolName`. NOT
+   `type.slice('tool-'.length)` — that yields the string `"input-available"`,
+   which is then dispatched as a tool name and answered "I do not know how to do
+   that". A repair that looks like it worked.
+2. Filter to `CLIENT_TOOLS`. Server-executed tools emit the identical chunk
+   after they have already run — the test asserts `express` announces exactly
+   like `goTo`. Unfiltered, the browser re-runs it, fails, and posts a second
+   output contradicting the one the server already gave that call id.
+3. One reader for every leg. `sendToolResults` understood only `text-delta`, so
+   a tool call in a follow-up turn — which is what a journey is made of — was
+   parsed, matched nothing, and vanished.
+
+**The journey loop is governed by the client, not `stopWhen`.** A client tool
+has no server `execute`, so it ENDS the server turn (`finishReason:
+"tool-calls"`). The loop is: stream closes → browser runs tools → browser POSTs
+a follow-up. Raising `stepCountIs` does nothing for navigation. The one-round
+cap became `MAX_LEGS = 4`, and each leg is a full request re-billing the entire
+prompt and history — a spend ceiling as much as a loop guard.
+
+**Two further bugs found in the same file.** `sendToolResults` was passed the
+USER's text as `saidSoFar` and replayed it to the model as the assistant's own
+words. And history was read back out of `currentRef` after `setMessages`, a race
+whose two outcomes were "history is right" and "history contains this turn
+twice".
+
+**Implications.** Verified in a real browser against the live backend, not
+asserted: two legs, `goTo={"ok":true}` replayed in the follow-up request,
+browser at `/decks`. `scripts/decke-gates.mjs` is that check, kept as a program
+rather than a checklist — it asserts the WIRE, never the transcript, because the
+transcript is written by the thing under test.
+
+## 2026-08-21 — `/api/chat` had no server-side entitlement, rate limit or spend cap
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Decision.** Server-side entitlement (`DECKE_ENTITLED_USER_IDS` plus the owner)
+checked before the body is parsed, and a durable per-user daily meter in
+Postgres (`decke_usage`, migrations 039/040) with the conversational and deep
+tiers capped separately.
+
+**Why.** `userFromRequest` checked only that the Supabase JWT was valid. The
+gate deciding who gets Deck-E lives in the browser, so what it actually decided
+was whether to draw a button. **Verified against the deployed endpoint before
+the fix:** an ordinary signed-in account got a full model turn, billed to the
+owner's Gateway key, by asking for one. That was survivable at $0.000143 a turn
+and stops being survivable the moment this endpoint can invoke Claude
+sub-agents, live research and write tools.
+
+**A list, not an id.** The QA account is deliberately an ordinary user (B12) and
+several of the spec's browser gates WRITE, so they may never run as the owner.
+An owner-only gate would have made this feature unverifiable by anyone permitted
+to verify it.
+
+**Check and charge in ONE statement.** SELECT-compare-UPDATE races: two requests
+that both read 119 both proceed, which is how a rate limit becomes a suggestion
+under exactly the load that made you want one. The `ON CONFLICT … DO UPDATE …
+WHERE` clause IS the comparison, under the row lock, and being over cap is
+expressed as "nothing came back". Verified against a real Postgres: cap 3 gives
+1, 2, 3, then no rows, with the stored value still 3 — the refused call does not
+increment.
+
+**A turn is one BILLED REQUEST, not one thing the reader typed.** A journey
+spends up to four. Naming the counter after what the reader perceives would make
+the cap read four times more generous than it is, and the first person to
+discover that would discover it from a bill.
+
+**Migration 040 gives `authenticated` SELECT and deliberately nothing else.** On
+Supabase every policied table is also reachable through the Data API with a
+user's JWT, so an UPDATE policy would not mean "the app may increment your
+counter", it would mean "you may zero it from a browser console". A meter its
+subject can edit is not a meter. The write runs as the connection's own role,
+outside `withUserContext`.
+
+**Accounting fails OPEN; access control does not.** A database blip must not
+take the character down, but it must never widen who can use it. Different
+questions, different answers, separate checks — and the open path logs loudly,
+because "the meter was off for six hours" has to be discoverable afterwards.
+
+**Implications.** ~90 ms added before first token (one round trip to a database
+in another region, against a measured 593 ms TTFT). Unavoidable while the meter
+is durable: the refusal must be decided before the spend, so it cannot overlap
+the model call. Deploy order is safe either way — with 039 unapplied the meter
+throws, logs and fails open, while entitlement works from the first request.
+`DECKE_ENTITLED_USER_IDS` must be set in Vercel or Deck-E is owner-only; per B9
+and B11 rule 3 that is the maintainer's action, not an agent's.
+
+## 2026-08-21 — One definition of what an agent can do in DeckPal
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Decision.** Extract `apps/mcp`'s tool layer into `packages/agent-tools` and
+give it two front-ends: the MCP protocol, and the AI SDK.
+
+**Why.** Two unrelated answers to "what can an agent do here" existed in this
+repo, and Deck-E got the empty one — 5,574 lines and 23 tools on one side, 337
+lines and 6 cosmetic tools on the other. Rejected: Deck-E proxying to
+`deckpal.app/mcp` over HTTP (a network hop per call on a latency-critical path,
+plus a PAT/JWT auth mismatch), and Deck-E re-implementing against REST
+(guarantees drift).
+
+**Proven pure, three ways**, because a refactor asserted to be
+behaviour-preserving is a refactor nobody checked: a static dump of all 23
+tools' name/title/description/schema-keys/annotations from HEAD and from
+`allTools()` (identical, same order); a real `initialize` + `tools/list`
+JSON-RPC exchange against both, byte-compared (identical, which covers the
+SDK-generated JSON Schemas); and `git diff -w` on the nine tool modules, every
+line accounted for.
+
+**The one deliberate behaviour change.** The set route is
+`/series/<seriesSlug>/<setId>` and no tool returned a series slug; slugs are not
+derivable from names (`scarlet-violet`, `mcdonald-s-collection`). `search_cards`,
+`get_card` and `set_progress` now append it — trailing additions only, one added
+JOIN each on a NOT NULL FK so no row set changes.
+
+**Annotation audit.** `readOnlyHint` stops being documentation the moment it
+becomes the control deciding what needs write approval. 12 read, 11 write, 4
+destructive, 0 unannotated. The two counter-intuitive ones were re-read rather
+than taken on trust: `set_cart` is a read (its POST to `/massentry` runs no
+INSERT/UPDATE/DELETE — it composes TCGplayer URLs and never contacts
+TCGplayer), and `deck_history` is a write (its `revert_to` branch rolls a deck
+back). `readOnlyHint` is now REQUIRED in the package's type where MCP's own has
+it optional, so a tool that forgets it fails to compile.
+
+**Implications.** A tool added for Claude appears for Deck-E in the same commit.
+`packages/agent-tools` is in `vercel.json`'s build command, the root build
+script and CI, in that order — both functions depend on its `dist/`.
+
+## 2026-08-21 — Raising `api/chat.mjs` to `maxDuration: 300`, which reverses 2026-08-19
+**Decided by:** @cheyras, on Claude's argument. Recorded because it reverses a
+decision in this file and must not look like drift.
+
+**What 2026-08-19 decided.** "Why not raise `maxDuration`. It moves the cliff
+instead of removing it, and it makes correctness depend on a plan tier. The
+binding budget is actually the API's own `PGRLS_MAX_HOLD_MS` (30 s), not the
+function's 60."
+
+**Why that still stands, and why this is not it.** That decision concerned
+`log_cards` — a WRITE path whose work could be made cheap (99 items went from
+~65 s to 177 ms by batching), and where the real budget was the database hold.
+Both remain true, and the fix there was right.
+
+A research-and-synthesis turn is a different workload. Its latency is
+irreducible — it is a model thinking, not a loop that can be batched — and it
+holds NO database connection while it runs, because `Ctx.db` is lazy and every
+tool call opens and releases its own short session. So the cliff is not being
+moved; a different workload is being given a different ceiling.
+
+**Decision.** `api/chat.mjs` goes to `maxDuration: 300`. Every deep tool gets a
+wall-clock budget BELOW the function's (`DECKE_DEEP_BUDGET_MS`, default 210 s)
+and returns PARTIAL FINDINGS rather than being killed — it streams for exactly
+that reason, since a call that is simply killed produced nothing and was billed
+anyway.
+
+**Implications.** Writes stay bound by `PGRLS_MAX_HOLD_MS`; a deep tool's writes
+go through deckpal-api and are unaffected by this number. No deep tool may
+bypass `log_cards`' idempotency key. **Needs Fluid Compute confirmed on the
+Vercel project** — per B9 that is the maintainer's to verify, and the value is
+inert without it.
+
+## 2026-08-21 — Deck-E's model routing: escalation is a tool, Sonnet is the default
+**Decided by:** @cheyras, on Claude's recommendation.
+
+**Decision.** Four deep tools — `plan_deck`, `write_strategy_guide`,
+`research_meta`, `analyze_collection` — each a sub-agent with its own model,
+step budget and tool subset. `MODELS.analysis` becomes `claude-sonnet-5` with
+`claude-opus-5` reachable only when the person explicitly asks for the best
+work. Research is `openai/o3-deep-research`.
+
+**Why a tool and not a router.** A classifier turn in front of every message
+taxes the 90% that do not need one, and a misroute is INVISIBLE — the answer
+still arrives, quietly worse, and nothing says a cheap model answered a question
+that needed an expensive one. A tool call appears in the log.
+
+**Why Sonnet by default.** `models.ts` measured one `claude-opus-4.8` analysis
+call at $0.0356 against $0.000143 for the chat tier — ~250x — and a realistic
+`plan_deck` with a collection in context plus research plus thinking runs
+$0.50–$1. Opus-by-default made one to three questions a user's entire monthly
+budget. The measurement that originally chose Opus (it found a buried 4x
+Charizard / 0 Charmander consistency bug a cheaper model missed) still stands,
+which is why `escalate` exists rather than the tier simply being cheapened.
+
+**Why o3-deep-research and not Perplexity or Exa.** Live research sends query
+text to a third party. `perplexity/sonar`, `sonar-pro`, `sonar-reasoning-pro`
+and Exa are all present on the Gateway key and are all cheaper and faster — and
+none is on the US-frontier-labs list `models.ts` records as the owner's
+constraint. Adding a vendor to that list is the owner's call; it was made the
+other way.
+
+**What that costs, stated rather than glossed.** `gatewayTools.exaSearch`
+exposes `include_domains`, which is the real injection control for live
+research — an allowlist enforced rather than requested. `o3-deep-research`
+searches provider-side, so that control is unavailable. (Separately:
+`gatewayTools` is not exported at runtime by the pinned
+`@ai-sdk/gateway@4.0.52` — `'gatewayTools' in require(…)` is `false` while the
+`.d.ts` declares it, so a typecheck would not have caught a usage. Same class as
+the recorded `providerOptions.gateway.cacheControl` defect.)
+
+The compensating controls are structural rather than prompted: the research
+sub-agent holds **no tools at all**, so nothing it reads can become an action;
+its output is inserted as DATA under a heading saying so; and queries carry card
+and archetype names, never collection context.
+
+**A gap recorded honestly.** `ModelChoice.effort` currently only sizes the token
+reserve — nothing in this codebase actually sends a reasoning-effort parameter
+to any provider. The reserve is the mitigation that matters (four measurements
+of reasoning models returning empty content with `finish_reason: "length"`), but
+the parameter itself is unwired. Wiring it needs a live probe per vendor, not an
+inference — see the `cacheControl` scar.
+
+## 2026-08-21 — Deck-E's conversational model was re-baked and kept its job
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Why re-bake.** `MODELS.chat` was chosen on 593 ms TTFT for a six-tool cosmetic
+loop. The job changed: converse, LOOK THINGS UP, and know when to escalate. A
+model chosen for how fast it can nod is not automatically right for that, and
+the spec's instruction was explicit — "do not assume the incumbent wins; do not
+replace it on vibes."
+
+**Method.** 5 trials per scenario, 150 calls, against the real system prompt and
+a tool set including the data tools. Scenarios: does it look up rather than
+invent; does it stay looked-up when contradicted; navigation; body-language
+schema validity; restraint on "hey"/"thanks".
+
+| model | lookup | correction | nav | malformed | restraint | TTFT |
+|---|---|---|---|---|---|---|
+| grok-4.1-fast-non-reasoning | 100% | 100% | 100% | 2/19 | 100% | 663 ms |
+| gemini-2.5-flash | 100% | 100% | 100% | 0/5 | 80% | 1251 ms |
+| gpt-5-mini | 0% | 100% | 40% | 6/6 | 10% | 618 ms |
+| claude-haiku-4.5 | 100% | 100% | 40% | never fired | 20% | 999 ms |
+| gpt-4.1-mini | 100% | 100% | 0% | never fired | 70% | 505 ms |
+
+**Decision.** No change. The incumbent was the only model clean on all five and
+also the fastest; `gemini-2.5-flash` stays the fallback.
+
+**The finding that matters most is not in the table.** Lookup rate went from
+NEVER — a 20-sample probe of the shipped system saw not one attempt — to 100%.
+The model was never the problem. There was nothing to look with.
+
+**Two failures worth keeping**, because both look like model quality and are
+not. `gpt-5-mini` answered "which one should I look up?" and then never looked,
+and stuffed every optional field onto every `express` command (6/6 malformed) —
+the pattern `tools.ts` already records for it. `gpt-4.1-mini` treated "take me
+to my decks" as an in-page gesture, calling `flyTo` 5/5 and never `goTo`; it
+never leaves the page.
+
+**Also re-checked:** the grok `minLength` bug still reproduces, but now as a
+hard HTTP 400 with an EMPTY message rather than an `error` part on a 200. Same
+cause, same fix, even less to go on if someone re-adds the constraint.

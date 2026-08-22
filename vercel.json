@@ -71,7 +71,7 @@
       "includeFiles": "apps/mcp/{package.json,assets/icon-128.png}"
     },
     "api/chat.mjs": {
-      "maxDuration": 60,
+      "maxDuration": 300,
       "memory": 1024
     }
   }

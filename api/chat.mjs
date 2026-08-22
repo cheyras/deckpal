@@ -60,6 +60,7 @@ import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor } from '../apps/api/dist/decke/ctx.js'
+import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
 import { makePool } from '@deckpal/db'
 
 /**
@@ -288,6 +289,17 @@ async function serve(request) {
   // model call keeps billing.
   const abortSignal = request.signal
 
+  // Built once and shared by both tool sets. The database handle inside it is
+  // LAZY — nothing is checked out until a tool actually queries, and it is
+  // released when that call returns.
+  const toolCtx = {
+    pool: chatPool(),
+    userId: user.id,
+    jwt: user.token,
+    apiBase: apiBaseFor(host),
+    signal: abortSignal,
+  }
+
   const choice = MODELS.chat
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
@@ -346,12 +358,22 @@ async function serve(request) {
         // function keep the property it was created for.
         tools: {
           ...buildTools(writer),
-          ...buildDataTools({
-            pool: chatPool(),
-            userId: user.id,
-            jwt: user.token,
-            apiBase: apiBaseFor(host),
-            signal: abortSignal,
+          ...buildDataTools(toolCtx),
+          // THE DEEP TIER. Four sub-agents, each with its own model, step
+          // budget and tool subset — see `decke/deep.ts`.
+          //
+          // Tools rather than a router: a classifier turn in front of every
+          // message taxes the 90% that do not need one, and a misroute is
+          // INVISIBLE — the answer still arrives, quietly worse, and nothing
+          // says a cheap model answered a question that needed an expensive
+          // one. A tool call, by contrast, appears in the log.
+          //
+          // Each charges `deep_calls`, which is capped separately and far
+          // tighter than conversation because it is ~250x the price.
+          ...buildDeepTools({
+            ctx: toolCtx,
+            gateway,
+            charge: async () => charge(user.id, 'deep_calls'),
           }),
         },
         // Bounded: each step re-bills the entire prompt, so an unbounded loop on

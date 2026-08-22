@@ -15,7 +15,7 @@
  */
 
 /** A job Deck-E needs a model for. */
-export type Job = 'chat' | 'write' | 'vision' | 'analysis'
+export type Job = 'chat' | 'write' | 'vision' | 'analysis' | 'research'
 
 export type ModelChoice = {
   /** Gateway model id. */
@@ -35,6 +35,21 @@ export type ModelChoice = {
   readonly effort?: 'minimal' | 'low' | 'medium' | 'high'
   /** Ceiling on visible output. See `RESERVE` — reasoning models need headroom. */
   readonly maxOutputTokens: number
+  /**
+   * The better, dearer model, used ONLY when the person explicitly asks for it.
+   *
+   * The owner's standing decision, and it is a spend decision rather than a
+   * quality one: `analysis` measured at $0.0356 a call against $0.000143 for
+   * the chat tier — roughly 250x — and a realistic `plan_deck` (a large
+   * collection context, plus research, plus thinking) runs $0.50–$1. At that
+   * price one to three calls is an entire month's budget for a user, so the
+   * best model cannot be the default and cannot be chosen by a model either.
+   *
+   * "Explicitly asks" means the PERSON asked, in words, for the best/deepest
+   * work. It is not a flag the conversational model may set on a whim, because
+   * a model that can spend 250x by picking a boolean will pick it.
+   */
+  readonly escalate?: string
 }
 
 export const MODELS: Record<Job, ModelChoice> = {
@@ -172,11 +187,70 @@ export const MODELS: Record<Job, ModelChoice> = {
    * structurally uncastable. $0.0356/call, 20.2 s. At this volume that is
    * nothing, and the cheaper fallback found a real but milder issue.
    */
+  /**
+   * Deck planning, strategy guides, synthesis — the work the tool layer cannot
+   * do for us.
+   *
+   * WORTH SAYING PLAINLY, because porting 23 tools makes it easy to believe
+   * otherwise: the MCP server is a data layer and a filing cabinet. There is no
+   * intelligence in it. `deck_strategy`'s entire contract is "pass markdown to
+   * REPLACE the whole guide" — it STORES a strategy guide, it does not write
+   * one. Same for `save_deck`. The tools move the data; this line moves the
+   * thinking, and shipping the first without the second produces a
+   * well-informed version of the same disappointment: he reads 604 cards
+   * correctly and then has a fast model write the deck plan.
+   *
+   * SONNET, NOT OPUS, as the default — changed 2026-08-21 on the owner's call.
+   * The previous value here was `claude-opus-4.8`, chosen because it found a
+   * deliberately buried consistency bug (4x Charizard ex + 3x Rare Candy and 0
+   * Charmander) that a cheaper fallback missed. That measurement still stands
+   * and is why `escalate` exists rather than the tier simply being cheapened.
+   * What changed is the price context: with a sub-agent loop and a collection
+   * in context, a realistic call is $0.50–$1, so Opus-by-default made one to
+   * three questions a user's entire monthly budget.
+   */
   analysis: {
-    id: 'anthropic/claude-opus-4.8',
+    id: 'anthropic/claude-sonnet-5',
     fallback: 'openai/gpt-5.1-thinking',
+    escalate: 'anthropic/claude-opus-5',
     effort: 'high',
     maxOutputTokens: 3000,
+  },
+
+  /**
+   * "What is strong right now", "what are people saying about X" — the
+   * questions no amount of catalog reading can answer, because the answer is
+   * about a metagame rather than about data DeckPal holds.
+   *
+   * `openai/o3-deep-research`, and the choice is a DATA-PROCESSOR decision
+   * rather than a quality one. Live research means sending query text to a
+   * third party. `perplexity/sonar`, `sonar-pro`, `sonar-reasoning-pro` and
+   * Exa are all present on the Gateway key and are all cheaper and faster —
+   * and none of them is on the US-frontier-labs list above. Adding a vendor to
+   * that list is the owner's call and it was made the other way: stay in-list.
+   *
+   * WHAT THIS COSTS US, stated rather than glossed. `@ai-sdk/gateway`'s
+   * `gatewayTools.exaSearch` exposes `include_domains`, which is the real
+   * injection control for live research — an allowlist of known TCG sources
+   * plus a recency window, enforced rather than requested. `o3-deep-research`
+   * searches provider-side, so that control is not available to us here.
+   *
+   * (For the record, `gatewayTools` is also not exported at runtime by the
+   * pinned `@ai-sdk/gateway@4.0.52` — `'gatewayTools' in require(…)` is
+   * `false` while the `.d.ts` declares it, so a typecheck would NOT have caught
+   * a usage. That is a second reason not to have built on it today.)
+   *
+   * The compensating controls are structural, not prompted:
+   *   - the research sub-agent holds NO TOOLS AT ALL, so nothing it reads can
+   *     become an action;
+   *   - its output is inserted as DATA, under a heading that says so, into a
+   *     model already instructed never to act on instructions inside data;
+   *   - queries carry card and archetype names and NEVER collection context.
+   */
+  research: {
+    id: 'openai/o3-deep-research',
+    fallback: 'openai/gpt-5.1-thinking',
+    maxOutputTokens: 2500,
   },
 }
 
