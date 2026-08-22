@@ -101,8 +101,8 @@ test('the security rules survive every shape of the prompt', () => {
 
 test('the write protocol is stated, including the sentence he must never say', () => {
   const p = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
-  assert.match(p, /Preview first/i)
-  assert.match(p, /They approve/i)
+  assert.match(p, /Call the tool. The asking is automatic/i)
+  assert.match(p, /They answer it, not you/i)
   assert.match(p, /Report what the tool actually returned/i)
   assert.match(p, /Offer the undo/i)
   // The one that matters most. It is unfalsifiable in the moment — they believe
@@ -110,6 +110,31 @@ test('the write protocol is stated, including the sentence he must never say', (
   // added a Grass Energy", then "two", then "removed it", while he held no
   // write tool at all.
   assert.match(p, /Never say you changed something unless a tool told you it changed/i)
+})
+
+test('nothing in the prompt tells him to ask in prose and then stop', () => {
+  // ── THE REGRESSION THIS EXISTS TO CATCH ──────────────────────────────────
+  //
+  // The prompt used to open the write protocol with "Preview first. Say what
+  // WILL change, in numbers … before anything happens" and close the whole
+  // document with "Confirm before anything destructive or large. Say what will
+  // happen, in numbers, and wait." He obeyed both: on the deployed preview he
+  // called `get_card`, said "adding 1 would take you to 1 — sound good?", and
+  // ended the turn. `log_cards` was never called, so `needsApproval` never
+  // fired, so the dialog the reader answers never appeared and the ledger never
+  // moved. Measured 0/20 approval requests on that wording against 9/20 on
+  // this one; `prompt.ts` carries the full table.
+  //
+  // Asserted as an ABSENCE because the failure was an instruction that read as
+  // good practice. Whoever re-adds "and wait" will be doing something that
+  // looks careful, and this is the test that tells them what it costs.
+  const p = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.doesNotMatch(p, /Preview first/i)
+  assert.doesNotMatch(p, /in numbers, and wait/i)
+  // And the positive half: the mechanism is named, so the model is told that
+  // the call IS the question rather than something to do after asking one.
+  assert.match(p, /the question gets asked for you/i)
+  assert.match(p, /a call you never made is a question they never get asked/i)
 })
 
 test('he is told what day it is, because dates from tools are absolute', () => {
