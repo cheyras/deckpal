@@ -111,3 +111,28 @@ test('the write protocol is stated, including the sentence he must never say', (
   // write tool at all.
   assert.match(p, /Never say you changed something unless a tool told you it changed/i)
 })
+
+test('he is told what day it is, because dates from tools are absolute', () => {
+  // Observed against the live preview: asked about a set released 2026-07-17,
+  // he said it was "out July 17 next year". It had come out five weeks earlier.
+  // Every figure in that answer was correct and the sentence around them was
+  // wrong — the worst shape an answer can take, because it reads as
+  // authoritative. Turning an absolute date into "last month" needs today, and
+  // training data cannot supply it.
+  const p = flat(buildSystemPrompt({ route: '/', signedIn: true, today: '2026-08-22' }))
+  assert.match(p, /Today is \*\*2026-08-22\*\*/)
+
+  // Defaults to the server clock rather than being absent, so forgetting to
+  // pass it degrades to "right" instead of to "silent".
+  const d = flat(buildSystemPrompt({ route: '/', signedIn: true }))
+  assert.match(d, /Today is \*\*\d{4}-\d{2}-\d{2}\*\*/)
+})
+
+test('the no-plumbing rule names the exact thing he actually did', () => {
+  // Generic rules get generically ignored. He answered correctly and then
+  // printed the showScreen payload as a fenced JSON block — his own plumbing,
+  // read aloud.
+  const p = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.match(p, /Not in a code fence either/i)
+  assert.match(p, /CALL `showScreen`/)
+})

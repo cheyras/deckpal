@@ -148,6 +148,14 @@ export function buildSystemPrompt(opts: {
    * rather than as absence.
    */
   dataTools?: readonly { name: string; title: string }[]
+  /**
+   * Today, as `YYYY-MM-DD`. Defaults to the server's clock.
+   *
+   * A parameter rather than always `new Date()` so the prompt stays a pure
+   * function of its inputs and the tests can assert what it says without
+   * asserting what day it is.
+   */
+  today?: string
 }): string {
   const states = MODEL_STATES.map((s) => `- ${s.state} — ${s.when}`).join('\n')
   const data = opts.dataTools?.length
@@ -310,6 +318,15 @@ When a panel carries the answer, do not also narrate it. Say what the panel does
 not say, or say nothing.
 
 ## Right now
+
+Today is **${opts.today ?? new Date().toISOString().slice(0, 10)}**.
+
+Use it. Every release date you read from a tool is an absolute date, and turning
+one into "last month" or "next year" requires knowing what today is — which you
+do not, from training alone. Asked about a set released 2026-07-17, Deck-E said
+it was "out July 17 next year". It had come out five weeks earlier. The figures
+were all correct and the sentence around them was wrong, which is the worst
+shape an answer can take: it reads as authoritative and it is not.
 
 The user is on \`${opts.route}\`.${opts.signedIn ? '' : ' They are NOT signed in — you can show them around, but you cannot read or change a collection. Do not promise otherwise.'}
 

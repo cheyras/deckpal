@@ -466,7 +466,26 @@ const setProgressTool = defineTool({
           LIMIT 1`,
         [args.set_id.trim()],
       );
-      if (!set) return fail(`No set with id '${args.set_id}'. Set ids are TCGdex ids like 'me05', 'sv3pt5'.`);
+      // SAY HOW TO RECOVER, not just what was wrong.
+      //
+      // Observed against the live preview: asked "what is in Pitch Black?",
+      // Deck-E guessed `set_id: 'pb'`, then searched `search_cards` twice for
+      // "Pitch Black" (which matches CARD names, not set names, so both came
+      // back empty), then called this tool with no `set_id` at all before
+      // finally arriving at `me05`. Four wasted calls, each re-billing the
+      // whole prompt, to answer a question about a set whose name he was told.
+      //
+      // Nothing in the old message pointed anywhere useful — it named the
+      // FORMAT of an id to someone who has a NAME and no way to turn one into
+      // the other. The recovery already exists; it was simply never mentioned.
+      if (!set) {
+        return fail(
+          `No set with id '${args.set_id}'. Set ids are TCGdex ids like 'me05', 'sv3pt5'. ` +
+            `If you have a set NAME rather than an id, call set_progress with NO set_id — ` +
+            `that lists every set with its id, and you can match the name there. ` +
+            `search_cards will not help: it matches card names, not set names.`,
+        );
+      }
       const setId = Number(set.id);
 
       const goalRows = await q<GoalRow>(
