@@ -26,6 +26,7 @@
  * added here. Nothing about the constraint above moved to make room for them.
  */
 import { z } from 'zod'
+import { partitionCards, type Grounding } from './grounding.js'
 
 /**
  * The blocks a screen can contain ANYWHERE — including inside a `group`.
@@ -363,7 +364,18 @@ function cardCount(b: ScreenBlock): number {
  * block must not take the rest of it down. What the reader loses is one panel;
  * what they would lose otherwise is the confirmation that their cards went in.
  */
-export function sanitizeScreen(screen: Screen): { screen: Screen; dropped: string[] } {
+export function sanitizeScreen(
+  screen: Screen,
+  /**
+   * Card ids a tool actually returned this turn.
+   *
+   * Optional, and its absence means "no evidence either way" rather than
+   * "nothing is allowed" — see `partitionCards`. Passing it turns the ID
+   * fabrication described in `grounding.ts` from something the prompt asks him
+   * not to do into something the server will not render.
+   */
+  grounding?: Grounding,
+): { screen: Screen; dropped: string[] } {
   const dropped: string[] = []
   const blocks: ScreenBlock[] = []
   let cardsSpent = 0
@@ -373,6 +385,27 @@ export function sanitizeScreen(screen: Screen): { screen: Screen; dropped: strin
     if (bad) {
       dropped.push(`blocks[${i}]: ${bad}`)
       return
+    }
+    // ── IDS NO TOOL RETURNED ARE REMOVED ──────────────────────────────────
+    //
+    // Not the whole block: the honest half of a grid is worth more than
+    // nothing, and dropping four real cards because a fifth was invented
+    // punishes the reader for the model's mistake. The dropped ids come back
+    // to him by name, so the next turn can correct itself rather than repeat.
+    if (b.kind === 'cardGrid' && b.cards?.length) {
+      const { kept, invented } = partitionCards(b.cards, grounding)
+      if (invented.length > 0) {
+        dropped.push(
+          `blocks[${i}]: removed ${invented.length} card id(s) no tool returned this turn ` +
+            `(${invented.slice(0, 5).join(', ')}) — look them up before showing them`,
+        )
+        if (kept.length === 0) return
+        // Quantities are positional, so they have to be re-aligned to the ids
+        // that survived or the grid shows the wrong count against each card.
+        const keptIdx = b.cards.map((id, j) => [id, j] as const).filter(([id]) => kept.includes(id))
+        b.cards = kept
+        if (b.quantities) b.quantities = keptIdx.map(([, j]) => b.quantities?.[j] ?? 1)
+      }
     }
     const cards = cardCount(b)
     if (cardsSpent + cards > SCREEN_CARD_BUDGET) {
