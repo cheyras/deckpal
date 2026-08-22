@@ -287,6 +287,29 @@
   --z-chrome: 20;
   --z-modal: 100;
   --z-toast: 9999;
+
+  /* ── The app shell's geometry, for anything that has to sit inside it ──────
+   *
+   * Overwritten by `AppShell`, which is the only thing that knows the sidebar's
+   * current width — it collapses. These are the fallbacks, and they describe
+   * the mobile layout, which is the one where there is no sidebar at all. */
+  --app-header-h: 64px;
+  --app-sidebar-w: 0px;
+
+  /* ── Deck-E's overlay ─────────────────────────────────────────────────────
+   *
+   * TOKENIZED BECAUSE THEY DRIFTED. The scrim was `bg-black/45
+   * backdrop-blur-[3px]`, written inline, twice, backed by no variable — and
+   * the two overlays it was meant to match had long since moved on without it.
+   * At 4K a 3 px blur is effectively invisible: set logos behind it stayed
+   * crisply legible, which is the whole complaint.
+   *
+   * The alpha is deliberately just under `--color-overlay-scrim-strong` (0.75),
+   * which is what a modal sheet uses. A modal sheet is asking you to stop
+   * looking at the page; Deck-E is asking you to keep looking at it while he
+   * talks about it. Close, but not the same thing. */
+  --color-decke-scrim: rgb(26 23 22 / 0.68);
+  --decke-scrim-blur: 12px;
 }
 
 html,
@@ -931,4 +954,86 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .decke-shift { transition-duration: 1ms; }
+}
+
+
+/* ── Deck-E's composer, as a card ────────────────────────────────────────────
+ *
+ * It used to be a `<form>` with no background, border, radius or shadow,
+ * containing a `rounded-full` input and a `rounded-full` button: literally a
+ * pill and a circle floating on the scrim, with the reader looking straight
+ * through the padding to the blurred page behind. That is also the whole of the
+ * "dead grey band" at the bottom of the phone panel — it was never a rendered
+ * element, it was the absence of one.
+ *
+ * So the panel stays glass and the COMPOSER becomes opaque. That is compatible
+ * with the original decision (the reader should still see where they are) and
+ * it is what a real card gives you: somewhere for the text to sit that is
+ * clearly a place rather than a hole. */
+.decke-composer-card {
+  border-radius: var(--radius-2xl, 16px);
+  /* `surface-secondary`, NOT `surface-raised`. "Raised" is stone-500, a mid
+   * grey sized for a 56px circular button where a light disc reads as lifted.
+   * At composer width the same colour is a pale slab across the bottom of a
+   * near-black page — which is the "dead grey band" complaint arriving by a new
+   * route, having been fixed by a different one. A card over a dark scrim is
+   * lifted by its border and its shadow, not by being lighter than everything. */
+  background: var(--color-surface-secondary);
+  border: 1px solid var(--color-surface-tertiary);
+  box-shadow: var(--shadow-elevated);
+  transition: border-color 150ms ease;
+}
+
+/* THE CARD TAKES THE FOCUS RING, not the input inside it.
+ *
+ * `:focus-visible` in this file gives every focusable element a 2px ring, which
+ * is right and stays. But the composer's input is a bare transparent field
+ * INSIDE a card, so ringing the input drew a second rounded box a few pixels in
+ * from the first — two nested outlines where the reader sees one control. The
+ * card is the control as far as anyone looking at it is concerned, so the card
+ * is what lights up.
+ *
+ * The input keeps its ring in every other context by default; this only applies
+ * where it is wrapped. And the affordance is not lost — it moves outward. */
+.decke-composer-card:focus-within {
+  border-color: var(--color-action-primary-strong);
+  box-shadow: var(--shadow-elevated), 0 0 0 1px var(--color-action-primary-strong);
+}
+.decke-composer-card input:focus-visible {
+  outline: none;
+}
+
+/* ── The transcript fades out under the composer ─────────────────────────────
+ *
+ * A mask, not a gradient overlay, and the difference is the point: a gradient
+ * painted on top would have to match whatever is behind it, and behind this is
+ * a live blurred page that changes with every scroll. A mask removes the pixels
+ * instead, so it is correct over anything.
+ *
+ * `-webkit-` first because Safari has not unprefixed this, and Safari is the
+ * browser this whole phone layout exists for.
+ *
+ * NEW TO THIS CODEBASE — there is no other scroll mask anywhere in it. The fade
+ * is a MASK rather than motion, so reduced motion leaves it alone: it is not an
+ * animation, it is the shape of the element. */
+.decke-transcript-fade {
+  --decke-fade: 28px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--decke-fade)), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--decke-fade)), transparent 100%);
+}
+
+/* ── Empty conversation: the composer starts in the middle ───────────────────
+ *
+ * The way a new chat does, because before the first message there is no
+ * transcript for it to be the foot of. On the first send it travels down to the
+ * bottom and the conversation fills in above it — which is also the answer to
+ * "since we're changing that layout on desktop, I would have it go to the
+ * bottom center", because both platforms now end in the same place.
+ *
+ * REDUCE: it is simply already at the bottom. There is no information in the
+ * travel, only delight, so removing it costs nothing — unlike a loading state,
+ * where the motion IS the information. */
+@keyframes decke-composer-drop {
+  from { transform: translateY(calc(-1 * var(--decke-drop, 0px))); }
+  to   { transform: none; }
 }

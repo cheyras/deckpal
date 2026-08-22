@@ -564,8 +564,22 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
         <div className="app-content pt-[64px] nav:pt-[78px]">{children}</div>
       </main>
-      {/* Fixed sidebar occupies the left rail at ≥1068; offset main + header to match. */}
-      <style>{`.app-content{padding-top:calc(64px + env(safe-area-inset-top))}@media (min-width:1068px){.app-main{margin-left:${sidebarW}px}.app-header{left:${sidebarW}px}.app-content{padding-top:78px}}`}</style>
+      {/* Fixed sidebar occupies the left rail at ≥1068; offset main + header to match.
+       *
+       * IT ALSO PUBLISHES THE CONTENT PANE'S EDGES as custom properties, and
+       * that is not incidental. Deck-E's chat has to dim the content pane
+       * WITHOUT dimming the header or the sidebar, which means it needs to know
+       * where the content pane starts — and the only thing that knows the
+       * sidebar's current width is this component, because it collapses. The
+       * alternatives were both worse: measuring `.app-header`'s rect from the
+       * chat couples an overlay to a class name and needs a ResizeObserver to
+       * survive the collapse toggle, and duplicating the numbers gives two
+       * copies that drift the first time either changes. A custom property is
+       * read by CSS, reflows on its own, and costs nothing.
+       *
+       * Defaults live in `theme.css` so anything rendered outside this shell
+       * still resolves them. */}
+      <style>{`:root{--app-header-h:64px;--app-sidebar-w:0px}.app-content{padding-top:calc(64px + env(safe-area-inset-top))}@media (min-width:1068px){:root{--app-header-h:78px;--app-sidebar-w:${sidebarW}px}.app-main{margin-left:${sidebarW}px}.app-header{left:${sidebarW}px}.app-content{padding-top:78px}}`}</style>
       <PwaUi />
     </div>
   )

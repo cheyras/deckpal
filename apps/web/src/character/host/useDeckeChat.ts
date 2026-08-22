@@ -90,12 +90,34 @@ type WireMessage = { role: 'user' | 'assistant'; parts: WirePart[] }
 export type { PendingApproval } from './approval'
 
 /** One tool call's progress, as a chip. */
+/**
+ * One real tool invocation, as the reader sees it.
+ *
+ * MIRRORS `ToolEvent` in `apps/api/src/decke/adapters/aisdk.ts`, which is the
+ * only thing that emits these — deliberately, and its own comment says why:
+ * *"a chip the model could ask for would be a second surface to fabricate on."*
+ * Every field here comes from a real handler's real result.
+ *
+ * `progress` and `partial` are new, and `partial` is the important one. A deep
+ * tool that ran out of time used to return its half-finished text and resolve
+ * `ok` — which is how the owner came to read *"The analyze tool timed out
+ * before it could finish reading your full collection…"* on camera and call it
+ * *"a great response."* He did not notice it had failed. `partial` is what the
+ * server now sends instead, and it must never be rendered as a success.
+ */
 export type ToolChip = {
   id: string
   name: string
   title: string
-  phase: 'start' | 'ok' | 'error'
+  phase: 'start' | 'progress' | 'ok' | 'partial' | 'error'
+  /** The first line of the real result. */
   summary?: string
+  /** The newest server-composed beat for a call still running. */
+  note?: string
+  /** Which step of a multi-step sub-agent this beat came from. */
+  step?: number
+  /** Why a `partial` is partial. */
+  reason?: 'timeout' | 'truncated'
 }
 
 /** Everything one request's stream produced. */
@@ -721,14 +743,32 @@ function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
     .map((m) => {
       const parts: WirePart[] = []
       if (m.text.trim().length > 0) parts.push({ type: 'text', text: m.text })
-      const done = (m.tools ?? []).filter((t) => t.phase === 'ok' && t.summary)
+      // A PARTIAL RESULT IS STILL EVIDENCE, AND IT IS LABELLED AS PARTIAL.
+      //
+      // Both halves matter. Dropping it would lose the record that turn N read
+      // anything at all, leaving turn N+1 with only prose about it — and prose
+      // is exactly the thing that drifts, which is why this record exists.
+      // Including it unlabelled is worse: he would carry a reading that stopped
+      // half way through the collection forward as a complete one, and quote
+      // its figure again with more confidence than the first time.
+      const done = (m.tools ?? []).filter(
+        (t) => (t.phase === 'ok' || t.phase === 'partial') && t.summary,
+      )
       if (done.length) {
         parts.push({
           type: 'text',
           text:
             `${TOOL_RECORD_PREFIX} you actually ran these, so the figures in them are real ` +
             `and yours are not a guess]\n` +
-            done.map((t) => `${t.name}: ${t.summary}`).join('\n'),
+            done
+              .map((t) =>
+                t.phase === 'partial'
+                  ? `${t.name}: ${t.summary} [INCOMPLETE — this one ran out of ` +
+                    `${t.reason === 'truncated' ? 'room' : 'time'} and did not finish. ` +
+                    `Do not present its figures as a full answer.]`
+                  : `${t.name}: ${t.summary}`,
+              )
+              .join('\n'),
         })
       }
       // A turn that produced only tool records and no speech still has to be a

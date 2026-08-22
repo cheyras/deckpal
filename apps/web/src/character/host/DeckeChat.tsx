@@ -121,6 +121,19 @@ const PARK_BOTTOM = 6
 const SILHOUETTE = 1.28
 const SILHOUETTE_ASPECT = 0.76
 
+/**
+ * What a first-time reader can press instead of thinking of something.
+ *
+ * One of each KIND rather than three of the best, because the job is to show
+ * the range: something he answers from data, something he shows on a panel, and
+ * something he does to the page. The third is the one nobody guesses he can do.
+ */
+const OPENERS = [
+  'How many cards do I have?',
+  "What am I closest to completing?",
+  'Take me to my decks',
+] as const
+
 /** Air between his widest point and the text beside him. */
 const PARK_GAP = 12
 
@@ -172,7 +185,15 @@ export type ChatMessage = {
  */
 function previewOf(messages: ChatMessage[]): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
-    const done = (messages[i].tools ?? []).filter((t) => t.phase === 'ok' && t.summary)
+    // `partial` COUNTS AS FINISHED. It is a new phase meaning "this ran out of
+    // time and what came back is incomplete", and a call that used to resolve
+    // `ok` can now resolve `partial` instead — so an `ok`-only filter would
+    // make a timed-out dry run invisible here and show the consent dialog with
+    // no preview at all. Silence is the worst possible answer in a dialog whose
+    // entire job is to say what is about to change.
+    const done = (messages[i].tools ?? []).filter(
+      (t) => (t.phase === 'ok' || t.phase === 'partial') && t.summary,
+    )
     const last = done[done.length - 1]
     if (last?.summary) return last.summary
   }
@@ -248,7 +269,41 @@ export function DeckeChat({
   const inputRef = useRef<HTMLInputElement | null>(null)
   const transcriptRef = useRef<HTMLDivElement | null>(null)
   const parkRef = useRef<HTMLDivElement | null>(null)
+  const composerRef = useRef<HTMLFormElement | null>(null)
   const [draft, setDraft] = useState('')
+  const empty = messages.length === 0
+
+  /**
+   * THE COMPOSER STARTS IN THE MIDDLE AND DROPS ON THE FIRST MESSAGE.
+   *
+   * Before anything has been said there is no transcript for it to be the foot
+   * of, so it sits centred in the pane the way a new-chat screen does. The
+   * first send moves it to the bottom and the conversation fills in above.
+   *
+   * MEASURED, NOT GUESSED — a FLIP. The distance it travels depends on the pane
+   * height, the safe area and how tall the empty state is, so a hardcoded
+   * number would be wrong at every viewport but one. `useLayoutEffect` runs
+   * after the DOM has been mutated but before paint, and `lastTop` still holds
+   * the position from the PREVIOUS commit, which is exactly the "before" half a
+   * FLIP needs.
+   */
+  const lastTopRef = useRef<number | null>(null)
+  const wasEmptyRef = useRef(empty)
+  const [dropPx, setDropPx] = useState(0)
+  useLayoutEffect(() => {
+    const el = composerRef.current
+    if (!el) return
+    const top = el.getBoundingClientRect().top
+    if (wasEmptyRef.current && !empty && lastTopRef.current != null) {
+      const delta = top - lastTopRef.current
+      // Only when it genuinely moved, and only downward. A resize that happens
+      // to coincide should not trigger a flourish, and an upward delta means
+      // the layout did something this animation does not describe.
+      setDropPx(delta > 8 ? delta : 0)
+    }
+    lastTopRef.current = top
+    wasEmptyRef.current = empty
+  }, [empty, messages.length])
 
   // HIS FOOTPRINT, from the one number that decides his size.
   //
@@ -326,9 +381,21 @@ export function DeckeChat({
   // there. Running this after paint would give the browser a previous computed
   // margin to interpolate from, and every arriving message would slide in from
   // under his feet — an animation for something that never moved.
+  //
+  // ONLY IF THEY HAVE NOT SCROLLED AWAY, which is the correction. This used to
+  // hard-set `scrollTop = scrollHeight` on EVERY message and gutter change with
+  // no guard at all — so reading back through the conversation while he was
+  // still streaming yanked you to the bottom on the very next token. Combined
+  // with a scroll container that was not taking pointer events, that is the
+  // whole of "I'm trying to scroll and I can't."
+  //
+  // The threshold is generous on purpose. Someone a line and a half off the
+  // bottom is still following along and wants to keep following; someone who
+  // has gone hunting for what he said four answers ago has left.
+  const stickRef = useRef(true)
   useLayoutEffect(() => {
     const el = transcriptRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight
     reflow()
   }, [messages, reflow, gutter])
 
@@ -338,7 +405,12 @@ export function DeckeChat({
     const el = transcriptRef.current
     if (!open || minimised || !el) return
     let raf = 0
+    const STICK_SLACK = 48
     const on = () => {
+      // Read the stick decision on every scroll event, not only in the rAF —
+      // the coalescing exists to keep the LAYOUT pass off the hot path, and
+      // three cheap property reads are not that.
+      stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK
       if (raf) return
       raf = requestAnimationFrame(() => {
         raf = 0
@@ -360,6 +432,9 @@ export function DeckeChat({
       const text = draft.trim()
       if (!text || busy) return
       setDraft('')
+      // Sending re-arms the follow. Someone who has just spoken is asking to be
+      // shown the answer, wherever they had scrolled to before typing it.
+      stickRef.current = true
       onSend(text)
     },
     [draft, busy, onSend],
@@ -400,18 +475,40 @@ export function DeckeChat({
   return (
     <>
       {/*
-        SCRIM AT z-15, and the number is doing real work. Content sits at 0 and
-        app chrome at 20, so this darkens and blurs the page while leaving the
-        header and sidebar sharp — which is the desktop behaviour asked for.
-        On mobile the chrome is part of what should recede, so the scrim covers
-        everything and the panel is full-screen.
+        THE SCRIM DIMS THE CONTENT PANE AND NOTHING ELSE — on both platforms
+        now, which is the change. It used to differ, and the phone version was
+        wrong.
+
+        DESKTOP works by STACKING and always did: the scrim is z-15, content is
+        0, app chrome is 20, and the header and sidebar are opaque — so they
+        paint over the blurred region and stay sharp. Nothing about that is
+        reversed here.
+
+        PHONE was z-[24], ABOVE the header at 20, so it painted over the chrome
+        and blurred the app's own logo and buttons along with the page. The fix
+        is GEOMETRIC, not a z-index swap, and that distinction is the whole
+        reason this comment exists: `backdrop-filter` samples whatever
+        composites behind it REGARDLESS of paint order, so dropping the scrim
+        below the header would still blur what is under the header. The blurred
+        element must not extend under the header at all. Hence a top offset
+        rather than a new z-index.
+
+        The offset matches `AppShell`'s own header box exactly, from the custom
+        properties it publishes — 64px on a phone, 78 on desktop, plus the
+        notch. Duplicating the numbers here is how they would come apart.
       */}
       <button
         type="button"
         aria-label="Close chat"
         onClick={onClose}
+        style={{
+          background: 'var(--color-decke-scrim)',
+          backdropFilter: 'blur(var(--decke-scrim-blur))',
+          WebkitBackdropFilter: 'blur(var(--decke-scrim-blur))',
+          top: desktop ? 0 : 'calc(var(--app-header-h) + env(safe-area-inset-top))',
+        }}
         className={[
-          'fixed inset-0 cursor-default bg-black/45 backdrop-blur-[3px]',
+          'fixed inset-x-0 bottom-0 cursor-default',
           'motion-safe:animate-[sheet-scrim-in_180ms_ease-out_backwards]',
           desktop ? 'z-[15]' : 'z-[24]',
         ].join(' ')}
@@ -434,20 +531,45 @@ export function DeckeChat({
         role="dialog"
         aria-modal="true"
         aria-label="Chat with Deck-E"
-        style={{ '--decke-gutter': `${gutter}px` } as React.CSSProperties}
+        style={{
+          '--decke-gutter': `${gutter}px`,
+          // THE PANEL IS THE CONTENT PANE, on both platforms.
+          //
+          // Desktop used to be a 420px card pinned to the bottom-right corner.
+          // The complaint was that talking to him should feel like the app is
+          // listening, not like a widget opened — and the reconciliation, which
+          // took a ruling, is that "full screen" means the CONTENT PANE. The
+          // header and the full-height sidebar stay sharp and usable; the pane
+          // between them becomes the conversation.
+          //
+          // Phone was already `inset-0`, and that was the bug: the panel's own
+          // "Deck-E" row and its ✕ started at the very top of the screen, above
+          // the app header, in the status bar. On a real installed PWA the ✕
+          // literally overlaps the battery glyph. Starting below the app header
+          // fixes the collision by construction rather than by padding it away,
+          // and it is the same offset the scrim uses, from the same source.
+          left: desktop ? 'var(--app-sidebar-w)' : 0,
+          top: 'calc(var(--app-header-h) + env(safe-area-inset-top))',
+        } as React.CSSProperties}
         className={[
-          'fixed z-[25] flex flex-col',
+          // GLASS ON BOTH, and pointer-transparent on both. It was already so
+          // on a phone, for a stated reason that turns out to apply just as
+          // well to a dimmed desktop pane: the reader should be able to see
+          // where they are while he talks, and a sheet you can see through must
+          // not swallow taps meant for what is behind it. Only the parts that
+          // ARE something take pointer events back.
+          'pointer-events-none fixed bottom-0 right-0 z-[25] flex flex-col',
           desktop
-            ? 'bottom-[24px] right-[24px] h-[min(620px,calc(100vh-140px))] w-[420px] rounded-[18px] border border-border-default bg-surface-primary shadow-2xl motion-safe:animate-[decke-chat-in_280ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]'
-            : 'pointer-events-none inset-0 motion-safe:animate-[sheet-panel-up_260ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]',
+            ? 'motion-safe:animate-[decke-chat-in_280ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]'
+            : 'motion-safe:animate-[sheet-panel-up_260ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]',
         ].join(' ')}
       >
-        <header
-          className={[
-            'flex shrink-0 items-center justify-between px-[16px] py-[12px]',
-            desktop ? 'border-b border-border-default' : '',
-          ].join(' ')}
-        >
+        {/* A SLIM ROW UNDER THE APP HEADER, not a card's title bar. The panel
+            no longer has a border to hang a rule off, and the app's own header
+            is directly above providing that edge. No safe-area padding here on
+            purpose: the panel's top offset already clears the notch, so padding
+            it again would push this row a second inset down the screen. */}
+        <header className="mx-auto flex w-full max-w-[760px] shrink-0 items-center justify-between px-[16px] py-[10px]">
           <span className="text-[15px] font-semibold text-text-primary">Deck-E</span>
           <button
             type="button"
@@ -460,6 +582,36 @@ export function DeckeChat({
         </header>
 
         {/*
+          THE CONVERSATION LIVES IN A COLUMN, not across the whole pane.
+
+          On a phone the pane IS the column and the cap never binds. On desktop
+          the content pane can be 1,600px wide and a transcript stretched across
+          that is unreadable — the measure is the same problem a page of prose
+          has, and the answer is the same.
+
+          `justify-center` while nothing has been said: before there is a
+          transcript, the composer has nothing to be the foot of, so it sits in
+          the middle the way a new-chat screen does. The first message drops it
+          to the bottom — see the FLIP above — and the conversation fills in
+          over it.
+        */}
+        <div
+          className={[
+            'mx-auto flex w-full min-h-0 max-w-[760px] flex-1 flex-col',
+            // CENTRED ONLY ON DESKTOP. On a phone the composer belongs at the
+            // bottom, under the thumb, where the software keyboard will not
+            // cover it — and where his park box is, which is the other half:
+            // his mark is anchored to the panel's bottom-left corner so that he
+            // stands BESIDE the input. Centring the input on a phone left him
+            // stranded below it, talking to nothing.
+            // Desktop centres it. A phone pushes it to the BOTTOM, which needs
+            // saying explicitly: when the conversation is empty the transcript
+            // is `shrink-0`, so without this the column packs everything at the
+            // top and leaves a third of the screen blank underneath.
+            empty ? (desktop ? 'justify-center' : 'justify-end') : '',
+          ].join(' ')}
+        >
+        {/*
           BOTTOM-ALIGNED BY `mt-auto` ON THE LIST, never by `justify-end` on the
           scroller. `align-items`/`justify-content` pushing content past a flex
           container's START edge makes that overflow unreachable — `scrollHeight`
@@ -468,14 +620,77 @@ export function DeckeChat({
           unusable panel; see the Sheet primitive's notes. An auto margin does
           the same visual job and leaves the scroll range intact.
         */}
+        {/*
+          `pointer-events-auto` ON THE SCROLLER, not only on the list inside it.
+
+          The panel is glass and therefore pointer-transparent, and only the
+          inner `<ul>` used to take events back — so a drag that started in the
+          padding band around the messages, which is most of the width, fell
+          straight through to the scrim and did nothing. Proven rather than
+          suspected: the frame after a real 1.3-second drag was pixel-identical
+          to the frame before it.
+
+          The fade mask is the other half of "the composer floats on nothing":
+          text now dissolves as it passes under the card instead of sliding
+          behind an invisible edge. It is a mask rather than a gradient overlay
+          because what is behind it is a live blurred page, so there is no
+          colour an overlay could match.
+        */}
         <div
           ref={transcriptRef}
-          className="flex flex-1 flex-col overflow-y-auto px-[16px] pb-[12px]"
+          className={[
+            'decke-transcript-fade pointer-events-auto flex flex-col overflow-y-auto px-[16px] pb-[12px]',
+            empty ? 'shrink-0' : 'flex-1',
+          ].join(' ')}
         >
-          {messages.length === 0 ? (
-            <p className="decke-bubble decke-shift mt-auto py-[8px] text-[14px] leading-[21px] text-text-muted">
-              Ask me about your collection, or tell me to show you something.
-            </p>
+          {empty ? (
+            /*
+              THE MOST-SEEN SCREEN IN THE WHOLE FEATURE, and it used to be one
+              grey sentence. Every conversation starts here and most sessions
+              never leave it, so it is worth more than a placeholder.
+
+              Three real openers rather than a list of capabilities. A feature
+              tour tells someone what a thing can do; a prompt they can press
+              shows them, and it solves the harder problem — nobody knows what
+              to type first. They fill the composer rather than sending, so
+              pressing one is a suggestion and not a commitment.
+
+              They are deliberately GENERIC. Openers drawn from what this reader
+              actually owns would be better and are worth doing, but they need a
+              collection read at panel-open time, and a starting screen that
+              waits on a request is a starting screen that is sometimes blank.
+            */
+            <div className="decke-shift flex flex-col items-start gap-[14px] py-[8px]">
+              <div>
+                <p className="text-[15px] font-semibold leading-[22px] text-text-primary">
+                  Ask Deck-E about your collection
+                </p>
+                <p className="mt-[2px] text-[13px] leading-[19px] text-text-muted">
+                  He can look things up, count what you own, and take you to it.
+                </p>
+              </div>
+              <ul className="flex flex-wrap gap-[8px]">
+                {OPENERS.map((o) => (
+                  <li key={o}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDraft(o)
+                        inputRef.current?.focus()
+                      }}
+                      className={[
+                        'rounded-full border border-border-default bg-surface-secondary',
+                        'px-[12px] py-[6px] text-[13px] leading-[18px] text-text-body',
+                        'hover:bg-surface-tertiary focus-visible:outline focus-visible:outline-2',
+                        'focus-visible:outline-offset-2 focus-visible:outline-border-focus',
+                      ].join(' ')}
+                    >
+                      {o}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : (
             <ul className="pointer-events-auto mt-auto flex flex-col gap-[10px]">
               {messages.map((m) => (
@@ -552,33 +767,6 @@ export function DeckeChat({
           )}
         </div>
 
-        {/*
-          WHERE HE STANDS, as a box rather than a coordinate.
-
-          `DeckeHost` flies him to its centre and the transcript measures its top
-          edge to decide what has cleared him, so his position and the space kept
-          for him are the same fact stated once.
-
-          Offset from the panel's bottom-left corner by a hair, because he is
-          meant to sit IN the corner — and tall enough that his head is well
-          above the composer's band while about half of him overlaps it. That
-          overlap is the point: it puts him BESIDE the input rather than in a row
-          of his own above it.
-        */}
-        {!desktop && characterPx > 0 ? (
-          <div
-            ref={parkRef}
-            {...{ [PARK_LANDMARK]: '' }}
-            aria-hidden
-            className="pointer-events-none absolute opacity-0"
-            style={{
-              left: `${PARK_LEFT}px`,
-              bottom: `${PARK_BOTTOM}px`,
-              width: `${parkW}px`,
-              height: `${parkH}px`,
-            }}
-          />
-        ) : null}
 
         {/*
           THE APPROVAL GATE.
@@ -594,7 +782,12 @@ export function DeckeChat({
         */}
         {asking?.length ? (
           <div
-            className="pointer-events-auto shrink-0 border-t border-border-default px-[16px] py-[12px]"
+            // ITS OWN CARD, with a gap. It used to be a band ruled off from the
+            // composer by a hairline, which reads as part of the same furniture
+            // — and this is the only place in the app where a model asks to
+            // change what the reader owns. It should look like a separate thing
+            // being handed to you, not like a section of the input.
+            className="decke-composer-card pointer-events-auto mx-[16px] mb-[10px] shrink-0 p-[12px]"
             role="alertdialog"
             aria-label="Deck-E is asking permission"
           >
@@ -644,20 +837,52 @@ export function DeckeChat({
           </div>
         ) : null}
 
+        {/*
+          THE COMPOSER IS A CARD, and the band beneath it is gone.
+
+          It used to be a `<form>` with no background, border, radius or shadow,
+          holding a `rounded-full` input and a `rounded-full` button — a pill and
+          a circle floating on the scrim. The "dead grey band" along the bottom
+          of the phone panel was never a rendered element at all: it was the
+          padding, the right gutter and the whole unpadded safe-area strip, seen
+          THROUGH to the scrim. There was nothing there to restyle; there had to
+          be something there.
+
+          SAFE AREA, and this panel was the only fixed surface in the codebase
+          without it. Every other one has it — the app header, the sheet
+          primitive, the auth card, the landing. On an installed PWA
+          (`viewport-fit=cover` plus a translucent status bar) that meant the
+          composer sat under the home indicator. `max()` rather than a bare
+          `env()` so it keeps its ordinary padding on hardware with no inset,
+          which is the idiom the dev ribbon already uses.
+
+          The outer wrapper carries the inset and the inner card carries the
+          look, so the card's rounded corners never end up hard against the
+          bottom of the screen.
+        */}
+        <div
+          className="pointer-events-auto shrink-0 px-[16px]"
+          style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
+        >
         <form
+          ref={composerRef}
           onSubmit={submit}
+          style={dropPx ? ({ '--decke-drop': `${dropPx}px` } as React.CSSProperties) : undefined}
           className={[
-            'decke-composer pointer-events-auto flex shrink-0 items-center gap-[8px] py-[10px] pr-[16px]',
-            desktop ? 'border-t border-border-default' : '',
+            'decke-composer decke-composer-card flex items-center gap-[8px] p-[8px]',
+            dropPx
+              ? 'motion-safe:animate-[decke-composer-drop_360ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]'
+              : '',
           ].join(' ')}
+          onAnimationEnd={() => setDropPx(0)}
         >
           <input
             ref={inputRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Say something…"
+            placeholder="Ask about your collection…"
             aria-label="Message Deck-E"
-            className="h-[40px] flex-1 rounded-full bg-surface-secondary px-[14px] text-[14px] text-text-primary outline-none placeholder:text-text-muted"
+            className="h-[40px] min-w-0 flex-1 bg-transparent px-[10px] text-[14px] text-text-primary outline-none placeholder:text-text-muted"
           />
           {/*
             STOP, AND IT IS THE SAME BUTTON.
@@ -698,6 +923,45 @@ export function DeckeChat({
             </button>
           )}
         </form>
+        </div>
+
+        {/* the conversation column ends here; what follows anchors to the
+            PANE, not to the column */}
+        </div>
+
+        {/*
+          WHERE HE STANDS, as a box rather than a coordinate.
+
+          `DeckeHost` flies him to its centre and the transcript measures its top
+          edge to decide what has cleared him, so his position and the space kept
+          for him are the same fact stated once.
+
+          Offset from the panel's bottom-left corner by a hair, because he is
+          meant to sit IN the corner — and tall enough that his head is well
+          above the composer's band while about half of him overlaps it. That
+          overlap is the point: it puts him BESIDE the input rather than in a row
+          of his own above it.
+        */}
+        {!desktop && characterPx > 0 ? (
+          <div
+            ref={parkRef}
+            {...{ [PARK_LANDMARK]: '' }}
+            aria-hidden
+            className="pointer-events-none absolute opacity-0"
+            style={{
+              left: `${PARK_LEFT}px`,
+              // SAFE-AREA AWARE, because the composer above it now is. Padding
+              // the composer up off the home indicator without moving his mark
+              // by the same amount would drop him relative to the input he is
+              // meant to stand beside — the overlap that puts him BESIDE the
+              // composer rather than in a row above it is the whole point of
+              // this box's geometry.
+              bottom: `calc(${PARK_BOTTOM}px + env(safe-area-inset-bottom))`,
+              width: `${parkW}px`,
+              height: `${parkH}px`,
+            }}
+          />
+        ) : null}
       </div>
     </>
   )
