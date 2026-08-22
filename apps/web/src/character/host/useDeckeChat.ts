@@ -74,6 +74,32 @@ type WireCommand = {
  */
 const MAX_LEGS = 4
 
+/**
+ * Extra legs reserved for POSTing an answered approval, on top of `MAX_LEGS`.
+ *
+ * WITHOUT THIS, "GO AHEAD" ON THE LAST LEG EVAPORATED. The approvals branch
+ * asks, pushes the replay onto `wire`, and `continue`s — so on the final leg
+ * `continue` exited the loop instead of reaching the POST, and the answered
+ * approval was never sent. Dialog, "Go ahead", dialog closes, no text, no
+ * error, nothing written. Silent, and unfalsifiable in the moment: the reader
+ * has no way to tell that from a write that worked.
+ *
+ * Found by adversarial review, and it is the THIRD defect in this same round
+ * trip — after the bare `tool-approval-response` shape and the dropped
+ * `signature`. All three are the same failure wearing different clothes:
+ * consent given, nothing happened.
+ *
+ * A leg spent carrying an answer is not a leg spent making progress, so it does
+ * not come out of the same budget. It is capped separately because it is still
+ * a full billed request, and because an unbounded allowance would let a model
+ * that emits an approval every leg run for ever.
+ *
+ * Two, not one: a journey that navigates and then writes can legitimately need
+ * a second approval (the destructive preview `revert` demands, then the revert
+ * itself).
+ */
+const MAX_APPROVAL_REPLAYS = 2
+
 let seq = 0
 const nextId = () => `m${++seq}`
 
@@ -237,7 +263,13 @@ export function useDeckeChat(
       const wire: WireMessage[] = [...priorWire, { role: 'user', parts: [{ type: 'text', text }] }]
 
       try {
-        for (let leg = 0; leg < MAX_LEGS; leg++) {
+        // `approvalReplays` is read on EVERY iteration, so committing to a
+        // replay below extends this bound by exactly the one leg needed to POST
+        // it. That is the fix for the dropped-consent bug: the leg that carries
+        // an answer is granted at the moment the answer is taken, never assumed
+        // to be spare.
+        let approvalReplays = 0
+        for (let leg = 0; leg < MAX_LEGS + approvalReplays; leg++) {
           const outcome = await streamLeg(wire, ac.signal, {
             onText: (chunk) => {
               if (!saidSoFar) {
@@ -324,6 +356,21 @@ export function useDeckeChat(
           // that "a prompt is not an enforcement mechanism."
           if (outcome.approvals.length) {
             if (ac.signal.aborted) return
+            // ── DO NOT ASK WHAT YOU CANNOT ANSWER ────────────────────────────
+            //
+            // Checked BEFORE the dialog, not after. Asking and then discarding
+            // the reply is the worst available outcome: the reader has given
+            // consent, believes it was acted on, and nothing tells them
+            // otherwise. If there is no leg left to carry the answer, say so
+            // instead — an unmade change the reader knows about is a nuisance;
+            // one they do not is a broken promise.
+            if (approvalReplays >= MAX_APPROVAL_REPLAYS) {
+              appendText(
+                " — I ran out of room to finish that. Nothing was changed. Ask me again and I'll go straight to it.",
+              )
+              console.warn('[decke] approval replay budget exhausted; the write was NOT applied')
+              break
+            }
             const answers = await askApproval(outcome.approvals)
             if (ac.signal.aborted) return
 
@@ -347,6 +394,7 @@ export function useDeckeChat(
             // guarantee, so: if you ever add anything between this push and the
             // request, put it BEFORE the approval message, not after.
             wire.push({ role: 'assistant', parts })
+            approvalReplays++
             continue
           }
 
@@ -399,29 +447,26 @@ export function useDeckeChat(
           }
           wire.push({ role: 'assistant', parts })
 
-          if (leg === MAX_LEGS - 1) {
+          if (leg === MAX_LEGS + approvalReplays - 1) {
             // ── OUT OF LEGS, WITH WORK IN HAND ──────────────────────────────
             //
             // The comment here used to say "say so rather than stopping
             // mid-journey with no explanation" and then only `console.warn`ed,
             // which is a claim the code did not honour. The reader saw nothing.
             //
-            // Worse once approvals existed: an approval answered on the LAST
-            // leg was asked, answered, pushed onto `wire` — and then the loop
-            // exited without ever POSTing the leg that carried the answer. The
-            // person said "go ahead", and nothing happened, silently. That is
-            // the failure this control exists to prevent, arriving through the
-            // control's own budget.
+            // It then ACQUIRED A SECOND CLAIM IT DID NOT HONOUR. A ternary here
+            // chose different wording for an exhausted approval — and this line
+            // is below `if (!outcome.pending.length) break`, which the approvals
+            // branch can never fall through to, because it always `continue`s or
+            // `break`s. `outcome.approvals.length` was therefore always 0, the
+            // approval half of that ternary was unreachable, and the comment
+            // above it described a fix that did not exist for the path it named.
+            // The real dropped-consent bug it purported to cover was live the
+            // whole time; it is guarded now at the point of asking, above, where
+            // there is still a decision to make.
             //
-            // So it is said out loud now, in his voice, and the wording is
-            // different for the two cases because they are different: an
-            // unfinished journey is a nuisance, an unapplied consent is a
-            // broken promise.
-            appendText(
-              outcome.approvals.length
-                ? " — I ran out of room to finish that. Nothing was changed. Ask me again and I'll go straight to it."
-                : ' — I ran out of steps there. Ask me again and I can pick it up.',
-            )
+            // So this is only ever the unfinished-journey case, and it says so.
+            appendText(' — I ran out of steps there. Ask me again and I can pick it up.')
             console.warn('[decke] leg budget exhausted with work still outstanding')
           }
         }

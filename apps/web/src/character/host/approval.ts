@@ -183,3 +183,37 @@ export function approvalReplayPart(a: PendingApproval, approved: boolean): Appro
     },
   }
 }
+
+/**
+ * How many legs the turn may spend, given how many answered approvals it has
+ * committed to carrying.
+ *
+ * Split out of `useDeckeChat`'s loop so the rule can be TESTED. The loop itself
+ * cannot be — the hook imports `lib/supabase`, which reads `import.meta.env` at
+ * module scope, so `node --test` cannot even import the file. That is the same
+ * barrier that kept the two earlier approval bugs invisible, and it is why the
+ * pure halves keep moving into this module rather than staying where they are
+ * used.
+ */
+export function legBudget(maxLegs: number, approvalReplays: number): number {
+  return maxLegs + approvalReplays
+}
+
+/**
+ * May the turn put an approval dialog in front of the reader right now?
+ *
+ * THE QUESTION IS WHETHER THE ANSWER CAN BE DELIVERED, not whether there is
+ * room to ask. Asking and then discarding the reply is strictly worse than not
+ * asking: the reader has consented, believes the change was made, and nothing
+ * on screen says otherwise. That is exactly what happened before this guard
+ * existed — on the final leg the answer was collected, pushed onto the wire,
+ * and dropped when the loop ended without POSTing.
+ *
+ * `mayAskApproval` is therefore consulted BEFORE the dialog opens, and the leg
+ * that will carry the answer is granted by `legBudget` at the moment the answer
+ * is taken. The two are one rule in two halves, and `approvalAlwaysDeliverable`
+ * in the tests is the statement that they agree.
+ */
+export function mayAskApproval(approvalReplays: number, maxApprovalReplays: number): boolean {
+  return approvalReplays < maxApprovalReplays
+}

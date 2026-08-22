@@ -44,11 +44,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { convertToModelMessages } from 'ai'
-import {
-  approvalReplayPart,
-  pendingApprovalFromChunk,
-  type PendingApproval,
-} from '../approval'
+import { approvalReplayPart, legBudget, mayAskApproval, pendingApprovalFromChunk, type PendingApproval } from '../approval'
 
 /** The three per-leg lookups, filled from a `tool-input-available` chunk. */
 function lookups(toolCallId: string, name: string, input: Record<string, unknown>) {
@@ -298,4 +294,51 @@ test('the shape bug 1 shipped is still exactly as broken as recorded', async () 
     false,
     'the bare shape produced no approval response at all — consent given, nothing delivered',
   )
+})
+
+// ─── The leg budget: never ask what you cannot answer ────────────────────────
+//
+// The third bug in this round trip, and the same one as the other two wearing
+// different clothes. On the last allowed leg the approvals branch asked the
+// reader, took "Go ahead", pushed the replay onto the wire — and then
+// `continue` ended the loop instead of reaching the POST. No text, no error,
+// no write. The reader cannot tell that apart from a write that worked.
+
+test('an approval that may be asked always has a leg left to carry the answer', () => {
+  // THE INVARIANT, stated over every state the loop can reach rather than the
+  // one the old code happened to be tested on. `leg` is the index about to run;
+  // committing to a replay increments `approvalReplays`, which must buy a leg
+  // that the loop's own bound then admits.
+  const MAX_LEGS = 4
+  const MAX_APPROVAL_REPLAYS = 2
+  for (let replays = 0; replays <= MAX_APPROVAL_REPLAYS + 1; replays++) {
+    for (let leg = 0; leg < legBudget(MAX_LEGS, replays); leg++) {
+      if (!mayAskApproval(replays, MAX_APPROVAL_REPLAYS)) continue
+      // The ask is permitted, so the answer is taken and one replay committed.
+      const after = replays + 1
+      assert.ok(
+        leg + 1 < legBudget(MAX_LEGS, after),
+        `asked on leg ${leg} with ${replays} replay(s) spent, but the budget ` +
+          `${legBudget(MAX_LEGS, after)} leaves no leg to POST the answer`,
+      )
+    }
+  }
+})
+
+test('the ask is refused once the replay budget is spent, rather than dropped after', () => {
+  // The other half. When the answer CANNOT be delivered the dialog must not
+  // open at all — the reader is told nothing changed, which is a nuisance, not
+  // a broken promise.
+  assert.equal(mayAskApproval(0, 2), true)
+  assert.equal(mayAskApproval(1, 2), true)
+  assert.equal(mayAskApproval(2, 2), false)
+  assert.equal(mayAskApproval(3, 2), false)
+})
+
+test('a reserved approval leg is not a free extra step for ordinary work', () => {
+  // The budget grows ONLY for answers. A turn that never hits an approval gets
+  // exactly MAX_LEGS, so this cannot become a quiet raise of the spend ceiling.
+  assert.equal(legBudget(4, 0), 4)
+  assert.equal(legBudget(4, 1), 5)
+  assert.equal(legBudget(4, 2), 6)
 })
