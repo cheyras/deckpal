@@ -138,12 +138,23 @@ const commandSchema = z.object({
   // catalog anyway, and `validateCommand` rejects it below with a message the
   // model can actually act on, which the schema never gave it.
   //
-  // RE-CHECKED 2026-08-21, and it still reproduces — so this stays. The failure
-  // MODE has changed, which is worth recording because it changes what to look
-  // for: it is no longer an `error` part on an HTTP 200, it is a hard
-  // `AI_APICallError` with HTTP 400 and an EMPTY message from the Vertex-routed
-  // provider. Same cause, same fix, and now even less to go on if someone
-  // re-adds the constraint.
+  // RE-CHECKED 2026-08-21, and it still reproduced on 4.1 — so this stayed. The
+  // failure MODE had changed, which was worth recording because it changes what
+  // to look for: no longer an `error` part on an HTTP 200, but a hard
+  // `AI_APICallError` with HTTP 400 and an EMPTY message.
+  //
+  // AND NOW THE MODEL HAS CHANGED UNDER IT. `MODELS.chat` moved to
+  // `grok-4.20-non-reasoning` on 2026-08-22, which ACCEPTS the constraint —
+  // measured directly on the same nested shape: 4.1 silently made no call,
+  // 4.20 called the tool.
+  //
+  // The workaround stays anyway, and the reason is not inertia. It costs
+  // nothing (an empty card id was never going to resolve, and
+  // `validateCommand` rejects it with a message the model can act on, which the
+  // schema never gave it), and the declared fallback is still a model where the
+  // defect is live. Restoring `.min(1)` would buy a slightly tighter schema and
+  // reintroduce a silent, unnamed failure the day the fallback is used. If the
+  // fallback ever moves off the affected family, this can go.
   cards: z
     .array(z.string())
     .max(48)

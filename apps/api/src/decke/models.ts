@@ -87,7 +87,55 @@ export const MODELS: Record<Job, ModelChoice> = {
    * xAI-wide one, so a future model bump likely retires this whole note.
    */
   chat: {
-    id: 'spacexai/grok-4.1-fast-non-reasoning',
+    /**
+     * ── 4.1 → 4.20, 2026-08-22, FOR THE ONE DEFECT PROMPTING COULD NOT MOVE ──
+     *
+     * Asked "where do I change my completion goal?" with a real landmark and a
+     * set route, `grok-4.1-fast-non-reasoning` called `flyTo` **0/5**. It wrote
+     * the call out as bare prose instead — `flyTo [data-decke-goal-switcher]
+     * with point: true` — 5/5. So the flight never happened, on every page with
+     * a landmark, which is half of what makes him a character rather than a
+     * text box.
+     *
+     * Five separate prompt rewrites moved it 0/5 each: making "movement is a
+     * TOOL CALL, never text" explicit, quoting the failure back at him, moving
+     * the section for recency, hardening `flyTo`'s description, and typing the
+     * landmarks as an enum. The schema was not implicated either — he never
+     * called `express` on those turns, and 4.20 produced 0/10 malformed
+     * commands against the identical flat schema.
+     *
+     * Same prompt, same 34 tools, only the model changed: 4.20 calls it **5/5**,
+     * clean, with zero narration in 32 turns.
+     *
+     * NOT A FREE SWITCH, and both costs are recorded because a table of
+     * measurements is worth nothing if the inconvenient half is left out.
+     *
+     * **Restraint changed.** 4.1 was silent 6/6 on plain "hey"/"thanks"; 4.20
+     * fires a small `express` 6/6 — a `curious` or `happy` nod alongside the
+     * words. Measured as a regression against the prompt's governing rule
+     * ("silence is a valid emission"), and accepted as a DIRECTION by the owner:
+     * more expressive is the character being aimed at, and a nod on "hey" is a
+     * different thing from an emotion fired at random. The rule stays in the
+     * prompt because it still governs the states that MEAN something; if the
+     * nods become noise, this is the entry that says where they came from.
+     *
+     * **It costs 7.49x, not the 6.25x on the pricing page.** Measured $/turn:
+     * $0.01153 against $0.00154. The gap is caching — verified directly on an
+     * identical 2k-token prompt, second call: 4.1 read 663 tokens from cache,
+     * 4.20 read 128. Across the bake-off, 4.1 ran at 98.4% cache-hit and 365
+     * no-cache input tokens per turn; 4.20 at 67.1% and 10,078. The heavy
+     * provider-side caching that helped pick 4.1 largely does not apply here.
+     *
+     * Also slower: 1148 ms median TTFT against 811, and slower in all six
+     * scenarios rather than on average. Still about a penny a turn in absolute
+     * terms, and the meter caps the blast radius at 120 turns a day.
+     *
+     * Held, and worth saying because a switch can quietly cost them: lookup 5/5,
+     * correction 5/5, navigation 5/5 with the canonical route. Schema validity
+     * IMPROVED — 0/16 malformed against 4.1's 3/30, the same `cardArt` taking
+     * `value` instead of `card` that this file already records.
+     */
+    id: 'spacexai/grok-4.20-non-reasoning',
     // NOT `claude-haiku-4.5`, which was the obvious pick and is measurably
     // wrong for THIS tool. In both trials it emitted `{"op":"nod_yes"}` —
     // `nod_yes` is a `value`, not an `op`, and it is not in the `op` enum. That
