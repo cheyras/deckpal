@@ -72,9 +72,6 @@
 import type { ToolSet } from 'ai';
 import { allTools } from '@deckpal/agent-tools';
 
-/** The cosmetic tools, which are his body and are always available. */
-const BODY = ['express', 'showScreen', 'flyTo', 'highlight', 'goTo', 'scrollToMe', 'click'];
-
 /**
  * The one write that belongs in conversation.
  *
