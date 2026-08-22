@@ -186,7 +186,16 @@ const searchCardsTool = defineTool({
             [args.set_id.trim()],
           );
           if (known.length === 0) {
-            return ok(
+            // `fail`, not `ok`, and the reason is not cosmetic. This message
+            // ECHOES A MODEL-SUPPLIED STRING, and `grounding.observe` runs over
+            // every successful tool result, harvesting anything card-id-shaped
+            // as evidence that a tool returned it. A guessed `set_id` of
+            // `sv1-25` is card-id-shaped. Echoed through `ok`, the guess would
+            // ground ITSELF — and `sanitizeScreen` would then wave through a
+            // card grid built on it. An error result is excluded from grounding
+            // (`adapters/aisdk.ts:341`), which is also the honest shape: the
+            // call could not have succeeded as issued.
+            return fail(
               `There is no set with id '${args.set_id.trim()}', so this search could never ` +
                 `match anything — this is NOT evidence that the card does not exist. ` +
                 `Call set_progress with no set_id to list every set with its real id, then search again.`,

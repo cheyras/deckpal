@@ -41,6 +41,7 @@
  */
 import { useCallback, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { approvalReplayPart, pendingApprovalFromChunk, type PendingApproval } from './approval'
 import type { ChatMessage } from './DeckeChat'
 import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
@@ -84,27 +85,16 @@ type WirePart = Record<string, unknown>
 type WireMessage = { role: 'user' | 'assistant'; parts: WirePart[] }
 
 /**
- * A tool call the reader has to authorise before it runs.
+ * The approval round trip lives in `./approval.ts`.
  *
- * The SDK holds the call and emits `tool-approval-request`; nothing executes
- * until an approval goes back. That is a real control rather than a prompt
- * instruction — the tool's `execute` is genuinely not invoked.
+ * Re-exported here because `DeckeChat.tsx` has always imported the type from
+ * this module and the move is not its business. `approval.ts`'s header records
+ * why capture and replay are over there: the hook imports `../../lib/supabase`,
+ * which touches `import.meta.env` at module scope, so this file cannot be
+ * imported at all under `node --import tsx --test` — which is why two bugs in
+ * that round trip shipped with a green suite.
  */
-export type PendingApproval = {
-  approvalId: string
-  toolCallId: string
-  /** The tool's own title, once its `tool-input-available` chunk arrives. */
-  title: string
-  name: string
-  /**
-   * The arguments the call was made with.
-   *
-   * NOT decoration. Answering an approval means REPLAYING THE WHOLE TOOL CALL
-   * with the answer attached — see `send`. Without the input the replayed part
-   * is not a valid tool call and the SDK cannot resume it.
-   */
-  input: Record<string, unknown>
-}
+export type { PendingApproval } from './approval'
 
 /** One tool call's progress, as a chip. */
 export type ToolChip = {
@@ -340,47 +330,7 @@ export function useDeckeChat(
             const parts: WirePart[] = []
             if (outcome.text.trim()) parts.push({ type: 'text', text: outcome.text })
             for (const a of outcome.approvals) {
-              const approved = answers.get(a.approvalId) === true
-              // ── REPLAY THE WHOLE CALL, WITH THE ANSWER ATTACHED ───────────
-              //
-              // NOT a bare `{type:'tool-approval-response', approvalId,
-              // approved}`. That looks like the obvious shape and is silently
-              // destroyed: `isToolUIPart` in ai@7.0.66 is
-              // `type.startsWith('tool-')`, so `convertToModelMessages` reads
-              // that part as a call to a tool NAMED "approval-response" and
-              // emits `{type:'tool-call', toolName:'approval-response'}` with
-              // no `toolCallId` at all. Verified against the pinned package:
-              // the answer vanishes and the next leg dies in `standardizePrompt`
-              // with AI_InvalidPromptError.
-              //
-              // What the reader would have seen: preview, "Go ahead", then
-              // "My brain glitched on that one — try me again?" and NOTHING
-              // WRITTEN. Consent given, nothing happened — the precise failure
-              // this whole control exists to prevent, reintroduced by the
-              // control itself. Caught by the adversarial review; it had passed
-              // every test we had, because the tests pinned the POLICY and the
-              // SDK's hold, and nobody had driven the ANSWER through
-              // `convertToModelMessages`.
-              //
-              // The SDK resumes statelessly, so it needs the call reconstructed:
-              // the tool's own `tool-<name>` type, its `toolCallId`, its
-              // original `input`, and the verdict in `approval`. That converts
-              // to tool-call + tool-approval-request + tool-approval-response,
-              // which is exactly what `collectToolApprovals` reads.
-              parts.push({
-                type: `tool-${a.name}`,
-                toolCallId: a.toolCallId,
-                input: a.input,
-                state: 'approval-responded',
-                approval: {
-                  id: a.approvalId,
-                  approved,
-                  // A DENIAL IS AN ANSWER, not a silence. Sending it lets him
-                  // say "alright, left it alone" rather than stopping mid-turn
-                  // with no explanation, which reads as a crash.
-                  ...(approved ? {} : { reason: 'the reader declined' }),
-                },
-              })
+              parts.push(approvalReplayPart(a, answers.get(a.approvalId) === true))
             }
             // ── NOTHING MAY BE APPENDED AFTER THIS ────────────────────────────
             //
@@ -626,6 +576,7 @@ async function streamLeg(
         toolName?: string
         input?: unknown
         approvalId?: string
+        signature?: string
       }
       try {
         part = JSON.parse(payload)
@@ -663,13 +614,14 @@ async function streamLeg(
         // run: the tool's `execute` is genuinely not invoked until an approval
         // goes back. Collected rather than answered here, because the answer is
         // the reader's and this loop is still draining a stream.
-        out.approvals.push({
-          approvalId: part.approvalId,
-          toolCallId: String(part.toolCallId ?? ''),
-          name: approvalNames.get(String(part.toolCallId ?? '')) ?? 'that change',
-          title: approvalTitles.get(String(part.toolCallId ?? '')) ?? 'Make that change',
-          input: approvalInputs.get(String(part.toolCallId ?? '')) ?? {},
-        })
+        out.approvals.push(
+          pendingApprovalFromChunk(
+            { approvalId: part.approvalId, toolCallId: part.toolCallId, signature: part.signature },
+            approvalNames,
+            approvalTitles,
+            approvalInputs,
+          ),
+        )
       } else if (
         part.type === 'tool-input-available' &&
         typeof part.toolCallId === 'string' &&

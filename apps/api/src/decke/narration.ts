@@ -230,3 +230,85 @@ export function createNarrationFilter(): {
     },
   };
 }
+
+/**
+ * The filter as a stream transform: the part of it that was NOT tested.
+ *
+ * This lived inline in `api/chat.mjs`, which is a Vercel function — untyped,
+ * unimportable, and driven only by a live deployment. `createNarrationFilter`
+ * below it had nine tests; the code that decides WHEN to push and WHEN to flush
+ * had none, and that is where the ordering bugs are. It is here now because
+ * `chat.mjs` already said the algorithm and the reasoning live in this file,
+ * and only half of it did.
+ *
+ * ── WHY THE TAIL NEEDS AN ID ────────────────────────────────────────────────
+ *
+ * The filter holds text back — a partial `<exp` might be the start of a tool
+ * tag — so at the end of a text run it is holding words that have to be
+ * released as their own part. A `text-delta` in this format belongs to a block
+ * opened by a `text-start` with the SAME id. The first version used a literal
+ * `id: 'narration'`, which names a block nothing ever opened: an orphan delta.
+ * Our own reader concatenates deltas and never looks, so it worked in
+ * production and would have kept working — but `readUIMessageStream` and
+ * anything else conformant drops it, and the part it drops is the tail of a
+ * real sentence. So the live id is tracked and the flush goes out under it.
+ *
+ * The flush also has to happen BEFORE the part that triggered it. A tail
+ * released after its own `text-end` is out of order and, again, orphaned.
+ */
+export function stripToolSyntax<T extends { type?: string; id?: string; delta?: string }>(
+  stream: ReadableStream<T>,
+  onStrip?: () => void,
+): ReadableStream<T> {
+  const filter = createNarrationFilter();
+  let warned = false;
+  const warnOnce = () => {
+    if (warned || !filter.stripped()) return;
+    warned = true;
+    onStrip?.();
+  };
+  // The id of the text block currently open upstream, or null between blocks.
+  let textId: string | null = null;
+
+  const flushTail = (controller: TransformStreamDefaultController<T>) => {
+    const tail = filter.end();
+    warnOnce();
+    if (!tail) return;
+    // Only reachable when no block is open, which in practice cannot happen —
+    // the filter has nothing to hold unless text was pushed into it. Open and
+    // close a real block rather than emit an orphan.
+    if (textId == null) {
+      controller.enqueue({ type: 'text-start', id: NARRATION_ID } as unknown as T);
+      controller.enqueue({ type: 'text-delta', id: NARRATION_ID, delta: tail } as unknown as T);
+      controller.enqueue({ type: 'text-end', id: NARRATION_ID } as unknown as T);
+      return;
+    }
+    controller.enqueue({ type: 'text-delta', id: textId, delta: tail } as unknown as T);
+  };
+
+  return stream.pipeThrough(
+    new TransformStream<T, T>({
+      transform(part, controller) {
+        if (part?.type === 'text-start' && part.id != null) textId = part.id;
+        if (part?.type === 'text-delta' && typeof part.delta === 'string') {
+          if (part.id != null) textId = part.id;
+          const out = filter.push(part.delta);
+          warnOnce();
+          if (out) controller.enqueue({ ...part, delta: out });
+          return;
+        }
+        // A non-text part ends the text run: release what is held, so words
+        // never sit behind a panel or a command.
+        flushTail(controller);
+        if (part?.type === 'text-end') textId = null;
+        controller.enqueue(part);
+      },
+      flush(controller) {
+        flushTail(controller);
+      },
+    }),
+  );
+}
+
+/** The id used only for a tail with no block to belong to. See above. */
+const NARRATION_ID = 'narration';

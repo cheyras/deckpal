@@ -148,13 +148,19 @@ const commandSchema = z.object({
   // measured directly on the same nested shape: 4.1 silently made no call,
   // 4.20 called the tool.
   //
-  // The workaround stays anyway, and the reason is not inertia. It costs
-  // nothing (an empty card id was never going to resolve, and
-  // `validateCommand` rejects it with a message the model can act on, which the
-  // schema never gave it), and the declared fallback is still a model where the
-  // defect is live. Restoring `.min(1)` would buy a slightly tighter schema and
-  // reintroduce a silent, unnamed failure the day the fallback is used. If the
-  // fallback ever moves off the affected family, this can go.
+  // The workaround stays anyway, and the reason is not inertia — but it is a
+  // weaker reason than it was, and it is worth saying so plainly. The declared
+  // fallback is `google/gemini-2.5-flash`, a different vendor: the specific
+  // grok-4.1 defect is NOT live on it, so "the fallback still needs this" is no
+  // longer true and should not be claimed.
+  //
+  // What is still true is that removing it buys nothing and risks something.
+  // `.min(1)` was never load-bearing (an empty card id was never going to
+  // resolve, and `validateCommand` rejects it with a message the model can act
+  // on — which the schema never gave it), while the failure mode it caused is
+  // silent and unnamed, and neither model here is the last one this will run
+  // on. Keeping a no-op that cannot bite over a constraint that once did is the
+  // cheap side of that trade. Revisit if the schema is ever tightened wholesale.
   cards: z
     .array(z.string())
     .max(48)

@@ -61,7 +61,7 @@ import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/de
 import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
-import { createNarrationFilter } from '../apps/api/dist/decke/narration.js'
+import { stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
 import { makePool } from '@deckpal/db'
@@ -690,47 +690,29 @@ function stripPriorCommands(messages) {
 /**
  * Tool syntax that reached the reader as prose, removed.
  *
- * The algorithm and the reasoning live in `decke/narration.ts` — moved there so
- * it could be TESTED, which mattered: the first version held from the last `<`
- * rather than the first, so given `<express><comm` it released the opening tag
- * and carefully guarded the fragment after it. Nine tests, every one fed in
- * FRAGMENTS, because the measured failure arrived split across deltas and a
- * whole-string test would have passed while production kept leaking.
+ * Nothing left here but the warning, and that is the point. The algorithm moved
+ * to `decke/narration.ts` first, because it needed testing: the original held
+ * from the LAST `<` rather than the first, so given `<express><comm` it
+ * released the opening tag and then carefully guarded the fragment after it.
+ * Nine tests, every one fed in FRAGMENTS, because the measured failure arrived
+ * split across deltas and a whole-string test would have passed while
+ * production kept leaking.
+ *
+ * The STREAM WIRING stayed behind, and that half went on being untestable — a
+ * Vercel function is untyped, unimportable, and driven only by a deployment.
+ * It is also where the ordering lives: when the held tail is released, and
+ * which text block it belongs to. An orphan-delta bug was found there by
+ * review, not by a test, because no test could reach it. So it moved too, and
+ * this file keeps only the one thing that is genuinely local to it — a
+ * `console.warn` that goes to Vercel's log.
  */
 function stripToolSyntax(stream) {
-  const filter = createNarrationFilter()
-  let warned = false
-  const warnOnce = () => {
-    if (warned || !filter.stripped()) return
-    warned = true
+  return stripToolSyntaxImpl(stream, () => {
     console.warn(
       '[deck-e] stripped tool syntax from visible text — the model narrated its own ' +
         'plumbing instead of calling the tool, so the action did NOT happen',
     )
-  }
-  return stream.pipeThrough(
-    new TransformStream({
-      transform(part, controller) {
-        if (part?.type === 'text-delta' && typeof part.delta === 'string') {
-          const out = filter.push(part.delta)
-          warnOnce()
-          if (out) controller.enqueue({ ...part, delta: out })
-          return
-        }
-        // A non-text part ends the text run: release what is held, so words
-        // never sit behind a panel or a command.
-        const tail = filter.end()
-        warnOnce()
-        if (tail) controller.enqueue({ type: 'text-delta', id: 'narration', delta: tail })
-        controller.enqueue(part)
-      },
-      flush(controller) {
-        const tail = filter.end()
-        warnOnce()
-        if (tail) controller.enqueue({ type: 'text-delta', id: 'narration', delta: tail })
-      },
-    }),
-  )
+  })
 }
 
 /** Collect a Node request body into a buffer. */
