@@ -381,11 +381,22 @@ export function SeriesIndex() {
                   // about a series on the series page can only shrug. This is
                   // the one thing on the page worth pointing at in that state.
                   //
-                  // POINTABLE, NOT PRESSABLE, like everything else in this pass:
-                  // he may ring it and say "it is behind here", and pressing is
-                  // a separate capability that does not exist yet (SPEC §9.2).
+                  // PRESSABLE, and reviewed as such.
+                  //
+                  // `data-decke-clickable` is a SECOND authorisation on top of
+                  // the landmark, because pointable is not pressable. This one
+                  // earns it: its handler is `setShowAll(true)` and nothing
+                  // else — pure local disclosure, no request, no write, no
+                  // navigation away.
+                  //
+                  // It matters most on THIS page. For a collector who owns
+                  // nothing — every new account, and the QA account the gates
+                  // run as — every series on /series is behind this button, so
+                  // without it he can see nothing on the page most likely to be
+                  // asked about.
                   data-decke-show-others
                   data-decke-landmark="[data-decke-show-others]"
+                  data-decke-clickable
                   data-decke-label="the button that reveals the series you have not collected"
                 >
                   <span>Show {others.length} series with no cards collected</span>

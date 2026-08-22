@@ -588,6 +588,15 @@ function CardTab({
           <div className="mt-[10px]">
             <button
               onClick={() => setShowAdditional(!showAdditional)}
+              // PRESSABLE, and reviewed as such: the handler toggles one piece
+              // of local state and does nothing else. The variant ROWS this
+              // reveals contain quantity steppers, which are writes and are
+              // deliberately not marked — revealing a control is not the same
+              // capability as operating it.
+              data-decke-additional-variants
+              data-decke-landmark="[data-decke-additional-variants]"
+              data-decke-label="the Additional Variants disclosure"
+              data-decke-clickable
               className="flex w-full items-center gap-[8px] py-[10px] text-[14px] font-semibold text-text-primary"
             >
               <Icon name="chevron-down" size={18} className={showAdditional ? '' : '-rotate-90'} />

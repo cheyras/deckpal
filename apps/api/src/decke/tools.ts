@@ -307,6 +307,49 @@ export function buildTools(writer: CommandWriter): ToolSet {
       inputSchema: z.object({}),
     }),
 
+    /**
+     * ── CLICKING, AND THE LIMIT OF THE CONTROL ───────────────────────────────
+     *
+     * A SECOND ATTRIBUTE, not a second use of the first. `flyTo` and
+     * `highlight` require `[data-decke-landmark]`, which means "he may point at
+     * this". Clicking requires `[data-decke-clickable]` as well, because
+     * POINTABLE IS NOT PRESSABLE — a price block and a completion bar are worth
+     * pointing at and must never be pressed.
+     *
+     * NAVIGATION AND DISCLOSURE ONLY. Expand, open, switch, follow.
+     *
+     * And now the part that has to be said plainly rather than implied: the
+     * runtime CANNOT inspect what a React `onClick` handler does. "Never a
+     * write" is a property of the MARKING DISCIPLINE, not a control the code
+     * enforces. Whoever adds `data-decke-clickable` to an element is the
+     * safeguard. The attribute is grep-auditable by design and every addition
+     * is reviewed for write side effects — which is a review step, not a
+     * guarantee, and the difference matters.
+     *
+     * The evidence that this needs a review step rather than a sentence: the
+     * spec that specified this tool listed the quantity stepper and the
+     * add-card control as clickable in its own table, and both are writes. It
+     * caught itself. A rule that its own author violated while writing it down
+     * is a rule that needs a second pair of eyes on every use.
+     *
+     * DECISIONS.md 2026-08-21 recorded a clean adversarial security verdict
+     * that rests explicitly on "there is no `click` tool, so `flyTo`/`highlight`
+     * can only move and ring." This tool invalidates that premise, and the
+     * security pass was re-run against it before it shipped.
+     */
+    click: tool({
+      description:
+        'Press something on the page — a link, a tab, a "show more" disclosure, a view toggle. ' +
+        'Only works on controls that have been marked as safe to press, which is a much smaller ' +
+        'set than the things you can point at: pointing at something does not mean you may press ' +
+        'it. Never changes their collection — nothing that adds, edits or deletes is pressable, ' +
+        'and if you need one of those, use the tool for it and ask first. One press at a time, ' +
+        'then look at what happened.',
+      inputSchema: z.object({
+        selector: selector.describe('A marked, pressable control on the current page.'),
+      }),
+    }),
+
     showScreen: tool({
       description:
         'Show a small panel of results in the chat — a summary, a haul, a set of figures. You choose which components to use and what goes in them; you never write markup, styling or layout. Use it when the answer is a SHAPE (a list of cards, a few numbers, a progress bar) rather than a sentence. For a sentence, just say the sentence.',
@@ -341,4 +384,4 @@ export function buildTools(writer: CommandWriter): ToolSet {
 }
 
 /** Tools the BROWSER fulfils. The server must not try to execute these. */
-export const CLIENT_TOOLS = ['flyTo', 'highlight', 'goTo', 'scrollToMe'] as const
+export const CLIENT_TOOLS = ['flyTo', 'highlight', 'goTo', 'scrollToMe', 'click'] as const

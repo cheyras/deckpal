@@ -29,7 +29,7 @@ export type UiToolResult = { ok: boolean; reason?: string }
  * re-run in a place that cannot do it, fails, and posts a tool output that
  * contradicts the one the server already produced for that same call id.
  */
-export const CLIENT_TOOLS = ['flyTo', 'highlight', 'goTo', 'scrollToMe'] as const
+export const CLIENT_TOOLS = ['flyTo', 'highlight', 'goTo', 'scrollToMe', 'click'] as const
 
 export type ClientToolName = (typeof CLIENT_TOOLS)[number]
 
@@ -86,6 +86,62 @@ function resolveTarget(selector: string): { el: Element | null; refused?: string
     return { el: null, refused: 'that part of the page is not something I can point at' }
   }
   return { el }
+}
+
+/**
+ * Elements he is allowed to PRESS. A strictly smaller set than the ones he can
+ * point at, and a separate attribute rather than a second use of the same one.
+ *
+ * ── POINTABLE IS NOT PRESSABLE ───────────────────────────────────────────────
+ *
+ * A price block, a completion bar and a card image are all worth flying to and
+ * ringing. None of them should ever be clicked, and several things near them
+ * change the reader's collection. Reusing `data-decke-landmark` for both would
+ * mean that marking something as "worth pointing at" silently also marked it
+ * "safe to press", which is exactly the kind of coupling nobody notices until
+ * it is a bug report about a deck that deleted itself.
+ *
+ * ── AND THE LIMIT OF THIS CONTROL, SAID PLAINLY ──────────────────────────────
+ *
+ * This function CANNOT inspect what a React `onClick` handler does. It checks
+ * that an element was marked, and that it is the kind of thing that is pressed.
+ * It cannot check that pressing it does not write.
+ *
+ * So "never a write" is a property of the MARKING DISCIPLINE, not of this code.
+ * Whoever adds `data-decke-clickable` is the safeguard. The attribute is
+ * grep-auditable on purpose, and every addition is reviewed for side effects —
+ * a review step, not a guarantee, and the difference is worth being honest
+ * about.
+ *
+ * The evidence that a review step is needed rather than a rule: the spec that
+ * designed this tool listed the quantity stepper and the add-card control as
+ * clickable in its own table. Both are writes. A rule its own author broke
+ * while writing it down needs a second pair of eyes on every use.
+ */
+function resolveClickTarget(selector: string): { el: HTMLElement | null; refused?: string } {
+  const { el, refused } = resolveTarget(selector)
+  if (refused) return { el: null, refused }
+  if (!el) return { el: null }
+
+  const pressable = el.closest<HTMLElement>('[data-decke-clickable]')
+  if (!pressable) {
+    return { el: null, refused: 'that is not something I am allowed to press' }
+  }
+
+  // DEFENCE IN DEPTH, and cheap. The attribute is the authorisation; this is a
+  // sanity check that the marked thing is actually a control, so a stray
+  // attribute on a wrapper `div` cannot turn a whole region into a button.
+  const tag = pressable.tagName.toLowerCase()
+  const role = pressable.getAttribute('role')
+  const isControl =
+    tag === 'button' || (tag === 'a' && pressable.hasAttribute('href')) || role === 'button'
+  if (!isControl) {
+    return { el: null, refused: 'that is marked as pressable but is not a control' }
+  }
+  if (pressable.hasAttribute('disabled') || pressable.getAttribute('aria-disabled') === 'true') {
+    return { el: null, refused: 'that is disabled right now' }
+  }
+  return { el: pressable }
 }
 
 export type UiToolContext = {
@@ -148,6 +204,22 @@ export async function runUiTool(
       case 'scrollToMe':
         ctx.decke.scrollIntoView()
         return { ok: true }
+
+      case 'click': {
+        const { el, refused } = resolveClickTarget(String(input.selector ?? ''))
+        if (refused) return { ok: false, reason: refused }
+        if (!el) return { ok: false, reason: 'there is nothing like that on this page' }
+        // A REAL CLICK on the element itself, not a synthesised event on the
+        // document: React listens at the root and reconstructs the path, so
+        // `el.click()` is what a person's press actually looks like to it.
+        el.click()
+        // ANSWERED WITH WHAT IT WAS, not just "ok". "I opened the Mega
+        // Evolution row" is something he can say; "true" is not, and the whole
+        // reason these are tools rather than commands is that the result is
+        // supposed to be sayable.
+        const label = el.getAttribute('data-decke-label') ?? el.textContent?.trim().slice(0, 60)
+        return { ok: true, reason: label ? `pressed ${label}` : undefined }
+      }
 
       case 'goTo': {
         const route = input.route
