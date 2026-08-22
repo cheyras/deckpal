@@ -25,6 +25,33 @@ export async function captureScreenshots(page, dir, name) {
   return { viewport: viewportPath, fullPage: fullPagePath }
 }
 
+/**
+ * A second, small copy of the same frame, for LOOKING at.
+ *
+ * The full-resolution PNG is the evidence; this is the thing a person actually
+ * opens. The desktop profile runs at `deviceScaleFactor: 2`, so a viewport shot
+ * is 2880×1800 and a couple of megabytes — too big to read comfortably, and far
+ * too big to hand to a vision model, which is the other reader these artifacts
+ * have.
+ *
+ * `scale: 'css'` is why this needs no image tooling at all. It tells Chromium to
+ * rasterise at CSS pixel size rather than device pixel size, so the browser that
+ * already has the page open does the downscale, and the harness does not acquire
+ * an ffmpeg or ImageMagick dependency for the sake of making a picture smaller.
+ * JPEG at 82 because these are screenshots of a dark UI, where the difference is
+ * invisible and the file is an order of magnitude smaller.
+ *
+ * It is a COPY, never a replacement: an artifact you can read easily and an
+ * artifact that shows the truth are both needed, and compressing the only one
+ * you have is how a subtle rendering defect gets attributed to the compressor.
+ */
+export async function captureForReview(page, dir, name) {
+  mkdirSync(dir, { recursive: true })
+  const p = join(dir, `${name}.review.jpg`)
+  await page.screenshot({ path: p, fullPage: false, scale: 'css', type: 'jpeg', quality: 82 })
+  return p
+}
+
 /** Just the one crop, when a spec only needs it (e.g. mid-animation frames). */
 export async function captureViewport(page, dir, name) {
   mkdirSync(dir, { recursive: true })
