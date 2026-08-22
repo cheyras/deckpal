@@ -8207,3 +8207,201 @@ never leaves the page.
 **Also re-checked:** the grok `minLength` bug still reproduces, but now as a
 hard HTTP 400 with an EMPTY message rather than an `error` part on a 200. Same
 cause, same fix, even less to go on if someone re-adds the constraint.
+
+## 2026-08-21 — The landmark cap: 40, prioritised, and why order matters more than the number
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Decision.** `collectLandmarks()` and `api/chat.mjs` cap at 40 rather than 24,
+and SORT before slicing: on-screen first, then `data-decke-rank="container"`
+before `"item"`, then DOM order as the stable tiebreak.
+
+**Why there is a cap at all.** The landmark list is PROMPT TEXT, re-billed on
+every leg of a turn, at roughly 15 tokens each. Forty is ~600 tokens a turn,
+which is affordable; unbounded is not, and a page with a long list would quietly
+become the most expensive page in the app.
+
+**Why the ORDER is the real decision.** The previous behaviour sliced 24 in DOM
+order, so a `SeriesDetail` with 15+ set rows plus a header could push the row
+the reader just asked about out of the list entirely — and the failure is
+silent. He does not say "I cannot see it"; he says something else about
+something else. `data-decke-rank` is DECLARED on the element rather than
+inferred from nesting, because inferring it means a layout change silently
+reorders what he can see.
+
+**Implications.** Zero-size nodes fall out of the on-screen test for free, which
+also removes a class of landmark that resolves but cannot be flown to.
+
+## 2026-08-21 — `showScreen` gains `group` and `table`, and a card budget nobody asked for
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Decision.** Two new block kinds, a caption on `cardGrid` (reusing `text`
+rather than adding a field), the block cap raised 8 → 12, real card art, and a
+new screen-wide `SCREEN_CARD_BUDGET = 60`.
+
+**The budget is the important one and it was not in the brief.** Raising the
+block cap created it: 12 blocks x 60 cards is 720 catalog lookups the browser
+makes, triggerable by a single tool call. The per-grid cap becomes a per-screen
+budget spent in block order, counting grids nested inside groups. A grid that
+does not fit is dropped WHOLE with a reason, never truncated — a half-shown grid
+is a lie about what was found.
+
+**Depth is limited structurally, not by a rule.** A `group` column is TYPED as a
+leaf block, so a nested group is a sentence the schema cannot express. No
+`z.lazy`, no recursion driven by model output.
+
+**Every new kind rejects rather than clamps.** A short table row is refused
+rather than padded — the case that most looks like it deserves the `quantities`
+treatment and least does, because padding means inventing which column a figure
+belongs to. The one permitted clamp is unchanged.
+
+**Card art resolves safely.** The model supplies a catalog ID; the APP resolves
+it through `cardSource.artForIds`, and the model's string only ever reaches
+`encodeURIComponent` in a path. Three states are kept deliberately distinct:
+resolved → art, still-asking → skeleton, resolved-to-nothing → the honest
+monospace id. A slow network must not look like a hallucinated id.
+
+**The sync hazard this file flagged is now checked.** The 2026-08-21 adversarial
+review left `BLOCK_KINDS` ↔ renderer and `WireCommand` ↔ `tools.ts` as "real
+extension hazards … worth a shared type when either list next changes." This was
+that moment. A test reads the server's source as text and compares — the
+`uiTools.test.ts` precedent, since `deckpal-web` does not depend on
+`deckpal-api`. Rejected: a shared type (`packages/` is the wrong home for one
+character's vocabulary) and codegen (it puts a build step between a clone and a
+running app, which `CLAUDE.md` promises there is not). The test was
+mutation-tested to confirm it fails when the lists disagree.
+
+## 2026-08-21 — Deck-E can press things, and the control is a second attribute
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Decision.** A `click` tool, authorised by `data-decke-clickable` — a SECOND
+attribute on top of `data-decke-landmark`.
+
+**Why not reuse the landmark.** Pointable is not pressable. A price block, a
+completion bar and a card image are all worth flying to and ringing, and none
+should ever be pressed; several sit next to controls that write. One attribute
+for both would mean marking something "worth pointing at" silently also marked
+it "safe to press".
+
+**Two controls are marked**, both read before marking: `/series`'s "Show N
+series" disclosure (`setShowAll(true)`, nothing else) and `CardDetail`'s
+"Additional Variants" toggle (one piece of local state). The variant rows the
+second reveals contain quantity steppers, which are writes and are deliberately
+not marked — revealing a control is not the same capability as operating it.
+
+The `/series` one matters most: for a collector who owns nothing, which is every
+new account and the QA account the gates run as, every series on that page is
+behind that button.
+
+**THE LIMIT, recorded rather than implied.** The runtime cannot inspect what a
+React `onClick` does. It checks that an element was marked and that it is the
+kind of thing that gets pressed. It cannot check that pressing it does not
+write. "Never a write" is therefore a property of the MARKING DISCIPLINE, not of
+the code, and whoever adds the attribute is the safeguard.
+
+**Which is why there is an audit test that fails when a new control is marked.**
+The evidence that a review step is needed rather than a rule: the spec that
+designed this tool listed the quantity stepper and the add-card control as
+clickable in its own table. Both are writes. It caught itself — a rule its own
+author broke while writing it down needs a second pair of eyes on every use.
+
+**This invalidates a premise in this file.** The 2026-08-21 clean security
+verdict rests explicitly on "there is no `click` tool, so `flyTo`/`highlight`
+can only move and ring." That premise is now false, and the adversarial pass was
+re-run against the new surface rather than assumed to still hold.
+
+## 2026-08-21 — Writes ask permission, and the asking is enforced by the SDK
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Decision.** Every write tool declares `needsApproval`; the turn pauses, the
+reader answers, and a `tool-approval-response` goes back on the next leg.
+
+**Why not a prompt.** This codebase records the same lesson twice in the same
+words — "a prompt is not an enforcement mechanism" — once about `click` and once
+about trying to stop a model repeating itself by asking it not to. "Wait for
+confirmation before writing" would have been the third.
+
+`ai@7.0.66` ships a real control, verified against the pinned version rather
+than read from a changelog: with `needsApproval: true` the execute function ran
+exactly **0 times** and the wire carried
+`{"type":"tool-approval-request","approvalId":"…","toolCallId":"call_w"}`.
+
+**What needs approval**, derived from annotations and schema and never from the
+verb in the name: anything `destructiveHint` (always, including on a preview),
+any real write (always), and a preview never — being made to authorise something
+before being told what it would do is the opposite of the point. Three write
+tools have no `dry_run` at all, so every call to them is a real write; that
+falls out of the rule rather than being a special case.
+
+**The server also forces the preview.** When a call is classified as a preview,
+`dry_run: true` is written into the arguments explicitly rather than left to the
+tool's default, so classification and coercion agree by construction. Only an
+explicit boolean `false` is read as permission to write — `'false'`, `0`, `null`,
+`''`, `NaN`, `[]` and a missing field all land on the safe side, because those
+are the values a model actually produces when it stringifies a boolean.
+
+**A denial is an answer**, sent back explicitly, so he can say "alright, left it
+alone" rather than stopping mid-turn with no explanation. **An abort resolves
+the question as a denial** — without that, pressing stop with an approval on
+screen parks the turn's promise for ever, the `finally` never runs, and
+`thinking` never clears.
+
+## 2026-08-21 — Two connection leaks, in the code written to prevent leaks
+**Decided by:** Claude (Opus 5), on behalf of @cheyras. Found by testing the
+failure paths rather than the happy one.
+
+**What was wrong.** Both are the shape of the 2026-08-12 pool-exhaustion
+incident, arriving through the watchdog added to stop it.
+
+1. `Promise.race` abandons the loser, it does not cancel it — so a
+   `pool.connect()` that resolved a moment after its deadline handed back a
+   checked-out client with nobody holding a reference to release it. Checked out
+   for the life of the instance. With `PGPOOL_MAX_CHAT=2` that is two slow
+   moments from a wedged pool.
+2. The query deadline and the session watchdog fire at almost the same instant
+   with no guaranteed order, so a query could reject while its connection was
+   still returned to the pool — with a statement Postgres was very much still
+   running on it, inside an open transaction, carrying that turn's RLS claims.
+   The next borrower would set its own claims on top of a live session.
+
+**Decision.** The losing connect promise is reclaimed and destroyed; a timed-out
+query destroys its connection at the point of timeout rather than leaving it to
+a race. Queries are bounded by what is LEFT of the session budget, not by a
+fresh copy of it — ten queries of nine seconds each inside a ten-second session
+made the deadline mean nothing.
+
+**Implications.** A timed-out query is by definition a connection in an unknown
+state; there is no version of that which is safe to hand to someone else. The
+cost of destroying is one reconnect. The cost of sharing is a cross-user data
+leak.
+
+**Worth recording separately:** one of the two failures the new suite first
+produced was a bad ASSERTION rather than a bug. "The string `'; DROP TABLE` does
+not appear in the preamble" passes for the wrong reason either way, because
+correctly-escaped output contains `''; DROP TABLE`, which has the naive needle
+as a substring. It now checks that the quote was doubled and that the literal's
+quotes are balanced — the escaping, not the scary words.
+
+## 2026-08-21 — Turn history replays lookups, compacted
+**Decided by:** @cheyras, choosing between three options Claude put.
+
+**What was wrong.** `messagesToWire` kept text and nothing else, so turn N+1 had
+no record that turn N read 604 cards — only its own prose about them. That
+re-creates the original fabrication pathology in a new form: he asserts from his
+own earlier sentences rather than from data, and a sentence is exactly the thing
+that drifts. "You've got 70 of them" becomes "most of them" becomes a number
+nobody looked up.
+
+**The three options.** Replay everything (truthful; input bill grows without
+bound on a long conversation, colliding with the per-turn input budget the tool
+ceiling exists to defend). Re-read per turn (always fresh; costs a tool call and
+a round trip on every follow-up question). Replay COMPACTED — what a lookup
+FOUND, in one line, not its 200 rows.
+
+**Decision: compacted.** The compact form is the chip's own summary, which is
+the first line of the real tool result produced by the server's execute wrapper.
+So the record cannot describe a lookup that did not happen — there is no chip
+without an invocation.
+
+**Marked as a record, not folded into his speech.** Appending "I read 604 cards"
+to his words would put sentences in his mouth he never said, and the next turn
+would replay them as if he had.
