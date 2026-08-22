@@ -123,7 +123,14 @@ export function ListsIndex() {
       )}
 
       {lists.length > 0 && (
-        <div className="grid gap-[20px]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+        <div
+          className="grid gap-[20px]"
+          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}
+          data-decke-list-index
+          data-decke-landmark="[data-decke-list-index]"
+          data-decke-label="the grid of your lists"
+          data-decke-rank="container"
+        >
           {lists.map((l) => (
             <ListCard key={l.id} list={l} />
           ))}

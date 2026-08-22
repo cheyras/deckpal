@@ -5,7 +5,13 @@ import express from 'express';
 import helmet from 'helmet';
 import { closePool, pool, q, rlsStore, SUPABASE_MODE, withUserContext } from './db.js';
 import { ownerGateStatus } from './routes/me.js';
-import { deckeGateStatus, deckeGateWarning } from './decke/gate.js';
+import { deckeApprovalSigning, deckeApprovalWarning, deckeGateStatus, deckeGateWarning } from './decke/gate.js';
+import {
+  deckeEntitledCount,
+  deckeEntitlementStatus,
+  deckeEntitlementWarning,
+} from './decke/entitlement.js';
+import { maxDeepCallsPerDay, maxTurnsPerDay } from './decke/meter.js';
 import { asyncHandler, catalogCache, errorMiddleware } from './http.js';
 import { authMiddleware, resolveIdentity, resolveOptionalIdentity, requireSession } from './auth.js';
 import { seriesRouter } from './routes/series.js';
@@ -58,6 +64,17 @@ export function createApp(): express.Express {
   // configured and costs a support ticket when it is not.
   const deckeWarning = deckeGateWarning();
   if (deckeWarning) console.warn(deckeWarning);
+
+  // And once more for the gate that decides WHO, as distinct from the gate that
+  // decides WHETHER. A configured key with an empty entitlement list is a
+  // deployment that pays for a model nobody is allowed to call.
+  const entitlementWarning = deckeEntitlementWarning();
+  if (entitlementWarning) console.warn(entitlementWarning);
+
+  // A control that is OFF, as distinct from a feature that is off. Said
+  // separately so the louder message cannot hide the quieter one.
+  const approvalWarning = deckeApprovalWarning();
+  if (approvalWarning) console.warn(approvalWarning);
 
   const app = express();
   app.disable('x-powered-by');
@@ -266,6 +283,31 @@ export function createApp(): express.Express {
         // and never any part of its value. `unset` means POST /api/chat 503s
         // for everybody, which is otherwise invisible from outside. B11 again.
         deckeGate: deckeGateStatus(),
+        // Whether a crafted client could forge a write approval. B11: a
+        // security control that is off must be visible from outside.
+        deckeApprovals: deckeApprovalSigning(),
+        // WHO may use Deck-E, and how much of him — never the ids themselves,
+        // because /health is unauthenticated and a list of user UUIDs is
+        // exactly the sort of thing that should not be readable from it. A
+        // count is not an identity. B11 again: `nobody` here means POST
+        // /api/chat refuses every account, which is otherwise invisible from
+        // outside.
+        deckeEntitlement: {
+          status: deckeEntitlementStatus(),
+          extraAccounts: deckeEntitledCount(),
+        },
+        // The CONFIGURED caps, and the configured size of a pool this process
+        // cannot see. `api/chat.mjs` is a separate serverless function with a
+        // separate process, so the live census above covers the Express app's
+        // pool and nothing else. Reporting a number we cannot measure as if we
+        // had measured it would be worse than reporting the setting and saying
+        // which it is — see DECISIONS.md for why this is the honest half of
+        // B11 rather than a shortcut.
+        deckeLimits: {
+          maxTurnsPerDay: maxTurnsPerDay(),
+          maxDeepCallsPerDay: maxDeepCallsPerDay(),
+          chatPoolMaxConfigured: Number.parseInt(process.env.PGPOOL_MAX_CHAT ?? '', 10) || 2,
+        },
       });
     }),
   );

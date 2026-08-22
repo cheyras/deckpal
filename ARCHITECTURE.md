@@ -334,9 +334,47 @@ Self-host deployments run 001-020 and skip 021+. Auth is handled by the reverse
 proxy. Images are served by `apps/images`. Sync jobs run via cron or any
 scheduler.
 
-## 10. MCP server — live and multi-user
+## 10. The agent tool layer — one definition, two front-ends
 
-`deckpal-mcp`'s 21 tools are served to any signed-up user at
+**`packages/agent-tools` (`@deckpal/agent-tools`) is the single definition of
+what an agent may do in DeckPal.** 23 tools (12 read, 11 write, 4 of those
+also destructive), each a `ToolDefinition`: a zod input schema, `annotations`
+(`readOnlyHint` is required in the type, not optional as MCP's own SDK has
+it — a tool that forgets to state it fails to compile rather than defaulting
+into whatever reads the flag), and a handler written against `Ctx` alone
+(`{ db, api, userId }`) with no protocol details in it. Reads go straight to
+Postgres; writes and all deck/list operations go through deckpal-api on the
+same host (`apps/mcp/SPEC.md` §3), so write logic — upsert, `collection_event`
+append, `recomputeSetProgress`, one transaction — stays defined exactly once
+in `apps/api/src/routes/*`, however many surfaces call it.
+
+Two adapters translate that one definition into a protocol:
+
+- **`apps/mcp/src/adapters/mcp.ts`** — the only file that knows the tools are
+  being spoken to over MCP. `registerAllTools(server, ctx)` walks `allTools()`
+  and calls `server.registerTool(...)` per tool, translating `ToolResult` to
+  MCP's `CallToolResult`. This is where "Registration: `server.registerTool`"
+  now lives; the tool modules themselves import nothing from the MCP SDK.
+- **`apps/api/src/decke/adapters/aisdk.ts`** — the AI SDK's `tool()`, one per
+  definition, wrapping the handler so it cannot throw into the stream (a
+  thrown tool kills the turn; a returned error is a sentence the model can
+  react to) and clamping output to a character budget for the chat tier only
+  (`DEFAULT_MAX_TOOL_CHARS`, §15c). Read [§15c](#15c) for how Deck-E calls it.
+
+A tool added or changed for Claude over MCP appears for Deck-E in the same
+commit, and vice versa — there is now only one place a tool can be added.
+`apps/mcp`'s own tool modules were proved behaviour-preserving three ways when
+they moved (byte-identical `tools/list` JSON-RPC response, a static dump of
+every tool's schema, and a whitespace-insensitive diff): see DECISIONS.md
+2026-08-21, "One definition of what an agent can do in DeckPal". The one
+deliberate change made in that move: `search_cards`, `get_card` and
+`set_progress` now append a series slug to their output (a trailing field, no
+row reordered), because the set route needs one and no slug is derivable from
+a set's name.
+
+### MCP server — live and multi-user
+
+`deckpal-mcp`'s 23 tools are served to any signed-up user at
 `https://deckpal.app/mcp` (`apps/mcp/src/cloud.ts`), authenticated per-user by
 a personal access token (`dsk_…`, SHA-256 hashed, shown once at creation,
 revocable from Profile). Each call resolves the token to a `user_id` and runs
@@ -644,11 +682,19 @@ one generation rather than of the run).
 
 ## 15b. Deck-E — the assistant layer
 
-**Status: built, verified against the live gateway, NOT yet deployed.** It needs
-`DECKE_VERCEL_AI_GATEWAY_KEY` in the Vercel project; it fails closed without one
-and reports its own readiness on `/api/health`.
+**Status: built, deployed to a preview, NOT in production.** The layer as
+described in §15b–§15f — the agent-tools port, the metered deep tier, the write
+approvals, the grounding and narration controls — lives on the `decke-agent`
+branch, and PR #74 is open and unmerged. Production still runs the original
+ship's six cosmetic tools, so nothing below should be read as describing what
+deckpal.app does today. It needs `DECKE_VERCEL_AI_GATEWAY_KEY` in the
+Vercel project; it fails closed without one and reports its own readiness on
+`/api/health`. He now holds all 23 of `packages/agent-tools`' tools (§15c) —
+the write half held behind an approval round trip (§15e) rather than filtered
+out — plus a metered deep tier (§15d), against the six cosmetic tools of the
+original ship.
 
-Where §15 is the body, this is everything that decides what the body does. Three
+Where §15 is the body, this is everything that decides what the body does. Four
 boundaries carry the design.
 
 **The command channel is invisible.** The model never emits animation syntax into
@@ -666,6 +712,16 @@ enums, numbers and plain strings, and `DeckeScreen.tsx` is a switch that renders
 `null` for anything it does not recognise. There is no field anywhere in that
 schema that carries HTML, a class name, a style, a URL or a selector — so it is
 not a sanitised injection surface, it is not an injection surface.
+
+**Who may talk to him, and how much, is decided on the server.** The browser's
+own gate (`entitlement.ts`) only decides whether to draw a button; `POST
+/api/chat` re-checks it before the request body is parsed
+(`DECKE_ENTITLED_USER_IDS` plus the owner — a list, not a single id, because
+several of the plan's browser gates run as the QA account, never the owner,
+per B12) and meters every account against a durable daily cap in Postgres
+(`decke_usage`, migrations 039/040) — chat turns and deep calls capped
+separately, ~250x apart in price. See SECURITY.md for the reasoning; this is
+the mechanism.
 
 **One controller, one writer.** `runtime.ts` holds a single WebGL context with
 deferred disposal so React StrictMode's double-mount does not build two. Exactly
@@ -685,8 +741,20 @@ apps/web/src/character/host/
   ripPresence.ts   his behaviour during a rip; every export a no-op if unloaded
   runtime.ts       lazy engine load + single-controller guard
   entitlement.ts   the single gate
+  approval.ts      the write-approval round trip, as two pure functions (§15e)
 
-apps/api/src/decke/   models (routing), prompt, tools, screens, gate
+apps/api/src/decke/
+  ctx.ts               builds a Ctx from the caller's JWT; lazy Ctx.db (§15c)
+  rls.ts               the per-tool-call RLS session + its watchdog (§15c)
+  entitlement.ts        DECKE_ENTITLED_USER_IDS + the owner gate
+  meter.ts              the daily chat_turns / deep_calls cap, check-and-charge in one statement
+  models.ts             which model each job gets, and why (measured, not assumed)
+  adapters/aisdk.ts     ToolDefinition -> the AI SDK's tool(), plus the approval policy (§15c, §15e)
+  focus.ts              which tools he can SEE on a given step (§15f)
+  grounding.ts          the card ids a tool actually returned this turn (§15f)
+  narration.ts          tool syntax that reached the reader as prose, removed (§15f)
+  deep.ts               the four sub-agent tools -- the deep tier (§15d)
+  prompt.ts, tools.ts, screens.ts, gate.ts   system prompt, express/showScreen, screen palette, owner gate
 api/chat.mjs          the standalone serverless brain
 ```
 
@@ -700,9 +768,233 @@ or `showScreen`. Stopping on the tool call alone silenced him, because he does
 not reliably speak before he moves; leaving it out entirely made him deliver two
 near-identical closing lines. Both were measured.
 
+### 15c. Deck-E's data access
+
+He carries no credential of his own. `api/chat.mjs` verifies the caller's
+Supabase JWT the same way the Express app does, and `ctx.ts` builds a `Ctx`
+from it — `apiBaseFor()` derives the API base from the request's own `Host`
+header rather than a hardcoded one, so a preview deployment talks to itself
+rather than to production. `Ctx.api` forwards that same JWT to deckpal-api, so
+every write a deep tool makes runs under RLS as the person in the
+conversation, not as a service role — there is no service-role credential
+anywhere on this path, and the write logic it calls into is the same
+`apps/api/src/routes/*` code the REST API and the web UI use (§10).
+
+**`Ctx.db` is lazy.** It looks like an open connection and is not — it checks
+one out on the tool's *first* query (`openRlsSession()` in `rls.ts`, the same
+`BEGIN; SELECT set_config('request.jwt.claims', …); SET LOCAL role =
+'authenticated'` shape §5's `withUserContext` and the MCP server's own RLS
+session use) and releases it the moment the tool call returns. Roughly half
+the 23 tools never touch Postgres at all — writes go through the REST API — so
+an eager session would spend a pooled connection on tool calls that run no
+query. An ordinary conversational turn with no data tool touches the database
+not at all.
+
+**The watchdog the other two RLS doors don't need.** Aborts are routine on
+this path — the client aborts the previous stream on every new send, and there
+is a stop button — and when the socket dies mid tool-call, Vercel freezes the
+instance with a checked-out client still inside an open transaction.
+`openRlsSession()` starts a timer (`DECKE_PGRLS_MAX_HOLD_MS`, default 10 s —
+deliberately far below the API's own 30 s `PGRLS_MAX_HOLD_MS`, because the unit
+here is one tool call, not a whole request) and, on timeout or abort,
+**destroys** the connection (`client.release(true)`) rather than returning it
+to the pool: a connection mid-statement inside another user's RLS claims must
+never be handed to the next request. A destroyed connection costs one
+reconnect; a shared one costs a cross-user data leak.
+
+**The connection story.** `api/chat.mjs` is a *separate* Vercel function from
+the Express catch-all, with its own small pool (`PGPOOL_MAX_CHAT`, default 2,
+lazily created on first use, contract B2's `request` role). It shares no
+memory with `apps/api/src/index.ts`, so `/api/health`'s live pool census
+(`total/idle/waiting`, B2) structurally cannot see it — `/health` instead
+reports the chat pool's *configured* size (`deckeLimits.chatPoolMaxConfigured`)
+rather than pretending to measure something it cannot reach.
+
+### 15d. The deep tier — sub-agents, not a router
+
+Four tools in `deep.ts` give Deck-E the ability to think rather than only
+fetch, each its own sub-agent with its own model, tool subset and wall-clock
+budget: `plan_deck` and `analyze_collection` (Claude, the read tools),
+`write_strategy_guide` (Claude, the read tools plus `deck_strategy` — the one
+write, because that tool is dumb, idempotent storage and the sub-agent is what
+actually writes the guide), and `research_meta` (`openai/o3-deep-research`,
+**no tools at all**). Escalation is a tool call the conversational model
+chooses to make, not a classifier in front of every turn — a call appears in
+the tool log, so "did he actually think about this" has an answer; a
+classifier would tax every turn and a misroute would be invisible.
+
+Every deep call is charged against the `deep_calls` meter **before** the
+sub-agent model runs (a refusal costs one query, not a model call), runs under
+a wall-clock budget (`DECKE_DEEP_BUDGET_MS`, default 210 s) below the
+function's own `maxDuration` (300 s, raised from 60 — see DECISIONS.md
+2026-08-21, which argues explicitly why this does not reopen the 2026-08-19
+decision against raising it for writes: a research turn holds no database
+connection while it runs, so the cliff is not moved, a different workload is
+given a different ceiling), and streams so a timeout returns **partial
+findings labelled as incomplete** rather than nothing.
+
+`research_meta` holds no tools by design, not oversight: text fetched from the
+open web is the least trustworthy input in the system, and the only guarantee
+that it cannot become an action is giving the thing that reads it no actions
+to take. Its output is framed as fetched data, every time, into a
+conversational model already told never to act on instructions found inside
+data (SECURITY.md has the fuller security framing).
+
 **Not shipped:** foil/variant auto-detection. `research/FOIL-DETECTION.md` has
 the measurement — the signal is real but not lighting-invariant, so the printing
 is a one-tap reader choice in the rip list instead.
+
+### 15e. Writes ask permission, and the asking is the SDK's
+
+Every write tool declares `needsApproval`: the turn pauses, the reader answers,
+and nothing is written until they do. That is a mechanism rather than an
+instruction, verified against the pinned `ai@7.0.66` rather than read from a
+changelog — with `needsApproval: true` a tool's `execute` ran exactly **0
+times** while the wire carried
+`{"type":"tool-approval-request","approvalId":"…","toolCallId":"call_w"}`. This
+codebase has already recorded "a prompt is not an enforcement mechanism" twice,
+once about `click` and once about asking a model not to repeat itself; "wait for
+confirmation before writing" would have been the third.
+
+What needs approval is derived from annotations and schema, never from the verb
+in the name: anything `destructiveHint` always, any real write always, and a
+preview never — being made to authorise something before being told what it
+would do is the opposite of the point. When a call is classified as a preview
+the server writes `dry_run: true` into the arguments explicitly rather than
+trusting the tool's default, so classification and coercion agree by
+construction, and only an explicit boolean `false` counts as permission to
+write, because `'false'`, `0`, `null`, `''` and a missing field are the values a
+model actually produces when it stringifies a boolean. The prompt the reader
+clicks through shows the dry run's OWN output rather than his description of it.
+A denial goes back as an answer, so he can say "alright, left it alone" instead
+of stopping mid-turn with no explanation, and an abort resolves the question as
+a denial — otherwise pressing stop with an approval on screen parks the turn's
+promise for ever.
+
+**The answer travels back as the whole tool call, replayed with the verdict
+attached**, and that construction has now produced two shipped defects.
+`apps/web/src/character/host/approval.ts` holds the two ends of it as two pure
+functions — `pendingApprovalFromChunk`, which captures what the
+`tool-approval-request` chunk carries, and `approvalReplayPart`, which rebuilds
+the call. It is a separate module rather than two closures in `useDeckeChat.ts`
+for a load-bearing reason and not a tidiness one: that hook imports
+`lib/supabase`, which reads `import.meta.env` at module scope, so under `node
+--test` there is no Vite and merely importing the hook throws before a single
+test runs. The logic was therefore unreachable by any test, which is how both of
+these shipped:
+
+1. **A bare `{type:'tool-approval-response', …}` part.** `isToolUIPart` in
+   `ai@7.0.66` is `type.startsWith('tool-')`, so `convertToModelMessages` read
+   consent as a call to a tool NAMED "approval-response", with no `toolCallId`
+   at all, and the next leg died in `standardizePrompt`.
+2. **A dropped `signature`.** `experimental_toolApprovalSecret` makes the SDK
+   sign each approval and verify it coming back; `DECKE_APPROVAL_SECRET` is set
+   in Production and Preview, so `validateApprovedToolApprovals` threw
+   `InvalidToolApprovalSignatureError: missing signature` and every approved
+   write failed. Turning the security control ON is what broke it, which is why
+   no test that ran without the secret could see it — and none did.
+
+Both had the same reader-facing shape: preview, "Go ahead", an apology, and
+nothing written — consent given, nothing happened, arriving through the control
+that exists to prevent exactly that. `__tests__/approval.test.ts` drives both
+functions through the REAL `convertToModelMessages` from the pinned package, and
+includes one test that feeds the bug-1 shape in and asserts it is still broken,
+so an SDK upgrade that fixes it fails the test rather than leaving a stale
+explanation in the codebase. Both bugs were re-introduced afterwards to prove
+the tests are load-bearing: 3 red and 2 red respectively, the real-SDK test
+among them each time.
+
+**Open defect: he does not currently reach the gate for collection writes.**
+Verified against a live preview on 2026-08-22. Asked to add one specific card,
+with the variant named and consent given in the same breath ("Normal variant. Go
+ahead and do it."), he calls `get_card` and answers "Confirm and I'll log it?" —
+zero `log_cards` calls, zero approval requests, nothing written. It is specific
+to that tool: `write_strategy_guide`, which also requires approval, is called
+readily and does emit a signed approval request. So the round trip above is the
+mechanism that EXISTS and is verified at the wire level — a signed approval is
+accepted and the approved tool's `execute` genuinely runs, falsified by
+stripping the signature, at which point the leg dies with `start`, `error` and
+two chunks — while the collection-write path does not work end to end. Gate 9 of
+`scripts/decke-gates.mjs` is the harness that pins this, and the investigation
+is in flight.
+
+### 15f. Fabrication is bounded, not cured
+
+Nine defects were found by deploying this branch to a preview and asking it real
+questions. None were caught by tests — 88 API tests, 183 web tests, a clean
+typecheck across nine workspaces, CI, CodeQL and an adversarial review were all
+green — and several could not have been (DECISIONS.md 2026-08-22, "Nine defects
+that only a deployment could find"). What they share matters more than any one
+of them: **wherever a tool's output cannot answer the obvious next question, the
+model fills the gap.** An empty result under a filter that could never match
+reads as "not found" rather than "wrong index"; a summary that names cards
+without returning their ids invites the caller to invent the missing key.
+
+So the fixes are in the tools rather than the prompt, and because the tools live
+in `packages/agent-tools` (§10) the MCP front-end gets them in the same commit.
+`search_cards` now leads its description with what it does NOT match — `query`
+matches CARD names, never a set name, however many ways you spell it — and, on a
+`set_id` no set has, says in as many words that an empty result is not evidence
+the card does not exist. `collection_summary` returns ids. `set_progress`'s
+unknown-id error names the recovery. This is a better frame than "the model is
+unreliable", because a contract gap is findable, fixable and testable, and an
+instruction not to guess is none of those.
+
+**That unknown-set result is a `fail`, not an `ok`, and the difference is not
+cosmetic.** `grounding.ts` collects the card ids tools actually returned this
+turn, and `screens.ts`'s `sanitizeScreen` drops any id in a grid that was not
+among them — the control on the defect where he drew five card ids the account
+does not own, twice, with different ids each run. It is a Set lookup, no model
+call, sub-millisecond, chosen over chain-of-verification and self-consistency on
+cost for a latency-critical path. But `grounding.observe` harvests
+card-id-shaped tokens from every SUCCESSFUL tool result, and the unknown-set
+message echoes the model's own guessed `set_id` back at it, which is right — it
+needs to know which id was wrong. A guess of `sv1-25` is card-id-shaped; through
+`ok` it would have grounded ITSELF, and a grid built on it would then have been
+waved through. Errors are excluded from grounding, and `fail` is the honest
+shape anyway. With nothing observed at all, everything passes: this is a check
+for CONTRADICTED ids, not for unproven ones.
+
+**He still narrates.** Asked to add 4000 of a card, the deployed preview emitted
+`<express><commands><op>state</op><value>alert_dizzy</value></commands></express>`
+as ordinary visible text and produced zero `data-decke` chunks — a character
+reading his stage directions aloud while standing perfectly still.
+`apps/api/src/decke/narration.ts` strips that syntax out of visible text; the
+stream transform moved there out of `api/chat.mjs`, which keeps only a
+`console.warn`, because a Vercel function is untyped, unimportable and driven
+only by a live deployment, and the ordering bugs were in exactly that half (the
+held tail was flushed under a literal `id: 'narration'`, naming a block no
+`text-start` ever opened — our own reader concatenates and does not care, a
+conformant one drops it, and what it drops is the end of a real sentence). The
+filter is deliberately narrow, anchored on our seven tool names in any namespace
+and in the `name="…"` attribute form the gate suite caught on the preview, so
+`<b>` and `10% < 15%` survive. It also says plainly what it cannot do: four of
+five observed failures were not markup but bare prose — `flyTo
+[data-decke-goal-switcher] point=true` — and no pattern catches that without
+also eating sentences he is supposed to say.
+
+The only thing that moved that behaviour was the model. Five prompt rewrites
+scored 0/5 each on `flyTo`; the same prompt with the same 34 tools on
+`spacexai/grok-4.20-non-reasoning` called it 5/5, with zero narration across 32
+turns, so that is the chat model now. `models.ts` records the inconvenient half
+too, because a file of measurements is worth nothing if the awkward numbers are
+left out: 7.49x the cost rather than the pricing page's 6.25x (the gap is
+caching — 98.4% cache-hit and 365 no-cache input tokens per turn, against 67.1%
+and 10,078), ~340 ms slower TTFT in every scenario rather than on average, and a
+restraint regression accepted as a direction by the owner.
+
+**Per-step tool narrowing, recorded with its uncertainty intact.** `focus.ts`
+recomputes `activeTools` per step through `prepareStep`: on the first step he
+sees 24 of his 34 tools, everything except the ten heavy deck-and-list writes,
+and everything returns on step two. `log_cards` stays visible from step one,
+because "add these cards" is the request this feature exists to serve. The
+bisection that motivated it — 34 tools narrated 5/5, 23 tools 1/5, 10 tools 3/5,
+so fewer was NOT better — **did not replicate**: a follow-up run saw 0/24 on the
+primary trigger, found a real bug in its own harness, and could not rule out an
+analogous gap in the first. The narrowing stays because it removes no capability
+and costs nothing measurable, not because the numbers are settled, and
+`focus.ts` says so at the top of the file rather than keeping the flattering
+half.
 
 ---
 

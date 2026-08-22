@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import type { Ctx } from '../ctx.js';
-import { fail, ok } from '../envelope.js';
+import { defineTool, type ToolDefinition } from '../registry.js';
+import { fail, ok } from '../result.js';
 import {
   describeCard,
   describeVariant,
@@ -351,238 +351,238 @@ function chunkKeyCandidates(fingerprint: string, chunkIndex: number): string[] {
   return [chunkKey(fingerprint, chunkIndex, now), chunkKey(fingerprint, chunkIndex, now - BUCKET_MS)];
 }
 
-export function registerLoggingTools(server: McpServer, ctx: Ctx): void {
-  server.registerTool(
-    'log_cards',
-    {
-      title: 'Log collection changes',
-      description:
-        'Log card acquisitions/removals to the LOCAL DeckPal collection database — this edits ' +
-        "only this app's collection tracker, nothing external (no store, no marketplace, no " +
-        'purchases). Batch of 1–250 items applied as ONE atomic transaction; each picks a card ' +
-        '(card_id, or name + set_id/number), optionally a variant, and exactly one of delta ' +
-        '(signed change, e.g. +1 pulled / -1 traded away) or quantity (absolute count). ' +
-        'dry_run defaults to TRUE: the first call only previews current → new quantities; ' +
-        're-call with dry_run:false to actually write. Retrying after an error is SAFE — the ' +
-        'batch carries an idempotency key, so a repeat returns the original result and writes ' +
-        'nothing. Unresolvable or ambiguous items are reported individually and never guessed; ' +
-        'the rest of the batch still applies. Do NOT use this to read history — use ' +
-        'mutation_history or collection_log for that, and get_card for current quantities.',
-      inputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-    },
-    async ({ items, note, idempotency_key, dry_run }) => {
-      const startedAt = Date.now();
-      try {
-        const { planned, skipped } = await planBatch(ctx, items);
-        const lines: string[] = [];
-        const structured: Record<string, unknown>[] = [];
+const logCardsTool = defineTool({
+  name: 'log_cards',
+  title: 'Log collection changes',
+  description:
+    'Log card acquisitions/removals to the LOCAL DeckPal collection database — this edits ' +
+    "only this app's collection tracker, nothing external (no store, no marketplace, no " +
+    'purchases). Batch of 1–250 items applied as ONE atomic transaction; each picks a card ' +
+    '(card_id, or name + set_id/number), optionally a variant, and exactly one of delta ' +
+    '(signed change, e.g. +1 pulled / -1 traded away) or quantity (absolute count). ' +
+    'dry_run defaults to TRUE: the first call only previews current → new quantities; ' +
+    're-call with dry_run:false to actually write. Retrying after an error is SAFE — the ' +
+    'batch carries an idempotency key, so a repeat returns the original result and writes ' +
+    'nothing. Unresolvable or ambiguous items are reported individually and never guessed; ' +
+    'the rest of the batch still applies. Do NOT use this to read history — use ' +
+    'mutation_history or collection_log for that, and get_card for current quantities.',
+  inputSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  handler: async ({ items, note, idempotency_key, dry_run }, ctx) => {
+    const startedAt = Date.now();
+    try {
+      const { planned, skipped } = await planBatch(ctx, items);
+      const lines: string[] = [];
+      const structured: Record<string, unknown>[] = [];
 
-        if (planned.length === 0) {
-          for (const s of skipped.sort((a, b) => a.index - b.index)) {
-            lines.push(...s.lines);
-            structured.push(s.structured);
-          }
-          lines.push(`nothing to apply — ${skipped.length} item(s) unresolved/invalid`);
-          return ok([`log_cards — ${items.length} item(s)`, ...lines].join('\n'), {
-            dryRun: dry_run,
-            applied: 0,
-            skipped: skipped.length,
-            items: structured,
-          });
+      if (planned.length === 0) {
+        for (const s of skipped.sort((a, b) => a.index - b.index)) {
+          lines.push(...s.lines);
+          structured.push(s.structured);
         }
+        lines.push(`nothing to apply — ${skipped.length} item(s) unresolved/invalid`);
+        return ok([`log_cards — ${items.length} item(s)`, ...lines].join('\n'), {
+          dryRun: dry_run,
+          applied: 0,
+          skipped: skipped.length,
+          items: structured,
+        });
+      }
 
-        // One chunk in the normal case; several only if a caller exceeds the
-        // endpoint's ceiling. Each carries its own stable key.
-        const chunks: Planned[][] = [];
-        for (let i = 0; i < planned.length; i += CHUNK_SIZE) chunks.push(planned.slice(i, i + CHUNK_SIZE));
+      // One chunk in the normal case; several only if a caller exceeds the
+      // endpoint's ceiling. Each carries its own stable key.
+      const chunks: Planned[][] = [];
+      for (let i = 0; i < planned.length; i += CHUNK_SIZE) chunks.push(planned.slice(i, i + CHUNK_SIZE));
 
-        const fingerprint = batchFingerprint(ctx.userId, planned);
-        const perIndex = new Map<number, BatchItemResult>();
-        const progress: Record<string, { complete: GoalProgress; master: GoalProgress; grandmaster: GoalProgress }> = {};
-        const keysUsed: string[] = [];
-        let applied = 0;
-        let unchanged = 0;
-        let replayed = false;
-        let duplicateOf: BatchResponse['duplicateOf'];
-        let abandoned: { chunk: number; remaining: number; error: string } | null = null;
-        const landedAfterTimeout: number[] = [];
-        const batchIds: string[] = [];
+      const fingerprint = batchFingerprint(ctx.userId, planned);
+      const perIndex = new Map<number, BatchItemResult>();
+      const progress: Record<string, { complete: GoalProgress; master: GoalProgress; grandmaster: GoalProgress }> = {};
+      const keysUsed: string[] = [];
+      let applied = 0;
+      let unchanged = 0;
+      let replayed = false;
+      let duplicateOf: BatchResponse['duplicateOf'];
+      let abandoned: { chunk: number; remaining: number; error: string } | null = null;
+      const landedAfterTimeout: number[] = [];
+      const batchIds: string[] = [];
 
-        for (const [ci, chunk] of chunks.entries()) {
-          if (Date.now() - startedAt > DEADLINE_MS) {
-            abandoned = {
-              chunk: ci,
-              remaining: chunks.slice(ci).reduce((n, c) => n + c.length, 0),
-              error: 'ran out of time before this chunk was sent',
-            };
-            break;
-          }
-          // A caller-supplied key is theirs to scope and is used verbatim.
-          // Otherwise the derived key carries a time bucket (see chunkKey).
-          const key = idempotency_key ? `${idempotency_key}#${ci}` : chunkKey(fingerprint, ci);
-          keysUsed.push(key);
-          const body = {
-            items: chunk.map((p) => ({
-              variantId: p.variant.id,
-              ...(p.mode === 'delta' ? { delta: p.value } : { quantity: p.value }),
-            })),
-            source: SOURCE,
-            note,
-            idempotencyKey: key,
-            // The unbucketed hash, so the server can still recognise "you
-            // applied this exact batch two days ago" on a call it correctly
-            // allows through. Without it that warning could never fire for MCP
-            // writes, because a caller-supplied key bypasses the server's own
-            // fingerprinting.
-            requestFingerprint: idempotency_key ? undefined : `${fingerprint}#${ci}`,
-            dryRun: dry_run,
+      for (const [ci, chunk] of chunks.entries()) {
+        if (Date.now() - startedAt > DEADLINE_MS) {
+          abandoned = {
+            chunk: ci,
+            remaining: chunks.slice(ci).reduce((n, c) => n + c.length, 0),
+            error: 'ran out of time before this chunk was sent',
           };
+          break;
+        }
+        // A caller-supplied key is theirs to scope and is used verbatim.
+        // Otherwise the derived key carries a time bucket (see chunkKey).
+        const key = idempotency_key ? `${idempotency_key}#${ci}` : chunkKey(fingerprint, ci);
+        keysUsed.push(key);
+        const body = {
+          items: chunk.map((p) => ({
+            variantId: p.variant.id,
+            ...(p.mode === 'delta' ? { delta: p.value } : { quantity: p.value }),
+          })),
+          source: SOURCE,
+          note,
+          idempotencyKey: key,
+          // The unbucketed hash, so the server can still recognise "you
+          // applied this exact batch two days ago" on a call it correctly
+          // allows through. Without it that warning could never fire for MCP
+          // writes, because a caller-supplied key bypasses the server's own
+          // fingerprinting.
+          requestFingerprint: idempotency_key ? undefined : `${fingerprint}#${ci}`,
+          dryRun: dry_run,
+        };
 
-          let res: BatchResponse;
-          try {
-            res = (await withTimeout(ctx.api.send('POST', '/collection/batch', body), API_TIMEOUT_MS)) as BatchResponse;
-          } catch (err) {
-            // The response is gone, but the writes may not be. Ask the log —
-            // this is the question the 2026-08-19 incident could not answer.
-            const truth = await whatLanded(ctx, idempotency_key ? [key] : chunkKeyCandidates(fingerprint, ci));
-            if (truth) {
-              // It LANDED. Only the reply was lost, so this chunk is not
-              // abandoned and its items are not unsent — saying otherwise
-              // would reproduce the incident's own dishonesty in miniature.
-              res = truth;
-              landedAfterTimeout.push(ci);
-              if (ci + 1 < chunks.length) {
-                abandoned = {
-                  chunk: ci + 1,
-                  remaining: chunks.slice(ci + 1).reduce((n, c) => n + c.length, 0),
-                  error: `chunk ${ci + 1} timed out but landed; stopping rather than risking the rest`,
-                };
-                break;
-              }
-            } else {
+        let res: BatchResponse;
+        try {
+          res = (await withTimeout(ctx.api.send('POST', '/collection/batch', body), API_TIMEOUT_MS)) as BatchResponse;
+        } catch (err) {
+          // The response is gone, but the writes may not be. Ask the log —
+          // this is the question the 2026-08-19 incident could not answer.
+          const truth = await whatLanded(ctx, idempotency_key ? [key] : chunkKeyCandidates(fingerprint, ci));
+          if (truth) {
+            // It LANDED. Only the reply was lost, so this chunk is not
+            // abandoned and its items are not unsent — saying otherwise
+            // would reproduce the incident's own dishonesty in miniature.
+            res = truth;
+            landedAfterTimeout.push(ci);
+            if (ci + 1 < chunks.length) {
               abandoned = {
-                chunk: ci,
-                remaining: chunks.slice(ci).reduce((n, c) => n + c.length, 0),
-                error: (err as Error).message,
+                chunk: ci + 1,
+                remaining: chunks.slice(ci + 1).reduce((n, c) => n + c.length, 0),
+                error: `chunk ${ci + 1} timed out but landed; stopping rather than risking the rest`,
               };
               break;
             }
+          } else {
+            abandoned = {
+              chunk: ci,
+              remaining: chunks.slice(ci).reduce((n, c) => n + c.length, 0),
+              error: (err as Error).message,
+            };
+            break;
           }
+        }
 
-          if (res.batchId) batchIds.push(res.batchId);
-          if (res.replayed) replayed = true;
-          if (res.duplicateOf) duplicateOf = res.duplicateOf;
-          applied += dry_run ? (res.wouldApply ?? 0) : res.applied;
-          unchanged += res.unchanged;
-          // Several input items can legitimately resolve to the SAME variant —
-          // "+1 Pikachu" twice, or a card_id and a name for one printing. The
-          // API folds them into one result row, so that row belongs to EVERY
-          // input index that produced it; `find` would have given it to the
-          // first and left the rest rendering as "NOT SENT".
-          for (const it of res.items) {
-            for (const p of chunk) {
-              if (p.variant.id === it.variantId) perIndex.set(p.index, it);
-            }
+        if (res.batchId) batchIds.push(res.batchId);
+        if (res.replayed) replayed = true;
+        if (res.duplicateOf) duplicateOf = res.duplicateOf;
+        applied += dry_run ? (res.wouldApply ?? 0) : res.applied;
+        unchanged += res.unchanged;
+        // Several input items can legitimately resolve to the SAME variant —
+        // "+1 Pikachu" twice, or a card_id and a name for one printing. The
+        // API folds them into one result row, so that row belongs to EVERY
+        // input index that produced it; `find` would have given it to the
+        // first and left the rest rendering as "NOT SENT".
+        for (const it of res.items) {
+          for (const p of chunk) {
+            if (p.variant.id === it.variantId) perIndex.set(p.index, it);
           }
-          Object.assign(progress, res.progress ?? {});
         }
-
-        // ── Render ─────────────────────────────────────────────────────────
-        type Row = { index: number; planned?: Planned; skipped?: Skipped };
-        const all: Row[] = [
-          ...planned.map<Row>((p) => ({ index: p.index, planned: p })),
-          ...skipped.map<Row>((s) => ({ index: s.index, skipped: s })),
-        ].sort((a, b) => a.index - b.index);
-
-        for (const row of all) {
-          if (row.skipped) {
-            lines.push(...row.skipped.lines);
-            structured.push(row.skipped.structured);
-            continue;
-          }
-          const p = row.planned!;
-          const r = perIndex.get(p.index);
-          const tag = `#${p.index + 1}`;
-          if (!r) {
-            lines.push(`${tag} … ${cardLabel(p.card)} | ${variantLabel(p.variant)} — NOT SENT (see the note below)`);
-            structured.push({ index: p.index, outcome: 'not_sent', cardId: p.card.tcgdexId, variantId: p.variant.id });
-            continue;
-          }
-          const deltaTxt = r.delta === 0 ? 'no change' : `Δ${r.delta > 0 ? '+' : ''}${r.delta}`;
-          const clampTxt = r.clamped ? ' — clamped' : '';
-          lines.push(
-            `${tag} ${dry_run ? '' : '✓ '}${cardLabel(p.card)} | ${variantLabel(p.variant)} | ${r.before} → ${r.after} (${deltaTxt}${clampTxt})`,
-          );
-          structured.push({
-            index: p.index,
-            outcome: dry_run ? 'would_apply' : 'applied',
-            cardId: p.card.tcgdexId,
-            variantId: r.variantId,
-            oldQuantity: r.before,
-            newQuantity: r.after,
-            delta: r.delta,
-            clamped: r.clamped,
-          });
-        }
-
-        for (const [setId, p] of Object.entries(progress)) lines.push(`     ${progressLine(setId, p)}`);
-
-        const header = dry_run ? `log_cards DRY RUN — ${items.length} item(s)` : `log_cards — ${items.length} item(s)`;
-        const footer: string[] = [];
-        if (replayed) {
-          footer.push(
-            'REPLAYED — an identical batch had already been applied, so this call wrote NOTHING and returned the ' +
-              'original result. Quantities above are the real current values.',
-          );
-        }
-        if (duplicateOf) {
-          footer.push(
-            `note: an identical batch was applied at ${duplicateOf.at}${duplicateOf.note ? ` ("${duplicateOf.note}")` : ''}. ` +
-              'This one was applied as well — if that was a retry rather than a second real acquisition, revert it with ' +
-              `revert(batch_id: "${batchIds[0] ?? duplicateOf.batchId}").`,
-          );
-        }
-        if (dry_run) {
-          footer.push(`would apply ${applied}, unchanged ${unchanged}, skipped ${skipped.length} (unresolved/invalid)`);
-          footer.push('dry run — nothing written; re-call with dry_run:false to apply');
-        } else {
-          footer.push(`applied ${applied}, unchanged ${unchanged}, skipped ${skipped.length} (unresolved)`);
-          if (batchIds.length) footer.push(`batch id ${batchIds.join(', ')} — undo with revert(batch_id: "${batchIds[0]!}")`);
-        }
-        if (landedAfterTimeout.length > 0) {
-          footer.push(
-            `note: chunk(s) ${landedAfterTimeout.map((n) => n + 1).join(', ')} timed out waiting for a reply, but the ` +
-              'mutation log confirms the write COMMITTED. The quantities above are what the database actually holds.',
-          );
-        }
-        if (abandoned) {
-          footer.push(
-            `STOPPED after chunk ${abandoned.chunk + 1}/${chunks.length}: ${abandoned.error}. ` +
-              `${abandoned.remaining} item(s) were NOT sent. Everything reported above is the state the database ` +
-              'actually holds. Re-calling with the same items is safe — the idempotency key makes already-applied ' +
-              'chunks a no-op.',
-          );
-        }
-
-        return ok([header, ...lines, ...footer].join('\n'), {
-          dryRun: dry_run,
-          applied,
-          unchanged,
-          skipped: skipped.length,
-          replayed,
-          batchIds,
-          idempotencyKeys: keysUsed,
-          ...(abandoned ? { abandoned } : {}),
-          ...(duplicateOf ? { duplicateOf } : {}),
-          items: structured,
-        });
-      } catch (err) {
-        return fail(`log_cards failed: ${(err as Error).message}`);
+        Object.assign(progress, res.progress ?? {});
       }
-    },
-  );
-}
+
+      // ── Render ─────────────────────────────────────────────────────────
+      type Row = { index: number; planned?: Planned; skipped?: Skipped };
+      const all: Row[] = [
+        ...planned.map<Row>((p) => ({ index: p.index, planned: p })),
+        ...skipped.map<Row>((s) => ({ index: s.index, skipped: s })),
+      ].sort((a, b) => a.index - b.index);
+
+      for (const row of all) {
+        if (row.skipped) {
+          lines.push(...row.skipped.lines);
+          structured.push(row.skipped.structured);
+          continue;
+        }
+        const p = row.planned!;
+        const r = perIndex.get(p.index);
+        const tag = `#${p.index + 1}`;
+        if (!r) {
+          lines.push(`${tag} … ${cardLabel(p.card)} | ${variantLabel(p.variant)} — NOT SENT (see the note below)`);
+          structured.push({ index: p.index, outcome: 'not_sent', cardId: p.card.tcgdexId, variantId: p.variant.id });
+          continue;
+        }
+        const deltaTxt = r.delta === 0 ? 'no change' : `Δ${r.delta > 0 ? '+' : ''}${r.delta}`;
+        const clampTxt = r.clamped ? ' — clamped' : '';
+        lines.push(
+          `${tag} ${dry_run ? '' : '✓ '}${cardLabel(p.card)} | ${variantLabel(p.variant)} | ${r.before} → ${r.after} (${deltaTxt}${clampTxt})`,
+        );
+        structured.push({
+          index: p.index,
+          outcome: dry_run ? 'would_apply' : 'applied',
+          cardId: p.card.tcgdexId,
+          variantId: r.variantId,
+          oldQuantity: r.before,
+          newQuantity: r.after,
+          delta: r.delta,
+          clamped: r.clamped,
+        });
+      }
+
+      for (const [setId, p] of Object.entries(progress)) lines.push(`     ${progressLine(setId, p)}`);
+
+      const header = dry_run ? `log_cards DRY RUN — ${items.length} item(s)` : `log_cards — ${items.length} item(s)`;
+      const footer: string[] = [];
+      if (replayed) {
+        footer.push(
+          'REPLAYED — an identical batch had already been applied, so this call wrote NOTHING and returned the ' +
+            'original result. Quantities above are the real current values.',
+        );
+      }
+      if (duplicateOf) {
+        footer.push(
+          `note: an identical batch was applied at ${duplicateOf.at}${duplicateOf.note ? ` ("${duplicateOf.note}")` : ''}. ` +
+            'This one was applied as well — if that was a retry rather than a second real acquisition, revert it with ' +
+            `revert(batch_id: "${batchIds[0] ?? duplicateOf.batchId}").`,
+        );
+      }
+      if (dry_run) {
+        footer.push(`would apply ${applied}, unchanged ${unchanged}, skipped ${skipped.length} (unresolved/invalid)`);
+        footer.push('dry run — nothing written; re-call with dry_run:false to apply');
+      } else {
+        footer.push(`applied ${applied}, unchanged ${unchanged}, skipped ${skipped.length} (unresolved)`);
+        if (batchIds.length) footer.push(`batch id ${batchIds.join(', ')} — undo with revert(batch_id: "${batchIds[0]!}")`);
+      }
+      if (landedAfterTimeout.length > 0) {
+        footer.push(
+          `note: chunk(s) ${landedAfterTimeout.map((n) => n + 1).join(', ')} timed out waiting for a reply, but the ` +
+            'mutation log confirms the write COMMITTED. The quantities above are what the database actually holds.',
+        );
+      }
+      if (abandoned) {
+        footer.push(
+          `STOPPED after chunk ${abandoned.chunk + 1}/${chunks.length}: ${abandoned.error}. ` +
+            `${abandoned.remaining} item(s) were NOT sent. Everything reported above is the state the database ` +
+            'actually holds. Re-calling with the same items is safe — the idempotency key makes already-applied ' +
+            'chunks a no-op.',
+        );
+      }
+
+      return ok([header, ...lines, ...footer].join('\n'), {
+        dryRun: dry_run,
+        applied,
+        unchanged,
+        skipped: skipped.length,
+        replayed,
+        batchIds,
+        idempotencyKeys: keysUsed,
+        ...(abandoned ? { abandoned } : {}),
+        ...(duplicateOf ? { duplicateOf } : {}),
+        items: structured,
+      });
+    } catch (err) {
+      return fail(`log_cards failed: ${(err as Error).message}`);
+    }
+  },
+});
+
+export const loggingTools: ToolDefinition[] = [
+  logCardsTool,
+];
 
 /** Reject after `ms` rather than inheriting the platform's wall clock. */
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {

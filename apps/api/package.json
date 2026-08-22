@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@ai-sdk/gateway": "^4.0.52",
+    "@deckpal/agent-tools": "workspace:*",
     "@deckpal/db": "workspace:*",
     "@deckpal/storage": "workspace:*",
     "ai": "7.0.66",

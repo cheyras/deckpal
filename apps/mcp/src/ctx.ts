@@ -1,23 +1,19 @@
 import type pg from 'pg';
 import { loadEnv, makePool } from '@deckpal/db';
-import { apiBase, makeApi, type Api } from './api.js';
-import { q1, type Queryable } from './db.js';
+import { apiBase, makeApi, q1, type Ctx } from '@deckpal/agent-tools';
 
 /**
- * Server context — everything a tool needs that is not a tool argument.
+ * The self-host server's own context, on top of the shared {@link Ctx}.
  *
- * Two deployments build it two different ways:
+ * `Ctx` itself — `{ db, api, userId }`, the three things a tool needs — now
+ * lives in `@deckpal/agent-tools` because Deck-E builds one too and neither
+ * caller should own the other's definition. What is left here is what only a
+ * process with a listening socket cares about.
  *
- *  • **Self-host** (`index.ts`): built once at startup. `db` is the process
- *    pool, `userId` is the single default user, `api` is unauthenticated
- *    (the reverse proxy is the auth boundary). Shared by every request.
- *
- *  • **Cloud** (`cloud.ts`): built per request from the caller's personal
- *    access token. `db` is the client already inside that user's RLS
- *    transaction, `userId` is the token's owner, and `api` carries the token
- *    so the REST side resolves the same identity.
- *
- * Tools are written against this interface only, so they are identical in both.
+ * `McpConfig` used to hang off `Ctx`, which meant every caller had to invent a
+ * port and a shared secret to construct one; `cloud.ts` was passing
+ * `{ port: 0, key: '' }` for a function that never listens. No tool ever read
+ * it. It belongs here, with the server that has a socket.
  *
  * Pool (self-host): makePool(1) — the documented 4th connection against the
  * cluster budget (SPEC §3; headroom verified in DECISIONS.md 2026-07-24).
@@ -32,21 +28,10 @@ export interface McpConfig {
   apiBase: string;
 }
 
-export interface Ctx {
-  /** Pool (self-host) or the request's RLS-scoped client (cloud). */
-  db: Queryable;
-  api: Api;
-  /**
-   * `app_user.id` — a UUID since migration 020. Every user-scoped query passes
-   * it as a bind parameter; in the cloud it is additionally enforced by RLS.
-   */
-  userId: string;
-  config: McpConfig;
-}
-
 /** Self-host context: process-wide, one user, one pool. */
 export interface SelfHostCtx extends Ctx {
   pool: pg.Pool;
+  config: McpConfig;
 }
 
 export async function buildCtx(): Promise<SelfHostCtx> {

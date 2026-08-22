@@ -36,7 +36,51 @@ export function deckeGateStatus(): DeckeGateStatus {
   return 'unset'
 }
 
+/**
+ * Are Deck-E's write approvals SIGNED?
+ *
+ * The SDK holds a write until an approval arrives — but it verifies that
+ * approval's signature only when a secret is configured
+ * (`ai/dist/index.js:5164`, read rather than assumed). Without one there is no
+ * check at all: the approval is taken at face value.
+ *
+ * That matters here more than it would elsewhere, because this client is
+ * hand-rolled and replays the whole conversation on every leg. A crafted caller
+ * could append `state: 'approval-responded', approval: { approved: true }` to a
+ * tool call it was never granted — or approve "add 1 card" and send back "add
+ * 4000" against the same approval. The tool INPUT is inside the signature;
+ * without the signature nothing binds the two together.
+ *
+ * Unsigned is not broken — it is what every deployment did until now — so this
+ * does not fail closed and must not, or setting up a deployment would begin
+ * with Deck-E being down. But it is a security control that is OFF, and B11
+ * exists precisely because a control that is off silently is the expensive
+ * kind.
+ */
+export function deckeApprovalSigning(): 'signed' | 'unsigned' {
+  return process.env.DECKE_APPROVAL_SECRET ? 'signed' : 'unsigned'
+}
+
 /** The boot line. Returns null when there is nothing worth saying. */
+/**
+ * Said at boot when approvals are unsigned.
+ *
+ * Separate from `deckeGateWarning` because they are different states: that one
+ * says the feature is OFF, this one says the feature is on with a control
+ * disabled. Conflating them would let the more alarming message hide the
+ * quieter, more dangerous one.
+ */
+export function deckeApprovalWarning(): string | null {
+  if (deckeApprovalSigning() === 'signed') return null
+  return (
+    '[deckpal-api] DECKE_APPROVAL_SECRET is unset — Deck-E write approvals are ' +
+    'NOT signed. The SDK still holds every write for a human, but nothing proves ' +
+    'the approval it receives came from a request this server issued, so a ' +
+    'crafted client could approve a write it was never offered or change the ' +
+    'arguments after approval. Set it to a long random string and redeploy.'
+  )
+}
+
 export function deckeGateWarning(): string | null {
   switch (deckeGateStatus()) {
     case 'unset':

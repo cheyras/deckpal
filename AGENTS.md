@@ -12,7 +12,8 @@ Vercel + Supabase. It also supports a self-host tier (plain Postgres, no built-i
 auth) for other people who want to run their own copy — a supported deployment
 target, not the mode you are working in. See B12.
 
-pnpm monorepo (ESM, Node >=20, TypeScript strict). Four apps + one shared package:
+pnpm monorepo (ESM, Node >=20, TypeScript strict). Five apps + three shared
+packages:
 
 | Package | Filter name | Role |
 |---|---|---|
@@ -22,6 +23,8 @@ pnpm monorepo (ESM, Node >=20, TypeScript strict). Four apps + one shared packag
 | `apps/images` | `deckpal-images` | Self-host image server (card art cache on local disk); cloud path uses Supabase Storage |
 | `apps/mcp` | `deckpal-mcp` | **deckpal-mcp** -- MCP server (Wave 3 for cloud; available now for self-host) |
 | `packages/db` | `@deckpal/db` | Shared Postgres pool + numbered SQL migrations |
+| `packages/storage` | `@deckpal/storage` | Shared image path algebra + the `putAsset()` provenance choke point (B1), used by `apps/images` and the cloud image function |
+| `packages/agent-tools` | `@deckpal/agent-tools` | The 23 agent tool definitions (reads + writes) shared by `apps/mcp` and Deck-E (`apps/api/src/decke`) -- one definition of what an agent can do, two front-ends |
 
 Data lives in a Postgres database. Cloud deployments use Supabase Auth (JWT +
 RLS) for multi-user access control. Self-host deployments have no built-in
@@ -56,16 +59,23 @@ set -a && . ./.env && set +a
 # Build a single app (substitute the filter name from the table above)
 pnpm --filter deckpal-web build
 
-# Typecheck all workspaces (build @deckpal/db first -- others depend on its dist/)
+# Typecheck all workspaces (build the shared packages first -- others depend
+# on their dist/; this order matches .github/workflows/ci.yml)
 pnpm --filter @deckpal/db build
+pnpm --filter @deckpal/storage build
+pnpm --filter @deckpal/agent-tools build
 pnpm -r --workspace-concurrency=1 exec tsc --noEmit
 
 # Run the pure test suite (no DB required)
 pnpm --filter deckpal-api test:deck
 ```
 
-Build `@deckpal/db` before typechecking -- other packages resolve it through its
-`dist/` output. See `packages/db/package.json` for the `main` field.
+Build `@deckpal/db`, `@deckpal/storage` and `@deckpal/agent-tools` before
+typechecking -- other packages resolve each through its `dist/` output. See
+`packages/*/package.json` for the `main` field. `@deckpal/agent-tools` also has
+to be built before `scripts/check-functions.mjs` (CI's "serverless functions
+load" step), since `api/mcp.mjs` pulls `apps/mcp/dist/cloud.js`, which pulls
+this package.
 
 ---
 

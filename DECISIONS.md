@@ -7937,3 +7937,918 @@ happen AFTER the chat opens. `DeckeHost` schedules the park as
 `setTimeout(320)` -> `requestAnimationFrame`, so a no-op rAF means the flight is
 never issued at all — and he then stands where he booted, which reads exactly
 like a layout bug in the thing under test.
+
+## 2026-08-21 — Deck-E's browser tools had never executed, and nothing said so
+**Decided by:** Claude (Opus 5), on behalf of @cheyras. Implementing
+`DECKE-AGENT-SPEC.md` rev 2.
+
+**What was wrong.** `flyTo`, `goTo`, `highlight` and `scrollToMe` had never run.
+Not once, for anyone, since the day they shipped. `useDeckeChat.ts` collected
+forwarded tool calls with `part.type.startsWith('tool-') && part.state ===
+'input-available'`, and `state` is not a field on that wire chunk. It is a field
+on a UI MESSAGE PART — a different object that happens to share the vocabulary.
+So the guard evaluated `undefined === 'input-available'` on every chunk that
+ever arrived, `pending` never filled, and he narrated journeys the browser was
+never told to take.
+
+Nothing failed. No type error, no exception, no log line. A stream chunk that
+matches no branch is not an error, it is silence.
+
+**Proven rather than assumed.** `apps/api/src/decke/__tests__/wire.test.ts`
+drives the real `buildTools()` through the real `createUIMessageStream` and
+asserts the bytes: `{"type":"tool-input-available","toolCallId":"call_1",
+"toolName":"goTo","input":{"route":"/decks"}}`. No `state`.
+
+**Three repairs, because fixing only the first is wrong in a new way.**
+
+1. Match `type === 'tool-input-available'`, name from `toolName`. NOT
+   `type.slice('tool-'.length)` — that yields the string `"input-available"`,
+   which is then dispatched as a tool name and answered "I do not know how to do
+   that". A repair that looks like it worked.
+2. Filter to `CLIENT_TOOLS`. Server-executed tools emit the identical chunk
+   after they have already run — the test asserts `express` announces exactly
+   like `goTo`. Unfiltered, the browser re-runs it, fails, and posts a second
+   output contradicting the one the server already gave that call id.
+3. One reader for every leg. `sendToolResults` understood only `text-delta`, so
+   a tool call in a follow-up turn — which is what a journey is made of — was
+   parsed, matched nothing, and vanished.
+
+**The journey loop is governed by the client, not `stopWhen`.** A client tool
+has no server `execute`, so it ENDS the server turn (`finishReason:
+"tool-calls"`). The loop is: stream closes → browser runs tools → browser POSTs
+a follow-up. Raising `stepCountIs` does nothing for navigation. The one-round
+cap became `MAX_LEGS = 4`, and each leg is a full request re-billing the entire
+prompt and history — a spend ceiling as much as a loop guard.
+
+**Two further bugs found in the same file.** `sendToolResults` was passed the
+USER's text as `saidSoFar` and replayed it to the model as the assistant's own
+words. And history was read back out of `currentRef` after `setMessages`, a race
+whose two outcomes were "history is right" and "history contains this turn
+twice".
+
+**Implications.** Verified in a real browser against the live backend, not
+asserted: two legs, `goTo={"ok":true}` replayed in the follow-up request,
+browser at `/decks`. `scripts/decke-gates.mjs` is that check, kept as a program
+rather than a checklist — it asserts the WIRE, never the transcript, because the
+transcript is written by the thing under test.
+
+## 2026-08-21 — `/api/chat` had no server-side entitlement, rate limit or spend cap
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Decision.** Server-side entitlement (`DECKE_ENTITLED_USER_IDS` plus the owner)
+checked before the body is parsed, and a durable per-user daily meter in
+Postgres (`decke_usage`, migrations 039/040) with the conversational and deep
+tiers capped separately.
+
+**Why.** `userFromRequest` checked only that the Supabase JWT was valid. The
+gate deciding who gets Deck-E lives in the browser, so what it actually decided
+was whether to draw a button. **Verified against the deployed endpoint before
+the fix:** an ordinary signed-in account got a full model turn, billed to the
+owner's Gateway key, by asking for one. That was survivable at $0.000143 a turn
+and stops being survivable the moment this endpoint can invoke Claude
+sub-agents, live research and write tools.
+
+**A list, not an id.** The QA account is deliberately an ordinary user (B12) and
+several of the spec's browser gates WRITE, so they may never run as the owner.
+An owner-only gate would have made this feature unverifiable by anyone permitted
+to verify it.
+
+**Check and charge in ONE statement.** SELECT-compare-UPDATE races: two requests
+that both read 119 both proceed, which is how a rate limit becomes a suggestion
+under exactly the load that made you want one. The `ON CONFLICT … DO UPDATE …
+WHERE` clause IS the comparison, under the row lock, and being over cap is
+expressed as "nothing came back". Verified against a real Postgres: cap 3 gives
+1, 2, 3, then no rows, with the stored value still 3 — the refused call does not
+increment.
+
+**A turn is one BILLED REQUEST, not one thing the reader typed.** A journey
+spends up to four. Naming the counter after what the reader perceives would make
+the cap read four times more generous than it is, and the first person to
+discover that would discover it from a bill.
+
+**Migration 040 gives `authenticated` SELECT and deliberately nothing else.** On
+Supabase every policied table is also reachable through the Data API with a
+user's JWT, so an UPDATE policy would not mean "the app may increment your
+counter", it would mean "you may zero it from a browser console". A meter its
+subject can edit is not a meter. The write runs as the connection's own role,
+outside `withUserContext`.
+
+**Accounting fails OPEN; access control does not.** A database blip must not
+take the character down, but it must never widen who can use it. Different
+questions, different answers, separate checks — and the open path logs loudly,
+because "the meter was off for six hours" has to be discoverable afterwards.
+
+**Implications.** ~90 ms added before first token (one round trip to a database
+in another region, against a measured 593 ms TTFT). Unavoidable while the meter
+is durable: the refusal must be decided before the spend, so it cannot overlap
+the model call. Deploy order is safe either way — with 039 unapplied the meter
+throws, logs and fails open, while entitlement works from the first request.
+`DECKE_ENTITLED_USER_IDS` must be set in Vercel or Deck-E is owner-only; per B9
+and B11 rule 3 that is the maintainer's action, not an agent's.
+
+## 2026-08-21 — One definition of what an agent can do in DeckPal
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Decision.** Extract `apps/mcp`'s tool layer into `packages/agent-tools` and
+give it two front-ends: the MCP protocol, and the AI SDK.
+
+**Why.** Two unrelated answers to "what can an agent do here" existed in this
+repo, and Deck-E got the empty one — 5,574 lines and 23 tools on one side, 337
+lines and 6 cosmetic tools on the other. Rejected: Deck-E proxying to
+`deckpal.app/mcp` over HTTP (a network hop per call on a latency-critical path,
+plus a PAT/JWT auth mismatch), and Deck-E re-implementing against REST
+(guarantees drift).
+
+**Proven pure, three ways**, because a refactor asserted to be
+behaviour-preserving is a refactor nobody checked: a static dump of all 23
+tools' name/title/description/schema-keys/annotations from HEAD and from
+`allTools()` (identical, same order); a real `initialize` + `tools/list`
+JSON-RPC exchange against both, byte-compared (identical, which covers the
+SDK-generated JSON Schemas); and `git diff -w` on the nine tool modules, every
+line accounted for.
+
+**The one deliberate behaviour change.** The set route is
+`/series/<seriesSlug>/<setId>` and no tool returned a series slug; slugs are not
+derivable from names (`scarlet-violet`, `mcdonald-s-collection`). `search_cards`,
+`get_card` and `set_progress` now append it — trailing additions only, one added
+JOIN each on a NOT NULL FK so no row set changes.
+
+**Annotation audit.** `readOnlyHint` stops being documentation the moment it
+becomes the control deciding what needs write approval. 12 read, 11 write, 4
+destructive, 0 unannotated. The two counter-intuitive ones were re-read rather
+than taken on trust: `set_cart` is a read (its POST to `/massentry` runs no
+INSERT/UPDATE/DELETE — it composes TCGplayer URLs and never contacts
+TCGplayer), and `deck_history` is a write (its `revert_to` branch rolls a deck
+back). `readOnlyHint` is now REQUIRED in the package's type where MCP's own has
+it optional, so a tool that forgets it fails to compile.
+
+**Implications.** A tool added for Claude appears for Deck-E in the same commit.
+`packages/agent-tools` is in `vercel.json`'s build command, the root build
+script and CI, in that order — both functions depend on its `dist/`.
+
+## 2026-08-21 — Raising `api/chat.mjs` to `maxDuration: 300`, which reverses 2026-08-19
+**Decided by:** @cheyras, on Claude's argument. Recorded because it reverses a
+decision in this file and must not look like drift.
+
+**What 2026-08-19 decided.** "Why not raise `maxDuration`. It moves the cliff
+instead of removing it, and it makes correctness depend on a plan tier. The
+binding budget is actually the API's own `PGRLS_MAX_HOLD_MS` (30 s), not the
+function's 60."
+
+**Why that still stands, and why this is not it.** That decision concerned
+`log_cards` — a WRITE path whose work could be made cheap (99 items went from
+~65 s to 177 ms by batching), and where the real budget was the database hold.
+Both remain true, and the fix there was right.
+
+A research-and-synthesis turn is a different workload. Its latency is
+irreducible — it is a model thinking, not a loop that can be batched — and it
+holds NO database connection while it runs, because `Ctx.db` is lazy and every
+tool call opens and releases its own short session. So the cliff is not being
+moved; a different workload is being given a different ceiling.
+
+**Decision.** `api/chat.mjs` goes to `maxDuration: 300`. Every deep tool gets a
+wall-clock budget BELOW the function's (`DECKE_DEEP_BUDGET_MS`, default 210 s)
+and returns PARTIAL FINDINGS rather than being killed — it streams for exactly
+that reason, since a call that is simply killed produced nothing and was billed
+anyway.
+
+**Implications.** Writes stay bound by `PGRLS_MAX_HOLD_MS`; a deep tool's writes
+go through deckpal-api and are unaffected by this number. No deep tool may
+bypass `log_cards`' idempotency key. **Needs Fluid Compute confirmed on the
+Vercel project** — per B9 that is the maintainer's to verify, and the value is
+inert without it.
+
+## 2026-08-21 — Deck-E's model routing: escalation is a tool, Sonnet is the default
+**Decided by:** @cheyras, on Claude's recommendation.
+
+**Decision.** Four deep tools — `plan_deck`, `write_strategy_guide`,
+`research_meta`, `analyze_collection` — each a sub-agent with its own model,
+step budget and tool subset. `MODELS.analysis` becomes `claude-sonnet-5` with
+`claude-opus-5` reachable only when the person explicitly asks for the best
+work. Research is `openai/o3-deep-research`.
+
+**Why a tool and not a router.** A classifier turn in front of every message
+taxes the 90% that do not need one, and a misroute is INVISIBLE — the answer
+still arrives, quietly worse, and nothing says a cheap model answered a question
+that needed an expensive one. A tool call appears in the log.
+
+**Why Sonnet by default.** `models.ts` measured one `claude-opus-4.8` analysis
+call at $0.0356 against $0.000143 for the chat tier — ~250x — and a realistic
+`plan_deck` with a collection in context plus research plus thinking runs
+$0.50–$1. Opus-by-default made one to three questions a user's entire monthly
+budget. The measurement that originally chose Opus (it found a buried 4x
+Charizard / 0 Charmander consistency bug a cheaper model missed) still stands,
+which is why `escalate` exists rather than the tier simply being cheapened.
+
+**Why o3-deep-research and not Perplexity or Exa.** Live research sends query
+text to a third party. `perplexity/sonar`, `sonar-pro`, `sonar-reasoning-pro`
+and Exa are all present on the Gateway key and are all cheaper and faster — and
+none is on the US-frontier-labs list `models.ts` records as the owner's
+constraint. Adding a vendor to that list is the owner's call; it was made the
+other way.
+
+**What that costs, stated rather than glossed.** `gatewayTools.exaSearch`
+exposes `include_domains`, which is the real injection control for live
+research — an allowlist enforced rather than requested. `o3-deep-research`
+searches provider-side, so that control is unavailable. (Separately:
+`gatewayTools` is not exported at runtime by the pinned
+`@ai-sdk/gateway@4.0.52` — `'gatewayTools' in require(…)` is `false` while the
+`.d.ts` declares it, so a typecheck would not have caught a usage. Same class as
+the recorded `providerOptions.gateway.cacheControl` defect.)
+
+The compensating controls are structural rather than prompted: the research
+sub-agent holds **no tools at all**, so nothing it reads can become an action;
+its output is inserted as DATA under a heading saying so; and queries carry card
+and archetype names, never collection context.
+
+**A gap recorded honestly.** `ModelChoice.effort` currently only sizes the token
+reserve — nothing in this codebase actually sends a reasoning-effort parameter
+to any provider. The reserve is the mitigation that matters (four measurements
+of reasoning models returning empty content with `finish_reason: "length"`), but
+the parameter itself is unwired. Wiring it needs a live probe per vendor, not an
+inference — see the `cacheControl` scar.
+
+## 2026-08-21 — Deck-E's conversational model was re-baked and kept its job
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Why re-bake.** `MODELS.chat` was chosen on 593 ms TTFT for a six-tool cosmetic
+loop. The job changed: converse, LOOK THINGS UP, and know when to escalate. A
+model chosen for how fast it can nod is not automatically right for that, and
+the spec's instruction was explicit — "do not assume the incumbent wins; do not
+replace it on vibes."
+
+**Method.** 5 trials per scenario, 150 calls, against the real system prompt and
+a tool set including the data tools. Scenarios: does it look up rather than
+invent; does it stay looked-up when contradicted; navigation; body-language
+schema validity; restraint on "hey"/"thanks".
+
+| model | lookup | correction | nav | malformed | restraint | TTFT |
+|---|---|---|---|---|---|---|
+| grok-4.1-fast-non-reasoning | 100% | 100% | 100% | 2/19 | 100% | 663 ms |
+| gemini-2.5-flash | 100% | 100% | 100% | 0/5 | 80% | 1251 ms |
+| gpt-5-mini | 0% | 100% | 40% | 6/6 | 10% | 618 ms |
+| claude-haiku-4.5 | 100% | 100% | 40% | never fired | 20% | 999 ms |
+| gpt-4.1-mini | 100% | 100% | 0% | never fired | 70% | 505 ms |
+
+**Decision.** No change. The incumbent was the only model clean on all five and
+also the fastest; `gemini-2.5-flash` stays the fallback.
+
+**The finding that matters most is not in the table.** Lookup rate went from
+NEVER — a 20-sample probe of the shipped system saw not one attempt — to 100%.
+The model was never the problem. There was nothing to look with.
+
+**Two failures worth keeping**, because both look like model quality and are
+not. `gpt-5-mini` answered "which one should I look up?" and then never looked,
+and stuffed every optional field onto every `express` command (6/6 malformed) —
+the pattern `tools.ts` already records for it. `gpt-4.1-mini` treated "take me
+to my decks" as an in-page gesture, calling `flyTo` 5/5 and never `goTo`; it
+never leaves the page.
+
+**Also re-checked:** the grok `minLength` bug still reproduces, but now as a
+hard HTTP 400 with an EMPTY message rather than an `error` part on a 200. Same
+cause, same fix, even less to go on if someone re-adds the constraint.
+
+## 2026-08-21 — The landmark cap: 40, prioritised, and why order matters more than the number
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Decision.** `collectLandmarks()` and `api/chat.mjs` cap at 40 rather than 24,
+and SORT before slicing: on-screen first, then `data-decke-rank="container"`
+before `"item"`, then DOM order as the stable tiebreak.
+
+**Why there is a cap at all.** The landmark list is PROMPT TEXT, re-billed on
+every leg of a turn, at roughly 15 tokens each. Forty is ~600 tokens a turn,
+which is affordable; unbounded is not, and a page with a long list would quietly
+become the most expensive page in the app.
+
+**Why the ORDER is the real decision.** The previous behaviour sliced 24 in DOM
+order, so a `SeriesDetail` with 15+ set rows plus a header could push the row
+the reader just asked about out of the list entirely — and the failure is
+silent. He does not say "I cannot see it"; he says something else about
+something else. `data-decke-rank` is DECLARED on the element rather than
+inferred from nesting, because inferring it means a layout change silently
+reorders what he can see.
+
+**Implications.** Zero-size nodes fall out of the on-screen test for free, which
+also removes a class of landmark that resolves but cannot be flown to.
+
+## 2026-08-21 — `showScreen` gains `group` and `table`, and a card budget nobody asked for
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Decision.** Two new block kinds, a caption on `cardGrid` (reusing `text`
+rather than adding a field), the block cap raised 8 → 12, real card art, and a
+new screen-wide `SCREEN_CARD_BUDGET = 60`.
+
+**The budget is the important one and it was not in the brief.** Raising the
+block cap created it: 12 blocks x 60 cards is 720 catalog lookups the browser
+makes, triggerable by a single tool call. The per-grid cap becomes a per-screen
+budget spent in block order, counting grids nested inside groups. A grid that
+does not fit is dropped WHOLE with a reason, never truncated — a half-shown grid
+is a lie about what was found.
+
+**Depth is limited structurally, not by a rule.** A `group` column is TYPED as a
+leaf block, so a nested group is a sentence the schema cannot express. No
+`z.lazy`, no recursion driven by model output.
+
+**Every new kind rejects rather than clamps.** A short table row is refused
+rather than padded — the case that most looks like it deserves the `quantities`
+treatment and least does, because padding means inventing which column a figure
+belongs to. The one permitted clamp is unchanged.
+
+**Card art resolves safely.** The model supplies a catalog ID; the APP resolves
+it through `cardSource.artForIds`, and the model's string only ever reaches
+`encodeURIComponent` in a path. Three states are kept deliberately distinct:
+resolved → art, still-asking → skeleton, resolved-to-nothing → the honest
+monospace id. A slow network must not look like a hallucinated id.
+
+**The sync hazard this file flagged is now checked.** The 2026-08-21 adversarial
+review left `BLOCK_KINDS` ↔ renderer and `WireCommand` ↔ `tools.ts` as "real
+extension hazards … worth a shared type when either list next changes." This was
+that moment. A test reads the server's source as text and compares — the
+`uiTools.test.ts` precedent, since `deckpal-web` does not depend on
+`deckpal-api`. Rejected: a shared type (`packages/` is the wrong home for one
+character's vocabulary) and codegen (it puts a build step between a clone and a
+running app, which `CLAUDE.md` promises there is not). The test was
+mutation-tested to confirm it fails when the lists disagree.
+
+## 2026-08-21 — Deck-E can press things, and the control is a second attribute
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Decision.** A `click` tool, authorised by `data-decke-clickable` — a SECOND
+attribute on top of `data-decke-landmark`.
+
+**Why not reuse the landmark.** Pointable is not pressable. A price block, a
+completion bar and a card image are all worth flying to and ringing, and none
+should ever be pressed; several sit next to controls that write. One attribute
+for both would mean marking something "worth pointing at" silently also marked
+it "safe to press".
+
+**Two controls are marked**, both read before marking: `/series`'s "Show N
+series" disclosure (`setShowAll(true)`, nothing else) and `CardDetail`'s
+"Additional Variants" toggle (one piece of local state). The variant rows the
+second reveals contain quantity steppers, which are writes and are deliberately
+not marked — revealing a control is not the same capability as operating it.
+
+The `/series` one matters most: for a collector who owns nothing, which is every
+new account and the QA account the gates run as, every series on that page is
+behind that button.
+
+**THE LIMIT, recorded rather than implied.** The runtime cannot inspect what a
+React `onClick` does. It checks that an element was marked and that it is the
+kind of thing that gets pressed. It cannot check that pressing it does not
+write. "Never a write" is therefore a property of the MARKING DISCIPLINE, not of
+the code, and whoever adds the attribute is the safeguard.
+
+**Which is why there is an audit test that fails when a new control is marked.**
+The evidence that a review step is needed rather than a rule: the spec that
+designed this tool listed the quantity stepper and the add-card control as
+clickable in its own table. Both are writes. It caught itself — a rule its own
+author broke while writing it down needs a second pair of eyes on every use.
+
+**This invalidates a premise in this file.** The 2026-08-21 clean security
+verdict rests explicitly on "there is no `click` tool, so `flyTo`/`highlight`
+can only move and ring." That premise is now false, and the adversarial pass was
+re-run against the new surface rather than assumed to still hold.
+
+## 2026-08-21 — Writes ask permission, and the asking is enforced by the SDK
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**Decision.** Every write tool declares `needsApproval`; the turn pauses, the
+reader answers, and a `tool-approval-response` goes back on the next leg.
+
+**Why not a prompt.** This codebase records the same lesson twice in the same
+words — "a prompt is not an enforcement mechanism" — once about `click` and once
+about trying to stop a model repeating itself by asking it not to. "Wait for
+confirmation before writing" would have been the third.
+
+`ai@7.0.66` ships a real control, verified against the pinned version rather
+than read from a changelog: with `needsApproval: true` the execute function ran
+exactly **0 times** and the wire carried
+`{"type":"tool-approval-request","approvalId":"…","toolCallId":"call_w"}`.
+
+**What needs approval**, derived from annotations and schema and never from the
+verb in the name: anything `destructiveHint` (always, including on a preview),
+any real write (always), and a preview never — being made to authorise something
+before being told what it would do is the opposite of the point. Three write
+tools have no `dry_run` at all, so every call to them is a real write; that
+falls out of the rule rather than being a special case.
+
+**The server also forces the preview.** When a call is classified as a preview,
+`dry_run: true` is written into the arguments explicitly rather than left to the
+tool's default, so classification and coercion agree by construction. Only an
+explicit boolean `false` is read as permission to write — `'false'`, `0`, `null`,
+`''`, `NaN`, `[]` and a missing field all land on the safe side, because those
+are the values a model actually produces when it stringifies a boolean.
+
+**A denial is an answer**, sent back explicitly, so he can say "alright, left it
+alone" rather than stopping mid-turn with no explanation. **An abort resolves
+the question as a denial** — without that, pressing stop with an approval on
+screen parks the turn's promise for ever, the `finally` never runs, and
+`thinking` never clears.
+
+## 2026-08-21 — Two connection leaks, in the code written to prevent leaks
+**Decided by:** Claude (Opus 5), on behalf of @cheyras. Found by testing the
+failure paths rather than the happy one.
+
+**What was wrong.** Both are the shape of the 2026-08-12 pool-exhaustion
+incident, arriving through the watchdog added to stop it.
+
+1. `Promise.race` abandons the loser, it does not cancel it — so a
+   `pool.connect()` that resolved a moment after its deadline handed back a
+   checked-out client with nobody holding a reference to release it. Checked out
+   for the life of the instance. With `PGPOOL_MAX_CHAT=2` that is two slow
+   moments from a wedged pool.
+2. The query deadline and the session watchdog fire at almost the same instant
+   with no guaranteed order, so a query could reject while its connection was
+   still returned to the pool — with a statement Postgres was very much still
+   running on it, inside an open transaction, carrying that turn's RLS claims.
+   The next borrower would set its own claims on top of a live session.
+
+**Decision.** The losing connect promise is reclaimed and destroyed; a timed-out
+query destroys its connection at the point of timeout rather than leaving it to
+a race. Queries are bounded by what is LEFT of the session budget, not by a
+fresh copy of it — ten queries of nine seconds each inside a ten-second session
+made the deadline mean nothing.
+
+**Implications.** A timed-out query is by definition a connection in an unknown
+state; there is no version of that which is safe to hand to someone else. The
+cost of destroying is one reconnect. The cost of sharing is a cross-user data
+leak.
+
+**Worth recording separately:** one of the two failures the new suite first
+produced was a bad ASSERTION rather than a bug. "The string `'; DROP TABLE` does
+not appear in the preamble" passes for the wrong reason either way, because
+correctly-escaped output contains `''; DROP TABLE`, which has the naive needle
+as a substring. It now checks that the quote was doubled and that the literal's
+quotes are balanced — the escaping, not the scary words.
+
+## 2026-08-21 — Turn history replays lookups, compacted
+**Decided by:** @cheyras, choosing between three options Claude put.
+
+**What was wrong.** `messagesToWire` kept text and nothing else, so turn N+1 had
+no record that turn N read 604 cards — only its own prose about them. That
+re-creates the original fabrication pathology in a new form: he asserts from his
+own earlier sentences rather than from data, and a sentence is exactly the thing
+that drifts. "You've got 70 of them" becomes "most of them" becomes a number
+nobody looked up.
+
+**The three options.** Replay everything (truthful; input bill grows without
+bound on a long conversation, colliding with the per-turn input budget the tool
+ceiling exists to defend). Re-read per turn (always fresh; costs a tool call and
+a round trip on every follow-up question). Replay COMPACTED — what a lookup
+FOUND, in one line, not its 200 rows.
+
+**Decision: compacted.** The compact form is the chip's own summary, which is
+the first line of the real tool result produced by the server's execute wrapper.
+So the record cannot describe a lookup that did not happen — there is no chip
+without an invocation.
+
+**Marked as a record, not folded into his speech.** Appending "I read 604 cards"
+to his words would put sentences in his mouth he never said, and the next turn
+would replay them as if he had.
+
+## 2026-08-22 — Nine defects that only a deployment could find
+**Decided by:** Claude (Opus 5), on behalf of @cheyras. Recorded because the
+pattern matters more than any individual entry.
+
+**The code was "done" and every test was green.** 88 API tests, 183 web tests,
+typecheck clean across nine workspaces, CI and CodeQL passing, a byte-identical
+`tools/list` proof for the refactor, and an adversarial security review. Then it
+was deployed to a preview and asked real questions, and nine things were wrong.
+
+None of them were found by tests. Several could not have been.
+
+| What was wrong | Why no test caught it |
+|---|---|
+| The approval ANSWER was destroyed on the wire — `{type:'tool-approval-response'}` is read by `isToolUIPart` as a call to a tool named "approval-response", so consent produced a failed leg and no write | The tests pinned the POLICY (which tools need approval) and the SDK's HOLD (`execute` ran 0 times). Nobody drove the ANSWER through `convertToModelMessages` |
+| `showScreen` fired three times per turn, twice with a newline-wrapped title | Only appears at `stepCountIs(12)` with real lookups between speaking and acting |
+| He printed the `showScreen` payload as a fenced JSON block in his reply | Model behaviour; no code path is wrong |
+| "out July 17 **next year**" for a set released five weeks earlier | Nothing told him today's date, and no test asserts a tense |
+| Four wasted tool calls guessing set ids before finding `me05` | Each call succeeded; only the sequence was wasteful |
+| **`search_cards` with an unknown `set_id` returned "no cards match"**, so he said "No Basic Grass Energy in Pitch Black — checked the catalog, nothing matches" | Every layer behaved correctly; an unknown id is just another WHERE clause |
+| The approval prompt asked permission for a change it never described | The control worked perfectly; it was simply silent |
+| **The client gate asked `me.owner` while the server gated on the entitlement list**, so Deck-E was invisible to the only account permitted to test him | Each layer was right ALONE. Health said `owner-plus-list`, curl got 200, the UI showed nothing |
+| Two `unref()`d timers that let Node exit mid-race, cancelling ten tests | Passed locally every time; failed on CI, where different things keep the loop alive |
+
+**The one worth reading twice** is `search_cards`. The sentence that started this
+whole effort was "No 'Pitch Black' set in Pokémon TCG" — a model asserting
+absence from memory. What the deployment produced was "No Basic Grass Energy in
+Pitch Black — checked the catalog, nothing matches", which is the SAME CLAIM,
+now with a real tool call behind it that really did return nothing. It is worse
+than the original, because it looks sourced. An empty result under a filter that
+could never match is not evidence, and the tool now says so in those words.
+
+**Why the gates are a program and not a checklist.** `AGENTS.md` says "verify the
+artifact, not the report", and the report is what was wrong last time. Every one
+of these was found by reading what the deployed thing actually said and
+comparing it against the database — never by asking whether the code looked
+right. It looked right throughout.
+
+**Implications.** `scripts/decke-gates.mjs` is kept and is the thing to run
+before any future change to this feature. The QA account is seeded so its
+figures are falsifiable, and `GET /me` now returns `decke` so the client and
+server gates cannot drift apart again — that last one is not a nicety: it made
+the feature untestable by the one account B12 permits to test it.
+
+## 2026-08-22 — He still fabricates, and the approval gate is what makes that survivable
+**Decided by:** Claude (Opus 5), on behalf of @cheyras. Recorded before it is
+fixed, because the finding is more important than the fix.
+
+**What was observed**, on the deployed preview, running gate 10 ("Add 4000
+Charizards"):
+
+> "Preview says: 0 → 4000."
+
+The tool log for that stream contains `get_card`, `get_card`. There is no
+`log_cards` call anywhere in it. He invented a preview and reported its result.
+
+Reproduced across both runs of that gate. In the same turn he also emitted
+`<express><commands><op>state</op><value>alert_dizzy</value></commands></express>`
+as visible text, producing zero `data-decke` chunks — so the reaction he was
+describing never fired either.
+
+**This is §1's disease, after everything.** The tool layer, the prompt rewrite,
+the "never claim to have changed anything you did not change" rule, the read
+tools that work — he can still say a thing happened when it did not.
+
+**Why it is nonetheless shippable, and this is the whole argument.** The
+fabrication is bounded by a control that does not depend on him being truthful:
+
+- A fabricated preview writes nothing, because `log_cards` was never called.
+- A REAL write cannot execute without a human approving it, enforced by the SDK
+  rather than by the prompt — verified, `execute` ran 0 times while held.
+- The approval prompt now shows the DRY RUN'S OWN OUTPUT rather than his
+  description of it, so a reader consenting to a write sees what the tool said,
+  not what he said the tool said.
+
+So the worst case is that he says something false about a change that did not
+happen, and the reader is shown the truth by the prompt he must click through.
+That is a materially different failure from the original, where he said a thing
+happened and nothing anywhere contradicted him.
+
+**What is NOT claimed:** that he is now honest. He is bounded. The distinction
+matters and is the reason every control on this path is a mechanism rather than
+an instruction.
+
+**The suspected cause, and why it is not being acted on yet.** The bake-off that
+measured this model 100% clean on every metric — including restraint and
+schema-valid `express` calls — gave it about ten tools. It now holds
+thirty-four: 7 cosmetic + 23 data + 4 deep. Both defects are consistent with
+tool-set overload, and neither appeared in the bake-off.
+
+Consistent is not measured. `models.ts` is a file of measurements with the
+rejected alternatives recorded, and adding a guess to it would be the one thing
+that devalues the rest. So the experiment runs first: the same model and the
+same prompts at 34, ~22 and ~10 tools, counting narration and fabrication per
+arm. Whatever it says decides whether the chat tier gets trimmed, and by how
+much.
+
+**Interim mitigation.** `decke/narration.ts` strips tool syntax from visible
+text — narrow, seven tool names, tested in fragments. It removes what the reader
+sees. It does not make the animation fire, and the file says so in as many
+words.
+
+## 2026-08-22 — Per-step tool narrowing, and the measurement that did not replicate
+**Decided by:** @cheyras, on Claude's recommendation. Recorded with its
+uncertainty intact, because the tidy version of this entry would be wrong.
+
+**What was done.** `streamText` now takes `activeTools`, recomputed per step by
+`prepareStep` (`apps/api/src/decke/focus.ts`). On the FIRST step Deck-E sees 24
+of his 34 tools — everything except the ten heavy write tools. On every step
+after, he sees all 34. `log_cards` stays visible from step one, because "add
+these cards" is the request this feature exists to serve.
+
+**What motivated it.** A bisection against the live model, 5 trials per arm, on
+the prompt that reproduced the defect ("add 4000 Charizards", which should fire
+a reaction):
+
+    34 tools ... narrated the command as visible text 5/5, called `express` 0/5
+    23 tools ... 1/5 and 1/5
+    10 tools ... 3/5 and 1/5
+
+Two conclusions: the write tools were implicated, and FEWER WAS NOT BETTER — ten
+was worse than twenty-three, so a blunt trim would have cost capability for a
+worse result.
+
+**And then it did not replicate.** A follow-up run, designed to test whether
+`log_cards` could stay, could not reproduce the defect in ANY arm: 0/24 on the
+primary trigger where the first run had seen 5/5. That agent also found a real
+bug in its own harness — `fullStream`'s `text-delta` carries the increment in
+`.text`, not `.delta`, a field name that only exists after
+`toUIMessageStream()` — and could not rule out that the first harness had an
+analogous gap.
+
+So the evidence that motivated this change is **weak**, and this entry says so
+rather than quietly keeping the flattering half.
+
+**Why it stays anyway**, which is a different question from whether the
+measurement was sound:
+
+- It removes no capability. Everything returns on step two; a heavy write is
+  delayed by one step and never denied.
+- It costs nothing measurable — no extra call, no extra latency.
+- It is independently supported. arXiv 2605.24660 measures adaptive tool
+  shortlists beating large fixed sets (Claude Sonnet 93.1% vs 87.1% overall,
+  76.8% vs 60.9% on medium-difficulty queries), and narrowing per context is
+  convergent practitioner guidance for large tool sets.
+- The defect it targets is REAL and reproduced repeatedly outside the
+  measurement — the gate suite caught two more spellings of it
+  (`<function_call name="flyTo">`, `<xai:showScreen>`) on the deployed preview,
+  with the flight failing to happen both times.
+
+**What would settle it**: a third run with the corrected harness and a larger n,
+on the secondary trigger where the only narration this session appeared. It is
+not blocking anything, and nobody should treat the table above as settled fact
+until then.
+
+**A note on why the numbers are in this file at all.** `models.ts` is a file of
+measurements, and its value comes from every number in it having been observed.
+Adding one that did not replicate — without saying so — would devalue the rest.
+That is the whole reason this entry exists in the shape it does.
+
+## 2026-08-22 — Deck-E's chat model: 4.1 → 4.20, and the trade that came with it
+**Decided by:** @cheyras, on a measured recommendation.
+
+**The defect.** Asked "where do I change my completion goal?" with a real
+landmark and a set route, `grok-4.1-fast-non-reasoning` called `flyTo` **0/5**.
+It wrote the call out as bare prose instead — `flyTo [data-decke-goal-switcher]
+with point: true` — 5/5. The flight never happened, on every page with a
+landmark, which is half of what makes him a character rather than a text box.
+
+**What was ruled out first**, with numbers, because "change the model" is the
+expensive answer and should be the last one. Five prompt rewrites moved it 0/5
+each: making "movement is a TOOL CALL, never text" explicit, quoting the failure
+back at him, moving the section for recency, hardening `flyTo`'s description,
+and typing the landmarks as an enum. Tool count was not it (7 tools scored 1/5
+against 34 tools' 0/5). The `express` schema was not implicated — he never
+called `express` on those turns either, and the successor produced 0/10
+malformed commands against the identical flat schema.
+
+Same prompt, same 34 tools, only the model changed: **4.20 calls it 5/5**, clean,
+with zero narration across 32 turns.
+
+**What the switch cost, both recorded because a table of measurements is worth
+nothing if the inconvenient half is left out:**
+
+*Restraint changed.* 4.1 was silent 6/6 on plain "hey"/"thanks"; 4.20 fires a
+small nod 6/6. Measured as a regression against the prompt's governing rule
+("silence is a valid emission") and **accepted as a direction by the owner** —
+more expressive is the character being aimed at, and a nod on "hey" is a
+different thing from an emotion fired at random. The rule stays in the prompt,
+because it still governs the states that mean something.
+
+*It costs 7.49x, not the 6.25x on the pricing page.* $0.01153/turn against
+$0.00154. The gap is caching, and it was verified directly rather than taken
+from the report: identical 2k-token prompt, second call, 4.1 read 663 tokens
+from cache and 4.20 read 128. Across the bake-off, 98.4% cache-hit and 365
+no-cache input tokens per turn versus 67.1% and 10,078. The heavy implicit
+caching that helped pick 4.1 largely does not apply. Also ~340 ms slower TTFT,
+in all six scenarios rather than on average.
+
+**Held:** lookup 5/5, correction 5/5, navigation 5/5 with the canonical route.
+Schema validity *improved* — 0/16 malformed against 4.1's 3/30.
+
+**One consequence checked rather than inherited.** `models.ts` records that
+grok-4.20 accepts the `minLength`-nested-in-array-items constraint 4.1 rejects,
+and we now run 4.20. Confirmed on the same nested shape: 4.1 silently made no
+call, 4.20 called the tool. The `.min(1)` workaround in `tools.ts` stays anyway
+— it costs nothing, and the declared fallback is still a model where the defect
+is live, so restoring the constraint would buy a tighter schema and reintroduce
+a silent failure the day the fallback is used.
+
+## 2026-08-22 — Four bugs, one shape: a tool that does not describe its own boundaries
+**Decided by:** Claude (Opus 5), on behalf of @cheyras. Recorded as one entry
+because the pattern is worth more than the four fixes.
+
+Each of these was found by asking the deployed preview a real question, and each
+looked like a model defect until the cause was traced:
+
+| What he said | What was actually wrong |
+|---|---|
+| "No Basic Grass Energy in Pitch Black — checked the catalog, nothing matches" | He had guessed `set_id: 'pbp'`. An unknown set id was just another WHERE clause, so it returned the same empty result as a real miss |
+| Drew a grid of five card ids the account does not own, differing between runs | `collection_summary` returned names and no ids; `cardGrid` requires ids |
+| Guessed `pb`, `pitchblack`, `pitch-black` before finding `me05` | Nothing mapped a set NAME to an id |
+| Four `search_cards` calls for "Pitch Black" before trying `set_progress` | `query` matches CARD names; a set name can never match, and nothing said so |
+
+**The shape: wherever a tool's output cannot answer the obvious next question,
+the model fills the gap.** An empty result reads as "not found" rather than
+"wrong index". A summary that names things you cannot then display invites you
+to invent the missing key.
+
+**So the fixes are in the tools, not the prompt.** `search_cards` checks whether
+a filtered-on set exists and says an empty result is NOT evidence the card does
+not exist. `collection_summary` returns ids. `search_cards`'s description leads
+with what it does not match and points at the tool that does. `set_progress`'s
+unknown-id error names the recovery.
+
+This is a better frame than "the model is unreliable", because contract gaps are
+findable, fixable and testable, and an instruction not to guess is none of those.
+
+**And one control, because fixing the reason does not remove the capability.**
+`grounding.ts` collects the card ids tools actually returned this turn, and
+`sanitizeScreen` drops any id that was not among them. An invented id has no
+visual tell — it renders as real card art, correctly, for a card that is not
+theirs. Chosen over the alternatives on cost, per the research: a Set lookup, no
+model call, sub-millisecond, where chain-of-verification and self-consistency
+have real measured effect sizes and cost 3-4x per turn. No evidence means
+everything passes; it is a check for CONTRADICTED ids, not unproven ones.
+
+## 2026-08-22 — The approval signature: a security control that broke every write the moment it was switched on
+**Decided by:** Claude (Opus 5) on behalf of @cheyras, after an adversarial review by a Fable subagent returned DON'T SHIP.
+
+`experimental_toolApprovalSecret` makes the SDK sign each approval and verify the
+signature when it comes back, so a client cannot forge "the reader said yes". We
+set `DECKE_APPROVAL_SECRET` in Production and Preview. The reader captured the
+approval's `approvalId`, `toolCallId`, name and input from the
+`tool-approval-request` chunk — and dropped `signature`.
+
+**With the secret set, every approved write then failed.**
+`validateApprovedToolApprovals` throws `InvalidToolApprovalSignatureError:
+missing signature`, the leg dies, nothing is written. Preview, "Go ahead", "my
+brain glitched" — *consent given, nothing happened*, which is the exact failure
+this branch's headline fix removed, reintroduced by hardening the control that
+prevents it. Turning on the security feature is what broke it, so no test that
+ran without the secret could see it, and none did.
+
+Two lines in `ai@7.0.66` are the whole contract, and both were read before
+fixing rather than after: `dist/index.js:7704-7712` puts `signature` on the
+chunk; `dist/index.js:10906-10913` reads it back from `part.approval.signature`
+and nowhere else. Capture it, replay it there.
+
+**The class matters more than the bug.** This is the SECOND defect in the same
+buried replay construction — the first sent a bare `tool-approval-response` that
+`convertToModelMessages` silently read as a call to a tool named
+"approval-response". Both were invisible because the logic lived inside a React
+hook that does its own `fetch` and its own `supabase.auth.getSession()`, so no
+test could drive it. So the round trip is now two pure functions in
+`apps/web/src/character/host/approval.ts`, with tests — including three that run
+the real `convertToModelMessages` from the pinned `ai@7.0.66` over a replayed
+part, and one that feeds the bug-1 shape in and asserts it is STILL broken, so
+an upgrade that fixes it fails the test rather than leaving a stale explanation
+in the codebase.
+
+Their own file rather than exports on the hook, and that detail is load-bearing:
+`useDeckeChat.ts` imports `lib/supabase`, which reads `import.meta.env` at module
+scope, and under `node --test` there is no Vite — importing the hook throws
+before a single test runs. Exporting from it would have left this code exactly as
+untestable as it was when it shipped both bugs.
+
+Both bugs were then RE-INTRODUCED to check the tests are load-bearing: bug 2
+turns 3 tests red, bug 1 turns 2 red, including the real-SDK one each time.
+
+### Three more from the same review
+
+**`search_cards` on an unknown set now returns `fail`, not `ok`.** The message
+echoes the model's own `set_id` back at it, which is right — it needs to know
+which id was wrong. But `grounding.observe` harvests card-id-shaped tokens from
+every *successful* tool result as evidence a tool returned them, and a guess of
+`sv1-25` is card-id-shaped. Echoed through `ok`, the guess grounded ITSELF, and
+`sanitizeScreen` would then wave through a grid built on it. `fail` is excluded
+from grounding (`adapters/aisdk.ts:341`) and is the honest shape anyway.
+
+**A stale justification, corrected rather than quietly left.** `tools.ts` kept
+the `.min(1)` workaround on the grounds that "the declared fallback is still a
+model where the defect is live". The chat fallback is `google/gemini-2.5-flash`
+— a different vendor, where it is not. The workaround stays, on the honest
+reason: it is a no-op that cannot bite, and it replaced a silent failure.
+
+**An orphan `text-delta`.** The narration filter flushed its held tail under a
+literal id of `'narration'`, a block no `text-start` ever opened. Our own reader
+concatenates and does not care; `readUIMessageStream` does, and the part it
+drops is the tail of a real sentence. It now flushes under the live text id.
+
+## 2026-08-22 — He would not call the write tool, because the prompt told him to ask first
+**Decided by:** Claude (Opus 5), on behalf of @cheyras.
+
+**The defect.** On the deployed preview, gate 9 ("Add one card") failed: asked
+to add one `swsh4-162`, Deck-E called `get_card` and answered "Adding 1 Normal
+version would take you to 1. Sound good?" Told again, with the card id and the
+words "add one copy", he called `get_card` a second time and asked again.
+`log_cards` calls: none. Approval requests on the wire: none. The ledger never
+moved.
+
+**The cause was a rule that reads like good practice.** There are three consent
+mechanisms on this path and only one of them is real: the prose rule in
+`prompt.ts`, `log_cards`' own `dry_run` preview, and `needsApproval` in the AI
+SDK adapter. The third is the one the reader sees and answers — and it only
+exists once the tool is called. So `prompt.ts` opening the write protocol with
+"**Preview first.** Say what WILL change, in numbers … before anything happens"
+and closing the whole document with "Confirm before anything destructive or
+large. Say what will happen, in numbers, and **wait**" produced exactly that: he
+said the numbers, and stopped. The safety property was never coming from those
+sentences. It comes from the SDK. They were spending the feature to duplicate a
+control that already existed.
+
+**This also explains why it looked model-specific.** A parallel probe found he
+reaches for `write_strategy_guide` readily — also `needsApproval: true` — while
+refusing `log_cards`. That is not a `log_cards` defect: the "Changing things"
+section is scoped to "tools [that] change their **collection**", so the stall
+applied to the collection writes and nothing else. Two independent
+investigations converged on the same paragraph from opposite ends.
+
+**What was ruled out first, each measured before anything was rewritten**
+(live chat model, real 34-tool set, stubbed tool results, counting
+`tool-approval-request` on the wire):
+
+| Hypothesis | Result |
+|---|---|
+| the word "wait" — the leading suspect — deleted | 0/5 |
+| that rule rewritten to name the approval gate | 0/5 |
+| a primary-variant default, on its own | 0/5 |
+| "calls are held, this is safe" appended to the held tools' own DESCRIPTIONS | 0/15 |
+| rewriting the two protocol steps | 3/5, then 4/10 |
+
+So neither the obvious word nor the two-printing ambiguity in that transcript
+was the cause, and the tool description is not the lever. **More words made it
+worse, repeatedly** — a longer step 1 that also spelled out the mechanism
+scored 1/5 and 2/5, and a worked example of the failing turn scored 2/5.
+
+**The measurement that was wrong, and how it was caught.** The first fix
+measured 22/30 on the follow-up sentence and then failed the deployed gate 0/2 —
+a gap far too large to be a tail. It was the harness asking an easier question.
+A direct probe of the deployed `/api/chat`, identical but for the `route` the
+browser reports, gave **5/6 from `/` and 2/6 from `/series`**. Gate 9 opens him
+on `/series`, so every number gathered from `/` was evidence about a different
+turn. The transcripts named the residual precisely: he gets the decision RIGHT
+and then writes the question — "I'll add one copy of the normal version.
+Confirm?" — and ends the turn. The target was never the decision. It was the
+last sentence.
+
+**The fix**, four edits to `prompt.ts` and nothing else:
+
+- the write protocol's step 1 now says the call IS how they get asked;
+- step 2 says nothing has changed while it is held (see below);
+- a "never end a turn with *Confirm?*" clause;
+- `alert_warn` no longer described as "while **asking them** to confirm it",
+  which had made the asking his job.
+
+Measured from `/series`, the page the gate uses: **0/15 → 21/30** on the
+opening turn, and **12/12** on gate 9's full three-turn script.
+
+**What the fix nearly cost, and the second failure it had to avoid.** Telling
+him to call sooner creates a new way to be wrong: treating the call as the event
+and reporting it in the past tense while it is still held. An early candidate
+bought approvals and paid in exactly that — "one Aromatic Grass Energy added to
+your collection" with nothing on the wire, 2/20 — which is gate 9's
+`claimsAWrite` failing, and a worse defect than the one being fixed. The clause
+in step 2 closes it: 0/65 across every scenario. An attempt to close it from the
+*other* paragraph, by appending a note about tense to "Never say you changed
+something", made it **worse** (4/20). Naming the past tense appears to prime it,
+which is why the shipped sentence is a statement about the mechanism's state and
+not an instruction about grammar.
+
+**No documented answer was copied, because there is not one.** The AI SDK's
+`needsApproval` docs, its chatbot tool-approval guide and OpenAI's
+human-in-the-loop guide were all read directly; none mentions this failure mode.
+The only prompt-adjacent guidance any vendor gives is post-hoc ("when a tool
+execution is not approved, do not retry it"). LangGraph sidesteps it structurally
+by interrupting on a graph node rather than on the model choosing to call. So
+every number above is the evidence, not a citation.
+
+**Nothing was weakened.** No write executes without an approval — that is the
+SDK, untouched. Verified on the preview across two gate-9 runs: the ledger did
+not move while the call was held, then moved by exactly one when "Go ahead" was
+clicked (10 → 11 and 11 → 12), with the card going 0 → 1 both times. Gate 11
+(injection through page data) still passes: no `log_cards`, ledger unchanged.
+
+**Implications.**
+
+- `ROUTE` is now a knob on the probe harness. A number gathered from `/` is not
+  evidence about a turn that happens on `/series`, and this entry exists partly
+  to stop the next person re-learning that the expensive way.
+- A test asserts the ABSENCE of "Preview first" and "in numbers, and wait".
+  Whoever re-adds them will be doing something that looks careful; the test is
+  what tells them the cost.
+**Was this a regression from the model switch? No, and it is worth saying
+plainly.** The owner accepted a measured expressiveness trade on 2026-08-22 when
+the chat tier moved `grok-4.1-fast-non-reasoning` → `grok-4.20-non-reasoning`,
+and "the same switch also broke writes" would be a real cost to know about. It
+did not. The OLD prompt, same harness, same page, 15 trials each:
+
+    grok-4.1-fast-non-reasoning  (the previous model)   0/15
+    grok-4.20-non-reasoning      (the current model)    1/15
+
+And the NEW prompt, ten trials each, including the declared fallback:
+
+    grok-4.1-fast-non-reasoning   9/10
+    grok-4.20-non-reasoning      21/30
+    google/gemini-2.5-flash       7/10
+
+The defect reproduces on every model tried and the fix works on every model
+tried, which is about as clean a statement as this kind of evidence gets: it was
+the prompt, not the model.
+
+**Gate 9 had also never passed, which is why nobody had seen this.** It was
+added on 2026-08-21, before the model switch, and until 2026-08-22 it could only
+report a SKIP whose text read "writes are not exposed to the model" — a
+statement about which PR had landed, standing in for a behavioural failure.
+Then the approval signature was being dropped on the client, so an approved
+write could not commit anyway. Two blockers in front of this one, each of which
+would have hidden it. Removing them is what made it visible, and the skip that
+became a hard check is what made it legible.
+
+- **Gate 10 remains RED, and it was red before this change** — verified by
+  running it against the pre-change preview, where it fails identically. The
+  cause is `alert_dizzy` never reaching the wire on "Add 4000 Charizards", which
+  is the reaction defect already recorded on 2026-08-22, not a write defect. Its
+  safety halves pass on both builds: nothing written, nothing narrated as
+  written, no approval granted.

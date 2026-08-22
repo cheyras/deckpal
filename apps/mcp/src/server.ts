@@ -3,16 +3,8 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/server';
-import type { Ctx } from './ctx.js';
-import { registerCatalogTools } from './tools/catalog.js';
-import { registerCollectionTools, summaryText } from './tools/collection.js';
-import { registerDeckIntelTools } from './tools/deckIntel.js';
-import { registerDeckTools } from './tools/decks.js';
-import { registerHistoryTools } from './tools/history.js';
-import { registerListTools } from './tools/lists.js';
-import { registerLoggingTools } from './tools/logging.js';
-import { registerShoppingTools } from './tools/shopping.js';
-import { registerStatusTools } from './tools/status.js';
+import { summaryText, type Ctx } from '@deckpal/agent-tools';
+import { registerAllTools } from './adapters/mcp.js';
 
 // package.json sits beside dist/ in the repo, but a serverless bundler only
 // ships files it can see being read. If it did not make the bundle, advertise a
@@ -60,19 +52,17 @@ export function buildServer(ctx: Ctx): McpServer {
       : {}),
   });
 
-  registerStatusTools(server, ctx);
-  registerCollectionTools(server, ctx);
-  registerCatalogTools(server, ctx);
-  registerDeckTools(server, ctx);
-  registerDeckIntelTools(server, ctx);
-  registerListTools(server, ctx);
-  registerLoggingTools(server, ctx);
-  registerShoppingTools(server, ctx);
-  registerHistoryTools(server, ctx);
+  // Nine register*Tools calls used to stand here, one per tools/ module, in
+  // exactly this order. They are now one call: the tool definitions live in
+  // @deckpal/agent-tools and the adapter walks allTools() in registration
+  // order, which is the order tools/list reports and therefore the order a
+  // model reads them in. Adding a tool no longer means editing this file.
+  registerAllTools(server, ctx);
 
   // SPEC §5 resource: same payload as collection_summary, so clients can pull
-  // collection context without a tool round-trip. summaryText lives in
-  // tools/collection.ts (wave 2 fills in the real aggregation).
+  // collection context without a tool round-trip. summaryText is exported by
+  // @deckpal/agent-tools — a resource is not a tool, so it needs the function
+  // rather than a ToolDefinition.
   server.registerResource(
     'collection-summary',
     'collection://summary',

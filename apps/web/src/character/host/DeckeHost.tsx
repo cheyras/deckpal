@@ -448,7 +448,11 @@ export function DeckeHost() {
         decke={live}
         messages={chat.messages}
         onSend={chat.send}
+        onStop={chat.stop}
         busy={chat.busy}
+        asking={chat.asking}
+        onApprove={chat.approve}
+        onDeny={chat.deny}
         desktop={wide}
         characterPx={charPx}
       />

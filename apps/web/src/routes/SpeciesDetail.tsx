@@ -93,7 +93,13 @@ export function SpeciesDetail() {
       {sp && (
         <>
           {/* species header */}
-          <div className="flex flex-col gap-[16px] rounded-2xl bg-surface-secondary p-[20px] sm:flex-row sm:items-center">
+          <div
+            className="flex flex-col gap-[16px] rounded-2xl bg-surface-secondary p-[20px] sm:flex-row sm:items-center"
+            data-decke-species-header
+            data-decke-landmark="[data-decke-species-header]"
+            data-decke-label="the species header"
+            data-decke-rank="container"
+          >
             <div className="w-[128px] shrink-0">
               <SpriteTile
                 src={sp.sprite.art}
@@ -166,7 +172,13 @@ export function SpeciesDetail() {
             )}
           </div>
 
-          <div className="mt-[16px]">
+          <div
+            className="mt-[16px]"
+            data-decke-species-cards
+            data-decke-landmark="[data-decke-species-cards]"
+            data-decke-label="the card grid for this species"
+            data-decke-rank="container"
+          >
             {cards.length === 0 ? (
               <div className="py-[60px] text-center text-[14px] text-text-muted">
                 {ownedOnly ? 'You own none of this species yet.' : 'No cards found for this species.'}

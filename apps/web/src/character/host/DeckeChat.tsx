@@ -43,6 +43,7 @@ import { lockScroll, unlockScroll } from '../../components/ui/Sheet'
 import { Icon } from '../../components/Icon'
 import type { DeckEInstance } from './runtime'
 import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
+import type { PendingApproval, ToolChip } from './useDeckeChat'
 
 /**
  * WHERE HE STANDS WHILE THE CHAT IS OPEN.
@@ -144,6 +145,38 @@ export type ChatMessage = {
    * rendered last.
    */
   screen?: ScreenSpec
+  /**
+   * What he actually DID this turn, as chips.
+   *
+   * Held on the message for the same reason the screen is: the record of a
+   * lookup belongs to the turn that made it. It is also what gets replayed,
+   * compacted, as the NEXT turn's evidence — see `messagesToWire`. Without it,
+   * turn N+1 has no record that turn N read 604 cards, only its own prose about
+   * them, and prose is exactly the thing that drifts.
+   */
+  tools?: ToolChip[]
+}
+
+/**
+ * The last completed tool result on the transcript, for the approval prompt.
+ *
+ * WHICH IS ALWAYS THE DRY RUN, in the shape this protocol produces: the preview
+ * executes (it changes nothing, so it needs no permission), and the real write
+ * is the one held. So the most recent finished tool call at the moment the
+ * question appears is, by construction, the preview of the thing being asked
+ * about.
+ *
+ * Read off the chips rather than from his words, because the chips come from
+ * the server's own execute wrapper — a summary here cannot describe a preview
+ * that did not run.
+ */
+function previewOf(messages: ChatMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const done = (messages[i].tools ?? []).filter((t) => t.phase === 'ok' && t.summary)
+    const last = done[done.length - 1]
+    if (last?.summary) return last.summary
+  }
+  return null
 }
 
 export function DeckeChat({
@@ -154,7 +187,11 @@ export function DeckeChat({
   decke,
   messages,
   onSend,
+  onStop,
   busy,
+  asking,
+  onApprove,
+  onDeny,
   desktop,
   characterPx,
 }: {
@@ -166,7 +203,26 @@ export function DeckeChat({
   decke: DeckEInstance | null
   messages: ChatMessage[]
   onSend: (text: string) => void
+  /**
+   * Abort the turn in flight.
+   *
+   * The ONLY reachable path to the abort signal. `useDeckeChat` has returned a
+   * `stop()` since it was written and nothing ever called it, so every
+   * downstream abort handler — the RLS session destroying its connection, the
+   * API client dropping its wait, a sub-agent stopping its Opus bill — was
+   * unreachable code guarding an event that could not happen.
+   */
+  onStop: () => void
   busy: boolean
+  /**
+   * Writes he is holding, waiting on a person. Null when nothing is pending.
+   *
+   * The SDK genuinely has not run them — this is not a courtesy prompt in front
+   * of work already done.
+   */
+  asking: PendingApproval[] | null
+  onApprove: () => void
+  onDeny: () => void
   /**
    * Is the viewport wide enough for the desktop composition?
    *
@@ -445,6 +501,43 @@ export function DeckeChat({
                       {m.text}
                     </div>
                   ) : null}
+                  {/*
+                    WHAT HE ACTUALLY DID, as chips.
+
+                    Work has been indistinguishable from theatre: `thinking` is
+                    driven by request latency, so a fabricated answer and a
+                    researched one looked exactly the same while they were being
+                    produced. These are emitted by the server's own execute
+                    wrapper, one per real invocation, so a chip cannot appear
+                    for a lookup that did not happen.
+
+                    Rendered ABOVE his words on purpose — the reading order is
+                    "I checked your collection" then "you've got 70 of them",
+                    which is the order that makes the second sentence
+                    trustworthy.
+                  */}
+                  {m.tools?.length ? (
+                    <ul className="decke-shift flex flex-wrap gap-[6px] self-start">
+                      {m.tools.map((t) => (
+                        <li
+                          key={t.id}
+                          className={[
+                            'rounded-full px-[10px] py-[3px] text-[12px] leading-[18px]',
+                            'border border-border-subtle bg-surface-secondary',
+                            t.phase === 'error' ? 'text-text-muted line-through' : 'text-text-muted',
+                          ].join(' ')}
+                          // The summary is the first line of the real tool
+                          // result. Kept in a title rather than shown, because
+                          // the chip is a reassurance and the answer is the
+                          // answer — a chip that competes with his reply for
+                          // attention is a worse chip.
+                          title={t.summary ?? undefined}
+                        >
+                          {t.phase === 'start' ? `${t.title}…` : t.title}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                   {/* Full width rather than inside the bubble: a panel is a
                       figure, and an 85%-wide column with a card grid in it is a
                       column of one card. */}
@@ -487,6 +580,70 @@ export function DeckeChat({
           />
         ) : null}
 
+        {/*
+          THE APPROVAL GATE.
+
+          Above the composer, because it is the thing to answer before saying
+          anything else — and because a decision that scrolls away with the
+          transcript is a decision people will miss and then be surprised by.
+
+          The buttons are deliberately not symmetrical. "Leave it" is the plain
+          one and comes first in reading order; going ahead takes the deliberate
+          click. This is the only place in the app where a model asks to change
+          the reader's collection, and the default posture should be no.
+        */}
+        {asking?.length ? (
+          <div
+            className="pointer-events-auto shrink-0 border-t border-border-default px-[16px] py-[12px]"
+            role="alertdialog"
+            aria-label="Deck-E is asking permission"
+          >
+            <p className="text-[13px] leading-[19px] text-text-body">
+              {asking.length === 1
+                ? `Let him ${asking[0].title.toLowerCase()}?`
+                : `Let him make ${asking.length} changes?`}
+            </p>
+            {/*
+              THE PREVIEW, SHOWN — not left to him to remember to narrate.
+
+              Measured against the deployed preview: asked to add a card, he ran
+              `log_cards` with `dry_run: true`, then called it for real and the
+              SDK held it — and he produced NO TEXT at all that turn. The reader
+              was asked "Let him log cards?" with nothing whatsoever about what
+              would change.
+
+              The prompt tells him to state it in numbers, and he may well
+              start; but a consent dialog whose content depends on a model
+              remembering to speak is a consent dialog that will sometimes be
+              blank. The dry run ALREADY RAN and its result is already on the
+              message as a chip. Showing that is the same fact, from the tool
+              rather than from him — which is the version that cannot be
+              forgotten or embellished.
+            */}
+            {previewOf(messages) ? (
+              <p className="mt-[4px] text-[12px] leading-[18px] text-text-muted">
+                {previewOf(messages)}
+              </p>
+            ) : null}
+            <div className="mt-[8px] flex gap-[8px]">
+              <button
+                type="button"
+                onClick={onDeny}
+                className="rounded-[10px] border border-border-default px-[12px] py-[6px] text-[13px] text-text-body"
+              >
+                Leave it
+              </button>
+              <button
+                type="button"
+                onClick={onApprove}
+                className="rounded-[10px] bg-action-primary px-[12px] py-[6px] text-[13px] text-action-primary-text"
+              >
+                Go ahead
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <form
           onSubmit={submit}
           className={[
@@ -502,14 +659,44 @@ export function DeckeChat({
             aria-label="Message Deck-E"
             className="h-[40px] flex-1 rounded-full bg-surface-secondary px-[14px] text-[14px] text-text-primary outline-none placeholder:text-text-muted"
           />
-          <button
-            type="submit"
-            disabled={busy || !draft.trim()}
-            aria-label="Send"
-            className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full bg-action-primary text-action-primary-text disabled:opacity-40"
-          >
-            <Icon name="chevron-right" size={18} />
-          </button>
+          {/*
+            STOP, AND IT IS THE SAME BUTTON.
+
+            `useDeckeChat` has returned a `stop()` since it was written and
+            NOTHING EVER CALLED IT. Worse, `submit` early-returns while `busy`,
+            so sending again could not abort either — measured: with an
+            interrupt typed and entered, the leg streamed 47 KB to completion.
+            There was no reachable way to stop a turn at all.
+
+            That is not a cosmetic gap. Everything downstream is built to honour
+            an abort — the RLS session destroys its connection, the API client
+            drops its wait, a deep sub-agent stops billing Opus — and none of it
+            could ever fire, because the signal had no source. A deep turn is
+            now up to five minutes long; a reader who has changed their mind
+            needs a way to say so that is not closing the tab.
+
+            One button rather than two, because the composer is 40px of a phone
+            screen and "send" and "stop" are never both available.
+          */}
+          {busy ? (
+            <button
+              type="button"
+              onClick={onStop}
+              aria-label="Stop"
+              className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-text-primary"
+            >
+              <span className="block h-[12px] w-[12px] rounded-[2px] bg-current" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!draft.trim()}
+              aria-label="Send"
+              className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full bg-action-primary text-action-primary-text disabled:opacity-40"
+            >
+              <Icon name="chevron-right" size={18} />
+            </button>
+          )}
         </form>
       </div>
     </>

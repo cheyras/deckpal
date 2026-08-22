@@ -57,6 +57,68 @@ credential, not a second one. `oauth_client` and `oauth_code` have RLS
 enabled with zero grants (migration 033): only the server's RLS-bypassing
 pool connection can ever read or write them.
 
+**Deck-E (the AI assistant, `POST /api/chat`).** Entitlement is decided on the
+server, not the browser. `entitlement.ts`'s browser-side gate only decides
+whether to draw a button — verified against the deployed endpoint before this
+was fixed, an ordinary signed-in account got a full model turn, billed to the
+owner's Gateway key, by asking for one (DECISIONS.md 2026-08-21, "`/api/chat`
+had no server-side entitlement, rate limit or spend cap"). The route now
+checks `DECKE_ENTITLED_USER_IDS` plus the owner before the request body is
+parsed, and every account is metered against a durable daily cap in Postgres
+(`decke_usage`, migrations 039/040) — conversational turns and deep-tier calls
+capped separately, since the two differ roughly 250x in price. The cap is
+enforced by a single `INSERT … ON CONFLICT DO UPDATE … WHERE` statement so the
+check and the charge cannot race under concurrent requests; migration 040
+grants `authenticated` a SELECT policy on that table and nothing else, since an
+UPDATE policy would let a signed-in user zero their own counter through
+Supabase's Data API. `GET /api/health` reports `deckeEntitlement` (a status —
+`nobody` / `owner-only` / `owner-plus-list` / `self-host` — never the ids, since
+`/health` is unauthenticated) and `deckeLimits`.
+
+Deck-E holds **no credential of his own**. He carries the caller's own
+Supabase JWT — the same one the browser sent — and forwards it to deckpal-api
+for every write, so Row-Level Security applies to him exactly as it does to
+the person he is talking to, and there is no service-role key anywhere on this
+path. His database reads run the same per-request RLS session shape as the
+REST API and the MCP server (`BEGIN` + `set_config('request.jwt.claims', …)` +
+`SET LOCAL role = 'authenticated'`), opened lazily per tool call and released
+— destroyed, not pooled, on a timeout or an abort — the instant the call
+returns, so a dropped connection can never be handed to the next request still
+carrying a stranger's claims.
+
+**Only read tools are reachable from the conversational model today.** Of the
+23 tools in `packages/agent-tools`, the adapter Deck-E uses
+(`apps/api/src/decke/adapters/aisdk.ts`) filters to `annotations.readOnlyHint`
+by default — never on the verb in a tool's name, because a name can mislead in
+either direction (`set_cart` sounds like a write and only composes an outbound
+URL; `deck_history` sounds like a read and can roll a deck back). The write
+half exists in the shared package but is not exposed to him: it is gated on an
+approval round-trip that has not been built yet, because a write tool
+reachable from a conversational model before that exists is a tool that gets
+called by accident. One write reaches him regardless, deliberately: the
+`write_strategy_guide` deep tool (below) is allowed to call `deck_strategy`,
+which is dumb, idempotent storage — "replace the whole guide" — not a general
+write capability.
+
+**The deep tier and live research.** Four sub-agent tools
+(`apps/api/src/decke/deep.ts`) give Deck-E an escalation path rather than
+answering everything with the fast conversational model. `research_meta` is
+the one that leaves the perimeter: it sends query text — card and archetype
+names only, and its own description instructs it to never include anything
+about the user, their collection or their account — to a third-party model,
+`openai/o3-deep-research`, on the Vercel AI Gateway's US-frontier-labs
+allowlist. That sub-agent is given **no tools at all**, which is the actual
+control: text fetched from the open web is the least trustworthy input in this
+system, and the only way to guarantee it cannot become an action is to hand
+the thing that reads it no actions to take. Its findings are inserted back
+into the conversation labelled as fetched data, into a model already
+instructed never to treat instructions found in data as commands. (Recorded
+honestly in DECISIONS.md 2026-08-21, "Deck-E's model routing": the
+domain-allowlist control available on this Gateway for other research tools —
+`include_domains` — is not available for `o3-deep-research`, since it searches
+provider-side; the compensating controls here are structural rather than that
+allowlist.)
+
 **What the browser persists.** Besides Supabase's own session (its
 `sb-<ref>-auth-token` key), the SPA writes two of its own `localStorage` keys,
 neither of which is a credential and neither of which is ever read as one:

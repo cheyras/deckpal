@@ -16,6 +16,15 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
       params={{ series: seriesSlug, set: set.setId }}
       search={CARD_SEARCH_DEFAULTS}
       className="flex items-stretch overflow-hidden rounded-lg border border-border-default bg-surface-tertiary hover:border-surface-quaternary"
+      // Keyed on the SET ID, which is a catalog identifier and therefore stable
+      // and unique on this page; the set NAME is attacker-influenceable text and
+      // stays out of the selector, in the label where it belongs. Rows are left
+      // at the default rank ("item"), so on a series with thirty sets the grid
+      // container above survives the per-turn landmark budget even when the tail
+      // of the rows does not.
+      data-decke-set={set.setId}
+      data-decke-landmark={`[data-decke-set="${set.setId}"]`}
+      data-decke-label={`the ${set.name} set row`}
     >
       {/* The logo is a full-bleed SECTION of the row, not a window floating in
           it: it runs to the card's top, left and bottom edges, so its left
@@ -92,7 +101,18 @@ export function SeriesDetail() {
             {data.series.name}
           </h1>
           <p className="mb-[24px] text-[14px] text-text-muted">{data.sets.length} sets</p>
-          <div className="grid gap-[20px] [grid-template-columns:repeat(auto-fill,minmax(min(420px,100%),1fr))]">
+          {/* The set list is marked as a CONTAINER as well as its rows. A series
+              page is the worst case for the landmark budget — Mega Evolution
+              aside, several eras run past twenty sets — and without a container
+              a truncated list leaves him with a handful of arbitrary rows and no
+              way to say "the sets are over here". */}
+          <div
+            className="grid gap-[20px] [grid-template-columns:repeat(auto-fill,minmax(min(420px,100%),1fr))]"
+            data-decke-set-list
+            data-decke-landmark="[data-decke-set-list]"
+            data-decke-label="the list of sets in this series"
+            data-decke-rank="container"
+          >
             {data.sets.map((s) => (
               <SetRow key={s.setId} set={s} seriesSlug={series} />
             ))}

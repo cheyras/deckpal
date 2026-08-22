@@ -98,28 +98,42 @@ export function SearchResults() {
     <Content cap={1165}>
       <h1 className="mb-[16px] text-[24px] font-bold text-text-primary">Search</h1>
 
-      <label className="relative flex h-[48px] w-full items-center">
-        <span className="pointer-events-none absolute left-[14px] text-icon-default">
-          <Icon name="search" size={20} />
-        </span>
-        <input
-          autoFocus
-          value={term}
-          onChange={(e) => setTerm(e.target.value)}
-          placeholder="Search every card by name or number…"
-          className="h-[48px] w-full rounded-lg border border-border-default bg-surface-primary pl-[44px] pr-[12px] text-[16px] text-text-primary placeholder:text-text-muted"
-        />
-      </label>
+      {/* There is no filter RAIL on this page — SPEC §9.1's table names one, but
+          this route has never had a rail: it has a search field and, once you
+          have typed something, a strip of sort chips. Marking those two as one
+          region is the honest version of that table row; inventing a sidebar to
+          match the spec would be the other kind of fix. The wrapper is a plain
+          block div around two already-block-level children, so it changes no
+          layout — verified at 1440px and 390px. */}
+      <div
+        data-decke-search-filters
+        data-decke-landmark="[data-decke-search-filters]"
+        data-decke-label="the search box and sort controls"
+        data-decke-rank="container"
+      >
+        <label className="relative flex h-[48px] w-full items-center">
+          <span className="pointer-events-none absolute left-[14px] text-icon-default">
+            <Icon name="search" size={20} />
+          </span>
+          <input
+            autoFocus
+            value={term}
+            onChange={(e) => setTerm(e.target.value)}
+            placeholder="Search every card by name or number…"
+            className="h-[48px] w-full rounded-lg border border-border-default bg-surface-primary pl-[44px] pr-[12px] text-[16px] text-text-primary placeholder:text-text-muted"
+          />
+        </label>
 
-      {trimmed.length > 0 && (
-        <SortChipStrip
-          items={SORTS}
-          activeKey={search.sort}
-          activeDir={search.dir}
-          onSort={(key, dir) => patch({ sort: key as GlobalSortKey, dir })}
-          className="mt-[16px]"
-        />
-      )}
+        {trimmed.length > 0 && (
+          <SortChipStrip
+            items={SORTS}
+            activeKey={search.sort}
+            activeDir={search.dir}
+            onSort={(key, dir) => patch({ sort: key as GlobalSortKey, dir })}
+            className="mt-[16px]"
+          />
+        )}
+      </div>
 
       {trimmed.length === 0 ? (
         <div className="py-[60px] text-center text-[14px] text-text-muted">
@@ -139,7 +153,14 @@ export function SearchResults() {
               </div>
 
               {cards.length > 0 && (
-                <div className="mt-[24px]" style={{ opacity: isFetching ? 0.6 : 1 }}>
+                <div
+                  className="mt-[24px]"
+                  style={{ opacity: isFetching ? 0.6 : 1 }}
+                  data-decke-results-grid
+                  data-decke-landmark="[data-decke-results-grid]"
+                  data-decke-label="the search results grid"
+                  data-decke-rank="container"
+                >
                   <GridView cards={cards} seriesSlug="" setId="" />
                 </div>
               )}

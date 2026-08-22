@@ -58,16 +58,19 @@ self-hosters.
 
 ## Architecture
 
-pnpm monorepo. Four apps + a shared database package, deployed on Vercel +
-Supabase (cloud) or plain Postgres (self-host):
+pnpm monorepo, deployed on Vercel + Supabase (cloud) or plain Postgres
+(self-host):
 
 | App | Role |
 |---|---|
 | `apps/api` (`deckpal-api`) | Express API (~49 endpoints), deployed as a Vercel catch-all serverless function |
 | `apps/sync` (`deckpal-sync`) | Catalog import, dex import, price ingest (GitHub Actions scheduled jobs) |
 | `apps/web` (`deckpal-web`) | React 19 + Vite + Tailwind 4 SPA/PWA, deployed as Vercel static output |
+| `apps/images` (`deckpal-images`) | Self-host image server (local disk cache); cloud path uses Supabase Storage |
 | `apps/mcp` (`deckpal-mcp`) | **deckpal-mcp** -- MCP server, live and multi-user on cloud |
 | `packages/db` (`@deckpal/db`) | Shared Postgres pool + numbered immutable SQL migrations |
+| `packages/storage` (`@deckpal/storage`) | Shared image path algebra + the provenance choke point used by `apps/images` and the cloud image function |
+| `packages/agent-tools` (`@deckpal/agent-tools`) | The 23 agent tool definitions shared by `deckpal-mcp` and Deck-E, the AI assistant |
 
 For the full topology, data flow, and design rationale, see
 [`ARCHITECTURE.md`](ARCHITECTURE.md). The authoritative schema is in

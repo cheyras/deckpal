@@ -90,6 +90,15 @@ function SeriesCard({ s }: { s: SeriesSummary }) {
       params={{ series: s.slug }}
       className="flex items-stretch justify-between gap-[16px] rounded-lg border border-border-default bg-surface-tertiary p-[20px] hover:border-surface-quaternary"
       style={{ minHeight: 178 }}
+      // Deck-E can fly to and ring this card. The selector he is handed is the
+      // one written here, so it must be UNIQUE on the page and must not depend
+      // on class names or DOM position — both of which this file has already
+      // rewritten more than once. It keys off the series SLUG, which is a
+      // catalog identifier; the series NAME goes in the label instead, because
+      // the label is prose he says out loud and the selector is a capability.
+      data-decke-series={s.slug}
+      data-decke-landmark={`[data-decke-series="${s.slug}"]`}
+      data-decke-label={`the ${s.name} series card`}
     >
       <div className="flex min-w-0 flex-1 flex-col justify-between">
         <div>
@@ -127,9 +136,24 @@ function SeriesCard({ s }: { s: SeriesSummary }) {
   )
 }
 
-function CardGrid({ list }: { list: SeriesSummary[] }) {
+/**
+ * `group` is not decoration — it is what keeps the grid's landmark selector
+ * unique. This page renders CardGrid up to TWICE (collected above, the rest
+ * below the "show all" disclosure), so a bare `[data-decke-series-grid]` would
+ * match two elements and Deck-E would fly to whichever one `querySelector`
+ * happened to return first. `data-decke-rank="container"` puts the grid ahead of
+ * its own cards when the per-turn landmark budget has to drop some of them
+ * (see `collectLandmarks` in `character/host/useDeckeChat.ts`).
+ */
+function CardGrid({ list, group, label }: { list: SeriesSummary[]; group: string; label: string }) {
   return (
-    <div className="grid gap-[24px] [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+    <div
+      className="grid gap-[24px] [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]"
+      data-decke-series-grid={group}
+      data-decke-landmark={`[data-decke-series-grid="${group}"]`}
+      data-decke-label={label}
+      data-decke-rank="container"
+    >
       {list.map((s) => (
         <SeriesCard key={s.slug} s={s} />
       ))}
@@ -323,12 +347,12 @@ export function SeriesIndex() {
         </div>
       )}
 
-      {data && !groupByOwned && <CardGrid list={flat} />}
+      {data && !groupByOwned && <CardGrid list={flat} group="all" label="the series grid" />}
 
       {data && groupByOwned && (
         <div className="flex flex-col gap-[24px]">
           {owned.length > 0 ? (
-            <CardGrid list={owned} />
+            <CardGrid list={owned} group="owned" label="the grid of series you have collected" />
           ) : (
             <p className="text-[14px] text-text-muted">No series collected yet — expand below to browse them all.</p>
           )}
@@ -342,13 +366,38 @@ export function SeriesIndex() {
               24px group gap that carries it, not the divider. */}
           {others.length > 0 &&
             (showOthers ? (
-              <CardGrid list={others} />
+              <CardGrid list={others} group="others" label="the grid of series you have not started" />
             ) : (
               <div className="border-t border-border-default pt-[20px]">
                 <button
                   type="button"
                   onClick={() => setShowOthers(true)}
                   className="flex w-full items-center justify-between rounded-lg border border-border-default bg-surface-tertiary px-[16px] py-[12px] text-[14px] font-semibold text-text-primary hover:border-surface-quaternary"
+                  // Marked because of what browser verification found: on an
+                  // account that has collected nothing — a brand-new user, and
+                  // the QA account the gates run as — the owned grid is replaced
+                  // by a sentence and every other series is behind this button.
+                  // The page then has NO landmarks at all, and Deck-E asked
+                  // about a series on the series page can only shrug. This is
+                  // the one thing on the page worth pointing at in that state.
+                  //
+                  // PRESSABLE, and reviewed as such.
+                  //
+                  // `data-decke-clickable` is a SECOND authorisation on top of
+                  // the landmark, because pointable is not pressable. This one
+                  // earns it: its handler is `setShowAll(true)` and nothing
+                  // else — pure local disclosure, no request, no write, no
+                  // navigation away.
+                  //
+                  // It matters most on THIS page. For a collector who owns
+                  // nothing — every new account, and the QA account the gates
+                  // run as — every series on /series is behind this button, so
+                  // without it he can see nothing on the page most likely to be
+                  // asked about.
+                  data-decke-show-others
+                  data-decke-landmark="[data-decke-show-others]"
+                  data-decke-clickable
+                  data-decke-label="the button that reveals the series you have not collected"
                 >
                   <span>Show {others.length} series with no cards collected</span>
                   <span className="text-text-muted">▼</span>
