@@ -15,6 +15,28 @@ import type { DeckEInstance } from './runtime'
 
 export type UiToolResult = { ok: boolean; reason?: string }
 
+/**
+ * The tools that run HERE, in the browser.
+ *
+ * MIRRORS `CLIENT_TOOLS` in `apps/api/src/decke/tools.ts`, the same way
+ * `ROUTE_ALLOWLIST` below mirrors the server's — the web app does not depend on
+ * `deckpal-api`, so the two lists are kept honest by a test on each side rather
+ * than by a shared import.
+ *
+ * This list is a FILTER, not a convenience. Server-executed tools (`express`,
+ * `showScreen`) put the identical `tool-input-available` chunk on the wire after
+ * they have already run. Anything not named here that reaches `runUiTool` gets
+ * re-run in a place that cannot do it, fails, and posts a tool output that
+ * contradicts the one the server already produced for that same call id.
+ */
+export const CLIENT_TOOLS = ['flyTo', 'highlight', 'goTo', 'scrollToMe'] as const
+
+export type ClientToolName = (typeof CLIENT_TOOLS)[number]
+
+export function isClientTool(name: unknown): name is ClientToolName {
+  return typeof name === 'string' && (CLIENT_TOOLS as readonly string[]).includes(name)
+}
+
 /** Routes he may navigate to. MIRRORS the server's allowlist deliberately. */
 const ROUTE_ALLOWLIST = ['/series', '/lists', '/decks', '/pokedex', '/insights', '/scan', '/search']
 
