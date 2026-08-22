@@ -97,14 +97,32 @@ export async function withToolCtx<T>(
   // after the declaration and then reports `.finish()` as a property of
   // `never` — an error about entirely the wrong thing. An object field is not
   // narrowed that way.
-  const held: { session: RlsSession | null } = { session: null };
+  const held: { session: RlsSession | null; opening: Promise<RlsSession> | null } = {
+    session: null,
+    opening: null,
+  };
 
   const db: Queryable = {
     query: async (text, params) => {
-      if (!held.session) {
-        held.session = await openRlsSession(opts.pool, opts.userId, opts.signal);
-      }
-      return held.session.query(text, params);
+      // MEMOISE THE PROMISE, not the resolved session.
+      //
+      // `if (!held.session) held.session = await open(…)` looks equivalent and
+      // is not: the `await` is a suspension point, so two queries issued
+      // concurrently — a tool doing `Promise.all` on its first two reads — both
+      // see `null`, both call `openRlsSession`, and the second overwrites the
+      // first. One connection is then orphaned with nobody holding a reference
+      // to release it, reclaimed only by its own watchdog, meanwhile holding
+      // one of TWO pooled connections. The two queries would also run in
+      // different transactions, which is not what the tool asked for.
+      //
+      // No tool does this today — `status.ts` runs its `SELECT 1` serially
+      // before its `Promise.all` — so this is one plausible edit from wrong
+      // rather than wrong now. Caching the in-flight promise makes the race
+      // unrepresentable instead of merely unexercised.
+      held.opening ??= openRlsSession(opts.pool, opts.userId, opts.signal);
+      const session = await held.opening;
+      held.session = session;
+      return session.query(text, params);
     },
   };
 
@@ -146,12 +164,22 @@ function abortableApi(api: Api, signal?: AbortSignal): Api {
   if (!signal) return api;
   const guard = <T>(p: Promise<T>): Promise<T> => {
     if (signal.aborted) return Promise.reject(new Error('aborted'));
+    // REMOVED WHEN THE CALL SETTLES. `{ once: true }` only cleans up after an
+    // abort that actually happens; on the ordinary path the listener stays
+    // attached to a signal that lives for the whole turn. A deep turn making a
+    // dozen API calls accumulates a dozen listeners on one signal, and Node
+    // starts printing MaxListenersExceededWarning past ten — log noise that
+    // looks like a leak because it is one.
+    let onAbort: (() => void) | undefined;
     return Promise.race([
       p,
       new Promise<never>((_, reject) => {
-        signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        onAbort = () => reject(new Error('aborted'));
+        signal.addEventListener('abort', onAbort, { once: true });
       }),
-    ]);
+    ]).finally(() => {
+      if (onAbort) signal.removeEventListener('abort', onAbort);
+    });
   };
   return {
     base: api.base,

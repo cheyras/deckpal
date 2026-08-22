@@ -167,19 +167,39 @@ export async function openRlsSession(
   // back means the next request checks it out, sets ITS user's claims, and
   // races a still-running query from someone else's session. A destroyed
   // connection costs one reconnect. A shared one costs a cross-user data leak.
-  const destroy = () => {
+  // DECLARED BEFORE `destroy` so `destroy` can clear them. Both are armed a few
+  // lines down; `destroy` may run before that, and `clearTimeout(undefined)` is
+  // a no-op, so the ordering is safe in both directions.
+  let watchdog: ReturnType<typeof setTimeout> | undefined;
+  const onAbort = () => destroy();
+
+  function destroy() {
     if (ended) return;
     ended = true;
+    // TEAR DOWN THE TIMER AND THE LISTENER HERE, not only in `close`.
+    //
+    // `close` was the only place that cleared them, and `close` is unreachable
+    // on one path: if the RLS preamble (`BEGIN; set_config; SET LOCAL role`)
+    // fails or times out, this function destroys the client and THROWS, so no
+    // session is ever returned and nobody can call `close` on it. The ref'd
+    // 10-second watchdog then sat on a billed serverless instance with nothing
+    // left to reclaim, and the abort listener stayed attached to a signal that
+    // outlives the session.
+    //
+    // The same class of bug this branch already fixed twice in timers. Cleaning
+    // up where the resource actually dies, rather than where the happy path
+    // ends, is what stops there being a third.
+    clearTimeout(watchdog);
+    signal?.removeEventListener('abort', onAbort);
     try {
       client.release(true);
     } catch {
       /* the pool discards a broken client on its own */
     }
-  };
+  }
 
-  const onAbort = () => destroy();
   signal?.addEventListener('abort', onAbort, { once: true });
-  const watchdog = setTimeout(destroy, budget);
+  watchdog = setTimeout(destroy, budget);
 
   const close = async (mode: 'commit' | 'rollback'): Promise<void> => {
     clearTimeout(watchdog);

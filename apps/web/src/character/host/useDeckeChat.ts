@@ -96,6 +96,14 @@ export type PendingApproval = {
   /** The tool's own title, once its `tool-input-available` chunk arrives. */
   title: string
   name: string
+  /**
+   * The arguments the call was made with.
+   *
+   * NOT decoration. Answering an approval means REPLAYING THE WHOLE TOOL CALL
+   * with the answer attached — see `send`. Without the input the replayed part
+   * is not a valid tool call and the SDK cannot resume it.
+   */
+  input: Record<string, unknown>
 }
 
 /** One tool call's progress, as a chip. */
@@ -332,14 +340,46 @@ export function useDeckeChat(
             const parts: WirePart[] = []
             if (outcome.text.trim()) parts.push({ type: 'text', text: outcome.text })
             for (const a of outcome.approvals) {
+              const approved = answers.get(a.approvalId) === true
+              // ── REPLAY THE WHOLE CALL, WITH THE ANSWER ATTACHED ───────────
+              //
+              // NOT a bare `{type:'tool-approval-response', approvalId,
+              // approved}`. That looks like the obvious shape and is silently
+              // destroyed: `isToolUIPart` in ai@7.0.66 is
+              // `type.startsWith('tool-')`, so `convertToModelMessages` reads
+              // that part as a call to a tool NAMED "approval-response" and
+              // emits `{type:'tool-call', toolName:'approval-response'}` with
+              // no `toolCallId` at all. Verified against the pinned package:
+              // the answer vanishes and the next leg dies in `standardizePrompt`
+              // with AI_InvalidPromptError.
+              //
+              // What the reader would have seen: preview, "Go ahead", then
+              // "My brain glitched on that one — try me again?" and NOTHING
+              // WRITTEN. Consent given, nothing happened — the precise failure
+              // this whole control exists to prevent, reintroduced by the
+              // control itself. Caught by the adversarial review; it had passed
+              // every test we had, because the tests pinned the POLICY and the
+              // SDK's hold, and nobody had driven the ANSWER through
+              // `convertToModelMessages`.
+              //
+              // The SDK resumes statelessly, so it needs the call reconstructed:
+              // the tool's own `tool-<name>` type, its `toolCallId`, its
+              // original `input`, and the verdict in `approval`. That converts
+              // to tool-call + tool-approval-request + tool-approval-response,
+              // which is exactly what `collectToolApprovals` reads.
               parts.push({
-                type: 'tool-approval-response',
-                approvalId: a.approvalId,
-                approved: answers.get(a.approvalId) === true,
-                // A DENIAL IS AN ANSWER, not a silence. Sending it back lets him
-                // say "alright, left it alone" instead of stopping mid-turn with
-                // no explanation, which reads as a crash.
-                ...(answers.get(a.approvalId) === true ? {} : { reason: 'the reader declined' }),
+                type: `tool-${a.name}`,
+                toolCallId: a.toolCallId,
+                input: a.input,
+                state: 'approval-responded',
+                approval: {
+                  id: a.approvalId,
+                  approved,
+                  // A DENIAL IS AN ANSWER, not a silence. Sending it lets him
+                  // say "alright, left it alone" rather than stopping mid-turn
+                  // with no explanation, which reads as a crash.
+                  ...(approved ? {} : { reason: 'the reader declined' }),
+                },
               })
             }
             wire.push({ role: 'assistant', parts })
@@ -396,10 +436,29 @@ export function useDeckeChat(
           wire.push({ role: 'assistant', parts })
 
           if (leg === MAX_LEGS - 1) {
-            // Out of legs with work still outstanding. Say so rather than
-            // stopping mid-journey with no explanation — the page has already
-            // changed under the reader, and silence reads as a crash.
-            console.warn('[decke] leg budget exhausted with tools still pending')
+            // ── OUT OF LEGS, WITH WORK IN HAND ──────────────────────────────
+            //
+            // The comment here used to say "say so rather than stopping
+            // mid-journey with no explanation" and then only `console.warn`ed,
+            // which is a claim the code did not honour. The reader saw nothing.
+            //
+            // Worse once approvals existed: an approval answered on the LAST
+            // leg was asked, answered, pushed onto `wire` — and then the loop
+            // exited without ever POSTing the leg that carried the answer. The
+            // person said "go ahead", and nothing happened, silently. That is
+            // the failure this control exists to prevent, arriving through the
+            // control's own budget.
+            //
+            // So it is said out loud now, in his voice, and the wording is
+            // different for the two cases because they are different: an
+            // unfinished journey is a nuisance, an unapplied consent is a
+            // broken promise.
+            appendText(
+              outcome.approvals.length
+                ? " — I ran out of room to finish that. Nothing was changed. Ask me again and I'll go straight to it."
+                : ' — I ran out of steps there. Ask me again and I can pick it up.',
+            )
+            console.warn('[decke] leg budget exhausted with work still outstanding')
           }
         }
       } catch (e) {
@@ -501,6 +560,9 @@ async function streamLeg(
   // otherwise the reader is asked to approve 'call_a7f3'.
   const approvalNames = new Map<string, string>()
   const approvalTitles = new Map<string, string>()
+  // The ARGUMENTS too. Answering an approval replays the whole tool call, so
+  // without these the replayed part is not a valid call and cannot be resumed.
+  const approvalInputs = new Map<string, Record<string, unknown>>()
 
   const { data } = await supabase.auth.getSession()
   const token = data.session?.access_token
@@ -592,6 +654,7 @@ async function streamLeg(
           toolCallId: String(part.toolCallId ?? ''),
           name: approvalNames.get(String(part.toolCallId ?? '')) ?? 'that change',
           title: approvalTitles.get(String(part.toolCallId ?? '')) ?? 'Make that change',
+          input: approvalInputs.get(String(part.toolCallId ?? '')) ?? {},
         })
       } else if (
         part.type === 'tool-input-available' &&
@@ -604,6 +667,7 @@ async function streamLeg(
         // and costs nothing.
         approvalNames.set(part.toolCallId, String(part.toolName ?? ''))
         approvalTitles.set(part.toolCallId, titleFor(String(part.toolName ?? '')))
+        approvalInputs.set(part.toolCallId, (part.input ?? {}) as Record<string, unknown>)
       } else if (
         part.type === 'tool-input-available' &&
         typeof part.toolCallId === 'string' &&

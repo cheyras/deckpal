@@ -131,7 +131,10 @@ async function runSubAgent(opts: {
     timedOut = true;
     ac.abort();
   }, opts.budgetMs);
-  deadline.unref?.();
+  // NOT unref'd. Cleared in the `finally` below instead — the same lesson this
+  // branch learned twice already: an unref'd timer does not hold the event loop
+  // open, so the case it exists for (something that never settles) is the case
+  // where the process can exit with the race pending.
 
   try {
     const result = streamText({

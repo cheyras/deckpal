@@ -1,6 +1,7 @@
 import { q } from '../db.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
+import { errText } from './collection.js';
 
 /**
  * `health` — SPEC §5 #1: DB ok + API ok, catalog counts, owned totals, last
@@ -70,7 +71,13 @@ const healthTool = defineTool({
         dbMs = Date.now() - t;
         dbOk = true;
       } catch (err) {
-        dbErr = (err as Error).message;
+        // Through `errText`, not raw. `health` is the ONE tool whose whole job
+        // is to answer when the database is down — so it is the tool most
+        // likely to be holding a connection error, and a connection error's
+        // message is built from the host, the user and sometimes the password
+        // prompt. This string is a tool result: it reaches a model, and the
+        // model may repeat it.
+        dbErr = errText(err);
       }
 
       // API ping (warn-only by design — read tools work without it).
@@ -83,7 +90,7 @@ const healthTool = defineTool({
         apiMs = Date.now() - t;
         apiOk = true;
       } catch (err) {
-        apiErr = (err as Error).message;
+        apiErr = errText(err);
       }
 
       const lines: string[] = ['DeckPal health (deckpal-mcp)'];
@@ -162,7 +169,7 @@ const healthTool = defineTool({
         priceFreshness: freshness.map((f) => ({ source: f.source_code, fetchedAt: f.fetched_at })),
       });
     } catch (err) {
-      return fail(`health check failed: ${(err as Error).message}`);
+      return fail(`health check failed: ${errText(err)}`);
     }
   },
 });

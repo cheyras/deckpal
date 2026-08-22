@@ -229,3 +229,109 @@ test('a browser tool result replays as a UI message part, where `state` IS the f
   assert.ok(assistant, 'the call must survive as an assistant message')
   assert.ok(toolMsg, 'the result must survive as a tool message paired to it')
 })
+
+test('an APPROVAL ANSWER survives the round trip — the shape that silently did not', async () => {
+  // ── THE BUG THIS PINS ──────────────────────────────────────────────────────
+  //
+  // The client replied to `tool-approval-request` with the obvious shape:
+  // `{type:'tool-approval-response', approvalId, approved}`. It is destroyed in
+  // transit. `isToolUIPart` in ai@7.0.66 is `type.startsWith('tool-')`, so
+  // `convertToModelMessages` reads that part as a call to a tool NAMED
+  // "approval-response" and emits `{type:'tool-call', toolName:
+  // 'approval-response'}` with no toolCallId — the answer is gone and a phantom
+  // call takes its place.
+  //
+  // What a reader would have seen: preview, "Go ahead", then "My brain glitched
+  // on that one" and NOTHING WRITTEN. Consent given, nothing happened — the
+  // exact failure the approval control exists to prevent, reintroduced by the
+  // control itself.
+  //
+  // It passed every test we had, because those pinned the POLICY (which tools
+  // need approval) and the SDK's HOLD (execute ran 0 times). Nobody had driven
+  // the ANSWER through `convertToModelMessages`. This does.
+  const wrong = await convertToModelMessages([
+    { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'add a grass energy' }] },
+    {
+      id: 'a1',
+      role: 'assistant',
+      parts: [{ type: 'tool-approval-response', approvalId: 'ap_1', approved: true }],
+    },
+  ] as never)
+  const phantom = wrong
+    .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+    .find((c) => (c as { type?: string }).type === 'tool-call')
+  assert.equal(
+    (phantom as { toolName?: string } | undefined)?.toolName,
+    'approval-response',
+    'if this ever stops being misparsed the SDK changed and the note above is stale',
+  )
+
+  // ── THE SHAPE THAT ACTUALLY RESUMES ────────────────────────────────────────
+  //
+  // The SDK resumes statelessly, so it needs the CALL reconstructed: the tool's
+  // own `tool-<name>` type, its toolCallId, its original input, and the verdict
+  // in `approval`.
+  const right = await convertToModelMessages([
+    { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'add a grass energy' }] },
+    {
+      id: 'a1',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-log_cards',
+          toolCallId: 'call_1',
+          input: { dry_run: false },
+          state: 'approval-responded',
+          approval: { id: 'ap_1', approved: true },
+        },
+      ],
+    },
+  ] as never)
+
+  const flat = right.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+  const call = flat.find((c) => (c as { type?: string }).type === 'tool-call') as
+    | Record<string, unknown>
+    | undefined
+  const request = flat.find((c) => (c as { type?: string }).type === 'tool-approval-request')
+  const response = flat.find((c) => (c as { type?: string }).type === 'tool-approval-response') as
+    | Record<string, unknown>
+    | undefined
+
+  assert.ok(call, 'the tool call must be reconstructed')
+  assert.equal(call.toolName, 'log_cards', 'the real tool, not "approval-response"')
+  assert.equal(call.toolCallId, 'call_1')
+  assert.deepEqual(call.input, { dry_run: false }, 'the input must survive or the call is invalid')
+  assert.ok(request, 'the SDK needs the request it is answering')
+  assert.ok(response, 'and the answer itself')
+  assert.equal(response.approved, true)
+  assert.equal(response.approvalId, 'ap_1')
+})
+
+test('a DENIAL round-trips too, carrying its reason', async () => {
+  // A denial is an answer, not a silence — it is what lets him say "alright,
+  // left it alone" instead of stopping mid-turn with no explanation.
+  const msgs = await convertToModelMessages([
+    { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'delete that deck' }] },
+    {
+      id: 'a1',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-delete_deck',
+          toolCallId: 'call_2',
+          input: { deck: 'Mono Fire' },
+          state: 'approval-responded',
+          approval: { id: 'ap_2', approved: false, reason: 'the reader declined' },
+        },
+      ],
+    },
+  ] as never)
+  const response = msgs
+    .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+    .find((c) => (c as { type?: string }).type === 'tool-approval-response') as Record<
+    string,
+    unknown
+  >
+  assert.ok(response, 'a denial must reach the model, not vanish')
+  assert.equal(response.approved, false)
+})

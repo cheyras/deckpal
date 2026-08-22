@@ -250,14 +250,28 @@ export function forcePreview(def: ToolDefinition, input: unknown): unknown {
  * for it"). Everything else is reduced to a shape and a code.
  */
 export function safeToolError(err: unknown): string {
-  // Errors this codebase raises deliberately, phrased for a reader. The
-  // allowlist is by CLASS NAME rather than by message content, because a check
-  // on the text would pass anything that happened to look friendly.
+  // Errors this codebase raises deliberately, phrased for a reader.
+  //
+  // `ToolHoldTimeout` is allowlisted by CLASS, which is the strong form — a
+  // check on message content would pass anything that happened to look
+  // friendly. `'aborted'` is matched on its exact text because it is thrown as
+  // a plain `Error` in two places (`ctx.ts`'s `abortableApi`, `rls.ts`'s
+  // already-aborted guard) and giving it a class purely to be recognised here
+  // would be ceremony. An EXACT equality, never a substring: "aborted" is safe
+  // to say, and "connection aborted while authenticating as deckpal@10.1.2.3"
+  // is not, and only one of them is equal to it.
   if (err instanceof Error && (err.name === 'ToolHoldTimeout' || err.message === 'aborted')) {
     return err.message
   }
+  // SHAPE-CHECKED, matching what the meter's log line does. Reading `code`
+  // instead of `message` was not enough there and is not enough here: a
+  // SQLSTATE is five characters and a syscall code is one word, but nothing
+  // guarantees a future driver puts something that short in the field. This
+  // surface feeds a MODEL, so it should not have the weaker check of the two.
   const code = (err as { code?: unknown } | null)?.code
-  if (typeof code === 'string' && code) return `it failed with ${code}`
+  if (typeof code === 'string' && /^[A-Za-z0-9_]{1,32}$/.test(code)) {
+    return `it failed with ${code}`
+  }
   return 'it failed'
 }
 
