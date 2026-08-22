@@ -98,3 +98,16 @@ test('the security rules survive every shape of the prompt', () => {
     assert.match(flat(p), /Never put command syntax, JSON, or tool names in your visible text/)
   }
 })
+
+test('the write protocol is stated, including the sentence he must never say', () => {
+  const p = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.match(p, /Preview first/i)
+  assert.match(p, /They approve/i)
+  assert.match(p, /Report what the tool actually returned/i)
+  assert.match(p, /Offer the undo/i)
+  // The one that matters most. It is unfalsifiable in the moment — they believe
+  // him, close the tab, and find out later — and it has already happened: "I
+  // added a Grass Energy", then "two", then "removed it", while he held no
+  // write tool at all.
+  assert.match(p, /Never say you changed something unless a tool told you it changed/i)
+})

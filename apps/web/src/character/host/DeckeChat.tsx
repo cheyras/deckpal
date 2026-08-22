@@ -165,6 +165,7 @@ export function DeckeChat({
   decke,
   messages,
   onSend,
+  onStop,
   busy,
   asking,
   onApprove,
@@ -180,6 +181,16 @@ export function DeckeChat({
   decke: DeckEInstance | null
   messages: ChatMessage[]
   onSend: (text: string) => void
+  /**
+   * Abort the turn in flight.
+   *
+   * The ONLY reachable path to the abort signal. `useDeckeChat` has returned a
+   * `stop()` since it was written and nothing ever called it, so every
+   * downstream abort handler — the RLS session destroying its connection, the
+   * API client dropping its wait, a sub-agent stopping its Opus bill — was
+   * unreachable code guarding an event that could not happen.
+   */
+  onStop: () => void
   busy: boolean
   /**
    * Writes he is holding, waiting on a person. Null when nothing is pending.
@@ -604,14 +615,44 @@ export function DeckeChat({
             aria-label="Message Deck-E"
             className="h-[40px] flex-1 rounded-full bg-surface-secondary px-[14px] text-[14px] text-text-primary outline-none placeholder:text-text-muted"
           />
-          <button
-            type="submit"
-            disabled={busy || !draft.trim()}
-            aria-label="Send"
-            className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full bg-action-primary text-action-primary-text disabled:opacity-40"
-          >
-            <Icon name="chevron-right" size={18} />
-          </button>
+          {/*
+            STOP, AND IT IS THE SAME BUTTON.
+
+            `useDeckeChat` has returned a `stop()` since it was written and
+            NOTHING EVER CALLED IT. Worse, `submit` early-returns while `busy`,
+            so sending again could not abort either — measured: with an
+            interrupt typed and entered, the leg streamed 47 KB to completion.
+            There was no reachable way to stop a turn at all.
+
+            That is not a cosmetic gap. Everything downstream is built to honour
+            an abort — the RLS session destroys its connection, the API client
+            drops its wait, a deep sub-agent stops billing Opus — and none of it
+            could ever fire, because the signal had no source. A deep turn is
+            now up to five minutes long; a reader who has changed their mind
+            needs a way to say so that is not closing the tab.
+
+            One button rather than two, because the composer is 40px of a phone
+            screen and "send" and "stop" are never both available.
+          */}
+          {busy ? (
+            <button
+              type="button"
+              onClick={onStop}
+              aria-label="Stop"
+              className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-text-primary"
+            >
+              <span className="block h-[12px] w-[12px] rounded-[2px] bg-current" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!draft.trim()}
+              aria-label="Send"
+              className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full bg-action-primary text-action-primary-text disabled:opacity-40"
+            >
+              <Icon name="chevron-right" size={18} />
+            </button>
+          )}
         </form>
       </div>
     </>
