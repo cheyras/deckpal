@@ -35,6 +35,23 @@
  * invents things. That is recorded in DECISIONS.md rather than acted on.
  *
  * ══════════════════════════════════════════════════════════════════════════════
+ * AND THE MEASUREMENT DID NOT REPLICATE — READ THIS BEFORE TRUSTING THE NUMBERS
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * A follow-up run could not reproduce the defect in ANY arm: 0/24 on the
+ * primary trigger where the first run saw 5/5. That agent also found a real bug
+ * in its own harness — `fullStream`'s `text-delta` carries the increment in
+ * `.text`, not `.delta` — and could not rule out that the first harness had an
+ * analogous gap.
+ *
+ * So the numbers above are the honest record of what was observed, and they are
+ * NOT settled. This narrowing stays because it costs nothing, removes no
+ * capability, and is independently supported by published work on adaptive tool
+ * shortlists — not because the bisection is proven. If someone re-measures with
+ * a corrected harness and finds no effect, deleting this file is a perfectly
+ * good outcome and nothing else has to change.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
  * WHY `activeTools` AND NOT A SMALLER TOOL SET
  * ══════════════════════════════════════════════════════════════════════════════
  *
