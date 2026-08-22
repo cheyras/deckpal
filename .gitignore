@@ -101,3 +101,6 @@ __pycache__/
 
 # ── crash dumps (a killed node process can drop a multi-GB core here) ─────
 core.*
+
+# Generated review rendering of DECKE-AGENT-SPEC.md (see .cache/decke-probe/build_spec_html.py)
+.decke-spec-review.html
