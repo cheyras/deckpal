@@ -144,7 +144,41 @@ const searchCardsTool = defineTool({
         params,
       );
 
-      if (total === 0) return ok('No cards match. Loosen the query or drop a filter.');
+      if (total === 0) {
+        // ── "NOTHING FOUND" AND "YOU FILTERED ON A SET THAT DOES NOT EXIST"
+        //    ARE DIFFERENT ANSWERS, AND ONLY ONE OF THEM IS TRUE ──────────────
+        //
+        // An unknown `set_id` used to produce the same empty result as a
+        // genuine miss, because it is just another `WHERE` clause. So a caller
+        // who guessed the id was told, in effect, that the CARD does not exist
+        // — and that is the precise failure this entire effort exists to
+        // remove, arriving through a filter instead of through a model's
+        // memory.
+        //
+        // Observed against the live preview: asked to add a Basic Grass Energy
+        // from Pitch Black, Deck-E guessed `set_id: 'pbp'` (the set is `me05`),
+        // searched twice, and reported "No Basic Grass Energy in Pitch Black —
+        // checked the catalog, nothing matches." He had checked nothing of the
+        // kind. The sentence was confident, sourced-sounding, and false.
+        //
+        // One extra query, only on the empty path, so the common case pays
+        // nothing.
+        if (args.set_id) {
+          const known = await q<{ tcgdex_id: string }>(
+            ctx.db,
+            'SELECT tcgdex_id FROM card_set WHERE tcgdex_id = $1',
+            [args.set_id.trim()],
+          );
+          if (known.length === 0) {
+            return ok(
+              `There is no set with id '${args.set_id.trim()}', so this search could never ` +
+                `match anything — this is NOT evidence that the card does not exist. ` +
+                `Call set_progress with no set_id to list every set with its real id, then search again.`,
+            );
+          }
+        }
+        return ok('No cards match. Loosen the query or drop a filter.');
+      }
       const lines = rows.map((r) =>
         row(
           r.name,
