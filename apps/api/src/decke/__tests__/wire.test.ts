@@ -32,6 +32,20 @@ import { MockLanguageModelV3 } from 'ai/test'
 import { buildTools, CLIENT_TOOLS } from '../tools.js'
 
 /**
+ * Flatten a converted message list to its content parts.
+ *
+ * Typed as `unknown[]` on purpose: `ModelMessage.content` is a union of a
+ * string and several part arrays, and narrowing it properly here would mean
+ * naming SDK internal types in a test whose whole point is to assert the SHAPE
+ * the SDK produces. The assertions below read fields off it explicitly.
+ */
+const partsOf = (msgs: unknown[]): Record<string, unknown>[] =>
+  msgs.flatMap((m) => {
+    const c = (m as { content?: unknown }).content
+    return Array.isArray(c) ? (c as Record<string, unknown>[]) : []
+  })
+
+/**
  * A model that says one line and then calls one client tool and one server
  * tool — the shape of every real navigation turn.
  */
@@ -257,8 +271,7 @@ test('an APPROVAL ANSWER survives the round trip — the shape that silently did
       parts: [{ type: 'tool-approval-response', approvalId: 'ap_1', approved: true }],
     },
   ] as never)
-  const phantom = wrong
-    .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+  const phantom = partsOf(wrong)
     .find((c) => (c as { type?: string }).type === 'tool-call')
   assert.equal(
     (phantom as { toolName?: string } | undefined)?.toolName,
@@ -288,7 +301,7 @@ test('an APPROVAL ANSWER survives the round trip — the shape that silently did
     },
   ] as never)
 
-  const flat = right.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+  const flat = partsOf(right)
   const call = flat.find((c) => (c as { type?: string }).type === 'tool-call') as
     | Record<string, unknown>
     | undefined
@@ -326,8 +339,7 @@ test('a DENIAL round-trips too, carrying its reason', async () => {
       ],
     },
   ] as never)
-  const response = msgs
-    .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+  const response = partsOf(msgs)
     .find((c) => (c as { type?: string }).type === 'tool-approval-response') as Record<
     string,
     unknown
