@@ -499,7 +499,24 @@ async function serve(request) {
           ({ steps }) => {
             const last = steps[steps.length - 1]
             if (!last) return false
-            const spoke = (last.text ?? '').trim().length > 0
+            // ── SPOKE AT ANY POINT, not "spoke in this step" ────────────────
+            //
+            // This used to read `last.text`, which meant the turn only ended if
+            // one single step contained BOTH the words and the gesture. With
+            // four steps that was nearly always true and the flaw never showed.
+            // With twelve, and with real lookups in between, the ordinary shape
+            // is: step 1 reads, step 2 answers in words, step 3 draws the
+            // panel — and no step ever has both, so the loop ran on.
+            //
+            // Measured against the deployed preview: "show me my 5 most
+            // valuable cards" called `showScreen` THREE TIMES, the second and
+            // third with the title wrapped in newlines, each re-billing the
+            // whole prompt to redraw a panel that was already correct.
+            //
+            // A turn is finished when he has SAID something and is no longer
+            // fetching. Both halves stated over the whole turn, which is what
+            // "he said his piece and reacted" always meant.
+            const spoke = steps.some((s) => (s.text ?? '').trim().length > 0)
             // `showScreen` counts as acting for exactly the same reason
             // `express` does: the step produced something the user can see, so
             // the turn is finished. Left out, a step that spoke AND drew a panel
@@ -508,8 +525,14 @@ async function serve(request) {
             //   [step 1] "Nice pulls! That 91 looks chase-y. Add 'em to the collection?"
             //   [step 2] "Say the word and I'll stash these in your collection."
             const ACTS = new Set(['express', 'showScreen'])
-            const moved = (last.toolCalls ?? []).some((c) => ACTS.has(c.toolName))
-            return spoke && moved
+            // AND HE IS NO LONGER FETCHING. Not "his last step acted" — his last
+            // step acted AND NOTHING ELSE. If it also called a data tool he is
+            // mid-lookup, and stopping there would end the turn holding a result
+            // he has not reported, which is a silent half-answer and strictly
+            // worse than one extra step.
+            const lastCalls = (last.toolCalls ?? []).map((c) => c.toolName)
+            const settled = lastCalls.length > 0 && lastCalls.every((n) => ACTS.has(n))
+            return spoke && settled
           },
         ],
         maxOutputTokens: budgetFor(choice),
