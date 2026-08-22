@@ -54,7 +54,12 @@ import { streamText, stepCountIs, type ToolSet } from 'ai';
 import { z } from 'zod';
 import type { GatewayProvider } from '@ai-sdk/gateway';
 import { MODELS, budgetFor, type ModelChoice } from './models.js';
-import { buildDataTools, type AiSdkAdapterOptions, type ToolEvent } from './adapters/aisdk.js';
+import {
+  buildDataTools,
+  safeToolError,
+  type AiSdkAdapterOptions,
+  type ToolEvent,
+} from './adapters/aisdk.js';
 
 /** The one place this name is spelled. Declared in DEPLOYMENT.md. */
 export const DECKE_DEEP_BUDGET_VAR = 'DECKE_DEEP_BUDGET_MS';
@@ -170,7 +175,7 @@ async function runSubAgent(opts: {
     // is not an error here — whatever arrived before it is the answer. A real
     // failure with no text at all still needs to say something.
     if (!timedOut && !opts.signal?.aborted) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = safeToolError(err);
       if (!text) text = `That did not finish: ${message}`;
     }
   } finally {
@@ -267,7 +272,7 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
         opts.onEvent?.({ phase: 'ok', ...chip, summary: text.slice(0, 110) });
         return text;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = safeToolError(err);
         opts.onEvent?.({ phase: 'error', ...chip, summary: message });
         return `That did not work: ${message}`;
       }

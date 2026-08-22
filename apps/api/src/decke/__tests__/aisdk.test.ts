@@ -15,6 +15,7 @@ import {
   buildDataTools,
   clampToolText,
   dataToolSummary,
+  safeToolError,
 } from '../adapters/aisdk.js'
 
 /** Enough of the options to build a tool set; nothing here ever executes. */
@@ -124,4 +125,42 @@ test('a single enormous line is still cut rather than passed through', () => {
   const out = clampToolText(oneLine, 1_000)
   assert.ok(out.length < oneLine.length)
   assert.match(out, /Cut off here/)
+})
+
+test('a failed tool never leaks a driver message into the conversation', () => {
+  // A tool error is NOT a log line — it goes into the model's context, and the
+  // model may say it out loud. So the bar is higher than for a log, not lower.
+  //
+  // A `pg` connection failure's message is built from the connection
+  // parameters, and `openRlsSession` runs inside the very first `db.query` a
+  // tool makes. Passing that through would put database credentials one "what
+  // went wrong?" away from a chat transcript. CodeQL caught the sibling case
+  // (the same error being logged) on this branch.
+  const pgish = Object.assign(new Error('password authentication failed for user "deckpal"'), {
+    code: '28P01',
+  })
+  const out = safeToolError(pgish)
+  assert.equal(out.includes('password'), false)
+  assert.equal(out.includes('deckpal'), false)
+  assert.match(out, /28P01/, 'the code is what is diagnostic and is safe to say')
+
+  const dsn = Object.assign(new Error('connect ECONNREFUSED 10.1.2.3:5432'), {
+    code: 'ECONNREFUSED',
+  })
+  assert.equal(safeToolError(dsn).includes('10.1.2.3'), false)
+
+  // No code at all — say nothing rather than guess what is safe in the text.
+  assert.equal(safeToolError(new Error('postgres://user:hunter2@host/db')), 'it failed')
+  assert.equal(safeToolError('some string'), 'it failed')
+  assert.equal(safeToolError(null), 'it failed')
+})
+
+test('our own deliberate errors DO pass through, because they were written to be said', () => {
+  // Allowlisted by CLASS, not by inspecting the text — a check on the message
+  // would pass anything that happened to look friendly.
+  const timeout = Object.assign(new Error('that lookup went past 10000 ms, so I stopped waiting for it'), {
+    name: 'ToolHoldTimeout',
+  })
+  assert.match(safeToolError(timeout), /stopped waiting/)
+  assert.equal(safeToolError(new Error('aborted')), 'aborted')
 })

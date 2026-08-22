@@ -189,10 +189,23 @@ async function charge(userId, tier) {
     ])
     return verdictFrom(res.rows, cap)
   } catch (err) {
+    // THE CODE AND THE NAME, NEVER THE MESSAGE.
+    //
+    // Caught by CodeQL on this PR, and it is right. A `pg` connection failure's
+    // `message` is built from the connection parameters — which come from
+    // PGHOST/PGUSER/PGPASSWORD — so "password authentication failed for user
+    // …" and DSN fragments end up in it. This log line is the one that fires
+    // when the database is unreachable, which is exactly when those details are
+    // in the error, and Vercel's function logs are not the place for them.
+    //
+    // `code` is what is actually diagnostic anyway: ECONNREFUSED, 28P01,
+    // ETIMEDOUT. Anyone debugging this needs to know WHICH failure, not the
+    // sentence the driver wrote about it — and if they need more, the database's
+    // own logs have it without a copy in ours.
+    const code = err?.code ?? err?.name ?? 'unknown'
     console.error(
       `[deck-e] METER UNAVAILABLE — serving ${tier} unmetered for this request. ` +
-        `Accounting fails open on purpose; entitlement does not. Cause:`,
-      err?.message ?? err,
+        `Accounting fails open on purpose; entitlement does not. Cause code: ${code}`,
     )
     return { allowed: true, used: -1, cap }
   } finally {

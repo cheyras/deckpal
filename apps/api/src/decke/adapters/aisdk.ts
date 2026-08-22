@@ -224,6 +224,43 @@ export function forcePreview(def: ToolDefinition, input: unknown): unknown {
   return { ...(input as Record<string, unknown>), dry_run: true };
 }
 
+/**
+ * What a failed tool is allowed to tell the model.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * A TOOL ERROR IS NOT A LOG LINE — IT GOES INTO THE CONVERSATION
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Whatever this returns lands in the model's context, and the model may well
+ * say it out loud. So the bar is higher than for a log, not lower.
+ *
+ * CodeQL flagged the sibling case on this PR — logging a caught error's
+ * `message` where that error can come from `pg` — and the same reasoning
+ * applies here with more force. A `pg` connection failure's message is built
+ * from the connection parameters (PGHOST/PGUSER/PGPASSWORD), so
+ * "password authentication failed for user …" and DSN fragments live in it. The
+ * tool path can absolutely raise one: `openRlsSession` runs inside the very
+ * first `db.query` a tool makes.
+ *
+ * Handing that to a language model puts database credentials one "what went
+ * wrong?" away from being repeated into a chat transcript.
+ *
+ * So: OUR OWN errors pass through, because we wrote them and they are written
+ * to be said out loud ("that lookup went past 10000 ms, so I stopped waiting
+ * for it"). Everything else is reduced to a shape and a code.
+ */
+export function safeToolError(err: unknown): string {
+  // Errors this codebase raises deliberately, phrased for a reader. The
+  // allowlist is by CLASS NAME rather than by message content, because a check
+  // on the text would pass anything that happened to look friendly.
+  if (err instanceof Error && (err.name === 'ToolHoldTimeout' || err.message === 'aborted')) {
+    return err.message
+  }
+  const code = (err as { code?: unknown } | null)?.code
+  if (typeof code === 'string' && code) return `it failed with ${code}`
+  return 'it failed'
+}
+
 /** One-line summary of what a tool actually returned, for its chip. */
 function summarise(result: ToolResult): string {
   const first = result.text.split('\n', 1)[0] ?? '';
@@ -284,7 +321,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           // A message, not an object: this string goes straight into the
           // model's context, and it should read like something that happened
           // rather than like a serialised exception.
-          const message = err instanceof Error ? err.message : String(err);
+          const message = safeToolError(err);
           opts.onEvent?.({ phase: 'error', ...chip, summary: message });
           return `That did not work: ${message}`;
         }

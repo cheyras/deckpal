@@ -108,10 +108,26 @@ async function wireOf(
   const QUIET_MS = 2_000
   try {
     for (;;) {
-      const next = await Promise.race([
-        reader.read(),
-        new Promise<'quiet'>((r) => setTimeout(() => r('quiet'), QUIET_MS).unref?.()),
-      ])
+      // NOT `unref()`d, and that is the fix rather than a style choice.
+      //
+      // An unref'd timer does not hold the event loop open, so when the stream
+      // goes quiet — which is the EXPECTED end here, since a client tool has no
+      // server `execute` and the SDK waits for a result only the browser can
+      // give — Node can decide there is nothing left to do and exit while this
+      // race is still pending. The test runner then reports
+      // "Promise resolution is still pending but the event loop has already
+      // resolved" and CANCELS every remaining test in the file.
+      //
+      // It passed locally and cancelled 10 tests on CI, because whether it
+      // happens depends on what else is keeping the loop alive at that instant.
+      // The timer is now cleared on every path instead, which is what actually
+      // wanted saying.
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const quiet = new Promise<'quiet'>((r) => {
+        timer = setTimeout(() => r('quiet'), QUIET_MS)
+      })
+      const next = await Promise.race([reader.read(), quiet])
+      clearTimeout(timer)
       if (next === 'quiet') break
       if (next.done) break
       parts.push(next.value)
