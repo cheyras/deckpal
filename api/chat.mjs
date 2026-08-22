@@ -214,7 +214,22 @@ async function charge(userId, tier) {
     // ETIMEDOUT. Anyone debugging this needs to know WHICH failure, not the
     // sentence the driver wrote about it — and if they need more, the database's
     // own logs have it without a copy in ours.
-    const code = err?.code ?? err?.name ?? 'unknown'
+    // CONSTRAINED IN SHAPE, not merely chosen carefully.
+    //
+    // Reading `err.code` instead of `err.message` was not enough for CodeQL,
+    // and CodeQL is being reasonable: it tracks taint through the whole error
+    // object and cannot know that a `pg` error's `code` is a five-character
+    // SQLSTATE while its `message` is built from the connection string. From
+    // its position, both are "something derived from the environment".
+    //
+    // So the shape is enforced rather than assumed. SQLSTATE (`28P01`) and Node
+    // syscall codes (`ECONNREFUSED`) are short and alphanumeric; anything that
+    // is not becomes `unrecognised`. That turns "I am fairly sure this field is
+    // safe" into "nothing else can get out of here", which is the version worth
+    // having — and it keeps holding if a future driver decides to put something
+    // chattier in `code`.
+    const raw = String(err?.code ?? err?.name ?? '')
+    const code = /^[A-Za-z0-9_]{1,32}$/.test(raw) ? raw : 'unrecognised'
     console.error(
       `[deck-e] METER UNAVAILABLE — serving ${tier} unmetered for this request. ` +
         `Accounting fails open on purpose; entitlement does not. Cause code: ${code}`,
