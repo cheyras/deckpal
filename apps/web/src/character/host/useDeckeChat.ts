@@ -455,21 +455,87 @@ function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
 }
 
 /**
+ * How many landmarks one turn's prompt may carry.
+ *
+ * THE CAP EXISTS BECAUSE THE LIST IS PROMPT, NOT DATA. Every landmark is a
+ * selector plus a label rendered into the system prompt of every leg of every
+ * turn, and a journey is up to `MAX_LEGS` full requests, each re-billing the
+ * whole prompt. At roughly 15 tokens a landmark, 40 is about 600 tokens a turn
+ * and up to ~2,400 across a four-leg journey — affordable, and stated here so
+ * the next person can re-weigh it against a real bill rather than guess.
+ *
+ * WHAT HAPPENS WHEN IT IS HIT: the surplus is dropped, silently, and Deck-E is
+ * simply never told those parts of the page exist. He does not get a truncation
+ * marker and there is nothing sensible he could do with one. That is why the
+ * ORDER below matters more than the number — the landmarks that survive have to
+ * be the ones the reader is most plausibly asking about.
+ *
+ * It was 24, in DOM order, which is how the spec's own worst case (§9.1) fails:
+ * a series page with twenty-plus set rows plus a header spends the whole budget
+ * on rows above the fold and never mentions the rest, and if the reader has
+ * scrolled, every landmark he is told about is off-screen.
+ *
+ * MIRRORED in `api/chat.mjs`, which slices the array again server-side because
+ * the browser is not a trusted source of prompt size. Change one, change both.
+ */
+const LANDMARK_CAP = 40
+
+/**
  * What he can be told about, on this page, right now.
  *
  * An allowlist by construction: only elements the app has deliberately marked
  * are visible to the model, so a card whose NAME is a CSS selector cannot make
  * itself a navigation target. `data-decke-label` is the human name he uses when
  * talking about it.
+ *
+ * Ordered before it is cut, in three passes, most significant first:
+ *
+ *  1. **On screen beats off screen.** "This" and "that" mean what the reader can
+ *     see. Measured with `getBoundingClientRect()` against the viewport, which
+ *     also drops anything collapsed to zero size — a landmark inside a closed
+ *     disclosure is in the DOM and is not on the page in any sense the reader
+ *     would recognise.
+ *  2. **Containers beat items.** Declared, via an optional
+ *     `data-decke-rank="container"`, and NOT inferred from nesting or DOM
+ *     position: guessing "this element contains another landmark, so it is a
+ *     container" gets a set row wrong the day someone marks a card inside one,
+ *     and every heuristic of that shape is a silent behaviour change hiding in
+ *     a markup change. Unmarked means `"item"`, so the default is the cautious
+ *     one and a page that has never heard of ranking still sorts by 2 and 3.
+ *  3. **DOM order.** The stable tiebreak, so the same page produces the same
+ *     list twice running — a list that reshuffles between legs of one journey
+ *     would have him aiming at a different thing than he just said he would.
+ *
+ * The RETURN SHAPE is unchanged and deliberately so: `{selector, label}` is what
+ * `buildSystemPrompt` consumes, and rank/visibility are inputs to the sort, not
+ * something the model is told about.
  */
 function collectLandmarks(): { selector: string; label: string }[] {
-  const out: { selector: string; label: string }[] = []
+  type Ranked = { selector: string; label: string; onScreen: boolean; rank: number; order: number }
+  const found: Ranked[] = []
+  const vh = window.innerHeight
+  const vw = window.innerWidth
+  let order = 0
   for (const el of document.querySelectorAll<HTMLElement>('[data-decke-landmark]')) {
     const selector = el.dataset.deckeLandmark
     const label = el.dataset.deckeLabel
-    if (selector && label) out.push({ selector, label })
+    if (!selector || !label) continue
+    const r = el.getBoundingClientRect()
+    const onScreen =
+      r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw
+    found.push({
+      selector,
+      label,
+      onScreen,
+      rank: el.dataset.deckeRank === 'container' ? 0 : 1,
+      order: order++,
+    })
   }
-  return out.slice(0, 24)
+  found.sort(
+    (a, b) =>
+      Number(b.onScreen) - Number(a.onScreen) || a.rank - b.rank || a.order - b.order,
+  )
+  return found.slice(0, LANDMARK_CAP).map(({ selector, label }) => ({ selector, label }))
 }
 
 /** Commands arrive validated by the server; this is the last mile into the engine. */

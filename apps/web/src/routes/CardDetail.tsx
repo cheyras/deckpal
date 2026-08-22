@@ -209,7 +209,21 @@ function VariantRow({
   const meta = variantMeta(v)
   const price = v.prices.find((p) => p.currency === 'USD') ?? v.prices[0] ?? null
   return (
-    <div className="rounded-lg bg-surface-tertiary p-[16px]" data-owned={(v.quantity ?? 0) > 0 ? 'true' : 'false'}>
+    <div
+      className="rounded-lg bg-surface-tertiary p-[16px]"
+      data-owned={(v.quantity ?? 0) > 0 ? 'true' : 'false'}
+      // The variant id is a database key, so it is unique on the page and is
+      // not text anybody upstream can choose — which is the whole test a
+      // landmark selector has to pass. The variant's DISPLAY NAME goes in the
+      // label, where being prose is the point.
+      //
+      // The stepper inside this row is a WRITE control. Marking the row lets
+      // Deck-E point at it and say "this is the reverse holo you own two of";
+      // it does not and must not let him press anything (SPEC §9.2).
+      data-decke-variant={v.variantId}
+      data-decke-landmark={`[data-decke-variant="${v.variantId}"]`}
+      data-decke-label={`the ${v.displayName} variant row`}
+    >
       <div className={`${VARIANT_GRID} items-center`}>
         {/* Variant column */}
         <div className="flex min-w-0 items-start gap-[8px]">
@@ -398,7 +412,12 @@ export function CardDetailBody({
                 top while the detail column scrolls — `self-start` is required or
                 the flex row stretches the item and sticky has no slack to move
                 in. True of every modal built on this body, not just the deck's. */}
-            <div className="mx-auto w-full max-w-[396px] shrink-0 nav:mx-0 nav:sticky nav:top-0 nav:self-start">
+            <div
+              className="mx-auto w-full max-w-[396px] shrink-0 nav:mx-0 nav:sticky nav:top-0 nav:self-start"
+              data-decke-card-image
+              data-decke-landmark="[data-decke-card-image]"
+              data-decke-label="the card image"
+            >
               <CardImage low={data.card.images.low} high={data.card.images.high} alt={data.card.name} eager />
             </div>
 
@@ -547,7 +566,13 @@ function CardTab({
   return (
     <>
       {/* variant table */}
-      <div className="mt-[16px]">
+      <div
+        className="mt-[16px]"
+        data-decke-variant-table
+        data-decke-landmark="[data-decke-variant-table]"
+        data-decke-label="the variant rows"
+        data-decke-rank="container"
+      >
         <div className={`${VARIANT_GRID} mb-[8px] items-center px-[16px] text-[14px] text-text-muted`}>
           <span>Variant</span>
           <span className="text-right">Market Price</span>
@@ -579,20 +604,31 @@ function CardTab({
         )}
       </div>
 
-      {/* buy + freshness */}
-      {buyUrl && (
-        <a
-          href={buyUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-[16px] inline-flex h-[40px] items-center gap-[8px] rounded-lg bg-action-brand px-[16px] text-[14px] font-bold text-action-brand-text hover:opacity-90"
-        >
-          <Icon name="external" size={16} /> Buy on TCGplayer
-        </a>
-      )}
-      <p className="mt-[10px] text-[14px] text-text-muted">
-        Prices reflect the latest daily sync. Self-hosted feed — no affiliate relationship.
-      </p>
+      {/* buy + freshness — the page's price block, and the one thing on it a
+          reader asks about by name ("is this one worth anything"). Wrapped so
+          there is something to point AT: the market figures themselves are one
+          column of the variant grid above and have no element of their own, so
+          without this Deck-E could only ever ring a whole row. */}
+      <div
+        data-decke-price-block
+        data-decke-landmark="[data-decke-price-block]"
+        data-decke-label="the price and buying block"
+        data-decke-rank="container"
+      >
+        {buyUrl && (
+          <a
+            href={buyUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-[16px] inline-flex h-[40px] items-center gap-[8px] rounded-lg bg-action-brand px-[16px] text-[14px] font-bold text-action-brand-text hover:opacity-90"
+          >
+            <Icon name="external" size={16} /> Buy on TCGplayer
+          </a>
+        )}
+        <p className="mt-[10px] text-[14px] text-text-muted">
+          Prices reflect the latest daily sync. Self-hosted feed — no affiliate relationship.
+        </p>
+      </div>
 
       {/* attacks */}
       {c.attacks.length > 0 && (

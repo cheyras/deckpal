@@ -63,7 +63,13 @@ export function Insights() {
       {ov && (
         <>
           {/* Trainer level + collection value row */}
-          <div className="mt-[24px] grid grid-cols-1 gap-[16px] gap-y-[16px] md:grid-cols-2">
+          <div
+            className="mt-[24px] grid grid-cols-1 gap-[16px] gap-y-[16px] md:grid-cols-2"
+            data-decke-headline-figures
+            data-decke-landmark="[data-decke-headline-figures]"
+            data-decke-label="the headline figures — trainer level and collection value"
+            data-decke-rank="container"
+          >
             {/* Trainer level card */}
             <div className="flex items-center gap-[20px] rounded-2xl bg-surface-secondary p-[20px]">
               <LevelRing level={ov.trainer.level} intoLevel={ov.trainer.intoLevel} size={92}>

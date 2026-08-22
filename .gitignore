@@ -104,3 +104,4 @@ core.*
 
 # Generated review rendering of DECKE-AGENT-SPEC.md (see .cache/decke-probe/build_spec_html.py)
 .decke-spec-review.html
+.gate-shots/

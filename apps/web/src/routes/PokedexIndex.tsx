@@ -241,7 +241,13 @@ export function PokedexIndex() {
   return (
     <Content cap={1100}>
       {/* completion header */}
-      <div className="flex flex-wrap items-end justify-between gap-[12px]">
+      <div
+        className="flex flex-wrap items-end justify-between gap-[12px]"
+        data-decke-dex-headline
+        data-decke-landmark="[data-decke-dex-headline]"
+        data-decke-label="the dex completion figures"
+        data-decke-rank="container"
+      >
         <div>
           <h1 className="text-[32px] font-extrabold leading-[40px] text-text-primary">Pokédex</h1>
           <div className="mt-[2px] text-[14px] text-text-muted">
@@ -303,7 +309,14 @@ export function PokedexIndex() {
       {error && <ErrorState message={(error as Error).message} />}
 
       {data && (
-        <div className="mt-[20px]" style={{ opacity: isFetching ? 0.6 : 1 }}>
+        <div
+          className="mt-[20px]"
+          style={{ opacity: isFetching ? 0.6 : 1 }}
+          data-decke-dex-grid
+          data-decke-landmark="[data-decke-dex-grid]"
+          data-decke-label="the Pokédex grid"
+          data-decke-rank="container"
+        >
           {data.species.length === 0 ? (
             <div className="py-[60px] text-center text-[14px] text-text-muted">No species match this filter.</div>
           ) : (
