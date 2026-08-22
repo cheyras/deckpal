@@ -41,7 +41,14 @@
  */
 import { useCallback, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import { approvalReplayPart, pendingApprovalFromChunk, type PendingApproval } from './approval'
+import {
+  approvalReplayPart,
+  legBudget,
+  mayAskApproval,
+  MAX_LEGS,
+  pendingApprovalFromChunk,
+  type PendingApproval,
+} from './approval'
 import type { ChatMessage } from './DeckeChat'
 import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
@@ -59,46 +66,6 @@ type WireCommand = {
   card?: string
 }
 
-/**
- * How many times he may hand the browser work and come back for more, per turn.
- *
- * NOT `stopWhen`. A client tool has no server `execute`, so it ENDS the server
- * turn (`finishReason: "tool-calls"`); the loop is stream closes → browser runs
- * tools → browser POSTs a follow-up. Raising the server's step budget does
- * nothing for this; only this constant does.
- *
- * Four, because a real journey is: navigate → (page settles) → fly to the row →
- * click it → say what he found. Each leg is a FULL request re-billing the entire
- * prompt and history, so this is a spend ceiling as much as a loop guard, and a
- * model that has not arrived in four legs is not going to on the fifth.
- */
-const MAX_LEGS = 4
-
-/**
- * Extra legs reserved for POSTing an answered approval, on top of `MAX_LEGS`.
- *
- * WITHOUT THIS, "GO AHEAD" ON THE LAST LEG EVAPORATED. The approvals branch
- * asks, pushes the replay onto `wire`, and `continue`s — so on the final leg
- * `continue` exited the loop instead of reaching the POST, and the answered
- * approval was never sent. Dialog, "Go ahead", dialog closes, no text, no
- * error, nothing written. Silent, and unfalsifiable in the moment: the reader
- * has no way to tell that from a write that worked.
- *
- * Found by adversarial review, and it is the THIRD defect in this same round
- * trip — after the bare `tool-approval-response` shape and the dropped
- * `signature`. All three are the same failure wearing different clothes:
- * consent given, nothing happened.
- *
- * A leg spent carrying an answer is not a leg spent making progress, so it does
- * not come out of the same budget. It is capped separately because it is still
- * a full billed request, and because an unbounded allowance would let a model
- * that emits an approval every leg run for ever.
- *
- * Two, not one: a journey that navigates and then writes can legitimately need
- * a second approval (the destructive preview `revert` demands, then the revert
- * itself).
- */
-const MAX_APPROVAL_REPLAYS = 2
 
 let seq = 0
 const nextId = () => `m${++seq}`
@@ -269,7 +236,7 @@ export function useDeckeChat(
         // an answer is granted at the moment the answer is taken, never assumed
         // to be spare.
         let approvalReplays = 0
-        for (let leg = 0; leg < MAX_LEGS + approvalReplays; leg++) {
+        for (let leg = 0; leg < legBudget(approvalReplays); leg++) {
           const outcome = await streamLeg(wire, ac.signal, {
             onText: (chunk) => {
               if (!saidSoFar) {
@@ -364,9 +331,14 @@ export function useDeckeChat(
             // otherwise. If there is no leg left to carry the answer, say so
             // instead — an unmade change the reader knows about is a nuisance;
             // one they do not is a broken promise.
-            if (approvalReplays >= MAX_APPROVAL_REPLAYS) {
+            if (!mayAskApproval(approvalReplays)) {
               appendText(
-                " — I ran out of room to finish that. Nothing was changed. Ask me again and I'll go straight to it.",
+                // NOT "nothing was changed" — an earlier approval in this same
+                // turn may already have committed, and saying otherwise would be
+                // the mirror of the defect this whole area exists to prevent:
+                // misreporting what happened to their collection. This says what
+                // is true of the change actually dropped.
+                " — I ran out of room to make that last change, so I left it. Ask me again and I'll go straight to it.",
               )
               console.warn('[decke] approval replay budget exhausted; the write was NOT applied')
               break
@@ -447,7 +419,7 @@ export function useDeckeChat(
           }
           wire.push({ role: 'assistant', parts })
 
-          if (leg === MAX_LEGS + approvalReplays - 1) {
+          if (leg === legBudget(approvalReplays) - 1) {
             // ── OUT OF LEGS, WITH WORK IN HAND ──────────────────────────────
             //
             // The comment here used to say "say so rather than stopping
@@ -770,10 +742,14 @@ function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
  *
  * THE CAP EXISTS BECAUSE THE LIST IS PROMPT, NOT DATA. Every landmark is a
  * selector plus a label rendered into the system prompt of every leg of every
- * turn, and a journey is up to `MAX_LEGS` full requests, each re-billing the
- * whole prompt. At roughly 15 tokens a landmark, 40 is about 600 tokens a turn
- * and up to ~2,400 across a four-leg journey — affordable, and stated here so
- * the next person can re-weigh it against a real bill rather than guess.
+ * turn, and a journey is up to `legBudget(MAX_APPROVAL_REPLAYS)` full requests,
+ * each re-billing the whole prompt. At roughly 15 tokens a landmark, 40 is about
+ * 600 tokens a turn, and up to ~3,600 across the six-leg worst case — a turn
+ * that journeys AND spends both reserved approval legs. This figure said ~2,400
+ * for a four-leg journey until the approval reserve was added; a cost estimate
+ * that is not updated with the budget it estimates is a number someone will
+ * later trust. Stated here so the next person can re-weigh it against a real
+ * bill rather than guess.
  *
  * WHAT HAPPENS WHEN IT IS HIT: the surplus is dropped, silently, and Deck-E is
  * simply never told those parts of the page exist. He does not get a truncation

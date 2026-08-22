@@ -185,6 +185,32 @@ export function approvalReplayPart(a: PendingApproval, approved: boolean): Appro
 }
 
 /**
+ * How many times he may hand the browser work and come back for more, per turn.
+ *
+ * NOT `stopWhen`. A client tool has no server `execute`, so it ENDS the server
+ * turn (`finishReason: "tool-calls"`); the loop is stream closes → browser runs
+ * tools → browser POSTs a follow-up. Raising the server's step budget does
+ * nothing for this; only this constant does.
+ *
+ * Four, because a real journey is: navigate → (page settles) → fly to the row →
+ * click it → say what he found. Each leg is a FULL request re-billing the entire
+ * prompt and history, so this is a spend ceiling as much as a loop guard.
+ *
+ * It lives HERE, beside the two functions that reason about it, so the rule and
+ * its tests cannot drift from the loop that enforces them — which they had, and
+ * which review caught: the loop re-implemented `MAX_LEGS + approvalReplays`
+ * inline while the tests pinned a hand-copied constant of their own. Two copies
+ * of a rule agree until the day they do not.
+ */
+export const MAX_LEGS = 4
+
+/**
+ * Extra legs reserved for POSTing an answered approval, on top of `MAX_LEGS`.
+ * See `mayAskApproval` for why the reserve exists and why it is two.
+ */
+export const MAX_APPROVAL_REPLAYS = 2
+
+/**
  * How many legs the turn may spend, given how many answered approvals it has
  * committed to carrying.
  *
@@ -195,7 +221,7 @@ export function approvalReplayPart(a: PendingApproval, approved: boolean): Appro
  * pure halves keep moving into this module rather than staying where they are
  * used.
  */
-export function legBudget(maxLegs: number, approvalReplays: number): number {
+export function legBudget(approvalReplays: number, maxLegs: number = MAX_LEGS): number {
   return maxLegs + approvalReplays
 }
 
@@ -214,6 +240,9 @@ export function legBudget(maxLegs: number, approvalReplays: number): number {
  * is taken. The two are one rule in two halves, and `approvalAlwaysDeliverable`
  * in the tests is the statement that they agree.
  */
-export function mayAskApproval(approvalReplays: number, maxApprovalReplays: number): boolean {
+export function mayAskApproval(
+  approvalReplays: number,
+  maxApprovalReplays: number = MAX_APPROVAL_REPLAYS,
+): boolean {
   return approvalReplays < maxApprovalReplays
 }

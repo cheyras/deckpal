@@ -44,7 +44,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { convertToModelMessages } from 'ai'
-import { approvalReplayPart, legBudget, mayAskApproval, pendingApprovalFromChunk, type PendingApproval } from '../approval'
+import { MAX_APPROVAL_REPLAYS, MAX_LEGS, approvalReplayPart, legBudget, mayAskApproval, pendingApprovalFromChunk, type PendingApproval } from '../approval'
 
 /** The three per-leg lookups, filled from a `tool-input-available` chunk. */
 function lookups(toolCallId: string, name: string, input: Record<string, unknown>) {
@@ -309,17 +309,19 @@ test('an approval that may be asked always has a leg left to carry the answer', 
   // one the old code happened to be tested on. `leg` is the index about to run;
   // committing to a replay increments `approvalReplays`, which must buy a leg
   // that the loop's own bound then admits.
-  const MAX_LEGS = 4
-  const MAX_APPROVAL_REPLAYS = 2
+  // The REAL constants, imported. They were hand-copied here, which review
+  // caught: a test that pins its own copy of a rule proves the copy, not the
+  // code. The loop calls `legBudget`/`mayAskApproval` too, so all three now
+  // read one definition.
   for (let replays = 0; replays <= MAX_APPROVAL_REPLAYS + 1; replays++) {
-    for (let leg = 0; leg < legBudget(MAX_LEGS, replays); leg++) {
-      if (!mayAskApproval(replays, MAX_APPROVAL_REPLAYS)) continue
+    for (let leg = 0; leg < legBudget(replays); leg++) {
+      if (!mayAskApproval(replays)) continue
       // The ask is permitted, so the answer is taken and one replay committed.
       const after = replays + 1
       assert.ok(
-        leg + 1 < legBudget(MAX_LEGS, after),
+        leg + 1 < legBudget(after),
         `asked on leg ${leg} with ${replays} replay(s) spent, but the budget ` +
-          `${legBudget(MAX_LEGS, after)} leaves no leg to POST the answer`,
+          `${legBudget(after)} leaves no leg to POST the answer`,
       )
     }
   }
@@ -329,16 +331,16 @@ test('the ask is refused once the replay budget is spent, rather than dropped af
   // The other half. When the answer CANNOT be delivered the dialog must not
   // open at all — the reader is told nothing changed, which is a nuisance, not
   // a broken promise.
-  assert.equal(mayAskApproval(0, 2), true)
-  assert.equal(mayAskApproval(1, 2), true)
-  assert.equal(mayAskApproval(2, 2), false)
-  assert.equal(mayAskApproval(3, 2), false)
+  assert.equal(mayAskApproval(0), true)
+  assert.equal(mayAskApproval(1), true)
+  assert.equal(mayAskApproval(2), false)
+  assert.equal(mayAskApproval(3), false)
 })
 
 test('a reserved approval leg is not a free extra step for ordinary work', () => {
   // The budget grows ONLY for answers. A turn that never hits an approval gets
   // exactly MAX_LEGS, so this cannot become a quiet raise of the spend ceiling.
-  assert.equal(legBudget(4, 0), 4)
-  assert.equal(legBudget(4, 1), 5)
-  assert.equal(legBudget(4, 2), 6)
+  assert.equal(legBudget(0), MAX_LEGS)
+  assert.equal(legBudget(1), MAX_LEGS + 1)
+  assert.equal(legBudget(2), MAX_LEGS + 2)
 })
