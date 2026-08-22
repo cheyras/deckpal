@@ -26,6 +26,7 @@ of eyes.
 
 | File | What it does |
 |---|---|
+| `capture-decke.mjs` | **Photograph Deck-E, signed in, on both platforms.** Named scenes, before/after runs. The only thing here that can see a surface behind auth. |
 | `run-visual-smoke.mjs` | End-to-end proof the harness works: desktop + mobile screenshots, a recorded interaction, a contact sheet, timing and console/network reports. |
 | `judge-motion.mjs` | Ask a vision model what a video or screenshot actually shows. Prose (`--describe`) or a machine-checkable verdict (`--assert`). |
 | `lib/resolve-playwright.mjs` | Finds Playwright without it being a repo dependency. |
@@ -37,9 +38,50 @@ of eyes.
 | `lib/diagnostics.mjs` | Console errors and failed requests to a JSON log. |
 | `lib/timing.mjs` | Marks and durations to a JSON report. |
 | `lib/judge.mjs` | The vision-model client. `judge()` for prose, `assertVisual()` for verdicts. |
+| `lib/session.mjs` | Signing in as the QA account, the preview bypass header, and the entitlement shim. |
+| `lib/payload.mjs` | What the page actually downloaded, measured — not cited. |
 
 Artifacts land in `.visual-harness/` (gitignored, same convention as
 `.gate-shots/`). Regenerate them; never commit them.
+
+## Looking at Deck-E
+
+Every chat surface is behind `AuthGuard` **and** behind an entitlement check, so
+the signed-out smoke run cannot photograph one. `capture-decke.mjs` signs in as
+the QA account and captures named **scenes**:
+
+```bash
+node scripts/visual-harness/capture-decke.mjs --list
+node scripts/visual-harness/capture-decke.mjs --base http://localhost:5199 --scene idle --run before
+node scripts/visual-harness/capture-decke.mjs --base http://localhost:5199 --scene all
+```
+
+`--run <name>` puts the artifacts under `.visual-harness/<name>/`, which is how
+a before/after pair is made: capture `--run before`, make the change, capture
+`--run after`, then compare — by eye, or with `judge-motion.mjs` on the pair.
+
+Each scene writes a `notes.json` beside its images with three things a
+screenshot alone cannot tell you:
+
+- **`presence`** — is the 3D body on screen, is the launcher chip on screen, and
+  are *both* (`twoDeckEs`, an invariant `DeckeHost.tsx:433-436` states in its own
+  comment and which the idle page currently violates).
+- **`characterPayload`** — how many bytes of character runtime this page pulled
+  and when the first request fired. An eagerly-loaded character and a lazily-
+  loaded one look identical in a photograph; the difference is entirely in the
+  wire, so the wire is recorded.
+- **`entitlementShimFired`** — whether `/api/me` had to be rewritten for the
+  chat to render at all. **Read it.** A run where it fired is a run where the
+  client was told something the server does not agree with.
+
+Scenes also write a `.review.jpg` next to the full-resolution PNG. Open that
+one: the PNG is the evidence, the JPEG is the thing a person (or a vision model)
+can actually read without an image-processing step in between.
+
+**B12 applies with teeth here.** This signs in, `pnpm dev` proxies to the live
+backend, and the session is real. It runs as the QA account from `.qa-account`,
+never the owner's. No scene sends a message or approves a write; one that wants
+to must set `writes: true` so `--list` says so.
 
 ## Prerequisites
 
@@ -52,7 +94,18 @@ mkdir -p /c/tmp/pw && cd /c/tmp/pw && npm install playwright && npx playwright i
 export PLAYWRIGHT_MODULE=/c/tmp/pw/node_modules/playwright
 ```
 
-**ffmpeg**, for contact sheets only. Override the paths if yours differ:
+**ffmpeg**, for contact sheets only — and note that Playwright's *bundled*
+ffmpeg is not one: it is a stripped build with the webm muxer and no image
+decoder, so pointing at it fails with "Invalid data found when processing
+input". Any ordinary ffmpeg works; the cheapest way to get one without touching
+the repo is the same scratch-folder trick Playwright uses:
+
+```bash
+cd /c/tmp/pw && npm install ffmpeg-static
+export FFMPEG_PATH=/c/tmp/pw/node_modules/ffmpeg-static/ffmpeg.exe
+```
+
+Override the paths if yours differ:
 
 ```bash
 export FFMPEG_PATH=/path/to/ffmpeg.exe
