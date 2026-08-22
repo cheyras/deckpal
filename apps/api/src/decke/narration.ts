@@ -36,6 +36,28 @@
  * seeing markup; it does not make him a better agent.
  *
  * ══════════════════════════════════════════════════════════════════════════════
+ * AND IT MISSES THE COMMONEST SHAPE, WHICH IT MUST
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Measured while diagnosing the movement defect: FOUR of five failures were not
+ * markup at all. They were bare prose —
+ *
+ *     flyTo [data-decke-goal-switcher] point=true
+ *
+ * — which reaches the reader's bubble intact, and always will. There is no
+ * pattern that catches it and does not also catch him legitimately saying "you
+ * can use the goal switcher", because at the level of characters on a screen
+ * those two are the same thing. A filter aggressive enough to strip the first
+ * would eat sentences he is supposed to say.
+ *
+ * This is the boundary of what a stripping pass can do, stated so nobody
+ * concludes from its existence that narration is handled. It is not. The only
+ * thing that fixed the underlying behaviour was changing the model: with the
+ * identical prompt and the identical 34 tools, the incumbent called `flyTo`
+ * 1/10 and the successor 10/10, and five separate prompt rewrites moved the
+ * incumbent 0/5 each. See `models.ts`.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
  * DELIBERATELY NARROW
  * ══════════════════════════════════════════════════════════════════════════════
  *
