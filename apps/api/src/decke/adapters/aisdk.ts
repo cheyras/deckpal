@@ -115,6 +115,84 @@ export function clampToolText(text: string, maxChars: number): string {
   );
 }
 
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * WRITES: A REAL CONTROL, NOT A PROMPT
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * This codebase twice records the same lesson in the same words — "a prompt is
+ * not an enforcement mechanism" — once about `click` and once about trying to
+ * stop a model repeating itself by asking it not to. Writing "wait for
+ * confirmation before writing" into the system prompt would be a third.
+ *
+ * `ai@7.0.66` ships a real one. A tool declaring `needsApproval` is NOT
+ * EXECUTED until an approval arrives; the SDK emits a `tool-approval-request`
+ * chunk carrying an `approvalId` and stops. Verified against the pinned version
+ * rather than read from a changelog: with `needsApproval: true` the execute
+ * function ran exactly 0 times and the wire carried
+ * `{"type":"tool-approval-request","approvalId":"…","toolCallId":"call_w"}`.
+ *
+ * ── WHAT NEEDS APPROVAL ──────────────────────────────────────────────────────
+ *
+ * Derived from the annotations and the schema, never from the verb in the name:
+ *
+ *   destructiveHint          ALWAYS. `delete_deck`, `delete_list`,
+ *                            `delete_battle_log`, `revert` — data that is not
+ *                            otherwise recoverable.
+ *   a real write             ALWAYS. Anything that would actually mutate.
+ *   a PREVIEW (dry_run)      No. It changes nothing by contract, and making the
+ *                            preview itself need approval would mean the reader
+ *                            has to authorise something before being told what
+ *                            it would do — which is the opposite of the point.
+ *
+ * Three write tools have no `dry_run` at all — `deck_strategy`,
+ * `add_battle_log`, `edit_battle_log` — so every call to them is a real write
+ * and every call needs approval. That falls out of the rule rather than being a
+ * special case, which is why the rule is written this way round.
+ *
+ * ── AND THE SERVER FORCES THE PREVIEW ────────────────────────────────────────
+ *
+ * Belt and braces, and worth the belt. When a call is classified as a preview,
+ * `dry_run: true` is written into the arguments EXPLICITLY rather than left to
+ * the tool's default. The classification and the coercion then agree by
+ * construction: there is no path where this code decided "preview, no approval
+ * needed" and the tool received something that mutates — including if a
+ * default changes, or a tool is added whose default is the other way.
+ */
+
+/** Would this call actually change something? */
+export function wouldMutate(def: ToolDefinition, input: unknown): boolean {
+  if (def.annotations.readOnlyHint) return false;
+  const hasDryRun = def.inputSchema ? 'dry_run' in def.inputSchema.shape : false;
+  if (!hasDryRun) return true;
+  const dry = (input as { dry_run?: unknown } | null | undefined)?.dry_run;
+  // ANYTHING BUT an explicit `false` is a preview. A missing value, a null, a
+  // string "false" from a model that stringified a boolean — none of those may
+  // be read as permission to write.
+  return dry === false;
+}
+
+/** Does this call need the reader to approve it before it runs? */
+export function requiresApproval(def: ToolDefinition, input: unknown): boolean {
+  if (def.annotations.readOnlyHint) return false;
+  if (def.annotations.destructiveHint) return true;
+  return wouldMutate(def, input);
+}
+
+/**
+ * Force a preview to actually be one.
+ *
+ * Returns the arguments a preview call should run with. Only touches tools that
+ * HAVE a `dry_run`; for the three that do not, a preview is not expressible and
+ * the call needed approval anyway.
+ */
+export function forcePreview(def: ToolDefinition, input: unknown): unknown {
+  if (def.annotations.readOnlyHint) return input;
+  const hasDryRun = def.inputSchema ? 'dry_run' in def.inputSchema.shape : false;
+  if (!hasDryRun) return input;
+  return { ...(input as Record<string, unknown>), dry_run: true };
+}
+
 /** One-line summary of what a tool actually returned, for its chip. */
 function summarise(result: ToolResult): string {
   const first = result.text.split('\n', 1)[0] ?? '';
@@ -144,11 +222,20 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
       // schema; the SDK requires one, so it gets an empty object — which is
       // what the MCP wire already advertises for it anyway.
       inputSchema: def.inputSchema ?? z.object({}),
+      // THE CONTROL. A tool that would mutate is not executed until the reader
+      // approves it — enforced by the SDK, not requested in a prompt. A preview
+      // passes straight through, because being made to authorise something
+      // before being told what it would do is the opposite of informed consent.
+      needsApproval: (input: unknown) => requiresApproval(def, input),
       execute: async (args: unknown, { toolCallId }) => {
         const chip = { id: toolCallId, name: def.name, title: def.title };
         opts.onEvent?.({ phase: 'start', ...chip });
         try {
-          const result = await withToolCtx(opts, (ctx: Ctx) => def.handler(args, ctx));
+          // If this call was NOT classified as needing approval, then it is a
+          // preview — so make it one, explicitly, rather than trusting a
+          // default to agree with the classification.
+          const effective = requiresApproval(def, args) ? args : forcePreview(def, args);
+          const result = await withToolCtx(opts, (ctx: Ctx) => def.handler(effective, ctx));
           const text = clampToolText(result.text, maxChars);
           opts.onEvent?.({
             phase: result.isError ? 'error' : 'ok',
