@@ -138,6 +138,43 @@ function resolveClickTarget(selector: string): { el: HTMLElement | null; refused
   if (!isControl) {
     return { el: null, refused: 'that is marked as pressable but is not a control' }
   }
+
+  // ── AN ANCHOR IS A NAVIGATION, SO IT GETS THE NAVIGATION RULE ──────────────
+  //
+  // `goTo` is guarded by `routeAllowed`. `click` was not, and it accepts
+  // `a[href]` — so the moment anyone marks an anchor pressable, `el.click()`
+  // follows wherever it points with no allowlist anywhere in the path.
+  //
+  // That is not hypothetical. This app already renders "Buy on TCGplayer" as an
+  // anchor whose `href` is built from CARD DATA, which is exactly the
+  // attacker-influenceable category the landmark allowlist exists for. Marking
+  // it would look entirely reasonable — it is navigation and disclosure, which
+  // is what this tool is for — and would hand a model-reachable control an
+  // off-site URL derived from a string an attacker can name.
+  //
+  // Found by the adversarial pass that this tool's own existence forced
+  // (DECISIONS.md 2026-08-21: the previous clean verdict rested on "there is no
+  // click tool"). Nothing is exploitable today because both marked controls are
+  // buttons. This closes it while that is still true, rather than after
+  // somebody marks the third one.
+  if (tag === 'a') {
+    const href = pressable.getAttribute('href') ?? ''
+    // Resolved against the page, so `//evil.example` and `\\evil.example` are
+    // judged as what the browser would actually do with them rather than as
+    // what they look like.
+    let url: URL
+    try {
+      url = new URL(href, window.location.href)
+    } catch {
+      return { el: null, refused: 'that link does not go anywhere I can follow' }
+    }
+    if (url.origin !== window.location.origin) {
+      return { el: null, refused: 'that link leaves DeckPal, so I will not press it for you' }
+    }
+    if (!routeAllowed(url.pathname)) {
+      return { el: null, refused: 'that link goes somewhere I am not allowed to take you' }
+    }
+  }
   if (pressable.hasAttribute('disabled') || pressable.getAttribute('aria-disabled') === 'true') {
     return { el: null, refused: 'that is disabled right now' }
   }

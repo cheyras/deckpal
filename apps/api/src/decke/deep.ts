@@ -231,10 +231,23 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
     title: string;
     description: string;
     inputSchema: z.ZodObject<Record<string, z.ZodType>>;
+    /**
+     * True when this tool ITSELF writes, so the human is asked once, here, for
+     * the operation they actually understand — "let him write and store a
+     * guide for this deck?" — rather than about an implementation detail
+     * halfway down a sub-agent nobody can see.
+     *
+     * This is where the approval for the whole operation is taken. The
+     * sub-agent's own write tools are then built with `approvals: 'upstream'`,
+     * because there is no channel inside a sub-agent to ask on and an
+     * unanswerable question is not a gate, it is a silent no.
+     */
+    writes?: boolean;
     run: (args: Record<string, unknown>) => Promise<string>;
   }) => ({
     description: spec.description,
     inputSchema: spec.inputSchema,
+    ...(spec.writes ? { needsApproval: true } : {}),
     execute: async (args: Record<string, unknown>, { toolCallId }: { toolCallId: string }) => {
       const chip = { id: toolCallId, name: spec.name, title: spec.title };
       opts.onEvent?.({ phase: 'start', ...chip });
@@ -384,6 +397,9 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
     write_strategy_guide: deepTool({
       name: 'write_strategy_guide',
       title: 'Write and store a strategy guide',
+      // THE ONE DEEP TOOL THAT WRITES. Asked once, at the boundary a person
+      // can actually evaluate.
+      writes: true,
       description:
         'Write a real strategy guide for one of their decks and save it. Reads the deck, ' +
         'its battle logs and the current meta, then writes the guide and stores it with ' +
@@ -405,9 +421,23 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
           // Reads PLUS the one write it needs. `deck_strategy` is dumb storage
           // and idempotent; it replaces a guide rather than appending, so a
           // retry cannot duplicate anything.
+          // Reads PLUS the one write it needs, and `approvals: 'upstream'`
+          // because the human was already asked — this whole tool required
+          // approval before it ran (see `needsApproval` below).
+          //
+          // Without that, the write is not gated, it is SUSPENDED FOR EVER: a
+          // sub-agent runs inside `streamText`'s own loop with nothing draining
+          // an approval channel, so the SDK holds `deck_strategy`, the
+          // sub-agent reports "stored", and nothing is written. Found by the
+          // adversarial pass. Security-positive and functionally a lie, which
+          // is the failure this project exists to remove.
+          //
+          // `deck_strategy` is dumb storage and idempotent — it REPLACES a
+          // guide rather than appending — so a retry cannot duplicate anything.
           tools: buildDataTools({
             ...opts.ctx,
             maxChars: 0,
+            approvals: 'upstream',
             include: (d) => d.annotations.readOnlyHint || d.name === 'deck_strategy',
           }),
           maxSteps: 14,

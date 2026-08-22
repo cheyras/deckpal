@@ -13,7 +13,17 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { allTools, type ToolDefinition } from '@deckpal/agent-tools'
-import { forcePreview, requiresApproval, wouldMutate } from '../adapters/aisdk.js'
+import { buildDataTools, forcePreview, requiresApproval, wouldMutate } from '../adapters/aisdk.js'
+
+/** The conversational tool set, writes included, as api/chat.mjs builds it. */
+const buildDataToolsForTest = () =>
+  buildDataTools({
+    pool: null as never,
+    userId: 'u1',
+    jwt: 'j',
+    apiBase: 'https://x.test/api',
+    include: () => true,
+  })
 
 const byName = new Map(allTools().map((d) => [d.name, d]))
 const get = (n: string): ToolDefinition => {
@@ -120,4 +130,54 @@ test('forcePreview leaves reads alone', () => {
   const search = get('search_cards')
   const input = { q: 'charizard' }
   assert.deepEqual(forcePreview(search, input), input)
+})
+
+test('a sub-agent NEVER gets a write it cannot have approved for it', async () => {
+  // THE BUG THIS PINS. A sub-agent runs inside `streamText`'s own loop with
+  // nothing draining an approval channel, so a write tool handed to one is not
+  // gated — it is SUSPENDED FOR EVER. The adversarial pass caught exactly this:
+  // the sub-agent composed a strategy guide, called `deck_strategy`, the SDK
+  // held the call, the sub-agent reported "stored", and nothing was written.
+  //
+  // Security-positive and functionally a lie, which is the failure this whole
+  // effort exists to remove — reintroduced by the mechanism added to prevent a
+  // different one.
+  //
+  // The fix moves the question to a boundary a human can answer, so the two
+  // halves must agree: a sub-agent tool set built `upstream` must be reachable
+  // ONLY from a deep tool that itself requires approval.
+  const { buildDeepTools } = await import('../deep.js')
+  const deep = buildDeepTools({
+    ctx: { pool: null as never, userId: 'u1', jwt: 'j', apiBase: 'https://x.test/api' },
+    gateway: (() => {}) as never,
+    charge: async () => ({ allowed: true, cap: 10 }),
+  }) as Record<string, { needsApproval?: unknown }>
+
+  assert.equal(
+    deep.write_strategy_guide?.needsApproval,
+    true,
+    'write_strategy_guide stores a guide and must ask the human first',
+  )
+  // The other three only read. Asking about a read is friction with no safety
+  // behind it, and friction people learn to click through is worse than none.
+  for (const n of ['plan_deck', 'analyze_collection', 'research_meta']) {
+    assert.equal(deep[n]?.needsApproval, undefined, `${n} does not write and must not ask`)
+  }
+})
+
+test('`approvals: upstream` is never the default, on any tool', () => {
+  // The escape hatch exists for one caller. If it ever became the default, every
+  // write in the conversational path would execute unasked — and the tests above
+  // would still pass, because they check the policy functions rather than the
+  // wiring.
+  const conversational = buildDataToolsForTest()
+  for (const [name, t] of Object.entries(conversational)) {
+    const def = byName.get(name)
+    if (!def || def.annotations.readOnlyHint) continue
+    assert.notEqual(
+      (t as { needsApproval?: unknown }).needsApproval,
+      false,
+      `${name} can write and would execute without asking`,
+    )
+  }
 })

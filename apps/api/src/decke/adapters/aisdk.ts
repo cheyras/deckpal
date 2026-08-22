@@ -69,6 +69,37 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
   /** Receives the lifecycle events above. Optional; the chips are a UI concern. */
   onEvent?: (e: ToolEvent) => void;
   /**
+   * Where the human approval for these tools was obtained.
+   *
+   * `'here'` (the default) means each write pauses the turn and asks — the
+   * conversational path, where there IS a person and a UI to ask with.
+   *
+   * `'upstream'` means a person has ALREADY approved the operation these tools
+   * are being used to carry out, at a coarser boundary, and asking again is not
+   * possible.
+   *
+   * ── WHY THIS EXISTS, AND WHY IT IS NOT A HOLE ────────────────────────────
+   *
+   * A sub-agent runs inside `streamText`'s own loop with nothing draining an
+   * approval channel. So a write tool handed to a sub-agent is not "gated" —
+   * it is SUSPENDED FOR EVER. Found by the adversarial pass: the sub-agent
+   * composed a strategy guide, called `deck_strategy`, the SDK held the call,
+   * the sub-agent reported "stored", and nothing was written. Security-positive
+   * and functionally a lie — the exact failure this whole effort exists to
+   * remove, reintroduced by the mechanism added to prevent a different one.
+   *
+   * The fix is to move the question to a boundary where it can be answered, not
+   * to answer it automatically. `write_strategy_guide` itself now requires
+   * approval, so the human is asked once — "let him write and store a guide for
+   * this deck?" — which is the operation they actually understand. The inner
+   * `deck_strategy` call is that same approved act, so re-asking would be a
+   * question about an implementation detail nobody can evaluate.
+   *
+   * A sub-agent may still ONLY hold the writes its own approved purpose needs.
+   * `include` remains the fence, and it is a narrow one.
+   */
+  approvals?: 'here' | 'upstream';
+  /**
    * Character budget for one tool's output. See `clamp` below.
    * `0` disables truncation — for the analysis tier, which wants everything.
    */
@@ -226,7 +257,13 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
       // approves it — enforced by the SDK, not requested in a prompt. A preview
       // passes straight through, because being made to authorise something
       // before being told what it would do is the opposite of informed consent.
-      needsApproval: (input: unknown) => requiresApproval(def, input),
+      // `upstream` means a human already approved this operation at a coarser
+      // boundary and there is no channel here to ask on — see `approvals`. It
+      // is never the default, and never reachable from the conversational path.
+      needsApproval:
+        opts.approvals === 'upstream'
+          ? false
+          : (input: unknown) => requiresApproval(def, input),
       execute: async (args: unknown, { toolCallId }) => {
         const chip = { id: toolCallId, name: def.name, title: def.title };
         opts.onEvent?.({ phase: 'start', ...chip });
