@@ -733,6 +733,21 @@ export interface MeResponse {
   /** True when this account is the deployment's owner. Server-verified against
    *  the JWT — the owner's identity never enters this bundle. */
   owner?: boolean
+  /**
+   * True when this account may use Deck-E.
+   *
+   * A SEPARATE ANSWER FROM `owner`, and it has to be. `POST /api/chat` gates on
+   * the owner PLUS `DECKE_ENTITLED_USER_IDS`, so reusing `owner` here made the
+   * two gates disagree: the server would answer a turn for an entitled
+   * non-owner while the browser refused to draw them a button. Found on the
+   * deployed preview, where the QA account was entitled server-side and Deck-E
+   * was invisible — which would have made every browser gate unrunnable by the
+   * only account permitted to run them (B12).
+   *
+   * Computed server-side from the same function the endpoint uses, so the two
+   * cannot drift again.
+   */
+  decke?: boolean
 }
 export interface CollectionEvent {
   eventId: string

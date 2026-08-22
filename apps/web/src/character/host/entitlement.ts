@@ -47,7 +47,22 @@ async function resolve(): Promise<boolean> {
   // reasoning as the `/dev/decke` route guard, kept identical on purpose.
   if (!isCloudMode) return true
   const me = await api.me()
-  return me.owner === true
+  // `decke`, NOT `owner`. The endpoint gates on the owner PLUS
+  // `DECKE_ENTITLED_USER_IDS`; reusing `owner` here made the two gates
+  // disagree, and the disagreement was invisible from either side alone —
+  // `/api/chat` would answer a turn for an entitled non-owner while this
+  // function refused to draw them a button.
+  //
+  // Found on the deployed preview: the QA account was entitled server-side
+  // (health reported `owner-plus-list`) and Deck-E simply did not appear. That
+  // would have made every browser gate unrunnable by the one account permitted
+  // to run them, which is the exact hole §13.1 of the spec exists to close.
+  //
+  // `decke` is computed by the same function the endpoint calls, so they cannot
+  // drift again. Falls back to `owner` only for a server that predates the
+  // field, so a stale API cannot silently open the gate — it can only keep it
+  // where it already was.
+  return me.decke ?? me.owner === true
 }
 
 /** Test seam, and the escape hatch for a signed-out → signed-in transition. */
