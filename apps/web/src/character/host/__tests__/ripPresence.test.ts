@@ -1,5 +1,10 @@
 /**
- * The rarity heuristic that decides whether Deck-E gasps or just nods.
+ * The rarity heuristic, kept alive across the removal of the thing it drove.
+ *
+ * Nothing reacts to a pull any more: the rip-presence feature was gutted on
+ * purpose (see `ripPresence.ts` for the ruling and the reason). This heuristic
+ * survived it, because it is the one part that was ever right and because the
+ * overhaul will want it.
  *
  * The bar is deliberately set at the CHASE tiers rather than at "rare". Every
  * booster pack contains a guaranteed rare, so a character who reacts to that

@@ -789,6 +789,92 @@ body {
   to   { opacity: 1; transform: none; }
 }
 
+/* ── Waking up: the chip while the real character downloads ──────────────────
+ *
+ * This is the only thing between a tap and seven megabytes arriving, so it has
+ * one job: read as COMING, never as broken, and never look stalled.
+ *
+ * A SWEEP RATHER THAN A PULSE, and rather than a bar. A pulse has a bottom of
+ * its cycle that is indistinguishable from a thing that has stopped, and on a
+ * slow connection someone will be looking at exactly that moment. A progress
+ * bar would be a lie — there is no total to measure against until the first
+ * response header lands, and a bar that guesses is worse than no bar. A ring
+ * that travels continuously cannot be caught looking finished.
+ *
+ * His eyes go wide at the same time. That is the part that makes it read as a
+ * character waking rather than a control spinning, and it is why the eyes and
+ * mouth animate on the same two properties the doze uses. */
+.decke-chip--wake .decke-chip__eye {
+  height: 12px;
+  top: 5px;
+}
+.decke-chip--wake .decke-chip__mouth {
+  width: 10px;
+  height: 6px;
+}
+
+.decke-button--waking::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  /* The brand cyan, travelling. The transparent-to-colour ramp is what gives
+   * the sweep a head and a tail rather than making it a spinning wheel. */
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 200deg,
+    var(--color-brand-primary-400, #22d3ee) 320deg,
+    var(--color-brand-primary-300, #5ee9ff) 360deg
+  );
+  /* Ring, not disc: punch the middle out so the button's own face shows
+   * through. Both spellings — Safari has not unprefixed `mask` here. */
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .decke-button--waking::before {
+    animation: decke-wake-sweep 1100ms linear infinite;
+  }
+}
+
+/* REDUCE: the ring still says "busy", it simply does not travel. Removing the
+ * signal entirely would leave someone who asked for less motion staring at an
+ * unchanged button for the length of the download, which is a worse outcome
+ * than the animation they turned off. */
+@media (prefers-reduced-motion: reduce) {
+  .decke-button--waking::before {
+    background: var(--color-brand-primary-400, #22d3ee);
+    opacity: 0.55;
+  }
+}
+
+@keyframes decke-wake-sweep {
+  to { transform: rotate(1turn); }
+}
+
+/* ── Failed: he did not make it, and there is a way back ────────────────────
+ *
+ * Making the wait visible made the failure visible too. Before, a load that
+ * failed did so in the background with nobody waiting on it; now somebody is
+ * looking straight at the button when it happens. A chip that just keeps
+ * sweeping forever would be the dead end this pass exists to remove, so the
+ * state is distinct, it is legible without colour alone (the mouth turns down),
+ * and pressing it tries again. */
+.decke-button--failed {
+  border-color: var(--color-border-danger, #f87171);
+}
+.decke-chip--failed {
+  filter: saturate(0.4);
+}
+.decke-chip--failed .decke-chip__mouth {
+  border-bottom: none;
+  border-top: 2px solid var(--color-brand-secondary-400, #fb64b6);
+  border-radius: 10px 10px 0 0;
+}
+
 /* ── Deck-E's chat: the column he stands in ──────────────────────────────────
  *
  * ON A PHONE HE IS PART OF THE LAYOUT WITHOUT BEING IN IT. He is drawn by the

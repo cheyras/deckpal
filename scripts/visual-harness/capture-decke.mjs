@@ -116,13 +116,14 @@ const SCENES = [
       'scrim is, whether the app header stays sharp, and on mobile whether ' +
       'anything is under the notch or the home indicator.',
     platforms: ['desktop', 'mobile'],
-    async act({ page, timing }) {
+    async act({ page, timing, notes }) {
       timing.mark('open:click')
       await openDeckE(page)
       timing.measure('open:click-to-composer', 'open:click')
-      // The panel's entrance is 320 ms and the character flies after it; this
+      notes.characterArrival = await waitForCharacter(page)
+      // The panel's entrance is 320 ms and he flies after arriving; this
       // photographs the settled state, not the transition (see `chat-entry`).
-      await page.waitForTimeout(2500)
+      await page.waitForTimeout(1800)
     },
   },
   {
@@ -149,15 +150,49 @@ const SCENES = [
       'says how long the wait actually was.',
     platforms: ['mobile'],
     video: true,
-    async act({ page, timing }) {
+    async act({ page, timing, notes }) {
       await page.waitForTimeout(500)
       timing.mark('cold:tap')
       await openDeckE(page, { warm: false })
       timing.measure('cold:tap-to-composer', 'cold:tap')
-      await page.waitForTimeout(4000)
+      // THE NUMBER THIS SCENE EXISTS FOR: tap to character, with no warming
+      // hover, which is what every phone gets now.
+      notes.characterArrival = await waitForCharacter(page)
+      timing.measure('cold:tap-to-character', 'cold:tap')
+      await page.waitForTimeout(2200)
     },
   },
 ]
+
+/**
+ * Wait until the character is actually on screen, and say how long it took.
+ *
+ * A fixed `waitForTimeout` was the first version and it was wrong in both
+ * directions: too short and the capture photographs an empty panel and reports
+ * it as "the character did not appear", too long and every run pays for the
+ * slowest case. Worse, neither tells you the number that this whole change is
+ * about — how long somebody waits between tapping and Deck-E arriving.
+ *
+ * Returns `{ arrived, ms }`. `arrived: false` is a real answer, not an error:
+ * a load can genuinely fail, and the capture should record that rather than
+ * throw and lose every other artifact from the run.
+ */
+async function waitForCharacter(page, timeoutMs = 20_000) {
+  const started = Date.now()
+  try {
+    await page.waitForFunction(
+      () => {
+        const c = document.querySelector('canvas.fixed.inset-0')
+        return !!c && Number(getComputedStyle(c).opacity) > 0.99
+      },
+      undefined,
+      { timeout: timeoutMs },
+    )
+    return { arrived: true, ms: Date.now() - started }
+  } catch {
+    return { arrived: false, ms: Date.now() - started }
+  }
+}
 
 // ── Runner ───────────────────────────────────────────────────────────────────
 
@@ -285,7 +320,7 @@ async function runScene(browser, devices, scene, platform, timing) {
         const unlock = await unlockDeckE(context)
         const { diag, payload } = await preparePage(page, context, platform)
         await page.goto(`${BASE}${HOME_PATH}`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-        await scene.act({ page, context, timing, platform })
+        await scene.act({ page, context, timing, platform, notes })
         notes.entitlementShimFired = unlock.fired()
         notes.presence = await readPresence(page)
         if (platform === 'mobile') notes.safeArea = await readSafeArea(page)
@@ -313,7 +348,7 @@ async function runScene(browser, devices, scene, platform, timing) {
     try {
       const { diag, payload } = await preparePage(page, context, platform)
       await page.goto(`${BASE}${HOME_PATH}`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-      await scene.act({ page, context, timing, platform })
+      await scene.act({ page, context, timing, platform, notes })
       notes.entitlementShimFired = unlock.fired()
       notes.presence = await readPresence(page)
       if (platform === 'mobile') notes.safeArea = await readSafeArea(page)
@@ -330,6 +365,10 @@ async function runScene(browser, devices, scene, platform, timing) {
 
   writeFileSync(join(dir, 'notes.json'), JSON.stringify(notes, null, 2))
   console.log(`    presence: ${JSON.stringify(notes.presence)}`)
+  if (notes.characterArrival) {
+    const a = notes.characterArrival
+    console.log(`    character arrival: ${a.arrived ? `${a.ms} ms` : `NEVER (gave up after ${a.ms} ms)`}`)
+  }
   if (notes.safeArea) console.log(`    safe area: ${JSON.stringify(notes.safeArea)}`)
   const cp = notes.characterPayload
   console.log(

@@ -160,21 +160,104 @@ export function DeckeHost() {
     }
   }, [])
 
-  // Warm the engine once the page has settled. Deliberately NOT on mount: the
-  // first seconds after navigation belong to the content the reader asked for,
-  // and the character is 6.6 MB that nobody is looking at yet.
+  // HE DOES NOT LOAD UNTIL SOMEBODY WANTS HIM, and there used to be an effect
+  // here that broke that. It set `phase='loading'` on a `requestIdleCallback`
+  // (4 s timeout) or a 1.5 s fallback, gated only on `entitled && !chromeless`
+  // — never on a click, never on a hover. Every entitled visitor downloaded the
+  // whole character on every page, whether or not they ever spoke to him.
+  //
+  // MEASURED, not estimated: 5,905,250 bytes of assets — glb 2,918,432, HDR
+  // 1,608,057, atlas 1,069,793, playbook 186,833, cards 44,311, card back
+  // 77,824 — plus the ~1.14 MB runtime chunk in a production build. It is the
+  // owner's stated number-one complaint about this feature.
+  //
+  // DELETING IT RESTORES TWO DECISIONS THIS FILE ALREADY MADE, which is why it
+  // is a restoration rather than a reversal, and why it is low risk:
+  //
+  //   1. The launcher is hidden while the chat is open because "two Deck-Es …
+  //      is the exact thing the whole well design exists to avoid" (see the
+  //      `DeckeButton` call below). The timer broke that invariant in the
+  //      opposite direction: on the DEFAULT closed state of every page, the 3D
+  //      body and the chip were both on screen at once. Reproduced on demand by
+  //      `scripts/visual-harness/capture-decke.mjs --scene idle`, which reports
+  //      `twoDeckEs: true` on desktop and mobile alike.
+  //   2. `vite.config.ts:163-166` excludes these assets from precache on the
+  //      premise that "the route is lazy, so the cost is paid only by whoever
+  //      actually opens it." That premise was false. This makes it true.
+  //
+  // Loading now starts in exactly two places, both of them intent:
+  // `DeckeButton`'s `onWarm` (pointer-enter, touch-start, focus) and `onOpen`.
+  //
+  // THE ACCEPTED COST, stated rather than discovered: a phone has no hover, and
+  // `touchstart` beats `click` by around 100 ms, so mobile trades "already
+  // there" for "tap, then wait" — a beat on a good connection and possibly
+  // several seconds on a bad one. Nobody who never taps pays anything, which
+  // was the point. The chip's loading state below is what covers that wait, and
+  // it is load-bearing UI now rather than decoration.
+  //
+  // It also removed the only thing that ever loaded him before a booster-pack
+  // rip. That killed rip-watching, deliberately and with the owner's ruling —
+  // see `ripPresence.ts`.
+
+  // WHEN THE PAGE CHANGES UNDER HIM, HE HAS TO NOTICE.
+  //
+  // Until this existed, the ONLY route subscription in the whole character host
+  // was the `chromeless` selector above — a boolean deciding whether to render
+  // at all. Nothing reacted to navigation. So when the reader moved to another
+  // page:
+  //
+  //   - the speech bubble stayed pinned, holding an answer about a page that is
+  //     no longer on screen. The owner saw exactly this;
+  //   - the minimised bar survived, still describing a journey that had ended;
+  //   - and his parked station still held a selector for an element on the page
+  //     he had just left, so his anchor pointed at a ghost. `solveStation`
+  //     correctly refuses to re-solve a landmark that has unmounted, which
+  //     means he does not move — he simply stands where the old page used to
+  //     have something.
+  //
+  // This has to land BEFORE the wayfinding work, not after. That phase makes
+  // route changes routine *mid-turn*, and its sequencer will carry its own
+  // private version of this rule for its own hops — which would have left the
+  // common case, a person clicking a nav link themselves, still broken while
+  // the rare case was handled.
+  //
+  // THE EXEMPTION IS A JOURNEY STEP, NOT `travelling`, and the distinction is
+  // the whole point. `travelling` only means "a UI tool moved him at some point
+  // this turn", so exempting on it would exempt precisely the case the owner
+  // hit — navigating himself while Deck-E was out on the page with a bubble up.
+  // A journey step owns its own transition and is expected to navigate; nothing
+  // sets this yet, and the sequencer will.
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const journeyStepRef = useRef(false)
+  const travellingRef = useRef(false)
+  travellingRef.current = travelling
   useEffect(() => {
-    if (!entitled || chromeless || phase !== 'idle') return
-    const start = () => setPhase('loading')
-    const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: object) => number }
-    if (typeof w.requestIdleCallback === 'function') {
-      const id = w.requestIdleCallback(start, { timeout: 4000 })
-      return () => (window as unknown as { cancelIdleCallback?: (h: number) => void })
-        .cancelIdleCallback?.(id)
+    const d = deckeRef.current
+    if (!d) return
+    if (journeyStepRef.current) return
+    try {
+      // The ring is the most obviously wrong thing to leave behind: it is
+      // drawn around a rectangle that no longer means anything.
+      d.clearHighlight()
+    } catch {
+      /* An engine that has gone away must not take a navigation with it. */
     }
-    const t = setTimeout(start, 1500)
-    return () => clearTimeout(t)
-  }, [entitled, chromeless, phase])
+    // Dropping `travelling` is what retires the speech bubble and gives the
+    // transcript back — the bubble is derived from it, so there is no separate
+    // thing to clear.
+    if (travellingRef.current) setTravelling(false)
+    // RE-SOLVE, OR GO HOME. Standing beside a remembered rectangle on a page
+    // that has been replaced is worse than standing in his corner, because it
+    // looks deliberate.
+    if (chatOpenRef.current) parkForChatRef.current?.()
+    else {
+      try {
+        d.returnHome()
+      } catch {
+        /* as above */
+      }
+    }
+  }, [pathname])
 
   // SAMPLE HIS POSITION WHILE HE IS OUT, and only while he is out.
   //
@@ -224,34 +307,47 @@ export function DeckeHost() {
   // The 320 ms wait is the panel's entrance: `getBoundingClientRect` on an
   // element mid-transform reports where it IS, not where it lands, and the rAF
   // after it lets the dolly settle before the park is solved against it.
+  /**
+   * Put him on his chat mark, re-solvable.
+   *
+   * Held in a ref rather than inlined in the effect below because the route
+   * watcher needs to run exactly this again after a navigation: his mark on a
+   * phone is a box inside the panel and on desktop a fraction of the open page,
+   * and both want re-solving once the page underneath has been replaced.
+   */
+  const parkForChatRef = useRef<(() => void) | null>(null)
+
   useEffect(() => {
     const d = deckeRef.current
     if (!d) return
     measureRef.current?.()
     if (!chatOpen) {
+      parkForChatRef.current = null
       d.returnHome()
       return
     }
-    let raf = 0
-    const t = window.setTimeout(() => {
-      raf = requestAnimationFrame(() => {
-        // The park box only exists while the phone panel is mounted AND he has
-        // a measured size. `flyTo` THROWS on a selector that resolves to
-        // nothing, so this asks rather than assumes — and falls back to the
-        // same corner expressed as a fraction.
-        if (!wide && document.querySelector(`[${PARK_LANDMARK}]`)) {
-          d.flyTo(
-            { selector: `[${PARK_LANDMARK}]` },
-            { depth: 'foreground', highlight: false, centre: true },
-          )
-          return
-        }
-        const at = wide ? STAND_DESKTOP : STAND_MOBILE
+    const park = () => {
+      // The park box only exists while the phone panel is mounted AND he has
+      // a measured size. `flyTo` THROWS on a selector that resolves to
+      // nothing, so this asks rather than assumes — and falls back to the
+      // same corner expressed as a fraction.
+      if (!wide && document.querySelector(`[${PARK_LANDMARK}]`)) {
         d.flyTo(
-          { x: window.innerWidth * at.x, y: window.innerHeight * at.y },
+          { selector: `[${PARK_LANDMARK}]` },
           { depth: 'foreground', highlight: false, centre: true },
         )
-      })
+        return
+      }
+      const at = wide ? STAND_DESKTOP : STAND_MOBILE
+      d.flyTo(
+        { x: window.innerWidth * at.x, y: window.innerHeight * at.y },
+        { depth: 'foreground', highlight: false, centre: true },
+      )
+    }
+    parkForChatRef.current = park
+    let raf = 0
+    const t = window.setTimeout(() => {
+      raf = requestAnimationFrame(park)
     }, 320)
     return () => {
       window.clearTimeout(t)
@@ -435,9 +531,20 @@ export function DeckeHost() {
           in the corner would be two Deck-Es, which is the exact thing the whole
           well design exists to avoid. */}
       <DeckeButton
-        hidden={chatOpen}
+        // HIDDEN ONLY ONCE HE HAS ACTUALLY ARRIVED. `hidden={chatOpen}` was
+        // right while the runtime was pre-warmed on a timer and wrong the
+        // moment it stopped being: it unmounted the chip about 100 ms after the
+        // tap, so the loading state would have been a flash and the panel would
+        // have stood empty for the rest of the download. Keeping it until
+        // `ready` is what makes the chip cover the wait, which is the whole of
+        // the trade A1 accepted. On `failed` it stays too, as the way back.
+        hidden={chatOpen && (phase === 'ready' || phase === 'idle')}
+        loading={phase === 'loading'}
+        failed={phase === 'failed'}
+        overChat={chatOpen}
         onOpen={() => setChatOpen(true)}
         onWarm={() => setPhase((p) => (p === 'idle' ? 'loading' : p))}
+        onRetry={() => setPhase('loading')}
       />
 
       <DeckeChat
