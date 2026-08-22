@@ -89,6 +89,20 @@ interface ValueRow {
   unpriced_variants: string;
 }
 interface TopRow {
+  /**
+   * The catalog id, e.g. `me05-084`.
+   *
+   * NOT decoration. Its absence caused a fabrication: `showScreen`'s `cardGrid`
+   * takes card IDS, this summary returned only NAMES, and Deck-E — asked to
+   * show "my 5 most valuable cards" — filled the gap by inventing ids. Measured
+   * twice on the deployed preview, and the ids DIFFERED between the two runs
+   * (`084,047,019,021,020` then `084,083,086,087,085`), which is what proves
+   * they were guesses. The account owned none of them.
+   *
+   * The lesson is not "the model lies", though it did. It is that a tool whose
+   * output cannot answer the next obvious question invites one.
+   */
+  card_id: string;
   name: string;
   set_name: string;
   set_tid: string;
@@ -148,7 +162,7 @@ export async function summaryText(ctx: Ctx, topN = 10): Promise<string> {
          FROM price_current
         WHERE currency_code = 'USD' AND market_minor IS NOT NULL
         GROUP BY card_variant_id)
-     SELECT c.name, cs.name AS set_name, cs.tcgdex_id AS set_tid,
+     SELECT c.tcgdex_id AS card_id, c.name, cs.name AS set_name, cs.tcgdex_id AS set_tid,
             COALESCE(cv.display_name, cv.variant_kind_code) AS variant,
             ci.quantity, b.best_minor, (ci.quantity * b.best_minor)::bigint AS line_minor
        FROM collection_item ci
@@ -196,6 +210,11 @@ export async function summaryText(ctx: Ctx, topN = 10): Promise<string> {
         '  ' +
           row(
             t.name,
+            // THE ID, second, where every other tool in this package puts it.
+            // A caller reading these rows can now build a card grid or a link
+            // without a second lookup per card — and, more to the point, without
+            // guessing.
+            t.card_id,
             `${t.set_name} (${t.set_tid})`,
             t.variant,
             `x${t.quantity}`,

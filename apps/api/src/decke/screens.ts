@@ -111,7 +111,14 @@ const leafFields = {
     .array(z.string())
     .max(60)
     .optional()
-    .describe('cardGrid only: catalog card ids, in the order to show them.'),
+    .describe(
+      'cardGrid only: catalog card ids, in the order to show them. Every id must come ' +
+        'from a tool result in THIS conversation — search_cards, get_card, set_progress and ' +
+        'collection_summary all return them. NEVER construct one from a set id and a number, ' +
+        'and never carry one over from memory: an id you invented renders as somebody ' +
+        "else's card, silently, next to a sentence about the cards you meant. If you do not " +
+        'have real ids, say what you found in words instead of drawing a grid.',
+    ),
   quantities: z
     .array(z.number().int())
     .max(60)
