@@ -382,6 +382,20 @@ export function useDeckeChat(
                 },
               })
             }
+            // ── NOTHING MAY BE APPENDED AFTER THIS ────────────────────────────
+            //
+            // `collectToolApprovals` requires the LAST message of the replayed
+            // conversation to be the one carrying the approval response
+            // (`ai/src/generate-text/collect-tool-approvals.ts:33`). If anything
+            // follows it — a stray user turn, an injected context note — the
+            // approved tool is SILENTLY SKIPPED: no error, no execution, and a
+            // dangling tool_use that some providers then reject outright.
+            //
+            // That is vercel/ai#17033, still open. We are clear of it because
+            // this pushes last and immediately continues to the next leg, which
+            // POSTs straight away. It is an accident of ordering rather than a
+            // guarantee, so: if you ever add anything between this push and the
+            // request, put it BEFORE the approval message, not after.
             wire.push({ role: 'assistant', parts })
             continue
           }

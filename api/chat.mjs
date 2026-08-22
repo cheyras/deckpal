@@ -62,6 +62,7 @@ import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters
 import { apiBaseFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
 import { createNarrationFilter } from '../apps/api/dist/decke/narration.js'
+import { focusedTools } from '../apps/api/dist/decke/focus.js'
 import { makePool } from '@deckpal/db'
 
 /**
@@ -404,6 +405,36 @@ async function serve(request) {
       // failure mode is spending the wrong one while believing otherwise.
       const gateway = createGateway({ apiKey: key })
 
+      const allDeckeTools = {
+        ...buildTools(writer),
+        // READS AND WRITES, because the approval round-trip now exists.
+        //
+        // `include: () => true` is not "no filter" — every write is still
+        // gated by the adapter's `needsApproval`, which the SDK ENFORCES by
+        // not running the tool. What changes here is only whether the model
+        // can ask. Before the client could carry an approval, a write tool
+        // would have stalled the turn: the SDK holds the call, nothing
+        // executes, and nobody is listening for the request.
+        ...buildDataTools({ ...toolCtx, include: () => true, onEvent: emitToolEvent(writer) }),
+        // THE DEEP TIER. Four sub-agents, each with its own model, step
+        // budget and tool subset — see `decke/deep.ts`.
+        //
+        // Tools rather than a router: a classifier turn in front of every
+        // message taxes the 90% that do not need one, and a misroute is
+        // INVISIBLE — the answer still arrives, quietly worse, and nothing
+        // says a cheap model answered a question that needed an expensive
+        // one. A tool call, by contrast, appears in the log.
+        //
+        // Each charges `deep_calls`, which is capped separately and far
+        // tighter than conversation because it is ~250x the price.
+        ...buildDeepTools({
+          ctx: toolCtx,
+          gateway,
+          charge: async () => charge(user.id, 'deep_calls'),
+          onEvent: emitToolEvent(writer),
+        }),
+      }
+
       const result = streamText({
         model: gateway(choice.id),
         // `instructions`, not `system` — `system` is deprecated in ai@7 and
@@ -447,35 +478,7 @@ async function serve(request) {
         // lazy and the connection is held for one call and released. Nothing in
         // this stream ever holds a connection, which is the rule that lets this
         // function keep the property it was created for.
-        tools: {
-          ...buildTools(writer),
-          // READS AND WRITES, because the approval round-trip now exists.
-          //
-          // `include: () => true` is not "no filter" — every write is still
-          // gated by the adapter's `needsApproval`, which the SDK ENFORCES by
-          // not running the tool. What changes here is only whether the model
-          // can ask. Before the client could carry an approval, a write tool
-          // would have stalled the turn: the SDK holds the call, nothing
-          // executes, and nobody is listening for the request.
-          ...buildDataTools({ ...toolCtx, include: () => true, onEvent: emitToolEvent(writer) }),
-          // THE DEEP TIER. Four sub-agents, each with its own model, step
-          // budget and tool subset — see `decke/deep.ts`.
-          //
-          // Tools rather than a router: a classifier turn in front of every
-          // message taxes the 90% that do not need one, and a misroute is
-          // INVISIBLE — the answer still arrives, quietly worse, and nothing
-          // says a cheap model answered a question that needed an expensive
-          // one. A tool call, by contrast, appears in the log.
-          //
-          // Each charges `deep_calls`, which is capped separately and far
-          // tighter than conversation because it is ~250x the price.
-          ...buildDeepTools({
-            ctx: toolCtx,
-            gateway,
-            charge: async () => charge(user.id, 'deep_calls'),
-            onEvent: emitToolEvent(writer),
-          }),
-        },
+        tools: allDeckeTools,
         // Bounded: each step re-bills the entire prompt, so an unbounded loop on
         // a per-user paid feature is a billing incident waiting to happen. Four
         // covers "fly there, see what happened, react".
@@ -558,6 +561,55 @@ async function serve(request) {
             return spoke && settled
           },
         ],
+        // ── WHAT HE CAN SEE, PER STEP ─────────────────────────────────────
+        //
+        // Not a smaller tool set — the same tools, narrowed on the first step.
+        // Bisected against the live model on the prompt that broke it ("add
+        // 4000 Charizards", which should fire a reaction): with all 34 tools he
+        // narrated the command as visible text 5/5 and called `express` 0/5;
+        // with the write tools out of view, 1/5 and 1/5.
+        //
+        // And ten tools was WORSE than twenty-three, so this is not "fewer is
+        // better" — it is that eleven ways to mutate a collection should not be
+        // crowding the first decision, which is "what is this person asking
+        // for". `decke/focus.ts` has the numbers.
+        //
+        // Everything comes back on step two, so a capability is delayed by one
+        // step and never removed.
+        prepareStep: ({ stepNumber }) => ({
+          activeTools: focusedTools(allDeckeTools, stepNumber),
+        }),
+        // ── APPROVALS ARE SIGNED, SO THEY CANNOT BE FORGED ────────────────
+        //
+        // The SDK holds a write until an approval arrives. Until this line,
+        // nothing proved that approval corresponded to a request the SERVER
+        // had actually issued: the client is hand-rolled and the whole
+        // conversation is replayed on every leg, so a caller could simply
+        // append `state:'approval-responded', approval:{approved:true}` to a
+        // tool call and the write would execute.
+        //
+        // Read in the SDK's own source rather than assumed: signature
+        // verification runs only `if (toolApprovalSecret != null)`
+        // (`ai/dist/index.js:5164`). Without a secret there is no check at all
+        // — the approval is taken at face value.
+        //
+        // With one, the server HMACs each request at issuance over
+        // (approvalId, toolCallId, toolName, input) and verifies it on replay,
+        // so a forged approval, a replayed one for a different call, or one
+        // whose ARGUMENTS were edited after approval all fail closed.
+        //
+        // That last case is the one worth naming: without signing, a client
+        // could approve "add 1 card" and send back "add 4000" against the same
+        // approval. The input is inside the signature.
+        //
+        // Unset means unsigned rather than broken, and that is deliberate —
+        // this must not take Deck-E down on a deployment that has not set it —
+        // but it is declared in DEPLOYMENT.md and warned about at boot, per
+        // B11, because "the control is off and nothing says so" is the failure
+        // that contract exists for.
+        ...(process.env.DECKE_APPROVAL_SECRET
+          ? { experimental_toolApprovalSecret: process.env.DECKE_APPROVAL_SECRET }
+          : {}),
         maxOutputTokens: budgetFor(choice),
         // A sub-agent that ignores the signal bills for up to five minutes
         // after the user gave up. This is the same signal every tool call and

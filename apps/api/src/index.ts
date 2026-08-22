@@ -5,7 +5,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { closePool, pool, q, rlsStore, SUPABASE_MODE, withUserContext } from './db.js';
 import { ownerGateStatus } from './routes/me.js';
-import { deckeGateStatus, deckeGateWarning } from './decke/gate.js';
+import { deckeApprovalSigning, deckeApprovalWarning, deckeGateStatus, deckeGateWarning } from './decke/gate.js';
 import {
   deckeEntitledCount,
   deckeEntitlementStatus,
@@ -70,6 +70,11 @@ export function createApp(): express.Express {
   // deployment that pays for a model nobody is allowed to call.
   const entitlementWarning = deckeEntitlementWarning();
   if (entitlementWarning) console.warn(entitlementWarning);
+
+  // A control that is OFF, as distinct from a feature that is off. Said
+  // separately so the louder message cannot hide the quieter one.
+  const approvalWarning = deckeApprovalWarning();
+  if (approvalWarning) console.warn(approvalWarning);
 
   const app = express();
   app.disable('x-powered-by');
@@ -278,6 +283,9 @@ export function createApp(): express.Express {
         // and never any part of its value. `unset` means POST /api/chat 503s
         // for everybody, which is otherwise invisible from outside. B11 again.
         deckeGate: deckeGateStatus(),
+        // Whether a crafted client could forge a write approval. B11: a
+        // security control that is off must be visible from outside.
+        deckeApprovals: deckeApprovalSigning(),
         // WHO may use Deck-E, and how much of him — never the ids themselves,
         // because /health is unauthenticated and a list of user UUIDs is
         // exactly the sort of thing that should not be readable from it. A
