@@ -19,6 +19,19 @@ export interface ResolvedCard {
   name: string;
   setTcgdexId: string;
   setName: string;
+  /**
+   * The set's series slug, e.g. 'mega-evolution'. Carried because DeckPal's own
+   * routes are `/series/<seriesSlug>/<setId>[/<number>]` and slugs are not
+   * derivable from names ("McDonald's Collection" → `mcdonald-s-collection`), so
+   * without it nothing that resolves a card can link to it. The join is on
+   * `card_set.series_id`, `NOT NULL REFERENCES series(id)` (migration 003), so
+   * it cannot change which cards resolve or how many candidates come back.
+   *
+   * Deliberately NOT rendered by {@link describeCard}: that string is the
+   * ambiguity list `log_cards` and `edit_list` show, and widening it would
+   * change output for tools this had no reason to touch.
+   */
+  seriesSlug: string;
   localId: string;
   rarity: string | null;
   category: string;
@@ -33,10 +46,11 @@ export type CardResolution =
 
 const CARD_SELECT = `
   SELECT c.id, c.tcgdex_id, c.name, c.local_id, c.rarity, c.category,
-         cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name,
+         cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name, se.slug AS series_slug,
          bp.best_minor
     FROM card c
     JOIN card_set cs ON cs.id = c.set_id
+    JOIN series se   ON se.id = cs.series_id
     LEFT JOIN (
       SELECT cv.card_id, min(pc.market_minor)::int AS best_minor
         FROM price_current pc
@@ -52,6 +66,7 @@ function shape(r: Record<string, unknown>): ResolvedCard {
     name: String(r.name),
     setTcgdexId: String(r.set_tcgdex_id),
     setName: String(r.set_name),
+    seriesSlug: String(r.series_slug),
     localId: String(r.local_id),
     rarity: r.rarity == null ? null : String(r.rarity),
     category: String(r.category),

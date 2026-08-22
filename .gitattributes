@@ -1,0 +1,33 @@
+# ── MIGRATIONS MUST CHECK OUT WITH LF, EVERYWHERE ────────────────────────────
+#
+# `packages/db/src/migrate.ts` records a SHA-256 of each migration's FILE
+# CONTENT in `schema_migrations`, and refuses to run when a stored checksum no
+# longer matches the file. That check is contract B4 and it is right: editing a
+# shipped migration corrupts the history, so it should be a hard error.
+#
+# But the hash is over the bytes, and Git rewrites line endings on checkout. On
+# Windows, `core.autocrlf=true` turns every `.sql` file into CRLF, which changes
+# every byte-count and therefore every hash. Measured on this repo:
+#
+#     001_extensions.sql   as LF   c68dd09bd59f   <- what production has stored
+#                          as CRLF dcfa75811eec   <- what a Windows checkout hashes
+#
+# So `pnpm migrate` from a Windows clone failed on migration 001 with
+# "checksum mismatch … Shipped migrations are immutable" — a message that
+# accuses you of editing a file you have never opened, and sends you looking for
+# drift that does not exist. Found while applying 039/040 on 2026-08-22.
+#
+# Pinning `eol=lf` makes the checkout byte-identical on every platform, which is
+# the only way a content hash can mean the same thing in more than one place.
+# This does not change what is stored in Git — Git has always kept these as LF.
+# It changes what lands in the working tree.
+*.sql text eol=lf
+
+# The same reasoning, for the same reason, for anything else whose CONTENT is
+# hashed, signed, or compared byte-for-byte rather than parsed.
+*.sh text eol=lf
+
+# Everything else keeps the default. Source files are parsed, not hashed, so
+# their line endings are a matter of taste and the tooling already copes; a
+# blanket `* text=auto eol=lf` would rewrite the entire working tree on Windows
+# for no benefit and would make one enormous diff out of an unrelated concern.

@@ -231,7 +231,14 @@ export function DecksIndex() {
       )}
 
       {decks.length > 0 && (
-        <div className="grid gap-[20px]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+        <div
+          className="grid gap-[20px]"
+          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}
+          data-decke-deck-list
+          data-decke-landmark="[data-decke-deck-list]"
+          data-decke-label="the deck list"
+          data-decke-rank="container"
+        >
           {decks.map((d) => <DeckCard key={d.id} deck={d} />)}
         </div>
       )}

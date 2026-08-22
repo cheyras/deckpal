@@ -40,6 +40,17 @@ export function OwnershipStrip({
         }}
         title={`Goal: ${GOAL_TITLE[search.goal]} (click to cycle)`}
         className="flex h-[36px] w-[36px] items-center justify-center rounded-lg bg-surface-tertiary hover:bg-action-default-hover"
+        // POINTABLE, NOT PRESSABLE. `data-decke-landmark` means only that
+        // Deck-E may fly here and ring it so a reader can see what he is
+        // talking about. Pressing is a separate capability gated on a separate
+        // attribute (SPEC §9.2's clickable marking), which does not exist yet —
+        // do not add it here as a convenience, because cycling the goal rewrites
+        // the page's search params under the reader. That attribute is meant to
+        // stay grep-auditable, so it is spelled nowhere in this repo until the
+        // PR that actually introduces and reviews it.
+        data-decke-goal-switcher
+        data-decke-landmark="[data-decke-goal-switcher]"
+        data-decke-label="the goal switcher"
       >
         <Icon
           name={search.goal === 'complete' ? 'star-outline' : 'star-filled'}

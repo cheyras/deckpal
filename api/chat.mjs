@@ -17,11 +17,24 @@
  *
  * Vercel gives filesystem routes precedence over `vercel.json` rewrites, so
  * this file claims `/api/chat` without touching the rewrite that funnels
- * everything else into Express. This function never opens a database
- * connection. Reads and writes are ordinary short REST calls to the Express
- * API, carrying the user's own JWT — so Deck-E has exactly the permissions the
- * signed-in user has, enforced by the same RLS policies, and no service-role
- * credential exists anywhere on this path.
+ * everything else into Express. Reads and writes are ordinary short REST calls
+ * to the Express API, carrying the user's own JWT — so Deck-E has exactly the
+ * permissions the signed-in user has, enforced by the same RLS policies, and no
+ * service-role credential exists anywhere on this path.
+ *
+ * ── THE ONE DATABASE CONNECTION, AND ITS RULE ────────────────────────────────
+ *
+ * This function used to say "never opens a database connection", which was true
+ * and was also why it had no rate limit. It now opens exactly one, for exactly
+ * one statement, BEFORE the stream starts: the meter (migration 039).
+ *
+ * The rule that keeps the reasoning at the top of this file intact:
+ * **never hold a connection across the stream.** The meter charges, releases,
+ * and only then does the model get called. Nothing inside `execute` touches the
+ * pool. A connection held across a stream would reintroduce every problem this
+ * file exists to avoid, plus a new one — Vercel freezes an instance after the
+ * response socket dies, so a connection checked out at that moment is checked
+ * out for ever.
  */
 import {
   convertToModelMessages,
@@ -43,6 +56,15 @@ import { verifySupabaseJwt, createSupabaseJwksProvider } from '../apps/api/dist/
 import { buildSystemPrompt } from '../apps/api/dist/decke/prompt.js'
 import { buildTools } from '../apps/api/dist/decke/tools.js'
 import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
+import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
+import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
+import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
+import { apiBaseFor } from '../apps/api/dist/decke/ctx.js'
+import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
+import { stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
+import { focusedTools } from '../apps/api/dist/decke/focus.js'
+import { createGrounding } from '../apps/api/dist/decke/grounding.js'
+import { makePool } from '@deckpal/db'
 
 /**
  * The Deck-E Gateway credential.
@@ -91,6 +113,145 @@ const json = (body, status) =>
   })
 
 /**
+ * The chat function's own pool — lazily created, deliberately tiny.
+ *
+ * SEPARATE FROM THE EXPRESS APP'S, because this is a separate process. That is
+ * not a design choice here, it is a fact about serverless: `api/index.mjs` and
+ * this file never share memory, so `/api/health`'s pool census cannot see this
+ * pool and never will. Health reports the CONFIGURED value instead, which is
+ * the honest version of B11 for something it cannot measure in-process.
+ *
+ * Sized by `PGPOOL_MAX_CHAT` under contract B2's `request` role. Default 2: one
+ * statement per request, held for milliseconds, so concurrency here is bounded
+ * by how many requests can be mid-METER at once — not by how many can be
+ * mid-conversation, which is the number that would have needed a large pool.
+ *
+ * LAZY, because a module-level pool would connect on cold start for every
+ * request including the ones that 401 before they need it, and because a
+ * deployment with no database configured should fail at the meter with a
+ * legible error rather than at import with an opaque one.
+ */
+let poolRef = null
+function chatPool() {
+  if (!poolRef) {
+    const configured = Number.parseInt(process.env.PGPOOL_MAX_CHAT ?? '', 10)
+    poolRef = makePool({
+      role: 'request',
+      ...(Number.isFinite(configured) && configured > 0 ? { max: configured } : { max: 2 }),
+    })
+  }
+  return poolRef
+}
+
+/**
+ * How long the meter may take before we give up on it.
+ *
+ * `apps/mcp/src/rls.ts` has no watchdog and the spec calls that out as the gap
+ * this class of code keeps falling into. The meter is one statement against a
+ * database ~90 ms away, so five seconds is enormously generous and still bounds
+ * the case that matters: a database that has stopped answering must not turn
+ * every Deck-E request into a hung socket holding a pooled connection on an
+ * instance Vercel is about to freeze.
+ */
+const METER_TIMEOUT_MS = Number.parseInt(process.env.DECKE_METER_TIMEOUT_MS ?? '', 10) || 5_000
+
+/**
+ * Charge one unit against a tier, and say whether it was allowed.
+ *
+ * FAILS OPEN, and that is a decision rather than an oversight. If the database
+ * is unreachable, the alternatives are: refuse every Deck-E request (the meter
+ * becomes an outage amplifier — a database blip takes the character down), or
+ * serve the request unmetered (a bounded overspend during a bounded incident,
+ * on a feature whose gate is already a short list of accounts).
+ *
+ * The second is right HERE and would be wrong for the entitlement check, which
+ * is why entitlement is checked separately and from environment variables that
+ * cannot be unreachable. Access control fails closed; accounting fails open.
+ * They are different questions and they get different answers.
+ *
+ * It is logged loudly either way, because "the meter was off for six hours" is
+ * something that must be discoverable afterwards.
+ */
+async function charge(userId, tier) {
+  const cap = capFor(tier)
+  if (cap <= 0) return { allowed: false, used: 0, cap }
+
+  /**
+   * Race against a deadline, and CLEAR THE TIMER when the race settles.
+   *
+   * Both halves matter and they pull opposite ways. A timer left running keeps
+   * this function alive for the full five seconds after a meter that answered
+   * in ninety milliseconds — on a serverless platform billed by wall clock, on
+   * the hot path of every single turn. And `unref()`ing it instead is the bug
+   * CI just caught one layer down in `rls.ts`: an unref'd timer does not hold
+   * the loop open, so the case the timer EXISTS for — something that never
+   * settles — is exactly the case where the process can exit with the race
+   * pending.
+   *
+   * Clearing on settle is the version that is right in both directions.
+   */
+  const withDeadline = (promise, what) => {
+    let timer
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`meter: ${what} timed out`)), METER_TIMEOUT_MS)
+    })
+    return Promise.race([promise, deadline]).finally(() => clearTimeout(timer))
+  }
+
+  let client
+  try {
+    client = await withDeadline(chatPool().connect(), 'pool connect')
+    const res = await withDeadline(client.query(chargeSql(tier), [userId, cap]), 'query')
+    return verdictFrom(res.rows, cap)
+  } catch (err) {
+    // THE CODE AND THE NAME, NEVER THE MESSAGE.
+    //
+    // Caught by CodeQL on this PR, and it is right. A `pg` connection failure's
+    // `message` is built from the connection parameters — which come from
+    // PGHOST/PGUSER/PGPASSWORD — so "password authentication failed for user
+    // …" and DSN fragments end up in it. This log line is the one that fires
+    // when the database is unreachable, which is exactly when those details are
+    // in the error, and Vercel's function logs are not the place for them.
+    //
+    // `code` is what is actually diagnostic anyway: ECONNREFUSED, 28P01,
+    // ETIMEDOUT. Anyone debugging this needs to know WHICH failure, not the
+    // sentence the driver wrote about it — and if they need more, the database's
+    // own logs have it without a copy in ours.
+    // CONSTRAINED IN SHAPE, not merely chosen carefully.
+    //
+    // Reading `err.code` instead of `err.message` was not enough for CodeQL,
+    // and CodeQL is being reasonable: it tracks taint through the whole error
+    // object and cannot know that a `pg` error's `code` is a five-character
+    // SQLSTATE while its `message` is built from the connection string. From
+    // its position, both are "something derived from the environment".
+    //
+    // So the shape is enforced rather than assumed. SQLSTATE (`28P01`) and Node
+    // syscall codes (`ECONNREFUSED`) are short and alphanumeric; anything that
+    // is not becomes `unrecognised`. That turns "I am fairly sure this field is
+    // safe" into "nothing else can get out of here", which is the version worth
+    // having — and it keeps holding if a future driver decides to put something
+    // chattier in `code`.
+    const raw = String(err?.code ?? err?.name ?? '')
+    const code = /^[A-Za-z0-9_]{1,32}$/.test(raw) ? raw : 'unrecognised'
+    console.error(
+      `[deck-e] METER UNAVAILABLE — serving ${tier} unmetered for this request. ` +
+        `Accounting fails open on purpose; entitlement does not. Cause code: ${code}`,
+    )
+    return { allowed: true, used: -1, cap }
+  } finally {
+    // ALWAYS, including the timeout paths. A client that is never released is
+    // the whole failure mode the watchdog above exists to prevent, and getting
+    // this wrong inside the code that prevents it would be a particular kind of
+    // embarrassing.
+    try {
+      client?.release()
+    } catch {
+      /* the pool discards a broken client on its own */
+    }
+  }
+}
+
+/**
  * The request pipeline, written against web standards.
  *
  * Kept in this shape because the AI SDK speaks it — `createUIMessageStreamResponse`
@@ -110,6 +271,20 @@ async function serve(request) {
   const user = await userFromRequest(request)
   if (!user) return json({ error: 'sign in to talk to deck-e' }, 401)
 
+  // ── THE GATE THAT MEANS ANYTHING ──────────────────────────────────────────
+  //
+  // The client has its own entitlement check and it is correct, but it runs in
+  // a browser, so what it decides is whether to draw a button. Until this line
+  // existed, any signed-in account could `curl` a full model turn onto the
+  // owner's Gateway key. Verified against the deployed endpoint before it was
+  // fixed; that is not a hypothetical.
+  //
+  // BEFORE the body is even parsed, so a rejected caller costs one JWT
+  // verification and nothing else.
+  if (!isDeckeEntitled(user.id)) {
+    return json({ error: 'deck-e is not available on this account' }, 403)
+  }
+
   let body
   try {
     body = await request.json()
@@ -120,6 +295,102 @@ async function serve(request) {
   const { messages, route = '/', landmarks = [] } = body ?? {}
   if (!Array.isArray(messages) || messages.length === 0) {
     return json({ error: 'messages must be a non-empty array' }, 400)
+  }
+
+  // ── THE METER ─────────────────────────────────────────────────────────────
+  //
+  // Charged AFTER validation and BEFORE the model, which is the only ordering
+  // that is both fair and safe: a malformed request should not cost the caller
+  // a turn, and a well-formed one must not reach the Gateway until it has been
+  // paid for.
+  //
+  // One turn is one BILLED REQUEST, not one thing the reader typed — a journey
+  // costs up to four. Migration 039's header explains why that is the honest
+  // unit even though it reads stingier than it is.
+  const meter = await charge(user.id, 'chat_turns')
+  if (!meter.allowed) {
+    // A SPOKEN REFUSAL, not a 500. The browser turns this status into his own
+    // words in the transcript, so a budget reads as a budget rather than as a
+    // malfunction. 429 and not 403: the account is entitled, it has simply
+    // spent today's allowance, and those are different sentences.
+    return json({ error: refusalText('chat_turns', meter.cap), retryAfterDay: true }, 429)
+  }
+
+  // Where this instance is reachable, for the API hop a tool makes. Derived
+  // from the request rather than hardcoded, so a preview deployment talks to
+  // ITSELF instead of to production — which matters most when the thing being
+  // verified is a preview deployment.
+  const host = request.headers.get('host') ?? undefined
+
+  // THE TURN'S ABORT SIGNAL, threaded everywhere that can outlive the reader.
+  //
+  // Aborts are routine here, not exceptional: the client aborts the previous
+  // stream on every new send, and there is a stop button. When the response
+  // socket dies, this function's pump loop returns but `execute` below keeps
+  // running — and Vercel then freezes the instance. Anything still in flight at
+  // that moment is in flight for ever: a pooled connection stays checked out, a
+  // model call keeps billing.
+  const abortSignal = request.signal
+
+  // Built once and shared by both tool sets. The database handle inside it is
+  // LAZY — nothing is checked out until a tool actually queries, and it is
+  // released when that call returns.
+  // ── THE SELF-HOP, AND WHAT GUARDS IT ──────────────────────────────────────
+  //
+  // Writes go through deckpal-api rather than straight to Postgres, so the
+  // write logic stays single-sourced (SPEC §3). Which means this function calls
+  // its OWN DEPLOYMENT over the public hostname — and anything guarding that
+  // hostname guards us.
+  //
+  // Measured on a protected Vercel preview: `log_cards` came back "NOT SENT …
+  // applied 0 … STOPPED: Protected deployment", the mutation ledger never
+  // moved, and the approval flow it was verifying could not be tested end to
+  // end. The bypass header can be put on a browser's requests and on curl's; it
+  // cannot be put on a fetch the server makes to itself unless the server
+  // forwards it, which is this.
+  //
+  // Forwarded ONLY if the incoming request carried it — so it is present
+  // exactly when the platform put it there, and absent in production where
+  // there is nothing to bypass. It is a deployment-access token, not a user
+  // credential: it grants nothing beyond reaching a deployment that is already
+  // answering this very request.
+  const bypass = request.headers.get('x-vercel-protection-bypass')
+
+  const toolCtx = {
+    pool: chatPool(),
+    userId: user.id,
+    jwt: user.token,
+    apiBase: apiBaseFor(host),
+    signal: abortSignal,
+    ...(bypass ? { selfHopHeaders: { 'x-vercel-protection-bypass': bypass } } : {}),
+  }
+
+  /**
+   * Tool-call lifecycle, onto the stream, as a transient part.
+   *
+   * WHY THIS EXISTS: work is currently indistinguishable from theatre. The
+   * `thinking` state is driven by request latency, so a fabricated answer and a
+   * researched one look exactly the same while they are being produced. The
+   * reader has no way to tell "he is reading my collection" from "he is
+   * composing a sentence about my collection".
+   *
+   * EMITTED HERE, never by the model. A chip the model could ask for would be a
+   * second surface to fabricate on — "Checking your collection…" with no lookup
+   * behind it is strictly worse than no chip at all, because it manufactures
+   * evidence. These come from the adapter's own execute wrapper, so every chip
+   * corresponds 1:1 to a real invocation of a real handler by construction.
+   *
+   * TRANSIENT, like the animation commands: progress is about a moment, and a
+   * finished turn should not carry "Checking your collection…" in its history
+   * for ever, nor re-bill it on the next turn.
+   */
+  const emitToolEvent = (writer) => (event) => {
+    try {
+      writer.write({ type: 'data-decke-tool', data: event, transient: true })
+    } catch {
+      // A closed stream is the ordinary end of an aborted turn. A chip that
+      // cannot be delivered must never take the tool call down with it.
+    }
   }
 
   const choice = MODELS.chat
@@ -135,6 +406,46 @@ async function serve(request) {
       // failure mode is spending the wrong one while believing otherwise.
       const gateway = createGateway({ apiKey: key })
 
+      // ONE PER TURN, shared by every tool in it. What a data tool returns on
+      // step one is what `showScreen` may draw on step three — evidence is a
+      // property of the turn, not of a call.
+      const grounding = createGrounding()
+
+      const allDeckeTools = {
+        ...buildTools(writer, grounding),
+        // READS AND WRITES, because the approval round-trip now exists.
+        //
+        // `include: () => true` is not "no filter" — every write is still
+        // gated by the adapter's `needsApproval`, which the SDK ENFORCES by
+        // not running the tool. What changes here is only whether the model
+        // can ask. Before the client could carry an approval, a write tool
+        // would have stalled the turn: the SDK holds the call, nothing
+        // executes, and nobody is listening for the request.
+        ...buildDataTools({
+          ...toolCtx,
+          include: () => true,
+          onEvent: emitToolEvent(writer),
+          grounding,
+        }),
+        // THE DEEP TIER. Four sub-agents, each with its own model, step
+        // budget and tool subset — see `decke/deep.ts`.
+        //
+        // Tools rather than a router: a classifier turn in front of every
+        // message taxes the 90% that do not need one, and a misroute is
+        // INVISIBLE — the answer still arrives, quietly worse, and nothing
+        // says a cheap model answered a question that needed an expensive
+        // one. A tool call, by contrast, appears in the log.
+        //
+        // Each charges `deep_calls`, which is capped separately and far
+        // tighter than conversation because it is ~250x the price.
+        ...buildDeepTools({
+          ctx: toolCtx,
+          gateway,
+          charge: async () => charge(user.id, 'deep_calls'),
+          onEvent: emitToolEvent(writer),
+        }),
+      }
+
       const result = streamText({
         model: gateway(choice.id),
         // `instructions`, not `system` — `system` is deprecated in ai@7 and
@@ -144,14 +455,41 @@ async function serve(request) {
         instructions: buildSystemPrompt({
           route: typeof route === 'string' ? route : '/',
           signedIn: true,
-          landmarks: Array.isArray(landmarks) ? landmarks.slice(0, 24) : [],
+          // MIRRORS `LANDMARK_CAP` in `apps/web/src/character/host/useDeckeChat.ts`,
+          // which explains why the cap exists (prompt size, re-billed per leg)
+          // and what it costs. Sliced again here because the browser chooses
+          // what to send and this is the side that pays for it. Change one,
+          // change both.
+          landmarks: Array.isArray(landmarks) ? landmarks.slice(0, 40) : [],
+          // GENERATED FROM THE TOOLS HE IS ACTUALLY HOLDING, three lines below.
+          // Hand-writing this list is how the previous prompt came to spend
+          // every turn offering to look things up with no tool that could look.
+          dataTools: dataToolSummary({ include: () => true }),
         }),
         // AWAITED: `convertToModelMessages` is async in ai@7 and returns a
         // Promise<ModelMessage[]>. Passing it unawaited fails deep inside
         // `standardizePrompt` as "messages.some is not a function" — which
         // names neither this call nor the missing await.
         messages: await convertToModelMessages(stripPriorCommands(messages)),
-        tools: buildTools(writer),
+        // THE BODY AND THE DATA, in one set.
+        //
+        // `buildTools` is the six cosmetic ones — express, showScreen, and the
+        // four the browser runs. `buildDataTools` is the read half of the same
+        // 23 tools the MCP server exposes, through the other adapter onto the
+        // same definitions. Until this line, every factual claim Deck-E made
+        // was the model's training data, because there was nothing else for it
+        // to be.
+        //
+        // READ-ONLY, by the adapter's default: the write half is gated on an
+        // approval round-trip that does not exist yet, and a write tool
+        // reachable from a conversational model before then is a tool that gets
+        // called by accident.
+        //
+        // The context is built PER TOOL CALL, not here — the database handle is
+        // lazy and the connection is held for one call and released. Nothing in
+        // this stream ever holds a connection, which is the rule that lets this
+        // function keep the property it was created for.
+        tools: allDeckeTools,
         // Bounded: each step re-bills the entire prompt, so an unbounded loop on
         // a per-user paid feature is a billing incident waiting to happen. Four
         // covers "fly there, see what happened, react".
@@ -182,12 +520,40 @@ async function serve(request) {
         // Client tools are unaffected either way: the browser fulfils `flyTo`,
         // `goTo` and friends and answers with `addToolOutput`, which opens a
         // fresh request rather than continuing this one.
+        //
+        // RAISED FROM 4 TO 12 (spec §8.5). Four was sized for a loop with six
+        // cosmetic tools, where a step could only ever be "move" or "speak".
+        // A turn that reads now legitimately needs several: look the set up,
+        // check what they own of it, then answer. Four made "what am I missing
+        // from Pitch Black, and what's it worth" unanswerable in one turn.
+        //
+        // Note this governs SERVER-side steps only. Navigation legs are
+        // governed by the browser's MAX_LEGS, because a client tool has no
+        // server `execute` and therefore ENDS the server turn — raising this
+        // number does nothing at all for a journey.
         stopWhen: [
-          stepCountIs(4),
+          stepCountIs(12),
           ({ steps }) => {
             const last = steps[steps.length - 1]
             if (!last) return false
-            const spoke = (last.text ?? '').trim().length > 0
+            // ── SPOKE AT ANY POINT, not "spoke in this step" ────────────────
+            //
+            // This used to read `last.text`, which meant the turn only ended if
+            // one single step contained BOTH the words and the gesture. With
+            // four steps that was nearly always true and the flaw never showed.
+            // With twelve, and with real lookups in between, the ordinary shape
+            // is: step 1 reads, step 2 answers in words, step 3 draws the
+            // panel — and no step ever has both, so the loop ran on.
+            //
+            // Measured against the deployed preview: "show me my 5 most
+            // valuable cards" called `showScreen` THREE TIMES, the second and
+            // third with the title wrapped in newlines, each re-billing the
+            // whole prompt to redraw a panel that was already correct.
+            //
+            // A turn is finished when he has SAID something and is no longer
+            // fetching. Both halves stated over the whole turn, which is what
+            // "he said his piece and reacted" always meant.
+            const spoke = steps.some((s) => (s.text ?? '').trim().length > 0)
             // `showScreen` counts as acting for exactly the same reason
             // `express` does: the step produced something the user can see, so
             // the turn is finished. Left out, a step that spoke AND drew a panel
@@ -196,11 +562,71 @@ async function serve(request) {
             //   [step 1] "Nice pulls! That 91 looks chase-y. Add 'em to the collection?"
             //   [step 2] "Say the word and I'll stash these in your collection."
             const ACTS = new Set(['express', 'showScreen'])
-            const moved = (last.toolCalls ?? []).some((c) => ACTS.has(c.toolName))
-            return spoke && moved
+            // AND HE IS NO LONGER FETCHING. Not "his last step acted" — his last
+            // step acted AND NOTHING ELSE. If it also called a data tool he is
+            // mid-lookup, and stopping there would end the turn holding a result
+            // he has not reported, which is a silent half-answer and strictly
+            // worse than one extra step.
+            const lastCalls = (last.toolCalls ?? []).map((c) => c.toolName)
+            const settled = lastCalls.length > 0 && lastCalls.every((n) => ACTS.has(n))
+            return spoke && settled
           },
         ],
+        // ── WHAT HE CAN SEE, PER STEP ─────────────────────────────────────
+        //
+        // Not a smaller tool set — the same tools, narrowed on the first step.
+        // Bisected against the live model on the prompt that broke it ("add
+        // 4000 Charizards", which should fire a reaction): with all 34 tools he
+        // narrated the command as visible text 5/5 and called `express` 0/5;
+        // with the write tools out of view, 1/5 and 1/5.
+        //
+        // And ten tools was WORSE than twenty-three, so this is not "fewer is
+        // better" — it is that eleven ways to mutate a collection should not be
+        // crowding the first decision, which is "what is this person asking
+        // for". `decke/focus.ts` has the numbers.
+        //
+        // Everything comes back on step two, so a capability is delayed by one
+        // step and never removed.
+        prepareStep: ({ stepNumber }) => ({
+          activeTools: focusedTools(allDeckeTools, stepNumber),
+        }),
+        // ── APPROVALS ARE SIGNED, SO THEY CANNOT BE FORGED ────────────────
+        //
+        // The SDK holds a write until an approval arrives. Until this line,
+        // nothing proved that approval corresponded to a request the SERVER
+        // had actually issued: the client is hand-rolled and the whole
+        // conversation is replayed on every leg, so a caller could simply
+        // append `state:'approval-responded', approval:{approved:true}` to a
+        // tool call and the write would execute.
+        //
+        // Read in the SDK's own source rather than assumed: signature
+        // verification runs only `if (toolApprovalSecret != null)`
+        // (`ai/dist/index.js:5164`). Without a secret there is no check at all
+        // — the approval is taken at face value.
+        //
+        // With one, the server HMACs each request at issuance over
+        // (approvalId, toolCallId, toolName, input) and verifies it on replay,
+        // so a forged approval, a replayed one for a different call, or one
+        // whose ARGUMENTS were edited after approval all fail closed.
+        //
+        // That last case is the one worth naming: without signing, a client
+        // could approve "add 1 card" and send back "add 4000" against the same
+        // approval. The input is inside the signature.
+        //
+        // Unset means unsigned rather than broken, and that is deliberate —
+        // this must not take Deck-E down on a deployment that has not set it —
+        // but it is declared in DEPLOYMENT.md and warned about at boot, per
+        // B11, because "the control is off and nothing says so" is the failure
+        // that contract exists for.
+        ...(process.env.DECKE_APPROVAL_SECRET
+          ? { experimental_toolApprovalSecret: process.env.DECKE_APPROVAL_SECRET }
+          : {}),
         maxOutputTokens: budgetFor(choice),
+        // A sub-agent that ignores the signal bills for up to five minutes
+        // after the user gave up. This is the same signal every tool call and
+        // every outbound API fetch carries, so one abort stops the whole turn
+        // rather than only the visible part of it.
+        abortSignal,
         onError: ({ error }) => {
           // Surfaced rather than swallowed: a silent empty turn is
           // indistinguishable from a broken feature.
@@ -232,7 +658,9 @@ async function serve(request) {
       // "expected array, received undefined" at `choices`, which reads like a
       // Gateway protocol problem and is not. Every doc example and both local
       // Vercel skills still show the method form.
-      writer.merge(toUIMessageStream({ stream: result.fullStream, sendReasoning: false }))
+      writer.merge(
+        stripToolSyntax(toUIMessageStream({ stream: result.fullStream, sendReasoning: false })),
+      )
     },
   })
 
@@ -258,6 +686,34 @@ function stripPriorCommands(messages) {
   })
 }
 
+
+/**
+ * Tool syntax that reached the reader as prose, removed.
+ *
+ * Nothing left here but the warning, and that is the point. The algorithm moved
+ * to `decke/narration.ts` first, because it needed testing: the original held
+ * from the LAST `<` rather than the first, so given `<express><comm` it
+ * released the opening tag and then carefully guarded the fragment after it.
+ * Nine tests, every one fed in FRAGMENTS, because the measured failure arrived
+ * split across deltas and a whole-string test would have passed while
+ * production kept leaking.
+ *
+ * The STREAM WIRING stayed behind, and that half went on being untestable — a
+ * Vercel function is untyped, unimportable, and driven only by a deployment.
+ * It is also where the ordering lives: when the held tail is released, and
+ * which text block it belongs to. An orphan-delta bug was found there by
+ * review, not by a test, because no test could reach it. So it moved too, and
+ * this file keeps only the one thing that is genuinely local to it — a
+ * `console.warn` that goes to Vercel's log.
+ */
+function stripToolSyntax(stream) {
+  return stripToolSyntaxImpl(stream, () => {
+    console.warn(
+      '[deck-e] stripped tool syntax from visible text — the model narrated its own ' +
+        'plumbing instead of calling the tool, so the action did NOT happen',
+    )
+  })
+}
 
 /** Collect a Node request body into a buffer. */
 async function readBody(req) {
@@ -292,7 +748,26 @@ export default async function handler(req, res) {
     const url = `https://${host}${req.url ?? '/'}`
     const method = req.method ?? 'GET'
     const body = method === 'GET' || method === 'HEAD' ? undefined : await readBody(req)
-    const out = await serve(new Request(url, { method, headers: req.headers, body }))
+    // ONE CONTROLLER PER REQUEST, aborted when the socket dies.
+    //
+    // Node tells us the client went away; the AI SDK and the tool layer both
+    // take an `AbortSignal`; nothing was connecting the two. Without this,
+    // pressing stop left the model streaming to nobody — billing the whole
+    // time — and left any tool call holding its pooled connection on an
+    // instance about to be frozen.
+    //
+    // Guarded on `writableEnded` so a NORMAL completion, which also emits
+    // 'close', does not fire an abort that downstream code would read as "the
+    // reader gave up".
+    const ac = new AbortController()
+    const onClose = () => {
+      if (!res.writableEnded) ac.abort()
+    }
+    res.on('close', onClose)
+
+    const out = await serve(
+      new Request(url, { method, headers: req.headers, body, signal: ac.signal }),
+    )
 
     res.statusCode = out.status
     out.headers.forEach((value, name) => res.setHeader(name, value))

@@ -234,7 +234,13 @@ export function ListDetail() {
       {list && (
         <>
           {/* header */}
-          <div className="flex flex-col gap-[16px]">
+          <div
+            className="flex flex-col gap-[16px]"
+            data-decke-list-header
+            data-decke-landmark="[data-decke-list-header]"
+            data-decke-label="the list header"
+            data-decke-rank="container"
+          >
             <div className="flex flex-wrap items-start justify-between gap-[16px]">
               <div className="min-w-0">
                 <div className="mb-[6px] flex items-center gap-[10px]">
@@ -323,7 +329,20 @@ export function ListDetail() {
           </div>
 
           {/* body */}
-          <div className="mt-[24px]">
+          {/* One landmark for the whole item region, not one per item. The
+              items are rendered by GridView / BinderView / TableView /
+              ReorderRows depending on the list kind and the view toggle, and
+              four components would each need marking to give Deck-E a per-item
+              selector — with no guarantee the same item is addressable across
+              a view switch. "The cards in this list" is a thing he can point at
+              in every one of those states, which is the honest offer. */}
+          <div
+            className="mt-[24px]"
+            data-decke-list-items
+            data-decke-landmark="[data-decke-list-items]"
+            data-decke-label="the cards in this list"
+            data-decke-rank="container"
+          >
             {items.length === 0 ? (
               <EmptyState icon="cards" title="This list is empty">
                 <Button onClick={() => setShowAdd(true)}>

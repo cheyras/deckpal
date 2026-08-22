@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { isDeckeEntitled } from '../decke/entitlement.js';
 import { q1, SUPABASE_MODE } from '../db.js';
 import { asyncHandler, notFound, userCache } from '../http.js';
 import { currentUserId } from '../identity.js';
@@ -71,6 +72,6 @@ meRouter.get(
     // `designEditor` is retained for the existing /design gate. `owner` is the
     // same answer under the name that actually describes it, and is what new
     // owner-only surfaces should use.
-    res.json({ username: row.username, designEditor: owner, owner });
+    res.json({ username: row.username, designEditor: owner, owner, decke: isDeckeEntitled(userId) });
   }),
 );

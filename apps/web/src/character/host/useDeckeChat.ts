@@ -15,13 +15,44 @@
  *
  * The wire format is the AI SDK's UI message stream: SSE, one JSON object per
  * `data:` line, each with a `type`.
+ *
+ * ── THE GUARD THAT NEVER MATCHED ─────────────────────────────────────────────
+ *
+ * Until this file was fixed, Deck-E's browser-side tools had never run. Not
+ * once, for anyone. The collector required `part.state === 'input-available'`,
+ * and `state` is not a field on the WIRE at all — it is a field on a UI MESSAGE
+ * PART (`ai/dist/index.js:11147`), which is a different thing that happens to
+ * share the vocabulary. The stream chunk is
+ * `{type:'tool-input-available', toolCallId, toolName, input}` with no `state`
+ * (`ai/dist/index.js:7693`), so the guard was `undefined === 'input-available'`
+ * on every chunk and `pending` never filled. `flyTo`/`goTo`/`highlight` emitted,
+ * were dropped here, and he narrated journeys that never happened.
+ *
+ * Two things follow, and both are in the guard below:
+ *
+ *  - The name comes from `part.toolName`, NOT from slicing the type. Slicing
+ *    `'tool-input-available'` at `'tool-'` yields the string
+ *    `"input-available"` — a tool name that does not exist, dispatched to
+ *    `runUiTool`, answered "I do not know how to do that".
+ *  - SERVER-EXECUTED tools emit this chunk too. `express` and `showScreen` have
+ *    a server `execute` and already ran by the time we see them. Without the
+ *    `CLIENT_TOOLS` filter they would be re-run in the browser, fail, and post a
+ *    tool output that CONTRADICTS the one the server already produced.
  */
 import { useCallback, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import {
+  approvalReplayPart,
+  legBudget,
+  mayAskApproval,
+  MAX_LEGS,
+  pendingApprovalFromChunk,
+  type PendingApproval,
+} from './approval'
 import type { ChatMessage } from './DeckeChat'
 import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
-import { runUiTool, type UiToolResult } from './uiTools'
+import { CLIENT_TOOLS, isClientTool, runUiTool, type UiToolResult } from './uiTools'
 
 /** A command as the server's `express` tool emits it. Mirrors `decke/tools.ts`. */
 type WireCommand = {
@@ -35,11 +66,56 @@ type WireCommand = {
   card?: string
 }
 
+
 let seq = 0
 const nextId = () => `m${++seq}`
 
 /** A browser-side tool the model asked for, captured mid-stream. */
 type PendingTool = { id: string; name: string; input: Record<string, unknown> }
+
+/** A UI message part as `/api/chat` wants it back. */
+type WirePart = Record<string, unknown>
+type WireMessage = { role: 'user' | 'assistant'; parts: WirePart[] }
+
+/**
+ * The approval round trip lives in `./approval.ts`.
+ *
+ * Re-exported here because `DeckeChat.tsx` has always imported the type from
+ * this module and the move is not its business. `approval.ts`'s header records
+ * why capture and replay are over there: the hook imports `../../lib/supabase`,
+ * which touches `import.meta.env` at module scope, so this file cannot be
+ * imported at all under `node --import tsx --test` — which is why two bugs in
+ * that round trip shipped with a green suite.
+ */
+export type { PendingApproval } from './approval'
+
+/** One tool call's progress, as a chip. */
+export type ToolChip = {
+  id: string
+  name: string
+  title: string
+  phase: 'start' | 'ok' | 'error'
+  summary?: string
+}
+
+/** Everything one request's stream produced. */
+type LegOutcome = {
+  text: string
+  pending: PendingTool[]
+  approvals: PendingApproval[]
+  screen: ScreenSpec | null
+  /** A failure that arrived as a VALUE on a 200 stream. */
+  error: string | null
+  /**
+   * The request itself was refused, and the reader has already been told why.
+   *
+   * Separate from `error` because the two need different endings: a refusal has
+   * already replaced his reply with a specific sentence ("you need to be signed
+   * in"), and overwriting that with the generic "my brain glitched" would throw
+   * away the only useful part of it.
+   */
+  refused: boolean
+}
 
 export function useDeckeChat(
   decke: DeckEInstance | null,
@@ -56,12 +132,52 @@ export function useDeckeChat(
   // Did the MODEL set a state this turn? If not, the turn boundary has to leave
   // `thinking` itself — see the `finally` below.
   const movedRef = useRef(false)
+  // HELD IN REFS so `send` keeps a stable identity. `DeckeHost` passes both as
+  // fresh arrow functions on every render; naming them as dependencies would
+  // hand `DeckeChat` a new `onSend` every frame, which is a re-render treadmill
+  // waiting for the first effect that ever depends on it.
+  const navigateRef = useRef(navigate)
+  navigateRef.current = navigate
+  const onTravelRef = useRef(onTravel)
+  onTravelRef.current = onTravel
+
+  // ── The approval gate ──────────────────────────────────────────────────────
+  //
+  // When the SDK holds a write, the turn stops here and waits for a person.
+  // `asking` is what the UI renders; `resolver` is the turn's continuation,
+  // parked until someone answers.
+  //
+  // A PROMISE PARKED IN A REF is the right shape because the decision is not
+  // React state that the turn polls — the turn is inside an `await` and needs
+  // to be woken exactly once, with an answer.
+  const [asking, setAsking] = useState<PendingApproval[] | null>(null)
+  const askingRef = useRef<PendingApproval[] | null>(null)
+  askingRef.current = asking
+  const resolverRef = useRef<((answers: Map<string, boolean>) => void) | null>(null)
+
+  /** Settle whatever is being asked, once, and clear the prompt. */
+  const settle = useCallback((approved: boolean) => {
+    const resolve = resolverRef.current
+    const list = askingRef.current ?? []
+    resolverRef.current = null
+    askingRef.current = null
+    setAsking(null)
+    resolve?.(new Map(list.map((a) => [a.approvalId, approved])))
+  }, [])
+
+  const approve = useCallback(() => settle(true), [settle])
+  const deny = useCallback(() => settle(false), [settle])
 
   const send = useCallback(
     async (text: string) => {
       if (!decke) return
       const userMsg: ChatMessage = { id: nextId(), role: 'user', text }
       const replyId = nextId()
+      // CAPTURED BEFORE the setState, not read from the ref afterwards. The ref
+      // only catches up on the next render, so reading it later in this same
+      // function is a race whose two outcomes are "history is right" and
+      // "history contains this turn twice".
+      const priorWire = messagesToWire(currentRef.current)
       setMessages((m) => [...m, userMsg, { id: replyId, role: 'assistant', text: '' }])
       setBusy(true)
 
@@ -79,170 +195,251 @@ export function useDeckeChat(
       decke.setState('thinking')
       movedRef.current = false
 
-      let spoke = false
-      let streamError: string | null = null
-      const pending: PendingTool[] = []
-      try {
-        const { data } = await supabase.auth.getSession()
-        const token = data.session?.access_token
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          signal: ac.signal,
-          headers: {
-            'content-type': 'application/json',
-            ...(token ? { authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            messages: [
-              ...messagesToWire(currentRef.current),
-              { role: 'user', parts: [{ type: 'text', text }] },
-            ],
-            route: window.location.pathname,
-            landmarks: collectLandmarks(),
-          }),
+      // What he has actually said this turn, across every leg. Distinct from the
+      // user's `text` — conflating the two is how the follow-up request came to
+      // replay the READER's words back as the assistant's own.
+      let saidSoFar = ''
+      let travelAnnounced = false
+
+      /**
+       * Put the question to the reader and wait.
+       *
+       * ABORT RESOLVES IT, as a denial. Without that, pressing stop while an
+       * approval is on screen leaves this promise parked for ever and the turn
+       * never reaches its `finally` — so `thinking` never clears and he rocks
+       * in place until the page is reloaded. An abandoned question is a "no".
+       */
+      const askApproval = (list: PendingApproval[]): Promise<Map<string, boolean>> =>
+        new Promise((resolve) => {
+          resolverRef.current = resolve
+          askingRef.current = list
+          setAsking(list)
+          ac.signal.addEventListener(
+            'abort',
+            () => {
+              if (resolverRef.current === resolve) settle(false)
+            },
+            { once: true },
+          )
         })
+      const appendText = (chunk: string) => {
+        saidSoFar += chunk
+        setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, text: x.text + chunk } : x)))
+      }
 
-        if (!res.ok || !res.body) {
-          const why =
-            res.status === 503
-              ? "I'm not switched on for this deployment yet."
-              : res.status === 401
-                ? 'You need to be signed in for me to help.'
-                : 'Something went wrong reaching my brain.'
-          setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, text: why } : x)))
-          decke.setState('alert_error', { mode: 'once' })
-          return
-        }
+      const wire: WireMessage[] = [...priorWire, { role: 'user', parts: [{ type: 'text', text }] }]
 
-        const reader = res.body.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-        for (;;) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buf += decoder.decode(value, { stream: true })
-          // SSE frames are newline-delimited; the tail may be a partial line, so
-          // it stays in the buffer until its newline arrives. Splitting eagerly
-          // is how half a JSON object gets parsed and thrown away.
-          const lines = buf.split('\n')
-          buf = lines.pop() ?? ''
-          for (const line of lines) {
-            if (!line.startsWith('data:')) continue
-            const payload = line.slice(5).trim()
-            if (!payload || payload === '[DONE]') continue
-            let part: {
-              type?: string
-              delta?: string
-              errorText?: string
-              error?: unknown
-              data?: { commands?: WireCommand[]; screen?: ScreenSpec }
-              state?: string
-              toolCallId?: string
-              input?: unknown
-            }
-            try {
-              part = JSON.parse(payload)
-            } catch {
-              continue
-            }
-            if (part.type === 'text-delta' && typeof part.delta === 'string') {
-              if (!spoke) {
-                spoke = true
+      try {
+        // `approvalReplays` is read on EVERY iteration, so committing to a
+        // replay below extends this bound by exactly the one leg needed to POST
+        // it. That is the fix for the dropped-consent bug: the leg that carries
+        // an answer is granted at the moment the answer is taken, never assumed
+        // to be spare.
+        let approvalReplays = 0
+        for (let leg = 0; leg < legBudget(approvalReplays); leg++) {
+          const outcome = await streamLeg(wire, ac.signal, {
+            onText: (chunk) => {
+              if (!saidSoFar) {
                 // The talk overlay latches on the FIRST token and is released in
                 // the `finally` below — never on a `done` part, which an aborted
                 // stream never sends. A latch with no guaranteed release is how
                 // he ends up mouthing silently for the life of the page.
                 decke.setOverlay('talk', 1)
               }
-              const chunk = part.delta
-              setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, text: x.text + chunk } : x)))
-            } else if (part.type === 'data-decke' && part.data?.commands) {
-              apply(decke, part.data.commands)
+              appendText(chunk)
+            },
+            onCommands: (commands) => {
+              apply(decke, commands)
               movedRef.current = true
-            } else if (part.type === 'error') {
-              // AN ERROR PART IS NOT A THROWN EXCEPTION. The request already
-              // returned 200 and the stream is well-formed; the failure arrives
-              // as a value on it. With no branch here it matched nothing, was
-              // dropped, and the stream ended `done` — so the catch below never
-              // ran either and a dead turn was indistinguishable from a turn he
-              // chose not to answer. This is the same trap that cost an
-              // afternoon server-side, one layer out.
-              streamError = String(part.errorText ?? part.error ?? 'unknown')
-              break
-            } else if (part.type === 'data-decke-screen' && part.data?.screen) {
+            },
+            onScreen: (screen) => {
               // Attached to the reply being streamed, so it stays with its turn.
               // The server has already dropped any block it could not render and
               // `DeckeScreen` returns null for a kind it does not know, so this
               // needs no validation of its own — and must not invent one, or the
               // two layers drift and a block passes one and vanishes at the other.
-              const screen = part.data.screen as ScreenSpec
               setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, screen } : x)))
-            } else if (
-              typeof part.type === 'string' &&
-              part.type.startsWith('tool-') &&
-              part.state === 'input-available' &&
-              part.toolCallId
-            ) {
-              // A tool with no server-side `execute` arrives here for the
-              // BROWSER to run. Collected rather than run inline: the stream is
-              // still open, and starting a flight mid-sentence would have him
-              // moving before he has finished saying where he is going.
-              pending.push({
-                id: part.toolCallId,
-                name: part.type.slice('tool-'.length),
-                input: (part.input ?? {}) as Record<string, unknown>,
-              })
-            }
-          }
-          // The `break` above leaves the LINE loop; this leaves the read loop.
-          // Without it the reader keeps draining a stream whose turn has already
-          // failed.
-          if (streamError) break
-        }
+            },
+            onToolChip: (chip) => {
+              // Held on the MESSAGE, like the screen, so the record of what he
+              // did stays attached to the turn that did it. Keyed by tool call
+              // id so `start` is REPLACED by `ok` rather than accumulating —
+              // "Checking your collection…" then "Read 604 cards" is one chip
+              // changing, not two chips.
+              setMessages((m) =>
+                m.map((x) =>
+                  x.id === replyId
+                    ? {
+                        ...x,
+                        tools: [...(x.tools ?? []).filter((c) => c.id !== chip.id), chip],
+                      }
+                    : x,
+                ),
+              )
+            },
+            onHttpError: (status) => {
+              const why =
+                status === 503
+                  ? "I'm not switched on for this deployment yet."
+                  : status === 401
+                    ? 'You need to be signed in for me to help.'
+                    : status === 403
+                      ? "I'm not available on this account yet."
+                      : status === 429
+                        ? "I've done as much as I can for you today — try me again tomorrow."
+                        : 'Something went wrong reaching my brain.'
+              setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, text: why } : x)))
+              decke.setState('alert_error', { mode: 'once' })
+              movedRef.current = true
+            },
+          })
 
-        if (streamError) {
-          // Said out loud, in his voice, rather than swallowed. The reader gets
-          // a reply and the character reacts, which is what distinguishes a
-          // failure from a silence.
-          setMessages((m) =>
-            m.map((x) =>
-              x.id === replyId && !x.text
-                ? { ...x, text: 'My brain glitched on that one — try me again?' }
-                : x,
-            ),
-          )
-          decke.setState('alert_error', { mode: 'once' })
-          movedRef.current = true
-          console.error('[decke] stream error:', streamError)
-          return
-        }
-
-        // ── The tools he asked the browser to run ────────────────────────────
-        //
-        // Executed AFTER the stream, not during it: starting a flight
-        // mid-sentence has him moving before he has finished saying where he is
-        // going, and the words are what tell the reader why the page is about
-        // to change.
-        //
-        // Their results go back as a follow-up turn, which is the whole reason
-        // these are tools rather than fire-and-forget commands — "there is
-        // nothing like that on this page" is something he has to be able to say.
-        // ONE follow-up round, deliberately: each round re-bills the entire
-        // system prompt, and a model that needs three attempts to point at
-        // something is not going to find it on the fourth.
-        if (pending.length && !ac.signal.aborted) {
-          const results: { call: PendingTool; result: UiToolResult }[] = []
-          // Tell the host BEFORE running them: the transcript should already be
-          // out of the way when he starts moving, not a beat behind him.
-          if (pending.some((c) => c.name !== 'scrollToMe')) onTravel?.()
-          for (const call of pending) {
-            results.push({ call, result: await runUiTool({ decke, navigate }, call.name, call.input) })
-          }
-          const followUp = await sendToolResults(currentRef.current, text, results, ac.signal)
-          if (followUp) {
+          if (outcome.refused) return
+          if (outcome.error) {
+            // Said out loud, in his voice, rather than swallowed. The reader gets
+            // a reply and the character reacts, which is what distinguishes a
+            // failure from a silence.
             setMessages((m) =>
-              m.map((x) => (x.id === replyId ? { ...x, text: (x.text + ' ' + followUp).trim() } : x)),
+              m.map((x) =>
+                x.id === replyId && !x.text
+                  ? { ...x, text: 'My brain glitched on that one — try me again?' }
+                  : x,
+              ),
             )
+            decke.setState('alert_error', { mode: 'once' })
+            movedRef.current = true
+            console.error('[decke] stream error:', outcome.error)
+            return
+          }
+
+          // ── He is asking permission ───────────────────────────────────────
+          //
+          // The SDK is holding one or more calls: their `execute` has NOT run
+          // and will not until an approval goes back. So the turn pauses here
+          // and the decision becomes the reader's.
+          //
+          // This is a real control rather than a prompt instruction, which is
+          // the whole point — this codebase records twice, in the same words,
+          // that "a prompt is not an enforcement mechanism."
+          if (outcome.approvals.length) {
+            if (ac.signal.aborted) return
+            // ── DO NOT ASK WHAT YOU CANNOT ANSWER ────────────────────────────
+            //
+            // Checked BEFORE the dialog, not after. Asking and then discarding
+            // the reply is the worst available outcome: the reader has given
+            // consent, believes it was acted on, and nothing tells them
+            // otherwise. If there is no leg left to carry the answer, say so
+            // instead — an unmade change the reader knows about is a nuisance;
+            // one they do not is a broken promise.
+            if (!mayAskApproval(approvalReplays)) {
+              appendText(
+                // NOT "nothing was changed" — an earlier approval in this same
+                // turn may already have committed, and saying otherwise would be
+                // the mirror of the defect this whole area exists to prevent:
+                // misreporting what happened to their collection. This says what
+                // is true of the change actually dropped.
+                " — I ran out of room to make that last change, so I left it. Ask me again and I'll go straight to it.",
+              )
+              console.warn('[decke] approval replay budget exhausted; the write was NOT applied')
+              break
+            }
+            const answers = await askApproval(outcome.approvals)
+            if (ac.signal.aborted) return
+
+            const parts: WirePart[] = []
+            if (outcome.text.trim()) parts.push({ type: 'text', text: outcome.text })
+            for (const a of outcome.approvals) {
+              parts.push(approvalReplayPart(a, answers.get(a.approvalId) === true))
+            }
+            // ── NOTHING MAY BE APPENDED AFTER THIS ────────────────────────────
+            //
+            // `collectToolApprovals` requires the LAST message of the replayed
+            // conversation to be the one carrying the approval response
+            // (`ai/src/generate-text/collect-tool-approvals.ts:33`). If anything
+            // follows it — a stray user turn, an injected context note — the
+            // approved tool is SILENTLY SKIPPED: no error, no execution, and a
+            // dangling tool_use that some providers then reject outright.
+            //
+            // That is vercel/ai#17033, still open. We are clear of it because
+            // this pushes last and immediately continues to the next leg, which
+            // POSTs straight away. It is an accident of ordering rather than a
+            // guarantee, so: if you ever add anything between this push and the
+            // request, put it BEFORE the approval message, not after.
+            wire.push({ role: 'assistant', parts })
+            approvalReplays++
+            continue
+          }
+
+          if (!outcome.pending.length) break
+          if (ac.signal.aborted) return
+
+          // ── The tools he asked the browser to run ─────────────────────────
+          //
+          // Executed AFTER the stream, not during it: starting a flight
+          // mid-sentence has him moving before he has finished saying where he
+          // is going, and the words are what tell the reader why the page is
+          // about to change.
+          //
+          // Their results go back as a follow-up turn, which is the whole reason
+          // these are tools rather than fire-and-forget commands — "there is
+          // nothing like that on this page" is something he has to be able to
+          // say, and "I am there now, and here is what it says" is the leg after.
+          //
+          // Told ONCE, on the first leg that moves him: the transcript should
+          // already be out of the way when he starts, and re-announcing on every
+          // leg would re-minimise a panel that is already minimised.
+          if (!travelAnnounced && outcome.pending.some((c) => c.name !== 'scrollToMe')) {
+            travelAnnounced = true
+            onTravelRef.current?.()
+          }
+
+          const parts: WirePart[] = []
+          if (outcome.text.trim()) parts.push({ type: 'text', text: outcome.text })
+          for (const call of outcome.pending) {
+            const result = await runUiTool(
+              { decke, navigate: navigateRef.current },
+              call.name,
+              call.input,
+            )
+            if (ac.signal.aborted) return
+            // The wire shape matters: `convertToModelMessages` on the server
+            // needs the assistant's tool CALL and the tool's OUTPUT as parts of
+            // the same conversation, or the model sees a result for something it
+            // never asked for. `state` IS a field here — on a UI message part,
+            // which is the thing this is. It is not a field on the stream chunk
+            // that delivered the call, and confusing the two is what broke this
+            // file for its whole life.
+            parts.push({
+              type: `tool-${call.name}`,
+              toolCallId: call.id,
+              state: 'output-available',
+              input: call.input,
+              output: result satisfies UiToolResult,
+            })
+          }
+          wire.push({ role: 'assistant', parts })
+
+          if (leg === legBudget(approvalReplays) - 1) {
+            // ── OUT OF LEGS, WITH WORK IN HAND ──────────────────────────────
+            //
+            // The comment here used to say "say so rather than stopping
+            // mid-journey with no explanation" and then only `console.warn`ed,
+            // which is a claim the code did not honour. The reader saw nothing.
+            //
+            // It then ACQUIRED A SECOND CLAIM IT DID NOT HONOUR. A ternary here
+            // chose different wording for an exhausted approval — and this line
+            // is below `if (!outcome.pending.length) break`, which the approvals
+            // branch can never fall through to, because it always `continue`s or
+            // `break`s. `outcome.approvals.length` was therefore always 0, the
+            // approval half of that ternary was unreachable, and the comment
+            // above it described a fix that did not exist for the path it named.
+            // The real dropped-consent bug it purported to cover was live the
+            // whole time; it is guarded now at the point of asking, above, where
+            // there is still a decision to make.
+            //
+            // So this is only ever the unfinished-journey case, and it says so.
+            appendText(' — I ran out of steps there. Ask me again and I can pick it up.')
+            console.warn('[decke] leg budget exhausted with work still outstanding')
           }
         }
       } catch (e) {
@@ -283,89 +480,292 @@ export function useDeckeChat(
 
   const stop = useCallback(() => abortRef.current?.abort(), [])
 
-  return { messages, busy, send, stop }
+  return { messages, busy, send, stop, asking, approve, deny }
+}
+
+type LegHandlers = {
+  onText: (chunk: string) => void
+  onCommands: (commands: WireCommand[]) => void
+  onScreen: (screen: ScreenSpec) => void
+  onToolChip: (chip: ToolChip) => void
+  onHttpError: (status: number) => void
 }
 
 /**
- * Send the browser-side tool results back and read whatever he says about them.
+ * A readable name for a tool, when the server has not supplied its title.
  *
- * The wire shape matters: `convertToModelMessages` on the server needs the
- * assistant's tool CALL and the tool's OUTPUT as parts of the same conversation,
- * or the model sees a result for something it never asked for. So the assistant
- * turn is replayed carrying `state: 'output-available'` parts with both the
- * input it sent and the output it got back.
+ * An approval request carries only ids, and no chip is emitted for a call the
+ * SDK is holding — its `execute` never ran, and emitting one would be a chip
+ * for work that has not happened. So the reader would otherwise be asked to
+ * authorise `call_a7f3`.
  *
- * Returns only the new text, or null. Errors are swallowed on purpose — the
- * primary turn already said something useful, and a failed footnote should not
- * replace it with an apology.
+ * `log_cards` becomes "Log cards". Crude, and better than an id: the reader is
+ * being asked to permit something, and the one thing that must be legible is
+ * WHAT.
  */
-async function sendToolResults(
-  history: ChatMessage[],
-  saidSoFar: string,
-  results: { call: PendingTool; result: UiToolResult }[],
-  signal: AbortSignal,
-): Promise<string | null> {
-  try {
-    const { data } = await supabase.auth.getSession()
-    const token = data.session?.access_token
-    const assistantParts: unknown[] = []
-    if (saidSoFar.trim()) assistantParts.push({ type: 'text', text: saidSoFar })
-    for (const { call, result } of results) {
-      assistantParts.push({
-        type: `tool-${call.name}`,
-        toolCallId: call.id,
-        state: 'output-available',
-        input: call.input,
-        output: result,
-      })
-    }
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      signal,
-      headers: {
-        'content-type': 'application/json',
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
-        messages: [...messagesToWire(history), { role: 'assistant', parts: assistantParts }],
-        route: window.location.pathname,
-        landmarks: collectLandmarks(),
-      }),
-    })
-    if (!res.ok || !res.body) return null
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    let out = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue
-        const payload = line.slice(5).trim()
-        if (!payload || payload === '[DONE]') continue
-        try {
-          const part = JSON.parse(payload)
-          if (part.type === 'text-delta' && typeof part.delta === 'string') out += part.delta
-        } catch {
-          /* a partial frame; the next chunk completes it */
-        }
-      }
-    }
-    return out.trim() || null
-  } catch {
-    return null
-  }
+function titleFor(name: string): string {
+  if (!name) return 'Make that change'
+  const words = name.replace(/_/g, ' ').trim()
+  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
-function messagesToWire(msgs: ChatMessage[]) {
-  return msgs
-    .filter((m) => m.text.trim().length > 0)
-    .map((m) => ({ role: m.role, parts: [{ type: 'text', text: m.text }] }))
+/**
+ * One request, read to the end.
+ *
+ * EVERY leg goes through here, including the follow-up ones. The follow-up used
+ * to have its own reader that understood only `text-delta`, so a tool call in a
+ * follow-up turn — which is exactly what a multi-leg journey is made of — was
+ * parsed, matched nothing, and vanished. One reader means a leg cannot quietly
+ * be less capable than the leg before it.
+ *
+ * `route` and `landmarks` are collected FRESH per leg, deliberately: after a
+ * `goTo` the page is a different page, and sending the previous page's landmarks
+ * would have him aiming at things that are no longer on screen.
+ */
+async function streamLeg(
+  wire: WireMessage[],
+  signal: AbortSignal,
+  handlers: LegHandlers,
+): Promise<LegOutcome> {
+  const out: LegOutcome = {
+    text: '',
+    pending: [],
+    approvals: [],
+    screen: null,
+    error: null,
+    refused: false,
+  }
+
+  // A tool-approval request carries only ids. The NAME arrived earlier, on
+  // that call's `tool-input-available` chunk, so it is remembered here —
+  // otherwise the reader is asked to approve 'call_a7f3'.
+  const approvalNames = new Map<string, string>()
+  const approvalTitles = new Map<string, string>()
+  // The ARGUMENTS too. Answering an approval replays the whole tool call, so
+  // without these the replayed part is not a valid call and cannot be resumed.
+  const approvalInputs = new Map<string, Record<string, unknown>>()
+
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    signal,
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      messages: wire,
+      route: window.location.pathname,
+      landmarks: collectLandmarks(),
+    }),
+  })
+
+  if (!res.ok || !res.body) {
+    handlers.onHttpError(res.status)
+    out.refused = true
+    return out
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    // SSE frames are newline-delimited; the tail may be a partial line, so
+    // it stays in the buffer until its newline arrives. Splitting eagerly
+    // is how half a JSON object gets parsed and thrown away.
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue
+      const payload = line.slice(5).trim()
+      if (!payload || payload === '[DONE]') continue
+      let part: {
+        type?: string
+        delta?: string
+        errorText?: string
+        error?: unknown
+        data?: { commands?: WireCommand[]; screen?: ScreenSpec }
+        toolCallId?: string
+        toolName?: string
+        input?: unknown
+        approvalId?: string
+        signature?: string
+      }
+      try {
+        part = JSON.parse(payload)
+      } catch {
+        continue
+      }
+      if (part.type === 'text-delta' && typeof part.delta === 'string') {
+        out.text += part.delta
+        handlers.onText(part.delta)
+      } else if (part.type === 'data-decke' && part.data?.commands) {
+        handlers.onCommands(part.data.commands)
+      } else if (part.type === 'error') {
+        // AN ERROR PART IS NOT A THROWN EXCEPTION. The request already
+        // returned 200 and the stream is well-formed; the failure arrives
+        // as a value on it. With no branch here it matched nothing, was
+        // dropped, and the stream ended `done` — so the catch outside never
+        // ran either and a dead turn was indistinguishable from a turn he
+        // chose not to answer. This is the same trap that cost an
+        // afternoon server-side, one layer out.
+        out.error = String(part.errorText ?? part.error ?? 'unknown')
+        break
+      } else if (part.type === 'data-decke-screen' && part.data?.screen) {
+        out.screen = part.data.screen
+        handlers.onScreen(part.data.screen)
+      } else if (part.type === 'data-decke-tool' && part.data) {
+        // A tool-call chip. Emitted by the SERVER's execute wrapper, never by
+        // the model, so it corresponds 1:1 to a real invocation of a real
+        // handler. That is the whole point: work has been indistinguishable
+        // from theatre, because `thinking` is driven by request latency and a
+        // fabricated answer looks exactly like a researched one while it is
+        // being produced.
+        handlers.onToolChip(part.data as unknown as ToolChip)
+      } else if (part.type === 'tool-approval-request' && typeof part.approvalId === 'string') {
+        // HE IS ASKING PERMISSION, and the SDK is holding the call. Nothing has
+        // run: the tool's `execute` is genuinely not invoked until an approval
+        // goes back. Collected rather than answered here, because the answer is
+        // the reader's and this loop is still draining a stream.
+        out.approvals.push(
+          pendingApprovalFromChunk(
+            { approvalId: part.approvalId, toolCallId: part.toolCallId, signature: part.signature },
+            approvalNames,
+            approvalTitles,
+            approvalInputs,
+          ),
+        )
+      } else if (
+        part.type === 'tool-input-available' &&
+        typeof part.toolCallId === 'string' &&
+        !isClientTool(part.toolName)
+      ) {
+        // A SERVER tool announcing itself. Not ours to run — but the approval
+        // request that may follow carries only ids, so this is where the name
+        // is learned. Kept even when no approval follows; the map is per-leg
+        // and costs nothing.
+        approvalNames.set(part.toolCallId, String(part.toolName ?? ''))
+        approvalTitles.set(part.toolCallId, titleFor(String(part.toolName ?? '')))
+        approvalInputs.set(part.toolCallId, (part.input ?? {}) as Record<string, unknown>)
+      } else if (
+        part.type === 'tool-input-available' &&
+        typeof part.toolCallId === 'string' &&
+        isClientTool(part.toolName)
+      ) {
+        // A tool with no server-side `execute` arrives here for the BROWSER to
+        // run. Collected rather than run inline: the stream is still open, and
+        // starting a flight mid-sentence would have him moving before he has
+        // finished saying where he is going.
+        //
+        // FILTERED to `CLIENT_TOOLS`. Server-executed tools emit this same chunk
+        // after they have already run; forwarding one here re-runs it in a place
+        // that cannot do it, and posts a second, contradicting output for a call
+        // the server has already answered.
+        out.pending.push({
+          id: part.toolCallId,
+          name: part.toolName as (typeof CLIENT_TOOLS)[number],
+          input: (part.input ?? {}) as Record<string, unknown>,
+        })
+      }
+    }
+    // The `break` above leaves the LINE loop; this leaves the read loop.
+    // Without it the reader keeps draining a stream whose turn has already
+    // failed.
+    if (out.error) break
+  }
+  return out
 }
+
+/**
+ * The transcript, as the server wants it back.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * WHY A TURN'S LOOKUPS ARE REPLAYED, COMPACTED (spec §2.3)
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * This used to keep text and nothing else. So turn N+1 had no record that turn
+ * N had read 604 cards — only its own prose about them. Which re-creates the
+ * original pathology in a new form: he asserts from his own earlier sentences
+ * rather than from data, and a sentence is exactly the thing that can drift.
+ * "You've got 70 of them" becomes "you've got most of them" becomes a number
+ * nobody looked up.
+ *
+ * Three options were on the table and the owner chose this one:
+ *
+ *   replay everything     truthful, and the input bill grows without bound on
+ *                         a long conversation — colliding with the per-turn
+ *                         input budget the tool ceiling exists to defend
+ *   re-read per turn      always fresh, never stale, and costs a tool call and
+ *                         a round trip on every follow-up question
+ *   replay COMPACTED      what a lookup FOUND, in one line, not its 200 rows
+ *
+ * The compact form is the chip's own summary — the first line of the real tool
+ * result, produced by the server's execute wrapper. So the record cannot
+ * describe a lookup that did not happen: there is no chip without an
+ * invocation.
+ *
+ * MARKED AS A RECORD, not folded into his speech. Appending "I read 604 cards"
+ * to his words would put sentences in his mouth he never said, and the next
+ * turn would replay them as if he had. It is a separate part, prefixed, and
+ * plainly not dialogue.
+ */
+const TOOL_RECORD_PREFIX = '[lookups on that turn, for your own reference —'
+
+function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
+  return msgs
+    .filter((m) => m.text.trim().length > 0 || (m.tools?.length ?? 0) > 0)
+    .map((m) => {
+      const parts: WirePart[] = []
+      if (m.text.trim().length > 0) parts.push({ type: 'text', text: m.text })
+      const done = (m.tools ?? []).filter((t) => t.phase === 'ok' && t.summary)
+      if (done.length) {
+        parts.push({
+          type: 'text',
+          text:
+            `${TOOL_RECORD_PREFIX} you actually ran these, so the figures in them are real ` +
+            `and yours are not a guess]\n` +
+            done.map((t) => `${t.name}: ${t.summary}`).join('\n'),
+        })
+      }
+      // A turn that produced only tool records and no speech still has to be a
+      // valid message; the filter above lets it through, so guard the shape.
+      return { role: m.role, parts: parts.length ? parts : [{ type: 'text', text: m.text }] }
+    })
+}
+
+/**
+ * How many landmarks one turn's prompt may carry.
+ *
+ * THE CAP EXISTS BECAUSE THE LIST IS PROMPT, NOT DATA. Every landmark is a
+ * selector plus a label rendered into the system prompt of every leg of every
+ * turn, and a journey is up to `legBudget(MAX_APPROVAL_REPLAYS)` full requests,
+ * each re-billing the whole prompt. At roughly 15 tokens a landmark, 40 is about
+ * 600 tokens a turn, and up to ~3,600 across the six-leg worst case — a turn
+ * that journeys AND spends both reserved approval legs. This figure said ~2,400
+ * for a four-leg journey until the approval reserve was added; a cost estimate
+ * that is not updated with the budget it estimates is a number someone will
+ * later trust. Stated here so the next person can re-weigh it against a real
+ * bill rather than guess.
+ *
+ * WHAT HAPPENS WHEN IT IS HIT: the surplus is dropped, silently, and Deck-E is
+ * simply never told those parts of the page exist. He does not get a truncation
+ * marker and there is nothing sensible he could do with one. That is why the
+ * ORDER below matters more than the number — the landmarks that survive have to
+ * be the ones the reader is most plausibly asking about.
+ *
+ * It was 24, in DOM order, which is how the spec's own worst case (§9.1) fails:
+ * a series page with twenty-plus set rows plus a header spends the whole budget
+ * on rows above the fold and never mentions the rest, and if the reader has
+ * scrolled, every landmark he is told about is off-screen.
+ *
+ * MIRRORED in `api/chat.mjs`, which slices the array again server-side because
+ * the browser is not a trusted source of prompt size. Change one, change both.
+ */
+const LANDMARK_CAP = 40
 
 /**
  * What he can be told about, on this page, right now.
@@ -374,15 +774,55 @@ function messagesToWire(msgs: ChatMessage[]) {
  * are visible to the model, so a card whose NAME is a CSS selector cannot make
  * itself a navigation target. `data-decke-label` is the human name he uses when
  * talking about it.
+ *
+ * Ordered before it is cut, in three passes, most significant first:
+ *
+ *  1. **On screen beats off screen.** "This" and "that" mean what the reader can
+ *     see. Measured with `getBoundingClientRect()` against the viewport, which
+ *     also drops anything collapsed to zero size — a landmark inside a closed
+ *     disclosure is in the DOM and is not on the page in any sense the reader
+ *     would recognise.
+ *  2. **Containers beat items.** Declared, via an optional
+ *     `data-decke-rank="container"`, and NOT inferred from nesting or DOM
+ *     position: guessing "this element contains another landmark, so it is a
+ *     container" gets a set row wrong the day someone marks a card inside one,
+ *     and every heuristic of that shape is a silent behaviour change hiding in
+ *     a markup change. Unmarked means `"item"`, so the default is the cautious
+ *     one and a page that has never heard of ranking still sorts by 2 and 3.
+ *  3. **DOM order.** The stable tiebreak, so the same page produces the same
+ *     list twice running — a list that reshuffles between legs of one journey
+ *     would have him aiming at a different thing than he just said he would.
+ *
+ * The RETURN SHAPE is unchanged and deliberately so: `{selector, label}` is what
+ * `buildSystemPrompt` consumes, and rank/visibility are inputs to the sort, not
+ * something the model is told about.
  */
 function collectLandmarks(): { selector: string; label: string }[] {
-  const out: { selector: string; label: string }[] = []
+  type Ranked = { selector: string; label: string; onScreen: boolean; rank: number; order: number }
+  const found: Ranked[] = []
+  const vh = window.innerHeight
+  const vw = window.innerWidth
+  let order = 0
   for (const el of document.querySelectorAll<HTMLElement>('[data-decke-landmark]')) {
     const selector = el.dataset.deckeLandmark
     const label = el.dataset.deckeLabel
-    if (selector && label) out.push({ selector, label })
+    if (!selector || !label) continue
+    const r = el.getBoundingClientRect()
+    const onScreen =
+      r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw
+    found.push({
+      selector,
+      label,
+      onScreen,
+      rank: el.dataset.deckeRank === 'container' ? 0 : 1,
+      order: order++,
+    })
   }
-  return out.slice(0, 24)
+  found.sort(
+    (a, b) =>
+      Number(b.onScreen) - Number(a.onScreen) || a.rank - b.rank || a.order - b.order,
+  )
+  return found.slice(0, LANDMARK_CAP).map(({ selector, label }) => ({ selector, label }))
 }
 
 /** Commands arrive validated by the server; this is the last mile into the engine. */

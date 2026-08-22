@@ -51,8 +51,36 @@ export interface Api {
  *               on self-host, where the reverse proxy is the auth boundary.
  *               NEVER logged — not in errors, not in diagnostics.
  */
-export function makeApi(base: string, bearer?: string): Api {
-  const authHeader: Record<string, string> = bearer ? { authorization: `Bearer ${bearer}` } : {};
+export function makeApi(
+  base: string,
+  bearer?: string,
+  /**
+   * Extra headers on every request.
+   *
+   * ── WHY THIS EXISTS: THE SELF-HOP ────────────────────────────────────────
+   *
+   * Writes go through deckpal-api rather than straight to Postgres, so the
+   * write logic stays single-sourced (SPEC §3). For Deck-E that means the chat
+   * function makes an HTTP call to the SAME DEPLOYMENT it is running in — out
+   * to the public hostname and back.
+   *
+   * Which means anything guarding that hostname guards US. On a Vercel preview
+   * with Deployment Protection the self-hop is answered with the SSO page:
+   * measured, `log_cards` came back "NOT SENT … applied 0 … STOPPED: Protected
+   * deployment", the mutation ledger never moved, and the approval flow it was
+   * testing could not be verified end to end. The same will be true of any
+   * self-host deployment sitting behind an auth proxy, which `SECURITY.md`
+   * describes as the expected arrangement.
+   *
+   * So the caller can forward whatever the platform needs to recognise its own
+   * traffic. Never logged, like the bearer.
+   */
+  extraHeaders?: Record<string, string>,
+): Api {
+  const authHeader: Record<string, string> = {
+    ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+    ...(extraHeaders ?? {}),
+  };
 
   async function request(method: string, path: string, body?: unknown): Promise<unknown> {
     const url = base + path;

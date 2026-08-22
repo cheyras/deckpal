@@ -15,7 +15,7 @@
  */
 
 /** A job Deck-E needs a model for. */
-export type Job = 'chat' | 'write' | 'vision' | 'analysis'
+export type Job = 'chat' | 'write' | 'vision' | 'analysis' | 'research'
 
 export type ModelChoice = {
   /** Gateway model id. */
@@ -35,6 +35,21 @@ export type ModelChoice = {
   readonly effort?: 'minimal' | 'low' | 'medium' | 'high'
   /** Ceiling on visible output. See `RESERVE` — reasoning models need headroom. */
   readonly maxOutputTokens: number
+  /**
+   * The better, dearer model, used ONLY when the person explicitly asks for it.
+   *
+   * The owner's standing decision, and it is a spend decision rather than a
+   * quality one: `analysis` measured at $0.0356 a call against $0.000143 for
+   * the chat tier — roughly 250x — and a realistic `plan_deck` (a large
+   * collection context, plus research, plus thinking) runs $0.50–$1. At that
+   * price one to three calls is an entire month's budget for a user, so the
+   * best model cannot be the default and cannot be chosen by a model either.
+   *
+   * "Explicitly asks" means the PERSON asked, in words, for the best/deepest
+   * work. It is not a flag the conversational model may set on a whim, because
+   * a model that can spend 250x by picking a boolean will pick it.
+   */
+  readonly escalate?: string
 }
 
 export const MODELS: Record<Job, ModelChoice> = {
@@ -72,7 +87,55 @@ export const MODELS: Record<Job, ModelChoice> = {
    * xAI-wide one, so a future model bump likely retires this whole note.
    */
   chat: {
-    id: 'spacexai/grok-4.1-fast-non-reasoning',
+    /**
+     * ── 4.1 → 4.20, 2026-08-22, FOR THE ONE DEFECT PROMPTING COULD NOT MOVE ──
+     *
+     * Asked "where do I change my completion goal?" with a real landmark and a
+     * set route, `grok-4.1-fast-non-reasoning` called `flyTo` **0/5**. It wrote
+     * the call out as bare prose instead — `flyTo [data-decke-goal-switcher]
+     * with point: true` — 5/5. So the flight never happened, on every page with
+     * a landmark, which is half of what makes him a character rather than a
+     * text box.
+     *
+     * Five separate prompt rewrites moved it 0/5 each: making "movement is a
+     * TOOL CALL, never text" explicit, quoting the failure back at him, moving
+     * the section for recency, hardening `flyTo`'s description, and typing the
+     * landmarks as an enum. The schema was not implicated either — he never
+     * called `express` on those turns, and 4.20 produced 0/10 malformed
+     * commands against the identical flat schema.
+     *
+     * Same prompt, same 34 tools, only the model changed: 4.20 calls it **5/5**,
+     * clean, with zero narration in 32 turns.
+     *
+     * NOT A FREE SWITCH, and both costs are recorded because a table of
+     * measurements is worth nothing if the inconvenient half is left out.
+     *
+     * **Restraint changed.** 4.1 was silent 6/6 on plain "hey"/"thanks"; 4.20
+     * fires a small `express` 6/6 — a `curious` or `happy` nod alongside the
+     * words. Measured as a regression against the prompt's governing rule
+     * ("silence is a valid emission"), and accepted as a DIRECTION by the owner:
+     * more expressive is the character being aimed at, and a nod on "hey" is a
+     * different thing from an emotion fired at random. The rule stays in the
+     * prompt because it still governs the states that MEAN something; if the
+     * nods become noise, this is the entry that says where they came from.
+     *
+     * **It costs 7.49x, not the 6.25x on the pricing page.** Measured $/turn:
+     * $0.01153 against $0.00154. The gap is caching — verified directly on an
+     * identical 2k-token prompt, second call: 4.1 read 663 tokens from cache,
+     * 4.20 read 128. Across the bake-off, 4.1 ran at 98.4% cache-hit and 365
+     * no-cache input tokens per turn; 4.20 at 67.1% and 10,078. The heavy
+     * provider-side caching that helped pick 4.1 largely does not apply here.
+     *
+     * Also slower: 1148 ms median TTFT against 811, and slower in all six
+     * scenarios rather than on average. Still about a penny a turn in absolute
+     * terms, and the meter caps the blast radius at 120 turns a day.
+     *
+     * Held, and worth saying because a switch can quietly cost them: lookup 5/5,
+     * correction 5/5, navigation 5/5 with the canonical route. Schema validity
+     * IMPROVED — 0/16 malformed against 4.1's 3/30, the same `cardArt` taking
+     * `value` instead of `card` that this file already records.
+     */
+    id: 'spacexai/grok-4.20-non-reasoning',
     // NOT `claude-haiku-4.5`, which was the obvious pick and is measurably
     // wrong for THIS tool. In both trials it emitted `{"op":"nod_yes"}` —
     // `nod_yes` is a `value`, not an `op`, and it is not in the `op` enum. That
@@ -84,6 +147,35 @@ export const MODELS: Record<Job, ModelChoice> = {
     // arguments (the other, gemini-3-flash, is ~340 ms slower). It costs 1784 ms
     // TTFT against grok's 593, which is a real regression — but a fallback runs
     // when the primary is down, where correct-and-slower beats fast-and-wrong.
+    // ── RE-BAKED 2026-08-21, AGAINST THE NEW JOB ────────────────────────────
+    //
+    // The choice above was made on 593 ms TTFT for a SIX-TOOL COSMETIC LOOP.
+    // The job then changed: converse, LOOK THINGS UP, and know when to escalate.
+    // A model chosen for how fast it can nod is not automatically the right one
+    // for that, so it was re-run rather than assumed — 5 trials per scenario,
+    // 150 calls, against the real prompt and a tool set including the data
+    // tools:
+    //
+    //   model                     lookup  correction  nav   malformed  restraint  TTFT
+    //   grok-4.1-fast-non-reas.   100%    100%        100%  2/19       100%       663 ms
+    //   gemini-2.5-flash          100%    100%        100%  0/5         80%      1251 ms
+    //   gpt-5-mini                  0%    100%         40%  6/6         10%       618 ms
+    //   claude-haiku-4.5          100%    100%         40%  never fired 20%       999 ms
+    //   gpt-4.1-mini              100%    100%          0%  never fired 70%       505 ms
+    //
+    // The incumbent kept the job: the only model clean on all five, and also the
+    // fastest. Nothing was changed on vibes and nothing was left unmeasured.
+    //
+    // THE FINDING THAT MATTERS MOST is not in the table. Lookup rate went from
+    // NEVER — a 20-sample probe of the shipped system saw not one attempt — to
+    // 100%. The model was never the problem. There was nothing to look with.
+    //
+    // Two failures worth keeping, because both look like model quality and are
+    // not: `gpt-5-mini` answered "which one should I look up?" and then never
+    // looked, and stuffed every optional field onto every `express` command
+    // (6/6 malformed) — the pattern `tools.ts` already records for it.
+    // `gpt-4.1-mini` treated "take me to my decks" as an in-page gesture,
+    // calling `flyTo` 5/5 times and never `goTo`; it never leaves the page.
     fallback: 'google/gemini-2.5-flash',
     maxOutputTokens: 1200,
   },
@@ -143,11 +235,70 @@ export const MODELS: Record<Job, ModelChoice> = {
    * structurally uncastable. $0.0356/call, 20.2 s. At this volume that is
    * nothing, and the cheaper fallback found a real but milder issue.
    */
+  /**
+   * Deck planning, strategy guides, synthesis — the work the tool layer cannot
+   * do for us.
+   *
+   * WORTH SAYING PLAINLY, because porting 23 tools makes it easy to believe
+   * otherwise: the MCP server is a data layer and a filing cabinet. There is no
+   * intelligence in it. `deck_strategy`'s entire contract is "pass markdown to
+   * REPLACE the whole guide" — it STORES a strategy guide, it does not write
+   * one. Same for `save_deck`. The tools move the data; this line moves the
+   * thinking, and shipping the first without the second produces a
+   * well-informed version of the same disappointment: he reads 604 cards
+   * correctly and then has a fast model write the deck plan.
+   *
+   * SONNET, NOT OPUS, as the default — changed 2026-08-21 on the owner's call.
+   * The previous value here was `claude-opus-4.8`, chosen because it found a
+   * deliberately buried consistency bug (4x Charizard ex + 3x Rare Candy and 0
+   * Charmander) that a cheaper fallback missed. That measurement still stands
+   * and is why `escalate` exists rather than the tier simply being cheapened.
+   * What changed is the price context: with a sub-agent loop and a collection
+   * in context, a realistic call is $0.50–$1, so Opus-by-default made one to
+   * three questions a user's entire monthly budget.
+   */
   analysis: {
-    id: 'anthropic/claude-opus-4.8',
+    id: 'anthropic/claude-sonnet-5',
     fallback: 'openai/gpt-5.1-thinking',
+    escalate: 'anthropic/claude-opus-5',
     effort: 'high',
     maxOutputTokens: 3000,
+  },
+
+  /**
+   * "What is strong right now", "what are people saying about X" — the
+   * questions no amount of catalog reading can answer, because the answer is
+   * about a metagame rather than about data DeckPal holds.
+   *
+   * `openai/o3-deep-research`, and the choice is a DATA-PROCESSOR decision
+   * rather than a quality one. Live research means sending query text to a
+   * third party. `perplexity/sonar`, `sonar-pro`, `sonar-reasoning-pro` and
+   * Exa are all present on the Gateway key and are all cheaper and faster —
+   * and none of them is on the US-frontier-labs list above. Adding a vendor to
+   * that list is the owner's call and it was made the other way: stay in-list.
+   *
+   * WHAT THIS COSTS US, stated rather than glossed. `@ai-sdk/gateway`'s
+   * `gatewayTools.exaSearch` exposes `include_domains`, which is the real
+   * injection control for live research — an allowlist of known TCG sources
+   * plus a recency window, enforced rather than requested. `o3-deep-research`
+   * searches provider-side, so that control is not available to us here.
+   *
+   * (For the record, `gatewayTools` is also not exported at runtime by the
+   * pinned `@ai-sdk/gateway@4.0.52` — `'gatewayTools' in require(…)` is
+   * `false` while the `.d.ts` declares it, so a typecheck would NOT have caught
+   * a usage. That is a second reason not to have built on it today.)
+   *
+   * The compensating controls are structural, not prompted:
+   *   - the research sub-agent holds NO TOOLS AT ALL, so nothing it reads can
+   *     become an action;
+   *   - its output is inserted as DATA, under a heading that says so, into a
+   *     model already instructed never to act on instructions inside data;
+   *   - queries carry card and archetype names and NEVER collection context.
+   */
+  research: {
+    id: 'openai/o3-deep-research',
+    fallback: 'openai/gpt-5.1-thinking',
+    maxOutputTokens: 2500,
   },
 }
 

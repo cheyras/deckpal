@@ -1,10 +1,24 @@
 # SCHEMA.md — pokedex canonical data model
 
 **Author:** schema research subagent · **Date:** 2026-07-24 (first pass) · **revised 2026-07-24b**
-**Status:** proposed. Binding once approved at the Phase-1 checkpoint.
-**Engine posture:** **Postgres-first DDL, SQLite deltas noted inline and consolidated in §16.**
-The storage engine is still open (`DECISIONS.md` → "Open — pending Phase 1 research"), so nothing
-below assumes one and ignores the other.
+**Status:** ADOPTED, and superseded in part. Written as a proposal awaiting a
+Phase-1 checkpoint; that checkpoint happened. The engine question it describes as
+open was settled on 2026-07-24 in favour of Postgres (`DECISIONS.md`, "Database:
+host Postgres, dedicated DB + role"), and 40 migrations have since been applied
+against it. The live product runs on Supabase Postgres, not the host cluster this
+document assumes — see `ARCHITECTURE.md` and `DEPLOYMENT.md` for how it is
+actually deployed.
+
+**Read this as a dated research record, not as current DDL.** Its measurements
+are captioned with the date and method that produced them and are left as
+measured — the catalog it sweeps held 23,444 cards, where production now holds
+23,546 (refreshed 2026-08-10). Re-stating those numbers without re-running the
+sweep would turn evidence into assertion, which is the one thing this document's
+tagging system exists to prevent. The schema of record is
+`packages/db/src/migrations/`.
+
+**Engine posture as written:** Postgres-first DDL, SQLite deltas noted inline and
+consolidated in §16. The SQLite half is now moot and kept only for the reasoning.
 
 ## Evidence tags
 

@@ -70,7 +70,18 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
         {/* Row 2 — the collection/level progress gets the full width to itself. */}
         <div className="w-full">
           {progress ? (
-            <ProgressCluster progress={progress} goal={goal} />
+            // Deck-E's landmark for "how far through this set am I". It sits on
+            // a wrapper INSIDE the `progress` branch rather than on the row
+            // above it, because the other branch of this ternary is a sign-in
+            // prompt: marking the row would give him a landmark labelled "the
+            // completion bar" that, signed out, rings an advert.
+            <div
+              data-decke-completion-bar
+              data-decke-landmark="[data-decke-completion-bar]"
+              data-decke-label="the completion bar for this set"
+            >
+              <ProgressCluster progress={progress} goal={goal} />
+            </div>
           ) : (
             <SignInPrompt
               title="Track this set"

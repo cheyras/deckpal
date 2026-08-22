@@ -697,7 +697,13 @@ export function Scan() {
 
       {/* ── live camera stage (single, always-mounted <video>) ────────── */}
       {showStage && (
-        <div className="relative mx-auto aspect-[3/4] w-full max-w-[440px] overflow-hidden rounded-2xl bg-black">
+        <div
+          className="relative mx-auto aspect-[3/4] w-full max-w-[440px] overflow-hidden rounded-2xl bg-black"
+          data-decke-camera-frame
+          data-decke-landmark="[data-decke-camera-frame]"
+          data-decke-label="the camera frame"
+          data-decke-rank="container"
+        >
           <video ref={videoRef} playsInline muted autoPlay className="h-full w-full object-cover" />
           {onStage && <GuideOverlay guideRef={guideRef} hint={hint} active={camState === 'live'} />}
           {camState === 'requesting' && (
@@ -796,7 +802,13 @@ export function Scan() {
 
       {/* ── result ─────────────────────────────────────────────────────── */}
       {showResult && (
-        <div className="mt-[24px]">
+        <div
+          className="mt-[24px]"
+          data-decke-scan-results
+          data-decke-landmark="[data-decke-scan-results]"
+          data-decke-label="the scan results tray"
+          data-decke-rank="container"
+        >
           <div className="mb-[14px] flex items-center justify-between">
             <div className="flex items-center gap-[8px] text-[14px] font-bold text-text-secondary">
               <span className="uppercase tracking-wide">{result!.matched ? 'Matches' : 'Closest guesses'}</span>

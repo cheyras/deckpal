@@ -85,7 +85,20 @@ export function SetDetail() {
 
       {data && (
         <>
-          <SetHeader data={data} goal={search.goal} />
+          {/* Deck-E's landmarks are added at the ROUTE level wherever the route
+              is what composes the piece — a wrapper here beats reaching into
+              SetHeader, and it keeps the marking auditable from one file per
+              page. The two exceptions on this page are the completion bar and
+              the goal switcher, which live inside SetHeader and FilterControls
+              respectively and cannot be addressed from out here at all. */}
+          <div
+            data-decke-set-header
+            data-decke-landmark="[data-decke-set-header]"
+            data-decke-label="the set header"
+            data-decke-rank="container"
+          >
+            <SetHeader data={data} goal={search.goal} />
+          </div>
 
           {/* filter bar */}
           <div className="mt-[24px] flex flex-col gap-[16px]">
@@ -100,12 +113,25 @@ export function SetDetail() {
             {!signedOut && <OwnershipStrip search={search} patch={patch} counts={counts} />}
             <div className="flex flex-wrap items-center justify-between gap-[12px]">
               <VariantLegend />
-              <ViewToggle view={search.view} patch={patch} />
+              <div
+                data-decke-view-toggle
+                data-decke-landmark="[data-decke-view-toggle]"
+                data-decke-label="the grid / table / binder view toggle"
+              >
+                <ViewToggle view={search.view} patch={patch} />
+              </div>
             </div>
           </div>
 
           {/* active view */}
-          <div className="mt-[24px]" style={{ opacity: isFetching ? 0.6 : 1 }}>
+          <div
+            className="mt-[24px]"
+            style={{ opacity: isFetching ? 0.6 : 1 }}
+            data-decke-card-grid
+            data-decke-landmark="[data-decke-card-grid]"
+            data-decke-label="the card grid"
+            data-decke-rank="container"
+          >
             {cards.length === 0 ? (
               <div className="py-[60px] text-center text-[14px] text-text-muted">
                 {allCards.length === 0 ? 'No cards in this set yet.' : 'No cards match this filter.'}

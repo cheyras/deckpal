@@ -683,7 +683,12 @@ export function DeckBuilder() {
                 offset as deliberate (issue #48). Sitting in the row it belongs to,
                 `items-center` does the alignment for free, and the deck name below
                 gets the full width instead of ending at the kebab. */}
-            <div>
+            <div
+              data-decke-deck-header
+              data-decke-landmark="[data-decke-deck-header]"
+              data-decke-label="the deck header"
+              data-decke-rank="container"
+            >
               <div className="flex items-center justify-between gap-[12px]">
                 <div className="flex min-w-0 flex-wrap items-center gap-[8px]">
                   <span className="inline-flex items-center gap-[5px] rounded-full bg-surface-tertiary px-[10px] py-[3px] text-[14px] font-bold text-text-secondary">
@@ -759,7 +764,17 @@ export function DeckBuilder() {
             </div>
 
             {/* sections */}
-            <div className="mt-[18px] flex flex-col gap-[18px]">
+            {/* The deck's card list, marked as one region rather than per row.
+                A DeckRow carries the quantity stepper, which is a WRITE control
+                — pointing at the list is the useful half and is all SPEC §9.2
+                allows until the reviewed clickable-marking pass exists. */}
+            <div
+              className="mt-[18px] flex flex-col gap-[18px]"
+              data-decke-deck-cards
+              data-decke-landmark="[data-decke-deck-cards]"
+              data-decke-label="the deck's card list"
+              data-decke-rank="container"
+            >
               {detail.cards.length === 0 ? (
                 <div className="flex flex-col items-center gap-[10px] rounded-xl border border-dashed border-border-default py-[60px] text-center">
                   <Icon name="deck" size={40} className="text-icon-muted" />
