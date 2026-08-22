@@ -17,11 +17,24 @@
  *
  * Vercel gives filesystem routes precedence over `vercel.json` rewrites, so
  * this file claims `/api/chat` without touching the rewrite that funnels
- * everything else into Express. This function never opens a database
- * connection. Reads and writes are ordinary short REST calls to the Express
- * API, carrying the user's own JWT — so Deck-E has exactly the permissions the
- * signed-in user has, enforced by the same RLS policies, and no service-role
- * credential exists anywhere on this path.
+ * everything else into Express. Reads and writes are ordinary short REST calls
+ * to the Express API, carrying the user's own JWT — so Deck-E has exactly the
+ * permissions the signed-in user has, enforced by the same RLS policies, and no
+ * service-role credential exists anywhere on this path.
+ *
+ * ── THE ONE DATABASE CONNECTION, AND ITS RULE ────────────────────────────────
+ *
+ * This function used to say "never opens a database connection", which was true
+ * and was also why it had no rate limit. It now opens exactly one, for exactly
+ * one statement, BEFORE the stream starts: the meter (migration 039).
+ *
+ * The rule that keeps the reasoning at the top of this file intact:
+ * **never hold a connection across the stream.** The meter charges, releases,
+ * and only then does the model get called. Nothing inside `execute` touches the
+ * pool. A connection held across a stream would reintroduce every problem this
+ * file exists to avoid, plus a new one — Vercel freezes an instance after the
+ * response socket dies, so a connection checked out at that moment is checked
+ * out for ever.
  */
 import {
   convertToModelMessages,
@@ -43,6 +56,9 @@ import { verifySupabaseJwt, createSupabaseJwksProvider } from '../apps/api/dist/
 import { buildSystemPrompt } from '../apps/api/dist/decke/prompt.js'
 import { buildTools } from '../apps/api/dist/decke/tools.js'
 import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
+import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
+import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
+import { makePool } from '@deckpal/db'
 
 /**
  * The Deck-E Gateway credential.
@@ -91,6 +107,105 @@ const json = (body, status) =>
   })
 
 /**
+ * The chat function's own pool — lazily created, deliberately tiny.
+ *
+ * SEPARATE FROM THE EXPRESS APP'S, because this is a separate process. That is
+ * not a design choice here, it is a fact about serverless: `api/index.mjs` and
+ * this file never share memory, so `/api/health`'s pool census cannot see this
+ * pool and never will. Health reports the CONFIGURED value instead, which is
+ * the honest version of B11 for something it cannot measure in-process.
+ *
+ * Sized by `PGPOOL_MAX_CHAT` under contract B2's `request` role. Default 2: one
+ * statement per request, held for milliseconds, so concurrency here is bounded
+ * by how many requests can be mid-METER at once — not by how many can be
+ * mid-conversation, which is the number that would have needed a large pool.
+ *
+ * LAZY, because a module-level pool would connect on cold start for every
+ * request including the ones that 401 before they need it, and because a
+ * deployment with no database configured should fail at the meter with a
+ * legible error rather than at import with an opaque one.
+ */
+let poolRef = null
+function chatPool() {
+  if (!poolRef) {
+    const configured = Number.parseInt(process.env.PGPOOL_MAX_CHAT ?? '', 10)
+    poolRef = makePool({
+      role: 'request',
+      ...(Number.isFinite(configured) && configured > 0 ? { max: configured } : { max: 2 }),
+    })
+  }
+  return poolRef
+}
+
+/**
+ * How long the meter may take before we give up on it.
+ *
+ * `apps/mcp/src/rls.ts` has no watchdog and the spec calls that out as the gap
+ * this class of code keeps falling into. The meter is one statement against a
+ * database ~90 ms away, so five seconds is enormously generous and still bounds
+ * the case that matters: a database that has stopped answering must not turn
+ * every Deck-E request into a hung socket holding a pooled connection on an
+ * instance Vercel is about to freeze.
+ */
+const METER_TIMEOUT_MS = Number.parseInt(process.env.DECKE_METER_TIMEOUT_MS ?? '', 10) || 5_000
+
+/**
+ * Charge one unit against a tier, and say whether it was allowed.
+ *
+ * FAILS OPEN, and that is a decision rather than an oversight. If the database
+ * is unreachable, the alternatives are: refuse every Deck-E request (the meter
+ * becomes an outage amplifier — a database blip takes the character down), or
+ * serve the request unmetered (a bounded overspend during a bounded incident,
+ * on a feature whose gate is already a short list of accounts).
+ *
+ * The second is right HERE and would be wrong for the entitlement check, which
+ * is why entitlement is checked separately and from environment variables that
+ * cannot be unreachable. Access control fails closed; accounting fails open.
+ * They are different questions and they get different answers.
+ *
+ * It is logged loudly either way, because "the meter was off for six hours" is
+ * something that must be discoverable afterwards.
+ */
+async function charge(userId, tier) {
+  const cap = capFor(tier)
+  if (cap <= 0) return { allowed: false, used: 0, cap }
+
+  let client
+  try {
+    client = await Promise.race([
+      chatPool().connect(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('meter: pool connect timed out')), METER_TIMEOUT_MS),
+      ),
+    ])
+    const res = await Promise.race([
+      client.query(chargeSql(tier), [userId, cap]),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('meter: query timed out')), METER_TIMEOUT_MS),
+      ),
+    ])
+    return verdictFrom(res.rows, cap)
+  } catch (err) {
+    console.error(
+      `[deck-e] METER UNAVAILABLE — serving ${tier} unmetered for this request. ` +
+        `Accounting fails open on purpose; entitlement does not. Cause:`,
+      err?.message ?? err,
+    )
+    return { allowed: true, used: -1, cap }
+  } finally {
+    // ALWAYS, including the timeout paths. A client that is never released is
+    // the whole failure mode the watchdog above exists to prevent, and getting
+    // this wrong inside the code that prevents it would be a particular kind of
+    // embarrassing.
+    try {
+      client?.release()
+    } catch {
+      /* the pool discards a broken client on its own */
+    }
+  }
+}
+
+/**
  * The request pipeline, written against web standards.
  *
  * Kept in this shape because the AI SDK speaks it — `createUIMessageStreamResponse`
@@ -110,6 +225,20 @@ async function serve(request) {
   const user = await userFromRequest(request)
   if (!user) return json({ error: 'sign in to talk to deck-e' }, 401)
 
+  // ── THE GATE THAT MEANS ANYTHING ──────────────────────────────────────────
+  //
+  // The client has its own entitlement check and it is correct, but it runs in
+  // a browser, so what it decides is whether to draw a button. Until this line
+  // existed, any signed-in account could `curl` a full model turn onto the
+  // owner's Gateway key. Verified against the deployed endpoint before it was
+  // fixed; that is not a hypothetical.
+  //
+  // BEFORE the body is even parsed, so a rejected caller costs one JWT
+  // verification and nothing else.
+  if (!isDeckeEntitled(user.id)) {
+    return json({ error: 'deck-e is not available on this account' }, 403)
+  }
+
   let body
   try {
     body = await request.json()
@@ -120,6 +249,25 @@ async function serve(request) {
   const { messages, route = '/', landmarks = [] } = body ?? {}
   if (!Array.isArray(messages) || messages.length === 0) {
     return json({ error: 'messages must be a non-empty array' }, 400)
+  }
+
+  // ── THE METER ─────────────────────────────────────────────────────────────
+  //
+  // Charged AFTER validation and BEFORE the model, which is the only ordering
+  // that is both fair and safe: a malformed request should not cost the caller
+  // a turn, and a well-formed one must not reach the Gateway until it has been
+  // paid for.
+  //
+  // One turn is one BILLED REQUEST, not one thing the reader typed — a journey
+  // costs up to four. Migration 039's header explains why that is the honest
+  // unit even though it reads stingier than it is.
+  const meter = await charge(user.id, 'chat_turns')
+  if (!meter.allowed) {
+    // A SPOKEN REFUSAL, not a 500. The browser turns this status into his own
+    // words in the transcript, so a budget reads as a budget rather than as a
+    // malfunction. 429 and not 403: the account is entitled, it has simply
+    // spent today's allowance, and those are different sentences.
+    return json({ error: refusalText('chat_turns', meter.cap), retryAfterDay: true }, 429)
   }
 
   const choice = MODELS.chat

@@ -14,6 +14,9 @@ importers:
       '@ai-sdk/gateway':
         specifier: 4.0.52
         version: 4.0.52(zod@4.4.3)
+      '@deckpal/db':
+        specifier: workspace:*
+        version: link:packages/db
       ai:
         specifier: 7.0.66
         version: 7.0.66(zod@4.4.3)

@@ -1,0 +1,62 @@
+-- @supabase-only
+-- 040 · Row-Level Security for Deck-E's meter (039).
+--
+-- ONLY runs on Supabase (the runner skips this file unless SUPABASE_MODE is
+-- set). Self-host has no auth schema and no `authenticated` role; there, the
+-- parameterised `WHERE user_id = $1` in every query is the access-control
+-- layer, exactly as it is for every other table.
+--
+-- Depends on: 039_decke_usage, 020_multi_user_uuid (app_user.id is UUID).
+--
+-- ══════════════════════════════════════════════════════════════════════════════
+-- READ-ONLY TO THE USER, AND THAT IS THE WHOLE POINT
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- This is the same hazard 037 documents for `mutation_event`, with the stakes
+-- inverted. RLS policies are not column-scoped, and on Supabase every policied
+-- table is ALSO reachable through the Data API with an ordinary user's JWT. So
+-- an `UPDATE … USING (user_id = auth.uid())` policy here would not mean "the
+-- app may increment your counter" — it would mean "you may set your counter to
+-- zero, from a browser console, whenever you like."
+--
+-- A meter the metered party can edit is not a meter. It is a suggestion with a
+-- schema.
+--
+-- So: SELECT only. There is deliberately no INSERT, UPDATE or DELETE policy,
+-- which under RLS means those are denied to `authenticated` — not omitted by
+-- oversight, denied by construction.
+--
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Then how does anything ever write to it?
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- The meter is written by `POST /api/chat`, on its own pooled connection, and
+-- deliberately OUTSIDE `withUserContext`. Every other table this codebase
+-- touches is user data, so its reads and writes run inside a transaction that
+-- does `SET LOCAL role = 'authenticated'` and hands RLS the caller's claims.
+-- Metering is not user data. It is the server's own accounting ABOUT a user, so
+-- it runs as the connection's own role, which owns the table and is therefore
+-- not subject to these policies.
+--
+-- That distinction is load-bearing and easy to erase by accident. If someone
+-- later "tidies" the meter write into `withUserContext` for consistency, the
+-- policy set above will deny it and every request will fail closed — loudly,
+-- which is the right direction, but the reason will not be obvious from the
+-- error. It is this paragraph.
+--
+-- The table is NOT `FORCE ROW LEVEL SECURITY`, precisely so the owning role
+-- retains that bypass. That is the mechanism, stated rather than relied upon.
+--
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Why the user may read it at all
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- Because "you have used 41 of your 120 turns today" is a sentence a person is
+-- entitled to see about themselves, and because a cap that is invisible until
+-- you hit it reads as a malfunction. Reading your own row cannot be used to
+-- raise it.
+
+ALTER TABLE decke_usage ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY decke_usage_select ON decke_usage
+  FOR SELECT USING (user_id = (SELECT auth.uid()));
