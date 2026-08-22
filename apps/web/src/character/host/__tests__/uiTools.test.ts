@@ -120,11 +120,72 @@ test('the clickable audit: every marked control is listed here on purpose', () =
 
   assert.deepEqual(
     marked,
-    ['routes/CardDetail.tsx', 'routes/SeriesIndex.tsx'],
+    [
+      // The sidebar nav rows. Bare `<Link to={item.to}>`, no `onClick`, and
+      // every `to` in `NAV` is on the route allowlist — pinned below, because
+      // that `to` is a variable and a seventh entry would inherit the marking.
+      'components/AppShell.tsx',
+      // The "Additional Variants" disclosure. `setShowAdditional(!x)` and
+      // nothing else; the quantity steppers it reveals are writes and stay
+      // unmarked — revealing a control is not operating it.
+      'routes/CardDetail.tsx',
+      // The set rows. Bare `<Link>` to `/series/<slug>/<setId>`, no handler.
+      'routes/SeriesDetail.tsx',
+      // Two: the series cards (bare `<Link>` to `/series/<slug>`), and the
+      // "show the series you have not collected" disclosure, whose handler is
+      // `setShowOthers(true)` and nothing else.
+      'routes/SeriesIndex.tsx',
+    ],
     'a control was marked pressable without updating this audit. Read its onClick: ' +
       'if it writes, navigates somewhere off the allowlist, or touches auth, it must not be ' +
       'marked. If it is genuine navigation or disclosure, add it here deliberately.',
   )
+})
+
+test('every sidebar route a marked nav row can reach is on the allowlist', () => {
+  // ── WHAT THIS CHECKS, AND WHAT IT HONESTLY CANNOT ────────────────────────
+  //
+  // It does NOT check that a marked element never writes. That property is
+  // semantic — it depends on what a React `onClick` closure does, transitively,
+  // through hooks this suite has no way to evaluate — and every static
+  // approximation of it we could write here would either pass on a real write
+  // or fail on the two disclosures already audited above. A test that cannot
+  // fail on the thing it names is worse than no test, so the write rule stays
+  // where the code says it is: the marking discipline, reviewed per addition,
+  // with the audit list above as the tripwire.
+  //
+  // What IS statically checkable is the OTHER navigation rule, and it is the
+  // one with a moving part. `AppShell.tsx` marks `<Link to={item.to}>` inside a
+  // loop over `NAV`, so the destination is a variable: every one is allowlisted
+  // today, and a seventh entry pointing anywhere else — `/profile`, which mints
+  // API tokens, being the obvious one — would inherit the pressable marking
+  // with nothing to notice. Every other marked element in this app names its
+  // route as a literal in the same JSX as the marking, where a reviewer reading
+  // the diff sees it. This one does not, so it gets a test.
+  //
+  // `resolveClickTarget` refuses an off-allowlist `href` at press time as well.
+  // This is the earlier of the two: red at commit rather than a refusal at run
+  // time that only shows up if somebody asks Deck-E to press the thing.
+  const src = readFileSync(
+    fileURLToPath(new URL('../../../components/AppShell.tsx', import.meta.url)),
+    'utf8',
+  )
+  const m = src.match(/const NAV: NavItem\[\] = \[([\s\S]*?)\n\]/)
+  assert.ok(m, 'could not find the NAV array in components/AppShell.tsx')
+  const routes = [...m[1]!.matchAll(/\bto:\s*'([^']*)'/g)].map((x) => x[1]!)
+
+  // A finder that finds nothing passes vacuously, which reads exactly like
+  // "every route is fine". Pin the count so a rename of NAV or a switch to
+  // double quotes fails loudly instead of silently approving.
+  assert.ok(routes.length >= 6, `found only ${routes.length} nav routes; the matcher is broken`)
+  for (const route of routes) {
+    assert.ok(
+      routeAllowed(route),
+      `NavRow marks its <Link> data-decke-clickable, so Deck-E may press this row — but ` +
+        `${route} is not on ROUTE_ALLOWLIST. Either the route belongs on the allowlist, or ` +
+        `this nav row must not be pressable.`,
+    )
+  }
 })
 
 test('the audit detector sees the markings a lazier one would miss', () => {
