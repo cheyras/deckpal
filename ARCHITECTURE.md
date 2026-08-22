@@ -334,9 +334,47 @@ Self-host deployments run 001-020 and skip 021+. Auth is handled by the reverse
 proxy. Images are served by `apps/images`. Sync jobs run via cron or any
 scheduler.
 
-## 10. MCP server — live and multi-user
+## 10. The agent tool layer — one definition, two front-ends
 
-`deckpal-mcp`'s 21 tools are served to any signed-up user at
+**`packages/agent-tools` (`@deckpal/agent-tools`) is the single definition of
+what an agent may do in DeckPal.** 23 tools (12 read, 11 write, 4 of those
+also destructive), each a `ToolDefinition`: a zod input schema, `annotations`
+(`readOnlyHint` is required in the type, not optional as MCP's own SDK has
+it — a tool that forgets to state it fails to compile rather than defaulting
+into whatever reads the flag), and a handler written against `Ctx` alone
+(`{ db, api, userId }`) with no protocol details in it. Reads go straight to
+Postgres; writes and all deck/list operations go through deckpal-api on the
+same host (`apps/mcp/SPEC.md` §3), so write logic — upsert, `collection_event`
+append, `recomputeSetProgress`, one transaction — stays defined exactly once
+in `apps/api/src/routes/*`, however many surfaces call it.
+
+Two adapters translate that one definition into a protocol:
+
+- **`apps/mcp/src/adapters/mcp.ts`** — the only file that knows the tools are
+  being spoken to over MCP. `registerAllTools(server, ctx)` walks `allTools()`
+  and calls `server.registerTool(...)` per tool, translating `ToolResult` to
+  MCP's `CallToolResult`. This is where "Registration: `server.registerTool`"
+  now lives; the tool modules themselves import nothing from the MCP SDK.
+- **`apps/api/src/decke/adapters/aisdk.ts`** — the AI SDK's `tool()`, one per
+  definition, wrapping the handler so it cannot throw into the stream (a
+  thrown tool kills the turn; a returned error is a sentence the model can
+  react to) and clamping output to a character budget for the chat tier only
+  (`DEFAULT_MAX_TOOL_CHARS`, §15c). Read [§15c](#15c) for how Deck-E calls it.
+
+A tool added or changed for Claude over MCP appears for Deck-E in the same
+commit, and vice versa — there is now only one place a tool can be added.
+`apps/mcp`'s own tool modules were proved behaviour-preserving three ways when
+they moved (byte-identical `tools/list` JSON-RPC response, a static dump of
+every tool's schema, and a whitespace-insensitive diff): see DECISIONS.md
+2026-08-21, "One definition of what an agent can do in DeckPal". The one
+deliberate change made in that move: `search_cards`, `get_card` and
+`set_progress` now append a series slug to their output (a trailing field, no
+row reordered), because the set route needs one and no slug is derivable from
+a set's name.
+
+### MCP server — live and multi-user
+
+`deckpal-mcp`'s 23 tools are served to any signed-up user at
 `https://deckpal.app/mcp` (`apps/mcp/src/cloud.ts`), authenticated per-user by
 a personal access token (`dsk_…`, SHA-256 hashed, shown once at creation,
 revocable from Profile). Each call resolves the token to a `user_id` and runs
@@ -644,11 +682,13 @@ one generation rather than of the run).
 
 ## 15b. Deck-E — the assistant layer
 
-**Status: built, verified against the live gateway, NOT yet deployed.** It needs
+**Status: built, verified against the live gateway.** It needs
 `DECKE_VERCEL_AI_GATEWAY_KEY` in the Vercel project; it fails closed without one
-and reports its own readiness on `/api/health`.
+and reports its own readiness on `/api/health`. He now holds the read half of
+`packages/agent-tools`' 23 tools (§15c) and a metered deep tier (§15d) — not
+just the six cosmetic tools of the original ship.
 
-Where §15 is the body, this is everything that decides what the body does. Three
+Where §15 is the body, this is everything that decides what the body does. Four
 boundaries carry the design.
 
 **The command channel is invisible.** The model never emits animation syntax into
@@ -666,6 +706,16 @@ enums, numbers and plain strings, and `DeckeScreen.tsx` is a switch that renders
 `null` for anything it does not recognise. There is no field anywhere in that
 schema that carries HTML, a class name, a style, a URL or a selector — so it is
 not a sanitised injection surface, it is not an injection surface.
+
+**Who may talk to him, and how much, is decided on the server.** The browser's
+own gate (`entitlement.ts`) only decides whether to draw a button; `POST
+/api/chat` re-checks it before the request body is parsed
+(`DECKE_ENTITLED_USER_IDS` plus the owner — a list, not a single id, because
+several of the plan's browser gates run as the QA account, never the owner,
+per B12) and meters every account against a durable daily cap in Postgres
+(`decke_usage`, migrations 039/040) — chat turns and deep calls capped
+separately, ~250x apart in price. See SECURITY.md for the reasoning; this is
+the mechanism.
 
 **One controller, one writer.** `runtime.ts` holds a single WebGL context with
 deferred disposal so React StrictMode's double-mount does not build two. Exactly
@@ -686,7 +736,15 @@ apps/web/src/character/host/
   runtime.ts       lazy engine load + single-controller guard
   entitlement.ts   the single gate
 
-apps/api/src/decke/   models (routing), prompt, tools, screens, gate
+apps/api/src/decke/
+  ctx.ts               builds a Ctx from the caller's JWT; lazy Ctx.db (§15c)
+  rls.ts               the per-tool-call RLS session + its watchdog (§15c)
+  entitlement.ts        DECKE_ENTITLED_USER_IDS + the owner gate
+  meter.ts              the daily chat_turns / deep_calls cap, check-and-charge in one statement
+  models.ts             which model each job gets, and why (measured, not assumed)
+  adapters/aisdk.ts     ToolDefinition -> the AI SDK's tool() -- the read tier (§15c)
+  deep.ts               the four sub-agent tools -- the deep tier (§15d)
+  prompt.ts, tools.ts, screens.ts, gate.ts   system prompt, express/showScreen, screen palette, owner gate
 api/chat.mjs          the standalone serverless brain
 ```
 
@@ -699,6 +757,78 @@ The turn ends when one step both **spoke and acted**, where acting is `express`
 or `showScreen`. Stopping on the tool call alone silenced him, because he does
 not reliably speak before he moves; leaving it out entirely made him deliver two
 near-identical closing lines. Both were measured.
+
+### 15c. Deck-E's data access
+
+He carries no credential of his own. `api/chat.mjs` verifies the caller's
+Supabase JWT the same way the Express app does, and `ctx.ts` builds a `Ctx`
+from it — `apiBaseFor()` derives the API base from the request's own `Host`
+header rather than a hardcoded one, so a preview deployment talks to itself
+rather than to production. `Ctx.api` forwards that same JWT to deckpal-api, so
+every write a deep tool makes runs under RLS as the person in the
+conversation, not as a service role — there is no service-role credential
+anywhere on this path, and the write logic it calls into is the same
+`apps/api/src/routes/*` code the REST API and the web UI use (§10).
+
+**`Ctx.db` is lazy.** It looks like an open connection and is not — it checks
+one out on the tool's *first* query (`openRlsSession()` in `rls.ts`, the same
+`BEGIN; SELECT set_config('request.jwt.claims', …); SET LOCAL role =
+'authenticated'` shape §5's `withUserContext` and the MCP server's own RLS
+session use) and releases it the moment the tool call returns. Roughly half
+the 23 tools never touch Postgres at all — writes go through the REST API — so
+an eager session would spend a pooled connection on tool calls that run no
+query. An ordinary conversational turn with no data tool touches the database
+not at all.
+
+**The watchdog the other two RLS doors don't need.** Aborts are routine on
+this path — the client aborts the previous stream on every new send, and there
+is a stop button — and when the socket dies mid tool-call, Vercel freezes the
+instance with a checked-out client still inside an open transaction.
+`openRlsSession()` starts a timer (`DECKE_PGRLS_MAX_HOLD_MS`, default 10 s —
+deliberately far below the API's own 30 s `PGRLS_MAX_HOLD_MS`, because the unit
+here is one tool call, not a whole request) and, on timeout or abort,
+**destroys** the connection (`client.release(true)`) rather than returning it
+to the pool: a connection mid-statement inside another user's RLS claims must
+never be handed to the next request. A destroyed connection costs one
+reconnect; a shared one costs a cross-user data leak.
+
+**The connection story.** `api/chat.mjs` is a *separate* Vercel function from
+the Express catch-all, with its own small pool (`PGPOOL_MAX_CHAT`, default 2,
+lazily created on first use, contract B2's `request` role). It shares no
+memory with `apps/api/src/index.ts`, so `/api/health`'s live pool census
+(`total/idle/waiting`, B2) structurally cannot see it — `/health` instead
+reports the chat pool's *configured* size (`deckeLimits.chatPoolMaxConfigured`)
+rather than pretending to measure something it cannot reach.
+
+### 15d. The deep tier — sub-agents, not a router
+
+Four tools in `deep.ts` give Deck-E the ability to think rather than only
+fetch, each its own sub-agent with its own model, tool subset and wall-clock
+budget: `plan_deck` and `analyze_collection` (Claude, the read tools),
+`write_strategy_guide` (Claude, the read tools plus `deck_strategy` — the one
+write, because that tool is dumb, idempotent storage and the sub-agent is what
+actually writes the guide), and `research_meta` (`openai/o3-deep-research`,
+**no tools at all**). Escalation is a tool call the conversational model
+chooses to make, not a classifier in front of every turn — a call appears in
+the tool log, so "did he actually think about this" has an answer; a
+classifier would tax every turn and a misroute would be invisible.
+
+Every deep call is charged against the `deep_calls` meter **before** the
+sub-agent model runs (a refusal costs one query, not a model call), runs under
+a wall-clock budget (`DECKE_DEEP_BUDGET_MS`, default 210 s) below the
+function's own `maxDuration` (300 s, raised from 60 — see DECISIONS.md
+2026-08-21, which argues explicitly why this does not reopen the 2026-08-19
+decision against raising it for writes: a research turn holds no database
+connection while it runs, so the cliff is not moved, a different workload is
+given a different ceiling), and streams so a timeout returns **partial
+findings labelled as incomplete** rather than nothing.
+
+`research_meta` holds no tools by design, not oversight: text fetched from the
+open web is the least trustworthy input in the system, and the only guarantee
+that it cannot become an action is giving the thing that reads it no actions
+to take. Its output is framed as fetched data, every time, into a
+conversational model already told never to act on instructions found inside
+data (SECURITY.md has the fuller security framing).
 
 **Not shipped:** foil/variant auto-detection. `research/FOIL-DETECTION.md` has
 the measurement — the signal is real but not lighting-invariant, so the printing

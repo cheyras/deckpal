@@ -83,7 +83,7 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
 ## 3b. Cloud mode — multi-user, per-token (added 2026-08-10)
 
 Everything above describes the **self-host** server: one long-lived process, one user, one shared
-`x-brain-key`. The cloud deployment serves the *same 21 tools* to any signed-up user from a single
+`x-brain-key`. The cloud deployment serves the *same 23 tools* to any signed-up user from a single
 Vercel function. Only the way the context is built differs; no tool was rewritten.
 
 | Thing | Self-host (`src/index.ts`) | Cloud (`src/cloud.ts` → `api/mcp.mjs`) |
@@ -127,12 +127,24 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 
 ## 4. Tool conventions
 
-- Registration: `server.registerTool(name, { title, description, inputSchema: z.object({...}),
-  annotations }, handler)`. Every tool has `title` + annotations: `readOnlyHint: true` on all
-  reads; `destructiveHint: true` on `delete_deck` / `delete_list`; `idempotentHint` where true.
+- **The 23 tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`),
+  each a `ToolDefinition` — `{ name, title, description, inputSchema, annotations, handler }` — written
+  against `Ctx` alone, with no MCP SDK import anywhere in that package. `apps/mcp/src/adapters/mcp.ts`
+  is the only file that turns one into an MCP registration: it walks `allTools()` and calls
+  `server.registerTool(name, { title, description, inputSchema, annotations }, handler)` per tool,
+  branching on whether `inputSchema` is present (the SDK calls a no-arg tool's handler as
+  `(serverCtx)`, not `(args, serverCtx)` — `health` needs the with-args branch skipped or its handler
+  receives the server context in the position it expects its own args). `apps/api/src/decke/adapters/
+  aisdk.ts` is the sibling adapter onto the AI SDK's `tool()`, for Deck-E — same 23 definitions, a
+  different protocol. A tool added or changed here appears on both fronts in the same commit.
+  Every tool has `title` + annotations: `readOnlyHint: true` on all reads; `destructiveHint: true` on
+  `delete_deck` / `delete_list`; `idempotentHint` where true. `readOnlyHint` is required in this
+  package's `ToolDefinition` type (MCP's own SDK type leaves it optional) — a tool that omits it fails
+  to compile rather than defaulting into whatever the approval-gate logic assumes.
 - Every handler wraps in try/catch and returns the house envelope — `ok()` →
   `{ content: [{ type:'text', text }] }` (optionally `structuredContent`), `fail(msg)` →
-  `{ isError: true, content:[...] }`. Never throw to the transport.
+  `{ isError: true, content:[...] }`. `apps/mcp/src/adapters/mcp.ts`'s `toCallToolResult()` is what
+  turns that envelope into MCP's `CallToolResult` on the wire. Never throw to the transport.
 - Descriptions state what the tool does, when to use it, **and when not to** (e.g. "for a single
   card use `get_card` instead"). Zod `.describe()` on every field — it's the only arg docs the
   model gets.
@@ -167,17 +179,22 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 3. **`search_cards`** — `{ query?, set_id?, category?, rarity?, owned_only? = false,
    standard_legal?, min_value_usd?, page?, page_size? }`. Catalog+ownership search over
    `card` (trgm + unaccent on `name_normalized`), joined to owned qty and best market price.
-   Compact lines + total count.
+   Compact lines + total count. Each line ends with a trailing `series <slug>` cell (added
+   2026-08-21, `packages/agent-tools` extraction) — the web route for a card is
+   `/series/<seriesSlug>/<setId>/<number>` and no field elsewhere in the line supplies the slug.
+   Trailing addition only: no existing field moved, changed or was removed.
 4. **`get_card`** — `{ card_id? | name? + set_id? + number? }`. Card core (category, rarity, HP,
    regulation mark, legality flags, set + local number), then per-variant rows: kind code,
    display name, tier (from `variant_tier_resolved` — never re-derive), owned qty, market price,
-   TCGplayer link when present. Ambiguous → candidate list.
+   TCGplayer link when present. Ambiguous → candidate list. Same trailing `series <slug>` addition
+   as `search_cards`.
 5. **`set_progress`** — `{ set_id?, goal? ∈ complete|master|grandmaster, rarity?, rarity_exclude?,
    page?, page_size? }`. Every missing row carries its **rarity**, and `rarity`/`rarity_exclude`
    filter on it (case-insensitive; an unknown name is an error listing the vocabulary, never a
    silently empty result). Rarity is NOT `variant_tier_resolved.tier`: an Illustration Rare and a
    Special Illustration Rare are both tier `standard`, which is why a tier filter could not
-   express "no special illustrations" and reading `rarity` per card was the only way.
+   express "no special illustrations" and reading `rarity` per card was the only way. Same trailing
+   `series <slug>` addition as `search_cards` (2026-08-21).
    No `set_id`: all sets with any progress from `user_set_progress` (owned/total per goal, %
    sorted desc, paged). With `set_id`: all three goals' numbers + the missing cards for the
    requested goal (via `master_required_variant` for master; paged) + **cost-to-complete** (Σ
