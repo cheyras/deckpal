@@ -54,8 +54,19 @@ function modelThatCalls(calls: { toolCallId: string; toolName: string; input: un
           }
           c.enqueue({
             type: 'finish',
-            finishReason: 'tool-calls',
-            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            // `tool-calls` is the real reason: a client tool has no server
+            // `execute`, so the turn ends here and the browser takes over. It is
+            // a STRUCTURED value at this provider version — `unified` plus the
+            // provider's own `raw` string — not the bare string it used to be.
+            finishReason: { unified: 'tool-calls' as const, raw: 'tool_calls' },
+            // Structured at this provider version, and there is no `totalTokens`
+            // — a flat `{inputTokens: 1, totalTokens: 2}` is a type error, which
+            // is the build catching a stale mock rather than a test quietly
+            // asserting a shape the SDK stopped using.
+            usage: {
+              inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+              outputTokens: { total: 1, text: 1, reasoning: 0 },
+            },
           })
         },
       }),
