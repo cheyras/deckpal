@@ -190,6 +190,72 @@ export type JourneyContext = UiToolContext & {
 }
 
 /**
+ * How long to hold after he has pointed at something, before the walk moves on.
+ *
+ * ── WHY A WALK NEEDS A BEAT ──────────────────────────────────────────────────
+ *
+ * `flyTo` and `highlight` are FIRE-AND-FORGET: `runUiTool` hands the flight to
+ * the character and returns `{ ok: true }` immediately, because the flight is
+ * animation and the tool is a command. With no pause the sequencer's next step
+ * therefore lands DURING the flight — and when that next step is a `click` that
+ * navigates, the person watches him set off toward a row and the page changes
+ * out from under him before he arrives. The pointing is the entire product
+ * here (the cueing meta-analyses measure the pointing, not the mascot), so a
+ * step that erases it is worse than not taking it.
+ *
+ * That is the mechanism behind "mostly it just goes right to the page, and he
+ * just highlights one thing — it isn't the step by step arc I've been talking
+ * about." The arc was never authored; the steps simply ran as fast as the event
+ * loop would let them.
+ *
+ * ── THE REDUCED-MOTION VALUE IS NOT ZERO, AND THAT IS DELIBERATE ─────────────
+ *
+ * X1 asks that reduced motion ship with the motion. A dwell is not motion — it
+ * is reading time — and removing it under `reduce` would make the walk hardest
+ * to follow for the person who asked for less movement. Under `reduce` the
+ * flight is instant, so there is no travel left to wait out and the beat is cut
+ * to what it takes to register a ring that is already drawn.
+ */
+export const LOOK_BEAT_MS = 1100
+export const LOOK_BEAT_REDUCED_MS = 450
+
+/** The verbs whose whole purpose is to be LOOKED at. */
+export const WORTH_A_LOOK = new Set<JourneyVerb>(['flyTo', 'highlight'])
+
+export function lookBeatMs(): number {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      ? LOOK_BEAT_REDUCED_MS
+      : LOOK_BEAT_MS
+  } catch {
+    // `matchMedia` is absent under test and in some embedded webviews. Erring
+    // toward the longer beat costs a second; erring toward zero costs the arc.
+    return LOOK_BEAT_MS
+  }
+}
+
+/**
+ * Wait, but never past a cancellation.
+ *
+ * Resolves EARLY on abort rather than rejecting: the runner's loop already
+ * checks `signal.aborted` and `cancelled.by` at the top of every iteration and
+ * reports them properly, so this only has to stop holding — it must not invent
+ * a second, competing way to end a journey.
+ */
+export function dwell(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve()
+    const done = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', done)
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    signal.addEventListener('abort', done, { once: true })
+  })
+}
+
+/**
  * Run one journey.
  *
  * `signal` is the TURN's AbortController, so Stop halts the sequence and the
@@ -329,6 +395,12 @@ export async function runJourney(
 
         default:
           return fail(i, s, 'refused', `I do not know how to "${String(s.verb)}"`, ran, planned)
+      }
+
+      // Hold after he has pointed, so the next step does not erase it. Never
+      // after the LAST step — the walk is over and the ring stays up on its own.
+      if (WORTH_A_LOOK.has(s.verb) && i < steps.length - 1) {
+        await dwell(lookBeatMs(), signal)
       }
     }
     return { ok: true, planned, ran }
