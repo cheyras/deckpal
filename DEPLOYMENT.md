@@ -201,6 +201,41 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `DECKE_PGRLS_MAX_HOLD_MS` | `10000` (default) | How long ONE Deck-E tool call may hold its pooled connection. Deliberately far below the API's 30 s `PGRLS_MAX_HOLD_MS`, because the unit differs: that budget covers a whole request, this one covers a single `search_cards`. A read taking ten seconds is not slow, it is stuck, and on a conversational path the reader gave up several seconds ago. On expiry the connection is **destroyed rather than pooled** — it may be mid-statement inside an open transaction carrying that turn's RLS claims, and returning it would let the next request race a still-running query from someone else's session. |
 | `DECKE_DEEP_BUDGET_MS` | `210000` (default) | Wall-clock ceiling for ONE deep-tier sub-agent (`plan_deck`, `write_strategy_guide`, `research_meta`, `analyze_collection`). Must stay comfortably under `api/chat.mjs`'s `maxDuration` (300 s) — the gap is not slack, it is the time needed to write the partial answer out, let the conversational model comment on it, and close the stream properly. A sub-agent that hits this returns **what it has so far, labelled incomplete**, rather than being killed: it streams for exactly that reason, since a call that is simply killed produced nothing and was billed anyway. |
 | `DECKE_CREDITS_ENABLED` | unset (default) | **Switches Deck-E from the daily two-counter meter to a single credit balance.** Unset or anything other than the exact string `true` keeps `decke_usage` (migration 039) and changes nothing. Set to `true` and every turn and every deep call spends from `decke_credit_balance` (migrations 041/042) instead, with a HARD STOP at zero — the owner's call: *"I can use him while I have credits. If I'm out, I can't use him."* **Do not set this before granting balances.** 041 creates every balance at `0`, so switching it on first makes Deck-E unavailable to every account at once, the owner's included. The order is: run the migrations, grant balances, then set the flag. 039's tables are left in place so the flag is reversible. Prices live in `apps/api/src/decke/credits.ts`, derived from measured per-call cost via `CREDIT_USD` — the retail price of a top-up is a separate decision and is not encoded anywhere yet. |
+
+### Turning Deck-E's credits on
+
+**The order is not the obvious one.** Migration 041 creates every balance at
+`0`, so setting the flag first makes Deck-E unavailable to every account at
+once — the owner's included.
+
+```bash
+# 1. Create the tables. Changes no behaviour on its own.
+set -a && . ./.env.prod && set +a
+pnpm --filter @deckpal/db migrate
+
+# 2. Put credits on the accounts that need them, BEFORE the flag.
+node scripts/decke-credits-grant.mjs --email you@example.com --credits 2000
+node scripts/decke-credits-grant.mjs --qa --credits 2000
+node scripts/decke-credits-grant.mjs --email you@example.com --show   # verify
+
+# 3. Only now, the flag — and it needs a redeploy to take effect.
+vercel env add DECKE_CREDITS_ENABLED production   # value: true
+vercel env add DECKE_CREDITS_ENABLED preview      # value: true
+vercel --prod                                     # or redeploy the preview
+```
+
+**To turn it back off**, remove the variable and redeploy: migration 039's
+`decke_usage` is left in place and the daily counters resume exactly as before.
+No data is lost either way — balances and the event log simply stop being read.
+
+**A re-run of the grant script on the same day is refused**, not doubled: the
+event's `ref` defaults to `<reason>:<email>:<date>` and 041 puts a unique index
+on it. Pass `--ref` to grant deliberately again.
+
+**What things cost** is printed by the script and lives in
+`apps/api/src/decke/credits.ts` — a conversational turn is 1 credit, an analysis
+call 4, a deck plan 75, and the panel starts showing a balance at 100.
+
 | `DECKE_APPROVAL_SECRET` | `<long random string>` | **Signs Deck-E write approvals so they cannot be forged.** Every write is held for a human to approve — but the SDK verifies the approval's signature ONLY when this is set (`ai/dist/index.js:5164`); unset, the approval is taken at face value. That matters because Deck-E's client replays the whole conversation on every leg, so a crafted caller could append `state: "approval-responded", approval: { approved: true }` to a tool call it was never granted — or approve "add 1 card" and send back "add 4000" against the same approval. The tool INPUT is inside the signature; without it nothing binds them. **Unset is not broken** (it is what every deployment did before this existed) so it does not fail closed, but it is a security control that is OFF: the API warns at boot and `GET /health` reports `deckeApprovals: "unsigned"`. Generate with `openssl rand -base64 32` and set it in Production and Preview. |
 
    `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` must be present at **runtime**
