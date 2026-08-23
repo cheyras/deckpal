@@ -13,6 +13,8 @@
  * never accepted from the body. See `deckeHistory.ts`.
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { MAX_TOOLS, UUID, shapeTools, type ToolRecord } from '../../routes/deckeHistory.js';
 
@@ -89,3 +91,39 @@ test('the id must be a uuid, and things that merely look like one are refused', 
     assert.equal(UUID.test(bad), false, bad);
   }
 });
+
+test('WRITES go through the owning role, reads stay on the RLS client', () => {
+  // A SOURCE PIN, and it exists because the route returned 500 on every insert
+  // in production. `q()` runs inside the per-request RLS transaction, which has
+  // `SET LOCAL role = 'authenticated'` — and migration 044 gives that role
+  // SELECT and DELETE and deliberately NO insert, because a client that could
+  // insert could claim any turn happened on any build.
+  //
+  // The migration's own header says the write path runs as the connection's
+  // owning role. The code used the convenient helper instead. Same shape as the
+  // credit log earlier in this pass: the comment described the mechanism and the
+  // call site did something else.
+  const src = readFileSync(
+    fileURLToPath(new URL('../../routes/deckeHistory.ts', import.meta.url)),
+    'utf8',
+  )
+  // ACROSS THE STATEMENT, NOT ONE LINE. The first version of this check tested
+  // each line in isolation and came back GREEN under the exact mutation it was
+  // written for: `await q1<{ id: string }>(` and the `INSERT` that follows it
+  // are on different lines, so neither line matched both halves. A guard that
+  // reads one line at a time cannot see a call whose SQL is on the next.
+  const bad: string[] = [];
+  for (const m of src.matchAll(/await q1?(?:<[^>]*>)?\(/g)) {
+    const at = m.index ?? 0;
+    const stmt = src.slice(at, at + 300);
+    if (/\b(INSERT\s+INTO|UPDATE\s+\w|DELETE\s+FROM)\b/i.test(stmt)) {
+      bad.push(stmt.slice(0, 70).replace(/\s+/g, ' '));
+    }
+  }
+  assert.deepEqual(bad, [], `a write is going through the RLS client and will be denied: ${bad.join(' | ')}`)
+  assert.match(src, /async function write</, 'the owning-role helper is gone')
+  assert.match(src, /pool\.query</, 'write no longer uses the pool directly')
+  // And the reads did NOT move: RLS is a second lock on top of `WHERE user_id`
+  // and there is no reason for a read to leave it.
+  assert.match(src, /const rows = await q\(|await q\(\s*\n?\s*`SELECT/, 'reads left the RLS client')
+})

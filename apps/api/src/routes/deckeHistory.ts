@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { buildStamp } from '../decke/build.js';
 import { isDeckeEntitled } from '../decke/entitlement.js';
-import { q, q1 } from '../db.js';
+import { pool, q, q1 } from '../db.js';
 import { ApiError, asyncHandler, badRequest, clampInt, notFound, str } from '../http.js';
 import { currentUserId } from '../identity.js';
 
@@ -109,6 +109,36 @@ export function shapeTools(input: unknown): ToolRecord[] {
   return out;
 }
 
+/**
+ * A write, as the connection's OWNING role rather than as the caller.
+ *
+ * ── WHY NOT `q()` ────────────────────────────────────────────────────────────
+ *
+ * `q()` runs inside the per-request RLS transaction, which has done
+ * `SET LOCAL role = 'authenticated'`. Migration 044 gives that role SELECT and
+ * DELETE and deliberately no INSERT or UPDATE — because a client that could
+ * insert could claim any turn happened on any build, and the build stamp is the
+ * only thing here that is evidence.
+ *
+ * So every insert through `q()` was denied and the route answered 500. The
+ * migration's own header says the write path "runs as the connection's owning
+ * role, which owns these tables and is therefore not subject to these
+ * policies". The code did not do that. Same failure as the credit log earlier
+ * in this pass: the comment described the mechanism and the call site used the
+ * convenient helper instead.
+ *
+ * Reads deliberately stay on `q()`. They are the caller's own rows and RLS is a
+ * second lock on top of the `WHERE user_id = $1` that is already there — there
+ * is no reason for a read to leave it.
+ */
+async function write<T extends Record<string, unknown> = Record<string, unknown>>(
+  text: string,
+  params: readonly unknown[] = [],
+): Promise<T | null> {
+  const res = await pool.query<T>(text, params as unknown[]);
+  return res.rows[0] ?? null;
+}
+
 /** Every route here needs the same two facts. */
 function caller(req: Parameters<Parameters<typeof asyncHandler>[0]>[0]): string {
   const userId = currentUserId(req);
@@ -152,14 +182,14 @@ deckeHistoryRouter.post(
     // The conversation first, so the turn's foreign key always resolves. The
     // title is the FIRST question and is not overwritten afterwards: a
     // conversation renaming itself as it goes is a list that will not sit still.
-    await q(
+    await write(
       `INSERT INTO decke_conversation (id, user_id, title, turns)
        VALUES ($1, $2, $3, 0)
        ON CONFLICT (id) DO NOTHING`,
       [conversationId, userId, asked.slice(0, MAX_TITLE)],
     );
 
-    const row = await q1<{ id: string }>(
+    const row = await write<{ id: string }>(
       `INSERT INTO decke_turn
          (conversation_id, user_id, seq, asked, answered, tools, build_pr, build_sha)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
@@ -175,7 +205,7 @@ deckeHistoryRouter.post(
 
     // Derived rather than incremented, so a repost cannot inflate it and a
     // deleted turn cannot leave it wrong.
-    await q(
+    await write(
       `UPDATE decke_conversation
           SET turns = (SELECT count(*) FROM decke_turn WHERE conversation_id = $1),
               updated_at = now()
@@ -279,7 +309,11 @@ deckeHistoryRouter.delete(
     const id = String(req.params.id ?? '');
     if (!UUID.test(id)) throw badRequest('id must be a uuid.');
     // Turns cascade from the conversation (043), so this cannot orphan a row.
-    const gone = await q1<{ id: string }>(
+    // DELETE goes through the owning role too. The RLS policy permits it for
+    // the caller's own rows, but `RETURNING id` under RLS returns nothing when
+    // the row is invisible — which is indistinguishable from "no such row" and
+    // would make a genuine failure look like a 404.
+    const gone = await write<{ id: string }>(
       `DELETE FROM decke_conversation WHERE id = $1 AND user_id = $2 RETURNING id`,
       [id, userId],
     );
