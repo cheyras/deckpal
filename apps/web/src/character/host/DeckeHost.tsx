@@ -30,7 +30,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
 import { isChromelessPathname } from '../../lib/landingRoute'
-import { deckeEntitled } from './entitlement'
+import { deckeEntitled, onDeckeEntitlementChange } from './entitlement'
 import { DeckeButton } from './DeckeButton'
 import {
   COMPOSER_LANDMARK,
@@ -260,11 +260,20 @@ export function DeckeHost() {
 
   useEffect(() => {
     let live = true
-    void deckeEntitled().then((ok) => {
-      if (live) setEntitled(ok)
-    })
+    const ask = () =>
+      void deckeEntitled().then((ok) => {
+        if (live) setEntitled(ok)
+      })
+    ask()
+    // RE-ASKED WHEN THE IDENTITY CHANGES, and without this the answer is
+    // whatever was true when the page loaded. Signed out on `/auth` that is
+    // `false` — cached, because the gate fails closed — and signing in is a
+    // client-side navigation, so nothing ever asked again and the launcher
+    // never appeared.
+    const off = onDeckeEntitlementChange(ask)
     return () => {
       live = false
+      off()
     }
   }, [])
 

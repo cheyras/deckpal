@@ -19,7 +19,7 @@
  * pretending otherwise would be worse than saying so.
  */
 import { api } from '../../lib/api'
-import { isCloudMode } from '../../lib/supabase'
+import { isCloudMode, supabase } from '../../lib/supabase'
 
 /** Cached across callers: `/me` is one request per session, not one per mount. */
 let cached: Promise<boolean> | null = null
@@ -68,4 +68,46 @@ async function resolve(): Promise<boolean> {
 /** Test seam, and the escape hatch for a signed-out → signed-in transition. */
 export function resetDeckeEntitlement(): void {
   cached = null
+}
+
+/**
+ * ── THE ESCAPE HATCH WAS BUILT AND NEVER CONNECTED ───────────────────────
+ *
+ * `resetDeckeEntitlement` existed, its comment named the exact transition it was
+ * for, and a `grep` found no caller. The consequence was total and silent, and
+ * it hit EVERY signed-in reader rather than any special case:
+ *
+ *   1. `DeckeHost` mounts app-wide. Hooks run before its early return, so the
+ *      entitlement effect fires even on `/auth`, where it renders nothing.
+ *   2. Signed out, that call is a 401. `deckeEntitled` fails CLOSED by design
+ *      and caches the FAILURE — `cached` is a resolved `false` from then on.
+ *   3. Signing in navigates client-side. No reload, so the module cache
+ *      survives, and every later caller is answered `false` from memory.
+ *   4. **Deck-E never appears until a hard refresh.** Reported from a deployed
+ *      preview as "there is no chat button", with `/api/me` cheerfully
+ *      returning `decke: true` to anyone who asked it directly.
+ *
+ * Module scope, not a component, because `lib/supabase.ts` already states the
+ * doctrine for this codebase: subscribing once where the client is owned is
+ * what stops several component-level subscriptions drifting apart. It lives
+ * here rather than there so the dependency keeps pointing the right way — a
+ * generic client module has no business importing Deck-E.
+ */
+const listeners = new Set<() => void>()
+
+/** Re-ask after the signed-in identity changes. Returns its own unsubscribe. */
+export function onDeckeEntitlementChange(fn: () => void): () => void {
+  listeners.add(fn)
+  return () => void listeners.delete(fn)
+}
+
+if (isCloudMode) {
+  supabase.auth.onAuthStateChange((event) => {
+    // `TOKEN_REFRESHED` is the same person with a newer token, so re-asking
+    // would be a request per hour that can only ever return what it already
+    // returned. Every other event can change who is asking.
+    if (event === 'TOKEN_REFRESHED') return
+    resetDeckeEntitlement()
+    for (const fn of listeners) fn()
+  })
 }
