@@ -54,6 +54,7 @@ import { streamText, stepCountIs, type ToolSet } from 'ai';
 import { z } from 'zod';
 import type { GatewayProvider } from '@ai-sdk/gateway';
 import { MODELS, budgetFor, type ModelChoice } from './models.js';
+import { deepFailed, deepRefused } from './deepOutcome.js';
 import {
   buildDataTools,
   safeToolError,
@@ -478,10 +479,12 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
       if (!meter.allowed) {
         const summary = `today's ${meter.cap} deep questions are spent`;
         opts.onEvent?.({ phase: 'error', ...chip, summary });
-        return (
-          `I have used up today's ${meter.cap} deep-thinking questions. ` +
-          `Ask me again tomorrow — looking things up is separate and still works.`
-        );
+        // NOT a fluent first-person sentence. It used to be one, and a fluent
+        // refusal is the easiest thing in the world to continue from as though
+        // it were the start of an answer — measured, on camera: two refused
+        // `plan_deck` calls followed by "Perfect, let's build! I'm pulling
+        // together a 60-card list…". See `deepOutcome.ts`.
+        return deepRefused(`today's ${meter.cap} deep-thinking questions are spent`);
       }
       // D2's beat, emitted AFTER the charge and not with the `start` chip.
       //
@@ -507,7 +510,7 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
       } catch (err) {
         const message = safeToolError(err);
         opts.onEvent?.({ phase: 'error', ...chip, summary: message });
-        return `That did not work: ${message}`;
+        return deepFailed(message);
       }
     },
   });
