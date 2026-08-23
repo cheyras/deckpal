@@ -165,3 +165,43 @@ classification the server does not have today, which is the real cost.
   directly. Five hand-built journeys ran end to end against the live backend —
   complete, fail-stop, and cancel-on-gesture all verified — but the model
   choosing to emit one is the thing gate 22 is still waiting on.
+
+---
+
+## D8 — confirmed with pixels, and the obvious fix is ruled out
+
+Filed, never looked at, and now looked at. **The visual harness runs on this
+machine** — `playwright@1.62.1` is already in the repo's own pnpm store, so the
+"deliberately not a dependency" rule costs nothing here:
+
+```
+PLAYWRIGHT_MODULE='E:/Users/cheyr/deckpal/node_modules/.pnpm/playwright@1.62.1/node_modules/playwright'   node scripts/visual-harness/capture-decke.mjs --scene close-reopen --base http://localhost:5204
+```
+
+Use `localhost`, not `127.0.0.1` — vite binds IPv6 and the loopback literal is
+refused.
+
+**It is real.** The `close-reopen` contact sheet has several frames in which he
+is unmistakably diagonal — one at roughly 45°, lying across a series card at
+close to full size. That is "falling rather than flying" and it settles a
+question the brief could only guess at. He is upright and correct at rest; it is
+purely the two long legs.
+
+**And `LEAD_MAX` is not the cause.** Lowering the flight clamp **34° → 20°** and
+re-capturing left poses of the same magnitude — about 45° still present. That
+change has been REVERTED; `flight.ts` is untouched.
+
+The reason is that the flight track's lean is not the only thing rotating him.
+`DeckE.ts:2515` sets `rig.float.rotation` from `floatOut.rx/rz/ry`, and
+`:2526-2531` feeds `pose.lean * 15` and `pose.twist * 12` into
+`riderSystem.apply`. **Both are additive on top of the track**, so clamping the
+track alone can never bound the composed pose. Whoever picks this up should
+start at those two, not at the orientation constants.
+
+**Also fixed while here:** the `close-reopen` scene could never run. Two elements
+carry `aria-label="Close chat"` — the scrim (`DeckeChat.tsx:771`) and the
+header's × (`:864`) — and `.first()` resolved to the scrim, whose click the
+panel intercepts, so it retried until it timed out. Scoped to the dialog now.
+The same shared-label trap that once made `readPresence` report the launcher
+visible while it was unmounted; that is twice, and it is worth suspecting every
+`getByRole(...).first()` in the harness.
