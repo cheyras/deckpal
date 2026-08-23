@@ -852,6 +852,22 @@ export function DeckeChat({
                     busy, and it carries the live status beats the server sends
                     from real tool boundaries. It is not a spinner: it counts,
                     and a counter cannot be caught looking stopped.
+
+                    NO `steps`, AND THAT IS A FIX RATHER THAN AN OMISSION. It
+                    used to be handed `messageTools(m)` — the very rows the loop
+                    above has already rendered inline, in the order they
+                    happened. So every row appeared TWICE while a turn was busy,
+                    and because a failed row opens itself, a failure showed its
+                    loud red row twice at once, each with its own "Try again",
+                    and announced itself twice to a screen reader. On the exact
+                    surface that exists because the owner once failed to notice
+                    a failure at all.
+
+                    The drawer was designed before the ordered part list, for a
+                    transcript that had nowhere else to put a row. It has
+                    somewhere else now, and occurrence order is the better
+                    place: a lookup that happened between two sentences belongs
+                    between them, not collapsed inside a spinner.
                   */}
                   {busy && m.role === 'assistant' && m.id === lastAssistantId ? (
                     <div
@@ -865,12 +881,7 @@ export function DeckeChat({
                       // it is mounted exactly while he is working.
                       data-decke-thinking
                     >
-                      <ThinkingRow
-                        startedAt={turnStartedAt}
-                        labels={liveLabels(m)}
-                        steps={messageTools(m)}
-                        onRetryStep={onRetryTool}
-                      />
+                      <ThinkingRow startedAt={turnStartedAt} labels={liveLabels(m)} />
                     </div>
                   ) : null}
                 </li>

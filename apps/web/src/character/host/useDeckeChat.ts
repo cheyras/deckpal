@@ -592,6 +592,37 @@ export function useDeckeChat(
                 // stream never sends. A latch with no guaranteed release is how
                 // he ends up mouthing silently for the life of the page.
                 decke.setOverlay('talk', 1)
+                // ── HE CHANGES WHEN THE ANSWER ARRIVES ─────────────────────
+                //
+                // The owner was cut off mid-sentence at the exact moment
+                // Deck-E stopped thinking and started talking — "I honestly
+                // would have loved him to—" — and when asked to recall it:
+                // *"I think i was about to say I would have liked him to do a
+                // different emotion state or something."* Recorded as a
+                // PROBABLE requirement rather than a certain one, and a close
+                // relative of his other note that he "can kind of show a
+                // different emotion for a sec and then go back to thinking".
+                //
+                // The first token is the transition. Without a beat here he
+                // slides out of a minute of the same rocking loop straight
+                // into speech, and nothing marks the moment the waiting ended
+                // — which is the moment that most wants marking.
+                //
+                // `once`, not sustained: this is punctuation on an event, not
+                // a mood to be left holding. `curious` because the honest
+                // reading of "I have something for you" is interest rather
+                // than delight — `happy` would celebrate answers that are
+                // sometimes bad news, and a character who is pleased about a
+                // timeout is the failure this pass spent its time on.
+                //
+                // It does NOT set `movedRef`: this is the app punctuating a
+                // transition, not the model choosing a state, and claiming
+                // otherwise would stop the turn boundary restoring `idle`.
+                try {
+                  decke.setState('curious', { mode: 'once' })
+                } catch {
+                  /* an unknown state must never take a turn down */
+                }
               }
               appendText(chunk)
             },
@@ -867,8 +898,21 @@ export function useDeckeChat(
         }
       } catch (e) {
         if ((e as Error)?.name !== 'AbortError') {
-          setMessages((m) =>
-            m.map((x) => (x.id === replyId ? { ...x, text: 'I lost my train of thought there.' } : x)),
+          // THROUGH `sayInstead`, and this was silently broken.
+          //
+          // It wrote `{ ...x, text }` — a field a message no longer HAS, since
+          // a turn became an ordered part list. So the object gained a stray
+          // property nothing renders, and the failure the branch exists to
+          // announce announced nothing: the request never connected, `busy`
+          // went false, and the transcript held the reader's question and no
+          // reply at all. A question answered by silence is the dead end this
+          // pass exists to remove, and it was introduced BY this pass.
+          //
+          // Caught by unplugging the network in a browser rather than by
+          // reading the code, which is the only way this class of thing is ever
+          // caught: it typechecks, it runs, and it does nothing.
+          sayInstead(
+            'I could not reach my brain just then — check your connection and ask me again?',
           )
           decke.setState('alert_error', { mode: 'once' })
         }
