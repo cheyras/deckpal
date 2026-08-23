@@ -127,8 +127,12 @@ back GREEN re-run to confirm it now goes red.
    not strip it. Re-shot clean: he is whole at 1440 and 1720. `parkBeside`'s
    horizontal clamp is present and correct (`region.left + margin`, margin =
    `bodyPx * 0.6`); the `bandSpan` path that does NOT bite at zero is a
-   different solve, and I misread one for the other. The strip now lives in
-   `visual-harness/lib/dev-chrome.mjs` so a capture script cannot forget it.
+   different solve, and I misread one for the other. **That claim was wrong when I made it:**
+   `capture-decke.mjs`, the primary instrument and the one that sentence was
+   about, had forgotten it — its review JPEG had the ribbon across the composer
+   and his feet. A helper you can decline to call is documentation. The strip
+   now runs inside the three shared functions in `lib/screenshot.mjs` that every
+   capture goes through, which is the choke point it should have been.
 4. **Mobile openers are indented ~113px while the heading is at 16px.** Real,
    and measured. The indent is `decke-shift` clearing him — correct for the
    THIRD chip, which does overlap him, over-correction for the first two, which
