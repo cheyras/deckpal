@@ -101,6 +101,21 @@ PLAYWRIGHT_MODULE='E:/Users/cheyr/deckpal/node_modules/.pnpm/playwright@1.62.1/n
    the composed pose comes from `rig.float.rotation` and `pose.lean * 15` into
    the rider system, both additive on top of the flight track).
 
+## Found while the designer worked, 2026-08-23
+
+- **Eleven MCP tools answered with metadata and nothing else** — `search_cards`
+  returned a row count and no cards. Fixed, `DECISIONS.md` 2026-08-23. **Deck-E
+  was never affected**; this is the MCP product surface. It changes a shipped
+  public surface without the owner's sign-off, which he should be told plainly.
+- **The escort never arrived.** It pointed at the set row and stopped. Fixed,
+  with a `LOOK_BEAT_MS` hold so the press does not erase the pointing.
+- **D8's pixel confirmation was withdrawn** — peak mid-flight tilt is 24.8° by
+  design, so a single frame cannot tell a defect from the middle of an arc.
+- **`DeckeChat.tsx` holds 124 bare CR characters** from the designer's
+  `edit-send.mjs` (repo root, untracked). Harmless to the parser, ugly in a
+  diff. Normalise the file once the designer is finished with it, and delete
+  that script.
+
 ## Contracts that bite
 
 - **X1** reduced motion ships with the motion, per-element `motion-safe:`, never
