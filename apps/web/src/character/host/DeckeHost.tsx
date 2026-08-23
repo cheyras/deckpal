@@ -41,6 +41,7 @@ import {
   STAND_DESKTOP,
   STAND_MOBILE,
 } from './DeckeChat'
+import { deckeHidden, onDeckeVisibilityChange } from '../deckePreference'
 import { DeckeBubble, type Rect } from './DeckeBubble'
 import { useDeckeChat } from './useDeckeChat'
 import {
@@ -127,6 +128,16 @@ export function DeckeHost() {
   const chromeless = useRouterState({
     select: (s) => isChromelessPathname(s.location.pathname),
   })
+  /**
+   * Has this reader asked not to have him on screen?
+   *
+   * READ SYNCHRONOUSLY IN THE INITIALISER, not in an effect. An effect would
+   * mount the launcher, paint it, and then remove it — so someone who has
+   * already said "hide him" would see him flash on every single navigation,
+   * which is a worse insult than never having offered the setting.
+   */
+  const [hidden, setHidden] = useState(deckeHidden)
+  useEffect(() => onDeckeVisibilityChange(() => setHidden(deckeHidden())), [])
   const [entitled, setEntitled] = useState(false)
   const [phase, setPhase] = useState<Phase>('idle')
   const [beacon, setBeacon] = useState<Beacon | null>(null)
@@ -538,7 +549,13 @@ export function DeckeHost() {
   // chromeless route unmounts the canvas and a later navigation mounts a new
   // one, because `phase` is still 'ready' — leaving a live controller bound to a
   // canvas node that is no longer in the document, and a blank new canvas.
-  const active = entitled && !chromeless && (phase === 'loading' || phase === 'ready')
+  // `!hidden` is here as well as at the early return. Today it is redundant —
+  // a hidden launcher never renders, so nothing sets `phase` past `idle` —
+  // but that is an accident of one code path, and this is the line that
+  // decides whether a WebGL context exists. Someone who asked not to have him
+  // should not get a canvas because a future effect learned to warm him.
+  const active =
+    !hidden && entitled && !chromeless && (phase === 'loading' || phase === 'ready')
 
   // Held once and shared, because the constructor below reads it and the effect
   // after it subscribes to it — two `matchMedia` calls for one question is two
@@ -762,6 +779,17 @@ export function DeckeHost() {
     }
   }, [active])
 
+  // ── HE CAN BE TURNED OFF, AND THAT IS THE POINT ────────────────────────────
+  //
+  // Snapchat pinned My AI with no way to remove it: 3.05 -> 1.67 stars, one-star
+  // share 35% -> 75%. The anger was measured to be about being unable to remove
+  // it, not about answer quality — so being good is not protection, and this
+  // guard is the whole remedy. Restored from Profile.
+  //
+  // Placed beside `entitled` and `chromeless` deliberately: this returns before
+  // the canvas, the launcher and every effect that reaches for the runtime, so
+  // hiding him also stops him costing anything.
+  if (hidden) return null
   if (!entitled || chromeless) return null
 
   return (
