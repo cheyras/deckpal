@@ -106,6 +106,7 @@ import { Icon } from '../../../components/Icon'
 import { CardImage } from '../../../components/CardImage'
 import { Button } from '../../../components/ui/Button'
 import { useCardArt, type CardArtMap } from './useCardArt'
+import { DEEP_COST_NOTE } from './deepRequest'
 import {
   acceptButtonLabel,
   acceptCount,
@@ -327,42 +328,57 @@ function Stepper({
   const atLeast = value === min || (row.mode === 'delta' && row.value < 0 && value === max)
   const set = (next: number) => onChoice({ ...choice, value: next })
 
+  // ── TWO REAL BUTTONS WITH THE NUMBER BETWEEN THEM ─────────────────────────
+  //
+  // It used to be one bordered pill with "Set to 1" inside it, flanked by two
+  // glyphs. The owner: *"I don't want 'set to 1' to be surrounded by the plus
+  // and the minus, and I wanted these to look like they do in our card detail
+  // modal — they're like actual buttons just to the left and right."*
+  //
+  // So this is `QtyStepper` from `routes/CardDetail.tsx` at this card's scale:
+  // square `rounded-lg` buttons with a surface behind them, a bare tabular
+  // number between, and no border around the group. The readout is the QUANTITY
+  // now — "the quantity that we're adding right now" — and the before→after
+  // moved out to `RowOutcome`, which is where he asked for it.
   const btn =
-    'flex h-[24px] w-[24px] items-center justify-center text-text-muted ' +
-    'motion-safe:transition-colors hover:text-text-primary ' +
-    'disabled:cursor-default disabled:opacity-30 disabled:hover:text-text-muted'
+    'flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-lg ' +
+    'bg-surface-tertiary text-icon-default pointer-events-auto ' +
+    'motion-safe:transition-colors enabled:hover:bg-action-default-hover ' +
+    'disabled:cursor-default disabled:text-icon-disabled disabled:opacity-40'
 
   return (
     <span
       role="group"
       aria-label={`How many ${row.cardName}`}
-      className="flex shrink-0 items-center rounded-[9px] border border-border-default bg-surface-primary"
+      className="flex shrink-0 items-center gap-[6px]"
     >
       <button
         type="button"
         onClick={() => set(stepBy(row, choice, -1))}
         disabled={atLeast}
         aria-label={`One fewer ${row.cardName}`}
-        className={`${btn} pointer-events-auto rounded-l-[8px]`}
+        className={btn}
       >
-        <Icon name="minus" size={13} />
+        <Icon name="minus" size={14} />
       </button>
       {/*
-        The chip is the readout. `aria-live` on the wrapper rather than on the
-        chip itself, so the region exists before the number in it changes — the
-        same rule `ToolRow` states for its own, and the same failure it avoids.
+        `aria-live` on the wrapper rather than on the number itself, so the
+        region exists before its contents change — the same rule `ToolRow`
+        states for its own, and the same failure it avoids.
       */}
-      <span aria-live="polite" aria-atomic="true" className="px-[2px]">
-        <OperationChip row={row} value={value} />
+      <span aria-live="polite" aria-atomic="true">
+        <span className="block w-[18px] text-center text-[15px] font-bold tabular-nums text-text-primary">
+          {Math.abs(value)}
+        </span>
       </span>
       <button
         type="button"
         onClick={() => set(stepBy(row, choice, 1))}
         disabled={atMost}
         aria-label={`One more ${row.cardName}`}
-        className={`${btn} pointer-events-auto rounded-r-[8px]`}
+        className={btn}
       >
-        <Icon name="plus" size={13} />
+        <Icon name="plus" size={14} />
       </button>
     </span>
   )
@@ -543,7 +559,6 @@ function RowIdentity({
     time anybody presses `+`.
   */
   const meta = rowMetaText({ setId: row.setId, number: row.number, variantLabel: null })
-  const trail = after === null ? '' : beforeAfterText({ before: row.before, after })
   return (
     /*
       `min-w-[128px]` IS THE WHOLE RESPONSIVE STRATEGY, and it is a floor rather
@@ -567,13 +582,63 @@ function RowIdentity({
       >
         {row.cardName}
       </span>
-      {meta || trail ? (
-        <span className="truncate text-[11.5px] leading-[16px] text-text-muted">
-          {meta}
-          {meta && trail ? ' · ' : ''}
-          {trail ? <span className="tabular-nums">{trail}</span> : null}
-        </span>
+      {/*
+        THE BEFORE→AFTER IS NOT HERE ANY MORE. It was appended to this line as
+        "sv04.5 · #007 · 0 → 1", in 11.5px muted grey beside the set code, and
+        the owner's reaction was immediate: *"the move of this over here makes
+        no sense, I didn't ask for this."* He wanted it OUT of the metadata and
+        LOUDER — *"have the current-to-proposed be like the biggest thing here
+        … the main thing on the farthest right."* It lives in `RowOutcome` now.
+      */}
+      {meta ? (
+        <span className="truncate text-[11.5px] leading-[16px] text-text-muted">{meta}</span>
       ) : null}
+    </span>
+  )
+}
+
+/**
+ * WHAT THIS ROW WILL DO TO THE COUNT — the loudest thing on the line.
+ *
+ * *"Have the current-to-proposed be like the biggest thing here … bigger and
+ * more noticeable as like the main thing on the farthest right."*
+ *
+ * It is the only number on the row that is a CONSEQUENCE rather than an input.
+ * The stepper's number is what you are asking for; this is what your collection
+ * will say afterwards, and it is the thing worth checking before pressing a
+ * button that writes. Green up, red down — his instruction, and the same
+ * direction language the rest of the app uses.
+ *
+ * `projectedAfter` recomputes it from the reader's own amount, so it tracks the
+ * stepper rather than reporting the dry run's opinion of a number the reader has
+ * since changed.
+ */
+function RowOutcome({
+  row,
+  after,
+  struck,
+}: {
+  row: PreviewRow
+  after: number | null
+  struck: boolean
+}): JSX.Element | null {
+  // `before` is null when the dry run could not read a current quantity. There
+  // is then no before→after to state, and inventing one — "0 → 1" for a row
+  // whose current count is unknown — would be a confident number on the one
+  // surface where a reader is about to authorise a write.
+  if (after === null || row.before === null) return null
+  const down = after < row.before
+  return (
+    <span
+      aria-live="polite"
+      aria-atomic="true"
+      aria-label={`${row.cardName}: ${row.before} becomes ${after}`}
+      className={[
+        'shrink-0 whitespace-nowrap text-[16px] font-semibold leading-[22px] tabular-nums',
+        struck ? 'text-text-muted line-through' : down ? 'text-error' : 'text-success',
+      ].join(' ')}
+    >
+      {beforeAfterText({ before: row.before, after })}
     </span>
   )
 }
@@ -624,23 +689,31 @@ function RowLine({
       </span>
       {/* `ml-auto` so that when this pair wraps to its own line it finishes at
           the right edge, under the name, rather than starting under the thumb. */}
-      <span className="ml-auto flex shrink-0 items-center gap-[8px]">
+      {/*
+        THE ORDER IS HIS: *"wrong card goes to here, vertically centered … then
+        the quantity with the minus and plus … and zero-to-one bigger and more
+        noticeable as the main thing on the farthest right."*
+
+        `items-center` rather than the row's default, so "Wrong card" sits level
+        with the middle of the name and its set line instead of hanging off the
+        top of them — the other half of the same sentence.
+      */}
+      <span className="ml-auto flex shrink-0 items-center gap-[10px]">
+        <RemoveButton
+          removed={choice.removed}
+          label={row.cardName}
+          onToggle={() => onChoice({ ...choice, removed: !choice.removed })}
+        />
         {/*
           NO STEPPER ON A STRUCK ROW. Adjusting the amount of something that is
           not going to happen is a control with nothing behind it, and leaving it
           live invites somebody to set a number, look at the row, and believe
           they have un-struck it.
         */}
-        {choice.removed ? (
-          <OperationChip row={row} value={value} />
-        ) : (
+        {choice.removed ? null : (
           <Stepper row={row} choice={choice} onChoice={onChoice} value={value} />
         )}
-        <RemoveButton
-          removed={choice.removed}
-          label={row.cardName}
-          onToggle={() => onChoice({ ...choice, removed: !choice.removed })}
-        />
+        <RowOutcome row={row} after={after} struck={choice.removed} />
       </span>
     </div>
   )
@@ -845,9 +918,11 @@ export function ApprovalCard({
         on, not our summary of it.
       */}
       {request ? (
-        <p className="mt-[8px] rounded-[8px] border border-border-subtle bg-surface-secondary px-[10px] py-[8px] text-[12.5px] leading-[18px] text-text-secondary">
-          {request}
-        </p>
+        <div className="mt-[8px] rounded-[8px] border border-border-subtle bg-surface-secondary px-[10px] py-[8px]">
+          <p className="text-[12.5px] leading-[18px] text-text-secondary">{request}</p>
+          {/* The cost, as its own sentence — see `DEEP_COST_NOTE`. */}
+          <p className="mt-[4px] text-[11.5px] leading-[16px] text-text-muted">{DEEP_COST_NOTE}</p>
+        </div>
       ) : null}
       {unshown ? (
         <p className="mt-[6px] text-[12px] leading-[17px] text-text-muted">{unshown}</p>

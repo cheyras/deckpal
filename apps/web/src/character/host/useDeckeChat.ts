@@ -1486,10 +1486,21 @@ const APPROVAL_PHRASE: Record<string, string> = {
   // already has its phrase above; the deep tier's own guide-writer is
   // `write_strategy_guide`. Listing it twice is a duplicate key, which is how
   // this was caught.
-  plan_deck: 'spend a deep question building this deck',
+  //
+  // NOT "spend a deep question". That was our internal name for the tier
+  // leaking onto a consent dialog, and the owner caught it: *"I don't know that
+  // I want the wording to be 'can I spend a deep question'. I feel like just
+  // being like — external research takes extra usage, are you okay with me
+  // doing research to plan out a good deck."*
+  //
+  // So these say what the WORK is. That it costs more is a separate sentence on
+  // the card (`DEEP_COST_NOTE`), because it is a different fact and cramming it
+  // into the question makes the question about our accounting rather than about
+  // their deck.
+  plan_deck: 'do the research and build this deck properly',
   write_strategy_guide: 'save the strategy guide I just wrote',
-  analyze_collection: 'spend a deep question digging through your collection',
-  research_meta: 'spend a deep question researching the meta',
+  analyze_collection: 'dig properly through your whole collection',
+  research_meta: 'go and research what the meta looks like right now',
 }
 
 function titleFor(name: string): string {

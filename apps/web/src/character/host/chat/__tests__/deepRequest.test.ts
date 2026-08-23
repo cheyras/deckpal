@@ -14,7 +14,7 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { deepRequestLine, isDeepRequest } from '../deepRequest'
+import { DEEP_COST_NOTE, deepRequestLine, isDeepRequest } from '../deepRequest'
 
 test('it shows the request, then its qualifiers', () => {
   assert.equal(
@@ -74,4 +74,14 @@ test('every deep tool that asks has a shape, or its card is a bare headline', ()
   for (const n of ['plan_deck', 'analyze_collection', 'research_meta', 'write_strategy_guide']) {
     assert.equal(isDeepRequest(n), true, `${n} would show a bare headline`)
   }
+})
+
+test('the cost is its own sentence and never our internal name for the tier', () => {
+  // "I don't know that I want the wording to be 'can I spend a deep question'."
+  // "Deep question" is what WE call the tier. It reached a consent dialog, which
+  // is the one place a reader is being asked to agree to something and the last
+  // place to use a word only we know.
+  assert.doesNotMatch(DEEP_COST_NOTE, /deep question/i)
+  assert.doesNotMatch(DEEP_COST_NOTE, /credit/i, 'a number here would be a price on a deployment that is not charging')
+  assert.match(DEEP_COST_NOTE, /more than a normal/i)
 })

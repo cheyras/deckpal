@@ -180,3 +180,13 @@ test('`titleFor` actually READS the map — this test caught itself not doing so
     'titleFor no longer looks the tool up in APPROVAL_PHRASE — the map is dead code',
   )
 })
+
+test('no phrase uses our internal name for the deep tier', () => {
+  // It leaked onto the consent dialog as "Can I spend a deep question building
+  // this deck?" and the owner caught it. A reader has never heard the term; it
+  // is the tier's name in our own source.
+  for (const [name, phrase] of phrases()) {
+    assert.doesNotMatch(phrase, /deep question/i, `${name}: "${phrase}"`)
+    assert.doesNotMatch(phrase, /deep.thinking/i, `${name}: "${phrase}"`)
+  }
+})
