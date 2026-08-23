@@ -124,7 +124,7 @@ export type ToolChip = {
   id: string
   name: string
   title: string
-  phase: 'start' | 'progress' | 'ok' | 'partial' | 'error'
+  phase: 'start' | 'progress' | 'ok' | 'partial' | 'error' | 'declined'
   /** The first line of the real result. */
   summary?: string
   /** The newest server-composed beat for a call still running. */
@@ -509,8 +509,19 @@ export function useDeckeChat(
       emitChipRef.current?.({
         id: `${a.toolCallId}-declined`,
         name: a.name,
+        // `declined`, NOT `ok`. This shipped as `ok`, so the fix for "the
+        // transcript did not say it was cancelled" produced a transcript that
+        // said it was DONE — `ok` is the phase for a call that ran and
+        // succeeded, and it draws a tick. The owner, watching it: "there's a
+        // check mark here and there shouldn't be. That should be like a little
+        // red x — nothing was written, you cancelled it."
+        //
+        // `toolRowState.ts` has been bridging this by recognising the
+        // `-declined` suffix on the id. Its header says to delete that bridge
+        // when this line lands; the bridge stays for now because it also has to
+        // keep matching `phase === 'ok'`, so it simply stops firing.
+        phase: 'declined',
         title: 'Nothing was written',
-        phase: 'ok',
         summary: 'You left it, so nothing changed.',
       })
     }
@@ -658,12 +669,32 @@ export function useDeckeChat(
         )
       }
 
-      /** Replace his words entirely — for a failure that speaks instead of him. */
-      const sayInstead = (why: string) => {
+      /**
+       * Replace his words with a NOTICE — for a turn that was refused rather
+       * than answered.
+       *
+       * This used to be `sayInstead(why)`, which pushed the refusal in as a
+       * text part and drew it as prose. Photographed in the real app with the
+       * meter spent: *"I've done as much as I can for you today — try me again
+       * tomorrow"*, rendered exactly like an answer to a question. It is the
+       * same defect as a fluent refusal reaching the MODEL as a bare string
+       * (`deepOutcome.ts` on the server), pointed at the reader instead.
+       *
+       * A notice is not something he said, so it is not a text part: it does not
+       * reach `messageText`, the speech bubble, or the announcement, all of
+       * which read the transcript for HIS words.
+       */
+      const noticeInstead = (n: { tone: 'neutral' | 'limit' | 'error'; title: string; detail?: string }) => {
         setMessages((m) =>
           m.map((x) =>
             x.id === replyId
-              ? { ...x, parts: [...x.parts.filter((p) => p.kind !== 'text'), { kind: 'text' as const, id: nextId(), text: why }] }
+              ? {
+                  ...x,
+                  parts: [
+                    ...x.parts.filter((p) => p.kind !== 'text' && p.kind !== 'notice'),
+                    { kind: 'notice' as const, id: nextId(), ...n },
+                  ],
+                }
               : x,
           ),
         )
@@ -836,17 +867,29 @@ export function useDeckeChat(
               previewsRef.current.set(preview.toolCallId, preview)
             },
             onHttpError: (status) => {
-              const why =
+              // TONE CARRIES THE DIFFERENCE THE WORDS ALONE DID NOT. A limit is
+              // not a fault: it sends someone to a top-up, where a fault sends
+              // them to support, and telling them the wrong one wastes their
+              // time in a way that feels like being lied to.
+              const n =
                 status === 503
-                  ? "I'm not switched on for this deployment yet."
+                  ? { tone: 'neutral' as const, title: "I'm not switched on for this deployment yet." }
                   : status === 401
-                    ? 'You need to be signed in for me to help.'
+                    ? { tone: 'neutral' as const, title: 'You need to be signed in for me to help.' }
                     : status === 403
-                      ? "I'm not available on this account yet."
+                      ? { tone: 'neutral' as const, title: "I'm not available on this account yet." }
                       : status === 429
-                        ? "I've done as much as I can for you today — try me again tomorrow."
-                        : 'Something went wrong reaching my brain.'
-              sayInstead(why)
+                        ? {
+                            tone: 'limit' as const,
+                            title: "I'm out for now.",
+                            detail: 'Top up and I can pick this straight back up.',
+                          }
+                        : {
+                            tone: 'error' as const,
+                            title: 'Something went wrong reaching my brain.',
+                            detail: 'Nothing was written. Try that again in a moment.',
+                          }
+              noticeInstead(n)
               decke.setState('alert_error', { mode: 'once' })
               movedRef.current = true
             },
@@ -857,7 +900,13 @@ export function useDeckeChat(
             // Said out loud, in his voice, rather than swallowed. The reader gets
             // a reply and the character reacts, which is what distinguishes a
             // failure from a silence.
-            if (!saidSoFar) sayInstead('My brain glitched on that one — try me again?')
+            if (!saidSoFar) {
+              noticeInstead({
+                tone: 'error',
+                title: 'That one did not go through.',
+                detail: 'Nothing was written. Ask me again and I will pick it up.',
+              })
+            }
             decke.setState('alert_error', { mode: 'once' })
             movedRef.current = true
             console.error('[decke] stream error:', outcome.error)
@@ -1078,7 +1127,7 @@ export function useDeckeChat(
         }
       } catch (e) {
         if ((e as Error)?.name !== 'AbortError') {
-          // THROUGH `sayInstead`, and this was silently broken.
+          // THROUGH A REPLACEMENT PART, and this was silently broken.
           //
           // It wrote `{ ...x, text }` — a field a message no longer HAS, since
           // a turn became an ordered part list. So the object gained a stray
@@ -1091,9 +1140,11 @@ export function useDeckeChat(
           // Caught by unplugging the network in a browser rather than by
           // reading the code, which is the only way this class of thing is ever
           // caught: it typechecks, it runs, and it does nothing.
-          sayInstead(
-            'I could not reach my brain just then — check your connection and ask me again?',
-          )
+          noticeInstead({
+            tone: 'error',
+            title: 'I could not reach my brain just then.',
+            detail: 'Check your connection and ask me again.',
+          })
           decke.setState('alert_error', { mode: 'once' })
         }
       } finally {

@@ -47,7 +47,7 @@ import { ChatMarkdown } from './chat/ChatMarkdown'
 import { ThinkingRow } from './chat/ThinkingRow'
 import { ToolRow } from './chat/ToolRow'
 import { toolRowFromChip } from './chat/toolRowState'
-import { CreditChip, DeckeNotice } from './chat/DeckeNotice'
+import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
 import {
   creditHeaderLabel,
   creditState,
@@ -841,6 +841,24 @@ export type ChatPart =
   | { kind: 'text'; id: string; text: string }
   | { kind: 'tool'; id: string; chip: ToolChip }
   | { kind: 'screen'; id: string; spec: ScreenSpec }
+  /**
+   * A refusal, and it is a PART KIND rather than a string for one reason.
+   *
+   * When the server refuses a turn — signed out, not entitled, out of credit,
+   * gateway down — the reply used to be replaced with a plain sentence and
+   * rendered as prose. Photographed in the real app with the meter spent:
+   * *"I've done as much as I can for you today — try me again tomorrow"*, drawn
+   * exactly like an answer to a question. It is the same defect as a fluent
+   * refusal reaching the model as a bare string (`deepOutcome.ts`), pointed at
+   * the reader instead: an outcome nobody encodes is an outcome somebody has to
+   * infer from tone.
+   *
+   * Encoded here so `DeckeNotice` can draw it as what it is, and so nothing
+   * downstream has to sniff prose to find out. `messageText` deliberately does
+   * not include it — a notice is not something he SAID, and the announcement,
+   * the bubble and the transcript's live region all read that.
+   */
+  | { kind: 'notice'; id: string; tone: NoticeTone; title: string; detail?: string }
 
 export type ChatMessage = {
   id: string
@@ -1855,18 +1873,38 @@ export function DeckeChat({
                       return (
                         <ul key={part.id} className="decke-shift w-full self-start">
                           {/*
-                            `toolRowFromChip` IS A BRIDGE AND IT IS TEMPORARY.
-                            `deny` emits its "nothing was written" row as
-                            `phase: 'ok'` — the phase for a call that SUCCEEDED
-                            — so a refusal drew a tick, which is the owner's
-                            *"there should be a little red x"*. The right fix is
-                            for `useDeckeChat` to emit `phase: 'declined'`; that
-                            file belongs to another lane, so the mapping lives in
-                            `toolRowState.ts` where it is pure and tested, and
-                            this is its one call site. Delete both together.
+                            `toolRowFromChip` WAS A BRIDGE AND IS NOW A BACKSTOP.
+                            `deny` used to emit its "nothing was written" row as
+                            `phase: 'ok'` — the phase for a call that SUCCEEDED —
+                            so a refusal drew a tick, which is the owner's
+                            *"there should be a little red x"*. `useDeckeChat`
+                            emits `phase: 'declined'` directly now, so the
+                            mapping no longer fires: it matches `ok` AND the
+                            `-declined` id, and a real `declined` phase passes
+                            straight through untouched.
+
+                            Kept rather than deleted because it is pure, tested,
+                            and costs one comparison — and because a transcript
+                            that goes back to drawing a tick on a refusal is the
+                            one regression here nobody would notice in review.
                           */}
                           <ToolRow data={toolRowFromChip(part.chip)} onRetry={onRetryTool} />
                         </ul>
+                      )
+                    }
+                    if (part.kind === 'notice') {
+                      // NOT a speech bubble. A refusal used to be pushed into
+                      // the reply as plain text and drawn exactly like an
+                      // answer — photographed with the meter spent: "I've done
+                      // as much as I can for you today", indistinguishable from
+                      // him telling you something. It is not something he said;
+                      // it is something that happened TO the turn.
+                      return (
+                        <div key={part.id} className="decke-figure decke-shift">
+                          <DeckeNotice tone={part.tone} title={part.title}>
+                            {part.detail}
+                          </DeckeNotice>
+                        </div>
                       )
                     }
                     // Full width rather than inside a bubble: a panel is a
