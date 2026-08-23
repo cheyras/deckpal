@@ -83,11 +83,15 @@ test('no phrase is for a tool that no longer exists', () => {
   assert.deepEqual(stale, [], `phrases for tools that are gone: ${stale.join(', ')}`)
 })
 
-test('each phrase completes "Let him ___?" as a sentence', () => {
+test('each phrase completes "Can I ___?" as a sentence', () => {
   for (const [name, phrase] of phrases()) {
     assert.match(phrase, /^[a-z]/, `${name}: a phrase starts lower case — it lands mid-sentence`)
     assert.doesNotMatch(phrase, /[.?!]$/, `${name}: terminal punctuation lands mid-sentence`)
-    assert.doesNotMatch(phrase, /^let\s+him/i, `${name}: "Let him let him ..." — the bug this replaced`)
+    assert.doesNotMatch(
+      phrase,
+      /^(?:let\s+h(?:im|er|them)|can\s+i)/i,
+      `${name}: "Can I can I ..." — the bug this replaced, in its new clothes`,
+    )
   }
 })
 
@@ -106,27 +110,31 @@ test('a phrase names what it acts on, rather than saying "it"', () => {
 
 test('the composed question reads correctly for every one of them', () => {
   // Through the REAL composer, not a copy of it — `approvalQuestion` does the
-  // lower-casing, the terminal-punctuation strip and the "Let him" de-dupe.
+  // lower-casing, the terminal-punctuation strip and the lead-in de-dupe.
   for (const [name, phrase] of phrases()) {
     const q = approvalQuestion(phrase.charAt(0).toUpperCase() + phrase.slice(1))
-    assert.match(q, /^Let him .+\?$/, `${name} composed to ${JSON.stringify(q)}`)
+    assert.match(q, /^Can I .+\?$/, `${name} composed to ${JSON.stringify(q)}`)
     assert.doesNotMatch(q, /\?\?/, `${name} composed a double question mark`)
-    assert.doesNotMatch(q, /Let him let him/i, `${name} composed a doubled "Let him"`)
+    assert.doesNotMatch(q, /Can I can I/i, `${name} composed a doubled lead-in`)
+    // THE VOICE. Every one of these is him asking, so none of them may describe
+    // him from outside — that is the note the whole second pass came from, and
+    // this map is the one place the sentences are written by hand.
+    assert.doesNotMatch(q, /\bLet him\b/i, `${name} still speaks about him in the third person`)
   }
 })
 
-test('the two the owner actually saw now read as English', () => {
+test('the two the owner actually saw now read as English, and he says them himself', () => {
   // Named rather than left to the rules above, because these are the strings
   // that were photographed and reported.
   const have = phrases()
-  assert.equal(approvalQuestion('Save deck'), 'Let him save deck?', 'the OLD behaviour, for contrast')
+  assert.equal(approvalQuestion('Save deck'), 'Can I save deck?', 'the OLD phrase, for contrast')
   assert.equal(
     approvalQuestion(have.get('save_deck')!.replace(/^./, (c) => c.toUpperCase())),
-    'Let him save this deck?',
+    'Can I save this deck?',
   )
   assert.equal(
     approvalQuestion(have.get('log_cards')!.replace(/^./, (c) => c.toUpperCase())),
-    'Let him change what your collection says you own?',
+    'Can I change what your collection says you own?',
   )
 })
 

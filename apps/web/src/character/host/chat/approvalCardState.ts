@@ -115,8 +115,17 @@ export type ApprovalPreview = {
   skipped: { index: number; reason: string }[]
 }
 
-/** What the reader did to one row. Keyed by `PreviewRow.index`. */
-export type RowChoice = { removed: boolean; variantId: number | null }
+/**
+ * What the reader did to one row. Keyed by `PreviewRow.index`.
+ *
+ * `value` IS THE STEPPER, and `null` is not zero — it means *untouched*, so the
+ * row still carries the amount HE proposed. That distinction has to be in the
+ * type rather than in a convention, because `0` is a legal value for a
+ * `quantity` row ("set this to none") and a sentinel that collides with a real
+ * value is a bug waiting for the first person who owns four of something and
+ * wants none.
+ */
+export type RowChoice = { removed: boolean; variantId: number | null; value: number | null }
 
 /** Every row's choice, keyed by row index. */
 export type Choices = ReadonlyMap<number, RowChoice>
@@ -130,21 +139,41 @@ export type BatchItem = { variantId: number; delta?: number; quantity?: number }
 // ── The question ─────────────────────────────────────────────────────────────
 
 /**
- * "Let him add 3 cards?" — the headline, composed from a tool's own title.
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE HEADLINE IS HIS OWN SENTENCE. IT IS NOT ABOUT HIM.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * "Can I save this deck?" — the headline, composed from a tool's own title.
+ *
+ * IT USED TO BE THIRD PERSON and that was the owner's clearest note on this
+ * whole card: *"this is all third person, this should be him talking like he's
+ * presenting it to us. So here's what I'm thinking of adding, or whatever makes
+ * sense."* Every string on this card was written as though a narrator were
+ * describing Deck-E to the reader — "Let him add 3 cards?", "He knows these
+ * printings", "What was the variant on this one?" — while the character it
+ * describes is standing beside the panel, has just spoken in first person, and
+ * is the one asking. A dialog that switches to the third person to talk about
+ * the person you are talking to is a stage direction, not a conversation.
+ *
+ * So: he asks. `approvalHeadline` below is the version that reads the ROWS and
+ * is what a `log_cards` card actually shows; this is the fallback for a write
+ * with no row-level preview, where the tool's own phrase is all there is.
  *
  * THIS IS LOGIC AND NOT PRESENTATION, which the last version proved by being
  * wrong on screen. The card used to render `` `Let him ${title.toLowerCase()}?` ``
- * inline, so a title that already read as a question came out as
+ * inline, so a title that already read as a request came out as
  * *"Let him let him add a card??"* — photographed, on the gallery page, in the
  * first run of a review the whole surface exists to make possible. A string
  * that can be malformed by its input is a function, and a function gets a test.
  *
  * Three things it has to survive, each of which a real title has done:
  *
- *  1. **Already a question.** `titleFor` in `useDeckeChat` produces bare verb
+ *  1. **Already a request.** `titleFor` in `useDeckeChat` produces bare verb
  *     phrases ("Adding to your collection"), but `uiToolTitle` and the server's
  *     own titles are not bound by that, and the fixture that caught this came
- *     from a reviewer writing the string a human would write.
+ *     from a reviewer writing the string a human would write. The strip below
+ *     covers the third-person lead-ins as well as the first-person ones, because
+ *     a title written before this change is still a title that can arrive.
  *  2. **Terminal punctuation.** "?" or "." or "!" at the end must not survive
  *     into the middle of the composed sentence, and must not double at the end.
  *  3. **A proper noun or an acronym first.** `toLowerCase()` on the whole
@@ -155,10 +184,47 @@ export type BatchItem = { variantId: number; delta?: number; quantity?: number }
  */
 export function approvalQuestion(title: string): string {
   const trimmed = stripTerminal(title)
-  if (!trimmed) return 'Let him make that change?'
-  const bare = trimmed.replace(/^let\s+h(?:im|er|them)\s+/i, '')
+  if (!trimmed) return 'Can I make that change?'
+  const bare = trimmed.replace(/^(?:can\s+i|let\s+h(?:im|er|them)|let\s+me|i(?:'d| would)\s+like\s+to|i\s+want\s+to)\s+/i, '')
   const body = bare || trimmed
-  return `Let him ${softLowerFirst(body)}?`
+  return `Can I ${softLowerFirst(body)}?`
+}
+
+/**
+ * The headline when the card knows what the rows ARE — which is the log_cards
+ * case, i.e. very nearly every card anybody sees.
+ *
+ * Written from the direction of the batch rather than from the tool's name,
+ * because the owner's own phrasing for it was about the CONTENT: *"here's what
+ * I'm thinking of adding"*. A sentence naming the operation is also the thing
+ * that stops the read-then-press gap this card keeps producing — he says what
+ * kind of change it is, the rows say which cards, and the button says how many.
+ *
+ * MIXED BATCHES GET THE NEUTRAL SENTENCE, for the same reason
+ * `acceptButtonLabel` does: "here's what I want to add" over a list that also
+ * takes two cards away is the one sentence on this card that could get somebody
+ * to press through a removal they did not read.
+ *
+ * Falls back to `approvalQuestion` for a write with no rows at all — a deck
+ * save, a list edit, a revert — where the tool phrase is the only fact there is.
+ */
+export function approvalHeadline(title: string, preview: ApprovalPreview | null): string {
+  const rows = preview?.editable ? preview.rows : []
+  if (rows.length === 0) return approvalQuestion(title)
+  const deltas = rows.filter((r) => r.mode === 'delta')
+  if (deltas.length === rows.length) {
+    if (deltas.every((r) => r.value > 0)) {
+      return rows.length === 1 ? "Here's the card I want to add." : "Here's what I want to add."
+    }
+    if (deltas.every((r) => r.value < 0)) {
+      return rows.length === 1
+        ? "Here's the card I want to take off your collection."
+        : "Here's what I want to take off your collection."
+    }
+  }
+  return rows.length === 1
+    ? "Here's the change I want to make."
+    : "Here's the set of changes I want to make."
 }
 
 /** Trailing "?", ".", "!" and whitespace — repeated, so "card??" collapses too. */
@@ -193,10 +259,63 @@ function softLowerFirst(s: string): string {
 export function unshownCallsNote(heldCalls: number): string {
   const unshown = Math.max(0, Math.floor(heldCalls) - 1)
   if (unshown === 0) return ''
+  // FIRST PERSON, like everything else on this card. It is his admission that he
+  // over-reached in one step, and an admission read out by a narrator is not an
+  // admission.
   if (unshown === 1) {
-    return 'He also asked for one other change. It is not shown here, so it will not run — ask about it on its own.'
+    return 'I asked for one other change too. It is not shown here, so it will not run — ask me about it on its own.'
   }
-  return `He also asked for ${unshown} other changes. They are not shown here, so they will not run — ask about them on their own.`
+  return `I asked for ${unshown} other changes too. They are not shown here, so they will not run — ask me about them on their own.`
+}
+
+// ── The two sections, in his voice ───────────────────────────────────────────
+
+/**
+ * What he calls the rows he is sure about, and the rows he is not.
+ *
+ * Here rather than inline in the JSX for the reason the whole of this file
+ * exists: they are sentences with a plural rule in them, and a sentence with a
+ * rule in it is a function. The old pair read "He knows these printings" and
+ * "What was the variant on this one?" — a narrator, and a form-field prompt.
+ *
+ * The second one keeps being a QUESTION, because it is one and because an
+ * unnamed printing is an ordinary thing rather than an error. What changes is
+ * who is asking it.
+ */
+export function knownSectionHeading(count: number): string {
+  return count === 1 ? "I'm sure about this printing" : "I'm sure about these printings"
+}
+
+/**
+ * The asking section, which is no longer "I have no idea".
+ *
+ * ── WHAT CHANGED UNDER THIS HEADING, AND WHY THE WORDS HAD TO ────────────────
+ *
+ * `reopenIfProxyStated` (adapter, 2026-08-23) demotes a `stated` row back to
+ * `unstated` whenever the READER's own sentence named no printing — because
+ * measured, Deck-E fills that field on 100 items out of 100, so "they said which
+ * one" was a fact about HIM. His pick rides along as `wouldUseVariantId`.
+ *
+ * So the rows under this heading are now mostly rows he DID have an answer for,
+ * offered as a proposal. "I couldn't tell which printing this was" would be
+ * false of them — he could tell, he just does not get to decide. And `ambiguous`
+ * rows, where he genuinely could not, sit in the same section.
+ *
+ * One sentence has to be true of both, which is why it is about CERTAINTY rather
+ * than about knowledge.
+ */
+export function askingSectionHeading(count: number): string {
+  return count === 1
+    ? "I'm not certain about this printing — can you confirm it?"
+    : "I'm not certain about these printings — can you confirm them?"
+}
+
+/** His line about rows the planner could not resolve at all. */
+export function skippedNote(count: number): string {
+  if (count <= 0) return ''
+  return count === 1
+    ? "I couldn't match one more item to a card, so I'm leaving it out."
+    : `I couldn't match ${count} more items to cards, so I'm leaving them out.`
 }
 
 // ── Sections ─────────────────────────────────────────────────────────────────
@@ -228,15 +347,111 @@ export function sections(preview: ApprovalPreview): { known: PreviewRow[]; askin
   return { known, asking }
 }
 
-/** Every row unremoved and unpicked — the state the card opens in. */
+/** Every row unremoved, unpicked and at his own amount — the state the card opens in. */
 export function initialChoices(preview: ApprovalPreview): Map<number, RowChoice> {
-  return new Map(preview.rows.map((r) => [r.index, { removed: false, variantId: null }]))
+  return new Map(preview.rows.map((r) => [r.index, { removed: false, variantId: null, value: null }]))
 }
 
-const NO_CHOICE: RowChoice = { removed: false, variantId: null }
+const NO_CHOICE: RowChoice = { removed: false, variantId: null, value: null }
 
 export function choiceFor(choices: Choices, index: number): RowChoice {
   return choices.get(index) ?? NO_CHOICE
+}
+
+// ── The stepper ──────────────────────────────────────────────────────────────
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * A STEPPER THAT NEVER CHANGES THE DIRECTION OF THE OPERATION
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The owner's ask, in his words: *"he adds one, you know, that's what they asked
+ * for, but they can adjust the amount that we're adding."* **Adjust the amount**
+ * — not flip the sentence.
+ *
+ * So the bounds below are stated in the operation's OWN units and are one-sided
+ * by construction. A `+1` row steps 1…99 and can never reach 0 or go negative; a
+ * `−2` row steps −1…−99 and can never become an add. That is not fussiness: the
+ * confirm button says "Add 3 cards" or "Remove 3 cards" depending on whether
+ * every row points the same way (`acceptButtonLabel`), so a stepper that could
+ * cross zero could silently change the verb on the button under the reader's
+ * hand between the moment they read it and the moment they press it. The way out
+ * of a row pointing the wrong way is "Wrong card", which removes it, and then
+ * asking him for the other direction — an explicit act, not a side effect of
+ * holding down a minus.
+ *
+ * A `quantity` row is absolute, so 0 IS meaningful there and is allowed: "set
+ * this to none" is a real thing to say and the server accepts it.
+ *
+ * The ceiling is 99 rather than the server's 100000. Nothing about a
+ * click-a-button control makes four figures reachable, and a cap a person can
+ * hit is better than one they cannot: the number they can type is on the
+ * composer, in words, where he can plan the whole batch.
+ */
+export const STEP_MAX = 99
+
+export type StepBounds = { min: number; max: number }
+
+export function stepBounds(row: Pick<PreviewRow, 'mode' | 'value'>): StepBounds {
+  if (row.mode === 'quantity') return { min: 0, max: STEP_MAX }
+  return row.value < 0 ? { min: -STEP_MAX, max: -1 } : { min: 1, max: STEP_MAX }
+}
+
+/** A value forced inside this row's bounds. */
+export function clampStep(row: Pick<PreviewRow, 'mode' | 'value'>, value: number): number {
+  const { min, max } = stepBounds(row)
+  const n = Math.trunc(Number.isFinite(value) ? value : row.value)
+  return Math.min(max, Math.max(min, n))
+}
+
+/**
+ * The amount this row will actually move by — his, or the reader's correction.
+ *
+ * ONE FUNCTION, READ EVERYWHERE. The value reaches the screen four times (the
+ * delta chip, the projected after-count, the stepper's own readout, the button's
+ * count) and the wire once, and every one of those has to be the same number or
+ * the card is lying somewhere. The clamp is applied HERE rather than trusted
+ * from the setter, so a stored choice that predates a bounds change still
+ * renders inside them.
+ */
+export function effectiveValue(row: PreviewRow, choice: RowChoice): number {
+  return choice.value === null ? row.value : clampStep(row, choice.value)
+}
+
+/** One press of + or −, in this row's own direction. Returns the NEW value. */
+export function stepBy(row: PreviewRow, choice: RowChoice, direction: 1 | -1): number {
+  const current = effectiveValue(row, choice)
+  // A REMOVAL'S "MORE" IS MORE NEGATIVE. `+` on a `−1` row means "take away two",
+  // which is −2. Stepping the raw number would make `+` mean "take away less",
+  // so the control under the plus sign would shrink the operation — the exact
+  // inversion somebody presses twice before they notice.
+  const sign = row.mode === 'delta' && row.value < 0 ? -1 : 1
+  return clampStep(row, current + direction * sign)
+}
+
+/**
+ * Where this row's count lands, recomputed from the reader's own amount.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * X2 LIVES HERE. The dry run's `after` was computed for HIS number.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The moment a stepper exists, `row.after` is a fact about a batch that is no
+ * longer the batch being confirmed. Leaving it on screen would put a stale
+ * quantity two inches from a live one — and it would be stale in the direction
+ * that under-states what is about to happen, since the reader most often steps
+ * UP. So it is recomputed, by the same arithmetic the server does
+ * (`apps/api/src/routes/collection.ts` — `after = clamp(before + delta, 0, …)`;
+ * an absolute quantity is its own answer), and it returns `null` — showing
+ * nothing at all — when the dry run did not carry a `before` to compute from.
+ *
+ * `null` rather than a guess is the whole point. A projection needs a real
+ * starting count; without one there is no honest number to draw.
+ */
+export function projectedAfter(row: PreviewRow, value: number): number | null {
+  if (row.mode === 'quantity') return Math.max(0, value)
+  if (row.before === null) return null
+  return Math.max(0, row.before + value)
 }
 
 /**
@@ -287,10 +502,284 @@ export function acceptButtonLabel(preview: ApprovalPreview, choices: Choices): s
   const n = rows.length
   if (n === 0) return 'Nothing to add'
   const noun = n === 1 ? 'card' : 'cards'
-  if (rows.every((r) => r.mode === 'delta' && r.value > 0)) return `Add ${n} ${noun}`
-  if (rows.every((r) => r.mode === 'delta' && r.value < 0)) return `Remove ${n} ${noun}`
+  // READ THROUGH `effectiveValue`, not off the row. The sign cannot move — see
+  // `stepBounds` — so today these agree; reading the live value anyway means the
+  // day somebody widens the bounds, the verb on the button is still derived from
+  // the number the button is actually going to send.
+  const dir = (r: PreviewRow) => (r.mode === 'delta' ? effectiveValue(r, choiceFor(choices, r.index)) : 0)
+  if (rows.every((r) => r.mode === 'delta' && dir(r) > 0)) return `Add ${n} ${noun}`
+  if (rows.every((r) => r.mode === 'delta' && dir(r) < 0)) return `Remove ${n} ${noun}`
   return n === 1 ? 'Apply 1 change' : `Apply ${n} changes`
 }
+
+// ── What every row says about itself ─────────────────────────────────────────
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE PRINTING CHIPS ARE ON EVERY ROW NOW. THAT IS AN OWNER RULING.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Until now a printing appeared as a CHIP only when he was unsure, and as plain
+ * grey text ("me05 · #013 · Normal") when he was sure. Two different renderings
+ * of the same fact, and the confident one was the one you could not act on.
+ *
+ * The owner decided both halves of the fix at once and named both payoffs:
+ *
+ *  1. **A wrong printing becomes a click rather than a complaint.** Wherever
+ *     there is more than one printing to choose from, the alternatives are on
+ *     screen, selected state and all.
+ *  2. **It is the answer to "why is he sure".** *"We need to be more clear about
+ *     like why he knows."* When there is exactly ONE chip, the chip IS the
+ *     explanation — there was nothing else it could have been. That is a fact
+ *     about the catalogue, not a confidence score, and it is the distinction
+ *     this card's header has always insisted on.
+ *
+ * ── THREE STATES, NOT TWO ────────────────────────────────────────────────────
+ *
+ * `reopenIfProxyStated` in the API adapter changed what the middle of this card
+ * means, and the chips are where that has to become visible:
+ *
+ *   1. **SETTLED BECAUSE THEY SAID SO** (`stated`). The reader's own sentence
+ *      named a printing. One chip, filled, not a control — and it is not a
+ *      control for a reason stronger than taste: `assertNarrowing` throws
+ *      `overrode a stated printing` if a client tries to change it, so a
+ *      pressable chip here would be a control that cannot work.
+ *   2. **SETTLED BECAUSE THERE IS ONLY ONE** (`only-one`). Same treatment, and
+ *      the chip standing visibly alone IS the answer to *"we need to be more
+ *      clear about like why he knows"*.
+ *   3. **PROPOSED, AWAITING CONFIRMATION** (`unstated`, `ambiguous`). A real
+ *      picker. When the row carries a `wouldUseVariantId` the chip for it is
+ *      marked `proposed` — HIS guess, drawn as a guess — and it is emphatically
+ *      NOT pre-selected: `rowIsIncluded` keeps the row out of the batch until
+ *      somebody presses it, which is the whole of *"not added until you pick
+ *      one"*.
+ *
+ * A `stated` row that survives the demotion is one where the reader genuinely
+ * typed "reverse holo", so it needs no question. A row where Deck-E typed it for
+ * them arrives here as case 3, with his pick as the proposal.
+ *
+ * ── THE SETTLED CHIP IS BUILT FROM `candidates`, NOT FROM `variantLabel` ─────
+ *
+ * `resolve.ts` now carries candidates on every resolvable kind, so the settled
+ * label comes from the same catalogue list the picker would have drawn — one
+ * source, so the two renderings of "Reverse holo" cannot disagree. The
+ * `variantLabel` fallback stays for a row that somehow arrives without the list,
+ * because a chip with the right words in it beats no chip at all.
+ */
+export type PrintingChip = {
+  variantId: number | null
+  label: string
+  selected: boolean
+  /** His guess, offered rather than applied. Never true once something is picked. */
+  proposed: boolean
+  ownedQty: number
+}
+
+export type RowPrintings = {
+  chips: PrintingChip[]
+  /** Can the reader change this? False for the two settled kinds. */
+  selectable: boolean
+}
+
+export function rowPrintings(row: PreviewRow, choice: RowChoice): RowPrintings {
+  if (asksSelection(row) && row.candidates.length > 0) {
+    const undecided = choice.variantId === null
+    return {
+      selectable: true,
+      chips: row.candidates.map((c) => ({
+        variantId: c.variantId,
+        label: c.label,
+        selected: choice.variantId === c.variantId,
+        // ONLY WHILE NOTHING IS CHOSEN. Once the reader has answered, his guess
+        // is history — leaving it marked would put two emphasised chips in one
+        // group and make the answered state look unanswered.
+        proposed: undecided && c.variantId === row.wouldUseVariantId,
+        ownedQty: c.ownedQty,
+      })),
+    }
+  }
+  // The resolved printing, as one settled chip.
+  const settled = row.candidates.find((c) => c.variantId === row.variantId)
+  const label = settled?.label ?? row.variantLabel
+  if (label) {
+    return {
+      selectable: false,
+      chips: [
+        {
+          variantId: row.variantId,
+          label,
+          selected: true,
+          proposed: false,
+          ownedQty: settled?.ownedQty ?? 0,
+        },
+      ],
+    }
+  }
+  return { selectable: false, chips: [] }
+}
+
+/**
+ * Why he is sure — in one clause, from `certainty` and nothing else.
+ *
+ * The card's own header forbids turning `certainty` into a meter, and this does
+ * not: there is no ordering here, no score and no adjective. `stated` and
+ * `only-one` are two different FACTS about where the printing came from, and
+ * saying which one it was is the whole of what the owner asked for. A row whose
+ * printing is still a question gets nothing, because the question above it has
+ * already said so.
+ */
+export function whyThisPrinting(row: Pick<PreviewRow, 'certainty'>): string {
+  if (row.certainty === 'stated') return 'you named it'
+  if (row.certainty === 'only-one') return "it's the only printing"
+  return ''
+}
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * ONE LINE PER ROW THAT NEVER DISAPPEARS — IT CHANGES.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The defect, in the owner's words, is worth quoting in full because it is the
+ * clearest statement of what this card is for:
+ *
+ *   *"down here it says add two cards and the first time I did this I was like,
+ *   oh well it's five cards. It's because we're not telegraphing well enough
+ *   that these won't be added."*
+ *
+ * Five rows on screen, a button saying two, and nothing on the three excluded
+ * rows saying they were excluded. The old copy — "Not added until you pick one"
+ * — was correct AND it VANISHED the moment you answered, which is exactly
+ * backwards: a line that appears only in the bad state is a line whose absence
+ * carries meaning, and absence is the one thing nobody reads. His instruction
+ * was explicit: *"it shouldn't go away, it should turn into like 'this card will
+ * be added'."*
+ *
+ * So every row that can be excluded carries a line in every state, and the line
+ * is the row's ANSWER to "will this happen":
+ *
+ *   picked / known   → "I'll add this one."      (affirmative, and it stays)
+ *   not yet picked   → "I won't add this until you pick a printing."
+ *   struck out       → "Leaving this one out."
+ *
+ * The verb tracks the operation, so a removal does not announce itself as an
+ * add. `included` comes back with the sentence so the component can tone it
+ * without deciding anything.
+ */
+export type RowStatus = {
+  included: boolean
+  reason: 'ready' | 'needs-printing' | 'removed'
+  text: string
+}
+
+/**
+ * What this row DOES, as a verb phrase he can put "I'll" in front of.
+ *
+ * Split out because it is needed twice — once in the affirmative line and once
+ * in the promise attached to an unanswered question — and because the wrong verb
+ * on a removal is the specific near-miss a reader glides past. "I won't add
+ * this" on a row that proposes to TAKE two cards away is a sentence that is
+ * both comforting and false.
+ */
+function rowVerbPhrase(row: PreviewRow, value: number): string {
+  if (row.mode === 'quantity') return `set this one to ${value}`
+  if (value < 0) {
+    const n = Math.abs(value)
+    return n === 1 ? 'take one of these away' : `take ${n} of these away`
+  }
+  return value === 1 ? 'add one of these' : `add ${value} of these`
+}
+
+export function rowStatus(row: PreviewRow, choice: RowChoice): RowStatus {
+  if (choice.removed) {
+    return { included: false, reason: 'removed', text: 'Leaving this one out.' }
+  }
+  const value = effectiveValue(row, choice)
+  const phrase = rowVerbPhrase(row, value)
+
+  if (asksSelection(row) && choice.variantId === null) {
+    // HIS GUESS, NAMED AS A GUESS. `wouldUseVariantId` is the printing the
+    // server would have written — and since `reopenIfProxyStated` landed in the
+    // API adapter, on an ordinary "add five Squirtles" it is the one HE typed
+    // into the tool call. Naming it turns a question into one press, and saying
+    // "I think" is the difference between offering it and having already taken
+    // it.
+    //
+    // NOT PRE-SELECTED, and that is the whole control: the row stays out of the
+    // batch until somebody presses the chip. See `rowIsIncluded`.
+    const would = row.candidates.find((c) => c.variantId === row.wouldUseVariantId)
+    return {
+      included: false,
+      reason: 'needs-printing',
+      text: would
+        ? `I think it's the ${would.label.toLowerCase()} — confirm that and I'll ${phrase}.`
+        : `Pick a printing and I'll ${phrase}.`,
+    }
+  }
+  return { included: true, reason: 'ready', text: `I'll ${phrase}.` }
+}
+
+/**
+ * The whole card's arithmetic, in one sentence above the button.
+ *
+ * ── WHY THIS AND NOT THE REGROUPING HE FLOATED ───────────────────────────────
+ *
+ * The owner raised, unsure, a second idea: *"maybe even like once we pick one it
+ * goes up to another section that's like 'these will be added'."* This is the
+ * other answer to the same problem and it is the one that shipped, for three
+ * reasons worth writing down since the idea will come back:
+ *
+ *  1. **It would move the row out from under the cursor at the instant it is
+ *     clicked.** This card already refuses to reflow while somebody is reading
+ *     it — that is why `CardImage` fixes its box before a byte of art arrives —
+ *     and a consent dialog that relocates the thing you just pressed is a worse
+ *     version of the same defect, three times over on a three-row batch.
+ *  2. **Row order is the join back to the held call.** `index` is what
+ *     `assertNarrowing` proves the batch is a subsequence of; a display order
+ *     that diverges from it is one more thing that can be read wrong by a human
+ *     comparing the card to the transcript.
+ *  3. **The problem he actually described was a COUNT, not a grouping.** Five
+ *     rows, a button saying two, nothing joining them. A sentence that states
+ *     the split — and per-row lines that say which side each row is on — closes
+ *     that gap without moving anything.
+ *
+ * If it still reads unclear on the next recording, regrouping is the next thing
+ * to try and this paragraph is the record of why it was not the first.
+ */
+export function acceptSummary(preview: ApprovalPreview, choices: Choices): string {
+  const rows = preview.rows
+  if (rows.length === 0) return ''
+  const statuses = rows.map((r) => rowStatus(r, choiceFor(choices, r.index)))
+  const included = statuses.filter((s) => s.included).length
+  const needsPrinting = statuses.filter((s) => s.reason === 'needs-printing').length
+  const removed = statuses.filter((s) => s.reason === 'removed').length
+
+  // THE VERB FOLLOWS THE BATCH. "2 of these 3 will be added" over a list that
+  // takes cards away is the one sentence on this card whose wrongness would be
+  // comfortable to read past.
+  const verb = rows.every((r) => r.mode === 'delta' && r.value > 0)
+    ? 'be added'
+    : rows.every((r) => r.mode === 'delta' && r.value < 0)
+      ? 'be removed'
+      : 'go through'
+
+  // NOTHING TO SAY WHEN THERE IS NOTHING TO SPLIT. One row that is going in
+  // needs no arithmetic, and a line reading "1 of 1" under a single row is the
+  // chrome this card keeps having to have removed from it.
+  if (included === rows.length) return rows.length === 1 ? '' : `All ${rows.length} of these will ${verb}.`
+
+  const head =
+    included === 0
+      ? `None of these will ${verb}.`
+      : `${included} of these ${rows.length} will ${verb}.`
+  const tail: string[] = []
+  if (needsPrinting > 0) {
+    tail.push(needsPrinting === 1 ? 'one still needs a printing' : `${needsPrinting} still need a printing`)
+  }
+  if (removed > 0) tail.push(removed === 1 ? "one you've left out" : `${removed} you've left out`)
+  return tail.length ? `${head} ${capitalise(tail.join(', and '))}.` : head
+}
+
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 // ── One row, in words ────────────────────────────────────────────────────────
 
@@ -358,11 +847,21 @@ export function rowMetaText(
  *
  *   • any row struck out                → edited
  *   • any row in section 2 AT ALL       → edited, picked or not
+ *   • any row whose AMOUNT was stepped  → edited
  *
  * The second clause is not a shortcut. A picked section-2 row gains a
  * `variant_id` the held call did not have; an unpicked one is excluded. Either
  * way what gets written differs from the held call, so the presence of the
  * question is itself the edit.
+ *
+ * The third clause is the stepper, and it is the one that would be catastrophic
+ * to omit. Path A settles the held call `approved: true`, which replays HIS
+ * arguments verbatim — so a router blind to the stepper would take a reader who
+ * had visibly changed "+1" to "+4" down the path that writes +1, and the
+ * transcript would then report his number as though it were theirs. It is
+ * checked against the CHOICE rather than against a rebuilt batch for the reason
+ * above, and `clampStep` is applied so that a stored value equal to his after
+ * clamping is correctly read as no edit at all.
  *
  * Consequence worth stating: any batch containing one unstated printing takes
  * Path B even if the reader touches nothing. Given that the prompt steers the
@@ -370,7 +869,10 @@ export function rowMetaText(
  * exception. Path B is a mainstream path and is tested as one.
  */
 export function isEdited(preview: ApprovalPreview, choices: Choices): boolean {
-  return preview.rows.some((r) => choiceFor(choices, r.index).removed || asksSelection(r))
+  return preview.rows.some((r) => {
+    const c = choiceFor(choices, r.index)
+    return c.removed || asksSelection(r) || effectiveValue(r, c) !== r.value
+  })
 }
 
 /**
@@ -424,10 +926,20 @@ export function acceptedItems(
     const choice = choiceFor(choices, row.index)
     if (!rowIsIncluded(row, choice)) continue
     const base = held[row.index] ?? {}
-    out.push({
-      index: row.index,
-      item: asksSelection(row) ? { ...base, variant_id: choice.variantId } : { ...base },
-    })
+    const item: HeldItem = asksSelection(row) ? { ...base, variant_id: choice.variantId } : { ...base }
+    // THE STEPPER, WRITTEN BACK INTO THE HELD CALL'S OWN SHAPE.
+    //
+    // `log_cards` takes exactly one of `delta` | `quantity` per item and rejects
+    // an item carrying both (`logging.ts` — "has BOTH delta and quantity"), so
+    // the key written is the one this row's MODE names and the other is never
+    // introduced. Untouched rows are left byte-identical, which is what keeps
+    // `assertRouteAgrees` able to tell an edit from a no-op.
+    const value = effectiveValue(row, choice)
+    if (value !== row.value) {
+      if (row.mode === 'quantity') item.quantity = value
+      else item.delta = value
+    }
+    out.push({ index: row.index, item })
   }
   return out
 }
@@ -467,18 +979,34 @@ export function assertRouteAgrees(
 }
 
 /**
- * Is this edit a legal NARROWING of what was previewed?
+ * Is this edit a legal narrowing-or-adjustment of what was previewed?
  *
- * Monotone narrowing only. `accepted` must be a subsequence of the shown rows
- * by `index`; every surviving row keeps its operation EXACTLY; and the only
- * permitted change is setting `variant_id` to a printing drawn from THAT ROW'S
- * OWN candidate list. Nothing may be added, no quantity may move, no card may
- * change.
+ * `accepted` must be a subsequence of the shown rows by `index`; every surviving
+ * row must still be about THE SAME CARD; and exactly two things may differ from
+ * the held item:
  *
- * This is not a security boundary — the write goes out under the reader's own
- * JWT through an endpoint they can already call, so nothing here grants
- * authority. It is a statement that the UI produced what the UI is supposed to
- * produce. An edit that fails it is a bug, and it must throw rather than send.
+ *   • `variant_id`, set to a printing drawn from THAT ROW'S OWN candidate list,
+ *     and only on a row that had no stated printing to begin with;
+ *   • the AMOUNT — `delta` or `quantity`, whichever this row's mode names —
+ *     within `stepBounds`, which cannot cross zero on a delta.
+ *
+ * Nothing may be added, no card may change, and no row may swap which KIND of
+ * amount it carries: a `delta` row that arrived here as a `quantity` would be a
+ * different operation wearing the same row.
+ *
+ * ── WHY THE AMOUNT IS ALLOWED NOW, AND WHY THE CHECK GOT LONGER ──────────────
+ *
+ * The previous version's rule was "every surviving row keeps its operation
+ * EXACTLY", which was the right rule for a card with no stepper on it. Adding
+ * one means the check can no longer be "nothing moved"; it has to be "what moved
+ * is one of the two things the UI can move, and it moved somewhere legal". That
+ * is strictly more code and strictly the same job — this is the assertion that
+ * the UI produced what the UI is supposed to produce.
+ *
+ * Still not a security boundary. The write goes out under the reader's own JWT
+ * through an endpoint they can already call, so nothing here grants authority.
+ * An edit that fails it is a bug in this card, and it must throw rather than
+ * send.
  */
 export function assertNarrowing(
   held: readonly HeldItem[],
@@ -494,15 +1022,18 @@ export function assertNarrowing(
     previous = index
 
     const original = held[index] ?? {}
+    // Everything the reader is NOT allowed to touch, compared whole: the card
+    // identity, the note, and anything a future version of `log_cards` grows.
     const strip = (o: HeldItem): HeldItem => {
-      const { variant_id: _drop, ...rest } = o
+      const { variant_id: _v, delta: _d, quantity: _q, ...rest } = o
       return rest
     }
     if (canonicalJSON(strip(item)) !== canonicalJSON(strip(original))) {
       throw new ApprovalEditError(
-        `accepted row ${index} changed something other than its printing`,
+        `accepted row ${index} changed something other than its printing or its amount`,
       )
     }
+
     if (item.variant_id !== original.variant_id) {
       if (original.variant_id !== undefined) {
         throw new ApprovalEditError(`accepted row ${index} overrode a stated printing`)
@@ -514,6 +1045,25 @@ export function assertNarrowing(
         )
       }
     }
+
+    // ── The amount ───────────────────────────────────────────────────────────
+    const key = row.mode === 'quantity' ? 'quantity' : 'delta'
+    const other = row.mode === 'quantity' ? 'delta' : 'quantity'
+    if (item[other] !== original[other]) {
+      throw new ApprovalEditError(`accepted row ${index} changed which kind of amount it carries`)
+    }
+    const sent = item[key]
+    if (sent !== original[key]) {
+      if (typeof sent !== 'number' || !Number.isInteger(sent)) {
+        throw new ApprovalEditError(`accepted row ${index} carries a non-integer ${key}`)
+      }
+      const { min, max } = stepBounds(row)
+      if (sent < min || sent > max) {
+        throw new ApprovalEditError(
+          `accepted row ${index} set ${key} to ${sent}, outside ${min}…${max} for this row`,
+        )
+      }
+    }
   }
 }
 
@@ -522,9 +1072,11 @@ export function assertNarrowing(
 /**
  * The accepted rows as resolved operations `POST /collection/batch` understands.
  *
- * `mode` and `value` come from the PREVIEW, which came from the real planner —
- * so the number written is the number that was shown, and the client never
- * re-derives a quantity of its own.
+ * `mode` comes from the PREVIEW, which came from the real planner. The VALUE is
+ * `effectiveValue` — his number unless the reader stepped it — which is the same
+ * function the delta chip, the projected count and the button's verb all read,
+ * so the number that goes on the wire is the number that was on the screen.
+ * The client still never re-derives a quantity of its own from anything else.
  */
 export function resolveBatchItems(preview: ApprovalPreview, choices: Choices): BatchItem[] {
   const out: BatchItem[] = []
@@ -533,7 +1085,8 @@ export function resolveBatchItems(preview: ApprovalPreview, choices: Choices): B
     if (!rowIsIncluded(row, choice)) continue
     const variantId = asksSelection(row) ? choice.variantId : row.variantId
     if (variantId === null) continue
-    out.push(row.mode === 'quantity' ? { variantId, quantity: row.value } : { variantId, delta: row.value })
+    const value = effectiveValue(row, choice)
+    out.push(row.mode === 'quantity' ? { variantId, quantity: value } : { variantId, delta: value })
   }
   return out
 }

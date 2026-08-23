@@ -98,7 +98,10 @@ const UNSTATED = row({
 
 const choices = (entries: Record<number, Partial<RowChoice>>): Map<number, RowChoice> =>
   new Map(
-    Object.entries(entries).map(([k, v]) => [Number(k), { removed: false, variantId: null, ...v }]),
+    Object.entries(entries).map(([k, v]) => [
+      Number(k),
+      { removed: false, variantId: null, value: null, ...v },
+    ]),
   )
 
 const okBody = (over: Partial<BatchResponse> = {}): BatchResponse => ({
@@ -533,6 +536,77 @@ test('items the planner refused outright are outside the comparison', () => {
   assert.doesNotThrow(() => assertRouteAgrees(held, p, choices({ 0: {}, 2: {} })))
 })
 
+// ── The stepper, and the path it forces ──────────────────────────────────────
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE WORST BUG THE STEPPER COULD HAVE HAD, PINNED.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Path A settles the held call `approved: true`, which replays HIS arguments
+ * verbatim through the server's own `log_cards`. A router blind to the stepper
+ * would therefore take a reader who had visibly changed "+1" to "+4" down the
+ * path that writes +1 — and the transcript would then report his number as
+ * though it were theirs, which is the exact class of failure this whole
+ * round-trip exists to make impossible.
+ *
+ * MUTATION: drop the `effectiveValue(r, c) !== r.value` clause from `isEdited`
+ * and the first assertion goes red. Watched.
+ */
+test('stepping the amount forces the corrected path, not the replay', () => {
+  const p = preview([row({ index: 0 })])
+  assert.equal(isEdited(p, choices({ 0: { value: 4 } })), true, 'a stepped row is an edit')
+  assert.equal(isEdited(p, choices({ 0: {} })), false, 'an untouched one is not')
+  // A value equal to his after clamping is NOT an edit — otherwise a stored
+  // choice that happens to match would push the common case off the signed path
+  // for no reason.
+  assert.equal(isEdited(p, choices({ 0: { value: 1 } })), false)
+  assert.equal(isEdited(p, choices({ 0: { value: 0 } })), false, 'clamped back to his 1')
+})
+
+/**
+ * MUTATION: delete the `if (value !== row.value)` block from `acceptedItems` and
+ * the first assertion goes red — the corrected batch would carry his amount
+ * while the card showed the reader's.
+ *
+ * The KEY it writes matters as much as the value: `log_cards` refuses an item
+ * carrying both `delta` and `quantity`, so a `quantity` row must never grow a
+ * `delta` and vice versa.
+ */
+test('a stepped row reaches the wire with the reader amount, under the right key', () => {
+  const p = preview([row({ index: 0 }), row({ index: 1, mode: 'quantity', value: 2, before: 5, after: 2 })])
+  const held: HeldItem[] = [
+    { card_id: 'a', delta: 1 },
+    { card_id: 'b', quantity: 2 },
+  ]
+  const got = acceptedItems(held, p, choices({ 0: { value: 4 }, 1: { value: 0 } }))
+  assert.deepEqual(got, [
+    { index: 0, item: { card_id: 'a', delta: 4 } },
+    { index: 1, item: { card_id: 'b', quantity: 0 } },
+  ])
+  assert.doesNotThrow(() => assertNarrowing(held, p, got))
+
+  // And the resolved batch agrees, because both read `effectiveValue`.
+  assert.deepEqual(resolveBatchItems(p, choices({ 0: { value: 4 }, 1: { value: 0 } })), [
+    { variantId: 1000, delta: 4 },
+    { variantId: 1001, quantity: 0 },
+  ])
+})
+
+/**
+ * MUTATION: change `resolveBatchItems` back to `row.value` and this goes red
+ * while the card on screen still shows 4. That is the two-numbers-one-card
+ * failure mode in its purest form: everything looks right and the wrong quantity
+ * is written.
+ */
+test('the two derivations agree about a stepped row', () => {
+  const p = preview([row({ index: 0 })])
+  const held: HeldItem[] = [{ card_id: 'a', delta: 1 }]
+  const c = choices({ 0: { value: 7 } })
+  assert.doesNotThrow(() => assertRouteAgrees(held, p, c))
+  assert.deepEqual(resolveBatchItems(p, c), [{ variantId: 1000, delta: 7 }])
+})
+
 // ── Narrowing ────────────────────────────────────────────────────────────────
 
 test('narrowing rejects everything except picking a printing from that row', () => {
@@ -548,15 +622,10 @@ test('narrowing rejects everything except picking a printing from that row', () 
     () => assertNarrowing(held, p, [{ index: 0, item: { card_id: 'me05-84', delta: 1, variant_id: 99999 } }]),
     /not one of its candidates/,
   )
-  // A quantity that moved.
-  assert.throws(
-    () => assertNarrowing(held, p, [{ index: 1, item: { card_id: 'b', delta: 99 } }]),
-    /changed something other than its printing/,
-  )
   // A card that changed.
   assert.throws(
     () => assertNarrowing(held, p, [{ index: 1, item: { card_id: 'z', delta: 3 } }]),
-    /changed something other than its printing/,
+    /changed something other than its printing or its amount/,
   )
   // A row that was never previewed — an addition.
   assert.throws(() => assertNarrowing(held, p, [{ index: 7, item: { card_id: 'q', delta: 1 } }]), /never previewed/)
@@ -568,6 +637,59 @@ test('narrowing rejects everything except picking a printing from that row', () 
         { index: 0, item: { card_id: 'me05-84', delta: 1, variant_id: 37184 } },
       ]),
     /out of order or repeated/,
+  )
+})
+
+/**
+ * THE STEPPER'S HALF OF THE NARROWING CHECK.
+ *
+ * The rule used to be "every surviving row keeps its operation EXACTLY", which
+ * was right for a card with no stepper on it. Now the amount MAY move, and this
+ * pins the four ways it may not.
+ *
+ * MUTATION: delete the whole `── The amount ──` block from `assertNarrowing` and
+ * every `throws` below goes green — i.e. the card would be free to send a
+ * negative delta for a row the reader was shown as an add, or to change a
+ * `delta` row into a `quantity` one. Watched.
+ */
+test('narrowing lets the amount move, but only inside this row own bounds', () => {
+  const p = preview([row({ index: 0 }), row({ index: 1, value: -2, before: 5, after: 3 })])
+  const held: HeldItem[] = [
+    { card_id: 'a', delta: 1 },
+    { card_id: 'b', delta: -2 },
+  ]
+
+  // Legal: step an add up, step a removal deeper.
+  assert.doesNotThrow(() => assertNarrowing(held, p, [{ index: 0, item: { card_id: 'a', delta: 6 } }]))
+  assert.doesNotThrow(() => assertNarrowing(held, p, [{ index: 1, item: { card_id: 'b', delta: -5 } }]))
+
+  // ACROSS ZERO. An add may not become a removal — the confirm button's verb is
+  // derived from the sign, so this is a button that changes meaning under the
+  // reader's hand between reading it and pressing it.
+  assert.throws(
+    () => assertNarrowing(held, p, [{ index: 0, item: { card_id: 'a', delta: -1 } }]),
+    /outside 1…99 for this row/,
+  )
+  assert.throws(
+    () => assertNarrowing(held, p, [{ index: 1, item: { card_id: 'b', delta: 2 } }]),
+    /outside -99…-1 for this row/,
+  )
+  // Past the ceiling.
+  assert.throws(
+    () => assertNarrowing(held, p, [{ index: 0, item: { card_id: 'a', delta: 4000 } }]),
+    /outside 1…99 for this row/,
+  )
+  // A fraction — the server's zod schema rejects it, and no control here can
+  // produce one, so its arrival means something upstream is wrong.
+  assert.throws(
+    () => assertNarrowing(held, p, [{ index: 0, item: { card_id: 'a', delta: 1.5 } }]),
+    /non-integer delta/,
+  )
+  // SWAPPING WHICH KIND OF AMOUNT THE ROW CARRIES. `log_cards` refuses an item
+  // holding both, so this would be a row that silently stopped applying.
+  assert.throws(
+    () => assertNarrowing(held, p, [{ index: 0, item: { card_id: 'a', delta: 1, quantity: 4 } }]),
+    /changed which kind of amount it carries/,
   )
 })
 
