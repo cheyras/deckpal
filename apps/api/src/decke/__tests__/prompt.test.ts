@@ -17,6 +17,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { buildSystemPrompt } from '../prompt.js'
+import { NO_WORK } from '../deepOutcome.js'
 
 /**
  * The prompt is hard-wrapped prose, so every phrase worth asserting spans a
@@ -311,4 +312,28 @@ test('he is told never to NAME a card he has not looked up', () => {
   assert.match(p, /an id is not a name|that id is not a name/i)
   // And the reason it happens, named, because the rule alone did not hold.
   assert.match(p, /A silly request is still a request/i)
+})
+
+test('the no-work rule is in the prompt, and it names the REAL marker', () => {
+  // TWO failures in one test, and the second is the sneaky one.
+  //
+  // 1. The rule itself. Removing it broke nothing — a mutation that deleted the
+  //    whole paragraph came back GREEN, which is how a prompt rule rots: it is
+  //    prose in a template literal and no compiler cares.
+  //
+  // 2. THE MARKER IS A MIRROR. The prompt writes `[[NO_WORK]]` as a literal
+  //    string; `deepOutcome.ts` emits `NO_WORK`. Nothing links them. Renaming
+  //    the constant would leave the model being told to watch for a token no
+  //    tool ever sends again, and every symptom would be at the far end: he
+  //    would go back to narrating decks that were never planned, and the prompt
+  //    would still LOOK correct.
+  const p = buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS })
+  assert.match(flat(p), /A TOOL THAT DID NOT RUN GAVE YOU NOTHING TO SAY/i)
+  assert.ok(
+    p.includes(NO_WORK),
+    `the prompt does not contain ${NO_WORK} — the marker was renamed and the rule was not`,
+  )
+  // And the instruction, not just the label.
+  assert.match(flat(p), /do not list cards/i)
+  assert.match(flat(p), /let's build/i)
 })
