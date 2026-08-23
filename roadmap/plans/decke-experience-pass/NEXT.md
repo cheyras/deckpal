@@ -1,5 +1,11 @@
 # What is still open, and what to spend the next quota on
 
+> **Superseded in part.** The "what to try next" ordering below was written
+> before the external research pass. Read **`ESCORT-PLAN.md`** for the current
+> plan of attack on the escort behaviour, and **`RESEARCH-UX.md`** for what the
+> evidence says about the rest of what shipped. This file remains accurate on
+> **what was measured and what was ruled out**, which is why it is kept.
+
 Written at the end of the implementation pass. Everything here is **unfinished
 on purpose** — the daily meter ran out mid-experiment — and it is written so
 that picking it up is a ten-minute job rather than a re-derivation.
