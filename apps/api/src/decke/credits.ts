@@ -153,10 +153,28 @@ export const SPEND_SQL = `
  * If this fails the credits are still gone, which is the safe direction: a
  * missing log line is a gap in a statement, where a missing decrement is free
  * work. The log is the evidence and the balance is the product.
+ *
+ * ── `-($2::int)`, AND THE CAST IS NOT DECORATION ─────────────────────────────
+ *
+ * This read `-$2` and threw on every single call:
+ *
+ *     42725  operator is not unique: - unknown
+ *
+ * Postgres cannot infer a type for a bare parameter under unary minus, so the
+ * statement is ambiguous before it ever looks at the value. Verified against
+ * production: the balance moved 2000 → 1999 → 1998 across two real turns and the
+ * ledger held nothing but the two original grants.
+ *
+ * It was invisible because the caller catches this insert and does not rethrow —
+ * correctly, since the credits are already gone and a broken audit table must
+ * not take down a turn. A `.catch()` that exists to protect a turn will also
+ * hide a statement that has never once succeeded. `GRANT_LOG_SQL` was fine
+ * throughout because its `$2` is positive and needs no operator to type it,
+ * which is why grants appeared in the ledger and spends did not.
  */
 export const SPEND_LOG_SQL = `
   INSERT INTO decke_credit_event (user_id, delta, kind, reason)
-  VALUES ($1, -$2, 'spend', $3)`;
+  VALUES ($1, -($2::int), 'spend', $3)`;
 
 /**
  * A grant. Parameters: `$1` = user id, `$2` = credits, `$3` = reason,

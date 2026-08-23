@@ -17,7 +17,9 @@ import {
   CREDIT_USD,
   DEEP_DEFAULT,
   GRANT_BALANCE_SQL,
+  GRANT_LOG_SQL,
   LOW_BALANCE,
+  SPEND_LOG_SQL,
   SPEND_SQL,
   balanceIsLow,
   creditVerdictFrom,
@@ -144,4 +146,21 @@ test('he says it himself, in the first person, and does not negotiate', () => {
   assert.match(t, /^I'm out of credits/);
   assert.doesNotMatch(t, /tomorrow/i, 'a topped-up balance does not reset overnight');
   assert.doesNotMatch(t, /sorry/i);
+});
+
+test('the spend log CASTS its amount, or Postgres refuses the statement', () => {
+  // `-$2` threw `42725 operator is not unique: - unknown` on every call:
+  // Postgres cannot type a bare parameter under unary minus, so the statement is
+  // ambiguous before it ever sees a value. It was invisible because the caller
+  // catches this insert and does not rethrow — correct, since the credits are
+  // already gone — and a catch that exists to protect a turn will happily hide a
+  // statement that has never once succeeded.
+  //
+  // Verified against production: two real turns moved the balance 2000 -> 1998
+  // and the ledger held only the original grants.
+  assert.match(SPEND_LOG_SQL, /-\(\$2::int\)/, 'the negated amount is untyped and the insert will throw');
+  assert.match(SPEND_LOG_SQL, /'spend'/);
+  // GRANT_LOG_SQL never had the problem: its amount is positive and needs no
+  // operator to type it, which is exactly why grants appeared and spends did not.
+  assert.doesNotMatch(GRANT_LOG_SQL, /-\$/);
 });
