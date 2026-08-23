@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { MAX_TOOLS, UUID, shapeTools, type ToolRecord } from '../../routes/deckeHistory.js';
+import { MAX_TOOLS, UUID, seqFrom, shapeTools, type ToolRecord } from '../../routes/deckeHistory.js';
 
 test('a well-formed call keeps all four fields', () => {
   assert.deepEqual(
@@ -126,4 +126,46 @@ test('WRITES go through the owning role, reads stay on the RLS client', () => {
   // And the reads did NOT move: RLS is a second lock on top of `WHERE user_id`
   // and there is no reason for a read to leave it.
   assert.match(src, /const rows = await q\(|await q\(\s*\n?\s*`SELECT/, 'reads left the RLS client')
+})
+
+test('a JSON NUMBER is a valid seq — the bug that collapsed every conversation', () => {
+  // `clampInt` goes through `str()`, which returns undefined for anything that
+  // is not a string. A JSON body sends `seq` as a number, so `str(1)` was
+  // undefined, the fallback was -1, and the clamp pulled that up to the
+  // MINIMUM — zero. Every turn was written at seq 0 and overwrote the one
+  // before it, so a conversation could only ever hold one exchange. The guard
+  // meant to catch it could not fire, because the clamp had already made the
+  // value non-negative.
+  //
+  // Found by posting two turns to a real deployment and reading back one row.
+  assert.equal(seqFrom(0), 0)
+  assert.equal(seqFrom(1), 1)
+  assert.equal(seqFrom(37), 37)
+  // A numeric string is fine too — some clients stringify.
+  assert.equal(seqFrom('4'), 4)
+})
+
+test('a bad seq is REFUSED, never quietly moved to a position nobody asked for', () => {
+  // Silently writing at 0 is how the original bug destroyed data. A 400 is the
+  // only safe answer for a position that cannot be trusted.
+  for (const v of [-1, 1.5, NaN, Infinity, 10_001, '', 'abc', null, undefined, {}, []]) {
+    assert.equal(seqFrom(v), null, JSON.stringify(v) ?? String(v))
+  }
+})
+
+test('the ROUTE uses seqFrom, and clampInt is nowhere near the body', () => {
+  // A SOURCE PIN, because reverting the route to `clampInt(body.seq, …)` broke
+  // NOTHING: every test above calls `seqFrom` directly, so the helper could be
+  // perfect and unused while the route quietly wrote every turn at zero again.
+  // That is the same defect this pass has now produced eight times.
+  //
+  // `clampInt` is still imported and still correct FOR QUERY STRINGS — the list
+  // route's `limit` uses it — so the check is about where it is applied, not
+  // about whether it exists.
+  const src = readFileSync(
+    fileURLToPath(new URL('../../routes/deckeHistory.ts', import.meta.url)),
+    'utf8',
+  )
+  assert.match(src, /const seq = seqFrom\(body\.seq\)/, 'the route no longer parses seq properly')
+  assert.doesNotMatch(src, /clampInt\(\s*body\./, 'clampInt is being used on a JSON body again')
 })

@@ -73,6 +73,34 @@ const MAX_TITLE = 140;
 /** A uuid, and nothing that merely looks like one. */
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * A non-negative integer from a JSON body, or `null`.
+ *
+ * ── WHY NOT `clampInt` ───────────────────────────────────────────────────────
+ *
+ * `clampInt` is built for QUERY STRINGS: it goes through `str()`, which returns
+ * `undefined` for anything that is not a string. A JSON body sends `seq` as a
+ * NUMBER, so `str(1)` was `undefined`, `int` fell back to `-1`, and the clamp
+ * then pulled that up to the minimum — **zero**.
+ *
+ * Every turn was therefore written at seq 0 and overwrote the one before it. The
+ * guard meant to catch this (`if (seq < 0) throw`) could never fire, because the
+ * clamp had already made it non-negative. Caught by posting two turns to a real
+ * deployment and finding one row.
+ *
+ * `null` rather than a fallback, because a bad `seq` must be a 400 and not a
+ * silent write to a position the caller did not ask for.
+ */
+export function seqFrom(v: unknown): number | null {
+  // `Number('')` is 0 and `Number('  ')` is 0. An empty string is not a
+  // position — treating it as one would write at zero, which is the exact bug
+  // this function replaced. Caught by this module's own test.
+  const n =
+    typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+  if (!Number.isInteger(n) || n < 0 || n > 10_000) return null;
+  return n;
+}
+
 /** The chip phases a row may carry. Anything else is recorded as `unknown`. */
 const PHASES = new Set(['start', 'progress', 'ok', 'partial', 'error', 'declined']);
 
@@ -164,8 +192,8 @@ deckeHistoryRouter.post(
 
     const conversationId = str(body.conversationId) ?? '';
     if (!UUID.test(conversationId)) throw badRequest('conversationId must be a uuid.');
-    const seq = clampInt(body.seq, -1, 0, 10_000);
-    if (seq < 0) throw badRequest('seq must be a non-negative integer.');
+    const seq = seqFrom(body.seq);
+    if (seq === null) throw badRequest('seq must be a whole number between 0 and 10000.');
 
     const asked = (str(body.asked) ?? '').slice(0, MAX_TEXT);
     const answered = (str(body.answered) ?? '').slice(0, MAX_TEXT);
