@@ -9,6 +9,24 @@
  */
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { stripDevChrome } from './dev-chrome.mjs'
+
+/**
+ * EVERY capture in this directory goes through one of the three functions
+ * below, so the dev ribbon is removed HERE rather than by each caller
+ * remembering to.
+ *
+ * It was a shared helper before this and callers still forgot it: two scripts
+ * called it and `capture-decke.mjs` — the primary instrument, the one named in
+ * STATE.md as proof a script "cannot forget it" — did not. Its review JPEG had
+ * the amber ribbon lying across the composer and Deck-E's feet, which is the
+ * exact confound that has produced three false bug reports in this codebase.
+ *
+ * A helper you can decline to call is documentation. This is the choke point.
+ */
+async function beforeShot(page) {
+  await stripDevChrome(page).catch(() => {})
+}
 
 /**
  * @param {import('playwright').Page} page
@@ -17,6 +35,7 @@ import { dirname, join } from 'node:path'
  * @returns {Promise<{ viewport: string, fullPage: string }>}
  */
 export async function captureScreenshots(page, dir, name) {
+  await beforeShot(page)
   mkdirSync(dir, { recursive: true })
   const viewportPath = join(dir, `${name}.viewport.png`)
   const fullPagePath = join(dir, `${name}.fullpage.png`)
@@ -46,6 +65,7 @@ export async function captureScreenshots(page, dir, name) {
  * you have is how a subtle rendering defect gets attributed to the compressor.
  */
 export async function captureForReview(page, dir, name) {
+  await beforeShot(page)
   mkdirSync(dir, { recursive: true })
   const p = join(dir, `${name}.review.jpg`)
   await page.screenshot({ path: p, fullPage: false, scale: 'css', type: 'jpeg', quality: 82 })
@@ -54,6 +74,7 @@ export async function captureForReview(page, dir, name) {
 
 /** Just the one crop, when a spec only needs it (e.g. mid-animation frames). */
 export async function captureViewport(page, dir, name) {
+  await beforeShot(page)
   mkdirSync(dir, { recursive: true })
   const p = join(dir, `${name}.png`)
   await page.screenshot({ path: p, fullPage: false })

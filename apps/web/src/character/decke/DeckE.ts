@@ -205,6 +205,25 @@ export type FlyOptions = {
   /** A state to enter once he lands — `point`, `card_show`, `happy`. */
   then?: string
   /**
+   * Called on the frame he lands, once, after the ring and the `then` state.
+   *
+   * `then` covers "do something WITH HIM when he gets there"; this covers the
+   * caller needing to know, which `then` cannot express. The dismissal is the
+   * case that wanted it: he flies back into the launcher and is scaled away on
+   * arrival, and before this existed the host had to guess how long that took —
+   * a fixed 520 ms timer against a flight measured at ~1300 ms, so he winked
+   * out in mid-air and the rest of the trip was flown by nobody.
+   *
+   * FIRES ON THE CUT PATH TOO, which is what makes it safe under reduced
+   * motion: `flyTo` ends in `settleCut`, so an instant flight arrives
+   * synchronously and the callback runs with no branch at the call site. See
+   * `settleCut`.
+   *
+   * `playEntry({ onDone })` is the same contract on the entrance, deliberately
+   * — the way out mirrors the way in, and one shape of "tell me when" beats two.
+   */
+  arrived?: () => void
+  /**
    * Stand ON the target rather than beside it.
    *
    * The default is to park OUTBOARD, which is what presenting an element wants:
@@ -223,8 +242,12 @@ export type FlyOptions = {
    * middle to its middle. For a target much shorter than he is — the composer
    * is 58px against his ~216 — centring hangs most of him below it, which at
    * the bottom of a window means cut off.
+   *
+   * `optical` is `bottom` sunk by a fraction of his drawn height, so the
+   * target's baseline lands UP his body and he reads as standing alongside it
+   * rather than perched on it. See `OPTICAL_OVERLAP` in `dom.ts`.
    */
-  anchor?: 'centre' | 'bottom'
+  anchor?: 'centre' | 'bottom' | 'optical'
   /**
    * Where he faces when he lands, in [-1, +1] — honoured EVEN WITH `centre`.
    *
@@ -368,8 +391,11 @@ type Station =
        * him clear of.
        */
       centre: boolean
-      /** Carried for the same reason `centre` is: a re-solve must not lose it. */
-      anchor?: 'centre' | 'bottom'
+      /** Carried for the same reason `centre` is: a re-solve must not lose it.
+       *  All three values, `optical` included — the whole point of the note
+       *  above is that a vertical intent the re-solve does not know about is a
+       *  bug with a long fuse. */
+      anchor?: 'centre' | 'bottom' | 'optical'
     }
 
 type Transition = { from: Pose; started: number; durationMs: number } | null
@@ -1384,9 +1410,14 @@ export class DeckE {
     if (then !== undefined && !this.states.has(then)) {
       throw new Error(`decke: flyTo "then" names an unknown state "${then}"`)
     }
+    const arrived = opts.arrived
     this.onArrive = () => {
       if (ring && selector) highlightElement(selector)
       if (then) this.setState(then)
+      // LAST, so the caller's callback sees the ring raised and the state
+      // entered rather than racing them — and so a throw in a caller's
+      // callback cannot swallow the two things the flight itself promised.
+      arrived?.()
     }
     // A cut has already put him there; this is where it becomes an ARRIVAL.
     // Last, so `onArrive` above exists to be fired.

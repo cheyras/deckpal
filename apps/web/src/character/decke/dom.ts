@@ -50,7 +50,49 @@ const HOME_INSET = { x: 0.17, y: 0.22 } as const
  * imported statically"), so a shared constant would pull three.js into every
  * page load. If one moves, move both.
  */
-const SILHOUETTE = 1.28
+export const SILHOUETTE = 1.28
+
+/**
+ * HOW FAR UP HIS BODY THE TARGET'S BOTTOM EDGE LANDS, as a fraction of his
+ * drawn height. See `anchor: 'optical'`.
+ *
+ * ── THIS NUMBER IS AN OPTICAL JUDGEMENT, NOT A GEOMETRIC ONE ────────────────
+ *
+ * Do not "correct" it to 0 because his base and the target's baseline then line
+ * up exactly. They already did, and that was the defect:
+ *
+ *   "When I have seen him a lot of times it's like strictly aligned with his
+ *    very bottom corner, which makes him look like he's kind of above the
+ *    thing. Optically it's like he's kind of above it. So really the baseline
+ *    of this should be aligned with like this corner... that should be where
+ *    the bottom edge of this lines up. And then optically he'll look like he's
+ *    alongside the chat box."
+ *
+ * WHY A SHAPE WITH A WIDE BASE HAS TO OVERLAP ITS NEIGHBOUR'S BASELINE. He is
+ * drawn in three-quarter view, so the bottom of his silhouette is not a line —
+ * it is the near corner of a box whose bottom FACE is visible as a wedge.
+ * Measured off his own canvas at 1440x900, over a 214 px silhouette: his
+ * outline holds its full width down to y = 826 and then tapers to a single
+ * point at y = 880. Those last 54 px are floor, not body. Aligning a baseline
+ * to the point of that wedge is the same mistake as aligning a round letter to
+ * a flat one's baseline — it reads as sitting ON TOP of the thing rather than
+ * standing next to it.
+ *
+ * WHERE 0.09 CAME FROM, AND WHY IT IS NOT 0.25. 0.25 is where the wedge starts
+ * and is what the note above is pointing at. It does not fit: the composer card
+ * carries `max(20px, env(safe-area-inset-bottom))` of padding under it and
+ * nothing else, so in a conversation there are exactly 20 px between its bottom
+ * edge and the bottom of his canvas — and his idle float already swings his
+ * base through 6 px of that (measured, 60 samples). 0.09 x 214 = 19 px puts his
+ * nominal base on the canvas floor with the float inside it. Anything larger
+ * re-opens the complaint this replaced — "too low, and going off the bottom
+ * edge of the browser. Cut off." Photographed at 0, 12, 20, 28, 36 and 48 px
+ * before choosing: 28 and up are visibly flat-cut at the window edge.
+ *
+ * So the ceiling here is the composer's own bottom padding. Raising this number
+ * needs the composer lifted first, which is a `DeckeChat` change.
+ */
+export const OPTICAL_OVERLAP = 0.09
 
 /**
  * THE KEEP-OUT REGION: bands of the viewport he may not stand in.
@@ -330,8 +372,9 @@ export function parkBeside(
     baseDistance: number
     shift?: number
     clamp?: boolean
-    /** See `solvePark`. `bottom` puts his base on the target's bottom edge. */
-    anchor?: 'centre' | 'bottom'
+    /** See `solvePark`. `bottom` puts his base on the target's bottom edge;
+     *  `optical` sinks him past it by `OPTICAL_OVERLAP` of his drawn height. */
+    anchor?: 'centre' | 'bottom' | 'optical'
   },
 ): ParkResult {
   const distance =
@@ -412,10 +455,27 @@ export function parkBeside(
   // `anchor: 'bottom'` puts his BASE on the target's bottom edge instead, so he
   // stands on the composer's floor with his head well above it — which is what
   // "standing beside the input" looks like when the input is a short wide box.
-  const cy =
-    opts.anchor === 'bottom'
-      ? rect.top + rect.height - drawnH / 2
-      : rect.top + rect.height / 2
+  //
+  // AND THAT WENT TOO FAR THE OTHER WAY. Looked at on screen, a base flush with
+  // the card's baseline reads as him standing ON the card, not next to it —
+  // "strictly aligned with his very bottom corner, which makes him look like
+  // he's kind of above the thing." `anchor: 'optical'` is the same solve sunk
+  // by `OPTICAL_OVERLAP` of his drawn height, so the card's bottom edge crosses
+  // his body instead of grazing its lowest point. The long version, including
+  // why the number is what it is and why it must not be "corrected" to zero, is
+  // on `OPTICAL_OVERLAP` itself.
+  //
+  // Written as one expression over three cases rather than two nested ternaries
+  // for the reason this file's header exists: `anchor` is threaded through
+  // `FlyOptions`, the `Station` AND the re-solve, and a case that reads as an
+  // afterthought here is a case someone drops from one of the other three.
+  const base =
+    opts.anchor === 'optical'
+      ? rect.top + rect.height + drawnH * OPTICAL_OVERLAP
+      : rect.top + rect.height
+  const cy = opts.anchor === undefined || opts.anchor === 'centre'
+    ? rect.top + rect.height / 2
+    : base - drawnH / 2
   const y = clampY(cy, drawnH / 2, opts.shift ?? 0, opts.clamp ?? true)
 
   const position = viewportToBlender(camera, x, y, distance)
@@ -528,9 +588,17 @@ export function solvePark(
      *
      * `centre` (default) matches his middle to the target's middle. `bottom`
      * puts his base on the target's bottom edge — for a target much shorter
-     * than he is, where centring hangs most of him below it.
+     * than he is, where centring hangs most of him below it. `optical` is
+     * `bottom` sunk by `OPTICAL_OVERLAP` of his drawn height, so the target's
+     * baseline crosses his body rather than grazing the point of the wedge his
+     * three-quarter view makes of his floor.
+     *
+     * ALL THREE HAVE TO SURVIVE THE RE-SOLVE. That is what this parameter is
+     * for and it is the bug this function's header is about — a vertical
+     * intent honoured on launch and forgotten a moment later is worse than one
+     * that was never honoured, because it looks like the flight aimed wrong.
      */
-    anchor?: 'centre' | 'bottom'
+    anchor?: 'centre' | 'bottom' | 'optical'
     /**
      * Where the canvas's top edge sits in the viewport, when `rect` is in CANVAS
      * coordinates rather than viewport ones — which is to say, while he is
