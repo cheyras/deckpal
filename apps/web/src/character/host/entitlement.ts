@@ -5,8 +5,20 @@
  * floating button, the chat overlay, the scan augmentation — asks this and
  * nothing else. When the paid tier exists, this file changes and they do not.
  *
- * TODAY IT IS A DARK LAUNCH, and it reuses the owner gate rather than inventing
- * a flag. That is not laziness, it is contract B11: a feature whose behaviour
+ * IT IS AN EXPERIMENTAL FEATURE ON PRODUCTION, and this pair of gates is the
+ * flag that makes that true. Verified on production 2026-08-23:
+ * `deckeEntitlement: { status: "owner-plus-list", extraAccounts: 1 }`, the owner
+ * being `cheyras` and the one extra being the QA account (`/api/me` returns
+ * `decke: true, owner: false` for it). Nobody else can reach him, and the refusal
+ * is `POST /api/chat`'s rather than this file's — this only decides whether to
+ * draw a button.
+ *
+ * Widening it is a configuration change and not a code change: add an id to
+ * `DECKE_ENTITLED_USER_IDS`. The panel also SAYS it is experimental, beside his
+ * name, because a feature two accounts can reach and that changes weekly should
+ * not rely on those two remembering.
+ *
+ * IT REUSES THE OWNER GATE rather than inventing a flag. That is not laziness, it is contract B11: a feature whose behaviour
  * depends on a new environment variable owes that variable a declaration in
  * `DEPLOYMENT.md`, a boot warning and a `/health` field, in the commit that
  * reads it. `DESIGN_EDITOR_USER_ID` already has all three (`ownerGateStatus()`

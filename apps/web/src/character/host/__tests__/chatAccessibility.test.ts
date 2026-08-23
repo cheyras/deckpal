@@ -153,3 +153,17 @@ test('the background dismissal cannot fire on a drag, a selection, or a real tar
     'releasing a text selection must not close the panel underneath it',
   )
 })
+
+test('the panel says it is experimental, and that is NOT the access control', () => {
+  // Deck-E is gated SERVER-SIDE to a short list of accounts — `/api/chat`
+  // refuses everyone else — and this label neither adds to nor stands in for
+  // that. What it does is keep the STATE honest for the two people who can
+  // reach him: a feature still changing weekly should say so on itself rather
+  // than depend on them remembering.
+  assert.match(chat, />\s*Experimental\s*</, 'the experimental label is gone from the panel header')
+  // Beside the NAME, not beside the close control: the trailing edge belongs to
+  // the one button that dismisses the panel.
+  const nameAt = chat.indexOf('Deck-E')
+  const badgeAt = chat.search(/>\s*Experimental\s*</)
+  assert.ok(nameAt >= 0 && badgeAt > nameAt, 'the label is no longer next to his name')
+})

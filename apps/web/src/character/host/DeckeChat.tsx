@@ -1589,6 +1589,26 @@ export function DeckeChat({
             Deck-E
           </span>
           {/*
+            EXPERIMENTAL, SAID OUT LOUD.
+
+            He is gated to a short list of accounts on production — the server
+            refuses `/api/chat` for anyone else, so this is not the access
+            control and must not be mistaken for it. What it does is make the
+            STATE honest to the people who can see him: a feature that only two
+            accounts can reach, still changing weekly, should say so on itself
+            rather than rely on those two remembering.
+
+            Quiet on purpose. It sits beside the name in the panel's own muted
+            type — a fact about what this is, not a warning, and not something to
+            look at twice after the first time.
+          */}
+          <span
+            className="rounded-full border border-border-subtle px-[7px] py-[1px] text-[10.5px] font-medium uppercase leading-[15px] tracking-[0.04em] text-text-muted"
+            title="Deck-E is experimental and changes often."
+          >
+            Experimental
+          </span>
+          {/*
             THE BALANCE LIVES HERE, AND ONLY WHEN IT IS GETTING LOW.
 
             *"Nothing shown normally; once it is getting low, surface it in the
