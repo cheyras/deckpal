@@ -26,7 +26,7 @@ test('a set walk is the whole way there, in order, from two ids', () => {
   const steps = buildEscortSteps({ seriesSlug: 'mega-evolution', setId: 'me05' })
   assert.deepEqual(
     steps.map((s) => s.verb),
-    ['goTo', 'ensure', 'click', 'flyTo', 'highlight'],
+    ['goTo', 'ensure', 'click', 'flyTo', 'highlight', 'click'],
   )
   assert.equal(steps[0].route, '/series')
   assert.equal(steps[1].landmark, '[data-decke-series="mega-evolution"]')
@@ -35,6 +35,34 @@ test('a set walk is the whole way there, in order, from two ids', () => {
   assert.equal(steps[3].landmark, '[data-decke-set="me05"]')
   assert.equal(steps[3].point, true)
   assert.equal(steps[4].landmark, '[data-decke-set="me05"]')
+})
+
+test('the walk ARRIVES — it opens the set rather than pointing at a link to it', () => {
+  // The regression this pins is invisible to a wire probe and was live for a
+  // whole measurement: on the wire the escort scored 19/20 with every argument
+  // correct, while every one of those walks ended on `/series/<slug>` looking at
+  // a row it had highlighted. Gate 22 asserts the turn ends on the SET's url,
+  // and `SeriesDetail.tsx` describes that row as "the last hop of 'take me to
+  // that set'". Both halves expected this press; only the walk did not make it.
+  const steps = buildEscortSteps({ seriesSlug: 'mega-evolution', setId: 'me05' })
+  const last = steps[steps.length - 1]
+  assert.equal(last.verb, 'click', 'the walk does not open the set it walked to')
+  assert.equal(last.landmark, '[data-decke-set="me05"]')
+  // And it presses the SET, not the series again — pressing the series row a
+  // second time is a no-op that looks like arrival in a step count.
+  assert.notEqual(last.landmark, seriesLandmark('mega-evolution'))
+})
+
+test('the pointing comes before the press, or nobody sees it', () => {
+  // `flyTo` and `highlight` return the instant they are issued, so ordering is
+  // the only thing that keeps the press from erasing the point. `journey.ts`
+  // holds `LOOK_BEAT_MS` between them; this pins the order that beat is for.
+  const verbs = buildEscortSteps({ seriesSlug: 'mega-evolution', setId: 'me05' }).map((s) => s.verb)
+  const point = verbs.indexOf('flyTo')
+  const ring = verbs.indexOf('highlight')
+  const open = verbs.lastIndexOf('click')
+  assert.ok(point < ring, 'he rings the row before flying to it')
+  assert.ok(ring < open, 'he opens the set before pointing it out')
 })
 
 test('without a setId it stops at the series, rather than pointing at nothing', () => {
@@ -77,8 +105,11 @@ test('every step uses a verb the sequencer knows', () => {
 })
 
 test('the longest walk it can build is well inside the cap', () => {
-  // The cap refuses a plan WHOLE, so headroom here is not tidiness. Six of ten.
-  assert.equal(buildEscortSteps({ seriesSlug: 's', setId: 'x1', opener: 'hi' }).length, 6)
+  // The cap refuses a plan WHOLE, so headroom here is not tidiness. Seven of
+  // ten — the seventh is the press that opens the set, added after a wire
+  // measurement scored the walk perfect and a reading of the steps showed it
+  // ending on the series page.
+  assert.equal(buildEscortSteps({ seriesSlug: 's', setId: 'x1', opener: 'hi' }).length, 7)
 })
 
 test('the landmark templates still match the ones the app builds', () => {

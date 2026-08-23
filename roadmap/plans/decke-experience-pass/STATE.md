@@ -81,9 +81,19 @@ PLAYWRIGHT_MODULE='E:/Users/cheyr/deckpal/node_modules/.pnpm/playwright@1.62.1/n
    add, and his reply implied it went through. Worst item on the list — it is
    the exact failure this pass exists to prevent, and it is correctness, not
    paint.
-7. **The escort is still unmeasured.** Preview allows 2000 turns/day
-   (deliberate, confirmed by the owner), so it is NOT blocked. ~50 turns, ~58¢.
-   `ESCORT-PLAN.md` §6b has the four arms.
+7. ~~**The escort is still unmeasured.**~~ **MEASURED 2026-08-23** —
+   `ESCORT-PLAN.md` §8. 40 trials: "help me find pitch black" walks **19/20 via
+   `escort`**, `journey` 0, arguments correct 19/19, against a `journey`
+   baseline of 2/10. Both controls clean — "take me to it" jumps 10/10, a
+   progress question navigates 0/10. The diagnosis (construction cost, not
+   reluctance) holds. The instrument now lives at
+   `scripts/decke-tool-choice-probe.mjs` instead of a scratch directory.
+   **And reading the steps found what the wire could not:** the walk pointed at
+   the set row and stopped, leaving the person on `/series/<slug>` looking at a
+   link to what they asked to be helped to find. Fixed — it presses the row now,
+   after a `LOOK_BEAT_MS` hold so the pointing is not erased by the press.
+   **Still open: arrival has not been seen in a browser. Gate 22 is the
+   authority and it needs a deployment with these commits on it.**
 8. **Rotate `AI_GATEWAY_API_KEY`** — a subagent printed it into a task log at
    `…/tasks/a379da90ff2fcbc10.output`. Marketing-images key, not Deck-E's.
 9. Lower priority, from `COVERAGE.md` §II.6: C51's control row, C39, C46 (needs

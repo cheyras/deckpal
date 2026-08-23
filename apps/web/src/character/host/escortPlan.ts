@@ -82,10 +82,25 @@ export function buildEscortSteps({ seriesSlug, setId, opener }: EscortInput): Jo
     // the cueing meta-analyses (d=0.52) measure the pointing, not the mascot.
     steps.push({ verb: 'flyTo', landmark: set, point: true })
     steps.push({ verb: 'highlight', landmark: set })
+    // ── AND THEN OPEN IT, WHICH THIS DID NOT DO FOR ITS FIRST REVISION ───────
+    //
+    // Pointing at the row and stopping leaves the person on `/series/<slug>`
+    // looking at a link to the thing they asked to be helped to find. The set
+    // row's own source calls itself "GENUINE NAVIGATION — the last hop of 'take
+    // me to that set'" (`routes/SeriesDetail.tsx`), and gate 22 asserts the turn
+    // ends on `/series/<slug>/<setId>`: both halves of the product expected this
+    // hop and only the walk did not take it. Measured on the wire the escort
+    // looked perfect — 19/20, every argument correct — because a probe reading
+    // calls cannot see a walk that stops one step short of arriving.
+    //
+    // The `highlight` before it now holds for a beat (`LOOK_BEAT_MS` in
+    // `journey.ts`); without that this click lands mid-flight and the pointing
+    // is never seen at all.
+    steps.push({ verb: 'click', landmark: set })
   }
 
-  // Six steps at the longest. The cap is asserted rather than assumed because a
-  // plan over it is refused whole, and this is the one place that could grow.
+  // Seven steps at the longest. The cap is asserted rather than assumed because
+  // a plan over it is refused whole, and this is the one place that could grow.
   if (steps.length > JOURNEY_MAX_STEPS) {
     throw new Error(`escort built ${steps.length} steps, over the ${JOURNEY_MAX_STEPS} cap`)
   }

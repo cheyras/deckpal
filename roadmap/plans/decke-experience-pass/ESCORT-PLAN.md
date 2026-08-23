@@ -459,3 +459,49 @@ What it changed, all of it verified against the source before adoption:
 **What remains unmeasured.** Every one of the above is reasoning, including the
 parts I now believe. The meter resets at UTC midnight; §1 runs first, and the
 forced-choice arm in §3c is what turns this from a good story into a finding.
+
+---
+
+## 8. It was run. The diagnosis holds.
+
+**2026-08-23**, `scripts/decke-tool-choice-probe.mjs` (promoted out of a scratch
+directory in the same sitting, because the instrument this whole argument rests
+on was living somewhere that gets swept). 40 trials, `grok-4.20-non-reasoning`,
+real prompt, real tool surface, fixture data tools.
+
+| ask | from | n | walked | via `escort` | via `journey` | jumped | described |
+|---|---|---|---|---|---|---|---|
+| "help me find pitch black" | `/decks` | 20 | **19** | **19** | **0** | 0 | 1 |
+| "take me to pitch black" | `/decks` | 10 | 0 | 0 | 0 | **10** | 0 |
+| "how far along am I on pitch black?" | `/decks` | 10 | 0 | 0 | 0 | 0 | **10** |
+
+Against a `journey` baseline of **2/10**.
+
+**The arguments were right too, which is the half a name-only probe cannot see.**
+All 19 escorts were `seriesSlug="mega-evolution" setId="me05"` — slug-shaped
+19/19, matching the fixture 19/19. Not one malformed call, and no `journey`
+attempt to be malformed. An earlier run of the same arm reported 16/20 while
+recording tool *names* only; the probe now records the arguments, because "he
+called `escort`" and "he called `escort` correctly" are different findings and
+construction cost is exactly the failure that would hide in the gap between
+them.
+
+**Both controls are clean, so nothing bled.** "Take me to it" still teleports,
+10/10, in a single step — the `goTo`/`escort` trigger collision (§0b) is
+genuinely gone rather than resolved in the escort's favour. A progress question
+still answers 0/10, never navigating.
+
+### What this does and does not establish
+
+- **Established: the barrier was construction cost.** Same model, same prompt,
+  same turn. Given a two-id call instead of a compiled program, he walks people
+  95% of the time having walked them 20% of the time before. §0's control-group
+  argument predicted this and it is the outcome.
+- **Not established: attribution.** Arm 3 (escort present, §0b fixes reverted)
+  was not run, so how much of the gain is the macro versus the two prompt
+  defects is unmeasured. It does not change what ships; it would change what we
+  claim to have learned, so do not claim that part.
+- **Not established: arrival.** This reads the wire. `escort` has no `execute` —
+  the browser expands it through `buildEscortSteps` and runs it — so a perfect
+  call and a walk that goes nowhere look identical here. **Gate 22 on a browser
+  is still the authority**, and it is the one thing left in this file.
