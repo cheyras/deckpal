@@ -42,6 +42,7 @@ import {
   STAND_MOBILE,
 } from './DeckeChat'
 import { deckeHidden, onDeckeVisibilityChange } from '../deckePreference'
+import { MARK_SETTLE_MS, MARK_WATCH_MS, markMoved, type MarkBox } from './markWatch'
 import { DeckeBubble, type Rect } from './DeckeBubble'
 import { useDeckeChat } from './useDeckeChat'
 import {
@@ -109,6 +110,41 @@ const COMPOSER_MULTIPLE = 2.9
 function characterHeightBeside(composerH: number, w: number, h: number): number {
   return Math.round(Math.min(composerH * COMPOSER_MULTIPLE, w * 0.28, h * 0.24))
 }
+
+// The composer-position watch's cadence, settle and threshold live in
+// `markWatch.ts` with the decision they belong to — see the effect below, and
+// that module's header for why a `.ts` sibling rather than three constants
+// here.
+
+/**
+ * How the dismissal finds the launcher chip to fly back into.
+ *
+ * BY ITS ACCESSIBLE NAME, not by a data attribute. `DeckeButton` is icon-only
+ * and this label is already the contract the visual harness opens him with
+ * (`scripts/visual-harness/lib/session.mjs` — "neither element is guessable"),
+ * so it is a name two independent things already depend on rather than a third
+ * private hook. If it changes, the harness breaks loudly in the same commit.
+ */
+const LAUNCHER_SELECTOR = 'button[aria-label="Chat with Deck-E"]'
+
+/**
+ * The longest the dismissal will wait for him to land before scaling him away
+ * anyway.
+ *
+ * A GUARD, NOT THE MECHANISM — the mechanism is `flyTo`'s `arrived`. Sampled
+ * through a real dismissal at 1440x900, with the engine clock locked to the
+ * wall clock so the two are comparable at all, he leaves at t+0 and lands at
+ * t+1300..1400 ms. This is more than double that, chosen to be impossible to
+ * reach on a flight that is actually flying — a guard that fires first IS the
+ * defect it exists to catch, which is how the 520 ms timer it replaced behaved
+ * every single time.
+ *
+ * What it DOES catch is a leg that never lands — the engine's own 600-frame
+ * flight cap, or a controller disposed mid-trip. Reaching that state without a
+ * timer leaves a full-size character parked over the page for the rest of the
+ * session, which is what makes the guard worth having at all.
+ */
+const EXIT_GUARD_MS = 3000
 
 type Phase = 'idle' | 'loading' | 'ready' | 'failed'
 
@@ -439,14 +475,60 @@ export function DeckeHost() {
     measureRef.current?.()
     if (!chatOpen) {
       parkForChatRef.current = null
-      d.returnHome()
-      // BACK TO NOTHING, once he is off screen. He has to end where the next
-      // entrance begins, or the second open finds him already at full size and
-      // there is nothing to grow. The delay is the canvas's own opacity fade —
-      // shrinking him instantly on close would snap him out mid-fade, which is
-      // the "it just snaps to a stop" note this codebase already has about the
-      // talk animation.
-      const t = window.setTimeout(() => deckeRef.current?.setEntryScale(0), 520)
+
+      // ── THE WAY OUT MIRRORS THE WAY IN ────────────────────────────────────
+      //
+      // The entrance is: cut to the launcher, GROW there, then fly to his mark.
+      // So the exit is: fly back to the launcher, then stop being there — and
+      // the destination is the launcher itself rather than `returnHome`'s
+      // abstract corner, because "his spot" is the chip. Measured at 1440x900,
+      // `HOME_INSET` puts him at (1195, 702) and the chip is at (1392, 852):
+      // 240 px apart, so the old flight ended a body's width short of the thing
+      // he was going back into. `homeCorner`'s own note calls itself provisional
+      // and says it "will move again once he is wired into the real product
+      // chrome" — the chip IS that chrome, and it is on screen from the frame
+      // the panel closes.
+      //
+      // WHY THE 520 ms TIMER WAS THE DEFECT AND NOT A DETAIL. It claimed to be
+      // "the canvas's own opacity fade", and there is no fade: `phase` is still
+      // `ready` after a close, so the canvas stays at `opacity-100` and the
+      // whole flight is on screen. Sampled through the dismissal, the trip took
+      // ~1300 ms and `entryScale` hit 0.001 at 520 — he vanished in mid-air,
+      // barely a third of the way across, and the rest of the trip was flown by
+      // nobody. `arrived` replaces the guess with the event.
+      //
+      // AND IT IS THE REDUCED-MOTION PATH WITH NO BRANCH. `flyTo` cuts when
+      // `reduced` is set and `settleCut` fires `arrived` synchronously, so he
+      // is simply already gone — X1's "ships with the motion", not a second
+      // code path that can rot.
+      const chip = document.querySelector(LAUNCHER_SELECTOR)
+      const rect = chip?.getBoundingClientRect() ?? launchRectRef.current
+      let tucked = false
+      const tuck = () => {
+        if (tucked) return
+        tucked = true
+        const away = deckeRef.current
+        if (!away) return
+        // BACK TO NOTHING. He has to end where the next entrance begins, or the
+        // second open finds him already at full size with nothing to grow.
+        away.setEntryScale(0)
+        // AND HOLDING A STATION THE COLLAPSED STATE CAN LIVE WITH. A `{rect}`
+        // station is a remembered box: every later resize would re-solve and
+        // fly an invisible character to where the launcher used to be. Home is
+        // viewport-relative and re-solves to something sane forever. Safe from
+        // inside `arrived` — the arrival branch clears `track` before it fires.
+        away.returnHome({ instant: true })
+      }
+      if (rect && rect.width > 0) {
+        d.flyTo({ rect }, { centre: true, highlight: false, arrived: tuck })
+      } else {
+        // No launcher to go back to — hidden by preference, or a close on a
+        // route that never rendered one. The corner is the honest fallback.
+        d.returnHome()
+      }
+      // A GUARD, NOT THE MECHANISM — see `EXIT_GUARD_MS`. It is comfortably
+      // longer than the measured trip, so it never pre-empts the arrival.
+      const t = window.setTimeout(tuck, EXIT_GUARD_MS)
       return () => window.clearTimeout(t)
     }
     // HE IS OUT ON THE PAGE. Leave him there.
@@ -492,13 +574,19 @@ export function DeckeHost() {
         if (composer) {
           d.flyTo(
             { selector: `[${COMPOSER_LANDMARK}]` },
-            // `anchor: 'bottom'` — his BASE on the composer's bottom edge, not
-            // his middle on its middle. The composer is 58px and he is ~216
-            // drawn, so centring hangs ~79px of him below it; with the composer
-            // against the bottom of the window that is off the edge, and the
-            // clamp then rescues him by pinning his feet to the window bottom.
-            // Reported as "too low, and going off the bottom edge. Cut off."
-            { depth: 'foreground', highlight: false, side: 'left', anchor: 'bottom' },
+            // `anchor: 'optical'`, not `centre` and not `bottom`.
+            //
+            // `centre` was the first version: the composer is 58px and he is
+            // ~216 drawn, so matching middles hangs ~79px of him below it, and
+            // against the bottom of the window that is off the edge —
+            // "too low, and going off the bottom edge. Cut off."
+            //
+            // `bottom` fixed that and overshot. A base flush with the card's
+            // baseline reads as him standing ON the card: "strictly aligned
+            // with his very bottom corner, which makes him look like he's kind
+            // of above the thing." `optical` sinks him far enough that the
+            // card's baseline crosses his body. See `OPTICAL_OVERLAP`.
+            { depth: 'foreground', highlight: false, side: 'left', anchor: 'optical' },
           )
           return
         }
@@ -555,6 +643,97 @@ export function DeckeHost() {
     // against a page that is no longer on screen: standing over the
     // conversation he had just been asked to come back to.
   }, [chatOpen, live, wide, travelling])
+
+  // ── HIS MARK CAN MOVE WITHOUT ANYTHING TELLING HIM ──────────────────────────
+  //
+  // THE DEFECT, reported twice from two separate recordings: "okay so he should
+  // have gone down with this and he did not, so he should be down here now" /
+  // "Deck-E didn't ever come down to this bar, he's up here. Yeah, he needs to
+  // move down."
+  //
+  // MEASURED, not reasoned about. Signed in at 1440x900, parked beside the
+  // centred composer, then a message sent and the whole thing driven from the
+  // live DOM:
+  //
+  //   composer   511.5 -> 822.0  (its bottom edge fell 310.5 px)
+  //   his drawn  363-562 -> 362-561   (unchanged, to the pixel)
+  //   resize()   0 calls   setKeepOut() 0 calls   flyTo() 0 calls
+  //
+  // So it was never a stale rect, never a `ResizeObserver` reporting the same
+  // box, and never a park skipped because he was "already parked". NOTHING
+  // ASKED. Setting `stationDirty` by hand in the same session moved him to
+  // 668-882, correctly against the dropped composer — the solve was right all
+  // along and only the trigger was missing.
+  //
+  // WHY EVERY EXISTING TRIGGER MISSES IT. `DeckE.resize` re-parks on a window
+  // resize; `setKeepOut` re-parks when a band changes; the scroll listener
+  // marks the station dirty. The empty -> conversation transition is none of
+  // those: it swaps `justify-center` off the chat column, which moves the
+  // composer 310 px down the pane without changing the window, the bands, the
+  // scroll offset, or the composer's own box — so the host's `ResizeObserver`,
+  // which watches the canvas, the svh probe and the two bands, never fires.
+  //
+  // WHY A POLL AND NOT AN OBSERVER. There is no observer for "this element
+  // moved": `ResizeObserver` fires on size, and the size is identical.
+  // `IntersectionObserver` would need a threshold ladder to approximate a
+  // position. So this reads ONE rect at 10 Hz, only while the chat is open and
+  // he is not out on the page — the same shape, and a lower rate, than the 8 Hz
+  // sample the speech bubble already runs while he travels.
+  //
+  // A TRAILING DEBOUNCE, exactly as `DeckE.resize` uses and for the same
+  // reason. The composer's first-message drop is a 360 ms keyframe animation,
+  // so `getBoundingClientRect` reports it MID-FLIGHT for a third of a second; a
+  // leading-edge park would aim him at a position the composer is still leaving.
+  // The timer is restarted by every observed move, so the move that gets chased
+  // is the last one.
+  //
+  // It also catches the cases nobody has complained about yet, which is the
+  // point of fixing the class rather than the instance: the composer growing as
+  // someone types a long message, an approval card appearing above it, the
+  // openers disappearing, a phone's software keyboard.
+  useEffect(() => {
+    if (!live || !chatOpen || travelling) return
+    const read = (): MarkBox | null => {
+      const el = document.querySelector(`[${COMPOSER_LANDMARK}]`)
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { top: Math.round(r.top), left: Math.round(r.left), h: Math.round(r.height) }
+    }
+    let last = read()
+    let settle = 0
+    const parkNow = () => {
+      const d = deckeRef.current
+      if (!d) return
+      // NOT WHILE HE IS STILL ARRIVING. The panel has its own entrance, so the
+      // composer moves during it too — and the entrance already ends in a park
+      // solved against the settled rect. Re-arming rather than skipping is what
+      // keeps a real move that lands mid-flight from being dropped.
+      if (d.entryScale < 1 || d.getState().flying) {
+        settle = window.setTimeout(parkNow, MARK_SETTLE_MS)
+        return
+      }
+      // MEASURE, THEN MOVE — the order the chat effect above spells out.
+      // `setCharacterHeight` dollies the camera, so a destination solved before
+      // it lands somewhere else after it. This path can change the height as
+      // well as the position: he is sized from the composer, and a composer
+      // that grew a line is both taller and higher up.
+      measureRef.current?.()
+      parkForChatRef.current?.()
+    }
+    const id = window.setInterval(() => {
+      const was = last
+      last = read()
+      if (!markMoved(was, last)) return
+      window.clearTimeout(settle)
+      settle = window.setTimeout(parkNow, MARK_SETTLE_MS)
+    }, MARK_WATCH_MS)
+    return () => {
+      window.clearInterval(id)
+      window.clearTimeout(settle)
+    }
+    // `wide` because the two platforms park him on different marks, and the
+    // watcher has to be rebuilt around whichever one is current.
+  }, [live, chatOpen, travelling, wide])
 
   // ONE BOOLEAN, not `phase`, drives the setup effect.
   //
