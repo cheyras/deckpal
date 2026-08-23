@@ -445,6 +445,8 @@ const _top = new Vector3()
 /** Scratch for `screenRect`'s body span. Same rule. */
 const _feet = new Vector3()
 const _head = new Vector3()
+/** Scratch for the Blender->three conversion inside `screenRect`. */
+const _proj = new Vector3()
 
 export class DeckE {
   readonly stage: Stage
@@ -946,8 +948,22 @@ export class DeckE {
     if (!this.rig) return null
     const cam = this.stage.camera
     const base = this.track ? this.flightSample.pos : this.anchor
+    // ── THE FRAME, WHICH THIS GOT WRONG FOR ITS WHOLE LIFE ──────────────────
+    //
+    // `base` is a BLENDER-frame vector — `anchor` comes from `solvePark`'s
+    // `viewportToBlender`, and `flightSample.pos` from a solver whose own header
+    // says "`a` and `b` are in the BLENDER frame" — and `bodySpan` extends it
+    // along Blender's +Z, which is up. The camera is three.js. Projecting the
+    // raw vector therefore treats his UP as the camera's DEPTH.
+    //
+    // Measured against his silhouette read off the canvas alpha: this reported a
+    // 37x51 box for a character actually drawn 167x214, about 90px from where he
+    // is. The comment below calls the WIDTH an approximation and that part is
+    // true; the frame was not an approximation, it was a bug, and it reached two
+    // real callers — the speech bubble's placement, and `himX` in `uiTools`,
+    // which decides whether a hop goes the long way round via the background.
     const toScreen = (v: Vector3) => {
-      const p = v.clone().project(cam)
+      const p = blenderToThree(v.x, v.y, v.z, _proj).project(cam)
       return {
         x: ((p.x + 1) / 2) * viewWidth(),
         y: ((1 - p.y) / 2) * canvasHeight(),
