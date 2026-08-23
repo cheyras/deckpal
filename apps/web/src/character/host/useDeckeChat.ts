@@ -657,9 +657,52 @@ export function useDeckeChat(
 
   const stop = useCallback(() => abortRef.current?.abort(), [])
 
+  /**
+   * The chat was closed. End the turn honestly rather than leaving it parked.
+   *
+   * ── THE HANG, WHICH WAS VERIFIED, NOT SUSPECTED ─────────────────────────
+   *
+   * Closing the panel used to be `setChatOpen(false)` and nothing else. It did
+   * not stop the turn and it did not settle a pending approval — and the
+   * listener that WOULD settle one fires on the AbortController, which closing
+   * never triggered. So a reader who closed the chat while he was asking
+   * permission left a promise parked for the life of the page: `busy` stayed
+   * true, `thinking` stayed sustained, and the only way out was a reload.
+   *
+   * ── WHY CLOSING STOPS THE TURN, RATHER THAN LETTING IT RUN ──────────────
+   *
+   * The alternative is a turn that continues invisibly, and it is worse than it
+   * sounds: a turn can NAVIGATE. Letting one run under a closed panel means the
+   * page moving under someone who has just said they are done, with no surface
+   * left to explain why. Stopping is also what `stop()` already means, and
+   * having one meaning is worth more than salvaging the occasional answer.
+   *
+   * The abort settles any pending approval as a denial through the listener in
+   * `askApproval`, which is the correct reading of an abandoned question.
+   *
+   * ── AND IT SAYS SO ──────────────────────────────────────────────────────
+   *
+   * The transcript survives a close, so re-opening shows a turn that stopped
+   * mid-sentence. Without a note that reads as him trailing off; with one it
+   * reads as what happened. Only when he was genuinely mid-turn — closing an
+   * idle chat should leave no trace at all.
+   */
+  const close = useCallback(() => {
+    if (!busyRef.current) return
+    abortRef.current?.abort()
+    setMessages((m) => [
+      ...m,
+      {
+        id: nextId(),
+        role: 'assistant',
+        parts: [{ kind: 'text', id: nextId(), text: '_(stopped when you closed the chat)_' }],
+      },
+    ])
+  }, [])
+
   sendRef.current = send
 
-  return { messages, busy, send, stop, retry, asking, approve, deny }
+  return { messages, busy, send, stop, close, retry, asking, approve, deny }
 }
 
 type LegHandlers = {

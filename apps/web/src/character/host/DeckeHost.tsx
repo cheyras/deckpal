@@ -703,7 +703,13 @@ export function DeckeHost() {
         open={chatOpen}
         minimised={travelling}
         onExpand={() => setTravelling(false)}
-        onClose={() => setChatOpen(false)}
+        onClose={() => {
+          // ENDS THE TURN, and settles anything he was waiting on. Closing used
+          // to do neither, so closing while he was asking permission parked the
+          // turn for the life of the page — verified, not suspected.
+          chat.close()
+          setChatOpen(false)
+        }}
         decke={live}
         messages={chat.messages}
         onSend={chat.send}
