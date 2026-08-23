@@ -74,6 +74,31 @@ Already fixed: it now counts `tool-input-error` separately and prints every part
 type it saw, so the next thing it is blind to shows up as an unfamiliar name
 rather than as silence.
 
+### And a second blindness, found while trying to run step 1
+
+The shell was rewriting the route. MSYS (Git Bash) path conversion turns a bare
+`--route /decks` into **`--route "C:/Program Files/Git/decks"`** before node ever
+sees it, so the probe was telling the handler the reader was standing on a route
+this app does not have — and the run still completed, still streamed, and still
+produced a number.
+
+**What this does and does not invalidate.** The **2/10 baseline is safe**: it was
+measured through a real browser via the gates, which never touch the probe. What
+it does invalidate is the **cheap prompt-tweak comparisons** — the 0/3 and 1/5
+readings I correctly called noise at the time were also, it turns out, asking the
+model to escort someone standing nowhere.
+
+The probe now **refuses** a non-route rather than guessing. Deliberately refuses:
+the prefix MSYS prepends is its own install root, recovering it is guesswork, and
+a guess would reintroduce exactly the silent-wrong-answer failure the check
+exists to end. It prints the two working forms (`--route //decks`, or
+`MSYS_NO_PATHCONV=1`).
+
+**The pattern is worth naming, because it is now twice.** This instrument has
+answered confidently about a question it was not asking, in two different ways,
+and both times the output looked entirely normal. Anything it reports before a
+run that exercises the guard should be treated as unverified.
+
 **Step 1 (10 turns, ~12¢): re-baseline.** Everything below branches on the
 answer.
 
