@@ -1169,6 +1169,46 @@ function massEntryTokensIn(text) {
 const setCardIdsIn = (text, setId) =>
   [...String(text).matchAll(new RegExp(`\\b${setId}-[a-z0-9]+\\b`, 'gi'))].map((m) => m[0].toLowerCase())
 
+/**
+ * Every card of one set a tool actually put in front of him this turn.
+ *
+ * ── WHY THIS IS NOT JUST "FULL IDS IN THE OUTPUT", WHICH IT WAS ──────────────
+ *
+ * MEASURED, and it produced a FALSE ACCUSATION on a full-suite run: gate 23
+ * reported "HE NAMED 2 CARD ID(S) NO TOOL RETURNED THIS TURN: me05-101,
+ * me05-109". Both were correct, both were missing from the account, and neither
+ * was invented — `set_progress` had returned them, as
+ *
+ *     Mega Darkrai ex | 101 | holo | Ultra Rare | $14.30
+ *     Gwynn           | 109 | holo | Ultra Rare | $2.55
+ *
+ * The strings `me05-101` and `me05-109` appear NOWHERE on the stream, because
+ * that tool prints the set once in its header and then a NUMBER COLUMN. Writing
+ * `me05-101` is composition, not fabrication — the same entitlement
+ * `grounding.ts` reserves for arithmetic when it says "12 of 120 legitimately
+ * becomes 10%".
+ *
+ * ── WHY WIDENING IT IS STILL EXACT ───────────────────────────────────────────
+ *
+ * Only for a call whose OWN INPUT names this set (`set_id`). The tool was asked
+ * about one set and answered with numbers inside it, so `setId + '-' + number`
+ * resolves to exactly one card and there is nothing left to infer. A number
+ * column from a tool that was NOT scoped to a set grounds nothing here, which
+ * is why the input is checked rather than the output's header.
+ */
+function groundedSetCardIds(chatPosts, setId) {
+  const ids = new Set()
+  for (const t of wireTools(chatPosts)) {
+    const text = typeof t.output === 'string' ? t.output : JSON.stringify(t.output ?? '')
+    for (const id of setCardIdsIn(text, setId)) ids.add(id)
+    if (String(t.input?.set_id ?? '').toLowerCase() !== setId.toLowerCase()) continue
+    // The second column of a `name | number | kind | rarity | price` row. The
+    // trailing letter is for promos and alternates (`SWSH001`, `12a`).
+    for (const m of text.matchAll(/\|\s*(\d{1,4}[a-z]?)\s*\|/gi)) ids.add(`${setId}-${m[1]}`.toLowerCase())
+  }
+  return ids
+}
+
 /** How much this account actually owns — the denominator for gates 13 and 14. */
 async function collectionTruth() {
   const j = await apiGet('/api/insights/overview')
@@ -3271,17 +3311,11 @@ GATES[23] = {
       // entirely with cards from another one and still come out green.
       const offSet = allNamed.filter((id) => !id.startsWith(`${truth.setId}-`))
 
-      // What a tool actually returned this turn — the grounding evidence,
-      // harvested from the outputs on the stream exactly as `grounding.ts`
-      // harvests them from the result text server-side.
-      const returned = new Set(
-        setCardIdsIn(
-          wireTools(chatPosts)
-            .map((t) => JSON.stringify(t.output ?? ''))
-            .join(' '),
-          truth.setId,
-        ),
-      )
+      // What a tool actually put in front of him this turn — the grounding
+      // evidence, harvested from the outputs on the stream in the same spirit
+      // as `grounding.ts` harvests them server-side, and widened to the number
+      // column for the reason `groundedSetCardIds` writes down at length.
+      const returned = groundedSetCardIds(chatPosts, truth.setId)
       const alreadyOwned = named.filter((id) => own.owned.has(id))
       const ungrounded = named.filter((id) => !returned.has(id))
       const data = dataToolsUsed(chatPosts)
@@ -3329,6 +3363,29 @@ GATES[23] = {
       check(
         data.length > 0,
         `he recommended purchases for the reader's own set with no lookup at all:\n${detail}`,
+      )
+      // ── SILENCE IS A FAILING ANSWER, AND IT ALMOST SLIPPED THROUGH AS A SKIP
+      //
+      // MEASURED on this deployment: a run of this gate made TWELVE tool calls
+      // — nine `set_progress`, `collection_summary`, two `set_cart` — and
+      // emitted ZERO `text-delta` chunks. The stream ended
+      // `{"finishReason":"tool-calls"}` because `api/chat.mjs:535` sets
+      // `stopWhen: [stepCountIs(12)]`, so the step budget was spent entirely on
+      // lookups and the turn closed before he wrote a word. The reader gets a
+      // panel of nothing and an empty bubble after ~30 s.
+      //
+      // Without this check the gate SKIPPED — "he identified no card exactly" —
+      // which is true and completely the wrong headline. An answer-quality gate
+      // that is satisfied by silence measures nothing; the empty answer has to
+      // be the loudest thing in the report, not a footnote inside a skip.
+      check(
+        said.trim().length > 0,
+        `HE ANSWERED WITH NOTHING AT ALL — ${wireTools(chatPosts).length} tool call(s) and not one ` +
+          `word of text on the stream. api/chat.mjs sets stopWhen: [stepCountIs(12)]; a turn that ` +
+          `spends every step on lookups closes with finishReason "tool-calls" and the reader sees ` +
+          `an empty bubble. deep.ts detects exactly this condition for the deep tier ` +
+          `(finishReason === 'tool-calls' && steps >= maxSteps) and says so; the chat path does ` +
+          `not.\n${detail}`,
       )
       // THE CART CHANNEL IS ASSERTED FIRST AND UNCONDITIONALLY. It does not
       // wait on the id channel having found anything, because the measured
