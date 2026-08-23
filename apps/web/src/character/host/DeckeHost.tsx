@@ -366,6 +366,14 @@ export function DeckeHost() {
       const t = window.setTimeout(() => deckeRef.current?.setEntryScale(0), 520)
       return () => window.clearTimeout(t)
     }
+    // HE IS OUT ON THE PAGE. Leave him there.
+    //
+    // While `travelling` the transcript collapses to a bar and the panel —
+    // including the composer he anchors to — is not in the DOM at all. Parking
+    // him against a mark that does not exist is how he ends up standing on a
+    // viewport fraction chosen for a layout that no longer applies.
+    if (travelling) return
+
     const park = () => {
       // The park box only exists while the phone panel is mounted AND he has
       // a measured size. `flyTo` THROWS on a selector that resolves to
@@ -450,7 +458,14 @@ export function DeckeHost() {
     // `wide` is a dependency, not a value read inside: crossing the breakpoint
     // with the chat open swaps which mark he is standing on, and re-running is
     // what moves him to the new one.
-  }, [chatOpen, live, wide])
+    //
+    // AND `travelling`, which was missing and is the more common case. Coming
+    // back from a journey re-mounts the panel and with it his mark — and until
+    // this dependency existed, NOTHING re-parked him. He simply stayed wherever
+    // the journey had left him, which after a `goTo` is a position solved
+    // against a page that is no longer on screen: standing over the
+    // conversation he had just been asked to come back to.
+  }, [chatOpen, live, wide, travelling])
 
   // ONE BOOLEAN, not `phase`, drives the setup effect.
   //

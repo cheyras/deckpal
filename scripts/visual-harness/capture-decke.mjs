@@ -206,6 +206,40 @@ const SCENES = [
     },
   },
   {
+    name: 'journey',
+    what:
+      'He is asked to take someone somewhere. The transcript should record ' +
+      'the MOVEMENT — where he went, what he outlined, what he pressed — not ' +
+      'just his words about it. Before this pass it recorded nothing at all ' +
+      'of a journey, because the movement tools run in the browser and only ' +
+      'the server ever emitted a row.',
+    platforms: ['desktop'],
+    writes: false,
+    async act({ page, timing, notes, dir }) {
+      const composer = await openDeckE(page)
+      notes.characterArrival = await waitForCharacter(page)
+      timing.mark('ask')
+      await composer.fill('Take me to my decks')
+      await composer.press('Enter')
+      await page
+        .waitForFunction(() => !document.querySelector('[data-decke-thinking]'), undefined, {
+          timeout: 120_000,
+        })
+        .catch(() => {})
+      timing.measure('ask:to-settled', 'ask')
+      await page.waitForTimeout(1500)
+      notes.finalUrl = page.url()
+      // He minimises the transcript while he is out on the page, so the rows
+      // are behind the bar. Expand it — the point of this scene is the record.
+      await page
+        .getByRole('button', { name: 'Back to the conversation' })
+        .click({ timeout: 3000 })
+        .catch(() => {})
+      await page.waitForTimeout(900)
+      await captureForReview(page, dir, 'journey.expanded')
+    },
+  },
+  {
     name: 'failure-states',
     what:
       'What a call that FAILED and a call that ran out of time look like. ' +
