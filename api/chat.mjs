@@ -195,6 +195,33 @@ const METER_TIMEOUT_MS = Number.parseInt(process.env.DECKE_METER_TIMEOUT_MS ?? '
  * something that must be discoverable afterwards.
  */
 /**
+ * A driver error's CODE, allowlisted, never its message.
+ *
+ * ── WHY THE ALLOWLIST AND NOT JUST "log the code" ────────────────────────────
+ *
+ * `charge()` below has done this since CodeQL caught the original: a `pg`
+ * connection failure's `message` is built from the connection parameters, so
+ * "password authentication failed for user …" and DSN fragments end up in it,
+ * and this log line fires exactly when the database is unreachable — which is
+ * exactly when those details are in the error.
+ *
+ * Logging `err.code` instead is nearly right and not enough. `code` is
+ * driver-supplied and CodeQL correctly refuses to treat it as clean, because
+ * nothing guarantees what a library puts there. Testing it against
+ * `^[A-Za-z0-9_]{1,32}$` and falling back to a literal is what actually breaks
+ * the flow: ECONNREFUSED, 28P01 and ETIMEDOUT all pass, and anything shaped like
+ * a sentence does not.
+ *
+ * Extracted here because the credit path added two more log sites that copied
+ * the intent and not the guard, and CodeQL flagged both on the pull request.
+ * One implementation is the only way that stays true.
+ */
+function errCode(err) {
+  const raw = String(err?.code ?? err?.name ?? '')
+  return /^[A-Za-z0-9_]{1,32}$/.test(raw) ? raw : 'unrecognised'
+}
+
+/**
  * Spend credits, or refuse.
  *
  * ── THE SAME DEADLINE AND THE SAME FAIL DIRECTION AS `charge` ────────────────
@@ -248,12 +275,12 @@ async function spend(userId, credits, reason) {
       // caught and logged, never rethrown, so a broken audit table cannot take
       // down a turn.
       await client.query(SPEND_LOG_SQL, [userId, credits, reason]).catch((e) => {
-        console.error('[decke] credit log failed (balance already moved):', e?.code ?? e?.name)
+        console.error('[decke] credit log failed (balance already moved). Cause code:', errCode(e))
       })
     }
     return creditVerdictFrom(res.rows, credits, left)
   } catch (err) {
-    console.error('[decke] credits unavailable — serving unmetered:', err?.code ?? err?.name)
+    console.error('[decke] credits unavailable — serving unmetered. Cause code:', errCode(err))
     return { allowed: true, balance: Number.NaN, spent: credits }
   } finally {
     client?.release()
@@ -336,8 +363,7 @@ async function charge(userId, tier) {
     // safe" into "nothing else can get out of here", which is the version worth
     // having — and it keeps holding if a future driver decides to put something
     // chattier in `code`.
-    const raw = String(err?.code ?? err?.name ?? '')
-    const code = /^[A-Za-z0-9_]{1,32}$/.test(raw) ? raw : 'unrecognised'
+    const code = errCode(err)
     console.error(
       `[deck-e] METER UNAVAILABLE — serving ${tier} unmetered for this request. ` +
         `Accounting fails open on purpose; entitlement does not. Cause code: ${code}`,
