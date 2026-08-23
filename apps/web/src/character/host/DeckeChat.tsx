@@ -48,6 +48,7 @@ import { ThinkingRow } from './chat/ThinkingRow'
 import { ToolRow } from './chat/ToolRow'
 import { toolRowFromChip } from './chat/toolRowState'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
+import { deepRequestLine } from './chat/deepRequest'
 import {
   creditHeaderLabel,
   creditState,
@@ -2024,6 +2025,10 @@ export function DeckeChat({
           <div className="mx-auto w-full max-w-[760px]">
           <ApprovalCard
             title={asking[0].title}
+            // What he understood the request to be. Null for a tool whose call
+            // has a preview under it — there the ROWS are the restatement, and
+            // saying it twice would be noise.
+            request={deepRequestLine(asking[0].name, asking[0].input)}
             heldCalls={asking.length}
             // KEYED TO THE HELD CALL, which fixes a trust defect by
             // construction. This used to be `previewOf(messages)`, which

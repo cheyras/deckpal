@@ -1396,6 +1396,22 @@ const APPROVAL_PHRASE: Record<string, string> = {
   edit_list: 'change this list',
   delete_list: 'delete this list',
   revert: 'undo that change',
+
+  // ── THE DEEP TIER, which asks now too ─────────────────────────────────────
+  //
+  // Every deep call needs approval as of this pass, because it spends the
+  // scarcest thing the account has. Without an entry each of these would reach
+  // a reader de-snake-cased — "Let him plan deck?" — which is the shape that
+  // made this map necessary in the first place.
+  //
+  // They name the WORK rather than the tool, and they say it costs: a reader
+  // being asked to authorise a spend should be able to tell from the sentence
+  // that a spend is what this is.
+  plan_deck: 'spend a deep question building this deck',
+  deck_strategy: 'spend a deep question writing this strategy guide',
+  write_strategy_guide: 'save the strategy guide he just wrote',
+  analyze_collection: 'spend a deep question digging through your collection',
+  research_meta: 'spend a deep question researching the meta',
 }
 
 function titleFor(name: string): string {

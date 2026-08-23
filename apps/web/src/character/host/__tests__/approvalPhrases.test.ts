@@ -37,6 +37,10 @@ const HOST_SRC = readFileSync(
 const TOOLS_DIR = fileURLToPath(
   new URL('../../../../../../packages/agent-tools/src/tools/', import.meta.url),
 )
+/** The deep tier lives in the API, not in `agent-tools`, and asks too. */
+const DEEP_SRC = fileURLToPath(
+  new URL('../../../../../api/src/decke/deep.ts', import.meta.url),
+)
 
 /** The phrases, read out of the map in `useDeckeChat.ts`. */
 function phrases(): Map<string, string> {
@@ -65,9 +69,27 @@ function writeTools(): string[] {
   return found
 }
 
-test('every write tool has a phrase somebody actually wrote', () => {
+/**
+ * Every DEEP tool, which now needs approval too.
+ *
+ * They stopped being exempt in this pass: a deep call is a sub-agent with its
+ * own model and up to 210 seconds, and under the credit model it is the only
+ * thing a reader can run out of. So each one reaches the same dialog and needs
+ * the same written sentence — without one, "Let him plan deck?".
+ */
+function deepTools(): string[] {
+  const src = readFileSync(DEEP_SRC, 'utf8')
+  const found = [...src.matchAll(/name: '([a-z_]+)'/g)].map((m) => m[1])
+  assert.ok(found.length >= 4, `only found ${found.length} deep tools — the scan broke, not the code`)
+  return found
+}
+
+/** Everything that can put a consent dialog in front of a reader. */
+const asking = () => [...new Set([...writeTools(), ...deepTools()])]
+
+test('every tool that ASKS has a phrase somebody actually wrote', () => {
   const have = phrases()
-  const missing = writeTools().filter((n) => !have.has(n))
+  const missing = asking().filter((n) => !have.has(n))
   assert.deepEqual(
     missing,
     [],
@@ -78,8 +100,8 @@ test('every write tool has a phrase somebody actually wrote', () => {
 test('no phrase is for a tool that no longer exists', () => {
   // The other direction. A stale entry is harmless on screen but it is a lie in
   // a file people read to find out what the product can do.
-  const writes = new Set(writeTools())
-  const stale = [...phrases().keys()].filter((n) => !writes.has(n))
+  const known = new Set(asking())
+  const stale = [...phrases().keys()].filter((n) => !known.has(n))
   assert.deepEqual(stale, [], `phrases for tools that are gone: ${stale.join(', ')}`)
 })
 

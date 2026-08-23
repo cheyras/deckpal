@@ -137,6 +137,21 @@ export type ApprovalCardProps = {
   /** The tool's own title. `approvalQuestion` turns it into the headline. */
   title: string
   /**
+   * HIS RESTATEMENT of the request, for a call with no preview to show.
+   *
+   * A deep call has no dry run, so this card would otherwise be a headline and
+   * two buttons — the dialog people learn to tap through without reading, which
+   * is the argued reason deep calls did not ask at all until now. The line is
+   * what makes the tap mean something: the reader asked for "a deck that'll get
+   * a laugh" and what is about to be paid for is `idea: "all-Water Squirtle deck
+   * built for comedy over competitiveness"`. The gap between those two sentences
+   * is the entire value of being asked.
+   *
+   * `null` when there is nothing real to show — never a placeholder. See
+   * `deepRequest.ts`.
+   */
+  request?: string | null
+  /**
    * How many TOOL CALLS the model held in this step — not how many cards.
    *
    * RENAMED FROM `count`, and the rename is the fix. `count` read as "how many
@@ -772,6 +787,7 @@ function SectionHeading({ children }: { children: React.ReactNode }): JSX.Elemen
  */
 export function ApprovalCard({
   title,
+  request,
   heldCalls,
   preview,
   choices,
@@ -819,6 +835,20 @@ export function ApprovalCard({
       <p className="text-[14.5px] font-semibold leading-[21px] text-text-primary">
         {approvalHeadline(title, preview)}
       </p>
+      {/*
+        HIS RESTATEMENT, for a call that has no preview to show.
+
+        Without it a deep-call confirmation is a headline and two buttons, which
+        is the dialog people learn to tap through — and that is the argued reason
+        these calls did not ask at all until now. Quoted rather than paraphrased,
+        because the point is to show the reader the sentence he is about to spend
+        on, not our summary of it.
+      */}
+      {request ? (
+        <p className="mt-[8px] rounded-[8px] border border-border-subtle bg-surface-secondary px-[10px] py-[8px] text-[12.5px] leading-[18px] text-text-secondary">
+          {request}
+        </p>
+      ) : null}
       {unshown ? (
         <p className="mt-[6px] text-[12px] leading-[17px] text-text-muted">{unshown}</p>
       ) : null}
