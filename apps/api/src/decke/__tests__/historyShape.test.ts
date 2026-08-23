@@ -14,7 +14,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { MAX_TOOLS, UUID, shapeTools } from '../../routes/deckeHistory.js';
+import { MAX_TOOLS, UUID, shapeTools, type ToolRecord } from '../../routes/deckeHistory.js';
 
 test('a well-formed call keeps all four fields', () => {
   assert.deepEqual(
@@ -23,16 +23,23 @@ test('a well-formed call keeps all four fields', () => {
   );
 });
 
+/** First element, asserted present — `noUncheckedIndexedAccess` is on here. */
+function only(input: unknown): ToolRecord {
+  const out = shapeTools(input);
+  assert.equal(out.length, 1, `expected exactly one shaped tool, got ${out.length}`);
+  return out[0] as ToolRecord;
+}
+
 test('an unknown phase is recorded as `unknown`, never passed through', () => {
   // The phase is the column a regression hunt filters on — "when did this start
   // coming back error". A free string there means the filter silently misses
   // rows, which is worse than a row that says it does not know.
-  assert.equal(shapeTools([{ name: 'x', phase: 'weird' }])[0].phase, 'unknown');
-  assert.equal(shapeTools([{ name: 'x', phase: 42 }])[0].phase, 'unknown');
-  assert.equal(shapeTools([{ name: 'x' }])[0].phase, 'unknown');
+  assert.equal(only([{ name: 'x', phase: 'weird' }]).phase, 'unknown');
+  assert.equal(only([{ name: 'x', phase: 42 }]).phase, 'unknown');
+  assert.equal(only([{ name: 'x' }]).phase, 'unknown');
   // The real ones survive intact.
   for (const p of ['start', 'progress', 'ok', 'partial', 'error', 'declined']) {
-    assert.equal(shapeTools([{ name: 'x', phase: p }])[0].phase, p, p);
+    assert.equal(only([{ name: 'x', phase: p }]).phase, p, p);
   }
 });
 
@@ -56,14 +63,14 @@ test('the array is capped, and the cap keeps the FIRST calls', () => {
   const many = Array.from({ length: MAX_TOOLS + 25 }, (_, i) => ({ name: `t${i}`, phase: 'ok' }));
   const out = shapeTools(many);
   assert.equal(out.length, MAX_TOOLS);
-  assert.equal(out[0].name, 't0');
+  assert.equal(out[0]?.name, 't0');
 });
 
 test('long strings are truncated rather than rejected', () => {
   // Losing the tail of a record beats losing the record. This is a history, and
   // a turn that failed to save because its summary was long is the one somebody
   // will go looking for.
-  const out = shapeTools([{ name: 'n'.repeat(500), title: 't'.repeat(900), summary: 's'.repeat(9000), phase: 'ok' }])[0];
+  const out = only([{ name: 'n'.repeat(500), title: 't'.repeat(900), summary: 's'.repeat(9000), phase: 'ok' }]);
   assert.equal(out.name.length, 80);
   assert.equal(out.title.length, 200);
   assert.equal(out.summary.length, 500);
