@@ -87,11 +87,13 @@ import {
   homeCorner,
   parkOn,
   resolveRect,
+  setKeepOut as setKeepOutRegion,
   shapeFor,
   ridesThePage,
   solvePark,
   type Depth,
   type FlyTarget,
+  type KeepOut,
   type RectLike,
   type Side,
 } from './dom'
@@ -314,6 +316,17 @@ export type DeckEOptions = {
    * `{ instant }` on the call overrides it either way.
    */
   reduced?: boolean
+  /**
+   * Bands of the viewport he may not stand in — the app header, the composer,
+   * whatever else the page owns. Same division as `reduced`: the host measures
+   * the chrome, the engine decides what standing clear of it means. See
+   * `setKeepOut` in `dom.ts`, and `DeckE.setKeepOut` to change it while running,
+   * which the host must, because the header and the composer are not the same
+   * height on every route or with the chat open.
+   *
+   * Absent means no bands, and no band reproduces the old placement exactly.
+   */
+  keepOut?: Partial<KeepOut>
 }
 
 /**
@@ -649,6 +662,12 @@ export class DeckE {
   constructor(private readonly opts: DeckEOptions) {
     INSTANCES.get(opts.canvas)?.dispose()
     this.reduced = !!opts.reduced
+    // ALWAYS, INCLUDING WITH NO OPTION. The region is a module singleton in
+    // `dom.ts` for the reason `viewport.ts` is one, and a singleton outlives its
+    // controller: a page that mounts the host, navigates to `/dev/decke` and
+    // builds a second controller there would otherwise inherit the app shell's
+    // bands on a page that has no app shell.
+    setKeepOutRegion(opts.keepOut ?? null)
     this.stage = createStage({
       canvas: opts.canvas,
       clearColor: opts.clearColor,
@@ -1169,6 +1188,31 @@ export class DeckE {
     return this.reduced
   }
 
+  /**
+   * Change the keep-out bands while running, and re-park him for them.
+   *
+   * THE HOST HAS TO CALL THIS, and not just pass the option: the header is 64 px
+   * on a phone and 78 on a desktop, the composer band exists only while the chat
+   * is open, and both change under a running page. It belongs in the same
+   * `measure()` the `ResizeObserver` already drives — one number that moved is
+   * one re-park, and the change check below is what keeps the other ninety-nine
+   * fires free.
+   *
+   * A SNAP, NOT A FLIGHT. The region changing is the same kind of event as a
+   * resize's `home` branch: nothing about the page moved relative to itself, the
+   * frame around it changed, and flying across the screen to say so would read
+   * as him reacting to a keyboard opening. `unpin` first for the reason every
+   * other re-solve does it — a pinned canvas carries an off-axis frustum, and
+   * the bands are viewport-space.
+   */
+  setKeepOut(region: Partial<KeepOut> | null) {
+    // The module-level setter in `dom.ts`, aliased on import so this line does
+    // not read like a recursive call.
+    if (!setKeepOutRegion(region)) return
+    this.unpin()
+    this.stationDirty = true
+  }
+
   /** The live entrance scale on the rig root. 1 unless a `playEntry` is running
    *  or a caller has pinned it. See `entry.ts`. */
   get entryScale(): number {
@@ -1420,6 +1464,24 @@ export class DeckE {
       side: this.station.side,
       baseDistance,
       centre: this.station.centre,
+      // `known` is the PINNED rect, which is in canvas coordinates, and the
+      // keep-out bands are in viewport ones. Everything else in the solve
+      // cancels the difference against the frustum offset; a clamp cannot,
+      // because a clamp is not linear. See `clampY`.
+      //
+      // `-driftPx` AND NOT `pinShift`: the canvas is pinned to the PAGE, so its
+      // top edge sits at `-driftPx` in the viewport and that number moves with
+      // every scrolled pixel. `pinShift` is only where it started, and the two
+      // agree on exactly one frame — the pin itself, where `drift` is `-shift`.
+      // This is the same conversion the beacon makes to find his screen Y.
+      shift: known ? -this.driftPx : 0,
+      // NOT WHILE TRACKING A SCROLL. `known` is set by exactly one caller —
+      // `syncPinned`, which runs every frame he is pinned and whose whole job
+      // is to follow an element the reader is moving. Clamping there would hold
+      // him at the keep-out band for ever, so he could never leave the viewport
+      // — and the off-screen beacon exists precisely because he can. It would
+      // have become unreachable code with nothing failing to say so.
+      clamp: !known,
     })
   }
 
