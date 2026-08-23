@@ -174,6 +174,18 @@ test('the two navigation intents are split — jump and escort, both stated', ()
   assert.match(p, /when the WAY THERE is what they asked for, walking it is not a detour/)
 })
 
+test('a denial has to be stated, not implied', () => {
+  // Reported from use: the reader declined an add and his next line read as
+  // though the card was in their collection. The model IS told -- the denial
+  // replays as `execution-denied` with a reason -- so the gap was that nothing
+  // required him to SAY it. The transcript half of the fix is a row emitted on
+  // deny (`useDeckeChat`); this is the half that governs his words.
+  const p = flat(buildSystemPrompt({ route: '/series', signedIn: true, dataTools: TOOLS }))
+  assert.match(p, /WHEN THEY SAY NO, THE FIRST THING YOU SAY IS THAT NOTHING CHANGED/)
+  assert.match(p, /Never describe it in the past tense/)
+  assert.match(p, /never follow it with a number that only makes sense if it had/)
+})
+
 test('the journey doctrine states its own limits, including the one that does not exist', () => {
   const p = flat(buildSystemPrompt({ route: '/series', signedIn: true, dataTools: TOOLS }))
 
