@@ -101,6 +101,38 @@ PLAYWRIGHT_MODULE='E:/Users/cheyr/deckpal/node_modules/.pnpm/playwright@1.62.1/n
    the composed pose comes from `rig.float.rotation` and `pose.lean * 15` into
    the rider system, both additive on top of the flight track).
 
+## Where it stands after the night of 2026-08-23
+
+**The design pass landed.** The approval card leads every row with real card
+art and confirms with "Add 1 card" / "Remove 2 cards"; the empty state is
+30px Fraunces above a centred composer; tool rows have a status pill instead
+of a bold run-on; the scrollbar is at the pane edge, verified by measuring the
+real app and then reverting to reproduce the 342px defect. `/dev/chat-ui`
+photographs all of it at 1440 and 390.
+
+**Verified rather than taken on report:** 405 web tests, 171 api, 7 mcp, 52
+deck, 33 images, 9 variants — every CI suite green locally, typecheck clean, no
+file with mixed line endings, and the one mutation the designer reported coming
+back GREEN re-run to confirm it now goes red.
+
+### Still open
+
+1. **Gate 22 has not run.** The QA meter was spent (120/day, UTC-midnight
+   reset) and it returns 429. It is the authority on ARRIVAL and it is the last
+   unverified thing about the escort. `probe-escort-path.mjs` covers the half
+   that needs no turn — all seven hops including the press that opens the set.
+2. **Rotate `AI_GATEWAY_API_KEY`** — still the owner's to do.
+3. **Deck-E clipped bottom-right on desktop**, reported by the designer.
+   **It does not reproduce in its own screenshot** (`wide-empty.png` at 1720
+   shows him whole, beside the composer). It most likely describes the
+   CONVERSATION state, which parks him at the bottom rather than centred, and
+   that state needs a turn to reach. Unverified either way — do not fix it
+   until it has been seen.
+4. **Mobile openers sit ragged-right** because they clear him by
+   `--decke-gutter`. Correct behaviour, reads as an alignment mistake. Fixing it
+   properly means the gutter becoming a symmetric inset — `DeckeHost` geometry.
+5. **C46 needs an owner ruling**, not a decision.
+
 ## Found while the designer worked, 2026-08-23
 
 - **Eleven MCP tools answered with metadata and nothing else** — `search_cards`
