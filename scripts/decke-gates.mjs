@@ -711,6 +711,63 @@ async function drainBodies(chatPosts, { timeoutMs = 10_000 } = {}) {
 
 const shot = (page, name) => page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: false })
 
+/**
+ * The character's payload, by URL shape — gate 18's only witness.
+ *
+ * ── WHY THREE ALTERNATIVES AND NOT THE TWO THE COMMIT MEASURED ───────────────
+ *
+ * `models/decke/` and `assets/Decke-*.js` are what `ff88bba` measured, and they
+ * are what a PRODUCTION build emits. A DEV server emits neither chunk name: vite
+ * serves the dynamic import as the source module, `/src/character/decke/DeckE.tsx?…`.
+ * A gate that watched only the built names would therefore pass on a dev server
+ * no matter what the code did — the strongest possible false green, on the one
+ * gate whose whole subject is "nothing was fetched".
+ *
+ * `models/decke/` is the alternative that fires in BOTH modes (the 5.7 MB of
+ * glb/HDR/atlas is served out of `public/` either way), which is why the
+ * positive half of gate 18 leans on it. `DeckE.ts` is added so the negative
+ * half has a dev-mode module to catch as well.
+ *
+ * NOT `/character/decke/` as a whole: `DeckeScreen.tsx` statically imports
+ * `../decke/cardSource`, so that fragment is fetched eagerly by design and
+ * matching it would report the lazy load as broken on a build where it works.
+ *
+ * DELIBERATELY NOT IMPORTED from `scripts/visual-harness/lib/payload.mjs`,
+ * which does the same recording. That module is the right place to read for the
+ * URL shapes; this suite has one dependency (Playwright, resolved at runtime)
+ * and it stays that way, so a gate run never fails because a sibling harness
+ * was refactored.
+ */
+const CHARACTER_RUNTIME = /(models\/decke\/|assets\/Decke-[^/]*\.js|character\/decke\/DeckE\.tsx?)/
+
+/**
+ * Record every request from now on, with when it happened.
+ *
+ * Attach BEFORE navigating: a listener added afterwards misses precisely the
+ * requests a cold-load question is about.
+ */
+function recordAssets(page, re = CHARACTER_RUNTIME) {
+  let t0 = Date.now()
+  const hits = []
+  page.on('request', (req) => {
+    if (re.test(req.url())) hits.push({ tMs: Date.now() - t0, url: req.url() })
+  })
+  return {
+    /** Restart the clock — called at the moment of `goto`, so `firstAtMs` means something. */
+    mark() {
+      t0 = Date.now()
+      hits.length = 0
+    },
+    hits,
+    summary() {
+      return hits.length
+        ? `${hits.length} request(s), first at ${Math.min(...hits.map((h) => h.tMs))} ms: ` +
+            hits.map((h) => h.url.replace(/^https?:\/\/[^/]+/, '').slice(0, 70)).join(', ')
+        : '0 requests'
+    },
+  }
+}
+
 /** Every `tool-…` part carried in any leg of a turn, with its output. */
 function toolPartsFrom(chatPosts) {
   const out = []
@@ -952,8 +1009,165 @@ async function pitchBlackTruth() {
     releasedOn: j.set.releasedOn ? new Date(j.set.releasedOn) : null,
     owned: Number(p.owned ?? 0),
     total: Number(p.total ?? 0),
+    // THE PERCENTAGE IS THE PRODUCT'S OWN, not this file's arithmetic. The API
+    // computes it with `pct()` in `routes/sets.ts` and the completion bar
+    // renders that number, so a gate that recomputed `owned/total` here would
+    // be asserting his answer against a SECOND opinion rather than against the
+    // figure the reader can see on the page. Measured: 13/120 is reported as
+    // 10.8, not 10.83 and not 11.
+    pct: Number(p.pct ?? 0),
   }
 }
+
+/**
+ * Which cards of the set this account holds, and which it does not — by id.
+ *
+ * `?own=have` and `?own=need` are the product's OWN ownership predicates
+ * (`ownPredicate(goal)` in `routes/sets.ts`), the same ones the set page's
+ * filter chips run. That matters for gate 23: "missing" has to mean what the
+ * app means by it, or the gate is testing this file's idea of ownership rather
+ * than the product's.
+ *
+ * Fetched at gate time, never written down. `.qa-account`'s collection is
+ * scratch space — it was 12 owned when §11b was written and 13 by the time
+ * these gates were, because gate 9 committed a real write in between. A
+ * hardcoded 12 would have gone red for ever on a suite that was working.
+ */
+async function pitchBlackOwnership() {
+  const page = (own) => apiGet(`/api/sets/${PITCH_BLACK_SET_ID}?own=${own}&pageSize=250`)
+  const [have, need] = await Promise.all([page('have'), page('need')])
+  // A second page would silently truncate the "missing" set, which turns gate
+  // 23's assertion from "he named a card you own" into "he named a card that
+  // did not fit on page one" — a false accusation with real-looking evidence.
+  for (const [label, j] of [['have', have], ['need', need]]) {
+    check(
+      (j.pagination?.pageCount ?? 1) === 1,
+      `own=${label} for ${PITCH_BLACK_SET_ID} paginated (${j.pagination?.total} rows) — raise pageSize`,
+    )
+  }
+  const ids = (j) => (j.cards ?? []).map((c) => String(c.cardId).toLowerCase())
+  const names = (j) => new Map((j.cards ?? []).map((c) => [String(c.cardId).toLowerCase(), c.name]))
+  // ── THE THIRD CHANNEL, AND THE ONLY ONE THAT MATCHED WHAT HE ACTUALLY SAID ─
+  //
+  // MEASURED on the first run of gate 23: he answered "what should I buy next"
+  // with card NAMES, prices, and a TCGplayer Mass Entry link — no card id
+  // anywhere, so the ownership check had nothing exact to bite on and the gate
+  // correctly skipped. But the link is not prose: it is 29 product tokens, and
+  // `GET /api/sets/:setId/massentry` returns exactly the tokens for the cards
+  // this account is MISSING (`missingForGoal` in `routes/massentry.ts`). So
+  // "every card he told the reader to buy is one they do not own" IS decidable
+  // for the answer he gives, token by token.
+  //
+  // It is not circular. `set_cart` composing the URL server-side is one thing;
+  // the model TYPING a URL into its own prose is another, and a fabricated or
+  // stale link is exactly the failure a reader cannot see — they click it and
+  // buy whatever comes up.
+  const cart = await apiGet(`/api/sets/${PITCH_BLACK_SET_ID}/massentry`)
+  const catalogue = [
+    ...(have.cards ?? []).map((c) => ({ ...c, isOwned: true })),
+    ...(need.cards ?? []).map((c) => ({ ...c, isOwned: false })),
+  ].map((c) => ({
+    cardId: String(c.cardId).toLowerCase(),
+    localId: String(c.number),
+    name: String(c.name),
+    isOwned: c.isOwned,
+  }))
+  return {
+    owned: new Set(ids(have)),
+    missing: new Set(ids(need)),
+    nameFor: new Map([...names(have), ...names(need)]),
+    missingTokens: new Set((cart.lines ?? []).map(String)),
+    catalogue,
+  }
+}
+
+/**
+ * Cards he pointed at by NAME AND ITS OWN NUMBER TOGETHER.
+ *
+ * ── WHY A PAIR AND NEVER A NAME ALONE ────────────────────────────────────────
+ *
+ * A name is not an identifier in this catalogue. MEASURED on this set:
+ * "Fomantis" is me05-003 (Common, this account owns it) AND me05-085
+ * (Illustration Rare, it does not); "Slowbro" is me05-030 and me05-090;
+ * "Goldeen" is me05-013 and me05-087. A gate matching bare names would have
+ * accused a correct recommendation of telling the reader to re-buy what they
+ * own, which is a false red on the exact assertion the gate exists to make.
+ *
+ * A name IMMEDIATELY FOLLOWED BY ITS OWN PRINTED NUMBER is different in kind:
+ * the two corroborate, so the reference resolves to one card in the catalogue
+ * and there is nothing left to guess. MEASURED, from his own answer:
+ * "Goldeen (013 normal $0.07)", "Relicanth (017 $0.08)", "Slowbro 090 is
+ * $15.63". The 16-character window is what keeps the number attached to the
+ * name rather than to the next clause.
+ *
+ * The number is matched with leading zeros optional, because the catalogue
+ * stores `013` and he writes both `013` and `13`.
+ */
+function corroboratedCardRefs(said, catalogue) {
+  const hits = []
+  for (const c of catalogue) {
+    const name = c.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const n = Number(c.localId)
+    if (!Number.isFinite(n)) continue
+    const re = new RegExp(`\\b${name}\\b[^\\n]{0,16}?\\(?\\b0*${n}\\b`, 'i')
+    const m = re.exec(said)
+    if (!m) continue
+    // The LINE he wrote it on, which is the unit his answers are actually
+    // structured in — one bullet per recommendation.
+    const lineStart = said.lastIndexOf('\n', m.index) + 1
+    const lineEnd = said.indexOf('\n', m.index)
+    hits.push({
+      ...c,
+      quote: m[0].replace(/\s+/g, ' '),
+      line: said.slice(lineStart, lineEnd === -1 ? undefined : lineEnd),
+    })
+  }
+  return hits
+}
+
+/**
+ * Is this line ACKNOWLEDGING a holding rather than recommending a purchase?
+ *
+ * Same shape, and the same reason, as `claimsAWrite` above: "you already have
+ * Fomantis (003)" is correct behaviour and shares every identifier with the
+ * failure. Sentence-level exclusions are how this file has always kept a
+ * negative assertion from firing on the phrasing of a right answer.
+ */
+const acknowledgesOwnership = (line) =>
+  /\b(you (already )?(own|have|got|hold)|already (own|have|got|in your)|in your collection|you'?ve (got|already))\b/i.test(
+    String(line),
+  )
+
+/**
+ * The Mass Entry tokens inside any TCGplayer link in a blob of text.
+ *
+ * The `c=` parameter is `token||token||…`, url-encoded (`%7C%7C`) when he
+ * writes it out. Decoded before splitting, or the whole list reads as one
+ * token and the check silently compares one string that can never match.
+ */
+function massEntryTokensIn(text) {
+  const out = []
+  for (const m of String(text).matchAll(/tcgplayer\.com\/massentry[^\s)"']*/gi)) {
+    const c = /[?&]c=([^&\s)"']+)/.exec(m[0])?.[1]
+    if (!c) continue
+    for (const tok of decodeURIComponent(c).split('||')) {
+      const t = tok.trim()
+      if (t) out.push(t)
+    }
+  }
+  return [...new Set(out)]
+}
+
+/**
+ * Every id of this set named anywhere in a blob of text.
+ *
+ * SCOPED TO THE SET rather than to a general catalogue-id shape, and that is
+ * the safe direction: `apps/api/src/decke/grounding.ts` documents its own
+ * near-miss, where a loose id pattern matched `2026-07` out of a release date
+ * and would have let a date ground an invented card. `me05-\w+` cannot do that.
+ */
+const setCardIdsIn = (text, setId) =>
+  [...String(text).matchAll(new RegExp(`\\b${setId}-[a-z0-9]+\\b`, 'gi'))].map((m) => m[0].toLowerCase())
 
 /** How much this account actually owns — the denominator for gates 13 and 14. */
 async function collectionTruth() {
@@ -2509,6 +2723,663 @@ GATES[17] = {
         check(w.said.trim().length > 0, `${w.label} completed without saying anything:\n${detail}`)
       }
       return detail
+    })
+  },
+}
+
+/**
+ * Gate 18 — he does not load until somebody wants him.
+ *
+ * `ff88bba` deleted an effect that set `phase='loading'` on a
+ * `requestIdleCallback` (4 s timeout) or a 1.5 s fallback, gated only on
+ * `entitled && !chromeless`. Every entitled visitor downloaded the whole
+ * character on every page whether or not they ever spoke to him. Measured on
+ * the wire before the deletion: 6 requests, 5,905,250 bytes, first at ~1,054 ms.
+ *
+ * ── WHY A SCREENSHOT CANNOT ANSWER THIS AND THE WIRE CAN ─────────────────────
+ *
+ * An eagerly-loaded character and a lazily-loaded one look IDENTICAL once both
+ * have loaded; the entire difference is what crossed the wire and when. The
+ * visual harness judges the cold-open contact sheet, which is a real check on
+ * what the reader SEES — and it would pass unchanged on a build that fetched
+ * 5.7 MB in the background and simply did not draw it. So this counts requests.
+ *
+ * ── BOTH HALVES, AND THE SECOND IS NOT A FORMALITY ───────────────────────────
+ *
+ * A gate that only asserted "nothing loaded" is satisfied by a character who is
+ * BROKEN and can never load at all — deleting `loadDeckeRuntime`'s call site
+ * entirely would make it greener. So the same run then hovers the launcher and
+ * requires the fetches to start. The negative proves the timer is gone; the
+ * positive proves intent still works. Neither alone is worth having.
+ *
+ * The wait is 8 s, comfortably past the old 4 s idle timeout, so a timer that
+ * came back would have fired well inside the window rather than racing it.
+ */
+GATES[18] = {
+  title: 'The character is not fetched until intent — 0 bytes on load, then it fires on hover',
+  async run() {
+    return withSignedInPage(async ({ page }) => {
+      const assets = recordAssets(page)
+      assets.mark()
+      await page.goto(HOME, { waitUntil: 'domcontentloaded' })
+
+      // The launcher's presence is the PRECONDITION, not the subject: if
+      // `DeckeHost` rendered nothing at all (the entitlement path this suite
+      // unlocks), zero requests would be true and meaningless.
+      const button = page.getByRole('button', { name: 'Chat with Deck-E' })
+      await button.waitFor({ state: 'visible', timeout: 30_000 })
+
+      // PAST THE OLD WINDOW, NOT UP TO IT. The deleted effect used
+      // `requestIdleCallback(start, {timeout: 4000})` with a 1.5 s
+      // `setTimeout` fallback, so 8 s of an idle page is double the longest
+      // path a regression could take to fire.
+      await page.waitForTimeout(8_000)
+      const idle = [...assets.hits]
+      const idleSummary = assets.summary()
+      await shot(page, 'gate18-idle')
+
+      // NOW ASK FOR HIM. `DeckeButton` warms on pointer-enter, touch-start and
+      // focus; hover is the desktop one and the one the loader was designed
+      // around, so it is what this uses. No click — a click would also open the
+      // chat, and then a passing positive half would not distinguish "hover
+      // warms" from "only opening loads him".
+      await button.hover()
+      const fired = await waitFor(() => assets.hits.length > idle.length, 30_000)
+      await shot(page, 'gate18-hovered')
+      const afterHover = assets.hits.filter((h) => !idle.includes(h))
+
+      const detail = [
+        `pattern: ${CHARACTER_RUNTIME}`,
+        `before this pass, MEASURED: 6 requests, 5,905,250 bytes, first at ~1,054 ms`,
+        `IDLE on ${HOME} for 8 s (old timer: requestIdleCallback 4 s / 1.5 s fallback): ${idleSummary}`,
+        `AFTER HOVERING THE LAUNCHER: ${
+          afterHover.length
+            ? `${afterHover.length} request(s): ${afterHover
+                .map((h) => h.url.replace(/^https?:\/\/[^/]+/, '').slice(0, 70))
+                .join(', ')}`
+            : '0 requests'
+        }`,
+      ].join('\n')
+
+      check(
+        idle.length === 0,
+        `THE CHARACTER WAS FETCHED WITHOUT ANYONE ASKING FOR HIM — the idle-timer load is back:\n${detail}`,
+      )
+      check(
+        fired,
+        `nothing was fetched on hover either, so the zero above is not evidence of laziness — ` +
+          `it is consistent with a character that can no longer load at all. ` +
+          `DeckeButton's onWarm (pointer-enter) should call setPhase('loading'), which mounts ` +
+          `the canvas and pulls the runtime.\n${detail}`,
+      )
+      return detail
+    })
+  },
+}
+
+/**
+ * Gate 19 — when the page changes under him, he notices.
+ *
+ * Until `ff88bba` the ONLY route subscription in the whole character host was a
+ * boolean deciding whether to render at all. Nothing reacted to navigation, so
+ * after the reader moved to another page the speech bubble stayed pinned over a
+ * page that no longer existed (the owner saw exactly this), the minimised bar
+ * survived, and his parked station still held a selector for an element on the
+ * page he had just left — `solveStation` correctly refuses to re-solve a
+ * landmark that has unmounted, so he simply stood where the old page used to
+ * have something.
+ *
+ * ── WHAT IS EVIDENCE HERE ────────────────────────────────────────────────────
+ *
+ * Not the transcript, which has nothing to say about this at all. Three
+ * readings, none of which a sentence can produce:
+ *
+ *   1. THE DOM. The bubble is `DeckeBubble`'s `div[role=status][aria-live=polite]`
+ *      at `z-[31]`; it is rendered only while `chatOpen && travelling`, so its
+ *      presence before the click and its absence after is the state change
+ *      itself. The minimised bar ("Back to the conversation") is the same
+ *      reading of the same flag from the other side.
+ *   2. THE ENGINE. `getState().highlighting` is `!!highlighted()` — a live read
+ *      of the ring layer, not a stored intention — and the route effect's first
+ *      act is `clearHighlight()`.
+ *   3. THE STATION, re-solved against the NEW document. `station.target` is
+ *      either `{selector}` or a viewport fraction; a selector station whose
+ *      selector no longer resolves IS the ghost, and it is checkable in one
+ *      `querySelector`.
+ *
+ * (2) and (3) need `window.__decke`, which `DeckeHost` publishes under
+ * `import.meta.env.DEV` only. Against a production build they are unavailable
+ * and the gate says so rather than quietly asserting less — the DOM half still
+ * runs, because it is the half the owner actually saw.
+ *
+ * NAVIGATION IS A REAL CLICK ON A REAL NAV LINK, which is the case that was
+ * broken: a person moving themselves while he is out on the page. Not a
+ * `page.goto` — that is a document load, which destroys and rebuilds him and
+ * would pass on the broken build too.
+ */
+GATES[19] = {
+  title: 'Navigating away retires the bubble and re-solves his anchor',
+  async run() {
+    const truth = await pitchBlackTruth()
+    return withSignedInPage(async ({ page, chatPosts }) => {
+      await page.goto(`${BASE}/series/${truth.seriesSlug}/${truth.setId}`, { waitUntil: 'domcontentloaded' })
+      await page.locator('[data-decke-goal-switcher]').first().waitFor({ state: 'visible', timeout: 20_000 })
+      const composer = await openDeckE(page)
+
+      // A question that makes him TRAVEL, because the bug only exists while he
+      // is out on the page with something to leave behind. Gate 6 establishes
+      // that this sentence moves him to the goal switcher and rings it.
+      await say(page, composer, 'Where do I change my completion goal?', chatPosts, { settleMs: 60_000 })
+      await shot(page, 'gate19-before')
+
+      // `z-[31]` in a class attribute is how `DeckeBubble` is identified —
+      // there is no data hook on it. The substring match on `class` handles the
+      // brackets that a CSS class selector would need escaped.
+      const bubble = page.locator('div[role="status"][aria-live="polite"][class*="z-[31]"]')
+      const minimisedBar = page.getByRole('button', { name: 'Back to the conversation' })
+      const readEngine = () =>
+        page.evaluate(() => {
+          const d = window.__decke
+          if (!d) return null
+          const st = d.station
+          const selector = st?.kind === 'element' && st.target && 'selector' in st.target ? st.target.selector : null
+          return {
+            kind: st?.kind ?? null,
+            selector,
+            // THE GHOST TEST, run inside the page against the CURRENT document.
+            resolves: selector ? !!document.querySelector(selector) : null,
+            highlighting: d.getState().highlighting,
+          }
+        })
+
+      const bubbleBefore = await bubble.count()
+      const barBefore = await minimisedBar.isVisible().catch(() => false)
+      const engineBefore = await readEngine()
+
+      // ── THE NAVIGATION, BY A LINK THAT REALLY EXISTS ─────────────────────
+      //
+      // `[data-decke-nav="/series"]` does NOT exist: that row is `expandable`,
+      // and `AppShell`'s `NavRow` only takes the `<Link>` branch (which is what
+      // carries `data-decke-nav`) when `item.to` is set. The rows that do carry
+      // it are /lists, /decks, /pokedex, /insights and /scan. Verified in the
+      // DOM below rather than assumed, because a selector that matches nothing
+      // would make this gate fail as "he never navigated".
+      const navLinks = await page.$$eval('[data-decke-nav]', (els) =>
+        els.map((e) => e.getAttribute('data-decke-nav')),
+      )
+      const target = ['/decks', '/lists', '/insights'].find((t) => navLinks.includes(t))
+      check(
+        target,
+        `no usable nav link on the page. [data-decke-nav] present: ${navLinks.join(', ') || '(none)'}`,
+      )
+      const from = new URL(page.url()).pathname
+      await page.locator(`[data-decke-nav="${target}"]`).first().click()
+      await page.waitForURL((u) => u.pathname === target, { timeout: 20_000 })
+      // The effect runs on the `pathname` change; give React the commit plus
+      // the engine a frame to act on `returnHome`/`clearHighlight`.
+      await page.waitForTimeout(1_500)
+      await shot(page, 'gate19-after')
+
+      const bubbleAfter = await bubble.count()
+      const barAfter = await minimisedBar.isVisible().catch(() => false)
+      const engineAfter = await readEngine()
+
+      const detail = [
+        `navigated ${from} → ${new URL(page.url()).pathname} by clicking [data-decke-nav="${target}"]`,
+        `nav links found in the DOM: ${navLinks.join(', ')}`,
+        `bubble (div[role=status] z-[31]) before: ${bubbleBefore}, after: ${bubbleAfter}`,
+        `minimised bar before: ${barBefore}, after: ${barAfter}`,
+        `engine before: ${JSON.stringify(engineBefore)}`,
+        `engine after:  ${JSON.stringify(engineAfter)}`,
+        `he said: ${spoken(chatPosts).replace(/\s+/g, ' ').slice(0, 200)}`,
+      ].join('\n')
+
+      // THE PRECONDITION IS AN ASSERTION, not a skip. If he never travelled
+      // there was nothing pinned to invalidate, and "the bubble is gone" would
+      // be true of a turn that never put one up — a gate that cannot fail.
+      check(
+        bubbleBefore > 0 || barBefore,
+        `he never left the panel, so there was nothing pinned over the old page and this gate ` +
+          `tested nothing. Gate 6 is the one that says whether travelling itself works.\n${detail}`,
+      )
+      check(
+        bubbleAfter === 0,
+        `THE BUBBLE SURVIVED THE NAVIGATION — it is still pinned over a page that no longer ` +
+          `exists, holding an answer about ${from}. This is what the owner saw.\n${detail}`,
+      )
+      check(
+        !barAfter,
+        `the minimised bar survived the navigation, still describing a journey that ended:\n${detail}`,
+      )
+      if (!engineAfter) {
+        return (
+          `${detail}\nNOTE: window.__decke is absent, so the ENGINE half (ring cleared, station ` +
+          `re-solved) could not be read — DeckeHost publishes that handle under ` +
+          `import.meta.env.DEV only. The DOM half above ran and passed. Run this gate against a ` +
+          `dev server for the full check.`
+        )
+      }
+      check(
+        engineAfter.highlighting === false,
+        `the ring is still drawn around a rectangle on the page he left — the route watcher's ` +
+          `clearHighlight() did not run:\n${detail}`,
+      )
+      // HOME OR RE-SOLVED, and nothing in between. `returnHome` (chat closed)
+      // gives `kind:'home'`; `parkForChat` gives an element station whose
+      // target is either the phone panel's park box or a viewport fraction. A
+      // SELECTOR that no longer resolves is exactly the ghost.
+      check(
+        engineAfter.kind === 'home' || engineAfter.selector === null || engineAfter.resolves === true,
+        `HIS ANCHOR IS A GHOST: his station still names "${engineAfter.selector}", which does not ` +
+          `resolve on ${target}. solveStation refuses to re-solve an unmounted landmark, so he is ` +
+          `standing where the old page used to have something.\n${detail}`,
+      )
+      return detail
+    })
+  },
+}
+
+// ── §11b — the answer-quality task set ───────────────────────────────────────
+//
+// "The original plan had five instruments for how he looks and none for whether
+// he is useful — it would have closed every complaint and still not known if he
+// gives good answers about Pokémon cards."
+//
+// EXTENSION, NOT INVENTION. Gates 3, 4, 13 and 14 already assert answers
+// against ground truth fetched at gate time; these are four more rows of the
+// same table, and every one of them derives its figure from the API in the same
+// run rather than writing it down. §11b names "12 owned, 10%" — by the time
+// these were written the QA fixture read 13 and 10.8%, because gate 9 committed
+// a real write in between. That is the whole argument for deriving.
+
+/**
+ * Gate 20 — "How many cards do I have in Pitch Black?"
+ *
+ * §11b row 1: "says 12, not a hallucinated figure" — with 12 read from
+ * `user_set_progress` rather than typed here.
+ *
+ * TWO ASSERTIONS, and the second is the one that catches a near-miss. Saying
+ * the true number is necessary; NOT saying a false one is what makes it a
+ * measurement. A turn that reports "you have 13" and then adds "so you're 47 of
+ * 120 of the way there" has fabricated a figure while satisfying the first
+ * check, so every `N of 120` he writes is compared against the truth too.
+ */
+GATES[20] = {
+  title: '"How many cards do I have in Pitch Black?" — the count matches user_set_progress',
+  async run() {
+    const truth = await pitchBlackTruth()
+    return withSignedInPage(async ({ page, chatPosts }) => {
+      await page.goto(HOME, { waitUntil: 'domcontentloaded' })
+      const composer = await openDeckE(page)
+      await say(page, composer, `How many cards do I have in ${truth.name}?`, chatPosts, { settleMs: 90_000 })
+      await shot(page, 'gate20')
+
+      const said = spoken(chatPosts)
+      const data = dataToolsUsed(chatPosts)
+      // Every "N of M" / "N/M" claim he made against this set's total.
+      const fractions = [...said.matchAll(/\b(\d{1,4})\s*(?:\/|of|out of)\s*(\d{1,4})\b/gi)]
+      const wrong = fractions.filter((m) => Number(m[2]) === truth.total && Number(m[1]) !== truth.owned)
+
+      const detail = [
+        `ground truth (user_set_progress, complete goal): ${truth.owned} of ${truth.total} of ${truth.name}`,
+        `data tools on the wire: ${data.join(', ') || '(NONE)'}`,
+        `fraction claims in the answer: ${fractions.map((m) => m[0]).join(', ') || '(none)'}`,
+        `legs: ${legSummary(chatPosts)}`,
+        `he said: ${said.replace(/\s+/g, ' ').slice(0, 400)}`,
+      ].join('\n')
+
+      check(
+        data.length > 0,
+        `he answered a question about the reader's own collection with no lookup:\n${detail}`,
+      )
+      check(
+        new RegExp(`\\b${truth.owned}\\b`).test(said),
+        `he never gave the owned count (${truth.owned}):\n${detail}`,
+      )
+      check(
+        wrong.length === 0,
+        `he claimed "${wrong.map((m) => m[0]).join(', ')}" against a set of ${truth.total} that ` +
+          `this account owns ${truth.owned} of:\n${detail}`,
+      )
+      return detail
+    })
+  },
+}
+
+/**
+ * Gate 21 — "How close am I to completing it?", as a PERCENTAGE.
+ *
+ * ── NOT A DUPLICATE OF GATE 4, AND THE DIFFERENCE IS ARITHMETIC ──────────────
+ *
+ * Gate 4 asserts the FRACTION — that `owned` and `total` both appear — which
+ * he can satisfy by copying two numbers straight out of a tool result. The
+ * percentage is DERIVED, and derivation is where a model's own arithmetic gets
+ * to be wrong about data it read correctly. `grounding.ts` says exactly this
+ * about why it does not check numbers: "12 of 120 legitimately becomes 10%".
+ * That legitimacy is the reason this gate exists — the step is allowed, so it
+ * has to be measured.
+ *
+ * THE TOLERANCE IS THE PRODUCT'S OWN ROUNDINGS AND NOTHING ELSE. `/api/sets`
+ * reports 10.8; the honest renderings of that are 10.8, 11 and 10 (floor, which
+ * §11b itself writes as "10%"). 47 is not among them, which is the failure this
+ * catches.
+ *
+ * WHAT IT DOES NOT CHECK, stated rather than implied: a percentage that is
+ * SOMETHING ELSE. "Commons are 60% of the set" is a claim this gate cannot
+ * distinguish from a completion figure without knowing which noun each number
+ * belongs to, so it asserts that the right figure is PRESENT and does not
+ * assert that no other figure is. Reported below so the reader can see the gap.
+ */
+GATES[21] = {
+  title: '"How close am I?" — the percentage matches user_set_progress, not his own arithmetic',
+  async run() {
+    const truth = await pitchBlackTruth()
+    check(truth.total > 0, `no progress row for ${truth.setId} — nothing to be a percentage of`)
+    return withSignedInPage(async ({ page, chatPosts }) => {
+      await page.goto(HOME, { waitUntil: 'domcontentloaded' })
+      const composer = await openDeckE(page)
+      await say(page, composer, `What's in ${truth.name}?`, chatPosts)
+      const before = chatPosts.length
+      await say(page, composer, 'What percentage of it have I completed?', chatPosts, { settleMs: 90_000 })
+      await shot(page, 'gate21')
+
+      const turn = chatPosts.slice(before)
+      const said = spoken(turn)
+      const data = dataToolsUsed(turn)
+      // The renderings of 10.8 a careful answer can honestly use.
+      // Compared NUMERICALLY, so "11", "11.0" and "10.80" are the same answer.
+      const acceptable = [
+        Number(truth.pct.toFixed(1)),
+        Math.round(truth.pct),
+        Math.floor(truth.pct),
+      ]
+      const percents = [...said.matchAll(/(\d{1,3}(?:\.\d+)?)\s*(?:%|per ?cent)/gi)].map((m) => m[1])
+      const matched = percents.find((p) => acceptable.includes(Number(p)))
+
+      const detail = [
+        `ground truth (/api/sets/${truth.setId} → progress.complete.pct): ${truth.pct}% ` +
+          `(${truth.owned} of ${truth.total})`,
+        `acceptable renderings: ${acceptable.join('% | ')}%`,
+        `percentages in the answer: ${percents.map((p) => `${p}%`).join(', ') || '(none)'}`,
+        `data tools on the wire for that turn: ${data.join(', ') || '(NONE)'}`,
+        `legs: ${legSummary(turn)}`,
+        `he said: ${said.replace(/\s+/g, ' ').slice(0, 400)}`,
+        'SCOPE: this asserts the right percentage is PRESENT. It does not assert that every other',
+        'percentage in the answer is about something else and correct — a number cannot be bound to',
+        'its noun from a regex, and a checker that guessed would fail him for "commons are 60% of',
+        'the set".',
+      ].join('\n')
+
+      check(
+        data.length > 0,
+        `he answered a question about the reader's own progress with no lookup:\n${detail}`,
+      )
+      check(percents.length > 0, `he was asked for a percentage and gave none:\n${detail}`)
+      check(
+        matched,
+        `the percentage he gave (${percents.map((p) => `${p}%`).join(', ')}) is not ` +
+          `${truth.pct}% however it is rounded — this account owns ${truth.owned} of ` +
+          `${truth.total}:\n${detail}`,
+      )
+      return detail
+    })
+  },
+}
+
+/**
+ * Gate 22 — "Help me find Pitch Black": it lands, and it is SHORT.
+ *
+ * Two §11b rows in one turn, because they are properties of the same answer and
+ * separating them would cost a second sign-in and a second metered turn for no
+ * extra information.
+ *
+ *   row 3  ends on /series/mega-evolution/me05, via real navigation
+ *   brevity  a navigation answer is ≤ 2 lines
+ *
+ * ── HOW THIS DIFFERS FROM GATE 5, WHICH ALSO CHECKS THE URL ──────────────────
+ *
+ * Gate 5 says "Take me to it" after a turn that established what "it" is — an
+ * imperative with an antecedent. This is a bare request to FIND a set by name,
+ * from a page that is not about it, which is the sentence a reader actually
+ * types. And gate 5 asserts nothing about length. Brevity is the row §11b flags
+ * as needing "a judge rather than an assertion"; it does not, if the criterion
+ * is written as the plan writes it — ≤ 2 lines — which is a count, not an
+ * opinion.
+ *
+ * THE CHARACTER COUNT IS REPORTED AND NOT ASSERTED. A 900-character single
+ * paragraph satisfies "two lines" and defeats the intent, and I would rather
+ * hand the reader that number than invent a threshold the plan does not state
+ * and call it a measurement.
+ */
+GATES[22] = {
+  title: '"Help me find Pitch Black" — lands on the canonical url, in two lines or fewer',
+  async run() {
+    const truth = await pitchBlackTruth()
+    check(truth.seriesSlug, `the catalogue returned no series slug for ${truth.setId}`)
+    return withSignedInPage(async ({ page, chatPosts }) => {
+      // Start somewhere that is not about this set, so "find" has work to do.
+      await page.goto(`${BASE}/decks`, { waitUntil: 'domcontentloaded' })
+      const composer = await openDeckE(page)
+      await say(page, composer, `Help me find ${truth.name}`, chatPosts, { settleMs: 120_000 })
+      await page
+        .waitForURL((u) => /\/series\/[^/]+\/[^/]+/.test(u.pathname), { timeout: 15_000 })
+        .catch(() => {})
+      await shot(page, 'gate22')
+
+      const url = new URL(page.url())
+      const tools = wireTools(chatPosts)
+      const moved = tools.filter((t) => t.name === 'goTo' || t.name === 'click')
+      const said = spoken(chatPosts).trim()
+      const lines = said.split(/\n+/).map((l) => l.trim()).filter(Boolean)
+      const canonical = `/series/${truth.seriesSlug}/${truth.setId}`
+
+      const detail = [
+        `canonical url for ${truth.name}: ${canonical}`,
+        `final url: ${url.pathname}${url.search}`,
+        `navigation calls: ${moved.map((t) => `${t.name}(${JSON.stringify(t.input)})`).join(' ; ') || '(none)'}`,
+        `all tools: ${tools.map((t) => t.name).join(', ') || '(none)'}`,
+        `answer: ${lines.length} non-empty line(s), ${said.length} characters`,
+        `legs: ${legSummary(chatPosts)}`,
+        `he said: ${said.replace(/\s+/g, ' ').slice(0, 400)}`,
+        'BREVITY IS ASSERTED AS §11b STATES IT — ≤ 2 lines. The character count is REPORTED and',
+        'not asserted: a long single paragraph passes the line count and defeats the intent, and a',
+        'threshold the plan does not state would be this file\'s opinion dressed as a measurement.',
+      ].join('\n')
+
+      check(moved.length > 0, `no navigation call on the wire — he described the set instead of finding it:\n${detail}`)
+      check(url.pathname === canonical, `he did not land on ${canonical} (ended on ${url.pathname}):\n${detail}`)
+      check(lines.length > 0, `he navigated in total silence — nothing in the bubble:\n${detail}`)
+      check(
+        lines.length <= 2,
+        `a navigation answer ran to ${lines.length} lines (§11b: ≤ 2):\n${detail}`,
+      )
+      return detail
+    })
+  },
+}
+
+/**
+ * Gate 23 — "What should I buy next for this set?"
+ *
+ * §11b's hardest and most valuable row: EVERY CARD NAMED IS GENUINELY MISSING
+ * FROM THE ACCOUNT. Telling a collector to buy a card they already own is the
+ * quiet failure that polish buys trust for — it renders as real card art,
+ * correctly, beside a sentence about cards they asked for, and there is no
+ * visual tell at all.
+ *
+ * ── THE GROUND TRUTH IS THE PRODUCT'S OWN PREDICATE ──────────────────────────
+ *
+ * `/api/sets/me05?own=need` and `?own=have` are `ownPredicate(goal)` from
+ * `routes/sets.ts` — the same SQL the set page's filter chips run. Fetched in
+ * this run, so re-seeding the fixture moves the gate rather than breaking it.
+ *
+ * ── THREE ASSERTIONS, ON THREE CHANNELS ──────────────────────────────────────
+ *
+ * 1. THE BUY LINK. Every TCGplayer Mass Entry token in the URL he prints must
+ *    be one that `GET /api/sets/:setId/massentry` lists — and that endpoint
+ *    lists only what this account is MISSING. This is the channel his measured
+ *    answer actually uses, and it is the sharpest: a token is exact, and a link
+ *    is the thing a reader clicks and spends money through.
+ * 2. OWNERSHIP. Every id of this set he names — in the panel or in his text —
+ *    must be in the `need` list.
+ * 3. GROUNDING (§11b's second judged quality). Every such id must also have
+ *    appeared in a TOOL OUTPUT on this turn's stream.
+ *    `apps/api/src/decke/grounding.ts` enforces this server-side for grid ids
+ *    and explains why a prompt rule was not enough; this measures the same
+ *    property from outside, on the wire, for prose as well as grids. The two
+ *    can disagree: the server strips invented ids from a `cardGrid` and does
+ *    not touch prose.
+ *
+ * ── WHERE IT REFUSES TO PRETEND, WITH THE MEASUREMENT THAT SETTLED IT ────────
+ *
+ * Cards recommended by NAME ONLY are reported and not asserted. §11b's row
+ * reads "every card named is really missing", and the obvious implementation —
+ * match the 13 owned cards' names against his answer — was tried and is WRONG.
+ * Measured on the first run of this gate: he recommended "Fomantis" and
+ * "Armarouge", both of which are names of cards this account owns (me05-003
+ * Common, me05-012 Rare) AND names of Illustration Rares it does not
+ * (me05-085, me05-086). He meant the second pair, correctly. A name-level
+ * assertion would have printed "HE TOLD A COLLECTOR TO BUY CARDS THEY ALREADY
+ * OWN" about a correct answer — a false accusation with real-looking evidence,
+ * which is worse than the gap it was covering.
+ *
+ * So the name evidence is printed for a reader to judge, and only exact
+ * identifiers are asserted on. If a run produces none of the three channels the
+ * gate SKIPS and says which, because a gate that cannot fail is worse than no
+ * gate: it reports coverage that does not exist.
+ */
+GATES[23] = {
+  title: '"What should I buy next?" — every card he names is one the account is missing',
+  async run() {
+    const truth = await pitchBlackTruth()
+    const own = await pitchBlackOwnership()
+    return withSignedInPage(async ({ page, chatPosts }) => {
+      await page.goto(`${BASE}/series/${truth.seriesSlug}/${truth.setId}`, { waitUntil: 'domcontentloaded' })
+      const composer = await openDeckE(page)
+      await say(page, composer, 'What should I buy next for this set?', chatPosts, { settleMs: 180_000 })
+      await shot(page, 'gate23')
+
+      const said = spoken(chatPosts)
+      const screens = screensFrom(chatPosts)
+      const panelIds = screens.flatMap(screenCardIds).map((s) => String(s).toLowerCase())
+      const textIds = setCardIdsIn(said, truth.setId)
+      const allNamed = [...new Set([...panelIds, ...textIds])]
+      const named = allNamed.filter((id) => id.startsWith(`${truth.setId}-`))
+      // Ids from OTHER sets are outside this gate's ground truth — `own=have`
+      // was fetched for one set — so they are reported rather than judged. A
+      // silent filter would let "what should I buy for THIS set" be answered
+      // entirely with cards from another one and still come out green.
+      const offSet = allNamed.filter((id) => !id.startsWith(`${truth.setId}-`))
+
+      // What a tool actually returned this turn — the grounding evidence,
+      // harvested from the outputs on the stream exactly as `grounding.ts`
+      // harvests them from the result text server-side.
+      const returned = new Set(
+        setCardIdsIn(
+          wireTools(chatPosts)
+            .map((t) => JSON.stringify(t.output ?? ''))
+            .join(' '),
+          truth.setId,
+        ),
+      )
+      const alreadyOwned = named.filter((id) => own.owned.has(id))
+      const ungrounded = named.filter((id) => !returned.has(id))
+      const data = dataToolsUsed(chatPosts)
+
+      // The cart channel: every token in the link he printed must be one of the
+      // tokens the API lists for cards this account is MISSING.
+      const tokens = massEntryTokensIn(said)
+      const badTokens = tokens.filter((t) => !own.missingTokens.has(t))
+
+      // The name+number channel — the one his measured answers actually use.
+      const refs = corroboratedCardRefs(said, own.catalogue)
+      const recommended = refs.filter((r) => !acknowledgesOwnership(r.line))
+      const badRefs = recommended.filter((r) => r.isOwned)
+
+      // Names, for the reader's benefit and for the skip branch. Reported, not
+      // asserted — see the header.
+      const ownedNamesMentioned = [...own.owned]
+        .map((id) => own.nameFor.get(id))
+        .filter((n) => n && new RegExp(`\\b${String(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(said))
+
+      const detail = [
+        `ground truth (/api/sets/${truth.setId}?own=have|need): owns ${own.owned.size}, missing ${own.missing.size}`,
+        `owned ids: ${[...own.owned].join(', ')}`,
+        `data tools on the wire: ${data.join(', ') || '(NONE)'}`,
+        `card ids he named — panel: ${panelIds.join(', ') || '(none)'} ; text: ${textIds.join(', ') || '(none)'}`,
+        `ids from OTHER sets (reported, outside this gate's ground truth): ${offSet.join(', ') || '(none)'}`,
+        `ids any tool returned this turn: ${[...returned].join(', ') || '(none)'}`,
+        `TCGplayer Mass Entry tokens in his answer: ${tokens.length || '(none)'}` +
+          (tokens.length ? ` — ${tokens.slice(0, 6).join(', ')}${tokens.length > 6 ? ', …' : ''}` : ''),
+        `tokens the API lists as MISSING for this account: ${own.missingTokens.size}`,
+        `tokens he offered that are NOT missing: ${badTokens.join(', ') || '(none)'}`,
+        `cards referenced by name AND their own number: ${
+          refs.map((r) => `${r.cardId}${r.isOwned ? ' [OWNED]' : ''} "${r.quote}"`).join(' ; ') || '(none)'
+        }`,
+        `…of those, in a line that acknowledges the holding (excluded): ${
+          refs.filter((r) => acknowledgesOwnership(r.line)).map((r) => r.cardId).join(', ') || '(none)'
+        }`,
+        `names of OWNED cards mentioned anywhere in the answer (reported, not asserted): ${
+          ownedNamesMentioned.join(', ') || '(none)'
+        }`,
+        `legs: ${legSummary(chatPosts)}`,
+        `he said: ${said.replace(/\s+/g, ' ').slice(0, 500)}`,
+      ].join('\n')
+
+      check(
+        data.length > 0,
+        `he recommended purchases for the reader's own set with no lookup at all:\n${detail}`,
+      )
+      // THE CART CHANNEL IS ASSERTED FIRST AND UNCONDITIONALLY. It does not
+      // wait on the id channel having found anything, because the measured
+      // answer has a cart and no ids — and a gate that skipped before checking
+      // the one exact thing in front of it would be reporting absent coverage
+      // it actually had.
+      check(
+        badTokens.length === 0,
+        `HIS BUY LINK OFFERS ${badTokens.length} CARD(S) THIS ACCOUNT IS NOT MISSING: ` +
+          `${badTokens.join(', ')}. The reader clicks it and buys what they already own.\n${detail}`,
+      )
+      check(
+        badRefs.length === 0,
+        `HE TOLD A COLLECTOR TO BUY CARDS THEY ALREADY OWN: ${badRefs
+          .map((r) => `${r.cardId} ${r.name} — "${r.quote}"`)
+          .join(' ; ')}\n${detail}`,
+      )
+      if (named.length === 0 && tokens.length === 0 && recommended.length === 0) {
+        skip(
+          `he identified no card exactly — no id, no Mass Entry link, and no name paired with its ` +
+            `own printed number — so "every card named is really missing" has nothing to test. ` +
+            `NOT WEAKENED INTO A BARE NAME MATCH: measured on this set, "Fomantis" is both ` +
+            `me05-003 (owned) and me05-085 (missing), so a name-level assertion reports this ` +
+            `file's guess as his error. The name-level evidence is printed above to be judged by ` +
+            `a reader instead.\n${detail}`,
+        )
+      }
+      check(
+        alreadyOwned.length === 0,
+        `HE TOLD A COLLECTOR TO BUY CARDS THEY ALREADY OWN: ${alreadyOwned
+          .map((id) => `${id} (${own.nameFor.get(id) ?? '?'})`)
+          .join(', ')}\n${detail}`,
+      )
+      check(
+        ungrounded.length === 0,
+        `HE NAMED ${ungrounded.length} CARD ID(S) NO TOOL RETURNED THIS TURN: ${ungrounded.join(', ')}. ` +
+          `grounding.ts strips ungrounded ids from a cardGrid server-side; an id reaching the ` +
+          `reader anyway means it came through a path that check does not cover (prose, or a ` +
+          `turn where nothing was observed).\n${detail}`,
+      )
+      // WHICH CHANNELS ACTUALLY RAN, said out loud. A green verdict that does
+      // not distinguish "29 buy tokens all checked" from "he named nothing and
+      // the filters were empty" is a coverage claim the reader cannot audit.
+      return (
+        `${detail}\nCHANNELS THAT CARRIED EVIDENCE: ` +
+        `cart tokens ${tokens.length}, name+number refs ${recommended.length}, card ids ` +
+        `${named.length} (panel ${panelIds.length}, prose ${textIds.length}). ` +
+        `NOT CHECKED: cards mentioned by BARE NAME with no number — see this gate's header. ` +
+        `MEASURED: "Fomantis" is BOTH me05-003 (Common, owned) and me05-085 (Illustration Rare, ` +
+        `missing), and he meant the second.`
+      )
     })
   },
 }

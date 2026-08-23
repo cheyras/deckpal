@@ -27,6 +27,7 @@ import {
   HINGE_REST,
   MOUTH,
 } from './constants'
+import { entryPivotOffset } from './entry'
 import { hingeFrame } from './field'
 import type { Framing } from './framing'
 import { aimPupil, gazeTarget, type GazeOffset, type PupilAim } from './look'
@@ -209,6 +210,15 @@ export type RigOptions = {
    * unrotated, which is what parity mode wants.
    */
   framing?: Framing | null
+  /**
+   * The whole-body entrance scale, on the ROOT — see `entry.ts`.
+   *
+   * Defaults to 1, which is a `setScalar(1)` and an added zero: the shipped
+   * transform, byte for byte. Anything else scales him about his CENTRE rather
+   * than about the rig origin at his feet, which is what makes "grows from
+   * nothing at the button" grow out of the button instead of up off the floor.
+   */
+  scale?: number
 }
 
 /**
@@ -237,6 +247,13 @@ export function applyPose(rig: RigNodes, pose: Pose, opts: RigOptions) {
     rig.root.position.copy(blenderToThree(pose.px, pose.py, pose.pz, _v))
     rig.root.quaternion.identity()
   }
+
+  // The entrance scale, LAST of the three root channels, because its pivot
+  // correction is expressed against the rotation the two branches above just
+  // wrote. See `entry.ts` for why the scale is here and not on the camera.
+  const scale = opts.scale ?? 1
+  rig.root.scale.setScalar(scale)
+  if (scale !== 1) rig.root.position.add(entryPivotOffset(rig.root.quaternion, scale, _v))
 
   // Body rotation lives BELOW the facing node. Above it, rocking about world Y
   // reads as side-to-side only while he faces -Y; turned 80 degrees it becomes

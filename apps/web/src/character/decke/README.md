@@ -48,6 +48,7 @@ mappings, and an `AnimationClip` cannot answer "40% of the way to a frown".
 | `flight.ts` / `dom.ts` | travel, and choosing where beside an element to stand |
 | `sustain.ts` | the loop window per state, the synthesized `idle`/`sleep`/outro clips |
 | `look.ts` | where the pupils point — the camera constraint that could not export |
+| `entry.ts` | the entrance: the whole-body scale on the rig root, and its centre pivot |
 | `framing.ts` | how he is SEEN wherever he stands: canonical yaw, no lean, vertical angle by height |
 | `beacon.ts` | where the off-screen chip goes, and how far to scroll to bring him back |
 | — | the highlight ring is `components/ui/elementHighlight.ts`, in the design system |
@@ -72,7 +73,27 @@ decke.setStashCount(9)                         // 9 cards, on the placeholder ar
 decke.setStashCards(cards, { autoClose: true })  // THESE cards, batched, closing at the end
 decke.setCardArt('card_r', card)               // the card he holds up in card_present
 decke.scrollIntoView()                         // bring him back when he has scrolled off
+
+decke.setEntryScale(0)                         // absent: no body, not a faded one
+decke.playEntry({ onDone: travel })            // grow from nothing where he stands -> returns ms
+decke.setReducedMotion(true)                   // the HOST reads the media query; this is the answer
+decke.flyTo(mark, { centre: true, facing: -1 })  // face the composer, not away from it
+decke.flyTo(mark, { instant: true })           // arrive without travelling (ring, `then`, station: yes)
 ```
+
+**The entrance** is three calls, and the middle one is the only one in the
+engine: place him (`flyTo` the launcher's rect, `instant: true`), `setEntryScale(0)`
+before the first frame is drawn, then `playEntry()` and fly him to his stand
+point when it reports done. The scale is on `DeckE_Root` and pivots about his
+CENTRE — `setCharacterHeight` is the wrong knob for this and always will be, it
+dollies the camera, so scaling toward zero sends the camera toward infinity. See
+`entry.ts`.
+
+**Reduced motion** is a flag in, never a media query here: the host owns the
+query, the engine owns the behaviour. `reduced` (an option, or `setReducedMotion`)
+turns every flight into a CUT — he still lands, still takes the station, still
+turns, still rings and still enters `then` — and makes `playEntry` a no-op at
+full size. `{ instant }` on the call overrides it either way.
 
 Or declaratively, which is what the eventual tool call carries:
 
@@ -144,6 +165,19 @@ enforces one instance.
 ## Things that will bite you
 
 Each of these cost someone a debugging pass, upstream or here.
+
+- **`playbook.json` is generated, and it now carries hand edits.** The generator
+  has been broken since 2026-08-16, so `thinking`'s gaze was fixed in the
+  committed JSON by hand. The file lists every such edit in its own top-level
+  `hand_edits` array and `playbook.ts` repeats them; fixing the generator without
+  porting them first silently reverts shipped work. `__tests__/gaze.test.ts`
+  fails if that happens.
+- **The gaze is camera-relative, and at this staging it is SATURATED.** The
+  camera sits 45.6° off each eye's axis where the eye saturates at 24.2, so both
+  pupils are pinned at `PUPIL_ROAM.x` in every state — a lateral `gx` smaller
+  than about 5 units moves them by exactly zero. A gaze change that reads fine as
+  a number and does nothing on screen is the default outcome here, not an
+  unlucky one; measure the pupil, not the offset.
 
 - **Never read `window.innerWidth`/`innerHeight` in here.** `viewport.ts` is the
   one answer, set from the canvas's own box in `DeckE.resize`. On an iPhone
@@ -293,10 +327,13 @@ Parity is checked against ground truth, not vibes. The fixtures are produced by
 **executing the character wiki's own Python**, not by re-transcribing it.
 
 ```bash
-# unit + parity tests (114) -- also runs in CI
+# unit + parity tests -- also runs in CI (this also covers character/host)
 pnpm --filter deckpal-web test:decke
 
 # regenerate the playbook, or assert it still matches its sources
+# READ `playbook.ts`'s header FIRST: the generator has been broken since
+# 2026-08-16 and the shipped JSON now carries HAND EDITS, listed in its own
+# `hand_edits` array. Regenerating without porting them reverts shipped work.
 python apps/web/scripts/decke/gen-playbook.py [--check]
 blender -b "$BLEND" -P apps/web/scripts/decke/gen-cards.py -- [--check]
 python apps/web/scripts/decke/gen-field-fixture.py

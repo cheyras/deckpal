@@ -1,6 +1,38 @@
 {
  "schema": "deck-e-playbook/3",
  "generated_by": "apps/web/scripts/decke/gen-playbook.py",
+ "hand_edits": [
+  {
+   "date": "2026-08-22",
+   "state": "thinking",
+   "channels": [
+    "gx",
+    "gz"
+   ],
+   "was": {
+    "plateau": {
+     "gx": -1.7,
+     "gz": 1.05
+    },
+    "taper_2160_ms": {
+     "gx": -0.5,
+     "gz": 0.34
+    }
+   },
+   "now": {
+    "plateau": {
+     "gx": -6.0,
+     "gz": 5.0
+    },
+    "taper_2160_ms": {
+     "gx": -1.8,
+     "gz": 1.6
+    }
+   },
+   "why": "C24 — while thinking he stared down the camera. The gaze target is camera-anchored (look.ts), so the old offset was 12.0 deg lateral and 7.5 deg up at the staging camera, and BOTH eyes sat pinned at the lateral roam limit (PUPIL_ROAM.x = 0.115) because the aim saturates there by 2.3x from the staging geometry alone. The new offset is 36.8 deg lateral and 32.0 deg up, which takes both pupils OFF the clamp (max 84 percent of the limit at either facing) and up to the top of their vertical travel. That is also D14: an iris pinned at the roam limit is an iris against the rim of its sclera.",
+   "WARNING": "THIS FILE IS GENERATED, AND THESE VALUES ARE NOT. gen-playbook.py has been broken since 2026-08-16, so this edit was made by hand in the committed JSON. Regenerating the playbook WILL SILENTLY REVERT IT unless the same numbers are ported into the generator and its normative Python source first. Anything that reads this file should treat hand_edits as the list of places where the file and the generator disagree."
+  }
+ ],
  "fps": 30,
  "units": {
   "length": "blender units (1 u = 40.13 mm)",
@@ -588,8 +620,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -603,8 +635,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -619,8 +651,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -635,8 +667,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -651,8 +683,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -667,8 +699,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -683,8 +715,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -699,8 +731,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -715,8 +747,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -731,8 +763,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -747,8 +779,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -763,8 +795,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -779,8 +811,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -795,8 +827,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -811,8 +843,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -827,8 +859,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -843,8 +875,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -859,8 +891,8 @@
       "lid_u_r": 0.45,
       "brow_l": 0.69,
       "brow_r": -0.51,
-      "gx": -1.7,
-      "gz": 1.05
+      "gx": -6.0,
+      "gz": 5.0
      }
     },
     {
@@ -873,8 +905,8 @@
       "lid_u": 0.3,
       "lid_l": 0.14,
       "brow_l": 0.14,
-      "gx": -0.5,
-      "gz": 0.34
+      "gx": -1.8,
+      "gz": 1.6
      }
     },
     {

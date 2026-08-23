@@ -19,6 +19,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { createStage, type Stage } from './stage'
 import { CENTRE_OFFSET, makeFraming, solveFraming, type Framing } from './framing'
+import { ENTRY_MS, bodySpan, clampEntryScale, entryScaleAt } from './entry'
 import {
   canvasHeight,
   documentHeight,
@@ -214,6 +215,33 @@ export type FlyOptions = {
    */
   centre?: boolean
   /**
+   * Where he faces when he lands, in [-1, +1] — honoured EVEN WITH `centre`.
+   *
+   * `solvePark`'s centre branch deliberately returns no facing (a point has no
+   * inward), and without this option `flyTo` then re-asserts whatever he was
+   * already turned to — which for a fresh page is the boot default of +1,
+   * screen-left, i.e. his back to the composer he was just parked in front of.
+   *
+   * THE FIX BELONGS HERE AND NOT IN `solvePark`. Making a centre park invent a
+   * facing would put the geometry solve back in the business of guessing intent
+   * — `park.test.ts` pins that it does not, and `dom.ts` records that unifying
+   * the two callers on one solve was itself a bug fix. The caller knows which
+   * way the thing he is standing in front of faces; the geometry does not.
+   *
+   * Survives a re-solve for free: `syncStation` only re-asserts a facing when
+   * the park returns one, and a centre park never does.
+   */
+  facing?: number
+  /**
+   * ARRIVE WITHOUT TRAVELLING — the reduced-motion path, per call.
+   *
+   * Defaults to the instance's `reduced` flag. It is a different code path, not
+   * a disabled animation: he still lands exactly where the flight would have put
+   * him, still takes the station, still turns, still rings the target and still
+   * enters `then`. See `launch`.
+   */
+  instant?: boolean
+  /**
    * Go via the background plane instead of straight there.
    *
    * Two legs: out to the far plane above the destination's column, then in to
@@ -268,6 +296,24 @@ export type DeckEOptions = {
    * harness must ask for it.
    */
   startAt?: 'home' | 'staging'
+  /**
+   * The reader has asked for reduced motion.
+   *
+   * THE HOST OWNS THE MEDIA QUERY; THE ENGINE OWNS THE BEHAVIOUR. Nothing in
+   * `character/decke/` calls `matchMedia` and nothing should: this module is
+   * framework-free and page-free by design, and it already relies on the same
+   * division for scrolling (native smooth scroll honours the query "without this
+   * module having to know that exists"). So the flag comes in from outside, and
+   * `setReducedMotion` keeps it live because the query can change under a
+   * running page.
+   *
+   * What it changes, all of it a DIFFERENT path rather than a disabled one:
+   *   - `playEntry` arrives at full size with no grow;
+   *   - `flyTo` and `returnHome` cut to the destination instead of flying it,
+   *     while still arriving — station, facing, ring and `then` all happen.
+   * `{ instant }` on the call overrides it either way.
+   */
+  reduced?: boolean
 }
 
 /**
@@ -346,6 +392,9 @@ const INSTANCES = new WeakMap<HTMLCanvasElement, DeckE>()
 /** Scratch for the beacon's silhouette probe. Module scope, not per instance:
  *  it never outlives one call. */
 const _top = new Vector3()
+/** Scratch for `screenRect`'s body span. Same rule. */
+const _feet = new Vector3()
+const _head = new Vector3()
 
 export class DeckE {
   readonly stage: Stage
@@ -577,8 +626,29 @@ export class DeckE {
   /** Set when a flight is in the air; applied the frame it lands. See `update`. */
   private onArrive: (() => void) | null = null
 
+  // ---- entrance and reduced motion -------------------------------------
+  /** The whole-body entrance scale on the rig root. 1 is "fully here". */
+  private entryNow = 1
+  /** The grow in progress, if any. See `playEntry`. */
+  private entryTween:
+    | { from: number; started: number; durationMs: number; onDone?: () => void }
+    | null = null
+  /** The reader's reduced-motion preference, as told to us. See `DeckEOptions`. */
+  private reduced = false
+  /**
+   * A flight that CUT rather than flew, waiting to be declared arrived.
+   *
+   * It cannot fire from inside `launch`: `flyTo` installs `onArrive` after the
+   * launch returns, so an arrival fired there would find the slot empty and
+   * silently drop the highlight ring and the `then` state — precisely the
+   * half-state this path exists to avoid. So the cut sets this and the two
+   * public entry points settle it once they have finished setting up.
+   */
+  private cutPending = false
+
   constructor(private readonly opts: DeckEOptions) {
     INSTANCES.get(opts.canvas)?.dispose()
+    this.reduced = !!opts.reduced
     this.stage = createStage({
       canvas: opts.canvas,
       clearColor: opts.clearColor,
@@ -827,8 +897,13 @@ export class DeckE {
         y: ((1 - p.y) / 2) * canvasHeight(),
       }
     }
-    const feet = toScreen(base)
-    const head = toScreen(new Vector3(base.x, base.y, base.z + BODY_H))
+    // MEASURED AT HIS CURRENT ENTRANCE SCALE, not at his nominal size. The
+    // bubble is placed against this box, and during the grow a box the size of a
+    // character who is not there yet puts it well off him. At scale 1 the span
+    // is exactly `base` to `base + BODY_H`, as it always was.
+    bodySpan(base, this.entryNow, _feet, _head)
+    const feet = toScreen(_feet)
+    const head = toScreen(_head)
     const height = Math.abs(feet.y - head.y)
     // Width from the same projection ratio rather than a second unproject: his
     // reference body is 1.75 wide against 2.4 tall, and at this distance the
@@ -1077,6 +1152,78 @@ export class DeckE {
     this.talkTarget = name === 'talk' ? Math.max(0, Math.min(1, weight)) : 0
   }
 
+  /**
+   * Tell him the reader's motion preference has changed.
+   *
+   * Live rather than construction-only because `matchMedia` fires: a reader can
+   * turn reduced motion on with the page open, and a character who keeps flying
+   * until the next reload has not honoured it. Turning it ON does not cancel a
+   * flight already in the air — that would be a jump cut mid-motion, which is
+   * the one thing worse than the motion — it applies from the next one.
+   */
+  setReducedMotion(on: boolean) {
+    this.reduced = on
+  }
+
+  get reducedMotion(): boolean {
+    return this.reduced
+  }
+
+  /** The live entrance scale on the rig root. 1 unless a `playEntry` is running
+   *  or a caller has pinned it. See `entry.ts`. */
+  get entryScale(): number {
+    return this.entryNow
+  }
+
+  /**
+   * Pin the entrance scale, with no animation.
+   *
+   * For the frames BEFORE the entrance: the host places him at the launcher's
+   * rect and holds him at 0 so that "absent" is really absent rather than a
+   * full-sized character behind an opacity ramp. Also the way out of an
+   * entrance that has to be abandoned.
+   */
+  setEntryScale(s: number) {
+    this.entryTween = null
+    this.entryNow = clampEntryScale(s)
+  }
+
+  /**
+   * Grow him from nothing to full size, where he stands.
+   *
+   * The entrance beat of C3: absent -> grows at the launcher's rect -> travels
+   * to his stand point. This is the middle third; the placement before it and
+   * the `flyTo` after it are the caller's, because only the caller knows the
+   * button's rect and the mark he is heading for.
+   *
+   * Returns the number of milliseconds it will take, so a caller can schedule
+   * the travel leg without duplicating the constant. Under reduced motion that
+   * is 0 and he is simply there — presence without the entrance, which is the
+   * reduced form of this beat rather than its absence.
+   */
+  playEntry(
+    opts: { from?: number; durationMs?: number; instant?: boolean; onDone?: () => void } = {},
+  ): number {
+    const instant = opts.instant ?? this.reduced
+    if (instant) {
+      this.entryTween = null
+      this.entryNow = 1
+      opts.onDone?.()
+      return 0
+    }
+    const durationMs = Math.max(0, opts.durationMs ?? ENTRY_MS)
+    const from = Math.min(1, clampEntryScale(opts.from ?? 0))
+    if (durationMs === 0) {
+      this.entryTween = null
+      this.entryNow = 1
+      opts.onDone?.()
+      return 0
+    }
+    this.entryNow = from
+    this.entryTween = { from, started: this.elapsed, durationMs, onDone: opts.onDone }
+    return durationMs
+  }
+
   /** `facing` is continuous over [-1, +1]. Animated over `FACING_TURN_MS`. */
   setFacing(value: number, opts: { animate?: boolean } = {}) {
     const v = Math.max(-1, Math.min(1, value))
@@ -1135,6 +1282,7 @@ export class DeckE {
     // VIA THE BACKGROUND: queue the destination, fly the waypoint first. The
     // waypoint is directly above the destination's column on the far plane, so
     // the second leg comes straight in rather than crossing twice.
+    const instant = opts.instant ?? this.reduced
     if (opts.via === 'background') {
       const waypoint = parkOn(
         camera,
@@ -1143,19 +1291,22 @@ export class DeckE {
         { depth: 'background', baseDistance },
       )
       this.legQueue = [park.position.clone()]
-      this.launch(waypoint)
+      this.launch(waypoint, instant)
     } else {
       this.legQueue.length = 0
-      this.launch(park.position)
+      this.launch(park.position, instant)
     }
     // Hold facing steady for the duration of a presentation; turning mid-flight
     // fights the flight layer's own yaw. `park.facing` is always +/-1, so he
     // lands on one of his two authored directions rather than somewhere in
     // between — "he should still have his standard directions, so either this or
     // this."
-    // A centre park returns no facing — a point has no inward — so his current
-    // heading is re-asserted rather than replaced.
-    this.setFacing(park.facing ?? this.facingTarget)
+    // A centre park returns no facing — a point has no inward — so the CALLER's
+    // facing is used if it gave one, and only failing that is his current
+    // heading re-asserted. Without `opts.facing` that fallback is how a fresh
+    // page ends up standing him at the composer with his back to it: the boot
+    // default is +1, screen-left. See `FlyOptions.facing`.
+    this.setFacing(opts.facing ?? park.facing ?? this.facingTarget)
     this.station = { kind: 'element', target, depth, side, centre: !!opts.centre }
 
     // Presenting is a TWO-part signal: he stands beside the thing, and the thing
@@ -1176,6 +1327,9 @@ export class DeckE {
       if (ring && selector) highlightElement(selector)
       if (then) this.setState(then)
     }
+    // A cut has already put him there; this is where it becomes an ARRIVAL.
+    // Last, so `onArrive` above exists to be fired.
+    this.settleCut()
   }
 
   /**
@@ -1222,7 +1376,7 @@ export class DeckE {
     clearHighlight()
   }
 
-  returnHome() {
+  returnHome(opts: { instant?: boolean } = {}) {
     // Same trap as `flyTo`: `homeCorner` unprojects through the camera, and it
     // is evaluated as an ARGUMENT to `launch` — so the pin's frustum offset is
     // still in place when it runs, however early `launch` unpins.
@@ -1230,7 +1384,13 @@ export class DeckE {
     this.station = { kind: 'home' }
     this.onArrive = null
     clearHighlight()
-    this.launch(homeCorner(this.stage.camera, this.stage.camera.position.length()))
+    this.launch(
+      homeCorner(this.stage.camera, this.stage.camera.position.length()),
+      opts.instant ?? this.reduced,
+    )
+    // Nothing to fire — the trip home rings nothing and enters nothing — but the
+    // flag still has to be cleared, or the next flight would inherit it.
+    this.settleCut()
   }
 
   /**
@@ -1624,12 +1784,16 @@ export class DeckE {
   /** Set by `flyTo` immediately before `launch`, consumed there. */
   private pendingScroll: number | null = null
 
-  private launch(to: Vector3) {
+  private launch(to: Vector3, instant = false) {
     // THE SINGLE CHOKE POINT for every flight, which makes it the right place to
     // give the page back. A flight is a world-space move on every frame, so
     // there is no constant document position left to freeze, and `from` below
     // has to be read in the coordinates he is actually parked in.
     this.unpin()
+    if (instant) {
+      this.cut(to)
+      return
+    }
     const from = this.track
       ? this.flightSample.pos.clone()
       : this.anchor.clone()
@@ -1656,6 +1820,71 @@ export class DeckE {
     this.anchor.copy(to)
     this.trackDest.copy(to)
     this.trackShift.set(0, 0, 0)
+  }
+
+  /**
+   * ARRIVE WITHOUT TRAVELLING — the whole of the reduced-motion flight path.
+   *
+   * A "skip the animation" that leaves the flight layer half-set is worse than
+   * the animation, so this touches every piece of state a landing normally
+   * leaves behind, in the same order `launch` and `update`'s arrival branch
+   * leave it:
+   *
+   *   - `track` null, so `update` takes the PARKED branch and adds the anchor to
+   *     the pose rather than sampling a stale sample;
+   *   - the LAST leg wins. `flyTo(via: 'background')` queues the destination and
+   *     launches the waypoint, so cutting to `to` would land him out on the far
+   *     plane above the target, one leg short and with a queue nobody will ever
+   *     shift because no leg is going to finish. Cutting is not "fly the first
+   *     leg instantly"; it is "be at the end of the journey";
+   *   - `anchor` and `trackDest` both moved, so the next scroll's `syncStation`
+   *     measures its shift against where he actually is;
+   *   - `trackShift` cleared, because a shift accumulated for a flight that no
+   *     longer exists would be applied to the next one;
+   *   - the driven page scroll JUMPS rather than easing. `scrollWith` exists so
+   *     the page moves under him instead of him chasing it; under reduced motion
+   *     the page still has to end up where the target is, and a 700 ms eased
+   *     scroll is exactly the motion being declined.
+   *
+   * The modulation is deliberately NOT ramped: `TRAVEL_MOD` damps his hover
+   * because he is under power, and he never was.
+   */
+  private cut(to: Vector3) {
+    const dest = this.legQueue.length ? this.legQueue[this.legQueue.length - 1] : to
+    this.legQueue.length = 0
+    // Cutting ON TOP of a flight already in the air still has to hand the hover
+    // back, exactly as a landing does. `TRAVEL_MOD` damps `float_amp` to 0.5
+    // while he is under power, and dropping the track without the ramp steps it
+    // to 1.0 in one frame — the same class of pop the modulation crossfade
+    // exists for. A cut that never travelled has nothing to ramp.
+    if (this.track) this.rampMod(TRAVEL_MOD_MS)
+    this.track = null
+    this.anchor.copy(dest)
+    this.trackDest.copy(dest)
+    this.trackShift.set(0, 0, 0)
+    this.scrollDrive = null
+    if (this.pendingScroll !== null) {
+      const y = this.pendingScroll
+      this.pendingScroll = null
+      window.scrollTo(0, y)
+    }
+    this.cutPending = true
+  }
+
+  /**
+   * Declare a cut flight arrived.
+   *
+   * Separate from `cut` because `flyTo` installs `onArrive` AFTER it launches:
+   * firing from inside the cut would find an empty slot and drop the ring and
+   * the `then` state on the floor. Called by both public entry points once they
+   * have finished setting up, and a no-op after an ordinary flight.
+   */
+  private settleCut() {
+    if (!this.cutPending) return
+    this.cutPending = false
+    const arrived = this.onArrive
+    this.onArrive = null
+    arrived?.()
   }
 
   /**
@@ -1889,7 +2118,11 @@ export class DeckE {
     const cx = (this.screen.x * 0.5 + 0.5) * viewWidth()
 
     _top.copy(this.centreThree)
-    _top.y += CENTRE_OFFSET
+    // Scaled by the entrance, for the same reason `screenRect` is: this half
+    // -height is his SILHOUETTE, and the chip's whole question is whether any
+    // part of him is on screen. His centre is unaffected — the entrance scale
+    // pivots about it — so only the span moves.
+    _top.y += CENTRE_OFFSET * this.entryNow
     _top.project(cam)
     // A half-height is a difference, so the drift cancels and is not applied.
     const halfPx = Math.abs((-_top.y * 0.5 + 0.5) * h - (cy + this.driftPx))
@@ -1970,6 +2203,22 @@ export class DeckE {
       this.followElastic()
     } else {
       this.syncPinned()
+    }
+
+    // ---- the entrance ----------------------------------------------------
+    // Advanced from the state clock like everything else in here, so a paused
+    // engine pauses the grow too rather than finishing it while nothing is being
+    // drawn. `onDone` fires on the frame it lands, once.
+    if (this.entryTween) {
+      const e = this.entryTween
+      const u = ((this.elapsed - e.started) * 1000) / e.durationMs
+      if (u >= 1) {
+        this.entryNow = 1
+        this.entryTween = null
+        e.onDone?.()
+      } else {
+        this.entryNow = clampEntryScale(entryScaleAt(u, e.from))
+      }
     }
 
     // ---- facing --------------------------------------------------------
@@ -2191,7 +2440,11 @@ export class DeckE {
     this.stage.setFraming(this.framing.position, this.framing.quaternion, this.framing.yaw)
 
     // ---- apply ----------------------------------------------------------
-    applyPose(this.rig, this.pose, { facing: this.facing, framing: this.framing })
+    applyPose(this.rig, this.pose, {
+      facing: this.facing,
+      framing: this.framing,
+      scale: this.entryNow,
+    })
 
     // The float is the single additive layer and lives on its own node between
     // the keyed root and the squash, because Blender cannot drive and keyframe
