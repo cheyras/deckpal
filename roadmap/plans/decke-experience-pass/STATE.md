@@ -178,3 +178,67 @@ product for every signed-in user. And three times an instrument returned a
 confident wrong answer that I repeated: a probe blind to rejected tool calls, a
 probe fed a shell-mangled route, and a screenshot containing dev chrome.
 **A wrong answer and a right one look identical coming out of a tool.**
+
+---
+
+# SECOND PASS — the 2026-08-23 recordings
+
+Two more recordings (`capture-20260823-094302`, `-095910`), ~35 items. The
+owner's own summary: *"It's so much better, I'm feeling a lot better about it,
+and room for refinement."*
+
+## The four that were correctness, not paint
+
+1. **He described a deck he could not build.** Two refused `plan_deck` calls,
+   then *"Perfect, let's build! I'm pulling together a 60-card list…"*. All
+   three deep outcomes returned a BARE STRING — refusal, error and real plan —
+   so the chip told the reader and nothing told the model. `[[NO_WORK]]` now
+   leads a refusal before any prose.
+2. **He stopped leaving anything to ask about printings.** Measured: 100 items
+   out of 100 with a printing he chose himself, "Normal" 86 times. **A prompt
+   rule moved it not at all** — 100/100 after. The witness is now the reader's
+   own sentence (`printingSaid.ts`); a proxy's "stated" re-opens as a question.
+3. **A refusal rendered as an answer.** With the meter spent the transcript drew
+   *"I've done as much as I can for you today"* exactly like a reply. Notices
+   are their own part kind now, and `sayInstead` is deleted so "a failure is
+   never prose" is a property rather than a habit.
+4. **The fade was deleting the last line of what he said.** A mask removes
+   pixels; 12px of padding under a 28px band cut his final sentence in half.
+
+## Built and never wired — three more, all caught by their own authors
+
+`DeckeFarewell`, the `declined` phase, and `DeckeNotice`. All now mounted, all
+pinned by wiring tests. **That is six instances of this defect in two days.**
+
+## Decided by the owner, recorded
+
+- **Credits, hard stop at zero.** He overruled my recommendation to keep chat
+  and lookups alive: *"he can only pretend to do other stuff and that sucks."*
+  Built and **switched off** — `DECKE_CREDITS_ENABLED`, migrations 041/042 NOT
+  RUN. Order: migrate → grant → flag, because 041 starts everyone at zero.
+- **Confirm before every deep call**, reversing an argued exemption. The
+  friction objection is answered by the card carrying his restatement.
+- **Arrival closes the chat**, with a line.
+
+## Still open, and why
+
+1. **Gate 22 has still not run.** QA meter spent; resets 18:00 local.
+2. **The paywall.** `CREDIT_USD` is measured model COST. The retail price and
+   the payment integration are the owner's.
+3. **Mobile openers indent ~113px** while the heading sits at 16px. A trade
+   between "clear him" and "align with the heading" — his call.
+4. **A follow-up after "Wrong card"** — he floated *"what was wrong about these
+   cards"*. The designer answered it by NARROWING instead: wrong printing is a
+   click, wrong number is two, so that button now means one thing. If it still
+   reads short on the next recording, the follow-up is the next thing to try.
+5. **`AI_GATEWAY_API_KEY`** still needs rotating.
+
+## The pattern, updated
+
+Three more instruments lied this session: a gate reporting a rate limit as a
+behavioural verdict, a probe whose empty catalogue looked like a product defect,
+and a screenshot whose dev ribbon read as a clipped character. Plus my own
+STATE.md claim that a capture script "cannot forget" the ribbon strip — the
+primary one had. **The tool is not the evidence; the tool is a witness that has
+to be cross-examined.**
+
