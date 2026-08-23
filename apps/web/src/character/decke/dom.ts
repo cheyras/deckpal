@@ -324,7 +324,15 @@ export type RectLike = Pick<DOMRect, 'left' | 'top' | 'right' | 'width' | 'heigh
 export function parkBeside(
   camera: PerspectiveCamera,
   rect: RectLike,
-  opts: { depth: Depth; side: Side; baseDistance: number; shift?: number; clamp?: boolean },
+  opts: {
+    depth: Depth
+    side: Side
+    baseDistance: number
+    shift?: number
+    clamp?: boolean
+    /** See `solvePark`. `bottom` puts his base on the target's bottom edge. */
+    anchor?: 'centre' | 'bottom'
+  },
 ): ParkResult {
   const distance =
     opts.depth === 'background' ? opts.baseDistance / BACKGROUND_SCALE : opts.baseDistance
@@ -388,7 +396,27 @@ export function parkBeside(
   // screen and it was simply cut off. It is a clamp and not a flip because
   // vertically there is only one way back in, and because standing below a
   // header while facing across it is a perfectly good way to present it.
-  const y = clampY(rect.top + rect.height / 2, drawnH / 2, opts.shift ?? 0, opts.clamp ?? true)
+  // ── WHERE HE STANDS ON THE VERTICAL, AND WHY IT IS A CHOICE ─────────────
+  //
+  // Centring him on the target is right for something tall — a sidebar row, a
+  // card — where his middle lines up with its middle and he reads as beside it.
+  //
+  // It is WRONG for the composer, and visibly so. That card is 58px tall and he
+  // is ~216px drawn, so centring puts ~79px of him below its bottom edge. With
+  // the composer where it actually lives in a conversation — hard against the
+  // bottom of the window — that is 79px past the edge, and `clampY` then rescues
+  // him by shoving him up until his base is flush with the window bottom.
+  // Reported from use as "he's vertically centered with it which means that he's
+  // too low, and going off the bottom edge of the browser. Cut off."
+  //
+  // `anchor: 'bottom'` puts his BASE on the target's bottom edge instead, so he
+  // stands on the composer's floor with his head well above it — which is what
+  // "standing beside the input" looks like when the input is a short wide box.
+  const cy =
+    opts.anchor === 'bottom'
+      ? rect.top + rect.height - drawnH / 2
+      : rect.top + rect.height / 2
+  const y = clampY(cy, drawnH / 2, opts.shift ?? 0, opts.clamp ?? true)
 
   const position = viewportToBlender(camera, x, y, distance)
   // His ROOT is at his base, not his centre — the rig origin sits at his feet
@@ -495,6 +523,14 @@ export function solvePark(
     side: Side
     baseDistance: number
     centre?: boolean
+    /**
+     * Which part of HIM lines up with the target on the vertical.
+     *
+     * `centre` (default) matches his middle to the target's middle. `bottom`
+     * puts his base on the target's bottom edge — for a target much shorter
+     * than he is, where centring hangs most of him below it.
+     */
+    anchor?: 'centre' | 'bottom'
     /**
      * Where the canvas's top edge sits in the viewport, when `rect` is in CANVAS
      * coordinates rather than viewport ones — which is to say, while he is

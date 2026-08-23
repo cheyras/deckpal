@@ -1236,7 +1236,12 @@ export function DeckeChat({
         */}
         <div
           className="pointer-events-auto shrink-0 px-[16px]"
-          style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
+          // 20px, not 12. At 12 the composer sat hard against the bottom edge
+          // of the window — "really fucking close to the bottom in a way that
+          // looks bad". Every full-screen chat this is measured against leaves
+          // appreciably more. `max()` still wins on hardware with a home
+          // indicator, where the inset is larger than either number.
+          style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
         >
         <form
           ref={composerRef}

@@ -971,7 +971,11 @@ body {
  * it is what a real card gives you: somewhere for the text to sit that is
  * clearly a place rather than a hole. */
 .decke-composer-card {
-  border-radius: var(--radius-2xl, 16px);
+  /* 14px, matching the reference composer's card radius. It was
+   * `--radius-2xl` (20px computed), and on a 58px-tall, 728px-wide box a 20px
+   * radius reads as a stadium — a giant pill with a button in it, not a card.
+   * Measured in the browser; the reference is 14. */
+  border-radius: 14px;
   /* `surface-secondary`, NOT `surface-raised`. "Raised" is stone-500, a mid
    * grey sized for a 56px circular button where a light disc reads as lifted.
    * At composer width the same colour is a pale slab across the bottom of a
@@ -995,9 +999,14 @@ body {
  *
  * The input keeps its ring in every other context by default; this only applies
  * where it is wrapped. And the affordance is not lost — it moves outward. */
+/* ONE line of accent, not two. This used to recolour the border AND add a 1px
+ * ring in the same colour, which paints 2px of saturated cyan around the whole
+ * composer — far louder than the reference, where focus is a quiet shift. The
+ * border moves to a muted accent and the ring carries the signal at low alpha. */
 .decke-composer-card:focus-within {
-  border-color: var(--color-action-primary-strong);
-  box-shadow: var(--shadow-elevated), 0 0 0 1px var(--color-action-primary-strong);
+  border-color: color-mix(in oklab, var(--color-action-primary-strong) 55%, transparent);
+  box-shadow: var(--shadow-elevated),
+    0 0 0 3px color-mix(in oklab, var(--color-action-primary-strong) 14%, transparent);
 }
 .decke-composer-card input:focus-visible,
 .decke-composer-card textarea:focus-visible {
