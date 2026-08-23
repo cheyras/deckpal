@@ -52,7 +52,8 @@ import {
 import { messageText, messageTools, type ChatMessage } from './DeckeChat'
 import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
-import { CLIENT_TOOLS, isClientTool, runUiTool, type UiToolResult } from './uiTools'
+import { CLIENT_TOOLS, isClientTool, isPressable, runUiTool, type UiToolResult } from './uiTools'
+import { runJourney, type JourneyResult, type JourneyStep } from './journey'
 
 /** A command as the server's `express` tool emits it. Mirrors `decke/tools.ts`. */
 type WireCommand = {
@@ -143,6 +144,8 @@ export function useDeckeChat(
   decke: DeckEInstance | null,
   navigate: (to: string) => void,
   onTravel?: () => void,
+  /** True while a journey step owns the transition; see `onSteppingRef`. */
+  onStepping?: (on: boolean) => void,
 ) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
@@ -173,6 +176,19 @@ export function useDeckeChat(
   navigateRef.current = navigate
   const onTravelRef = useRef(onTravel)
   onTravelRef.current = onTravel
+  /**
+   * Held true for the whole of a journey.
+   *
+   * The route watcher in `DeckeHost` tidies up after a navigation — it clears
+   * the highlight and re-parks him beside the conversation — which is exactly
+   * right when a PERSON navigates and exactly wrong between his own hops. A
+   * journey's `goTo` would otherwise have him ring something, get un-rung, and
+   * be pulled back to the composer before the next step could point at
+   * anything. That is the distinction the watcher was written around, and this
+   * is the flag it was waiting for.
+   */
+  const onSteppingRef = useRef(onStepping)
+  onSteppingRef.current = onStepping
 
   // ── The approval gate ──────────────────────────────────────────────────────
   //
@@ -584,11 +600,38 @@ export function useDeckeChat(
           const parts: WirePart[] = []
           if (outcome.text.trim()) parts.push({ type: 'text', text: outcome.text })
           for (const call of outcome.pending) {
-            const result = await runUiTool(
-              { decke, navigate: navigateRef.current },
-              call.name,
-              call.input,
-            )
+            // ── A JOURNEY IS NOT AN ORDINARY CLIENT TOOL ────────────────────
+            //
+            // It runs through the same boundary — same allowlist, same
+            // `runUiTool` for every individual step — but the sequencer needs
+            // three things this loop's context does not carry: somewhere to
+            // speak that is not the transcript, a flag that stops the route
+            // watcher tidying up between his own hops, and the TURN's abort
+            // signal, so that Stop halts the walk and the turn together rather
+            // than leaving a character mid-stride on a page nobody is talking
+            // about any more.
+            //
+            // Its result goes back on the wire exactly like any other tool's,
+            // which is what lets a fail-stop hand control back to the model
+            // with somewhere to start: which step, which verb, which target,
+            // and why.
+            const result: UiToolResult | JourneyResult =
+              call.name === 'journey'
+                ? await runJourney(
+                    {
+                      decke,
+                      navigate: navigateRef.current,
+                      say: (text) => appendText(text),
+                      setStepping: (on) => onSteppingRef.current?.(on),
+                    },
+                    ((call.input as { steps?: JourneyStep[] }).steps ?? []),
+                    ac.signal,
+                  )
+                : await runUiTool(
+                    { decke, navigate: navigateRef.current },
+                    call.name,
+                    call.input,
+                  )
             if (ac.signal.aborted) return
             // ── A ROW FOR WHAT HE DID TO THE PAGE ──────────────────────────
             //
@@ -615,8 +658,15 @@ export function useDeckeChat(
               id: call.id,
               name: call.name,
               title: uiToolTitle(call.name, call.input),
-              phase: result.ok ? 'ok' : 'error',
-              summary: result.reason,
+              // A JOURNEY THAT STOPPED HALF WAY IS `partial`, NOT `error`.
+              // Some of it genuinely happened — he really did cross two pages
+              // before the third landmark failed to appear — and calling that a
+              // failure discards work the reader watched him do. Calling it a
+              // success is the lie this pass exists to remove. `partial` is the
+              // phase that is neither, and it renders loudly with its reason.
+              phase: journeyPhase(result),
+              summary: journeySummary(result),
+              ...(isJourneyResult(result) && !result.ok ? { reason: 'truncated' as const } : {}),
             })
             // The wire shape matters: `convertToModelMessages` on the server
             // needs the assistant's tool CALL and the tool's OUTPUT as parts of
@@ -778,6 +828,42 @@ type LegHandlers = {
  * which `runUiTool` already returns in words ("pressed Deck Builder") and which
  * the row shows beside the title.
  */
+/** Is this a journey's result rather than an ordinary tool's? */
+function isJourneyResult(r: UiToolResult | JourneyResult): r is JourneyResult {
+  return typeof (r as JourneyResult).planned === 'number'
+}
+
+/**
+ * What phase a finished tool call renders as.
+ *
+ * The interesting case is a journey that stopped part way. It is not an error —
+ * he really did cross two pages before the third landmark failed to appear, and
+ * calling that a failure throws away work the reader watched happen. It is not
+ * a success either. `partial` is the phase for exactly that, and it renders
+ * with weight and with its reason rather than quietly.
+ */
+function journeyPhase(r: UiToolResult | JourneyResult): 'ok' | 'partial' | 'error' {
+  if (!isJourneyResult(r)) return r.ok ? 'ok' : 'error'
+  if (r.ok) return 'ok'
+  return r.ran.length > 0 ? 'partial' : 'error'
+}
+
+/**
+ * The row's summary, built from what ACTUALLY RAN.
+ *
+ * Never from the plan. A journey of six steps that stopped at the third says
+ * "3 of 6", and the three it names are the three that completed — a step after
+ * a failure contributes nothing at all, because the sequencer only records a
+ * step once it is done.
+ */
+function journeySummary(r: UiToolResult | JourneyResult): string | undefined {
+  if (!isJourneyResult(r)) return r.reason
+  const where = `${r.ran.length} of ${r.planned} steps`
+  if (r.ok) return `Walked you through — ${where}.`
+  const why = r.failure?.reason ?? 'it stopped'
+  return `${where[0].toUpperCase()}${where.slice(1)}, then ${why}.`
+}
+
 function uiToolTitle(name: string, input: Record<string, unknown>): string {
   const route = typeof input.route === 'string' ? input.route : null
   switch (name) {
@@ -791,6 +877,8 @@ function uiToolTitle(name: string, input: Record<string, unknown>): string {
       return 'Pressed it'
     case 'scrollToMe':
       return 'Scrolled to himself'
+    case 'journey':
+      return 'Walked you there'
     default:
       return titleFor(name)
   }
@@ -1110,7 +1198,14 @@ const LANDMARK_CAP = 40
  * something the model is told about.
  */
 function collectLandmarks(): { selector: string; label: string }[] {
-  type Ranked = { selector: string; label: string; onScreen: boolean; rank: number; order: number }
+  type Ranked = {
+    selector: string
+    label: string
+    onScreen: boolean
+    rank: number
+    order: number
+    clickable: boolean
+  }
   const found: Ranked[] = []
   const vh = window.innerHeight
   const vw = window.innerWidth
@@ -1128,13 +1223,26 @@ function collectLandmarks(): { selector: string; label: string }[] {
       onScreen,
       rank: el.dataset.deckeRank === 'container' ? 0 : 1,
       order: order++,
+      // ASKED OF THE CODE THAT WILL LATER REFUSE OR ALLOW THE PRESS, not of the
+      // attribute. `isPressable` is `resolveClickTarget`'s own predicate: the
+      // marking, plus the element actually being a control, plus — for an
+      // anchor — same origin and a route on the allowlist. Checking only the
+      // attribute would promise a press the runtime then refuses, and he
+      // announces the plan before executing it, so the reader would watch him
+      // say he was going to press something and then not.
+      clickable: isPressable(el),
     })
   }
   found.sort(
     (a, b) =>
       Number(b.onScreen) - Number(a.onScreen) || a.rank - b.rank || a.order - b.order,
   )
-  return found.slice(0, LANDMARK_CAP).map(({ selector, label }) => ({ selector, label }))
+  return found
+    .slice(0, LANDMARK_CAP)
+    // `clickable` omitted rather than sent as `false`, because it rides in the
+    // prompt on every leg and forty `clickable: false` fields is prompt spent
+    // saying nothing. Absent already means "not pressable" on the other side.
+    .map(({ selector, label, clickable }) => (clickable ? { selector, label, clickable } : { selector, label }))
 }
 
 /** Commands arrive validated by the server; this is the last mile into the engine. */

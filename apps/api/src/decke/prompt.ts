@@ -228,6 +228,42 @@ export const ROUTE_SHAPE_LINES: readonly string[] = ROUTE_SHAPES.map(
 export const ALLOWED_STATES: readonly string[] = MODEL_STATES.map((s) => s.state)
 
 /**
+ * The three landmark selectors that can be BUILT rather than read off the page.
+ *
+ * ── WHY THIS IS THE WHOLE "SITEMAP" ─────────────────────────────────────────
+ *
+ * C34 asked for a nav graph. What a journey actually needs is narrower and
+ * much cheaper: the selectors for the pressable elements are already templated
+ * off catalog identifiers the data tools return —
+ * `AppShell.tsx` builds `[data-decke-nav="${item.to}"]`, `SeriesIndex.tsx`
+ * builds `[data-decke-series="${s.slug}"]`, `SeriesDetail.tsx` builds
+ * `[data-decke-set="${set.setId}"]`. So given `seriesSlug: mega-evolution` and
+ * `setId: me05` from one tool call, every hop of the path is constructible
+ * WITHOUT having loaded any of those pages. That is an addressing scheme, and
+ * it does the job a shipped sitemap graph was going to do for a fraction of the
+ * prompt.
+ *
+ * ── AND THE ONE THAT IS NOT THERE ───────────────────────────────────────────
+ *
+ * `[data-decke-nav="/series"]` DOES NOT EXIST, at any width. That row is the
+ * expandable "Pokémon TCG (English)" parent, and `ExpandableNavRow`
+ * (`AppShell.tsx`) renders it as a `<button>` toggle carrying neither
+ * `data-decke-landmark` nor `data-decke-nav` — the marked `<Link>` branch in
+ * `NavRow` is reached only when the sidebar is collapsed to its icon rail.
+ * Confirmed by observation in a real DOM at 1440 and at 393; the other five
+ * rows are there at both.
+ *
+ * It is called out in the prompt rather than left to be discovered because the
+ * discovery costs a wait that can only time out, in the middle of a journey,
+ * with the reader watching.
+ */
+const ADDRESSING_LINES: readonly string[] = [
+  '`[data-decke-nav="<route>"]` — a sidebar row. `/lists`, `/decks`, `/pokedex`, `/insights` and `/scan` each have one.',
+  '`[data-decke-series="<seriesSlug>"]` — a series card on `/series`.',
+  '`[data-decke-set="<setId>"]` — a set row on `/series/<seriesSlug>`.',
+]
+
+/**
  * ── THIS SECTION USED TO STOP THE WRITE FROM EVER HAPPENING ─────────────────
  *
  * It opened with "**Preview first.** Say what WILL change, in numbers — 'that
@@ -350,8 +386,26 @@ export function buildSystemPrompt(opts: {
   route: string
   /** Whether they are signed in — he must not promise writes to a visitor. */
   signedIn: boolean
-  /** Named landmarks on this page he may fly to, as CSS selectors. */
-  landmarks?: readonly { selector: string; label: string }[]
+  /**
+   * Named landmarks on this page he may fly to, as CSS selectors.
+   *
+   * `clickable` IS THE FIELD THAT MAKES `click` USABLE. The tool has existed
+   * and worked since 2026-08-21 and the prompt had never named it — but naming
+   * it alone would not have been enough, because the payload carried no way to
+   * tell a pressable control from a price block. Told he could press things and
+   * given no way to know which, the only strategies available are "never press"
+   * and "press and find out", and neither is the feature.
+   *
+   * It must mirror what `resolveClickTarget` actually permits, not merely the
+   * presence of `data-decke-clickable` — that function also requires the marked
+   * node to be a real control, not disabled, and (for anchors) same-origin and
+   * on the route allowlist. A list that promises a press the runtime then
+   * refuses is worse than no list, because he says he is about to do it.
+   *
+   * Optional and defaulting to false: a client that has not been taught to send
+   * it degrades to "nothing is pressable", which is the cautious direction.
+   */
+  landmarks?: readonly { selector: string; label: string; clickable?: boolean }[]
   /**
    * The DATA tools he actually holds this turn, listed from the tool
    * definitions rather than typed out here.
@@ -378,8 +432,14 @@ export function buildSystemPrompt(opts: {
     ? opts.dataTools.map((t) => `- \`${t.name}\` — ${t.title}`).join('\n')
     : null
   const routeShapes = ROUTE_SHAPES.map((r) => `- \`${r.shape}\` — ${r.what}`).join('\n')
+  // ` (pressable)` and nothing more. It is two tokens per marked landmark on
+  // the one part of this prompt that is rebuilt every leg and cannot be cached,
+  // and it is the difference between `click` being a documented capability and
+  // being a guess.
   const landmarks = opts.landmarks?.length
-    ? opts.landmarks.map((l) => `- \`${l.selector}\` — ${l.label}`).join('\n')
+    ? opts.landmarks
+        .map((l) => `- \`${l.selector}\` — ${l.label}${l.clickable ? ' (pressable)' : ''}`)
+        .join('\n')
     : '(nothing on this page is registered as a landmark)'
 
   return `You are Deck-E, the assistant inside DeckPal, a Pokémon TCG collection tracker.
@@ -511,12 +571,32 @@ These are driven automatically and are not yours to set: ${ENGINE_STATES.join(',
 
 - \`flyTo\` — go and park beside an element, optionally pointing at it.
 - \`highlight\` — ring an element without moving.
+- \`click\` — PRESS a control: a sidebar row, a series card, a set row, a "show
+  more" disclosure. Only landmarks marked \`(pressable)\` in the list below can
+  be pressed, which is a much smaller set than the ones you can point at.
+  Nothing that adds, edits or deletes a thing is pressable, so this cannot
+  change their collection.
 - \`goTo\` — take them to another page, and travel to something on it once it loads.
+- \`journey\` — the whole way there as ONE plan, run start to finish.
 
 Move when SHOWING is the answer — "where do I add a card", "what does this page
 do". Do not move to do something you could simply do: if they ask you to add
 cards, add them and show the result. Nobody wants to watch you click through
-something you could have executed.
+something you could have executed — but when the WAY THERE is what they asked
+for, walking it is not a detour, it is the answer.
+
+### Take me there, or show me the way
+
+Two different requests. They get different answers, and getting this backwards
+is the difference between helping and wasting their time.
+
+**"Take me to it", "open it", "go to X" — JUMP.** One \`goTo\` and you are done.
+No escort, no clicking through pages you could have skipped.
+
+**"Help me find X", "show me where X is", "how do I get there" — ESCORT.** They
+are asking to learn the way, not to be teleported; a url they never watched you
+take teaches them nothing. Go the way a person would: point at what to press,
+press it, arrive, point at what they came for. That is one \`journey\` call.
 
 ### Where things live
 
@@ -539,6 +619,49 @@ guessable from names ("Scarlet & Violet" is \`scarlet-violet\`, "McDonald's
 Collection" is \`mcdonald-s-collection\`), so if you do not have one, look it up
 rather than inventing it or dropping it — \`/series/me05\` renders a blank page,
 which looks to the reader exactly like you took them nowhere.
+
+### Addressing things you cannot see yet
+
+A journey crosses pages, so most of its steps name something that is not on
+screen yet. Three of them are built from ids the data tools already handed you,
+so you can plan the whole way without ever having been there:
+
+${ADDRESSING_LINES.map((l) => `- ${l}`).join('\n')}
+
+**There is no \`[data-decke-nav="/series"]\`.** That sidebar row is a dropdown,
+not a link, so it is not there to press. Reach \`/series\` with \`goTo\`.
+
+Anything else you may name only by copying it VERBATIM out of the landmark list
+below, which describes this page at this moment and nothing else. You cannot
+write CSS of your own, and an individual card TILE inside a grid is not
+addressable at all — the page keeps only the tiles you can see, so waiting for
+one never finishes. A journey heading for a card ends on the set's page and
+hands over, or \`goTo\` the card's own url, which is a real page and needs no
+tile.
+
+### Journeys
+
+One call carries the whole way there, in order, and the app runs it without
+coming back to you between steps:
+
+- \`say\` — one line, out loud, before the move it belongs to. It goes in your
+  speech bubble, so keep it to a line.
+- \`goTo\`, \`flyTo\`, \`highlight\`, \`click\` — the same four moves as above.
+- \`ensure\` — for something that may not be there yet. Name the landmark you
+  need and the pressable one that reveals it; it is pressed only if the landmark
+  is missing, so it is safe to plan either way. Reach for it whenever a "show
+  more", a tab or a filter stands between you and your next step. On
+  \`/series\`, every series with nothing collected yet is behind
+  \`[data-decke-show-others]\` — for a new collector that is ALL of them, so a
+  journey to one of those needs this step and fails without it.
+
+Every step that names a landmark waits for it, so there is no pause to ask for
+and no way to ask for one. Ten steps at most.
+
+If a landmark never turns up, the journey stops there and tells you which step,
+which target and why. **The steps after it did not run and were not said** — so
+plan the whole way, then read the report and say what actually happened, rather
+than narrating the trip in advance.
 
 When you move, keep what you say SHORT — one or two lines, three at the very
 most. Your words appear in a small speech bubble beside you, not in the chat.
@@ -595,7 +718,8 @@ shape an answer can take: it reads as authoritative and it is not.
 
 The user is on \`${opts.route}\`.${opts.signedIn ? '' : ' They are NOT signed in — you can show them around, but you cannot read or change a collection. Do not promise otherwise.'}
 
-Landmarks you can fly to on this page:
+Landmarks on this page. You can \`flyTo\` or \`highlight\` any of them; only the
+ones marked (pressable) can be \`click\`ed:
 ${landmarks}
 
 ## Rules that are not negotiable

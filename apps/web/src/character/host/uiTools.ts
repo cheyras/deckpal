@@ -29,7 +29,7 @@ export type UiToolResult = { ok: boolean; reason?: string }
  * re-run in a place that cannot do it, fails, and posts a tool output that
  * contradicts the one the server already produced for that same call id.
  */
-export const CLIENT_TOOLS = ['flyTo', 'highlight', 'goTo', 'scrollToMe', 'click'] as const
+export const CLIENT_TOOLS = ['flyTo', 'highlight', 'goTo', 'scrollToMe', 'click', 'journey'] as const
 
 export type ClientToolName = (typeof CLIENT_TOOLS)[number]
 
@@ -118,6 +118,44 @@ function resolveTarget(selector: string): { el: Element | null; refused?: string
  * clickable in its own table. Both are writes. A rule its own author broke
  * while writing it down needs a second pair of eyes on every use.
  */
+/**
+ * Is this element one the click tool would actually press?
+ *
+ * EXPORTED SO THE LANDMARK LIST CAN ASK THE SAME QUESTION. The model is told
+ * which landmarks are pressable, and that claim has to be computed by the code
+ * that will later refuse or allow the press — not by a second, looser test.
+ * `hasAttribute('data-decke-clickable')` is that looser test: it would promise
+ * a press for a marked element that is not a control, or a marked anchor
+ * pointing off the allowlist, and the runtime would then refuse it. A list that
+ * promises a press the runtime refuses is worse than no list at all, because he
+ * announces the plan before he executes it.
+ */
+export function isPressable(el: Element | null | undefined): boolean {
+  if (!(el instanceof HTMLElement)) return false
+  const pressable = el.closest<HTMLElement>('[data-decke-clickable]')
+  if (!pressable) return false
+  const tag = pressable.tagName.toLowerCase()
+  const role = pressable.getAttribute('role')
+  const isControl =
+    tag === 'button' || (tag === 'a' && pressable.hasAttribute('href')) || role === 'button'
+  if (!isControl) return false
+  if (pressable.hasAttribute('disabled') || pressable.getAttribute('aria-disabled') === 'true') {
+    return false
+  }
+  if (tag === 'a') {
+    const href = pressable.getAttribute('href') ?? ''
+    let url: URL
+    try {
+      url = new URL(href, window.location.href)
+    } catch {
+      return false
+    }
+    if (url.origin !== window.location.origin) return false
+    if (!routeAllowed(url.pathname)) return false
+  }
+  return true
+}
+
 function resolveClickTarget(selector: string): { el: HTMLElement | null; refused?: string } {
   const { el, refused } = resolveTarget(selector)
   if (refused) return { el: null, refused }
@@ -274,6 +312,18 @@ export async function runUiTool(
         ctx.navigate(route)
         if (typeof input.selector !== 'string') return { ok: true }
         return await travelAfterRoute(ctx, input.selector, false)
+      }
+
+      case 'journey': {
+        // DELEGATED, not implemented here. A journey needs things this boundary
+        // does not have — a way to speak into the bubble, a flag that keeps the
+        // route watcher from tidying up mid-hop, and the TURN's abort signal so
+        // that Stop halts the walk and the turn together. `useDeckeChat` has all
+        // three, so it hands `runJourney` a richer context and this case exists
+        // to satisfy the tool boundary's own audit: every advertised tool has a
+        // case, and falling through to `default` answers "I do not know how to
+        // do X" — the one reason a model cannot act on.
+        return { ok: false, reason: 'a journey is run by the conversation, not from here' }
       }
 
       default:

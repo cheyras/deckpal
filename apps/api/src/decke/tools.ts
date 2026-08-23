@@ -9,12 +9,13 @@
  *     parts never enter message history, so the commands cost nothing on later
  *     turns and cannot be echoed back as text.
  *
- *   - `flyTo`, `highlight`, `goTo`, `scrollToMe` have no `execute` here. A tool
- *     with no server-side execute is forwarded to the BROWSER, run there, and
- *     answered with a real result. That matters: "no element matches
- *     '#deck-list'" is something the model has to be able to recover from, and
- *     a fire-and-forget command would leave it narrating a thing that never
- *     happened.
+ *   - `flyTo`, `highlight`, `goTo`, `scrollToMe`, `click` and `journey` have no
+ *     `execute` here. A tool with no server-side execute is forwarded to the
+ *     BROWSER, run there, and answered with a real result. That matters: "no
+ *     element matches '#deck-list'" is something the model has to be able to
+ *     recover from, and a fire-and-forget command would leave it narrating a
+ *     thing that never happened. `journey` is the same contract for a whole
+ *     ordered plan rather than one move.
  *
  * WHY THE MODEL NEVER SEES COMMAND SYNTAX AS TEXT: it calls a tool, and the
  * TOOL does the writing. There is no inline syntax to leak, no parser to get
@@ -219,6 +220,252 @@ export const uiResultSchema = z.object({
   reason: z.string().optional(),
 })
 
+/**
+ * ── A JOURNEY IS ONE CALL, AND THAT IS THE WHOLE POINT ──────────────────────
+ *
+ * Escorting someone from `/insights` to a set page is four moves — press the
+ * sidebar row, wait, press the series card, wait, press the set row, arrive.
+ * Done as four model turns that is four full requests, each re-billing the
+ * entire system prompt INCLUDING the 40-landmark list, and four chances to
+ * wander off. Done as one plan it is one request and a client-side timeline.
+ *
+ * The precedent is `express` in `buildTools` below: `z.array(commandSchema)
+ * .min(1).max(6)`, a batch of commands validated here and executed in the
+ * browser. This is that shape with navigation verbs.
+ *
+ * ── THE SCHEMA IS FLAT, FOR THE REASON `commandSchema` IS FLAT ──────────────
+ *
+ * A `z.discriminatedUnion` on `verb` would be the stronger contract — it makes
+ * "an `ensure` with no `byClicking`" unrepresentable rather than merely
+ * rejected. It is not used here because zod 4 emits `oneOf` for it (verified by
+ * printing `z.toJSONSchema` of exactly this shape), and the only thing this
+ * repo has ever MEASURED on the primary model is `anyOf` with `const`
+ * discriminators. Shipping an unmeasured JSON-Schema keyword into a nested
+ * array item is precisely the move that cost this file a silent, unnamed,
+ * whole-request failure once already (see `cards` below). So: flat object,
+ * `verb` enum, `validateJourneyStep` for everything the flat shape cannot say —
+ * the identical trade `commandSchema` + `validateCommand` already makes, and the
+ * identical upgrade path if anyone measures the union.
+ *
+ * ── AND NO STRING LENGTH BOUNDS INSIDE THE ARRAY ────────────────────────────
+ *
+ * Same reason, same incident: `minLength` on a string nested inside an array
+ * item is the exact keyword+position that made grok-4.1 reject the whole
+ * request with nothing naming the field. `maxLength` at that depth has never
+ * been measured either way. The bounds are enforced in `validateJourneyStep`
+ * instead, where a violation comes back as a sentence the model can act on
+ * rather than as a schema the model never sees the failure of.
+ */
+
+/** How many steps one plan may carry. A runaway journey must not be expressible. */
+export const JOURNEY_MAX_STEPS = 10
+
+/** Longest a single spoken step may be. It lands in the speech bubble. */
+const JOURNEY_SAY_MAX = 200
+
+/** Longest landmark reference / route accepted, matching `selector`'s bound. */
+const JOURNEY_REF_MAX = 120
+
+/**
+ * ── NO ARBITRARY SELECTORS. THIS IS THE LINE THAT MATTERS ───────────────────
+ *
+ * `flyTo` and `highlight` take a free CSS string because the BROWSER bounds
+ * them: `resolveTarget` (`character/host/uiTools.ts`) refuses anything that is
+ * not inside a `[data-decke-landmark]`. That is one control, at the far end of
+ * the wire, and it is the only one.
+ *
+ * A journey is a PLAN — up to ten targets, most of them for pages nobody has
+ * loaded yet, none of them individually reviewed by the model at the moment it
+ * acts. So a journey's targets are bounded HERE as well, by shape: a single
+ * attribute selector on a `data-decke-` attribute, and nothing else. No
+ * combinators, no `#id`, no `.class`, no comma, no `:has()`, no `[href]`. It
+ * cannot express `input[type=password]`, it cannot express
+ * `[data-decke-nav="/decks"] a`, and it cannot express a selector that walks
+ * out of the marked namespace at all.
+ *
+ * The browser's landmark check still runs afterwards — this narrows what can be
+ * asked for, it does not replace what is enforced. Two bounds, and the outer
+ * one refuses the plan BEFORE a single step executes, which is the difference
+ * between "he stopped halfway" and "he never started".
+ *
+ * Every landmark selector the app emits today is of this form:
+ * `[data-decke-nav="/decks"]`, `[data-decke-series="mega-evolution"]`,
+ * `[data-decke-set="me05"]`, `[data-decke-show-others]`,
+ * `[data-decke-completion-bar]`. `journey.test.ts` pins a corpus of them.
+ */
+const LANDMARK_REF = /^\[data-decke-[a-z][a-z0-9-]*(?:="[^"\][<>\\]{1,64}")?\]$/
+
+export function isLandmarkRef(s: unknown): s is string {
+  return typeof s === 'string' && s.length <= JOURNEY_REF_MAX && LANDMARK_REF.test(s)
+}
+
+/** The verbs a journey step may use. `wait` is deliberately absent — see below. */
+export const JOURNEY_VERBS = ['say', 'goTo', 'flyTo', 'highlight', 'click', 'ensure'] as const
+
+const journeyStepSchema = z.object({
+  verb: z
+    .enum(JOURNEY_VERBS)
+    .describe(
+      'say = speak one line. goTo = go to a page. flyTo = park beside a landmark. ' +
+        'highlight = ring one without moving. click = press a pressable one. ' +
+        'ensure = press something ONLY if the landmark you need is not there yet. ' +
+        'There is no wait verb: every step that names a landmark already waits for it.',
+    ),
+  text: z.string().optional().describe('verb "say" only: one line, out loud.'),
+  route: z.string().optional().describe('verb "goTo" only: an in-app path.'),
+  landmark: z
+    .string()
+    .optional()
+    .describe(
+      'verbs "flyTo", "highlight", "click", "ensure": the landmark to act on, as a single ' +
+        '[data-decke-…] attribute selector — copied from the landmark list, or built as ' +
+        '[data-decke-nav="<route>"], [data-decke-series="<seriesSlug>"] or [data-decke-set="<setId>"]. ' +
+        'Nothing else is addressable.',
+    ),
+  byClicking: z
+    .string()
+    .optional()
+    .describe(
+      'verb "ensure" only: the pressable landmark that reveals `landmark` when it is missing. ' +
+        'Pressed only if it is missing, so an ensure step is safe to plan either way.',
+    ),
+  point: z.boolean().optional().describe('verb "flyTo" only: point at it on arrival.'),
+})
+
+export type JourneyStep = z.infer<typeof journeyStepSchema>
+
+/**
+ * What the flat schema can no longer say, said here.
+ *
+ * Returns a reason when the step is malformed, or `null` when it is fine.
+ * REJECTS RATHER THAN CLAMPS, exactly as `validateCommand` does: a model that
+ * is silently corrected learns nothing and repeats the mistake.
+ *
+ * Rejection happens at PARSE time (the schema below calls this from a
+ * `superRefine`), so a bad plan never reaches the browser and never executes
+ * half of itself. The model gets one error naming the step index and can
+ * re-plan in the same turn.
+ */
+export function validateJourneyStep(s: JourneyStep): string | null {
+  const forbid = (fields: (keyof JourneyStep)[]): string | null => {
+    for (const f of fields) {
+      if (s[f] !== undefined) return `${f} does not belong on a "${s.verb}" step`
+    }
+    return null
+  }
+  switch (s.verb) {
+    case 'say': {
+      if (!s.text?.trim()) return 'verb "say" needs text'
+      if (s.text.length > JOURNEY_SAY_MAX) {
+        return `verb "say" is capped at ${JOURNEY_SAY_MAX} characters — it goes in a speech bubble`
+      }
+      return forbid(['route', 'landmark', 'byClicking', 'point'])
+    }
+    case 'goTo': {
+      if (!s.route) return 'verb "goTo" needs a route'
+      if (s.route.length > JOURNEY_REF_MAX) return 'that route is too long to be a real one'
+      // Checked at PLAN time, not at execution: a journey containing one
+      // off-allowlist hop is refused whole, so he never walks someone three
+      // steps down a path that was never going to finish.
+      if (!isAllowedRoute(s.route)) return `I am not allowed to take anyone to "${s.route}"`
+      return forbid(['text', 'landmark', 'byClicking', 'point'])
+    }
+    case 'flyTo':
+    case 'highlight':
+    case 'click': {
+      if (!s.landmark) return `verb "${s.verb}" needs a landmark`
+      if (!isLandmarkRef(s.landmark)) {
+        return (
+          `"${String(s.landmark).slice(0, 60)}" is not a landmark. A journey addresses one ` +
+          '[data-decke-…] attribute at a time — not a CSS selector of your own'
+        )
+      }
+      return forbid(['text', 'route', 'byClicking', ...(s.verb === 'flyTo' ? [] : (['point'] as const))])
+    }
+    case 'ensure': {
+      // BOTH, always. An `ensure` naming only the thing to click is a blind
+      // click, and one naming only the landmark is a wait with no remedy —
+      // which is the fixed-delay-by-another-name this verb exists to replace.
+      if (!s.landmark) return 'verb "ensure" needs the landmark you are making sure of'
+      if (!s.byClicking) return 'verb "ensure" needs byClicking — what to press if it is missing'
+      if (!isLandmarkRef(s.landmark) || !isLandmarkRef(s.byClicking)) {
+        return 'both of an ensure step\'s targets must be [data-decke-…] landmarks'
+      }
+      if (s.landmark === s.byClicking) {
+        return 'ensure would be pressing the very thing it is waiting for'
+      }
+      return forbid(['text', 'route', 'point'])
+    }
+    default:
+      return `unknown verb "${String((s as { verb?: string }).verb)}"`
+  }
+}
+
+/**
+ * The journey tool's input, exported so the client sequencer and the tests read
+ * the same definition rather than two descriptions of one intent.
+ */
+export const journeySchema = z.object({
+  steps: z
+    .array(journeyStepSchema)
+    .min(1)
+    .max(JOURNEY_MAX_STEPS)
+    .describe(
+      `The whole way there, in order, at most ${JOURNEY_MAX_STEPS} steps. Run start to finish ` +
+        'without asking you again; if a step\'s landmark never appears the journey stops there ' +
+        'and reports which one.',
+    )
+    .superRefine((steps, ctx) => {
+      for (const [i, s] of steps.entries()) {
+        const bad = validateJourneyStep(s)
+        if (bad) ctx.addIssue({ code: 'custom', message: `steps[${i}]: ${bad}`, path: [i] })
+      }
+    }),
+})
+
+/**
+ * What the browser sends back when a journey ends.
+ *
+ * FAIL-STOP NEEDS A SHAPE, not prose. "I could not find it" tells the model
+ * nothing it can plan a recovery from; a step index, the verb, the target and a
+ * named cause tell it whether to re-plan the route, press a disclosure first, or
+ * give up and say so.
+ *
+ * `ran` is the TRUTH SURFACE (PLAN X2). Steps after the failure did not happen,
+ * so they produce no rows, and nothing here lets the model claim otherwise.
+ * The five causes are distinct recoveries, not shades of one:
+ *
+ *   absent    — nothing matched, and nothing appeared within the wait bound.
+ *               Re-plan: it is probably behind a disclosure, so `ensure` it.
+ *   timeout   — the page itself never settled. Re-plan: try the url directly.
+ *   refused   — it is there and he may not use it that way (not a landmark, not
+ *               pressable, off the route allowlist). Do not retry; say so.
+ *   cancelled — the user did something, or the turn was stopped. Say nothing
+ *               about the rest of the trip; it is not happening.
+ *   error     — something else threw. The catch-all `runUiTool` already has.
+ */
+export const journeyResultSchema = z.object({
+  ok: z.boolean(),
+  /** Steps that actually executed, in order, with what each really did. */
+  ran: z.array(
+    z.object({
+      verb: z.enum(JOURNEY_VERBS),
+      target: z.string().optional(),
+      reason: z.string().optional(),
+    }),
+  ),
+  planned: z.number().int().min(0),
+  failure: z
+    .object({
+      step: z.number().int().min(0),
+      verb: z.enum(JOURNEY_VERBS),
+      target: z.string().optional(),
+      why: z.enum(['absent', 'timeout', 'refused', 'cancelled', 'error']),
+      reason: z.string(),
+    })
+    .optional(),
+})
+
 /** The stream writer `express` needs. Structural, so this module does not have
  *  to import the SDK's UI-stream generics just to name one method. */
 export type CommandWriter = {
@@ -395,6 +642,39 @@ export function buildTools(
       }),
     }),
 
+    /**
+     * ── ONE PLAN, NOT FOUR TURNS ─────────────────────────────────────────────
+     *
+     * See the block above `journeySchema` for why this shape, why it is flat,
+     * and why its targets are not CSS. Three things about the TOOL itself:
+     *
+     * 1. NO SERVER EXECUTE. The browser is the only thing that can run this,
+     *    and it must answer with a real result — a journey that half-happened
+     *    and reported success is the exact failure the client-tool split exists
+     *    to prevent.
+     * 2. THE WAITS ARE NOT IN THE SCHEMA, DELIBERATELY. There is no `wait` verb
+     *    and no duration field anywhere, so a fixed delay is not expressible.
+     *    Every step that names a landmark waits for that landmark, bounded, the
+     *    way `travelAfterRoute` already does. A model cannot ask for the wrong
+     *    kind of wait because there is only one kind.
+     * 3. THE PLAN IS REFUSED WHOLE OR RUN. `superRefine` rejects a malformed or
+     *    off-allowlist plan at parse time, before the first step, so the failure
+     *    the reader can see is only ever "it stopped where the page did".
+     */
+    journey: tool({
+      description:
+        'Escort someone somewhere: ONE call carrying the whole way there, in order, run start to finish. ' +
+        'Use it when they ask to be SHOWN the way — "help me find", "where is", "how do I get to" — rather ' +
+        'than simply taken somewhere; for "take me to it", call goTo and be done. ' +
+        'Steps: say a line, goTo a page, flyTo a landmark, highlight one, click a pressable one, or ensure ' +
+        'one is there by pressing the thing that reveals it. ' +
+        'Every step that names a landmark waits for it, so there is no pause to ask for. ' +
+        'If one never appears the journey stops there and tells you which step, which target and why — ' +
+        'steps after it do not run, so do not describe them as though they did.',
+      inputSchema: journeySchema,
+      // No execute: the browser runs this and reports back.
+    }),
+
     showScreen: tool({
       description:
         'Show a small panel of results in the chat — a summary, a haul, a set of figures. You choose which components to use and what goes in them; you never write markup, styling or layout. Use it when the answer is a SHAPE (a list of cards, a few numbers, a progress bar) rather than a sentence. For a sentence, just say the sentence.',
@@ -434,4 +714,4 @@ export function buildTools(
 }
 
 /** Tools the BROWSER fulfils. The server must not try to execute these. */
-export const CLIENT_TOOLS = ['flyTo', 'highlight', 'goTo', 'scrollToMe', 'click'] as const
+export const CLIENT_TOOLS = ['flyTo', 'highlight', 'goTo', 'scrollToMe', 'click', 'journey'] as const
