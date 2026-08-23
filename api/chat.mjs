@@ -44,6 +44,16 @@ import {
   stepCountIs,
   toUIMessageStream,
 } from 'ai'
+
+/**
+ * How many SERVER steps one turn may take.
+ *
+ * Named rather than inlined because two places have to agree: the `stopWhen`
+ * that enforces it, and the check after the stream that notices a turn spent
+ * all of them without ever answering. Two copies of 12 is two copies that can
+ * drift, and the drift would be silent — the check would simply stop firing.
+ */
+const MAX_STEPS = 12
 import { createGateway } from '@ai-sdk/gateway'
 
 // Everything imported here comes from `apps/api/dist` — COMPILED output, not
@@ -532,7 +542,7 @@ async function serve(request) {
         // server `execute` and therefore ENDS the server turn — raising this
         // number does nothing at all for a journey.
         stopWhen: [
-          stepCountIs(12),
+          stepCountIs(MAX_STEPS),
           ({ steps }) => {
             const last = steps[steps.length - 1]
             if (!last) return false
@@ -661,6 +671,49 @@ async function serve(request) {
       writer.merge(
         stripToolSyntax(toUIMessageStream({ stream: result.fullStream, sendReasoning: false })),
       )
+
+      // ── A TURN THAT SPENT EVERYTHING AND SAID NOTHING ────────────────────
+      //
+      // Found by gate 23, on a real run: twelve tool calls, ZERO text deltas,
+      // stream closed `finishReason: "tool-calls"` against the step cap above.
+      // The reader waits about half a minute and gets an empty bubble — no
+      // answer, no error, nothing to act on. It is the same defect the deep
+      // tier already handles: `deep.ts` detects exactly this condition and
+      // reports it as incomplete. The conversational path did not.
+      //
+      // THE DISCRIMINATOR IS THE STEP COUNT, and getting it wrong would break
+      // the feature. A turn ending on tool calls with no text is the NORMAL
+      // shape of a navigation handoff: `goTo` and `flyTo` have no server
+      // `execute`, so the SDK finishes the step and the browser runs them —
+      // and a following leg carries the words. Speaking here would talk over
+      // him mid-journey. Only a turn that reached the CAP has genuinely run
+      // out of room, which is why this reads `steps.length` and not
+      // `finishReason` alone.
+      //
+      // It is written as a text delta rather than an error part on purpose:
+      // this is something to say to the reader, and it belongs in his voice in
+      // the transcript rather than in a failure surface. What it must never do
+      // is claim an answer it does not have.
+      try {
+        const steps = await result.steps
+        const spoke = steps.some((s) => (s.text ?? '').trim().length > 0)
+        if (!spoke && steps.length >= MAX_STEPS) {
+          console.warn(
+            `[deck-e] turn exhausted its ${MAX_STEPS}-step budget without answering; ` +
+              'the reader was told rather than left with an empty bubble.',
+          )
+          writer.write({
+            type: 'text-delta',
+            id: 'step-budget-exhausted',
+            delta:
+              'I went round in circles on that one and ran out of room before I could ' +
+              'answer — I never got to the reply. Ask me again, or narrow it down a bit?',
+          })
+        }
+      } catch {
+        // A turn that failed hard has its own error path. This is only here to
+        // catch the SILENT case, and it must not manufacture a second failure.
+      }
     },
   })
 
