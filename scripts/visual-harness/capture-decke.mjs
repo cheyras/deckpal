@@ -133,9 +133,10 @@ const SCENES = [
       await openDeckE(page)
       timing.measure('open:click-to-composer', 'open:click')
       notes.characterArrival = await waitForCharacter(page)
+      notes.characterSettled = await waitForSettled(page)
       // The panel's entrance is 320 ms and he flies after arriving; this
       // photographs the settled state, not the transition (see `chat-entry`).
-      await page.waitForTimeout(1800)
+      await page.waitForTimeout(1200)
     },
   },
   {
@@ -442,6 +443,38 @@ async function waitForCharacter(page, timeoutMs = 20_000) {
   }
 }
 
+/**
+ * Wait until he has stopped BOOTING, in dev builds where the handle exists.
+ *
+ * "The canvas is opaque" is not the same as "he looks like himself". He plays a
+ * boot animation on start, with its own pose and its own gaze, and a capture
+ * taken during it photographs a character mid-wake — which then gets read as
+ * his resting appearance and reasoned about. That happened: his pupils were up
+ * and away in a still meant to show him at rest, and the obvious inference was
+ * that a thinking-gaze edit had leaked into idle. It had not; the scene was
+ * simply early.
+ *
+ * Best-effort by design. `window.__decke` is DEV-only, so against a production
+ * build this resolves immediately rather than failing — a capture that refuses
+ * to run is worse than one that is occasionally early, as long as it says so.
+ */
+async function waitForSettled(page, timeoutMs = 12_000) {
+  const started = Date.now()
+  const settled = await page
+    .waitForFunction(
+      () => {
+        const d = window.__decke
+        if (!d?.getState) return true // production build: nothing to wait for
+        return d.getState().state !== 'boot'
+      },
+      undefined,
+      { timeout: timeoutMs },
+    )
+    .then(() => true)
+    .catch(() => false)
+  return { settled, ms: Date.now() - started }
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 
 function fmtBytes(n) {
@@ -614,6 +647,9 @@ async function runScene(browser, devices, scene, platform, timing) {
 
   writeFileSync(join(dir, 'notes.json'), JSON.stringify(notes, null, 2))
   console.log(`    presence: ${JSON.stringify(notes.presence)}`)
+  if (notes.characterSettled && !notes.characterSettled.settled) {
+    console.log('    NOTE: he was still booting when photographed — the still is not his resting look.')
+  }
   if (notes.characterArrival) {
     const a = notes.characterArrival
     console.log(`    character arrival: ${a.arrived ? `${a.ms} ms` : `NEVER (gave up after ${a.ms} ms)`}`)
