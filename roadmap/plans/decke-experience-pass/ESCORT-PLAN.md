@@ -141,6 +141,17 @@ predates both fixes and may not survive them. Everything below assumes it does.
 
 ## 2. The change that attacks the cause: stop making him write the program
 
+> **BUILT, AND NOT YET MEASURED** — commit `cbd3ce0`. `escort` ships, the two
+> §0b defects are fixed, 643/643 across nine suites, typecheck 0, and the
+> builder is verified failable (breaking it three ways fails five tests). What
+> has NOT happened is a single real turn: the meter was exhausted. **Nothing
+> below is demonstrated until §6 runs.**
+>
+> Gate 22 was also structurally incapable of passing this: it filtered wire
+> tools to `goTo`/`click`, which a one-call walk never emits, so a perfect
+> escort scored the same as a description. Fixed in `4f3f129`.
+
+
 **Keep the compound execution contract. Take the compilation away from the
 model.**
 
@@ -391,6 +402,33 @@ effect sizes) and the Duolingo mascot DAU figures (no locatable primary source).
   was revision 1's mistake (§0c). The control group that holds model, prompt, SDK
   and turn position constant is **inside this system**, and it was available the
   whole time.
+
+---
+
+## 6b. The experiment, for the moment the meter resets
+
+Order matters; each answers something the next depends on.
+
+| # | arm | turns | asks |
+|---|---|---|---|
+| 1 | **baseline, `journey` only** (revert `escort` in a worktree) | 10 | does the 2/10 survive the two probe fixes? |
+| 2 | **as shipped** — `escort` + the trigger and `say` fixes | 20 | the headline. Which tool does he reach for? |
+| 3 | **`escort` present, §0b fixes reverted** | 10 | how much of any gain is the macro vs the two defects? |
+| 4 | **controls** — "take me to it" must still JUMP; a plain lookup must stay a lookup | 10 | did any of this bleed? |
+
+~50 turns, **~58¢**, inside one day's meter with room to spare.
+
+**Read arm 2 by which tool he chose, not only by whether he moved.** If he
+walks via `escort` the diagnosis holds. **If he still writes `journey` freehand
+and still fails, the diagnosis is wrong** and §3c's forced-choice arm becomes
+the next thing to run — it adjudicates directly, since well-formed forced calls
+mean reluctance and `tool-input-error`s mean construction cost.
+
+And then gate 22 on a browser, because the probe reads the wire and the gate is
+the authority on arrival.
+
+**Do not run n=10 and believe it.** Distinguishing 20% from 40% needs ~50 per
+arm; these numbers are for direction.
 
 ---
 
