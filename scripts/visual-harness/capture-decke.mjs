@@ -234,7 +234,20 @@ const SCENES = [
       await page.waitForTimeout(1400)
 
       timing.mark('close')
-      await page.getByRole('button', { name: 'Close chat' }).first().click({ timeout: 5000 })
+      // ── TWO ELEMENTS CARRY THIS LABEL, AND `.first()` PICKED THE WRONG ONE ──
+      //
+      // The scrim (`DeckeChat.tsx:771`) and the header's X (`:864`) are both
+      // `aria-label="Close chat"` — the scrim so that tapping the blurred page
+      // dismisses him. `.first()` resolved to the scrim, which the panel then
+      // intercepts pointer events for, so the click retried until it timed out
+      // and the scene could never run. Exactly the shared-label trap that once
+      // made `readPresence` report the launcher visible while it was unmounted.
+      //
+      // The header button is inside the dialog; the scrim is not.
+      await page
+        .getByRole('dialog', { name: 'Chat with Deck-E' })
+        .getByRole('button', { name: 'Close chat' })
+        .click({ timeout: 5000 })
       // `returnHome` is ~940 ms at the shipped desktop framing and the canvas
       // then fades and he is scaled to nothing 520 ms later — so this covers the
       // whole close, including the part where he is meant to be gone.
