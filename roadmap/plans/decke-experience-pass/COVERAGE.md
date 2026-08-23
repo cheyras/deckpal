@@ -128,7 +128,7 @@ COVERED **42** · PARTIAL **5** · DEFERRED **0** · CONTEXT **12** · DROPPED *
 | D5 | Reopening after a reload loses the conversation | major (gap) | `§12` — "owner: out of scope", to be planned as its own chat-history feature | **DEFERRED** |
 | D6 | Deck-E clipped by the viewport top at narrow widths | major | `§4 B7` (the missing vertical clamp) | **COVERED** |
 | D7 | Deck-E overlaps the PWA "Install" pill | major | `§4 B7` | **COVERED** |
-| D8 | Visibly tilted / tumbling animation on close and reopen | minor | — | **DROPPED** |
+| D8 | Visibly tilted / tumbling animation on close and reopen | minor | — | **CHECKED 2026-08-23 — see §II.7** |
 | D9 | "No visible relaunch icon" — investigated and dismissed | dismissed | brief itself; no plan work required | **CONTEXT** |
 | D10 | The speech bubble renders raw markdown too | major | `§5 C1` (explicitly names `DeckeBubble.tsx:129`) | **PARTIAL** |
 | D11 | The canvas paints above app chrome | major (constraint) | `§4 B7` incl. the launcher-chip `z-20` note, `§11.9` | **COVERED** |
@@ -1068,3 +1068,50 @@ and reversing an owner ask on a literature citation is precisely the move
 `OWNER-RULINGS.md` exists to prevent: they need a ruling, not an
 implementation. **R3** and **R7** are the two that are additive, cheap, and
 argue with nothing he said.
+
+
+---
+
+## II.7 — D8, closed by measurement rather than by re-tuning *(2026-08-23)*
+
+`§II.6` recorded D8 as an unnoticed gap: no fix, no assertion, and nobody told
+to look. It is no longer unnoticed, and the reason it did not get a fix is worth
+the paragraph.
+
+**Two candidate mechanisms were ruled out by measuring, not by reading.**
+`LEAD_MAX` 34 → 20 changed nothing, because the composed pose also takes
+`rig.float.rotation` and `pose.lean * 15` through the rider system, both
+additive on top of the flight track — capping one term leaves the sum tilted.
+And the boxcar-bleed theory is simply wrong at the head of a track: `boxcar`
+runs `i = 2 … len-3`, so samples 0 and 1 are never smoothed. Sample 0's rotation
+is the **raw launch lean**, which is authored: a thing that starts accelerating
+tilts.
+
+**The pixel confirmation does not survive contact with the numbers.** Measured
+across four leg shapes, peak mid-flight `|rx|` reaches **24.8°** on a
+close/reopen-shaped leg, and the first sample carries 0.2°–9.1°. A screenshot
+taken mid-flight shows a steeply tilted character and is *completely correct*.
+D8 was "confirmed with pixels" from a single frame, and a single frame cannot
+tell a defect from the middle of an intended arc. That confirmation is withdrawn
+as evidence; the complaint itself stands unadjudicated.
+
+**So nothing was re-tuned.** The brief's own severity is minor, the plan
+predicted the symptom would change character once he travels a shorter distance,
+and re-tuning authored motion on a hunch — with no owner available to judge the
+feel — is the failure mode this document was written to stop.
+
+**What was added is the check that was asked for and never written.**
+`character/decke/__tests__/uprightOnArrival.test.ts` pins the one unambiguous
+property: however tilted he gets in transit, **the track must end upright**.
+`solveFlight` already zeroes the last sample's rotation, and the comment that
+does it describes the D8 symptom exactly — "left him holding a pose mid-stretch,
+tilted, with his lid hanging open, and nothing in the beat data afterwards said
+so." Nothing pinned that. It also pins the other four held channels, pins that
+reading *past* the end stays upright (the renderer keeps asking after arrival),
+and pins that he genuinely tilts in transit — without that last one, deleting
+the lean outright would pass every other assertion in the file.
+
+Three mutations watched go red, including deleting the lean.
+
+**Still not claimed: the frame a person actually sees.** That needs the vision
+judge, and it is the remaining half of `§II.6`'s recommendation.
