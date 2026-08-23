@@ -706,7 +706,35 @@ async function serve(request) {
       // Gateway protocol problem and is not. Every doc example and both local
       // Vercel skills still show the method form.
       writer.merge(
-        stripToolSyntax(toUIMessageStream({ stream: result.fullStream, sendReasoning: false })),
+        stripToolSyntax(
+          toUIMessageStream({
+            stream: result.fullStream,
+            sendReasoning: false,
+            // ── SAY WHAT WENT WRONG, AND WRITE IT DOWN ───────────────────
+            //
+            // The SDK's default is `() => "An error occurred."`, which is a
+            // sound default for a browser and a terrible one here, because it
+            // is also what a rejected TOOL CALL reports. Caught on a real gate
+            // run against production: `showScreen` failed schema validation
+            // FIVE TIMES in one turn, and the model — told only that something
+            // had gone wrong — spent five of its twelve steps shortening the
+            // panel's TITLE while the actual fault, a text block over the
+            // 280-character cap, went untouched in every retry. The reader saw
+            // no panel, no error and no explanation, and nothing anywhere in
+            // this repo logged it.
+            //
+            // The message is a validation complaint about the model's own
+            // arguments — "expected string to have <=280 characters" — not a
+            // stack trace and not anything about the account, so returning it
+            // is safe. It goes to the reader's browser, where the transcript
+            // now renders it as a failed row rather than as silence.
+            onError: (error) => {
+              const message = error instanceof Error ? error.message : String(error)
+              console.warn('[deck-e] stream/tool error surfaced to the client:', message)
+              return message.slice(0, 300)
+            },
+          }),
+        ),
       )
 
       // ── A TURN THAT SPENT EVERYTHING AND SAID NOTHING ────────────────────

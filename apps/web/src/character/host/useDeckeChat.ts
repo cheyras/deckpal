@@ -1317,6 +1317,32 @@ async function streamLeg(
       } else if (part.type === 'data-decke-screen' && part.data?.screen) {
         out.screen = part.data.screen
         handlers.onScreen(part.data.screen)
+      } else if (part.type === 'tool-input-error' && typeof part.toolCallId === 'string') {
+        // ── A CALL THAT WAS NEVER ALLOWED TO RUN ────────────────────────────
+        //
+        // The model emitted a tool call and its arguments failed schema
+        // validation, so the SDK marked it invalid and it never executed. That
+        // is a real thing that happened, and until now it reached the browser
+        // and was dropped on the floor: no row, no error, no trace. `grep -rn
+        // "tool-input-error" apps/web/src` returned nothing at all.
+        //
+        // It is not hypothetical. A gate run against production caught
+        // `showScreen` failing validation five times in one turn — the reader
+        // waited, saw no panel, and was told nothing, while the model burned
+        // five of its twelve steps retrying.
+        //
+        // Rendered as an `error` row, which is what it is. The distinction
+        // between this and a tool that ran and failed matters to whoever reads
+        // the transcript afterwards, so the summary says which.
+        handlers.onToolChip({
+          id: part.toolCallId,
+          name: String(part.toolName ?? 'a tool'),
+          title: titleFor(String(part.toolName ?? '')),
+          phase: 'error',
+          summary: `He asked for this in a way the app could not accept${
+            part.errorText ? ` — ${String(part.errorText)}` : ''
+          }`,
+        })
       } else if (part.type === 'data-decke-approval-preview' && part.data) {
         // THE DRY RUN'S REAL ROWS, keyed to the call the SDK is holding.
         //
