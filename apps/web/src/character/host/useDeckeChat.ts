@@ -86,6 +86,62 @@ type WireCommand = {
 let seq = 0
 const nextId = () => `m${++seq}`
 
+/**
+ * A conversation id.
+ *
+ * `crypto.randomUUID` where it exists — every browser this app supports and
+ * every context it runs in except an insecure origin, which is the one case a
+ * local `http://` dev server hits. The fallback is not security-sensitive: this
+ * id names a row the caller already owns and every query is scoped to their user
+ * id, so a guessed value reaches nothing. It only has to be unique.
+ */
+/**
+ * File one exchange in the history.
+ *
+ * ── WHY THE CLIENT DOES THIS AND NOT THE SERVER ──────────────────────────────
+ *
+ * What belongs in a history is what the READER ACTUALLY SAW. The server streams
+ * parts; this is the only place that knows which of them survived to the screen,
+ * in what order, with which rows still showing and what phase each finished in.
+ * A server-side recorder would file what was sent, which is a different and less
+ * useful record when the question is "why did it look wrong".
+ *
+ * The cost is that the content is not evidence ABOUT the server, so the two
+ * fields that are — the build stamp — are written server-side and are not
+ * accepted from this body at all. See `routes/deckeHistory.ts`.
+ *
+ * ── IT NEVER AFFECTS THE TURN ────────────────────────────────────────────────
+ *
+ * Fire-and-forget with the error swallowed to a warning. A history that could
+ * fail a conversation would be a feature that makes the product worse the first
+ * time the table is unreachable — and this is the one thing here that is
+ * genuinely optional. It is also the reason the route is idempotent by position:
+ * a retry is safe, so a caller that wanted one could add it without risking a
+ * duplicate.
+ */
+function recordTurn(body: {
+  conversationId: string
+  seq: number
+  asked: string
+  answered: string
+  tools: { name: string; phase: string; title: string; summary: string }[]
+}): void {
+  void api
+    .deckeHistoryRecord(body)
+    .catch((e: unknown) => console.warn('[decke] history not recorded:', e))
+}
+
+function newConversationId(): string {
+  try {
+    if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID()
+  } catch {
+    // Insecure origin, or a runtime without it. Fall through.
+  }
+  const h = (n: number) => Math.floor(Math.random() * 16 ** n).toString(16).padStart(n, '0')
+  return `${h(8)}-${h(4)}-4${h(3)}-a${h(3)}-${h(12)}`
+}
+
+
 /** A browser-side tool the model asked for, captured mid-stream. */
 type PendingTool = { id: string; name: string; input: Record<string, unknown> }
 
@@ -174,6 +230,27 @@ export function useDeckeChat(
   onArrived?: () => void,
 ) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  /**
+   * The transcript, readable from a callback declared before it.
+   *
+   * The turn boundary is inside `send`, which closed over `messages` as it was
+   * when the turn STARTED — so recording from there would save a reply that had
+   * not been written yet. A ref is the only thing that has the finished turn at
+   * the moment the turn finishes.
+   */
+  const messagesRef = useRef<ChatMessage[]>([])
+  messagesRef.current = messages
+  /**
+   * This conversation's id and position, for the history.
+   *
+   * The id is minted by the CLIENT so every turn of one exchange can be filed
+   * together without a round trip to claim one first, and it is a real uuid
+   * because the server refuses anything else. It survives until the transcript
+   * is cleared, which is what makes "a conversation" mean what a reader thinks
+   * it means rather than "everything since the tab opened".
+   */
+  const conversationRef = useRef<string>(newConversationId())
+  const seqRef = useRef(0)
   const [busy, setBusy] = useState(false)
   /**
    * `busy` and `send`, reachable from a callback declared above `send`.
@@ -1241,6 +1318,39 @@ export function useDeckeChat(
           const arrived = navigatedAwayRef.current
           navigatedAwayRef.current = false
           if (arrived) onArrivedRef.current?.()
+
+          // ── FILE THE EXCHANGE ────────────────────────────────────────────
+          //
+          // Read from `messagesRef`, not from the `messages` this callback
+          // closed over when the turn STARTED — that one has no reply in it yet.
+          //
+          // The user's line is the last thing THEY said rather than the `text`
+          // argument, because an approval replay re-enters `send` with no new
+          // question and would otherwise file an empty `asked` against a turn
+          // that plainly had one.
+          const all = messagesRef.current
+          const reply = all.find((m) => m.id === replyId)
+          const asked = [...all]
+            .reverse()
+            .find((m) => m.role === 'user')
+          if (reply) {
+            const tools = messageTools(reply).map((c) => ({
+              name: c.name,
+              phase: c.phase,
+              title: c.title ?? '',
+              summary: c.summary ?? '',
+            }))
+            const answered = messageText(reply)
+            if (answered || tools.length > 0) {
+              recordTurn({
+                conversationId: conversationRef.current,
+                seq: seqRef.current++,
+                asked: asked ? messageText(asked) : '',
+                answered,
+                tools,
+              })
+            }
+          }
         }
       }
     },
