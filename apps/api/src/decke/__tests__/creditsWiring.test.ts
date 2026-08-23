@@ -73,3 +73,16 @@ test('a failed-open meter reports NO balance rather than a made-up one', () => {
   assert.match(CHAT, /Number\.isFinite\(meter\.balance\) \? String\(meter\.balance\) : '-1'/);
   assert.match(CHAT, /balance: Number\.NaN/, 'the fail-open path invents a balance');
 });
+
+test('the spend is LOGGED, and the insert is awaited', () => {
+  // It was fire-and-forget on a pooled client that the `finally` releases the
+  // moment the function returns, so the insert went to a connection heading
+  // back into the pool and never landed. Verified against production: after a
+  // real turn the balance had moved to 1999 and the ledger held nothing but the
+  // original grants. An audit trail that records only credits going IN is not an
+  // audit trail.
+  assert.match(CHAT, /await client\.query\(SPEND_LOG_SQL/, 'the spend log is not awaited and will not run');
+  // Still caught, never rethrown: a broken audit table must not take down a turn
+  // whose credits have already been taken.
+  assert.match(CHAT, /SPEND_LOG_SQL[\s\S]{0,220}?\.catch\(/);
+});
