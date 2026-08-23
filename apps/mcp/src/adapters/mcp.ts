@@ -17,16 +17,55 @@ import { allTools, type Ctx, type ToolDefinition, type ToolResult } from '@deckp
 /**
  * `ToolResult` → MCP's wire result.
  *
- * The shapes are deliberately close: `text` becomes the single text content
- * block, `structured` becomes `structuredContent`, `isError` passes through.
- * `structuredContent` is only emitted when the tool actually produced one —
- * emitting `undefined` and emitting nothing are different on the wire for a
- * client that inspects the key.
+ * `text` becomes the single text content block and `isError` passes through.
+ * **`structured` deliberately does NOT become `structuredContent`.** That needs
+ * the paragraph below, because it used to and the change is a visible one.
+ *
+ * ── WHY `structuredContent` IS NOT SENT ──────────────────────────────────────
+ *
+ * Eleven tools pass a second argument to `ok()` — `search_cards`, `get_card`,
+ * `set_progress`, `collection_log`, `mutation_history`, `health` and the rest.
+ * Every one of those was answering a client with its METADATA AND NOTHING ELSE.
+ * Observed directly, 2026-08-23, against production:
+ *
+ *   search_cards("charizard")  →  {"total":125,"page":1,"pageSize":3}
+ *   get_card("me05-084")       →  {"cardId":"me05-084","variantCount":3}
+ *   set_progress("me05")       →  {"set":"me05","goal":"complete","missing":50}
+ *
+ * Not one card, in the tool the whole catalogue is searched through. Meanwhile
+ * `decks`, `lists`, `battle_logs`, `deck_history` and `collection_summary` —
+ * the five that pass no metadata — returned their full rendered text. Same
+ * client, same session, same round trip. The presence of `structuredContent`
+ * is the only variable.
+ *
+ * **The server was not at fault and neither is the SDK.** `projectCallToolResult`
+ * in `@modelcontextprotocol/server` only ever APPENDS to `content`; it has no
+ * path that drops it. Both blocks went out on the wire. A client is then free to
+ * decide which one it shows, and at least one major one shows the structured
+ * half — reasonably, since `structuredContent` normally travels with an
+ * `outputSchema` that says what it means.
+ *
+ * **No tool here declares an `outputSchema`.** So the structured payload was
+ * unlabelled, unvalidated, and a client had nothing to interpret it with.
+ *
+ * ── AND NOTHING IS LOST BY DROPPING IT ───────────────────────────────────────
+ *
+ * Every field any of the eleven put in there is ALREADY IN THE TEXT: the paging
+ * numbers come from `pagingFooter`, `missing` from the "missing for 'complete'
+ * (50)" line, `cardId`/`variantCount` from the identity and variant lines. It
+ * was pure redundancy, and the redundancy was costing the answer.
+ *
+ * The INTERNAL `ToolResult.structured` is untouched and still carries data —
+ * Deck-E's AI-SDK adapter reads it to render `log_cards` rows
+ * (`apps/api/src/decke/adapters/aisdk.ts`). That path never goes near MCP and
+ * was never affected by this; Deck-E has always received `result.text` in full.
+ *
+ * **If it comes back, it comes back with an `outputSchema`**, so a client knows
+ * what it is holding and the text is not competing with an unlabelled blob.
  */
 export function toCallToolResult(result: ToolResult): CallToolResult {
   return {
     content: [{ type: 'text', text: result.text }],
-    ...(result.structured !== undefined ? { structuredContent: result.structured } : {}),
     ...(result.isError ? { isError: true } : {}),
   };
 }

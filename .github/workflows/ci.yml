@@ -82,6 +82,15 @@ jobs:
       - name: Variant classification (agent-tools)
         run: pnpm --filter @deckpal/agent-tools test:variants
 
+      # The MCP wire result. Eleven tools pass metadata to `ok()`, and while the
+      # adapter forwarded that as `structuredContent` a client was free to render
+      # it INSTEAD of the answer — `search_cards` returned a row count and no
+      # cards. Nothing errored, nothing logged, and re-introducing it is a
+      # one-line edit that looks harmless. `apps/mcp` had no test script before
+      # this; its own step, for the same reason as the row above.
+      - name: MCP wire result (mcp adapter)
+        run: pnpm --filter deckpal-mcp test:adapter
+
       # Every serverless function must LOAD. The unit tests exercise the pieces
       # a function imports and never the function itself, so a package that is
       # imported but not declared resolves locally by hoisting and 500s in
