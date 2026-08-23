@@ -393,6 +393,7 @@ const designRoute = createRoute({
 // dead weight in every session. Do not remove it without re-reading the note
 // there.
 const LazyDecke = lazyRoute(() => import('./routes/dev/Decke'))
+const LazyChatUi = lazyRoute(() => import('./routes/dev/ChatUi'))
 const DeckeRoute = () => (
   <Suspense
     fallback={
@@ -422,7 +423,41 @@ const deckeRoute = createRoute({
   component: DeckeRoute,
 })
 
-const routeTree = rootRoute.addChildren([...coreRoutes, designRoute, deckeRoute])
+/**
+ * `/dev/chat-ui` — every chat surface at once, without a conversation.
+ *
+ * Same owner gate and the same lazy-chunk reasoning as `/dev/decke`: it is a
+ * review surface, not a product page. It does NOT pull the character runtime —
+ * it imports the chat components only — so it is cheap in a way `/dev/decke`
+ * is not.
+ */
+const ChatUiRoute = () => (
+  <Suspense
+    fallback={
+      <div className="flex h-screen items-center justify-center text-text-muted">Loading…</div>
+    }
+  >
+    <LazyChatUi />
+  </Suspense>
+)
+const chatUiRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/dev/chat-ui',
+  beforeLoad: async () => {
+    if (import.meta.env.DEV) return
+    if (!isCloudMode) return
+    try {
+      const me = await api.me()
+      if (me.owner) return
+    } catch {
+      // Signed out, or /me unavailable — fall through to not-found.
+    }
+    throw notFound()
+  },
+  component: ChatUiRoute,
+})
+
+const routeTree = rootRoute.addChildren([...coreRoutes, designRoute, deckeRoute, chatUiRoute])
 
 const router = createRouter({
   routeTree,
