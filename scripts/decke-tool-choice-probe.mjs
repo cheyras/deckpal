@@ -92,6 +92,8 @@ const JSON_OUT = arg('json', null)
 const CONCURRENCY = Number(arg('concurrency', 3))
 // What a CORRECT escort looks like for the default prompt, straight out of the
 // `set_progress` fixture below. Override when probing a different destination.
+/** Is the prompt under test asking him to WRITE? Turns on the log_cards report. */
+const SAY_IS_A_WRITE = /(add|log|remove|got|pulled|traded)/i.test(SAY)
 const EXPECT = { seriesSlug: arg('expect-series', 'mega-evolution'), setId: arg('expect-set', 'me05') }
 const VARIANT = arg('variant', 'baseline') // 'baseline' | 'settle-on-any-act' | 'no-narrow-journey'
 
@@ -144,7 +146,40 @@ function makeDataTools() {
           note: "'Pitch Black' is a SET name, not a card name — this search matched nothing. Call set_progress with no set_id to find its real id (it is me05), or call set_progress with set_id 'me05' directly.",
         }
       }
-      return { ok: true, cards: [], note: 'No cards match. Loosen the query or drop a filter.' }
+      // ── A CATALOGUE THAT ANSWERS, which the first version of this did not ──
+      //
+      // It returned an empty list for every query that was not Pitch Black,
+      // because it was written for the escort experiment. Asked to add five
+      // Squirtles, the model then searched twelve times against nothing and
+      // never wrote — and that looked exactly like the reported defect ("he's
+      // just giving me lists of cards"). It was the fixture. A probe that
+      // starves the model measures the probe.
+      //
+      // MULTIPLE PRINTINGS PER NAME is the property under test: it is what makes
+      // the printing genuinely ambiguous, so leaving `variant` out is the
+      // correct call and filling it in is a guess.
+      const q = (args.query ?? '').toLowerCase().trim()
+      if (!q) return { ok: true, cards: [], note: 'No query. Give a card name.' }
+      const cards = []
+      for (let i = 0; i < 5; i++) {
+        const num = 20 + i * 7
+        for (const [kind, price] of [['Normal', 0.32], ['Reverse holo', 1.85], ['Holo', 4.1]]) {
+          cards.push({
+            card_id: `swsh4-${num}`,
+            name: `${q[0].toUpperCase()}${q.slice(1)}`,
+            set_id: 'swsh4',
+            number: String(num),
+            variant: kind,
+            owned: 0,
+            usd: price,
+          })
+        }
+      }
+      return {
+        ok: true,
+        cards,
+        note: `${cards.length} printings across 5 distinct cards. Each card has THREE printings.`,
+      }
     },
   })
 
@@ -189,7 +224,70 @@ function makeDataTools() {
     },
   })
 
-  return { search_cards, set_progress }
+  // ── log_cards, because "did he WRITE?" is a different question ────────────
+  //
+  // Description copied verbatim from `packages/agent-tools/src/tools/logging.ts`
+  // so the model sees production's prompt surface. The handler returns a
+  // realistic DRY RUN, which is what the real one does on a first call.
+  //
+  // What this fixture exists to expose is the ARGUMENTS, not the outcome. The
+  // printing question a reader is asked comes from the dry run reporting an item
+  // as ambiguous — so if Deck-E picks a variant HIMSELF and sends it, there is
+  // nothing left to ask and the dialog goes quiet. Reported from real use as
+  // "for some reason he has completely stopped asking me about variance".
+  const log_cards = tool({
+    description:
+      'Log card acquisitions/removals to the LOCAL DeckPal collection database — this edits ' +
+      "only this app's collection tracker, nothing external (no store, no marketplace, no " +
+      'purchases). Batch of 1–250 items applied as ONE atomic transaction; each picks a card ' +
+      '(card_id, or name + set_id/number), optionally a variant, and exactly one of delta ' +
+      '(signed change, e.g. +1 pulled / -1 traded away) or quantity (absolute count). ' +
+      'dry_run defaults to TRUE: the first call only previews current → new quantities; ' +
+      're-call with dry_run:false to actually write. Retrying after an error is SAFE — the ' +
+      'batch carries an idempotency key, so a repeat returns the original result and writes ' +
+      'nothing. Unresolvable or ambiguous items are reported individually and never guessed; ' +
+      'the rest of the batch still applies. Do NOT use this to read history — use ' +
+      'mutation_history or collection_log for that, and get_card for current quantities.',
+    inputSchema: z.object({
+      items: z
+        .array(
+          z.object({
+            card_id: z.string().optional(),
+            name: z.string().optional(),
+            set_id: z.string().optional(),
+            number: z.string().optional(),
+            variant: z.string().optional(),
+            delta: z.number().int().optional(),
+            quantity: z.number().int().min(0).optional(),
+          }),
+        )
+        .min(1)
+        .max(250),
+      note: z.string().max(500).optional(),
+      idempotency_key: z.string().optional(),
+      dry_run: z.boolean().default(true),
+    }),
+    execute: async (args) => {
+      const lines = args.items.map((it, i) => {
+        const who = it.card_id ?? `${it.name ?? '?'}${it.set_id ? ` (${it.set_id})` : ''}`
+        // AMBIGUOUS EXACTLY WHEN HE LEFT THE VARIANT OUT, which is the real
+        // behaviour and the whole point of the fixture.
+        return it.variant
+          ? `  ${i + 1}. ${who} [${it.variant}] 0 → ${it.delta ?? it.quantity ?? 1}`
+          : `  ${i + 1}. ${who} — MORE THAN ONE PRINTING; not applied until one is chosen`
+      })
+      const ambiguous = args.items.filter((it) => !it.variant).length
+      return {
+        ok: true,
+        dryRun: args.dry_run !== false,
+        applied: args.items.length - ambiguous,
+        skipped: ambiguous,
+        text: [`log_cards — ${args.items.length} item(s)`, ...lines].join('\n'),
+      }
+    },
+  })
+
+  return { search_cards, set_progress, log_cards }
 }
 
 async function once(i) {
@@ -300,6 +398,33 @@ console.log(`  described only     ${described.length}`)
 // ("Mega Evolution") or a missing slug produces a call that looks like success
 // on the wire and walks nobody anywhere. Report it separately or the headline
 // number is measuring the wrong thing.
+// ── DID HE WRITE, AND DID HE LEAVE THE PRINTING OPEN? ────────────────────────
+//
+// Two separate failures reported from real use, and this tells them apart:
+//   "I'm telling him I want to log them"  and he answers with a LIST  -> no call
+//   "he has completely stopped asking me about variance"              -> variant set
+const logCalls = ok.flatMap((r) => (r.calls ?? []).filter((c) => c.name === 'log_cards'))
+if (SAY_IS_A_WRITE) {
+  const wrote = ok.filter((r) => has(r, 'log_cards'))
+  console.log(`  LOGGED anything    ${wrote.length}/${ok.length}`)
+  console.log(`  answered with a list only   ${ok.length - wrote.length}`)
+  const items = logCalls.flatMap((c) => (Array.isArray(c.input?.items) ? c.input.items : []))
+  if (items.length) {
+    const withVariant = items.filter((it) => typeof it?.variant === 'string' && it.variant)
+    console.log(`  items across all calls      ${items.length}`)
+    console.log(`    printing LEFT OPEN        ${items.length - withVariant.length}  <- the reader gets asked`)
+    console.log(`    printing CHOSEN by him    ${withVariant.length}  <- the dialog goes quiet`)
+    const kinds = {}
+    for (const it of items) {
+      const k = it?.variant ?? '(none)'
+      kinds[k] = (kinds[k] ?? 0) + 1
+    }
+    for (const [k, v] of Object.entries(kinds).sort((a, b) => b[1] - a[1])) {
+      console.log(`      ${String(v).padStart(3)}x  variant=${JSON.stringify(k)}`)
+    }
+  }
+}
+
 const escortCalls = ok.flatMap((r) => (r.calls ?? []).filter((c) => c.name === 'escort'))
 if (escortCalls.length) {
   const wellFormed = escortCalls.filter(

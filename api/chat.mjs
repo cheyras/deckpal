@@ -68,6 +68,7 @@ import { buildTools } from '../apps/api/dist/decke/tools.js'
 import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
 import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
+import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
 import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor, selfHopHeadersFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
@@ -477,6 +478,11 @@ async function serve(request) {
           // for them — and with nobody listening the adapter runs no preview at
           // all, so a sub-agent pays nothing for a card it cannot show.
           onApprovalPreview: emitApprovalPreview(writer),
+          // Computed from THEIR sentence, not from the tool call and not from
+          // anything Deck-E wrote. He names a printing on essentially every row
+          // whether or not one was asked for, so his word cannot be the witness
+          // to his own guess. See `printingSaid.ts` for the measurement.
+          readerNamedPrinting: readerNamedPrinting(latestUserText(messages)),
           grounding,
         }),
         // THE DEEP TIER. Four sub-agents, each with its own model, step
@@ -799,6 +805,26 @@ async function serve(request) {
  * thing most likely to end up echoed as prose. The animation has already
  * happened; the model does not need to remember how it asked.
  */
+/**
+ * The reader's OWN latest message, as plain text.
+ *
+ * Assistant turns are skipped deliberately: Deck-E says "Normal" constantly,
+ * and letting his words count as the reader naming a printing would restore the
+ * exact defect `readerNamedPrinting` exists to close.
+ */
+function latestUserText(messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m?.role !== 'user') continue
+    const parts = Array.isArray(m.parts) ? m.parts : []
+    return parts
+      .filter((p) => p?.type === 'text' && typeof p.text === 'string')
+      .map((p) => p.text)
+      .join(' ')
+  }
+  return ''
+}
+
 function stripPriorCommands(messages) {
   return messages.map((m) => {
     if (!Array.isArray(m.parts)) return m

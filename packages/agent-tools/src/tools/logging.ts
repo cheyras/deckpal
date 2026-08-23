@@ -217,10 +217,17 @@ function shapeCandidate(v: ResolvedVariant): Record<string, unknown> {
 function certaintyFields(c: VariantCertainty): Record<string, unknown> {
   return {
     certainty: c.kind,
-    ...(c.kind === 'unstated' || c.kind === 'ambiguous'
+    // EVERY resolvable kind now carries its candidates, not only the two that
+    // ask. A caller speaking on someone else's behalf needs to be able to
+    // re-open a question this classification closed — see `stated` in
+    // `../resolve.ts`. `unresolvable` has none by construction.
+    ...('candidates' in c && c.candidates
       ? { candidates: c.candidates.map(shapeCandidate) }
       : {}),
-    ...(c.kind === 'unstated' ? { wouldUseVariantId: c.wouldUse } : {}),
+    // The printing that WOULD be used, for every kind that has one — it is the
+    // pre-selection a picker opens on. Previously `unstated` only, which left a
+    // re-opened `stated` row with chips and nothing chosen.
+    ...('wouldUse' in c && c.wouldUse != null ? { wouldUseVariantId: c.wouldUse } : {}),
   };
 }
 
