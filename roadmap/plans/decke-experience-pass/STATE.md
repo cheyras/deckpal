@@ -122,15 +122,19 @@ back GREEN re-run to confirm it now goes red.
    unverified thing about the escort. `probe-escort-path.mjs` covers the half
    that needs no turn — all seven hops including the press that opens the set.
 2. **Rotate `AI_GATEWAY_API_KEY`** — still the owner's to do.
-3. **Deck-E clipped bottom-right on desktop**, reported by the designer.
-   **It does not reproduce in its own screenshot** (`wide-empty.png` at 1720
-   shows him whole, beside the composer). It most likely describes the
-   CONVERSATION state, which parks him at the bottom rather than centred, and
-   that state needs a turn to reach. Unverified either way — do not fix it
-   until it has been seen.
-4. **Mobile openers sit ragged-right** because they clear him by
-   `--decke-gutter`. Correct behaviour, reads as an alignment mistake. Fixing it
-   properly means the gutter becoming a symmetric inset — `DeckeHost` geometry.
+3. ~~**Deck-E clipped bottom-right on desktop.**~~ **NOT REAL — it was the dev
+   ribbon**, for the third time in this codebase. `capture-chat-panel.mjs` did
+   not strip it. Re-shot clean: he is whole at 1440 and 1720. `parkBeside`'s
+   horizontal clamp is present and correct (`region.left + margin`, margin =
+   `bodyPx * 0.6`); the `bandSpan` path that does NOT bite at zero is a
+   different solve, and I misread one for the other. The strip now lives in
+   `visual-harness/lib/dev-chrome.mjs` so a capture script cannot forget it.
+4. **Mobile openers are indented ~113px while the heading is at 16px.** Real,
+   and measured. The indent is `decke-shift` clearing him — correct for the
+   THIRD chip, which does overlap him, over-correction for the first two, which
+   do not. Fixing it trades "clear him" against "align with the heading", which
+   is an owner call. He also stands very tight to the left edge at 390px:
+   whole, but with almost nothing to spare.
 5. **C46 needs an owner ruling**, not a decision.
 
 ## Found while the designer worked, 2026-08-23
