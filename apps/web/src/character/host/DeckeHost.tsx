@@ -189,21 +189,42 @@ export function DeckeHost() {
   /** True while a journey step owns the transition. Read by the route watcher
    *  below; written by the chat's sequencer through `onStepping`. */
   const journeyStepRef = useRef(false)
+  /** Has this turn navigated yet? Drives push-then-replace; see the navigate
+   *  callback below. Reset when a turn starts. */
+  const turnNavigatedRef = useRef(false)
   const chat = useDeckeChat(
     live,
-    // REPLACE, NOT PUSH, and the router's default is push. Every page he
-    // visits was becoming its own history entry, so a journey of three hops
-    // buried the page someone was actually on three presses back — and Back is
-    // the gesture people reach for when a character has moved them somewhere
-    // they did not expect. It matters more now than when it was noticed, since
-    // an escort navigates several times in one turn.
+    // PUSH THE FIRST HOP, REPLACE THE REST — and the first version of this got
+    // it exactly backwards, in the way the comment it carried predicted.
     //
-    // Worth being honest about the complaint that prompted this: the browser
-    // hiccup the owner saw was almost certainly NOT Deck-E — the traced tab
-    // chain runs through a local auth page and a Claude.ai tab, origins the
-    // route allowlist cannot produce. It was his own back gesture. The change
-    // is correct hygiene regardless, and the attribution belongs in the record.
-    (to) => navigate({ to, replace: true }),
+    // The complaint was that a journey of three hops buries the page someone
+    // was actually on three presses back. Replacing unconditionally does not
+    // fix that; it makes it worse. History `[A, B]` with the reader on B
+    // becomes `[A, C]`, so Back from wherever he took them lands on A and **B
+    // — the page they asked from — is unreachable by any number of presses.**
+    // The very gesture the fix was written for now skips the very page it was
+    // written to protect.
+    //
+    // So: the first navigation of a turn PUSHES, which keeps their page on the
+    // stack and makes one Back return to it. Every hop after that within the
+    // same turn REPLACES, which is what stops a five-step escort accreting five
+    // entries. One Back to undo Deck-E, however far he walked.
+    //
+    // `firstHopRef` resets at the start of each turn, not on a timer: "one
+    // turn" is the unit a reader thinks in — they asked once, so one Back
+    // should undo it.
+    //
+    // KNOWN GAP, stated rather than papered over: a journey's `click` steps
+    // press real `<Link>` elements, and those push through the router's own
+    // default where this callback never runs. A journey that mixes `goTo` with
+    // clicks therefore still accretes an entry per click. Closing that means
+    // intercepting navigation at the router rather than at this seam, which is
+    // a larger change than this pass should make on its way past.
+    (to) => {
+      const first = !turnNavigatedRef.current
+      turnNavigatedRef.current = true
+      navigate({ to, replace: !first })
+    },
     () => setTravelling(true),
     // THE EXEMPTION THE ROUTE WATCHER WAS WAITING FOR. Between a journey's own
     // hops the tidy-up is wrong: it would clear the ring he had just drawn and
@@ -213,6 +234,9 @@ export function DeckeHost() {
     // the flag already read.
     (on) => {
       journeyStepRef.current = on
+    },
+    () => {
+      turnNavigatedRef.current = false
     },
   )
 

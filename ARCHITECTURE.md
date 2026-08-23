@@ -530,8 +530,10 @@ visitor the route is indistinguishable from one that never existed. The identity
 check lives server-side (`DESIGN_EDITOR_USER_ID`), so nothing about who the owner
 is enters the bundle, and an unset variable means nobody — it fails closed.
 
-Shipping it means the chunk is emitted (1,174 kB of three.js and the runtime,
-measured from a production build rather than estimated) and
+Shipping it means the chunk is emitted (~1.17 MB of three.js and the runtime,
+measured 2026-08-22 and approximate on purpose — the precise figure drifts with
+every dependency bump, and `scripts/check-precache.mjs` rather than any number
+written here is what actually enforces that none of it reaches the precache) and
 the 5.6 MB of assets sit in `public/models/`. Neither is downloaded by anyone who
 does not open the route, because the import is lazy — **provided both stay out of
 the PWA precache**, which is eager and would otherwise pull 6.5 MB into every

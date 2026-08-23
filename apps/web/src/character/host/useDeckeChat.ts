@@ -158,6 +158,8 @@ export function useDeckeChat(
   onTravel?: () => void,
   /** True while a journey step owns the transition; see `onSteppingRef`. */
   onStepping?: (on: boolean) => void,
+  /** Fired as each turn begins, so the host can reset per-turn navigation state. */
+  onTurnStart?: () => void,
 ) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
@@ -204,6 +206,8 @@ export function useDeckeChat(
    */
   const onSteppingRef = useRef(onStepping)
   onSteppingRef.current = onStepping
+  const onTurnStartRef = useRef(onTurnStart)
+  onTurnStartRef.current = onTurnStart
 
   // ── The approval gate ──────────────────────────────────────────────────────
   //
@@ -247,14 +251,51 @@ export function useDeckeChat(
    * that reason is built from the real response to a real write, which is the
    * only thing keeping his account of it true.
    */
-  const settleAll = useCallback((verdict: Verdict) => {
+  /**
+   * What a held call is told when it was never put in front of anyone.
+   *
+   * A denial rather than an approval, because the reader did not see it — and
+   * with a reason that says exactly that, so his account of the turn is true
+   * and the model knows it may ask again rather than assuming a refusal.
+   */
+  const UNSEEN_REASON_VERDICT: Verdict = {
+    approved: false,
+    reason:
+      'this change was not shown to the reader, so it was not run — ask about it on its own',
+  }
+
+  const settleAll = useCallback((verdict: Verdict, forId?: string) => {
     const resolve = resolverRef.current
     const list = askingRef.current ?? []
     resolverRef.current = null
     askingRef.current = null
     setAsking(null)
     setApprovalChoices(new Map())
-    resolve?.(new Map(list.map((a) => [a.approvalId, verdict])))
+    // ── ONE VERDICT PER CALL, NOT ONE VERDICT FOR ALL OF THEM ─────────────
+    //
+    // This used to map every pending approval to the same verdict, and the card
+    // only ever renders `asking[0]`. Nothing stops the model emitting two write
+    // calls in one step — parallel tool calls are ordinary SDK behaviour, and
+    // "add these cards and save a note on the deck" is a perfectly natural turn
+    // that produces two held writes. Then one press of "Go ahead" approved a
+    // second write whose arguments were never shown anywhere.
+    //
+    // The edited path was worse: it committed a correction for call[0] and then
+    // denied BOTH with call[0]'s narrative, so the model was told "the reader
+    // corrected this before it ran, batch X has already landed" about an
+    // entirely different call. A fabricated account, on the write path,
+    // delivered through the mechanism built to prevent fabricated accounts.
+    //
+    // `forId` names the one call the verdict actually belongs to. Everything
+    // else is denied with a reason that says what is true: it was never shown.
+    resolve?.(
+      new Map(
+        list.map((a) => [
+          a.approvalId,
+          !forId || a.approvalId === forId ? verdict : UNSEEN_REASON_VERDICT,
+        ]),
+      ),
+    )
   }, [])
 
   /**
@@ -352,7 +393,7 @@ export function useDeckeChat(
     // handler have to agree about that, or one of them is lying to the reader.
     if (!preview?.editable) {
       answeredRef.current = true
-      settleAll({ approved: true })
+      settleAll({ approved: true }, a.approvalId)
       return
     }
     committingRef.current = true
@@ -369,17 +410,31 @@ export function useDeckeChat(
         {
           commit: async (r) => {
             try {
+              // A DEADLINE, because everything is frozen while this is in
+              // flight: `busy` is true, the composer refuses input, both card
+              // buttons are disabled, and Stop deliberately does not settle
+              // once Accept has been pressed. A stalled connection therefore
+              // parks the whole chat with no way out but a reload — the exact
+              // defect this pass fixed on the close path, waiting on the
+              // least-exercised path in the feature.
+              //
+              // A timeout classifies as "never received", which is what feeds
+              // the retry-once-then-report-`unconfirmed` machinery. That
+              // matters more than the timeout: a request that timed out MAY
+              // have landed, and the one thing this must never do is assert a
+              // negative nobody observed.
               const body = await api.collectionBatch(r.items, {
                 source: r.source,
                 note: r.note,
                 idempotencyKey: r.idempotencyKey,
+                signal: AbortSignal.timeout(15_000),
               })
               return { received: true, ok: true, body } as const
             } catch (err) {
               return transportFromThrown(err)
             }
           },
-          settle: (v) => settleAll(v),
+          settle: (v) => settleAll(v, a.approvalId),
           record: (text) =>
             emitChipRef.current?.({
               id: `${a.toolCallId}-corrected`,
@@ -390,6 +445,22 @@ export function useDeckeChat(
             }),
         },
       )
+    } catch (err) {
+      // A CARD BUG MUST NOT LOOK LIKE A DEAD BUTTON. `runAccept` throws when
+      // its own cross-checks disagree — the reader's choices and the
+      // reconstructed batch describing different things — and refusing to send
+      // anything is the correct response to that. But with no catch it was an
+      // unhandled rejection: the reader pressed Accept, nothing happened, and
+      // the only evidence was in a console they are not looking at.
+      console.error('[decke] approval accept refused:', err)
+      settleAll(
+        {
+          approved: false,
+          reason:
+            'the reader pressed accept, but the preview and their edits disagreed, so nothing was run',
+        },
+        a.approvalId,
+      )
     } finally {
       committingRef.current = false
       setApprovalBusy(false)
@@ -398,7 +469,7 @@ export function useDeckeChat(
 
   const deny = useCallback(() => {
     answeredRef.current = true
-    settleAll({ approved: false, reason: DECLINED_REASON })
+    settleAll({ approved: false, reason: DECLINED_REASON }, askingRef.current?.[0]?.approvalId)
   }, [settleAll])
 
   /** One row's answer, from the card. */
@@ -464,6 +535,10 @@ export function useDeckeChat(
       abortRef.current?.abort()
       const ac = new AbortController()
       abortRef.current = ac
+
+      // A NEW TURN NAVIGATES FRESH. The first hop of THIS turn pushes so one
+      // Back returns to the page they asked from; the rest replace.
+      onTurnStartRef.current?.()
 
       // ENGINE-DRIVEN, not model-driven: the app knows a request started before
       // the model could possibly say so, and knows it sooner. `thinking` is
@@ -574,7 +649,14 @@ export function useDeckeChat(
 
       emitChipRef.current = emitToolChip
 
-      const wire: WireMessage[] = [...priorWire, { role: 'user', parts: [{ type: 'text', text }] }]
+      // NOT APPENDED IF IT IS ALREADY THERE. A queued question was put on the
+      // transcript when it was queued, so `priorWire` — built from the
+      // transcript — already carries it. Appending unconditionally sent the
+      // same question as two consecutive user messages, which is exactly what
+      // the comment beside `alreadyShown` claims is prevented.
+      const wire: WireMessage[] = alreadyShown
+        ? [...priorWire]
+        : [...priorWire, { role: 'user', parts: [{ type: 'text', text }] }]
 
       try {
         // `approvalReplays` is read on EVERY iteration, so committing to a
@@ -979,6 +1061,21 @@ export function useDeckeChat(
    */
   const close = useCallback(() => {
     if (!busyRef.current) return
+    // ── A QUEUED QUESTION IS DROPPED, NOT DEFERRED ────────────────────────
+    //
+    // The abort below cannot reach one: a queued message has no turn yet, so
+    // `abortRef` is null and aborting is a no-op — and the flush effect keys on
+    // the runtime arriving, not on the panel being open. So without this, the
+    // sequence "tap, type, send while he is waking, close" ends with the
+    // download finishing and the turn firing behind a closed panel. A turn can
+    // NAVIGATE, so that is the page moving under someone who has just said they
+    // are done — which is the exact failure closing was changed to prevent,
+    // reintroduced by the queue added in the same pass.
+    //
+    // It also made the transcript contradict itself: "(stopped when you closed
+    // the chat)" followed, seconds later, by an answer to the stopped question.
+    queuedRef.current = null
+    setBusy(false)
     abortRef.current?.abort()
     setMessages((m) => [
       ...m,
@@ -1061,6 +1158,11 @@ function isJourneyResult(r: UiToolResult | JourneyResult): r is JourneyResult {
 function journeyPhase(r: UiToolResult | JourneyResult): 'ok' | 'partial' | 'error' {
   if (!isJourneyResult(r)) return r.ok ? 'ok' : 'error'
   if (r.ok) return 'ok'
+  // A JOURNEY THE READER STOPPED IS NOT A FAILURE. Taking over is a deliberate
+  // act and the sequencer is built to yield to it — rendering a loud red row
+  // with a retry link for "you clicked" tells someone their own gesture broke
+  // something. It is `partial` however far he got, including not at all.
+  if (r.failure?.why === 'cancelled') return 'partial'
   return r.ran.length > 0 ? 'partial' : 'error'
 }
 
