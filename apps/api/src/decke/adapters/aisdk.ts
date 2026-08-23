@@ -259,6 +259,20 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    */
   onApprovalPreview?: (p: ApprovalPreview) => void;
   /**
+   * Did the READER name a printing in their own latest message?
+   *
+   * When false, a row the resolver classified `stated` is re-opened as a
+   * question — because the thing that "stated" it was Deck-E, not them.
+   * Measured: he sets a printing on 100 items out of 100 when none was named,
+   * and a prompt rule telling him not to moved that number not at all. See
+   * `printingSaid.ts`.
+   *
+   * Defaults to FALSE, which is the safe direction: the cost of asking when
+   * they did say is one tap on a picker already on screen; the cost of not
+   * asking when they did not is writing a printing they never chose.
+   */
+  readerNamedPrinting?: boolean;
+  /**
    * Collects the card ids these tools return, so `showScreen` can refuse to
    * render an id no tool produced.
    *
@@ -593,6 +607,42 @@ function rowsFromLogCards(structured: unknown): {
 }
 
 /**
+ * A printing Deck-E chose is a PROPOSAL. A printing the reader named is a
+ * decision. The resolver cannot tell them apart; here, we can.
+ *
+ * `stated` means "an explicit printing came in with the call", and for an MCP
+ * caller that is the person themselves — nothing to ask. Deck-E is a proxy, and
+ * measured he fills that field on 100 items out of 100 when nobody named one.
+ * So the row arrives `stated`, the picker never renders, and the reader is never
+ * told there was a choice. That is the reported defect, and this is where it is
+ * closed — in Deck-E's own adapter, leaving the shared tool correct for callers
+ * who really did state it.
+ *
+ * Re-opening needs candidates to pick from, which is why `resolve.ts` now
+ * carries them on `stated` too. A row that somehow arrives without them is left
+ * exactly as it was: an empty picker is worse than no picker, and `editable`
+ * would refuse the card anyway.
+ *
+ * `only-one` is NEVER re-opened. There is genuinely nothing to choose, and
+ * turning a fact into a question is how a dialog starts feeling like paperwork.
+ */
+/** Exported for `proxyStated.test.ts`; not part of the adapter's surface. */
+export function reopenIfProxyStated(
+  row: ApprovalPreviewRow,
+  readerNamedPrinting: boolean,
+): ApprovalPreviewRow {
+  if (readerNamedPrinting) return row;
+  if (row.certainty !== 'stated') return row;
+  if (row.candidates.length < 2) return row;
+  return {
+    ...row,
+    certainty: 'unstated',
+    // The printing he proposed becomes the pre-selection, not the answer.
+    wouldUseVariantId: row.wouldUseVariantId ?? row.variantId,
+  };
+}
+
+/**
  * The whole preview, assembled — including the decision about whether the
  * reader may edit it.
  *
@@ -604,6 +654,7 @@ function buildApprovalPreview(
   def: ToolDefinition,
   toolCallId: string,
   result: ToolResult,
+  readerNamedPrinting: boolean,
 ): ApprovalPreview {
   const base = {
     toolCallId,
@@ -615,7 +666,8 @@ function buildApprovalPreview(
   if (def.name !== 'log_cards' || result.isError) {
     return { ...base, editable: false, rows: [], skipped: [] };
   }
-  const { rows, skipped, wasDryRun } = rowsFromLogCards(result.structured);
+  const { rows: rawRows, skipped, wasDryRun } = rowsFromLogCards(result.structured);
+  const rows = rawRows.map((r) => reopenIfProxyStated(r, readerNamedPrinting));
   const editable =
     // The handler must have agreed with us that this was a preview. If it says
     // otherwise, something wrote, and the card is the least of the problems.
@@ -717,7 +769,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           const result = await withToolCtx(opts, (ctx: Ctx) =>
             def.handler(forcePreview(def, input), ctx),
           );
-          emit(buildApprovalPreview(def, toolCallId, result));
+          emit(buildApprovalPreview(def, toolCallId, result, opts.readerNamedPrinting === true));
         } catch {
           // Deliberately silent, and deliberately not an `onEvent`. A chip for
           // a failed dialog-preview would tell the reader a tool failed when

@@ -447,10 +447,33 @@ export async function resolveVariant(
  * mistake the research behind the design says degrades decisions.
  */
 export type VariantCertainty =
-  /** An explicit `variant_id` or `variant_kind` was given. Nothing to ask. */
-  | { kind: 'stated' }
-  /** Omitted, and the card has exactly one printing. Nothing to ask. */
-  | { kind: 'only-one' }
+  /**
+   * An explicit `variant_id` or `variant_kind` was given. Nothing to ask —
+   * **of the caller who gave it.**
+   *
+   * `candidates` is carried anyway, and that is not spare data. It exists
+   * because "they said which one" is only true when the caller IS the person
+   * whose collection this is. Deck-E is a PROXY: measured on 2026-08-23, asked
+   * to add five cards with no printing named, he set one on 100 items out of
+   * 100 — "Normal" 86 times — so every row arrived here `stated` and the reader
+   * was asked about none of them. Reported as *"for some reason he has
+   * completely stopped asking me about variance"*.
+   *
+   * The classification was right and the caller was wrong, so the fix is not to
+   * reclassify here — an MCP user who names a printing genuinely has nothing to
+   * be asked. It is to hand a proxy's caller enough to re-open the question. A
+   * prompt rule was tried first and moved the number not at all: 100/100 before,
+   * 100/100 after.
+   */
+  | { kind: 'stated'; candidates?: ResolvedVariant[]; wouldUse?: number }
+  /**
+   * Omitted, and the card has exactly one printing. Nothing to ask.
+   *
+   * Carries its single candidate so a caller can SHOW that there was only one.
+   * The owner, looking at a row he could not question: *"we need to be more
+   * clear about like why he knows"* — and one chip, alone, is that answer.
+   */
+  | { kind: 'only-one'; candidates?: ResolvedVariant[]; wouldUse?: number }
   /**
    * Omitted, the card has several printings, and one was silently chosen.
    * `wouldUse` is the variant id {@link pickVariant} picked — shown as the
@@ -481,10 +504,26 @@ export function variantCertainty(
 ): VariantCertainty {
   // 1. Nothing resolved — no printing to be certain or uncertain about.
   if (res.status === 'not_found' || all.length === 0) return { kind: 'unresolvable' };
-  // 2. They said which one. Section 1, however many printings exist.
-  if (ref.variant_id != null || ref.variant_kind != null) return { kind: 'stated' };
-  // 3. Only one printing exists, so the omission cost nothing. Section 1.
-  if (all.length === 1) return { kind: 'only-one' };
+  // 2. They said which one. Section 1, however many printings exist — but the
+  //    choices come too, because "they" may have been a proxy speaking for the
+  //    person. See the note on `stated`.
+  if (ref.variant_id != null || ref.variant_kind != null) {
+    return {
+      kind: 'stated',
+      candidates: [...all],
+      ...(res.status === 'ok' ? { wouldUse: res.variant.id } : {}),
+    };
+  }
+  // 3. Only one printing exists, so the omission cost nothing. Section 1, and
+  //    the one printing rides along so a caller can show WHY there was nothing
+  //    to ask.
+  if (all.length === 1) {
+    return {
+      kind: 'only-one',
+      candidates: [...all],
+      ...(res.status === 'ok' ? { wouldUse: res.variant.id } : {}),
+    };
+  }
   // 4. `pickVariant` declined to choose, and said what the choices are.
   if (res.status === 'ambiguous') return { kind: 'ambiguous', candidates: [...res.variants] };
   // 5. Omitted, several printings, silently resolved to the primary. THE ROW
