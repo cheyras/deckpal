@@ -1304,11 +1304,64 @@ function uiToolTitle(name: string, input: Record<string, unknown>): string {
   }
 }
 
+/**
+ * What the consent dialog asks, per tool, in words a person would use.
+ *
+ * ── WHY A MAP AND NOT A TRANSFORM ────────────────────────────────────────────
+ *
+ * The fallback below de-snake-cases the tool name, which is how the dialog came
+ * to ask **"Let him save deck?"** — grammatical only if you already know
+ * `save_deck` is an identifier. `log_cards` gave "Let him log cards?", which is
+ * our word for it and not the reader's; they asked him to add a card.
+ *
+ * No transform fixes that, because the missing thing is not punctuation or case
+ * — it is the article, the object, and the fact that eleven different verbs are
+ * hiding behind one naming convention. `delete_list` needs "delete this list",
+ * `revert` needs "undo that change", `deck_strategy` needs "write the strategy
+ * guide". So they are written out.
+ *
+ * ── THE PHRASING RULES, SINCE THE NEXT ONE HAS TO MATCH ──────────────────────
+ *
+ * Each entry completes "Let him ___?" (`approvalQuestion` in
+ * `chat/approvalCardState.ts`). So: a bare verb phrase, lower case, no
+ * punctuation, no "please", and **naming what it acts on** — "this deck", not
+ * "it". The dialog can be the only thing on screen when a scroll has moved the
+ * request out of view, and "Let him delete it?" is a question nobody should
+ * have to answer.
+ *
+ * Deliberately NOT hedged. "Let him maybe remove this list?" is softer and less
+ * true; the reader is being asked to authorise a real write, and the word for a
+ * real write is the plain one.
+ */
+const APPROVAL_PHRASE: Record<string, string> = {
+  log_cards: 'change what your collection says you own',
+  save_deck: 'save this deck',
+  delete_deck: 'delete this deck',
+  deck_strategy: 'write the strategy guide for this deck',
+  add_battle_log: 'record this game',
+  edit_battle_log: 'correct this battle log',
+  delete_battle_log: 'delete this battle log',
+  deck_history: 'roll this deck back to an earlier version',
+  edit_list: 'change this list',
+  delete_list: 'delete this list',
+  revert: 'undo that change',
+}
+
 function titleFor(name: string): string {
   if (!name) return 'Make that change'
+  const phrase = APPROVAL_PHRASE[name]
+  if (phrase) return phrase.charAt(0).toUpperCase() + phrase.slice(1)
+  // THE FALLBACK STILL EXISTS, and it is still de-snake-casing, because a tool
+  // added tomorrow must produce something sayable rather than an empty dialog.
+  // It is a floor, not the intended path — `approvalPhrases.test.ts` fails when
+  // a write tool has no entry, so a new one cannot reach a reader this way
+  // without somebody having been asked to write the sentence.
   const words = name.replace(/_/g, ' ').trim()
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
+
+/** Exported for the test that pins every write tool to a written phrase. */
+export { APPROVAL_PHRASE }
 
 /**
  * One request, read to the end.
