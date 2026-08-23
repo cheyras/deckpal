@@ -28,6 +28,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { resolvePlaywright } from './lib/resolve-playwright.mjs'
 import { signIn, bypassHeaders, qaAccount } from './lib/session.mjs'
+import { stripDevChrome } from './lib/dev-chrome.mjs'
 
 const argv = process.argv.slice(2)
 const arg = (n, d) => {
@@ -80,14 +81,9 @@ for (const w of WIDTHS) {
       { timeout: 20_000 },
     )
     .catch(() => {})
-  // Kill the dev ribbon — see the header.
-  await page.evaluate(() => {
-    for (const el of document.querySelectorAll('div')) {
-      if (el.textContent?.startsWith('LIVE DATA ·') && getComputedStyle(el).position === 'fixed') {
-        el.remove()
-      }
-    }
-  })
+  // Kill the dev ribbon — see `lib/dev-chrome.mjs`, which explains why this is
+  // shared rather than copied.
+  await stripDevChrome(page)
   await page.waitForTimeout(600)
 
   const dir = `${OUT}/${w.name}`

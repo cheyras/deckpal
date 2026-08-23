@@ -32,6 +32,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { resolvePlaywright } from './lib/resolve-playwright.mjs'
 import { HOME_PATH, bypassHeaders, openDeckE, qaAccount, signIn, unlockDeckE } from './lib/session.mjs'
+import { stripDevChrome } from './lib/dev-chrome.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const OUT = path.join(ROOT, '.visual-harness', 'chat-panel')
@@ -70,6 +71,12 @@ for (const vp of VIEWPORTS) {
   // He flies in and settles; the composer's FLIP and his own arrival are both
   // animations, and a frame taken mid-flight is a photograph of neither state.
   await page.waitForTimeout(6000)
+
+  // WITHOUT THIS, THE SHOT LIES. The dev ribbon is `fixed bottom-0 z-[9999]`
+  // and lands across Deck-E and the composer — which is exactly how this
+  // capture produced the report "Deck-E is clipped by the pane edge" when he
+  // is nothing of the sort. See `lib/dev-chrome.mjs`.
+  await stripDevChrome(page)
 
   const file = path.join(OUT, `${vp.name}-empty.png`)
   await page.screenshot({ path: file })
