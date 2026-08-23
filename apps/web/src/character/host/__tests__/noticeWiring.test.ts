@@ -87,3 +87,33 @@ test('the confirmation card is HANDED the restatement, not just able to show one
     'ApprovalCard is no longer given his restatement of the request')
   assert.match(PANEL, /import \{ deepRequestLine \}/)
 })
+
+test('a standalone arrival closes the chat; a hop inside a walk does NOT', () => {
+  // "Take me to my decks" leaves the reader looking at a panel covering the
+  // decks page — the owner: "he didn't ever leave the chat. He's supposed to
+  // actually go on to the next page." He chose the chat closing with a line.
+  //
+  // The `!journeySteps` half is the load-bearing one and has no visible symptom
+  // when wrong in the easy direction: without it, the FIRST hop of an escort
+  // would dismiss the panel and abandon the walk, taking his own narration off
+  // screen with it. Every unit test around the walk would still pass.
+  assert.match(
+    HOOK,
+    /call\.name === 'goTo' && !journeySteps && \(result as UiToolResult\)\.ok/,
+    'a journey hop or a failed goTo can now dismiss the panel',
+  )
+  // Fired at the TURN BOUNDARY, not at the moment of navigation: he usually says
+  // something after arriving, and closing mid-turn would cut that off.
+  assert.match(HOOK, /if \(arrived\) onArrivedRef\.current\?\.\(\)/)
+  assert.match(HOST, /seeYouOut\(\)/, 'the host no longer sees him out on arrival')
+})
+
+test('both ways out share one farewell path', () => {
+  // The ✕ and an arrival are the same event to a reader. Two copies is two
+  // places for the no-repeat rule to be forgotten, and it is persisted rather
+  // than held in a ref precisely because people close the panel far more often
+  // than they reload.
+  const calls = (HOST.match(/seeYouOut\(\)/g) ?? []).length
+  assert.ok(calls >= 2, `seeYouOut is called ${calls} time(s) — one of the routes out has its own copy`)
+  assert.equal((HOST.match(/pickFarewell\(/g) ?? []).length, 1, 'a line is picked in more than one place')
+})

@@ -26,7 +26,7 @@
  * purpose — after a reload he boots, which is the honest thing for a character
  * who just came back.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
 import { isChromelessPathname } from '../../lib/landingRoute'
@@ -218,6 +218,27 @@ export function DeckeHost() {
    * appear. The words, the pool and the no-repeat rule are `deckeVoice.ts`.
    */
   const [farewell, setFarewell] = useState<{ text: string; at: number } | null>(null)
+
+  /**
+   * Put him away, with a line.
+   *
+   * ONE function for both routes out — the ✕ or the background, and "take me to
+   * my decks" — because they are the same event to a reader and a second copy is
+   * a second place for the no-repeat rule to be forgotten.
+   *
+   * The last id is persisted rather than kept in a ref: the rule is about what a
+   * PERSON last heard, and they close the panel far more often than they reload,
+   * so a ref would let the same line greet them twice across two visits and read
+   * as canned — the one thing the research says is worse than no line at all.
+   */
+  const seeYouOut = useCallback(() => {
+    const store = openerStore()
+    const said = readLastSaid(store)
+    const bye = pickFarewell({ avoid: said.farewellId ?? null })
+    writeLastSaid(store, { ...said, farewellId: bye.id })
+    setFarewell({ text: bye.text, at: Date.now() })
+    setChatOpen(false)
+  }, [])
   /** True while he is away from the chat doing something on the page. */
   const [travelling, setTravelling] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -298,6 +319,19 @@ export function DeckeHost() {
     },
     () => {
       turnNavigatedRef.current = false
+    },
+    // ── HE TOOK THEM SOMEWHERE, SO HE GETS OUT OF THE WAY ────────────────────
+    //
+    // "You're on the decks page now" — said by a panel covering the decks page.
+    // The owner: *"he didn't ever leave the chat. He's supposed to actually go
+    // on to the next page."* Asked to choose, he picked the chat closing with a
+    // line over the page changing behind it.
+    //
+    // A hop inside a journey or an escort does not reach here; only a standalone
+    // arrival does, and only at the turn boundary, so whatever he said about
+    // arriving is already in the transcript to come back to.
+    () => {
+      seeYouOut()
     },
   )
 
@@ -1083,12 +1117,7 @@ export function DeckeHost() {
           // more often than they reload the page — a ref would let the same line
           // greet them twice across two visits and read as a canned response,
           // which the research says is the one thing worse than no line at all.
-          const store = openerStore()
-          const said = readLastSaid(store)
-          const bye = pickFarewell({ avoid: said.farewellId ?? null })
-          writeLastSaid(store, { ...said, farewellId: bye.id })
-          setFarewell({ text: bye.text, at: Date.now() })
-          setChatOpen(false)
+          seeYouOut()
         }}
         decke={live}
         messages={chat.messages}
