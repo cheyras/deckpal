@@ -1287,14 +1287,25 @@ export function DeckeChat({
                 submit(e)
               }
             }}
-            // SHORT ENOUGH TO FIT BESIDE HIM. Measured on a 393px phone: he
-            // legitimately occupies 129px of the width — he stands beside the
-            // composer by design — which leaves the field 174px, and "Ask about
-            // your collection…" needs 190. It truncated mid-word on the one
-            // control whose job is to invite you to type. The empty state above
-            // says the long version in full; the placeholder only has to say
-            // the box is for typing.
-            placeholder="Ask about your cards…"
+            // SHORT ENOUGH TO FIT BESIDE HIM, AND THE BAR IS LOWER THAN IT LOOKS.
+            //
+            // He legitimately occupies ~129px of a 393px phone — he stands
+            // beside the composer by design — which leaves the field about
+            // 174px. "Ask about your collection…" needs 190 and truncated
+            // mid-word. "Ask about your cards…" was the fix and was still too
+            // long: PHOTOGRAPHED at 390px it wrapped to "Ask about your" +
+            // "cards", and the second line was CLIPPED.
+            //
+            // Clipped rather than shown, because an empty textarea's
+            // `scrollHeight` is one row — a placeholder is not content, so it
+            // contributes nothing to the height the auto-grow effect measures.
+            // The box is sized for one line while the placeholder needs two.
+            // Growing the box instead would make an empty composer two rows
+            // tall on every phone, which is worse than a shorter word.
+            //
+            // The empty state above says the long version in full; this only
+            // has to say the box is for typing.
+            placeholder="Ask Deck-E…"
             aria-label="Message Deck-E"
             className={[
               'min-w-0 flex-1 resize-none bg-transparent px-[10px] py-[9px]',
