@@ -100,7 +100,30 @@ const REDUCED = flag('reduced')
  * @property {boolean} [video]      - record the act, and build a contact sheet
  * @property {number} [frames]      - contact-sheet frames; more for fast motion
  * @property {boolean} [writes]     - true if the scene can write to the account
+ * @property {string} [assert]      - the V4 claim this scene's artifact answers
  * @property {(ctx: object) => Promise<void>} act
+ */
+
+/**
+ * ── `assert`: THE V4 CLAIM, CARRIED WITH THE SCENE ───────────────────────────
+ *
+ * `what` tells a reader what to look for. `assert` is the same thing said as a
+ * single falsifiable claim, in the form `judge-motion.mjs --assert` takes, so
+ * the check is a command rather than an intention. `runScene` prints that exact
+ * command line after it builds the artifact and records the claim in
+ * `notes.json`, which means a scene's assertion cannot quietly go missing the
+ * way D8's did — it was asked for in as many words, nobody wrote it, and
+ * `grep -rn 'upright\|tilt\|tumbl' scripts/` was empty for a whole pass.
+ *
+ * IT IS NOT RUN HERE, and that is deliberate. `judge-motion.mjs` is optional by
+ * design (no `AI_GATEWAY_API_KEY` → contact sheet + exit 3, "nobody checked" as
+ * distinct from "the change is wrong"), and a capture that refused to finish
+ * without a vision model would take that property away from every scene at
+ * once. So the capture produces the artifact and hands over the command.
+ *
+ * ONE CLAIM A HUMAN COULD SETTLE IN TWO SECONDS BY LOOKING. That is the
+ * instrument's own stated standard and it is the whole discipline: "he looks
+ * good" is not judgeable, "his body is roughly upright" is.
  */
 
 /** @type {Scene[]} */
@@ -149,6 +172,9 @@ const SCENES = [
     platforms: ['desktop', 'mobile'],
     video: true,
     frames: 16,
+    assert:
+      'the character is absent in the first frames, then appears small near the ' +
+      'bottom-right and grows, then moves to a different position on the screen',
     async act({ page }) {
       // WARM FIRST, AND WAIT FOR THE RUNTIME, so the recording is of the
       // ENTRANCE and not of the download. This was the first version's mistake
@@ -168,6 +194,60 @@ const SCENES = [
       await page.waitForTimeout(300) // a beat of "before"
       await openDeckE(page)
       await page.waitForTimeout(1800) // the grow (~325ms) and the flight
+    },
+  },
+  {
+    name: 'close-reopen',
+    what:
+      'D8, which was filed and then never looked at. Closing the panel sends ' +
+      'him home across the page (`DeckeHost.tsx` → `returnHome`); reopening ' +
+      'cuts him to the launcher, grows him, and flies him to his mark. Both ' +
+      'legs are long, and the flight layer leans by ACCELERATION — so the ' +
+      'question is whether the lean reads as banking or as tumbling. The ' +
+      'owner caught him at 25-35 degrees off vertical in both directions.\n' +
+      'Look at the contact sheet for a frame where his body is diagonal ' +
+      'enough that you would describe him as falling rather than flying.',
+    platforms: ['desktop', 'mobile'],
+    video: true,
+    // The two flights are ~940 ms and ~1050 ms at the shipped desktop framing,
+    // inside a clip of about seven seconds. At 12 frames the extreme pose can
+    // fall between two samples — which is how a real tilt gets reported as
+    // "never saw one". 20 puts a frame roughly every 350 ms.
+    frames: 20,
+    assert:
+      'the character stays roughly upright throughout — there is no frame in ' +
+      'which its body is tilted far enough off vertical to read as tumbling',
+    async act({ page, timing, notes }) {
+      // Warm off camera, for the reason `chat-entry` gives at length: a clip of
+      // a seven-megabyte download sampled at twenty frames has no motion in it.
+      await page.getByRole('button', { name: 'Chat with Deck-E' }).hover()
+      await page
+        .waitForFunction(() => !!window.__decke, undefined, { timeout: 60_000 })
+        .catch(() => {})
+      await page.waitForTimeout(1200)
+
+      await openDeckE(page)
+      notes.characterArrival = await waitForCharacter(page)
+      notes.characterSettled = await waitForSettled(page)
+      // Let him finish arriving and stand still, so the clip separates the
+      // ENTRANCE from the two legs this scene is about.
+      await page.waitForTimeout(1400)
+
+      timing.mark('close')
+      await page.getByRole('button', { name: 'Close chat' }).first().click({ timeout: 5000 })
+      // `returnHome` is ~940 ms at the shipped desktop framing and the canvas
+      // then fades and he is scaled to nothing 520 ms later — so this covers the
+      // whole close, including the part where he is meant to be gone.
+      await page.waitForTimeout(2000)
+      timing.measure('close:to-gone', 'close')
+
+      timing.mark('reopen')
+      await openDeckE(page)
+      timing.measure('reopen:click-to-composer', 'reopen')
+      // The panel's entrance is 320 ms, the grow ~325 ms, and the flight to his
+      // mark ~1050 ms. This is that, plus a beat of him standing still at the
+      // end so the last frames show the pose he SETTLES into.
+      await page.waitForTimeout(2600)
     },
   },
   {
@@ -499,6 +579,26 @@ function reportArtifact(list, label, path, minBytes = 500) {
 }
 
 /**
+ * Hand over the V4 check as a command, not as a suggestion.
+ *
+ * Printed with the artifact path already filled in so it is copy-pasteable, and
+ * with a reminder of the exit codes — because the useful one is 3. A caller who
+ * gets 3 knows the artifact exists and NOBODY LOOKED, which is a different
+ * state from a failure and the whole reason `judge-motion.mjs` degrades instead
+ * of refusing.
+ */
+function printAssertion(scene, artifactPath) {
+  if (!scene.assert) return
+  const rel = relative(repoRoot, artifactPath).replace(/\\/g, '/')
+  console.log(`    V4 claim: ${scene.assert.replace(/\s+/g, ' ')}`)
+  console.log(
+    `      node scripts/visual-harness/judge-motion.mjs ${rel} \\\n` +
+      `        --assert "${scene.assert.replace(/\s+/g, ' ')}"`,
+  )
+  console.log('      (0 pass · 1 fail · 2 unclear · 3 no vision model configured · 4 error)')
+}
+
+/**
  * Everything that must be true before a page is worth photographing, in the one
  * order that works: the standalone shim and the safe-area override go on BEFORE
  * navigation (app code reads them from first paint), the entitlement unlock
@@ -592,6 +692,7 @@ async function runScene(browser, devices, scene, platform, timing) {
 
   /** Recorded once per scene run and written beside the images. */
   const notes = { scene: scene.name, platform, what: scene.what, base: BASE, reducedMotion: REDUCED }
+  if (scene.assert) notes.assert = scene.assert
 
   if (scene.video) {
     // A recorded context cannot be reused, so sign-in happens inside `interact`.
@@ -623,6 +724,7 @@ async function runScene(browser, devices, scene, platform, timing) {
       sheet.path,
       5000,
     )
+    printAssertion(scene, videoPath)
   } else {
     const context = await browser.newContext(contextOptions)
     const unlock = await unlockDeckE(context)
@@ -640,6 +742,7 @@ async function runScene(browser, devices, scene, platform, timing) {
       reportArtifact(artifacts, 'viewport', shots.viewport)
       reportArtifact(artifacts, 'fullpage', shots.fullPage, 2000)
       reportArtifact(artifacts, 'review copy (open THIS one)', await captureForReview(page, dir, scene.name))
+      printAssertion(scene, shots.viewport)
     } finally {
       await context.close()
     }
@@ -672,7 +775,9 @@ async function main() {
     console.log('Scenes:\n')
     for (const s of SCENES) {
       console.log(`  ${s.name}  [${s.platforms.join(', ')}]${s.video ? ' (video)' : ''}${s.writes ? ' (WRITES)' : ''}`)
-      console.log(`    ${s.what.replace(/\s+/g, ' ')}\n`)
+      console.log(`    ${s.what.replace(/\s+/g, ' ')}`)
+      if (s.assert) console.log(`    V4: ${s.assert.replace(/\s+/g, ' ')}`)
+      console.log('')
     }
     return
   }

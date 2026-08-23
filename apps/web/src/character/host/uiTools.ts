@@ -234,6 +234,76 @@ export type UiToolContext = {
 }
 
 /**
+ * How far across the viewport a destination has to be before the trip is worth
+ * routing through the background plane. A third of the width — "is he even near
+ * it".
+ */
+export const BACKGROUND_HOP_FRACTION = 1 / 3
+
+/**
+ * Does this hop go the long way round, or straight there?
+ *
+ * ── WHY THERE IS A CHOICE AT ALL ─────────────────────────────────────────────
+ *
+ * `via: 'background'` pulls him back to the far plane and brings him in again.
+ * Measured in the engine's own notes, a depth change is 24-27 world units while
+ * every same-depth leg is under 3 — so the far-plane round trip is not a
+ * flourish on a short hop, it is a trip that is ten times longer than the one
+ * that was asked for, and `travelRate` plays it at the top of its ramp (2.95x,
+ * `flight.ts:87`), which is the most dramatic leg the system has.
+ *
+ * ── ONE RULE, TWO CALLERS, AND THE SECOND ONE IS THE POINT ───────────────────
+ *
+ * `flyTo` has judged this since the distance threshold landed. `travelAfterRoute`
+ * did not: it forced `via: 'background'` unconditionally on the grounds that
+ * after a full page swap "there is no continuity to preserve by going straight."
+ * That argument is about the PAGE, and the reader is watching the CHARACTER.
+ *
+ * Measured at the shipped desktop framing (1440x900, composer-derived character
+ * height 216px, camera at 14.4 units), a `goTo` that lands on a card near the
+ * middle of the new page cost **two** legs of 29-32 units — 2271 ms with his
+ * body past 20 degrees off vertical for 610 ms of it — where going straight is
+ * one 8.5-unit leg of 836 ms. He shrinks to the far plane and swells back to
+ * full size in the middle of the screen, which is exactly the complaint:
+ *
+ *   "And that needs to be, like, a smooth animation. Right now, it wasn't. It
+ *    kind of just, like, became big."                                    (C35)
+ *
+ * So the same question gets the same answer wherever it is asked. A destination
+ * genuinely across the page still earns the long way round — that reading, "he
+ * travelled", is what the round trip was for — and a destination he is already
+ * standing near does not.
+ *
+ * ── MEASURED FROM HIM WHEN WE KNOW WHERE HE IS ───────────────────────────────
+ *
+ * The shipped rule measured the target against the middle of the VIEWPORT,
+ * which is a proxy for "near him" that is only true while he is parked near the
+ * middle. `screenRect()` answers the real question, so pass it when it is
+ * available; `null` falls back to the proxy and reproduces the old answer
+ * exactly, which is what a character who has not finished loading gets.
+ */
+export function viaBackground(
+  fromX: number | null,
+  targetCentreX: number,
+  viewportWidth: number,
+): boolean {
+  // Written as `!(w > 0)` rather than `w <= 0` so a NaN viewport is refused too.
+  // A target that is itself NaN needs no guard: every comparison against NaN is
+  // false, so it falls out here as "not far", which is the safe answer — the
+  // far-plane round trip is the expensive one and has to be earned.
+  if (!(viewportWidth > 0)) return false
+  const origin = fromX === null || !Number.isFinite(fromX) ? viewportWidth / 2 : fromX
+  return Math.abs(targetCentreX - origin) > viewportWidth * BACKGROUND_HOP_FRACTION
+}
+
+/** Where he is on screen right now, or null if he has no resolved position. */
+function himX(ctx: UiToolContext): number | null {
+  const box = ctx.decke.screenRect()
+  if (!box) return null
+  return box.left + box.width / 2
+}
+
+/**
  * Run one browser-side tool call.
  *
  * Never throws: a rejected tool has to come back as a RESULT the model can react
@@ -251,16 +321,17 @@ export async function runUiTool(
         if (refused) return { ok: false, reason: refused }
         if (!el) return { ok: false, reason: 'there is nothing like that on this page' }
         // VIA THE BACKGROUND when it is a real journey, straight there when it
-        // is not. Measured in the engine's own notes: a depth change is 24-27
-        // world units while every same-depth leg is under 3, so routing a short
-        // hop through the far plane spends most of the trip going nowhere. The
-        // threshold is "is he even near it" — a third of the viewport.
+        // is not. See `viaBackground` for the measurement and the reason the
+        // same rule now governs the post-navigation flight too.
+        //
+        // The `flying` guard is this caller's own: chaining a far-plane round
+        // trip onto a leg already in the air reads as him changing his mind
+        // mid-flight, and the leg he is on already carries the travel.
         const here = ctx.decke.getState()
         const target = el.getBoundingClientRect()
         const far =
           !here.flying &&
-          Math.abs(target.left + target.width / 2 - window.innerWidth / 2) >
-            window.innerWidth / 3
+          viaBackground(himX(ctx), target.left + target.width / 2, window.innerWidth)
         ctx.decke.flyTo(
           { selector: String(input.selector) },
           {
@@ -352,7 +423,38 @@ export async function runUiTool(
 }
 
 /**
- * Wait for the destination to actually exist, then travel to it.
+ * How long the new page has to stop changing before he sets off.
+ *
+ * ── STAGED, NOT SIMULTANEOUS ─────────────────────────────────────────────────
+ *
+ * The `MutationObserver` below fires on the FIRST mutation that makes the
+ * selector resolve, and on a route change that is usually the skeleton, not the
+ * content — a landmark on an empty grid that is about to grow rows, move, and
+ * push everything below it. Flying at that moment is what put him "large,
+ * centred, over a loading spinner" in C35's own frames: he solved a stand point
+ * against a box that no longer existed by the time he landed on it.
+ *
+ * So the transition is staged — navigate, let the new page settle, THEN travel,
+ * and the ring lands on arrival (`DeckE.flyTo` already rings from `onArrive`,
+ * deliberately, "rather than racing him across the page"). Heer & Robertson
+ * (IEEE TVCG 2007) measured staged transitions beating direct interpolation on
+ * graphical perception across two controlled experiments; this is the cheap half
+ * of that, and it is the half that was missing.
+ *
+ * 120 ms is a quiet window, not a delay: it is re-armed by every further
+ * mutation, so a page that settles instantly waits 120 ms and a page that churns
+ * waits until it stops — bounded by `LIMIT_MS`, which does not move.
+ *
+ * X1, ANSWERED EXPLICITLY RATHER THAN BY SILENCE: nothing here adds motion, so
+ * there is no new reduce path to ship with it. Both changes in this pair make
+ * the existing motion shorter and gentler, and the reduced-motion route is
+ * untouched — `DeckE.flyTo` still cuts, and a cut lands on a settled page for
+ * the same reason a flight does.
+ */
+const SETTLE_MS = 120
+
+/**
+ * Wait for the destination to actually exist and stop moving, then travel to it.
  *
  * "After the route settles" is not a moment the router can tell us about. A
  * route renders, then its data resolves, then the list it renders appears —
@@ -370,35 +472,78 @@ function travelAfterRoute(
 ): Promise<UiToolResult> {
   const LIMIT_MS = 6000
   return new Promise((resolve) => {
-    const tryNow = (): boolean => {
+    const go = (): boolean => {
       const { el, refused } = resolveTarget(selector)
       if (refused) {
         resolve({ ok: false, reason: refused })
         return true
       }
       if (!el) return false
-      // ALWAYS via the background after a navigation. The page under him has
-      // just been replaced, so there is no continuity to preserve by going
-      // straight — pulling back and coming in is what makes the load read as
-      // him travelling rather than as him teleporting.
+      // THE SAME QUESTION `flyTo` ASKS, and it used to be answered here with a
+      // hard-coded "always the long way round". `viaBackground` carries the
+      // measurement and the reason; the short version is that forcing the
+      // far-plane round trip made every navigation cost two 30-unit legs, which
+      // is the "it kind of just became big" this is filed under (C35).
+      //
+      // A destination genuinely across the new page still gets it. That reading
+      // — he travelled, the page changed under him — is what the round trip was
+      // for, and it survives.
+      const target = el.getBoundingClientRect()
+      const far = viaBackground(himX(ctx), target.left + target.width / 2, window.innerWidth)
       ctx.decke.flyTo(
         { selector },
-        { depth: 'foreground', highlight: true, then: 'point', via: 'background', scrollWith: true },
+        {
+          depth: 'foreground',
+          highlight: true,
+          then: 'point',
+          via: far ? 'background' : undefined,
+          scrollWith: true,
+        },
       )
       resolve({ ok: true })
       return true
     }
-    if (immediate && tryNow()) return
 
-    const obs = new MutationObserver(() => {
-      if (tryNow()) {
-        obs.disconnect()
-        window.clearTimeout(timer)
+    // ALREADY ON THE PAGE. Nothing was replaced, so there is nothing to settle
+    // and waiting would only make him look slow.
+    if (immediate) {
+      const { el, refused } = resolveTarget(selector)
+      if (refused || el) {
+        go()
+        return
       }
+    }
+
+    let quiet = 0
+    const finish = () => {
+      obs.disconnect()
+      window.clearTimeout(timer)
+      // Resolved again HERE rather than trusting the match that armed the
+      // settle: the whole point of waiting is that the page moved, and the
+      // element that armed it may have been replaced by the real one.
+      if (!go()) {
+        resolve({ ok: false, reason: 'we are on the page, but I could not find that part of it' })
+      }
+    }
+    const obs = new MutationObserver(() => {
+      const { el, refused } = resolveTarget(selector)
+      // A REFUSAL IS AN ANSWER, and waiting for the page to stop moving cannot
+      // change it — the selector resolves to something he is not allowed to
+      // point at, and it will still be that in 120 ms.
+      if (refused) {
+        finish()
+        return
+      }
+      if (!el) return
+      // Re-armed, not scheduled once: the first match is usually the skeleton,
+      // and every mutation after it is the page still arriving.
+      window.clearTimeout(quiet)
+      quiet = window.setTimeout(finish, SETTLE_MS)
     })
     obs.observe(document.body, { childList: true, subtree: true })
     const timer = window.setTimeout(() => {
       obs.disconnect()
+      window.clearTimeout(quiet)
       // He ARRIVED — the navigation happened. Only the last step failed, and
       // saying which half worked is the difference between "I took you there,
       // but I cannot find it" and an unexplained shrug.

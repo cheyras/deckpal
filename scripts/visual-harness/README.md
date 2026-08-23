@@ -74,6 +74,20 @@ screenshot alone cannot tell you:
   chat to render at all. **Read it.** A run where it fired is a run where the
   client was told something the server does not agree with.
 
+A scene may also carry an **`assert`** — the one falsifiable claim its artifact
+exists to settle, written the way `judge-motion.mjs --assert` wants it. `--list`
+prints it, `notes.json` records it, and after the capture the runner prints the
+exact command with the artifact path already filled in. It is **not run for
+you**: `judge-motion.mjs` is optional by design (see below), and a capture that
+refused to finish without a vision model would take that away from every scene
+at once.
+
+Write assertions to the instrument's own standard — *one claim a human could
+settle in two seconds by looking.* "He looks good" is not judgeable; "his body
+is roughly upright" is. The field exists because D8's assertion was asked for in
+as many words during this pass, nobody wrote it, and `grep -rn 'upright\|tilt'
+scripts/` came back empty a whole phase later.
+
 Scenes also write a `.review.jpg` next to the full-resolution PNG. Open that
 one: the PNG is the evidence, the JPEG is the thing a person (or a vision model)
 can actually read without an image-processing step in between.
