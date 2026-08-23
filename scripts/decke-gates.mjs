@@ -1836,7 +1836,14 @@ GATES[9] = {
       await say(
         page,
         composer,
-        `Add one ${target.cardId} (${target.name}) to my collection`,
+        // NAMES THE PRINTING, exactly as `scripts/decke-signed-probe.mjs`
+        // already does. Without it the held call classifies as unstated, the
+        // row goes to the approval card's "what was the variant on these?"
+        // section, and Accept-with-nothing-picked writes nothing — so this
+        // gate would go red on correct Path B behaviour, for a reason that is
+        // neither a bug nor a regression. The gate is about approval, not
+        // about disambiguation.
+        `Add one ${target.cardId} (${target.name}) to my collection. Normal variant.`,
         chatPosts,
         { settleMs: 300_000 },
       )
@@ -1948,7 +1955,15 @@ GATES[9] = {
       // control to grant it" while the control was on screen.
       const dialog = page.getByRole('alertdialog', { name: /asking permission/i })
       const approve = page
-        .getByRole('button', { name: /^(go ahead|approve|allow|confirm|yes,? (do|add))$/i })
+        // THE LABEL IS NO LONGER FIXED. The approval card names what Accept
+        // will actually commit — "Add 2 cards", "Remove 1 card", "Apply 3
+        // changes" — because a button that says "Go ahead" beside a row the
+        // reader has struck out is not saying what pressing it does. The plain
+        // dialog still says "Go ahead", so both spellings have to match or the
+        // gate goes red on the card it is meant to be testing.
+        .getByRole('button', {
+          name: /^(go ahead|approve|allow|confirm|yes,? (do|add)|add \d+ card|remove \d+ card|apply \d+ change)/i,
+        })
         .first()
       await approve.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {})
       if (!(await approve.isVisible().catch(() => false))) {

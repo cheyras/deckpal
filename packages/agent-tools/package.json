@@ -13,7 +13,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:variants": "node --import tsx --test src/__tests__/*.test.ts"
   },
   "dependencies": {
     "pg": "^8.23.0",

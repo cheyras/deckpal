@@ -46,6 +46,8 @@ import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
 import { ChatMarkdown } from './chat/ChatMarkdown'
 import { ThinkingRow } from './chat/ThinkingRow'
 import { ToolRow } from './chat/ToolRow'
+import { ApprovalCard } from './chat/ApprovalCard'
+import type { ApprovalPreview, Choices, RowChoice } from './chat/approvalCardState'
 import type { PendingApproval, ToolChip } from './useDeckeChat'
 
 /**
@@ -218,25 +220,13 @@ export function messageIsEmpty(m: ChatMessage): boolean {
   return m.parts.every((p) => (p.kind === 'text' ? p.text.length === 0 : false))
 }
 
-/**
- * The last completed tool result on the transcript, for the approval prompt.
- *
- * WHICH IS ALWAYS THE DRY RUN, in the shape this protocol produces: the preview
- * executes (it changes nothing, so it needs no permission), and the real write
- * is the one held. So the most recent finished tool call at the moment the
- * question appears is, by construction, the preview of the thing being asked
- * about.
- *
- * Read off the chips rather than from his words, because the chips come from
- * the server's own execute wrapper — a summary here cannot describe a preview
- * that did not run.
- */
+
 /**
  * The status lines the thinking row shows, newest last.
  *
  * SOURCED, NEVER COMPOSED HERE. Each line is a `note` the server emitted at a
- * real tool boundary, or the real title of a call that actually started. The
- * one thing this must not do is invent a plausible line — "Checking your
+ * real tool boundary, or the real title of a call that actually started. The one
+ * thing this must not do is invent a plausible line — "Checking your
  * collection…" with no lookup behind it is strictly worse than no line at all,
  * because it manufactures evidence. `ThinkingRow` handles an empty list by
  * saying something honest and non-specific.
@@ -249,23 +239,6 @@ function liveLabels(m: ChatMessage): string[] {
     else if (p.chip.phase === 'start') out.push(`${p.chip.title}…`)
   }
   return out
-}
-
-function previewOf(messages: ChatMessage[]): string | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    // `partial` COUNTS AS FINISHED. It is a new phase meaning "this ran out of
-    // time and what came back is incomplete", and a call that used to resolve
-    // `ok` can now resolve `partial` instead — so an `ok`-only filter would
-    // make a timed-out dry run invisible here and show the consent dialog with
-    // no preview at all. Silence is the worst possible answer in a dialog whose
-    // entire job is to say what is about to change.
-    const done = messageTools(messages[i]).filter(
-      (t) => (t.phase === 'ok' || t.phase === 'partial') && t.summary,
-    )
-    const last = done[done.length - 1]
-    if (last?.summary) return last.summary
-  }
-  return null
 }
 
 export function DeckeChat({
@@ -281,6 +254,10 @@ export function DeckeChat({
   asking,
   onApprove,
   onDeny,
+  approvalPreview,
+  approvalChoices,
+  onApprovalChoice,
+  approvalBusy,
   onRetryTool,
   desktop,
   characterPx,
@@ -313,6 +290,12 @@ export function DeckeChat({
   asking: PendingApproval[] | null
   onApprove: () => void
   onDeny: () => void
+  /** The dry run's real rows for a held call, or null for the plain dialog. */
+  approvalPreview: (toolCallId: string) => ApprovalPreview | null
+  approvalChoices: Choices
+  onApprovalChoice: (index: number, choice: RowChoice) => void
+  /** True from the tick Accept is pressed until the write has answered. */
+  approvalBusy: boolean
   /**
    * Ask for a failed or partial call to be tried again.
    *
@@ -910,60 +893,24 @@ export function DeckeChat({
           the reader's collection, and the default posture should be no.
         */}
         {asking?.length ? (
-          <div
-            // ITS OWN CARD, with a gap. It used to be a band ruled off from the
-            // composer by a hairline, which reads as part of the same furniture
-            // — and this is the only place in the app where a model asks to
-            // change what the reader owns. It should look like a separate thing
-            // being handed to you, not like a section of the input.
-            className="decke-composer-card pointer-events-auto mx-[16px] mb-[10px] shrink-0 p-[12px]"
-            role="alertdialog"
-            aria-label="Deck-E is asking permission"
-          >
-            <p className="text-[13px] leading-[19px] text-text-body">
-              {asking.length === 1
-                ? `Let him ${asking[0].title.toLowerCase()}?`
-                : `Let him make ${asking.length} changes?`}
-            </p>
-            {/*
-              THE PREVIEW, SHOWN — not left to him to remember to narrate.
-
-              Measured against the deployed preview: asked to add a card, he ran
-              `log_cards` with `dry_run: true`, then called it for real and the
-              SDK held it — and he produced NO TEXT at all that turn. The reader
-              was asked "Let him log cards?" with nothing whatsoever about what
-              would change.
-
-              The prompt tells him to state it in numbers, and he may well
-              start; but a consent dialog whose content depends on a model
-              remembering to speak is a consent dialog that will sometimes be
-              blank. The dry run ALREADY RAN and its result is already on the
-              message as a chip. Showing that is the same fact, from the tool
-              rather than from him — which is the version that cannot be
-              forgotten or embellished.
-            */}
-            {previewOf(messages) ? (
-              <p className="mt-[4px] text-[12px] leading-[18px] text-text-muted">
-                {previewOf(messages)}
-              </p>
-            ) : null}
-            <div className="mt-[8px] flex gap-[8px]">
-              <button
-                type="button"
-                onClick={onDeny}
-                className="rounded-[10px] border border-border-default px-[12px] py-[6px] text-[13px] text-text-body"
-              >
-                Leave it
-              </button>
-              <button
-                type="button"
-                onClick={onApprove}
-                className="rounded-[10px] bg-action-primary px-[12px] py-[6px] text-[13px] text-action-primary-text"
-              >
-                Go ahead
-              </button>
-            </div>
-          </div>
+          <ApprovalCard
+            title={asking[0].title}
+            count={asking.length}
+            // KEYED TO THE HELD CALL, which fixes a trust defect by
+            // construction. This used to be `previewOf(messages)`, which
+            // scanned BACKWARDS for the most recent finished tool call of any
+            // kind and showed its summary — on the assumption, which its own
+            // comment conceded was an assumption, that the last finished call
+            // is the dry run of the thing being asked about. Any tool
+            // finishing after the dry run displaced it, and a consent dialog
+            // showing another call's result is worse than one showing nothing.
+            preview={approvalPreview(asking[0].toolCallId)}
+            choices={approvalChoices}
+            onChoice={onApprovalChoice}
+            onAccept={onApprove}
+            onDeny={onDeny}
+            busy={approvalBusy}
+          />
         ) : null}
 
         {/*

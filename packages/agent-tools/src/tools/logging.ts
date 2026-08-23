@@ -8,10 +8,12 @@ import {
   describeVariant,
   pickVariant,
   resolveCardsBatch,
+  variantCertainty,
   variantsOfMany,
   type CardRef,
   type ResolvedCard,
   type ResolvedVariant,
+  type VariantCertainty,
 } from '../resolve.js';
 
 /**
@@ -181,6 +183,45 @@ interface Planned {
   variant: ResolvedVariant;
   mode: 'delta' | 'quantity';
   value: number;
+  /**
+   * How sure we are which PRINTING this row means — computed beside
+   * `pickVariant`, never instead of it.
+   *
+   * Only ever read by the `structured` echo (and, through it, by the approval
+   * card the browser renders before a write is authorised). It changes nothing
+   * about what this tool plans, writes, or says to the model: a row is applied
+   * on exactly the terms it was before this field existed. See
+   * `variantCertainty` in `../resolve.ts` for why it keys on candidate count.
+   */
+  certainty: VariantCertainty;
+}
+
+/** A candidate printing, as the approval card's picker needs it. */
+function shapeCandidate(v: ResolvedVariant): Record<string, unknown> {
+  return {
+    variantId: v.id,
+    kindCode: v.kindCode,
+    label: v.displayName ?? v.kindCode,
+    isPrimary: v.isPrimary,
+    ownedQty: v.ownedQty,
+  };
+}
+
+/**
+ * The certainty fields, flattened onto a `structured` row.
+ *
+ * ADDITIVE AND OPTIONAL by construction: `candidates`/`wouldUseVariantId` are
+ * spread in only for the two kinds that have them, so a row that needs no
+ * question carries no empty picker data.
+ */
+function certaintyFields(c: VariantCertainty): Record<string, unknown> {
+  return {
+    certainty: c.kind,
+    ...(c.kind === 'unstated' || c.kind === 'ambiguous'
+      ? { candidates: c.candidates.map(shapeCandidate) }
+      : {}),
+    ...(c.kind === 'unstated' ? { wouldUseVariantId: c.wouldUse } : {}),
+  };
 }
 
 interface Skipped {
@@ -280,14 +321,40 @@ async function planBatch(ctx: Ctx, items: readonly Item[]): Promise<{ planned: P
 
     const all = variantsByCard.get(card.id) ?? [];
     const vres = pickVariant(all, item, { forAbsoluteQuantity: item.quantity !== undefined });
+    // Computed from `pickVariant`'s OWN answer, immediately after it, and read
+    // by nothing that decides what happens to this row. See `Planned.certainty`.
+    const certainty = variantCertainty(all, item, vres);
+    const mode = item.quantity !== undefined ? 'quantity' : 'delta';
+    const value = item.quantity !== undefined ? item.quantity : item.delta!;
     if (vres.status === 'not_found') {
-      skip(inputIdx, item, `${cardLabel(card)} — ${vres.message}`);
+      skip(inputIdx, item, `${cardLabel(card)} — ${vres.message}`, [], {
+        cardId: card.tcgdexId,
+        cardName: card.name,
+        setId: card.setTcgdexId,
+        number: card.localId,
+        mode,
+        value,
+        ...certaintyFields(certainty),
+      });
       return;
     }
     if (vres.status === 'ambiguous') {
+      // A CANDIDATE-BEARING SKIP, and the reason the approval card has to read
+      // `skipped` as well as `planned`. Review finding m-1: `planned.push`
+      // happens only for `status: 'ok'`, so an `ambiguous` row — one of the two
+      // kinds that DEFINE the card's "ask about these" section — never reaches
+      // a planned row at all. It is skipped here and stays skipped, which is
+      // consistent with "unpicked is not written"; the card still needs its
+      // candidates in order to offer the question.
       skip(inputIdx, item, `${cardLabel(card)} — ${vres.message}`, vres.variants.map(describeVariant), {
         cardId: card.tcgdexId,
+        cardName: card.name,
+        setId: card.setTcgdexId,
+        number: card.localId,
+        mode,
+        value,
         variants: vres.variants.map((v) => v.id),
+        ...certaintyFields(certainty),
       });
       return;
     }
@@ -295,8 +362,9 @@ async function planBatch(ctx: Ctx, items: readonly Item[]): Promise<{ planned: P
       index: inputIdx,
       card,
       variant: vres.variant,
-      mode: item.quantity !== undefined ? 'quantity' : 'delta',
-      value: item.quantity !== undefined ? item.quantity : item.delta!,
+      mode,
+      value,
+      certainty,
     });
   });
 
@@ -503,7 +571,18 @@ const logCardsTool = defineTool({
         const tag = `#${p.index + 1}`;
         if (!r) {
           lines.push(`${tag} … ${cardLabel(p.card)} | ${variantLabel(p.variant)} — NOT SENT (see the note below)`);
-          structured.push({ index: p.index, outcome: 'not_sent', cardId: p.card.tcgdexId, variantId: p.variant.id });
+          structured.push({
+            index: p.index,
+            outcome: 'not_sent',
+            cardId: p.card.tcgdexId,
+            cardName: p.card.name,
+            setId: p.card.setTcgdexId,
+            number: p.card.localId,
+            variantId: p.variant.id,
+            mode: p.mode,
+            value: p.value,
+            ...certaintyFields(p.certainty),
+          });
           continue;
         }
         const deltaTxt = r.delta === 0 ? 'no change' : `Δ${r.delta > 0 ? '+' : ''}${r.delta}`;
@@ -515,11 +594,22 @@ const logCardsTool = defineTool({
           index: p.index,
           outcome: dry_run ? 'would_apply' : 'applied',
           cardId: p.card.tcgdexId,
+          // Name/set/number and mode/value are here for the approval card,
+          // which has to render a row a person can recognise and then rebuild
+          // the very same operation if they correct it. `cardId` alone is an id
+          // to authorise, which is precisely what a consent dialog must not be.
+          cardName: p.card.name,
+          setId: p.card.setTcgdexId,
+          number: p.card.localId,
           variantId: r.variantId,
+          variantLabel: variantLabel(p.variant),
+          mode: p.mode,
+          value: p.value,
           oldQuantity: r.before,
           newQuantity: r.after,
           delta: r.delta,
           clamped: r.clamped,
+          ...certaintyFields(p.certainty),
         });
       }
 

@@ -403,6 +403,38 @@ async function serve(request) {
     }
   }
 
+  /**
+   * The structured preview of a HELD write, onto the stream, keyed to its call.
+   *
+   * SAME RULE AND SAME WORDS AS THE CHIPS, and it matters more here: this is a
+   * consent dialog, and a row on it the model could ask for would be a
+   * fabricated authorisation. These come from the adapter's `onInputAvailable`,
+   * which runs the real handler with `dry_run` FORCED, so every row corresponds
+   * 1:1 to a real invocation by construction.
+   *
+   * NO CHIP accompanies it. A chip says work happened for the reader; this work
+   * happened for the dialog, and a chip would put "Log collection changes —
+   * would apply 3" in the transcript beside a change nobody has agreed to.
+   *
+   * TRANSIENT, like the chips and the animation commands: it is a question
+   * being asked now, not a fact the transcript should re-bill on every
+   * subsequent turn. The client keys it by `toolCallId` — never by arrival
+   * order, because the SDK signs and enqueues the approval request CONCURRENTLY
+   * with this dry run still running (`ai/dist/index.js:8228-8271` enqueues the
+   * chunk before it awaits the callback). What does hold is that the await
+   * blocks the stream from closing until this is written, and the browser does
+   * not open the card until the leg's stream has closed.
+   */
+  const emitApprovalPreview = (writer) => (preview) => {
+    try {
+      writer.write({ type: 'data-decke-approval-preview', data: preview, transient: true })
+    } catch {
+      // A closed stream is the ordinary end of an aborted turn. A preview that
+      // cannot be delivered must never take the held call down with it — the
+      // card falls back to the plain dialog and the write is still approvable.
+    }
+  }
+
   const choice = MODELS.chat
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
@@ -435,6 +467,11 @@ async function serve(request) {
           ...toolCtx,
           include: () => true,
           onEvent: emitToolEvent(writer),
+          // ONLY HERE. The deep tier's sub-agents below get no
+          // `onApprovalPreview`, because there is no reader watching a dialog
+          // for them — and with nobody listening the adapter runs no preview at
+          // all, so a sub-agent pays nothing for a card it cannot show.
+          onApprovalPreview: emitApprovalPreview(writer),
           grounding,
         }),
         // THE DEEP TIER. Four sub-agents, each with its own model, step

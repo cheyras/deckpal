@@ -410,3 +410,94 @@ export async function resolveVariant(
   const primary = all.find((x) => x.isPrimary) ?? all[0]!;
   return { status: 'ok', variant: primary };
 }
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * HOW SURE ARE WE WHICH PRINTING THIS ROW MEANS?
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * KEYED ON CANDIDATE COUNT, NEVER ON RESOLUTION STATUS. That distinction is the
+ * whole reason this function exists, and it was caught by a reviewer rather
+ * than by the plan that proposed the field.
+ *
+ * {@link pickVariant} returns `status: 'ok'` for an omitted variant on a card
+ * with several printings — it silently takes `isPrimary ?? all[0]` (see the
+ * final `return` above). So a row classified on STATUS would call that one
+ * "resolved fine" and file it under *known*, when it is precisely the row a
+ * person should be asked about: nobody said which printing, and the answer was
+ * chosen for them. `status: 'ambiguous'` is a much narrower condition — it
+ * fires only for an ABSOLUTE-quantity write on a card the user already owns
+ * more than one printing of — and it is not the question being asked here.
+ *
+ * ── A NEW FIELD BESIDE `pickVariant`'S ANSWER, NEVER A CHANGE TO IT ─────────
+ *
+ * `add_cards` (`tools/lists.ts`) and every other non-Deck-E caller depend on
+ * the silent primary default. Turning those into errors would be a regression
+ * well outside the pass this was written for, so this reads `pickVariant`'s
+ * output and adds to it. `__tests__/resolve.test.ts` pins `pickVariant`'s
+ * return value over the same fixtures, which is the executable form of that
+ * sentence.
+ *
+ * The two "asking" kinds carry their own `candidates`, because the caller that
+ * renders a picker needs the list and must not go back to the database for it.
+ *
+ * NOT A SCORE. Four kinds, sorted into two buckets — "known" and "ask" — by
+ * {@link certaintyAsksSelection}. There is no ordering between `unstated` and
+ * `ambiguous`, and rendering this as high/medium/low confidence is the exact
+ * mistake the research behind the design says degrades decisions.
+ */
+export type VariantCertainty =
+  /** An explicit `variant_id` or `variant_kind` was given. Nothing to ask. */
+  | { kind: 'stated' }
+  /** Omitted, and the card has exactly one printing. Nothing to ask. */
+  | { kind: 'only-one' }
+  /**
+   * Omitted, the card has several printings, and one was silently chosen.
+   * `wouldUse` is the variant id {@link pickVariant} picked — shown as the
+   * default in a picker, never written without an answer.
+   */
+  | { kind: 'unstated'; candidates: ResolvedVariant[]; wouldUse: number }
+  /** {@link pickVariant} itself refused to choose. */
+  | { kind: 'ambiguous'; candidates: ResolvedVariant[] }
+  /** The card, or the named variant, did not resolve at all. */
+  | { kind: 'unresolvable' };
+
+/**
+ * Classify one row's printing certainty.
+ *
+ * THE RULE ORDER IS THE SPECIFICATION. `stated` and `all.length > 1` are both
+ * true of an explicitly-named printing on a multi-printing card, and that row
+ * needs no question — so `stated` is tested before anything that counts
+ * candidates, and `unresolvable` is tested before everything, because a row
+ * that did not resolve has no printing to be certain about.
+ *
+ * Pure: `all` and `res` are already in hand, so a batch calls this N times for
+ * free.
+ */
+export function variantCertainty(
+  all: readonly ResolvedVariant[],
+  ref: VariantRef,
+  res: VariantResolution,
+): VariantCertainty {
+  // 1. Nothing resolved — no printing to be certain or uncertain about.
+  if (res.status === 'not_found' || all.length === 0) return { kind: 'unresolvable' };
+  // 2. They said which one. Section 1, however many printings exist.
+  if (ref.variant_id != null || ref.variant_kind != null) return { kind: 'stated' };
+  // 3. Only one printing exists, so the omission cost nothing. Section 1.
+  if (all.length === 1) return { kind: 'only-one' };
+  // 4. `pickVariant` declined to choose, and said what the choices are.
+  if (res.status === 'ambiguous') return { kind: 'ambiguous', candidates: [...res.variants] };
+  // 5. Omitted, several printings, silently resolved to the primary. THE ROW
+  //    THIS FUNCTION EXISTS FOR — `ok` on the way out, and still a question.
+  return { kind: 'unstated', candidates: [...all], wouldUse: res.variant.id };
+}
+
+/**
+ * Does this row need a person to pick a printing before it is written?
+ *
+ * The single place the four kinds collapse into two buckets, so a caller
+ * cannot get the split subtly different from the next caller.
+ */
+export function certaintyAsksSelection(c: VariantCertainty): boolean {
+  return c.kind === 'unstated' || c.kind === 'ambiguous';
+}
