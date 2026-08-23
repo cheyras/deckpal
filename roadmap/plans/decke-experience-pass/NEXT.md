@@ -49,6 +49,14 @@ byte-identical in the output to one where he never tried. It now counts
 `tool-input-error` separately and prints every part type it saw, so the next
 thing it cannot see shows up as an unfamiliar name rather than as silence.
 
+A SECOND blindness was found in the same instrument while trying to run that
+re-baseline: MSYS path conversion was rewriting `--route /decks` into
+`C:/Program Files/Git/decks`, so the probe asked the model to escort someone
+standing on a route the app does not have. The **2/10 browser baseline above is
+unaffected** — the gates never touch the probe — but the cheap prompt-tweak
+comparisons were measuring a nonsense context. The probe now refuses a non-route.
+See `ESCORT-PLAN.md` §1.
+
 **This matters before anything else is measured.** "He rarely chooses it" and
 "he chooses it and it silently fails" are different findings with different
 fixes, and every number gathered so far cannot tell them apart. The one saved
