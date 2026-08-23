@@ -122,18 +122,34 @@ function transcriptComponents(): Components {
     li: ({ children }) => <li className="leading-[21px]">{children}</li>,
     strong: ({ children }) => <strong className="font-bold text-text-primary">{children}</strong>,
     em: ({ children }) => <em className="italic">{children}</em>,
+    /*
+      A CHIP, NOT A HIGHLIGHTER. `bg-surface-tertiary` is stone-700 — the app's
+      third surface, sized for panels — and at inline-code size it is a pale
+      grey block dropped into a line of prose. Deck-E writes set ids and card
+      ids inline constantly, so on a real answer there are four or five of these
+      per paragraph and they were the first thing the eye landed on. The
+      secondary surface with a hairline says "this is literal text" without
+      shouting it.
+
+      `text-[0.9em]`, not `text-[12px]`: monospace runs optically larger than
+      the surrounding sans at the same nominal size, and a fixed size stops
+      tracking the body if the transcript's type scale ever moves.
+    */
     code: ({ children }) => (
-      <code className="rounded-sm bg-surface-tertiary px-[5px] py-px font-mono text-[12px] text-text-primary">
+      <code className="rounded-[5px] border border-surface-tertiary bg-surface-secondary px-[5px] py-px font-mono text-[0.9em] text-text-primary">
         {children}
       </code>
     ),
     pre: ({ children }) => (
-      <pre className="mb-[10px] overflow-x-auto rounded-lg bg-surface-tertiary p-[10px] font-mono text-[12px] leading-[17px] text-text-primary last:mb-0 [&_code]:bg-transparent [&_code]:p-0">
+      <pre className="mb-[10px] overflow-x-auto rounded-lg border border-surface-tertiary bg-surface-secondary p-[10px] font-mono text-[12px] leading-[17px] text-text-primary last:mb-0 [&_code]:border-0 [&_code]:bg-transparent [&_code]:p-0">
         {children}
       </pre>
     ),
+    /* The rule was `divider-subtle` — so faint against the panel that the quote
+       read as an accidentally indented paragraph. A pull-quote's whole job is to
+       be visibly set apart from the sentence before it. */
     blockquote: ({ children }) => (
-      <blockquote className="mb-[8px] border-l-2 border-divider-subtle pl-[10px] text-text-secondary last:mb-0">
+      <blockquote className="mb-[8px] border-l-2 border-border-default pl-[12px] text-text-secondary last:mb-0">
         {children}
       </blockquote>
     ),
@@ -143,15 +159,40 @@ function transcriptComponents(): Components {
     // the composer sideways.
     table: ({ children }) => (
       <div className="mb-[10px] max-w-full overflow-x-auto">
-        <table className="w-full border-collapse text-[13px]">{children}</table>
+        <table className="w-full border-collapse text-[13px]">
+          {children}
+        </table>
       </div>
     ),
+    /*
+      RULES, NOT A GRID, AND NO SLAB FOR A HEAD.
+
+      This was `border border-border-default` on every cell plus
+      `bg-surface-tertiary` on the header — a full box grid with a pale bar
+      across the top, which is what an unstyled `<table>` looks like in a
+      spreadsheet and is exactly how it photographed: the loudest object in a
+      transcript of quiet prose, and the loudest thing in it was the word
+      "Card".
+
+      A table in running text wants horizontal rules and nothing else. The
+      header is separated by weight, colour and a heavier rule under it; the
+      vertical borders go entirely, because the columns are already aligned and
+      a border that repeats what alignment says is noise. Body rows keep a
+      hairline each, including the last, which closes the block off from the
+      paragraph that follows — this sits inside a stream of prose, not on a page
+      of its own where a table can be allowed to trail away.
+
+      `tabular-nums` on the cells: these are card counts more often than not,
+      and a column of proportional digits does not line up.
+    */
     th: ({ children }) => (
-      <th className="border border-border-default bg-surface-tertiary px-[8px] py-[4px] text-left font-bold text-text-primary">
+      <th className="border-b border-border-default px-[10px] py-[6px] text-left text-[12px] font-semibold text-text-secondary">
         {children}
       </th>
     ),
-    td: ({ children }) => <td className="border border-border-default px-[8px] py-[4px]">{children}</td>,
+    td: ({ children }) => (
+      <td className="border-b border-divider-subtle px-[10px] py-[6px] tabular-nums">{children}</td>
+    ),
   }
 }
 

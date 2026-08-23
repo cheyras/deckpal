@@ -75,13 +75,26 @@ function BusyRing() {
   )
 }
 
+/**
+ * Ruled and tinted, per R8's rule that a status row earns chrome only when it
+ * is genuinely a different kind of thing. A failure is.
+ *
+ * THE TINT CAME DOWN when the state moved into a pill. Photographed, a
+ * `bg-warning/10` band across 700px of a chat panel is a brown slab with one
+ * short sentence in it — the row shouted the tone and then said the words
+ * quietly, which is backwards. The colour now lives in the pill, where it is
+ * two inches from the noun it modifies, and the row keeps a rule and a whisper
+ * of tint to say "this block is different" without being the loudest thing in
+ * the panel. It is still, by a distance, the loudest thing on a good turn.
+ *
+ * `py-[6px]` on the tinted tones only: a band needs its content off its own
+ * edges, and a quiet row must stay flush with the text above and below it.
+ */
 const TONE_ROW: Record<ToolTone, string> = {
   quiet: 'text-text-muted',
   running: 'text-text-muted',
-  // Ruled and tinted, per R8's rule that a status row earns chrome only when it
-  // is genuinely a different kind of thing. A failure is.
-  warn: 'rounded-r-md border-l-2 border-warning bg-warning/10 pl-[8px] pr-[8px] text-text-body',
-  danger: 'rounded-r-md border-l-2 border-error bg-halo-error pl-[8px] pr-[8px] text-text-body',
+  warn: 'rounded-r-[6px] border-l-2 border-warning bg-warning/[0.06] px-[10px] py-[6px] text-text-body',
+  danger: 'rounded-r-[6px] border-l-2 border-error bg-error/[0.07] px-[10px] py-[6px] text-text-body',
 }
 
 const TONE_LABEL: Record<ToolTone, string> = {
@@ -89,6 +102,43 @@ const TONE_LABEL: Record<ToolTone, string> = {
   running: '',
   warn: 'text-warning',
   danger: 'text-error',
+}
+
+/**
+ * The state word, as a pill.
+ *
+ * IT WAS A BOLD RUN-ON. `{title}{' '}{label}` rendered "Writing a strategy
+ * guide **Timed out — incomplete**" with nothing between the sentence and the
+ * status but a space, so the eye read one phrase and had to reparse it. The
+ * label already contains an em dash of its own, which rules out adding another
+ * as a separator; a pill separates by SHAPE instead and needs no punctuation at
+ * all. It is also the form beautiful-ui's Task Rows use for exactly this — a
+ * status pill beside the label — which is what that reference is for.
+ *
+ * The rule that made this a word rather than a colour is unchanged and is the
+ * reason the pill carries TEXT: somebody who cannot separate the amber from the
+ * red still reads "Timed out — incomplete", which is the sentence the owner
+ * needed and did not get.
+ */
+const TONE_PILL: Record<ToolTone, string> = {
+  quiet: '',
+  running: '',
+  warn: 'border-warning/40 bg-warning/[0.12] text-warning',
+  danger: 'border-error/40 bg-error/[0.12] text-error',
+}
+
+function StatusPill({ label, tone }: { label: string; tone: ToolTone }): JSX.Element {
+  return (
+    <span
+      className={[
+        'ml-[6px] inline-block whitespace-nowrap rounded-full border px-[7px] py-[1px]',
+        'align-[1px] text-[11px] font-semibold leading-[15px]',
+        TONE_PILL[tone],
+      ].join(' ')}
+    >
+      {label}
+    </span>
+  )
 }
 
 export function ToolRow({
@@ -131,6 +181,14 @@ export function ToolRow({
           />
         )}
 
+        {/*
+          THE CHEVRON HUGS THE TITLE. It used to sit at the end of a `flex-1`
+          button, which on a 700px panel put the only affordance on the row six
+          hundred pixels from the words it belongs to, with a runway of dead
+          grey between them — the row looked like a sentence with a stray glyph
+          moored at the far margin. Hugging costs the wide invisible hit area
+          and buys a control that is visibly attached to what it opens.
+        */}
         {a.expandable ? (
           <button
             type="button"
@@ -139,23 +197,42 @@ export function ToolRow({
             onClick={() => setChosen(!open)}
             // Focus ring is the app-wide `:focus-visible` outline from
             // theme.css; the radius is here so it traces the row.
-            className="flex min-w-0 flex-1 items-start gap-[4px] rounded-sm bg-transparent text-left hover:text-text-primary"
+            className="flex min-w-0 items-start gap-[4px] rounded-sm bg-transparent text-left hover:text-text-primary"
           >
             <RowTitle title={title} label={a.label} tone={a.tone} hint={a.hint} />
-            <Icon name={open ? 'chevron-down' : 'chevron-right'} size={13} className="mt-[3px] shrink-0" />
+            <Icon
+              name={open ? 'chevron-down' : 'chevron-right'}
+              size={13}
+              className="mt-[3px] shrink-0 text-icon-muted"
+            />
           </button>
         ) : (
-          <span className="min-w-0 flex-1">
+          <span className="min-w-0">
             <RowTitle title={title} label={a.label} tone={a.tone} hint={a.hint} />
           </span>
         )}
 
+        {/*
+          A CONTROL, NOT A LINK. This was `font-bold underline underline-offset-2`
+          — a bold underlined phrase floating on a tinted band, which is the
+          default rendering of an `<a>` and reads as one: an unstyled link is the
+          single most reliable tell that a surface was never looked at. It is the
+          one way out of a failed call, so it gets a real bordered chip in the
+          row's own tone, and `ml-auto` puts it where the eye finishes rather
+          than immediately after the words.
+        */}
         {a.canRetry && onRetry ? (
           <button
             type="button"
             onClick={() => onRetry(data.id)}
             aria-label={`Try ${title} again`}
-            className="shrink-0 rounded-sm px-[4px] font-bold underline underline-offset-2 hover:text-text-primary"
+            className={[
+              'ml-auto shrink-0 whitespace-nowrap rounded-[7px] border px-[9px] py-[2px]',
+              'text-[11.5px] font-semibold leading-[16px] motion-safe:transition-colors',
+              a.tone === 'danger'
+                ? 'border-error/40 text-error hover:bg-error/[0.12]'
+                : 'border-warning/40 text-warning hover:bg-warning/[0.12]',
+            ].join(' ')}
           >
             Try again
           </button>
@@ -200,17 +277,7 @@ function RowTitle({
         come out of the tool.
       */}
       {hint ? <span className="text-text-muted"> · {hint}</span> : null}
-      {label ? (
-        <>
-          {' '}
-          {/*
-            The state is a WORD, not a colour. Someone who cannot separate the
-            amber from the red still reads "Timed out — incomplete", which is
-            the sentence the owner needed and did not get.
-          */}
-          <span className={['font-bold', TONE_LABEL[tone]].join(' ')}>{label}</span>
-        </>
-      ) : null}
+      {label ? <StatusPill label={label} tone={tone} /> : null}
     </span>
   )
 }
