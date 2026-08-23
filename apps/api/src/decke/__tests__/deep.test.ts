@@ -350,8 +350,19 @@ test('a source the provider reports becomes a beat, without a web_search tool', 
     gapMs: 5,
   })
 
+  // THE EXACT NOTE, not a substring of it. `n.includes('pokebeach.com')` was
+  // the obvious assertion and CodeQL flagged it as incomplete URL
+  // sanitisation — correctly as a PATTERN, because that is the shape that lets
+  // `pokebeach.com.attacker.net` through when the same line appears in real
+  // sanitising code. It is harmless in an assertion and it is still the wrong
+  // habit to leave in a file people copy from.
+  //
+  // The exact string is also the better test: `openingBeat` derives the host
+  // with `new URL(url).hostname` and strips a leading `www.`, and matching the
+  // whole note pins both of those. A substring passed whether or not the `www.`
+  // came off.
   assert.ok(
-    notes(events).some((n) => n.includes('pokebeach.com')),
+    notes(events).includes('Read a source: pokebeach.com'),
     `a reported source produced no beat: ${notes(events).join(' | ')}`,
   )
 })

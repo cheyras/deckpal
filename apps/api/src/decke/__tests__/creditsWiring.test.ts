@@ -86,3 +86,24 @@ test('the spend is LOGGED, and the insert is awaited', () => {
   // whose credits have already been taken.
   assert.match(CHAT, /SPEND_LOG_SQL[\s\S]{0,220}?\.catch\(/);
 });
+
+test('a driver error is logged through the allowlist, never raw', () => {
+  // A `pg` connection failure's MESSAGE is built from the connection
+  // parameters, so DSN fragments and "password authentication failed for user
+  // …" end up in it — and these log lines fire exactly when the database is
+  // unreachable, which is exactly when those details are in the error.
+  //
+  // Logging `err.code` instead is nearly right and not enough: `code` is
+  // driver-supplied and nothing guarantees what a library puts there. CodeQL
+  // flagged both credit log sites on the pull request for precisely that, while
+  // leaving the older meter one alone — because the meter tested its value
+  // against `^[A-Za-z0-9_]{1,32}$` first and the credit path had copied the
+  // intent without the guard.
+  assert.match(CHAT, /function errCode\(err\)/, 'the allowlist helper is gone')
+  assert.match(CHAT, /\[A-Za-z0-9_\]\{1,32\}/, 'errCode no longer allowlists the shape')
+  assert.match(CHAT, /'unrecognised'/, 'there is no fallback for a code that is not code-shaped')
+  // And nothing bypasses it. `err.code`/`err.name` must not reach a log
+  // directly — one implementation is the only way this stays true.
+  const direct = CHAT.match(/console\.error\([^)]*(?:err|e)\?\.(?:code|name)/g) ?? []
+  assert.deepEqual(direct, [], `a log site reads the driver error directly: ${direct.join(' | ')}`)
+})
