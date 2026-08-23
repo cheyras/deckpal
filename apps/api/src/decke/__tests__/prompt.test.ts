@@ -86,6 +86,110 @@ test('landmarks are listed, and their absence is stated rather than implied', ()
   assert.match(flat(some), /the Decks link/)
 })
 
+test('the landmark list says which ones he may press, and defaults to none', () => {
+  // ── WHY THE FLAG EXISTS ──────────────────────────────────────────────────
+  //
+  // `click` shipped 2026-08-21 and this prompt never named it, so it was a
+  // capability the model could not choose. Naming it is half the fix; the other
+  // half is this flag, because the landmark payload carried no way to tell a
+  // pressable control from a price block. Told he can press things and given no
+  // way to know which, the only available strategies are "never press" and
+  // "press and find out".
+  const p = flat(
+    buildSystemPrompt({
+      route: '/series',
+      signedIn: true,
+      landmarks: [
+        { selector: '[data-decke-series="mega-evolution"]', label: 'the Mega Evolution series card', clickable: true },
+        { selector: '[data-decke-completion-bar]', label: 'the completion bar' },
+      ],
+    }),
+  )
+  assert.match(p, /the Mega Evolution series card \(pressable\)/)
+  // A pointable-only landmark must NOT be marked. Pointable is not pressable,
+  // and a completion bar next to an add control is exactly the pair that makes
+  // the distinction worth having.
+  assert.doesNotMatch(p, /the completion bar \(pressable\)/)
+
+  // A client that has not been taught to send the flag degrades to "nothing is
+  // pressable" rather than to "everything is".
+  const legacy = flat(
+    buildSystemPrompt({
+      route: '/series',
+      signedIn: true,
+      landmarks: [{ selector: '[data-decke-series="x"]', label: 'a series card' }],
+    }),
+  )
+  // Scoped to the landmark's own line: the word appears in the doctrine above
+  // it either way, which is the point — the doctrine is static, the marking is
+  // per-landmark.
+  assert.doesNotMatch(legacy, /a series card \(pressable\)/)
+})
+
+test('`click` is a capability the prompt actually names', () => {
+  // Asserted because the ABSENCE was the defect: the tool existed, worked, and
+  // was verified by grep never to be mentioned here. A model cannot choose a
+  // capability its prompt does not name.
+  const p = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.match(p, /`click` — PRESS a control/)
+  // And the limit, in the same breath, because pointable is not pressable.
+  assert.match(p, /Only landmarks marked `\(pressable\)`/)
+  assert.match(p, /cannot change their collection/i)
+})
+
+test('the two navigation intents are split — jump and escort, both stated', () => {
+  // ── E1: SPLIT THE RULE, DO NOT DELETE IT ─────────────────────────────────
+  //
+  // The jump rule is what gate 5 pins ("Take me to it" one turn after
+  // `set_progress` returned the slug → a `goTo` to /series/mega-evolution/me05,
+  // not a `flyTo` at something on the index). It is asserted here VERBATIM so a
+  // future edit that softens it into "consider escorting" fails loudly.
+  const p = flat(buildSystemPrompt({ route: '/series', signedIn: true, dataTools: TOOLS }))
+  assert.match(p, /\*\*"Take me to it" means `goTo`, and it means the page for the thing itself\.\*\*/)
+  assert.match(p, /do not stay where you are and `flyTo` something that looks related/)
+  assert.match(p, /Being already on `\/series` is not being on a set's page/)
+
+  // The new half. "Help me find X" is a request to learn the way, and answering
+  // it with a teleport teaches nothing — which is what C33's transcript is.
+  assert.match(p, /"Help me find X".*ESCORT/)
+  assert.match(p, /That is one `journey` call/)
+
+  // The qualified line, kept rather than removed: doing a thing beats miming
+  // it, but walking a route someone asked to be shown is not miming.
+  assert.match(p, /Nobody wants to watch you click through something you could have executed/)
+  assert.match(p, /when the WAY THERE is what they asked for, walking it is not a detour/)
+})
+
+test('the journey doctrine states its own limits, including the one that does not exist', () => {
+  const p = flat(buildSystemPrompt({ route: '/series', signedIn: true, dataTools: TOOLS }))
+
+  // The three buildable addresses — the whole "sitemap", derived from ids the
+  // data tools already return.
+  assert.match(p, /\[data-decke-nav="<route>"\]/)
+  assert.match(p, /\[data-decke-series="<seriesSlug>"\]/)
+  assert.match(p, /\[data-decke-set="<setId>"\]/)
+
+  // AND THE ONE THAT IS NOT THERE. `[data-decke-nav="/series"]` does not exist
+  // at any width — that row is an expandable toggle, not a marked link.
+  // Confirmed by observation in a real DOM at 1440 and 393. Said out loud
+  // because discovering it costs a wait that can only time out, mid-journey.
+  assert.match(p, /There is no `\[data-decke-nav="\/series"\]`/)
+
+  // The disclosure gate, which fires on the first page of the canonical
+  // journey for any account that has collected nothing.
+  assert.match(p, /`ensure`/)
+  assert.match(p, /\[data-decke-show-others\]/)
+
+  // Conditional waits, never timed ones — stated as an absence of the ability.
+  assert.match(p, /there is no pause to ask for and no way to ask for one/)
+
+  // The addressability floor, said out loud rather than discovered.
+  assert.match(p, /card TILE inside a grid is not addressable/)
+
+  // TRUTHFULNESS (PLAN X2): steps that never ran must not be narrated.
+  assert.match(p, /The steps after it did not run and were not said/)
+})
+
 test('the security rules survive every shape of the prompt', () => {
   // These are the lines a future edit is most likely to lose while
   // restructuring, and they are the ones that matter most: card names are

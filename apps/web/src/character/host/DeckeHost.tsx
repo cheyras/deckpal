@@ -174,7 +174,23 @@ export function DeckeHost() {
   const chatOpenRef = useRef(false)
   chatOpenRef.current = chatOpen
   const navigate = useNavigate()
-  const chat = useDeckeChat(live, (to) => navigate({ to }), () => setTravelling(true))
+  /** True while a journey step owns the transition. Read by the route watcher
+   *  below; written by the chat's sequencer through `onStepping`. */
+  const journeyStepRef = useRef(false)
+  const chat = useDeckeChat(
+    live,
+    (to) => navigate({ to }),
+    () => setTravelling(true),
+    // THE EXEMPTION THE ROUTE WATCHER WAS WAITING FOR. Between a journey's own
+    // hops the tidy-up is wrong: it would clear the ring he had just drawn and
+    // pull him back to the composer before the next step could point at
+    // anything. Between a PERSON's navigations it is exactly right. Nothing set
+    // this until the sequencer existed, which is why the watcher shipped with
+    // the flag already read.
+    (on) => {
+      journeyStepRef.current = on
+    },
+  )
 
   useEffect(() => {
     const mq = window.matchMedia(`(min-width: ${NAV_BREAKPOINT}px)`)
@@ -261,7 +277,6 @@ export function DeckeHost() {
   // A journey step owns its own transition and is expected to navigate; nothing
   // sets this yet, and the sequencer will.
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const journeyStepRef = useRef(false)
   const travellingRef = useRef(false)
   travellingRef.current = travelling
   useEffect(() => {
