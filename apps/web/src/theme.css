@@ -1068,6 +1068,28 @@ body {
   mask-image: linear-gradient(to bottom, #000 calc(100% - var(--decke-fade)), transparent 100%);
 }
 
+/* ── AND THE CONTENT HAS TO CLEAR THE MASK ───────────────────────────────────
+ *
+ * A mask does not dim pixels, it REMOVES them, so anything resting inside the
+ * fade band is not softened — it is deleted. The column had `pb-[12px]` under a
+ * 28px band, so the bottom 16px of the LAST LINE of the last thing he said was
+ * simply not drawn.
+ *
+ * Photographed on 2026-08-23: "You're on the decks page now. Squirtle Squad
+ * Chaos is ready to build if you want to go with that one — or we can cook up
+ * something even dumber. What do you think?" with the final line dissolving
+ * mid-sentence. The owner: *"These are like fading out. They're too close to
+ * this edge. So they fade out and we need to fix that."*
+ *
+ * The padding lives HERE, next to `--decke-fade`, and not as a utility class on
+ * the element. Two numbers that must stay in step do not belong in two files:
+ * the whole defect was a 12 in a `.tsx` drifting from a 28 in a `.css`, and
+ * neither one looked wrong on its own. Deriving it means the band can be re-tuned
+ * and the clearance follows. */
+.decke-transcript-fade > * {
+  padding-bottom: calc(var(--decke-fade) + 12px);
+}
+
 /* ── Empty conversation: the composer starts in the middle ───────────────────
  *
  * The way a new chat does, because before the first message there is no

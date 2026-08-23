@@ -1760,7 +1760,11 @@ export function DeckeChat({
         >
           <div
             onClick={onSurfaceClick}
-            className="mx-auto flex min-h-full w-full max-w-[760px] flex-col px-[16px] pb-[12px]"
+            // NO `pb-` HERE. The bottom padding is derived from `--decke-fade`
+            // in `theme.css`, because a mask DELETES the pixels under it: a 12px
+            // padding beneath a 28px band cut the last line of his reply in
+            // half. Two numbers that must stay in step do not live in two files.
+            className="mx-auto flex min-h-full w-full max-w-[760px] flex-col px-[16px]"
           >
           {empty ? (
             /*
