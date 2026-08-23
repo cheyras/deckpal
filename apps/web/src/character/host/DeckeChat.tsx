@@ -825,8 +825,21 @@ export function DeckeChat({
               collection read at panel-open time, and a starting screen that
               waits on a request is a starting screen that is sometimes blank.
             */
-            <div className="decke-shift flex flex-col items-start gap-[14px] py-[8px]">
-              <div>
+            /*
+              THE GUTTER IS PER-ELEMENT, NOT PER-BLOCK, and that is the whole
+              reason `decke-shift` sits on the children rather than on the
+              wrapper. He stands in the bottom-left corner, so only the things
+              actually beside him need to move out of his way — but a single
+              `decke-shift` on the wrapper indents the WHOLE block the moment
+              its bottom edge overlaps him, which pushed a heading two hundred
+              pixels above his head into a narrow column and wrapped it. It read
+              as broken alignment rather than as a character standing there.
+              `reflow` marks each element clear on its own geometry, so with the
+              class on the children the heading stays full width and only the
+              chips beside him step aside.
+            */
+            <div className="flex flex-col items-start gap-[14px] py-[8px]">
+              <div className="decke-shift">
                 <p className="text-[15px] font-semibold leading-[22px] text-text-primary">
                   Ask Deck-E about your collection
                 </p>
@@ -834,7 +847,7 @@ export function DeckeChat({
                   He can look things up, count what you own, and take you to it.
                 </p>
               </div>
-              <ul className="flex flex-wrap gap-[8px]">
+              <ul className="decke-shift flex flex-wrap gap-[8px]">
                 {OPENERS.map((o) => (
                   <li key={o}>
                     <button
@@ -1087,7 +1100,14 @@ export function DeckeChat({
                 submit(e)
               }
             }}
-            placeholder="Ask about your collection…"
+            // SHORT ENOUGH TO FIT BESIDE HIM. Measured on a 393px phone: he
+            // legitimately occupies 129px of the width — he stands beside the
+            // composer by design — which leaves the field 174px, and "Ask about
+            // your collection…" needs 190. It truncated mid-word on the one
+            // control whose job is to invite you to type. The empty state above
+            // says the long version in full; the placeholder only has to say
+            // the box is for typing.
+            placeholder="Ask about your cards…"
             aria-label="Message Deck-E"
             className={[
               'min-w-0 flex-1 resize-none bg-transparent px-[10px] py-[9px]',
