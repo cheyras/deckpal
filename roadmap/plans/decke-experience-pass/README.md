@@ -14,8 +14,13 @@ in this repo.
 
 - **Repo:** `E:/Users/cheyr/deckpal`
 - **Branch:** `decke-experience-pass`, cut from `209150f`
-- **Commits so far:** `34d3914` — the visual-verification harness (tooling only,
-  no product code touched)
+- **Status: EXECUTED.** This file is the map that was followed; it is no longer
+  the current state. **`COVERAGE.md` Part II is** — an audit that read every one
+  of the sixty complaints against the code that now exists rather than against
+  the plan, with a status and a `file:line` for each, and a ranked list of what
+  is still missing. Read that before trusting anything below about what is done.
+- **Commits:** `34d3914` (the visual-verification harness) through the Phase A–H
+  work on this branch.
 - **Baseline, verified green before any change:**
   typecheck exit 0 · **489/489 tests** across 8 suites · 4 serverless functions load
 
@@ -171,7 +176,11 @@ in `PLAN.md` names whether it needs V5.
   overhaul. Do not leave it as a silent no-op. (OR6)
 - Conversation persistence across reloads: **out of scope**; a proper chat-history
   feature gets planned separately.
-- Add-photo in the composer: **deferred**, slot built but unwired.
+- Add-photo in the composer: **deferred, and the slot was NOT built** — the
+  ruling said the card would be built so a slot exists, and what shipped is a
+  composer card with room for one rather than a control. A visible disabled
+  attach button is worse than nothing: it advertises a capability and then
+  refuses. Corrected here after an audit read the code against this list.
 - Journeys: **one plan, executed client-side** — not per-hop model turns.
 - Q13 (page behind scrolls?): the lock **stays**; the complaint is caused by the
   damaged ends of the scrollable region. My ruling, not the owner's — a
