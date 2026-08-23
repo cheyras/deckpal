@@ -118,7 +118,17 @@ export interface DeepToolOptions {
    * Injected rather than imported because the meter needs a pool, and this
    * module has no business knowing how the chat function gets one.
    */
-  charge: () => Promise<{ allowed: boolean; cap: number }>;
+  charge: (toolName: string) => Promise<{
+    allowed: boolean;
+    /** The daily cap, when the old meter answered. */
+    cap?: number;
+    /** True when CREDITS answered, which changes the sentence he says. */
+    credits?: boolean;
+    /** What they still have, when credits refused. */
+    balance?: number;
+    /** What this call needed. */
+    needed?: number;
+  }>;
   /** Lifecycle events, so deep work gets a chip like everything else. */
   onEvent?: (e: ToolEvent) => void;
   /**
@@ -498,16 +508,26 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
       };
       // CHARGED BEFORE THE MODEL RUNS, and a refusal costs one query. A denial
       // path that is expensive is a denial path worth exercising.
-      const meter = await opts.charge();
+      const meter = await opts.charge(spec.name);
       if (!meter.allowed) {
-        const summary = `today's ${meter.cap} deep questions are spent`;
+        // TWO DIFFERENT SENTENCES, because they send someone to two different
+        // places. A daily cap comes back tomorrow; a spent balance does not, and
+        // telling somebody to wait when what they need is a top-up wastes their
+        // day. `credits` says which system answered.
+        const summary = meter.credits
+          ? `not enough credits — ${meter.needed} needed, ${meter.balance} left`
+          : `today's ${meter.cap} deep questions are spent`;
         opts.onEvent?.({ phase: 'error', ...chip, summary });
         // NOT a fluent first-person sentence. It used to be one, and a fluent
         // refusal is the easiest thing in the world to continue from as though
         // it were the start of an answer — measured, on camera: two refused
         // `plan_deck` calls followed by "Perfect, let's build! I'm pulling
         // together a 60-card list…". See `deepOutcome.ts`.
-        return deepRefused(`today's ${meter.cap} deep-thinking questions are spent`);
+        return deepRefused(
+          meter.credits
+            ? `this needs ${meter.needed} credits and only ${meter.balance} are left`
+            : `today's ${meter.cap} deep-thinking questions are spent`,
+        );
       }
       // D2's beat, emitted AFTER the charge and not with the `start` chip.
       //

@@ -49,6 +49,21 @@ export type CreditBalance = {
   remaining: number
   /** What a full top-up of this reader's plan grants, for the "low" fraction. */
   allowance: number
+  /**
+   * The threshold the SERVER calls low, when it has said one.
+   *
+   * When present it wins outright, and that is the point: the server prices the
+   * work, so it is the only thing that knows whether what is left still buys the
+   * expensive one. `LOW_BALANCE` in `apps/api/src/decke/credits.ts` is one deck
+   * plan plus change, which is the question somebody is actually asking when
+   * they glance at a balance.
+   *
+   * The fraction below stays as the fallback for fixtures and for a deployment
+   * that has not sent a threshold. Two definitions of "low" in two packages is
+   * how a chip appears at a number nobody chose — so there is one authority and
+   * a documented default, not two rules.
+   */
+  lowAt?: number
 }
 
 export type CreditState = 'ok' | 'low' | 'empty' | 'unknown'
@@ -62,6 +77,10 @@ export function creditState(balance: CreditBalance | null): CreditState {
   if (!balance) return 'unknown'
   const remaining = Math.max(0, Math.floor(balance.remaining))
   if (remaining === 0) return 'empty'
+  // The server's threshold wins when it has sent one — see `lowAt`.
+  if (typeof balance.lowAt === 'number' && Number.isFinite(balance.lowAt)) {
+    return remaining <= Math.max(0, Math.floor(balance.lowAt)) ? 'low' : 'ok'
+  }
   const allowance = Math.max(1, Math.floor(balance.allowance))
   if (remaining <= LOW_FLOOR) return 'low'
   return remaining / allowance <= LOW_FRACTION ? 'low' : 'ok'

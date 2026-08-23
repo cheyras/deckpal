@@ -1131,6 +1131,11 @@ export function DeckeHost() {
         approvalChoices={chat.approvalChoices}
         onApprovalChoice={chat.onApprovalChoice}
         approvalBusy={chat.approvalBusy}
+        // THE LAST HOP. `creditState.ts`, `CreditChip` and the composer
+        // replacement were all built and tested before this line existed, which
+        // is the shape of defect this pass has now produced seven times: the
+        // panel rendered `unknown` forever and looked completely correct.
+        credits={chat.credits}
         onRetryTool={chat.retry}
         desktop={wide}
         characterPx={charPx}

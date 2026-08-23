@@ -69,6 +69,17 @@ import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
 import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
+import {
+  BALANCE_SQL,
+  COST,
+  SPEND_LOG_SQL,
+  SPEND_SQL,
+  LOW_BALANCE,
+  creditVerdictFrom,
+  creditsEnabled,
+  deepCost,
+  outOfCreditsText,
+} from '../apps/api/dist/decke/credits.js'
 import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor, selfHopHeadersFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
@@ -183,6 +194,74 @@ const METER_TIMEOUT_MS = Number.parseInt(process.env.DECKE_METER_TIMEOUT_MS ?? '
  * It is logged loudly either way, because "the meter was off for six hours" is
  * something that must be discoverable afterwards.
  */
+/**
+ * Spend credits, or refuse.
+ *
+ * ── THE SAME DEADLINE AND THE SAME FAIL DIRECTION AS `charge` ────────────────
+ *
+ * Accounting fails OPEN. If the database is unreachable the turn is served
+ * unmetered and the failure is logged loudly, exactly as the meter does — a
+ * bounded overspend during a bounded incident beats a product that stops
+ * working because a counter is unreachable. Access control fails closed, and it
+ * is checked separately, from environment variables that cannot be down.
+ *
+ * ── BALANCE FIRST, LOG SECOND, AND NEVER THE OTHER WAY ───────────────────────
+ *
+ * The UPDATE is the thing that must not be lost. If the audit INSERT fails the
+ * credits are still gone, which is the safe direction: a gap in a statement is
+ * recoverable, free work is not. So the log is written after and its failure is
+ * swallowed with a loud line rather than rolled back.
+ */
+async function spend(userId, credits, reason) {
+  const withDeadline = (promise, what) => {
+    let timer
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`credits: ${what} timed out`)), METER_TIMEOUT_MS)
+    })
+    return Promise.race([promise, deadline]).finally(() => clearTimeout(timer))
+  }
+
+  let client
+  try {
+    client = await withDeadline(chatPool().connect(), 'pool connect')
+    const res = await withDeadline(client.query(SPEND_SQL, [userId, credits]), 'spend')
+    let left = 0
+    if (res.rows.length === 0) {
+      // Refused. Read what they DO have so the refusal can say a number —
+      // "you have 12 and this costs 75" is answerable, "no" is not.
+      const b = await withDeadline(client.query(BALANCE_SQL, [userId]), 'balance').catch(() => null)
+      left = Number(b?.rows?.[0]?.balance ?? 0)
+    } else {
+      client.query(SPEND_LOG_SQL, [userId, credits, reason]).catch((e) => {
+        console.error('[decke] credit log failed (balance already moved):', e?.code ?? e?.name)
+      })
+    }
+    return creditVerdictFrom(res.rows, credits, left)
+  } catch (err) {
+    console.error('[decke] credits unavailable — serving unmetered:', err?.code ?? err?.name)
+    return { allowed: true, balance: Number.NaN, spent: credits }
+  } finally {
+    client?.release()
+  }
+}
+
+/**
+ * ONE ENTRY POINT, so both call sites switch together.
+ *
+ * The failure this shape prevents is the obvious one: metering the chat turn
+ * against credits and the deep tier against the old daily counter, because two
+ * call sites were changed on different days. `DECKE_CREDITS_ENABLED` is read
+ * here and nowhere else.
+ *
+ * The returned verdict is a superset of both shapes — `cap` for the meter's
+ * refusal sentence, `balance` for the credits one — so nothing downstream has
+ * to know which system answered.
+ */
+async function meterTurn(userId, { tier, credits, reason }) {
+  if (!creditsEnabled()) return { ...(await charge(userId, tier)), credits: false }
+  return { ...(await spend(userId, credits, reason)), credits: true }
+}
+
 async function charge(userId, tier) {
   const cap = capFor(tier)
   if (cap <= 0) return { allowed: false, used: 0, cap }
@@ -318,13 +397,26 @@ async function serve(request) {
   // One turn is one BILLED REQUEST, not one thing the reader typed — a journey
   // costs up to four. Migration 039's header explains why that is the honest
   // unit even though it reads stingier than it is.
-  const meter = await charge(user.id, 'chat_turns')
+  const meter = await meterTurn(user.id, {
+    tier: 'chat_turns',
+    credits: COST.chat_turn,
+    reason: 'chat_turn',
+  })
   if (!meter.allowed) {
     // A SPOKEN REFUSAL, not a 500. The browser turns this status into his own
     // words in the transcript, so a budget reads as a budget rather than as a
     // malfunction. 429 and not 403: the account is entitled, it has simply
     // spent today's allowance, and those are different sentences.
-    return json({ error: refusalText('chat_turns', meter.cap), retryAfterDay: true }, 429)
+    // A topped-up balance does NOT come back tomorrow, so the refusal must not
+    // say it does. `retryAfterDay` is what the browser turns into "try me again
+    // tomorrow"; on credits it is false and the balance rides along so the panel
+    // can offer the top-up instead.
+    return meter.credits
+      ? json(
+          { error: outOfCreditsText(), retryAfterDay: false, credits: { balance: meter.balance, needed: meter.needed } },
+          429,
+        )
+      : json({ error: refusalText('chat_turns', meter.cap), retryAfterDay: true }, 429)
   }
 
   // Where this instance is reachable, for the API hop a tool makes. Derived
@@ -499,7 +591,16 @@ async function serve(request) {
         ...buildDeepTools({
           ctx: toolCtx,
           gateway,
-          charge: async () => charge(user.id, 'deep_calls'),
+          // PRICED PER TOOL. A deck plan is measured at ~$0.75 and an analysis
+          // call at ~$0.036 — a 20x spread that a single "one deep call" unit
+          // cannot express, and the reason the old meter needed a separate
+          // counter for the tier at all.
+          charge: async (toolName) =>
+            meterTurn(user.id, {
+              tier: 'deep_calls',
+              credits: deepCost(toolName),
+              reason: `deep:${toolName}`,
+            }),
           onEvent: emitToolEvent(writer),
         }),
       }
@@ -793,7 +894,29 @@ async function serve(request) {
     },
   })
 
-  return createUIMessageStreamResponse({ stream })
+  // ── THE BALANCE RIDES ON A HEADER ────────────────────────────────────────
+  //
+  // A header rather than a stream part, and the reason is that the browser must
+  // be able to read it on a turn that produced NOTHING — an aborted stream, a
+  // turn the reader stopped. A part only exists if the stream got far enough to
+  // emit one, which is exactly the turn where "how much is left" is least
+  // certain and most worth knowing.
+  //
+  // `-1` for "not applicable": credits are off, or the meter failed open and
+  // the number is not real. The client renders nothing for it rather than
+  // guessing a balance, because a made-up number on a screen about money is
+  // worse than no number.
+  return createUIMessageStreamResponse({
+    stream,
+    headers: {
+      'x-decke-credits':
+        meter.credits && Number.isFinite(meter.balance) ? String(meter.balance) : '-1',
+      // The threshold too, so the panel does not carry a second opinion about
+      // what "low" means. The server prices the work; it is the only thing that
+      // knows whether what is left still buys the expensive one.
+      'x-decke-credits-low': String(LOW_BALANCE),
+    },
+  })
 }
 
 /**

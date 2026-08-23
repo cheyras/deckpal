@@ -57,6 +57,7 @@ import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
 import { CLIENT_TOOLS, isClientTool, isPressable, runUiTool, type UiToolResult } from './uiTools'
 import { buildEscortSteps, type EscortInput } from './escortPlan'
+import { LOW_FRACTION, type CreditBalance } from './chat/creditState'
 import { beatForChip } from './thinkingBeat'
 import { runJourney, type JourneyResult, type JourneyStep } from './journey'
 import { api } from '../../lib/api'
@@ -242,6 +243,14 @@ export function useDeckeChat(
    * and take the character's own narration off screen with it. So this is set
    * only on the branch that runs a bare navigation.
    */
+  /**
+   * Credits remaining, or null when the server has not said.
+   *
+   * `null` is not zero and must never render as zero — credits may be switched
+   * off entirely, or the meter may have failed open, and inventing a number on
+   * a screen about somebody's money is worse than showing none.
+   */
+  const [credits, setCredits] = useState<CreditBalance | null>(null)
   const navigatedAwayRef = useRef(false)
   const onSteppingRef = useRef(onStepping)
   const onArrivedRef = useRef(onArrived)
@@ -891,6 +900,17 @@ export function useDeckeChat(
               // identity.
               previewsRef.current.set(preview.toolCallId, preview)
             },
+            onCredits: (balance, lowAt) =>
+              // `allowance` is only the FALLBACK rule's input and the server's
+              // threshold outranks it — see `lowAt` in `creditState.ts`. It is
+              // filled with the threshold's own scale so a deployment that stops
+              // sending one degrades to roughly the same answer instead of a
+              // wildly different chip.
+              setCredits({
+                remaining: balance,
+                allowance: lowAt != null && lowAt > 0 ? Math.ceil(lowAt / LOW_FRACTION) : balance,
+                ...(lowAt != null ? { lowAt } : {}),
+              }),
             onHttpError: (status) => {
               // TONE CARRIES THE DIFFERENCE THE WORDS ALONE DID NOT. A limit is
               // not a fault: it sends someone to a top-up, where a fault sends
@@ -1303,6 +1323,7 @@ export function useDeckeChat(
     approvalChoices,
     onApprovalChoice,
     approvalBusy,
+    credits,
   }
 }
 
@@ -1313,6 +1334,8 @@ type LegHandlers = {
   onScreen: (screen: ScreenSpec) => void
   onToolChip: (chip: ToolChip) => void
   onHttpError: (status: number) => void
+  /** The balance, whenever the server reported one. `-1` never reaches here. */
+  onCredits: (balance: number, lowAt: number | null) => void
 }
 
 /**
@@ -1537,7 +1560,24 @@ async function streamLeg(
     }),
   })
 
+  // ON EVERY RESPONSE, INCLUDING A REFUSED ONE. A 429 for an empty balance is
+  // precisely the turn where the number matters, so reading it only on the happy
+  // path would leave the panel unable to say how much is left at the one moment
+  // somebody asks.
+  const creditHeader = Number(res.headers.get('x-decke-credits') ?? '-1')
+  const lowAtHeader = Number(res.headers.get('x-decke-credits-low') ?? '-1')
+  if (Number.isFinite(creditHeader) && creditHeader >= 0) {
+    handlers.onCredits(creditHeader, Number.isFinite(lowAtHeader) && lowAtHeader >= 0 ? lowAtHeader : null)
+  }
+
   if (!res.ok || !res.body) {
+    // The body carries the balance on a credit refusal, because the header is
+    // written by the streaming path and this response never reached it.
+    const body = (await res.json().catch(() => null)) as
+      | { credits?: { balance?: number } }
+      | null
+    const bal = body?.credits?.balance
+    if (typeof bal === 'number' && Number.isFinite(bal)) handlers.onCredits(bal, null)
     handlers.onHttpError(res.status)
     out.refused = true
     return out
