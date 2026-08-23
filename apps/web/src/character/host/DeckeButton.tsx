@@ -2,7 +2,7 @@
  * The entry point — a small floating button, bottom-right, on every page.
  *
  * WHAT IT DOES *NOT* DO is mount the 3D runtime. The character costs 5.7 MB of
- * assets plus ~945 kB of three.js, and two of those assets cannot be shrunk:
+ * assets plus 1.14 MB of three.js, and two of those assets cannot be shrunk:
  * the glb must not be quantized (`riders.ts` overwrites node TRS, so the
  * de-quantisation transform is destroyed) and the SDF atlas must stay 16-bit
  * (the eye shader's edge band is 0.0035 wide, narrower than one 8-bit step).

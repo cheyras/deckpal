@@ -237,7 +237,9 @@
  * (0,5,2), which wins on both without a bare `!important` that would then have
  * to be fought by the next person. */
 :root[data-skin='premium'] .decke-composer-card input:not([type='checkbox']):not([type='radio']),
-:root[data-skin='premium'] .decke-composer-card input:not([type='checkbox']):not([type='radio']):focus {
+:root[data-skin='premium'] .decke-composer-card input:not([type='checkbox']):not([type='radio']):focus,
+:root[data-skin='premium'] .decke-composer-card textarea,
+:root[data-skin='premium'] .decke-composer-card textarea:focus {
   box-shadow: none;
   border-color: transparent;
   background: transparent;
