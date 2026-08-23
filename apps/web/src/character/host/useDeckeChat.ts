@@ -162,6 +162,15 @@ export function useDeckeChat(
   onStepping?: (on: boolean) => void,
   /** Fired as each turn begins, so the host can reset per-turn navigation state. */
   onTurnStart?: () => void,
+  /**
+   * Fired at the END of a turn in which a STANDALONE `goTo` succeeded.
+   *
+   * "Take me to my decks" leaves the reader looking at a panel covering the
+   * decks page. The owner chose the chat closing with a line over the page
+   * changing behind it. A hop inside a journey or an escort does NOT fire this
+   * — that would abandon a walk halfway.
+   */
+  onArrived?: () => void,
 ) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
@@ -220,7 +229,23 @@ export function useDeckeChat(
    * anything. That is the distinction the watcher was written around, and this
    * is the flag it was waiting for.
    */
+  /**
+   * Did a STANDALONE `goTo` run this turn?
+   *
+   * "Take me to my decks" ends with the reader somewhere they asked to be, and
+   * the panel is then sitting on top of the thing they asked for. The owner
+   * chose that the chat should close and he should fly out with a line rather
+   * than the page changing behind a panel nobody asked to keep.
+   *
+   * STANDALONE is the whole of it. A `goTo` inside a journey or an escort is a
+   * HOP, not an arrival — closing the panel there would abandon the walk halfway
+   * and take the character's own narration off screen with it. So this is set
+   * only on the branch that runs a bare navigation.
+   */
+  const navigatedAwayRef = useRef(false)
   const onSteppingRef = useRef(onStepping)
+  const onArrivedRef = useRef(onArrived)
+  onArrivedRef.current = onArrived
   onSteppingRef.current = onStepping
   const onTurnStartRef = useRef(onTurnStart)
   onTurnStartRef.current = onTurnStart
@@ -1049,6 +1074,14 @@ export function useDeckeChat(
                     call.name,
                     call.input,
                   )
+            // A BARE `goTo` THAT WORKED is an arrival. `journeySteps` is null on
+            // this branch by construction, so a hop inside a walk cannot reach
+            // here — see `navigatedAwayRef`. It must have SUCCEEDED: closing the
+            // panel over "there is no such page" would hide the only explanation
+            // the reader is going to get.
+            if (call.name === 'goTo' && !journeySteps && (result as UiToolResult).ok) {
+              navigatedAwayRef.current = true
+            }
             if (ac.signal.aborted) return
             // ── A ROW FOR WHAT HE DID TO THE PAGE ──────────────────────────
             //
@@ -1170,6 +1203,24 @@ export function useDeckeChat(
           decke.setOverlay(null)
           decke.clearOverrides()
           setBusy(false)
+          // ── HE TOOK YOU SOMEWHERE, SO HE GETS OUT OF THE WAY ────────────────
+          //
+          // "You're on the decks page now" — said by a panel covering the decks
+          // page. The owner: *"he didn't ever leave the chat. He's supposed to
+          // actually go on to the next page."* Asked to choose, he picked the
+          // chat closing with a line over the page changing behind it.
+          //
+          // AT THE TURN BOUNDARY, not at the moment of navigation: he usually
+          // says something after arriving, and closing mid-turn would cut that
+          // sentence off — the reader would land somewhere with no word about
+          // why. By here the turn is finished and whatever he said is in the
+          // transcript to come back to.
+          //
+          // The flag is cleared unconditionally so a walk on the next turn
+          // cannot inherit an arrival from this one.
+          const arrived = navigatedAwayRef.current
+          navigatedAwayRef.current = false
+          if (arrived) onArrivedRef.current?.()
         }
       }
     },
