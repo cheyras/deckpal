@@ -49,6 +49,15 @@ import { ToolRow } from './chat/ToolRow'
 import { ApprovalCard } from './chat/ApprovalCard'
 import type { ApprovalPreview, Choices, RowChoice } from './chat/approvalCardState'
 import type { PendingApproval, ToolChip } from './useDeckeChat'
+import {
+  chooseOpeners,
+  noteShown,
+  openerStore,
+  readOpenerLog,
+  replyAnnouncement,
+  writeOpenerLog,
+  type Opener,
+} from './deckeChatState'
 
 /**
  * WHERE HE STANDS WHILE THE CHAT IS OPEN.
@@ -135,18 +144,25 @@ const PARK_BOTTOM = 6
 const SILHOUETTE = 1.28
 const SILHOUETTE_ASPECT = 0.76
 
-/**
- * What a first-time reader can press instead of thinking of something.
+/*
+ * WHAT A FIRST-TIME READER CAN PRESS INSTEAD OF THINKING OF SOMETHING — and it
+ * is no longer three fixed strings in this file. The pool, the rotation and the
+ * per-viewer memory moved to `deckeChatState.ts`, where they can be tested
+ * without a browser.
  *
- * One of each KIND rather than three of the best, because the job is to show
- * the range: something he answers from data, something he shows on a panel, and
- * something he does to the page. The third is the one nobody guesses he can do.
+ * The original rule survives the move and is still the reason the list is
+ * shaped the way it is: ONE OF EACH KIND rather than three of the best, because
+ * the job is to show the range — something he answers from data, something he
+ * shows on a panel, and something he does to the page. The third is the one
+ * nobody guesses he can do.
+ *
+ * WHAT IS NEW is that the three are chosen rather than fixed. NN/g's finding is
+ * that re-serving a suggestion someone already passed over reads as nagging, and
+ * three constants have nothing else to offer. `chooseOpeners` picks the
+ * least-seen member of each kind, and `noteShown` records the sighting in
+ * `localStorage` — per viewer, best-effort, and every touch of storage is inside
+ * a `try` because a private window throws on the property access itself.
  */
-const OPENERS = [
-  'How many cards do I have?',
-  "What am I closest to completing?",
-  'Take me to my decks',
-] as const
 
 /** Air between his widest point and the text beside him. */
 const PARK_GAP = 12
@@ -415,7 +431,75 @@ export function DeckeChat({
     wasBusyRef.current = busy
   }, [busy])
 
-  const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant')?.id ?? null
+  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant') ?? null
+  const lastAssistantId = lastAssistant?.id ?? null
+
+  // ── The openers this viewer has not been shown lately ─────────────────────
+  //
+  // CHOSEN ONCE PER OPENING, not per render. Re-running the choice on every
+  // keystroke would be free — it is a pass over six items — but it would also
+  // let the three chips change under someone's finger the moment the log was
+  // written, which is a worse bug than the one being fixed.
+  const [openers, setOpeners] = useState<readonly Opener[]>(() =>
+    chooseOpeners(undefined, readOpenerLog(openerStore())),
+  )
+
+  // RECORDED WHEN THEY ARE ACTUALLY ON SCREEN. Writing the sighting at choice
+  // time would count an opening that never reached the empty state — the panel
+  // opened on an existing conversation, say — and rotate a chip nobody saw.
+  const openersLoggedRef = useRef(false)
+  useEffect(() => {
+    if (!open || !empty || openersLoggedRef.current) return
+    openersLoggedRef.current = true
+    const store = openerStore()
+    writeOpenerLog(store, noteShown(readOpenerLog(store), openers))
+  }, [open, empty, openers])
+
+  // Closing re-arms the choice, so the NEXT opening reads the log written by
+  // this one. Doing it on close rather than on open means the fresh set is
+  // already in place before the panel animates in, with no swap mid-flight.
+  useEffect(() => {
+    if (open) return
+    openersLoggedRef.current = false
+    setOpeners(chooseOpeners(undefined, readOpenerLog(openerStore())))
+  }, [open])
+
+  // ── What a screen reader is told, and when ────────────────────────────────
+  //
+  // See `replyAnnouncement` for the reasoning; the short version is that the
+  // announcement fires on the TURN BOUNDARY and describes the shape of what
+  // arrived, never its content. A live region over the streaming text would
+  // read a long answer aloud as a stream of fragments and make it unreadable.
+  //
+  // CLEARED FIRST, THEN SET. Two turns in a row that produce the same sentence
+  // — "Deck-E replied." — are the common case, and assistive technology
+  // announces a live region when its CONTENTS CHANGE. Writing the same string
+  // twice is not a change, so the second turn would land silently. Emptying the
+  // region and repopulating it a tick later is a change either way.
+  //
+  // THE TIMER IS A REF, NOT AN EFFECT CLEANUP, and that is a real bug avoided
+  // rather than a style choice. This effect also depends on the last assistant
+  // message, whose identity changes on every tick of a stream — so a cleanup
+  // that cancelled the pending announcement would be cancelled by the very next
+  // chip update after the turn ended, and the boundary would pass in silence on
+  // exactly the turns that did the most.
+  const [announcement, setAnnouncement] = useState('')
+  const announceArmedRef = useRef(false)
+  const announceTimerRef = useRef(0)
+  useEffect(() => () => window.clearTimeout(announceTimerRef.current), [])
+  useEffect(() => {
+    if (busy) {
+      announceArmedRef.current = true
+      return
+    }
+    if (!announceArmedRef.current) return
+    announceArmedRef.current = false
+    const text = replyAnnouncement(lastAssistant?.parts ?? [])
+    if (!text) return
+    setAnnouncement('')
+    window.clearTimeout(announceTimerRef.current)
+    announceTimerRef.current = window.setTimeout(() => setAnnouncement(text), 80)
+  }, [busy, lastAssistant])
 
   // ── Scroll authority ──────────────────────────────────────────────────────
   //
@@ -537,12 +621,47 @@ export function DeckeChat({
   // The threshold is generous on purpose. Someone a line and a half off the
   // bottom is still following along and wants to keep following; someone who
   // has gone hunting for what he said four answers ago has left.
+  //
+  // AND THE HALF THAT WAS MISSING: A WAY BACK. The guard above stops the yank,
+  // which is the defect NN/g measured — users read a streaming answer from the
+  // top, and one participant gave up on reading at all rather than fight the
+  // scroll. What the guard leaves behind is a reader parked halfway up a
+  // conversation that is still growing, with no indication that it is growing
+  // and nothing to press. `atLatest` mirrors `stickRef` into React so the
+  // control below can exist; the ref stays the authority for the layout pass,
+  // because that runs at scroll rate and must not wait on a render.
   const stickRef = useRef(true)
+  const [atLatest, setAtLatest] = useState(true)
   useLayoutEffect(() => {
     const el = transcriptRef.current
     if (el && stickRef.current) el.scrollTop = el.scrollHeight
     reflow()
   }, [messages, reflow, gutter])
+
+  /**
+   * Go to the end, and put focus somewhere it can survive.
+   *
+   * The button that calls this UNMOUNTS the moment it succeeds, which would
+   * leave focus on `<body>` and send the next Tab to the top of the app — the
+   * same defect the close handler above documents at length. The composer is
+   * where someone who has just caught up wants to be anyway.
+   */
+  const jumpToLatest = useCallback(() => {
+    const el = transcriptRef.current
+    if (el) el.scrollTop = el.scrollHeight
+    stickRef.current = true
+    setAtLatest(true)
+    inputRef.current?.focus({ preventScroll: true })
+  }, [])
+
+  // A fresh opening starts at the end. Without this, closing the panel while
+  // scrolled up and reopening it leaves the follow disarmed and the jump
+  // control showing over a conversation that is already at its bottom.
+  useEffect(() => {
+    if (!open) return
+    stickRef.current = true
+    setAtLatest(true)
+  }, [open])
 
   // Dragging the transcript moves bubbles past him too. rAF-coalesced: `scroll`
   // can fire several times per frame and the pass reads layout.
@@ -555,7 +674,12 @@ export function DeckeChat({
       // Read the stick decision on every scroll event, not only in the rAF —
       // the coalescing exists to keep the LAYOUT pass off the hot path, and
       // three cheap property reads are not that.
-      stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK
+      const stuck = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK
+      stickRef.current = stuck
+      // Only when it actually flips. A drag fires this dozens of times a second
+      // and every one of them would otherwise be a render of the whole message
+      // list to change nothing.
+      setAtLatest((prev) => (prev === stuck ? prev : stuck))
       if (raf) return
       raf = requestAnimationFrame(() => {
         raf = 0
@@ -580,6 +704,7 @@ export function DeckeChat({
       // Sending re-arms the follow. Someone who has just spoken is asking to be
       // shown the answer, wherever they had scrolled to before typing it.
       stickRef.current = true
+      setAtLatest(true)
       onSend(text)
     },
     [draft, busy, onSend],
@@ -801,6 +926,30 @@ export function DeckeChat({
           because what is behind it is a live blurred page, so there is no
           colour an overlay could match.
         */}
+        {/*
+          THE TRANSCRIPT'S LIVE REGION, AND IT IS NOT THE TRANSCRIPT.
+
+          D13: the minimised bubble has `aria-live="polite"` and this surface —
+          the one people actually read — had none, so a screen-reader user
+          talking to Deck-E in the panel was told nothing at all. The repair
+          that suggests itself is `aria-live` on the message list, and it is a
+          trap: the list is rewritten on every token, so a five-hundred-word
+          answer would be read aloud as several hundred overlapping fragments
+          and could never be followed. Announcing everything and announcing
+          nothing fail the same person; this is the third option.
+
+          ALWAYS MOUNTED, EMPTY, AND OUTSIDE THE MESSAGE LIST. A live region has
+          to exist before its contents change or the first change is missed —
+          the same rule `ToolRow` documents for its own — and keeping it out of
+          the list means nothing the list does can accidentally announce.
+
+          `role="status"` implies polite and is the honest role: this is
+          progress information about the surface, not an alert demanding a
+          decision. The approval card is the alert, and it says so itself.
+        */}
+        <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+          {announcement}
+        </div>
         <div
           ref={transcriptRef}
           className={[
@@ -848,12 +997,12 @@ export function DeckeChat({
                 </p>
               </div>
               <ul className="decke-shift flex flex-wrap gap-[8px]">
-                {OPENERS.map((o) => (
-                  <li key={o}>
+                {openers.map((o) => (
+                  <li key={o.id}>
                     <button
                       type="button"
                       onClick={() => {
-                        setDraft(o)
+                        setDraft(o.text)
                         inputRef.current?.focus()
                       }}
                       className={[
@@ -863,7 +1012,7 @@ export function DeckeChat({
                         'focus-visible:outline-offset-2 focus-visible:outline-border-focus',
                       ].join(' ')}
                     >
-                      {o}
+                      {o.text}
                     </button>
                   </li>
                 ))}
@@ -934,7 +1083,7 @@ export function DeckeChat({
                     // a column of one card.
                     return (
                       <div key={part.id} className="decke-figure decke-shift">
-                        <DeckeScreen spec={part.spec} />
+                        <DeckeScreen spec={part.spec} onResize={reflow} />
                       </div>
                     )
                   })}
@@ -990,6 +1139,44 @@ export function DeckeChat({
           )}
         </div>
 
+        {/*
+          THE WAY BACK DOWN.
+
+          The transcript stopped yanking a reader to the bottom mid-stream, which
+          is right — NN/g watched people read from the top and one stop reading
+          altogether rather than fight it. But "we will not move you" without
+          "and here is how to catch up" strands somebody halfway up a
+          conversation that is still growing, with nothing to press.
+
+          A ZERO-HEIGHT ROW WITH AN ABSOLUTE CHILD, so the control floats over
+          the last line of the transcript instead of taking a band of height from
+          it. Putting it in flow would shrink the scroller by its own height the
+          moment it appeared, which reflows the very text the reader is in the
+          middle of — the defect, reintroduced by its own fix.
+
+          Rendered only when there is somewhere to go: never on the empty state,
+          and never while the view is already at the end.
+        */}
+        {!empty && !atLatest ? (
+          <div className="relative z-[1] h-0 w-full">
+            <button
+              type="button"
+              onClick={jumpToLatest}
+              className={[
+                'pointer-events-auto absolute bottom-[8px] left-1/2 -translate-x-1/2',
+                'flex items-center gap-[6px] whitespace-nowrap rounded-full',
+                'border border-border-default bg-surface-raised/95 px-[12px] py-[6px]',
+                'text-[12px] font-semibold text-text-body shadow-lg backdrop-blur-sm',
+                'hover:text-text-primary focus-visible:outline focus-visible:outline-2',
+                'focus-visible:outline-offset-2 focus-visible:outline-border-focus',
+                'motion-safe:animate-[decke-chat-in_180ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]',
+              ].join(' ')}
+            >
+              <Icon name="chevron-down" size={14} className="shrink-0 text-icon-muted" />
+              Jump to latest
+            </button>
+          </div>
+        ) : null}
 
         {/*
           THE APPROVAL GATE.
