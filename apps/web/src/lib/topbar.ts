@@ -11,8 +11,28 @@
 
 export type Topbar = 'cover' | 'flat'
 
-/** Set to 'flat' to ship the pre-effect header without touching anything else. */
-export const DEFAULT_TOPBAR: Topbar = 'cover'
+/**
+ * Set to 'flat' to ship the pre-effect header without touching anything else.
+ *
+ * ── IT IS 'flat' NOW, AND THE OWNER ASKED TWICE ──────────────────────────────
+ *
+ * 'cover' put `backdrop-filter: blur(18px) brightness(0.62) saturate(1.25)` on a
+ * 62%-translucent fixed header, so every page's content was blurred and darkened
+ * as it scrolled underneath. Measured on `/profile`: the card-art banner passes
+ * behind the bar and comes out smeared.
+ *
+ * *"The other thing that you did not fix is that the blur behind this top bar —
+ * I asked you to fix and you did not fix."* He is right that he asked. The
+ * original brief's C8 was read as being only about the CHAT scrim not blurring
+ * the header, and it was closed as "already correct" on that reading — while the
+ * header's own binder-cover effect went on blurring everything behind it. The
+ * complaint and the fix were about the same pixels and never met.
+ *
+ * Switchable still, and that is the point of this module: `?topbar=cover`
+ * restores it for anyone who wants to compare the two on value rather than on
+ * impression.
+ */
+export const DEFAULT_TOPBAR: Topbar = 'flat'
 
 const STORAGE_KEY = 'deckpal:topbar'
 
