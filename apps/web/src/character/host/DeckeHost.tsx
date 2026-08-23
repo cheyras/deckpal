@@ -33,6 +33,7 @@ import { isChromelessPathname } from '../../lib/landingRoute'
 import { deckeEntitled } from './entitlement'
 import { DeckeButton } from './DeckeButton'
 import {
+  COMPOSER_LANDMARK,
   DeckeChat,
   NAV_BREAKPOINT,
   PARK_LANDMARK,
@@ -83,6 +84,30 @@ function characterHeightFor(w: number, h: number, compact: boolean): number {
   return Math.round(compact ? full * CHAT_COMPACT : full)
 }
 
+/**
+ * How tall he is WHILE THE CHAT IS OPEN, from the composer he stands beside.
+ *
+ * The old answer was `characterHeightFor(..., compact)`, and `compact` was only
+ * ever true below the nav breakpoint — so on a laptop his chat-open height was
+ * his idle height, up to 300px. He stood in the middle of the conversation at
+ * full size with his shoulders across it, which is the complaint.
+ *
+ * Sizing him from a viewport fraction was the wrong instinct twice over: it is
+ * not what he is next to, and it left desktop and mobile as two unrelated
+ * rules. He is beside a composer card. So the card is the ruler, and the
+ * viewport is only a CEILING — which is what keeps a phone honest, where 3×
+ * the composer would be a third of the screen.
+ *
+ * 2.9× is chosen so that his head clears the card and roughly half his body
+ * overlaps its band, which is the relationship that reads as "standing beside
+ * the input" rather than "sitting in a row above it" — the same relationship
+ * the mobile park box has always described geometrically.
+ */
+const COMPOSER_MULTIPLE = 2.9
+function characterHeightBeside(composerH: number, w: number, h: number): number {
+  return Math.round(Math.min(composerH * COMPOSER_MULTIPLE, w * 0.28, h * 0.24))
+}
+
 type Phase = 'idle' | 'loading' | 'ready' | 'failed'
 
 export function DeckeHost() {
@@ -105,6 +130,13 @@ export function DeckeHost() {
   const [phase, setPhase] = useState<Phase>('idle')
   const [beacon, setBeacon] = useState<Beacon | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
+  /**
+   * Where the launcher was when it was pressed, for the entrance to grow from.
+   *
+   * A ref rather than state: nothing renders from it, and it is read inside an
+   * effect that must not re-run when it changes.
+   */
+  const launchRectRef = useRef<DOMRect | null>(null)
   const [live, setLive] = useState<DeckEInstance | null>(null)
   /** His on-screen height in CSS px, published so the chat can leave room. */
   const [charPx, setCharPx] = useState(0)
@@ -324,7 +356,14 @@ export function DeckeHost() {
     if (!chatOpen) {
       parkForChatRef.current = null
       d.returnHome()
-      return
+      // BACK TO NOTHING, once he is off screen. He has to end where the next
+      // entrance begins, or the second open finds him already at full size and
+      // there is nothing to grow. The delay is the canvas's own opacity fade —
+      // shrinking him instantly on close would snap him out mid-fade, which is
+      // the "it just snaps to a stop" note this codebase already has about the
+      // talk animation.
+      const t = window.setTimeout(() => deckeRef.current?.setEntryScale(0), 520)
+      return () => window.clearTimeout(t)
     }
     const park = () => {
       // The park box only exists while the phone panel is mounted AND he has
@@ -338,6 +377,34 @@ export function DeckeHost() {
         )
         return
       }
+      // DESKTOP PARKS HIM BESIDE THE COMPOSER, not on a viewport fraction.
+      //
+      // `STAND_DESKTOP` was `{x: 0.36, y: 0.58}` — a spot chosen when the panel
+      // was a 420px card in the bottom-right corner and the rest of the page
+      // was empty. The panel is the content pane now and the composer is
+      // centred in it, so that fraction puts him standing ON the conversation.
+      //
+      // The right primitive was already here and is what `flyTo` is FOR: an
+      // ordinary beside-park. `side: 'left'` puts him outboard of the card's
+      // left edge with the usual gap, and — the part worth having — a
+      // beside-park is the branch of `solvePark` that RETURNS A FACING, so he
+      // turns to face the thing he is standing next to. Both chat-open calls
+      // used to pass `centre: true`, whose branch deliberately returns no
+      // facing because a point has no inward, and `flyTo` then re-asserted the
+      // boot default of screen-left. That is why he stood with his back to the
+      // composer: not a facing bug, a consequence of asking to stand ON a
+      // point instead of BESIDE a thing.
+      if (wide) {
+        // `flyTo` THROWS on a selector that resolves to nothing, so ask.
+        const composer = document.querySelector(`[${COMPOSER_LANDMARK}]`)
+        if (composer) {
+          d.flyTo(
+            { selector: `[${COMPOSER_LANDMARK}]` },
+            { depth: 'foreground', highlight: false, side: 'left' },
+          )
+          return
+        }
+      }
       const at = wide ? STAND_DESKTOP : STAND_MOBILE
       d.flyTo(
         { x: window.innerWidth * at.x, y: window.innerHeight * at.y },
@@ -345,9 +412,35 @@ export function DeckeHost() {
       )
     }
     parkForChatRef.current = park
+
+    // THE ENTRANCE: absent → grows from nothing at the button → travels.
+    //
+    // The order is the whole of it. He is placed at the launcher's rect with
+    // `instant: true` — a cut, not a flight, because he was never anywhere
+    // before this and flying him from his home corner would be a journey from
+    // a place he had not been. Then he grows. Then, and only when the grow has
+    // landed, he sets off for his mark.
+    //
+    // `playEntry` returns the milliseconds it will take and calls `onDone` on
+    // the frame it lands, so the travel is sequenced off the engine's own clock
+    // rather than a second copy of the duration living here. Under reduced
+    // motion it returns 0 and calls `onDone` synchronously — which makes this
+    // the reduce path as well, with no branch: he is simply already there and
+    // then travels, or under a reduced-motion flight, cuts.
+    const rect = launchRectRef.current
     let raf = 0
     const t = window.setTimeout(() => {
-      raf = requestAnimationFrame(park)
+      raf = requestAnimationFrame(() => {
+        if (rect && rect.width > 0) {
+          d.flyTo({ rect }, { centre: true, highlight: false, instant: true })
+          d.playEntry({ onDone: park })
+        } else {
+          // No rect means he was opened by something other than the button.
+          // Nothing to grow from, so he simply takes his mark.
+          d.setEntryScale(1)
+          park()
+        }
+      })
     }, 320)
     return () => {
       window.clearTimeout(t)
@@ -367,6 +460,25 @@ export function DeckeHost() {
   // one, because `phase` is still 'ready' — leaving a live controller bound to a
   // canvas node that is no longer in the document, and a blank new canvas.
   const active = entitled && !chromeless && (phase === 'loading' || phase === 'ready')
+
+  // Held once and shared, because the constructor below reads it and the effect
+  // after it subscribes to it — two `matchMedia` calls for one question is two
+  // answers that can disagree for a render.
+  const reduceQuery = useRef<MediaQueryList | null>(null)
+  if (!reduceQuery.current && typeof window !== 'undefined') {
+    reduceQuery.current = window.matchMedia('(prefers-reduced-motion: reduce)')
+  }
+
+  // IT CAN CHANGE UNDER HIM. Someone turning the preference on mid-session is
+  // asking for the motion to stop now, not at the next reload — and this is the
+  // only place that can tell him, because he does not look.
+  useEffect(() => {
+    const mq = reduceQuery.current
+    if (!mq) return
+    const on = (e: MediaQueryListEvent) => deckeRef.current?.setReducedMotion(e.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
 
   useEffect(() => {
     if (!active) return
@@ -396,6 +508,14 @@ export function DeckeHost() {
           characterHeightPx: 300,
           startAt: 'home',
           clearColor: null,
+          // THE HOST OWNS THE MEDIA QUERY, THE ENGINE OWNS THE BEHAVIOUR.
+          //
+          // Nothing in `character/decke/` reads `matchMedia`, deliberately —
+          // the engine's own note about smooth scrolling says it honours the
+          // preference "without this module having to know that exists", and
+          // that philosophy is kept. It is handed a flag instead, and decides
+          // for itself what an instant entrance and a cut arrival mean.
+          reduced: reduceQuery.current?.matches ?? false,
           onError: () => setPhase('failed'),
           onBeacon: setBeacon,
         }),
@@ -421,10 +541,22 @@ export function DeckeHost() {
         const canvasH = Math.round(canvas.clientHeight) || window.innerHeight
         const h = Math.round(probeRef.current?.clientHeight ?? 0) || canvasH
         decke.resize(w, h, canvasH)
-        // Compact only on a phone: on desktop the panel is a card in the corner
-        // and he stands out on the open page, where there is nothing to crowd.
-        const compact = chatOpenRef.current && w < NAV_BREAKPOINT
-        const px = characterHeightFor(w, h, compact)
+        // WHILE THE CHAT IS OPEN HE IS SIZED FROM THE COMPOSER, on both
+        // platforms — one rule rather than a desktop branch and a phone branch
+        // that were free to disagree, and did.
+        //
+        // The fallback is not defensive noise: `flyTo` and this measure both
+        // run on the frame the panel mounts, and if the card has not laid out
+        // yet a rect of zero would collapse him to nothing. The old formula is
+        // the right thing to fall back TO, because it is what he was before.
+        const composer = chatOpenRef.current
+          ? document.querySelector<HTMLElement>(`[${COMPOSER_LANDMARK}]`)
+          : null
+        const composerH = composer?.getBoundingClientRect().height ?? 0
+        const px =
+          composerH > 0
+            ? characterHeightBeside(composerH, w, h)
+            : characterHeightFor(w, h, chatOpenRef.current && w < NAV_BREAKPOINT)
         decke.stage.setCharacterHeight(px)
         setCharPx((prev) => (prev === px ? prev : px))
       }
@@ -466,6 +598,22 @@ export function DeckeHost() {
       }
       arm()
 
+      // HE FINISHES LOADING AT NOTHING, and this closes a hole that opening the
+      // load up to intent would otherwise have punched straight back through
+      // the invariant it was meant to restore.
+      //
+      // Warming is a HOVER. Before, the runtime arrived on a timer and the
+      // canvas faded him in at his home corner — which, with the launcher chip
+      // still sitting in that same corner, is the two-Deck-Es defect. Deleting
+      // the timer fixed it for someone who never touches the button and
+      // recreated it exactly for someone who hovers and then does not click:
+      // half a second later he would simply appear, unbidden, beside his own
+      // chip.
+      //
+      // So the last thing loading does is scale him to nothing. He is present,
+      // started, and rendering — and a third of a pixel tall, until an
+      // entrance is played. `playEntry` on open is what brings him.
+      decke.setEntryScale(0)
       decke.start()
       if (!cancelled) {
         setPhase('ready')
@@ -542,7 +690,10 @@ export function DeckeHost() {
         loading={phase === 'loading'}
         failed={phase === 'failed'}
         overChat={chatOpen}
-        onOpen={() => setChatOpen(true)}
+        onOpen={(rect) => {
+          launchRectRef.current = rect
+          setChatOpen(true)
+        }}
         onWarm={() => setPhase((p) => (p === 'idle' ? 'loading' : p))}
         onRetry={() => setPhase('loading')}
       />

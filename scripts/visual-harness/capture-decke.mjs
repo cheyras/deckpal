@@ -78,6 +78,17 @@ const HEADED = flag('headed')
 const ONLY = arg('only', 'all')
 const WIDE = Number(arg('width', 1440))
 const TALL = Number(arg('height', 900))
+/**
+ * `--reduced` runs the whole capture under `prefers-reduced-motion: reduce`.
+ *
+ * X1 says the reduce path ships in the same commit as the motion, which means
+ * it has to be LOOKED AT in the same sitting — and reduced motion is the one
+ * class of change where "it still renders" is not the question. The interesting
+ * failures are a loading state that removed its only signal and now looks
+ * frozen, and an entrance that was skipped so thoroughly the character never
+ * arrives at all.
+ */
+const REDUCED = flag('reduced')
 
 // ── The scenes ───────────────────────────────────────────────────────────────
 
@@ -87,6 +98,7 @@ const TALL = Number(arg('height', 900))
  * @property {string} what          - what a reader is meant to look for
  * @property {('desktop'|'mobile')[]} platforms
  * @property {boolean} [video]      - record the act, and build a contact sheet
+ * @property {number} [frames]      - contact-sheet frames; more for fast motion
  * @property {boolean} [writes]     - true if the scene can write to the account
  * @property {(ctx: object) => Promise<void>} act
  */
@@ -130,15 +142,31 @@ const SCENES = [
     name: 'chat-entry',
     what:
       'The open transition, as motion. Frames should show: no character at ' +
-      'first, then a character that grows from nothing at the button, then ' +
-      'travels to its stand point. A character that is simply already there ' +
-      'at full size in frame two has not got an entrance.',
+      'first, then a character that grows from nothing at the button in the ' +
+      'bottom-right, then travels to its stand point. A character that is ' +
+      'simply already there at full size in frame two has not got an entrance.',
     platforms: ['desktop', 'mobile'],
     video: true,
+    frames: 16,
     async act({ page }) {
-      await page.waitForTimeout(500) // a beat of "before" on camera
+      // WARM FIRST, AND WAIT FOR THE RUNTIME, so the recording is of the
+      // ENTRANCE and not of the download. This was the first version's mistake
+      // and it made the artifact useless rather than wrong: a five-second clip
+      // of a seven-megabyte fetch, sampled at twelve frames, puts about 400 ms
+      // between frames — and the grow is around 325 ms, so it could fall
+      // entirely between two of them. The judge then reports, correctly, that
+      // it never saw a character scale up.
+      //
+      // The download has its own scene (`cold-open`). This one is about what
+      // happens after it.
+      await page.getByRole('button', { name: 'Chat with Deck-E' }).hover()
+      await page
+        .waitForFunction(() => !!window.__decke, undefined, { timeout: 60_000 })
+        .catch(() => {})
+      await page.waitForTimeout(1200) // let the load settle, off camera
+      await page.waitForTimeout(300) // a beat of "before"
       await openDeckE(page)
-      await page.waitForTimeout(3500) // the entrance and the flight
+      await page.waitForTimeout(1800) // the grow (~325ms) and the flight
     },
   },
   {
@@ -306,10 +334,11 @@ async function runScene(browser, devices, scene, platform, timing) {
       ? mobileProfile(devices)
       : { ...DESKTOP_PROFILE, viewport: { width: WIDE, height: TALL } }),
     extraHTTPHeaders: bypassHeaders(),
+    ...(REDUCED ? { reducedMotion: 'reduce' } : {}),
   }
 
   /** Recorded once per scene run and written beside the images. */
-  const notes = { scene: scene.name, platform, what: scene.what, base: BASE }
+  const notes = { scene: scene.name, platform, what: scene.what, base: BASE, reducedMotion: REDUCED }
 
   if (scene.video) {
     // A recorded context cannot be reused, so sign-in happens inside `interact`.
@@ -333,7 +362,7 @@ async function runScene(browser, devices, scene, platform, timing) {
     reportArtifact(artifacts, 'video', videoPath, 5000)
     reportArtifact(artifacts, 'final frame', join(dir, `${scene.name}.final.png`))
     const sheet = await buildContactSheet(videoPath, join(dir, `${scene.name}.contact-sheet.png`), {
-      frames: 12,
+      frames: scene.frames ?? 12,
     })
     reportArtifact(
       artifacts,

@@ -61,10 +61,52 @@ import { withToolCtx, type ToolCtxOptions } from '../ctx.js';
  * lookup behind it is strictly worse than no chip, because it manufactures
  * evidence. Every chip corresponds 1:1 to a real invocation of a real handler,
  * by construction, because this is the only code that emits one.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * FIVE PHASES, AND WHY THE LAST TWO WERE ADDED
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The owner sat watching a deep call for 210 seconds with no signal at all — the
+ * UI was pixel-identical for 61 of them, by direct frame comparison — and then
+ * praised the reply on camera as "a great response". It was a tool-failure
+ * message: *"The analyze tool timed out before it could finish reading your full
+ * collection…"*. He did not notice it had failed.
+ *
+ * Two separate defects, and fixing either alone leaves that experience intact:
+ *
+ *   `progress`  breaks the silence. A running tool says what it is doing while
+ *               it does it, so a 210-second wait is legible rather than dead.
+ *   `partial`   breaks the lie. A call that hit its wall clock, or its output
+ *               budget, or its step cap, returns what it has — and must NOT
+ *               resolve as `ok`, because `ok` is the word that let a failure be
+ *               praised.
+ *
+ * `progress` carries the heartbeat AND the narration beat on ONE channel. That
+ * is deliberate: one emission point is what keeps the truthfulness rule above
+ * enforceable. Everything on it is composed by the server from something the
+ * server observed — a tool that really started, a source the provider really
+ * reported, prose the sub-agent really produced, or the plain fact that an
+ * invocation opened N seconds ago and is still open. There is no code path by
+ * which the model can ask for one.
+ *
+ * `note` is destined for an expandable detail row in the transcript, NEVER for
+ * Deck-E's speech bubble. Some of it is sub-agent prose, and the sub-agents are
+ * deliberately not written in his voice (see `deep.ts`'s `ANALYST`) — two
+ * characters talking over each other in one answer is the failure that rule
+ * exists to prevent.
  */
 export type ToolEvent =
   | { phase: 'start'; id: string; name: string; title: string }
+  | { phase: 'progress'; id: string; name: string; title: string; note: string; step?: number }
   | { phase: 'ok'; id: string; name: string; title: string; summary: string }
+  | {
+      phase: 'partial';
+      id: string;
+      name: string;
+      title: string;
+      summary: string;
+      reason: 'timeout' | 'truncated';
+    }
   | { phase: 'error'; id: string; name: string; title: string; summary: string };
 
 export interface AiSdkAdapterOptions extends ToolCtxOptions {

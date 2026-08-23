@@ -63,7 +63,15 @@ export function DeckeButton({
   failed = false,
   overChat = false,
 }: {
-  onOpen: () => void
+  /**
+   * Open the chat, and hand over WHERE THIS BUTTON IS.
+   *
+   * The character's entrance grows him from nothing at this button's position,
+   * so the entrance needs its rect — and this button unmounts as soon as he has
+   * arrived, so the rect has to be read while it still exists. Reading it here,
+   * on the press, is the last honest moment.
+   */
+  onOpen: (rect: DOMRect) => void
   /** Called on first hover/touch so the runtime can start downloading. */
   onWarm: () => void
   /** Try the download again after it failed. */
@@ -77,6 +85,7 @@ export function DeckeButton({
   overChat?: boolean
 }) {
   const warmed = useRef(false)
+  const btnRef = useRef<HTMLButtonElement | null>(null)
   const [dozing, setDozing] = useState(false)
 
   // "He dozes off now and then." A long, irregular cycle rather than a metronome
@@ -128,11 +137,12 @@ export function DeckeButton({
     // work in that sentence, and a click that opens the panel without having
     // started the download leaves the panel waiting on nothing at all.
     warm()
-    onOpen()
+    onOpen(btnRef.current?.getBoundingClientRect() ?? new DOMRect(0, 0, 0, 0))
   }
 
   return (
     <button
+      ref={btnRef}
       type="button"
       onClick={press}
       onPointerEnter={warm}

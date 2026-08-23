@@ -77,6 +77,15 @@ import type { PendingApproval, ToolChip } from './useDeckeChat'
  */
 export const STAND_DESKTOP = { x: 0.36, y: 0.58 }
 
+/**
+ * The composer card, as `DeckeHost` looks for it.
+ *
+ * He stands beside it, so it is what decides how big he is. Expressed as a DOM
+ * box for the same reason the park box is: one geometry serving both jobs beats
+ * two numbers that have to agree by hand and eventually will not.
+ */
+export const COMPOSER_LANDMARK = 'data-decke-composer'
+
 /** The mobile park box, as `DeckeHost` looks for it. */
 export const PARK_LANDMARK = 'data-decke-park'
 
@@ -867,6 +876,13 @@ export function DeckeChat({
         <form
           ref={composerRef}
           onSubmit={submit}
+          // MEASURED BY `DeckeHost` TO DECIDE HOW TALL HE IS. His size used to
+          // be a viewport fraction capped at 300px, which on a laptop made him
+          // as tall as he is when nobody is talking to him — standing in the
+          // middle of the conversation with his shoulders across it. He is
+          // beside a composer now, so the composer is what he is scaled
+          // against, and the two cannot drift because there is only one number.
+          {...{ [COMPOSER_LANDMARK]: '' }}
           style={dropPx ? ({ '--decke-drop': `${dropPx}px` } as React.CSSProperties) : undefined}
           className={[
             'decke-composer decke-composer-card flex items-center gap-[8px] p-[8px]',
