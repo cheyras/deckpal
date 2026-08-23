@@ -76,3 +76,14 @@ test('the farewell is MOUNTED, not merely built', () => {
 test('the declined row is a real phase now, not an id suffix', () => {
   assert.match(HOOK, /phase: 'declined'/, 'deny went back to emitting `ok` and the tick returns');
 });
+
+test('the confirmation card is HANDED the restatement, not just able to show one', () => {
+  // `deepRequest.ts` has its own tests and they all pass whether or not anything
+  // calls it. This is the half that goes missing: without the prop the card
+  // renders a headline and two buttons for a call that costs the scarcest thing
+  // the account has — the friction-with-no-information dialog the line exists to
+  // prevent, and the argued reason deep calls did not ask at all until now.
+  assert.match(PANEL, /request=\{deepRequestLine\(asking\[0\]\.name, asking\[0\]\.input\)\}/,
+    'ApprovalCard is no longer given his restatement of the request')
+  assert.match(PANEL, /import \{ deepRequestLine \}/)
+})

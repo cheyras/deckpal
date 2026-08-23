@@ -461,7 +461,30 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
   }) => ({
     description: spec.description,
     inputSchema: spec.inputSchema,
-    ...(spec.writes ? { needsApproval: true } : {}),
+    // ── EVERY DEEP CALL ASKS FIRST, AND THIS IS A REVERSAL ──────────────────
+    //
+    // It used to be `spec.writes ? { needsApproval: true } : {}` — only the one
+    // that stores a guide asked, and the other three were exempt with an argued
+    // reason: "asking about a read is friction with no safety behind it, and
+    // friction people learn to click through is worse than none."
+    //
+    // That is correct about SAFETY and silent about COST. A deep call is not a
+    // read: it is a sub-agent with its own model and up to 210 seconds of wall
+    // clock, it is the scarcest thing the account has, and after the credit
+    // model it is the only thing a reader can actually run out of.
+    //
+    // Measured, on camera: asked for "a new deck, doesn't have to be good", he
+    // spent a deep call on the spot, before the owner had confirmed anything —
+    // then spent another. The owner: "if he's just asking about ideas he doesn't
+    // need to pull the deep question yet. He should verify first and then do the
+    // deep question. Get their input if they want to put in input."
+    //
+    // The friction argument still stands and is answered by WHAT the card says
+    // rather than by not showing one: it carries his restatement of the request,
+    // so the tap confirms a specific piece of work rather than acknowledging a
+    // dialog. A confirmation with nothing in it is the one people learn to click
+    // through.
+    needsApproval: true,
     execute: async (args: Record<string, unknown>, { toolCallId }: { toolCallId: string }) => {
       const chip = { id: toolCallId, name: spec.name, title: spec.title };
       opts.onEvent?.({ phase: 'start', ...chip });
