@@ -39,7 +39,7 @@
  *    `CLIENT_TOOLS` filter they would be re-run in the browser, fail, and post a
  *    tool output that CONTRADICTS the one the server already produced.
  */
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import {
   approvalReplayPart,
@@ -49,7 +49,7 @@ import {
   pendingApprovalFromChunk,
   type PendingApproval,
 } from './approval'
-import type { ChatMessage } from './DeckeChat'
+import { messageText, messageTools, type ChatMessage } from './DeckeChat'
 import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
 import { CLIENT_TOOLS, isClientTool, runUiTool, type UiToolResult } from './uiTools'
@@ -146,6 +146,17 @@ export function useDeckeChat(
 ) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
+  /**
+   * `busy` and `send`, reachable from a callback declared above `send`.
+   *
+   * Not a style choice: `retry` has to be able to call `send`, `send` closes
+   * over a great deal of turn state, and hoisting one above the other would
+   * mean reordering half this hook. Refs keep the declaration order readable
+   * and the values current.
+   */
+  const busyRef = useRef(false)
+  busyRef.current = busy
+  const sendRef = useRef<((text: string) => Promise<void>) | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   // The transcript as the server wants it, in a ref so `send` cannot close over
   // a stale array between renders.
@@ -187,20 +198,121 @@ export function useDeckeChat(
     resolve?.(new Map(list.map((a) => [a.approvalId, approved])))
   }, [])
 
+  /**
+   * Ask the same question again, after something in the answer failed.
+   *
+   * IT RE-RUNS THE TURN, not the tool, and the difference is worth being
+   * straight about. A tool call happened inside a model turn on the server;
+   * there is no handle here that could re-invoke just that call, and inventing
+   * one would mean a second execution path for writes. What this does is put
+   * the reader's own question back — which does try that lookup again, because
+   * the model will reach for the same tool, and it does it through the one path
+   * that already has approval, metering and grounding attached.
+   *
+   * The failed turn stays in the transcript. Removing it would hide that the
+   * first attempt happened, and "it worked the second time" is exactly the sort
+   * of thing worth being able to see.
+   */
+  const retry = useCallback(() => {
+    const lastAsked = [...currentRef.current].reverse().find((m) => m.role === 'user')
+    const text = lastAsked ? messageText(lastAsked) : ''
+    if (!text || busyRef.current) return
+    void sendRef.current?.(text)
+  }, [])
+
+  /**
+   * Ask the held question the moment he arrives — or give up out loud.
+   *
+   * THE TIMEOUT IS NOT DEFENSIVE NOISE. A load can genuinely fail, and a queued
+   * question with no ceiling is a thinking row that spins for the life of the
+   * page: the dead end this pass exists to remove, wearing a friendly face. If
+   * he has not arrived by then, the question is answered by the app rather than
+   * by him, and the reader is told they can try again.
+   */
+  useEffect(() => {
+    const text = queuedRef.current
+    if (!text) return
+    if (decke) {
+      // NOT cleared here. `send` reads it to know the question is already on
+      // the transcript — clearing it first made every queued message post
+      // twice, once by the queue and once by the send that flushed it.
+      void sendRef.current?.(text)
+      return
+    }
+    const t = window.setTimeout(() => {
+      if (!queuedRef.current) return
+      queuedRef.current = null
+      setBusy(false)
+      setMessages((m) => [
+        ...m,
+        {
+          id: nextId(),
+          role: 'assistant',
+          parts: [
+            {
+              kind: 'text',
+              id: nextId(),
+              text: "I couldn't finish waking up, so I never got that. Try me again?",
+            },
+          ],
+        },
+      ])
+    }, 45_000)
+    return () => window.clearTimeout(t)
+  }, [decke, messages.length])
+
   const approve = useCallback(() => settle(true), [settle])
   const deny = useCallback(() => settle(false), [settle])
 
+  /**
+   * A question asked before he had finished arriving.
+   *
+   * A REAL DEFECT, and one this pass created. `send` has always begun `if
+   * (!decke) return` — harmless while the runtime was fetched on an idle timer,
+   * because by the time anyone could type he was long since in memory. Now he
+   * loads on intent, and the whole point of the tap-and-wait trade is that
+   * there is a window, several seconds long on a phone, in which the composer
+   * is on screen and accepting text. Typing into it and pressing send did
+   * NOTHING AT ALL: no message, no error, no acknowledgment. The question
+   * simply evaporated.
+   *
+   * So it is held instead. The message appears in the transcript immediately —
+   * within a frame of the press, which is the acknowledgment that was missing —
+   * and the turn starts the moment he is ready.
+   */
+  const queuedRef = useRef<string | null>(null)
+
   const send = useCallback(
     async (text: string) => {
-      if (!decke) return
-      const userMsg: ChatMessage = { id: nextId(), role: 'user', text }
+      if (!decke) {
+        queuedRef.current = text
+        // Shown NOW, not when the turn starts. The person pressed send; the
+        // transcript has to say so.
+        setMessages((m) => [
+          ...m,
+          { id: nextId(), role: 'user', parts: [{ kind: 'text', id: nextId(), text }] },
+        ])
+        setBusy(true)
+        return
+      }
+      // A QUEUED MESSAGE IS ALREADY ON THE TRANSCRIPT. Adding it again would
+      // show the question twice — and, worse, send it twice as history.
+      const alreadyShown = queuedRef.current === text
+      queuedRef.current = null
+      const userMsg: ChatMessage | null = alreadyShown
+        ? null
+        : { id: nextId(), role: 'user', parts: [{ kind: 'text', id: nextId(), text }] }
       const replyId = nextId()
       // CAPTURED BEFORE the setState, not read from the ref afterwards. The ref
       // only catches up on the next render, so reading it later in this same
       // function is a race whose two outcomes are "history is right" and
       // "history contains this turn twice".
       const priorWire = messagesToWire(currentRef.current)
-      setMessages((m) => [...m, userMsg, { id: replyId, role: 'assistant', text: '' }])
+      setMessages((m) => [
+        ...m,
+        ...(userMsg ? [userMsg] : []),
+        { id: replyId, role: 'assistant', parts: [] },
+      ])
       setBusy(true)
 
       // One turn at a time. A second send while the first is streaming would
@@ -244,9 +356,43 @@ export function useDeckeChat(
             { once: true },
           )
         })
+      /**
+       * His words, appended to the text part he is currently speaking.
+       *
+       * A NEW PART IF SOMETHING HAPPENED SINCE HE LAST SPOKE. That is the whole
+       * value of the ordered list: if the last part is text he is still in the
+       * same sentence and it grows; if a tool row landed in between, the
+       * sentence after it is a new part and renders below the row. The
+       * transcript then reads in the order things actually occurred, rather
+       * than putting every row above every word because that is how the arrays
+       * happened to be laid out.
+       */
       const appendText = (chunk: string) => {
         saidSoFar += chunk
-        setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, text: x.text + chunk } : x)))
+        setMessages((m) =>
+          m.map((x) => {
+            if (x.id !== replyId) return x
+            const last = x.parts[x.parts.length - 1]
+            if (last?.kind === 'text') {
+              return {
+                ...x,
+                parts: [...x.parts.slice(0, -1), { ...last, text: last.text + chunk }],
+              }
+            }
+            return { ...x, parts: [...x.parts, { kind: 'text' as const, id: nextId(), text: chunk }] }
+          }),
+        )
+      }
+
+      /** Replace his words entirely — for a failure that speaks instead of him. */
+      const sayInstead = (why: string) => {
+        setMessages((m) =>
+          m.map((x) =>
+            x.id === replyId
+              ? { ...x, parts: [...x.parts.filter((p) => p.kind !== 'text'), { kind: 'text' as const, id: nextId(), text: why }] }
+              : x,
+          ),
+        )
       }
 
       const wire: WireMessage[] = [...priorWire, { role: 'user', parts: [{ type: 'text', text }] }]
@@ -280,7 +426,13 @@ export function useDeckeChat(
               // `DeckeScreen` returns null for a kind it does not know, so this
               // needs no validation of its own — and must not invent one, or the
               // two layers drift and a block passes one and vanishes at the other.
-              setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, screen } : x)))
+              setMessages((m) =>
+                m.map((x) =>
+                  x.id === replyId
+                    ? { ...x, parts: [...x.parts, { kind: 'screen' as const, id: nextId(), spec: screen }] }
+                    : x,
+                ),
+              )
             },
             onToolChip: (chip) => {
               // Held on the MESSAGE, like the screen, so the record of what he
@@ -289,14 +441,23 @@ export function useDeckeChat(
               // "Checking your collection…" then "Read 604 cards" is one chip
               // changing, not two chips.
               setMessages((m) =>
-                m.map((x) =>
-                  x.id === replyId
-                    ? {
-                        ...x,
-                        tools: [...(x.tools ?? []).filter((c) => c.id !== chip.id), chip],
-                      }
-                    : x,
-                ),
+                m.map((x) => {
+                  if (x.id !== replyId) return x
+                  const at = x.parts.findIndex((p) => p.kind === 'tool' && p.chip.id === chip.id)
+                  // UPDATED IN PLACE. The old code filtered the chip out and
+                  // pushed it back on, which moved it to the end on every
+                  // phase change — so the order visibly shifted between
+                  // frames, and the one call that FAILED ended up last, where
+                  // it read as the most recent thing rather than the broken
+                  // one. Here `start` → `progress` → `ok` is one row changing,
+                  // in the position it first appeared.
+                  if (at >= 0) {
+                    const next = [...x.parts]
+                    next[at] = { kind: 'tool', id: next[at].id, chip }
+                    return { ...x, parts: next }
+                  }
+                  return { ...x, parts: [...x.parts, { kind: 'tool' as const, id: nextId(), chip }] }
+                }),
               )
             },
             onHttpError: (status) => {
@@ -310,7 +471,7 @@ export function useDeckeChat(
                       : status === 429
                         ? "I've done as much as I can for you today — try me again tomorrow."
                         : 'Something went wrong reaching my brain.'
-              setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, text: why } : x)))
+              sayInstead(why)
               decke.setState('alert_error', { mode: 'once' })
               movedRef.current = true
             },
@@ -321,13 +482,7 @@ export function useDeckeChat(
             // Said out loud, in his voice, rather than swallowed. The reader gets
             // a reply and the character reacts, which is what distinguishes a
             // failure from a silence.
-            setMessages((m) =>
-              m.map((x) =>
-                x.id === replyId && !x.text
-                  ? { ...x, text: 'My brain glitched on that one — try me again?' }
-                  : x,
-              ),
-            )
+            if (!saidSoFar) sayInstead('My brain glitched on that one — try me again?')
             decke.setState('alert_error', { mode: 'once' })
             movedRef.current = true
             console.error('[decke] stream error:', outcome.error)
@@ -502,7 +657,9 @@ export function useDeckeChat(
 
   const stop = useCallback(() => abortRef.current?.abort(), [])
 
-  return { messages, busy, send, stop, asking, approve, deny }
+  sendRef.current = send
+
+  return { messages, busy, send, stop, retry, asking, approve, deny }
 }
 
 type LegHandlers = {
@@ -739,10 +896,11 @@ const TOOL_RECORD_PREFIX = '[lookups on that turn, for your own reference —'
 
 function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
   return msgs
-    .filter((m) => m.text.trim().length > 0 || (m.tools?.length ?? 0) > 0)
+    .filter((m) => messageText(m).trim().length > 0 || messageTools(m).length > 0)
     .map((m) => {
       const parts: WirePart[] = []
-      if (m.text.trim().length > 0) parts.push({ type: 'text', text: m.text })
+      const text = messageText(m)
+      if (text.trim().length > 0) parts.push({ type: 'text', text })
       // A PARTIAL RESULT IS STILL EVIDENCE, AND IT IS LABELLED AS PARTIAL.
       //
       // Both halves matter. Dropping it would lose the record that turn N read
@@ -751,7 +909,7 @@ function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
       // Including it unlabelled is worse: he would carry a reading that stopped
       // half way through the collection forward as a complete one, and quote
       // its figure again with more confidence than the first time.
-      const done = (m.tools ?? []).filter(
+      const done = messageTools(m).filter(
         (t) => (t.phase === 'ok' || t.phase === 'partial') && t.summary,
       )
       if (done.length) {
@@ -773,7 +931,7 @@ function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
       }
       // A turn that produced only tool records and no speech still has to be a
       // valid message; the filter above lets it through, so guard the shape.
-      return { role: m.role, parts: parts.length ? parts : [{ type: 'text', text: m.text }] }
+      return { role: m.role, parts: parts.length ? parts : [{ type: 'text', text }] }
     })
 }
 

@@ -13,6 +13,7 @@
  * some of the words visible beats none of them.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ChatMarkdown } from './chat/ChatMarkdown'
 
 export type Rect = { left: number; top: number; right: number; bottom: number; width: number; height: number }
 
@@ -126,7 +127,22 @@ export function DeckeBubble({
         visibility: pos ? 'visible' : 'hidden',
       }}
     >
-      {text}
+      {/*
+        MARKDOWN HERE TOO, and this is the half that gets forgotten.
+
+        The transcript rendered `{m.text}` raw and so did this, and only the
+        transcript was in the original complaint — because this surface is only
+        used while he is out on the page, which the owner saw less of. That is
+        about to invert: the wayfinding work routes MORE text through the
+        bubble, not less, since a character escorting someone across the app
+        says what he is doing from beside the thing he is pointing at.
+
+        `tone="bubble"` is the tight treatment. A bubble is two sentences over a
+        live page, not a document: no heading larger than the body, no big
+        margins, and tables stay literal rather than trying to lay out a grid in
+        280 pixels.
+      */}
+      <ChatMarkdown text={text} tone="bubble" />
     </div>
   )
 }

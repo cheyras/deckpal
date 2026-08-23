@@ -35,6 +35,7 @@ import { DeckeButton } from './DeckeButton'
 import {
   COMPOSER_LANDMARK,
   DeckeChat,
+  messageText,
   NAV_BREAKPOINT,
   PARK_LANDMARK,
   STAND_DESKTOP,
@@ -711,6 +712,7 @@ export function DeckeHost() {
         asking={chat.asking}
         onApprove={chat.approve}
         onDeny={chat.deny}
+        onRetryTool={chat.retry}
         desktop={wide}
         characterPx={charPx}
       />
@@ -720,7 +722,10 @@ export function DeckeHost() {
           pointing at — see DeckeBubble. */}
       {chatOpen && travelling ? (
         <DeckeBubble
-          text={chat.messages.filter((m) => m.role === 'assistant').at(-1)?.text ?? ''}
+          text={(() => {
+            const last = chat.messages.filter((m) => m.role === 'assistant').at(-1)
+            return last ? messageText(last) : ''
+          })()}
           himRect={himRect}
           avoidSelector={live?.getState().highlighted ?? null}
         />

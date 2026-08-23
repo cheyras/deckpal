@@ -28,7 +28,7 @@ const flat = (s: string) => s.replace(/\s+/g, ' ')
 
 const TOOLS = [
   { name: 'search_cards', title: 'Search the card catalog' },
-  { name: 'set_progress', title: 'Set completion progress' },
+  { name: 'set_progress', title: 'Check set completion' },
 ]
 
 test('the tool list comes from the tools, so it cannot describe ones he lacks', () => {

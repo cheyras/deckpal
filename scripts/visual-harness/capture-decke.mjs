@@ -170,6 +170,121 @@ const SCENES = [
     },
   },
   {
+    name: 'answering',
+    what:
+      'A real question, asked and answered — the scene that shows the ' +
+      'transcript doing its job. A thinking row that appears immediately and ' +
+      'keeps counting; tool rows in the order the calls actually happened; his ' +
+      'answer as rendered markdown rather than one raw paragraph. Look for ' +
+      'anything that stops changing while work is still going on.',
+    platforms: ['desktop', 'mobile'],
+    // IT ASKS HIM A QUESTION, so it spends a metered turn on the QA account and
+    // puts a real request on the live backend. Read-only — "how many cards do I
+    // have" reaches no write tool and needs no approval — but not free, and a
+    // scene that costs something should say so where `--list` shows it.
+    writes: false,
+    async act({ page, timing, notes, dir }) {
+      const composer = await openDeckE(page)
+      notes.characterArrival = await waitForCharacter(page)
+      timing.mark('ask')
+      await composer.fill('How many cards do I have in Pitch Black?')
+      await composer.press('Enter')
+      // PHOTOGRAPH THE WAIT, not only the answer. The thinking row is the
+      // point of this scene and it exists only while he is working, so a
+      // capture taken after he finishes cannot show whether it was ever there.
+      await page.waitForTimeout(1500)
+      await captureForReview(page, dir, 'answering.mid-turn')
+      const settled = await page
+        .waitForFunction(() => !document.querySelector('[data-decke-thinking]'), undefined, {
+          timeout: 120_000,
+        })
+        .then(() => true)
+        .catch(() => false)
+      timing.measure('ask:to-settled', 'ask')
+      notes.turnSettled = settled
+      await page.waitForTimeout(900)
+    },
+  },
+  {
+    name: 'failure-states',
+    what:
+      'What a call that FAILED and a call that ran out of time look like. ' +
+      'Both must be louder than a success, both must say what went wrong in ' +
+      'WORDS rather than only in colour, and both must offer a way to try ' +
+      'again. This is the surface the owner read a timeout on and called "a ' +
+      'great response" — he did not notice it had failed.',
+    platforms: ['desktop', 'mobile'],
+    async act({ page }) {
+      // A SYNTHETIC STREAM, and it is the only honest way to see this today.
+      //
+      // `pnpm dev` proxies to the LIVE backend, so the server that answers here
+      // is production — which does not yet emit `partial`, because that change
+      // is in this branch and not deployed. Waiting for a real timeout would
+      // also mean waiting out a 210-second budget and hoping it fires.
+      //
+      // So the transport is faked and NOTHING ELSE IS: these are real
+      // `data-decke-tool` parts in the real wire format, rendered by the real
+      // renderer. What this proves is exactly "the client draws a failure
+      // loudly", which is the half that lives in this repo's web app. It
+      // proves nothing about whether the server sends them — that is the
+      // server's own tests' job, and it is worth being clear about which is
+      // which.
+      const sse = (o) => `data: ${JSON.stringify(o)}\n\n`
+      await page.route('**/api/chat', async (route) => {
+        await route.fulfill({
+          status: 200,
+          headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache' },
+          body:
+            sse({ type: 'text-delta', delta: 'Let me look at the whole collection.' }) +
+            sse({
+              type: 'data-decke-tool',
+              data: { phase: 'start', id: 't1', name: 'analyse', title: 'Analyse the collection' },
+            }) +
+            sse({
+              type: 'data-decke-tool',
+              data: {
+                phase: 'partial',
+                id: 't1',
+                name: 'analyse',
+                title: 'Analyse the collection',
+                reason: 'timeout',
+                summary: 'Read 300 of 604 cards before the deadline.',
+              },
+            }) +
+            sse({
+              type: 'data-decke-tool',
+              data: { phase: 'start', id: 't2', name: 'search_cards', title: 'Search the card catalog' },
+            }) +
+            sse({
+              type: 'data-decke-tool',
+              data: {
+                phase: 'error',
+                id: 't2',
+                name: 'search_cards',
+                title: 'Search the card catalog',
+                summary: 'The catalog did not answer in time.',
+              },
+            }) +
+            sse({
+              type: 'data-decke-tool',
+              data: {
+                phase: 'ok',
+                id: 't3',
+                name: 'set_progress',
+                title: 'Check set completion',
+                summary: 'Pitch Black (me05): 13 of 120 complete.',
+              },
+            }) +
+            sse({ type: 'text-delta', delta: '\n\nI could only get part of the way through.' }),
+        })
+      })
+      const composer = await openDeckE(page)
+      await composer.fill('Analyse my whole collection')
+      await composer.press('Enter')
+      await page.waitForTimeout(2200)
+    },
+  },
+  {
     name: 'cold-open',
     what:
       'The tap-and-wait path, with NO warming hover — what a phone gets. ' +
@@ -349,7 +464,7 @@ async function runScene(browser, devices, scene, platform, timing) {
         const unlock = await unlockDeckE(context)
         const { diag, payload } = await preparePage(page, context, platform)
         await page.goto(`${BASE}${HOME_PATH}`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-        await scene.act({ page, context, timing, platform, notes })
+        await scene.act({ page, context, timing, platform, notes, dir })
         notes.entitlementShimFired = unlock.fired()
         notes.presence = await readPresence(page)
         if (platform === 'mobile') notes.safeArea = await readSafeArea(page)
@@ -377,7 +492,7 @@ async function runScene(browser, devices, scene, platform, timing) {
     try {
       const { diag, payload } = await preparePage(page, context, platform)
       await page.goto(`${BASE}${HOME_PATH}`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-      await scene.act({ page, context, timing, platform, notes })
+      await scene.act({ page, context, timing, platform, notes, dir })
       notes.entitlementShimFired = unlock.fired()
       notes.presence = await readPresence(page)
       if (platform === 'mobile') notes.safeArea = await readSafeArea(page)

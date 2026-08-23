@@ -43,6 +43,9 @@ import { lockScroll, unlockScroll } from '../../components/ui/Sheet'
 import { Icon } from '../../components/Icon'
 import type { DeckEInstance } from './runtime'
 import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
+import { ChatMarkdown } from './chat/ChatMarkdown'
+import { ThinkingRow } from './chat/ThinkingRow'
+import { ToolRow } from './chat/ToolRow'
 import type { PendingApproval, ToolChip } from './useDeckeChat'
 
 /**
@@ -154,29 +157,65 @@ const PARK_GAP = 12
  */
 const CLEAR_PAD = 10
 
+/**
+ * ONE ORDERED LIST, not three parallel ones.
+ *
+ * A turn used to be `{ text, tools?, screen? }` — his words in one field, the
+ * record of what he did in a second, and any panel he composed in a third. That
+ * shape cannot express the thing this feature is becoming, and it was already
+ * quietly lying about the thing it does now:
+ *
+ *  - **It cannot say WHEN.** Chips were grouped per message, so a lookup that
+ *    happened halfway through a sentence rendered as though it happened before
+ *    the sentence began. Once he narrates a journey — "I'm heading to your
+ *    decks", travel, "here they are" — the rows have to interleave with the
+ *    prose in occurrence order, and three arrays have no order between them.
+ *  - **It could not keep its own order.** Updating a chip did
+ *    `filter(c => c.id !== chip.id)` then append, so every `ok` moved that chip
+ *    to the END. That is why the order visibly shifted between frames — and
+ *    worse, it pushed the one call that FAILED into last place, where it read
+ *    as the most recent thing rather than as the broken one. With a part list
+ *    an update is an update in place, so first-seen order is preserved by
+ *    construction rather than by remembering to.
+ *  - **It allowed one screen per turn**, silently replacing an earlier one.
+ *
+ * `text` and `tools` are derived by the helpers below rather than stored, so
+ * there is one source of truth and nothing to keep in step.
+ */
+export type ChatPart =
+  | { kind: 'text'; id: string; text: string }
+  | { kind: 'tool'; id: string; chip: ToolChip }
+  | { kind: 'screen'; id: string; spec: ScreenSpec }
+
 export type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
-  text: string
-  /**
-   * A panel he composed, if he composed one.
-   *
-   * Held on the MESSAGE rather than as one "current screen" on the hook, so a
-   * panel stays attached to the turn that produced it. Scrolling back to a haul
-   * from four questions ago should still show the haul, not whatever was
-   * rendered last.
-   */
-  screen?: ScreenSpec
-  /**
-   * What he actually DID this turn, as chips.
-   *
-   * Held on the message for the same reason the screen is: the record of a
-   * lookup belongs to the turn that made it. It is also what gets replayed,
-   * compacted, as the NEXT turn's evidence — see `messagesToWire`. Without it,
-   * turn N+1 has no record that turn N read 604 cards, only its own prose about
-   * them, and prose is exactly the thing that drifts.
-   */
-  tools?: ToolChip[]
+  parts: ChatPart[]
+}
+
+/** Everything he said this turn, in order, with the rows taken out. */
+export function messageText(m: ChatMessage): string {
+  let out = ''
+  for (const p of m.parts) if (p.kind === 'text') out += p.text
+  return out
+}
+
+/**
+ * What he actually DID this turn.
+ *
+ * Also what gets replayed, compacted, as the NEXT turn's evidence — without it
+ * turn N+1 has no record that turn N read 604 cards, only its own prose about
+ * them, and prose is exactly the thing that drifts.
+ */
+export function messageTools(m: ChatMessage): ToolChip[] {
+  const out: ToolChip[] = []
+  for (const p of m.parts) if (p.kind === 'tool') out.push(p.chip)
+  return out
+}
+
+/** A message with nothing in it yet renders nothing — see the transcript. */
+export function messageIsEmpty(m: ChatMessage): boolean {
+  return m.parts.every((p) => (p.kind === 'text' ? p.text.length === 0 : false))
 }
 
 /**
@@ -192,6 +231,26 @@ export type ChatMessage = {
  * the server's own execute wrapper — a summary here cannot describe a preview
  * that did not run.
  */
+/**
+ * The status lines the thinking row shows, newest last.
+ *
+ * SOURCED, NEVER COMPOSED HERE. Each line is a `note` the server emitted at a
+ * real tool boundary, or the real title of a call that actually started. The
+ * one thing this must not do is invent a plausible line — "Checking your
+ * collection…" with no lookup behind it is strictly worse than no line at all,
+ * because it manufactures evidence. `ThinkingRow` handles an empty list by
+ * saying something honest and non-specific.
+ */
+function liveLabels(m: ChatMessage): string[] {
+  const out: string[] = []
+  for (const p of m.parts) {
+    if (p.kind !== 'tool') continue
+    if (p.chip.note) out.push(p.chip.note)
+    else if (p.chip.phase === 'start') out.push(`${p.chip.title}…`)
+  }
+  return out
+}
+
 function previewOf(messages: ChatMessage[]): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     // `partial` COUNTS AS FINISHED. It is a new phase meaning "this ran out of
@@ -200,7 +259,7 @@ function previewOf(messages: ChatMessage[]): string | null {
     // make a timed-out dry run invisible here and show the consent dialog with
     // no preview at all. Silence is the worst possible answer in a dialog whose
     // entire job is to say what is about to change.
-    const done = (messages[i].tools ?? []).filter(
+    const done = messageTools(messages[i]).filter(
       (t) => (t.phase === 'ok' || t.phase === 'partial') && t.summary,
     )
     const last = done[done.length - 1]
@@ -222,6 +281,7 @@ export function DeckeChat({
   asking,
   onApprove,
   onDeny,
+  onRetryTool,
   desktop,
   characterPx,
 }: {
@@ -253,6 +313,14 @@ export function DeckeChat({
   asking: PendingApproval[] | null
   onApprove: () => void
   onDeny: () => void
+  /**
+   * Ask for a failed or partial call to be tried again.
+   *
+   * Optional, and its absence is honest rather than convenient: a row without
+   * it still shows its failure loudly, it simply offers no way back from this
+   * surface. A retry affordance that silently did nothing would be worse.
+   */
+  onRetryTool?: (id: string) => void
   /**
    * Is the viewport wide enough for the desktop composition?
    *
@@ -322,6 +390,23 @@ export function DeckeChat({
   const parkW = Math.round(parkH * SILHOUETTE_ASPECT)
   const gutter =
     desktop || !characterPx ? 0 : Math.max(0, PARK_LEFT + parkW + PARK_GAP - CONTENT_PAD)
+
+  /**
+   * When the turn in progress started, for the thinking row's counter.
+   *
+   * Latched on the transition into `busy` rather than read from a message,
+   * because a leg boundary must not restart the clock: a turn that runs a deep
+   * tool for three minutes is ONE wait as far as the person waiting is
+   * concerned, however many requests it took underneath.
+   */
+  const [turnStartedAt, setTurnStartedAt] = useState(0)
+  const wasBusyRef = useRef(false)
+  useEffect(() => {
+    if (busy && !wasBusyRef.current) setTurnStartedAt(Date.now())
+    wasBusyRef.current = busy
+  }, [busy])
+
+  const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant')?.id ?? null
 
   // ── Scroll authority ──────────────────────────────────────────────────────
   //
@@ -460,7 +545,8 @@ export function DeckeChat({
   // mean anything, and the scroll lock is released for the same reason — he may
   // be driving the page under himself.
   if (minimised) {
-    const lastAsked = [...messages].reverse().find((m) => m.role === 'user')?.text
+    const lastAskedMsg = [...messages].reverse().find((m) => m.role === 'user')
+    const lastAsked = lastAskedMsg ? messageText(lastAskedMsg) : undefined
     return (
       <button
         type="button"
@@ -710,64 +796,98 @@ export function DeckeChat({
                     m.role === 'user' ? 'items-end' : 'items-stretch',
                   ].join(' ')}
                 >
-                  {/* An empty bubble is not rendered at all. A turn that answers
-                      purely with a panel would otherwise open with a stray empty
-                      pill above it. */}
-                  {m.text ? (
-                    <div
-                      className={[
-                        'decke-bubble rounded-[14px] px-[12px] py-[8px] text-[14px] leading-[21px]',
-                        m.role === 'user'
-                          ? 'self-end bg-action-primary text-action-primary-text'
-                          : 'decke-shift self-start bg-surface-secondary text-text-body',
-                      ].join(' ')}
-                    >
-                      {m.text}
-                    </div>
-                  ) : null}
                   {/*
-                    WHAT HE ACTUALLY DID, as chips.
+                    PARTS IN THE ORDER THEY HAPPENED.
 
-                    Work has been indistinguishable from theatre: `thinking` is
-                    driven by request latency, so a fabricated answer and a
-                    researched one looked exactly the same while they were being
-                    produced. These are emitted by the server's own execute
-                    wrapper, one per real invocation, so a chip cannot appear
-                    for a lookup that did not happen.
+                    Three parallel arrays used to be rendered in a fixed
+                    sequence — words, then every row, then any panel — which put
+                    a lookup that occurred halfway through a sentence above the
+                    sentence it interrupted. The comment above the old block
+                    said rows render "ABOVE his words on purpose", and the JSX
+                    below it put the words first: the code contradicted its own
+                    comment, and the owner noticed the result without knowing
+                    why. Occurrence order settles it and is the truthful answer
+                    to both.
 
-                    Rendered ABOVE his words on purpose — the reading order is
-                    "I checked your collection" then "you've got 70 of them",
-                    which is the order that makes the second sentence
-                    trustworthy.
+                    Every row here is emitted by the SERVER's own execute
+                    wrapper, one per real invocation. A row cannot appear for a
+                    lookup that did not happen, because this is not a thing the
+                    model can ask for.
                   */}
-                  {m.tools?.length ? (
-                    <ul className="decke-shift flex flex-wrap gap-[6px] self-start">
-                      {m.tools.map((t) => (
-                        <li
-                          key={t.id}
+                  {m.parts.map((part) => {
+                    if (part.kind === 'text') {
+                      if (!part.text) return null
+                      return (
+                        <div
+                          key={part.id}
                           className={[
-                            'rounded-full px-[10px] py-[3px] text-[12px] leading-[18px]',
-                            'border border-border-subtle bg-surface-secondary',
-                            t.phase === 'error' ? 'text-text-muted line-through' : 'text-text-muted',
+                            'decke-bubble rounded-[14px] px-[12px] py-[8px] text-[14px] leading-[21px]',
+                            m.role === 'user'
+                              ? 'self-end bg-action-primary text-action-primary-text'
+                              : 'decke-shift self-start bg-surface-secondary text-text-body',
                           ].join(' ')}
-                          // The summary is the first line of the real tool
-                          // result. Kept in a title rather than shown, because
-                          // the chip is a reassurance and the answer is the
-                          // answer — a chip that competes with his reply for
-                          // attention is a worse chip.
-                          title={t.summary ?? undefined}
                         >
-                          {t.phase === 'start' ? `${t.title}…` : t.title}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                  {/* Full width rather than inside the bubble: a panel is a
-                      figure, and an 85%-wide column with a card grid in it is a
-                      column of one card. */}
-                  {m.screen ? (
-                    <div className="decke-figure decke-shift">
-                      <DeckeScreen spec={m.screen} />
+                          {/* MARKDOWN, at last. `{m.text}` rendered raw, so a
+                              numbered list of what to buy next arrived as one
+                              paragraph with digits in it. The renderer is lazy
+                              — react-markdown and remark-gfm are ~40 KB gz and
+                              never touch the main bundle — and it is stricter
+                              than the library's defaults about URLs and images,
+                              because everything here is model output over a
+                              context full of strings other people typed. */}
+                          <ChatMarkdown text={part.text} tone="transcript" />
+                        </div>
+                      )
+                    }
+                    if (part.kind === 'tool') {
+                      return (
+                        <ul key={part.id} className="decke-shift w-full self-start">
+                          <ToolRow data={part.chip} onRetry={onRetryTool} />
+                        </ul>
+                      )
+                    }
+                    // Full width rather than inside a bubble: a panel is a
+                    // figure, and an 85%-wide column with a card grid in it is
+                    // a column of one card.
+                    return (
+                      <div key={part.id} className="decke-figure decke-shift">
+                        <DeckeScreen spec={part.spec} />
+                      </div>
+                    )
+                  })}
+                  {/*
+                    A REAL THINKING STATE, and there was none at all.
+
+                    The assistant message is inserted with no parts, and an
+                    empty message renders nothing — so between pressing send and
+                    the first token the transcript showed literally nothing. The
+                    owner sat through 210 seconds of that, 61 of them
+                    pixel-identical by direct frame comparison, and the answer
+                    that finally arrived was a tool failure he did not notice.
+
+                    It appears on the LAST assistant message while the turn is
+                    busy, and it carries the live status beats the server sends
+                    from real tool boundaries. It is not a spinner: it counts,
+                    and a counter cannot be caught looking stopped.
+                  */}
+                  {busy && m.role === 'assistant' && m.id === lastAssistantId ? (
+                    <div
+                      className="decke-shift w-full self-start"
+                      // A stable hook for verification. The gates and the
+                      // visual harness both need to know when a turn is still
+                      // in flight, and every other signal in this panel is
+                      // ambiguous: the composer input is never disabled, and
+                      // the send button reads disabled both while busy AND
+                      // when idle with an empty box. This is unambiguous and
+                      // it is mounted exactly while he is working.
+                      data-decke-thinking
+                    >
+                      <ThinkingRow
+                        startedAt={turnStartedAt}
+                        labels={liveLabels(m)}
+                        steps={messageTools(m)}
+                        onRetryStep={onRetryTool}
+                      />
                     </div>
                   ) : null}
                 </li>
