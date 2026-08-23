@@ -680,12 +680,53 @@ async function waitFor(pred, timeoutMs) {
   return false
 }
 
+/**
+ * A LEG THAT WAS REFUSED IS NOT AN ANSWER, and every gate below used to read one
+ * as though it were.
+ *
+ * Gate 22 was run at a moment when the QA account's daily meter was spent. The
+ * server returned 429 with a refusal, the turn never reached the model, and the
+ * gate reported:
+ *
+ *   FAIL — no navigation call on the wire — he described the set instead of
+ *   finding it
+ *
+ * He described nothing. He said nothing — zero tools, zero characters, one 429.
+ * The gate had the status in hand (it prints it in `legs:` two lines further
+ * down) and asserted on behaviour anyway, so an exhausted meter came out as a
+ * behavioural verdict about the model. That is the most expensive kind of wrong
+ * a harness can be: it is confident, it is specific, and it sends whoever reads
+ * it to go and fix a thing that is not broken.
+ *
+ * `submitDraft` already refuses in these words when it cannot ASK the question.
+ * This is the same sentence for the other half of the round trip.
+ */
+function assertLegsAnswered(chatPosts) {
+  for (const [i, p] of chatPosts.entries()) {
+    const status = p.status
+    if (status === undefined || status === null) continue
+    if (status >= 200 && status < 300) continue
+    const body = typeof p.sse === 'string' ? p.sse.replace(/\s+/g, ' ').slice(0, 300) : '(no body)'
+    const hint =
+      status === 429
+        ? " — the daily meter is spent (`apps/api/src/decke/meter.ts`, UTC-midnight reset). " +
+          'This is a HARNESS precondition, not a product defect.'
+        : ''
+    throw new Error(
+      `leg #${i + 1} came back ${status}, so the turn never reached the model and nothing ` +
+        `below is a statement about it${hint}
+         body: ${body}`,
+    )
+  }
+}
+
 /** Say something to him, and wait until the turn has actually finished. */
 async function say(page, composer, text, chatPosts, { settleMs = 45_000 } = {}) {
   const box = await ensureComposer(page)
   await submitDraft(page, box, text, chatPosts)
   await waitForChatSettled(chatPosts, { timeoutMs: settleMs })
   await drainBodies(chatPosts)
+  assertLegsAnswered(chatPosts)
 }
 
 /** Say it, but do not wait — for the gates that must observe mid-turn. */
