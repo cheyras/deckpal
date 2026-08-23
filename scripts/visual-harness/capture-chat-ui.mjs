@@ -39,7 +39,17 @@ const BASE = arg('base', 'http://localhost:5204')
 const OUT = resolve(arg('out', '.visual-harness/chat-ui'))
 
 /** Sections on the page, by their `id`. Each gets its own shot. */
-const SECTIONS = ['empty', 'thinking', 'tool-rows', 'markdown', 'screens', 'approval', 'flow']
+const SECTIONS = [
+  'empty',
+  'thinking',
+  'tool-rows',
+  'markdown',
+  'screens',
+  'approval',
+  'notices',
+  'farewell',
+  'flow',
+]
 
 const WIDTHS = [
   { name: 'desktop', width: 1440, height: 900 },

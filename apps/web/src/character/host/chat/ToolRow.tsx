@@ -90,16 +90,35 @@ function BusyRing() {
  * `py-[6px]` on the tinted tones only: a band needs its content off its own
  * edges, and a quiet row must stay flush with the text above and below it.
  */
+/*
+ * ── AND THEY ARE ROUNDED NOW, ON ALL FOUR CORNERS ────────────────────────────
+ *
+ * *"Let's think about the design of these errors. They just don't feel like
+ * anything else in the app really. They're not like rounded."*
+ *
+ * He was looking at `rounded-r-[6px] border-l-2` — a flat left edge with a 2px
+ * accent bar, the callout every documentation site ships. It is a perfectly good
+ * pattern and it belongs to a different design system. Nothing else in DeckPal
+ * has a square edge: the composer is a 14px card, the approval card is the same
+ * card, `Sheet`, `Button` and every surface in `theme.css` are radiused.
+ *
+ * So a failure is a small CARD in the row's own tone — 10px all round, a hairline
+ * border in the tone rather than a bar on one side, and the same low-alpha fill.
+ * It still reads as "this block is different" (that was never in doubt; it was
+ * the loudest thing on the surface) and it now reads as part of this app.
+ */
 const TONE_ROW: Record<ToolTone, string> = {
   quiet: 'text-text-muted',
   running: 'text-text-muted',
-  warn: 'rounded-r-[6px] border-l-2 border-warning bg-warning/[0.06] px-[10px] py-[6px] text-text-body',
-  danger: 'rounded-r-[6px] border-l-2 border-error bg-error/[0.07] px-[10px] py-[6px] text-text-body',
+  declined: 'text-text-muted',
+  warn: 'rounded-[10px] border border-warning/35 bg-warning/[0.07] px-[11px] py-[8px] text-text-body',
+  danger: 'rounded-[10px] border border-error/35 bg-error/[0.08] px-[11px] py-[8px] text-text-body',
 }
 
 const TONE_LABEL: Record<ToolTone, string> = {
   quiet: '',
   running: '',
+  declined: 'text-error',
   warn: 'text-warning',
   danger: 'text-error',
 }
@@ -123,6 +142,10 @@ const TONE_LABEL: Record<ToolTone, string> = {
 const TONE_PILL: Record<ToolTone, string> = {
   quiet: '',
   running: '',
+  // NO FILL ON A CANCELLATION. A tinted pill would give the reader's own
+  // decision the same visual weight as a failure; the word and the colour are
+  // enough, and the row around it stays as quiet as a success.
+  declined: 'border-error/35 text-error',
   warn: 'border-warning/40 bg-warning/[0.12] text-warning',
   danger: 'border-error/40 bg-error/[0.12] text-error',
 }
@@ -174,8 +197,21 @@ export function ToolRow({
         {a.busy ? (
           <BusyRing />
         ) : (
+          /*
+            THE GLYPH IS THE FIRST THING READ AND IT MUST NOT LIE.
+
+            `check` for a call that ran, `alert` for one that went wrong, and
+            `close` — a ✗ — for one the reader refused. The third was the
+            owner's note, verbatim: *"there's a check mark here and there
+            shouldn't be. That should be like a little red x — nothing was
+            written, you cancelled it."*
+
+            It was ticked because `deny` emits the row as `phase: 'ok'`, which is
+            the phase for a call that SUCCEEDED. See `toolRowFromChip`, which
+            bridges that until the emitter can say `declined` itself.
+          */
           <Icon
-            name={a.tone === 'quiet' ? 'check' : 'alert'}
+            name={a.tone === 'declined' ? 'close' : a.tone === 'quiet' ? 'check' : 'alert'}
             size={13}
             className={['mt-[3px] shrink-0', TONE_LABEL[a.tone] || 'text-icon-muted'].join(' ')}
           />

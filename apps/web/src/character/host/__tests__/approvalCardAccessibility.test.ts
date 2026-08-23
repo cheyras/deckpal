@@ -60,17 +60,45 @@ test('the card is still an alertdialog with the label gate 9 looks for', () => {
 /**
  * MUTATION: delete the `aria-label` from `RemoveButton` and this goes red.
  *
- * Without it a three-row batch is three buttons all reading "That's wrong", and
+ * Without it a three-row batch is three buttons all reading "Wrong card", and
  * the one thing the reader has to know — which card they are about to drop — is
  * the one thing not announced.
  */
 test('the removal control names the card it removes', () => {
   assert.match(
     card,
-    /aria-label=\{removed \? `Put \$\{label\} back` : `That's wrong — leave \$\{label\} out`\}/,
+    /aria-label=\{removed \? `Put \$\{label\} back` : `Wrong card — leave \$\{label\} out`\}/,
     'the removal must name the CARD, or a batch is N identical buttons',
   )
   assert.match(card, /aria-pressed=\{removed\}/, 'a toggle must report its own state')
+})
+
+/**
+ * THE STEPPER IS SIX MORE BUTTONS ON A THREE-ROW CARD.
+ *
+ * MUTATION: delete either `aria-label` from `Stepper`'s two buttons and this
+ * goes red. Without them a batch of three cards announces as "plus, minus, plus,
+ * minus, plus, minus" and there is no way to tell which card any of them belongs
+ * to — the same defect the removal control's label exists to prevent, arriving
+ * twice per row.
+ *
+ * MUTATION: delete `aria-live="polite"` from the readout wrapper and the third
+ * assertion goes red. Pressing a button that changes a number without saying the
+ * new number is a control a screen-reader user cannot operate.
+ */
+test('the stepper names the card it steps, and says the new amount', () => {
+  assert.match(card, /aria-label=\{`One fewer \$\{row\.cardName\}`\}/, 'minus must name its card')
+  assert.match(card, /aria-label=\{`One more \$\{row\.cardName\}`\}/, 'plus must name its card')
+  assert.match(
+    card,
+    /<span aria-live="polite" aria-atomic="true"/,
+    'the amount must be announced when it changes, and the region must pre-exist the change',
+  )
+  assert.match(
+    card,
+    /role="group"\s+aria-label=\{`How many \$\{row\.cardName\}`\}/,
+    'the two buttons are one control and must be announced as one',
+  )
 })
 
 /**
@@ -88,7 +116,27 @@ test('the printing picker is announced as one group of radios, per card', () => 
     'two pickers on one card are indistinguishable without the card name in the group label',
   )
   assert.match(card, /role="radio"/, 'each pill is one option of the group')
-  assert.match(card, /aria-checked=\{selected\}/, 'a radio that never reports checked is not a radio')
+  assert.match(card, /aria-checked=\{c\.selected\}/, 'a radio that never reports checked is not a radio')
+})
+
+/**
+ * THE SETTLED PRINTING IS NOT A DISABLED BUTTON.
+ *
+ * MUTATION: change the `<span>` in `PrintingChips`' non-selectable branch to a
+ * `<button disabled>` and this goes red.
+ *
+ * The chips are on every row now, and on a row he is sure about there is exactly
+ * one and nothing to switch it to — because the wire carried no alternatives,
+ * which is WHY he is sure. A disabled control announces "there is a thing here
+ * you may not have"; the truth is that there was only ever one answer. It looks
+ * near-identical and it says the opposite thing.
+ */
+test('a settled printing is announced as a fact, not as an unavailable control', () => {
+  const branch = card.slice(card.indexOf('if (!selectable) {'), card.indexOf('role="radiogroup"'))
+  assert.ok(branch.length > 60, 'the non-selectable branch is gone — this test is reading a file it no longer understands')
+  assert.doesNotMatch(branch, /<button/, 'the single chip must not be a button of any kind')
+  assert.doesNotMatch(branch, /disabled/, 'and must not be announced as unavailable')
+  assert.match(branch, /<span className=\{\[base, filled\]/, 'it is the same filled chip, as static text')
 })
 
 /**
@@ -101,12 +149,31 @@ test('the printing picker is announced as one group of radios, per card', () => 
  * have no img at all.
  */
 test('the card art is decorative and does not double-announce every row', () => {
+  const thumb = card.slice(card.indexOf('function RowThumb'), card.indexOf('function OperationChip'))
+  assert.ok(thumb.length > 200, 'RowThumb is gone — this test is reading a file it no longer understands')
   assert.match(
-    card,
-    /<div className="w-\[44px\] shrink-0" aria-hidden="true">/,
+    thumb,
+    /aria-hidden="true"/,
     'the thumbnail wrapper must be hidden from the accessibility tree',
   )
-  assert.match(card, /alt=""/, 'the img inside it carries an empty alt for the same reason')
+  assert.match(thumb, /alt=""/, 'the img inside it carries an empty alt for the same reason')
+})
+
+/**
+ * THE PER-ROW VERDICT IS TEXT, NOT A COLOUR.
+ *
+ * MUTATION: delete `{status.text}` from `RowStatusLine` and this goes red.
+ *
+ * "Will this card be written" is the single fact the second pass exists to make
+ * unmissable, and the tick/dot and the green/muted are both decoration on top of
+ * a sentence. A row that carried only the icon and the colour would say nothing
+ * at all to a screen reader and nothing reliable to a colour-blind reader.
+ */
+test('every row states its own outcome in words', () => {
+  const line = card.slice(card.indexOf('function RowStatusLine'), card.indexOf('function SectionHeading'))
+  assert.ok(line.length > 100, 'RowStatusLine is gone — this test is reading a file it no longer understands')
+  assert.match(line, /\{status\.text\}/, 'the sentence is the signal; the icon and the tint are not')
+  assert.match(line, /aria-hidden="true"/, 'the dot is decorative and must not be announced')
 })
 
 /**
@@ -216,4 +283,61 @@ test('every transition added in this pass is behind motion-safe', () => {
       `${name} has no motion-safe transitions at all — this test is checking a file it no longer understands`,
     )
   }
+})
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE CARD ACTUALLY CALLS THE FUNCTIONS. THIS PROJECT KEEPS NOT DOING THAT.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * A MUTATION CAME BACK GREEN AND THIS IS THE ANSWER TO IT. Replacing the card's
+ * `approvalHeadline(title, preview)` with `approvalHeadline(title, null)` — so
+ * every card fell back to the tool-name sentence and the row-aware headline
+ * became dead code — broke NOTHING, because every assertion about the headline
+ * calls the pure function directly.
+ *
+ * That is this repository's single most-repeated defect: `CardRows`,
+ * `onRemoveCard` and `resetDeckeEntitlement` were all built and never wired, and
+ * the last of them meant Deck-E never appeared for a signed-in reader.
+ * `approvalPhrases.test.ts` carries the same pin for the same reason, added
+ * after the same discovery.
+ *
+ * A SOURCE PIN, because `ApprovalCard.tsx`'s transitive imports reach
+ * `lib/supabase.ts`, which reads `import.meta.env` at module scope and throws
+ * under Node — so it cannot be rendered here. The cost is that these assertions
+ * are coupled to formatting; the benefit is that a whole feature cannot become
+ * decoration in a file nobody re-photographs.
+ */
+test('every pure function the second pass added is actually called by the card', () => {
+  const wiring: [RegExp, string][] = [
+    [/\{approvalHeadline\(title, preview\)\}/, 'the row-aware headline — the mutation that came back green'],
+    [/rowStatus\(row, choice\)/, 'the per-row verdict line'],
+    [/rowPrintings\(row, choice\)/, 'the printing chips, on every row'],
+    [/acceptSummary\(preview, choices\)/, 'the sentence that states the split'],
+    [/effectiveValue\(row, choice\)/, "the stepper's value, which every other number is derived from"],
+    [/projectedAfter\(row, value\)/, 'the recomputed landing count'],
+    [/stepBy\(row, choice, -1\)/, 'the minus button'],
+    [/stepBy\(row, choice, 1\)/, 'the plus button'],
+    [/stepBounds\(row\)/, "the stepper's one-sided limits"],
+    [/whyThisPrinting\(row\)/, 'the reason he is sure'],
+    [/knownSectionHeading\(known\.length\)/, "the settled section's heading"],
+    [/askingSectionHeading\(asking\.length\)/, "the asking section's heading"],
+    [/skippedNote\(preview\.skipped\.length\)/, 'his line about rows that did not resolve'],
+  ]
+  for (const [re, what] of wiring) {
+    assert.match(card, re, `${what} is imported but never called — it is dead code`)
+  }
+})
+
+/**
+ * MUTATION: delete the `dim` prop from `RowThumb`'s call site and this goes red.
+ *
+ * *"These should be faded as well… make it more clear: this will be added, this
+ * will not."* The fade is the one part of the row-state design that is pure
+ * presentation, so it has no pure function to pin it — which makes it exactly
+ * the part a later restyle would drop without anything noticing.
+ */
+test('the thumbnail fades with the row it belongs to', () => {
+  assert.match(card, /<RowThumb row=\{row\} art=\{art\} faded=\{dim\} \/>/, 'the art must dim with the row')
+  assert.match(card, /const dim = !status\.included/, 'and `dim` must mean "will not be written"')
 })

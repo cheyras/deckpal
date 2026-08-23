@@ -80,3 +80,76 @@ test('neither surface imports a blanket reduced-motion override (X1)', () => {
   }
   assert.match(screen, /motion-safe:/, 'the compact control animates only under motion-safe')
 })
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE PANEL ACTUALLY CALLS WHAT THE SECOND PASS BUILT
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * ANOTHER MUTATION THAT CAME BACK GREEN. Replacing `toolRowFromChip(part.chip)`
+ * with `part.chip` — so a refusal went back to drawing a CHECK MARK, which is
+ * the owner's own note — broke nothing, because `toolRowState.test.ts` calls the
+ * mapper directly and this is its only call site.
+ *
+ * That is the third time in this codebase: `CardRows`, `onRemoveCard` and
+ * `resetDeckeEntitlement` were all built and never wired, and the last of them
+ * meant Deck-E never appeared for a signed-in reader. Every behaviour below is a
+ * pure function with a tested contract AND exactly one call site, which is the
+ * shape that produces this defect.
+ *
+ * A source pin, for the reason this file's header already gives.
+ */
+test('every behaviour the second pass added has a live call site in the panel', () => {
+  const wiring: [RegExp, string][] = [
+    [
+      /<ToolRow data=\{toolRowFromChip\(part\.chip\)\} onRetry=\{onRetryTool\}/,
+      'the refusal row would silently go back to drawing a check mark',
+    ],
+    [/renderGreeting\(said, name\)/, 'the greeting would stop using the reader’s name'],
+    [/greeting=\{greeting\} subhead=\{said\.subhead\}/, 'the empty state would fall back to its defaults'],
+    [/openers=\{said\.openers\}/, 'the openers would stop rotating'],
+    [/const spent = creditState\(credits \?\? null\) === 'empty'/, 'the out-of-credits state would be unreachable'],
+    [
+      /\{spent \? \(/,
+      'the composer would stay on screen with no credits behind it — an input that ' +
+        'takes a question it cannot answer is the pretending this pass exists to remove',
+    ],
+    [/creditHeaderLabel\(credits \?\? null\)/, 'a low balance would never surface in the header'],
+    [/bottomPadPx=\{empty \? 20 : 40\}/, 'the composer would go back to sitting too close to the bottom'],
+    [/onPointerDown=\{onSurfaceDown\}/, 'a drag would be mistaken for a dismissing click'],
+    [/onClick=\{onSurfaceClick\}/, 'clicking the background would stop dismissing him'],
+  ]
+  for (const [re, why] of wiring) {
+    assert.match(chat, re, why)
+  }
+})
+
+/**
+ * THE DISMISS GUARDS, WHICH ARE THE WHOLE OF THAT FEATURE.
+ *
+ * *"I'd like that functionality to be extended to when we're actually in the
+ * chat as well."* Extending it is one line; extending it WITHOUT closing the
+ * panel under somebody who was scrolling, or who had just finished selecting
+ * text, is these three.
+ *
+ * MUTATION: delete any one of them and this goes red. Each is a way the panel
+ * closes when nobody asked it to, and all three failures look like a flaky bug
+ * rather than a missing guard.
+ */
+test('the background dismissal cannot fire on a drag, a selection, or a real target', () => {
+  assert.match(chat, /if \(e\.target !== e\.currentTarget\) return/, 'a click on a bubble is not a click on nothing')
+  // THE COMPARISON, NOT THE CONSTANT. The first version of this asserted
+  // `/DISMISS_SLOP/` and came back GREEN with the whole `if` deleted, because
+  // the `const` declaration above it still matched. A source pin that finds a
+  // name rather than a use is not a pin.
+  assert.match(
+    chat,
+    /Math\.abs\(e\.clientX - down\.x\) \+ Math\.abs\(e\.clientY - down\.y\) > DISMISS_SLOP\) return/,
+    'a drag that ends on empty space is a scroll, not a dismissal',
+  )
+  assert.match(
+    chat,
+    /window\.getSelection\(\)\?\.toString\(\) \?\? ''\)\.length > 0\) return/,
+    'releasing a text selection must not close the panel underneath it',
+  )
+})

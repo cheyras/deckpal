@@ -6,12 +6,30 @@
  * This is the only place in the app where a model asks to change what the
  * reader owns, and the owner designed it himself:
  *
- *   1. **Cards where the variant is known** — plain rows, needing no
- *      interaction, each with a "that's wrong" removal.
- *   2. **"What was the variant on these?"** — an inline picker per row.
+ *   1. **Printings he is sure about** — the printing shown as a settled chip
+ *      with the reason he is sure beside it.
+ *   2. **"I couldn't tell which printing these were — which ones?"** — the same
+ *      chips, as a live picker.
  *
  * with ONE Accept, which commits section 1 even if a section-2 row is left
  * unpicked. One unknown must not hold up the batch.
+ *
+ * ── WHAT THE SECOND PASS CHANGED, AND WHY ────────────────────────────────────
+ *
+ * Four things, all from one screen recording, and each is argued where it lives:
+ *
+ *  1. **HE TALKS.** Every sentence was third person — "Let him add 3 cards?",
+ *     "He knows these printings" — about a character who is standing beside the
+ *     panel and has just spoken in the first person. *"This should be him
+ *     talking like he's presenting it to us."* See `approvalHeadline`.
+ *  2. **THE PRINTING CHIPS ARE ON EVERY ROW.** An owner ruling with two payoffs
+ *     he named himself. See `rowPrintings`.
+ *  3. **A STEPPER, AND THE `+1` IS ITS READOUT.** *"He adds one … but they can
+ *     adjust the amount that we're adding."* See `Stepper`.
+ *  4. **EVERY ROW SAYS WHETHER IT IS GOING TO HAPPEN, ALWAYS.** The old copy
+ *     appeared only in the bad state and vanished on being answered, which is
+ *     how a reader counts five rows and reads a button saying two. See
+ *     `rowStatus` and `acceptSummary`.
  *
  * ── NO NUMERIC CONFIDENCE METER, AND THE REASON IS RESEARCH ──────────────────
  *
@@ -91,13 +109,24 @@ import { useCardArt, type CardArtMap } from './useCardArt'
 import {
   acceptButtonLabel,
   acceptCount,
-  approvalQuestion,
+  acceptSummary,
+  approvalHeadline,
+  askingSectionHeading,
   beforeAfterText,
   choiceFor,
+  effectiveValue,
+  knownSectionHeading,
   operationText,
+  projectedAfter,
   rowMetaText,
+  rowPrintings,
+  rowStatus,
   sections,
+  skippedNote,
+  stepBounds,
+  stepBy,
   unshownCallsNote,
+  whyThisPrinting,
   type ApprovalPreview,
   type Choices,
   type PreviewRow,
@@ -153,10 +182,26 @@ export type ApprovalCardProps = {
  * question mark: a card he named that does not exist is a FACT about this
  * request and the reader should see it, exactly as the panel shows the bare id.
  */
-function RowThumb({ row, art }: { row: PreviewRow; art: CardArtMap }): JSX.Element {
+function RowThumb({ row, art, faded }: { row: PreviewRow; art: CardArtMap; faded: boolean }): JSX.Element {
   const found = art[row.cardId]
   return (
-    <div className="w-[44px] shrink-0" aria-hidden="true">
+    /*
+      IT FADES WITH THE ROW, and that was an explicit note: *"these should be
+      faded as well… make it more clear: this will be added, this will not."*
+      The art is the loudest thing on a row — a full-colour Charizard at the head
+      of a line whose text says it will not be written is the row arguing with
+      itself, and the picture wins that argument every time.
+
+      `opacity` rather than a greyscale filter: a desaturated card still reads as
+      a card that is THERE, and what has to read is *not included*.
+    */
+    <div
+      className={[
+        'w-[44px] shrink-0 motion-safe:transition-opacity',
+        faded ? 'opacity-35' : '',
+      ].join(' ')}
+      aria-hidden="true"
+    >
       {found ? (
         <CardImage
           low={found.front}
@@ -194,37 +239,141 @@ function RowThumb({ row, art }: { row: PreviewRow; art: CardArtMap }): JSX.Eleme
  *
  * `tabular-nums` on both, so a column of them lines up rather than breathing.
  */
-function OperationChip({ row }: { row: PreviewRow }): JSX.Element {
-  const op = operationText(row)
-  const trail = beforeAfterText(row)
-  const negative = row.mode === 'delta' && row.value < 0
+function OperationChip({ row, value }: { row: PreviewRow; value: number }): JSX.Element {
+  const op = operationText({ mode: row.mode, value })
+  const negative = row.mode === 'delta' && value < 0
   return (
-    <span className="flex shrink-0 items-center gap-[8px]">
-      {trail ? (
-        <span className="text-[11.5px] leading-[16px] tabular-nums text-text-muted">{trail}</span>
-      ) : null}
-      <span
-        className={[
-          'rounded-[6px] px-[7px] py-[2px] text-[12px] font-semibold leading-[17px] tabular-nums',
-          negative ? 'bg-halo-error text-error' : 'bg-halo-success text-success',
-        ].join(' ')}
-      >
-        {op}
-      </span>
+    <span
+      className={[
+        // BIGGER, and the owner asked for exactly that: *"make these a little
+        // bit bigger, this text, and have it be in green or red depending on if
+        // it increased or decreased."* 12px → 13.5px, and the padding with it,
+        // because a chip that grows only its type reads as cramped rather than
+        // as louder.
+        'rounded-[7px] px-[9px] py-[3px] text-[13.5px] font-semibold leading-[19px] tabular-nums',
+        negative ? 'bg-halo-error text-error' : 'bg-halo-success text-success',
+      ].join(' ')}
+    >
+      {op}
     </span>
   )
 }
 
 /**
- * The removal control, on every row in both sections.
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE STEPPER — AND THE DELTA CHIP IS ITS READOUT
+ * ══════════════════════════════════════════════════════════════════════════════
  *
- * "That's wrong" rather than an ✕, because an ✕ on a consent dialog reads as
- * "close this" and the thing it removes is one line of a list. It is the one
- * affordance the two sections share: section 1 has no question, but it can
- * still be WRONG, and until now the reader's only options were to approve a
- * batch they could see an error in or to refuse all of it.
+ * *"I'd like to have like a little stepper still — he adds one, you know, that's
+ * what they asked for, but they can adjust the amount that we're adding."*
  *
- * It is a chip now rather than bare text, for a reason the screenshots settled:
+ * THE ONE DESIGN DECISION WORTH DEFENDING HERE is that the stepper does not sit
+ * beside the `+1` chip; the chip is what the stepper reads out. Two controls
+ * showing the same number is how a card ends up with a `+1` badge that disagrees
+ * with a spinner two inches away for one frame, and there is no arrangement of
+ * them in which the reader knows which one the button is going to obey. One
+ * number, two buttons around it, and the tint that says which direction it goes.
+ *
+ * It edits the REAL row. `onChoice` writes `value` into the held row's own
+ * `RowChoice`, `effectiveValue` is what every other reader of this card calls,
+ * and `resolveBatchItems` sends it. There is no display-only path — which is the
+ * whole point, since a stepper that looked live and wrote his number would be
+ * the single worst control in this application.
+ *
+ * ── ACCESSIBILITY ────────────────────────────────────────────────────────────
+ *
+ * A `role="group"` naming the CARD, because three of these on one dialog are
+ * otherwise six identical "plus"/"minus" buttons. The readout is a live region
+ * so pressing a button says the new amount rather than leaving a screen-reader
+ * user to guess; polite, and per-row, so it cannot interrupt the alertdialog's
+ * own announcement.
+ *
+ * Not `role="spinbutton"`: that role promises arrow-key and Home/End handling
+ * this control does not implement, and a role that lies about its keyboard is
+ * worse for the people it is meant to help than two honest buttons.
+ */
+function Stepper({
+  row,
+  choice,
+  onChoice,
+  value,
+}: {
+  row: PreviewRow
+  choice: RowChoice
+  onChoice: (c: RowChoice) => void
+  value: number
+}): JSX.Element {
+  const { min, max } = stepBounds(row)
+  // "MORE" AND "LESS", NOT "UP" AND "DOWN". On a removal row the bigger
+  // operation is the more negative number, so the button under the plus sign is
+  // the one that takes more away — `stepBy` owns that inversion and this only
+  // has to name the two directions in the reader's terms.
+  const atMost = value === max || (row.mode === 'delta' && row.value < 0 && value === min)
+  const atLeast = value === min || (row.mode === 'delta' && row.value < 0 && value === max)
+  const set = (next: number) => onChoice({ ...choice, value: next })
+
+  const btn =
+    'flex h-[24px] w-[24px] items-center justify-center text-text-muted ' +
+    'motion-safe:transition-colors hover:text-text-primary ' +
+    'disabled:cursor-default disabled:opacity-30 disabled:hover:text-text-muted'
+
+  return (
+    <span
+      role="group"
+      aria-label={`How many ${row.cardName}`}
+      className="flex shrink-0 items-center rounded-[9px] border border-border-default bg-surface-primary"
+    >
+      <button
+        type="button"
+        onClick={() => set(stepBy(row, choice, -1))}
+        disabled={atLeast}
+        aria-label={`One fewer ${row.cardName}`}
+        className={`${btn} pointer-events-auto rounded-l-[8px]`}
+      >
+        <Icon name="minus" size={13} />
+      </button>
+      {/*
+        The chip is the readout. `aria-live` on the wrapper rather than on the
+        chip itself, so the region exists before the number in it changes — the
+        same rule `ToolRow` states for its own, and the same failure it avoids.
+      */}
+      <span aria-live="polite" aria-atomic="true" className="px-[2px]">
+        <OperationChip row={row} value={value} />
+      </span>
+      <button
+        type="button"
+        onClick={() => set(stepBy(row, choice, 1))}
+        disabled={atMost}
+        aria-label={`One more ${row.cardName}`}
+        className={`${btn} pointer-events-auto rounded-r-[8px]`}
+      >
+        <Icon name="plus" size={13} />
+      </button>
+    </span>
+  )
+}
+
+/**
+ * The removal control, on every row.
+ *
+ * ── IT SAYS "WRONG CARD" NOW, AND THAT IS A NARROWING, NOT A RENAME ──────────
+ *
+ * *"That's wrong is a little bit too broad."* It was, and the breadth was the
+ * problem rather than the wording: "that's wrong" was the only escape hatch on
+ * the row, so it had to absorb four different complaints — wrong card, wrong
+ * printing, wrong number, changed my mind — while doing exactly one thing.
+ *
+ * The other three now have their own controls. The printing chips are on every
+ * row, so a wrong printing is a click. The stepper is on every row, so a wrong
+ * number is two clicks. What is left for this button is the one thing neither
+ * can fix: he named a card that is not the card. So it says so.
+ *
+ * The owner talked himself out of a segmented dropdown here, and he was right
+ * to: a menu offering four reasons on a row that already carries two controls
+ * for two of them is a menu whose first two entries are duplicates of the
+ * controls beside it.
+ *
+ * It is a chip rather than bare text, for a reason the screenshots settled:
  * three of them stacked down the right edge of a card in plain 12px grey read
  * as a column of labels, not as three separate controls. A bordered chip that
  * fills on hover is unambiguously pressable, and the pressed state is a real
@@ -244,9 +393,9 @@ function RemoveButton({
       type="button"
       onClick={onToggle}
       aria-pressed={removed}
-      // The label names the CARD, so a screen reader hears "that's wrong,
-      // Pitch Black" rather than eleven identical buttons.
-      aria-label={removed ? `Put ${label} back` : `That's wrong — leave ${label} out`}
+      // The label names the CARD, so a screen reader hears "wrong card, Pitch
+      // Black" rather than eleven identical buttons.
+      aria-label={removed ? `Put ${label} back` : `Wrong card — leave ${label} out`}
       className={[
         'pointer-events-auto shrink-0 whitespace-nowrap rounded-[7px] border px-[8px] py-[3px]',
         'text-[11px] font-medium leading-[16px] motion-safe:transition-colors',
@@ -255,8 +404,98 @@ function RemoveButton({
           : 'border-surface-tertiary text-text-muted hover:border-border-default hover:bg-surface-tertiary/60 hover:text-text-body',
       ].join(' ')}
     >
-      {removed ? 'Put back' : "That's wrong"}
+      {removed ? 'Put back' : 'Wrong card'}
     </button>
+  )
+}
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE PRINTING CHIPS — ON EVERY ROW, EVERY TIME
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * See `rowPrintings` for the ruling, the three states and both of the payoffs
+ * the owner named. What this file adds is making the three tellable apart at a
+ * glance, without any of them reading as an error:
+ *
+ *   • **SETTLED** — one chip, filled with the app's raised surface, rendered as
+ *     a `<span>`. Not a disabled `<button>`: a disabled control announces "there
+ *     is a thing here you may not have", and the truth is the opposite — there
+ *     was only ever one answer, which is precisely why he is sure. Beside it,
+ *     the "why" clause: *"we need to be more clear about like why he knows"*.
+ *   • **AN OPTION** — bordered, body colour, hoverable. One of several.
+ *   • **PROPOSED** — HIS guess on a row nobody has answered. A DASHED border in
+ *     the accent, and no fill. The dash is doing real work: a filled chip means
+ *     *decided*, and pre-filling his guess is exactly the silent default this
+ *     whole section exists to replace. Dashed says *offered*, which is what it
+ *     is, and it survives being photographed in greyscale.
+ *
+ * The filled treatment is the app's raised surface rather than the brand cyan,
+ * because these sit two inches from the confirm button and when both were cyan
+ * the eye could not tell which press writes.
+ */
+function PrintingChips({
+  row,
+  choice,
+  onChoice,
+}: {
+  row: PreviewRow
+  choice: RowChoice
+  onChoice: (c: RowChoice) => void
+}): JSX.Element | null {
+  const groupId = useId()
+  const { chips, selectable } = rowPrintings(row, choice)
+  if (chips.length === 0) return null
+
+  const base = 'rounded-full border px-[11px] py-[4px] text-[12px] leading-[17px]'
+  const filled = 'border-surface-control-active bg-surface-quaternary font-semibold text-text-primary'
+
+  if (!selectable) {
+    const why = whyThisPrinting(row)
+    return (
+      <div className="flex flex-wrap items-center gap-[7px]">
+        <span className={[base, filled].join(' ')}>{chips[0].label}</span>
+        {why ? (
+          <span className="text-[11.5px] leading-[16px] text-text-muted">{why}</span>
+        ) : null}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label={`Which printing of ${row.cardName}?`}
+      className="flex flex-wrap gap-[6px]"
+    >
+      {chips.map((c) => (
+        <button
+          key={c.variantId ?? c.label}
+          type="button"
+          role="radio"
+          aria-checked={c.selected}
+          id={`${groupId}-${c.variantId}`}
+          onClick={() => onChoice({ ...choice, variantId: c.selected ? null : c.variantId })}
+          className={[
+            'pointer-events-auto motion-safe:transition-colors',
+            base,
+            c.selected
+              ? filled
+              : c.proposed
+                ? 'border-dashed border-action-primary-strong/70 text-text-primary hover:bg-surface-tertiary/60'
+                : 'border-border-default text-text-body hover:border-surface-raised hover:bg-surface-tertiary/60',
+          ].join(' ')}
+        >
+          {c.label}
+          {c.ownedQty > 0 ? (
+            <span className={c.selected ? 'text-text-body' : 'text-text-muted'}>
+              {' · have '}
+              {c.ownedQty}
+            </span>
+          ) : null}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -269,8 +508,27 @@ function RemoveButton({
  * underneath survives — the opposite of the old behaviour, where one line
  * truncated and took the printing with it.
  */
-function RowIdentity({ row, struck }: { row: PreviewRow; struck: boolean }): JSX.Element {
-  const meta = rowMetaText(row)
+function RowIdentity({
+  row,
+  struck,
+  after,
+}: {
+  row: PreviewRow
+  struck: boolean
+  after: number | null
+}): JSX.Element {
+  /*
+    THE PRINTING CAME OUT OF THIS LINE, because it is now a chip on every row —
+    see `PrintingChips`. Leaving it here as well would print the same fact twice
+    on every row of the card, four inches apart, in two different renderings.
+
+    WHAT WENT IN INSTEAD is where the count lands, because it is the fact the
+    stepper changes. `projectedAfter` recomputes it from the reader's own amount;
+    a dry run's `after` is a fact about HIS number and stops being true the first
+    time anybody presses `+`.
+  */
+  const meta = rowMetaText({ setId: row.setId, number: row.number, variantLabel: null })
+  const trail = after === null ? '' : beforeAfterText({ before: row.before, after })
   return (
     /*
       `min-w-[128px]` IS THE WHOLE RESPONSIVE STRATEGY, and it is a floor rather
@@ -294,36 +552,75 @@ function RowIdentity({ row, struck }: { row: PreviewRow; struck: boolean }): JSX
       >
         {row.cardName}
       </span>
-      {meta ? (
-        <span className="truncate text-[11.5px] leading-[16px] text-text-muted">{meta}</span>
+      {meta || trail ? (
+        <span className="truncate text-[11.5px] leading-[16px] text-text-muted">
+          {meta}
+          {meta && trail ? ' · ' : ''}
+          {trail ? <span className="tabular-nums">{trail}</span> : null}
+        </span>
       ) : null}
     </span>
   )
 }
 
 /**
- * The identity, the operation and the removal, on one line that can become two.
+ * The identity, the stepper and the removal, on one line that can become two.
  *
- * Shared by both row kinds so they cannot drift — they had already drifted once,
- * the known row centring its contents and the asking row top-aligning them, for
- * no reason either could have defended.
+ * Shared by every row so they cannot drift — they had already drifted once, the
+ * known row centring its contents and the asking row top-aligning them, for no
+ * reason either could have defended.
+ *
+ * THE ORDER IS `name … amount, wrong card`. The amount sits immediately to the
+ * LEFT of the removal — which is where the owner put it — so the eye finishes
+ * the row on the two things it can act on, adjacent, rather than crossing a
+ * runway of grey between them.
  */
 function RowLine({
   row,
   choice,
   onChoice,
+  value,
+  after,
+  dim,
 }: {
   row: PreviewRow
   choice: RowChoice
   onChoice: (c: RowChoice) => void
+  value: number
+  after: number | null
+  dim: boolean
 }): JSX.Element {
   return (
     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-[10px] gap-y-[6px]">
-      <RowIdentity row={row} struck={choice.removed} />
+      {/*
+        THE FADE STOPS HERE. Only the row's EVIDENCE dims — the art (see
+        `RowThumb`) and the name — never the controls beside it. Photographed at
+        2x with the fade on the whole line, "Wrong card" on an unanswered row was
+        indistinguishable from a disabled button, on the one row where a reader
+        is most likely to want it. Faded evidence, bright affordance.
+      */}
+      <span
+        className={[
+          'flex min-w-[128px] flex-1 motion-safe:transition-opacity',
+          dim ? 'opacity-45' : '',
+        ].join(' ')}
+      >
+        <RowIdentity row={row} struck={choice.removed} after={after} />
+      </span>
       {/* `ml-auto` so that when this pair wraps to its own line it finishes at
           the right edge, under the name, rather than starting under the thumb. */}
-      <span className="ml-auto flex shrink-0 items-center gap-[10px]">
-        <OperationChip row={row} />
+      <span className="ml-auto flex shrink-0 items-center gap-[8px]">
+        {/*
+          NO STEPPER ON A STRUCK ROW. Adjusting the amount of something that is
+          not going to happen is a control with nothing behind it, and leaving it
+          live invites somebody to set a number, look at the row, and believe
+          they have un-struck it.
+        */}
+        {choice.removed ? (
+          <OperationChip row={row} value={value} />
+        ) : (
+          <Stepper row={row} choice={choice} onChoice={onChoice} value={value} />
+        )}
         <RemoveButton
           removed={choice.removed}
           label={row.cardName}
@@ -335,14 +632,34 @@ function RowLine({
 }
 
 /**
- * A row whose printing nobody has to think about.
+ * ══════════════════════════════════════════════════════════════════════════════
+ * ONE ROW COMPONENT, BECAUSE THERE IS ONE KIND OF ROW NOW
+ * ══════════════════════════════════════════════════════════════════════════════
  *
- * NO CONTROL THAT LOOKS LIKE A QUESTION, which is the owner's requirement in
- * his own words: *"if it's truly high confidence I don't want the user to feel
- * like they have to pick a variant again, especially if they were already
- * pretty clear about what variant it is."*
+ * There used to be two — `KnownRow` (identity, chip, removal) and `AskingRow`
+ * (the same plus a picker and a footnote) — and the split was the reason the two
+ * drifted apart on alignment twice. Putting the printing chips on EVERY row
+ * collapses the difference to a single boolean inside `PrintingChips`, so the
+ * two components had nothing left to disagree about.
+ *
+ * The requirement that produced the split survives intact and is worth restating
+ * because it looks violated at a glance: *"if it's truly high confidence I don't
+ * want the user to feel like they have to pick a variant again."* A settled row
+ * still poses no question — its single chip is not a control, and the section it
+ * sits in says "I'm sure about these printings". What changed is that the answer
+ * he is sure of is now VISIBLE and SHAPED like every other answer on the card,
+ * rather than being grey text in a different typeface saying the same word.
+ *
+ * ── THE FADE IS DELIBERATELY PARTIAL, AND THAT IS THE INTERESTING BIT ────────
+ *
+ * The row's identity and its art fade when the row will not be written; the
+ * PRINTING CHIPS AND THE CONTROLS DO NOT. Fading the whole block was the obvious
+ * reading of *"these should be faded as well"* and it is wrong in the one state
+ * that matters most: an unpicked row is excluded precisely BECAUSE nobody has
+ * touched its chips, so dimming the chips dims the way out of the state the
+ * dimming is complaining about. Faded evidence, bright affordance.
  */
-function KnownRow({
+function CardRow({
   row,
   art,
   choice,
@@ -353,124 +670,65 @@ function KnownRow({
   choice: RowChoice
   onChoice: (c: RowChoice) => void
 }): JSX.Element {
+  const value = effectiveValue(row, choice)
+  const after = projectedAfter(row, value)
+  const status = rowStatus(row, choice)
+  const dim = !status.included
+
   return (
-    <li
-      className={[
-        'flex items-center gap-[11px] py-[9px] motion-safe:transition-opacity',
-        choice.removed ? 'opacity-45' : '',
-      ].join(' ')}
-    >
-      <RowThumb row={row} art={art} />
-      <RowLine row={row} choice={choice} onChoice={onChoice} />
+    <li className="py-[9px]">
+      <div className="flex items-start gap-[11px]">
+        <RowThumb row={row} art={art} faded={dim} />
+        <div className="flex min-w-0 flex-1 flex-col gap-[7px]">
+          <RowLine row={row} choice={choice} onChoice={onChoice} value={value} after={after} dim={dim} />
+
+          {/*
+            NO WARNING ICON ANYWHERE ON THIS BLOCK. The first pass put an alert
+            triangle beside the picker and it contradicted the heading directly
+            above it: an unnamed printing is an ordinary thing and not an error,
+            which is why the heading is a question. A caution glyph on the answer
+            to a friendly question un-asks it.
+          */}
+          {choice.removed ? null : (
+            <PrintingChips row={row} choice={choice} onChoice={onChoice} />
+          )}
+
+          <RowStatusLine status={status} />
+        </div>
+      </div>
     </li>
   )
 }
 
 /**
- * A row nobody named a printing for.
+ * The line that says whether this row is going to happen.
  *
- * IT LOOKS EXCLUDED UNTIL IT IS ANSWERED, because it IS excluded until it is
- * answered — Accept commits section 1 regardless, and a person who presses it
- * with this untouched must not be able to be surprised by what happened. The
- * button's own count moves the moment a printing is picked, which is the
- * cheapest honest way to say so.
+ * IT IS ALWAYS HERE. `rowStatus` carries the reasoning for why it must never be
+ * the kind of line that appears only in the bad state; this is the rendering,
+ * and the rendering has one job beyond the words — to be TELLABLE APART at a
+ * glance from across the card, since the whole complaint was that a reader
+ * counted five rows and got a button saying two.
  *
- * The default the server would have used is marked, and marked as a fact
- * ("usually this one") rather than as a recommendation. It is not preselected:
- * preselecting it would answer the question on the reader's behalf and turn the
- * whole section back into the silent default it exists to replace.
- *
- * THE PICKER IS INDENTED UNDER THE NAME, not under the thumbnail. The card art
- * is the row's left rail; hanging the pills off the same left edge as the name
- * makes the block read as one thing that belongs to one card, which matters
- * when two of these stack.
+ * So a row that is going in gets a tick and the success colour, and a row that
+ * is not gets a muted dot and muted text. Colour is never the only signal: the
+ * sentence says it in words, the thumbnail is faded, and the icon differs in
+ * SHAPE. Any one of those three carries the fact on its own.
  */
-function AskingRow({
-  row,
-  art,
-  choice,
-  onChoice,
-}: {
-  row: PreviewRow
-  art: CardArtMap
-  choice: RowChoice
-  onChoice: (c: RowChoice) => void
-}): JSX.Element {
-  const groupId = useId()
-  const answered = choice.variantId !== null
+function RowStatusLine({ status }: { status: ReturnType<typeof rowStatus> }): JSX.Element {
   return (
-    <li className={['py-[9px] motion-safe:transition-opacity', choice.removed ? 'opacity-45' : ''].join(' ')}>
-      <div className="flex items-start gap-[11px]">
-        <RowThumb row={row} art={art} />
-        <div className="flex min-w-0 flex-1 flex-col gap-[8px]">
-          <RowLine row={row} choice={choice} onChoice={onChoice} />
-
-          {choice.removed ? null : (
-            <>
-              <div
-                role="radiogroup"
-                aria-label={`Which printing of ${row.cardName}?`}
-                className="flex flex-wrap gap-[6px]"
-              >
-                {row.candidates.map((c) => {
-                  const selected = choice.variantId === c.variantId
-                  return (
-                    <button
-                      key={c.variantId}
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      id={`${groupId}-${c.variantId}`}
-                      onClick={() =>
-                        onChoice({ ...choice, variantId: selected ? null : c.variantId })
-                      }
-                      className={[
-                        'pointer-events-auto rounded-full border px-[11px] py-[4px]',
-                        'text-[12px] leading-[17px] motion-safe:transition-colors',
-                        selected
-                          // A SELECTED RADIO IS FILLED, but with the app's own
-                          // raised surface rather than the brand cyan. The pills
-                          // sit two inches from the confirm button; when both
-                          // were cyan the eye could not tell which one was the
-                          // press that writes.
-                          ? 'border-surface-control-active bg-surface-quaternary font-semibold text-text-primary'
-                          : 'border-border-default text-text-body hover:border-surface-raised hover:bg-surface-tertiary/60',
-                      ].join(' ')}
-                    >
-                      {c.label}
-                      {c.ownedQty > 0 ? (
-                        <span className={selected ? 'text-text-body' : 'text-text-muted'}>
-                          {' · have '}
-                          {c.ownedQty}
-                        </span>
-                      ) : null}
-                    </button>
-                  )
-                })}
-              </div>
-              {/*
-                NO WARNING ICON. The first pass put an alert triangle here and
-                it contradicted the section directly above it: an unnamed
-                printing is *"an ordinary thing and not an error"*, which is why
-                the heading is a question rather than a warning. A caution glyph
-                on the answer to a friendly question un-asks it.
-              */}
-              {!answered ? (
-                <p className="text-[11.5px] leading-[16px] text-text-muted">
-                  Not added until you pick one
-                  {row.wouldUseVariantId !== null
-                    ? ` — usually it's ${
-                        row.candidates.find((c) => c.variantId === row.wouldUseVariantId)?.label ??
-                        'the first'
-                      }`
-                    : ''}
-                </p>
-              ) : null}
-            </>
-          )}
-        </div>
-      </div>
-    </li>
+    <p
+      className={[
+        'flex items-center gap-[5px] text-[11.5px] leading-[16px]',
+        status.included ? 'text-success' : 'text-text-muted',
+      ].join(' ')}
+    >
+      {status.included ? (
+        <Icon name="check" size={12} className="shrink-0" />
+      ) : (
+        <span aria-hidden="true" className="block h-[5px] w-[5px] shrink-0 rounded-full bg-current" />
+      )}
+      {status.text}
+    </p>
   )
 }
 
@@ -544,6 +802,7 @@ export function ApprovalCard({
    * be told that something was held back rather than silently dropped.
    */
   const unshown = unshownCallsNote(heldCalls)
+  const summary = editable && preview ? acceptSummary(preview, choices) : ''
 
   /*
     ONE HEADER BLOCK, then the rows, then the footer. The gaps are 12/14/16
@@ -558,7 +817,7 @@ export function ApprovalCard({
       aria-label="Deck-E is asking permission"
     >
       <p className="text-[14.5px] font-semibold leading-[21px] text-text-primary">
-        {approvalQuestion(title)}
+        {approvalHeadline(title, preview)}
       </p>
       {unshown ? (
         <p className="mt-[6px] text-[12px] leading-[17px] text-text-muted">{unshown}</p>
@@ -587,19 +846,17 @@ export function ApprovalCard({
             <section>
               {/*
                 NO HEADING WHEN THERE IS NOTHING TO DISTINGUISH IT FROM. The
-                headline above already said "Let him add 3 cards?"; a heading
-                reading "These cards" directly under it is a label on the only
-                thing on screen. It earns its place only when the second section
-                exists and the reader has to tell the two apart.
+                headline above already said "Here's what I want to add"; a
+                heading reading "These cards" directly under it is a label on
+                the only thing on screen. It earns its place only when the
+                second section exists and the reader has to tell the two apart.
               */}
               {asking.length > 0 ? (
-                <SectionHeading>
-                  {known.length === 1 ? 'He knows this printing' : 'He knows these printings'}
-                </SectionHeading>
+                <SectionHeading>{knownSectionHeading(known.length)}</SectionHeading>
               ) : null}
               <ul className="divide-y divide-border-default/30">
                 {known.map((r) => (
-                  <KnownRow
+                  <CardRow
                     key={r.index}
                     row={r}
                     art={art}
@@ -614,19 +871,17 @@ export function ApprovalCard({
           {asking.length > 0 ? (
             <section>
               {/*
-                HIS QUESTION, IN HIS WORDS. The owner liked being asked when a
-                printing was genuinely unknown; this is that, phrased as a
+                HIS QUESTION, IN HIS OWN VOICE. The owner liked being asked when
+                a printing was genuinely unknown; this is that, phrased as a
                 question rather than as a warning, because an unnamed printing
-                is an ordinary thing and not an error.
+                is an ordinary thing and not an error — and phrased in the FIRST
+                PERSON, because the person asking is the one standing beside the
+                panel.
               */}
-              <SectionHeading>
-                {asking.length === 1
-                  ? 'What was the variant on this one?'
-                  : 'What was the variant on these?'}
-              </SectionHeading>
+              <SectionHeading>{askingSectionHeading(asking.length)}</SectionHeading>
               <ul className="divide-y divide-border-default/30">
                 {asking.map((r) => (
-                  <AskingRow
+                  <CardRow
                     key={r.index}
                     row={r}
                     art={art}
@@ -640,9 +895,7 @@ export function ApprovalCard({
 
           {preview && preview.skipped.length > 0 ? (
             <p className="text-[11.5px] leading-[16px] text-text-muted">
-              {preview.skipped.length} item
-              {preview.skipped.length === 1 ? '' : 's'} couldn&rsquo;t be matched to a card and
-              won&rsquo;t be added.
+              {skippedNote(preview.skipped.length)}
             </p>
           ) : null}
         </div>
@@ -667,7 +920,24 @@ export function ApprovalCard({
         unpicked printings out — so it moves as the reader answers, and nobody
         can press it expecting a different number.
       */}
-      <div className="mt-[14px] flex flex-wrap items-center gap-[8px]">
+      {/*
+        AND THE COUNT IS ALSO A SENTENCE, DIRECTLY ABOVE IT.
+
+        The button alone was not enough and the owner said exactly why: *"down
+        here it says add two cards and the first time I did this I was like, oh
+        well it's five cards."* A verb and a number, with five rows above it and
+        nothing joining the two, is a sum the reader has to do themselves —
+        against a list they have just been told is about to change what they own.
+
+        `acceptSummary` states the split in words and goes SILENT when there is
+        nothing to reconcile, so this line only ever appears when it is carrying
+        information. Its reasoning, including why the rows are not regrouped when
+        a printing is picked, is in that function.
+      */}
+      {editable && preview && summary ? (
+        <p className="mt-[12px] text-[12.5px] leading-[18px] text-text-secondary">{summary}</p>
+      ) : null}
+      <div className="mt-[12px] flex flex-wrap items-center gap-[8px]">
         <Button variant="ghost" size="sm" onClick={onDeny} disabled={busy}>
           Leave it
         </Button>
@@ -694,7 +964,7 @@ export function ApprovalCard({
         {editable && willWrite === 0 ? (
           <span className="flex items-center gap-[5px] text-[11.5px] leading-[16px] text-text-muted">
             <Icon name="alert" size={12} className="shrink-0" />
-            {asking.length > 0 ? 'Pick a printing, or leave it' : 'Put a card back, or leave it'}
+            {asking.length > 0 ? 'Pick a printing, or leave it with me' : 'Put a card back, or leave it with me'}
           </span>
         ) : null}
       </div>

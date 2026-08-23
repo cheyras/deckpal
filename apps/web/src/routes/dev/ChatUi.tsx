@@ -50,7 +50,7 @@ import { useEffect, useState } from 'react'
 import { ChatMarkdown } from '../../character/host/chat/ChatMarkdown'
 import { ThinkingRow } from '../../character/host/chat/ThinkingRow'
 import { ToolRow } from '../../character/host/chat/ToolRow'
-import type { ToolRowData } from '../../character/host/chat/toolRowState'
+import { toolRowFromChip, type ToolRowData } from '../../character/host/chat/toolRowState'
 import { ApprovalCard } from '../../character/host/chat/ApprovalCard'
 import type {
   ApprovalPreview,
@@ -65,6 +65,16 @@ import {
   DeckeOpeners,
 } from '../../character/host/DeckeChat'
 import { chooseOpeners } from '../../character/host/deckeChatState'
+import { composeGreeting, FAREWELLS, pickFarewell } from '../../character/host/deckeVoice'
+import { DeckeFarewell } from '../../character/host/DeckeFarewell'
+import { CreditChip, DeckeNotice } from '../../character/host/chat/DeckeNotice'
+import {
+  creditHeaderLabel,
+  creditState,
+  outOfCreditsDetail,
+  outOfCreditsLine,
+  TOP_UP_LABEL,
+} from '../../character/host/chat/creditState'
 import type { ScreenSpec } from '../../character/host/DeckeScreen'
 
 /* ── Fixtures ──────────────────────────────────────────────────────────────
@@ -147,13 +157,27 @@ const TOOL_ROWS: { label: string; note: string; data: ToolRowData }[] = [
   },
   {
     label: 'error',
-    note: 'The surface the owner once read as a success. Loud, ruled, worded, and it offers a way back.',
+    note: 'The surface the owner once read as a success. Loud, worded, rounded like the rest of the app, and it offers a way back.',
     data: row({
       id: '6',
       name: 'log_cards',
       title: 'Adding to your collection',
       phase: 'error',
       summary: 'That set id does not exist',
+    }),
+  },
+  {
+    label: 'declined',
+    note: 'You pressed "Leave it". It used to draw a CHECK MARK — the phase for a call that succeeded — so a refusal looked like a completed write. Red ✗, and the word.',
+    // THE REAL ID `deny` BUILDS. `toolRowFromChip` recognises the `-declined`
+    // suffix on an `ok` chip; passing a made-up id here would photograph a state
+    // the product cannot reach. See `toolRowState.ts`.
+    data: row({
+      id: 'call_a7f3-declined',
+      name: 'log_cards',
+      title: 'Nothing was written',
+      phase: 'ok',
+      summary: 'You left it, so nothing changed.',
     }),
   },
 ]
@@ -208,14 +232,39 @@ const SCREEN_LONG: ScreenSpec = {
   ],
 }
 
+/*
+ * THE THREE PRINTINGS STATES, AS THE WIRE NOW PRODUCES THEM.
+ *
+ * `resolve.ts` carries `candidates` on every resolvable kind since 2026-08-23,
+ * and `reopenIfProxyStated` in the API adapter demotes a `stated` row back to
+ * `unstated` whenever the READER's own sentence named no printing. So the states
+ * a reviewer has to be able to tell apart are:
+ *
+ *   stated    — they typed "reverse holo". Settled. One chip.
+ *   only-one  — the card has exactly one printing. Settled, and the lone chip is
+ *               the reason he was sure.
+ *   unstated  — Deck-E picked one. A picker, with his pick marked as a PROPOSAL
+ *               and the row excluded until it is confirmed.
+ *   ambiguous — nobody picked, including him. A picker with nothing proposed.
+ *
+ * All four appear below, with real candidate lists, because a fixture that still
+ * carries `candidates: []` on a confident row would be a picture of the product
+ * as it was two commits ago.
+ */
+const PRINTINGS = [
+  { variantId: 11, kindCode: 'normal', label: 'Normal', isPrimary: true, ownedQty: 0 },
+  { variantId: 12, kindCode: 'reverse', label: 'Reverse holo', isPrimary: false, ownedQty: 1 },
+  { variantId: 13, kindCode: 'holo', label: 'Holo', isPrimary: false, ownedQty: 0 },
+]
+
 function previewRow(over: Partial<PreviewRow> & Pick<PreviewRow, 'index' | 'cardId' | 'cardName'>): PreviewRow {
   return {
     setId: 'me05',
     number: '013',
     certainty: 'stated',
-    candidates: [],
-    wouldUseVariantId: 1,
-    variantId: 1,
+    candidates: PRINTINGS,
+    wouldUseVariantId: 11,
+    variantId: 11,
     variantLabel: 'Normal',
     mode: 'delta',
     value: 1,
@@ -234,19 +283,46 @@ const PREVIEW: ApprovalPreview = {
   ok: true,
   editable: true,
   rows: [
+    // SETTLED BECAUSE THEY SAID SO.
     previewRow({ index: 0, cardId: 'me05-013', cardName: 'Goldeen' }),
+    // SETTLED BECAUSE THERE IS ONLY ONE.
     previewRow({
       index: 1,
       cardId: 'swsh4-44',
       cardName: 'Pikachu VMAX',
       setId: 'swsh4',
       number: '44',
+      certainty: 'only-one',
+      candidates: [PRINTINGS[1]],
+      variantId: 12,
       variantLabel: 'Reverse holo',
       before: 1,
       after: 2,
     }),
+    // PROPOSED, AWAITING CONFIRMATION — the commonest row in the product now.
     previewRow({
       index: 2,
+      cardId: 'swsh4-25',
+      cardName: 'Charizard',
+      setId: 'swsh4',
+      number: '25',
+      certainty: 'unstated',
+      variantId: null,
+      variantLabel: null,
+      wouldUseVariantId: 12,
+    }),
+  ],
+  skipped: [],
+}
+
+/** Nobody picked, including him: a picker with nothing proposed. */
+const PREVIEW_AMBIGUOUS: ApprovalPreview = {
+  ...PREVIEW,
+  title: 'Add 1 card to your collection',
+  summary: 'Would add 1 card',
+  rows: [
+    previewRow({
+      index: 0,
       cardId: 'swsh4-25',
       cardName: 'Charizard',
       setId: 'swsh4',
@@ -254,15 +330,9 @@ const PREVIEW: ApprovalPreview = {
       certainty: 'ambiguous',
       variantId: null,
       variantLabel: null,
-      wouldUseVariantId: 12,
-      candidates: [
-        { variantId: 11, kindCode: 'normal', label: 'Normal', isPrimary: true, ownedQty: 0 },
-        { variantId: 12, kindCode: 'reverse', label: 'Reverse holo', isPrimary: false, ownedQty: 1 },
-        { variantId: 13, kindCode: 'holo', label: 'Holo', isPrimary: false, ownedQty: 0 },
-      ],
+      wouldUseVariantId: null,
     }),
   ],
-  skipped: [],
 }
 
 /** A batch that TAKES CARDS AWAY. The operation chip is tinted by direction and
@@ -304,13 +374,46 @@ const PREVIEW_ONE: ApprovalPreview = {
 
 /* ── Page furniture ────────────────────────────────────────────────────────── */
 
-/* THE REAL OPENERS, from the product's own pool with the product's own
- * rotation run against a clean slate — which is exactly what a first visit and a
- * private window both see, and is the reason the empty state is screenshot-able
- * at all. Not a copy of the strings: a copy would drift the day somebody edits
- * the pool, and this page would go on showing openers nobody is offered.
+/* THE REAL OPENERS AND THE REAL GREETING, from the product's own pools, run
+ * with the product's own rotation — not copies of the strings, which would drift
+ * the day somebody edits a pool and leave this page showing lines nobody is
+ * offered.
+ *
+ * ── A PINNED SEED IS WHAT MAKES THIS PAGE PHOTOGRAPHABLE ────────────────────
+ *
+ * The second pass made all three pools vary per opening, which is the point of
+ * them and is fatal to a gallery: every capture would differ from the last and a
+ * screenshot diff would be the dice rather than the design. `chooseOpeners` and
+ * `composeGreeting` both take a seed for exactly this, so the page pins one and
+ * a change here means somebody changed the product.
  */
-const OPENERS = chooseOpeners()
+const GALLERY_SEED = 20260823
+const OPENERS = chooseOpeners(undefined, {}, { seed: GALLERY_SEED })
+
+/*
+ * AND THE GREETING, PINNED THE SAME WAY — INCLUDING THE CLOCK.
+ *
+ * `composeGreeting` is a function of the hour, so a gallery that let it read the
+ * system clock would photograph a different sentence in the morning than in the
+ * evening and every screenshot diff would be a diff. The three below are three
+ * REAL states of the same component: the ordinary case, the late-night case the
+ * owner asked for by name, and the case where `/me` has not answered so there is
+ * no name to use.
+ *
+ * FIXTURE NAME. "Ash" is obviously not the reader's, which matters on a page
+ * whose whole rule is that a screenshot of it will end up in a review.
+ */
+const FIXTURE_NAME = 'Ash'
+const AFTERNOON = new Date(2026, 7, 23, 14, 20, 0)
+const LATE = new Date(2026, 7, 23, 1, 15, 0)
+
+const GREET_DAY = composeGreeting({ name: FIXTURE_NAME, now: AFTERNOON, seed: GALLERY_SEED })
+const GREET_LATE = composeGreeting({ name: FIXTURE_NAME, now: LATE, seed: GALLERY_SEED })
+const GREET_ANON = composeGreeting({ now: AFTERNOON, seed: GALLERY_SEED + 1 })
+
+/** A balance that is nearly gone, and one that is. Both invented, and labelled. */
+const LOW_CREDITS = { remaining: 3, allowance: 100 }
+const NO_CREDITS = { remaining: 0, allowance: 100 }
 
 const WIDTHS = { desktop: 760, mobile: 390 } as const
 type WidthKey = keyof typeof WIDTHS
@@ -335,6 +438,40 @@ function Section({
       {note ? <p className="mb-[12px] max-w-[70ch] text-[13px] leading-[19px] text-text-muted">{note}</p> : null}
       <div className="flex flex-col gap-[16px]">{children}</div>
     </section>
+  )
+}
+
+/**
+ * The farewell, kept on screen so it can be looked at.
+ *
+ * `DeckeFarewell` retires itself after `FAREWELL_MS` — which is correct in the
+ * product and useless in a gallery, where a specimen that vanishes two seconds
+ * after the page loads is a specimen nobody will ever photograph. So this
+ * re-mounts it on a cycle with a fresh line each time, which also demonstrates
+ * the rotation. `key` forces a real remount rather than a prop change, because
+ * the component's own timer is armed on mount.
+ *
+ * THE RECT IS A FIXTURE and the caption says so: Deck-E is not on this route
+ * (`/dev/chat-ui` is chromeless on purpose), so there is no real `himRect` to
+ * position against.
+ */
+function FarewellSpecimen() {
+  const [n, setN] = useState(0)
+  const [line, setLine] = useState(() => pickFarewell({ seed: GALLERY_SEED }))
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      setLine((prev) => pickFarewell({ avoid: prev.id }))
+      setN((x) => x + 1)
+    }, 3200)
+    return () => window.clearInterval(t)
+  }, [])
+  return (
+    <DeckeFarewell
+      key={n}
+      text={line.text}
+      himRect={{ left: 120, top: 96, width: 80, height: 100 }}
+      onDone={() => {}}
+    />
   )
 }
 
@@ -434,7 +571,7 @@ export default function ChatUi() {
             >
               {TOOL_ROWS.map((t) => (
                 <Specimen key={t.data.id} label={t.label} note={t.note}>
-                  <ToolRow data={t.data} onRetry={() => {}} />
+                  <ToolRow data={toolRowFromChip(t.data)} onRetry={() => {}} />
                 </Specimen>
               ))}
               <Specimen label="a run of rows" note="how a real turn reads: several calls, one after another">
@@ -541,6 +678,20 @@ export default function ChatUi() {
                   onDeny={() => {}}
                 />
               </Specimen>
+              <Specimen
+                label="nothing proposed"
+                note="`ambiguous` — pickVariant itself declined, so there is no guess to offer. The picker opens with nothing marked and the row says so."
+              >
+                <ApprovalCard
+                  title="Log cards"
+                  heldCalls={1}
+                  preview={PREVIEW_AMBIGUOUS}
+                  choices={choices}
+                  onChoice={onChoice}
+                  onAccept={() => {}}
+                  onDeny={() => {}}
+                />
+              </Specimen>
               <Specimen label="no preview" note="the fallback when the dry run is missing — a broken preview must not become a broken write">
                 <ApprovalCard
                   title="Save deck"
@@ -578,7 +729,7 @@ export default function ChatUi() {
               >
                 <div className="flex min-h-[380px] flex-col justify-center gap-[0px] rounded-[10px] bg-canvas p-[16px]">
                   <div className="pb-[26px]">
-                    <DeckeEmptyIntro centred />
+                    <DeckeEmptyIntro centred greeting={GREET_DAY.greeting} subhead={GREET_DAY.subhead} />
                   </div>
                   <DeckeComposer
                     draft={draft}
@@ -599,7 +750,7 @@ export default function ChatUi() {
               >
                 <div className="mx-auto flex min-h-[380px] max-w-[390px] flex-col justify-end rounded-[10px] bg-canvas p-[16px]">
                   <div className="pb-[26px]">
-                    <DeckeEmptyIntro centred={false} />
+                    <DeckeEmptyIntro centred={false} greeting={GREET_LATE.greeting} subhead={GREET_LATE.subhead} />
                   </div>
                   <DeckeComposer
                     draft={draft}
@@ -636,6 +787,173 @@ export default function ChatUi() {
                   onStop={() => {}}
                   bottomPad={false}
                 />
+              </Specimen>
+              {/*
+                THE GREETING IS THE PART THAT MOVES, AND ONE SCREENSHOT CANNOT
+                SHOW THAT. The two specimens above pin one seed each so the page
+                is photographable; this shows what varies underneath — the hour,
+                and whether `/me` has answered with a name yet.
+              */}
+              <Specimen
+                label="no name yet"
+                note="`/me` has not answered, or there is nothing to answer with. Every greeting is written twice so this is a sentence somebody wrote, never `Hey , what's next?`."
+              >
+                <DeckeEmptyIntro centred greeting={GREET_ANON.greeting} subhead={GREET_ANON.subhead} />
+              </Specimen>
+              <Specimen
+                label="through the day"
+                note="FIXTURE NAME and FIXTURE CLOCK. The pool knows the hour — the late-night line is the owner's own, and it can only ever appear late at night."
+              >
+                <ul className="flex flex-col gap-[10px]">
+                  {[1, 6, 9, 14, 19, 23].map((h) => {
+                    const g = composeGreeting({
+                      name: FIXTURE_NAME,
+                      now: new Date(2026, 7, 23, h, 20, 0),
+                      // A DISTINCT DRAW PER ROW, still pinned. A single seed across
+                      // six hours rolls the same group-and-index every time, which is
+                      // exactly how the flat-pool defect stayed invisible.
+                      seed: GALLERY_SEED + h,
+                    })
+                    return (
+                      <li key={h} className="flex items-baseline gap-[10px]">
+                        <span className="w-[52px] shrink-0 font-mono text-[11px] tabular-nums text-text-muted">
+                          {String(h).padStart(2, '0')}:20
+                        </span>
+                        <span className="text-[14px] leading-[21px] text-text-primary">{g.greeting}</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </Specimen>
+            </Section>
+
+            {/*
+              THE STATES THAT SAY NO.
+
+              Two of them existed before this pass and had no design at all:
+              a refusal reached the transcript through `sayInstead`, which writes
+              an ORDINARY ASSISTANT BUBBLE — so "I'm not switched on for this
+              deployment yet" looked exactly like an answer to a question. The
+              rest are the credit system's, built here presentationally and
+              wired by the lane that owns the balance.
+            */}
+            <Section
+              id="notices"
+              title="When he says no"
+              note="A boundary is not a failure and neither is a spent balance — but both used to arrive as an ordinary speech bubble, indistinguishable from an answer. They are cards in the app's own geometry now, and he speaks them himself."
+            >
+              <Specimen
+                label="a boundary"
+                note="`onHttpError` 503 — nothing is wrong, this deployment simply does not have him switched on."
+              >
+                <DeckeNotice
+                  tone="neutral"
+                  title="I'm not switched on for this deployment yet."
+                  detail="Nothing is broken — there is just nobody home on this server."
+                />
+              </Specimen>
+              <Specimen label="something broke" note="the generic reach-my-brain failure. The only tone that borrows the error colour.">
+                <DeckeNotice
+                  tone="error"
+                  title="My brain glitched on that one."
+                  detail="Ask me again and I will have another go."
+                />
+              </Specimen>
+              <Specimen
+                label="out of credits"
+                note="FIXTURE BALANCE. He says it himself, in the first person — the owner chose that over a system banner — and the single action is the whole footer."
+              >
+                <DeckeNotice
+                  tone="limit"
+                  title={outOfCreditsLine()}
+                  detail={outOfCreditsDetail()}
+                  action={TOP_UP_LABEL}
+                  onAction={() => {}}
+                />
+              </Specimen>
+              <Specimen
+                label="the header chip"
+                note="FIXTURE BALANCES — 3 of 100, and 0 of 100. Nothing is shown at all above the threshold, which is most of the time; that absence is the design and cannot be photographed."
+              >
+                <div className="flex flex-wrap items-center gap-[12px]">
+                  <CreditChip label={creditHeaderLabel(LOW_CREDITS)} onTopUp={() => {}} />
+                  <CreditChip
+                    label={creditHeaderLabel(NO_CREDITS)}
+                    spent={creditState(NO_CREDITS) === 'empty'}
+                    onTopUp={() => {}}
+                  />
+                  <span className="text-[11px] text-text-muted">
+                    (a healthy balance renders nothing here)
+                  </span>
+                </div>
+              </Specimen>
+              <Specimen
+                label="the composer, replaced"
+                note="NOT DISABLED — replaced. Both boxes are the same 14px card in the same slot: an input that takes a question it cannot answer and shows a modal afterwards is the pretending this whole pass exists to remove, and a greyed one says the same thing more quietly."
+              >
+                <div className="flex flex-col gap-[10px] rounded-[10px] bg-canvas p-[16px]">
+                  <p className="text-[11px] uppercase tracking-wide text-text-muted">with credits</p>
+                  <DeckeComposer
+                    draft=""
+                    onDraftChange={() => {}}
+                    onSubmit={(e) => e.preventDefault()}
+                    busy={false}
+                    onStop={() => {}}
+                    bottomPad={false}
+                  />
+                  <p className="mt-[6px] text-[11px] uppercase tracking-wide text-text-muted">without</p>
+                  <DeckeNotice
+                    tone="limit"
+                    title={outOfCreditsLine()}
+                    detail={outOfCreditsDetail()}
+                    action={TOP_UP_LABEL}
+                    onAction={() => {}}
+                  />
+                </div>
+              </Specimen>
+            </Section>
+
+            {/*
+              HIS EXIT LINE. The pool and the component are real; the FLIGHT that
+              triggers it lives in `DeckeHost.tsx`, which is outside this pass's
+              edit surface — so nothing mounts this in the product yet, and
+              `DeckeFarewell`'s own header says so and gives the exact wiring.
+            */}
+            <Section
+              id="farewell"
+              title="On his way out"
+              note="Dismissing him is a departure, not a close-box. He flies back to his corner and leaves a line behind — a different one each time, never needy, and never a claim about a session he did not watch."
+            >
+              <Specimen
+                label="the label"
+                note="Positioned against a FIXTURE rect rather than his real one, since he is not on this page. It clamps into the viewport, takes no pointer events, and retires itself."
+              >
+                {/*
+                  `translateZ(0)` IS LOAD-BEARING, not a compositing hint. The
+                  label is `position: fixed` because in the product it floats
+                  over the page he is returning to. A transformed ancestor
+                  becomes the containing block for a fixed descendant, which is
+                  the only way to trap it inside a specimen box — without it the
+                  gallery would draw it over its own sticky toolbar.
+                */}
+                <div
+                  className="relative h-[110px] overflow-hidden rounded-[10px] bg-canvas"
+                  style={{ transform: 'translateZ(0)' }}
+                >
+                  <FarewellSpecimen />
+                </div>
+              </Specimen>
+              <Specimen label="the whole pool" note={`${FAREWELLS.length} lines. The rotation never repeats twice running.`}>
+                <ul className="flex flex-wrap gap-[6px]">
+                  {FAREWELLS.map((f) => (
+                    <li
+                      key={f.id}
+                      className="rounded-full border border-surface-tertiary px-[11px] py-[4px] text-[12px] leading-[17px] text-text-secondary"
+                    >
+                      {f.text}
+                    </li>
+                  ))}
+                </ul>
               </Specimen>
             </Section>
 

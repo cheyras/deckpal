@@ -38,7 +38,7 @@
  *   canvas  z-30   (owned by DeckeHost)
  *   modals  100 / toasts 9999 still paint over him, which is correct and rare.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { lockScroll, unlockScroll } from '../../components/ui/Sheet'
 import { Icon } from '../../components/Icon'
 import type { DeckEInstance } from './runtime'
@@ -46,6 +46,16 @@ import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
 import { ChatMarkdown } from './chat/ChatMarkdown'
 import { ThinkingRow } from './chat/ThinkingRow'
 import { ToolRow } from './chat/ToolRow'
+import { toolRowFromChip } from './chat/toolRowState'
+import { CreditChip, DeckeNotice } from './chat/DeckeNotice'
+import {
+  creditHeaderLabel,
+  creditState,
+  outOfCreditsDetail,
+  outOfCreditsLine,
+  TOP_UP_LABEL,
+  type CreditBalance,
+} from './chat/creditState'
 import { ApprovalCard } from './chat/ApprovalCard'
 import type { ApprovalPreview, Choices, RowChoice } from './chat/approvalCardState'
 import type { PendingApproval, ToolChip } from './useDeckeChat'
@@ -53,11 +63,15 @@ import {
   chooseOpeners,
   noteShown,
   openerStore,
+  readLastSaid,
   readOpenerLog,
   replyAnnouncement,
+  writeLastSaid,
   writeOpenerLog,
   type Opener,
 } from './deckeChatState'
+import { composeGreeting, GREETINGS, SUBHEADS } from './deckeVoice'
+import { useDeckeUserName } from './deckeIdentity'
 
 /**
  * WHERE HE STANDS WHILE THE CHAT IS OPEN.
@@ -108,6 +122,40 @@ const MAX_ROWS = 6
 const LINE = 22
 const PAD = 18
 
+/**
+ * ── THE SEND ARROW, AND WHY IT IS DRAWN HERE ─────────────────────────────────
+ *
+ * *"Let's have the icon be a proper arrow, actually pointing up rather than to
+ * the right, so an arrow with an actual stem."*
+ *
+ * `components/Icon.tsx` has no `arrow-up`. Its `chevron-*` set is deliberately
+ * stemless — a chevron is a direction, an arrow is an instruction — and the one
+ * stemmed arrow it owns, `download`, points the wrong way and carries a tray.
+ *
+ * **THIS BELONGS IN `Icon.tsx` AS `arrow-up`.** It is drawn locally because
+ * that file is outside this pass's edit surface, and it is drawn to the icon
+ * set's exact geometry — 24 viewBox, `currentColor`, 1.75 stroke, round caps,
+ * `aria-hidden` — so moving it there is a cut and paste rather than a redraw.
+ * The path is `download`'s, mirrored: one stem, one head.
+ */
+function SendArrow({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 20V5m0 0l-6 6m6-6l6 6" />
+    </svg>
+  )
+}
+
 
 /**
  * ── THE NEW-CHAT SCREEN'S HEADLINE ───────────────────────────────────────────
@@ -121,8 +169,21 @@ const PAD = 18
  *
  * So it is set as DISPLAY TEXT: 30px on desktop and 22px on a phone, tight
  * tracking, one clear line with the supporting sentence under it at a real step
- * down rather than a nudge. The words themselves are unchanged, because they
- * were already true and X2 does not get relaxed for a bigger font.
+ * down rather than a nudge.
+ *
+ * ── AND THE WORDS ARE HIS NOW, AND THEY MOVE ─────────────────────────────────
+ *
+ * The size was the first half. The second was that the sentence said
+ * **"Ask Deck-E about your collection"** — a caption about a character, in the
+ * third person, on a screen where that character is standing four inches to the
+ * left having just flown across the page to talk to you. And it described a
+ * SEARCH BOX: *"right now it's speaking mostly to being able to ask him
+ * questions about the collection, but I'd like it to be more like 'hey username,
+ * what's next'."*
+ *
+ * Both lines now come from `deckeVoice.ts`, vary per opening, know the hour, and
+ * use the reader's own name when `/me` has one. The pools carry the rules; this
+ * component just sets the type.
  *
  * CENTRED ONLY ON DESKTOP, for the reason the composer is: on a phone he
  * physically stands in the bottom-left corner of this panel, and text centred
@@ -130,7 +191,23 @@ const PAD = 18
  * rather than as centring. Left-aligned beside him is the honest arrangement at
  * that size.
  */
-export function DeckeEmptyIntro({ centred }: { centred: boolean }) {
+export function DeckeEmptyIntro({
+  centred,
+  greeting,
+  subhead,
+}: {
+  centred: boolean
+  /**
+   * HIS OWN WORDS, PASSED IN RATHER THAN COMPOSED HERE.
+   *
+   * The panel picks them once per opening (see `DeckeChat`) so they cannot
+   * change under somebody's finger on a re-render, and the gallery can pin a
+   * seed and photograph a known pair. Defaulted so a caller that has not been
+   * updated still renders a sentence rather than an empty heading.
+   */
+  greeting?: string
+  subhead?: string
+}) {
   return (
     <div className={centred ? 'text-center' : ''}>
       <h2
@@ -139,7 +216,7 @@ export function DeckeEmptyIntro({ centred }: { centred: boolean }) {
           centred ? 'text-[30px] leading-[38px]' : 'text-[22px] leading-[29px]',
         ].join(' ')}
       >
-        Ask Deck-E about your collection
+        {greeting ?? "What are we doing next?"}
       </h2>
       <p
         className={[
@@ -147,7 +224,7 @@ export function DeckeEmptyIntro({ centred }: { centred: boolean }) {
           centred ? 'mt-[10px] text-[15px] leading-[23px]' : 'mt-[6px] text-[13.5px] leading-[20px]',
         ].join(' ')}
       >
-        He can look things up, count what you own, and take you to it.
+        {subhead ?? SUBHEADS[0].text}
       </p>
     </div>
   )
@@ -237,6 +314,7 @@ export function DeckeComposer({
   inputRef,
   formRef,
   bottomPad = true,
+  bottomPadPx = 20,
 }: {
   draft: string
   onDraftChange: (next: string) => void
@@ -256,6 +334,20 @@ export function DeckeComposer({
    * would open a 40px hole between the box and its own suggestions.
    */
   bottomPad?: boolean
+  /**
+   * How much air under the card, in px, before the safe-area floor.
+   *
+   * *"Once we're in here it's too close to the bottom still — I want it up like
+   * double the amount."* 20 was already a fix — it was 12, and hard against the
+   * window edge — and it is right for the NEW-CHAT screen, where the composer is
+   * a centred object with a whole pane around it. In a conversation the box is
+   * the floor of a scrolling column and needs to feel like a floor, so
+   * `DeckeChat` passes 40 the moment there is a transcript.
+   *
+   * `max()` still wins on hardware with a home indicator, where the inset is
+   * larger than either number.
+   */
+  bottomPadPx?: number
 }) {
   const ownInput = useRef<HTMLTextAreaElement | null>(null)
   const input = inputRef ?? ownInput
@@ -296,7 +388,7 @@ export function DeckeComposer({
 
     // indicator, where the inset is larger than either number.
 
-    style={{ paddingBottom: bottomPad ? 'max(20px, env(safe-area-inset-bottom))' : 12 }}
+    style={{ paddingBottom: bottomPad ? `max(${bottomPadPx}px, env(safe-area-inset-bottom))` : 12 }}
 
   >
 
@@ -506,6 +598,46 @@ export function DeckeComposer({
 
     */}
 
+    {/*
+
+      A SEGMENT OF THE BOX, NOT A DISC BESIDE IT.
+
+      *"I'd like this circle button to be a segment of the chat box instead —
+
+      just a little square segment. Let's have the icon be a proper arrow,
+
+      actually pointing up rather than to the right, so an arrow with an actual
+
+      stem."*
+
+      Both halves are one idea. A `rounded-full` disc in a 14px card is a
+
+      DIFFERENT OBJECT sitting inside the composer; a 10px rounded square
+
+      shares the card's own geometry and reads as part of it, which is what
+
+      every composer this is measured against does. And a chevron pointing
+
+      right is a *next* glyph — it belongs on a carousel — while an arrow with
+
+      a real stem pointing UP is the send glyph the whole category has settled
+
+      on, and it means the thing the control does: this goes up into the
+
+      conversation.
+
+      `arrow-up` had to be added to `Icon`; the existing `chevron-*` set is
+
+      stemless by design and scaling one is how you get a fat tick.
+
+      36px rather than 40, because a square reads larger than a circle of the
+
+      same box — the corners are real area — and 40 made it the loudest thing
+
+      in the composer.
+
+    */}
+
     {busy ? (
 
       <button
@@ -516,11 +648,11 @@ export function DeckeComposer({
 
         aria-label="Stop"
 
-        className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-text-primary"
+        className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-[10px] bg-surface-tertiary text-text-primary"
 
       >
 
-        <span className="block h-[12px] w-[12px] rounded-[2px] bg-current" />
+        <span className="block h-[11px] w-[11px] rounded-[2px] bg-current" />
 
       </button>
 
@@ -534,11 +666,11 @@ export function DeckeComposer({
 
         aria-label="Send"
 
-        className="btn-fill-primary flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full text-action-primary-text motion-safe:transition-opacity disabled:opacity-40"
+        className="btn-fill-primary flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-[10px] text-action-primary-text motion-safe:transition-opacity disabled:opacity-40"
 
       >
 
-        <Icon name="chevron-right" size={18} />
+        <SendArrow />
 
       </button>
 
@@ -550,6 +682,60 @@ export function DeckeComposer({
   )
 }
 
+
+/**
+ * ── EVERYTHING HE SAYS ON ONE OPENING, PICKED ONCE ───────────────────────────
+ *
+ * A greeting, the line under it, and three openers. One function, one seed, one
+ * read of storage — because the three are read as a single utterance and there
+ * is no arrangement in which the greeting changing while the chips stay put
+ * looks like anything but a glitch.
+ *
+ * The name is NOT part of this. It arrives from `/me` at its own pace and is
+ * applied by `renderGreeting` afterwards, so a late-arriving name fills in the
+ * sentence that is already on screen rather than replacing it with a different
+ * one — see the comment at the call site.
+ */
+export type SaidThisOpening = {
+  greetingId: string
+  subheadId: string
+  subhead: string
+  openers: readonly Opener[]
+}
+
+export function chooseWhatToSay(opts: { seed?: number; now?: Date } = {}): SaidThisOpening {
+  const { seed, now } = opts
+  const store = openerStore()
+  const last = readLastSaid(store)
+  const g = composeGreeting({
+    now,
+    seed,
+    memory: { greetingId: last.greetingId, subheadId: last.subheadId },
+  })
+  return {
+    greetingId: g.greetingId,
+    subheadId: g.subheadId,
+    subhead: g.subhead,
+    openers: chooseOpeners(undefined, readOpenerLog(store), {
+      seed,
+      avoid: last.openerIds ?? [],
+    }),
+  }
+}
+
+/**
+ * The chosen greeting, with the name in it if we have one by now.
+ *
+ * Looks the pick up by id rather than re-rolling, so this is a pure formatting
+ * step and a late `/me` cannot change WHICH thing he said — only whether it uses
+ * your name. A pick that has been retired from the pool between two releases
+ * falls back to the first entry rather than to an empty heading.
+ */
+export function renderGreeting(said: SaidThisOpening, name: string | null): string {
+  const g = GREETINGS.find((x) => x.id === said.greetingId) ?? GREETINGS[0]
+  const trimmed = (name ?? '').trim()
+  return trimmed ? g.named.replace('{name}', trimmed) : g.anon
+}
 
 /** The mobile park box, as `DeckeHost` looks for it. */
 export const PARK_LANDMARK = 'data-decke-park'
@@ -728,6 +914,8 @@ export function DeckeChat({
   onRetryTool,
   desktop,
   characterPx,
+  credits,
+  onTopUp,
 }: {
   open: boolean
   /** He has gone out onto the page; the transcript gets out of the way. */
@@ -792,6 +980,20 @@ export function DeckeChat({
    * has even set off, and be right when he arrives.
    */
   characterPx: number
+  /**
+   * ── THE CREDIT BALANCE, IF THIS DEPLOYMENT HAS ONE ────────────────────────
+   *
+   * `undefined` — not loaded, or this build has no credit system. Renders
+   * EXACTLY as it does today: nothing in the header, an ordinary composer. The
+   * default is deliberately the state that shows nothing, so the presentational
+   * half can ship before the balance does without asserting anything.
+   *
+   * The daily "10 deep questions" cap is being replaced by a balance you top up.
+   * `creditState.ts` owns what counts as low and what he says when it is gone.
+   */
+  credits?: CreditBalance | null
+  /** Where "Top up" goes. Absent means no route yet, and the chip is not a button. */
+  onTopUp?: () => void
 }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const transcriptRef = useRef<HTMLDivElement | null>(null)
@@ -799,6 +1001,10 @@ export function DeckeChat({
   const composerRef = useRef<HTMLFormElement | null>(null)
   const [draft, setDraft] = useState('')
   const empty = messages.length === 0
+  // `spent` gates the composer, and nothing else about the panel. History,
+  // scrolling, the header and the approval card are all unaffected: running out
+  // of credits stops him taking NEW work, it does not close what is open.
+  const spent = creditState(credits ?? null) === 'empty'
 
   /**
    * THE COMPOSER STARTS IN THE MIDDLE AND DROPS ON THE FIRST MESSAGE.
@@ -861,14 +1067,27 @@ export function DeckeChat({
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant') ?? null
   const lastAssistantId = lastAssistant?.id ?? null
 
-  // ── The openers this viewer has not been shown lately ─────────────────────
+  // ── What he says, and what he offers, on the new-chat screen ──────────────
   //
   // CHOSEN ONCE PER OPENING, not per render. Re-running the choice on every
-  // keystroke would be free — it is a pass over six items — but it would also
-  // let the three chips change under someone's finger the moment the log was
-  // written, which is a worse bug than the one being fixed.
-  const [openers, setOpeners] = useState<readonly Opener[]>(() =>
-    chooseOpeners(undefined, readOpenerLog(openerStore())),
+  // keystroke would be nearly free — it is a pass over 24 items — but it would
+  // also let the greeting and the three chips change under someone's finger the
+  // moment the log was written, which is a worse bug than the one being fixed.
+  //
+  // ONE PICK FOR ALL THREE POOLS, for the same reason: a greeting that changed
+  // while the openers stayed put would read as a glitch rather than as variety.
+  const name = useDeckeUserName()
+  const [said, setSaid] = useState<SaidThisOpening>(() => chooseWhatToSay())
+
+  // THE NAME ARRIVES LATE, AND THE GREETING HAS TO SURVIVE THAT. `/me` is a real
+  // request; on a cold session it lands after the panel has opened. Re-composing
+  // when it arrives would swap the whole sentence a beat after it was read, so
+  // instead the CHOSEN greeting is re-rendered with the name filled in — same
+  // line, same rhythm, the reader's name appears in it. `composeGreeting` is
+  // deterministic given the id, so pinning the seed to it reproduces the pick.
+  const greeting = useMemo(
+    () => renderGreeting(said, name),
+    [said, name],
   )
 
   // RECORDED WHEN THEY ARE ACTUALLY ON SCREEN. Writing the sighting at choice
@@ -879,16 +1098,22 @@ export function DeckeChat({
     if (!open || !empty || openersLoggedRef.current) return
     openersLoggedRef.current = true
     const store = openerStore()
-    writeOpenerLog(store, noteShown(readOpenerLog(store), openers))
-  }, [open, empty, openers])
+    writeOpenerLog(store, noteShown(readOpenerLog(store), said.openers))
+    writeLastSaid(store, {
+      ...readLastSaid(store),
+      greetingId: said.greetingId,
+      subheadId: said.subheadId,
+      openerIds: said.openers.map((o) => o.id),
+    })
+  }, [open, empty, said])
 
-  // Closing re-arms the choice, so the NEXT opening reads the log written by
-  // this one. Doing it on close rather than on open means the fresh set is
-  // already in place before the panel animates in, with no swap mid-flight.
+  // Closing re-arms the choice, so the NEXT opening reads what this one wrote.
+  // Doing it on close rather than on open means the fresh set is already in
+  // place before the panel animates in, with no swap mid-flight.
   useEffect(() => {
     if (open) return
     openersLoggedRef.current = false
-    setOpeners(chooseOpeners(undefined, readOpenerLog(openerStore())))
+    setSaid(chooseWhatToSay())
   }, [open])
 
   // ── What a screen reader is told, and when ────────────────────────────────
@@ -1122,6 +1347,32 @@ export function DeckeChat({
     }
   }, [open, minimised, reflow])
 
+  /**
+   * Dismiss on a click that landed on nothing.
+   *
+   * See the comment at the transcript for why this is needed at all and what
+   * each guard is protecting. `DISMISS_SLOP` is generous enough to survive a
+   * trackpad twitch and far short of a scroll.
+   */
+  const downRef = useRef<{ x: number; y: number } | null>(null)
+  const onSurfaceDown = useCallback((e: React.PointerEvent) => {
+    downRef.current = { x: e.clientX, y: e.clientY }
+  }, [])
+  const onSurfaceClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.target !== e.currentTarget) return
+      const down = downRef.current
+      downRef.current = null
+      const DISMISS_SLOP = 6
+      if (down && Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > DISMISS_SLOP) return
+      // A release that finishes a text selection is not a dismissal. `toString()`
+      // is empty for a collapsed caret, which is what an ordinary click leaves.
+      if ((window.getSelection()?.toString() ?? '').length > 0) return
+      onClose()
+    },
+    [onClose],
+  )
+
   const submit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault()
@@ -1286,15 +1537,61 @@ export function DeckeChat({
             is directly above providing that edge. No safe-area padding here on
             purpose: the panel's top offset already clears the notch, so padding
             it again would push this row a second inset down the screen. */}
-        <header className="mx-auto flex w-full max-w-[760px] shrink-0 items-center justify-between px-[16px] py-[10px]">
-          <span className="text-[15px] font-semibold text-text-primary">Deck-E</span>
+        {/*
+          ── IT SPANS THE PANE, NOT THE MEASURE ──────────────────────────────
+
+          *"Let's have this be bigger — not a lot bigger, but bigger — and also
+          in Fraunces, and bring it over here. Let's also make the x button
+          bigger and bring it over here. That's just mirroring kind of what
+          claude.ai does."*
+
+          Two "over here"s and they are the same instruction. This row used to
+          be `mx-auto max-w-[760px]`, so on a 1,600px pane the name sat 400px in
+          from the left edge and the ✕ 400px in from the right — both floating
+          in the middle of the panel with a runway of nothing outside them,
+          aligned to a text measure that has nothing to do with chrome. Every
+          full-screen chat this is measured against puts its title hard against
+          the leading edge and its close hard against the trailing one, because
+          that is where the panel's edges ARE.
+
+          The transcript keeps its 760px measure. Prose wants a measure; chrome
+          wants the frame. They were one element and are now two.
+
+          FRAUNCES AT 17px, and the size is what makes the serif legal: the
+          `.font-display` block in `theme.css` says the display face "goes muddy
+          below ~14px" and 15 was inside the margin where it reads as a mistake.
+          17 is a real step up, still not a headline, and the name of a
+          character is exactly the "named thing that is not a heading" that
+          class exists for. `font-normal` because Fraunces at 400 already reads
+          heavier than the sans at 600 beside it.
+        */}
+        <header className="flex w-full shrink-0 items-center gap-[10px] px-[16px] py-[9px] nav:px-[22px]">
+          <span className="font-display text-[17px] font-normal leading-[24px] text-text-primary">
+            Deck-E
+          </span>
+          {/*
+            THE BALANCE LIVES HERE, AND ONLY WHEN IT IS GETTING LOW.
+
+            *"Nothing shown normally; once it is getting low, surface it in the
+            header and keep it there."* `creditHeaderLabel` returns `''` for a
+            healthy or unknown balance, so this renders nothing at all in the
+            ordinary case — which is most of the time and is the point.
+
+            Beside the name rather than beside the ✕: it is a fact about him, and
+            the trailing edge belongs to the one control that closes the panel.
+          */}
+          <CreditChip
+            label={creditHeaderLabel(credits ?? null)}
+            spent={creditState(credits ?? null) === 'empty'}
+            onTopUp={onTopUp}
+          />
           <button
             type="button"
             onClick={onClose}
             aria-label="Close chat"
-            className="pointer-events-auto flex h-[32px] w-[32px] items-center justify-center rounded-full text-icon-default hover:bg-surface-secondary hover:text-icon-hover"
+            className="pointer-events-auto ml-auto flex h-[38px] w-[38px] items-center justify-center rounded-full text-icon-default motion-safe:transition-colors hover:bg-surface-secondary hover:text-icon-hover"
           >
-            <Icon name="close" size={18} />
+            <Icon name="close" size={22} />
           </button>
         </header>
 
@@ -1400,14 +1697,52 @@ export function DeckeChat({
           `clientHeight` and the earliest messages cannot be scrolled to at all.
           That trap has already cost this codebase one unusable panel.
         */}
+        {/*
+          ── AND CLICKING THE EMPTY PART OF IT DISMISSES HIM ──────────────────
+
+          *"I'd like that functionality to be extended to when we're actually in
+          the chat as well."*
+
+          It already worked on the new-chat screen and stopped working the
+          moment anything was said, which looks like a bug in the scrim and is
+          not. The scrim is a real `<button>` underneath the panel, and the
+          panel is `pointer-events-none` so taps fall through to it — but the
+          transcript takes its events BACK, deliberately (a drag that started in
+          the padding band used to fall through and fail to scroll; that is
+          measured, in the comment above). Once there is a conversation the
+          transcript is `flex-1`, so it covers the pane, so nothing reaches the
+          scrim.
+
+          THE GUARDS ARE THE WHOLE OF IT, and each one is a way this could
+          become a panel that closes when you did not mean it to:
+
+           • **`target === currentTarget`** — the click landed on the scroller
+             itself or on the measure wrapper, i.e. genuinely empty space. A
+             click on a bubble, a row, a panel or a control never gets here.
+           • **A drag is not a click.** `pointerdown`/`pointerup` within 6px.
+             Flick-scrolling a phone transcript ends with your finger on empty
+             space essentially every time.
+           • **A selection is not a click.** He drag-selects tool rows on camera
+             and likes that he can; releasing a selection must not close the
+             panel underneath it.
+
+          What it does NOT guard is a click very near him — and it does not need
+          to, because he is painted by a canvas above this element and takes no
+          pointer events at all. The owner said that case is fine.
+        */}
         <div
           ref={transcriptRef}
+          onPointerDown={onSurfaceDown}
+          onClick={onSurfaceClick}
           className={[
             'decke-transcript-fade pointer-events-auto flex w-full flex-col overflow-y-auto',
             empty ? 'shrink-0' : 'flex-1',
           ].join(' ')}
         >
-          <div className="mx-auto flex min-h-full w-full max-w-[760px] flex-col px-[16px] pb-[12px]">
+          <div
+            onClick={onSurfaceClick}
+            className="mx-auto flex min-h-full w-full max-w-[760px] flex-col px-[16px] pb-[12px]"
+          >
           {empty ? (
             /*
               THE HEADLINE ONLY. The openers moved below the composer — see
@@ -1430,7 +1765,7 @@ export function DeckeChat({
               ].join(' ')}
             >
               <div className="decke-shift">
-                <DeckeEmptyIntro centred={desktop} />
+                <DeckeEmptyIntro centred={desktop} greeting={greeting} subhead={said.subhead} />
               </div>
               {/*
                 ON A PHONE THE OPENERS STAY ABOVE THE INPUT, and this is the one
@@ -1450,10 +1785,10 @@ export function DeckeChat({
                 components, same order in the DOM on desktop; the one thing that
                 moves is which side of the box they are on.
               */}
-              {!desktop ? (
+              {!desktop && !spent ? (
                 <div className="decke-shift">
                   <DeckeOpeners
-                    openers={openers}
+                    openers={said.openers}
                     onPick={(text) => {
                       setDraft(text)
                       inputRef.current?.focus()
@@ -1519,7 +1854,18 @@ export function DeckeChat({
                     if (part.kind === 'tool') {
                       return (
                         <ul key={part.id} className="decke-shift w-full self-start">
-                          <ToolRow data={part.chip} onRetry={onRetryTool} />
+                          {/*
+                            `toolRowFromChip` IS A BRIDGE AND IT IS TEMPORARY.
+                            `deny` emits its "nothing was written" row as
+                            `phase: 'ok'` — the phase for a call that SUCCEEDED
+                            — so a refusal drew a tick, which is the owner's
+                            *"there should be a little red x"*. The right fix is
+                            for `useDeckeChat` to emit `phase: 'declined'`; that
+                            file belongs to another lane, so the mapping lives in
+                            `toolRowState.ts` where it is pure and tested, and
+                            this is its one call site. Delete both together.
+                          */}
+                          <ToolRow data={toolRowFromChip(part.chip)} onRetry={onRetryTool} />
                         </ul>
                       )
                     }
@@ -1683,18 +2029,51 @@ export function DeckeChat({
           bottom of the screen.
         */}
         <div className="mx-auto w-full max-w-[760px]">
-        <DeckeComposer
-          draft={draft}
-          onDraftChange={setDraft}
-          onSubmit={submit}
-          busy={busy}
-          onStop={onStop}
-          dropPx={dropPx}
-          onDropEnd={() => setDropPx(0)}
-          inputRef={inputRef}
-          formRef={composerRef}
-          bottomPad={!(empty && desktop)}
-        />
+        {spent ? (
+          /*
+            ── OUT OF CREDITS: THE COMPOSER IS REPLACED, NOT DISABLED ─────────
+
+            The owner's ruling, and the reason it is a ruling rather than a
+            style: an input that is still there — greyed, or worse, live — takes
+            a question, swallows it, and shows a modal afterwards. That is the
+            PRETENDING this whole pass exists to remove. It is the same defect as
+            answering as though a cancelled write had happened, one surface
+            along, and a control that is gone cannot lie about what it will do.
+
+            The panel still OPENS and the transcript above is still readable, so
+            nothing they already have is taken away — which is the other half of
+            the ruling, and why this is not a modal in front of the conversation.
+
+            HE SAYS IT, IN THE FIRST PERSON. Not a system banner talking over a
+            character standing four inches to the left of it.
+          */
+          <div className="px-[16px]" style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
+            <DeckeNotice
+              tone="limit"
+              title={outOfCreditsLine()}
+              detail={outOfCreditsDetail()}
+              action={onTopUp ? TOP_UP_LABEL : undefined}
+              onAction={onTopUp}
+            />
+          </div>
+        ) : (
+          <DeckeComposer
+            draft={draft}
+            onDraftChange={setDraft}
+            onSubmit={submit}
+            busy={busy}
+            onStop={onStop}
+            dropPx={dropPx}
+            onDropEnd={() => setDropPx(0)}
+            inputRef={inputRef}
+            formRef={composerRef}
+            bottomPad={!(empty && desktop)}
+            // DOUBLE, ONCE THERE IS A CONVERSATION. See `bottomPadPx`: 20 is right
+            // for a composer centred in an empty pane and reads as cramped when the
+            // same box is the floor under a scrolling transcript.
+            bottomPadPx={empty ? 20 : 40}
+          />
+        )}
         </div>
         {/*
           UNDER THE COMPOSER — ON DESKTOP, AND ONLY BEFORE ANYTHING HAS BEEN
@@ -1708,14 +2087,14 @@ export function DeckeChat({
           Outside the composer's own padded wrapper so the chips clear the safe
           area on their own terms and the card's rounded corners keep their gap.
         */}
-        {empty && desktop ? (
+        {empty && desktop && !spent ? (
           <div
             className="pointer-events-auto mx-auto w-full max-w-[760px] shrink-0 px-[16px]"
             style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
           >
             <div className="decke-shift">
               <DeckeOpeners
-                openers={openers}
+                openers={said.openers}
                 onPick={(text) => {
                   setDraft(text)
                   inputRef.current?.focus()

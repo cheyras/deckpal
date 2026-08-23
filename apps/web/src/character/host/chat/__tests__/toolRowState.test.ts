@@ -15,7 +15,14 @@
  */
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { isFailedPhase, toolRowAppearance, type ToolPhase, type ToolRowData, hintFrom } from '../toolRowState'
+import {
+  hintFrom,
+  isFailedPhase,
+  toolRowAppearance,
+  toolRowFromChip,
+  type ToolPhase,
+  type ToolRowData,
+} from '../toolRowState'
 
 const row = (over: Partial<ToolRowData> = {}): ToolRowData => ({
   id: 't1',
@@ -166,4 +173,78 @@ test('hintFrom refuses to cut a long word in half', () => {
   assert.equal(hintFrom(''), undefined)
   assert.equal(hintFrom(undefined), undefined)
   assert.equal(hintFrom('short enough'), 'short enough')
+})
+
+// ── The refusal row ──────────────────────────────────────────────────────────
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * "LEAVE IT" DREW A CHECK MARK.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * *"There's a check mark here and there shouldn't be. That should be like a
+ * little red x — nothing was written, you cancelled it."*
+ *
+ * The row exists because a refusal that left NO mark let his next sentence read
+ * as though the write had happened — a real report. But `deny` emits it with
+ * `phase: 'ok'`, which is the phase for a call that RAN AND SUCCEEDED, so the
+ * fix for "the transcript never said it was cancelled" shipped a transcript that
+ * said it was done.
+ *
+ * MUTATION: make `toolRowFromChip` the identity function and every assertion
+ * below goes red. Watched.
+ */
+test('a refusal is recognised by the id `deny` actually builds', () => {
+  const declined = toolRowFromChip({
+    id: 'call_a7f3-declined',
+    name: 'log_cards',
+    title: 'Nothing was written',
+    phase: 'ok',
+    summary: 'You left it, so nothing changed.',
+  })
+  assert.equal(declined.phase, 'declined')
+
+  const a = toolRowAppearance(declined)
+  assert.equal(a.tone, 'declined')
+  assert.equal(a.label, 'Cancelled', 'the word, not just the glyph')
+  assert.match(a.announce, /nothing was written/i, 'the consequence is what has to be announced')
+  assert.equal(a.canRetry, false, 'there is nothing to retry — they said no on purpose')
+})
+
+/**
+ * MUTATION: drop the `chip.phase === 'ok'` half of the predicate and the second
+ * assertion goes red. Both halves must match so that the day `useDeckeChat`
+ * emits a real `declined` phase, this bridge simply stops firing rather than
+ * fighting it.
+ */
+test('the bridge is narrow: an ordinary success is left exactly alone', () => {
+  const ok = { id: 'call_b1', name: 'set_progress', title: 'Checked set completion', phase: 'ok' as const }
+  assert.equal(toolRowFromChip(ok), ok, 'an unrelated row must not even be copied')
+  const failed = {
+    id: 'call_c2-declined',
+    name: 'log_cards',
+    title: 'Adding to your collection',
+    phase: 'error' as const,
+  }
+  assert.equal(toolRowFromChip(failed).phase, 'error', 'a FAILURE that happens to end in -declined stays a failure')
+})
+
+/**
+ * A CANCELLATION IS NOT A FAILURE, AND MUST NOT LOOK LIKE ONE.
+ *
+ * MUTATION: map `declined` to the `danger` tone and this goes red. A red band
+ * across the transcript would tell somebody their own deliberate decision was a
+ * problem — and it would sit beside real failures, which is where the loud
+ * treatment has to keep its meaning.
+ */
+test('a cancellation stays as quiet as a success', () => {
+  const a = toolRowAppearance({
+    id: 'x-declined',
+    name: 'log_cards',
+    title: 'Nothing was written',
+    phase: 'declined',
+  })
+  assert.notEqual(a.tone, 'danger')
+  assert.notEqual(a.tone, 'warn')
+  assert.equal(a.live, 'off', 'they pressed it themselves; it must not interrupt')
 })
