@@ -63,7 +63,18 @@
 
 /** What a chip looks like to this decision. Deliberately not the whole `ToolChip`. */
 export type BeatInput = {
-  phase: 'start' | 'progress' | 'ok' | 'partial' | 'error'
+  /**
+   * `declined` is listed and deliberately earns no beat.
+   *
+   * The allow-list below IS the rule — a phase that is not on it produces
+   * nothing — so widening this type is all that is needed, and that is the
+   * point: a nod on a refusal would have him agreeing enthusiastically with
+   * somebody cancelling his work. `partial` and `error` are silent for the same
+   * reason (Crolic et al. 2022: warmth on a bad outcome reads worse than
+   * neutrality), and a decline is the reader's decision rather than a failure,
+   * so it gets the quietest treatment of all: none.
+   */
+  phase: 'start' | 'progress' | 'ok' | 'partial' | 'error' | 'declined'
   /** True only when a `progress` chip carries a note it did not carry before. */
   noteIsNew?: boolean
 }

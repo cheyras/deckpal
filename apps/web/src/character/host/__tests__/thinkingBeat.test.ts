@@ -91,3 +91,14 @@ test('the thinking beat is a DIFFERENT gesture from the answer-arriving beat', (
   // moments would blur into one gesture and C21's "break it up" would be lost.
   assert.notEqual(beatForChip({ phase: 'ok' }, fresh())?.state, 'curious')
 })
+
+test('a DECLINED call earns no beat — he does not nod at being cancelled', () => {
+  // `deny` now emits `phase: 'declined'` rather than `ok`. If the allow-list
+  // ever became a deny-list, this would silently start firing: he would nod
+  // enthusiastically at the moment someone cancelled his work, which is the
+  // same failure as the check mark the declined row replaced.
+  assert.equal(
+    beatForChip({ phase: 'declined' }, { lastBeatAt: null, now: 0, reduced: false }),
+    null,
+  )
+})

@@ -44,6 +44,9 @@ import {
 import { deckeHidden, onDeckeVisibilityChange } from '../deckePreference'
 import { MARK_SETTLE_MS, MARK_WATCH_MS, markMoved, type MarkBox } from './markWatch'
 import { DeckeBubble, type Rect } from './DeckeBubble'
+import { DeckeFarewell } from './DeckeFarewell'
+import { pickFarewell } from './deckeVoice'
+import { openerStore, readLastSaid, writeLastSaid } from './deckeChatState'
 import { useDeckeChat } from './useDeckeChat'
 import {
   acquireDeckE,
@@ -204,6 +207,17 @@ export function DeckeHost() {
   )
   /** Where he is on screen, sampled while he is out on the page. */
   const [himRect, setHimRect] = useState<Rect | null>(null)
+  /**
+   * The line he leaves behind on his way back to his corner.
+   *
+   * *"He can kind of go back over into his chat bubble and maybe a little
+   * message comes up that's like 'I'll be right here when you need me'."*
+   *
+   * It lives HERE and not in the panel because `DeckeChat` returns `null` the
+   * moment `open` goes false — which is the same tick the farewell has to
+   * appear. The words, the pool and the no-repeat rule are `deckeVoice.ts`.
+   */
+  const [farewell, setFarewell] = useState<{ text: string; at: number } | null>(null)
   /** True while he is away from the chat doing something on the page. */
   const [travelling, setTravelling] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -1061,6 +1075,19 @@ export function DeckeHost() {
           // to do neither, so closing while he was asking permission parked the
           // turn for the life of the page — verified, not suspected.
           chat.close()
+          // HIS LINE IS PICKED BEFORE THE PANEL GOES, because picking it after
+          // means picking it on a tick where nothing is left to say it.
+          //
+          // The last id is persisted rather than held in a ref: the no-repeat
+          // rule is about what a PERSON last heard, and they close the panel far
+          // more often than they reload the page — a ref would let the same line
+          // greet them twice across two visits and read as a canned response,
+          // which the research says is the one thing worse than no line at all.
+          const store = openerStore()
+          const said = readLastSaid(store)
+          const bye = pickFarewell({ avoid: said.farewellId ?? null })
+          writeLastSaid(store, { ...said, farewellId: bye.id })
+          setFarewell({ text: bye.text, at: Date.now() })
           setChatOpen(false)
         }}
         decke={live}
@@ -1091,6 +1118,18 @@ export function DeckeHost() {
           })()}
           himRect={himRect}
           avoidSelector={live?.getState().highlighted ?? null}
+        />
+      ) : null}
+
+      {/* The line he leaves as he goes. Survives the panel unmounting — that is
+          the whole reason it is mounted out here — and retires itself after
+          `FAREWELL_MS`. It takes no pointer events and moves no layout. */}
+      {farewell ? (
+        <DeckeFarewell
+          key={farewell.at}
+          text={farewell.text}
+          himRect={himRect}
+          onDone={() => setFarewell(null)}
         />
       ) : null}
     </>
