@@ -100,6 +100,457 @@ export const STAND_DESKTOP = { x: 0.36, y: 0.58 }
  */
 export const COMPOSER_LANDMARK = 'data-decke-composer'
 
+/** The composer's auto-grow bounds. One line to six, then it scrolls: unbounded,
+ *  one long dictated list would push the conversation off the top of the panel
+ *  and take his mark with it, since his height is measured from this card. */
+const MIN_ROWS = 1
+const MAX_ROWS = 6
+const LINE = 22
+const PAD = 18
+
+
+/**
+ * ── THE NEW-CHAT SCREEN'S HEADLINE ───────────────────────────────────────────
+ *
+ * THE MOST-SEEN SCREEN IN THE WHOLE FEATURE. Every conversation starts here and
+ * most sessions never leave it, and until now it was a 15px semibold line and a
+ * 13px grey one — the size of a form-field label, sitting above a composer, in
+ * a pane that is most of a 1,600px display. The owner's word for it was "lame",
+ * and the specific ask was *"big, well-set text above a centred composer, the
+ * way claude.ai does it."*
+ *
+ * So it is set as DISPLAY TEXT: 30px on desktop and 22px on a phone, tight
+ * tracking, one clear line with the supporting sentence under it at a real step
+ * down rather than a nudge. The words themselves are unchanged, because they
+ * were already true and X2 does not get relaxed for a bigger font.
+ *
+ * CENTRED ONLY ON DESKTOP, for the reason the composer is: on a phone he
+ * physically stands in the bottom-left corner of this panel, and text centred
+ * inside a column that is being indented around him reads as misalignment
+ * rather than as centring. Left-aligned beside him is the honest arrangement at
+ * that size.
+ */
+export function DeckeEmptyIntro({ centred }: { centred: boolean }) {
+  return (
+    <div className={centred ? 'text-center' : ''}>
+      <h2
+        className={[
+          'text-balance font-semibold tracking-[-0.02em] text-text-primary',
+          centred ? 'text-[30px] leading-[38px]' : 'text-[22px] leading-[29px]',
+        ].join(' ')}
+      >
+        Ask Deck-E about your collection
+      </h2>
+      <p
+        className={[
+          'text-pretty text-text-secondary',
+          centred ? 'mt-[10px] text-[15px] leading-[23px]' : 'mt-[6px] text-[13.5px] leading-[20px]',
+        ].join(' ')}
+      >
+        He can look things up, count what you own, and take you to it.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * ── THE OPENERS, NOW UNDER THE COMPOSER ──────────────────────────────────────
+ *
+ * Three real openers rather than a list of capabilities. A feature tour tells
+ * someone what a thing can do; a prompt they can press shows them, and it
+ * solves the harder problem — nobody knows what to type first. They fill the
+ * composer rather than sending, so pressing one is a suggestion and not a
+ * commitment.
+ *
+ * They are deliberately GENERIC. Openers drawn from what this reader actually
+ * owns would be better and are worth doing, but they need a collection read at
+ * panel-open time, and a starting screen that waits on a request is a starting
+ * screen that is sometimes blank.
+ *
+ * THEY MOVED BELOW THE INPUT. Above it they were a third band of chrome between
+ * the heading and the box, so the eye met the suggestions before it met the
+ * thing they are suggestions FOR. Under the composer they read as an
+ * afterthought in the useful sense — the box is the offer, these are ways to
+ * take it — which is the arrangement every full-screen chat this is measured
+ * against uses.
+ */
+export function DeckeOpeners({
+  openers,
+  onPick,
+  centred,
+}: {
+  openers: readonly { readonly id: string; readonly text: string }[]
+  onPick: (text: string) => void
+  centred: boolean
+}) {
+  return (
+    <ul className={['flex flex-wrap gap-[8px]', centred ? 'justify-center' : ''].join(' ')}>
+      {openers.map((o) => (
+        <li key={o.id}>
+          <button
+            type="button"
+            onClick={() => onPick(o.text)}
+            className={[
+              // A QUIETER CHIP. It was `bg-surface-secondary` with a full
+              // `border-default` — the same weight as the composer card it sat
+              // above, so three of them read as three more cards. A chip is a
+              // suggestion; it should sit BELOW the surface it offers to fill,
+              // not level with it.
+              'rounded-full border border-surface-tertiary bg-transparent',
+              'px-[13px] py-[7px] text-[13px] leading-[18px] text-text-secondary',
+              'motion-safe:transition-colors hover:border-border-default hover:bg-surface-secondary',
+              'hover:text-text-primary focus-visible:outline focus-visible:outline-2',
+              'focus-visible:outline-offset-2 focus-visible:outline-border-focus',
+            ].join(' ')}
+          >
+            {o.text}
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/**
+ * ── THE COMPOSER, AS ITS OWN COMPONENT ───────────────────────────────────────
+ *
+ * Lifted out of the panel for one reason and it is not tidiness: the empty
+ * screen — the most-seen surface in the whole feature — could not be reviewed.
+ * `/dev/chat-ui` renders every chat state from the REAL components, and the
+ * new-chat screen is a heading, a composer and a row of openers arranged around
+ * each other. With the composer welded into a 1,400-line panel that needs a
+ * live `useDeckeChat`, the gallery could only have shown the heading, which
+ * would have made it the one surface still reviewed by reading the code.
+ *
+ * The prop boundary was already there — draft, submit, busy, stop — so this is
+ * a move rather than a redesign. Its height measurement and the auto-grow state
+ * came with it, because nothing outside ever read them.
+ */
+export function DeckeComposer({
+  draft,
+  onDraftChange,
+  onSubmit,
+  busy,
+  onStop,
+  dropPx = 0,
+  onDropEnd,
+  inputRef,
+  formRef,
+  bottomPad = true,
+}: {
+  draft: string
+  onDraftChange: (next: string) => void
+  onSubmit: (e: React.FormEvent) => void
+  busy: boolean
+  onStop: () => void
+  /** The FLIP distance when the composer drops out of the middle. 0 = no flourish. */
+  dropPx?: number
+  onDropEnd?: () => void
+  inputRef?: React.RefObject<HTMLTextAreaElement | null>
+  formRef?: React.RefObject<HTMLFormElement | null>
+  /**
+   * Whether this composer is the LAST thing in the column.
+   *
+   * It normally carries the panel's whole bottom inset. On the new-chat screen
+   * the openers sit under it and carry that inset instead, so stacking both
+   * would open a 40px hole between the box and its own suggestions.
+   */
+  bottomPad?: boolean
+}) {
+  const ownInput = useRef<HTMLTextAreaElement | null>(null)
+  const input = inputRef ?? ownInput
+
+  /**
+   * The composer's height, measured from its own content.
+   *
+   * MEASURED RATHER THAN COUNTED. Counting a newline is wrong the moment a line
+   * wraps, which for a dictated card list is immediately. Setting the height to
+   * `auto` and reading `scrollHeight` back is what the browser already knows.
+   *
+   * `useLayoutEffect` so it lands before paint — after paint, every keystroke
+   * that adds a line shows one frame at the old height first, which reads as a
+   * stutter on exactly the input someone is looking at while they type.
+   */
+  const [composerH, setComposerH] = useState(MIN_ROWS * LINE + PAD)
+  useLayoutEffect(() => {
+    const el = input.current
+    if (!el) return
+    el.style.height = 'auto'
+    const next = Math.min(el.scrollHeight, MAX_ROWS * LINE + PAD)
+    el.style.height = `${next}px`
+    setComposerH(next)
+  }, [draft, input])
+
+  return (
+  <div
+
+    className="pointer-events-auto shrink-0 px-[16px]"
+
+    // 20px, not 12. At 12 the composer sat hard against the bottom edge
+
+    // of the window — "really fucking close to the bottom in a way that
+
+    // looks bad". Every full-screen chat this is measured against leaves
+
+    // appreciably more. `max()` still wins on hardware with a home
+
+    // indicator, where the inset is larger than either number.
+
+    style={{ paddingBottom: bottomPad ? 'max(20px, env(safe-area-inset-bottom))' : 12 }}
+
+  >
+
+  <form
+
+    ref={formRef}
+
+    onSubmit={onSubmit}
+
+    // MEASURED BY `DeckeHost` TO DECIDE HOW TALL HE IS. His size used to
+
+    // be a viewport fraction capped at 300px, which on a laptop made him
+
+    // as tall as he is when nobody is talking to him — standing in the
+
+    // middle of the conversation with his shoulders across it. He is
+
+    // beside a composer now, so the composer is what he is scaled
+
+    // against, and the two cannot drift because there is only one number.
+
+    {...{ [COMPOSER_LANDMARK]: '' }}
+
+    style={dropPx ? ({ '--decke-drop': `${dropPx}px` } as React.CSSProperties) : undefined}
+
+    className={[
+
+      'decke-composer decke-composer-card flex items-end gap-[8px] p-[8px]',
+
+      dropPx
+
+        ? 'motion-safe:animate-[decke-composer-drop_360ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]'
+
+        : '',
+
+    ].join(' ')}
+
+    onAnimationEnd={onDropEnd}
+
+  >
+
+    {/*
+
+      A TEXTAREA THAT GROWS, not a single-line input.
+
+
+
+      This is the control the owner singled out — *"I don't really like
+
+      the design of the input at all"* — and putting a card around a 40px
+
+      `<input>` restyled everything except it. One line is the actual
+
+      complaint: he dictates card lists to an assistant, and "add a
+
+      Charizard, two Pikachu and the reverse holo Gardevoir" scrolls out
+
+      of sight while you are still typing it, so you cannot read back what
+
+      you are about to send.
+
+
+
+      THE CONTROLS SIT AT THE BOTTOM OF THE CARD, not at its middle.
+      `items-center` is identical to `items-end` at one row — the box and the
+      button are both 40px — and wrong at six, where a centred send button
+      floats halfway up a block of the reader's own text with nothing beside
+      it. beautiful-ui's Prompt Bar reflows its whole control row under a tall
+      draft for the same reason; this is the one-control version of that, and
+      it is the part of that reference which is real here.
+
+      WHAT IS DELIBERATELY NOT HERE: an attach button, a model picker, a
+      dictation toggle. The Prompt Bar has all three and they are the most
+      copied thing on that page, but there is no attachment path into
+      `useDeckeChat`, no second model to choose between, and no speech
+      pipeline — so each would be a control that opens nothing, which is worse
+      than an empty row. The row is one send button because one action exists.
+      When a second one does, this is where it goes.
+
+      ENTER SENDS, SHIFT+ENTER BREAKS THE LINE. That is the convention
+
+      everywhere this is used, and getting it the other way round makes
+
+      the common action two keys.
+
+
+
+      It grows to six lines and then scrolls: unbounded, one long dictated
+
+      list would push the conversation off the top of the panel and take
+
+      his mark with it, since his height is measured from this card.
+
+    */}
+
+    <textarea
+
+      ref={input}
+
+      value={draft}
+
+      rows={1}
+
+      onChange={(e) => onDraftChange(e.target.value)}
+
+      onKeyDown={(e) => {
+
+        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+
+          e.preventDefault()
+
+          onSubmit(e)
+
+        }
+
+      }}
+
+      // SHORT ENOUGH TO FIT BESIDE HIM, AND THE BAR IS LOWER THAN IT LOOKS.
+
+      //
+
+      // He legitimately occupies ~129px of a 393px phone — he stands
+
+      // beside the composer by design — which leaves the field about
+
+      // 174px. "Ask about your collection…" needs 190 and truncated
+
+      // mid-word. "Ask about your cards…" was the fix and was still too
+
+      // long: PHOTOGRAPHED at 390px it wrapped to "Ask about your" +
+
+      // "cards", and the second line was CLIPPED.
+
+      //
+
+      // Clipped rather than shown, because an empty textarea's
+
+      // `scrollHeight` is one row — a placeholder is not content, so it
+
+      // contributes nothing to the height the auto-grow effect measures.
+
+      // The box is sized for one line while the placeholder needs two.
+
+      // Growing the box instead would make an empty composer two rows
+
+      // tall on every phone, which is worse than a shorter word.
+
+      //
+
+      // The empty state above says the long version in full; this only
+
+      // has to say the box is for typing.
+
+      placeholder="Ask Deck-E…"
+
+      aria-label="Message Deck-E"
+
+      className={[
+
+        'min-w-0 flex-1 resize-none bg-transparent px-[10px] py-[9px]',
+
+        'text-[14px] leading-[22px] text-text-primary outline-none',
+
+        'placeholder:text-text-muted',
+
+      ].join(' ')}
+
+      style={{ height: composerH }}
+
+    />
+
+    {/*
+
+      STOP, AND IT IS THE SAME BUTTON.
+
+
+
+      `useDeckeChat` has returned a `stop()` since it was written and
+
+      NOTHING EVER CALLED IT. Worse, `submit` early-returns while `busy`,
+
+      so sending again could not abort either — measured: with an
+
+      interrupt typed and entered, the leg streamed 47 KB to completion.
+
+      There was no reachable way to stop a turn at all.
+
+
+
+      That is not a cosmetic gap. Everything downstream is built to honour
+
+      an abort — the RLS session destroys its connection, the API client
+
+      drops its wait, a deep sub-agent stops billing Opus — and none of it
+
+      could ever fire, because the signal had no source. A deep turn is
+
+      now up to five minutes long; a reader who has changed their mind
+
+      needs a way to say so that is not closing the tab.
+
+
+
+      One button rather than two, because the composer is 40px of a phone
+
+      screen and "send" and "stop" are never both available.
+
+    */}
+
+    {busy ? (
+
+      <button
+
+        type="button"
+
+        onClick={onStop}
+
+        aria-label="Stop"
+
+        className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-text-primary"
+
+      >
+
+        <span className="block h-[12px] w-[12px] rounded-[2px] bg-current" />
+
+      </button>
+
+    ) : (
+
+      <button
+
+        type="submit"
+
+        disabled={!draft.trim()}
+
+        aria-label="Send"
+
+        className="btn-fill-primary flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full text-action-primary-text motion-safe:transition-opacity disabled:opacity-40"
+
+      >
+
+        <Icon name="chevron-right" size={18} />
+
+      </button>
+
+    )}
+
+  </form>
+
+  </div>
+  )
+}
+
+
 /** The mobile park box, as `DeckeHost` looks for it. */
 export const PARK_LANDMARK = 'data-decke-park'
 
@@ -398,31 +849,7 @@ export function DeckeChat({
    * tool for three minutes is ONE wait as far as the person waiting is
    * concerned, however many requests it took underneath.
    */
-  /**
-   * The composer's height, measured from its own content.
-   *
-   * MEASURED RATHER THAN COUNTED. Counting `
-` is wrong the moment a line
-   * wraps, which for a dictated card list is immediately. Setting the height to
-   * `auto` and reading `scrollHeight` back is what the browser already knows.
-   *
-   * `useLayoutEffect` so it lands before paint — after paint, every keystroke
-   * that adds a line shows one frame at the old height first, which reads as a
-   * stutter on exactly the input someone is looking at while they type.
-   */
-  const MIN_ROWS = 1
-  const MAX_ROWS = 6
-  const LINE = 22
-  const PAD = 18
-  const [composerH, setComposerH] = useState(MIN_ROWS * LINE + PAD)
-  useLayoutEffect(() => {
-    const el = inputRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    const next = Math.min(el.scrollHeight, MAX_ROWS * LINE + PAD)
-    el.style.height = `${next}px`
-    setComposerH(next)
-  }, [draft])
+
 
   const [turnStartedAt, setTurnStartedAt] = useState(0)
   const wasBusyRef = useRef(false)
@@ -887,7 +1314,9 @@ export function DeckeChat({
         */}
         <div
           className={[
-            'mx-auto flex w-full min-h-0 max-w-[760px] flex-1 flex-col',
+            // FULL WIDTH, and the 760px measure moved INSIDE. See the scroller
+            // below: what scrolls has to be the pane, not a strip in it.
+            'flex w-full min-h-0 flex-1 flex-col',
             // CENTRED ONLY ON DESKTOP. On a phone the composer belongs at the
             // bottom, under the thumb, where the software keyboard will not
             // cover it — and where his park box is, which is the other half:
@@ -950,73 +1379,89 @@ export function DeckeChat({
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
           {announcement}
         </div>
+        {/*
+          THE SCROLLBAR BELONGS AT THE WINDOW'S EDGE.
+
+          This element used to be inside the `max-w-[760px]` column, so the
+          scrollbar was drawn down the middle of the pane, floating beside the
+          text with a foot of empty pane to the right of it. Nothing else does
+          that — not claude.ai, not any full-screen chat, not this app's own
+          pages — and it is one of those details that reads as "unfinished"
+          without the reader being able to name why.
+
+          So the SCROLLER is the full-width, full-height column and the MEASURE
+          is a wrapper inside it. The two jobs were always separate and had been
+          done by one element.
+
+          `min-h-full` plus `flex-col` on that wrapper keeps `mt-auto` on the
+          message list working: bottom-alignment is still an auto margin and
+          never `justify-end`, because content pushed past a flex container's
+          START edge is unreachable — `scrollHeight` comes back equal to
+          `clientHeight` and the earliest messages cannot be scrolled to at all.
+          That trap has already cost this codebase one unusable panel.
+        */}
         <div
           ref={transcriptRef}
           className={[
-            'decke-transcript-fade pointer-events-auto flex flex-col overflow-y-auto px-[16px] pb-[12px]',
+            'decke-transcript-fade pointer-events-auto flex w-full flex-col overflow-y-auto',
             empty ? 'shrink-0' : 'flex-1',
           ].join(' ')}
         >
+          <div className="mx-auto flex min-h-full w-full max-w-[760px] flex-col px-[16px] pb-[12px]">
           {empty ? (
             /*
-              THE MOST-SEEN SCREEN IN THE WHOLE FEATURE, and it used to be one
-              grey sentence. Every conversation starts here and most sessions
-              never leave it, so it is worth more than a placeholder.
+              THE HEADLINE ONLY. The openers moved below the composer — see
+              `DeckeOpeners` — so what sits here is the one block of display text
+              that the composer is the foot of.
 
-              Three real openers rather than a list of capabilities. A feature
-              tour tells someone what a thing can do; a prompt they can press
-              shows them, and it solves the harder problem — nobody knows what
-              to type first. They fill the composer rather than sending, so
-              pressing one is a suggestion and not a commitment.
-
-              They are deliberately GENERIC. Openers drawn from what this reader
-              actually owns would be better and are worth doing, but they need a
-              collection read at panel-open time, and a starting screen that
-              waits on a request is a starting screen that is sometimes blank.
-            */
-            /*
               THE GUTTER IS PER-ELEMENT, NOT PER-BLOCK, and that is the whole
-              reason `decke-shift` sits on the children rather than on the
-              wrapper. He stands in the bottom-left corner, so only the things
-              actually beside him need to move out of his way — but a single
-              `decke-shift` on the wrapper indents the WHOLE block the moment
-              its bottom edge overlaps him, which pushed a heading two hundred
+              reason `decke-shift` sits on the child rather than on the wrapper.
+              He stands in the bottom-left corner, so only the things actually
+              beside him need to move out of his way — but a single
+              `decke-shift` on the wrapper indents the WHOLE block the moment its
+              bottom edge overlaps him, which pushed a heading two hundred
               pixels above his head into a narrow column and wrapped it. It read
               as broken alignment rather than as a character standing there.
-              `reflow` marks each element clear on its own geometry, so with the
-              class on the children the heading stays full width and only the
-              chips beside him step aside.
             */
-            <div className="flex flex-col items-start gap-[14px] py-[8px]">
+            <div
+              className={[
+                'flex flex-col items-stretch py-[8px]',
+                desktop ? 'pb-[26px]' : 'gap-[16px] pb-[16px]',
+              ].join(' ')}
+            >
               <div className="decke-shift">
-                <p className="text-[15px] font-semibold leading-[22px] text-text-primary">
-                  Ask Deck-E about your collection
-                </p>
-                <p className="mt-[2px] text-[13px] leading-[19px] text-text-muted">
-                  He can look things up, count what you own, and take you to it.
-                </p>
+                <DeckeEmptyIntro centred={desktop} />
               </div>
-              <ul className="decke-shift flex flex-wrap gap-[8px]">
-                {openers.map((o) => (
-                  <li key={o.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDraft(o.text)
-                        inputRef.current?.focus()
-                      }}
-                      className={[
-                        'rounded-full border border-border-default bg-surface-secondary',
-                        'px-[12px] py-[6px] text-[13px] leading-[18px] text-text-body',
-                        'hover:bg-surface-tertiary focus-visible:outline focus-visible:outline-2',
-                        'focus-visible:outline-offset-2 focus-visible:outline-border-focus',
-                      ].join(' ')}
-                    >
-                      {o.text}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              {/*
+                ON A PHONE THE OPENERS STAY ABOVE THE INPUT, and this is the one
+                place the claude.ai arrangement does not survive the translation.
+
+                Desktop puts them under the composer because that is where a
+                new-chat screen puts them and there is a whole pane of room. A
+                phone has neither half of that: the composer is pinned to the
+                BOTTOM (`justify-end`, so the software keyboard cannot cover
+                it), so "under the composer" is the last 40px of the screen —
+                and it is also where Deck-E physically stands. Photographed at
+                390px, three chips below the box ran under his head and the
+                third one was half a character wide.
+
+                Above the input on a phone they have the whole empty screen to
+                sit in, and `decke-shift` steps them clear of him. Same
+                components, same order in the DOM on desktop; the one thing that
+                moves is which side of the box they are on.
+              */}
+              {!desktop ? (
+                <div className="decke-shift">
+                  <DeckeOpeners
+                    openers={openers}
+                    onPick={(text) => {
+                      setDraft(text)
+                      inputRef.current?.focus()
+                    }}
+                    centred={false}
+                  />
+                </div>
+              ) : null}
             </div>
           ) : (
             <ul className="pointer-events-auto mt-auto flex flex-col gap-[10px]">
@@ -1137,6 +1582,7 @@ export function DeckeChat({
               ))}
             </ul>
           )}
+          </div>
         </div>
 
         {/*
@@ -1158,7 +1604,7 @@ export function DeckeChat({
           and never while the view is already at the end.
         */}
         {!empty && !atLatest ? (
-          <div className="relative z-[1] h-0 w-full">
+          <div className="relative z-[1] mx-auto h-0 w-full max-w-[760px]">
             <button
               type="button"
               onClick={jumpToLatest}
@@ -1191,9 +1637,10 @@ export function DeckeChat({
           the reader's collection, and the default posture should be no.
         */}
         {asking?.length ? (
+          <div className="mx-auto w-full max-w-[760px]">
           <ApprovalCard
             title={asking[0].title}
-            count={asking.length}
+            heldCalls={asking.length}
             // KEYED TO THE HELD CALL, which fixes a trust defect by
             // construction. This used to be `previewOf(messages)`, which
             // scanned BACKWARDS for the most recent finished tool call of any
@@ -1209,6 +1656,7 @@ export function DeckeChat({
             onDeny={onDeny}
             busy={approvalBusy}
           />
+          </div>
         ) : null}
 
         {/*
@@ -1234,131 +1682,49 @@ export function DeckeChat({
           look, so the card's rounded corners never end up hard against the
           bottom of the screen.
         */}
-        <div
-          className="pointer-events-auto shrink-0 px-[16px]"
-          // 20px, not 12. At 12 the composer sat hard against the bottom edge
-          // of the window — "really fucking close to the bottom in a way that
-          // looks bad". Every full-screen chat this is measured against leaves
-          // appreciably more. `max()` still wins on hardware with a home
-          // indicator, where the inset is larger than either number.
-          style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
-        >
-        <form
-          ref={composerRef}
+        <div className="mx-auto w-full max-w-[760px]">
+        <DeckeComposer
+          draft={draft}
+          onDraftChange={setDraft}
           onSubmit={submit}
-          // MEASURED BY `DeckeHost` TO DECIDE HOW TALL HE IS. His size used to
-          // be a viewport fraction capped at 300px, which on a laptop made him
-          // as tall as he is when nobody is talking to him — standing in the
-          // middle of the conversation with his shoulders across it. He is
-          // beside a composer now, so the composer is what he is scaled
-          // against, and the two cannot drift because there is only one number.
-          {...{ [COMPOSER_LANDMARK]: '' }}
-          style={dropPx ? ({ '--decke-drop': `${dropPx}px` } as React.CSSProperties) : undefined}
-          className={[
-            'decke-composer decke-composer-card flex items-center gap-[8px] p-[8px]',
-            dropPx
-              ? 'motion-safe:animate-[decke-composer-drop_360ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]'
-              : '',
-          ].join(' ')}
-          onAnimationEnd={() => setDropPx(0)}
-        >
-          {/*
-            A TEXTAREA THAT GROWS, not a single-line input.
-
-            This is the control the owner singled out — *"I don't really like
-            the design of the input at all"* — and putting a card around a 40px
-            `<input>` restyled everything except it. One line is the actual
-            complaint: he dictates card lists to an assistant, and "add a
-            Charizard, two Pikachu and the reverse holo Gardevoir" scrolls out
-            of sight while you are still typing it, so you cannot read back what
-            you are about to send.
-
-            ENTER SENDS, SHIFT+ENTER BREAKS THE LINE. That is the convention
-            everywhere this is used, and getting it the other way round makes
-            the common action two keys.
-
-            It grows to six lines and then scrolls: unbounded, one long dictated
-            list would push the conversation off the top of the panel and take
-            his mark with it, since his height is measured from this card.
-          */}
-          <textarea
-            ref={inputRef}
-            value={draft}
-            rows={1}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault()
-                submit(e)
-              }
-            }}
-            // SHORT ENOUGH TO FIT BESIDE HIM, AND THE BAR IS LOWER THAN IT LOOKS.
-            //
-            // He legitimately occupies ~129px of a 393px phone — he stands
-            // beside the composer by design — which leaves the field about
-            // 174px. "Ask about your collection…" needs 190 and truncated
-            // mid-word. "Ask about your cards…" was the fix and was still too
-            // long: PHOTOGRAPHED at 390px it wrapped to "Ask about your" +
-            // "cards", and the second line was CLIPPED.
-            //
-            // Clipped rather than shown, because an empty textarea's
-            // `scrollHeight` is one row — a placeholder is not content, so it
-            // contributes nothing to the height the auto-grow effect measures.
-            // The box is sized for one line while the placeholder needs two.
-            // Growing the box instead would make an empty composer two rows
-            // tall on every phone, which is worse than a shorter word.
-            //
-            // The empty state above says the long version in full; this only
-            // has to say the box is for typing.
-            placeholder="Ask Deck-E…"
-            aria-label="Message Deck-E"
-            className={[
-              'min-w-0 flex-1 resize-none bg-transparent px-[10px] py-[9px]',
-              'text-[14px] leading-[22px] text-text-primary outline-none',
-              'placeholder:text-text-muted',
-            ].join(' ')}
-            style={{ height: composerH }}
-          />
-          {/*
-            STOP, AND IT IS THE SAME BUTTON.
-
-            `useDeckeChat` has returned a `stop()` since it was written and
-            NOTHING EVER CALLED IT. Worse, `submit` early-returns while `busy`,
-            so sending again could not abort either — measured: with an
-            interrupt typed and entered, the leg streamed 47 KB to completion.
-            There was no reachable way to stop a turn at all.
-
-            That is not a cosmetic gap. Everything downstream is built to honour
-            an abort — the RLS session destroys its connection, the API client
-            drops its wait, a deep sub-agent stops billing Opus — and none of it
-            could ever fire, because the signal had no source. A deep turn is
-            now up to five minutes long; a reader who has changed their mind
-            needs a way to say so that is not closing the tab.
-
-            One button rather than two, because the composer is 40px of a phone
-            screen and "send" and "stop" are never both available.
-          */}
-          {busy ? (
-            <button
-              type="button"
-              onClick={onStop}
-              aria-label="Stop"
-              className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-text-primary"
-            >
-              <span className="block h-[12px] w-[12px] rounded-[2px] bg-current" />
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={!draft.trim()}
-              aria-label="Send"
-              className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full bg-action-primary text-action-primary-text disabled:opacity-40"
-            >
-              <Icon name="chevron-right" size={18} />
-            </button>
-          )}
-        </form>
+          busy={busy}
+          onStop={onStop}
+          dropPx={dropPx}
+          onDropEnd={() => setDropPx(0)}
+          inputRef={inputRef}
+          formRef={composerRef}
+          bottomPad={!(empty && desktop)}
+        />
         </div>
+        {/*
+          UNDER THE COMPOSER — ON DESKTOP, AND ONLY BEFORE ANYTHING HAS BEEN
+          SAID. The phone copy of this lives above the input instead, inside the
+          transcript block; the comment there says why.
+
+          Once there is a transcript these are noise between the last answer and
+          the box, so `empty` is the same flag the heading uses and the two
+          halves of the new-chat screen appear and leave together.
+
+          Outside the composer's own padded wrapper so the chips clear the safe
+          area on their own terms and the card's rounded corners keep their gap.
+        */}
+        {empty && desktop ? (
+          <div
+            className="pointer-events-auto mx-auto w-full max-w-[760px] shrink-0 px-[16px]"
+            style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
+          >
+            <div className="decke-shift">
+              <DeckeOpeners
+                openers={openers}
+                onPick={(text) => {
+                  setDraft(text)
+                  inputRef.current?.focus()
+                }}
+                centred={desktop}
+              />
+            </div>
+          </div>
+        ) : null}
 
         {/* the conversation column ends here; what follows anchors to the
             PANE, not to the column */}

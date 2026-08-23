@@ -508,6 +508,42 @@ h3,
   font-variation-settings: 'SOFT' 30, 'WONK' 1;
 }
 
+/* ── The opt-OUT, which has to exist for the same reason `.font-display` does ──
+ *
+ * The block above says in its own words that a serif "goes muddy below ~14px",
+ * and names the Pokedex's 13px species names as deliberately not display. That
+ * worked because those are `<span>`s — they never matched the rule in the first
+ * place. A component that marks up a REAL heading at text size has no such luck,
+ * and there was no way for it to get out.
+ *
+ * Deck-E's approval card is the case that found this: its two section labels are
+ * 12.5px `<h3>`s inside a dialog — group labels, not document headings — and
+ * they photographed as two lines of Fraunces in the middle of an otherwise sans
+ * card. The obvious repair, a `font-sans` utility on the element, DOES NOT WORK
+ * and the reason is worth writing down because it will catch the next person:
+ *
+ *   TAILWIND v4 PUTS EVERY UTILITY IN `@layer utilities`, AND THE RULE ABOVE IS
+ *   UNLAYERED. Unlayered declarations beat every layered one regardless of
+ *   specificity — so `.font-sans` at (0,1,0) loses to a bare `h3` at (0,0,1),
+ *   which looks like a broken cascade until you remember layers sort first.
+ *
+ * So the opt-out lives here, beside the opt-in, unlayered like it.
+ *
+ * SPECIFICITY, COUNTED: `.font-text` is (0,1,0) against the `h1, h2, h3` arm's
+ * (0,0,1) — it wins on specificity, in the same layer, and is later in source
+ * as well. Three independent reasons, no `!important`, and it does not touch
+ * `.font-display`, which is also (0,1,0): an element carrying both classes is a
+ * contradiction the author has to resolve, not something this file should
+ * silently pick a winner for.
+ *
+ * `font-variation-settings: normal` because SOFT and WONK are Fraunces axes.
+ * Leaving them set on a Figtree element is inert today and is exactly the kind
+ * of leftover that turns into a rendering mystery when a face changes. */
+.font-text {
+  font-family: var(--font-sans);
+  font-variation-settings: normal;
+}
+
 /* Tracking is a function of SIZE, not of the face: large type needs pulling in,
    text-size type does not (tightening 16px set names made them cramped). */
 h1,

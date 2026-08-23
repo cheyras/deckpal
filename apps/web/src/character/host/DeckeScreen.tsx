@@ -27,8 +27,9 @@
 import { useEffect, useId, useLayoutEffect, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { CardImage } from '../../components/CardImage'
-import { artForIds } from '../decke/cardSource'
-import type { CardArt } from '../decke/cardArt'
+// SHARED WITH THE APPROVAL CARD, which is the point of it having moved out of
+// this file. See `chat/useCardArt.ts`.
+import { useCardArt } from './chat/useCardArt'
 import { COLLAPSE_LABEL, compactPlan, expandLabel, showingLabel } from './screenCompact'
 
 export type Block = {
@@ -441,44 +442,3 @@ function CardGrid({
   )
 }
 
-/**
- * Catalog ids in, art out, keyed by id.
- *
- * NO ABORT SIGNAL, ON PURPOSE. `artForId` memoises the in-flight promise per id
- * and shares it with everything else in the character that wants that card —
- * the stash flight, the four card slots on his body. Cancelling on unmount would
- * settle that SHARED promise as a failure for whoever else was waiting on it, to
- * save one request for a card whose art is immutable and will be asked for
- * again. A `live` flag to skip the `setState` is the whole cleanup that is
- * actually needed.
- *
- * The dependency is the joined id list rather than the array, because a screen
- * re-renders on every chat tick and a fresh array literal each time would
- * re-fetch forever.
- */
-function useCardArt(ids: string[]): Record<string, CardArt | null | undefined> {
-  const [art, setArt] = useState<Record<string, CardArt | null>>({})
-  const key = ids.join(',')
-  useEffect(() => {
-    if (!key) return
-    const wanted = key.split(',')
-    let live = true
-    artForIds(wanted)
-      .then((list) => {
-        if (!live) return
-        const next: Record<string, CardArt | null> = {}
-        list.forEach((a, i) => {
-          next[wanted[i]!] = a
-        })
-        setArt(next)
-      })
-      .catch(() => {
-        // A panel that cannot draw art still draws the ids. There is no state of
-        // this app where a decorative texture is worth a console full of red.
-      })
-    return () => {
-      live = false
-    }
-  }, [key])
-  return art
-}

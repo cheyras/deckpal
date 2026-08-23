@@ -37,6 +37,14 @@
  *    page too, because a screenshot of it will end up in a review.
  * 3. **Every state that exists in the product appears here.** A state that is
  *    missing from this page is a state nobody will look at again.
+ *
+ * 4. **This route is chromeless, and that is load-bearing now.** The empty-state
+ *    specimens render real `DeckeComposer`s, and every composer carries
+ *    `COMPOSER_LANDMARK` — the attribute `DeckeHost` queries to decide how tall
+ *    Deck-E is. `landingRoute.ts` already lists `/dev/chat-ui` as chromeless so
+ *    the host never mounts here and there is nothing to confuse; if it ever
+ *    comes off that list, he will size himself against whichever specimen the
+ *    document happens to reach first.
  */
 import { useEffect, useState } from 'react'
 import { ChatMarkdown } from '../../character/host/chat/ChatMarkdown'
@@ -51,6 +59,12 @@ import type {
   RowChoice,
 } from '../../character/host/chat/approvalCardState'
 import { DeckeScreen } from '../../character/host/DeckeScreen'
+import {
+  DeckeComposer,
+  DeckeEmptyIntro,
+  DeckeOpeners,
+} from '../../character/host/DeckeChat'
+import { chooseOpeners } from '../../character/host/deckeChatState'
 import type { ScreenSpec } from '../../character/host/DeckeScreen'
 
 /* ── Fixtures ──────────────────────────────────────────────────────────────
@@ -59,7 +73,23 @@ import type { ScreenSpec } from '../../character/host/DeckeScreen'
  * page are the thumbnails the product draws. Quantities are invented and the
  * page says so where a number could be mistaken for the reader's own.
  */
-const CARD_IDS = ['me05-013', 'swsh4-162', 'sv01-25', 'me05-001', 'swsh4-1', 'sv01-1']
+/*
+ * REAL IDS AND THEIR REAL NAMES, which stopped being optional the moment the
+ * approval card started drawing art. The first fixture set paired `me05-013`
+ * with the name "Heat Rotom ex"; `me05-013` is a Goldeen, and `sv01-25` is
+ * not a card at all. With no thumbnail those were harmless placeholders; with
+ * one, the page appears to resolve the wrong card and a reviewer files the art
+ * lookup as broken.
+ *
+ * Every id below was checked against the live catalogue and every name is the
+ * name that comes back for it. Quantities and before/after counts are still
+ * invented, and the page says so wherever one appears.
+ */
+const CARD_IDS = ['me05-013', 'swsh4-44', 'swsh4-25', 'me05-001', 'swsh4-1', 'me05-020']
+
+/** One id that deliberately does NOT resolve, so the panel's honest fallback for
+ *  a card the catalogue does not have appears on this page too. */
+const MISSING_ID = 'me05-99999'
 
 const row = (over: Partial<ToolRowData> & Pick<ToolRowData, 'id' | 'name' | 'title' | 'phase'>): ToolRowData => over
 
@@ -164,7 +194,14 @@ const SCREEN_LONG: ScreenSpec = {
     { kind: 'heading', text: 'Chase cards' },
     { kind: 'cardGrid', cards: CARD_IDS, quantities: [1, 1, 2, 1, 4, 1] },
     { kind: 'heading', text: 'Trainers' },
-    { kind: 'cardGrid', cards: CARD_IDS, quantities: [2, 1, 1, 1, 1, 3] },
+    // The last slot is an id the catalogue has no card for — the state the
+    // panel draws as the bare id rather than dropping the slot, which would
+    // shift every later card into the wrong place.
+    {
+      kind: 'cardGrid',
+      cards: [...CARD_IDS.slice(0, 5), MISSING_ID],
+      quantities: [2, 1, 1, 1, 1, 3],
+    },
     { kind: 'heading', text: 'Energy' },
     { kind: 'cardGrid', cards: CARD_IDS.slice(0, 3), quantities: [9, 4, 2] },
     { kind: 'statTile', text: 'Set total', value: '26 of 214', tone: 'neutral' },
@@ -197,34 +234,65 @@ const PREVIEW: ApprovalPreview = {
   ok: true,
   editable: true,
   rows: [
-    previewRow({ index: 0, cardId: 'me05-013', cardName: 'Heat Rotom ex' }),
+    previewRow({ index: 0, cardId: 'me05-013', cardName: 'Goldeen' }),
     previewRow({
       index: 1,
-      cardId: 'swsh4-162',
-      cardName: 'Gardevoir ex',
+      cardId: 'swsh4-44',
+      cardName: 'Pikachu VMAX',
       setId: 'swsh4',
-      number: '162',
+      number: '44',
+      variantLabel: 'Reverse holo',
       before: 1,
       after: 2,
     }),
     previewRow({
       index: 2,
-      cardId: 'sv01-25',
-      cardName: 'Charizard ex',
-      setId: 'sv01',
-      number: '025',
+      cardId: 'swsh4-25',
+      cardName: 'Charizard',
+      setId: 'swsh4',
+      number: '25',
       certainty: 'ambiguous',
       variantId: null,
       variantLabel: null,
-      wouldUseVariantId: null,
+      wouldUseVariantId: 12,
       candidates: [
         { variantId: 11, kindCode: 'normal', label: 'Normal', isPrimary: true, ownedQty: 0 },
         { variantId: 12, kindCode: 'reverse', label: 'Reverse holo', isPrimary: false, ownedQty: 1 },
-        { variantId: 13, kindCode: 'alt', label: 'Alt art', isPrimary: false, ownedQty: 0 },
+        { variantId: 13, kindCode: 'holo', label: 'Holo', isPrimary: false, ownedQty: 0 },
       ],
     }),
   ],
   skipped: [],
+}
+
+/** A batch that TAKES CARDS AWAY. The operation chip is tinted by direction and
+ *  the accept button changes its verb, and neither was visible on this page. */
+const PREVIEW_REMOVE: ApprovalPreview = {
+  ...PREVIEW,
+  title: 'Remove 2 cards from your collection',
+  summary: 'Would remove 2 cards',
+  rows: [
+    previewRow({
+      index: 0,
+      cardId: 'me05-020',
+      cardName: 'Primarina',
+      setId: 'me05',
+      number: '020',
+      value: -1,
+      before: 3,
+      after: 2,
+    }),
+    previewRow({
+      index: 1,
+      cardId: 'swsh4-1',
+      cardName: 'Weedle',
+      setId: 'swsh4',
+      number: '1',
+      value: -2,
+      before: 4,
+      after: 2,
+    }),
+  ],
 }
 
 const PREVIEW_ONE: ApprovalPreview = {
@@ -235,6 +303,14 @@ const PREVIEW_ONE: ApprovalPreview = {
 }
 
 /* ── Page furniture ────────────────────────────────────────────────────────── */
+
+/* THE REAL OPENERS, from the product's own pool with the product's own
+ * rotation run against a clean slate — which is exactly what a first visit and a
+ * private window both see, and is the reason the empty state is screenshot-able
+ * at all. Not a copy of the strings: a copy would drift the day somebody edits
+ * the pool, and this page would go on showing openers nobody is offered.
+ */
+const OPENERS = chooseOpeners()
 
 const WIDTHS = { desktop: 760, mobile: 390 } as const
 type WidthKey = keyof typeof WIDTHS
@@ -278,6 +354,9 @@ function Specimen({ label, note, children }: { label: string; note?: string; chi
 export default function ChatUi() {
   const [width, setWidth] = useState<WidthKey>('desktop')
   const [choices, setChoices] = useState<Choices>(new Map())
+  // The empty-screen specimens hold a real draft, so the composer on this page
+  // grows the way it grows in the product rather than being a picture of one.
+  const [draft, setDraft] = useState('')
   const [started] = useState(() => Date.now() - 8_400)
   const [, tick] = useState(0)
 
@@ -402,8 +481,8 @@ export default function ChatUi() {
             >
               <Specimen label="one row, known" note="the ordinary case: one card, one printing, nothing to answer">
                 <ApprovalCard
-                  title="Let him add a card?"
-                  count={1}
+                  title="Log cards"
+                  heldCalls={1}
                   preview={PREVIEW_ONE}
                   choices={choices}
                   onChoice={onChoice}
@@ -413,8 +492,8 @@ export default function ChatUi() {
               </Specimen>
               <Specimen label="mixed" note="two known rows and one where the printing is genuinely ambiguous">
                 <ApprovalCard
-                  title="Let him add 3 cards?"
-                  count={3}
+                  title="Log cards"
+                  heldCalls={1}
                   preview={PREVIEW}
                   choices={choices}
                   onChoice={onChoice}
@@ -424,8 +503,8 @@ export default function ChatUi() {
               </Specimen>
               <Specimen label="busy" note="after Accept, while the write is in flight">
                 <ApprovalCard
-                  title="Let him add 3 cards?"
-                  count={3}
+                  title="Log cards"
+                  heldCalls={1}
                   preview={PREVIEW}
                   choices={choices}
                   onChoice={onChoice}
@@ -434,15 +513,128 @@ export default function ChatUi() {
                   busy
                 />
               </Specimen>
+              <Specimen
+                label="a removal"
+                note="the other direction. The operation chip is tinted by direction and the button changes its verb — press the wrong one of these and cards leave a collection."
+              >
+                <ApprovalCard
+                  title="Log cards"
+                  heldCalls={1}
+                  preview={PREVIEW_REMOVE}
+                  choices={choices}
+                  onChoice={onChoice}
+                  onAccept={() => {}}
+                  onDeny={() => {}}
+                />
+              </Specimen>
+              <Specimen
+                label="2 calls held"
+                note="he asked for two writes in one step and this card shows the first. The second is NOT queued behind it — it was dropped, and the line says so."
+              >
+                <ApprovalCard
+                  title="Log cards"
+                  heldCalls={2}
+                  preview={PREVIEW_ONE}
+                  choices={choices}
+                  onChoice={onChoice}
+                  onAccept={() => {}}
+                  onDeny={() => {}}
+                />
+              </Specimen>
               <Specimen label="no preview" note="the fallback when the dry run is missing — a broken preview must not become a broken write">
                 <ApprovalCard
-                  title="Let him write a strategy guide?"
-                  count={1}
+                  title="Save deck"
+                  heldCalls={1}
                   preview={null}
                   choices={choices}
                   onChoice={onChoice}
                   onAccept={() => {}}
                   onDeny={() => {}}
+                />
+              </Specimen>
+            </Section>
+
+            {/*
+              THE MOST-SEEN SCREEN IN THE FEATURE, and until this pass it was
+              the one surface nobody could review without starting a
+              conversation — the composer was welded into a 1,400-line panel
+              that needs a live `useDeckeChat`. It is three real exported
+              components now (`DeckeEmptyIntro`, `DeckeComposer`,
+              `DeckeOpeners`) and this is them, in the order and at the widths
+              the panel arranges them in.
+
+              THE COMPOSER HERE IS LIVE. Typing in it does nothing but grow it,
+              which is the behaviour worth checking: it is a textarea that
+              measures itself, not a 40px input.
+            */}
+            <Section
+              id="empty"
+              title="The new-chat screen"
+              note="Before anything has been said, the composer has no transcript to be the foot of, so it sits in the middle of the pane with the heading above it and the openers under it — the way a new-chat screen does."
+            >
+              <Specimen
+                label="desktop"
+                note="centred, 30px display text. The pane is dimmed glass over the live page, so this is drawn on the app's own canvas colour rather than a card."
+              >
+                <div className="flex min-h-[380px] flex-col justify-center gap-[0px] rounded-[10px] bg-canvas p-[16px]">
+                  <div className="pb-[26px]">
+                    <DeckeEmptyIntro centred />
+                  </div>
+                  <DeckeComposer
+                    draft={draft}
+                    onDraftChange={setDraft}
+                    onSubmit={(e) => e.preventDefault()}
+                    busy={false}
+                    onStop={() => {}}
+                    bottomPad={false}
+                  />
+                  <div className="px-[16px] pt-[12px]">
+                    <DeckeOpeners openers={OPENERS} onPick={setDraft} centred />
+                  </div>
+                </div>
+              </Specimen>
+              <Specimen
+                label="phone"
+                note="left-aligned, 22px. He physically stands in the bottom-left corner of the panel at this size, so centring text into the column he is indenting reads as misalignment."
+              >
+                <div className="mx-auto flex min-h-[380px] max-w-[390px] flex-col justify-end rounded-[10px] bg-canvas p-[16px]">
+                  <div className="pb-[26px]">
+                    <DeckeEmptyIntro centred={false} />
+                  </div>
+                  <DeckeComposer
+                    draft={draft}
+                    onDraftChange={setDraft}
+                    onSubmit={(e) => e.preventDefault()}
+                    busy={false}
+                    onStop={() => {}}
+                    bottomPad={false}
+                  />
+                  <div className="px-[16px] pt-[12px]">
+                    <DeckeOpeners openers={OPENERS} onPick={setDraft} centred={false} />
+                  </div>
+                </div>
+              </Specimen>
+              <Specimen
+                label="a long draft"
+                note="it is a textarea, not a 40px input — he gets dictated card lists, and one that scrolls out of sight while you are still typing it is one you cannot read back before sending."
+              >
+                <DeckeComposer
+                  draft={"add a Charizard, two Pikachu VMAX and the reverse holo Gardevoir from Vivid Voltage, plus whatever Goldeen I am still missing out of Pitch Black"}
+                  onDraftChange={() => {}}
+                  onSubmit={(e) => e.preventDefault()}
+                  busy={false}
+                  onStop={() => {}}
+                  bottomPad={false}
+                />
+              </Specimen>
+              <Specimen label="busy" note="the send button is the stop button. There is never a moment where both are available.">
+                <DeckeComposer
+                  draft="add a Charizard and two Pikachu"
+                  onDraftChange={() => {}}
+                  onSubmit={(e) => e.preventDefault()}
+                  busy
+                  onStop={() => {}}
+                  bottomPad={false}
                 />
               </Specimen>
             </Section>
@@ -473,8 +665,8 @@ export default function ChatUi() {
                 <div className="flex flex-col gap-[10px]">
                   <ToolRow data={TOOL_ROWS[2].data} />
                   <ApprovalCard
-                    title="Let him add 3 cards?"
-                    count={3}
+                    title="Log cards"
+                    heldCalls={1}
                     preview={PREVIEW}
                     choices={choices}
                     onChoice={onChoice}

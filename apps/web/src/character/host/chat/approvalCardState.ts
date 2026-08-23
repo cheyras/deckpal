@@ -127,6 +127,78 @@ export type HeldItem = Record<string, unknown>
 /** A resolved operation, as `POST /collection/batch` accepts it. */
 export type BatchItem = { variantId: number; delta?: number; quantity?: number }
 
+// ── The question ─────────────────────────────────────────────────────────────
+
+/**
+ * "Let him add 3 cards?" — the headline, composed from a tool's own title.
+ *
+ * THIS IS LOGIC AND NOT PRESENTATION, which the last version proved by being
+ * wrong on screen. The card used to render `` `Let him ${title.toLowerCase()}?` ``
+ * inline, so a title that already read as a question came out as
+ * *"Let him let him add a card??"* — photographed, on the gallery page, in the
+ * first run of a review the whole surface exists to make possible. A string
+ * that can be malformed by its input is a function, and a function gets a test.
+ *
+ * Three things it has to survive, each of which a real title has done:
+ *
+ *  1. **Already a question.** `titleFor` in `useDeckeChat` produces bare verb
+ *     phrases ("Adding to your collection"), but `uiToolTitle` and the server's
+ *     own titles are not bound by that, and the fixture that caught this came
+ *     from a reviewer writing the string a human would write.
+ *  2. **Terminal punctuation.** "?" or "." or "!" at the end must not survive
+ *     into the middle of the composed sentence, and must not double at the end.
+ *  3. **A proper noun or an acronym first.** `toLowerCase()` on the whole
+ *     string turned "Add Charizard ex" into "add charizard ex" and would turn
+ *     "TCGplayer import" into "tcgplayer import". Only the first CHARACTER is
+ *     ever lowered, and only when the first word is not already carrying
+ *     capitals of its own.
+ */
+export function approvalQuestion(title: string): string {
+  const trimmed = stripTerminal(title)
+  if (!trimmed) return 'Let him make that change?'
+  const bare = trimmed.replace(/^let\s+h(?:im|er|them)\s+/i, '')
+  const body = bare || trimmed
+  return `Let him ${softLowerFirst(body)}?`
+}
+
+/** Trailing "?", ".", "!" and whitespace — repeated, so "card??" collapses too. */
+function stripTerminal(s: string): string {
+  return s.trim().replace(/[?.!…\s]+$/u, '')
+}
+
+/**
+ * Lowercase the first letter, unless the first word wears capitals of its own.
+ *
+ * "Add cards" → "add cards". "TCGplayer import" and "eBay sync" are left alone,
+ * because a word whose SECOND character onward is not all lowercase is a name or
+ * an acronym, and lowering it makes a typo out of a fact.
+ */
+function softLowerFirst(s: string): string {
+  const first = s.split(/\s/u, 1)[0] ?? ''
+  const tail = first.slice(1)
+  if (tail && tail !== tail.toLowerCase()) return s
+  return s.charAt(0).toLowerCase() + s.slice(1)
+}
+
+/**
+ * The line about calls this card is NOT showing, or `''`.
+ *
+ * `heldCalls` is a count of TOOL CALLS the model held in one step, of which
+ * this card shows the first. It is not a count of cards, and the two were
+ * conflated once already — the gallery passed the row count and the card
+ * announced *"he also asked for 2 other changes"* directly above all three of
+ * them. Deriving the sentence here rather than in JSX is what lets a test say
+ * which number it counts.
+ */
+export function unshownCallsNote(heldCalls: number): string {
+  const unshown = Math.max(0, Math.floor(heldCalls) - 1)
+  if (unshown === 0) return ''
+  if (unshown === 1) {
+    return 'He also asked for one other change. It is not shown here, so it will not run — ask about it on its own.'
+  }
+  return `He also asked for ${unshown} other changes. They are not shown here, so they will not run — ask about them on their own.`
+}
+
 // ── Sections ─────────────────────────────────────────────────────────────────
 
 /**
@@ -218,6 +290,51 @@ export function acceptButtonLabel(preview: ApprovalPreview, choices: Choices): s
   if (rows.every((r) => r.mode === 'delta' && r.value > 0)) return `Add ${n} ${noun}`
   if (rows.every((r) => r.mode === 'delta' && r.value < 0)) return `Remove ${n} ${noun}`
   return n === 1 ? 'Apply 1 change' : `Apply ${n} changes`
+}
+
+// ── One row, in words ────────────────────────────────────────────────────────
+
+/**
+ * "+1", "−2", "Set to 5" — the operation, in the words it will happen in.
+ *
+ * A REAL MINUS SIGN (U+2212), not a hyphen: at 12px in a tabular column a
+ * hyphen is a third of the width of the plus it sits under and the column reads
+ * ragged. Here rather than in the component because it renders a NUMBER, and a
+ * number that reaches the screen without a test behind it is the X2 failure
+ * this whole card is built against.
+ */
+export function operationText(row: Pick<PreviewRow, 'mode' | 'value'>): string {
+  if (row.mode === 'quantity') return `Set to ${row.value}`
+  return row.value > 0 ? `+${row.value}` : `−${Math.abs(row.value)}`
+}
+
+/**
+ * "0 → 1", or `''` when the dry run did not carry both ends.
+ *
+ * Split out of the row's own line because the redesign puts it under the
+ * operation rather than after it, and because `before === 0` is falsy — the
+ * inline version tested `row.before !== null` correctly and the next person to
+ * shorten it would not have.
+ */
+export function beforeAfterText(row: Pick<PreviewRow, 'before' | 'after'>): string {
+  if (row.before === null || row.after === null) return ''
+  return `${row.before} → ${row.after}`
+}
+
+/**
+ * "me05 · #013 · Normal" — the second line of a row, under the card's name.
+ *
+ * The name is the headline and this is everything needed to tell two printings
+ * of it apart. Every part is optional because the catalogue's own fields are:
+ * a promo with no set id, a card with no collector number, and a row whose
+ * printing nobody has named all reach this function in the real product.
+ */
+export function rowMetaText(
+  row: Pick<PreviewRow, 'setId' | 'number' | 'variantLabel'>,
+): string {
+  return [row.setId, row.number ? `#${row.number}` : null, row.variantLabel]
+    .filter((p): p is string => Boolean(p))
+    .join(' · ')
 }
 
 // ── The router, and its cross-check ──────────────────────────────────────────
