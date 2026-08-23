@@ -163,6 +163,18 @@ export function DeckeHost() {
   /** A zero-width `100svh` strut. The always-visible height has to come from
    *  CSS, not `innerHeight` — see the measurement note below. */
   const probeRef = useRef<HTMLDivElement | null>(null)
+  /**
+   * The two bands he may not stand in, as ELEMENTS rather than numbers.
+   *
+   * Sized in CSS from the same custom properties the panel and the scrim use,
+   * so the header's height, the notch and a sidebar collapse are all accounted
+   * for without this file knowing any of those numbers — `AppShell` publishes
+   * 64 on a phone and 78 on desktop, and hardcoding either would be wrong at
+   * the other. Measuring an element is also what lets the existing
+   * `ResizeObserver` re-fire the whole solve when any of them changes.
+   */
+  const topBandRef = useRef<HTMLDivElement | null>(null)
+  const bottomBandRef = useRef<HTMLDivElement | null>(null)
   const deckeRef = useRef<DeckEInstance | null>(null)
   /**
    * Re-solve his size from the current viewport. Owned by the setup effect,
@@ -589,6 +601,36 @@ export function DeckeHost() {
             ? characterHeightBeside(composerH, w, h)
             : characterHeightFor(w, h, chatOpenRef.current && w < NAV_BREAKPOINT)
         decke.stage.setCharacterHeight(px)
+        // ── WHERE HE MAY NOT STAND ────────────────────────────────────────
+        //
+        // His canvas is at z-30, above the app chrome at 20, and that is
+        // deliberate — "he has to be able to park beside and point at a nav
+        // item." Phase B then made the chat's scrim stop covering the header,
+        // and excluding the header from the SCRIM does not exclude it from HIM:
+        // he would still paint over the thing that change exists to keep
+        // prominent. `parkBeside` has clamped him HORIZONTALLY since it was
+        // written; there was no vertical equivalent, and being clipped by the
+        // top of the viewport is that missing clamp seen from the other side.
+        //
+        // It is a clamp, not a veto. Asked to present a nav item in the header
+        // he is pushed DOWN until his head rests on the band and stays in the
+        // item's column, still turned back across it — "beside" gains a
+        // vertical component exactly when the horizontal one is forbidden.
+        //
+        // THE BOTTOM BAND IS ZERO WHILE THE CHAT IS OPEN, and that is not an
+        // oversight. His phone park box deliberately overlaps the composer —
+        // "about half of him overlaps it. That overlap is the point" — so a
+        // composer-sized band would shove him off his own mark and re-break the
+        // one placement the owner asked for by name. The exemption lives in the
+        // moment rather than in a per-call flag.
+        //
+        // No horizontal band: the sidebar is a quarter of a desktop window and
+        // it is WHERE THE NAV ITEMS ARE, and `parkBeside`'s edge exception
+        // already flips him inboard of anything near an edge.
+        decke.setKeepOut({
+          top: Math.round(topBandRef.current?.clientHeight ?? 0),
+          bottom: Math.round(bottomBandRef.current?.clientHeight ?? 0),
+        })
         setCharPx((prev) => (prev === px ? prev : px))
       }
       measureRef.current = measure
@@ -612,6 +654,10 @@ export function DeckeHost() {
       ro = new ResizeObserver(measure)
       ro.observe(canvas)
       if (probeRef.current) ro.observe(probeRef.current)
+      // The bands too, so collapsing the sidebar or rotating into a different
+      // safe area re-solves where he is allowed to be.
+      if (topBandRef.current) ro.observe(topBandRef.current)
+      if (bottomBandRef.current) ro.observe(bottomBandRef.current)
 
       // Watch the pixel ratio separately: dragging the window to an external
       // display changes `devicePixelRatio` without changing the canvas's CSS box
@@ -688,6 +734,25 @@ export function DeckeHost() {
         ref={probeRef}
         aria-hidden
         className="pointer-events-none fixed left-0 top-0 h-[100svh] w-0 invisible"
+      />
+      {/* The keep-out bands, measured rather than computed. Zero-width and
+          behind everything, so they cost a layout box and nothing else. */}
+      <div
+        ref={topBandRef}
+        aria-hidden
+        className="pointer-events-none invisible fixed left-0 top-0 -z-10 w-0"
+        style={{ height: 'calc(var(--app-header-h) + env(safe-area-inset-top))' }}
+      />
+      <div
+        ref={bottomBandRef}
+        aria-hidden
+        className="pointer-events-none invisible fixed bottom-0 left-0 -z-10 w-0"
+        style={{
+          // Open: nothing, so his overlap with the composer survives. Closed:
+          // enough to clear the PWA install pill, which is the only bottom
+          // chrome he shares a corner with.
+          height: chatOpen ? '0px' : 'calc(50px + env(safe-area-inset-bottom))',
+        }}
       />
       {/* z-30 keeps him ABOVE the app chrome (`--z-chrome: 20`) on purpose: he
           has to be able to park beside and point at a nav item. Modals (100)
