@@ -999,7 +999,8 @@ body {
   border-color: var(--color-action-primary-strong);
   box-shadow: var(--shadow-elevated), 0 0 0 1px var(--color-action-primary-strong);
 }
-.decke-composer-card input:focus-visible {
+.decke-composer-card input:focus-visible,
+.decke-composer-card textarea:focus-visible {
   outline: none;
 }
 

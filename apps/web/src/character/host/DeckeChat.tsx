@@ -326,7 +326,7 @@ export function DeckeChat({
    */
   characterPx: number
 }) {
-  const inputRef = useRef<HTMLInputElement | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const transcriptRef = useRef<HTMLDivElement | null>(null)
   const parkRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLFormElement | null>(null)
@@ -382,6 +382,32 @@ export function DeckeChat({
    * tool for three minutes is ONE wait as far as the person waiting is
    * concerned, however many requests it took underneath.
    */
+  /**
+   * The composer's height, measured from its own content.
+   *
+   * MEASURED RATHER THAN COUNTED. Counting `
+` is wrong the moment a line
+   * wraps, which for a dictated card list is immediately. Setting the height to
+   * `auto` and reading `scrollHeight` back is what the browser already knows.
+   *
+   * `useLayoutEffect` so it lands before paint — after paint, every keystroke
+   * that adds a line shows one frame at the old height first, which reads as a
+   * stutter on exactly the input someone is looking at while they type.
+   */
+  const MIN_ROWS = 1
+  const MAX_ROWS = 6
+  const LINE = 22
+  const PAD = 18
+  const [composerH, setComposerH] = useState(MIN_ROWS * LINE + PAD)
+  useLayoutEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    const next = Math.min(el.scrollHeight, MAX_ROWS * LINE + PAD)
+    el.style.height = `${next}px`
+    setComposerH(next)
+  }, [draft])
+
   const [turnStartedAt, setTurnStartedAt] = useState(0)
   const wasBusyRef = useRef(false)
   useEffect(() => {
@@ -970,13 +996,44 @@ export function DeckeChat({
           ].join(' ')}
           onAnimationEnd={() => setDropPx(0)}
         >
-          <input
+          {/*
+            A TEXTAREA THAT GROWS, not a single-line input.
+
+            This is the control the owner singled out — *"I don't really like
+            the design of the input at all"* — and putting a card around a 40px
+            `<input>` restyled everything except it. One line is the actual
+            complaint: he dictates card lists to an assistant, and "add a
+            Charizard, two Pikachu and the reverse holo Gardevoir" scrolls out
+            of sight while you are still typing it, so you cannot read back what
+            you are about to send.
+
+            ENTER SENDS, SHIFT+ENTER BREAKS THE LINE. That is the convention
+            everywhere this is used, and getting it the other way round makes
+            the common action two keys.
+
+            It grows to six lines and then scrolls: unbounded, one long dictated
+            list would push the conversation off the top of the panel and take
+            his mark with it, since his height is measured from this card.
+          */}
+          <textarea
             ref={inputRef}
             value={draft}
+            rows={1}
             onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                submit(e)
+              }
+            }}
             placeholder="Ask about your collection…"
             aria-label="Message Deck-E"
-            className="h-[40px] min-w-0 flex-1 bg-transparent px-[10px] text-[14px] text-text-primary outline-none placeholder:text-text-muted"
+            className={[
+              'min-w-0 flex-1 resize-none bg-transparent px-[10px] py-[9px]',
+              'text-[14px] leading-[22px] text-text-primary outline-none',
+              'placeholder:text-text-muted',
+            ].join(' ')}
+            style={{ height: composerH }}
           />
           {/*
             STOP, AND IT IS THE SAME BUTTON.
