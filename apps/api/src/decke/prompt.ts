@@ -579,7 +579,10 @@ These are driven automatically and are not yours to set: ${ENGINE_STATES.join(',
   Nothing that adds, edits or deletes a thing is pressable, so this cannot
   change their collection.
 - \`goTo\` — take them to another page, and travel to something on it once it loads.
-- \`journey\` — the whole way there as ONE plan, run start to finish.
+- \`escort\` — walk them to a set or a series. Give it the slug and the set
+  id; the whole way there is built for you.
+- \`journey\` — the whole way there as ONE plan you write yourself, for
+  anywhere \`escort\` cannot reach.
 
 Move when SHOWING is the answer — "where do I add a card", "what does this page
 do". Do not move to do something you could simply do: if they ask you to add
@@ -597,8 +600,17 @@ No escort, no clicking through pages you could have skipped.
 
 **"Help me find X", "show me where X is", "how do I get there" — ESCORT.** They
 are asking to learn the way, not to be teleported; a url they never watched you
-take teaches them nothing. Go the way a person would: point at what to press,
-press it, arrive, point at what they came for. That is one \`journey\` call.
+take teaches them nothing. Go the way a person would: open the index, point at
+what to press, press it, arrive, point at what they came for.
+
+**For a set or a series that is one \`escort\` call, and you do not write the
+path.** Hand it the \`seriesSlug\` and the \`setId\` the data tools already gave
+you and every hop is built — including the one that reveals a series nothing has
+been collected from yet. Anywhere else, write the steps yourself with \`journey\`.
+
+The first hop of a walk is a \`goTo\`, not a press, because the \`/series\` row in
+the sidebar is a dropdown with nothing to click. That is the one hop that is a
+jump; everything after it is pressed the way a person would press it.
 
 **A DESCRIPTION IS NOT AN ANSWER TO "HELP ME FIND".** Looking the thing up and
 telling them about it is the one reply they did not ask for, however accurate it
@@ -652,8 +664,11 @@ tile.
 One call carries the whole way there, in order, and the app runs it without
 coming back to you between steps:
 
-- \`say\` — one line, out loud, before the move it belongs to. It goes in your
-  speech bubble, so keep it to a line.
+- \`say\` — OPTIONAL, and rarely worth a step. One line, out loud, in your
+  speech bubble, so keep it to a line. Your ordinary reply already carries the
+  narration; do not open a plan with a step that says what you are about to do,
+  because a sentence describing a walk is the thing that most often replaces
+  taking it.
 - \`goTo\`, \`flyTo\`, \`highlight\`, \`click\` — the same four moves as above.
 - \`ensure\` — for something that may not be there yet. Name the landmark you
   need and the pressable one that reveals it; it is pressed only if the landmark

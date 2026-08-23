@@ -29,7 +29,15 @@ export type UiToolResult = { ok: boolean; reason?: string }
  * re-run in a place that cannot do it, fails, and posts a tool output that
  * contradicts the one the server already produced for that same call id.
  */
-export const CLIENT_TOOLS = ['flyTo', 'highlight', 'goTo', 'scrollToMe', 'click', 'journey'] as const
+export const CLIENT_TOOLS = [
+  'flyTo',
+  'highlight',
+  'goTo',
+  'scrollToMe',
+  'click',
+  'journey',
+  'escort',
+] as const
 
 export type ClientToolName = (typeof CLIENT_TOOLS)[number]
 
@@ -324,6 +332,15 @@ export async function runUiTool(
         // case, and falling through to `default` answers "I do not know how to
         // do X" — the one reason a model cannot act on.
         return { ok: false, reason: 'a journey is run by the conversation, not from here' }
+      }
+
+      case 'escort': {
+        // DELEGATED for the same reason as `journey`, which is what it expands
+        // into. `useDeckeChat` builds the steps and hands `runJourney` the
+        // richer context; this case exists so the boundary's own audit stays
+        // true — every advertised tool has a case, and `default` answers "I do
+        // not know how to do X", the one reason a model cannot act on.
+        return { ok: false, reason: 'an escort is run by the conversation, not from here' }
       }
 
       default:

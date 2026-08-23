@@ -56,6 +56,7 @@ import { messageText, messageTools, type ChatMessage } from './DeckeChat'
 import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
 import { CLIENT_TOOLS, isClientTool, isPressable, runUiTool, type UiToolResult } from './uiTools'
+import { buildEscortSteps, type EscortInput } from './escortPlan'
 import { runJourney, type JourneyResult, type JourneyStep } from './journey'
 import { api } from '../../lib/api'
 import {
@@ -885,8 +886,19 @@ export function useDeckeChat(
             // which is what lets a fail-stop hand control back to the model
             // with somewhere to start: which step, which verb, which target,
             // and why.
-            const result: UiToolResult | JourneyResult =
+            // `escort` IS a journey — it just did not make the model write one.
+            // It arrives as two ids and `buildEscortSteps` expands them, so
+            // everything downstream of here is identical: same sequencer, same
+            // fail-stop, same `ran` truth surface, same chip. The only thing
+            // that changed is who compiled the steps.
+            const journeySteps: JourneyStep[] | null =
               call.name === 'journey'
+                ? ((call.input as { steps?: JourneyStep[] }).steps ?? [])
+                : call.name === 'escort'
+                  ? buildEscortSteps(call.input as EscortInput)
+                  : null
+            const result: UiToolResult | JourneyResult =
+              journeySteps
                 ? await runJourney(
                     {
                       decke,
@@ -894,7 +906,7 @@ export function useDeckeChat(
                       say: (text) => appendText(text),
                       setStepping: (on) => onSteppingRef.current?.(on),
                     },
-                    ((call.input as { steps?: JourneyStep[] }).steps ?? []),
+                    journeySteps,
                     ac.signal,
                   )
                 : await runUiTool(
@@ -1196,6 +1208,10 @@ function uiToolTitle(name: string, input: Record<string, unknown>): string {
     case 'scrollToMe':
       return 'Scrolled to himself'
     case 'journey':
+    case 'escort':
+      // Deliberately the same words. The reader is being told what HE did, and
+      // he did the same thing either way — which of the two tools the model
+      // reached for is our problem, not theirs.
       return 'Walked you there'
     default:
       return titleFor(name)

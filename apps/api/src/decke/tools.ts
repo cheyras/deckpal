@@ -579,7 +579,8 @@ export function buildTools(
     goTo: tool({
       description:
         'Take the user to another page, then travel to something on it once it has loaded. One call — do not try to chain a navigation and a flyTo yourself. ' +
-        'Use this whenever they ask to be TAKEN or SHOWN somewhere that is a page — a set, a card, a deck, a list, their insights — including when the page you want sits UNDER the one you are already on. ' +
+        'Use this whenever they ask to be TAKEN somewhere that is a page — a set, a card, a deck, a list, their insights — including when the page you want sits UNDER the one you are already on. ' +
+        'If they asked to be SHOWN THE WAY rather than taken — "help me find", "where is", "how do I get to" — that is `escort`, not this one. ' +
         'A set has its own page and you reach it by building its url, not by pointing at something on the series index. ' +
         'Build the path from what the data tools gave you: the series slug and the set id go into /series/<seriesSlug>/<setId>, so "Pitch Black, me05, series mega-evolution" is /series/mega-evolution/me05. ' +
         'If you do not have the slug, look it up first — search_cards, get_card and set_progress all return it — rather than guessing or leaving it out.',
@@ -661,11 +662,68 @@ export function buildTools(
      *    off-allowlist plan at parse time, before the first step, so the failure
      *    the reader can see is only ever "it stopped where the page did".
      */
-    journey: tool({
+    /**
+     * ── WHY A SECOND, SMALLER WAY TO ESCORT ──────────────────────────────────
+     *
+     * `journey` asks the model to COMPILE A PROGRAM: three to five exactly
+     * quoted selectors for pages it has never seen, the right field on the
+     * right verb, the whole plan atomic so one slip voids it. Measured, it
+     * takes that offer 2 times in 10 and describes the destination the other 8
+     * — while `goTo`, whose argument is one route string, measures 100%, and
+     * `express`, a flat array, is called routinely. Same model, same prompt,
+     * same turn. The variable is not willingness; it is what it must build.
+     *
+     * And the build was never necessary. `journey.ts`'s own header says so:
+     * "the selectors are constructible from ids the data tools return BEFORE
+     * anything moves." Given `seriesSlug` and `setId` — two fields
+     * `search_cards` has already handed back — every hop is templated off
+     * `ADDRESSING_LINES`. So this tool takes those two fields and the BROWSER
+     * expands them into the same journey steps, runs them on the same
+     * sequencer, and reports back in the same shape.
+     *
+     * The model's burden drops to `goTo`'s difficulty class. Nothing else
+     * changes: the walk is still a choice it can decline, the fail-stop still
+     * stops, and `journey` stays for walks this cannot express.
+     *
+     * Kept deliberately narrow. A macro that grew a step list would be
+     * `journey` again with extra syntax.
+     */
+    escort: tool({
       description:
-        'Escort someone somewhere: ONE call carrying the whole way there, in order, run start to finish. ' +
+        'Walk someone to a set or a series, the way a person would — ONE call, and the app builds and runs the whole way. ' +
         'Use it when they ask to be SHOWN the way — "help me find", "where is", "how do I get to" — rather ' +
         'than simply taken somewhere; for "take me to it", call goTo and be done. ' +
+        'You do not write the path and you do not name any landmark: hand it the series slug and set id you already ' +
+        'have from search_cards, get_card or set_progress, and every hop is built for you — including the step that ' +
+        'reveals a series nothing has been collected from yet. ' +
+        'If a landmark never appears the walk stops there and tells you which step, which target and why — ' +
+        'steps after it do not run, so do not describe them as though they did. ' +
+        'For a walk this cannot express — anywhere that is not a set or a series — use `journey` and write the steps yourself.',
+      inputSchema: z.object({
+        seriesSlug: z
+          .string()
+          .min(1)
+          .describe('The series slug the data tools returned, e.g. "mega-evolution". Not a title.'),
+        setId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'The set id the data tools returned, e.g. "me05". Leave it out to walk only as far as the series.',
+          ),
+        opener: z
+          .string()
+          .max(200)
+          .optional()
+          .describe('One line to say as the walk starts. Optional — your own reply already carries the rest.'),
+      }),
+      // No execute: the browser expands and runs this, exactly like `journey`.
+    }),
+
+    journey: tool({
+      description:
+        'Escort someone somewhere no `escort` call can reach: ONE call carrying the whole way there, in order, run start to finish. ' +
+        'Reach for this only when the destination is NOT a set or a series — for those, `escort` builds the same walk from two ids and is far less to get right. ' +
         'Steps: say a line, goTo a page, flyTo a landmark, highlight one, click a pressable one, or ensure ' +
         'one is there by pressing the thing that reveals it. ' +
         'Every step that names a landmark waits for it, so there is no pause to ask for. ' +
@@ -714,4 +772,12 @@ export function buildTools(
 }
 
 /** Tools the BROWSER fulfils. The server must not try to execute these. */
-export const CLIENT_TOOLS = ['flyTo', 'highlight', 'goTo', 'scrollToMe', 'click', 'journey'] as const
+export const CLIENT_TOOLS = [
+  'flyTo',
+  'highlight',
+  'goTo',
+  'scrollToMe',
+  'click',
+  'journey',
+  'escort',
+] as const
