@@ -152,7 +152,21 @@ test('the two navigation intents are split — jump and escort, both stated', ()
   // The new half. "Help me find X" is a request to learn the way, and answering
   // it with a teleport teaches nothing — which is what C33's transcript is.
   assert.match(p, /"Help me find X".*ESCORT/)
-  assert.match(p, /That is one `journey` call/)
+
+  // WHICH tool answers it changed, and the reason is measured rather than
+  // stylistic: writing the walk as a `journey` asks the model to compile a
+  // program, which it did 2 times in 10, so a set or a series is now one
+  // `escort` call carrying two ids. `journey` is still the answer for anywhere
+  // that macro cannot reach, and this pins BOTH halves — a future edit that
+  // quietly drops one leaves the other unanswerable.
+  assert.match(p, /that is one `escort` call, and you do not write the\s+path/)
+  assert.match(p, /Anywhere else, write the steps yourself with `journey`/)
+
+  // The first hop of a walk is a jump, and it is stated rather than left to be
+  // discovered — there is no `[data-decke-nav="\/series"]` to press, so an
+  // escort that promised "point at what to press" for hop one was promising
+  // something impossible.
+  assert.match(p, /The first hop of a walk is a `goTo`, not a press/)
 
   // The qualified line, kept rather than removed: doing a thing beats miming
   // it, but walking a route someone asked to be shown is not miming.
