@@ -435,6 +435,48 @@ export function DeckeChat({
     return () => unlockScroll()
   }, [open, minimised, decke])
 
+  /**
+   * Where focus was before he opened, so it can go back.
+   *
+   * Opening moves focus into the composer, which is right. Closing used to
+   * simply drop it — and focus that lands nowhere lands on `<body>`, so the
+   * next Tab starts from the top of the page and a keyboard user is silently
+   * teleported to the beginning of the app for the crime of pressing Escape.
+   */
+  const returnFocusRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!open) return
+    returnFocusRef.current = (document.activeElement as HTMLElement) ?? null
+    return () => {
+      const el = returnFocusRef.current
+      returnFocusRef.current = null
+      // ── AND A FALLBACK, WHICH IS THE COMMON CASE RATHER THAN THE EDGE ──
+      //
+      // The launcher unmounts once he has arrived, so the element that opened
+      // this panel is usually GONE by the time it closes. Focusing a detached
+      // node is a silent no-op that leaves focus on `<body>`, so a restore
+      // written only for the happy path would almost never fire — measured
+      // exactly that way before this fallback existed.
+      //
+      // The launcher remounts on close and is the control that represents this
+      // panel, so it is where focus belongs. After a frame, because it does not
+      // exist yet at the moment this cleanup runs.
+      const focus = (target: HTMLElement | null) => {
+        if (!target?.isConnected) return false
+        try {
+          target.focus({ preventScroll: true })
+          return document.activeElement === target
+        } catch {
+          return false
+        }
+      }
+      if (focus(el)) return
+      requestAnimationFrame(() => {
+        focus(document.querySelector<HTMLElement>('button[aria-label="Chat with Deck-E"]'))
+      })
+    }
+  }, [open])
+
   // Escape closes; focus lands in the composer.
   useEffect(() => {
     if (!open) return
@@ -633,7 +675,26 @@ export function DeckeChat({
       */}
       <div
         role="dialog"
-        aria-modal="true"
+        // NOT `aria-modal`, and removing it is the fix rather than the
+        // omission. `aria-modal="true"` tells assistive technology that
+        // everything outside this element is inert — which was true when the
+        // panel was a card over a scrim that covered the whole viewport, and
+        // stopped being true the moment the ruling landed that the app header
+        // and the full-height sidebar stay sharp AND USABLE while he is open.
+        // They are reachable, they are meant to be, and a nav tap while the
+        // chat is open is a deliberate interaction rather than an accident.
+        //
+        // So the attribute now describes a modality the design has explicitly
+        // rejected: a screen-reader user would be told the rest of the app is
+        // unavailable while a sighted user is being invited to click it. The
+        // honest markup for "a dialog that does not take the app hostage" is
+        // `role="dialog"` without it.
+        //
+        // It also means no focus trap belongs here. Trapping focus inside a
+        // panel whose whole point is that the app around it still works would
+        // implement the lie instead of removing it. What DOES belong — and is
+        // below — is returning focus where it came from on close, which is
+        // ordinary courtesy and is missing either way.
         aria-label="Chat with Deck-E"
         style={{
           '--decke-gutter': `${gutter}px`,
