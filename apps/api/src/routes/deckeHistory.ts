@@ -1,0 +1,289 @@
+import { Router } from 'express';
+import { buildStamp } from '../decke/build.js';
+import { isDeckeEntitled } from '../decke/entitlement.js';
+import { q, q1 } from '../db.js';
+import { ApiError, asyncHandler, badRequest, clampInt, notFound, str } from '../http.js';
+import { currentUserId } from '../identity.js';
+
+/**
+ * Deck-E's transcript history — what was said, what ran, and on which build.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * TWO AUDIENCES, ONE TABLE SET
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ *   "First it's just helpful. But second, I think fixing things and improving
+ *    the agent will be greatly helped by having a full record of all my chats,
+ *    which tools were called."
+ *
+ * A reader wants to find a conversation again. A maintainer wants to answer
+ * "did this get worse, and when". The second is the demanding one, and it is
+ * why every turn carries a build stamp and every tool call carries the PHASE it
+ * finished in rather than just its name — `ok`, `partial`, `error`, `declined`.
+ * "When did `plan_deck` start coming back `error`" is the question, and it is a
+ * query rather than a reading exercise.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE CLIENT POSTS IT, AND THE SERVER STAMPS IT
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The transcript is recorded by the BROWSER at the end of each exchange, and
+ * that is deliberate rather than convenient: what belongs in a history is what
+ * the reader actually saw. The server streams parts; the client is the only
+ * place that knows which of them survived to the screen, in what order, with
+ * which rows still showing.
+ *
+ * The consequence is that the CONTENT is client-supplied and therefore not
+ * evidence about the server. So the two fields that are evidence — the build
+ * stamp — are written HERE, from the running process's own environment, and are
+ * not accepted from the request at all. A client that could name its own build
+ * could attribute any turn to any release, which destroys the only property the
+ * maintainer half of this depends on.
+ *
+ * Contract B12 note for anyone reading this while debugging: rows written by
+ * the QA account are real rows on the real table.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * IT IS GATED LIKE DECK-E, INCLUDING THE READS
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Deck-E is an experimental feature reachable by a short list of accounts. An
+ * unentitled account has no history and can never acquire one, so these routes
+ * refuse it rather than returning an empty list — an empty list is a claim that
+ * the feature exists for you and you simply have not used it, which is not true
+ * and would be the first thing to mislead somebody.
+ */
+export const deckeHistoryRouter: Router = Router();
+
+/** 403, in the same shape `ApiError` gives everything else. */
+const forbidden = (msg: string): ApiError => new ApiError(403, 'forbidden', msg);
+
+/**
+ * Caps, chosen against what a real exchange looks like rather than round.
+ *
+ * A transcript row is written on the hot path of every turn, so an unbounded
+ * body is an unbounded insert on a table the owner is going to read for years.
+ * These are generous — a long answer is ~4kB — and they truncate rather than
+ * reject, because losing the tail of a record is better than losing the record.
+ */
+const MAX_TEXT = 24_000;
+export const MAX_TOOLS = 60;
+const MAX_TITLE = 140;
+
+/** A uuid, and nothing that merely looks like one. */
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The chip phases a row may carry. Anything else is recorded as `unknown`. */
+const PHASES = new Set(['start', 'progress', 'ok', 'partial', 'error', 'declined']);
+
+export interface ToolRecord {
+  name: string;
+  phase: string;
+  title: string;
+  summary: string;
+}
+
+/**
+ * Normalise the tools a client sent.
+ *
+ * SHAPED, not trusted. The jsonb column's whole value is that a regression hunt
+ * can query it — `tools @> '[{"name":"plan_deck"}]'` — and that only works if
+ * every row has the same four keys with the same meanings. A free-form blob
+ * would be a column nobody can ask a question of.
+ */
+export function shapeTools(input: unknown): ToolRecord[] {
+  if (!Array.isArray(input)) return [];
+  const out: ToolRecord[] = [];
+  for (const raw of input.slice(0, MAX_TOOLS)) {
+    const t = raw as Record<string, unknown> | null;
+    const name = str(t?.name)?.slice(0, 80);
+    if (!name) continue;
+    const phase = str(t?.phase) ?? '';
+    out.push({
+      name,
+      phase: PHASES.has(phase) ? phase : 'unknown',
+      title: (str(t?.title) ?? '').slice(0, 200),
+      summary: (str(t?.summary) ?? '').slice(0, 500),
+    });
+  }
+  return out;
+}
+
+/** Every route here needs the same two facts. */
+function caller(req: Parameters<Parameters<typeof asyncHandler>[0]>[0]): string {
+  const userId = currentUserId(req);
+  if (!userId) throw forbidden('Sign in to use Deck-E.');
+  if (!isDeckeEntitled(userId)) throw forbidden('Deck-E is not available on this account.');
+  return userId;
+}
+
+/**
+ * POST /decke/history — record one exchange.
+ *
+ * Idempotent by position: `(conversation_id, seq)` is unique, and a repost of
+ * the same position UPDATES rather than inserting. The client posts this after a
+ * turn settles, so a flaky network turns one exchange into two identical rows —
+ * which is the failure that makes a history stop being trustworthy at exactly
+ * the moment somebody is relying on it.
+ */
+deckeHistoryRouter.post(
+  '/history',
+  asyncHandler(async (req, res) => {
+    const userId = caller(req);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+
+    const conversationId = str(body.conversationId) ?? '';
+    if (!UUID.test(conversationId)) throw badRequest('conversationId must be a uuid.');
+    const seq = clampInt(body.seq, -1, 0, 10_000);
+    if (seq < 0) throw badRequest('seq must be a non-negative integer.');
+
+    const asked = (str(body.asked) ?? '').slice(0, MAX_TEXT);
+    const answered = (str(body.answered) ?? '').slice(0, MAX_TEXT);
+    const tools = shapeTools(body.tools);
+    // A turn with nothing in it is not a turn. Recording it would put empty rows
+    // in a history whose only job is to be read later.
+    if (!asked && !answered && tools.length === 0) {
+      throw badRequest('Nothing to record.');
+    }
+
+    // THE STAMP IS OURS. Never read from the body — see the header.
+    const { buildPr, buildSha } = buildStamp();
+
+    // The conversation first, so the turn's foreign key always resolves. The
+    // title is the FIRST question and is not overwritten afterwards: a
+    // conversation renaming itself as it goes is a list that will not sit still.
+    await q(
+      `INSERT INTO decke_conversation (id, user_id, title, turns)
+       VALUES ($1, $2, $3, 0)
+       ON CONFLICT (id) DO NOTHING`,
+      [conversationId, userId, asked.slice(0, MAX_TITLE)],
+    );
+
+    const row = await q1<{ id: string }>(
+      `INSERT INTO decke_turn
+         (conversation_id, user_id, seq, asked, answered, tools, build_pr, build_sha)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+       ON CONFLICT (conversation_id, seq) DO UPDATE
+         SET asked = EXCLUDED.asked,
+             answered = EXCLUDED.answered,
+             tools = EXCLUDED.tools,
+             build_pr = EXCLUDED.build_pr,
+             build_sha = EXCLUDED.build_sha
+       RETURNING id`,
+      [conversationId, userId, seq, asked, answered, JSON.stringify(tools), buildPr, buildSha],
+    );
+
+    // Derived rather than incremented, so a repost cannot inflate it and a
+    // deleted turn cannot leave it wrong.
+    await q(
+      `UPDATE decke_conversation
+          SET turns = (SELECT count(*) FROM decke_turn WHERE conversation_id = $1),
+              updated_at = now()
+        WHERE id = $1 AND user_id = $2`,
+      [conversationId, userId],
+    );
+
+    res.json({ ok: true, id: row?.id ?? null, buildPr, buildSha });
+  }),
+);
+
+/**
+ * GET /decke/history — the conversation list, newest activity first.
+ *
+ * Carries the build range of each conversation, because that is what makes the
+ * list itself useful for the second audience: a conversation that spans two
+ * builds is the interesting one when something changed.
+ */
+deckeHistoryRouter.get(
+  '/history',
+  asyncHandler(async (req, res) => {
+    const userId = caller(req);
+    const limit = clampInt(req.query.limit, 40, 1, 200);
+    const rows = await q(
+      `SELECT c.id, c.title, c.turns, c.started_at, c.updated_at,
+              min(t.build_pr) AS build_pr_min,
+              max(t.build_pr) AS build_pr_max,
+              (array_agg(t.build_sha ORDER BY t.seq DESC))[1] AS build_sha
+         FROM decke_conversation c
+         LEFT JOIN decke_turn t ON t.conversation_id = c.id
+        WHERE c.user_id = $1
+        GROUP BY c.id
+        ORDER BY c.updated_at DESC
+        LIMIT $2`,
+      [userId, limit],
+    );
+    res.json({
+      conversations: rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        turns: Number(r.turns ?? 0),
+        startedAt: r.started_at,
+        updatedAt: r.updated_at,
+        buildPrMin: r.build_pr_min === null ? null : Number(r.build_pr_min),
+        buildPrMax: r.build_pr_max === null ? null : Number(r.build_pr_max),
+        buildSha: r.build_sha ?? null,
+      })),
+    });
+  }),
+);
+
+/** GET /decke/history/:id — one conversation, in order. */
+deckeHistoryRouter.get(
+  '/history/:id',
+  asyncHandler(async (req, res) => {
+    const userId = caller(req);
+    const id = String(req.params.id ?? '');
+    if (!UUID.test(id)) throw badRequest('id must be a uuid.');
+    const head = await q1<{ id: string; title: string; started_at: string }>(
+      `SELECT id, title, started_at FROM decke_conversation WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+    // NOT FOUND, never forbidden, for a conversation belonging to somebody else.
+    // A 403 here would confirm the id exists, which is a fact about another
+    // account's data.
+    if (!head) throw notFound('No such conversation.');
+    const turns = await q(
+      `SELECT seq, asked, answered, tools, build_pr, build_sha, created_at
+         FROM decke_turn WHERE conversation_id = $1 AND user_id = $2 ORDER BY seq`,
+      [id, userId],
+    );
+    res.json({
+      id: head.id,
+      title: head.title,
+      startedAt: head.started_at,
+      turns: turns.map((t) => ({
+        seq: Number(t.seq),
+        asked: t.asked,
+        answered: t.answered,
+        tools: t.tools ?? [],
+        buildPr: t.build_pr === null ? null : Number(t.build_pr),
+        buildSha: t.build_sha ?? null,
+        at: t.created_at,
+      })),
+    });
+  }),
+);
+
+/**
+ * DELETE /decke/history/:id — withdraw a conversation.
+ *
+ * You may delete your own words and you may not revise them: there is no update
+ * route, and 044's policies say the same thing at the database. A history whose
+ * subject can rewrite it is not evidence, and one they cannot withdraw from is
+ * our record of their conversation rather than theirs.
+ */
+deckeHistoryRouter.delete(
+  '/history/:id',
+  asyncHandler(async (req, res) => {
+    const userId = caller(req);
+    const id = String(req.params.id ?? '');
+    if (!UUID.test(id)) throw badRequest('id must be a uuid.');
+    // Turns cascade from the conversation (043), so this cannot orphan a row.
+    const gone = await q1<{ id: string }>(
+      `DELETE FROM decke_conversation WHERE id = $1 AND user_id = $2 RETURNING id`,
+      [id, userId],
+    );
+    if (!gone) throw notFound('No such conversation.');
+    res.json({ ok: true });
+  }),
+);

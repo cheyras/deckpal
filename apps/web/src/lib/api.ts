@@ -883,7 +883,69 @@ function normaliseItems(r: { list: ListSummary; items: RawListItem[] }): ListDet
 }
 
 // ── Endpoints ──────────────────────────────────────────────────
+/** One row in the history dropdown. */
+export interface DeckeConversationSummary {
+  id: string
+  title: string
+  turns: number
+  startedAt: string
+  updatedAt: string
+  /**
+   * The PR range this conversation ran across.
+   *
+   * They differ when a conversation outlived a deploy, which is exactly the
+   * conversation worth opening when something changed. `null` on both means no
+   * turn in it was attributable to a PR — a preview build or a local run.
+   */
+  buildPrMin: number | null
+  buildPrMax: number | null
+  buildSha: string | null
+}
+
+export interface DeckeHistoryList {
+  conversations: DeckeConversationSummary[]
+}
+
+/** One recorded exchange: what was asked, what came back, and what ran. */
+export interface DeckeHistoryTurn {
+  seq: number
+  asked: string
+  answered: string
+  /** `phase` is the chip's own word — ok, partial, error, declined, unknown. */
+  tools: { name: string; phase: string; title: string; summary: string }[]
+  buildPr: number | null
+  buildSha: string | null
+  at: string
+}
+
+export interface DeckeConversation {
+  id: string
+  title: string
+  startedAt: string
+  turns: DeckeHistoryTurn[]
+}
+
 export const api = {
+  // ── DECK-E'S TRANSCRIPT HISTORY ───────────────────────────────────────────
+  //
+  // Gated server-side to the accounts that have Deck-E at all, so every one of
+  // these throws for anybody else rather than returning an empty list — an
+  // empty list would claim the feature exists for you and you simply have not
+  // used it.
+  deckeHistoryRecord: (body: {
+    conversationId: string
+    seq: number
+    asked: string
+    answered: string
+    tools: { name: string; phase: string; title: string; summary: string }[]
+  }) => send<{ ok: true; buildPr: number | null; buildSha: string | null }>('POST', '/decke/history', body),
+  deckeHistoryList: (signal?: AbortSignal) =>
+    get<DeckeHistoryList>('/decke/history', signal),
+  deckeHistoryOne: (id: string, signal?: AbortSignal) =>
+    get<DeckeConversation>(`/decke/history/${encodeURIComponent(id)}`, signal),
+  deckeHistoryDelete: (id: string) =>
+    send<{ ok: true }>('DELETE', `/decke/history/${encodeURIComponent(id)}`),
+
   series: (signal?: AbortSignal) => get<SeriesIndexResponse>('/series', signal),
   seriesDetail: (slug: string, signal?: AbortSignal) =>
     get<SeriesDetailResponse>(`/series/${encodeURIComponent(slug)}`, signal),
