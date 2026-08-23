@@ -337,3 +337,24 @@ test('the no-work rule is in the prompt, and it names the REAL marker', () => {
   assert.match(flat(p), /do not list cards/i)
   assert.match(flat(p), /let's build/i)
 })
+
+test('a write is reported by NAMING what was written, not by counting it', () => {
+  // "Added one each of five different Charmander cards to your collection" is a
+  // summary of a fact the reader never saw. They asked him to change their
+  // collection; the only way to check he got it right is if he says which cards.
+  // Requested in those terms: "I would like it so that he actually says the
+  // cards, just to reiterate."
+  const p = buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS })
+  assert.match(flat(p), /NAME WHAT YOU WROTE/i)
+  assert.match(flat(p), /from the tool's own result/i, 'he could name them from memory instead')
+})
+
+test('"show me where these ended up" is a walk, not a list', () => {
+  // Listing the places he just wrote to is answering from his own memory of the
+  // write — which is the one thing the reader was trying to verify. The rule has
+  // to name the tool, or it is a sentiment.
+  const p = buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS })
+  assert.match(flat(p), /TAKE THEM TO IT — ONE AT A TIME/i)
+  assert.match(flat(p), /escort/, 'the rule does not say what to actually call')
+  assert.match(flat(p), /not one paragraph naming five places/i)
+})
