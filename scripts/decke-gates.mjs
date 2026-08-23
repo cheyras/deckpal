@@ -1639,6 +1639,10 @@ GATES[5] = {
  * Started on the set page because that is where the control lives. Asking from
  * a page that has no goal switcher would test navigation, not showing.
  */
+/** A description of WHERE a thing is, as opposed to pointing at it. */
+const NARRATED_LOCATION =
+  /\b(?:(?:the|upper|lower|top|bottom)\s+right|top|bottom|upper|lower|left|above|below|next to|beside|underneath)\b[^.]{0,40}\b(?:page|screen|header|toolbar|filter|filters|row|bar|corner|list|sidebar)\b/i
+
 GATES[6] = {
   title: 'The goal switcher is SHOWN — chat minimises, he flies there and rings it',
   async run() {
@@ -1671,8 +1675,25 @@ GATES[6] = {
       const onTarget = flights.filter((t) => String(t.input?.selector ?? '').includes('data-decke-goal-switcher'))
       const rang = onTarget.some((t) => t.name === 'highlight' || t.input?.highlight !== false)
       const said = spoken(chatPosts)
-      const narrated =
-        /\b(top|bottom|upper|lower|left|right|above|below|next to|beside|underneath)\b[^.]{0,40}\b(page|screen|header|toolbar|filter|filters|row|bar|corner|list|sidebar)\b/i
+      // `right` ONLY counts as a direction when a qualifier points it that way.
+      //
+      // This gate's own comment warned about exactly this — "a loose regex here
+      // would fail him for saying 'here' while pointing correctly" — and then it
+      // did. Measured on a real run: he flew to the goal switcher, rang it,
+      // minimised the panel, and said "Right there on the set header — the goal
+      // switcher." Every behavioural assertion passed and the gate went red on
+      // the words, because a bare `right` near `header` looked like a position.
+      //
+      // "Right there" and "right here" are DEICTIC — what someone says WHILE
+      // pointing, which is the behaviour this gate exists to reward. "On the
+      // right of the toolbar" is a direction. The qualifier tells them apart, so
+      // the qualifier is now required.
+      //
+      // Checked BOTH WAYS against a corpus before changing: four phrasings that
+      // must not fire (all previously red) and eight real narrations that must
+      // still be caught, including the one this rule was written for — "it's the
+      // little star at the top of the filter row".
+      const narrated = NARRATED_LOCATION
 
       const detail = [
         `started on /series/${truth.seriesSlug}/${truth.setId} (the goal switcher lives in FilterControls)`,
