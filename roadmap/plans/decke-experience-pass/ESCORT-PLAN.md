@@ -1,253 +1,297 @@
 # Why he describes instead of showing you — and what to do about it
 
-A plan of attack, written after external research rather than after more
-guessing. It supersedes the "what to try next" list in `NEXT.md`.
+**Revision 2.** Written after external research, then substantially rewritten
+after an adversarial consult (Fable) read the code rather than my summary and
+took out the load-bearing beam. Revision 1's diagnosis is preserved in §0c
+because being wrong in a specific way is part of the record.
 
 **Budget: about a dollar.** At a measured **$0.01153 per turn**, every experiment
-below costs cents; the constraint is the QA account's 120-turn daily meter, not
-money. Spend it in the order given, because each step changes what the next one
-should be.
+below costs cents; the constraint is the QA account's 120-turn daily meter
+(UTC-midnight reset, `apps/api/src/decke/meter.ts:119-133`), not money.
 
 ---
 
-## 0. The finding that reframes everything
+## 0. The cause: it is not that he will not, it is that he cannot cheaply
 
-**Our failure rate is 3–7× worse than benchmark baseline.** It is not how models
-behave; it is how *this setup* behaves.
+**The control group is inside our own system, and it exonerates the wiring.**
 
-[ToolFailBench](https://arxiv.org/abs/2607.04686) (1,000 tasks, 19 models, July
-2026) measures Tool-Skip Rate on tasks where a tool is required:
+| Tool | What its argument is | Measured |
+|---|---|---|
+| `goTo` | one route string | **100% nav** (5/5, `models.ts:159`) |
+| `express` | a flat array of enum-ish commands | called routinely |
+| **`journey`** | **a compiled multi-step program** | **skipped 8/10** |
 
-| | Tool-Skip Rate |
-|---|---|
-| **Grok-4.3 (best of 19)** | **11.80%** |
-| Qwen2.5-32B | 12.08% |
-| Llama-3.1-8B | 20.64% |
-| Qwen2.5-7B (worst) | 28.53% |
+Same wiring, same prompt, same model, same step in the turn. The variable that
+separates the tool he skips from the tools he calls is not position, name,
+description length, or visibility — **it is what he must construct to use it.**
 
-We measure **8 of 10 turns skipping the tool** — and we are on
-`spacexai/grok-4.20-non-reasoning`, from the family that tops that table on this
-exact metric. Caveat stated honestly: ToolFailBench is single-tool, single-turn,
-in other domains, so it is not apples to apples. An order of magnitude is still
-an order of magnitude.
+*(One honest wrinkle: the 100%-nav row is `grok-4.1-fast-non-reasoning`, the
+predecessor. The current `grok-4.20-non-reasoning` was adopted because it fixed
+`flyTo` reliability 0/5 → 5/5 — `README.md` §6 — so movement tools demonstrably
+work on the incumbent too. The comparison holds; the row is not from the exact
+model.)*
 
-**Do not accept "models are just like this" as the diagnosis.** That was my
-working assumption for most of a day and it was wrong.
+To emit a valid escort from `/decks`, in one pass, with **no reasoning tokens**,
+he must:
 
-## 0b. Somebody else has this exact bug, and the SDK's maintainer answered it
+1. **Resolve a contradiction the prompt hands him.** The escort is sold as
+   *"point at what to press, press it, arrive"* (`prompt.ts:601`) — but
+   `prompt.ts:639` states there **is no `[data-decke-nav="/series"]`**, so the
+   first hop cannot be a click and the "escort" must open with a `goTo` teleport.
+2. **Synthesise 3–5 exact attribute selectors**, double-quoted, for pages he has
+   never seen, from a template grammar (`prompt.ts:260-264`).
+3. **Remember that unowned series hide** behind `[data-decke-show-others]` and
+   need a two-argument `ensure` (`prompt.ts:660-664`).
+4. Keep every `say` under 200 chars, every field on the right verb, **the whole
+   plan atomic** — one mistake voids everything (`tools.ts:408-423`).
 
-[vercel/ai#10269](https://github.com/vercel/ai/issues/10269) — same SDK, same
-`streamText`, same symptom, reported verbatim as *"The model instead analyzes,
-plans, or describes what it would do rather than actually calling the tools"*,
-with output like *"I'll create a comprehensive mindmap… "* and **no tool call**.
+Against that, the alternative continuation available at the same decision point
+is **two sentences of prose** — and the lookup he just ran already answers the
+literal question in the informational sense. *A non-reasoning model at a boundary
+between a two-sentence exit and a ~300-token exactly-quoted program takes the
+exit.* **2/10 is what sampling noise around that boundary looks like.**
 
-They had already tried what we tried, with the results we got:
+### This retro-explains my own results, which otherwise look inconsistent
 
-| They tried | Their measured result |
-|---|---|
-| `CRITICAL … call the tool FIRST` in the system prompt | "Marginal improvement, degradation still occurs" |
-| `stopWhen: stepCountIs(8)` | "Model uses steps for analysis instead of tool calls" |
-| `temperature: 0` | "Doesn't solve the issue" |
-| Keyword detection → prompt hints | "Helps initially but reliability still degrades" |
+The *"never end a turn with 'Confirm?'"* doctrine moved **writes 0/20 → 9/20**.
+The same template did **nothing** for the escort. That is not a mystery once the
+barrier is named:
 
-The SDK maintainer's answer
-([comment](https://github.com/vercel/ai/issues/10269#issuecomment-3546612382)):
+> **The write barrier was permission-anxiety — "may I".** The call itself
+> (`log_cards`, a few fields) was easy, so a sentence that removed the hesitation
+> worked. **The escort barrier is "can I".** Prompt emphasis lowers reluctance; it
+> cannot lower construction cost.
 
-> "One way of achieving what you're looking for is *actually* forcing a tool
-> call, not just telling the model it must use it. **To be clear, anything in the
-> system prompt (or broader context window) is not a guarantee of behaviour.**"
+Every prompt lever measured at roughly nothing because every prompt lever was
+aimed at the wrong barrier.
 
-Both issues were closed as *not an SDK bug* — "model and context management".
-That is a maintainer's assertion, not a measurement, but it is the maintainer of
-the library we use answering the symptom we have.
+## 0b. Two real configuration defects, found by reading and free to fix
+
+**`goTo` and `journey` claim the same trigger.** Verified:
+
+- `tools.ts:582` — *"Use this whenever they ask to be TAKEN **or SHOWN**
+  somewhere that is a page"*, then three lines building
+  `/series/mega-evolution/me05` — **our exact query**.
+- `tools.ts:666` — *"Use it when they ask to be **SHOWN the way** — 'help me
+  find', 'where is', 'how do I get to'"*.
+
+*"Help me find Pitch Black"* matches both, and `goTo` is heavily primed for this
+specific case. **Contested selection between two tools is a documented cause of
+calling neither** — decision conflict raises the probability of the default
+action, which is text. Consistent with the data: of 10 runs, **2 chose `journey`
+and 0 chose `goTo`-only**. He is not picking the rival; he is picking neither.
+
+**The prompt canonises prose-first.** `prompt.ts:655`: *"`say` — one line, out
+loud, **before the move it belongs to**."* So the canonical first action of every
+escort plan is the one step type expressible in his native channel. See §3b —
+this is a mechanism, not just an aesthetic.
+
+## 0c. What revision 1 got wrong, kept on the record
+
+I led with **ToolFailBench** — 12–29% tool-skip across 19 models, best-in-class
+11.8% on the Grok family — and concluded *"we are 3–7× worse than baseline, so
+something in our setup is misconfigured."*
+
+**That compares the wrong task class.** ToolFailBench measures skip on single
+tools with simple arguments. `journey` is one-shot program synthesis. The
+benchmark's 11.8% and our 80% are not measuring comparable acts, and the gap I
+treated as evidence of misconfiguration is mostly evidence that I picked a
+yardstick that did not fit.
+
+The internal control group above is the argument I should have made from the
+start: it holds the model, the prompt, the SDK and the turn position constant and
+varies only argument complexity. **It was available the whole time.**
+
+What survives from revision 1: **vercel/ai#10269** is still this exact bug on
+this exact SDK, and its maintainer's *"anything in the system prompt is not a
+guarantee of behaviour"* is still right — it just turns out to be right for a
+reason I had not identified. And #10269 shows this failure with tools that have
+no `say`-like verb, which matters in §3b.
 
 ---
 
-## 1. Fix the instrument first — it has been blind to the deciding question
+## 1. Fix the instrument first — twice blind, now guarded
 
-`probe.mjs` recognised only `tool-input-available` and `text-delta`. A turn where
-he **attempted** `journey` and had it refused by schema validation produced
-byte-identical output to a turn where he never tried. **Every number gathered so
-far, including every number I reported, cannot tell those apart.**
-
-Already fixed: it now counts `tool-input-error` separately and prints every part
-type it saw, so the next thing it is blind to shows up as an unfamiliar name
-rather than as silence.
+`probe.mjs` recognised only `tool-input-available` and `text-delta`, so a turn
+where he **attempted** `journey` and had it refused by schema validation was
+byte-identical to one where he never tried. Fixed: it counts `tool-input-error`
+separately and prints every part type it saw.
 
 ### And a second blindness, found while trying to run step 1
 
-The shell was rewriting the route. MSYS (Git Bash) path conversion turns a bare
-`--route /decks` into **`--route "C:/Program Files/Git/decks"`** before node ever
-sees it, so the probe was telling the handler the reader was standing on a route
-this app does not have — and the run still completed, still streamed, and still
-produced a number.
+MSYS (Git Bash) path conversion turns `--route /decks` into
+**`C:/Program Files/Git/decks`** before node sees it, so the probe was telling
+the handler the reader was standing on a route this app does not have — and the
+run still completed, still streamed, and still produced a number.
 
-**What this does and does not invalidate.** The **2/10 baseline is safe**: it was
-measured through a real browser via the gates, which never touch the probe. What
-it does invalidate is the **cheap prompt-tweak comparisons** — the 0/3 and 1/5
-readings I correctly called noise at the time were also, it turns out, asking the
-model to escort someone standing nowhere.
+**What that invalidates.** The **2/10 baseline is safe** — measured through a
+real browser via the gates, which never touch the probe. The **cheap prompt-tweak
+comparisons are not**: the 0/3 and 1/5 readings I correctly called noise were
+also asking the model to escort someone standing nowhere.
 
-The probe now **refuses** a non-route rather than guessing. Deliberately refuses:
-the prefix MSYS prepends is its own install root, recovering it is guesswork, and
-a guess would reintroduce exactly the silent-wrong-answer failure the check
-exists to end. It prints the two working forms (`--route //decks`, or
-`MSYS_NO_PATHCONV=1`).
+The probe now **refuses** a non-route rather than un-mangling it — the prefix
+MSYS prepends is its own install root, recovering it is guesswork, and a guess
+would reintroduce exactly the silent-wrong-answer failure the check exists to
+end.
 
-**The pattern is worth naming, because it is now twice.** This instrument has
-answered confidently about a question it was not asking, in two different ways,
-and both times the output looked entirely normal. Anything it reports before a
-run that exercises the guard should be treated as unverified.
-
-**Step 1 (10 turns, ~12¢): re-baseline.** Everything below branches on the
-answer.
-
-- **If rejections appear**, the problem is schema ergonomics — go to §2.
-- **If he simply is not trying**, go to §3.
-
-Related, and already fixed in the product: a rejected call used to be invisible
-to the reader *and* unlogged, and the model was told only *"An error occurred."*
-Caught on a real production stream where `showScreen` failed validation five
-times in one turn while the model kept shortening the title, never touching the
-280-character block that was actually wrong.
+**Step 1 (10 turns, ~12¢): re-baseline.** The "empty `toolCalls`" observation
+predates both fixes and may not survive them. Everything below assumes it does.
 
 ---
 
-## 2. If he is being refused: schema ergonomics
+## 2. The change that attacks the cause: stop making him write the program
 
-Ranked by likelihood of voiding a first attempt, argued from the schema:
+**Keep the compound execution contract. Take the compilation away from the
+model.**
 
-1. **Landmark-ref exactness.** `[data-decke-x="y"]` — double quotes, no
-   whitespace, no combinators — synthesised several times per plan for pages he
-   has never seen. One wrong quote voids the whole plan.
-2. **`ensure`'s two-argument shape**, whose name undersells it.
-3. **Per-verb field bleed** on a deliberately flat schema.
-4. **The atomicity itself.** Up to ten heterogeneous steps validated
-   all-or-nothing, competing for selection against single-step tools that are
-   cheap to retry. If each step has even a modest error rate, the odds of a clean
-   six-step round-trip compound down fast.
+The premise is stated in our own file header, `journey.ts:12-17`:
 
-**The asymmetry worth naming:** the tool is *forgiving about the world* — a
-landmark that never appears yields graceful partial credit with a structured
-reason — and *unforgiving about the model's own drafting*. That is backwards for
-encouraging a model that is not confident in its own selector-writing.
+> "the selectors are constructible from ids the data tools return BEFORE anything
+> moves. Given `seriesSlug: mega-evolution, setId: me05`, the whole path — nav
+> row, series card, set row — can be written down without having seen any of
+> those pages."
 
-**Cheapest first change: normalise landmark-ref syntax** (accept single quotes,
-tolerate whitespace around `=`). **Zero client changes** — the sequencer never
-re-validates shape, and `querySelector` accepts either.
+**That file argues for one-plan-not-four-turns by proving the path is
+deterministic, and then hands the deterministic compilation to the model
+anyway.** If the path is constructible from `(seriesSlug, setId)`, asking him to
+hand-assemble it spends an 80%-failure model decision on something `tools.ts`
+could do in twenty lines.
 
-Honest note: *"one compound call vs several small ones"* is **not a studied
-trade**. OpenAI and Anthropic both advise compounding; the measured literature is
-about tool *count*, not schema *shape*. We would be generating this number
-ourselves.
+**So: a macro tool.** `escort({ seriesSlug, setId, opener? })` — one per route
+shape in `ROUTE_SHAPE_LINES`, or one with a small discriminant — whose
+**server-side execute expands to the journey steps** and forwards them down the
+existing client contract unchanged.
 
----
+| | before | after |
+|---|---|---|
+| What he must emit | a 3–5 step exactly-quoted program | **two fields he was just handed by `search_cards`** |
+| Difficulty class | one-shot program synthesis | **`goTo`'s — which measures 100%** |
 
-## 3. If he is not trying: three levers, in this order
+What is preserved: **restraint** (still a choice, not a forced path);
+**the deixis product** (same sequencer, same outline, same interleaved `say`s,
+now template-inserted or taken from `opener`); and **free-form `journey`**, which
+stays for genuinely novel walks.
 
-### 3a. The tool description — the lever I claimed to have tried and had not
+This is the Pulumi principle from §5 applied one level deeper — *"traditional
+software engineering outperforms prompt engineering for deterministic tasks"* —
+and it is **the only option on the table that attacks the cause rather than
+compensating for it.**
 
-I tried the **system prompt**. Anthropic's
-[troubleshooting guide](https://platform.claude.com/docs/en/agents-and-tools/tool-use/troubleshooting-tool-use)
-has a row for literally this symptom:
-
-> **Claude never calls your tool** → overly-generic schema → **add
-> `input_examples`** to make the intended use concrete; differentiate tools by
-> **WHEN** to use them, not only what they do.
-
-Our description already carries the *when*. It has **no worked example**.
-
-**And the SDK supports this first-class.** `inputExamples` is a tool property,
-and `addToolInputExamplesMiddleware()` serialises examples into the description
-for providers that do not support it natively — which is our case, since we go
-through the Gateway to a non-Anthropic model. So this is a supported feature, not
-a hack.
-
-Anthropic report internally that model-optimised tool descriptions beat
-human-written ones on held-out tests
-([writing tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents));
-magnitudes unpublished, so treat the direction as evidence and the size as
-unknown.
-
-**Experiment (20 turns, ~23¢):** one worked 4-step escort as `inputExamples`,
-plus both controls.
-
-### 3b. Remove the `say` step — the sharpest hypothesis, and it is not mine
-
-The `journey` schema contains a **`say`** step. The model already has a channel
-for saying things: its own text output — native, always available, zero schema.
-Ambiguous overlap is the documented first cause of a tool never being selected.
-
-**Every failing trace ends with him saying the thing.** He may be executing the
-`say` step, in prose, and stopping. *"I'll show you exactly where it lives"* is a
-`say` step that never became a tool call.
-
-`say` is cleanly isolated — one case in the sequencer calling `ctx.say`, which
-routes to the same transcript the model's own text reaches. Removing it is a
-contained change on both sides.
-
-**Cost to weigh:** narration would front-load. Instead of interleaving with the
-hops, he would say the whole plan once before moving. That may be worse, and it
-is why this is an experiment rather than a decision.
-
-**Experiment (10 turns, ~12¢):** single variable, `say` removed.
-
-### 3c. Force the tool — but only after the lookup, and only with the release
-
-The maintainer's fix, adapted. **`prepareStep` receives `steps`** (verified in
-`ai@7.0.66`), so the condition is expressible: *the destination lookup has
-returned and no journey has been emitted → `toolChoice: { type: 'tool', toolName:
-'journey' }`; otherwise `auto`.*
-
-**Three corrections that must not be skipped:**
-
-1. **The discriminant is `'tool'`, not `'tool-call'`.** The maintainer's own
-   snippet has it wrong for our version; `'tool-call'` is a content-part type.
-   Verified against our installed `dist/index.d.ts:143`.
-2. **Do not force at step 0.** The original reporter hit this immediately: forcing
-   at step 0 skips the retrieval half of a compound request. For us it would
-   build a journey on guessed selectors. Force *after* the lookup resolves.
-3. **Forcing without releasing hangs `streamText`.**
-   [vercel/ai#3944](https://github.com/vercel/ai/issues/3944) — a forced tool
-   choice put `streamText` into an endless loop, re-calling the tool
-   indefinitely. The `prepareStep` reset is not garnish.
-
-**Costs to own:**
-
-- **Prompt-cache invalidation.** Anthropic's guidance names varying `tool_choice`
-  between requests as a cache-miss cause. Against our ~4,700-token prompt that is
-  the largest hidden cost. Mitigation is documented: put the cache breakpoint
-  before the variation point.
-- **We delete irrelevance detection** for that turn. BFCL scores declining-to-call
-  as a first-class capability across 875 cases. Every false positive from the gate
-  becomes an escort nobody asked for.
-- **The design smell**, worth holding: *if the gate fires on nearly every turn,
-  `journey` is not a tool, it is our response format* — and should be modelled as
-  one.
-
-**Experiment (20 turns, ~23¢):** forced-after-lookup vs auto, plus both controls.
+**The free fixes, folded into any arm** (§0b): delete *"or SHOWN"* from `goTo`
+and keep the trigger phrases exclusively on `journey`; and say plainly in the
+journey section that an escort may **open** with a `goTo`, reconciling
+`prompt.ts:601` with `prompt.ts:639`.
 
 ---
 
-## 4. The deterministic fallback — do this regardless of which lever wins
+## 3. The levers, re-ranked
 
-Pulumi's lesson from shipping Copilot
-([writeup](https://www.pulumi.com/blog/copilot-lessons/)): *"traditional software
-engineering outperforms prompt engineering for deterministic tasks"* — they moved
-URL generation into backend code and eliminated a class of hallucination.
+### 3a. `inputExamples` — and now I understand why it should work
 
-**We already know the destination.** The lookup resolved it. Navigating to a known
-URL is deterministic, and we are currently spending a model decision, a validated
-ten-element schema and an 80% failure rate on it.
+Anthropic's troubleshooting guide has a row for exactly this symptom: *"Claude
+never calls your tool"* → **add `input_examples`**. Our SDK supports it
+first-class (`inputExamples` on the tool, plus `addToolInputExamplesMiddleware()`
+for providers without native support — which is our case through the Gateway).
 
-So: **when a turn ends having promised to navigate and not navigated, navigate.**
-The signal is precise and already on the wire — `finishReason: "stop"`, empty
-`toolCalls`, and a resolved destination from this turn's own lookup. Either
-re-issue the step with the tool forced, or simply `goTo`.
+**The mechanism matters, because it dictates the example's content.** For a
+non-reasoning model a worked example is **borrowed chain-of-thought**: it turns
+*"compile a program under a grammar"* into *"instantiate a template."* That is a
+direct attack on §0 — **the only persuasion-class lever that lowers construction
+cost rather than reluctance.**
 
-This is the highest-value item in the plan that does not depend on the model
-cooperating, and it caps the worst case at "he took you there without the tour"
-rather than "he told you about it."
+So the example must be the **actual hard case**: the `/decks` → set-page escort,
+including the `goTo /series` opening hop, the `ensure` via
+`[data-decke-show-others]`, and exact selector quoting. *A toy two-step example
+teaches nothing the description didn't.*
+
+**And the demonstrated assistant turn must contain no prose before the call.**
+Preamble-suppression has to be *shown*, not *requested* — requesting it is the
+system-prompt lever already measured at zero.
+
+**Experiment (20 turns, ~23¢).** Expected: meaningful movement, not target on its
+own.
+
+### 3b. `say` overlap — a real aggravator, not the root
+
+**For.** The failing sentence *"I'll show you exactly where it lives"* is
+functionally the plan's opening `say` emitted through the cheaper channel; the
+client's `say` case is literally `ctx.say(text)` into the same transcript surface
+(`journey.ts:240-246`), so the two are near-substitutes by construction. And
+there is an autoregressive mechanism, not just an ambiguity: because `say` is
+instructed to come **first** (`prompt.ts:655`), he naturally begins the message
+in prose — and **P(tool call | substantive prose prefix) is low**, since tool-call
+tokens are trained to appear at message start or right after a tool result.
+`say`-first invites the prefix; the prefix suppresses the call; `stop` is the
+likeliest terminator. **That predicts the exact trace: promise, empty
+`toolCalls`, `finishReason: "stop"`.**
+
+**Against.** #10269 shows the identical promise-then-stop with tools that have no
+`say`-like verb, so the overlap is **not necessary** for this failure class. The
+trace cannot distinguish *"he executed the say step in prose"* from *"he emitted
+a generic preamble and lost the thread"* — **unfalsifiable on current evidence.**
+Both 2/10 successes presumably carried `say` steps and called anyway. And
+`express`, which also shadows a quasi-native channel, gets called fine.
+
+**Verdict: demoted.** Removing `say` outright trades away the interleaved
+narration that *is* the product (§5's evidence is deixis **plus timing**). The
+smaller surgery: make `say` explicitly **optional**, tell him his chat text is
+the journey's overture, and show the tool-call-first example from 3a. Run the
+clean removal only as a cheap single-variable arm if quota allows; **do not ship
+it alone.**
+
+### 3c. Force via `prepareStep` — and it is also the experiment that adjudicates §0
+
+`prepareStep` receives `steps` (verified in `ai@7.0.66`), so the condition is
+expressible: *lookup returned and no journey emitted → `toolChoice: { type:
+'tool', toolName: 'journey' }`; otherwise `auto`.* The discriminant is `'tool'`,
+not `'tool-call'` — the maintainer's own snippet is wrong for our version
+(verified against `dist/index.d.ts:143`).
+
+**Two things revision 1 got wrong about the risk:**
+
+- **The #3944 endless loop cannot occur within one request.** `journey` has **no
+  server `execute`** (`tools.ts:678`) — emitting the call *ends the server turn*,
+  because the browser fulfils it.
+- **But there is a cross-leg hazard I had not identified.** The browser posts the
+  journey result back as a **new request with a fresh `steps` array**, so a gate
+  written as *"lookup resolved this request ∧ no journey emitted this request"*
+  **re-fires and forces a second escort.** The gate must consult conversation
+  history for a `tool-journey` result, not just this request's steps.
+
+**And forcing is the best measurement instrument available**, because under
+compulsion the *argument quality* adjudicates §0:
+
+| Forced calls arrive… | Then the barrier was… | Go to |
+|---|---|---|
+| well-formed | selection reluctance | 3a / 3b were the right levers |
+| as `tool-input-error`s | **construction cost** | **§2 stops being an option and becomes the conclusion** |
+
+Either outcome is informative in a way the persuasion levers are not.
+
+**Costs still owned:** prompt-cache invalidation from varying `toolChoice`
+(mitigate by placing the cache breakpoint before the variation point), and we
+delete irrelevance detection for that turn — BFCL scores declining-to-call as a
+first-class capability across 875 cases.
+
+---
+
+## 4. The deterministic fallback — ship it as a floor, and key it on the reader
+
+Pulumi's lesson from shipping Copilot: *"traditional software engineering
+outperforms prompt engineering for deterministic tasks."*
+
+**Key it on the user's intent, not on detecting his promise.** Classifying his
+prose is another model-shaped problem, and *a false-positive silent `goTo` after
+an unrelated answer is a worse defect than a missed escort.* So: a regex on the
+**user** message (`help me find|show me where|how do I get`) **and** a resolved
+destination from this turn's own lookup **and** no movement tool called.
+
+Then **re-issue the step with `toolChoice` forced** — §3c's machinery, triggered
+reactively — because that can still produce the tour. **Degrade to a bare `goTo`
+only if the forced call fails validation.**
+
+This caps the worst case at *"he took you there without the tour"* rather than
+*"he told you about it"*, and it does not depend on the model cooperating.
 
 ---
 
@@ -343,11 +387,37 @@ effect sizes) and the Duolingo mascot DAU figures (no locatable primary source).
   arm. Small n is for direction, not for decisions.
 
 ---
+- **Do not reach for another external benchmark as the headline argument.** That
+  was revision 1's mistake (§0c). The control group that holds model, prompt, SDK
+  and turn position constant is **inside this system**, and it was available the
+  whole time.
 
-## 7. The escalation
+---
 
-If §1–§3 do not produce a clear breakthrough, hand the whole conundrum to Fable
-with the measurements attached and get its reasoning before spending more. The
-owner has asked for this explicitly, and it is the right move: this is now a
-narrow, well-instrumented problem with a lot of evidence and no obvious answer,
-which is exactly the shape that benefits from a fresh adversarial read.
+## 7. The escalation — done, and it changed the plan
+
+The owner asked for Fable if the next tries did not break through. They did not,
+and the meter was exhausted for ~20 hours, so the consult happened instead of
+more measurement. **It was worth it.** Fable was told explicitly that concluding
+*"the compound one-call design is the root cause"* was on the table, and it
+substantially did — from the code, not from my summary.
+
+What it changed, all of it verified against the source before adoption:
+
+1. **Took out the ToolFailBench framing** as the load-bearing argument (§0c) and
+   replaced it with the internal control group (§0).
+2. **Renamed the barrier** from *will not* to *cannot cheaply* — and with it
+   explained why the write-doctrine template worked for writes and not here (§0).
+3. **Found the `goTo`/`journey` trigger collision** and the prompt's prose-first
+   `say` instruction (§0b) — both real, both free to fix.
+4. **Proposed the macro tool** (§2), which is now the top-ranked change, argued
+   from a premise stated in our own `journey.ts` header.
+5. **Corrected the forcing risk in both directions** (§3c): no in-request endless
+   loop, but a cross-leg re-fire hazard I had missed — and forcing doubles as the
+   experiment that adjudicates the whole diagnosis.
+6. **Re-keyed the fallback** onto the reader's intent rather than his promise
+   (§4).
+
+**What remains unmeasured.** Every one of the above is reasoning, including the
+parts I now believe. The meter resets at UTC midnight; §1 runs first, and the
+forced-choice arm in §3c is what turns this from a good story into a finding.
