@@ -137,6 +137,31 @@ export function pendingApprovalFromChunk(
   }
 }
 
+/**
+ * One approval's answer.
+ *
+ * PER-APPROVAL, NOT PER-TURN, and a shape rather than a boolean. `settle` used
+ * to resolve every pending approval in the turn to one shared value —
+ * `new Map(list.map((a) => [a.approvalId, approved]))` — which is exactly why
+ * this was a one-boolean protocol: a row was never a unit the protocol knew
+ * about, and neither, in practice, was an individual call. Nothing today
+ * produces more than one approval in a turn; the map already existed, and
+ * pretending its keys were interchangeable is what has to stop.
+ *
+ * The `reason` on a denial is caller-supplied because a denial is now
+ * sometimes a REPORT: "this call did not run, and here is the corrected write
+ * that did, with its numbers". `convertToModelMessages` turns it into a real
+ * `tool-result {type:'execution-denied', reason}` (`ai/dist/index.js:10970-10981`),
+ * so that sentence lands in his context as a fact rather than as prose.
+ */
+export type Verdict = { approved: true } | { approved: false; reason: string }
+
+/** What a denial says when nobody supplied anything better. */
+export const DECLINED_REASON = 'the reader declined'
+
+/** What a denial says when the turn was abandoned rather than answered. */
+export const ABANDONED_REASON = 'the reader did not answer'
+
 /** The replayed tool call, with the verdict attached. */
 export type ApprovalReplayPart = {
   type: string
@@ -159,7 +184,22 @@ export type ApprovalReplayPart = {
  * verdict in `approval`. That converts to tool-call + tool-approval-request +
  * tool-approval-response, which is exactly what `collectToolApprovals` reads.
  */
-export function approvalReplayPart(a: PendingApproval, approved: boolean): ApprovalReplayPart {
+export function approvalReplayPart(
+  a: PendingApproval,
+  approved: boolean,
+  /**
+   * What to tell him about a denial. Defaults to the plain decline.
+   *
+   * IGNORED WHEN `approved` IS TRUE, and that is deliberate rather than lazy:
+   * a `reason` on an approval would be a sentence nobody said, sitting in his
+   * context next to a tool result that already speaks for itself.
+   *
+   * A blank or whitespace-only reason falls back to the default. A denial with
+   * an empty reason reads to the model as no reason at all, which is the
+   * silence this field exists to remove.
+   */
+  reason: string = DECLINED_REASON,
+): ApprovalReplayPart {
   return {
     type: `tool-${a.name}`,
     toolCallId: a.toolCallId,
@@ -178,8 +218,11 @@ export function approvalReplayPart(a: PendingApproval, approved: boolean): Appro
       ...(a.signature ? { signature: a.signature } : {}),
       // A DENIAL IS AN ANSWER, not a silence. Sending it lets him say "alright,
       // left it alone" rather than stopping mid-turn with no explanation, which
-      // reads as a crash.
-      ...(approved ? {} : { reason: 'the reader declined' }),
+      // reads as a crash. And when the reader CORRECTED the batch rather than
+      // refusing it, this is the channel that carries what really happened —
+      // the held call genuinely did not run, and the sentence says so along
+      // with the numbers of the write that did.
+      ...(approved ? {} : { reason: reason.trim() || DECLINED_REASON }),
     },
   }
 }

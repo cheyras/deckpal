@@ -86,19 +86,115 @@ REST API and the MCP server (`BEGIN` + `set_config('request.jwt.claims', …)` +
 returns, so a dropped connection can never be handed to the next request still
 carrying a stranger's claims.
 
-**Only read tools are reachable from the conversational model today.** Of the
-23 tools in `packages/agent-tools`, the adapter Deck-E uses
-(`apps/api/src/decke/adapters/aisdk.ts`) filters to `annotations.readOnlyHint`
-by default — never on the verb in a tool's name, because a name can mislead in
-either direction (`set_cart` sounds like a write and only composes an outbound
-URL; `deck_history` sounds like a read and can roll a deck back). The write
-half exists in the shared package but is not exposed to him: it is gated on an
-approval round-trip that has not been built yet, because a write tool
-reachable from a conversational model before that exists is a tool that gets
-called by accident. One write reaches him regardless, deliberately: the
+**All 23 tools reach the conversational model; the write half is held by the
+SDK, not filtered out.** The adapter Deck-E uses
+(`apps/api/src/decke/adapters/aisdk.ts`) still *defaults* to
+`annotations.readOnlyHint` — never to the verb in a tool's name, because a name
+can mislead in either direction (`set_cart` sounds like a write and only composes
+an outbound URL; `deck_history` sounds like a read and can roll a deck back) —
+and the deep-tier sub-agents below take that default as-is, since a write tool
+reachable from an *unattended* sub-agent with no reader watching a dialog is a
+tool that will eventually be called by accident. The conversation is no longer an
+unattended caller: `api/chat.mjs` passes `include: () => true`, and every write
+declares `needsApproval`, so the turn pauses on the wire and the tool's `execute`
+does not run until the reader answers. That is a mechanism rather than an
+instruction — verified against the pinned `ai@7.0.66` at the wire level, and
+signed, so a modified replay is rejected. What needs approval is derived from
+annotations and schema: anything `destructiveHint` always, any real write always,
+a preview never; when a call is classified as a preview the server writes
+`dry_run: true` into the arguments explicitly rather than trusting the tool's
+default, and only an explicit boolean `false` counts as permission to write.
+`ARCHITECTURE.md` §15e carries the protocol.
+
+**The consent card can commit a corrected batch from the browser, and that is a
+second write path carrying no new authority.** When the reader edits what the
+card asked about — striking a row, picking a printing he did not know — the held
+call's arguments are *not* touched, because the SDK signs over them. Instead the
+corrected batch goes through `POST /collection/batch` from the browser under the
+reader's own Supabase JWT, the same endpoint, the same RLS and the same
+idempotency machinery the rip flow already uses; the held call is then settled as
+a denial carrying the real response as its reason, so his account of the turn
+stays true. The idempotency key is scoped to the held call rather than to
+content, because a caller-supplied key is honoured unbucketed and unbounded and a
+pure-content key would let the second identical correction return the first one's
+response having written nothing. Nothing here is reachable without a session that
+could already have made the same write from the collection UI.
+
+One write reaches Deck-E outside the approval gate, deliberately: the
 `write_strategy_guide` deep tool (below) is allowed to call `deck_strategy`,
 which is dumb, idempotent storage — "replace the whole guide" — not a general
 write capability.
+
+**What he may point at, and the narrower set he may press.** Everything the
+model can address is allowlisted: `uiTools.resolveTarget` resolves a selector
+only if it lands inside a `[data-decke-landmark]`, navigation only within
+`ROUTE_ALLOWLIST` — from which `/profile` is deliberately absent, in the
+server's copy and the browser's mirror of it alike, because it mints API tokens.
+The `journey` tool takes landmark references rather than free CSS,
+validated at parse time so a bad plan is refused whole before its first step. A
+free selector would be a capability; the allowlist is what bounds it.
+
+Pressing is a **second** authorisation on top of the landmark, because pointable
+is not pressable: `data-decke-clickable`. It is on five files — the sidebar nav
+rows, the series cards, the set rows, and two same-page disclosures — which
+resolved to ten marked elements when the attribute was verified reaching a real
+signed-in DOM at 1440 and 393, against two before this. The two it replaced were
+both same-page accordions that navigate nowhere, which is why walking somebody to
+a set by actually pressing things was previously impossible.
+The runtime cannot inspect what a React `onClick`
+does, so "a marked element never writes" is a property of the **marking
+discipline**, not of any control. That discipline is enforced two ways. Each
+marking carries its four-point finding inline next to the attribute, where a
+reviewer reading the diff will see it: no write, destination on the route
+allowlist, nothing touching auth or anything destructive, and genuine
+navigation. And an audit test in
+`character/host/__tests__/uiTools.test.ts` fails whenever a new file gains the
+attribute, so an addition is a deliberate act with a reviewer attached.
+
+That audit used to scan `routes/` non-recursively, which meant the single most
+valuable element to mark — the sidebar nav in `components/AppShell.tsx` — was
+the one marking the audit could not see; it now scans the whole of `src` and
+records paths relative to it. Its detector used to match the attribute alone on
+its own line, one of four ways to write the same marking, so the discipline could
+be escaped by reformatting; it now strips comments, requires JSX attribute
+position, and is itself pinned by fixtures covering both the spellings it must
+catch and the mentions it must not. A second test reads `NAV` out of
+`AppShell.tsx` and runs every destination through the real `routeAllowed`,
+because that marking sits on `<Link to={item.to}>` inside a loop — a seventh
+entry pointing at `/profile` would otherwise inherit it silently.
+
+What is honestly *not* checked is stated in the test file rather than faked: no
+static test asserts that a marked element never writes, because that property
+depends on what a closure does transitively through hooks a node test cannot
+evaluate, and every approximation either passes on a real write or fails on the
+two audited disclosures. A test that cannot fail on the thing it names is worse
+than no test.
+
+**Model-written markdown renders under a URL and image allowlist.**
+`lib/markdownSafety.ts` is shared by the chat transcript
+(`character/host/chat/ChatMarkdownBody.tsx`) and the deck strategy view
+(`routes/deck/MarkdownView.tsx`), which draws the guide Deck-E's own
+`deck_strategy` tool writes over a context containing card text, deck
+descriptions and list names — strings other people typed. Links are limited to
+`http`, `https` and `mailto` plus relative, a stricter set than react-markdown's
+default (which also permits `irc:` and `xmpp:`), with the protocol extracted by
+colon position rather than by parsing so `java\nscript:` fails the allowlist
+instead of being normalised through it. **No remote image is ever fetched** —
+both surfaces map `img` to a text placeholder, so no URL the model produced
+reaches a `src`. Real card art gets to the transcript through `CardRow`, which
+resolves ids against our own catalog endpoint.
+
+The image rule closed a live hole rather than hardening a hypothetical one:
+`MarkdownView` had no `img` entry in its component map, so react-markdown's
+default applied and `![](https://attacker.example/p.gif)` inside a strategy guide
+was a real remote image firing on render, handing the reader's IP and referrer to
+whoever got a string into the model's context. Both surfaces are pinned by tests
+that render genuinely hostile input and assert the attacker's host does not
+appear in the output, verified failable by removing the guard from one surface
+and watching only that one go red. Raw HTML is never parsed on either surface —
+`rehype-raw` is not used, so an `<img onerror=…>` becomes literal text — and
+`skipHtml` is deliberately *not* set, because showing the reader what the model
+actually wrote is honest and equally safe.
 
 **The deep tier and live research.** Four sub-agent tools
 (`apps/api/src/decke/deep.ts`) give Deck-E an escalation path rather than

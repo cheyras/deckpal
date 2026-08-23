@@ -24,13 +24,15 @@
  * switch below and the server's `BLOCK_KINDS` from drifting apart, because
  * `deckpal-web` cannot import `deckpal-api` to share the type.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { CardImage } from '../../components/CardImage'
-import { artForIds } from '../decke/cardSource'
-import type { CardArt } from '../decke/cardArt'
+// SHARED WITH THE APPROVAL CARD, which is the point of it having moved out of
+// this file. See `chat/useCardArt.ts`.
+import { useCardArt } from './chat/useCardArt'
+import { COLLAPSE_LABEL, compactPlan, expandLabel, showingLabel } from './screenCompact'
 
-type Block = {
+export type Block = {
   kind: string
   text?: string
   cards?: string[]
@@ -55,23 +57,110 @@ const TONE: Record<string, string> = {
   bad: 'text-error',
 }
 
+/**
+ * A SCREEN ARRIVES AS A WIDGET AND OPENS INTO A PANEL.
+ *
+ * The owner asked for the ad-hoc screen to be presented "first as, like, a
+ * little widget inline chat with, like, some actual visuals" — and the renderer
+ * had no notion of display size at all. `MAX_BLOCKS = 12` and
+ * `SCREEN_CARD_BUDGET = 60` on the server cap how much the model may AUTHOR;
+ * nothing capped how much lands in a chat panel at once, so a full-budget answer
+ * pushed the conversation off the top of the screen the moment it arrived.
+ *
+ * The thresholds and every number the control says are in `screenCompact.ts`,
+ * where they can be tested. What is decided HERE is the shape of the affordance:
+ *
+ *  - A REAL BUTTON, with `aria-expanded` and `aria-controls` pointing at the
+ *    region it actually governs, and a visible focus ring. A summary/details
+ *    would give the semantics for free and take the label with it — the label is
+ *    the part carrying the counts, and it has to be the accessible name.
+ *  - IT NAMES THE TOTALS, from the spec, never an estimate. "Show all 24 cards"
+ *    on a panel that then draws 19 is the kind of small lie that costs a feature
+ *    its credibility, and this one is built to be checkable.
+ *  - NO MAX-HEIGHT AND NO FADE. The obvious compact treatment is to clip the
+ *    whole panel and feather the cut, and it is the wrong one here: it slices
+ *    through the middle of a card grid or a table row, so the last thing the
+ *    reader sees is half of something. Cutting at block and card boundaries
+ *    means everything drawn is drawn whole, and the count says what is missing
+ *    rather than the mask hinting at it.
+ *  - MOTION IS PER-ELEMENT `motion-safe:`, on the chevron only (X1). There is no
+ *    height animation on the expand — the panel is inside a scroll container
+ *    whose position is being solved every frame by the transcript, and animating
+ *    its height would move every bubble under it while somebody reads.
+ */
 export function DeckeScreen({
   spec,
   onRemoveCard,
+  onResize,
 }: {
   spec: ScreenSpec
   /** Present only when a block asked to be editable — "that one's wrong". */
   onRemoveCard?: (cardId: string) => void
+  /**
+   * Say that this panel just changed height.
+   *
+   * Expanding a screen in the transcript moves every bubble below it, and the
+   * transcript decides which of those bubbles are clear of Deck-E by measuring
+   * them — a pass it otherwise runs only when a message arrives or the view is
+   * scrolled. Without this, expanding leaves the marks it made stale, so a
+   * bubble that has just been pushed under his feet keeps its full width until
+   * the next scroll nudges it.
+   */
+  onResize?: () => void
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const bodyId = useId()
+  const plan = compactPlan(spec)
+  // Compact is the DEFAULT, not a state someone has to ask for: the first look
+  // at a screen is the one that happens in the middle of a conversation.
+  const compact = plan.compactable && !expanded
+  const blocks = compact ? spec.blocks.slice(0, plan.blockLimit) : spec.blocks
+  const cardLimit = compact ? plan.cardLimit : Number.POSITIVE_INFINITY
+
+  // BEFORE PAINT, for the reason the transcript's own scroll pass gives: the
+  // attribute this ends up setting is animated by CSS, so re-solving it after
+  // the frame has been drawn makes every bubble below slide sideways instead of
+  // simply being drawn where it now belongs.
+  useLayoutEffect(() => {
+    onResize?.()
+  }, [expanded, onResize])
+
   return (
     <section
       aria-label={spec.title}
       className="flex flex-col gap-[12px] rounded-2xl border border-border-default bg-surface-secondary p-[14px]"
     >
       <h3 className="text-[15px] font-semibold text-text-primary">{spec.title}</h3>
-      {spec.blocks.map((b, i) => (
-        <Block key={i} block={b} onRemoveCard={onRemoveCard} />
-      ))}
+      <div id={bodyId} className="flex flex-col gap-[12px]">
+        {blocks.map((b, i) => (
+          <Block key={i} block={b} cardLimit={cardLimit} onRemoveCard={onRemoveCard} />
+        ))}
+      </div>
+      {plan.compactable ? (
+        <button
+          type="button"
+          aria-expanded={!compact}
+          aria-controls={bodyId}
+          onClick={() => setExpanded((v) => !v)}
+          className={[
+            'flex items-center justify-center gap-[6px] self-stretch rounded-xl',
+            'border border-border-default bg-surface-primary px-[10px] py-[7px]',
+            'text-[12px] font-semibold text-text-body hover:text-text-primary',
+            'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2',
+            'focus-visible:outline-border-focus',
+          ].join(' ')}
+        >
+          <span>{compact ? expandLabel(plan) : COLLAPSE_LABEL}</span>
+          <Icon
+            name="chevron-down"
+            size={14}
+            className={[
+              'shrink-0 text-icon-muted motion-safe:transition-transform motion-safe:duration-200',
+              compact ? '' : 'rotate-180',
+            ].join(' ')}
+          />
+        </button>
+      ) : null}
     </section>
   )
 }
@@ -87,10 +176,13 @@ export function DeckeScreen({
 function Block({
   block: b,
   dense = false,
+  cardLimit = Number.POSITIVE_INFINITY,
   onRemoveCard,
 }: {
   block: Block
   dense?: boolean
+  /** How many cards a grid may draw. `Infinity` once the screen is expanded. */
+  cardLimit?: number
   onRemoveCard?: (id: string) => void
 }) {
   switch (b.kind) {
@@ -105,7 +197,9 @@ function Block({
       return <p className="text-[14px] leading-[21px] text-text-body">{b.text}</p>
 
     case 'cardGrid':
-      return <CardGrid block={b} dense={dense} onRemoveCard={onRemoveCard} />
+      return (
+        <CardGrid block={b} dense={dense} cardLimit={cardLimit} onRemoveCard={onRemoveCard} />
+      )
 
     case 'statTile':
       return (
@@ -217,7 +311,13 @@ function Block({
             {(['left', 'right'] as const).map((side) => (
               <div key={side} className="flex min-w-0 flex-col gap-[8px]">
                 {(b[side] ?? []).map((inner, i) => (
-                  <Block key={i} block={inner} dense onRemoveCard={onRemoveCard} />
+                  <Block
+                    key={i}
+                    block={inner}
+                    dense
+                    cardLimit={cardLimit}
+                    onRemoveCard={onRemoveCard}
+                  />
                 ))}
               </div>
             ))}
@@ -258,14 +358,23 @@ function Block({
 function CardGrid({
   block: b,
   dense,
+  cardLimit,
   onRemoveCard,
 }: {
   block: Block
   dense: boolean
+  cardLimit: number
   onRemoveCard?: (id: string) => void
 }) {
-  const ids = b.cards ?? []
+  const all = b.cards ?? []
+  // THE ART REQUEST FOLLOWS THE CUT. Asking the catalog for fifty-four cards
+  // whose thumbnails are not being drawn is fifty-four requests spent on
+  // something nobody is looking at, on the surface most likely to be opened on
+  // a phone. Expanding asks for the rest, once, and `artForId` memoises per id
+  // so the six already in hand are not asked for twice.
+  const ids = Number.isFinite(cardLimit) ? all.slice(0, cardLimit) : all
   const art = useCardArt(ids)
+  const caption = showingLabel(ids.length, all.length)
   return (
     <div className="flex flex-col gap-[6px]">
       {b.text ? <span className="text-[12px] text-text-muted">{b.text}</span> : null}
@@ -315,48 +424,21 @@ function CardGrid({
           )
         })}
       </ul>
+      {/*
+        THE COUNT SITS ON THE GRID, not only on the expand control.
+
+        The control at the foot of the screen says what pressing it would add;
+        this says what the reader is looking at right now, next to the thing it
+        is counting. Both numbers come from the same array — `ids.length` is what
+        was drawn and `all.length` is what the spec holds — so there is no
+        arrangement of props under which this line and the grid above it
+        disagree. `showingLabel` returns null when nothing is cut, because a
+        count that also appears on complete grids is a count nobody reads.
+      */}
+      {caption ? (
+        <span className="text-[11px] tabular-nums text-text-muted">{caption}</span>
+      ) : null}
     </div>
   )
 }
 
-/**
- * Catalog ids in, art out, keyed by id.
- *
- * NO ABORT SIGNAL, ON PURPOSE. `artForId` memoises the in-flight promise per id
- * and shares it with everything else in the character that wants that card —
- * the stash flight, the four card slots on his body. Cancelling on unmount would
- * settle that SHARED promise as a failure for whoever else was waiting on it, to
- * save one request for a card whose art is immutable and will be asked for
- * again. A `live` flag to skip the `setState` is the whole cleanup that is
- * actually needed.
- *
- * The dependency is the joined id list rather than the array, because a screen
- * re-renders on every chat tick and a fresh array literal each time would
- * re-fetch forever.
- */
-function useCardArt(ids: string[]): Record<string, CardArt | null | undefined> {
-  const [art, setArt] = useState<Record<string, CardArt | null>>({})
-  const key = ids.join(',')
-  useEffect(() => {
-    if (!key) return
-    const wanted = key.split(',')
-    let live = true
-    artForIds(wanted)
-      .then((list) => {
-        if (!live) return
-        const next: Record<string, CardArt | null> = {}
-        list.forEach((a, i) => {
-          next[wanted[i]!] = a
-        })
-        setArt(next)
-      })
-      .catch(() => {
-        // A panel that cannot draw art still draws the ids. There is no state of
-        // this app where a decorative texture is worth a console full of red.
-      })
-    return () => {
-      live = false
-    }
-  }, [key])
-  return art
-}

@@ -221,6 +221,48 @@
   border-color: rgb(var(--px-accent-rgb) / 0.45);
 }
 
+/* ONE DELIBERATE EXCEPTION: Deck-E's composer.
+ *
+ * The rule above is right everywhere else — an input is a well the value sits
+ * in. Deck-E's composer is not an input on a surface, it is a CARD that is
+ * itself the field, which is the shape the owner asked for by name. Leaving the
+ * well in place drew a sunken rounded box a few pixels inside the card's own
+ * rounded box, and on focus the two lit up separately: a 3px halo on the well
+ * and a ring on the card, for one control the reader sees as one thing.
+ *
+ * SPECIFICITY, NOT `!important`, and it has to be counted rather than guessed —
+ * this file already carries a scar from exactly that. The resting rule scores
+ * (0,4,1) and its focus form (0,4,2), because every `:not([type=…])` argument
+ * contributes a unit. Prefixing the skin root and the card class takes this to
+ * (0,5,2), which wins on both without a bare `!important` that would then have
+ * to be fought by the next person. */
+:root[data-skin='premium'] .decke-composer-card input:not([type='checkbox']):not([type='radio']),
+:root[data-skin='premium'] .decke-composer-card input:not([type='checkbox']):not([type='radio']):focus,
+:root[data-skin='premium'] .decke-composer-card textarea,
+:root[data-skin='premium'] .decke-composer-card textarea:focus {
+  box-shadow: none;
+  border-color: transparent;
+  background: transparent;
+}
+
+/* AND THE OUTLINE, which the block above did not cover and which is what the
+ * owner actually saw: "a shitty looking blue border around the text input
+ * inside the text input card".
+ *
+ * The halo rule below scores (0,3,0) — `:root` + `[data-skin]` + `:focus-visible`
+ * — and `theme.css`'s `.decke-composer-card textarea:focus-visible` scores only
+ * (0,2,1). So the composer's own "no inner ring" rule LOST, silently, and the
+ * card lit up on the outside while the textarea lit up on the inside: two cyan
+ * boxes for one control. Measured in the browser rather than reasoned about —
+ * computed `outline: rgba(0, 211, 243, 0.55) solid 1px` on the textarea.
+ *
+ * This scores (0,4,0) and wins. The affordance is not lost: the CARD takes the
+ * ring, which is the whole design. Same scar this file already carries twice. */
+:root[data-skin='premium'] .decke-composer-card :focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 /* The fixed chrome — header and sidebar — is the frame the sheet sits in. It
    gets an edge-light and a cast onto the content rather than panel relief. */
 /* ── Top bar ──────────────────────────────────────────────────────────────

@@ -158,7 +158,19 @@ export default defineConfig(async ({ command }) => {
           // them. Both are excluded from the precache manifest:
           //
           //   models/**      5.6 MB of glb, HDRI and the SDF glyph atlas
-          //   assets/Decke-* ~945 kB — three.js plus the character runtime
+          //   assets/Decke-* ~1.17 MB — three.js plus the character runtime.
+          //   Measured from `pnpm --filter deckpal-web build` on 2026-08-22
+          //   rather than estimated, and DELIBERATELY APPROXIMATE: it drifts
+          //   with every dependency bump, and a precise figure written down in
+          //   four places is a figure three of them will be wrong about. An
+          //   adversarial review caught exactly that happening to this number
+          //   within the same branch that "corrected" it.
+          //
+          //   THE NUMBER IS NOT THE CONTROL. `scripts/check-precache.mjs`,
+          //   which `pnpm --filter deckpal-web build` runs, is: it asserts no
+          //   character payload reaches the service worker's precache
+          //   manifest, whatever the chunk happens to weigh. If you are here
+          //   because the size looks wrong, run the build and read that line.
           //
           // Precaching is eager: without these, the service worker pulls 6.5 MB
           // into EVERY visitor's cache on first load, for a route exactly one
@@ -214,7 +226,7 @@ export default defineConfig(async ({ command }) => {
           // `Decke-<hash>.js` and the glob matched. The persistent host is a
           // second dynamic importer of the same modules, so the bundler hoists
           // three.js and `character/decke/**` into a SHARED chunk whose name it
-          // picks — and a shared chunk named anything else is 945 kB of three.js
+          // picks — and a shared chunk named anything else is 1.14 MB of three.js
           // in every visitor's precache, which is the exact failure the gate's
           // own header comment predicts.
           //

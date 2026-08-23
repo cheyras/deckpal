@@ -171,11 +171,40 @@ function NavRow({
       //
       // Nav items carry it because "where do I find my decks" is the question
       // this feature exists to answer by showing rather than telling.
+      //
+      // PRESSABLE, and reviewed as such. `data-decke-clickable` is a SECOND
+      // authorisation on top of the landmark, because pointable is not
+      // pressable — see `resolveClickTarget` in `character/host/uiTools.ts`.
+      //
+      // This row earns it on all four counts:
+      //   1. NO WRITE. This branch is a bare `<Link to={item.to}>` with no
+      //      `onClick` of any kind. It issues no request; the destination route
+      //      loads its own data on arrival, exactly as it would for a person.
+      //      (The mobile drawer wraps this in a `<div onClick={onClose}>` to
+      //      shut the drawer — closing a drawer is chrome, not a write, and it
+      //      is what a real tap does too.)
+      //   2. NAVIGATION STAYS ON THE ALLOWLIST. Every `to` in `NAV` above is on
+      //      `ROUTE_ALLOWLIST`, which the audit test in
+      //      `character/host/__tests__/uiTools.test.ts` pins by reading this
+      //      array and running each `to` through `routeAllowed`. It has to be
+      //      pinned rather than eyeballed because `to` is a VARIABLE here: a
+      //      seventh `NAV` entry pointing at `/profile` would inherit this
+      //      marking silently. `resolveClickTarget` refuses an off-allowlist or
+      //      cross-origin `href` at press time as well, so the check exists in
+      //      both places on purpose.
+      //   3. NOT AUTH. The signed-out gated row is the `locked` branch ABOVE,
+      //      which returns its own `<Link to="/auth">` carrying neither
+      //      attribute — so the sign-up path is not reachable, pointable or
+      //      pressable. Nothing here touches sign-out, tokens or billing.
+      //   4. GENUINE NAVIGATION. Moving between top-level pages is the whole
+      //      reason the click tool exists; "where do I find my decks" answered
+      //      by walking someone there.
       <Link
         to={item.to}
         className="block"
         data-decke-landmark={`[data-decke-nav="${item.to}"]`}
         data-decke-nav={item.to}
+        data-decke-clickable
         data-decke-label={`the ${item.label} link in the sidebar`}
       >
         {body}
@@ -535,8 +564,22 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
         <div className="app-content pt-[64px] nav:pt-[78px]">{children}</div>
       </main>
-      {/* Fixed sidebar occupies the left rail at ≥1068; offset main + header to match. */}
-      <style>{`.app-content{padding-top:calc(64px + env(safe-area-inset-top))}@media (min-width:1068px){.app-main{margin-left:${sidebarW}px}.app-header{left:${sidebarW}px}.app-content{padding-top:78px}}`}</style>
+      {/* Fixed sidebar occupies the left rail at ≥1068; offset main + header to match.
+       *
+       * IT ALSO PUBLISHES THE CONTENT PANE'S EDGES as custom properties, and
+       * that is not incidental. Deck-E's chat has to dim the content pane
+       * WITHOUT dimming the header or the sidebar, which means it needs to know
+       * where the content pane starts — and the only thing that knows the
+       * sidebar's current width is this component, because it collapses. The
+       * alternatives were both worse: measuring `.app-header`'s rect from the
+       * chat couples an overlay to a class name and needs a ResizeObserver to
+       * survive the collapse toggle, and duplicating the numbers gives two
+       * copies that drift the first time either changes. A custom property is
+       * read by CSS, reflows on its own, and costs nothing.
+       *
+       * Defaults live in `theme.css` so anything rendered outside this shell
+       * still resolves them. */}
+      <style>{`:root{--app-header-h:64px;--app-sidebar-w:0px}.app-content{padding-top:calc(64px + env(safe-area-inset-top))}@media (min-width:1068px){:root{--app-header-h:78px;--app-sidebar-w:${sidebarW}px}.app-main{margin-left:${sidebarW}px}.app-header{left:${sidebarW}px}.app-content{padding-top:78px}}`}</style>
       <PwaUi />
     </div>
   )

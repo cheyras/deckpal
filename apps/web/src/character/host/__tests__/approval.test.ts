@@ -44,7 +44,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { convertToModelMessages } from 'ai'
-import { MAX_APPROVAL_REPLAYS, MAX_LEGS, approvalReplayPart, legBudget, mayAskApproval, pendingApprovalFromChunk, type PendingApproval } from '../approval'
+import { ABANDONED_REASON, DECLINED_REASON, MAX_APPROVAL_REPLAYS, MAX_LEGS, approvalReplayPart, legBudget, mayAskApproval, pendingApprovalFromChunk, type PendingApproval } from '../approval'
 
 /** The three per-leg lookups, filled from a `tool-input-available` chunk. */
 function lookups(toolCallId: string, name: string, input: Record<string, unknown>) {
@@ -233,6 +233,72 @@ test('the real convertToModelMessages resumes the call with signature intact', a
   assert.ok(response, 'no tool-approval-response — consent was given and never delivered')
   assert.equal(response.approvalId, 'apr_1')
   assert.equal(response.approved, true)
+})
+
+// ─── A DENIAL THAT REPORTS, RATHER THAN JUST REFUSING ────────────────────────
+//
+// The segmented approval card can commit a CORRECTED batch from the browser and
+// then dispose of the held call as a denial. The held call genuinely does not
+// run — that is the SDK's enforcement, not our care — and the `reason` is the
+// only channel that can tell him what DID happen. If it does not survive the
+// conversion, the model is left believing nothing occurred while a real write
+// landed, which is the worst available failure on this path.
+
+test('a caller-supplied denial reason replaces the default, and only on a denial', () => {
+  const a = captureSigned()
+
+  assert.equal(approvalReplayPart(a, false).approval.reason, DECLINED_REASON)
+  assert.equal(approvalReplayPart(a, false, ABANDONED_REASON).approval.reason, ABANDONED_REASON)
+  assert.equal(
+    approvalReplayPart(a, false, 'they applied their own corrected version: batch b_9, 2 applied')
+      .approval.reason,
+    'they applied their own corrected version: batch b_9, 2 applied',
+  )
+  // An APPROVAL takes no reason, whatever is passed. A sentence nobody said,
+  // sitting in his context beside a tool result that already speaks for itself,
+  // is a second thing to narrate from.
+  assert.equal('reason' in approvalReplayPart(a, true, 'ignore me').approval, false)
+})
+
+test('an empty or whitespace reason falls back rather than denying in silence', () => {
+  // A denial with an empty reason reads to the model as no reason at all, which
+  // is the silence this field exists to remove. `''` is also what a bug in the
+  // caller most plausibly produces.
+  const a = captureSigned()
+  for (const blank of ['', '   ', '\n']) {
+    assert.equal(approvalReplayPart(a, false, blank).approval.reason, DECLINED_REASON)
+  }
+})
+
+test('the real convertToModelMessages carries a CORRECTION reason into execution-denied', async () => {
+  // The load-bearing fact, from the pinned package: `convertToModelMessages`
+  // turns a denied `approval-responded` part DIRECTLY into
+  // `tool-result {type:'execution-denied', reason}` (`ai/dist/index.js:10970-10981`,
+  // the caller's reason at `:10977`). That is what makes the corrected-batch
+  // path capable of being truthful rather than merely convenient, so it is
+  // driven through the real SDK rather than described.
+  const reason =
+    'The reader corrected this before it ran, so THIS call did NOT execute. They applied their own ' +
+    'corrected version and it has already landed: batch b_9, 2 applied.'
+  const part = approvalReplayPart(captureSigned(), false, reason)
+  const model = await convertToModelMessages([
+    { role: 'user', parts: [{ type: 'text', text: 'add two cards' }] },
+    // See the cast note in the tests above.
+    { role: 'assistant', parts: [part] as never },
+  ])
+
+  const tool = model.find((m) => m.role === 'tool')
+  assert.ok(tool, 'the correction report never reached the model')
+  const content = tool.content as Array<Record<string, unknown>>
+
+  const response = content.find((c) => c.type === 'tool-approval-response')
+  assert.ok(response)
+  assert.equal(response.approved, false, 'a corrected batch must DENY the held call, never approve it')
+  assert.equal(response.reason, reason)
+
+  const result = content.find((c) => c.type === 'tool-result')
+  assert.ok(result, 'no tool-result — he would see a dangling call and nothing about the real write')
+  assert.deepEqual(result.output, { type: 'execution-denied', reason })
 })
 
 test('the real convertToModelMessages carries a denial through as a denial', async () => {

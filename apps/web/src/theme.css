@@ -287,6 +287,29 @@
   --z-chrome: 20;
   --z-modal: 100;
   --z-toast: 9999;
+
+  /* ── The app shell's geometry, for anything that has to sit inside it ──────
+   *
+   * Overwritten by `AppShell`, which is the only thing that knows the sidebar's
+   * current width — it collapses. These are the fallbacks, and they describe
+   * the mobile layout, which is the one where there is no sidebar at all. */
+  --app-header-h: 64px;
+  --app-sidebar-w: 0px;
+
+  /* ── Deck-E's overlay ─────────────────────────────────────────────────────
+   *
+   * TOKENIZED BECAUSE THEY DRIFTED. The scrim was `bg-black/45
+   * backdrop-blur-[3px]`, written inline, twice, backed by no variable — and
+   * the two overlays it was meant to match had long since moved on without it.
+   * At 4K a 3 px blur is effectively invisible: set logos behind it stayed
+   * crisply legible, which is the whole complaint.
+   *
+   * The alpha is deliberately just under `--color-overlay-scrim-strong` (0.75),
+   * which is what a modal sheet uses. A modal sheet is asking you to stop
+   * looking at the page; Deck-E is asking you to keep looking at it while he
+   * talks about it. Close, but not the same thing. */
+  --color-decke-scrim: rgb(26 23 22 / 0.68);
+  --decke-scrim-blur: 12px;
 }
 
 html,
@@ -483,6 +506,42 @@ h3,
   font-family: var(--font-display);
   font-optical-sizing: auto;
   font-variation-settings: 'SOFT' 30, 'WONK' 1;
+}
+
+/* ── The opt-OUT, which has to exist for the same reason `.font-display` does ──
+ *
+ * The block above says in its own words that a serif "goes muddy below ~14px",
+ * and names the Pokedex's 13px species names as deliberately not display. That
+ * worked because those are `<span>`s — they never matched the rule in the first
+ * place. A component that marks up a REAL heading at text size has no such luck,
+ * and there was no way for it to get out.
+ *
+ * Deck-E's approval card is the case that found this: its two section labels are
+ * 12.5px `<h3>`s inside a dialog — group labels, not document headings — and
+ * they photographed as two lines of Fraunces in the middle of an otherwise sans
+ * card. The obvious repair, a `font-sans` utility on the element, DOES NOT WORK
+ * and the reason is worth writing down because it will catch the next person:
+ *
+ *   TAILWIND v4 PUTS EVERY UTILITY IN `@layer utilities`, AND THE RULE ABOVE IS
+ *   UNLAYERED. Unlayered declarations beat every layered one regardless of
+ *   specificity — so `.font-sans` at (0,1,0) loses to a bare `h3` at (0,0,1),
+ *   which looks like a broken cascade until you remember layers sort first.
+ *
+ * So the opt-out lives here, beside the opt-in, unlayered like it.
+ *
+ * SPECIFICITY, COUNTED: `.font-text` is (0,1,0) against the `h1, h2, h3` arm's
+ * (0,0,1) — it wins on specificity, in the same layer, and is later in source
+ * as well. Three independent reasons, no `!important`, and it does not touch
+ * `.font-display`, which is also (0,1,0): an element carrying both classes is a
+ * contradiction the author has to resolve, not something this file should
+ * silently pick a winner for.
+ *
+ * `font-variation-settings: normal` because SOFT and WONK are Fraunces axes.
+ * Leaving them set on a Figtree element is inert today and is exactly the kind
+ * of leftover that turns into a rendering mystery when a face changes. */
+.font-text {
+  font-family: var(--font-sans);
+  font-variation-settings: normal;
 }
 
 /* Tracking is a function of SIZE, not of the face: large type needs pulling in,
@@ -789,6 +848,92 @@ body {
   to   { opacity: 1; transform: none; }
 }
 
+/* ── Waking up: the chip while the real character downloads ──────────────────
+ *
+ * This is the only thing between a tap and seven megabytes arriving, so it has
+ * one job: read as COMING, never as broken, and never look stalled.
+ *
+ * A SWEEP RATHER THAN A PULSE, and rather than a bar. A pulse has a bottom of
+ * its cycle that is indistinguishable from a thing that has stopped, and on a
+ * slow connection someone will be looking at exactly that moment. A progress
+ * bar would be a lie — there is no total to measure against until the first
+ * response header lands, and a bar that guesses is worse than no bar. A ring
+ * that travels continuously cannot be caught looking finished.
+ *
+ * His eyes go wide at the same time. That is the part that makes it read as a
+ * character waking rather than a control spinning, and it is why the eyes and
+ * mouth animate on the same two properties the doze uses. */
+.decke-chip--wake .decke-chip__eye {
+  height: 12px;
+  top: 5px;
+}
+.decke-chip--wake .decke-chip__mouth {
+  width: 10px;
+  height: 6px;
+}
+
+.decke-button--waking::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  /* The brand cyan, travelling. The transparent-to-colour ramp is what gives
+   * the sweep a head and a tail rather than making it a spinning wheel. */
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 200deg,
+    var(--color-brand-primary-400, #22d3ee) 320deg,
+    var(--color-brand-primary-300, #5ee9ff) 360deg
+  );
+  /* Ring, not disc: punch the middle out so the button's own face shows
+   * through. Both spellings — Safari has not unprefixed `mask` here. */
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .decke-button--waking::before {
+    animation: decke-wake-sweep 1100ms linear infinite;
+  }
+}
+
+/* REDUCE: the ring still says "busy", it simply does not travel. Removing the
+ * signal entirely would leave someone who asked for less motion staring at an
+ * unchanged button for the length of the download, which is a worse outcome
+ * than the animation they turned off. */
+@media (prefers-reduced-motion: reduce) {
+  .decke-button--waking::before {
+    background: var(--color-brand-primary-400, #22d3ee);
+    opacity: 0.55;
+  }
+}
+
+@keyframes decke-wake-sweep {
+  to { transform: rotate(1turn); }
+}
+
+/* ── Failed: he did not make it, and there is a way back ────────────────────
+ *
+ * Making the wait visible made the failure visible too. Before, a load that
+ * failed did so in the background with nobody waiting on it; now somebody is
+ * looking straight at the button when it happens. A chip that just keeps
+ * sweeping forever would be the dead end this pass exists to remove, so the
+ * state is distinct, it is legible without colour alone (the mouth turns down),
+ * and pressing it tries again. */
+.decke-button--failed {
+  border-color: var(--color-border-danger, #f87171);
+}
+.decke-chip--failed {
+  filter: saturate(0.4);
+}
+.decke-chip--failed .decke-chip__mouth {
+  border-bottom: none;
+  border-top: 2px solid var(--color-brand-secondary-400, #fb64b6);
+  border-radius: 10px 10px 0 0;
+}
+
 /* ── Deck-E's chat: the column he stands in ──────────────────────────────────
  *
  * ON A PHONE HE IS PART OF THE LAYOUT WITHOUT BEING IN IT. He is drawn by the
@@ -828,7 +973,20 @@ body {
 /* A bubble is conversational: it keeps the rag it has on desktop, and on a phone
  * it additionally may not grow into his half of the screen. */
 .decke-bubble {
-  max-width: min(85%, calc(100% - var(--decke-gutter, 0px)));
+  /* ── FULL COLUMN, NOT 85% ──────────────────────────────────────────────────
+   *
+   * 85% is the chat-bubble convention and it is wrong HERE, because in this
+   * panel a reply is not the only thing in the column: the tool rows above it
+   * and the composer below it both run the full width. So a long answer stopped
+   * 109px short of everything around it and read as a misalignment rather than
+   * as a bubble.
+   *
+   * The owner, pointing at a reply directly beneath a full-width tool row:
+   * *"These aren't lined up — this edge and this edge aren't lined up."*
+   *
+   * The gutter clearance stays: on a phone he physically stands in the
+   * bottom-left, and a reply that grew into him would be unreadable. */
+  max-width: calc(100% - var(--decke-gutter, 0px));
 }
 
 /* A panel he composed is a FIGURE, not a remark — it takes the full column so a
@@ -845,4 +1003,132 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .decke-shift { transition-duration: 1ms; }
+}
+
+
+/* ── Deck-E's composer, as a card ────────────────────────────────────────────
+ *
+ * It used to be a `<form>` with no background, border, radius or shadow,
+ * containing a `rounded-full` input and a `rounded-full` button: literally a
+ * pill and a circle floating on the scrim, with the reader looking straight
+ * through the padding to the blurred page behind. That is also the whole of the
+ * "dead grey band" at the bottom of the phone panel — it was never a rendered
+ * element, it was the absence of one.
+ *
+ * So the panel stays glass and the COMPOSER becomes opaque. That is compatible
+ * with the original decision (the reader should still see where they are) and
+ * it is what a real card gives you: somewhere for the text to sit that is
+ * clearly a place rather than a hole. */
+.decke-composer-card {
+  /* 14px, matching the reference composer's card radius. It was
+   * `--radius-2xl` (20px computed), and on a 58px-tall, 728px-wide box a 20px
+   * radius reads as a stadium — a giant pill with a button in it, not a card.
+   * Measured in the browser; the reference is 14. */
+  border-radius: 14px;
+  /* `surface-secondary`, NOT `surface-raised`. "Raised" is stone-500, a mid
+   * grey sized for a 56px circular button where a light disc reads as lifted.
+   * At composer width the same colour is a pale slab across the bottom of a
+   * near-black page — which is the "dead grey band" complaint arriving by a new
+   * route, having been fixed by a different one. A card over a dark scrim is
+   * lifted by its border and its shadow, not by being lighter than everything. */
+  background: var(--color-surface-secondary);
+  border: 1px solid var(--color-surface-tertiary);
+  box-shadow: var(--shadow-elevated);
+  transition: border-color 150ms ease;
+}
+
+/* THE CARD TAKES THE FOCUS RING, not the input inside it.
+ *
+ * `:focus-visible` in this file gives every focusable element a 2px ring, which
+ * is right and stays. But the composer's input is a bare transparent field
+ * INSIDE a card, so ringing the input drew a second rounded box a few pixels in
+ * from the first — two nested outlines where the reader sees one control. The
+ * card is the control as far as anyone looking at it is concerned, so the card
+ * is what lights up.
+ *
+ * The input keeps its ring in every other context by default; this only applies
+ * where it is wrapped. And the affordance is not lost — it moves outward. */
+/* ONE line of accent, not two. This used to recolour the border AND add a 1px
+ * ring in the same colour, which paints 2px of saturated cyan around the whole
+ * composer — far louder than the reference, where focus is a quiet shift. The
+ * border moves to a muted accent and the ring carries the signal at low alpha. */
+.decke-composer-card:focus-within {
+  border-color: color-mix(in oklab, var(--color-action-primary-strong) 55%, transparent);
+  box-shadow: var(--shadow-elevated),
+    0 0 0 3px color-mix(in oklab, var(--color-action-primary-strong) 14%, transparent);
+}
+.decke-composer-card input:focus-visible,
+.decke-composer-card textarea:focus-visible {
+  outline: none;
+}
+
+/* ── The transcript fades out under the composer ─────────────────────────────
+ *
+ * A mask, not a gradient overlay, and the difference is the point: a gradient
+ * painted on top would have to match whatever is behind it, and behind this is
+ * a live blurred page that changes with every scroll. A mask removes the pixels
+ * instead, so it is correct over anything.
+ *
+ * `-webkit-` first because Safari has not unprefixed this, and Safari is the
+ * browser this whole phone layout exists for.
+ *
+ * NEW TO THIS CODEBASE — there is no other scroll mask anywhere in it. The fade
+ * is a MASK rather than motion, so reduced motion leaves it alone: it is not an
+ * animation, it is the shape of the element. */
+.decke-transcript-fade {
+  --decke-fade: 28px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--decke-fade)), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--decke-fade)), transparent 100%);
+}
+
+/* ── AND THE CONTENT HAS TO CLEAR THE MASK ───────────────────────────────────
+ *
+ * A mask does not dim pixels, it REMOVES them, so anything resting inside the
+ * fade band is not softened — it is deleted. The column had `pb-[12px]` under a
+ * 28px band, so the bottom 16px of the LAST LINE of the last thing he said was
+ * simply not drawn.
+ *
+ * Photographed on 2026-08-23: "You're on the decks page now. Squirtle Squad
+ * Chaos is ready to build if you want to go with that one — or we can cook up
+ * something even dumber. What do you think?" with the final line dissolving
+ * mid-sentence. The owner: *"These are like fading out. They're too close to
+ * this edge. So they fade out and we need to fix that."*
+ *
+ * The padding lives HERE, next to `--decke-fade`, and not as a utility class on
+ * the element. Two numbers that must stay in step do not belong in two files:
+ * the whole defect was a 12 in a `.tsx` drifting from a 28 in a `.css`, and
+ * neither one looked wrong on its own. Deriving it means the band can be re-tuned
+ * and the clearance follows. */
+.decke-transcript-fade > * {
+  /* ── `flex-shrink: 0` IS THE HALF THAT MAKES THE PADDING REAL ──────────────
+   *
+   * The scroller is `flex flex-col`, so its child is a flex item with the
+   * default `flex-shrink: 1` — and it was being COMPRESSED to the scroller's
+   * client height while the message list inside it overflowed. Measured at
+   * 1440x900 with a scrolling transcript: the child's box ran to y = -210 while
+   * its content ended at y = 802. Its padding-bottom was therefore sitting a
+   * thousand pixels above the thing it was supposed to hold clear, and the last
+   * line of the last message was still inside the mask.
+   *
+   * This was "fixed" once already, by adding the padding alone, and the number
+   * looked right in `getComputedStyle` the whole time. The padding WAS applied;
+   * it was applied to a box that no longer ended where the content ended. */
+  flex-shrink: 0;
+  padding-bottom: calc(var(--decke-fade) + 12px);
+}
+
+/* ── Empty conversation: the composer starts in the middle ───────────────────
+ *
+ * The way a new chat does, because before the first message there is no
+ * transcript for it to be the foot of. On the first send it travels down to the
+ * bottom and the conversation fills in above it — which is also the answer to
+ * "since we're changing that layout on desktop, I would have it go to the
+ * bottom center", because both platforms now end in the same place.
+ *
+ * REDUCE: it is simply already at the bottom. There is no information in the
+ * travel, only delight, so removing it costs nothing — unlike a loading state,
+ * where the motion IS the information. */
+@keyframes decke-composer-drop {
+  from { transform: translateY(calc(-1 * var(--decke-drop, 0px))); }
+  to   { transform: none; }
 }

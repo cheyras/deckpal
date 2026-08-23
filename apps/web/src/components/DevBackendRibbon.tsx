@@ -43,7 +43,15 @@ export function DevBackendRibbon() {
       // overlapping that is how you get a ribbon that flickers on scroll.
       className="fixed bottom-0 inset-x-0 z-[9999] pointer-events-none flex justify-center pb-[max(0.5rem,env(safe-area-inset-bottom))]"
     >
-      <div className="pointer-events-auto rounded-full border border-amber-400/40 bg-amber-500/95 px-3 py-1 text-[11px] font-semibold tracking-wide text-stone-950 shadow-lg">
+      {/* NOT `pointer-events-auto`. Nothing in here is interactive, and at
+          phone width this pill spans most of the bottom edge at z-9999 —
+          which is exactly where Deck-E's launcher sits, and where a floating
+          action sits in most apps. Opting back into pointer events made a
+          non-interactive banner swallow taps meant for a real control: it
+          blocked the launcher on every 390 px viewport, in the browser and in
+          automation alike. A banner that cannot be clicked through is a banner
+          that breaks the app it is warning you about. */}
+      <div className="rounded-full border border-amber-400/40 bg-amber-500/95 px-3 py-1 text-[11px] font-semibold tracking-wide text-stone-950 shadow-lg">
         LIVE DATA · {host}
         {email ? <span className="font-normal"> · signed in as {email}</span> : <span className="font-normal"> · signed out</span>}
       </div>

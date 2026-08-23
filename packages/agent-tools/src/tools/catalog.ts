@@ -407,7 +407,15 @@ const pctTxt = (owned: number, total: number): string =>
 
 const setProgressTool = defineTool({
   name: 'set_progress',
-  title: 'Set completion progress',
+  // A NOUN PHRASE THAT READ AS AN IMPERATIVE. This is a read tool — it
+  // reports how complete a set is — and the old title, 'Set completion
+  // progress', parses just as easily as an instruction to SET the progress.
+  // That is a small thing in a tool list and not a small thing in Deck-E's
+  // transcript, where every row's entire job is to say truthfully what he
+  // did: a reader watching three of these stack up while asking a question
+  // about their collection has been shown, in plain English, that something
+  // wrote to it three times. Nothing did.
+  title: 'Check set completion',
   description:
     'Completion progress toward the three goals (complete = one of any variant per card, ' +
     'master = every standard-tier variant, grandmaster = every variant). Without set_id: ' +
