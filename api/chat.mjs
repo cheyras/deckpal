@@ -232,7 +232,22 @@ async function spend(userId, credits, reason) {
       const b = await withDeadline(client.query(BALANCE_SQL, [userId]), 'balance').catch(() => null)
       left = Number(b?.rows?.[0]?.balance ?? 0)
     } else {
-      client.query(SPEND_LOG_SQL, [userId, credits, reason]).catch((e) => {
+      // AWAITED, and it was not — which meant it never ran.
+      //
+      // This was `client.query(...).catch(...)` with no `await`, on a pooled
+      // client that the `finally` below releases the moment this function
+      // returns. The insert was issued against a connection going back into the
+      // pool and never landed: the balance moved on every turn and the ledger
+      // recorded nothing but the original grants. Caught by reading the table
+      // after a real spend rather than by trusting the code.
+      //
+      // Awaiting it does NOT change the failure direction, which is the thing
+      // that made fire-and-forget look reasonable. The balance has already
+      // moved; if this insert fails the credits are still gone, and that is
+      // correct — a gap in a statement is recoverable, free work is not. It is
+      // caught and logged, never rethrown, so a broken audit table cannot take
+      // down a turn.
+      await client.query(SPEND_LOG_SQL, [userId, credits, reason]).catch((e) => {
         console.error('[decke] credit log failed (balance already moved):', e?.code ?? e?.name)
       })
     }
