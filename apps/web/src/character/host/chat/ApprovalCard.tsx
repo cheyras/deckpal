@@ -284,7 +284,17 @@ export function ApprovalCard({
 }: ApprovalCardProps): JSX.Element {
   const editable = preview?.editable === true
   const { known, asking } = editable && preview ? sections(preview) : { known: [], asking: [] }
-  const willWrite = editable && preview ? acceptCount(preview, choices) : count
+  const willWrite = editable && preview ? acceptCount(preview, choices) : 1
+  /**
+   * Other calls the model held in the same step, which this card does not show.
+   *
+   * The headline used to read "Let him make 2 changes?" while rendering ONE of
+   * them, so a single press answered for a change whose arguments appeared
+   * nowhere. It cannot any more — anything not shown here is settled as "not
+   * shown to the reader, so it was not run" — but the reader still deserves to
+   * be told that something was held back rather than silently dropped.
+   */
+  const unshown = Math.max(0, count - 1)
 
   return (
     <div
@@ -293,8 +303,15 @@ export function ApprovalCard({
       aria-label="Deck-E is asking permission"
     >
       <p className="text-[13px] leading-[19px] text-text-body">
-        {count === 1 ? `Let him ${title.toLowerCase()}?` : `Let him make ${count} changes?`}
+        {`Let him ${title.toLowerCase()}?`}
       </p>
+      {unshown > 0 ? (
+        <p className="mt-[4px] text-[12px] leading-[18px] text-text-muted">
+          {unshown === 1
+            ? 'He also asked for one other change. It is not shown here, so it will not run — ask about it on its own.'
+            : `He also asked for ${unshown} other changes. They are not shown here, so they will not run — ask about them on their own.`}
+        </p>
+      ) : null}
 
       {/*
         THE PREVIEW, KEYED TO THIS CALL.

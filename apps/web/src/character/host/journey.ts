@@ -176,7 +176,14 @@ const fail = (
 })
 
 export type JourneyContext = UiToolContext & {
-  /** Say a line out loud — it goes to the speech bubble, not the transcript. */
+  /**
+   * Say a line out loud, mid-journey.
+   *
+   * It goes onto the TRANSCRIPT, and the speech bubble is derived from that —
+   * the bubble shows the last thing he said while he is out on the page. An
+   * earlier version of this comment claimed the opposite, which is the sort of
+   * thing that survives review because it sounds right.
+   */
   say: (text: string) => void
   /** Held true for the whole sequence, so the route watcher does not undo it. */
   setStepping: (on: boolean) => void

@@ -49,12 +49,23 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return res.json() as Promise<T>
 }
 
-async function send<T>(method: 'PATCH' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
+async function send<T>(
+  method: 'PATCH' | 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  body?: unknown,
+  // OPTIONAL, and the caller that needs it is a write. Deck-E's approval card
+  // commits a corrected batch while the whole chat is frozen waiting on it —
+  // busy, composer refusing input, both buttons disabled — so a stalled
+  // connection there parks the panel with no way out but a reload. A deadline
+  // is the difference between "this failed" and "this is still going".
+  signal?: AbortSignal,
+): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...await authHeaders() }
   const init: RequestInit = {
     method,
     headers,
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    ...(signal ? { signal } : {}),
   }
   let res = await fetch(`${BASE}${path}`, init)
   if (res.status === 401) {
@@ -898,8 +909,11 @@ export const api = {
    */
   collectionBatch: (
     items: { variantId: number; delta?: number; quantity?: number }[],
-    opts: { source?: string; note?: string; idempotencyKey?: string } = {},
-  ) => send<CollectionBatchResponse>('POST', '/collection/batch', { items, ...opts }),
+    opts: { source?: string; note?: string; idempotencyKey?: string; signal?: AbortSignal } = {},
+  ) => {
+    const { signal, ...rest } = opts
+    return send<CollectionBatchResponse>('POST', '/collection/batch', { items, ...rest }, signal)
+  },
 
   setCardHave: (cardId: string, have: boolean) =>
     send<HaveMutationResponse>('POST', `/collection/cards/${encodeURIComponent(cardId)}/have`, { have }),
