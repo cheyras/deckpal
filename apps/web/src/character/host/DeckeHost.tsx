@@ -191,7 +191,19 @@ export function DeckeHost() {
   const journeyStepRef = useRef(false)
   const chat = useDeckeChat(
     live,
-    (to) => navigate({ to }),
+    // REPLACE, NOT PUSH, and the router's default is push. Every page he
+    // visits was becoming its own history entry, so a journey of three hops
+    // buried the page someone was actually on three presses back — and Back is
+    // the gesture people reach for when a character has moved them somewhere
+    // they did not expect. It matters more now than when it was noticed, since
+    // an escort navigates several times in one turn.
+    //
+    // Worth being honest about the complaint that prompted this: the browser
+    // hiccup the owner saw was almost certainly NOT Deck-E — the traced tab
+    // chain runs through a local auth page and a Claude.ai tab, origins the
+    // route allowlist cannot produce. It was his own back gesture. The change
+    // is correct hygiene regardless, and the attribution belongs in the record.
+    (to) => navigate({ to, replace: true }),
     () => setTravelling(true),
     // THE EXEMPTION THE ROUTE WATCHER WAS WAITING FOR. Between a journey's own
     // hops the tidy-up is wrong: it would clear the ring he had just drawn and
