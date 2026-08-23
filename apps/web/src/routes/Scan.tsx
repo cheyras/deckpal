@@ -11,7 +11,7 @@ import {
   type RipState,
 } from '../character/host/ripSession'
 import { commitRip } from '../character/host/ripCommit'
-import { attendRip, reactToPull, RIP_LANDMARK } from '../character/host/ripPresence'
+import { RIP_LANDMARK } from '../character/host/ripPresence'
 import { Content, Spinner, ProgressBar } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { CardSheet } from './CardDetail'
@@ -304,16 +304,6 @@ export function Scan() {
   const ripOnRef = useRef(false)
   ripOnRef.current = rip
 
-  // He comes over when there is a list to stand next to, and goes back to his
-  // own business when it is gone. Keyed on the list EXISTING rather than on rip
-  // mode being on, because the panel is what he flies to and it is not in the
-  // DOM until the first card lands.
-  const hasRipList = rip && ripState.entries.length > 0
-  useEffect(() => {
-    attendRip(hasRipList)
-    return () => attendRip(false)
-  }, [hasRipList])
-
   // Cards whose variants have been requested, so a card re-shown after leaving
   // the frame does not fire a second identical lookup.
   const variantsAsked = useRef(new Set<string>())
@@ -336,10 +326,6 @@ export function Scan() {
     variantsAsked.current.add(cardId)
     try {
       const card = await api.card(cardId)
-      // He reacts on the CATALOG's answer rather than on the commit, because the
-      // commit knows a name and a hash and not whether the pull was worth
-      // anything. One reaction per card, chosen once the rarity is known.
-      reactToPull(card.card.rarity)
       setRipState((st) =>
         setVariants(
           st,

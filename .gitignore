@@ -107,3 +107,9 @@ core.*
 .gate-shots/
 .vercel-bypass
 .preview-url
+
+# ── visual-verification harness artifacts (scripts/visual-harness) ───────
+# Screenshots, videos, contact sheets, and JSON reports from a run. Same
+# convention as .gate-shots/ above: operator-produced evidence, never
+# committed, regenerated on demand.
+.visual-harness/

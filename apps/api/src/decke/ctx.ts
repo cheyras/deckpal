@@ -88,6 +88,55 @@ export function apiBaseFor(host: string | undefined): string {
 }
 
 /**
+ * The headers the self-hop needs to get past whatever guards this hostname.
+ *
+ * ── THE HALF THAT WAS MISSING ────────────────────────────────────────────────
+ *
+ * Deployment Protection was already handled — for `x-vercel-protection-bypass`,
+ * which is what curl and the visual harness send. **A person in a browser sends
+ * neither.** They reach a protected preview through Vercel SSO, which leaves a
+ * `_vercel_jwt` COOKIE, so `bypass` was null, `selfHopHeaders` was empty, and
+ * every self-hop was answered with the SSO redirect instead of JSON.
+ *
+ * That is not one broken tool. `ctx.api` is how **17 of the data tools** reach
+ * deckpal-api — `decks`, `lists`, `battle_logs`, `deck_history`,
+ * `mutation_history`, `revert`, `set_cart`, every deck and list write — so on a
+ * protected preview driven from a real browser, most of Deck-E fails at once.
+ * Reported from use as *"there are a lot of failed calls; browsing decks always
+ * fails, battle logs fails"*, which is exactly the shape of one cause.
+ *
+ * ── WHY FORWARDING IT IS SAFE ────────────────────────────────────────────────
+ *
+ * Same argument the header already makes, and it is worth restating rather than
+ * inherited: this is a DEPLOYMENT-ACCESS token, not a user credential. It grants
+ * nothing beyond reaching a deployment that is already answering this very
+ * request, and it is forwarded only when the incoming request carried it — so
+ * it is present exactly when the platform put it there, and absent in
+ * production where there is nothing to bypass.
+ *
+ * ONLY `_vercel_jwt` is forwarded, never the whole cookie jar. The jar can carry
+ * anything else the origin has set, and a blanket forward would hand all of it
+ * to an outbound call that needs one value.
+ */
+export function selfHopHeadersFor(
+  headers: { get(name: string): string | null } | undefined,
+): Record<string, string> | undefined {
+  const bypass = headers?.get('x-vercel-protection-bypass');
+  if (bypass) return { 'x-vercel-protection-bypass': bypass };
+
+  const jar = headers?.get('cookie');
+  if (!jar) return undefined;
+  for (const part of jar.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq < 0) continue;
+    if (part.slice(0, eq).trim() !== '_vercel_jwt') continue;
+    const value = part.slice(eq + 1).trim();
+    return value ? { cookie: `_vercel_jwt=${value}` } : undefined;
+  }
+  return undefined;
+}
+
+/**
  * Run one tool call with a `Ctx`, and guarantee the connection comes back.
  *
  * The session — if the tool ever opened one — is committed on success and

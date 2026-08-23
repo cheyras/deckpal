@@ -70,6 +70,27 @@ jobs:
       - name: Deck-E screen schema tests (pure, no DB)
         run: pnpm --filter deckpal-api test:decke
 
+      # The variant-classification suite. It lives in `packages/agent-tools`
+      # rather than in the API, because that is where `pickVariant` lives — and
+      # it pins the HARD CONSTRAINT that the approval card's provenance is a NEW
+      # field and not a change to that function's status semantics. Other flows
+      # depend on the silent primary-variant default; turning those into errors
+      # would be a regression well outside the change that needed the field.
+      #
+      # Its own step, because CI does not run `pnpm -r test` and an unwired
+      # test never runs at all.
+      - name: Variant classification (agent-tools)
+        run: pnpm --filter @deckpal/agent-tools test:variants
+
+      # The MCP wire result. Eleven tools pass metadata to `ok()`, and while the
+      # adapter forwarded that as `structuredContent` a client was free to render
+      # it INSTEAD of the answer — `search_cards` returned a row count and no
+      # cards. Nothing errored, nothing logged, and re-introducing it is a
+      # one-line edit that looks harmless. `apps/mcp` had no test script before
+      # this; its own step, for the same reason as the row above.
+      - name: MCP wire result (mcp adapter)
+        run: pnpm --filter deckpal-mcp test:adapter
+
       # Every serverless function must LOAD. The unit tests exercise the pieces
       # a function imports and never the function itself, so a package that is
       # imported but not declared resolves locally by hoisting and 500s in

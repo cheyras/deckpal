@@ -8,6 +8,22 @@
  * flight timing became a runtime controller), so the committed
  * `_raw/playbook.json` is stale by four states and must not be used.
  *
+ * BECAUSE OF THAT, `public/models/decke/playbook.json` NOW CARRIES HAND EDITS.
+ * They are listed in the file's own top-level `hand_edits` array, which exists
+ * so that the divergence is visible to anyone opening the data rather than only
+ * to anyone reading this comment. As of 2026-08-22 there is one:
+ *
+ *   - `thinking`'s `gx`/`gz` — the gaze offset, moved from (-1.7, 1.05) to
+ *     (-6.0, 5.0) across the whole plateau, with the 2160 ms taper beat scaled
+ *     by the same ratio to (-1.8, 1.6). C24: he stared down the camera while
+ *     thinking. `__tests__/gaze.test.ts` pins the RESULT (where the pupils end
+ *     up, at both facings) rather than the numbers, so it fails if a
+ *     regeneration reverts this.
+ *
+ * FIXING THE GENERATOR IS NOT ENOUGH ON ITS OWN. Whoever fixes it must port
+ * every entry in `hand_edits` into the generator's own source first, or the
+ * first regeneration silently undoes work that shipped.
+ *
  * WHY WE EVALUATE POSES OURSELVES INSTEAD OF USING AnimationMixer:
  *
  * The authored animation is not TRS keys on nodes. It is 47 NORMALISED CHANNELS
@@ -62,6 +78,22 @@ export type StateClip = {
 
 export type PlaybookDoc = {
   schema: string
+  /**
+   * Where the shipped JSON DISAGREES with its generator, and why.
+   *
+   * Declared here so the divergence is part of the document's type rather than
+   * a comment somebody has to find. Nothing at runtime reads it; the audience is
+   * whoever fixes `gen-playbook.py`. See the file header.
+   */
+  hand_edits?: {
+    date: string
+    state: string
+    channels: string[]
+    was: unknown
+    now: unknown
+    why: string
+    WARNING: string
+  }[]
   fps: number
   transition: {
     blend_ms: number

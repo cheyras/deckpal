@@ -1,20 +1,58 @@
 /**
- * Deck-E watching a pack get opened.
+ * The rarity judgement that a rip reaction would use — and the reaction itself,
+ * REMOVED, on purpose, with the reason written down.
  *
- * Two behaviours, both deliberately small: he comes over to the running list when
- * a rip starts, and he reacts once per card as it lands. That is the whole
- * feature, and keeping it that small is the point — he is standing next to
- * something the reader is concentrating on, and a character who emotes at every
- * common energy card stops reading as a reaction and starts reading as a
- * screensaver.
+ * ── WHAT USED TO BE HERE ─────────────────────────────────────────────────────
  *
- * EVERY EXPORT HERE IS A NO-OP WHEN HE IS NOT LOADED. The scanner is a core
- * feature and he is an enhancement gated behind an entitlement, so nothing in the
- * rip path may depend on him being present, and nothing here may throw into it.
+ * `attendRip()` flew Deck-E over to the running list when a pack rip started,
+ * and `reactToPull()` gave him one beat per card as it landed. Both are gone.
+ *
+ * ── WHY, AND WHY THIS COMMENT IS NOT OPTIONAL ────────────────────────────────
+ *
+ * Every export here was a NO-OP WHEN HE IS NOT LOADED, which was the correct
+ * design — the scanner is a core feature and he is an enhancement behind an
+ * entitlement, so nothing in the rip path may depend on him being present.
+ *
+ * But that made it invisible when he stopped being loaded. The only thing that
+ * ever loaded him before a rip was an idle timer in `DeckeHost` that warmed the
+ * character on every page whether or not anyone wanted him. Deleting that timer
+ * — the owner's stated number-one complaint, and 5.9 MB per visitor — silently
+ * killed this feature, because a no-op does not announce itself. That the two
+ * were connected appeared in **no** document: not the plan, the brief, the
+ * audit, or the research. An adversarial review of the plan found it.
+ *
+ * The owner's ruling, verbatim: *"the rip-watching feature completely doesn't
+ * work, and very clearly needs an overhaul, so I'm ok with gutting the
+ * implementation as is because it really, really sucks."*
+ *
+ * So this is a **sanctioned removal**, not an accident. The functions are
+ * deleted rather than left disabled, because a function that is present and
+ * does nothing is exactly how this hid in the first place — a caller reads the
+ * call site, sees a live-looking API, and concludes the feature works.
+ *
+ * ── WHAT SURVIVES, AND WHAT AN OVERHAUL SHOULD KNOW ──────────────────────────
+ *
+ * The rarity heuristic stays. It is the only part of this that was ever right,
+ * it is pinned by tests, and it encodes a judgement worth keeping: the bar is
+ * the CHASE tiers, not "rare", because every pack contains a guaranteed rare
+ * and a character who reacts to that is not reacting, he is ticking.
+ *
+ * A rip-presence overhaul is out of scope for this pass and wants its own
+ * design. It is a second surface where the character reacts to live events, and
+ * it should be designed alongside the journey sequencer rather than bolted onto
+ * it. Whatever it becomes will have to answer the question this version never
+ * did: **how does he come to be loaded at all?** Loading seven megabytes on
+ * every page against the chance that someone might open a pack is the trade
+ * that was just rejected.
  */
-import { currentDeckE } from './runtime'
 
-/** The rip panel, as `attend` looks for it. Set by `Scan.tsx`. */
+/**
+ * The rip panel, as a landmark.
+ *
+ * Kept on the DOM deliberately. It is a marker, not behaviour — it cannot
+ * silently no-op, because on its own it does nothing at all — and the overhaul
+ * will want somewhere to fly to. **Nothing currently flies here.**
+ */
 export const RIP_LANDMARK = 'data-decke-rip-list'
 
 /**
@@ -36,46 +74,4 @@ const HIT = /illustration|ultra|hyper|secret|special|double rare|shiny|gold|rain
 /** Is this rarity label worth marking? */
 export function isRarityHit(rarity: string | null | undefined): boolean {
   return !!rarity && HIT.test(rarity)
-}
-
-/**
- * Come and watch, or go back to whatever he was doing.
- *
- * Routed through the background like every other journey, because a hop that
- * changes depth reads as teleporting when taken in a straight line — the engine's
- * own measurement is that a depth change is 24-27 world units against under 3 for
- * any same-depth leg.
- */
-export function attendRip(on: boolean): void {
-  const decke = currentDeckE()
-  if (!decke) return
-  try {
-    if (!on) {
-      decke.clearOverrides?.()
-      return
-    }
-    decke.flyTo(
-      { selector: `[${RIP_LANDMARK}]` },
-      { depth: 'foreground', via: 'background', scrollWith: true, highlight: false },
-    )
-  } catch {
-    /* He is decoration here. A failed journey must not touch the rip. */
-  }
-}
-
-/**
- * One card landed.
- *
- * `once` rather than `sustain`: this is a punctuation mark on an event, not a
- * mood he should be left holding. Sustaining `alert_star` would leave him
- * permanently startled at a list that has moved on eleven cards since.
- */
-export function reactToPull(rarity: string | null | undefined): void {
-  const decke = currentDeckE()
-  if (!decke) return
-  try {
-    decke.setState(isRarityHit(rarity) ? 'alert_star' : 'nod_yes', { mode: 'once' })
-  } catch {
-    /* As above. */
-  }
 }

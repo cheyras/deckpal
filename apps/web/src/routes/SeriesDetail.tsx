@@ -22,8 +22,25 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
       // at the default rank ("item"), so on a series with thirty sets the grid
       // container above survives the per-turn landmark budget even when the tail
       // of the rows does not.
+      //
+      // PRESSABLE, and reviewed as such — the second authorisation on top of
+      // the landmark (`resolveClickTarget`, `character/host/uiTools.ts`):
+      //   1. NO WRITE. The row is one `<Link>` with no `onClick`, no mutation
+      //      and no request of its own. `CARD_SEARCH_DEFAULTS` is a static
+      //      search-param object (`./setSearch`) — it seeds the destination
+      //      page's filters and stores nothing.
+      //   2. ALLOWLISTED. It resolves to `/series/<slug>/<setId>?…`, and
+      //      `routeAllowed` strips the query before matching `/series`. Both
+      //      segments are catalog identifiers, and `resolveClickTarget`
+      //      re-checks origin and pathname at press time.
+      //   3. NOT AUTH. Nothing in this subtree touches tokens, sign-out,
+      //      billing, or a destructive control.
+      //   4. GENUINE NAVIGATION — the last hop of "take me to that set", and
+      //      the end of the addressable path: card TILES on the set page are
+      //      virtualized and deliberately unreachable (PLAN E8.1(ii)).
       data-decke-set={set.setId}
       data-decke-landmark={`[data-decke-set="${set.setId}"]`}
+      data-decke-clickable
       data-decke-label={`the ${set.name} set row`}
     >
       {/* The logo is a full-bleed SECTION of the row, not a window floating in

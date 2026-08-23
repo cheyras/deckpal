@@ -5,8 +5,20 @@
  * floating button, the chat overlay, the scan augmentation — asks this and
  * nothing else. When the paid tier exists, this file changes and they do not.
  *
- * TODAY IT IS A DARK LAUNCH, and it reuses the owner gate rather than inventing
- * a flag. That is not laziness, it is contract B11: a feature whose behaviour
+ * IT IS AN EXPERIMENTAL FEATURE ON PRODUCTION, and this pair of gates is the
+ * flag that makes that true. Verified on production 2026-08-23:
+ * `deckeEntitlement: { status: "owner-plus-list", extraAccounts: 1 }`, the owner
+ * being `cheyras` and the one extra being the QA account (`/api/me` returns
+ * `decke: true, owner: false` for it). Nobody else can reach him, and the refusal
+ * is `POST /api/chat`'s rather than this file's — this only decides whether to
+ * draw a button.
+ *
+ * Widening it is a configuration change and not a code change: add an id to
+ * `DECKE_ENTITLED_USER_IDS`. The panel also SAYS it is experimental, beside his
+ * name, because a feature two accounts can reach and that changes weekly should
+ * not rely on those two remembering.
+ *
+ * IT REUSES THE OWNER GATE rather than inventing a flag. That is not laziness, it is contract B11: a feature whose behaviour
  * depends on a new environment variable owes that variable a declaration in
  * `DEPLOYMENT.md`, a boot warning and a `/health` field, in the commit that
  * reads it. `DESIGN_EDITOR_USER_ID` already has all three (`ownerGateStatus()`
@@ -19,7 +31,7 @@
  * pretending otherwise would be worse than saying so.
  */
 import { api } from '../../lib/api'
-import { isCloudMode } from '../../lib/supabase'
+import { isCloudMode, supabase } from '../../lib/supabase'
 
 /** Cached across callers: `/me` is one request per session, not one per mount. */
 let cached: Promise<boolean> | null = null
@@ -68,4 +80,46 @@ async function resolve(): Promise<boolean> {
 /** Test seam, and the escape hatch for a signed-out → signed-in transition. */
 export function resetDeckeEntitlement(): void {
   cached = null
+}
+
+/**
+ * ── THE ESCAPE HATCH WAS BUILT AND NEVER CONNECTED ───────────────────────
+ *
+ * `resetDeckeEntitlement` existed, its comment named the exact transition it was
+ * for, and a `grep` found no caller. The consequence was total and silent, and
+ * it hit EVERY signed-in reader rather than any special case:
+ *
+ *   1. `DeckeHost` mounts app-wide. Hooks run before its early return, so the
+ *      entitlement effect fires even on `/auth`, where it renders nothing.
+ *   2. Signed out, that call is a 401. `deckeEntitled` fails CLOSED by design
+ *      and caches the FAILURE — `cached` is a resolved `false` from then on.
+ *   3. Signing in navigates client-side. No reload, so the module cache
+ *      survives, and every later caller is answered `false` from memory.
+ *   4. **Deck-E never appears until a hard refresh.** Reported from a deployed
+ *      preview as "there is no chat button", with `/api/me` cheerfully
+ *      returning `decke: true` to anyone who asked it directly.
+ *
+ * Module scope, not a component, because `lib/supabase.ts` already states the
+ * doctrine for this codebase: subscribing once where the client is owned is
+ * what stops several component-level subscriptions drifting apart. It lives
+ * here rather than there so the dependency keeps pointing the right way — a
+ * generic client module has no business importing Deck-E.
+ */
+const listeners = new Set<() => void>()
+
+/** Re-ask after the signed-in identity changes. Returns its own unsubscribe. */
+export function onDeckeEntitlementChange(fn: () => void): () => void {
+  listeners.add(fn)
+  return () => void listeners.delete(fn)
+}
+
+if (isCloudMode) {
+  supabase.auth.onAuthStateChange((event) => {
+    // `TOKEN_REFRESHED` is the same person with a newer token, so re-asking
+    // would be a request per hour that can only ever return what it already
+    // returned. Every other event can change who is asking.
+    if (event === 'TOKEN_REFRESHED') return
+    resetDeckeEntitlement()
+    for (const fn of listeners) fn()
+  })
 }

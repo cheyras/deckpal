@@ -5,6 +5,178 @@ Running log of locked decisions. Each entry: date, decision, who decided, why.
 
 ---
 
+## 2026-08-23 — A navigation no longer forces the far-plane round trip (C35)
+**Decided by:** Claude, from a measurement.
+**Decision:** `travelAfterRoute` asks `viaBackground()` instead of hard-coding
+`via: 'background'`. A destination genuinely across the new page still gets the
+round trip; a near one goes straight there. The observer also waits for a quiet
+window before launching, re-resolving the target, rather than firing on the
+first mutation.
+
+**Why.** Measured at the shipped desktop framing, same destination:
+
+| route | duration | peak tilt |
+|---|---|---|
+| forced `via: 'background'` (2 legs, 29.7 + 29.0 units) | **2271 ms** | 31.7° / 30.6°, past 20° for 610 ms |
+| straight there (1 leg, 8.5 units) | **836 ms** | 28.5° |
+
+The far-plane round trip is what makes him shrink away and swell back to full
+size mid-screen — C35's *"it kind of just became big"*. The first mutation after
+a route change is usually the skeleton, which is why he was launching at a
+loading spinner and re-aiming.
+
+**Implications:**
+- This REVERSES a shipped decision; the old comment argued the round trip was
+  always right. It was right about what the round trip reads as, and wrong that
+  every navigation earns it.
+- `viaBackground` now measures from HIM (`screenRect()`) rather than from the
+  viewport centre, falling back to the centre when his position is unresolved —
+  which reproduces the old answer exactly.
+- **D8 is confirmed still present and is NOT fixed by this.** Close/reopen go
+  through `returnHome()`/`flyTo()` in the host, never through `runUiTool`, so no
+  threshold here could ever have dissolved it — the brief's theory that it might
+  have was wrong about the code path.
+
+## 2026-08-23 — The ad-hoc screen shows a sample, and the transcript announces shape not content
+**Decided by:** Claude, resolving C40 (first bullet) and D13's live region.
+**Decision:** `screenCompact.ts` cuts a large screen to 4 blocks / 6 cards with
+an accessible expand control and a truthful `Showing N of M`. `DeckeChat` gains
+one always-mounted `sr-only` live region that fires **once per turn boundary**
+with the reply's SHAPE ("Deck-E replied, with 2 panels"), never its content.
+
+**Why.** C40: *"he could present that ad hoc screen first as a little widget
+inline chat with some actual visuals."* `MAX_BLOCKS = 12` caps authoring, not
+display, so a full-budget panel is an order of magnitude larger than what a
+phone shows.
+
+**Implications:**
+- **Cut at block and card boundaries, not a max-height fade**, despite the brief
+  naming the fade. A clip feathers through the middle of a card or a table row;
+  cutting at boundaries means everything drawn is drawn whole and the number
+  says what is missing.
+- **`N of M` excludes cards no amount of pressing expand can reveal** — the
+  renderer refuses a group inside a group, so counting those would be a promise
+  the panel cannot keep.
+- The grid slices ids BEFORE `useCardArt`, so a compact panel does not fetch
+  thumbnails it will not draw.
+- **`aria-live` on the message list is the obvious repair and is worse than the
+  defect** — the list is rewritten per token, so a long answer would arrive as
+  hundreds of overlapping fragments. Hence the turn boundary. It says nothing
+  about tool failures or thinking, because `ToolRow` and `ThinkingRow` own live
+  regions already and announcing twice rebuilds the double-announcement bug this
+  branch fixed.
+- Openers rotate on **times-shown, not times-declined**: deciding when a chip
+  counts as declined is a guess about intent, and times-shown is a fact.
+
+## 2026-08-23 — Deck-E can be turned off, and the setting is remembered
+**Decided by:** Claude, on measured evidence.
+**Decision:** A per-device `localStorage` preference (`character/deckePreference.ts`)
+hides Deck-E entirely. `DeckeHost` returns null before the canvas, the launcher
+and every effect that reaches for the runtime, so hiding him also stops him
+costing anything. Restored from a labelled control in Profile.
+
+**Why.** He could not be removed. There was no dismissal anywhere — the launcher
+mounted on every signed-in page and its only control opened him. That is the
+shape of the best-documented assistant backlash on record: Snapchat pinned My AI
+with no way to remove it and went **3.05 → 1.67** stars, one-star share **35% →
+75%**, review volume 5×. The complaint analysis is unambiguous that the anger was
+about being **pinned and unremovable**, not about answer quality — so Deck-E
+being good is not protection.
+
+**Implications:**
+- Per-device, not per-account, and the UI says so. It is a display preference
+  about one screen, it must resolve before any request does, and making it an
+  account column would need a migration, an API and a sync path.
+- **Every storage access is wrapped.** Reading `localStorage` *throws* in a
+  browser set to block site data; an unwrapped read would take the character
+  host down on exactly the privacy-conscious setup most likely to want him gone.
+  On a throw he is SHOWN — a reader who cannot persist a preference has not
+  asked for anything.
+- A same-tab custom event is dispatched alongside `storage`, which fires only in
+  other tabs; without it the control would appear to do nothing until a reload.
+- Still open: a one-click dismissal from his own panel. The settings toggle is
+  the reliable path; the direct one belongs beside the panel's ✕.
+
+## 2026-08-23 — C21: the thinking beat fires on real events, and never on failure
+**Decided by:** Claude, resolving C21 + OR3.
+**Decision:** `character/host/thinkingBeat.ts` decides, as a pure function,
+whether a tool chip earns a brief `once` state change. It fires on a call that
+FINISHED (`ok`) and on a progress note that LANDED — the owner's *"little
+responses in between"* — rate-limited to one per 4s, and never under reduced
+motion.
+
+**Why.** C21: *"he's just kind of stuck in this one thing … he can kind of show
+a different emotion for a sec and then go back to thinking."* The brief filed it
+as blocked on there being no tool-boundary hook. C20 shipped one — the single
+chip writer every real tool event passes through — so the hook exists and this
+is the orchestration the brief said was missing. It hangs on that writer rather
+than a timer because a timer would fire while nothing was happening, which is
+the fabricated status surface X2 forbids.
+
+**Implications:**
+- **No beat on `error` or `partial`.** Crolic et al., *Journal of Marketing*
+  86(1) 2022: anthropomorphic warmth aimed at someone whose thing just broke
+  measurably lowers satisfaction, with no offsetting gain on anyone else. The
+  failure row is already loud and auto-expanded by design (D2); a character
+  flourish beside it competes with the one row that has to be read. **When
+  something breaks, he goes plain.**
+- `nod_yes`, not `happy`: punctuation, not a claim about a result nobody has
+  read yet. Distinct from the `curious` beat that marks the answer ARRIVING
+  (OR3, `useDeckeChat.ts`), so the two moments do not blur into one gesture.
+- The allow-list line IS the rule. An earlier draft had a separate
+  `error || partial` guard that was **unreachable**, and it was caught only by
+  mutating the code and noticing the failure test did not go red.
+- **OR3/C54 was already shipped** and `COVERAGE.md` recorded it as NOT SHIPPED —
+  the audit predates the commit.
+
+## 2026-08-23 — Deck-E: `escort`, a macro tool, because the barrier was construction cost
+**Decided by:** Claude, on evidence, after an adversarial consult (Fable).
+**Decision:** Add an `escort({ seriesSlug, setId?, opener? })` tool alongside
+`journey`. It carries no steps and names no landmark; the browser expands it
+into journey steps (`apps/web/src/character/host/escortPlan.ts`) and runs them
+on the existing sequencer. `journey` stays for walks the macro cannot express.
+
+**Why.** Asked "help me find Pitch Black", Deck-E described the destination
+instead of going there in 8 of 10 measured turns, ending `finishReason: "stop"`
+with an empty `toolCalls` array. Every prompt lever tried against it measured at
+roughly nothing — including the exact template that had moved writes from 0/20
+to 9/20.
+
+The control group is inside our own system and it settles the cause:
+
+| tool | argument | measured |
+|---|---|---|
+| `goTo` | one route string | 100% nav (`models.ts:159`) |
+| `express` | a flat array | called routinely |
+| `journey` | a compiled multi-step program | skipped 8/10 |
+
+Same model, same prompt, same turn. **The barrier is not "may I" but "can I".**
+Prompt emphasis lowers reluctance; it cannot lower construction cost — which is
+why the write-approval doctrine worked there and did nothing here.
+
+And the construction was never necessary. `journey.ts`'s own header states it:
+*"the selectors are constructible from ids the data tools return BEFORE anything
+moves."* That file argues for one-plan-not-four-turns by proving the path is
+deterministic, then hands the deterministic compilation to the model anyway.
+
+**Implications:**
+- The model's burden for an escort drops to `goTo`'s difficulty class — two ids
+  `search_cards` already returned.
+- `escort` has no server `execute`, so it is a `CLIENT_TOOL`; the structural
+  test in `tools.test.ts` enforces that pairing.
+- `deckpal-web` does not depend on `deckpal-api`, so the two halves meet on a
+  literal: `escort.test.ts` asserts the real `journeySchema` accepts the expanded
+  plan, and `escortPlan.test.ts` asserts the builder produces it. Verified
+  failable — breaking the builder three ways fails five tests.
+- Two defects fixed in the same commit: `goTo` claimed "TAKEN **or SHOWN**",
+  colliding with `journey`'s "SHOWN the way" on this exact query (contested
+  selection is a documented cause of calling *neither*, and the data agrees — 2
+  journeys, 0 goTo-only); and the prompt instructed `say` to come *before* the
+  move it belongs to, canonising a prose prefix that suppresses the tool call.
+- **Unmeasured.** The QA meter was exhausted when this was written. It is
+  reasoned, typechecked and unit-tested, not yet demonstrated to move the 2/10.
+  `roadmap/plans/decke-experience-pass/ESCORT-PLAN.md` holds the experiment.
+
 ## 2026-07-24 — Remote access: existing reverse proxy + SSO
 **Decided by:** user.
 **Decision:** pokedex will be reachable remotely via a route on the existing
@@ -8852,3 +9024,423 @@ became a hard check is what made it legible.
   is the reaction defect already recorded on 2026-08-22, not a write defect. Its
   safety halves pass on both builds: nothing written, nothing narrated as
   written, no approval granted.
+
+## 2026-08-22 — Visual work gets checked by a second pair of eyes, and they can be a model's
+
+**Decided by:** Chey, implemented by Claude Opus 5
+
+**Decision:** Add `scripts/visual-harness/` — an operator-run harness that
+captures screenshots, records interactions, tiles a recording into a contact
+sheet, and can put a falsifiable claim about the result to a vision model
+(`judge-motion.mjs --assert`, exit 0 pass / 1 fail / 2 unclear). It sits beside
+`scripts/decke-gates.mjs` and follows the same rule about Playwright: resolved
+at runtime via `PLAYWRIGHT_MODULE`, never a declared dependency, never in CI.
+
+**Why:** `decke-gates.mjs` already answers *"did the thing actually happen?"* by
+hooking the network, because this codebase shipped a character that narrated
+actions the browser never received. There is a second version of that same
+failure one level up: an agent captures a screenshot and then asserts, from
+memory, that the animation worked. Nothing checked the pixels. That gap is
+exactly where "he should scale up from zero and travel" and "he is facing the
+wrong way" live — claims no unit test can reach and no `page.url()` can settle.
+A contact sheet plus an independent reader closes it.
+
+Two things made this worth building rather than eyeballing. Chromium can be made
+to report real safe-area insets (CDP `Emulation.setSafeAreaInsetsOverride`,
+measured at 47px top / 34px bottom against the live page), so the mobile overlay
+defects are reproducible in automation after all — earlier analysis had
+concluded they needed a physical iPhone. And a vision model, given a contact
+sheet, reliably distinguishes "the panel expanded" from "the panel was always
+open", which is the whole question for most of this work.
+
+**Implications:**
+
+- **The judge is optional and degrades, it does not gate.** Without
+  `AI_GATEWAY_API_KEY` the harness still produces every artifact and
+  `judge-motion.mjs` exits `3` — deliberately distinct from fail (`1`) and error
+  (`4`) so a caller can tell *"the change is wrong"* from *"nobody checked."*
+  Collapsing those two is how an unverified change gets recorded as a passing
+  one. Collaborators without a vision model API lose the automated verdict and
+  nothing else.
+- **Spend lands on the shared `AI_GATEWAY_API_KEY`, never
+  `DECKE_VERCEL_AI_GATEWAY_KEY`.** Deck-E's key exists so his per-user spend
+  stays legible; dev tooling must not pollute that number. ~$0.01–0.03 a call.
+- **A model verdict is evidence, not a fact.** Assert things a human could
+  settle by looking for two seconds; treat a `fail` as a reason to go and look.
+  The raw answer and model id are in the output so a human can overrule it, and
+  `unclear` is a first-class answer because a confident wrong verdict is worse
+  than an admission when the point is catching where belief and pixels disagree.
+- **This does not replace `AGENTS.md` verification standard 1.** Desktop and
+  390px, and you actually look. The harness makes that repeatable and gives an
+  agent a way to be caught out.
+- **A real device is still the final word** on `backdrop-filter` compositing
+  under a translucent status bar. Chromium approximates the geometry; it does
+  not reproduce the compositing.
+- **No new runtime env var, so B11 does not apply** — `AI_GATEWAY_API_KEY`
+  already exists and is already declared, and nothing deployed reads it. Nothing
+  in `package.json`, the lockfile, or `ci.yml` changed; the only tracked
+  additions are the harness itself and six `.gitignore` lines for
+  `.visual-harness/` artifacts, matching the existing `.gate-shots/` convention.
+
+## 2026-08-22 — Deck-E does not load until he is invited
+**Decided by:** owner (his stated number-one complaint), executed by Claude.
+**Decision:** the idle/`requestIdleCallback` warm in `DeckeHost` is deleted. The
+character loads on `DeckeButton`'s `onWarm` (pointer-enter, touch-start, focus)
+and on `onOpen`, and on nothing else.
+
+**Why:** measured on the wire, **5,905,250 bytes** of character assets were
+fetched on every page by every entitled visitor whether or not they ever spoke to
+him, plus the ~1.14 MB runtime chunk in a production build. It is a
+**restoration, not a reversal**: the launcher is hidden while the chat is open
+because "two Deck-Es is the exact thing the whole well design exists to avoid",
+and the timer broke that invariant from the other side — the 3D body and the chip
+were on screen together in the default state of every page. `vite.config.ts`'s
+precache exclusion rests on the premise that "the cost is paid only by whoever
+actually opens it", which was false and is now true.
+
+**Implications:**
+- A phone has no hover and `touchstart` beats `click` by ~100 ms, so mobile
+  trades "already there" for "tap, then wait". Nobody who never taps pays
+  anything. The launcher's waking state is load-bearing UI now and stays mounted
+  until he has actually arrived.
+- Loading finishes at **entry scale 0**. Warming is a hover, so without that a
+  visitor who hovered and did not click would have him appear beside his own
+  chip — the same defect through the new door.
+- **A question asked before he arrives is now held**, shown on the transcript
+  within a frame of the press, and asked when he lands. `send` has always begun
+  `if (!decke) return`, which was harmless while he was pre-warmed and silently
+  dropped the message once he was not.
+- Payload reduction is explicitly not part of this. Gate 18 pins the behaviour.
+
+## 2026-08-22 — Rip-watching presence is removed, not disabled
+**Decided by:** owner — *"the rip-watching feature completely doesn't work, and
+very clearly needs an overhaul, so I'm ok with gutting the implementation as is."*
+**Decision:** `attendRip` and `reactToPull` are deleted with their call sites.
+`isRarityHit` and the rip landmark survive.
+
+**Why:** every export was a no-op when he is not loaded — correct, because the
+scanner must not depend on him — which also made it invisible when he stopped
+being loaded. Deleting the idle timer silently killed the feature, and the
+connection appeared in **no** document until an adversarial review found it.
+
+**Implications:** deleted rather than disabled, because a function that is present
+and does nothing is exactly how this hid. An overhaul wants its own design
+alongside the journey sequencer, and it must answer the question this version
+never did: how does he come to be loaded at all?
+
+## 2026-08-22 — The entrance is a rig-root scale, not a camera dolly
+**Decided by:** Claude.
+**Decision:** "grows from nothing" is a uniform scale on `DeckE_Root` with a pivot
+correction, so he grows about his centre. `setCharacterHeight` is not used for it.
+
+**Why:** that function dollies the CAMERA, with the height in the denominator —
+asking it to grow him from nothing asks the camera to travel to infinity, and at
+exactly zero the distance is not a number. A dolly can zoom; it cannot make him
+small.
+
+**Implications:** nothing below the root has to know — riders and the eye socket
+premultiply their parent's inverse world matrix so the factor cancels, the eye
+shader works in object space, `look.ts` solves a ratio. What does have to know is
+anything measuring him in the world: `screenRect` and the beacon. Minimum scale is
+1e-3, because those inverse-world solves are singular at exactly zero.
+
+## 2026-08-22 — The host owns the media query; the engine owns the behaviour
+**Decided by:** Claude, following the engine's own stated philosophy.
+**Decision:** `prefers-reduced-motion` is read in `DeckeHost` and passed to
+`DeckE` as a flag. Nothing in `character/decke/` calls `matchMedia`.
+
+**Why:** the engine already says it honours the preference for smooth scrolling
+"without this module having to know that exists". The flag keeps that true while
+giving entry, flight and escort legs a real instant-arrive mode, which did not
+exist and which both the entrance and the wayfinding work need.
+
+**Implications:** the query is watched live — someone turning it on mid-session is
+asking for the motion to stop now, not at the next reload.
+
+## 2026-08-22 — The chat is the content pane, and the scrim fix is geometric
+**Decided by:** owner (chrome stays sharp, content dims), executed by Claude.
+**Decision:** the panel occupies the content pane between the sidebar and the
+right edge, below the header; both stay sharp and usable. On a phone the scrim
+starts below the app header **by offset, not by z-index**.
+
+**Why:** `backdrop-filter` samples whatever composites behind it regardless of
+paint order, so dropping the scrim below the header would still blur what is under
+it. The blurred element must not extend under the header at all.
+
+**Implications:**
+- `AppShell` publishes `--app-header-h` and `--app-sidebar-w`: the only thing that
+  knows the sidebar's current width is the component that collapses it.
+- The panel is glass and pointer-transparent on both platforms; the composer is
+  the opaque thing. The phone panel's "dead grey band" was never a rendered
+  element — it was the reader looking through to the scrim.
+- `--color-surface-raised` is stone-500 and wrong for a card of composer width.
+- The premium skin's "inputs are wells" rule is qualified for this one control by
+  counted specificity, not by `!important`.
+
+## 2026-08-22 — A turn is an ordered list of parts
+**Decided by:** Claude.
+**Decision:** `ChatMessage` becomes `{ id, role, parts }`; `text` and `tools` are
+derived.
+
+**Why:** three parallel arrays have no order between them, so a lookup that
+happened halfway through a sentence rendered above the sentence it interrupted —
+and updating a chip filtered-and-appended, moving every settled row to the end,
+which is why the order visibly shifted between frames and why the one call that
+FAILED read as the most recent thing rather than the broken one.
+
+**Implications:** movement tools can emit rows from their real results, so a
+journey leaves a record; and interleaving rows with prose in occurrence order
+becomes expressible at all.
+
+## 2026-08-22 — Failure is the deliberate exception to a quiet transcript
+**Decided by:** Claude, from the owner's recorded incident.
+**Decision:** tool rows are quiet by default; `partial` and `error` get a distinct
+tone, an explicit label in words, detail already expanded, and a retry. A
+timed-out deep call resolves `partial`, never `ok`.
+
+**Why:** the owner read *"The analyze tool timed out before it could finish
+reading your full collection"* on camera and called it *"a great response"*. He
+did not notice it had failed.
+
+**Implications:**
+- `partial` is a new wire phase, so `previewOf` and the replayed evidence record
+  both had to stop filtering on `ok` alone. The replay labels partials as
+  incomplete rather than dropping them, or he quotes a half-finished reading with
+  more confidence the second time.
+- There are **three** ways a deep call is incomplete, not one: the wall clock, the
+  output budget, and the step cap.
+- A conversational turn that spends its whole step budget without speaking now
+  says so, instead of leaving an empty bubble after half a minute.
+- `set_progress`'s title was "Set completion progress" — a noun phrase that parses
+  just as easily as an imperative. Renamed "Check set completion": a read tool
+  whose row tells a reader something wrote to their collection is a trust defect
+  in a surface whose entire job is saying truthfully what happened.
+
+## 2026-08-22 — Closing the chat ends the turn
+**Decided by:** Claude.
+**Decision:** closing aborts the turn, settles any pending approval as a denial,
+and records that it was stopped.
+
+**Why:** verified — closing did neither, and the listener that would settle an
+approval fires on the AbortController, which closing never triggered. The promise
+parked for the life of the page: `busy` stayed true, `thinking` stayed sustained,
+and the only way out was a reload.
+
+**Implications:** letting a turn run invisibly is worse than it sounds, because a
+turn can navigate — the page would move under someone who has just said they are
+done, with no surface left to explain why.
+
+## 2026-08-22 — A journey is one plan, executed in the browser
+**Decided by:** owner's design, executed by Claude.
+**Decision:** a `journey` tool takes an ordered, capped step list of landmark
+references; the browser runs it as a timeline. One leg, not one per hop.
+
+**Why:** the selectors are constructible from ids the data tools return before
+anything moves, so per-hop reasoning buys nothing. A four-leg escort re-bills
+~17k prompt tokens; one journey leg is ~5.1k.
+
+**Implications:**
+- **Landmark references, never free CSS** — a free selector is a capability, and
+  the allowlist exists to bound it. Validated at parse time, so a bad plan is
+  refused whole before step 0.
+- **No wait verb and no duration field**: a fixed delay after a click is wrong on
+  a slow connection, and making it inexpressible beats a rule against it.
+- **`ensure`**, because the determinism premise is false — on `/series` the
+  uncollected series exist only after a one-shot disclosure, and for the QA
+  account every series is uncollected.
+- **A trusted-event guard is load-bearing**: the sequencer performs its own
+  clicks, and without `isTrusted` the first would cancel the journey running it.
+- A hidden control is still a clickable control: below the nav breakpoint the
+  sidebar links are `display:none` but present, so a step that needs him to be
+  SEEN refuses a target with no box.
+- A journey that stops half way is `partial`, not `error`, and its summary is
+  built from what ran rather than from what was planned.
+
+## 2026-08-22 — A keep-out region, and the beacon survives it
+**Decided by:** Claude.
+**Decision:** solved positions are clamped into a region whose bands the HOST
+measures from CSS and the engine applies. The clamp applies to placements and
+**not** to per-frame scroll tracking.
+
+**Why:** his canvas sits above the app chrome deliberately, so excluding the
+header from the scrim does not exclude it from him. And the off-screen beacon
+exists *because* he can leave the viewport vertically while riding a scrolling
+element — an unconditional clamp would hold him at the band for ever and make that
+chip unreachable code with nothing failing to say so.
+
+**Implications:** it is a clamp, not a veto — asked to present a nav item in the
+header he is pushed down until his head rests on the band, still in the item's
+column and still turned back across it. The bottom band is zero while the chat is
+open, because his phone park box deliberately overlaps the composer. A band of
+zero is no band, so every non-host caller keeps today's behaviour to the bit.
+
+## 2026-08-22 — The approval card segments by provenance, and asks only where asking is warranted
+**Decided by:** owner (his own design), executed by Claude.
+**Decision:** the consent card has two sections — what he knows, and "what was the
+variant on these?" — with no numeric confidence meter. Accept commits the known
+section even if a printing is left unpicked.
+
+**Why:** miscalibrated AI confidence measurably degrades decisions, and ~93% of
+permission prompts are approved regardless of content. Provenance is a real fact
+that cannot be miscalibrated.
+
+**Implications, and the last one is a behaviour change:**
+- Classification keys on **candidate count, not resolution status**. An omitted
+  variant on a multi-printing card resolves *successfully* to the primary, so a
+  status-keyed field would file the very row the owner wants asked about under
+  "known". It is a NEW field; `pickVariant`'s semantics are unchanged and pinned
+  by a test, because other flows depend on the silent default.
+- The settled card **cannot** be expressed through the existing protocol: the SDK
+  signs over the held input. So an unedited accept takes today's signed path
+  unchanged, and an edited accept commits a corrected batch from the browser and
+  *then* settles a denial carrying the real response as its reason.
+  Commit-then-settle is correct by discipline, so the ordering is pinned by a test.
+- The idempotency key is scoped to the held call. The pure-content key the design
+  borrowed is honoured unbucketed and unbounded, so the second identical
+  correction anyone ever made would have written nothing while reciting the old
+  numbers as fresh.
+- **A card with more than one printing and no stated variant is today silently
+  resolved to the primary AND WRITTEN. After this it is asked about, and not
+  written if the question is ignored.** The owner asked for exactly this. The
+  first person to notice a card that "didn't get added" will otherwise file it as
+  a bug.
+
+## 2026-08-22 — Model-written markdown renders under a URL and image allowlist
+**Decided by:** Claude.
+**Decision:** `lib/markdownSafety.ts` is shared by the chat renderer and the deck
+strategy view. Links are limited to http/https/mailto plus relative; **no remote
+image is ever fetched** — the alt text is shown instead.
+
+**Why:** `routes/deck/MarkdownView.tsx` renders `strategyMd`, which Deck-E's own
+`deck_strategy` tool writes over a context including card text, deck descriptions
+and list names — strings other people typed. Its component map had no `img` entry,
+so react-markdown's default applied and a remote image in a strategy guide was a
+tracking beacon firing on render, handing the reader's IP and referrer to whoever
+got a string into that context.
+
+**Implications:** pinned by tests that render genuinely hostile input through both
+surfaces and assert the attacker's host does not appear in the output; verified
+failable by removing the guard from one surface and watching only that one go red.
+
+## 2026-08-23 — The MCP wire result carries the text and no `structuredContent`
+**Decided by:** Claude.
+**Decision:** `toCallToolResult` (`apps/mcp/src/adapters/mcp.ts`) no longer
+forwards `ToolResult.structured` as MCP's `structuredContent`. The internal field
+is untouched; only the wire result changed. `apps/mcp` gains its first test script
+and a CI step.
+
+**Why:** eleven tools pass metadata to `ok()`, and every one of them was answering
+a client with the metadata and nothing else. Measured against production:
+`search_cards("charizard")` returned `{"total":125,"page":1,"pageSize":3}` — not
+one card, in the tool the whole catalogue is searched through. The five tools that
+pass no metadata returned their full text over the same connection in the same
+session, which makes the presence of `structuredContent` the only variable.
+
+Neither the server nor the SDK drops anything — `projectCallToolResult` only
+appends to `content`, and both blocks went out. A client is then free to choose,
+and at least one major one shows the structured half; reasonably, because
+`structuredContent` normally travels with an `outputSchema` that says what it is.
+**No tool here declares one.** Nothing is lost by dropping it: every field it
+carried is already in the rendered text.
+
+**Implications:** Deck-E is unaffected in either direction — his AI-SDK adapter
+reads `result.text` and always received it in full, and `log_cards`' rendered rows
+still come from `result.structured` internally. **If `structuredContent` returns,
+it returns with an `outputSchema`**, so a client knows what it is holding. Pinned
+by `apps/mcp/src/adapters/__tests__/mcp.test.ts`, two mutations watched red; the
+regression is a one-line spread with no failing symptom — 200s all round, every
+tool still "works", and the answers quietly go missing at the far end.
+
+**Worth the owner's eye:** this changes a shipped public surface while he was
+asleep. It is one line to revert if he disagrees, but the eleven tools are
+unusable as they stand, so leaving it overnight had the larger cost.
+
+## 2026-08-23 — Deck-E's placement beside the composer, and the frame `screenRect` was projecting in
+**Decided by:** Claude.
+**Decision:** three changes to where he stands and how we know. (1) A
+composer-position watch in `DeckeHost` re-parks him when the composer MOVES.
+(2) `anchor: 'optical'` with `OPTICAL_OVERLAP = 0.09` of his drawn height,
+honoured in `FlyOptions`, the station and `solvePark`. (3) `screenRect()`
+converts Blender→three before projecting.
+
+**Why (1):** the empty→conversation transition drops `justify-center`, which
+moves the composer 310.5 px without changing the window, the keep-out bands, the
+scroll offset, or the composer's own SIZE. Every existing trigger watches one of
+those; `ResizeObserver` fires on size and the size is identical. Measured: his
+drawn box did not change by a pixel, `resize 0 / setKeepOut 0 / flyTo 0`, and
+forcing a station re-solve by hand put him exactly right. The solve was never
+wrong, only the trigger was missing. Reported twice by the owner in two
+recordings: *"he should have gone down with this and he did not."*
+
+**Why (2):** `anchor: 'bottom'` aligned the composer's baseline to the POINT his
+silhouette tapers to — the bottom face of the box in three-quarter view — which
+is the owner's *"strictly aligned with his very bottom corner, which makes him
+look like he's kind of above the thing."* The corner he pointed at is ~0.25 of
+his height. **0.25 does not fit:** in a conversation there are exactly 20 px
+between the composer's baseline and the bottom of his canvas at every desktop
+viewport, because his height is capped by the composer rather than the window.
+Offsets ≥28 px are visibly flat-cut at the window edge, which re-opens the
+"cut off" complaint this replaced. 0.09 × 214 = 19 px, clear of his 6 px idle
+float and inside the padding. **To go higher up his body the composer must
+lift**, which is a `DeckeChat.tsx` change.
+
+**Why (3):** `base` is a Blender-frame vector and `bodySpan` extends it along
+Blender's +Z, but the camera is three.js — so the raw projection treated his UP
+as the camera's DEPTH. Measured against his silhouette: a 37×51 box for a
+character drawn 167×214, about 90 px from where he is. Verified after the fix by
+drawing the box onto the page and photographing it; it now lands on him.
+
+**Implications:** `screenRect` had two real callers — the speech bubble's
+placement and `himX` in `uiTools`, which decides whether a hop travels via the
+background. Both were reading a wrong box, so hop-distance behaviour may shift
+slightly; `hopProfile.test.ts` stubs `screenRect` and therefore never saw this.
+The dismissal flight was fixed in the same pass: he flew home to a corner 240 px
+from the launcher chip, and was scaled to zero on a fixed 520 ms timer during a
+~1300 ms trip — a third of the way across, the rest flown by nobody. The timer
+is now a 3000 ms guard behind an `arrived` callback, because a guard that fires
+first IS the defect.
+
+## 2026-08-23 — Credits replace the daily meter, and a deep call asks first
+**Decided by:** the owner, on both counts. Built by Claude, **switched off**.
+**Decision:** (1) migrations 041/042 add `decke_credit_balance` and
+`decke_credit_event`; `apps/api/src/decke/credits.ts` prices work against
+measured cost. Inert until `DECKE_CREDITS_ENABLED=true`. (2) Every deep tool now
+declares `needsApproval`, and the consent card carries his restatement of the
+request.
+
+**Why credits:** the two daily counters produced what the owner called a useless
+agent — *"he basically kind of becomes useless when this happens… I'm using him
+but he can't really do anything."* The failure is not the number: a per-tier cap
+leaves a HALF-DEAD AGENT, present and answering and unable to do the thing you
+opened him for, which is the shape of every defect this pass exists to remove.
+I recommended keeping cheap features alive at zero and **the owner overruled it**:
+*"He can chat and lookup but he can only pretend to do other stuff and that
+sucks."* He is right — an agent that can only pretend is worse than one honestly
+away. One balance, hard stop.
+
+**Why a balance row and an event log:** the balance is spent by a single
+conditional `UPDATE … WHERE balance >= $2`, so the check and the decrement are
+under one row lock and zero-rows-affected IS the refusal. Summing the log
+instead cannot be spent atomically without SERIALIZABLE or a table lock — two
+concurrent turns would each read enough and each spend, and the whole point of a
+hard stop is that it cannot be crossed. The log is the audit trail these will
+need once they are bought.
+
+**Why deep calls now ask:** they were exempt with an argued reason — *"asking
+about a read is friction with no safety behind it, and friction people learn to
+click through is worse than none."* Correct about safety, silent about COST. A
+deep call is a sub-agent with its own model and up to 210 s, and under credits it
+is the only thing a reader can run out of. Measured on camera: asked for "a new
+deck, doesn't have to be good", he spent one before anything was confirmed, then
+spent another. The friction argument is answered by what the card SAYS — his
+restatement of the request, so the tap confirms a specific piece of work — and
+the spend is gated by construction, because `charge()` runs inside an execute the
+SDK will not run until approved.
+
+**Implications:** **041 creates every balance at zero**, so setting the flag
+before granting balances makes Deck-E unavailable to everybody at once. Order:
+migrate → grant → flag. 039 stays in place so it is reversible. `CREDIT_USD` is
+expressed as measured model COST; **the retail price of a top-up is not encoded
+anywhere and is the owner's to set**, as is the payment integration — this
+builds the mechanic and stops at the paywall. Neither migration has been run
+against any database (contract B9).

@@ -61,11 +61,183 @@ import { withToolCtx, type ToolCtxOptions } from '../ctx.js';
  * lookup behind it is strictly worse than no chip, because it manufactures
  * evidence. Every chip corresponds 1:1 to a real invocation of a real handler,
  * by construction, because this is the only code that emits one.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * FIVE PHASES, AND WHY THE LAST TWO WERE ADDED
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The owner sat watching a deep call for 210 seconds with no signal at all — the
+ * UI was pixel-identical for 61 of them, by direct frame comparison — and then
+ * praised the reply on camera as "a great response". It was a tool-failure
+ * message: *"The analyze tool timed out before it could finish reading your full
+ * collection…"*. He did not notice it had failed.
+ *
+ * Two separate defects, and fixing either alone leaves that experience intact:
+ *
+ *   `progress`  breaks the silence. A running tool says what it is doing while
+ *               it does it, so a 210-second wait is legible rather than dead.
+ *   `partial`   breaks the lie. A call that hit its wall clock, or its output
+ *               budget, or its step cap, returns what it has — and must NOT
+ *               resolve as `ok`, because `ok` is the word that let a failure be
+ *               praised.
+ *
+ * `progress` carries the heartbeat AND the narration beat on ONE channel. That
+ * is deliberate: one emission point is what keeps the truthfulness rule above
+ * enforceable. Everything on it is composed by the server from something the
+ * server observed — a tool that really started, a source the provider really
+ * reported, prose the sub-agent really produced, or the plain fact that an
+ * invocation opened N seconds ago and is still open. There is no code path by
+ * which the model can ask for one.
+ *
+ * `note` is destined for an expandable detail row in the transcript, NEVER for
+ * Deck-E's speech bubble. Some of it is sub-agent prose, and the sub-agents are
+ * deliberately not written in his voice (see `deep.ts`'s `ANALYST`) — two
+ * characters talking over each other in one answer is the failure that rule
+ * exists to prevent.
  */
 export type ToolEvent =
   | { phase: 'start'; id: string; name: string; title: string }
+  | { phase: 'progress'; id: string; name: string; title: string; note: string; step?: number }
   | { phase: 'ok'; id: string; name: string; title: string; summary: string }
+  | {
+      phase: 'partial';
+      id: string;
+      name: string;
+      title: string;
+      summary: string;
+      reason: 'timeout' | 'truncated';
+    }
   | { phase: 'error'; id: string; name: string; title: string; summary: string };
+
+/**
+ * One printing a row could mean, for the picker on the approval card.
+ *
+ * Not a score and not a ranking. `isPrimary` says which one the catalog calls
+ * the default, and `ownedQty` says how many of that printing the reader already
+ * has — two facts, both from the database, neither of them a confidence.
+ */
+export type ApprovalPreviewCandidate = {
+  variantId: number;
+  kindCode: string;
+  label: string;
+  isPrimary: boolean;
+  ownedQty: number;
+};
+
+/**
+ * One row of the held write, as the reader will see it.
+ *
+ * `index` IS THE JOIN KEY back into the held call's `input.items`, and it is
+ * load-bearing rather than convenient: without it the browser cannot rebuild an
+ * item list comparable to the one the SDK signed, and the "did the reader edit
+ * anything?" check has nothing to compare.
+ */
+export type ApprovalPreviewRow = {
+  index: number;
+  cardId: string;
+  cardName: string;
+  setId: string | null;
+  number: string | null;
+  /**
+   * Which bucket this row belongs to. FOUR VALUES AND TWO BUCKETS, never a
+   * meter: `stated` and `only-one` need no question, `unstated` and `ambiguous`
+   * do, and `unresolvable` is why a card stops being editable. There is no
+   * ordering between them and rendering one as "high confidence" is the mistake
+   * the design exists to avoid.
+   */
+  certainty: 'stated' | 'only-one' | 'unstated' | 'ambiguous' | 'unresolvable';
+  candidates: ApprovalPreviewCandidate[];
+  /** What the server silently resolved to, for an `unstated` row. SHOWN, never written unasked. */
+  wouldUseVariantId: number | null;
+  /** The resolved printing for a row that needed no question. */
+  variantId: number | null;
+  variantLabel: string | null;
+  mode: 'delta' | 'quantity';
+  value: number;
+  before: number | null;
+  after: number | null;
+  clamped: boolean;
+};
+
+/**
+ * The structured preview of a held write, keyed to the call it belongs to.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * EMITTED FROM HERE, 1:1 WITH A REAL DRY RUN — THE SAME RULE AS THE CHIPS
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Every field below comes from a real invocation of the real handler with
+ * `dry_run` FORCED. There is no path by which a model can ask for a row to
+ * appear on this card, which matters more here than for a chip: this is a
+ * consent dialog, and a fabricated row is a fabricated authorisation.
+ *
+ * ── AND NO CHIP IS EMITTED FOR IT ────────────────────────────────────────────
+ *
+ * A chip says work happened for the reader. This work happened for the DIALOG,
+ * and a chip would put "Log collection changes — would apply 3" in the
+ * transcript beside a change nobody has agreed to yet.
+ *
+ * ── WHEN IT ARRIVES, WHICH IS NOT WHAT THE DESIGN FIRST CLAIMED ──────────────
+ *
+ * The design note said the SDK awaits `onInputAvailable` before it signs. That
+ * is true of `generateText` and FALSE on the path this product runs.
+ * `invokeToolCallbacksFromStream` (`ai/dist/index.js:8228-8271`) calls
+ * `controller.enqueue(chunk)` FIRST and only then awaits the callback, so the
+ * chunk reaches `executeToolsFromStream`, which resolves the approval, signs it
+ * (`8097-8127`) and enqueues `tool-approval-request` CONCURRENTLY with the dry
+ * run still running. An HMAC does not lose a race to a database round trip: the
+ * approval request essentially always reaches the wire first.
+ *
+ * THE REAL INVARIANT, which does hold, is a property of the browser and not of
+ * the SDK:
+ *
+ *   the await blocks the transform from processing the step's later chunks, so
+ *   the stream CANNOT CLOSE until the preview part has been written — and the
+ *   client does not open the dialog until the leg's stream has completed
+ *   (`useDeckeChat.ts` collects approvals during `streamLeg` and asks after it
+ *   returns).
+ *
+ * So: preview-before-close, and card-after-close. That invariant dies silently
+ * the day someone renders an approval card mid-stream, which is a plausible
+ * move in the liveness direction the rest of this pass pushes. The client must
+ * therefore key on `toolCallId` and never on arrival order, and a gate should
+ * assert the preview part precedes the stream's finish part rather than merely
+ * appearing.
+ *
+ * Honest about the cost, too: the dry run does not run "for free while the
+ * model streams" — it STALLS THE TAIL of the stream behind the await, so the
+ * turn completes 100-400 ms later than it otherwise would. That is a fine price
+ * for a populated consent dialog; it is not zero.
+ */
+export type ApprovalPreview = {
+  /** The join key to the approval. `PendingApproval` carries the same id. */
+  toolCallId: string;
+  tool: string;
+  title: string;
+  /**
+   * The first line of the REAL dry run's result.
+   *
+   * The keyed replacement for `previewOf()` in `DeckeChat.tsx`, which scanned
+   * backwards for the last `ok` chip of any tool and therefore showed the wrong
+   * preview on any turn where a read ran after the write was held.
+   */
+  summary: string;
+  /** Did the dry run itself succeed? A failed one still renders the plain dialog. */
+  ok: boolean;
+  /**
+   * May the reader edit this card — strike rows, pick printings, commit part of
+   * it?
+   *
+   * FALSE IS THE SAFE ANSWER and it is taken often: a tool that is not
+   * `log_cards`, a dry run that failed, a row that did not resolve. The card
+   * then renders as today's plain dialog and the ordinary signed path still
+   * works. A broken preview must degrade the UI, never the write.
+   */
+  editable: boolean;
+  rows: ApprovalPreviewRow[];
+  /** Rows the planner refused outright, with no candidates to offer. */
+  skipped: { index: number; reason: string }[];
+};
 
 export interface AiSdkAdapterOptions extends ToolCtxOptions {
   /**
@@ -78,6 +250,28 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
   include?: (def: ToolDefinition) => boolean;
   /** Receives the lifecycle events above. Optional; the chips are a UI concern. */
   onEvent?: (e: ToolEvent) => void;
+  /**
+   * Receives the structured preview of a HELD write, before the reader is asked.
+   *
+   * Optional, and its absence costs nothing: no preview runs at all if nobody
+   * is listening, so a sub-agent's tool set does not pay for a dialog it has no
+   * way to show.
+   */
+  onApprovalPreview?: (p: ApprovalPreview) => void;
+  /**
+   * Did the READER name a printing in their own latest message?
+   *
+   * When false, a row the resolver classified `stated` is re-opened as a
+   * question — because the thing that "stated" it was Deck-E, not them.
+   * Measured: he sets a printing on 100 items out of 100 when none was named,
+   * and a prompt rule telling him not to moved that number not at all. See
+   * `printingSaid.ts`.
+   *
+   * Defaults to FALSE, which is the safe direction: the cost of asking when
+   * they did say is one tap on a picker already on screen; the cost of not
+   * asking when they did not is writing a printing they never chose.
+   */
+  readerNamedPrinting?: boolean;
   /**
    * Collects the card ids these tools return, so `showScreen` can refuse to
    * render an id no tool produced.
@@ -295,6 +489,204 @@ export function safeToolError(err: unknown): string {
   return 'it failed'
 }
 
+/**
+ * May this call be previewed WITHOUT writing anything?
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE GUARD THAT KEEPS THE DIALOG FROM BECOMING THE WRITE
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `forcePreview` only touches tools that HAVE a `dry_run`. Three write tools do
+ * not — `deck_strategy`, `add_battle_log`, `edit_battle_log` — so for those it
+ * returns the input unchanged, and running the handler to populate a consent
+ * dialog would PERFORM THE VERY WRITE the reader has not yet authorised. That
+ * is not a hypothetical: it is one missing line away, and the failure would be
+ * silent, because the dialog would still open and still look like it was asking.
+ *
+ * So the question is not "does this tool have a dry run" — it is the same
+ * question `execute` asks, put to the coerced arguments: after `forcePreview`,
+ * would this still mutate? If yes, there is no preview to run and the reader
+ * gets the plain dialog. The classification and the coercion agree by
+ * construction, exactly as they do in `execute`.
+ */
+export function canPreviewSafely(def: ToolDefinition, input: unknown): boolean {
+  return !wouldMutate(def, forcePreview(def, input));
+}
+
+/** A number off a parsed structured row, or null. Never `NaN`, never a string. */
+function num(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+function str(v: unknown): string {
+  return typeof v === 'string' ? v : '';
+}
+
+function candidatesOf(v: unknown): ApprovalPreviewCandidate[] {
+  if (!Array.isArray(v)) return [];
+  const out: ApprovalPreviewCandidate[] = [];
+  for (const raw of v) {
+    const c = raw as Record<string, unknown>;
+    const variantId = num(c?.variantId);
+    if (variantId === null) continue;
+    out.push({
+      variantId,
+      kindCode: str(c.kindCode),
+      label: str(c.label) || str(c.kindCode),
+      isPrimary: c.isPrimary === true,
+      ownedQty: num(c.ownedQty) ?? 0,
+    });
+  }
+  return out;
+}
+
+const CERTAINTIES = new Set(['stated', 'only-one', 'unstated', 'ambiguous', 'unresolvable']);
+
+/**
+ * Turn `log_cards`' structured echo into the rows the card renders.
+ *
+ * `log_cards` has always returned a `structured` alongside its text
+ * (`ok(text, {items: […]})`), and this adapter has always discarded it, because
+ * only `text` goes to the model. This is what it was for.
+ *
+ * READS `skipped` AS WELL AS THE APPLIED ROWS, which the design's first draft
+ * did not and a reviewer caught (finding m-1): the planner's `planned.push`
+ * happens only for `status: 'ok'`, so an `ambiguous` row — one of the two kinds
+ * that DEFINE the "ask about these" section — is a skip, not a planned row. A
+ * skip that carries candidates is a question; a skip that does not is a row
+ * nothing can be done about.
+ */
+function rowsFromLogCards(structured: unknown): {
+  rows: ApprovalPreviewRow[];
+  skipped: { index: number; reason: string }[];
+  wasDryRun: boolean;
+} {
+  const s = structured as Record<string, unknown> | null | undefined;
+  const items = Array.isArray(s?.items) ? s.items : [];
+  const rows: ApprovalPreviewRow[] = [];
+  const skipped: { index: number; reason: string }[] = [];
+
+  for (const raw of items) {
+    const it = raw as Record<string, unknown>;
+    const index = num(it?.index);
+    if (index === null) continue;
+    const certainty = CERTAINTIES.has(str(it.certainty))
+      ? (str(it.certainty) as ApprovalPreviewRow['certainty'])
+      : 'unresolvable';
+    const candidates = candidatesOf(it.candidates);
+    const cardId = str(it.cardId);
+
+    // A skip with no candidates is not a question — it is a row that cannot be
+    // written under any answer, and it belongs in the "these did not resolve"
+    // line rather than in a picker with nothing to pick.
+    if (it.outcome === 'skipped' && candidates.length === 0) {
+      skipped.push({ index, reason: str(it.reason) || 'could not be resolved' });
+      continue;
+    }
+
+    rows.push({
+      index,
+      cardId,
+      cardName: str(it.cardName) || cardId,
+      setId: typeof it.setId === 'string' ? it.setId : null,
+      number: typeof it.number === 'string' ? it.number : null,
+      certainty,
+      candidates,
+      wouldUseVariantId: num(it.wouldUseVariantId),
+      variantId: num(it.variantId),
+      variantLabel: typeof it.variantLabel === 'string' ? it.variantLabel : null,
+      mode: it.mode === 'quantity' ? 'quantity' : 'delta',
+      value: num(it.value) ?? 0,
+      before: num(it.oldQuantity),
+      after: num(it.newQuantity),
+      clamped: it.clamped === true,
+    });
+  }
+
+  return { rows, skipped, wasDryRun: s?.dryRun === true };
+}
+
+/**
+ * A printing Deck-E chose is a PROPOSAL. A printing the reader named is a
+ * decision. The resolver cannot tell them apart; here, we can.
+ *
+ * `stated` means "an explicit printing came in with the call", and for an MCP
+ * caller that is the person themselves — nothing to ask. Deck-E is a proxy, and
+ * measured he fills that field on 100 items out of 100 when nobody named one.
+ * So the row arrives `stated`, the picker never renders, and the reader is never
+ * told there was a choice. That is the reported defect, and this is where it is
+ * closed — in Deck-E's own adapter, leaving the shared tool correct for callers
+ * who really did state it.
+ *
+ * Re-opening needs candidates to pick from, which is why `resolve.ts` now
+ * carries them on `stated` too. A row that somehow arrives without them is left
+ * exactly as it was: an empty picker is worse than no picker, and `editable`
+ * would refuse the card anyway.
+ *
+ * `only-one` is NEVER re-opened. There is genuinely nothing to choose, and
+ * turning a fact into a question is how a dialog starts feeling like paperwork.
+ */
+/** Exported for `proxyStated.test.ts`; not part of the adapter's surface. */
+export function reopenIfProxyStated(
+  row: ApprovalPreviewRow,
+  readerNamedPrinting: boolean,
+): ApprovalPreviewRow {
+  if (readerNamedPrinting) return row;
+  if (row.certainty !== 'stated') return row;
+  if (row.candidates.length < 2) return row;
+  return {
+    ...row,
+    certainty: 'unstated',
+    // The printing he proposed becomes the pre-selection, not the answer.
+    wouldUseVariantId: row.wouldUseVariantId ?? row.variantId,
+  };
+}
+
+/**
+ * The whole preview, assembled — including the decision about whether the
+ * reader may edit it.
+ *
+ * `editable` fails CLOSED, in five separate ways, and every one of them lands
+ * the reader on the plain dialog with the ordinary signed approval path intact.
+ * A card that cannot be trusted to rebuild the batch must not offer to.
+ */
+function buildApprovalPreview(
+  def: ToolDefinition,
+  toolCallId: string,
+  result: ToolResult,
+  readerNamedPrinting: boolean,
+): ApprovalPreview {
+  const base = {
+    toolCallId,
+    tool: def.name,
+    title: def.title,
+    summary: summarise(result),
+    ok: !result.isError,
+  };
+  if (def.name !== 'log_cards' || result.isError) {
+    return { ...base, editable: false, rows: [], skipped: [] };
+  }
+  const { rows: rawRows, skipped, wasDryRun } = rowsFromLogCards(result.structured);
+  const rows = rawRows.map((r) => reopenIfProxyStated(r, readerNamedPrinting));
+  const editable =
+    // The handler must have agreed with us that this was a preview. If it says
+    // otherwise, something wrote, and the card is the least of the problems.
+    wasDryRun &&
+    rows.length > 0 &&
+    // A row that did not resolve has no operation to rebuild, so the client
+    // cannot construct a batch it is confident in. Plain dialog.
+    rows.every((r) => r.certainty !== 'unresolvable') &&
+    // Every non-asking row must already name its printing; every asking row
+    // must have something to pick from. Either failing means the rows and the
+    // classification disagree, which is a bug, not a UI state.
+    rows.every((r) =>
+      r.certainty === 'unstated' || r.certainty === 'ambiguous'
+        ? r.candidates.length > 0
+        : r.variantId !== null,
+    );
+  return { ...base, editable, rows, skipped };
+}
+
 /** One-line summary of what a tool actually returned, for its chip. */
 function summarise(result: ToolResult): string {
   const first = result.text.split('\n', 1)[0] ?? '';
@@ -335,6 +727,55 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
         opts.approvals === 'upstream'
           ? false
           : (input: unknown) => requiresApproval(def, input),
+      /**
+       * RUN THE DRY RUN FOR THE DIALOG, HERE, BEFORE ANYONE IS ASKED.
+       *
+       * The reader has to be told what a write would do in order to consent to
+       * it, and the previous answer to that — hope he narrates it — produced a
+       * measured turn in which he said NOTHING AT ALL and the dialog read "Let
+       * him log cards?" with no numbers under it. A consent dialog whose
+       * content depends on a model remembering to speak is a consent dialog
+       * that will sometimes be blank.
+       *
+       * The other rejected answer was to tell him to preview first. That
+       * sentence was deleted on 2026-08-22 because it stopped him calling the
+       * write tool at all (0/15 → 21/30 once removed), and a test asserts its
+       * absence. So this runs the preview WITHOUT the model: deterministically,
+       * for every held write, with no prompt change and no extra leg.
+       *
+       * Four guards, in order, and none of them is decoration:
+       *   • nobody listening        → do no work at all.
+       *   • `upstream` approvals    → nothing is held here, so nothing is asked.
+       *   • not held               → a preview is not held, and previewing a
+       *                              preview would be a second identical query.
+       *   • cannot preview safely   → `canPreviewSafely`, which is the guard
+       *                              that stops this from performing the write
+       *                              it exists to describe.
+       *
+       * And the whole thing is wrapped: a preview that throws must NEVER take
+       * the held call down with it. The card falls back to the plain dialog and
+       * the write is still approvable.
+       */
+      onInputAvailable: async ({ input, toolCallId }) => {
+        const emit = opts.onApprovalPreview;
+        if (!emit) return;
+        if (opts.approvals === 'upstream') return;
+        if (!requiresApproval(def, input)) return;
+        if (!canPreviewSafely(def, input)) return;
+        try {
+          // `forcePreview` again, not a cached value: the coercion and the
+          // guard must read the same expression, or a future edit can make them
+          // disagree about which arguments were checked.
+          const result = await withToolCtx(opts, (ctx: Ctx) =>
+            def.handler(forcePreview(def, input), ctx),
+          );
+          emit(buildApprovalPreview(def, toolCallId, result, opts.readerNamedPrinting === true));
+        } catch {
+          // Deliberately silent, and deliberately not an `onEvent`. A chip for
+          // a failed dialog-preview would tell the reader a tool failed when
+          // the tool they asked about has not run yet.
+        }
+      },
       execute: async (args: unknown, { toolCallId }) => {
         const chip = { id: toolCallId, name: def.name, title: def.title };
         opts.onEvent?.({ phase: 'start', ...chip });

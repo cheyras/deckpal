@@ -34,6 +34,226 @@ const SIDE_MARGIN = 0.9
  *  again once he is wired into the real product chrome. */
 const HOME_INSET = { x: 0.17, y: 0.22 } as const
 
+/**
+ * HIS DRAWN SILHOUETTE, as a multiple of what `BODY_H` spans on screen.
+ *
+ * MEASURED, not derived. `characterHeightPx` is what the deck box spans, and he
+ * is not only a deck box: the bolts sit outside it and the 3/4 view turns his
+ * 1.15-deep body so that some of its DEPTH counts toward his width. Taken off a
+ * composite at 390x844 with `characterPx` at 107 by thresholding the corner
+ * strip where nothing but him is drawn: 103 x 136, i.e. 1.28 as tall as the
+ * deck box and 0.76 as wide as he is tall.
+ *
+ * `DeckeChat.tsx` carries the same two numbers, and the duplication is forced
+ * rather than sloppy: the host ships in the main bundle and this module is
+ * inside the lazily-imported engine chunk (`host/runtime.ts` — "nothing here is
+ * imported statically"), so a shared constant would pull three.js into every
+ * page load. If one moves, move both.
+ */
+export const SILHOUETTE = 1.28
+
+/**
+ * HOW FAR UP HIS BODY THE TARGET'S BOTTOM EDGE LANDS, as a fraction of his
+ * drawn height. See `anchor: 'optical'`.
+ *
+ * ── THIS NUMBER IS AN OPTICAL JUDGEMENT, NOT A GEOMETRIC ONE ────────────────
+ *
+ * Do not "correct" it to 0 because his base and the target's baseline then line
+ * up exactly. They already did, and that was the defect:
+ *
+ *   "When I have seen him a lot of times it's like strictly aligned with his
+ *    very bottom corner, which makes him look like he's kind of above the
+ *    thing. Optically it's like he's kind of above it. So really the baseline
+ *    of this should be aligned with like this corner... that should be where
+ *    the bottom edge of this lines up. And then optically he'll look like he's
+ *    alongside the chat box."
+ *
+ * WHY A SHAPE WITH A WIDE BASE HAS TO OVERLAP ITS NEIGHBOUR'S BASELINE. He is
+ * drawn in three-quarter view, so the bottom of his silhouette is not a line —
+ * it is the near corner of a box whose bottom FACE is visible as a wedge.
+ * Measured off his own canvas at 1440x900, over a 214 px silhouette: his
+ * outline holds its full width down to y = 826 and then tapers to a single
+ * point at y = 880. Those last 54 px are floor, not body. Aligning a baseline
+ * to the point of that wedge is the same mistake as aligning a round letter to
+ * a flat one's baseline — it reads as sitting ON TOP of the thing rather than
+ * standing next to it.
+ *
+ * WHERE 0.09 CAME FROM, AND WHY IT IS NOT 0.25. 0.25 is where the wedge starts
+ * and is what the note above is pointing at. It does not fit: the composer card
+ * carries `max(20px, env(safe-area-inset-bottom))` of padding under it and
+ * nothing else, so in a conversation there are exactly 20 px between its bottom
+ * edge and the bottom of his canvas — and his idle float already swings his
+ * base through 6 px of that (measured, 60 samples). 0.09 x 214 = 19 px puts his
+ * nominal base on the canvas floor with the float inside it. Anything larger
+ * re-opens the complaint this replaced — "too low, and going off the bottom
+ * edge of the browser. Cut off." Photographed at 0, 12, 20, 28, 36 and 48 px
+ * before choosing: 28 and up are visibly flat-cut at the window edge.
+ *
+ * So the ceiling here is the composer's own bottom padding. Raising this number
+ * needs the composer lifted first, which is a `DeckeChat` change.
+ */
+export const OPTICAL_OVERLAP = 0.09
+
+/**
+ * THE KEEP-OUT REGION: bands of the viewport he may not stand in.
+ *
+ * WHY THIS EXISTS. His canvas is deliberately at `z-30`, above the app's own
+ * chrome at `--z-chrome: 20`, because "he has to be able to park beside and
+ * point at a nav item". That is right and stays. What follows from it is that
+ * nothing but this stops him painting straight over the app header — the header
+ * the chat's scrim now deliberately leaves sharp — or over the PWA "Install"
+ * pill in the bottom corner. The top band is also what keeps the top of his head
+ * out of the strip the viewport clips, which is the same missing clamp seen from
+ * the other side. One mechanism, four symptoms.
+ *
+ * IT IS A CLAMP, NOT A VETO. He is pushed to the nearest legal spot rather than
+ * refused the park, because refusing would break the very thing his z-index is
+ * for: asked to present a nav item in the header, he stands just BELOW the
+ * header, in the item's column, turned back across it. "Beside" gains a vertical
+ * component exactly when the horizontal one is forbidden. He still presents it;
+ * he no longer covers it.
+ *
+ * THE HOST SETS IT, THE ENGINE APPLIES IT — the same division `reduced` already
+ * uses ("the host owns the media query; the engine owns the behaviour"). These
+ * bands are the app's own furniture, published by `AppShell` as `--app-header-h`
+ * and `--app-sidebar-w` and composed with `env(safe-area-inset-*)`. Resolving
+ * that here would mean a `getComputedStyle` on every solve, and a solve runs on
+ * every scrolled frame — which is precisely the forced layout `viewport.ts` and
+ * `documentHeight`'s TTL exist to keep off this path. So the host measures, once
+ * per layout change, and hands numbers in.
+ *
+ * A MODULE SINGLETON, for the reason `viewport.ts` gives at length: one canvas
+ * and one controller per document, and threading a region through
+ * `parkBeside`, `parkOn`, `homeCorner` and `solvePark` for a value identical to
+ * all of them buys nothing.
+ */
+export type KeepOut = {
+  /** Below the app header and the notch. */
+  top: number
+  /** Right edge inset. */
+  right: number
+  /** Above the composer card, the home indicator and the PWA pills. */
+  bottom: number
+  /** Left edge inset — the sidebar, if it is ever wanted. See `setKeepOut`. */
+  left: number
+}
+
+const region: KeepOut = { top: 0, right: 0, bottom: 0, left: 0 }
+
+/**
+ * Set the bands, in CSS pixels. `null` clears them.
+ *
+ * Returns whether anything actually changed, so the caller can skip a re-park
+ * for the ~99% of `ResizeObserver` fires that report the same layout back.
+ *
+ * ON THE HORIZONTAL BANDS, which are implemented and expected to stay zero.
+ * The region is a rectangle because a region with only two of its four sides is
+ * a shape nobody can predict from its name. But the sidebar should NOT be fed
+ * into `left`: it is 275 px open and 82 px collapsed, a quarter of a 1068 px
+ * window against the header's 7% of a phone, and it is *where the nav items
+ * are* — a band that size would stand him a long way from the thing he was
+ * asked to present. `parkBeside`'s edge exception already flips him to the
+ * inboard side of anything against an edge, so a sidebar item already puts him
+ * just right of the sidebar. A band would only push him further.
+ */
+export function setKeepOut(next: Partial<KeepOut> | null): boolean {
+  const top = Math.max(0, next?.top ?? 0)
+  const right = Math.max(0, next?.right ?? 0)
+  const bottom = Math.max(0, next?.bottom ?? 0)
+  const left = Math.max(0, next?.left ?? 0)
+  if (
+    top === region.top &&
+    right === region.right &&
+    bottom === region.bottom &&
+    left === region.left
+  ) {
+    return false
+  }
+  region.top = top
+  region.right = right
+  region.bottom = bottom
+  region.left = left
+  return true
+}
+
+/** The live region. Read-only to everyone outside this module. */
+export function keepOut(): Readonly<KeepOut> {
+  return region
+}
+
+/**
+ * The legal span for his CENTRE between two bands, given half his drawn extent.
+ *
+ * Half his extent is added to the band rather than compared against it because
+ * what must stay out of the band is his SILHOUETTE, not the point he is solved
+ * to — the same thing the horizontal clamp has always meant by `margin`.
+ *
+ * A BAND OF ZERO IS NO BAND, AND DOES NOT BITE. That is the difference between
+ * "clamp him into the region" and "clamp him into the viewport", and it is not a
+ * detail: `beacon.ts` exists entirely because he CAN leave the viewport
+ * vertically while riding a scrolling element — "he can only leave vertically:
+ * `parkBeside` keeps him inside the viewport horizontally". A bare
+ * viewport-edge clamp on this axis would make `edge: 'top' | 'bottom'`
+ * unreachable and quietly delete that feature for every caller, including the
+ * ones that never declare a region at all (`/dev/decke`). So an undeclared band
+ * reproduces today's answer to the bit, and only chrome the host has actually
+ * named holds him.
+ */
+function bandSpan(lo: number, hi: number, extent: number, half: number): { lo: number; hi: number } {
+  return {
+    lo: lo > 0 ? lo + half : -Infinity,
+    hi: hi > 0 ? extent - hi - half : Infinity,
+  }
+}
+
+/**
+ * Push a value into a span.
+ *
+ * WHEN THE SPAN IS EMPTY HE IS CENTRED IN IT, not pinned to one edge. A region
+ * taller than the space it leaves means he overlaps something whatever we do —
+ * a phone in landscape with the chat open is the realistic case — and splitting
+ * the overlap between the two bands is the only answer that does not silently
+ * pick a favourite.
+ */
+function into(v: number, s: { lo: number; hi: number }): number {
+  return s.lo > s.hi ? (s.lo + s.hi) / 2 : Math.min(s.hi, Math.max(s.lo, v))
+}
+
+/**
+ * How big he is on screen at a given depth, in CSS pixels.
+ *
+ * `bodyW` is the deck box, which is what the side gap and the long-standing
+ * horizontal margin are sized from; `drawnH` is the SILHOUETTE, which is what a
+ * clearance has to be measured against.
+ */
+function bodySpan(camera: PerspectiveCamera, distance: number) {
+  const vFov = (camera.fov * Math.PI) / 180
+  const worldPerPx = (2 * Math.tan(vFov / 2) * distance) / viewHeight()
+  return {
+    bodyW: BODY_W / worldPerPx,
+    drawnH: (BODY_H / worldPerPx) * SILHOUETTE,
+  }
+}
+
+/**
+ * Clamp a viewport Y — his CENTRE, which is what every solve here places —
+ * into the vertical keep-out region.
+ *
+ * `shift` IS THE ONE THING THAT MAKES THIS SAFE WHILE HE IS PINNED, and leaving
+ * it out would have been a silent, scroll-dependent error. Pinned, the canvas is
+ * slid off the viewport by `shift` and the rect handed to the solve is in CANVAS
+ * coordinates, with a compensating frustum offset — `pageAnchor.test.ts` pins
+ * that the pinned and tracked solves agree exactly for any shift. A clamp is not
+ * linear, so it cannot cancel the way the unprojection does: it has to be
+ * evaluated in the space the bands are actually expressed in. Viewport Y is
+ * canvas Y plus the shift, so we convert, clamp, and convert back.
+ */
+function clampY(y: number, halfDrawn: number, shift: number, clamp = true): number {
+  if (!clamp) return y
+  const s = bandSpan(region.top, region.bottom, viewHeight(), halfDrawn)
+  return into(y + shift, s) - shift
+}
+
 export function resolveRect(target: FlyTarget): DOMRect | null {
   if ('selector' in target) {
     const el = document.querySelector(target.selector)
@@ -146,16 +366,23 @@ export type RectLike = Pick<DOMRect, 'left' | 'top' | 'right' | 'width' | 'heigh
 export function parkBeside(
   camera: PerspectiveCamera,
   rect: RectLike,
-  opts: { depth: Depth; side: Side; baseDistance: number },
+  opts: {
+    depth: Depth
+    side: Side
+    baseDistance: number
+    shift?: number
+    clamp?: boolean
+    /** See `solvePark`. `bottom` puts his base on the target's bottom edge;
+     *  `optical` sinks him past it by `OPTICAL_OVERLAP` of his drawn height. */
+    anchor?: 'centre' | 'bottom' | 'optical'
+  },
 ): ParkResult {
   const distance =
     opts.depth === 'background' ? opts.baseDistance / BACKGROUND_SCALE : opts.baseDistance
 
   // How wide is he, in CSS pixels, at this depth? Needed so the margin is a real
   // gap rather than a guess that collapses at the background plane.
-  const vFov = (camera.fov * Math.PI) / 180
-  const worldPerPx = (2 * Math.tan(vFov / 2) * distance) / viewHeight()
-  const bodyPx = BODY_W / worldPerPx
+  const { bodyW: bodyPx, drawnH } = bodySpan(camera, distance)
 
   // WHICH SIDE HE STANDS ON IS DECIDED BY THE ELEMENT'S HALF OF THE SCREEN,
   // NOT BY WHERE THERE HAPPENS TO BE ROOM.
@@ -177,21 +404,79 @@ export function parkBeside(
     opts.side !== 'auto' ? opts.side : centre >= viewWidth() / 2 ? 'right' : 'left'
 
   const gap = bodyPx * SIDE_MARGIN
+  // Half his width, near enough: 0.6 of the deck box is 0.44 of his height,
+  // against a measured silhouette half-width of 0.49. Left exactly as it was,
+  // so a zero keep-out region reproduces every previous answer to the bit.
   const margin = bodyPx * 0.6
+  // THE HORIZONTAL KEEP-OUT IS THE SAME RULE WITH A WIDER INSET, deliberately,
+  // rather than a second clamp layered on top. A second one would fight the edge
+  // exception immediately below: the flip exists to rescue a park that would
+  // land in the forbidden strip, so it has to be tested against the strip that
+  // is ACTUALLY forbidden. Widen the inset and the test and the clamp both
+  // follow for free, and there is no second rule to keep in step with the first.
+  //
+  // On this axis the bare viewport edge bites even with no band, because it
+  // always has — this is the clamp that was already here, with the bands added
+  // to it. A band is never negative, so "the edge, or the band, whichever is
+  // further in" is just the band added to the margin.
+  const across = { lo: region.left + margin, hi: viewWidth() - region.right - margin }
   // THE EDGE EXCEPTION, and it is the only one: "if he's flying to something
   // that is right on the edge — like the nav over here on a standard page —
   // obviously if he goes to the left of that, he's off the screen. So that
   // would be the only exception; I would have him go to the right of it and
   // look that way." Outboard is a preference; being on screen is not.
   const outboard = side === 'right' ? rect.right + gap : rect.left - gap
-  if (outboard < margin || outboard > viewWidth() - margin) {
+  if (outboard < across.lo || outboard > across.hi) {
     side = side === 'right' ? 'left' : 'right'
   }
 
   let x = side === 'right' ? rect.right + gap : rect.left - gap
-  // Never let him leave the viewport, however cramped the layout is.
-  x = Math.max(margin, Math.min(viewWidth() - margin, x))
-  const y = rect.top + rect.height / 2
+  // Never let him leave the viewport — or the keep-out region — however cramped
+  // the layout is.
+  x = into(x, across)
+  // THE VERTICAL CLAMP D6 IS THE OTHER SIDE OF. There has never been one: a
+  // target near the top of the page put the top of his head above the top of the
+  // screen and it was simply cut off. It is a clamp and not a flip because
+  // vertically there is only one way back in, and because standing below a
+  // header while facing across it is a perfectly good way to present it.
+  // ── WHERE HE STANDS ON THE VERTICAL, AND WHY IT IS A CHOICE ─────────────
+  //
+  // Centring him on the target is right for something tall — a sidebar row, a
+  // card — where his middle lines up with its middle and he reads as beside it.
+  //
+  // It is WRONG for the composer, and visibly so. That card is 58px tall and he
+  // is ~216px drawn, so centring puts ~79px of him below its bottom edge. With
+  // the composer where it actually lives in a conversation — hard against the
+  // bottom of the window — that is 79px past the edge, and `clampY` then rescues
+  // him by shoving him up until his base is flush with the window bottom.
+  // Reported from use as "he's vertically centered with it which means that he's
+  // too low, and going off the bottom edge of the browser. Cut off."
+  //
+  // `anchor: 'bottom'` puts his BASE on the target's bottom edge instead, so he
+  // stands on the composer's floor with his head well above it — which is what
+  // "standing beside the input" looks like when the input is a short wide box.
+  //
+  // AND THAT WENT TOO FAR THE OTHER WAY. Looked at on screen, a base flush with
+  // the card's baseline reads as him standing ON the card, not next to it —
+  // "strictly aligned with his very bottom corner, which makes him look like
+  // he's kind of above the thing." `anchor: 'optical'` is the same solve sunk
+  // by `OPTICAL_OVERLAP` of his drawn height, so the card's bottom edge crosses
+  // his body instead of grazing its lowest point. The long version, including
+  // why the number is what it is and why it must not be "corrected" to zero, is
+  // on `OPTICAL_OVERLAP` itself.
+  //
+  // Written as one expression over three cases rather than two nested ternaries
+  // for the reason this file's header exists: `anchor` is threaded through
+  // `FlyOptions`, the `Station` AND the re-solve, and a case that reads as an
+  // afterthought here is a case someone drops from one of the other three.
+  const base =
+    opts.anchor === 'optical'
+      ? rect.top + rect.height + drawnH * OPTICAL_OVERLAP
+      : rect.top + rect.height
+  const cy = opts.anchor === undefined || opts.anchor === 'centre'
+    ? rect.top + rect.height / 2
+    : base - drawnH / 2
+  const y = clampY(cy, drawnH / 2, opts.shift ?? 0, opts.clamp ?? true)
 
   const position = viewportToBlender(camera, x, y, distance)
   // His ROOT is at his base, not his centre — the rig origin sits at his feet
@@ -221,15 +506,6 @@ export function parkBeside(
 }
 
 /**
- * The parking spot `returnHome` flies to, in the BLENDER frame.
- *
- * Bottom-right of the VIEWPORT rather than the origin of the world. The origin
- * is where he is STAGED for review — it is what the Blender camera frames and
- * where every parity still is taken — but it is the worst place to leave an
- * assistant on a page, because it is on top of the content. Deriving it from the
- * viewport also means it survives a resize, which a world coordinate cannot.
- */
-/**
  * Stand ON a viewport point, rather than beside it.
  *
  * `parkBeside` is the right solve for presenting: it puts him OUTBOARD of an
@@ -241,16 +517,39 @@ export function parkBeside(
  * the point onto the depth plane, then drop by half a body so his ROOT sits
  * below the point and his centre lands on it. His facing is left to the caller,
  * because a point has no inward.
+ *
+ * THE KEEP-OUT REGION APPLIES HERE TOO, and the case that makes that worth
+ * saying is the phone chat's park box, which deliberately overlaps the composer
+ * — "about half of him overlaps it. That overlap is the point." Exempting a
+ * named point would have been the easy way to protect it, and it would have been
+ * the wrong one: the exemption belongs to the MOMENT, not to the call. The host
+ * already re-measures the region on every layout change and already knows
+ * whether the chat is open, so the composer band is simply absent while the
+ * composer is his own furniture. A per-call flag would have to be threaded
+ * through `flyTo`, the `Station` and the re-solve, and the last time an intent
+ * was carried by the launch and not by the station it took a shipped bug and
+ * `solvePark` to fix. See the note on that function.
  */
 export function parkOn(
   camera: PerspectiveCamera,
   x: number,
   y: number,
-  opts: { depth: Depth; baseDistance: number },
+  opts: { depth: Depth; baseDistance: number; shift?: number; clamp?: boolean },
 ): Vector3 {
   const distance =
     opts.depth === 'background' ? opts.baseDistance / BACKGROUND_SCALE : opts.baseDistance
-  const p = viewportToBlender(camera, x, y, distance)
+  const { bodyW, drawnH } = bodySpan(camera, distance)
+  // `bodyW * 0.6` for the half-width, which is `parkBeside`'s long-standing
+  // `margin` and not the measured silhouette half-width (0.44 of his height
+  // against 0.49). One rule for both solves beats a marginally better number in
+  // one of them, and changing `parkBeside`'s would move every park that has ever
+  // shipped for a reason that has nothing to do with the keep-out region.
+  const p = viewportToBlender(
+    camera,
+    (opts.clamp ?? true) ? into(x, bandSpan(region.left, region.right, viewWidth(), bodyW * 0.6)) : x,
+    clampY(y, drawnH / 2, opts.shift ?? 0, opts.clamp ?? true),
+    distance,
+  )
   p.z -= BODY_H / 2
   return p
 }
@@ -279,28 +578,84 @@ export function parkOn(
 export function solvePark(
   camera: PerspectiveCamera,
   rect: RectLike,
-  opts: { depth: Depth; side: Side; baseDistance: number; centre?: boolean },
+  opts: {
+    depth: Depth
+    side: Side
+    baseDistance: number
+    centre?: boolean
+    /**
+     * Which part of HIM lines up with the target on the vertical.
+     *
+     * `centre` (default) matches his middle to the target's middle. `bottom`
+     * puts his base on the target's bottom edge — for a target much shorter
+     * than he is, where centring hangs most of him below it. `optical` is
+     * `bottom` sunk by `OPTICAL_OVERLAP` of his drawn height, so the target's
+     * baseline crosses his body rather than grazing the point of the wedge his
+     * three-quarter view makes of his floor.
+     *
+     * ALL THREE HAVE TO SURVIVE THE RE-SOLVE. That is what this parameter is
+     * for and it is the bug this function's header is about — a vertical
+     * intent honoured on launch and forgotten a moment later is worse than one
+     * that was never honoured, because it looks like the flight aimed wrong.
+     */
+    anchor?: 'centre' | 'bottom' | 'optical'
+    /**
+     * Where the canvas's top edge sits in the viewport, when `rect` is in CANVAS
+     * coordinates rather than viewport ones — which is to say, while he is
+     * pinned. 0 or absent otherwise. See `clampY`.
+     */
+    shift?: number
+    /**
+     * Hold him inside the keep-out region.
+     *
+     * TRUE FOR A PLACEMENT, FALSE WHILE TRACKING A SCROLL, and the distinction
+     * is what keeps the off-screen beacon alive. The beacon exists entirely
+     * because he can leave the viewport vertically while riding a scrolling
+     * element — `beacon.ts` says so in as many words. A clamp applied on the
+     * per-frame scroll re-solve would hold him at the band for ever, so he
+     * could never leave, so `edge: 'top' | 'bottom'` would become unreachable
+     * and the chip that brings him back would be dead code nobody had deleted.
+     *
+     * A clamp belongs where he is BEING PUT somewhere: a flight, a re-park
+     * after a resize, a keep-out change. It does not belong where he is
+     * FOLLOWING something the reader is scrolling away.
+     */
+    clamp?: boolean
+  },
 ): { position: Vector3; facing?: number } {
   if (opts.centre) {
     return {
       position: parkOn(camera, rect.left + rect.width / 2, rect.top + rect.height / 2, {
         depth: opts.depth,
         baseDistance: opts.baseDistance,
+        shift: opts.shift,
       }),
     }
   }
   return parkBeside(camera, rect, opts)
 }
 
+/**
+ * The parking spot `returnHome` flies to, in the BLENDER frame.
+ *
+ * Bottom-right of the VIEWPORT rather than the origin of the world. The origin
+ * is where he is STAGED for review — it is what the Blender camera frames and
+ * where every parity still is taken — but it is the worst place to leave an
+ * assistant on a page, because it is on top of the content. Deriving it from the
+ * viewport also means it survives a resize, which a world coordinate cannot.
+ *
+ * (This doc comment had drifted one function up the file, above `parkOn`, when
+ * `parkOn` was inserted between the two. It belongs here, and `homeCorner` now
+ * calls `parkOn` rather than restating it — which `parkOn`'s own header already
+ * claimed it was a generalisation of.)
+ */
 export function homeCorner(camera: PerspectiveCamera, baseDistance: number): Vector3 {
-  const p = viewportToBlender(
-    camera,
-    viewWidth() * (1 - HOME_INSET.x),
-    viewHeight() * (1 - HOME_INSET.y),
+  // Home is VIEWPORT-relative and is never pinned (`canPin` refuses a station
+  // that is not a selector), so there is no canvas shift to correct for.
+  return parkOn(camera, viewWidth() * (1 - HOME_INSET.x), viewHeight() * (1 - HOME_INSET.y), {
+    depth: 'foreground',
     baseDistance,
-  )
-  p.z -= BODY_H / 2
-  return p
+  })
 }
 
 /**

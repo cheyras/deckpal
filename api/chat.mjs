@@ -44,6 +44,16 @@ import {
   stepCountIs,
   toUIMessageStream,
 } from 'ai'
+
+/**
+ * How many SERVER steps one turn may take.
+ *
+ * Named rather than inlined because two places have to agree: the `stopWhen`
+ * that enforces it, and the check after the stream that notices a turn spent
+ * all of them without ever answering. Two copies of 12 is two copies that can
+ * drift, and the drift would be silent — the check would simply stop firing.
+ */
+const MAX_STEPS = 12
 import { createGateway } from '@ai-sdk/gateway'
 
 // Everything imported here comes from `apps/api/dist` — COMPILED output, not
@@ -58,8 +68,20 @@ import { buildTools } from '../apps/api/dist/decke/tools.js'
 import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
 import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
+import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
+import {
+  BALANCE_SQL,
+  COST,
+  SPEND_LOG_SQL,
+  SPEND_SQL,
+  LOW_BALANCE,
+  creditVerdictFrom,
+  creditsEnabled,
+  deepCost,
+  outOfCreditsText,
+} from '../apps/api/dist/decke/credits.js'
 import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
-import { apiBaseFor } from '../apps/api/dist/decke/ctx.js'
+import { apiBaseFor, selfHopHeadersFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
 import { stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
@@ -172,6 +194,116 @@ const METER_TIMEOUT_MS = Number.parseInt(process.env.DECKE_METER_TIMEOUT_MS ?? '
  * It is logged loudly either way, because "the meter was off for six hours" is
  * something that must be discoverable afterwards.
  */
+/**
+ * A driver error's CODE, allowlisted, never its message.
+ *
+ * ── WHY THE ALLOWLIST AND NOT JUST "log the code" ────────────────────────────
+ *
+ * `charge()` below has done this since CodeQL caught the original: a `pg`
+ * connection failure's `message` is built from the connection parameters, so
+ * "password authentication failed for user …" and DSN fragments end up in it,
+ * and this log line fires exactly when the database is unreachable — which is
+ * exactly when those details are in the error.
+ *
+ * Logging `err.code` instead is nearly right and not enough. `code` is
+ * driver-supplied and CodeQL correctly refuses to treat it as clean, because
+ * nothing guarantees what a library puts there. Testing it against
+ * `^[A-Za-z0-9_]{1,32}$` and falling back to a literal is what actually breaks
+ * the flow: ECONNREFUSED, 28P01 and ETIMEDOUT all pass, and anything shaped like
+ * a sentence does not.
+ *
+ * Extracted here because the credit path added two more log sites that copied
+ * the intent and not the guard, and CodeQL flagged both on the pull request.
+ * One implementation is the only way that stays true.
+ */
+function errCode(err) {
+  const raw = String(err?.code ?? err?.name ?? '')
+  return /^[A-Za-z0-9_]{1,32}$/.test(raw) ? raw : 'unrecognised'
+}
+
+/**
+ * Spend credits, or refuse.
+ *
+ * ── THE SAME DEADLINE AND THE SAME FAIL DIRECTION AS `charge` ────────────────
+ *
+ * Accounting fails OPEN. If the database is unreachable the turn is served
+ * unmetered and the failure is logged loudly, exactly as the meter does — a
+ * bounded overspend during a bounded incident beats a product that stops
+ * working because a counter is unreachable. Access control fails closed, and it
+ * is checked separately, from environment variables that cannot be down.
+ *
+ * ── BALANCE FIRST, LOG SECOND, AND NEVER THE OTHER WAY ───────────────────────
+ *
+ * The UPDATE is the thing that must not be lost. If the audit INSERT fails the
+ * credits are still gone, which is the safe direction: a gap in a statement is
+ * recoverable, free work is not. So the log is written after and its failure is
+ * swallowed with a loud line rather than rolled back.
+ */
+async function spend(userId, credits, reason) {
+  const withDeadline = (promise, what) => {
+    let timer
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`credits: ${what} timed out`)), METER_TIMEOUT_MS)
+    })
+    return Promise.race([promise, deadline]).finally(() => clearTimeout(timer))
+  }
+
+  let client
+  try {
+    client = await withDeadline(chatPool().connect(), 'pool connect')
+    const res = await withDeadline(client.query(SPEND_SQL, [userId, credits]), 'spend')
+    let left = 0
+    if (res.rows.length === 0) {
+      // Refused. Read what they DO have so the refusal can say a number —
+      // "you have 12 and this costs 75" is answerable, "no" is not.
+      const b = await withDeadline(client.query(BALANCE_SQL, [userId]), 'balance').catch(() => null)
+      left = Number(b?.rows?.[0]?.balance ?? 0)
+    } else {
+      // AWAITED, and it was not — which meant it never ran.
+      //
+      // This was `client.query(...).catch(...)` with no `await`, on a pooled
+      // client that the `finally` below releases the moment this function
+      // returns. The insert was issued against a connection going back into the
+      // pool and never landed: the balance moved on every turn and the ledger
+      // recorded nothing but the original grants. Caught by reading the table
+      // after a real spend rather than by trusting the code.
+      //
+      // Awaiting it does NOT change the failure direction, which is the thing
+      // that made fire-and-forget look reasonable. The balance has already
+      // moved; if this insert fails the credits are still gone, and that is
+      // correct — a gap in a statement is recoverable, free work is not. It is
+      // caught and logged, never rethrown, so a broken audit table cannot take
+      // down a turn.
+      await client.query(SPEND_LOG_SQL, [userId, credits, reason]).catch((e) => {
+        console.error('[decke] credit log failed (balance already moved). Cause code:', errCode(e))
+      })
+    }
+    return creditVerdictFrom(res.rows, credits, left)
+  } catch (err) {
+    console.error('[decke] credits unavailable — serving unmetered. Cause code:', errCode(err))
+    return { allowed: true, balance: Number.NaN, spent: credits }
+  } finally {
+    client?.release()
+  }
+}
+
+/**
+ * ONE ENTRY POINT, so both call sites switch together.
+ *
+ * The failure this shape prevents is the obvious one: metering the chat turn
+ * against credits and the deep tier against the old daily counter, because two
+ * call sites were changed on different days. `DECKE_CREDITS_ENABLED` is read
+ * here and nowhere else.
+ *
+ * The returned verdict is a superset of both shapes — `cap` for the meter's
+ * refusal sentence, `balance` for the credits one — so nothing downstream has
+ * to know which system answered.
+ */
+async function meterTurn(userId, { tier, credits, reason }) {
+  if (!creditsEnabled()) return { ...(await charge(userId, tier)), credits: false }
+  return { ...(await spend(userId, credits, reason)), credits: true }
+}
+
 async function charge(userId, tier) {
   const cap = capFor(tier)
   if (cap <= 0) return { allowed: false, used: 0, cap }
@@ -231,8 +363,7 @@ async function charge(userId, tier) {
     // safe" into "nothing else can get out of here", which is the version worth
     // having — and it keeps holding if a future driver decides to put something
     // chattier in `code`.
-    const raw = String(err?.code ?? err?.name ?? '')
-    const code = /^[A-Za-z0-9_]{1,32}$/.test(raw) ? raw : 'unrecognised'
+    const code = errCode(err)
     console.error(
       `[deck-e] METER UNAVAILABLE — serving ${tier} unmetered for this request. ` +
         `Accounting fails open on purpose; entitlement does not. Cause code: ${code}`,
@@ -307,13 +438,26 @@ async function serve(request) {
   // One turn is one BILLED REQUEST, not one thing the reader typed — a journey
   // costs up to four. Migration 039's header explains why that is the honest
   // unit even though it reads stingier than it is.
-  const meter = await charge(user.id, 'chat_turns')
+  const meter = await meterTurn(user.id, {
+    tier: 'chat_turns',
+    credits: COST.chat_turn,
+    reason: 'chat_turn',
+  })
   if (!meter.allowed) {
     // A SPOKEN REFUSAL, not a 500. The browser turns this status into his own
     // words in the transcript, so a budget reads as a budget rather than as a
     // malfunction. 429 and not 403: the account is entitled, it has simply
     // spent today's allowance, and those are different sentences.
-    return json({ error: refusalText('chat_turns', meter.cap), retryAfterDay: true }, 429)
+    // A topped-up balance does NOT come back tomorrow, so the refusal must not
+    // say it does. `retryAfterDay` is what the browser turns into "try me again
+    // tomorrow"; on credits it is false and the balance rides along so the panel
+    // can offer the top-up instead.
+    return meter.credits
+      ? json(
+          { error: outOfCreditsText(), retryAfterDay: false, credits: { balance: meter.balance, needed: meter.needed } },
+          429,
+        )
+      : json({ error: refusalText('chat_turns', meter.cap), retryAfterDay: true }, 429)
   }
 
   // Where this instance is reachable, for the API hop a tool makes. Derived
@@ -354,7 +498,12 @@ async function serve(request) {
   // there is nothing to bypass. It is a deployment-access token, not a user
   // credential: it grants nothing beyond reaching a deployment that is already
   // answering this very request.
-  const bypass = request.headers.get('x-vercel-protection-bypass')
+  //
+  // A PERSON IN A BROWSER SENDS NEITHER OF THOSE. They reach a protected
+  // preview through Vercel SSO, which leaves a `_vercel_jwt` cookie — so this
+  // used to find nothing, forward nothing, and fail every self-hop. See
+  // `selfHopHeadersFor`, which handles both and is tested.
+  const selfHop = selfHopHeadersFor(request.headers)
 
   const toolCtx = {
     pool: chatPool(),
@@ -362,7 +511,7 @@ async function serve(request) {
     jwt: user.token,
     apiBase: apiBaseFor(host),
     signal: abortSignal,
-    ...(bypass ? { selfHopHeaders: { 'x-vercel-protection-bypass': bypass } } : {}),
+    ...(selfHop ? { selfHopHeaders: selfHop } : {}),
   }
 
   /**
@@ -390,6 +539,38 @@ async function serve(request) {
     } catch {
       // A closed stream is the ordinary end of an aborted turn. A chip that
       // cannot be delivered must never take the tool call down with it.
+    }
+  }
+
+  /**
+   * The structured preview of a HELD write, onto the stream, keyed to its call.
+   *
+   * SAME RULE AND SAME WORDS AS THE CHIPS, and it matters more here: this is a
+   * consent dialog, and a row on it the model could ask for would be a
+   * fabricated authorisation. These come from the adapter's `onInputAvailable`,
+   * which runs the real handler with `dry_run` FORCED, so every row corresponds
+   * 1:1 to a real invocation by construction.
+   *
+   * NO CHIP accompanies it. A chip says work happened for the reader; this work
+   * happened for the dialog, and a chip would put "Log collection changes —
+   * would apply 3" in the transcript beside a change nobody has agreed to.
+   *
+   * TRANSIENT, like the chips and the animation commands: it is a question
+   * being asked now, not a fact the transcript should re-bill on every
+   * subsequent turn. The client keys it by `toolCallId` — never by arrival
+   * order, because the SDK signs and enqueues the approval request CONCURRENTLY
+   * with this dry run still running (`ai/dist/index.js:8228-8271` enqueues the
+   * chunk before it awaits the callback). What does hold is that the await
+   * blocks the stream from closing until this is written, and the browser does
+   * not open the card until the leg's stream has closed.
+   */
+  const emitApprovalPreview = (writer) => (preview) => {
+    try {
+      writer.write({ type: 'data-decke-approval-preview', data: preview, transient: true })
+    } catch {
+      // A closed stream is the ordinary end of an aborted turn. A preview that
+      // cannot be delivered must never take the held call down with it — the
+      // card falls back to the plain dialog and the write is still approvable.
     }
   }
 
@@ -425,6 +606,16 @@ async function serve(request) {
           ...toolCtx,
           include: () => true,
           onEvent: emitToolEvent(writer),
+          // ONLY HERE. The deep tier's sub-agents below get no
+          // `onApprovalPreview`, because there is no reader watching a dialog
+          // for them — and with nobody listening the adapter runs no preview at
+          // all, so a sub-agent pays nothing for a card it cannot show.
+          onApprovalPreview: emitApprovalPreview(writer),
+          // Computed from THEIR sentence, not from the tool call and not from
+          // anything Deck-E wrote. He names a printing on essentially every row
+          // whether or not one was asked for, so his word cannot be the witness
+          // to his own guess. See `printingSaid.ts` for the measurement.
+          readerNamedPrinting: readerNamedPrinting(latestUserText(messages)),
           grounding,
         }),
         // THE DEEP TIER. Four sub-agents, each with its own model, step
@@ -441,7 +632,16 @@ async function serve(request) {
         ...buildDeepTools({
           ctx: toolCtx,
           gateway,
-          charge: async () => charge(user.id, 'deep_calls'),
+          // PRICED PER TOOL. A deck plan is measured at ~$0.75 and an analysis
+          // call at ~$0.036 — a 20x spread that a single "one deep call" unit
+          // cannot express, and the reason the old meter needed a separate
+          // counter for the tier at all.
+          charge: async (toolName) =>
+            meterTurn(user.id, {
+              tier: 'deep_calls',
+              credits: deepCost(toolName),
+              reason: `deep:${toolName}`,
+            }),
           onEvent: emitToolEvent(writer),
         }),
       }
@@ -532,7 +732,7 @@ async function serve(request) {
         // server `execute` and therefore ENDS the server turn — raising this
         // number does nothing at all for a journey.
         stopWhen: [
-          stepCountIs(12),
+          stepCountIs(MAX_STEPS),
           ({ steps }) => {
             const last = steps[steps.length - 1]
             if (!last) return false
@@ -659,12 +859,105 @@ async function serve(request) {
       // Gateway protocol problem and is not. Every doc example and both local
       // Vercel skills still show the method form.
       writer.merge(
-        stripToolSyntax(toUIMessageStream({ stream: result.fullStream, sendReasoning: false })),
+        stripToolSyntax(
+          toUIMessageStream({
+            stream: result.fullStream,
+            sendReasoning: false,
+            // ── SAY WHAT WENT WRONG, AND WRITE IT DOWN ───────────────────
+            //
+            // The SDK's default is `() => "An error occurred."`, which is a
+            // sound default for a browser and a terrible one here, because it
+            // is also what a rejected TOOL CALL reports. Caught on a real gate
+            // run against production: `showScreen` failed schema validation
+            // FIVE TIMES in one turn, and the model — told only that something
+            // had gone wrong — spent five of its twelve steps shortening the
+            // panel's TITLE while the actual fault, a text block over the
+            // 280-character cap, went untouched in every retry. The reader saw
+            // no panel, no error and no explanation, and nothing anywhere in
+            // this repo logged it.
+            //
+            // The message is a validation complaint about the model's own
+            // arguments — "expected string to have <=280 characters" — not a
+            // stack trace and not anything about the account, so returning it
+            // is safe. It goes to the reader's browser, where the transcript
+            // now renders it as a failed row rather than as silence.
+            onError: (error) => {
+              const message = error instanceof Error ? error.message : String(error)
+              console.warn('[deck-e] stream/tool error surfaced to the client:', message)
+              return message.slice(0, 300)
+            },
+          }),
+        ),
       )
+
+      // ── A TURN THAT SPENT EVERYTHING AND SAID NOTHING ────────────────────
+      //
+      // Found by gate 23, on a real run: twelve tool calls, ZERO text deltas,
+      // stream closed `finishReason: "tool-calls"` against the step cap above.
+      // The reader waits about half a minute and gets an empty bubble — no
+      // answer, no error, nothing to act on. It is the same defect the deep
+      // tier already handles: `deep.ts` detects exactly this condition and
+      // reports it as incomplete. The conversational path did not.
+      //
+      // THE DISCRIMINATOR IS THE STEP COUNT, and getting it wrong would break
+      // the feature. A turn ending on tool calls with no text is the NORMAL
+      // shape of a navigation handoff: `goTo` and `flyTo` have no server
+      // `execute`, so the SDK finishes the step and the browser runs them —
+      // and a following leg carries the words. Speaking here would talk over
+      // him mid-journey. Only a turn that reached the CAP has genuinely run
+      // out of room, which is why this reads `steps.length` and not
+      // `finishReason` alone.
+      //
+      // It is written as a text delta rather than an error part on purpose:
+      // this is something to say to the reader, and it belongs in his voice in
+      // the transcript rather than in a failure surface. What it must never do
+      // is claim an answer it does not have.
+      try {
+        const steps = await result.steps
+        const spoke = steps.some((s) => (s.text ?? '').trim().length > 0)
+        if (!spoke && steps.length >= MAX_STEPS) {
+          console.warn(
+            `[deck-e] turn exhausted its ${MAX_STEPS}-step budget without answering; ` +
+              'the reader was told rather than left with an empty bubble.',
+          )
+          writer.write({
+            type: 'text-delta',
+            id: 'step-budget-exhausted',
+            delta:
+              'I went round in circles on that one and ran out of room before I could ' +
+              'answer — I never got to the reply. Ask me again, or narrow it down a bit?',
+          })
+        }
+      } catch {
+        // A turn that failed hard has its own error path. This is only here to
+        // catch the SILENT case, and it must not manufacture a second failure.
+      }
     },
   })
 
-  return createUIMessageStreamResponse({ stream })
+  // ── THE BALANCE RIDES ON A HEADER ────────────────────────────────────────
+  //
+  // A header rather than a stream part, and the reason is that the browser must
+  // be able to read it on a turn that produced NOTHING — an aborted stream, a
+  // turn the reader stopped. A part only exists if the stream got far enough to
+  // emit one, which is exactly the turn where "how much is left" is least
+  // certain and most worth knowing.
+  //
+  // `-1` for "not applicable": credits are off, or the meter failed open and
+  // the number is not real. The client renders nothing for it rather than
+  // guessing a balance, because a made-up number on a screen about money is
+  // worse than no number.
+  return createUIMessageStreamResponse({
+    stream,
+    headers: {
+      'x-decke-credits':
+        meter.credits && Number.isFinite(meter.balance) ? String(meter.balance) : '-1',
+      // The threshold too, so the panel does not carry a second opinion about
+      // what "low" means. The server prices the work; it is the only thing that
+      // knows whether what is left still buys the expensive one.
+      'x-decke-credits-low': String(LOW_BALANCE),
+    },
+  })
 }
 
 /**
@@ -676,6 +969,26 @@ async function serve(request) {
  * thing most likely to end up echoed as prose. The animation has already
  * happened; the model does not need to remember how it asked.
  */
+/**
+ * The reader's OWN latest message, as plain text.
+ *
+ * Assistant turns are skipped deliberately: Deck-E says "Normal" constantly,
+ * and letting his words count as the reader naming a printing would restore the
+ * exact defect `readerNamedPrinting` exists to close.
+ */
+function latestUserText(messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m?.role !== 'user') continue
+    const parts = Array.isArray(m.parts) ? m.parts : []
+    return parts
+      .filter((p) => p?.type === 'text' && typeof p.text === 'string')
+      .map((p) => p.text)
+      .join(' ')
+  }
+  return ''
+}
+
 function stripPriorCommands(messages) {
   return messages.map((m) => {
     if (!Array.isArray(m.parts)) return m

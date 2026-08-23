@@ -158,10 +158,26 @@ test('a sub-agent NEVER gets a write it cannot have approved for it', async () =
     true,
     'write_strategy_guide stores a guide and must ask the human first',
   )
-  // The other three only read. Asking about a read is friction with no safety
-  // behind it, and friction people learn to click through is worse than none.
+  // ── AND SO DO THE OTHER THREE, WHICH IS A REVERSAL ────────────────────────
+  //
+  // This assertion used to be the opposite, and its reason was: "the other three
+  // only read. Asking about a read is friction with no safety behind it, and
+  // friction people learn to click through is worse than none." That is right
+  // about SAFETY and silent about COST.
+  //
+  // A deep call is not a read. It is a sub-agent with its own model and up to
+  // 210 seconds of wall clock; it is the scarcest thing the account has, and
+  // under the credit model it is the only thing a reader can run out of.
+  // Measured, on camera: asked for "a new deck, doesn't have to be good", he
+  // spent one immediately — before the owner had confirmed anything — and then
+  // spent another. *"He should verify first and then do the deep question."*
+  //
+  // The friction argument is answered by what the card SAYS, not by hiding it:
+  // it carries his restatement of the request, so the tap confirms a specific
+  // piece of work. A confirmation with nothing in it is the one people learn to
+  // click through.
   for (const n of ['plan_deck', 'analyze_collection', 'research_meta']) {
-    assert.equal(deep[n]?.needsApproval, undefined, `${n} does not write and must not ask`)
+    assert.equal(deep[n]?.needsApproval, true, `${n} spends the scarcest thing there is and must ask`)
   }
 })
 
