@@ -3244,7 +3244,15 @@ GATES[22] = {
 
       const url = new URL(page.url())
       const tools = wireTools(chatPosts)
-      const moved = tools.filter((t) => t.name === 'goTo' || t.name === 'click')
+      // ── A WALK IS A NAVIGATION, AND THIS USED TO SAY OTHERWISE ────────────
+      //
+      // `goTo` and `click` are the only movements that appear ON THE WIRE as
+      // their own calls. A `journey` or an `escort` is ONE call whose hops run
+      // in the browser, so filtering to goTo/click scored a perfect escort
+      // exactly the same as a description — the gate could not pass for the
+      // behaviour it exists to demand.
+      const MOVEMENT = ['goTo', 'click', 'journey', 'escort']
+      const moved = tools.filter((t) => MOVEMENT.includes(t.name))
       const said = spoken(chatPosts).trim()
       const lines = said.split(/\n+/).map((l) => l.trim()).filter(Boolean)
       const canonical = `/series/${truth.seriesSlug}/${truth.setId}`
