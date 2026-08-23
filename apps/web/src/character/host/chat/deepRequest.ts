@@ -76,3 +76,21 @@ export function deepRequestLine(name: string, input: unknown): string | null {
 export function isDeepRequest(name: string): boolean {
   return name in SHAPE;
 }
+
+/**
+ * The one sentence that says this costs more, kept OUT of the question.
+ *
+ * *"External research takes extra usage. Are you okay with me doing research to
+ * plan out a good deck or whatever?"*
+ *
+ * Two facts, deliberately in two places. The headline asks about THEIR deck;
+ * this says what it costs us. Folding the second into the first — "Can I spend a
+ * deep question building this deck?" — makes the question about our accounting,
+ * uses our internal name for the tier, and was the thing he objected to by name.
+ *
+ * No number. What it costs in credits is real but it is not what a reader needs
+ * at the moment of saying yes, and a figure here would have to be right on a
+ * deployment where credits are switched off entirely — where it would be a
+ * price for something that is not being charged.
+ */
+export const DEEP_COST_NOTE = 'This kind of research takes longer and uses more than a normal answer.'
