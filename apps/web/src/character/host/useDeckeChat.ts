@@ -57,6 +57,7 @@ import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
 import { CLIENT_TOOLS, isClientTool, isPressable, runUiTool, type UiToolResult } from './uiTools'
 import { buildEscortSteps, type EscortInput } from './escortPlan'
+import { beatForChip } from './thinkingBeat'
 import { runJourney, type JourneyResult, type JourneyStep } from './journey'
 import { api } from '../../lib/api'
 import {
@@ -186,6 +187,20 @@ export function useDeckeChat(
   // Did the MODEL set a state this turn? If not, the turn boundary has to leave
   // `thinking` itself — see the `finally` below.
   const movedRef = useRef(false)
+  /**
+   * C21's two pieces of memory.
+   *
+   * `lastBeatAtRef` is what makes the cooldown a cooldown, and it deliberately
+   * does NOT reset per turn: a beat is punctuation between events, and two
+   * turns half a second apart should not each get one for the same reason six
+   * fast tool calls should not get six.
+   *
+   * `lastNoteRef` remembers the last progress note per chip id, because a
+   * `progress` chip updates IN PLACE — re-rendering the note it already carried
+   * is not a new event, and without this every repaint would look like one.
+   */
+  const lastBeatAtRef = useRef<number | null>(null)
+  const lastNoteRef = useRef<Map<string, string>>(new Map())
   // HELD IN REFS so `send` keeps a stable identity. `DeckeHost` passes both as
   // fresh arrow functions on every render; naming them as dependencies would
   // hand `DeckeChat` a new `onSend` every frame, which is a re-render treadmill
@@ -634,6 +649,48 @@ export function useDeckeChat(
        * be two chances to get the update-in-place rule wrong.
        */
       const emitToolChip = (chip: ToolChip) => {
+        // ── C21: BREAK UP THE ROCKING LOOP, WHEN SOMETHING REALLY HAPPENED ──
+        //
+        // *"he's just kind of stuck in this one thing … when he does little
+        // responses in between, he can kind of show a different emotion for a
+        // sec and then go back to thinking."* [07:43]
+        //
+        // The brief filed C21 as blocked on there being no tool-boundary hook.
+        // This IS that hook — the one writer every real tool event already
+        // passes through — which is exactly why the beat hangs here and not on
+        // a timer. A timer would fire while nothing was happening, which is the
+        // fabricated-status surface X2 exists to forbid.
+        //
+        // Computed BEFORE `setMessages` and never inside the updater: an
+        // updater must stay pure, and React is free to call it twice.
+        const noteIsNew = chip.note !== undefined && lastNoteRef.current.get(chip.id) !== chip.note
+        if (chip.note !== undefined) lastNoteRef.current.set(chip.id, chip.note)
+        const now = Date.now()
+        const beat = beatForChip(
+          { phase: chip.phase, noteIsNew },
+          {
+            lastBeatAt: lastBeatAtRef.current,
+            now,
+            // Read live rather than captured, so turning the preference on
+            // mid-turn stops the beats now.
+            reduced:
+              typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+                ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+                : false,
+          },
+        )
+        if (beat) {
+          lastBeatAtRef.current = now
+          try {
+            // Deliberately does NOT set `movedRef`, for the same reason the
+            // answer-arriving beat does not: this is the app punctuating a real
+            // event, not the model choosing a state, and claiming otherwise
+            // would stop the turn boundary restoring `idle`.
+            decke.setState(beat.state, { mode: beat.mode })
+          } catch {
+            /* an unknown state must never take a turn down */
+          }
+        }
         setMessages((m) =>
           m.map((x) => {
             if (x.id !== replyId) return x

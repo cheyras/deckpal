@@ -11,6 +11,7 @@ import { Icon } from '../components/Icon'
 import { AvatarDisc, AvatarSpinner, useAvatarEditor } from '../components/Avatar'
 import { ChangePassword } from './auth/ChangePassword'
 import { AgentAccess } from '../components/AgentAccess'
+import { DeckeVisibility } from '../components/DeckeVisibility'
 import { Sheet } from '../components/ui/Sheet'
 import { fmtUsd } from '../lib/format'
 
@@ -348,6 +349,7 @@ export function Profile() {
             connect assistants too. */}
         <div className="mt-[16px] mb-[8px] flex flex-col gap-[16px]">
           {isCloudMode && <ChangePassword />}
+          <DeckeVisibility />
           <AgentAccess />
         </div>
       </Content>
