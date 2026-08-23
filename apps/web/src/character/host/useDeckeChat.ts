@@ -485,7 +485,36 @@ export function useDeckeChat(
 
   const deny = useCallback(() => {
     answeredRef.current = true
-    settleAll({ approved: false, reason: DECLINED_REASON }, askingRef.current?.[0]?.approvalId)
+    const a = askingRef.current?.[0]
+    // ── A REFUSAL HAS TO LEAVE A MARK ────────────────────────────────────────
+    //
+    // Reported from use: the reader told him NOT to add the card, and his reply
+    // then read as though he had added it anyway — *"it was like he had already
+    // queued up his response BEFORE i canceled the operation and just delivered
+    // it anyway"*.
+    //
+    // The model IS told: the denial replays as `execution-denied` carrying a
+    // reason. What was missing is the TRANSCRIPT. Accepting writes a row (see
+    // `record` in `approve`); denying wrote nothing at all. So the card simply
+    // vanished, whatever he had said on his way to the call was still sitting
+    // there — "adding Heat Rotom now" — and the next thing he said arrived with
+    // no fact between them. Two plausible readings and the wrong one is the
+    // comfortable one.
+    //
+    // X2 says the truth surface is sourced from what really happened, and here
+    // that is the reader's own action, which is the most reliable fact on the
+    // page. `ok`, not `error`: nothing broke. Quiet, because nothing went wrong.
+    // Present, because the absence is what misled.
+    if (a) {
+      emitChipRef.current?.({
+        id: `${a.toolCallId}-declined`,
+        name: a.name,
+        title: 'Nothing was written',
+        phase: 'ok',
+        summary: 'You left it, so nothing changed.',
+      })
+    }
+    settleAll({ approved: false, reason: DECLINED_REASON }, a?.approvalId)
   }, [settleAll])
 
   /** One row's answer, from the card. */
