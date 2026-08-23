@@ -42,18 +42,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import {
+  ABANDONED_REASON,
+  DECLINED_REASON,
+  MAX_LEGS,
+  type PendingApproval,
+  type Verdict,
   approvalReplayPart,
   legBudget,
   mayAskApproval,
-  MAX_LEGS,
   pendingApprovalFromChunk,
-  type PendingApproval,
 } from './approval'
 import { messageText, messageTools, type ChatMessage } from './DeckeChat'
 import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
 import { CLIENT_TOOLS, isClientTool, isPressable, runUiTool, type UiToolResult } from './uiTools'
 import { runJourney, type JourneyResult, type JourneyStep } from './journey'
+import { api } from '../../lib/api'
+import {
+  initialChoices,
+  runAccept,
+  transportFromThrown,
+  type ApprovalPreview,
+  type HeldItem,
+  type RowChoice,
+} from './chat/approvalCardState'
 
 /** A command as the server's `express` tool emits it. Mirrors `decke/tools.ts`. */
 type WireCommand = {
@@ -160,6 +172,9 @@ export function useDeckeChat(
   const busyRef = useRef(false)
   busyRef.current = busy
   const sendRef = useRef<((text: string) => Promise<void>) | null>(null)
+  /** The current turn's row writer, so the approval handler — declared above
+   *  `send` — can record a corrected write where the reader is looking. */
+  const emitChipRef = useRef<((chip: ToolChip) => void) | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   // The transcript as the server wants it, in a ref so `send` cannot close over
   // a stale array between renders.
@@ -202,16 +217,44 @@ export function useDeckeChat(
   const [asking, setAsking] = useState<PendingApproval[] | null>(null)
   const askingRef = useRef<PendingApproval[] | null>(null)
   askingRef.current = asking
-  const resolverRef = useRef<((answers: Map<string, boolean>) => void) | null>(null)
+  const resolverRef = useRef<((answers: Map<string, Verdict>) => void) | null>(null)
+  /**
+   * The dry-run rows for each held call, keyed by `toolCallId`.
+   *
+   * SURVIVES THE LEG BOUNDARY, which is why it is a ref: the preview arrives on
+   * the stream and the question is asked after the stream closes.
+   */
+  const previewsRef = useRef(new Map<string, ApprovalPreview>())
+  /** What the reader has decided, per row index. Owned here rather than in the
+   *  panel, because a half-answered approval is not a thing to leave riding on
+   *  whether a component happens to stay mounted. */
+  const [approvalChoices, setApprovalChoices] = useState<Map<number, RowChoice>>(new Map())
+  const choicesRef = useRef(approvalChoices)
+  choicesRef.current = approvalChoices
+  const [approvalBusy, setApprovalBusy] = useState(false)
+  /** Set the moment Accept is pressed, so a Stop landing mid-commit cannot
+   *  settle a denial while the batch is on its way. */
+  const answeredRef = useRef(false)
+  const committingRef = useRef(false)
 
-  /** Settle whatever is being asked, once, and clear the prompt. */
-  const settle = useCallback((approved: boolean) => {
+  /**
+   * Settle everything being asked with one verdict, once, and clear the prompt.
+   *
+   * A VERDICT RATHER THAN A BOOLEAN, because a denial now carries a REASON and
+   * the reason is load-bearing: `convertToModelMessages` turns a denied
+   * approval part directly into `tool-result {type:'execution-denied', reason}`,
+   * so what is written here is what he is told happened. On the edited path
+   * that reason is built from the real response to a real write, which is the
+   * only thing keeping his account of it true.
+   */
+  const settleAll = useCallback((verdict: Verdict) => {
     const resolve = resolverRef.current
     const list = askingRef.current ?? []
     resolverRef.current = null
     askingRef.current = null
     setAsking(null)
-    resolve?.(new Map(list.map((a) => [a.approvalId, approved])))
+    setApprovalChoices(new Map())
+    resolve?.(new Map(list.map((a) => [a.approvalId, verdict])))
   }, [])
 
   /**
@@ -277,8 +320,91 @@ export function useDeckeChat(
     return () => window.clearTimeout(t)
   }, [decke, messages.length])
 
-  const approve = useCallback(() => settle(true), [settle])
-  const deny = useCallback(() => settle(false), [settle])
+  /**
+   * Yes.
+   *
+   * TWO PATHS, and which one runs is decided by what the reader actually chose
+   * — never by reconstructing it, because a reconstruction that goes wrong
+   * fails toward auto-approving a row they struck out.
+   *
+   * **Unedited** is today's path down to the byte: the held call settles
+   * `approved: true`, the SDK replays the original input with its original
+   * signature, and `log_cards` executes on the server with everything it
+   * already does. Every existing security property survives untouched, which
+   * is the whole reason the common case was kept on it.
+   *
+   * **Edited** never touches the held call's arguments — it cannot, because the
+   * SDK signs over them and that binding is itself the fix for a shipped bug.
+   * The corrected batch is committed from here, and only THEN is the held call
+   * settled `approved: false` with a reason built from the real response.
+   *
+   * That ordering is the risk to own. Commit-then-settle is the only sequence
+   * that keeps the transcript honest; invert it, or lose the leg carrying the
+   * denial, and he claims a corrected write that may not have landed. It is
+   * pinned by a test rather than by this comment.
+   */
+  const approve = useCallback(async () => {
+    const a = askingRef.current?.[0]
+    if (!a || committingRef.current) return
+    const preview = previewsRef.current.get(a.toolCallId)
+    // No preview, or one the server marked un-editable: this is the plain
+    // dialog, and the plain dialog's yes is the signed path. The card and this
+    // handler have to agree about that, or one of them is lying to the reader.
+    if (!preview?.editable) {
+      answeredRef.current = true
+      settleAll({ approved: true })
+      return
+    }
+    committingRef.current = true
+    answeredRef.current = true
+    setApprovalBusy(true)
+    try {
+      await runAccept(
+        {
+          toolCallId: a.toolCallId,
+          held: ((a.input as { items?: HeldItem[] }).items ?? []) as HeldItem[],
+          preview,
+          choices: choicesRef.current,
+        },
+        {
+          commit: async (r) => {
+            try {
+              const body = await api.collectionBatch(r.items, {
+                source: r.source,
+                note: r.note,
+                idempotencyKey: r.idempotencyKey,
+              })
+              return { received: true, ok: true, body } as const
+            } catch (err) {
+              return transportFromThrown(err)
+            }
+          },
+          settle: (v) => settleAll(v),
+          record: (text) =>
+            emitChipRef.current?.({
+              id: `${a.toolCallId}-corrected`,
+              name: 'collection_batch',
+              title: 'Applied your correction',
+              phase: 'ok',
+              summary: text.slice(0, 200),
+            }),
+        },
+      )
+    } finally {
+      committingRef.current = false
+      setApprovalBusy(false)
+    }
+  }, [settleAll])
+
+  const deny = useCallback(() => {
+    answeredRef.current = true
+    settleAll({ approved: false, reason: DECLINED_REASON })
+  }, [settleAll])
+
+  /** One row's answer, from the card. */
+  const onApprovalChoice = useCallback((index: number, choice: RowChoice) => {
+    setApprovalChoices((m) => new Map(m).set(index, choice))
+  }, [])
 
   /**
    * A question asked before he had finished arriving.
@@ -359,15 +485,27 @@ export function useDeckeChat(
        * never reaches its `finally` — so `thinking` never clears and he rocks
        * in place until the page is reloaded. An abandoned question is a "no".
        */
-      const askApproval = (list: PendingApproval[]): Promise<Map<string, boolean>> =>
+      const askApproval = (list: PendingApproval[]): Promise<Map<string, Verdict>> =>
         new Promise((resolve) => {
+          answeredRef.current = false
+          const p0 = previewsRef.current.get(list[0]?.toolCallId ?? '')
+          setApprovalChoices(p0 ? initialChoices(p0) : new Map())
           resolverRef.current = resolve
           askingRef.current = list
           setAsking(list)
           ac.signal.addEventListener(
             'abort',
             () => {
-              if (resolverRef.current === resolve) settle(false)
+              // NOT WHILE A COMMIT IS IN FLIGHT. The edited path writes and
+              // then settles; a Stop landing between the two would settle a
+              // denial while the batch was on its way, and he would report
+              // "nothing was written" about a write that landed a moment later.
+              // `answeredRef` is set synchronously the instant Accept is
+              // pressed, which is before any await.
+              if (answeredRef.current) return
+              if (resolverRef.current === resolve) {
+                settleAll({ approved: false, reason: ABANDONED_REASON })
+              }
             },
             { once: true },
           )
@@ -434,6 +572,8 @@ export function useDeckeChat(
         )
       }
 
+      emitChipRef.current = emitToolChip
+
       const wire: WireMessage[] = [...priorWire, { role: 'user', parts: [{ type: 'text', text }] }]
 
       try {
@@ -486,6 +626,14 @@ export function useDeckeChat(
               // recent thing rather than the broken one. `start` → `progress`
               // → `ok` is one row changing, in the position it first appeared.
               emitToolChip(chip)
+            },
+            onApprovalPreview: (preview) => {
+              // A REF, not state, and keyed by `toolCallId` rather than by
+              // arrival order. The card opens after the leg has closed, so a
+              // value held in state would not necessarily have committed yet —
+              // and a turn can hold more than one call, so position is not an
+              // identity.
+              previewsRef.current.set(preview.toolCallId, preview)
             },
             onHttpError: (status) => {
               const why =
@@ -553,7 +701,16 @@ export function useDeckeChat(
             const parts: WirePart[] = []
             if (outcome.text.trim()) parts.push({ type: 'text', text: outcome.text })
             for (const a of outcome.approvals) {
-              parts.push(approvalReplayPart(a, answers.get(a.approvalId) === true))
+              // THE REASON RIDES WITH THE DENIAL, and it is not decoration.
+              // `convertToModelMessages` turns a denied approval part directly
+              // into `tool-result {type:'execution-denied', reason}`, so this
+              // string is what he is told happened — and on the edited path it
+              // was built from the real response to a real write. Dropping it
+              // would leave him to guess, in front of the reader, on the write
+              // path.
+              const v = answers.get(a.approvalId)
+              const approved = v?.approved === true
+              parts.push(approvalReplayPart(a, approved, approved ? undefined : v?.reason))
             }
             // ── NOTHING MAY BE APPENDED AFTER THIS ────────────────────────────
             //
@@ -791,11 +948,26 @@ export function useDeckeChat(
 
   sendRef.current = send
 
-  return { messages, busy, send, stop, close, retry, asking, approve, deny }
+  return {
+    messages,
+    busy,
+    send,
+    stop,
+    close,
+    retry,
+    asking,
+    approve,
+    deny,
+    approvalPreview: (id: string) => previewsRef.current.get(id) ?? null,
+    approvalChoices,
+    onApprovalChoice,
+    approvalBusy,
+  }
 }
 
 type LegHandlers = {
   onText: (chunk: string) => void
+  onApprovalPreview: (preview: ApprovalPreview) => void
   onCommands: (commands: WireCommand[]) => void
   onScreen: (screen: ScreenSpec) => void
   onToolChip: (chip: ToolChip) => void
@@ -999,6 +1171,16 @@ async function streamLeg(
       } else if (part.type === 'data-decke-screen' && part.data?.screen) {
         out.screen = part.data.screen
         handlers.onScreen(part.data.screen)
+      } else if (part.type === 'data-decke-approval-preview' && part.data) {
+        // THE DRY RUN'S REAL ROWS, keyed to the call the SDK is holding.
+        //
+        // It arrives on the stream BEFORE the stream closes, and the card is
+        // not opened until after — which is the ordering invariant the whole
+        // design rests on, and which is a property of this file rather than of
+        // the SDK: signing genuinely races ahead of the awaited callback under
+        // `streamText`. It survives only because the question is asked once the
+        // leg has finished draining.
+        handlers.onApprovalPreview(part.data as unknown as ApprovalPreview)
       } else if (part.type === 'data-decke-tool' && part.data) {
         // A tool-call chip. Emitted by the SERVER's execute wrapper, never by
         // the model, so it corresponds 1:1 to a real invocation of a real

@@ -319,6 +319,77 @@ const SCENES = [
     },
   },
   {
+    name: 'approval',
+    what:
+      'The consent card, segmented by PROVENANCE rather than by a confidence ' +
+      'number. Section one is what he knows — plain rows, nothing to answer, ' +
+      'a way to strike one out. Section two is "what was the variant on ' +
+      'these?", where he genuinely does not know. No meter, because a ' +
+      'miscalibrated confidence number measurably degrades decisions and ' +
+      '~93% of permission prompts are approved regardless of content.',
+    platforms: ['desktop', 'mobile'],
+    async act({ page }) {
+      // SYNTHETIC, and only the transport is. The preview part is in the real
+      // wire format and is rendered by the real card. Production does not emit
+      // these yet — the server half is in this branch and undeployed — and the
+      // alternative, pointing a real write at the live backend to photograph a
+      // dialog, is not a trade worth making.
+      const sse = (o) => `data: ${JSON.stringify(o)}\n\n`
+      const preview = {
+        toolCallId: 'call_a7f3',
+        tool: 'log_cards',
+        title: 'Log collection changes',
+        summary: 'log_cards DRY RUN — 3 item(s)',
+        ok: true,
+        editable: true,
+        rows: [
+          {
+            index: 0, cardId: 'me05-014', cardName: 'Mega Gardevoir ex', setId: 'me05', number: '014',
+            certainty: 'stated', candidates: [], variantId: 37101, variantLabel: 'Normal',
+            mode: 'delta', value: 1, before: 0, after: 1, clamped: false,
+          },
+          {
+            index: 1, cardId: 'me05-003', cardName: 'Fomantis', setId: 'me05', number: '003',
+            certainty: 'only-one', candidates: [], variantId: 37110, variantLabel: 'Normal',
+            mode: 'delta', value: 2, before: 1, after: 3, clamped: false,
+          },
+          {
+            index: 2, cardId: 'me05-084', cardName: 'Pitch Black', setId: 'me05', number: '084',
+            certainty: 'unstated',
+            candidates: [
+              { variantId: 37183, kindCode: 'normal', label: 'Normal', isPrimary: true, ownedQty: 0 },
+              { variantId: 37184, kindCode: 'reverse', label: 'Reverse Holo', isPrimary: false, ownedQty: 2 },
+            ],
+            wouldUseVariantId: 37183, variantId: 37183, variantLabel: 'Normal',
+            mode: 'delta', value: 1, before: 0, after: 1, clamped: false,
+          },
+        ],
+        skipped: [],
+      }
+      await page.route('**/api/chat', async (route) => {
+        await route.fulfill({
+          status: 200,
+          headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+          body:
+            sse({ type: 'text-delta', delta: "Here's what I'd add." }) +
+            sse({ type: 'data-decke-approval-preview', data: preview }) +
+            sse({
+              type: 'tool-input-available',
+              toolCallId: 'call_a7f3',
+              toolName: 'log_cards',
+              input: { items: [{}, {}, {}] },
+            }) +
+            sse({ type: 'tool-approval-request', approvalId: 'ap_1', toolCallId: 'call_a7f3', signature: 'x' }),
+        })
+      })
+      const composer = await openDeckE(page)
+      await waitForCharacter(page)
+      await composer.fill('add a Mega Gardevoir, two Fomantis and a Pitch Black')
+      await composer.press('Enter')
+      await page.waitForTimeout(2500)
+    },
+  },
+  {
     name: 'cold-open',
     what:
       'The tap-and-wait path, with NO warming hover — what a phone gets. ' +

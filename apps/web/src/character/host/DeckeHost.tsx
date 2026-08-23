@@ -813,6 +813,10 @@ export function DeckeHost() {
         asking={chat.asking}
         onApprove={chat.approve}
         onDeny={chat.deny}
+        approvalPreview={chat.approvalPreview}
+        approvalChoices={chat.approvalChoices}
+        onApprovalChoice={chat.onApprovalChoice}
+        approvalBusy={chat.approvalBusy}
         onRetryTool={chat.retry}
         desktop={wide}
         characterPx={charPx}
