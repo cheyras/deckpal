@@ -15,7 +15,7 @@
  */
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { isFailedPhase, toolRowAppearance, type ToolPhase, type ToolRowData } from '../toolRowState'
+import { isFailedPhase, toolRowAppearance, type ToolPhase, type ToolRowData, hintFrom } from '../toolRowState'
 
 const row = (over: Partial<ToolRowData> = {}): ToolRowData => ({
   id: 't1',
@@ -113,4 +113,57 @@ test('the announcement is a whole sentence, and failures are announced at all', 
 test('a row with no title falls back to the tool name rather than announcing nothing', () => {
   const a = toolRowAppearance(row({ title: '  ', phase: 'error' }))
   assert.match(a.announce, /^collection_summary: failed/)
+})
+
+// ── The hint: three calls to one tool must be three rows, not a stutter ──────
+//
+// Quiet-by-default is right for one row and produces a stutter for several.
+// Asking "how many cards do I have in Pitch Black?" makes three genuine
+// `set_progress` calls, and collapsed they render as the same sentence three
+// times — which the owner saw, and which reads as a bug rather than as work.
+// The discriminator has to come out of the real result, or it is decoration
+// that happens to differ.
+
+test('a settled row carries a few real words from its own result', () => {
+  const a = toolRowAppearance({
+    id: '1',
+    name: 'set_progress',
+    title: 'Check set completion',
+    phase: 'ok',
+    summary: 'Pitch Black (me05): 13 of 120 complete',
+  })
+  assert.ok(a.hint, 'a settled row with a summary should carry a hint')
+  assert.ok(
+    a.hint && 'Pitch Black (me05): 13 of 120 complete'.startsWith(a.hint.replace(/…$/, '')),
+    `the hint must be a prefix of the real summary, got ${JSON.stringify(a.hint)}`,
+  )
+})
+
+test('two calls to the same tool with different results look different', () => {
+  const row = (summary: string) =>
+    toolRowAppearance({ id: 'x', name: 'set_progress', title: 'Check set completion', phase: 'ok', summary })
+  const a = row('Pitch Black (me05): 13 of 120 complete')
+  const b = row('Mega Evolution: 8 sets, 1,076 cards')
+  assert.notEqual(a.hint, b.hint, 'identical titles with different results must not render identically')
+})
+
+test('a failure gets no hint — it already has a loud label', () => {
+  const a = toolRowAppearance({
+    id: '1',
+    name: 'analyse',
+    title: 'Analyse the collection',
+    phase: 'partial',
+    reason: 'timeout',
+    summary: 'Read 300 of 604 cards before the deadline',
+  })
+  assert.equal(a.hint, undefined)
+  assert.match(a.label, /incomplete/i, 'the failure still says so, in words')
+})
+
+test('hintFrom refuses to cut a long word in half', () => {
+  // Half a word plus an ellipsis reads as broken. No hint is a fine row.
+  assert.equal(hintFrom('Supercalifragilisticexpialidociousandthensomemoreletters'), undefined)
+  assert.equal(hintFrom(''), undefined)
+  assert.equal(hintFrom(undefined), undefined)
+  assert.equal(hintFrom('short enough'), 'short enough')
 })

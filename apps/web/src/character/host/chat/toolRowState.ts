@@ -78,6 +78,23 @@ export type ToolRowAppearance = {
   canRetry: boolean
   /** The real text the row reveals: a progress note, or a result summary. */
   detail?: string
+  /**
+   * A few real words beside the title, so two calls to the same tool are
+   * visibly two different calls.
+   *
+   * The quiet-by-default rule is right for ONE row and produces a stutter for
+   * several: asking "how many cards do I have in Pitch Black?" makes three
+   * genuine `set_progress` calls, and collapsed they render as the same
+   * sentence three times, which reads as a bug rather than as work. The owner
+   * saw exactly that — three identical rows stacked — and it is recorded as a
+   * complaint in its own right.
+   *
+   * CLIPPED FROM THE REAL DETAIL, never composed. It is the same string the
+   * expander reveals, cut at a clause boundary; there is nothing here a reader
+   * could see that did not come out of the tool. Absent on a failure, which
+   * already carries a loud explicit label and does not need a second one.
+   */
+  hint?: string
   /** One complete sentence for assistive tech, since the row is terse. */
   announce: string
   /** How urgently a change to this row should be announced. */
@@ -96,6 +113,25 @@ function partialLabel(reason: ToolRowData['reason']): string {
   // No reason given. Still says incomplete, because that is the fact that
   // matters and it is the fact we do know.
   return 'Incomplete'
+}
+
+/**
+ * A few real words from the detail, or nothing.
+ *
+ * Cuts at the first sentence or clause boundary and gives up rather than
+ * hard-truncating mid-word past the cap — half a word with an ellipsis reads as
+ * broken, and a row with no hint is a perfectly good row.
+ */
+const HINT_MAX = 52
+export function hintFrom(detail?: string): string | undefined {
+  if (!detail) return undefined
+  const flat = detail.replace(/\s+/g, ' ').trim()
+  if (!flat) return undefined
+  if (flat.length <= HINT_MAX) return flat
+  const cut = flat.slice(0, HINT_MAX + 1)
+  const at = Math.max(cut.lastIndexOf(' — '), cut.lastIndexOf('. '), cut.lastIndexOf(', '), cut.lastIndexOf(' '))
+  if (at < 16) return undefined
+  return flat.slice(0, at).replace(/[.,—:;]+$/, '') + '…'
 }
 
 export function toolRowAppearance(data: ToolRowData): ToolRowAppearance {
@@ -119,6 +155,7 @@ export function toolRowAppearance(data: ToolRowData): ToolRowAppearance {
     busy: running,
     canRetry: failed,
     detail,
+    hint: failed ? undefined : hintFrom(detail),
     announce: announceFor(data, label, detail),
     // Successes stay silent: the answer itself is about to be announced and
     // narrating every read would bury it. Failures do not get that courtesy.

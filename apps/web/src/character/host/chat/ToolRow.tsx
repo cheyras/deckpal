@@ -141,12 +141,12 @@ export function ToolRow({
             // theme.css; the radius is here so it traces the row.
             className="flex min-w-0 flex-1 items-start gap-[4px] rounded-sm bg-transparent text-left hover:text-text-primary"
           >
-            <RowTitle title={title} label={a.label} tone={a.tone} />
+            <RowTitle title={title} label={a.label} tone={a.tone} hint={a.hint} />
             <Icon name={open ? 'chevron-down' : 'chevron-right'} size={13} className="mt-[3px] shrink-0" />
           </button>
         ) : (
           <span className="min-w-0 flex-1">
-            <RowTitle title={title} label={a.label} tone={a.tone} />
+            <RowTitle title={title} label={a.label} tone={a.tone} hint={a.hint} />
           </span>
         )}
 
@@ -178,10 +178,28 @@ export function ToolRow({
   )
 }
 
-function RowTitle({ title, label, tone }: { title: string; label: string; tone: ToolTone }) {
+function RowTitle({
+  title,
+  label,
+  tone,
+  hint,
+}: {
+  title: string
+  label: string
+  tone: ToolTone
+  hint?: string
+}) {
   return (
     <span className="min-w-0 flex-1">
       <span className="break-words">{title}</span>
+      {/*
+        A FEW REAL WORDS, so three calls to the same tool are three rows and not
+        a stutter. Muted and after the title, so it is legible but does not
+        compete — the answer is still the answer. It is a clipped copy of what
+        the expander reveals, which means there is nothing here that did not
+        come out of the tool.
+      */}
+      {hint ? <span className="text-text-muted"> · {hint}</span> : null}
       {label ? (
         <>
           {' '}
