@@ -217,6 +217,15 @@ export type FlyOptions = {
    */
   centre?: boolean
   /**
+   * Which part of HIM lines up with the target on the vertical.
+   *
+   * `bottom` puts his BASE on the target's bottom edge instead of matching his
+   * middle to its middle. For a target much shorter than he is — the composer
+   * is 58px against his ~216 — centring hangs most of him below it, which at
+   * the bottom of a window means cut off.
+   */
+  anchor?: 'centre' | 'bottom'
+  /**
    * Where he faces when he lands, in [-1, +1] — honoured EVEN WITH `centre`.
    *
    * `solvePark`'s centre branch deliberately returns no facing (a point has no
@@ -359,6 +368,8 @@ type Station =
        * him clear of.
        */
       centre: boolean
+      /** Carried for the same reason `centre` is: a re-solve must not lose it. */
+      anchor?: 'centre' | 'bottom'
     }
 
 type Transition = { from: Pose; started: number; durationMs: number } | null
@@ -1308,7 +1319,13 @@ export class DeckE {
 
     const camera = this.stage.camera
     const baseDistance = camera.position.length()
-    const park = solvePark(camera, rect, { depth, side, baseDistance, centre: opts.centre })
+    const park = solvePark(camera, rect, {
+      depth,
+      side,
+      baseDistance,
+      centre: opts.centre,
+      anchor: opts.anchor,
+    })
 
     // SCROLL INTENT, computed before the launch that consumes it.
     //
@@ -1351,7 +1368,7 @@ export class DeckE {
     // page ends up standing him at the composer with his back to it: the boot
     // default is +1, screen-left. See `FlyOptions.facing`.
     this.setFacing(opts.facing ?? park.facing ?? this.facingTarget)
-    this.station = { kind: 'element', target, depth, side, centre: !!opts.centre }
+    this.station = { kind: 'element', target, depth, side, centre: !!opts.centre, anchor: opts.anchor }
 
     // Presenting is a TWO-part signal: he stands beside the thing, and the thing
     // is ringed. Doing only the first is a robot standing near a box. Ringing on
@@ -1464,6 +1481,7 @@ export class DeckE {
       side: this.station.side,
       baseDistance,
       centre: this.station.centre,
+      anchor: this.station.anchor,
       // `known` is the PINNED rect, which is in canvas coordinates, and the
       // keep-out bands are in viewport ones. Everything else in the solve
       // cancels the difference against the frustum offset; a clamp cannot,

@@ -492,7 +492,13 @@ export function DeckeHost() {
         if (composer) {
           d.flyTo(
             { selector: `[${COMPOSER_LANDMARK}]` },
-            { depth: 'foreground', highlight: false, side: 'left' },
+            // `anchor: 'bottom'` — his BASE on the composer's bottom edge, not
+            // his middle on its middle. The composer is 58px and he is ~216
+            // drawn, so centring hangs ~79px of him below it; with the composer
+            // against the bottom of the window that is off the edge, and the
+            // clamp then rescues him by pinning his feet to the window bottom.
+            // Reported as "too low, and going off the bottom edge. Cut off."
+            { depth: 'foreground', highlight: false, side: 'left', anchor: 'bottom' },
           )
           return
         }
