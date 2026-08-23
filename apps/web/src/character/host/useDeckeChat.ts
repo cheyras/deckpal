@@ -395,6 +395,29 @@ export function useDeckeChat(
         )
       }
 
+      /**
+       * Put one row on the reply, or update the row already there.
+       *
+       * ONE WRITER for two sources — the server's execute wrapper and the
+       * browser's own UI tools — because a reader should not be able to tell
+       * which side of the wire a row came from, and because two writers would
+       * be two chances to get the update-in-place rule wrong.
+       */
+      const emitToolChip = (chip: ToolChip) => {
+        setMessages((m) =>
+          m.map((x) => {
+            if (x.id !== replyId) return x
+            const at = x.parts.findIndex((p) => p.kind === 'tool' && p.chip.id === chip.id)
+            if (at >= 0) {
+              const next = [...x.parts]
+              next[at] = { kind: 'tool', id: next[at].id, chip }
+              return { ...x, parts: next }
+            }
+            return { ...x, parts: [...x.parts, { kind: 'tool' as const, id: nextId(), chip }] }
+          }),
+        )
+      }
+
       const wire: WireMessage[] = [...priorWire, { role: 'user', parts: [{ type: 'text', text }] }]
 
       try {
@@ -440,25 +463,13 @@ export function useDeckeChat(
               // id so `start` is REPLACED by `ok` rather than accumulating —
               // "Checking your collection…" then "Read 604 cards" is one chip
               // changing, not two chips.
-              setMessages((m) =>
-                m.map((x) => {
-                  if (x.id !== replyId) return x
-                  const at = x.parts.findIndex((p) => p.kind === 'tool' && p.chip.id === chip.id)
-                  // UPDATED IN PLACE. The old code filtered the chip out and
-                  // pushed it back on, which moved it to the end on every
-                  // phase change — so the order visibly shifted between
-                  // frames, and the one call that FAILED ended up last, where
-                  // it read as the most recent thing rather than the broken
-                  // one. Here `start` → `progress` → `ok` is one row changing,
-                  // in the position it first appeared.
-                  if (at >= 0) {
-                    const next = [...x.parts]
-                    next[at] = { kind: 'tool', id: next[at].id, chip }
-                    return { ...x, parts: next }
-                  }
-                  return { ...x, parts: [...x.parts, { kind: 'tool' as const, id: nextId(), chip }] }
-                }),
-              )
+              // UPDATED IN PLACE. The old code filtered the chip out and
+              // pushed it back on, which moved it to the end on every phase
+              // change — so the order visibly shifted between frames, and the
+              // one call that FAILED ended up last, where it read as the most
+              // recent thing rather than the broken one. `start` → `progress`
+              // → `ok` is one row changing, in the position it first appeared.
+              emitToolChip(chip)
             },
             onHttpError: (status) => {
               const why =
@@ -579,6 +590,34 @@ export function useDeckeChat(
               call.input,
             )
             if (ac.signal.aborted) return
+            // ── A ROW FOR WHAT HE DID TO THE PAGE ──────────────────────────
+            //
+            // Chips have only ever come from the server's execute wrapper, for
+            // the 23 data tools. `flyTo`, `highlight`, `goTo`, `scrollToMe` and
+            // `click` have no server `execute` at all — they run HERE — so no
+            // row was ever emitted for any movement, and the transcript held no
+            // record whatsoever of a journey. He could cross the app, outline
+            // something and press it, and the conversation would show only his
+            // words about it. Which is exactly the witness this codebase says
+            // is under suspicion.
+            //
+            // EMITTED AFTER `runUiTool` RETURNS, from its real result, which is
+            // what makes the row obey X2 the same way a server chip does. It is
+            // not "he asked to fly" — it is "he flew, and here is what came
+            // back". A step that never ran emits nothing, because this line is
+            // only reached by a step that ran.
+            //
+            // `runUiTool` already returns sayable text for the interesting
+            // cases: `pressed <label>`, `we are already on that page`, `there
+            // is nothing like that on this page`. That is the summary; there is
+            // nothing to compose.
+            emitToolChip({
+              id: call.id,
+              name: call.name,
+              title: uiToolTitle(call.name, call.input),
+              phase: result.ok ? 'ok' : 'error',
+              summary: result.reason,
+            })
             // The wire shape matters: `convertToModelMessages` on the server
             // needs the assistant's tool CALL and the tool's OUTPUT as parts of
             // the same conversation, or the model sees a result for something it
@@ -725,6 +764,38 @@ type LegHandlers = {
  * being asked to permit something, and the one thing that must be legible is
  * WHAT.
  */
+/**
+ * What a movement row is called.
+ *
+ * The five browser-side tools are the ones a reader can SEE happen, so their
+ * rows are named for the effect rather than for the function: "Went to /decks"
+ * beats "goTo". Where the target is a plain part of the input — a route — it is
+ * included, because a row that says only "Went to a page" is a row that has
+ * told you nothing.
+ *
+ * A SELECTOR IS NEVER PUT IN A TITLE. Landmarks are attribute selectors and
+ * they read as machinery; the interesting half of a movement is in the result,
+ * which `runUiTool` already returns in words ("pressed Deck Builder") and which
+ * the row shows beside the title.
+ */
+function uiToolTitle(name: string, input: Record<string, unknown>): string {
+  const route = typeof input.route === 'string' ? input.route : null
+  switch (name) {
+    case 'goTo':
+      return route ? `Went to ${route}` : 'Went to another page'
+    case 'flyTo':
+      return 'Flew over to it'
+    case 'highlight':
+      return 'Outlined it'
+    case 'click':
+      return 'Pressed it'
+    case 'scrollToMe':
+      return 'Scrolled to himself'
+    default:
+      return titleFor(name)
+  }
+}
+
 function titleFor(name: string): string {
   if (!name) return 'Make that change'
   const words = name.replace(/_/g, ' ').trim()
