@@ -208,23 +208,34 @@ visible while it was unmounted; that is twice, and it is worth suspecting every
 
 ---
 
-## Two mobile defects, seen at 390px in the `chat-open` capture
+## Mobile at 390px: one real defect, one false alarm — I reported both as real
 
-Both visible in `.visual-harness/decke/chat-open/mobile/chat-open.viewport.png`,
-neither previously recorded, and neither fixed — they want a careful look rather
-than a blind edit.
+**CORRECTED.** I filed two and only one was a product bug. The correction matters
+more than the fix, because it is the third time in this pass that an instrument
+told me something false and I repeated it.
 
-1. **He overlaps the composer.** His body is drawn across the left end of the
-   composer card, over the rounded outline and into the field. On desktop he
-   stands cleanly beside it; at 390px there is not room for that composition and
-   nothing gives way. B7's keep-out band handles the header, the nav and the
-   install pill — the composer is not in it.
-2. **The composer is clipped at the bottom edge.** The placeholder reads "Ask
-   about your" with the rest below the viewport.
+**Real, and now fixed: the composer's placeholder was clipped.** At 390px "Ask
+about your cards…" wrapped to "Ask about your" + "cards", and the second line was
+cut off. The mechanism is worth writing down because it will catch the next
+person: **an empty textarea's `scrollHeight` is one row.** A placeholder is not
+content, so it contributes nothing to the height the auto-grow effect measures —
+the box is sized for one line while the placeholder needs two. Growing the box
+instead would make an empty composer two rows tall on every phone, so the
+placeholder is now "Ask Deck-E…", photographed fitting on one line.
 
-Ignore the orange **LIVE DATA** banner in that shot — it is `pnpm dev`'s
-live-backend warning, not product chrome, and it is not in a build.
+**NOT a defect: he overlaps the composer card.** He stands in the card's left
+gutter, which the park box reserves for him and which `DeckeChat.tsx:1368-1380`
+states plainly is the point — *"the overlap that puts him BESIDE the composer
+rather than in a row above it is the whole point of this box's geometry"*. He
+covers the card's padding, never the field. I called it a bug without reading the
+code that answers it.
 
-Desktop, by contrast, is correct and worth saying so: sidebar and header sharp,
-content pane scrimmed, three openers, composer as a card, him beside it. OR1 as
-ruled.
+**NOT a defect: the composer "cut off at the bottom".** That was the orange
+**LIVE DATA** ribbon — `DevBackendRibbon`, which renders only when
+`VITE_DEV_LIVE_ORIGIN` is set and is `fixed bottom-0 z-[9999]`, i.e. exactly over
+the composer at phone width. Its own source comment says so. It is dev chrome and
+is not in a build. **To photograph the real thing, stub the component out for the
+capture** — that is what produced the clean shot above.
+
+Desktop is correct and worth saying so: sidebar and header sharp, content pane
+scrimmed, three openers, composer as a card, him beside it. OR1 as ruled.
