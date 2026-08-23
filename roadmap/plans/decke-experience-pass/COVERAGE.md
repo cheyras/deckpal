@@ -494,6 +494,24 @@ files, +27,870/−518. Product code: `apps/web/src/character/**`,
 `apps/web/src/routes/{SeriesIndex,SeriesDetail,Scan,deck/MarkdownView}.tsx`,
 `apps/api/src/decke/**`, `api/chat.mjs`, `packages/agent-tools/src/**`.
 
+**Revision 2 — re-audited at `0d64f6c`, sixteen commits after `12f71b3`.**
+Revision 1 read the code at `12f71b3`. That commit is also the one that *added
+this file*, and it carried fixes for four things the audit had just found — so
+several rows below described code that stopped existing in the same commit that
+recorded it. Sixteen commits have landed since. Every row revision 1 marked
+**NOT SHIPPED** or **PARTIAL**, and every gap it ranked in §II.6, has been
+re-read against `0d64f6c`. Rows still marked **SHIPPED** were not re-read: their
+`file:line` citations were taken at `12f71b3`, and `DeckeChat.tsx` has since
+grown 154 lines and `useDeckeChat.ts` 217, so a citation into either may be off
+by up to that much. **The statuses are unaffected; only the numbers drift.**
+Rows this revision touched carry citations taken at `0d64f6c`.
+
+**Three workstreams were editing this checkout while revision 2 was written**,
+and `git status` moved twice during it — see II.0(e) for what was in flight and
+what it means for four of the rows. Where a row's outcome depends on
+uncommitted work it says **in progress at time of audit** rather than recording
+a guess as a fact.
+
 ---
 
 ## II.0 What "verified" can and cannot mean in this repo
@@ -534,28 +552,40 @@ commit: that a reader's **non-primary** printing pick moves the non-primary
 variant's quantity in the database. Everything else about the approval card is
 pure-function tested.
 
-**(e) The working tree moved while this audit was being written**, and three of
-the rows below are affected. `git status` was clean at the start of the audit
-and by the end carried uncommitted changes to `DECISIONS.md` (+240),
-`ARCHITECTURE.md`, `SECURITY.md`, `apps/api/src/decke/prompt.ts` (+6) and
-`apps/web/src/character/host/useDeckeChat.ts` (+17). Every status below is
-assigned against **the 15 committed commits**, which is what "did this pass
-ship it" means. But for honesty, the uncommitted work in flight is:
+**(e) The working tree moves while this audit is being written.** It did in
+revision 1 and it did again, harder, in revision 2.
 
-- **twelve `DECISIONS.md` entries** covering this pass, which is II.5(c) being
-  remedied as it was written down. The finding stands for the committed branch
-  and should be re-checked before it is acted on;
-- **a prompt paragraph aimed squarely at C33 / gate 22** — *"A DESCRIPTION IS
-  NOT AN ANSWER TO 'HELP ME FIND'"*. C33 is **NOT SHIPPED on the branch** and
-  somebody is fixing it right now;
-- **the `sayInstead` repair in the stream-error branch** of `useDeckeChat.ts`
-  (the committed branch still writes `{ ...x, text }`, a field a message no
-  longer has, so a connection failure announces nothing). That fix is described
-  in this file's citation of `useDeckeChat.ts:868-887` because the audit read
-  the working tree; on the branch as committed, **that dead end is still live.**
+*Revision 1's three in-flight items have all landed*, and each is now recorded
+in its own row rather than here: the `DECISIONS.md` entries (`12f71b3`, and see
+II.5(c)); the C33 prompt paragraph *"A DESCRIPTION IS NOT AN ANSWER TO 'HELP ME
+FIND'"* (`12f71b3`, `prompt.ts:615-620`); and the `sayInstead` repair in the
+stream-error branch (`12f71b3`). Revision 1's warning that its line numbers were
+read from the working tree rather than the tip is therefore spent — but see the
+revision 2 note above for the drift that replaced it.
 
-Line citations below were taken from the working tree and may be off by up to
-17 lines in `useDeckeChat.ts` and 6 in `prompt.ts` relative to the branch tip.
+*Revision 2 was written against a checkout with three other workstreams live in
+it.* `HEAD` advanced from `bac94b5` to `0d64f6c` mid-audit, and at the moment
+the rows below were finalised `git status` carried:
+
+- `apps/web/src/character/host/screenCompact.ts` (new) and a modified
+  `DeckeScreen.tsx` — **C40's compact-screen mode, in progress.** The C40 row
+  says so and does not predict its outcome;
+- a modified `uiTools.ts` plus a new `__tests__/hopProfile.test.ts` — **C35's
+  flight profile, in progress.** In the working tree `travelAfterRoute` already
+  reads `via: far ? 'background' : undefined`; **at `0d64f6c` it does not**
+  (`uiTools.ts:386` still forces it), so C35 stays PARTIAL against the commit
+  and the row records the fix as in flight;
+- a modified `scripts/visual-harness/capture-decke.mjs` and its README;
+- a modified `DeckeChat.tsx` with a new `__tests__/chatAccessibility.test.ts` —
+  **D13's remaining transcript live region, in progress**;
+- `apps/web/src/character/host/deckeChatState.ts` with its own test, new and
+  unattributed.
+
+That list grew twice while these rows were being written and should be assumed
+stale. Every status below is assigned against **`0d64f6c`**, which is what "did
+this pass ship it" means. **Nothing uncommitted is counted as shipped**, and
+four rows — C35, C39, C40 and D13 — say in their own words that they are
+snapshots of unfinished work rather than verdicts on it.
 
 **What I did run, today, from this working tree:**
 `apps/web` decke suites — **295/295 pass**;
@@ -587,7 +617,7 @@ for those suites. I did not start a dev server.
 | C4 | **SHIPPED** | `characterHeightBeside` (`DeckeHost.tsx:107-110`): `min(composerH x 2.9, w x 0.28, h x 0.24)`. The old desktop branch — full 300px while the chat was open — is gone. |
 | C5 | **SHIPPED** | `DeckeChat.tsx:629-630`: `left: var(--app-sidebar-w)`, `top: calc(var(--app-header-h) + env(safe-area-inset-top))`. Panel is the content pane, per OR1. |
 | C6 | **SHIPPED (desktop)** | The FLIP is real and measured, not hardcoded: `DeckeChat.tsx:350-366` captures the previous commit's `top` in a `useLayoutEffect` and animates the delta via `--decke-drop` (`theme.css:1036`), guarded `motion-safe:` (`DeckeChat.tsx:957`). Empty state centres the column (`:689`). **On a phone it deliberately does not move** — stated at `:679-689`. Part 2 rated this PARTIAL; on desktop it is now closed. |
-| C7 | **UNVERIFIABLE HERE** | Tokens shipped and the drift cause is fixed: `--color-decke-scrim: rgb(26 23 22 / 0.68)` and `--decke-scrim-blur: 12px` (`theme.css:311-312`), consumed at `DeckeChat.tsx:583-585`. From 0.45/3px to 0.68/12px. Whether that reads as "far more blurred" **on his 4K desktop and on a real iPhone** is a looking question nobody in this repo can settle. **Settled by:** V5, plus one 4K desktop screenshot. |
+| C7 | **UNVERIFIABLE HERE** | Tokens shipped and the drift cause is fixed: `--color-decke-scrim: rgb(26 23 22 / 0.68)` and `--decke-scrim-blur: 12px` (`theme.css:311-312`), consumed at `DeckeChat.tsx:651-653`. From 0.45/3px to 0.68/12px. Whether that reads as "far more blurred" **on his 4K desktop and on a real iPhone** is a looking question nobody in this repo can settle. **Settled by:** V5, plus one 4K desktop screenshot. |
 | C8 | **SHIPPED** | Unchanged by construction, and I checked the mechanism rather than trusting it: desktop scrim stays `z-[15]` (`DeckeChat.tsx:591`) below `--z-chrome: 20`, and `.app-header` is opaque with `backdrop-filter: none` (`premium.css:294-298`), so it is not in the scrim's backdrop. |
 | C9 | **SHIPPED** | Desktop: an ordinary beside-park, `side: 'left'` against the composer landmark (`DeckeHost.tsx:433-443`). Mobile: the park box at the panel's bottom-left (`DeckeChat.tsx:1028-1047`), whose overlap with the composer is deliberate per C56. |
 | C10 | **SHIPPED** | The ordered part list (`DeckeChat.tsx:187-196`) plus update-in-place (`useDeckeChat.ts:560-573`). A row can no longer be pushed below the words it preceded. |
@@ -601,40 +631,40 @@ for those suites. I did not start a dev server.
 | C18 | **SHIPPED (client) + SHIPPED (server)** | Client: update-in-place preserves first-seen order. Server: `beats.ts` emits at real tool boundaries; `heartbeatBeat` answers the pixel-identical case directly. |
 | C19 | **SHIPPED** | Client half is fully verifiable here — the counter cannot look stopped. Server beats add the *content*. |
 | C20 | **SHIPPED (server)** | `apps/api/src/decke/beats.ts` — every exported function takes a fact and returns words about it; unknown cases return `null` rather than something plausible. X2 respected structurally. **Undeployed.** |
-| **C21** | **NOT SHIPPED — unnoticed gap** | PLAN §3 A7 ("an emotion beat when the answer arrives"). **Nothing implements it.** A grep for expression work across `apps/web/src/character/` and `apps/api/src/decke/` finds no new `express`/state beat; the only thing that happens at the first token is `decke.setOverlay('talk', 1)` (`useDeckeChat.ts:594`), which is pre-existing. §10 sequences A7 in step 2 beside A1/A2/A3/A6 — **all four of those shipped in `6967fee`; A7 alone was dropped silently**, and no commit, ruling or doc records the decision. |
-| C22 | **PARTIAL** | §6 D4's deliverable was *"he gets the number"* — a recorded decision, not a surface. The number exists in `PLAN.md:640-645` and nowhere else: **no `DECISIONS.md` entry was written** (see II.5(c)), and `README.md` §6 still lists it as "still open". Nothing was measured after Phase E either. |
+| C21 | **SHIPPED — both halves, in two commits after the audit** | Revision 1 was right that nothing implemented it, and wrong by one commit. **The answer-arrival half** landed in `12f71b3`: `decke.setState('curious', { mode: 'once' })` fired at the first text chunk (`useDeckeChat.ts:762`), `once` rather than sustained, and deliberately *not* setting `movedRef` (`:757-760`) so the turn boundary still restores `idle`. **The during-the-wait half** — C21's own words, *"he can kind of show a different emotion for a sec and then go back to thinking"* — landed in `0d64f6c` as `character/host/thinkingBeat.ts`, a pure function called at `useDeckeChat.ts:669`. It hangs on the **single chip writer** every real tool event already passes through rather than on a timer, because a timer would fire while nothing was happening, which is the fabricated status surface X2 forbids; at most one per 4 s; and **never on failure** — Crolic et al. 2022, warmth aimed at someone whose thing just broke lowers satisfaction, and a flourish beside the auto-expanded failure row competes with the one row that has to be read. Seven mutations run against it, all caught. |
+| C22 | **PARTIAL** | §6 D4's deliverable was *"he gets the number"* — a recorded decision, not a surface. II.5(c) is now closed in general (16 entries), but **none of the 16 is this one.** The only `DECISIONS.md` entry about the swap — *"Deck-E's chat model: 4.1 → 4.20, and the trade that came with it"* (`DECISIONS.md:8616`) — arrived on `main` in `209150f`, **before this branch existed**, so it records the swap and not §6 D4's deliberate deferral of it. `README.md` §6 item 2 still lists the latency as still-open with *"Measure after Phase E with `flyTo` re-tested"*, and **nothing has been measured after Phase E** — which is now the same blocked measurement as C31/C33, waiting on the same meter. |
 | C23 | **SHIPPED** | Two mechanisms: update-in-place (order no longer shifts), and `hintFrom` — *"a few real words clipped from its OWN result"* (`toolRowState.ts:79-90`) so a row reads as state, not intent. |
 | C24 | **SHIPPED** | A hand edit in `apps/web/public/models/decke/playbook.json` — `thinking` plateau `gx -1.7 -> -6.0`, `gz 1.05 -> 5.0` — recorded in a `hand_edits` array *inside the generated file*, with a WARNING that regeneration reverts it. `gaze.test.ts` asserts where the pupils end up through the real `aimPupil` at both facings, so a silent revert fails loudly. |
-| C25 | **PARTIAL** | The honest attribution is recorded (the hiccup was almost certainly his own back-gesture). The *hygiene fix* is **not shipped**: `DeckeHost.tsx:194` is still `(to) => navigate({ to })` with no `replace: true`, exactly as §6 D5 describes the defect. One line, planned, dropped. |
+| C25 | **SHIPPED — and not as one line, because one line was wrong** | `DeckeHost.tsx:226` — `navigate({ to, replace: !first })`. The unconditional `replace: true` §6 D5 asked for shipped in `12f71b3` and was **corrected in `52af8fc` within the hour**, for the reason the comment beside it had predicted: replacing every hop turns history `[A, B]` into `[A, C]`, so Back from wherever he took you lands on A and **B — the page you asked from — is unreachable by any number of presses.** The fix skipped the very page it was written to protect. The scheme now is **push the first hop of a turn, replace the rest** (`:203-204` for the per-turn ref, `:224-227` for the call), so one Back undoes him however far he walked and a five-step escort still leaves one entry. **A known gap is stated rather than papered over** (`:228-233`): a journey's `click` steps press real `<Link>`s, which push through the router's own default where this callback never runs, so a mixed `goTo`+`click` journey still accretes an entry per click. The honest attribution survives too — the original hiccup was almost certainly his own back-gesture. |
 | C26 | **SHIPPED** | Two things: `facing?: number` added to `FlyOptions` (`DeckE.ts`), and — the actual fix — the chat park stopped asking him to stand ON a point and asks him to stand BESIDE the composer (`DeckeHost.tsx:433-443`), which is the `solvePark` branch that returns a facing. `arrive.test.ts` pins it. |
 | C27 | **SHIPPED** | Same call site. `STAND_DESKTOP` survives only as the fallback when the composer landmark has not laid out (`DeckeChat.tsx:83`, `DeckeHost.tsx:444`). |
 | C28 | **N/A** | Context; produced D6/D7, both shipped. |
-| C29 | **UNVERIFIABLE HERE** | The mechanism is right and is the one OR1 demanded — **geometric, not a z-index swap**: the scrim's `top` is `calc(var(--app-header-h) + env(safe-area-inset-top))` (`DeckeChat.tsx:586`), fed by custom properties `AppShell` publishes (`AppShell.tsx:582`), so the blurred element does not extend under the header at all. **Settled by:** V5. **Residue:** PLAN §4 B2 item 3 — *"a nav tap minimises the chat deliberately"* — is **not implemented**; the header is live and a nav tap will navigate out from under an open conversation. |
+| C29 | **UNVERIFIABLE HERE** | The mechanism is right and is the one OR1 demanded — **geometric, not a z-index swap**: the scrim's `top` is `calc(var(--app-header-h) + env(safe-area-inset-top))` (`DeckeChat.tsx:654`), fed by custom properties `AppShell` publishes (`AppShell.tsx:582`), so the blurred element does not extend under the header at all. **Settled by:** V5. **Residue:** PLAN §4 B2 item 3 — *"a nav tap minimises the chat deliberately"* — is **not implemented**; the header is live and a nav tap will navigate out from under an open conversation. |
 | C30 | **SHIPPED** | `.decke-composer-card` (`theme.css:973-1004`) with `surface-secondary` plus border and shadow rather than `surface-raised`; the premium skin's recessed-well rule is defeated by counted specificity, not `!important` (`premium.css:224-243`); safe-area padding at `DeckeChat.tsx:941`. |
-| C31 | **PARTIAL (verification)** | The umbrella is addressed by E1–E8 in code. But the project's own instrument for it, **gate 22, was last measured RED (intermittent, ~half)** in `27b4527`, and **no commit after the wayfinding work re-ran it.** The pass therefore ends with its own escort gate in an unresolved state. |
+| C31 | **PARTIAL (verification) — and the instrument turned out to be the problem** | The umbrella is addressed by E1–E8 in code. The finding has since got worse in a useful way: **gate 22 was structurally incapable of passing for the behaviour it exists to demand.** It filtered wire tools to `goTo`/`click` to decide "did he move" — but a `journey` or an `escort` is ONE call whose hops run in the browser, so a perfect escort scored identically to a description. Fixed in `4f3f129`: `const MOVEMENT = ['goTo', 'click', 'journey', 'escort']` (`decke-gates.mjs:3252`). `probe.mjs` was blind twice over as well (II.5(i)). **The gate still has not been re-run.** Every escort reading on record, the RED in `27b4527` included, predates both repairs and cannot distinguish a failed escort from an unmeasurable one. |
 | C32 | **SHIPPED (server) + SHIPPED (client)** | Server: `journeySchema`, landmark-allowlist validation at *parse* time, no `wait` verb (`apps/api/src/decke/tools.ts:260-430,664`). Client: `character/host/journey.ts` — bounded conditional waits via MutationObserver (`:104-140`), `ensure` as the idempotent disclosure verb (`:259-295`), a zero-box refusal so a `display:none` sidebar link cannot be "pressed" invisibly (`:299-312`), and E6 cancellation on `isTrusted` gestures only (`:211-231`). **Undeployed**, and see II.5(e) for the mobile consequence. |
-| **C33** | **NOT SHIPPED** | §7 E7 committed to "verify after E1–E3", with no fallback if verification failed. It failed (gate 22, above) and no fallback exists: `prompt.ts` still carries only the pre-existing *"when you move, keep what you say SHORT"* — a rule scoped to `travelling` turns. There is no brevity rule for a non-`travelling` turn, which is the hole the plan itself identified. C45's countervailing boundary is likewise unrecorded. |
+| **C33** | **PARTIAL — three things landed, none of them observed working** | (1) **A prompt directive**, committed in `12f71b3`: *"A DESCRIPTION IS NOT AN ANSWER TO 'HELP ME FIND'… A turn that ends with them still on the page they started on has not answered them"* (`prompt.ts:615-620`) — this is the paragraph revision 1 caught uncommitted. (2) **An `escort` tool** (`tools.ts:691-720`, `cbd3ce0`) that takes `{ seriesSlug, setId, opener? }` and has the **browser** expand it into journey steps (`escortPlan.ts`, wired at `useDeckeChat.ts:954`, no server `execute`). `ESCORT-PLAN.md` §0–§2 is the evidence for why: an internal control group holding model, prompt, SDK and turn position constant found `goTo` (one route string) at 100% and `journey` (a compiled multi-step program) skipped 8/10, so **the barrier is construction cost, not reluctance** — and every prompt lever measured at roughly nothing because every prompt lever was aimed at "may I" when the question was "can I". (3) **The gate repair** (C31). What is still absent is exactly what revision 1 named: **no brevity rule for a non-`travelling` turn** — `prompt.ts:689` is still *"When you move, keep what you say SHORT"*, scoped to moving — and **C45's countervailing boundary is still recorded nowhere.** The design now routes the case into the travelling path instead of legislating for the other one, which is §7 E7's theory restated rather than verified. `ESCORT-PLAN.md` §2 says it in its own words: ***"BUILT, AND NOT YET MEASURED… What has NOT happened is a single real turn: the meter was exhausted."*** |
 | C34 | **SHIPPED (server)** | Better than the sitemap that was planned: an **addressing scheme** (`prompt.ts:230-263`, `ADDRESSING_LINES`) built from ids the data tools already return, plus the explicit negative that `[data-decke-nav="/series"]` does not exist at any width — confirmed by observation in a real DOM at 1440 and 393. |
-| C35 | **PARTIAL** | The **chat-open** entrance is shipped (C3). The complaint's own frames — becoming large and centred over a loading spinner *after a navigation* — are **not addressed on the path they came from**: `uiTools.ts:363-369`'s `travelAfterRoute` still forces `via: 'background'` unconditionally, which is the mechanism the brief names. The distance threshold added at `uiTools.ts:245-256` covers bare `flyTo`, not the post-`goTo` flight. The journey sequencer sidesteps it by using plain `goTo` plus plain `flyTo` steps, so escorts are fine and ordinary `goTo`-with-selector is unchanged. The brief's explicit instruction — *"re-test this after C32 lands"* — was never carried out. |
+| C35 | **PARTIAL — fix in progress at time of audit** | The **chat-open** entrance is shipped (C3). The complaint's own frames — becoming large and centred over a loading spinner *after a navigation* — are still **not addressed at `0d64f6c`**: `uiTools.ts:386`'s `travelAfterRoute` forces `via: 'background'` unconditionally, which is the mechanism the brief names, while the distance threshold at `uiTools.ts:270` covers bare `flyTo` only. Unchanged from revision 1 apart from the line numbers. **But the working tree is mid-fix**: an uncommitted `uiTools.ts` reads `via: far ? 'background' : undefined` on that same call, with a new `__tests__/hopProfile.test.ts` beside it — see II.0(e). Nothing uncommitted is counted here; re-read this row at the next commit. The brief's other instruction — *"re-test this after C32 lands"* — is still not carried out either way, and now waits on the same meter as C31/C33. |
 | C36 | **SHIPPED** | `useDeckeChat.ts:814-827` emits a row **after** `runUiTool` returns, from its real result, through the same single writer as server chips. A step that never ran emits nothing, because the emitting line is only reached by a step that ran. |
 | C37 | **SHIPPED** | The conversation column is `mx-auto max-w-[760px]` in the content pane and the composer is its foot (`DeckeChat.tsx:676-690, 939-1009`). |
 | C38 | **N/A** | Context. |
-| C39 | **PARTIAL** | The ad-hoc screen concept is untouched: `DeckeScreen.tsx` is **not in the branch diff** and its block kinds are unchanged. What landed for this complaint is the new part-list slot that lets more than one screen ride a turn (`ChatPart` `kind: 'screen'`). |
-| **C40** | **NOT SHIPPED — built, then never wired** | `chat/CardRow.tsx` (153 lines, tested by `cardRowText.test.ts`) is the row-of-thumbnails widget he asked for by name — and **nothing imports `CardRows`.** `grep -rn CardRows apps/web/src` matches only its own file and its test. The Phase A commit says the presentation components "land unwired and get wired in the next commit"; `ChatMarkdown`, `ToolRow` and `ThinkingRow` were, `CardRows` was not, and no commit mentions it again. `DeckeScreen` still renders the old `cardGrid`. |
-| C41 | **NOT SHIPPED — deliberate drop** | He hedged it himself. Part 2 asked for one sentence stating which surface owns progress, plus Q6 restored to §13; **neither happened**, and II.5(a) is the consequence arriving in code. |
+| C39 | **PARTIAL — work in progress at time of audit** | At `0d64f6c` the ad-hoc screen concept is still untouched: `DeckeScreen.tsx` is **not in the branch diff** and its block kinds are unchanged. What landed for this complaint is the new part-list slot that lets more than one screen ride a turn (`ChatPart` `kind: 'screen'`). **`DeckeScreen.tsx` is modified in the working tree** alongside a new `screenCompact.ts` — the C40 workstream — so this row and C40's move together and both are in flux. |
+| **C40** | **NOT SHIPPED — the dead code is gone; the complaint is not** | **Two different things, and they must not be confused.** *The dead-code finding* (II.5(b)) is **resolved**: `chat/CardRow.tsx` (153 lines), `chat/cardRowText.ts` and `__tests__/cardRowText.test.ts` were **deleted** in `12f71b3` — deleted, not wired — on the reasoning that `cardGrid` in `DeckeScreen` already draws real card art from catalog ids with a `dense` mode (`DeckeScreen.tsx:107-108`), and that shipping tested, unreachable code is worse than not shipping it because the tests make it look maintained. *The complaint itself* — *"present the ad-hoc screen as a compact inline widget"* — **is still open**, and deleting the widget did not close it; it removed the false signal that it had been closed. **In progress at time of audit:** an uncommitted `apps/web/src/character/host/screenCompact.ts` and a modified `DeckeScreen.tsx`. **This row is a snapshot of an unfinished thing and its outcome is not predicted here.** |
+| C41 | **NOT SHIPPED — deliberate drop, and its consequence is now closed** | He hedged it himself. Revision 1 asked for one sentence stating which surface owns progress, plus Q6 restored to §13; **neither has been written**. What *has* changed is that II.5(a) — the three-progress-surfaces hazard arriving in code as a doubled tool row — was fixed in `12f71b3` by deciding the question in the code instead: the inline part list in occurrence order is the record, and the thinking row takes no `steps` (`DeckeChat.tsx:956-971`). The decision exists; the sentence in the plan and the restored Q6 still do not. |
 | C42 | **SHIPPED (client) + SHIPPED (server)** | `chat/ApprovalCard.tsx` plus `chat/approvalCardState.ts` (779 lines, 26 pure tests, all passing here), the preview part at `api/chat.mjs:430`, and `variantSource` on the dry-run rows (`packages/agent-tools/src/resolve.ts`, classification keyed on **candidate count**, not resolution status, pinned by `resolve.test.ts`). |
 | C43 | **SHIPPED** | Provenance, not a score — OR4 honoured to the letter, including the "no numeric meter" paragraph written into `ApprovalCard.tsx:16-27` as the answer to the future temptation. **One assertion left open by name:** a non-primary pick actually moving the non-primary variant's quantity needs a real write. |
 | C44 | **N/A (directive), delivered** | `IDEAS.md`, 22 use cases re-verified against the real tool surface, three cost claims corrected, three ideas rejected. A menu, not a build, as asked. |
 | C45 | **N/A** | Context — and its boundary is still not carried anywhere, which is half of C33's gap. |
-| C46 | **PARTIAL (mechanism, not complaint)** | The scroll lock **stays** (`DeckeChat.tsx:405-410`), per §11c — a ruling made by the planner, **not by him**, and never put to him. What was fixed is the transcript: `pointer-events-auto` moved onto the scroller (`:717-722`) and the unconditional `scrollTop = scrollHeight` gained a stick guard (`:472-504`). If his complaint was literally "the page behind will not scroll", it is deliberately unmet; if it was "I drag and nothing happens", it is met. |
-| C47 | **UNVERIFIABLE HERE** | Fixed *by construction* rather than by padding: the panel starts below the app header, so the close button cannot be in the status bar (`DeckeChat.tsx:630`, `:650-660`, with an explicit note that the row takes no second safe-area inset). **Settled by:** V5 on an installed PWA. |
+| C46 | **PARTIAL (mechanism, not complaint)** | Unchanged in substance; line numbers refreshed. The scroll lock **stays** (`DeckeChat.tsx:424-436`, `lockScroll`/`unlockScroll` from the `Sheet` primitive), per §11c — a ruling made by the planner, **not by him**, and still never put to him. What was fixed is the transcript: `pointer-events-auto` on the scroller and a stick guard on the unconditional `scrollTop = scrollHeight` (`:531-558`). If his complaint was literally "the page behind will not scroll", it is deliberately unmet; if it was "I drag and nothing happens", it is met. |
+| C47 | **UNVERIFIABLE HERE** | Fixed *by construction* rather than by padding: the panel starts below the app header, so the close button cannot be in the status bar (`DeckeChat.tsx:717`, with an explicit note that the row takes no second safe-area inset). **Settled by:** V5 on an installed PWA. |
 | C48 | **SHIPPED** | Three separate causes, all fixed: `mt-auto` on the list rather than `justify-end` on the scroller (`DeckeChat.tsx:773`, with the `scrollHeight === clientHeight` trap written down at `:692-699`), pointer events, and the stick guard. |
 | C49 | **N/A** | Context. CDP safe-area emulation exists (V3) and is not a substitute for V5. |
 | C50 | **SHIPPED** | Composer card, transcript fade **mask** (`theme.css:1019-1023` — a mask rather than a gradient, because what is behind it is a live blurred page), and the approval block as its own card with a gap (`ApprovalCard.tsx:291`). |
-| **C51** | **NOT SHIPPED** | Part 2 predicted this and the code confirms it. `§4 B5` put a **card around** the input; the input itself is unchanged — `DeckeChat.tsx:962-969` is a single-line `<input>` at a fixed `h-[40px]`. **No** multiline auto-grow, **no** control row inside the card, no resting/focus/typing states beyond a border colour, and the string "Prompt Bar" appears nowhere in the branch. His words were *"I don't love the design of the input at all"*; the input is the one thing that did not change. |
-| C52 | **PARTIAL** | "No model picker" is satisfied (there never was one). **The slot was not built** — there is no `+` and no attach affordance anywhere in the composer (`DeckeChat.tsx:943-1008` is input plus one send/stop button). `README.md` §5 records this as *"deferred, slot built but unwired"*; the code does not match that claim. |
+| C51 | **PARTIAL — the control itself changed, the control *row* did not** | `90c0f3a`, the commit immediately after the audit, is titled *"The input itself, which was the one thing the restyle had not touched"*. **What shipped:** the single-line `<input>` at a fixed `h-[40px]` is now a `<textarea>` (`DeckeChat.tsx:1092-1119`) that **auto-grows** — height measured from its own `scrollHeight` in a `useLayoutEffect` so it lands before paint rather than showing one frame at the old height per keystroke (`:385-408`), 1 row to 6 then scrolls, bounded because his own height is measured from this card; **Enter sends, Shift+Enter breaks the line** (`:1096-1101`); a **focus state on the card rather than the field** (`theme.css:998-1005` — `:focus-within` moves the border and adds a ring, and the inner control's own ring is suppressed so the reader sees one control, not two nested boxes); and a placeholder shortened on a measurement, not a hunch — 129 px of a 393 px phone is legitimately him, leaving the field 174 px against the old string's 190 (`336b398`, `:1109`). **What did not ship:** there is still **no control row inside the card** — `:1120-1157` is textarea plus one send/stop button and nothing else — no `+`, no attach, and Q1's `@`-mentions / `/`-commands reading is still neither confirmed nor closed. The string "Prompt Bar" still appears nowhere in the branch. So the sentence he actually said — *"I don't love the design of the input at all"* — is answered; the component he named as the reference is still only half-mined. |
+| C52 | **PARTIAL** | Unchanged. "No model picker" is satisfied (there never was one). **The slot is still not built** — no `+` and no attach affordance anywhere in the composer; `DeckeChat.tsx:1120-1157` is the textarea plus one send/stop button, and the `<Icon>` inventory in the whole panel is `chevron-down`, `close` and `chevron-right`. `README.md` §5 still records this as *"deferred, slot built but unwired"*; the code still does not match that claim. |
 | C53 | **N/A** | Directive about process. |
-| **C54** | **NOT SHIPPED** | Ships or falls with C21 — OR3's recovered request was to be implemented *as part of the same expression work*. There is none. |
+| C54 | **SHIPPED** | OR3's recovered request is the thinking→answering transition, and that is exactly where the beat went: `decke.setState('curious', { mode: 'once' })` at the first text chunk (`useDeckeChat.ts:762`, `12f71b3`). The choice is argued in place (`:734-761`): `once` because this is punctuation on an event and not a mood to be left holding, and `curious` rather than `happy` because *"a character who is pleased about a timeout is the failure this pass spent its time on."* |
 | C55 | **N/A** | Context. |
 | C56 | **SHIPPED** | Two halves, and the second is the one that would have quietly broken it: the park box is the panel's bottom-left corner (`DeckeChat.tsx:1028-1047`), and the keep-out **bottom band is zero while the chat is open** (`DeckeHost.tsx:754`) precisely so a composer-sized band cannot shove him off the placement he asked for by name. |
 | C57 | **N/A** | Context. |
@@ -644,12 +674,26 @@ for those suites. I did not start a dev server.
 
 ### C-column totals (implementation)
 
+*Recounted row by row at `0d64f6c`. Revision 1's line read `SHIPPED 29 · server 6
+· PARTIAL 8 · NOT SHIPPED 6 · UNVERIFIABLE 3 · N/A 8`; it summed to 60 but its
+N/A figure was 8 against 12 actual N/A rows, with the difference absorbed into
+SHIPPED. The line below is counted, not carried forward.*
+
 SHIPPED **29** · SHIPPED (server-only) **6** · PARTIAL **8** ·
-NOT SHIPPED **6** · UNVERIFIABLE HERE **3** · N/A **8**
+NOT SHIPPED **2** · UNVERIFIABLE HERE **3** · N/A **12**
 
 Server-only rows (code read, unit-tested, **not exercised by the running app**):
 C17, C20, C32, C34, and the server halves of C18 and C42.
-NOT SHIPPED: **C21, C33, C40, C51, C54** are gaps; **C41** is a sanctioned drop.
+NOT SHIPPED: **C40** is a live gap with work in flight; **C41** is a sanctioned
+drop.
+PARTIAL: C22, C31, C33, C35, C39, C46, C51, C52 — of which **C31, C33 and C22
+are all blocked on the same thing**, a real turn against a deployed backend with
+meter left.
+**Closed since revision 1:** C21 and C54 (the emotion beats, `12f71b3` +
+`0d64f6c`) and C25 (`replace`, `12f71b3` + `52af8fc`) moved NOT SHIPPED/PARTIAL
+→ SHIPPED. C33 and C51 moved NOT SHIPPED → PARTIAL. C40's *dead-code* half is
+resolved by deletion; its *complaint* half is not, and the row keeps them
+apart.
 
 ---
 
@@ -664,22 +708,29 @@ NOT SHIPPED: **C21, C33, C40, C51, C54** are gaps; **C41** is a sanctioned drop.
 | D5 | **NOT SHIPPED — owner ruling** | Out of scope (`README.md` §5). **Note:** `DeckeHost.tsx:25` still claims *"Conversation state is persisted for that"*, and no persistence exists anywhere — a grep for `sessionStorage`/`localStorage` over the chat surfaces is empty. Pre-existing inaccuracy, not introduced here, but it is a false comment sitting directly on the defect it describes. |
 | D6 | **SHIPPED** | The missing **vertical** clamp: `decke.setKeepOut({top, bottom})` (`DeckeHost.tsx:630-633`), measured from real elements sized by the same custom properties the panel uses (`:740-756`) — so header height, notch and sidebar collapse are all accounted for without this file knowing any of those numbers. Ten new geometry tests in `keepOut.test.ts`, each proved failable by mutation, including a straw-man control. |
 | D7 | **SHIPPED** | The closed-state bottom band is `calc(50px + env(safe-area-inset-bottom))` (`DeckeHost.tsx:754`) — the PWA install pill. |
-| D8 | **NOT SHIPPED — unnoticed** | No fix, and — the part Part 2 asked for explicitly — **no V4 assertion was added either**: `grep -rn "upright\|tilt\|tumbl" scripts/` is empty. The `via: 'background'` distance threshold (`uiTools.ts:245-256`) plausibly dissolves it for short hops, exactly as the brief predicted, but nobody has looked and nothing will tell them. |
+| D8 | **NOT SHIPPED — still unnoticed** | Re-checked at `0d64f6c` and unchanged. No fix, and **no V4 assertion was added either**: `grep -rn "upright\|tilt\|tumbl" scripts/` is still empty. The `via: 'background'` distance threshold (`uiTools.ts:270`) plausibly dissolves it for short hops, exactly as the brief predicted, but nobody has looked and nothing will tell them. The C35 work in flight (II.0(e)) would extend that threshold to the post-`goTo` flight, which is the other half of the same mechanism — so the case for the one-line assertion gets *stronger*, not weaker, and it is still not written. |
 | D9 | **N/A** | Investigated and dismissed in the brief. |
 | D10 | **SHIPPED, and the open design question was answered** | Part 2 said the brief's fork — one hoisted shared lazy boundary versus a smaller inline subset — was never chosen. The implementation chose a **third** and stated it: one shared lazy boundary whose `Suspense` fallback is the raw text with `whitespace-pre-wrap` (`ChatMarkdown.tsx:18-26, 49`), so the worst case is "no worse than before" rather than a 280px bubble that measures at zero height and gets placed there. Wired at `DeckeBubble.tsx:145`. |
 | D11 | **SHIPPED** | Same keep-out mechanism. It is a **clamp, not a veto** (`DeckeHost.tsx:614-618`), which is what keeps "must not cover the header" and "must be able to point at a nav item" from contradicting each other — and the clamp applies to *placements* only, never to the per-frame scroll track, or the off-screen beacon would have become unreachable dead code. |
 | D12 | **SHIPPED** | Tap-and-wait per OR2, and the three consequences are each handled: the chip does not unmount at open (`DeckeHost.tsx:785`), it rises to `z-[26]` (`DeckeButton.tsx:164`), and a failed load says so and offers the way back (`DeckeButton.tsx:126-141`, `theme.css:880-895`). Plus the defect the pass created and caught: a question typed before he arrives is now **held and shown** rather than evaporating (`useDeckeChat.ts:291-321, 425-439`), with a 45s ceiling. |
-| D13 | **PARTIAL** | **New controls: genuinely good, checked one by one rather than assumed.** `ToolRow` — `aria-expanded`/`aria-controls` over a real region, an always-mounted live region so the failure announcement is not missed (`:119-121`), a retry button whose label names the tool (`:156`). `ThinkingRow` — `role="status" aria-live="polite" aria-atomic` on the label only, with the 2 Hz timer deliberately outside it and an `sr-only` prose duration (`:125-128`). `ApprovalCard` — every removal is a labelled `aria-pressed` button naming the card (`:127`); pickers are a `role="radiogroup"` with an accessible name (`:223-224`). Empty-state openers are real buttons with visible focus rings (`DeckeChat.tsx:753-767`). **What is still missing, all three of them pre-existing:** (1) **the transcript is still not a live region** — no `aria-live` anywhere in `DeckeChat.tsx`, so the minimised bubble announces and the main surface does not; (2) **`role="dialog" aria-modal="true"` (`DeckeChat.tsx:609-611`) with no focus trap and no focus restore** — focus is pushed to the input on open (`:422`) and nothing constrains or returns it, and the panel is `pointer-events-none` so the page behind is genuinely still reachable by Tab: the `aria-modal` claim is false; (3) the `role="radio"` buttons are all individually tabbable with no arrow-key roving, which is not the ARIA radiogroup pattern. |
+| D13 | **PARTIAL** | **New controls: genuinely good, checked one by one rather than assumed.** `ToolRow` — `aria-expanded`/`aria-controls` over a real region, an always-mounted live region so the failure announcement is not missed (`:119-121`), a retry button whose label names the tool (`:156`). `ThinkingRow` — `role="status" aria-live="polite" aria-atomic` on the label only, with the 2 Hz timer deliberately outside it and an `sr-only` prose duration (`:125-128`). `ApprovalCard` — every removal is a labelled `aria-pressed` button naming the card (`:127`); pickers are a `role="radiogroup"` with an accessible name (`:223-224`). Empty-state openers are real buttons with visible focus rings (`DeckeChat.tsx:753-767`). **Of the three still-missing items, one is closed and it was closed the right way round.** (2) **`aria-modal` is gone**, and `35ce62a` argues — correctly — that *removing it was the fix and a focus trap would have been the wrong one*: `aria-modal` asserts everything outside is inert, which stopped being true the moment OR1 ruled that the header and full-height sidebar stay sharp **and usable**. Trapping focus would have implemented the lie instead of removing it. The reasoning is written into the markup at `DeckeChat.tsx:677-691`, and the commit records that the sidebar was checked as genuinely focusable with the panel open — which is what makes the attribute wrong rather than merely redundant. **Focus restore did land** (`:446-475`), together with the measurement that caught the naive version: the launcher unmounts once he has arrived, so the opening element is usually *gone* by close and focusing a detached node is a silent no-op — the fallback is the remounted launcher, after a frame. **Still open:** (1) **the transcript is still not a live region** — `grep -rn "aria-live" apps/web/src/character/host/` matches `ThinkingRow.tsx:150`, `ToolRow.tsx:119` and `DeckeBubble.tsx:113-114` and **nothing in `DeckeChat.tsx`**, so the minimised bubble announces and the main surface still does not. ***In progress at time of audit:*** *by the end of this revision `git status` carried a modified `DeckeChat.tsx` and a new `__tests__/chatAccessibility.test.ts`, which is very likely this. Nothing uncommitted is counted here — re-read this item at the next commit.* (3) the `role="radio"` buttons (`ApprovalCard.tsx:223,233`) are still all individually tabbable with no arrow-key roving — no `onKeyDown` anywhere in the file — which is still not the ARIA radiogroup pattern. |
 | D14 | **SHIPPED — and the plan was backwards about it** | Part 2 flagged that §3 A6 promised the fix while forbidding `GAZE_GAIN`/`PUPIL_ROAM`. The implementation resolved it without touching either: the pupil sitting at the clamp is the **baseline at this staging** (the camera is 45.6° off each eye's axis where the eye saturates at 24.2°), so thinking could not make it worse, and a gaze that genuinely reads as "away" is one that comes **off** the clamp. A6 done properly *is* the D14 fix. Recorded in `playbook.json`'s `hand_edits.why`. |
 | D15 | **SHIPPED** | Dissolved by the layout change rather than fixed on its own — the panel starts below the header at every width. Claimed looked-at at 1440 and 1100 (the reported width). |
 | D16 | **NOT SHIPPED** | Out of scope, correctly (`§12`). |
 
 ### D-column totals (implementation)
 
-SHIPPED **10** · PARTIAL **1** (D13) · NOT SHIPPED **4** — of which D5 and D16
-are rulings, **D8 is an unnoticed gap**, and D9 is not actionable · N/A **1**.
+*Recounted row by row at `0d64f6c`. Revision 1's line summed to 16 but put D9 in
+the NOT SHIPPED bucket while also describing it as not actionable; D9's row says
+**N/A**, so it is counted there.*
 
-D1 and D2 each have a server half that is undeployed (II.0(a)).
+SHIPPED **11** · PARTIAL **1** (D13) · NOT SHIPPED **3** — of which D5 and D16
+are rulings and **D8 is an unnoticed gap** · N/A **1** (D9).
+
+**No D row changed status this revision.** D13's row narrowed: two of its three
+open items are now one, `aria-modal` having been fixed by removal (`35ce62a`).
+D1 and D2 each have a server half that is undeployed (II.0(a)) — and D2 gained
+a failure mode nobody had seen, see II.5(i).
 
 ---
 
@@ -691,13 +742,30 @@ D1 and D2 each have a server half that is undeployed (II.0(a)).
 | **X2 — truthfulness** | **SHIPPED** | Movement rows are emitted after the tool returns, from its real result (`useDeckeChat.ts:814`); beats return `null` rather than something plausible; `ApprovalCard` has no prop through which model prose can reach the dialog. |
 | **X3 — approval semantics** | **SHIPPED** | The prompt change (`prompt.ts:536-543`) replaces "use the primary and say which you used" with "call the tool anyway", keeping the sentence whose absence took writes from 0/15 to 21/30 and touching neither protected string. The reason it *had* to change is sound: under the new card that row is not written unless picked, so the old instruction would have him narrate a printing in the same turn the dialog asks about it. |
 | **X4 — widen the audit first** | **SHIPPED** | Its own commit (`325f01a`), before any marking, and the detector was itself pinned by fixtures. Verified failable. |
-| **X5 — contracts** | **PARTIAL** | B12 honoured (QA account). B11 not applicable (no new env var). **CI wiring honoured** — `test:variants` got its own `ci.yml` step and `test:decke` was widened to the new `chat/__tests__` directory. **Docs contract broken** — see II.5(c). |
+| **X5 — contracts** | **SHIPPED** *(was PARTIAL)* | B12 honoured (QA account). B11 not applicable (no new env var). **CI wiring honoured** — `test:variants` got its own `ci.yml` step and `test:decke` was widened to the new `chat/__tests__` directory. **The docs contract is now honoured too**: `git diff main..HEAD -- DECISIONS.md` adds **16 entries, +345 lines**, and `ARCHITECTURE.md` and `SECURITY.md` were both revised in `12f71b3`. See II.5(c) for what is covered and the two things that still are not. |
 
 ---
 
 ## II.5 Findings the row tables do not carry
 
 ### (a) Every tool row is rendered **twice** while a turn is busy — and a failed one is visible twice
+
+> **CLOSED in `12f71b3`, the commit that carried this file.** `ThinkingRow` is
+> now handed **no `steps` at all**, and the removal is argued in place as a fix
+> rather than an omission (`DeckeChat.tsx:956-971`): the drawer was designed
+> before the ordered part list, for a transcript that had nowhere else to put a
+> row, and *"a lookup that happened between two sentences belongs between them,
+> not collapsed inside a spinner."* `grep -rn "steps={" apps/web/src/character/host/`
+> returns nothing. The call site is `<ThinkingRow startedAt={turnStartedAt}
+> labels={liveLabels(m)} />` (`:984`) — labels, not rows. The commit records it
+> as verified mid-turn, which is the only state the bug existed in, with the
+> mid-turn and settled transcripts both photographed. **This also settles, in
+> code, the question C41/Q6 left open**: occurrence order in the inline list is
+> the record, and the thinking row is a status line rather than a third
+> rendering of the same facts.
+
+The finding as it stood, kept because the reasoning is what makes the fix
+legible:
 
 `DeckeChat.tsx:825-831` renders each `kind: 'tool'` part as an inline `ToolRow`.
 `DeckeChat.tsx:856-875` then renders, on the same `<li>`, a `ThinkingRow` whose
@@ -723,27 +791,52 @@ inline rows are the record.
 
 ### (b) `CardRows` is dead code
 
-`chat/CardRow.tsx` and `chat/cardRowText.ts` are complete, documented and
-tested, and nothing renders them. See C40. `messageIsEmpty`
-(`DeckeChat.tsx:219`) is likewise exported and never called.
+> **CLOSED in `12f71b3` — by deletion, not by wiring.** `chat/CardRow.tsx` (153
+> lines), `chat/cardRowText.ts` and `__tests__/cardRowText.test.ts` are gone.
+> The reasoning: `cardGrid` in `DeckeScreen` already draws real card art from
+> catalog ids with a `dense` mode (`DeckeScreen.tsx:107-108`), and *"shipping
+> tested, unreachable code is worse than not shipping it: the tests make it look
+> maintained and the next reader has to work out that it is not."* **This closes
+> the dead-code finding and does not close C40** — see that row, which now keeps
+> the two apart explicitly.
+
+`messageIsEmpty` (`DeckeChat.tsx:219` at `12f71b3`) is still exported and never
+called; the smaller half of this finding stands.
 
 ### (c) Zero `DECISIONS.md` entries for eleven commits of product work
 
-`git diff main...decke-experience-pass -- DECISIONS.md` adds **one** entry — for
-the visual harness, in `34d3914`, before any product code was touched. `PLAN.md`
-§11 names **eleven** decisions to record; `README.md` §2 lists *"`DECISIONS.md`
-and the wiki Decision-Log together, same sitting"* as a non-negotiable. None of
-the eleven were written. Part 2 already flagged §6.3 and §6.10 as "addressed,
-NOT recorded"; the true figure is that **nothing** from this pass is recorded,
-including the two entries that restore reversed decisions (§11.1, §11.2) and
-the semantic change to a live write path that `README.md` §7 calls out as easy
-to get wrong.
+> **CLOSED, and then some.** `git diff main..HEAD -- DECISIONS.md` now adds
+> **16 entries, +345 lines** — thirteen in `12f71b3`, one in `cbd3ce0` (the
+> `escort` macro), two in `0d64f6c` (dismissal, and C21's thinking beat). They
+> cover A1 and the rip-watching removal (§11.1's restorations), the geometric
+> scrim (§11.2), the ordered part list, failure as the deliberate exception to a
+> quiet transcript, closing-ends-the-turn, the journey contract (§11.3), the
+> keep-out region (§11.9), reduced motion in the host (§11.11), the approval
+> card's provenance segmentation, and the markdown URL/image allowlist.
+>
+> **Two residues, stated so they are not assumed closed with the rest.**
+> (i) The **history scheme** — push the first hop, replace the rest — has **no
+> entry**, and it is a live navigation semantic that was got backwards once
+> already inside a single hour (`12f71b3` → `52af8fc`); a future reader who
+> "simplifies" it to an unconditional `replace` reintroduces the exact bug.
+> (ii) §6.3 and §6.10, which revision 1 flagged as "addressed, NOT recorded",
+> are **still not recorded**, and neither is §6.8 (see (f)).
 
 ### (d) `COVERAGE.md` was never updated during the pass
 
 `README.md` §8 makes it a per-phase requirement, in the same words this audit
 was commissioned in: *"keep it true, or '60 complaints' becomes a number nobody
 can check."* Every phase declared itself done without touching this file.
+
+> **Partly remedied, and the remedy shows the cost of the gap.** This file has
+> now been updated twice — Part II at `12f71b3`, revision 2 at `0d64f6c` — but
+> both times *after* the work, retrospectively, and the second pass found that
+> **five rows had been wrong for sixteen commits** (C21, C25, C33, C51, C54)
+> and that a sixth (C40) had been describing a file that no longer existed. One
+> of those, C54, was noticed independently by the `0d64f6c` commit message,
+> which records: *"COVERAGE.md records it as NOT SHIPPED because the audit
+> predates the commit."* That is the map costing a reader time in exactly the
+> way §8 exists to prevent. The habit is still not per-phase.
 
 ### (e) The escort degrades on phones — the platform he complained about most
 
@@ -791,7 +884,59 @@ direction this project's audit habit exists to catch.
   "Try again" on one failed row re-asks the whole question.
 - **PLAN §8b H4 (concurrency) is partly undefined still** — double-send is
   guarded (`DeckeChat.tsx:510`), an abandoned approval settles as a denial, but
-  two tabs are unaddressed.
+  two tabs are unaddressed. *Partly narrowed since*: `52af8fc` fixed two real
+  concurrency defects inside one tab — a question queued during wake-up that
+  fired **after the reader closed the chat** (a turn can navigate, so that is
+  the page moving under someone who has just said they are done), and
+  `settleAll` mapping two held writes to one verdict, which committed a
+  correction for the first call and then denied both with the first call's
+  narrative. Two tabs remain unaddressed.
+
+Re-checked at `0d64f6c`: the first two residues above are unchanged. `stop` is
+still `useCallback(() => abortRef.current?.abort(), [])` (`useDeckeChat.ts:1099`)
+with no transcript note, against `close()`'s note at `:1154`; `retry` still
+re-sends the last user message and ignores the row id (`:332-337`).
+
+### (i) The instruments were lying, in four separate ways, and all four are fixed
+
+Discovered after revision 1 and material to every measurement claim in this
+file.
+
+- **A rejected tool call left no trace anywhere.** The AI SDK's default is
+  literally `onError = () => "An error occurred."` — sound for a browser,
+  terrible when the same text is what a rejected **tool call** reports back to
+  the model. On a real gate run `showScreen` failed schema validation **five
+  times in one turn** and the model retried each time trimming the panel's
+  *title* while the actual fault — a text block over the 280-character cap —
+  sat untouched in every attempt. Nothing in the repo logged it: `grep -rn
+  "tool-input-error" apps/web/src` returned nothing at all. Fixed in `af212cc`
+  in all three directions — the model is told the validation complaint, the
+  server writes it down, and **the reader sees a failed row** rather than the
+  call being dropped on the floor (`useDeckeChat.ts:1393-1400`). This is D2's
+  own failure class arriving by a route D2 did not cover, and it *probably
+  explains gate 23's* twelve-tool-calls-zero-text turn.
+- **Gate 22 could not pass for the behaviour it demanded** — see C31. Fixed in
+  `4f3f129`.
+- **`probe.mjs` was blind twice.** It recognised only `tool-input-available`, so
+  a turn where he **attempted** `journey` and was refused by schema validation
+  was byte-identical to one where he never tried; and MSYS path conversion
+  turned `--route /decks` into `C:/Program Files/Git/decks` before node saw it,
+  so the probe was asking the model to escort a reader standing on a route this
+  app does not have — **and the run still completed, still streamed, and still
+  produced a number.** Both fixed (`ESCORT-PLAN.md` §1), the second by
+  *refusing* a non-route rather than un-mangling it. **What that invalidates:**
+  the 2/10 escort baseline survives (measured through a real browser via the
+  gates, which never touch the probe); **the cheap prompt-tweak comparisons do
+  not.**
+- **And a fourth, in the visual harness.** `6c83ab3`: the chat-open scene was
+  photographing him *during his boot animation*, and a still read from one of
+  those frames nearly sent someone to "fix" a thinking-gaze regression that did
+  not exist. Scenes now wait for him to leave `boot` and **say so in the output
+  when they gave up waiting**, so an unrepresentative still announces itself
+  instead of being reasoned about.
+
+The common shape is the one this whole pass is about: **a failure nobody can
+see.** Three of the four were in the tools built to detect failures.
 
 ---
 
@@ -807,43 +952,60 @@ which Part 2 called the one undefended drop, shipped with a gate.** Two of Part
 question was answered. X1 — the constraint most likely to be quietly skipped —
 holds under a per-animation audit.
 
-**What it is not is finished.** Ranked worst first, by what I judge actually
-matters to the person who recorded the critique:
+**What it is not is finished.** *Re-ranked at `0d64f6c`. Revision 1's list had
+twelve items; **six are closed** — old #2 (C21+C54), #3 (the double-rendered
+row), #6 (`DECISIONS.md`), #9 (`replace`), and the `aria-modal` half of #7 and
+the dead-code half of #4 — and one is closed in code without being written down
+(the C41/Q6 question, old #12). What remains has changed character: revision 1's
+list was mostly **unbuilt things**, and this one is mostly **built things nobody
+has watched run.***
 
-1. **C51 — the input.** He said, in as many words, that he did not love the
-   design of the input, named the reference component, and the brief gave it its
-   largest section. The composer got a card *around* a 40px single-line field
-   that is otherwise unchanged. Of everything here this is the most likely to
-   make him say "you did not do the one I asked for".
-2. **C21 + C54 — the emotion beat.** Two complaints, one of them his own
-   recovered lost request (OR3), sequenced beside four items that all shipped in
-   one commit, and dropped with no record anywhere. Small work; it is the
-   difference between a character and a spinner.
-3. **The double-rendered tool row (II.5(a)).** A visible defect on the failure
-   surface this pass exists to protect, introduced by this pass, catchable only
-   by looking.
-4. **C40 — the card rows.** A named feature ask, fully built and tested, wired
-   to nothing. It reads as delivered in the commit log and is invisible in the
-   product.
-5. **C33 and gate 22.** The pass ends with its own escort-quality gate last
-   observed red, never re-run after the work meant to fix it, and with no
-   committed fallback if it stays red.
-6. **No `DECISIONS.md` entries (II.5(c)).** Eleven planned, zero written,
-   including two that restore reversed decisions and one semantic change to a
-   live write path. The item most likely to cost a future session real time.
-7. **D13's `aria-modal` claim.** The new controls are genuinely well done; the
-   container still claims a modality it does not have, and the transcript still
-   does not announce.
-8. **C52 — the `+` slot** that `README.md` §5 says was built, and was not.
-9. **C25 — `replace: true`.** One line, planned, dropped; it matters more now
-   that Phase E makes hops routine.
-10. **C35 and D8 — the flight profile.** Both were to be *re-looked at* after
-    the navigation work. Neither was, and D8 did not get even the one-line V4
-    assertion Part 2 asked for.
-11. **C46's ruling was never put to him**, and it is a planner's ruling on a
-    blocker-severity complaint.
-12. **C39 — ad-hoc screens untouched**, and the C41/Q6 question still closed by
-    omission — which is what II.5(a) is.
+Ranked worst first, by what I judge actually matters to the person who recorded
+the critique:
+
+1. **The escort is unmeasured, and so is everything near it (C31, C33, C22).**
+   `escort` shipped, the gate that judges it shipped a repair, the probe that
+   measures it shipped two repairs — and **not one real turn has been run
+   through any of them.** `ESCORT-PLAN.md` §2 says so in bold and §6b lays out
+   the ~50-turn, ~58¢ experiment that settles it, blocked only on the QA
+   account's daily meter. Everything on record about escort behaviour predates
+   the instrument fixes and cannot be trusted in either direction. This is now
+   the single largest unknown in the pass and it is a *cheap* one — which is
+   what makes it the top item rather than the fifth.
+2. **C51 — the input, half-done.** The control he complained about is genuinely
+   fixed: a real auto-growing textarea with Enter/Shift+Enter and a focus state
+   on the card. What is still missing is the **control row inside the card** —
+   there is no `+`, no attach, and Q1's `@`/`/` reading is still unanswered — so
+   the Prompt Bar, the brief's single largest component study, is still only
+   half-mined. Down from #1 because the sentence he actually said is answered.
+3. **C40 — the compact inline widget.** The named feature ask is still not in
+   the product. What changed is that it no longer *looks* delivered: the
+   unwired `CardRows` was deleted rather than left to imply otherwise. **Work
+   is in flight at time of audit** (`screenCompact.ts`), so this rank is a
+   snapshot, not a prediction.
+4. **The mobile half is still unverified (C7, C29, C47).** Correctly mechanised,
+   never seen. Unchanged since revision 1 and unchangeable without V5.
+5. **C39 — ad-hoc screens**, still untouched at `0d64f6c` and moving with C40.
+6. **D13's remaining two.** The container no longer lies — `aria-modal` was
+   removed with the argument for why a focus trap would have been the wrong fix,
+   and focus restore landed. Still open: **the transcript does not announce**,
+   and the radiogroup has no arrow-key roving.
+7. **C52 — the `+` slot** that `README.md` §5 still says was built, and was not.
+   Now the same gap as C51's control row, and they should be fixed together.
+8. **C35 and D8 — the flight profile.** C35's fix is **in the working tree**
+   (II.0(e)); D8 still has not received even the one-line V4 assertion revision
+   1 asked for, and the C35 work makes that assertion *more* worth having.
+9. **The three `DECISIONS.md` residues (II.5(c)).** Sixteen entries written, and
+   the history scheme — got backwards once already, inside an hour — is not one
+   of them. §6.3, §6.8 and §6.10 likewise.
+10. **C46's ruling was never put to him**, and it is a planner's ruling on a
+    blocker-severity complaint. Unchanged.
+11. **C41/Q6 is settled in code but not on paper.** `12f71b3` decided which
+    surface owns progress by making the inline list the record; PLAN §5 C3 /
+    §7 E5 still do not say so, and Q6 is still missing from §13.
+12. **The map itself (II.5(d)).** Five rows were wrong for sixteen commits and
+    one commit message had to correct this file in passing. Updating it per
+    phase is cheaper than auditing it per quarter.
 
 **On the mobile half, stated plainly:** C7, C29 and C47 are correctly
 *mechanised* — the geometric scrim offset is the right fix, and I checked that
@@ -854,9 +1016,55 @@ nothing else will do.
 **On the server half, stated plainly:** `partial` phases, every progress beat,
 the approval preview part, the `journey` tool, the step-budget message and all
 prompt changes are **not exercised by the running app**, because `pnpm dev`
-proxies to production. Their evidence is 157 passing unit tests — good evidence
-about logic, none about the wire. The Phase E commit's "five real journeys
-against the live backend" is the one claim in this branch I could neither
-confirm nor refute: there is no gate, no scene, no artifact and no recorded
-`--base`. **A deployed preview plus a re-run of gates 5, 12 and 22 would settle
-the whole server half in one sitting**, and would also close item 5 above.
+proxies to production (`vite.config.ts:78,104` — unchanged at `0d64f6c`). Their
+evidence is passing unit tests — good evidence about logic, none about the wire.
+**Two things have been added to that list since revision 1** and neither is
+exercised either: the `escort` tool's schema and description (`tools.ts:691`),
+and the C33 prompt paragraph (`prompt.ts:615-620`). The `escort` *expansion*
+runs in the browser (`escortPlan.ts`), so it is unit-tested client code that no
+model has yet been able to reach.
+
+The Phase E commit's "five real journeys against the live backend" is the one
+claim in this branch I could neither confirm nor refute: there is no gate, no
+scene, no artifact and no recorded `--base`. **A deployed preview plus a re-run
+of gates 5, 12 and 22 would settle the whole server half in one sitting**, and
+would also close item 1 above — which is now the top of the list rather than the
+fifth, because the escort work landed on top of it and the instruments that
+would judge it were themselves found broken (II.5(i)).
+
+---
+
+## II.7 Research-surfaced open items — **not from the brief**
+
+*Added in revision 2, and deliberately kept out of the C/D tables. Everything
+below comes from `RESEARCH-UX.md` — external evidence gathered **after** the
+implementation pass and read against the code that now exists — not from the
+sixty complaints. **These are not C or D rows and must never be counted as
+such.** He did not ask for any of them; some of them argue against things he
+did ask for. They are listed so a future reader can tell "the owner complained
+about this" apart from "the literature says this is a risk", which is a
+distinction the C/D tables would destroy.*
+
+*`RESEARCH-UX.md` carries two caveats from the researcher who assembled it, and
+they travel with every row here: several character/motion citations came from
+subagent reports rather than direct fetches, so **spot-check any of them before
+they go anywhere public**; and the session exhausted its search budget partway
+through, so some items are flagged unretrievable rather than resolved.*
+
+| # | Open item | The evidence | Standing against what shipped |
+|---|---|---|---|
+| **R1** | **Idle motion, not the entrance, is the risk.** Default to visually still; move only when something real changed. | Rickenberg & Reeves CHI 2000 — a *monitoring* character produced higher anxiety and lower task performance, strongest for external-locus users; Pratt et al. 2010 — motion onset captures attention involuntarily; Burke et al. TOCHI 2005 — animated page elements raise workload **even when successfully ignored**. | **Partly acted on already, by good instinct rather than by this research.** `decke-bob` is `motion-safe:` (`DeckeButton.tsx:183`), and `0d64f6c` added a per-device **dismissal** — the stronger form of the same argument (Snapchat's My AI: 3.05→1.67 stars, one-star share 35%→75%, on being *pinned* rather than on answer quality). Not addressed: he still bobs while someone is reading. |
+| **R2** | **The thinking row's *reasoning content* may be actively harmful**, and a single "Thinking…" row is the wrong shape regardless. | Kim et al. CHI 2025 (N=308, pre-registered), agreement with **wrong** answers: neither 78.2%, **explanation-only 82.8% — worse than showing nothing**, sources-only 68.2% (best). Converging at N=752 and N=559; Bansal et al. CHI 2021 (N=1,626) — explanations raise acceptance *regardless of correctness*. The favoured shape is **named steps**, each linked to what it touched (Buell & Norton 2011: itemised visible work beat a progress bar at **every** interval). | **In tension with C12/C14, which he asked for.** What shipped is nearer the good answer than the bad one: `ThinkingRow` carries **labels sourced from real tool boundaries**, and X2 structurally forbids model prose reaching a status surface, so the harmful condition — model *explanations* — is excluded by construction. The live risk is C14's expandable step detail growing into reasoning text. Worth a rule before it does. |
+| **R3** | **The near-miss has no surface at all.** | Stack Overflow 2025 (n=31,476): the #1 frustration, **66%**, is *"AI solutions that are almost right, but not quite"* — against 84% adoption and **3%** who highly trust accuracy. | **A real hole, and the one D2 does not cover.** D2 is the strongest work in the pass and it is about *loud* failure; right card / wrong printing, right count / wrong set, is silent. Two riders: **auto-expanding every failure is itself a habituation risk** (Anderson et al. CHI 2015 — a dramatic drop in visual processing after the **second** exposure), and **a retry that changes no inputs is a slot machine** — II.5(h) records that `retry` re-runs the whole turn unchanged, which is exactly that shape. |
+| **R4** | **A row per action is transparency theatre unless the rows are inspectable.** Click the row, land on the evidence; and flag rows that cannot be grounded. | HANSEL (N=14): 83.7% precision / 88.8% recall on evidence linking, with reduced task time and perceived effort. AAAI 2025 (N=303, 3,040 responses): citations raised trust **even when randomly drawn from unrelated queries** (β=0.394, p<.001), and **only 9.77% were ever checked**. | Against C36 / §7 E5 as built. `ToolRow` expands to a real region and `hintFrom` clips words from the row's **own** result, which is the honest half. Nothing links a row to the record it touched. |
+| **R5** | **The known/guessed split is self-report, and self-report is ~53% accurate.** Rebuild it on **provenance**, not confidence. | MetaFaith — LLMs *"largely fail"* at faithful verbal uncertainty; Zhou et al. ACL 2024 — only **53%** of certainty-marked generations were correct, with ~90% reliance either way, and RLHF trains hedging out. | **Half-shipped in the right direction, by an owner ruling rather than by this evidence.** OR4 already forced the approval card onto **provenance, not a numeric meter** (`ApprovalCard.tsx:16-27`, C43), and `resolve.ts` keys `variantSource` on **candidate count** rather than on the model's opinion. The gap is that the *conversational* known/guessed split is not held to the same rule. |
+| **R6** | **The card is not the safety mechanism, and should be shown less.** Gate on **irreversibility**, not on "it's a write". | Anthropic 2026: Claude Code users approve **93%** of permission prompts, *"over time that leads to approval fatigue"*; independently Bryant et al. 2014 — 461 physicians, 2,455 alerts, **93% override**. The same number, twice. Sandboxing cut prompts **84% while increasing safety**. | **Argues against C42/OR4, which he asked for by name.** Collection adds are tracked, in-boundary and reversible — the IRCI class where undo genuinely substitutes for a gate. The proposal: two cards with a known printing become an **undo affordance**, and the full card is reserved for uncertain printings and large batches, *preserving its salience by showing it less*. **Not to be acted on without him** — it reverses a ruling. Residual risk either way: the card's chrome is invariant though its rows are not, and habituation operates on presentation. |
+| **R7** | **Nobody has measured this.** Instrument the accept rate over repeated exposures. | Outside Anthropic's 93%, **no published click-through rate for agent permission prompts exists** — and ours would be consumers rather than expert developers. | No instrument exists. Cheap, and the only row here that would *produce* evidence rather than consume it. |
+| **R8** | **Deck-E will help your newest collectors and irritate your best ones**, and the same design cannot serve both. The world-class version **recedes as the user gets good, on evidence rather than on a setting nobody finds.** | Povyakalo et al. 2013 — 50 radiologists, 180 mammograms: **+0.016 sensitivity for the 44 weaker readers, −0.145 for the 6 strongest** on hard cases, an aggregate null hiding a sign flip. Signaling research: helps low-prior-knowledge users, redundant for experts. Anthropic telemetry: experienced users shift from approval-gating to monitoring, auto-approve 20%→40%. | **The largest item here and the least actionable as written.** `0d64f6c`'s dismissal is the crude version — a switch, which is the setting nobody finds. The research asks for *evidence-driven recession*, and nothing in the product measures user expertise. Not a complaint, not a defect, and not something to build without a ruling. |
+
+**How to use this table.** None of these is a commitment. Two of them — **R6**,
+and the framing of **R2** — would partially reverse things the owner asked for,
+and reversing an owner ask on a literature citation is precisely the move
+`OWNER-RULINGS.md` exists to prevent: they need a ruling, not an
+implementation. **R3** and **R7** are the two that are additive, cheap, and
+argue with nothing he said.
