@@ -205,3 +205,26 @@ panel intercepts, so it retried until it timed out. Scoped to the dialog now.
 The same shared-label trap that once made `readPresence` report the launcher
 visible while it was unmounted; that is twice, and it is worth suspecting every
 `getByRole(...).first()` in the harness.
+
+---
+
+## Two mobile defects, seen at 390px in the `chat-open` capture
+
+Both visible in `.visual-harness/decke/chat-open/mobile/chat-open.viewport.png`,
+neither previously recorded, and neither fixed — they want a careful look rather
+than a blind edit.
+
+1. **He overlaps the composer.** His body is drawn across the left end of the
+   composer card, over the rounded outline and into the field. On desktop he
+   stands cleanly beside it; at 390px there is not room for that composition and
+   nothing gives way. B7's keep-out band handles the header, the nav and the
+   install pill — the composer is not in it.
+2. **The composer is clipped at the bottom edge.** The placeholder reads "Ask
+   about your" with the rest below the viewport.
+
+Ignore the orange **LIVE DATA** banner in that shot — it is `pnpm dev`'s
+live-backend warning, not product chrome, and it is not in a build.
+
+Desktop, by contrast, is correct and worth saying so: sidebar and header sharp,
+content pane scrimmed, three openers, composer as a card, him beside it. OR1 as
+ruled.
