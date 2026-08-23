@@ -107,7 +107,24 @@ if (!tables.rows[0].bal || !tables.rows[0].ev) {
 
 let failed = 0
 for (const email of emails) {
-  const u = await client.query('SELECT id FROM app_user WHERE lower(email) = lower($1)', [email])
+  // ── THE EMAIL IS IN `auth.users`, NOT IN `app_user` ─────────────────────────
+  //
+  // `app_user` is (id, username, created_at) — this deployment is Supabase, so
+  // identity lives in the `auth` schema and `app_user.id` is the same uuid.
+  // Joining is what makes an email address a usable handle here; without it this
+  // script failed with `column "email" does not exist`, which is the right
+  // failure and a confusing one to read.
+  //
+  // The JOIN is inner on purpose: an auth user with no `app_user` row has never
+  // used the product, and granting credits to an id that no other table
+  // recognises would be money in a place nothing can spend it from.
+  const u = await client.query(
+    `SELECT au.id, au.username
+       FROM app_user au
+       JOIN auth.users u ON u.id = au.id
+      WHERE lower(u.email) = lower($1)`,
+    [email],
+  )
   const id = u.rows[0]?.id
   if (!id) {
     console.error(`  ✗ ${email} — no such account`)
@@ -118,7 +135,7 @@ for (const email of emails) {
   if (SHOW) {
     const b = await client.query(BALANCE_SQL, [id])
     const bal = Number(b.rows[0]?.balance ?? 0)
-    console.log(`  ${email}: ${bal} credits${bal <= LOW_BALANCE ? '  (LOW — the panel will say so)' : ''}`)
+    console.log(`  ${email} (${u.rows[0].username}): ${bal} credits${bal <= LOW_BALANCE ? '  (LOW — the panel will say so)' : ''}`)
     continue
   }
 
@@ -130,7 +147,7 @@ for (const email of emails) {
     await client.query(GRANT_LOG_SQL, [id, CREDITS, REASON, ref])
     const res = await client.query(GRANT_BALANCE_SQL, [id, CREDITS])
     await client.query('COMMIT')
-    console.log(`  ✓ ${email}  +${CREDITS}  ->  ${res.rows[0].balance} credits`)
+    console.log(`  ✓ ${email} (${u.rows[0].username})  +${CREDITS}  ->  ${res.rows[0].balance} credits`)
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {})
     if (e?.code === '23505') {
