@@ -69,7 +69,7 @@ import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
 import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
-import { apiBaseFor } from '../apps/api/dist/decke/ctx.js'
+import { apiBaseFor, selfHopHeadersFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
 import { stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
@@ -364,7 +364,12 @@ async function serve(request) {
   // there is nothing to bypass. It is a deployment-access token, not a user
   // credential: it grants nothing beyond reaching a deployment that is already
   // answering this very request.
-  const bypass = request.headers.get('x-vercel-protection-bypass')
+  //
+  // A PERSON IN A BROWSER SENDS NEITHER OF THOSE. They reach a protected
+  // preview through Vercel SSO, which leaves a `_vercel_jwt` cookie — so this
+  // used to find nothing, forward nothing, and fail every self-hop. See
+  // `selfHopHeadersFor`, which handles both and is tested.
+  const selfHop = selfHopHeadersFor(request.headers)
 
   const toolCtx = {
     pool: chatPool(),
@@ -372,7 +377,7 @@ async function serve(request) {
     jwt: user.token,
     apiBase: apiBaseFor(host),
     signal: abortSignal,
-    ...(bypass ? { selfHopHeaders: { 'x-vercel-protection-bypass': bypass } } : {}),
+    ...(selfHop ? { selfHopHeaders: selfHop } : {}),
   }
 
   /**
