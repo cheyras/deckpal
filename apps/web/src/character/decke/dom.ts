@@ -7,7 +7,7 @@
  */
 import { PerspectiveCamera, Plane, Raycaster, Vector2, Vector3 } from 'three'
 import { BODY_H, BODY_W } from './constants'
-import { canvasHeight, canvasOriginX, canvasOriginY, viewHeight, viewWidth } from './viewport'
+import { canvasHeight, canvasOriginX, canvasOriginY, viewHeight, viewWidth } from '../viewport'
 
 export type Depth = 'foreground' | 'background'
 export type Side = 'auto' | 'left' | 'right'

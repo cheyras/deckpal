@@ -40,7 +40,7 @@ import {
 } from 'three'
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js'
 import { BLENDER_CAMERA, blenderCameraQuaternion, blenderToThree, BODY_H, DEG } from './constants'
-import { BEACON } from './beacon'
+import { BEACON } from '../beacon'
 
 /** How much of the beacon chip the character fills. Named here so the render
  *  pass and the chip's own layout cannot drift apart. */

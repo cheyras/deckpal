@@ -25,7 +25,7 @@ import assert from 'node:assert/strict'
 import { PerspectiveCamera } from 'three'
 import { BLENDER_CAMERA, blenderCameraQuaternion, blenderToThree } from '../constants'
 import { parkBeside, type RectLike } from '../dom'
-import { setViewport } from '../viewport'
+import { setViewport } from '../../viewport'
 import { pinToPage, pinWindow, pinMargin, unpinToViewport, isPinned } from '../pageAnchor'
 
 const VIEW_W = 1000

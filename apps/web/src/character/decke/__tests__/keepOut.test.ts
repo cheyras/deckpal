@@ -30,7 +30,7 @@ import {
   BODY_W,
 } from '../constants'
 import { homeCorner, keepOut, parkBeside, parkOn, setKeepOut, solvePark, type RectLike } from '../dom'
-import { setViewport } from '../viewport'
+import { setViewport } from '../../viewport'
 
 const VIEW_W = 390
 const VIEW_H = 844

@@ -49,7 +49,7 @@ import {
 } from '../../decke/constants'
 import { homeCorner, parkOn, shapeFor, solvePark, type RectLike } from '../../decke/dom'
 import { solveFlight } from '../../decke/flight'
-import { setViewport } from '../../decke/viewport'
+import { setViewport } from '../../viewport'
 
 const UI_TOOLS_SRC = fileURLToPath(new URL('../uiTools.ts', import.meta.url))
 
