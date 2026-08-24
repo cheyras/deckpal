@@ -889,19 +889,141 @@
    8. Reduced motion
    ───────────────────────────────────────────────────────────────────────── */
 
-/* The relief, paper and sheen all survive — they are not motion. Only the
-   movement is dropped, so the pass degrades to a still premium look rather
-   than back to flat. */
+/* `reduce` asks for less MOVEMENT, not a quieter app switched off. The
+   relief, paper and sheen all survive untouched — none of it is motion. Of
+   what animates, the split is by property: translate/scale/rotate and the
+   height/width travel that reads as a slide all collapse to a snap; the
+   opacity, colour and shadow fades that make a state change legible without
+   moving anything keep running, most of them at their authored speed.
+   Issue #49: this used to be one rule collapsing every animation and
+   transition on the skin to 1ms without distinction, which took the fades
+   down with the travel — a reduced-motion visitor saw nothing happen at
+   all, rather than a quieter premium.
+
+   No `!important` anywhere below. Every selector here matches a base rule
+   above it exactly, so specificity ties and this section — being last in
+   the file — wins the cascade on source order alone, the same discipline
+   §2's composer scar already put in this file. */
 @media (prefers-reduced-motion: reduce) {
-  :root[data-skin='premium'] *,
-  :root[data-skin='premium'] *::before,
-  :root[data-skin='premium'] *::after {
-    animation-duration: 1ms !important;
-    animation-delay: 0ms !important;
-    transition-duration: 1ms !important;
+  /* Entrance (§4). Same redefinition trick the file already leans on for
+     `both` vs `backwards` above: a same-named `@keyframes` later in the
+     cascade replaces the first one outright, and since this one never
+     mentions `transform`, the element's transform is simply never touched
+     during the run — the rise keeps its fade and loses its travel. */
+  @keyframes px-rise {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
-  :root[data-skin='premium'] button:hover,
-  :root[data-skin='premium'] a:hover > .bg-surface-secondary {
-    transform: none !important;
+  :root[data-skin='premium'] .app-content > * {
+    animation-duration: var(--px-dur);
+  }
+
+  /* Buttons (§4). The lift and the press-in are pure travel; the colour,
+     shadow and opacity legs of the same transition keep their authored
+     speed. */
+  :root[data-skin='premium'] button,
+  :root[data-skin='premium'] a[class*='bg-action'],
+  :root[data-skin='premium'] a[class*='btn-fill'] {
+    transition:
+      background-color var(--px-dur-fast) var(--px-ease),
+      box-shadow var(--px-dur) var(--px-ease),
+      transform 1ms,
+      opacity var(--px-dur-fast) var(--px-ease),
+      color var(--px-dur-fast) var(--px-ease);
+  }
+  :root[data-skin='premium'] button:hover:not(:disabled),
+  :root[data-skin='premium'] a[class*='bg-action']:hover,
+  :root[data-skin='premium'] a[class*='btn-fill']:hover,
+  :root[data-skin='premium'] button:active:not(:disabled),
+  :root[data-skin='premium'] a[class*='bg-action']:active,
+  :root[data-skin='premium'] a[class*='btn-fill']:active {
+    transform: none;
+  }
+
+  /* Panels (§4). Same split: the lift goes, the deepened cast-lift shadow
+     and the brightened border on hover — neither of which moves anything —
+     stay exactly as the base `:hover` rule already sets them. */
+  :root[data-skin='premium'] a > .bg-surface-secondary.rounded-lg,
+  :root[data-skin='premium'] a > .bg-surface-secondary.rounded-xl,
+  :root[data-skin='premium'] a > .bg-surface-secondary.rounded-2xl,
+  :root[data-skin='premium'] a.bg-surface-secondary.rounded-lg,
+  :root[data-skin='premium'] a.bg-surface-secondary.rounded-xl {
+    transition:
+      box-shadow var(--px-dur) var(--px-ease),
+      transform 1ms,
+      border-color var(--px-dur) var(--px-ease);
+  }
+  :root[data-skin='premium'] a:hover > .bg-surface-secondary.rounded-lg,
+  :root[data-skin='premium'] a:hover > .bg-surface-secondary.rounded-xl,
+  :root[data-skin='premium'] a:hover > .bg-surface-secondary.rounded-2xl,
+  :root[data-skin='premium'] a.bg-surface-secondary.rounded-lg:hover,
+  :root[data-skin='premium'] a.bg-surface-secondary.rounded-xl:hover {
+    transform: none;
+  }
+
+  /* Navigation (§5). The active pill's edge no longer grows in from the
+     centre — its own comment already calls that a movement — and idle
+     icons stop drifting on hover; the colour swap underneath both keeps
+     running. */
+  :root[data-skin='premium'] .px-nav-row::before {
+    transition-duration: 1ms;
+  }
+  :root[data-skin='premium'] .px-nav-row:not([data-active='true']):hover .px-icon {
+    transform: none;
+  }
+
+  /* Nav icon micro-illustrations (§6). Draw-on, pop and shutter are pure
+     travel — a 1ms run still lands on the finished stroke / full-size dot
+     / settled lens, just without the trip. The ping ring folds into the
+     same group rather than getting its own suppression rule: it is
+     decorative on top of a selection the icon's own fill already shows
+     (colour, not movement), so collapsing it to 1ms costs no meaning and
+     it reads as never having rung at all. Fill, stroke colour and opacity
+     keep fading on the shared rule below; only the geometry snaps. */
+  :root[data-skin='premium'] .px-icon * {
+    transition:
+      transform 1ms,
+      opacity var(--px-dur) var(--px-ease),
+      fill var(--px-dur) var(--px-ease),
+      stroke var(--px-dur) var(--px-ease),
+      stroke-dashoffset 1ms;
+  }
+  :root[data-skin='premium'] .px-icon[data-on='true'] .px-card-line,
+  :root[data-skin='premium'] .px-icon[data-on='true'] .px-card-line-2,
+  :root[data-skin='premium'] .px-icon[data-on='true'] .px-dot,
+  :root[data-skin='premium'] .px-icon[data-on='true'] .px-dot-2,
+  :root[data-skin='premium'] .px-icon[data-on='true'] .px-dot-3,
+  :root[data-skin='premium'] .px-icon[data-on='true'] .px-rule,
+  :root[data-skin='premium'] .px-icon[data-on='true'] .px-rule-2,
+  :root[data-skin='premium'] .px-icon[data-on='true'] .px-rule-3,
+  :root[data-skin='premium'] .px-icon[data-on='true'] .px-ball-ring,
+  :root[data-skin='premium'] .px-icon[data-on='true'] .px-trend,
+  :root[data-skin='premium'] .px-icon[data-on='true'] .px-lens {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+
+  /* Component polish (§7). Card art no longer lifts/scales on hover, but
+     the soft drop-shadow glow that rides alongside it is cheap and stays.
+     A progress fill snaps to its value instead of growing into it — the
+     value itself is still legible immediately, just not animated in. The
+     skeleton shimmer is left alone on purpose: it is nothing but an
+     opacity fade already, and it is the one animation in this file whose
+     entire job is telling a reduced-motion reader that something is still
+     loading. */
+  :root[data-skin='premium'] a img,
+  :root[data-skin='premium'] button img {
+    transition: filter var(--px-dur) var(--px-ease);
+  }
+  :root[data-skin='premium'] a:hover img,
+  :root[data-skin='premium'] button:hover img {
+    transform: none;
+  }
+  :root[data-skin='premium'] .bg-track-subtle > div {
+    transition-duration: 1ms;
   }
 }

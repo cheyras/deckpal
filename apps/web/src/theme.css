@@ -703,8 +703,10 @@ body {
   }
 }
 
+/* Reduced motion drops the travel, not the arrival: the scrim's fade is
+   left running at its authored 200ms — that is what still says a sheet
+   showed up — and only the panel's slide-up/settle collapses to a snap. */
 @media (prefers-reduced-motion: reduce) {
-  .px-sheet-scrim,
   .px-sheet-panel {
     animation-duration: 1ms;
   }
@@ -746,8 +748,9 @@ body {
   }
 }
 
+/* Same split on the way out: the scrim keeps fading to say the sheet left,
+   the panel's travel back down snaps. */
 @media (prefers-reduced-motion: reduce) {
-  .px-sheet-scrim[data-closing],
   .px-sheet-panel[data-closing] {
     animation-duration: 1ms;
   }
@@ -876,8 +879,11 @@ body {
   opacity: 0;
 }
 
+/* Same split as Sheet above, and for the same reason: the scrim
+   (`sheet-scrim-out`, shared with Sheet) keeps fading to say he left; the
+   panel and the bar — both pure travel on mobile, a fade-plus-shrink on
+   desktop — collapse to a snap rather than losing only half their motion. */
 @media (prefers-reduced-motion: reduce) {
-  .decke-chat-scrim[data-closing],
   .decke-chat-panel[data-closing],
   .decke-chat-bar[data-closing] {
     animation-duration: 1ms;
