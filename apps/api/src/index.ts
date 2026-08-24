@@ -26,6 +26,7 @@ import { listsRouter } from './routes/lists.js';
 import { decksRouter } from './routes/decks.js';
 import { insightsRouter, publicPokedexRouter } from './routes/insights.js';
 import { meRouter } from './routes/me.js';
+import { deckeHistoryRouter } from './routes/deckeHistory.js';
 import { exportRouter } from './export/router.js';
 import { scanRouter } from './scan/router.js';
 import { bugsRouter } from './routes/bugs.js';
@@ -397,6 +398,12 @@ export function createApp(): express.Express {
   api.use(resolveIdentity);
 
   api.use('/me', meRouter);
+
+  // Deck-E's transcript history. Mounted under `/decke` so the feature's routes
+  // are findable as a group, and gated inside the router rather than here —
+  // every route needs the same two facts (signed in, entitled) and the check
+  // belongs beside the queries it protects.
+  api.use('/decke', deckeHistoryRouter);
 
   // PDF export routes carry full paths (/decks/:id/pdf, /lists/:id/pdf,
   // /sets/:setId/checklist.pdf) and are mounted first so they resolve here rather

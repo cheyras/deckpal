@@ -959,6 +959,31 @@ body {
  * that simply travels reads as the deliberate thing it is. */
 .decke-shift {
   margin-left: var(--decke-gutter, 0px);
+  /* ── AND IT MAY NOT BE WIDER THAN WHAT IS LEFT ────────────────────────────
+   *
+   * MEASURED, in the real panel at 390px, not reasoned about: a tool row
+   * carrying `decke-shift w-full` was drawn from x=128 to x=486 inside a column
+   * whose content ends at x=374. It ran 112px — exactly one gutter — off the
+   * right edge of the screen, and the row's own text was clipped mid-word.
+   *
+   * `w-full` is `width: 100%`, and a percentage width resolves against the
+   * containing block WITHOUT subtracting the element's own margin. So every
+   * shifted element with an explicit full width overflowed by precisely the
+   * amount it had been shifted. The bug was invisible on desktop, where the
+   * gutter is 0 and the rule collapses to nothing, and invisible on a phone
+   * until a tool row grew a hint long enough to reach the edge.
+   *
+   * `.decke-bubble` and `.decke-figure` already carried this exact `max-width`
+   * — which is why replies and panels were fine and rows were not. Two of the
+   * three classes knowing the rule is how the third one forgot it, so the rule
+   * moves here, where the margin that causes it is set. The other two are now
+   * saying the same thing twice, harmlessly, and are kept because they also
+   * apply to elements that are NOT shifted.
+   *
+   * The pair must stay together: when `data-clear` sets the margin back to 0,
+   * the cap has to go back to 100% or a bubble that has scrolled clear of him
+   * would keep a gutter's worth of indent it no longer has. */
+  max-width: calc(100% - var(--decke-gutter, 0px));
   transition: margin-left 320ms cubic-bezier(0.2, 0.9, 0.3, 1);
 }
 
@@ -968,6 +993,10 @@ body {
  * to move one margin is exactly the kind of thing that makes a chat feel heavy. */
 .decke-shift[data-clear='true'] {
   margin-left: 0;
+  /* The other half of the pair above. A cleared element has no gutter to
+   * subtract, and leaving the cap in place would indent it by a margin it is no
+   * longer carrying. */
+  max-width: 100%;
 }
 
 /* A bubble is conversational: it keeps the rag it has on desktop, and on a phone

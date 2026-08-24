@@ -31,11 +31,46 @@ async function handle401(path: string, init: RequestInit): Promise<Response | nu
   return fetch(`${BASE}${path}`, { ...init, headers: { ...init.headers as Record<string, string>, ...h } })
 }
 
+/**
+ * An API failure that still knows its HTTP status.
+ *
+ * ── WHY THE STATUS HAD TO COME BACK ──────────────────────────────────────────
+ *
+ * Every failure here used to be a bare `Error` carrying only a message, so a
+ * caller that needed to tell "gone" from "broken" had no choice but to match on
+ * the server's PROSE. Deck-E's history did exactly that —
+ * `/no such conversation/i` — to show "this was deleted" instead of "something
+ * went wrong", and that is a coupling to a sentence somebody will reword.
+ *
+ * `status` is the fact. The message stays exactly as it was, so nothing that
+ * reads it changes, and `instanceof Error` still holds for everything that
+ * catches broadly.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+/** The status of a failure, when it came from the API. */
+export function statusOf(e: unknown): number | null {
+  return e instanceof ApiError ? e.status : null
+}
+
 function extractError(res: Response): Promise<string> {
   return res.json().then(
     (b: { error?: { message?: string } }) => b?.error?.message ?? `HTTP ${res.status}`,
     () => `HTTP ${res.status}`,
   )
+}
+
+/** Build the error for a failed response, status included. */
+async function apiError(res: Response): Promise<ApiError> {
+  return new ApiError(await extractError(res), res.status)
 }
 
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -45,7 +80,7 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
     const retry = await handle401(path, { signal, headers })
     if (retry) res = retry
   }
-  if (!res.ok) throw new Error(await extractError(res))
+  if (!res.ok) throw await apiError(res)
   return res.json() as Promise<T>
 }
 
@@ -72,7 +107,7 @@ async function send<T>(
     const retry = await handle401(path, init)
     if (retry) res = retry
   }
-  if (!res.ok) throw new Error(await extractError(res))
+  if (!res.ok) throw await apiError(res)
   return res.json() as Promise<T>
 }
 
@@ -85,6 +120,57 @@ async function send<T>(
  * consume the body first. A `Blob` body survives the 401-refresh retry because
  * a Blob can be read more than once — a ReadableStream could not.
  */
+/**
+ * A POST that survives the page going away.
+ *
+ * ── WHY NOT `send()` ─────────────────────────────────────────────────────────
+ *
+ * The commonest end of a conversation is: read the answer, close the tab. A
+ * plain `fetch` is cancelled with the document, so the request most likely to be
+ * lost is the one recording the LAST exchange — the interesting end of every
+ * session, missing from a feature whose whole value is completeness. Losing a
+ * random middle record is tolerable and visible as a gap; losing the final one
+ * every time is a silent bias in the data.
+ *
+ * `keepalive` hands the request to the browser to finish after unload. Its cost
+ * is a hard 64KB budget shared by every in-flight keepalive request, so the body
+ * is measured and TRIMMED to fit rather than being allowed to fail — a truncated
+ * record of the last exchange beats no record of it.
+ *
+ * No 401 retry: `handle401` refreshes a session and re-fetches, which cannot
+ * work once the document is gone. A record lost to an expired token is a warning
+ * in the console, not a reason to build a retry that only runs when the page is
+ * still open.
+ */
+const KEEPALIVE_BUDGET = 60_000
+
+async function keepaliveJson<T>(path: string, body: unknown): Promise<T> {
+  const h = await authHeaders()
+  let payload = JSON.stringify(body)
+  if (payload.length > KEEPALIVE_BUDGET) {
+    // Trim the two free-text fields, longest first, and SAY that it happened —
+    // an answer that stops mid-sentence with no explanation reads as a bug in
+    // the thing being recorded rather than in the recording.
+    const b = { ...(body as Record<string, unknown>) }
+    const mark = '\n\n[TRUNCATED — this record exceeded the browser’s keepalive limit]'
+    const room = Math.max(400, Math.floor(KEEPALIVE_BUDGET / 2) - mark.length)
+    for (const k of ['answered', 'asked']) {
+      const v = b[k]
+      if (typeof v === 'string' && v.length > room) b[k] = v.slice(0, room) + mark
+      payload = JSON.stringify(b)
+      if (payload.length <= KEEPALIVE_BUDGET) break
+    }
+  }
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    keepalive: true,
+    headers: { 'content-type': 'application/json', ...h },
+    body: payload,
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.json() as Promise<T>
+}
+
 async function upload<T>(path: string, blob: Blob): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream', ...await authHeaders() }
   const init: RequestInit = { method: 'POST', headers, body: blob }
@@ -93,7 +179,7 @@ async function upload<T>(path: string, blob: Blob): Promise<T> {
     const retry = await handle401(path, init)
     if (retry) res = retry
   }
-  if (!res.ok) throw new Error(await extractError(res))
+  if (!res.ok) throw await apiError(res)
   return res.json() as Promise<T>
 }
 
@@ -883,7 +969,69 @@ function normaliseItems(r: { list: ListSummary; items: RawListItem[] }): ListDet
 }
 
 // ── Endpoints ──────────────────────────────────────────────────
+/** One row in the history dropdown. */
+export interface DeckeConversationSummary {
+  id: string
+  title: string
+  turns: number
+  startedAt: string
+  updatedAt: string
+  /**
+   * The PR range this conversation ran across.
+   *
+   * They differ when a conversation outlived a deploy, which is exactly the
+   * conversation worth opening when something changed. `null` on both means no
+   * turn in it was attributable to a PR — a preview build or a local run.
+   */
+  buildPrMin: number | null
+  buildPrMax: number | null
+  buildSha: string | null
+}
+
+export interface DeckeHistoryList {
+  conversations: DeckeConversationSummary[]
+}
+
+/** One recorded exchange: what was asked, what came back, and what ran. */
+export interface DeckeHistoryTurn {
+  seq: number
+  asked: string
+  answered: string
+  /** `phase` is the chip's own word — ok, partial, error, declined, unknown. */
+  tools: { name: string; phase: string; title: string; summary: string }[]
+  buildPr: number | null
+  buildSha: string | null
+  at: string
+}
+
+export interface DeckeConversation {
+  id: string
+  title: string
+  startedAt: string
+  turns: DeckeHistoryTurn[]
+}
+
 export const api = {
+  // ── DECK-E'S TRANSCRIPT HISTORY ───────────────────────────────────────────
+  //
+  // Gated server-side to the accounts that have Deck-E at all, so every one of
+  // these throws for anybody else rather than returning an empty list — an
+  // empty list would claim the feature exists for you and you simply have not
+  // used it.
+  deckeHistoryRecord: (body: {
+    conversationId: string
+    seq: number
+    asked: string
+    answered: string
+    tools: { name: string; phase: string; title: string; summary: string }[]
+  }) => keepaliveJson<{ ok: true; recorded: boolean }>('/decke/history', body),
+  deckeHistoryList: (signal?: AbortSignal) =>
+    get<DeckeHistoryList>('/decke/history', signal),
+  deckeHistoryOne: (id: string, signal?: AbortSignal) =>
+    get<DeckeConversation>(`/decke/history/${encodeURIComponent(id)}`, signal),
+  deckeHistoryDelete: (id: string) =>
+    send<{ ok: true }>('DELETE', `/decke/history/${encodeURIComponent(id)}`),
+
   series: (signal?: AbortSignal) => get<SeriesIndexResponse>('/series', signal),
   seriesDetail: (slug: string, signal?: AbortSignal) =>
     get<SeriesDetailResponse>(`/series/${encodeURIComponent(slug)}`, signal),
@@ -938,7 +1086,7 @@ export const api = {
       })
       if (retry) res = retry
     }
-    if (!res.ok) throw new Error(await extractError(res))
+    if (!res.ok) throw await apiError(res)
     return res.json() as Promise<ScanResponse>
   },
   // PDF export URLs (streamed by the API; open in a new tab).

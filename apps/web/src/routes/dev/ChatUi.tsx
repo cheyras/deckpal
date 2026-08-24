@@ -76,6 +76,14 @@ import {
   TOP_UP_LABEL,
 } from '../../character/host/chat/creditState'
 import type { ScreenSpec } from '../../character/host/DeckeScreen'
+import { HistoryMenu, HistorySheet, type HistoryLoad } from '../../character/host/chat/HistoryMenu'
+import {
+  TranscriptBody,
+  TranscriptExit,
+  TranscriptHead,
+  type TranscriptLoad,
+} from '../../character/host/chat/TranscriptView'
+import type { DeckeConversation, DeckeConversationSummary } from '../../lib/api'
 
 /* ── Fixtures ──────────────────────────────────────────────────────────────
  *
@@ -178,6 +186,29 @@ const TOOL_ROWS: { label: string; note: string; data: ToolRowData }[] = [
       title: 'Nothing was written',
       phase: 'ok',
       summary: 'You left it, so nothing changed.',
+    }),
+  },
+  {
+    label: 'unknown (replayed)',
+    note: 'Out of the transcript history: the record does not say what happened. A dash, never a tick — a tick is an assertion, and there is nothing here to assert.',
+    data: row({
+      id: '8',
+      name: 'plan_deck',
+      title: 'Building a deck list',
+      phase: 'unknown',
+      summary: 'Recorded before this app knew the phase',
+      recorded: true,
+    }),
+  },
+  {
+    label: 'never finished (replayed)',
+    note: 'A call that was still running when the turn was filed — the panel was closed, or stop was pressed. Live, this row spins forever; in a record it says what actually happened to it.',
+    data: row({
+      id: '9',
+      name: 'collection_summary',
+      title: 'Reading your collection',
+      phase: 'start',
+      recorded: true,
     }),
   },
 ]
@@ -411,6 +442,137 @@ const GREET_DAY = composeGreeting({ name: FIXTURE_NAME, now: AFTERNOON, seed: GA
 const GREET_LATE = composeGreeting({ name: FIXTURE_NAME, now: LATE, seed: GALLERY_SEED })
 const GREET_ANON = composeGreeting({ now: AFTERNOON, seed: GALLERY_SEED + 1 })
 
+/* ── THE CHAT HISTORY ───────────────────────────────────────────────────────
+ *
+ * PINNED CLOCK, PINNED DATES. Every row in this section is a function of "now" —
+ * the day heading, the time, the "Yesterday" — so a gallery reading the system
+ * clock would photograph a different list every morning and every screenshot
+ * diff would be the calendar rather than the design. `HISTORY_NOW` is the same
+ * afternoon the greeting fixtures use.
+ *
+ * The four conversations are chosen to cover the four things a build stamp can
+ * be, because that column is the feature and it is the part a screenshot has to
+ * be able to answer for:
+ *
+ *   `#78`      one build
+ *   `#77→78`   SPANNED A DEPLOY — the row worth opening in a regression hunt
+ *   `—`        no build recorded: a preview or a local run. Never `#0`.
+ *   `#61`      old enough to fall into another day group
+ */
+const HISTORY_NOW = new Date(2026, 7, 23, 14, 20, 0)
+const hAt = (d: number, h: number, m = 0) => new Date(2026, 7, d, h, m, 0).toISOString()
+
+const CONVERSATIONS: DeckeConversationSummary[] = [
+  {
+    id: 'h1',
+    title: 'how many pitch black cards am I missing?',
+    turns: 4,
+    startedAt: hAt(23, 13, 40),
+    updatedAt: hAt(23, 14, 2),
+    buildPrMin: 77,
+    buildPrMax: 78,
+    buildSha: '2f9a1c3aa11bb22cc33dd44ee55ff66aa77bb88c',
+  },
+  {
+    id: 'h2',
+    title: 'build me a Gardevoir deck for standard',
+    turns: 2,
+    startedAt: hAt(23, 9, 12),
+    updatedAt: hAt(23, 9, 30),
+    buildPrMin: 78,
+    buildPrMax: 78,
+    buildSha: '2f9a1c3aa11bb22cc33dd44ee55ff66aa77bb88c',
+  },
+  {
+    id: 'h3',
+    // The honest null case. It ran on a preview deployment, so there is no
+    // squash-merge subject to parse a PR out of, and the row says so with a
+    // dash rather than inventing a number.
+    title: 'take me to the shrouded fable set',
+    turns: 1,
+    startedAt: hAt(22, 21, 5),
+    updatedAt: hAt(22, 21, 6),
+    buildPrMin: null,
+    buildPrMax: null,
+    buildSha: null,
+  },
+  {
+    id: 'h4',
+    title: 'what did I spend on singles last month?',
+    turns: 6,
+    startedAt: hAt(11, 16, 0),
+    updatedAt: hAt(11, 16, 40),
+    buildPrMin: 61,
+    buildPrMax: 61,
+    buildSha: 'aa11bb22cc33dd44ee55ff66aa77bb88cc99dd00',
+  },
+]
+
+/**
+ * One record, and it is built to be the interesting one: a deploy landed
+ * between turn 2 and turn 3.
+ *
+ * Every tool row here is a phase the product can genuinely produce, including
+ * the two that only exist in a record — a call that never finished, and a phase
+ * this app does not recognise.
+ */
+const RECORD: DeckeConversation = {
+  id: 'h1',
+  title: 'how many pitch black cards am I missing?',
+  startedAt: hAt(23, 13, 40),
+  turns: [
+    {
+      seq: 0,
+      asked: 'how many pitch black cards am I missing?',
+      answered:
+        "You're at **12 of 214** in Pitch Black, so 202 to go.\n\nThe three that move the needle most are the chase cards — one of them is why the set is expensive right now.",
+      tools: [
+        { name: 'set_progress', phase: 'ok', title: 'Checked set completion', summary: 'Pitch Black — 12 of 214' },
+      ],
+      buildPr: 77,
+      buildSha: 'aa11bb22cc33dd44ee55ff66aa77bb88cc99dd00',
+      at: hAt(23, 13, 40),
+    },
+    {
+      seq: 1,
+      asked: 'which ones are worth the most?',
+      answered: 'The alt-art Charizard ex leads it, then Gardevoir ex, then Heat Rotom ex.',
+      tools: [
+        { name: 'search_cards', phase: 'ok', title: 'Searched the catalogue', summary: 'Found 214 cards in Pitch Black' },
+        { name: 'collection_value', phase: 'partial', title: 'Priced your collection', summary: 'Timed out after 180 of 604 cards' },
+      ],
+      buildPr: 77,
+      buildSha: 'aa11bb22cc33dd44ee55ff66aa77bb88cc99dd00',
+      at: hAt(23, 13, 52),
+    },
+    {
+      seq: 2,
+      asked: 'add the Heat Rotom to my collection',
+      answered: 'Left it — nothing was written.',
+      tools: [
+        { name: 'log_cards', phase: 'declined', title: 'Nothing was written', summary: 'You left it, so nothing changed.' },
+      ],
+      // THE DEPLOY. Same conversation, different code from here down, which is
+      // the whole reason this feature exists.
+      buildPr: 78,
+      buildSha: '2f9a1c3aa11bb22cc33dd44ee55ff66aa77bb88c',
+      at: hAt(23, 14, 0),
+    },
+    {
+      seq: 3,
+      asked: 'actually plan me a deck around it',
+      answered: '',
+      tools: [
+        { name: 'plan_deck', phase: 'start', title: 'Building a deck list', summary: '' },
+        { name: 'deck_strategy', phase: 'weird-phase-from-an-older-build', title: 'Writing a strategy guide', summary: '' },
+      ],
+      buildPr: 78,
+      buildSha: '2f9a1c3aa11bb22cc33dd44ee55ff66aa77bb88c',
+      at: hAt(23, 14, 2),
+    },
+  ],
+}
+
 /** A balance that is nearly gone, and one that is. Both invented, and labelled. */
 const LOW_CREDITS = { remaining: 3, allowance: 100 }
 const NO_CREDITS = { remaining: 0, allowance: 100 }
@@ -472,6 +634,111 @@ function FarewellSpecimen() {
       himRect={{ left: 120, top: 96, width: 80, height: 100 }}
       onDone={() => {}}
     />
+  )
+}
+
+/**
+ * The dropdown's own popover chrome, without the popover.
+ *
+ * `HistoryMenu` positions the real one absolutely against a measured trigger
+ * rect, which is exactly the behaviour a gallery cannot photograph — it would
+ * hang off the side of a specimen card. The BORDER, RADIUS, WIDTH and SHADOW are
+ * copied from the real popover so the sheet is judged at the size it is used at;
+ * only the positioning is dropped, and that is the one thing here that is not
+ * the product.
+ */
+function SheetFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="w-full max-w-[344px] overflow-hidden rounded-[14px] border border-border-default bg-surface-primary shadow-lg">
+      {children}
+    </div>
+  )
+}
+
+/**
+ * The transcript viewer, in a box.
+ *
+ * ── `height` IS A GALLERY DECISION AND IT COST ONE CAPTURE ───────────────────
+ *
+ * The first version was a fixed 520px for every specimen, faithfully reproducing
+ * the product's pinned head over a scrolling body — and the photograph of it cut
+ * the record off after two turns, so the DEPLOY RULE, which is the single most
+ * important element on this surface, was inside the scroller and not in the
+ * image. A gallery exists to be looked at; a specimen whose point is below its
+ * own fold is a specimen that will be reviewed as if it did not have one.
+ *
+ * So the record runs to its full height and every turn is in the shot. The
+ * short-lived states keep a box, because "vertically centred in a panel" is
+ * their whole layout and it needs a panel to be centred in — a small one, so the
+ * sentence is not marooned in the middle of 500px of nothing.
+ */
+function RecordFrame({ load, height }: { load: TranscriptLoad; height?: number }) {
+  return (
+    <div
+      style={height ? { height } : undefined}
+      className="flex flex-col overflow-hidden rounded-[12px] border border-surface-tertiary bg-surface-primary"
+    >
+      <TranscriptHead load={load} onBack={() => {}} />
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col px-[16px]">
+          <TranscriptBody load={load} onRetry={() => {}} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The panel's header row, rebuilt around the REAL `HistoryMenu`.
+ *
+ * The instruction was *"to the right of the chat page title"*, and that is an
+ * arrangement rather than a component — it cannot be judged from the control on
+ * its own. The name, the badge and the ✕ here are copies of `DeckeChat`'s own
+ * markup and are labelled as such on the specimen; the control between them is
+ * the product's, live, and pressing it really reads your history.
+ *
+ * ── A COPY THAT DRIFTED, WITHIN THE HOUR ────────────────────────────────────
+ *
+ * The first version of this omitted the `shrink-0 whitespace-nowrap` the real
+ * header carries, and photographed at 390px it broke the name across two lines
+ * as **Deck-** / **E** — while the product, measured in the same session, was a
+ * clean 56px single row. A gallery that renders a surface WORSE than the
+ * product is the most expensive kind of wrong: somebody reviews the picture and
+ * files a bug against code that is fine.
+ *
+ * Both class strings are now identical to `DeckeChat`'s, character for
+ * character. This is the exact hazard the page's own rule #1 exists for, and
+ * this component is the one place on the page that cannot obey it — so the
+ * specimen also breaks out of the card's padding, because at 390px the product
+ * gives this row 358px and a padded specimen gives it 318, and a row judged
+ * 40px narrower than it is ever drawn is a row judged wrongly.
+ */
+function MockChatHeader() {
+  return (
+    <header className="flex w-full shrink-0 items-center gap-[10px] px-[16px] py-[9px]">
+      <span className="shrink-0 whitespace-nowrap font-display text-[17px] font-normal leading-[24px] text-text-primary">
+        Deck-E
+      </span>
+      <span className="shrink-0 whitespace-nowrap rounded-full border border-border-subtle px-[7px] py-[1px] text-[10.5px] font-medium uppercase leading-[15px] tracking-[0.04em] text-text-muted">
+        Experimental
+      </span>
+      <HistoryMenu
+        viewingId={null}
+        liveId={null}
+        onNewChat={() => {}}
+        onOpenConversation={() => {}}
+        onDeleted={() => {}}
+      />
+      <button
+        type="button"
+        aria-label="Close chat"
+        className="ml-auto flex h-[38px] w-[38px] items-center justify-center rounded-full text-icon-default hover:bg-surface-secondary hover:text-icon-hover"
+      >
+        <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </header>
   )
 }
 
@@ -954,6 +1221,214 @@ export default function ChatUi() {
                     </li>
                   ))}
                 </ul>
+              </Specimen>
+            </Section>
+
+            <Section
+              id="history"
+              title="Chat history"
+              note="The dropdown beside the title, and the read-only record it opens. The build stamp is the point: #78 is the PR the build was immediately after, #77→78 means the conversation outlived a deploy, and a dash means the turn ran on a preview or a local build — which is honest, and is never drawn as #0. Every conversation below is a fixture; the clock is pinned to 23 Aug, 2:20 pm so the day headings and times do not move between captures."
+            >
+              <Specimen
+                label="the trigger, in the real header"
+                note="LIVE — this one is the actual component and clicking it really reads your history. The row around it is the panel's own header, rebuilt here so the arrangement can be judged: name, badge, control, then the ✕ hard against the trailing edge."
+              >
+                <div className="-mx-[14px] border-y border-surface-tertiary bg-surface-primary">
+                  <MockChatHeader />
+                </div>
+              </Specimen>
+
+              <Specimen
+                label="the sheet — one of them is the chat you are in"
+                note="FIXTURE. The live conversation is genuinely in this list — turns are filed as they happen — so the row you are sitting in would otherwise look like any other. It is marked `· now` and it does NOT open: a read-only record of the chat already on screen behind this menu is a strange trip to make somebody take. `viewing` still wins if both are somehow true, because that one describes THIS screen."
+              >
+                <SheetFrame>
+                  <HistorySheet
+                    load={{ state: 'ready', items: CONVERSATIONS }}
+                    now={HISTORY_NOW}
+                    viewingId={null}
+                    liveId="h1"
+                    confirming={null}
+                    deleting={null}
+                    rowError={null}
+                    onOpen={() => {}}
+                    onRetryList={() => {}}
+                    onAskDelete={() => {}}
+                    onCancelDelete={() => {}}
+                    onConfirmDelete={() => {}}
+                  />
+                </SheetFrame>
+              </Specimen>
+
+              <Specimen
+                label="the sheet — four conversations"
+                note="Grouped by day, newest first, in the server's own order. The second row is the one a regression hunt wants: it spanned a deploy."
+              >
+                <SheetFrame>
+                  <HistorySheet
+                    load={{ state: 'ready', items: CONVERSATIONS }}
+                    now={HISTORY_NOW}
+                    viewingId={null}
+                    liveId={null}
+                    confirming={null}
+                    deleting={null}
+                    rowError={null}
+                    onOpen={() => {}}
+                    onRetryList={() => {}}
+                    onAskDelete={() => {}}
+                    onCancelDelete={() => {}}
+                    onConfirmDelete={() => {}}
+                  />
+                </SheetFrame>
+              </Specimen>
+
+              <Specimen
+                label="one row is being read"
+                note="`aria-current` and a filled row, so the transcript on screen and the row it came from are visibly the same thing."
+              >
+                <SheetFrame>
+                  <HistorySheet
+                    load={{ state: 'ready', items: CONVERSATIONS.slice(0, 2) }}
+                    now={HISTORY_NOW}
+                    viewingId="h1"
+                    liveId={null}
+                    confirming={null}
+                    deleting={null}
+                    rowError={null}
+                    onOpen={() => {}}
+                    onRetryList={() => {}}
+                    onAskDelete={() => {}}
+                    onCancelDelete={() => {}}
+                    onConfirmDelete={() => {}}
+                  />
+                </SheetFrame>
+              </Specimen>
+
+              <Specimen
+                label="deleting takes two presses"
+                note="The ✕ only ASKS. The destructive press is a different press, in a different place, with the word on it — and there is no undo offered, because the RLS grants delete and withholds update: you may withdraw your own words, not revise them."
+              >
+                <SheetFrame>
+                  <HistorySheet
+                    load={{ state: 'ready', items: CONVERSATIONS.slice(0, 2) }}
+                    now={HISTORY_NOW}
+                    viewingId={null}
+                    liveId={null}
+                    confirming="h1"
+                    deleting={null}
+                    rowError={null}
+                    onOpen={() => {}}
+                    onRetryList={() => {}}
+                    onAskDelete={() => {}}
+                    onCancelDelete={() => {}}
+                    onConfirmDelete={() => {}}
+                  />
+                </SheetFrame>
+              </Specimen>
+
+              <Specimen
+                label="a delete that failed"
+                note="The row stays. Nothing is removed from the list until the server has said it is gone — an optimistic removal is a claim that a write succeeded before it has."
+              >
+                <SheetFrame>
+                  <HistorySheet
+                    load={{ state: 'ready', items: CONVERSATIONS.slice(0, 2) }}
+                    now={HISTORY_NOW}
+                    viewingId={null}
+                    liveId={null}
+                    confirming="h1"
+                    deleting={null}
+                    rowError={{ id: 'h1', message: 'HTTP 503' }}
+                    onOpen={() => {}}
+                    onRetryList={() => {}}
+                    onAskDelete={() => {}}
+                    onCancelDelete={() => {}}
+                    onConfirmDelete={() => {}}
+                  />
+                </SheetFrame>
+              </Specimen>
+
+              <div className="grid gap-[16px] md:grid-cols-3">
+                <Specimen label="loading" note="one honest line">
+                  <SheetFrame>
+                    <HistorySheet
+                      load={{ state: 'loading' }}
+                      now={HISTORY_NOW}
+                      viewingId={null}
+                      liveId={null}
+                      confirming={null}
+                      deleting={null}
+                      rowError={null}
+                      onOpen={() => {}}
+                      onRetryList={() => {}}
+                      onAskDelete={() => {}}
+                      onCancelDelete={() => {}}
+                      onConfirmDelete={() => {}}
+                    />
+                  </SheetFrame>
+                </Specimen>
+                <Specimen label="nothing recorded yet" note="not an error, and it says what will be here">
+                  <SheetFrame>
+                    <HistorySheet
+                      load={{ state: 'ready', items: [] }}
+                      now={HISTORY_NOW}
+                      viewingId={null}
+                      liveId={null}
+                      confirming={null}
+                      deleting={null}
+                      rowError={null}
+                      onOpen={() => {}}
+                      onRetryList={() => {}}
+                      onAskDelete={() => {}}
+                      onCancelDelete={() => {}}
+                      onConfirmDelete={() => {}}
+                    />
+                  </SheetFrame>
+                </Specimen>
+                <Specimen label="the list failed" note="says what went wrong, and offers the one thing that might work">
+                  <SheetFrame>
+                    <HistorySheet
+                      load={{ state: 'failed', message: 'Failed to fetch' }}
+                      now={HISTORY_NOW}
+                      viewingId={null}
+                      liveId={null}
+                      confirming={null}
+                      deleting={null}
+                      rowError={null}
+                      onOpen={() => {}}
+                      onRetryList={() => {}}
+                      onAskDelete={() => {}}
+                      onCancelDelete={() => {}}
+                      onConfirmDelete={() => {}}
+                    />
+                  </SheetFrame>
+                </Specimen>
+              </div>
+
+              <Specimen
+                label="the record"
+                note="Four turns, and a deploy landed between the third and the fourth — that ruled line is the whole feature. The last turn shows the two states that only exist in a record: a call that never finished, and a phase this app does not recognise. Neither draws a tick."
+              >
+                <RecordFrame load={{ state: 'ready', conversation: RECORD }} />
+              </Specimen>
+
+              <div className="grid gap-[16px] md:grid-cols-2">
+                <Specimen
+                  label="deleted in another tab"
+                  note="An ordinary thing to do. It must not look like a fault, and it must not offer a restore that does not exist."
+                >
+                  <RecordFrame load={{ state: 'gone' }} height={260} />
+                </Specimen>
+                <Specimen label="the record failed to open" note="a real retry, which re-runs the same request">
+                  <RecordFrame load={{ state: 'failed', message: 'HTTP 500' }} height={260} />
+                </Specimen>
+              </div>
+
+              <Specimen
+                label="where the composer was"
+                note="The strongest guard against the one failure this surface can have. The box is not greyed and not disabled — it is GONE, and a control that is gone cannot take a question it will never answer."
+              >
+                <TranscriptExit onBack={() => {}} />
               </Specimen>
             </Section>
 
