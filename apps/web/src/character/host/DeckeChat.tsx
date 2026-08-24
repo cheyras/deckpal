@@ -1297,6 +1297,37 @@ export function DeckeChat({
    * `scroll`.
    */
   const [kbInset, setKbInset] = useState(0)
+  /**
+   * The same number, readable from a `scroll` listener without re-subscribing —
+   * and written SYNCHRONOUSLY in `measure` rather than from an effect, because
+   * iOS's reveal-scroll can fire before React has committed the render.
+   */
+  const kbRef = useRef(0)
+
+  /**
+   * Cancel iOS's reveal-scroll on every fixed layer that rode it.
+   *
+   * Defined here rather than inside the hold effect because it must also run
+   * when the KEYBOARD CLOSES, which is not a scroll — `kbRef` drops to 0, the
+   * scroll returns to 0 on its own, and without this the compensating transform
+   * would simply stay applied and leave the whole app shifted down by the height
+   * of a keyboard that is no longer there. Asked for zero it clears, which makes
+   * "no keyboard" and "not mounted" the same instruction.
+   */
+  const compensate = useCallback(() => {
+    const y = kbRef.current ? window.scrollY : 0
+    const t = y === 0 ? '' : `translateY(${y}px)`
+    const riders = [
+      panelRef.current,
+      document.querySelector<HTMLElement>('.decke-chat-scrim'),
+      // The app header rides the same scroll. Compensating the panel alone
+      // leaves a strip of empty page where the header used to be.
+      document.querySelector<HTMLElement>('.app-header'),
+    ]
+    for (const el of riders) {
+      if (el && el.style.transform !== t) el.style.transform = t
+    }
+  }, [])
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv || desktop) return
@@ -1306,15 +1337,23 @@ export function DeckeChat({
         const occluded = Math.round(layout - vv.height)
         const ok = vv.scale <= 1.01 && occluded >= 48 && occluded <= layout * 0.7
         const next = ok ? occluded : 0
+        kbRef.current = next
         return Math.abs(next - prev) < 1 ? prev : next
       })
     measure()
     vv.addEventListener('resize', measure)
     return () => {
       vv.removeEventListener('resize', measure)
+      kbRef.current = 0
       setKbInset(0)
     }
   }, [visible, shownMinimised, desktop])
+
+  // The keyboard closing is not a scroll, so the scroll listener never hears
+  // about it. This is what puts the app back when it goes away.
+  useEffect(() => {
+    compensate()
+  }, [kbInset, compensate])
 
   /**
    * ── HOW HIGH THE COMPOSER'S TOP EDGE SITS ABOVE THE PANEL'S FLOOR ─────────
@@ -1573,24 +1612,43 @@ export function DeckeChat({
     // pixel of that would otherwise translate his canvas off the top. See
     // `followElastic`.
     decke?.holdElastic(true)
-    // ── AND THE DOCUMENT STAYS AT 0, WHATEVER iOS WANTS ───────────────────────
+    // ── iOS'S SCROLL IS ABSORBED, NOT FOUGHT ─────────────────────────────────
     //
-    // `overflow: hidden` stops the READER scrolling and does not stop iOS: it
-    // scrolls a held document anyway to reveal a focused input, and WebKit ships
-    // a regression test asserting that is deliberate. Measured, that scroll is
-    // 268px on a 402x874 phone, and it is the last thing that can move the panel
-    // out from under the composer now that the panel fits above the keyboard on
-    // its own. Left alone the two compound and the composer ends up near the top
-    // of the screen; snapped back, the reveal is a no-op because there is
-    // nothing left to reveal.
+    //   *"It comes up mostly properly, but then the page slowly moves downward
+    //   for a little bit on its own before stopping."*
     //
-    // A `scroll` listener rather than a per-frame check, because this fires only
-    // when something has actually moved the document — which, with the reader
-    // locked out, is only ever iOS itself.
-    const pin = () => {
-      if (window.scrollY !== 0) window.scrollTo(0, 0)
-    }
-    window.addEventListener('scroll', pin, { passive: true })
+    // `overflow: hidden` stops the READER and does not stop iOS: it scrolls a
+    // held document anyway to reveal a focused input, and WebKit ships a
+    // regression test asserting that is deliberate. Latched off the device, one
+    // 30ms frame after the keyboard opens:
+    //
+    //   0   scrollY 338   vv 377/337   panel top -273
+    //   1   scrollY 0     vv 377/0     panel top 64
+    //
+    // The previous version answered that by scrolling back to 0. It works, and
+    // it is why row 1 looks correct — but iOS ANIMATES that scroll over a few
+    // hundred milliseconds on real hardware, so a listener that snaps to 0 fires
+    // against a moving target for the whole animation. The simulator corrects it
+    // in one frame and shows nothing; a phone shows a slow drift that settles
+    // when iOS finally stops. Correcting a value someone else is animating is
+    // always going to look like that.
+    //
+    // So the scroll is left alone and CANCELLED instead. The panel rides iOS's
+    // scroll (a fixed layer stops being fixed while an input inside it has
+    // focus — the whole reason this file exists), and translating it back down
+    // by exactly `scrollY` puts it where it would have been. Nothing writes to
+    // the scroll position, so there is no feedback loop and nothing to settle:
+    // the two are not arguing, one is undoing the other.
+    //
+    // HE FOLLOWS FOR FREE, and that is worth stating because it looks like it
+    // should need a matching transform on his canvas. It does not: his mark is
+    // measured live in client coordinates and projected through the canvas's own
+    // live origin (see `canvasOriginY`), so moving the panel moves the park box,
+    // and the projection simply finds it where it now is.
+    //
+    // Only while the keyboard is up, because that is the only time iOS does
+    // this, and the panel's entrance animation owns `transform` until then.
+    window.addEventListener('scroll', compensate, { passive: true })
 
     // ── AND THE READER'S FINGER IS STOPPED BEFORE IT SCROLLS, NOT AFTER ───────
     //
@@ -1633,7 +1691,11 @@ export function DeckeChat({
 
     return () => {
       document.removeEventListener('touchmove', onTouchMove)
-      window.removeEventListener('scroll', pin)
+      window.removeEventListener('scroll', compensate)
+      // Hand `transform` back to the stylesheet — the exit animation uses it,
+      // and the app header never asked to be borrowed in the first place.
+      kbRef.current = 0
+      compensate()
       decke?.holdElastic(false)
       html.style.height = was.htmlH
       html.style.overflow = was.htmlO
@@ -1641,7 +1703,7 @@ export function DeckeChat({
       body.style.overflow = was.bodyO
       window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior })
     }
-  }, [visible, shownMinimised, decke])
+  }, [visible, shownMinimised, decke, compensate])
 
   /**
    * Where focus was before he opened, so it can go back.
