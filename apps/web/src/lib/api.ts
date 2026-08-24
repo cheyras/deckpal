@@ -31,11 +31,46 @@ async function handle401(path: string, init: RequestInit): Promise<Response | nu
   return fetch(`${BASE}${path}`, { ...init, headers: { ...init.headers as Record<string, string>, ...h } })
 }
 
+/**
+ * An API failure that still knows its HTTP status.
+ *
+ * ── WHY THE STATUS HAD TO COME BACK ──────────────────────────────────────────
+ *
+ * Every failure here used to be a bare `Error` carrying only a message, so a
+ * caller that needed to tell "gone" from "broken" had no choice but to match on
+ * the server's PROSE. Deck-E's history did exactly that —
+ * `/no such conversation/i` — to show "this was deleted" instead of "something
+ * went wrong", and that is a coupling to a sentence somebody will reword.
+ *
+ * `status` is the fact. The message stays exactly as it was, so nothing that
+ * reads it changes, and `instanceof Error` still holds for everything that
+ * catches broadly.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+/** The status of a failure, when it came from the API. */
+export function statusOf(e: unknown): number | null {
+  return e instanceof ApiError ? e.status : null
+}
+
 function extractError(res: Response): Promise<string> {
   return res.json().then(
     (b: { error?: { message?: string } }) => b?.error?.message ?? `HTTP ${res.status}`,
     () => `HTTP ${res.status}`,
   )
+}
+
+/** Build the error for a failed response, status included. */
+async function apiError(res: Response): Promise<ApiError> {
+  return new ApiError(await extractError(res), res.status)
 }
 
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -45,7 +80,7 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
     const retry = await handle401(path, { signal, headers })
     if (retry) res = retry
   }
-  if (!res.ok) throw new Error(await extractError(res))
+  if (!res.ok) throw await apiError(res)
   return res.json() as Promise<T>
 }
 
@@ -72,7 +107,7 @@ async function send<T>(
     const retry = await handle401(path, init)
     if (retry) res = retry
   }
-  if (!res.ok) throw new Error(await extractError(res))
+  if (!res.ok) throw await apiError(res)
   return res.json() as Promise<T>
 }
 
@@ -93,7 +128,7 @@ async function upload<T>(path: string, blob: Blob): Promise<T> {
     const retry = await handle401(path, init)
     if (retry) res = retry
   }
-  if (!res.ok) throw new Error(await extractError(res))
+  if (!res.ok) throw await apiError(res)
   return res.json() as Promise<T>
 }
 
@@ -1000,7 +1035,7 @@ export const api = {
       })
       if (retry) res = retry
     }
-    if (!res.ok) throw new Error(await extractError(res))
+    if (!res.ok) throw await apiError(res)
     return res.json() as Promise<ScanResponse>
   },
   // PDF export URLs (streamed by the API; open in a new tab).

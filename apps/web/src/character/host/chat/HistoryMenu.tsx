@@ -63,6 +63,19 @@ const EDGE = 12
 export type HistoryMenuProps = {
   /** The conversation the reader is currently READING, if any. Marked in the list. */
   viewingId: string | null
+  /**
+   * The conversation being recorded RIGHT NOW.
+   *
+   * The live chat is in this list — turns are filed as they happen — so without
+   * it the row you are sitting in looks like any other. It could not be
+   * inferred: newest `updatedAt` is wrong with two tabs open, and matching on
+   * title is wrong the moment two conversations start the same way.
+   *
+   * Its row does not open. A read-only record of the chat already on screen
+   * behind the menu is a strange trip to make somebody take, and "you are here"
+   * is the whole of what it has to say.
+   */
+  liveId: string | null
   onOpenConversation: (id: string) => void
   /**
    * A conversation was deleted. The viewer, if it is showing that one, has to
@@ -120,7 +133,7 @@ export function BuildStampChip({ stamp, className }: { stamp: BuildStamp; classN
   )
 }
 
-export function HistoryMenu({ viewingId, onOpenConversation, onDeleted }: HistoryMenuProps) {
+export function HistoryMenu({ viewingId, liveId, onOpenConversation, onDeleted }: HistoryMenuProps) {
   const [open, setOpen] = useState(false)
   const [load, setLoad] = useState<HistoryLoad>({ state: 'idle' })
   /** The row whose delete has been asked for but not confirmed. */
@@ -270,6 +283,7 @@ export function HistoryMenu({ viewingId, onOpenConversation, onDeleted }: Histor
             load={load}
             now={now.current}
             viewingId={viewingId}
+            liveId={liveId}
             confirming={confirming}
             deleting={deleting}
             rowError={rowError}
@@ -308,6 +322,7 @@ export function HistorySheet({
   load,
   now,
   viewingId,
+  liveId,
   confirming,
   deleting,
   rowError,
@@ -320,6 +335,8 @@ export function HistorySheet({
   load: HistoryLoad
   now: Date
   viewingId: string | null
+  /** The live conversation, marked and not openable. See `HistoryMenuProps`. */
+  liveId: string | null
   confirming: string | null
   deleting: string | null
   rowError: { id: string; message: string } | null
@@ -389,6 +406,7 @@ export function HistorySheet({
                     c={c}
                     now={now}
                     viewing={c.id === viewingId}
+                    live={c.id === liveId}
                     confirming={confirming === c.id}
                     deleting={deleting === c.id}
                     error={rowError?.id === c.id ? rowError.message : null}
@@ -432,6 +450,7 @@ function HistoryRow({
   c,
   now,
   viewing,
+  live,
   confirming,
   deleting,
   error,
@@ -443,6 +462,8 @@ function HistoryRow({
   c: DeckeConversationSummary
   now: Date
   viewing: boolean
+  /** This is the chat the reader is in right now. Marked, and not openable. */
+  live: boolean
   confirming: boolean
   deleting: boolean
   error: string | null
@@ -458,10 +479,20 @@ function HistoryRow({
       <button
         type="button"
         onClick={onOpen}
+        // THE LIVE ROW DOES NOT OPEN. It is the conversation on screen behind
+        // this menu; a read-only record of it would be a strange trip to make
+        // somebody take, and they would have to find their way back from it.
+        // Disabled rather than hidden — it is genuinely in the list, and hiding
+        // it would make the list disagree with the history it is showing.
+        disabled={live && !viewing}
         // `aria-current` rather than a visual-only highlight: the row the reader
-        // is already looking at is a fact assistive tech needs too.
-        aria-current={viewing ? 'true' : undefined}
-        className="flex min-w-0 flex-1 flex-col rounded-[9px] px-[6px] py-[7px] text-left hover:bg-surface-secondary"
+        // is already looking at is a fact assistive tech needs too. `page` for
+        // the live one, because that is what it is — the thing currently open.
+        aria-current={viewing ? 'true' : live ? 'page' : undefined}
+        className={[
+          'flex min-w-0 flex-1 flex-col rounded-[9px] px-[6px] py-[7px] text-left',
+          live && !viewing ? 'cursor-default' : 'hover:bg-surface-secondary',
+        ].join(' ')}
       >
         {/*
           ── THE TITLE GETS THE WHOLE LINE, AND THE STAMP GETS THE NEXT ONE ───
@@ -490,6 +521,15 @@ function HistoryRow({
           <span className="truncate">
             {conversationMeta(c, now)}
             {viewing ? <span className="text-action-primary"> · reading</span> : null}
+            {/*
+              "now" rather than "current" or "live": it is the shortest true
+              word, and it sits inside a title that is already carrying the
+              reader's own sentence. `viewing` wins when both are true — you
+              cannot be reading a record of it and sitting in it at once, but if
+              the two ever disagree the one describing THIS SCREEN is the honest
+              answer.
+            */}
+            {!viewing && live ? <span className="text-text-muted"> · now</span> : null}
           </span>
           {/* A spacer rather than `ml-auto` on the chip, so the meta text
               truncates instead of shoving the stamp out of its column. */}

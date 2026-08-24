@@ -722,7 +722,7 @@ function MockChatHeader() {
       <span className="shrink-0 whitespace-nowrap rounded-full border border-border-subtle px-[7px] py-[1px] text-[10.5px] font-medium uppercase leading-[15px] tracking-[0.04em] text-text-muted">
         Experimental
       </span>
-      <HistoryMenu viewingId={null} onOpenConversation={() => {}} onDeleted={() => {}} />
+      <HistoryMenu viewingId={null} liveId={null} onOpenConversation={() => {}} onDeleted={() => {}} />
       <button
         type="button"
         aria-label="Close chat"
@@ -1233,6 +1233,28 @@ export default function ChatUi() {
               </Specimen>
 
               <Specimen
+                label="the sheet — one of them is the chat you are in"
+                note="FIXTURE. The live conversation is genuinely in this list — turns are filed as they happen — so the row you are sitting in would otherwise look like any other. It is marked `· now` and it does NOT open: a read-only record of the chat already on screen behind this menu is a strange trip to make somebody take. `viewing` still wins if both are somehow true, because that one describes THIS screen."
+              >
+                <SheetFrame>
+                  <HistorySheet
+                    load={{ state: 'ready', items: CONVERSATIONS }}
+                    now={HISTORY_NOW}
+                    viewingId={null}
+                    liveId="h1"
+                    confirming={null}
+                    deleting={null}
+                    rowError={null}
+                    onOpen={() => {}}
+                    onRetryList={() => {}}
+                    onAskDelete={() => {}}
+                    onCancelDelete={() => {}}
+                    onConfirmDelete={() => {}}
+                  />
+                </SheetFrame>
+              </Specimen>
+
+              <Specimen
                 label="the sheet — four conversations"
                 note="Grouped by day, newest first, in the server's own order. The second row is the one a regression hunt wants: it spanned a deploy."
               >
@@ -1241,6 +1263,7 @@ export default function ChatUi() {
                     load={{ state: 'ready', items: CONVERSATIONS }}
                     now={HISTORY_NOW}
                     viewingId={null}
+                    liveId={null}
                     confirming={null}
                     deleting={null}
                     rowError={null}
@@ -1262,6 +1285,7 @@ export default function ChatUi() {
                     load={{ state: 'ready', items: CONVERSATIONS.slice(0, 2) }}
                     now={HISTORY_NOW}
                     viewingId="h1"
+                    liveId={null}
                     confirming={null}
                     deleting={null}
                     rowError={null}
@@ -1283,6 +1307,7 @@ export default function ChatUi() {
                     load={{ state: 'ready', items: CONVERSATIONS.slice(0, 2) }}
                     now={HISTORY_NOW}
                     viewingId={null}
+                    liveId={null}
                     confirming="h1"
                     deleting={null}
                     rowError={null}
@@ -1304,6 +1329,7 @@ export default function ChatUi() {
                     load={{ state: 'ready', items: CONVERSATIONS.slice(0, 2) }}
                     now={HISTORY_NOW}
                     viewingId={null}
+                    liveId={null}
                     confirming="h1"
                     deleting={null}
                     rowError={{ id: 'h1', message: 'HTTP 503' }}
@@ -1323,6 +1349,7 @@ export default function ChatUi() {
                       load={{ state: 'loading' }}
                       now={HISTORY_NOW}
                       viewingId={null}
+                      liveId={null}
                       confirming={null}
                       deleting={null}
                       rowError={null}
@@ -1340,6 +1367,7 @@ export default function ChatUi() {
                       load={{ state: 'ready', items: [] }}
                       now={HISTORY_NOW}
                       viewingId={null}
+                      liveId={null}
                       confirming={null}
                       deleting={null}
                       rowError={null}
@@ -1357,6 +1385,7 @@ export default function ChatUi() {
                       load={{ state: 'failed', message: 'Failed to fetch' }}
                       now={HISTORY_NOW}
                       viewingId={null}
+                      liveId={null}
                       confirming={null}
                       deleting={null}
                       rowError={null}

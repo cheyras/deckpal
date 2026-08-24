@@ -361,6 +361,34 @@ export function looksDeleted(message: string): boolean {
   return /no such conversation/i.test(message)
 }
 
+/**
+ * Is this failure a "that conversation is gone"?
+ *
+ * ── THE STATUS FIRST, THE PROSE ONLY AS A FALLBACK ───────────────────────────
+ *
+ * `looksDeleted` matches the server's sentence, which was the only option when
+ * `lib/api.ts` threw a bare `Error`. It is a coupling to a string somebody will
+ * reword, and the day they do, a deleted conversation starts reporting
+ * "something went wrong" with a retry that can never succeed.
+ *
+ * `ApiError` carries the status now, so 404 is the answer and the prose is kept
+ * only for anything that throws without one — an older bundle, a fetch that
+ * fails before a response exists. The fallback is not removed, because a miss
+ * here shows the generic error rather than claiming anything false, and that is
+ * the right direction to be wrong in.
+ */
+export function isGone(e: unknown): boolean {
+  // READ THE STATUS OFF THE ERROR rather than importing `statusOf` from
+  // `lib/api`. This module is deliberately pure so its tests can run under
+  // `node --import tsx` — see the header — and `lib/api` reaches
+  // `import.meta.env` through Supabase. Importing it made this file
+  // unloadable outside a bundler, which its own header warned about and I
+  // did anyway; the test suite said so within a minute.
+  const status = (e as { status?: unknown } | null | undefined)?.status
+  if (typeof status === 'number') return status === 404
+  return looksDeleted(e instanceof Error ? e.message : '')
+}
+
 /** The message an error state shows. Never a stack, never an empty string. */
 export function errorLine(e: unknown): string {
   const m = e instanceof Error ? e.message.trim() : ''
