@@ -9841,10 +9841,49 @@ under the keyboard, taking the composer, the park box and the character with it.
   `reportsElastic` and still releases the `overscroll-behavior-y` fallback,
   exactly as before. `elastic.test.ts` pins both halves, including a case that
   runs the same numbers with and without the pin and asserts 336 vs 0.
-- **NOT verified on a real iOS keyboard.** Everything above was measured against
-  a simulated inset in a desktop engine, because the harness account is missing
-  and Simulator device access was not granted. What remains unconfirmed is
-  narrow and specific: that iOS reports the occlusion through `visualViewport`
-  the way this assumes under `viewport-fit=cover` with a pinned body. The
-  arithmetic defect is engine-independent and is pinned by unit tests; the layout
-  half wants a phone.
+- **THE PAN IS NOT TRACKED, and the first version of this got that wrong.**
+  Corrected on device evidence, below.
+
+### 2026-08-24, same day — corrected on the device: rigid, not chasing
+
+The first cut subtracted `visualViewport.offsetTop` as well, on the reasoning
+that what is occluded at the bottom is what the layout viewport has left after
+the visible band and the pan above it. The geometry is right and the design was
+wrong, and a phone said so immediately:
+
+> *"He's still gone (scrolls up out of view) when the keyboard first comes up.
+> Am still able to scroll everything up even further, causing a huge gap. Can
+> also scroll everything down, so far that the top chrome of the chat is
+> intersecting with stuff — lots of broken jank going on."*
+
+iOS pans the visual viewport around the layout viewport while the keyboard is
+up. Subtracting `offsetTop` makes the panel's FLOOR chase the visible bottom
+while its top stays pinned to the layout viewport, so the panel stretches and
+shrinks — through React, one relayout per frame of a drag. All three reports are
+that one decision: the gap is the floor lifting away from the composer, the
+intersection is two fixed layers laid out against different pan offsets in the
+same frame, and the character going missing is his mark being re-solved against
+a panel whose height came from a pan that had already moved on.
+
+**A keyboard's height does not change when you pan.** Only the offset does. The
+inset is now `layoutHeight - vv.height` and nothing else, the `visualViewport`
+subscriptions on both sides are `resize` ONLY — never `scroll`, which is the pan
+— and the panel is an ordinary fixed box the platform slides as one piece along
+with the page behind it. Rigid is not a compromise here, it is the requirement
+as stated: *"he should still scroll 1-to-1 with the rest of the page while the
+phone keyboard is up."*
+
+Verified by driving the two events separately: a `scroll` (pan) leaves him at
+726.3 — not one pixel — and a `resize` (keyboard) re-solves him to 372.8 against
+a park floor of 390 and a composer top of 398.
+
+**On hiding the two bars above the keyboard.** Asked for, and the answer is that
+only one of them is ours to take. The lower bar is the iOS form accessory bar
+(⌃ ⌄ Done); there is no web API to remove it, in Safari or in a standalone PWA,
+and the `inputmode` trick that sometimes suppresses it is version-dependent and
+takes the correct keyboard with it. The upper one is Safari's URL bar, and that
+one goes away entirely on Add to Home Screen — the app already ships
+`apple-mobile-web-app-capable`, so it is installable today and reclaims the
+taller of the two. `interactive-widget=resizes-content` was re-checked at the
+same time and is still unimplemented in WebKit (bug 259770 open), so the
+JavaScript path above remains mandatory rather than transitional.

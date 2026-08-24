@@ -891,11 +891,15 @@ export class DeckE {
     // standing at the place the composer used to be, which is now behind the
     // keyboard.
     //
-    // `scroll` on the visual viewport as well as `resize`, because iOS PANS it
-    // to reveal a focused field, and a pan is the case where he is still on
-    // screen but everything around him has slid.
+    // `resize` ONLY, and NOT `scroll`. `scroll` on the visual viewport is iOS
+    // panning it around the layout viewport, which moves the character and the
+    // panel together because both are fixed — they are in the same box, and the
+    // platform slides that box as one piece. Re-solving his station on a pan
+    // would make him chase a rect that has not moved relative to him, at drag
+    // rate, against whatever Safari reports mid-gesture. Rigid is the
+    // requirement: "he should still scroll 1-to-1 with the rest of the page
+    // while the phone keyboard is up."
     window.visualViewport?.addEventListener('resize', this.onScroll)
-    window.visualViewport?.addEventListener('scroll', this.onScroll)
 
     // STOP THE PAGE RUBBER-BANDING OUT FROM UNDER HIM.
     //
@@ -2849,7 +2853,6 @@ export class DeckE {
     this.art?.dispose()
     window.removeEventListener('scroll', this.onScroll, { capture: true })
     window.visualViewport?.removeEventListener('resize', this.onScroll)
-    window.visualViewport?.removeEventListener('scroll', this.onScroll)
     document.documentElement.style.overscrollBehaviorY = this.overscrollWas
     // Before `clearHighlight` below, which removes the ring but not the layer:
     // a layer left pinned would sit at a stale document offset for whatever
