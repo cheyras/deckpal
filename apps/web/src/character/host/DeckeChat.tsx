@@ -39,7 +39,6 @@
  *   modals  100 / toasts 9999 still paint over him, which is correct and rare.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { lockScroll, unlockScroll } from '../../components/ui/Sheet'
 import { Icon } from '../../components/Icon'
 import type { DeckEInstance } from './runtime'
 import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
@@ -1493,8 +1492,35 @@ export function DeckeChat({
   useEffect(() => {
     if (!visible || shownMinimised) return
     decke?.returnHome()
-    lockScroll()
-    return () => unlockScroll()
+    // EXPERIMENT 1 (see DECISIONS.md): a keyboard-safe lock that does NOT pin
+    // the body. `lockScroll`'s `position: fixed` body is half of the pair that
+    // makes iOS misbehave; this holds the page with overflow alone.
+    const html = document.documentElement
+    const body = document.body
+    const was = {
+      htmlH: html.style.height,
+      htmlO: html.style.overflow,
+      bodyH: body.style.height,
+      bodyO: body.style.overflow,
+    }
+    const y = window.scrollY
+    html.style.height = '100%'
+    html.style.overflow = 'hidden'
+    body.style.height = '100%'
+    body.style.overflow = 'hidden'
+    // And tell him the page is held, so he stops reading `scrollY` as a bounce.
+    // iOS scrolls a held document anyway to reveal the focused composer; every
+    // pixel of that would otherwise translate his canvas off the top. See
+    // `followElastic`.
+    decke?.holdElastic(true)
+    return () => {
+      decke?.holdElastic(false)
+      html.style.height = was.htmlH
+      html.style.overflow = was.htmlO
+      body.style.height = was.bodyH
+      body.style.overflow = was.bodyO
+      window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior })
+    }
   }, [visible, shownMinimised, decke])
 
   /**
@@ -1564,12 +1590,29 @@ export function DeckeChat({
       else onClose()
     }
     window.addEventListener('keydown', onKey)
-    const t = window.setTimeout(() => inputRef.current?.focus(), 260)
+    // ── DESKTOP ONLY, AND THE PHONE CASE IS NOT AN OVERSIGHT ──────────────────
+    //
+    // MEASURED ON A REAL iPhone. Focusing the composer from a timer raises the
+    // keyboard but does NOT get iOS's reveal: Safari scrolls a focused input
+    // into view when the USER puts it there, and treats a programmatic focus as
+    // something it does not have to make room for. So the keyboard comes up over
+    // a composer that stays exactly where it was — behind it — and the character
+    // standing on the composer goes behind it too. Tapping the composer by hand,
+    // on the very same build, reveals it correctly: iOS scrolls the panel up and
+    // the composer lands above the keyboard, which is the whole of the fix for
+    // that path. The defect is the timer, not the layout.
+    //
+    // And not auto-focusing is the better phone behaviour independently of the
+    // bug. The empty state is a greeting, three suggestions and a character; the
+    // keyboard covers all three the instant it appears, to save a tap that the
+    // reader has not yet decided to make. A desktop has no keyboard to raise and
+    // nothing is covered, so it keeps the focus and the head start.
+    const t = desktop ? window.setTimeout(() => inputRef.current?.focus(), 260) : 0
     return () => {
       window.removeEventListener('keydown', onKey)
       window.clearTimeout(t)
     }
-  }, [open, onClose])
+  }, [open, onClose, desktop])
 
   // ── Who is standing behind whom ───────────────────────────────────────────
   //
