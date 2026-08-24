@@ -1367,6 +1367,32 @@ export class DeckE {
     this.stationDirty = true
   }
 
+  /**
+   * "The rect you are parked against has moved — look again."
+   *
+   * WHY A CALLER NEEDS THIS AT ALL, when a `scroll` already marks him dirty by
+   * itself: the software keyboard moves his mark through a REACT RENDER rather
+   * than through anything the DOM notifies about. `DeckeChat` measures the
+   * keyboard off `visualViewport`, stores it as state, and the panel's floor —
+   * and therefore the park box, and therefore his station — only moves once
+   * that render has committed.
+   *
+   * Both halves are woken by the SAME `visualViewport` resize, which is the
+   * race this closes. If he re-solved straight off the event he would measure a
+   * park box that React has not moved yet, latch the position the composer used
+   * to be at, and then sit there — because a keyboard fires exactly one resize
+   * and there is no second event to correct him. That is a character standing
+   * behind the keyboard for as long as it is open, which is indistinguishable
+   * from him having disappeared.
+   *
+   * So the panel calls this from a LAYOUT effect instead, after the commit and
+   * before paint, and the ordering stops being a matter of which listener the
+   * browser happens to run first.
+   */
+  restation() {
+    this.stationDirty = true
+  }
+
   /** The live entrance scale on the rig root. 1 unless a `playEntry` is running
    *  or a caller has pinned it. See `entry.ts`. */
   get entryScale(): number {
