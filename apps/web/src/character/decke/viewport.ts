@@ -159,7 +159,51 @@ export function documentHeight(): number {
   return docH
 }
 
+/**
+ * Is the document's scroll pinned by a sheet or the chat panel?
+ *
+ * `lockScroll` (see `components/ui/Sheet.tsx`) holds the body at
+ * `position: fixed; top: -<scrollY>px; overflow: hidden`. Reading the INLINE
+ * style is deliberate and is the reason this is affordable per frame: it is a
+ * string compare against a property the lock itself wrote, with no computed
+ * style and therefore no forced layout. `getComputedStyle` here would put a
+ * reflow in the middle of every frame the chat is open.
+ *
+ * It is also intentionally a question about the BODY rather than about who
+ * locked it. Anything that pins the page produces the same hazard below, and a
+ * predicate that asks "is the page pinned" cannot fall out of step with a list
+ * of the things that pin it.
+ */
+function scrollPinned(): boolean {
+  return document.body.style.position === 'fixed'
+}
+
 export function elasticOffset(): number {
+  // ── A PINNED PAGE HAS NO RUBBER BAND, AND `scrollY` LIES ABOUT IT ──────────
+  //
+  // THE DEFECT, on a phone with the chat open and the keyboard coming up:
+  //
+  //   "Deck-E disappears, and then if I scroll up a little he comes back into
+  //    view... he scrolls at a faster rate than the rest of the page."
+  //
+  // `lockScroll` pins the body, which collapses the document to the viewport —
+  // measured with the chat open at 375x812, `scrollHeight` and the viewport are
+  // both 812, so `maxScroll` below is exactly 0. iOS then does the one thing the
+  // lock cannot stop it doing: focusing a text field makes Safari scroll the
+  // document to reveal it EVEN THOUGH the body is `position: fixed`. `scrollY`
+  // goes positive against a `maxScroll` of 0, and every pixel of it is returned
+  // here as though the page were being rubber-banded.
+  //
+  // `followElastic` then sets `translate3d(0, -scrollY, 0)` on the canvas. The
+  // first frame throws him a whole keyboard's height off the top of the screen —
+  // that is the disappearance — and from then on he carries the page's own
+  // movement a second time, which is why he travels at exactly TWICE the rate of
+  // everything around him.
+  //
+  // The bounce is a property of a scrollable document. While the page is pinned
+  // there is nothing to bounce, so there is nothing to follow, and any `scrollY`
+  // is by definition the browser doing something else with it.
+  if (scrollPinned()) return 0
   const y = window.scrollY
   // Cheap case first, and it is the top bounce — no layout read at all.
   if (y < 0) return y

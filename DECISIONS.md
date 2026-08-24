@@ -9770,3 +9770,81 @@ fit."*
   pane, and a mid-flight character reads as clipped and standing in the composer.
   Step the loop by hand (`__decke.update(1/60)` in a loop) and let it SETTLE
   before believing a frame — the first reading taken this way was 24px out.
+
+---
+
+## 2026-08-24 — The keyboard: a pinned page has no rubber band, and the panel's floor is the keyboard
+
+**Decided by:** @cheyras (report), agent (root cause and fix)
+
+**Decision:** Three changes, from one report about the software keyboard:
+
+1. `elasticOffset()` returns 0 while the document scroll is pinned, tested as
+   `document.body.style.position === 'fixed'` — the inline style `lockScroll`
+   itself writes, so the check is a string compare rather than a per-frame
+   forced layout.
+2. `DeckeChat` tracks `window.visualViewport` and sets the panel's `bottom` to
+   the occluded height, so the panel's floor becomes the top of the keyboard.
+3. `DeckE` listens to `visualViewport` `resize`/`scroll` and marks the station
+   dirty, because a keyboard moves the rect he is parked against while firing
+   neither `scroll` nor `resize`.
+
+**Why:** *"When I bring up the keyboard in chat, it introduces a huge gap
+between the bottom of the page and the top of the keyboard. Deck-E disappears,
+and then if I scroll up a little he comes back into view... he scrolls at a
+faster rate than the rest of the page."*
+
+Two independent defects, and the second one is arithmetic. `lockScroll` pins the
+body while the chat is open, which collapses the document to the viewport —
+measured with the chat open at 375x812, `scrollHeight` and the viewport are both
+812, so `maxScroll` in `elasticOffset` is exactly 0. iOS then does the one thing
+the lock cannot stop it doing: focusing a text field makes Safari scroll the
+document to reveal it even though the body is `position: fixed`. `scrollY` goes
+positive against a `maxScroll` of 0 and every pixel of it was returned as
+rubber-band overscroll, which `followElastic` put on the canvas as
+`translate3d(0, -scrollY, 0)`. The first frame threw him a keyboard's height off
+the top of the screen — the disappearance — and after that he carried the page's
+own movement a second time, at exactly TWICE its rate.
+
+The first defect is that nothing in the app knew the keyboard existed. The
+viewport meta carries no `interactive-widget`, so the platform default
+`resizes-visual` applies: the keyboard shrinks the VISUAL viewport and leaves the
+layout viewport alone. Every number the panel is built from — `100lvh`,
+`100svh`, `100dvh` and `position: fixed` itself — is layout-viewport-derived, so
+the panel kept its floor at the bottom of a screen whose bottom third was now
+under the keyboard, taking the composer, the park box and the character with it.
+
+**Implications:**
+
+- **`interactive-widget=resizes-content` was considered and rejected.** It would
+  fix Android by making the keyboard shrink the layout viewport, but it is
+  unimplemented in Safari — the engine the report came from — so it would have
+  changed nothing here while leaving two mechanisms to keep in step.
+- **Moving the FLOOR, not the panel.** `bottom: kbInset` shortens the panel
+  rather than translating it, so everything else falls out of the existing
+  machinery: the `ResizeObserver` re-measures `composerTop` against the shorter
+  panel, the park box rides up with the composer, and he stands on its top edge
+  exactly as he does with the keyboard down. Nothing in the layout code mentions
+  the character. Verified by driving the panel's floor to a 336px keyboard: the
+  composer moved 734 -> 398, the park box 592-726 -> 256-390 holding its 86px
+  offset, and his settled silhouette landed at x 14-115, feet ~385 against a
+  composer top of 398 — the same daylight as keyboard-down, and clear of the
+  keyboard line at 476.
+- **A pinch-zoom is not a keyboard**, and shrinks the same number. A reader
+  zoomed in on a card name has a visual viewport a third of the layout
+  viewport's height, which would fold the panel to nothing. `vv.scale > 1.01`
+  rejects it; a software keyboard never changes the scale. A sub-24px difference
+  is also ignored as ordinary two-viewport rounding.
+- **The bounce is NOT given up to buy the keyboard back.** The guard is keyed to
+  the body's inline style, so it is true only while something is actively holding
+  the page. With the chat closed, WebKit's first real overscroll still latches
+  `reportsElastic` and still releases the `overscroll-behavior-y` fallback,
+  exactly as before. `elastic.test.ts` pins both halves, including a case that
+  runs the same numbers with and without the pin and asserts 336 vs 0.
+- **NOT verified on a real iOS keyboard.** Everything above was measured against
+  a simulated inset in a desktop engine, because the harness account is missing
+  and Simulator device access was not granted. What remains unconfirmed is
+  narrow and specific: that iOS reports the occlusion through `visualViewport`
+  the way this assumes under `viewport-fit=cover` with a pinned body. The
+  arithmetic defect is engine-independent and is pinned by unit tests; the layout
+  half wants a phone.

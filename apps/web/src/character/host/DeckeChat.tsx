@@ -1258,6 +1258,74 @@ export function DeckeChat({
   }, [empty, messages.length])
 
   /**
+   * ── HOW MUCH OF THE SCREEN THE SOFTWARE KEYBOARD IS SITTING ON ────────────
+   *
+   * THE DEFECT, on a phone with the chat open:
+   *
+   *   *"When I bring up the keyboard in chat, it introduces a huge gap between
+   *   the bottom of the page and the top of the keyboard. Deck-E disappears."*
+   *
+   * The page's viewport meta carries no `interactive-widget` directive, so the
+   * platform default `resizes-visual` applies: a keyboard shrinks the VISUAL
+   * viewport and leaves the LAYOUT viewport exactly as it was. Every number
+   * this panel is built from — `100lvh`, `100svh`, `100dvh`, and `position:
+   * fixed` itself — is layout-viewport-derived and therefore does not move an
+   * inch. So the panel keeps its floor at the bottom of a screen whose bottom
+   * third is now underneath the keyboard, and the composer, the park box and
+   * the character standing on it all go with it.
+   *
+   * `visualViewport` is the only thing that knows, and it is deliberately NOT
+   * `interactive-widget=resizes-content` in the meta tag instead: that
+   * directive is unimplemented in Safari, which is the engine the report came
+   * from, so it would fix Android and change nothing here while leaving two
+   * different mechanisms to keep in step.
+   *
+   * `offsetTop` is part of the subtraction because iOS PANS the visual viewport
+   * over the layout viewport to reveal a focused field. What is occluded at the
+   * bottom is what the layout viewport has left after the visible band and the
+   * pan above it are taken out.
+   *
+   * ROUNDED, AND ONLY ACCEPTED WHEN IT MOVES. This fires continuously through
+   * the keyboard's own open animation, and every distinct value re-lays the
+   * panel and re-parks a 3D character. A sub-pixel oscillation at the end of
+   * that animation would do it several times a second forever.
+   */
+  const [kbInset, setKbInset] = useState(0)
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const measure = () =>
+      setKbInset((prev) => {
+        // A PINCH-ZOOM IS NOT A KEYBOARD, and it shrinks the same number.
+        //
+        // `visualViewport` reports both, and the subtraction below cannot tell
+        // them apart — a reader who has zoomed in to read a card name has a
+        // visual viewport a third of the layout viewport's height, which would
+        // be read as an enormous keyboard and fold the panel up to nothing.
+        // `scale` is what separates them: a software keyboard never changes it.
+        if (vv.scale > 1.01) return 0
+        // `documentElement.clientHeight` is the layout viewport, which is the
+        // box the panel is positioned in and the one the keyboard does not
+        // shrink. Never `innerHeight` — on iOS that is the visual viewport and
+        // the subtraction would collapse to zero.
+        const layout = document.documentElement.clientHeight
+        const next = Math.max(0, Math.round(layout - vv.height - vv.offsetTop))
+        // A couple of pixels of disagreement between the two viewports is
+        // normal with no keyboard at all (sub-pixel rounding, a scrollbar
+        // gutter). Only a real occlusion is worth moving the panel for.
+        return Math.abs(next - prev) < 1 ? prev : next < 24 ? 0 : next
+      })
+    measure()
+    vv.addEventListener('resize', measure)
+    vv.addEventListener('scroll', measure)
+    return () => {
+      vv.removeEventListener('resize', measure)
+      vv.removeEventListener('scroll', measure)
+      setKbInset(0)
+    }
+  }, [visible, shownMinimised])
+
+  /**
    * ── HOW HIGH THE COMPOSER'S TOP EDGE SITS ABOVE THE PANEL'S FLOOR ─────────
    *
    * In CSS pixels, so the park box can be expressed as "that, plus a gap".
@@ -1964,6 +2032,17 @@ export function DeckeChat({
           // and it is the same offset the scrim uses, from the same source.
           left: desktop ? 'var(--app-sidebar-w)' : 0,
           top: 'calc(var(--app-header-h) + env(safe-area-inset-top))',
+          // THE PANEL'S FLOOR IS THE TOP OF THE KEYBOARD, when there is one.
+          //
+          // `bottom-0` in the class list is the no-keyboard case and stays the
+          // default; this overrides it only while `kbInset` is non-zero, so the
+          // ordinary state is byte-for-byte what it was. Moving the FLOOR — as
+          // opposed to translating the whole panel — is what makes the rest fall
+          // out for free: the panel's height changes, the `ResizeObserver` above
+          // re-measures `composerTop` against it, the park box rides up with the
+          // composer, and he stands on its top edge exactly as he does with the
+          // keyboard down. Nothing here mentions the character.
+          bottom: kbInset || undefined,
         } as React.CSSProperties}
         className={[
           // GLASS ON BOTH, and pointer-transparent on both. It was already so

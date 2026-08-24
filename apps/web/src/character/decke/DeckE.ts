@@ -881,6 +881,22 @@ export class DeckE {
     // inside one.
     window.addEventListener('scroll', this.onScroll, { passive: true, capture: true })
 
+    // AND THE SOFTWARE KEYBOARD MOVES RECTS WITHOUT SCROLLING ANYTHING.
+    //
+    // A keyboard shrinks the VISUAL viewport and leaves the layout viewport
+    // alone, so a panel that repositions itself above the keyboard (see
+    // `kbInset` in `DeckeChat.tsx`) moves the rect he is parked against while
+    // firing no `scroll` and no `resize` — the two events the line above and
+    // `DeckeHost`'s `ResizeObserver` are listening for. Without this he keeps
+    // standing at the place the composer used to be, which is now behind the
+    // keyboard.
+    //
+    // `scroll` on the visual viewport as well as `resize`, because iOS PANS it
+    // to reveal a focused field, and a pan is the case where he is still on
+    // screen but everything around him has slid.
+    window.visualViewport?.addEventListener('resize', this.onScroll)
+    window.visualViewport?.addEventListener('scroll', this.onScroll)
+
     // STOP THE PAGE RUBBER-BANDING OUT FROM UNDER HIM.
     //
     //   "When I scroll beyond like the limit, that highlight and him don't go
@@ -2832,6 +2848,8 @@ export class DeckE {
     // walk's to free) and which are its own.
     this.art?.dispose()
     window.removeEventListener('scroll', this.onScroll, { capture: true })
+    window.visualViewport?.removeEventListener('resize', this.onScroll)
+    window.visualViewport?.removeEventListener('scroll', this.onScroll)
     document.documentElement.style.overscrollBehaviorY = this.overscrollWas
     // Before `clearHighlight` below, which removes the ring but not the layer:
     // a layer left pinned would sit at a stale document offset for whatever
