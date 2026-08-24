@@ -9860,3 +9860,33 @@ on the page rides that scroll.
   measurement. Two of the linked IDB-based tools could not be installed at all —
   `idb-companion` needs Xcode 26 to compile and this machine has 16.4 — and were
   not needed.
+
+### 2026-08-24, same day — verified again on iOS 26.5
+
+Re-run on an iPhone 17 Pro / iOS 26.5 runtime once Xcode 26 was installed,
+because the whole point of the approach is that it should not care which iOS it
+is on, and 26 is the version carrying the `visualViewport` regression (WebKit
+297779) that the earlier attempts would have been exposed to.
+
+Identical result to 18.6 across the whole pass: opens with no keyboard and
+everything visible; a tap on the composer gets iOS's reveal with the composer
+above the keyboard and him beside it in the park box; dismissal restores
+exactly. This is the expected outcome rather than a lucky one — the fix reads no
+`visualViewport` geometry at all, so there is nothing for that regression to
+corrupt.
+
+ONE BEHAVIOURAL DIFFERENCE, and it is in our favour: the stranding noted above
+does NOT reproduce on 26.5. A swipe with the keyboard up moves nothing — the
+page is genuinely held — where 18.6 let the reader scroll away from the composer
+and not scroll back. So the known rough edge is 18.6-and-earlier only, which
+lowers its priority but does not remove it.
+
+TOOLING, for whoever verifies next:
+- The built-in simulator control caches its device list at session start. A
+  runtime installed mid-session is invisible to it and no amount of detaching
+  helps; restart the session, or use `idb`.
+- `idb` is finally installable now that Xcode 26 is present (`brew install
+  facebook/fb/idb-companion` needed it and refused on 16.4). The Python client
+  is NOT compatible with Python 3.14 — `asyncio.get_event_loop()` raises — so
+  install `fb-idb` into a 3.11 venv. `idb ui tap/swipe/text` then drives any
+  booted device by udid, including ones the built-in tool cannot see.
