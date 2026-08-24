@@ -120,6 +120,57 @@ async function send<T>(
  * consume the body first. A `Blob` body survives the 401-refresh retry because
  * a Blob can be read more than once — a ReadableStream could not.
  */
+/**
+ * A POST that survives the page going away.
+ *
+ * ── WHY NOT `send()` ─────────────────────────────────────────────────────────
+ *
+ * The commonest end of a conversation is: read the answer, close the tab. A
+ * plain `fetch` is cancelled with the document, so the request most likely to be
+ * lost is the one recording the LAST exchange — the interesting end of every
+ * session, missing from a feature whose whole value is completeness. Losing a
+ * random middle record is tolerable and visible as a gap; losing the final one
+ * every time is a silent bias in the data.
+ *
+ * `keepalive` hands the request to the browser to finish after unload. Its cost
+ * is a hard 64KB budget shared by every in-flight keepalive request, so the body
+ * is measured and TRIMMED to fit rather than being allowed to fail — a truncated
+ * record of the last exchange beats no record of it.
+ *
+ * No 401 retry: `handle401` refreshes a session and re-fetches, which cannot
+ * work once the document is gone. A record lost to an expired token is a warning
+ * in the console, not a reason to build a retry that only runs when the page is
+ * still open.
+ */
+const KEEPALIVE_BUDGET = 60_000
+
+async function keepaliveJson<T>(path: string, body: unknown): Promise<T> {
+  const h = await authHeaders()
+  let payload = JSON.stringify(body)
+  if (payload.length > KEEPALIVE_BUDGET) {
+    // Trim the two free-text fields, longest first, and SAY that it happened —
+    // an answer that stops mid-sentence with no explanation reads as a bug in
+    // the thing being recorded rather than in the recording.
+    const b = { ...(body as Record<string, unknown>) }
+    const mark = '\n\n[TRUNCATED — this record exceeded the browser’s keepalive limit]'
+    const room = Math.max(400, Math.floor(KEEPALIVE_BUDGET / 2) - mark.length)
+    for (const k of ['answered', 'asked']) {
+      const v = b[k]
+      if (typeof v === 'string' && v.length > room) b[k] = v.slice(0, room) + mark
+      payload = JSON.stringify(b)
+      if (payload.length <= KEEPALIVE_BUDGET) break
+    }
+  }
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    keepalive: true,
+    headers: { 'content-type': 'application/json', ...h },
+    body: payload,
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.json() as Promise<T>
+}
+
 async function upload<T>(path: string, blob: Blob): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream', ...await authHeaders() }
   const init: RequestInit = { method: 'POST', headers, body: blob }
@@ -973,7 +1024,7 @@ export const api = {
     asked: string
     answered: string
     tools: { name: string; phase: string; title: string; summary: string }[]
-  }) => send<{ ok: true; buildPr: number | null; buildSha: string | null }>('POST', '/decke/history', body),
+  }) => keepaliveJson<{ ok: true; recorded: boolean }>('/decke/history', body),
   deckeHistoryList: (signal?: AbortSignal) =>
     get<DeckeHistoryList>('/decke/history', signal),
   deckeHistoryOne: (id: string, signal?: AbortSignal) =>

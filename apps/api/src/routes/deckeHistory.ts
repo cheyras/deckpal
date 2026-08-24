@@ -217,16 +217,46 @@ deckeHistoryRouter.post(
       [conversationId, userId, asked.slice(0, MAX_TITLE)],
     );
 
+    // ── WHOSE CONVERSATION IS THIS ──────────────────────────────────────────
+    //
+    // `ON CONFLICT DO NOTHING` above swallows the case where the id already
+    // belongs to SOMEBODY ELSE, and every statement here runs as the owning
+    // role with RLS deliberately bypassed — so without this check the route had
+    // neither of the two locks the rest of the codebase relies on. An entitled
+    // account posting another's `conversationId` would have had its turns
+    // written into that conversation, and 043's comment that a guessed id
+    // "reaches nothing because it is namespaced by user_id in every query" was
+    // simply false for the write path.
+    //
+    // 404 and not 403, matching the read routes: a 403 would confirm the id
+    // exists, which is a fact about another account's data.
+    const owner = await write<{ user_id: string }>(
+      `SELECT user_id FROM decke_conversation WHERE id = $1`,
+      [conversationId],
+    );
+    if (!owner || owner.user_id !== userId) throw notFound('No such conversation.');
+
+    // ── DO NOTHING, NOT DO UPDATE ───────────────────────────────────────────
+    //
+    // This was an upsert, which made `POST /history` an UPDATE ROUTE — and 044's
+    // whole argument is that there must not be one: "you may withdraw your own
+    // words, you may not revise them. A history whose subject can rewrite it is
+    // not evidence." The API tier was contradicting the database tier.
+    //
+    // It was worse than a rewrite. `buildStamp()` is re-read on every POST, so a
+    // repost after a deploy silently RE-ATTRIBUTED the turn to the new build —
+    // destroying exactly the correlation this feature exists to provide, in the
+    // one direction nobody would notice.
+    //
+    // The client posts each turn once and has no retry, so `DO NOTHING` gives
+    // the idempotency the unique constraint was added for and leaves no path to
+    // revise a recorded turn. A conflict is reported as `recorded: false` rather
+    // than as an error: the turn IS on file, which is what the caller wanted.
     const row = await write<{ id: string }>(
       `INSERT INTO decke_turn
          (conversation_id, user_id, seq, asked, answered, tools, build_pr, build_sha)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
-       ON CONFLICT (conversation_id, seq) DO UPDATE
-         SET asked = EXCLUDED.asked,
-             answered = EXCLUDED.answered,
-             tools = EXCLUDED.tools,
-             build_pr = EXCLUDED.build_pr,
-             build_sha = EXCLUDED.build_sha
+       ON CONFLICT (conversation_id, seq) DO NOTHING
        RETURNING id`,
       [conversationId, userId, seq, asked, answered, JSON.stringify(tools), buildPr, buildSha],
     );
@@ -241,7 +271,7 @@ deckeHistoryRouter.post(
       [conversationId, userId],
     );
 
-    res.json({ ok: true, id: row?.id ?? null, buildPr, buildSha });
+    res.json({ ok: true, recorded: row !== null, id: row?.id ?? null, buildPr, buildSha });
   }),
 );
 
@@ -263,7 +293,12 @@ deckeHistoryRouter.get(
               max(t.build_pr) AS build_pr_max,
               (array_agg(t.build_sha ORDER BY t.seq DESC))[1] AS build_sha
          FROM decke_conversation c
-         LEFT JOIN decke_turn t ON t.conversation_id = c.id
+         -- The turn's own user_id as well as the conversation's, so this read
+         -- carries the same first lock every other query claims to. Defence in
+         -- depth now that the write path can no longer accept a foreign turn,
+         -- and it was the difference between a summary and a summary polluted
+         -- with somebody else's build stamps.
+         LEFT JOIN decke_turn t ON t.conversation_id = c.id AND t.user_id = $1
         WHERE c.user_id = $1
         GROUP BY c.id
         ORDER BY c.updated_at DESC

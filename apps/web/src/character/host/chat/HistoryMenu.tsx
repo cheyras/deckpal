@@ -76,6 +76,8 @@ export type HistoryMenuProps = {
    * is the whole of what it has to say.
    */
   liveId: string | null
+  /** Start a fresh conversation — clears the transcript and rotates the id. */
+  onNewChat: () => void
   onOpenConversation: (id: string) => void
   /**
    * A conversation was deleted. The viewer, if it is showing that one, has to
@@ -133,7 +135,7 @@ export function BuildStampChip({ stamp, className }: { stamp: BuildStamp; classN
   )
 }
 
-export function HistoryMenu({ viewingId, liveId, onOpenConversation, onDeleted }: HistoryMenuProps) {
+export function HistoryMenu({ viewingId, liveId, onNewChat, onOpenConversation, onDeleted }: HistoryMenuProps) {
   const [open, setOpen] = useState(false)
   const [load, setLoad] = useState<HistoryLoad>({ state: 'idle' })
   /** The row whose delete has been asked for but not confirmed. */
@@ -284,6 +286,10 @@ export function HistoryMenu({ viewingId, liveId, onOpenConversation, onDeleted }
             now={now.current}
             viewingId={viewingId}
             liveId={liveId}
+            onNewChat={() => {
+              setOpen(false)
+              onNewChat()
+            }}
             confirming={confirming}
             deleting={deleting}
             rowError={rowError}
@@ -323,6 +329,7 @@ export function HistorySheet({
   now,
   viewingId,
   liveId,
+  onNewChat,
   confirming,
   deleting,
   rowError,
@@ -337,6 +344,8 @@ export function HistorySheet({
   viewingId: string | null
   /** The live conversation, marked and not openable. See `HistoryMenuProps`. */
   liveId: string | null
+  /** Start a fresh conversation. Absent in fixtures that photograph the list alone. */
+  onNewChat?: () => void
   confirming: string | null
   deleting: string | null
   rowError: { id: string; message: string } | null
@@ -359,6 +368,28 @@ export function HistorySheet({
         <span className="text-[12px] font-bold text-text-primary">Chat history</span>
         <span className="text-[11px] leading-[16px] text-text-muted">the build each ran on</span>
       </div>
+
+      {/*
+        ── NEW CHAT, AT THE TOP, WHERE A NEW CHAT GOES ────────────────────────
+        A conversation had no boundary before this: the id was minted once per
+        tab and the transcript was never cleared, so a long session filed days
+        of unrelated exchanges as one row. This is the boundary — and it lives
+        here rather than in the header because it is the same subject as the
+        list it sits above: which conversation you are in.
+
+        It clears the transcript AND rotates the id together. Doing either
+        alone makes the history stop describing what is on screen.
+      */}
+      {onNewChat ? (
+        <button
+          type="button"
+          onClick={onNewChat}
+          className="flex w-full items-center gap-[7px] border-b border-surface-tertiary px-[13px] py-[9px] text-left text-[12.5px] font-medium text-text-body hover:bg-surface-secondary"
+        >
+          <Icon name="plus" size={13} className="shrink-0 text-icon-default" />
+          New chat
+        </button>
+      ) : null}
 
       <div className="max-h-[min(60vh,420px)] overflow-y-auto overscroll-contain">
         {load.state === 'loading' || load.state === 'idle' ? (

@@ -265,11 +265,21 @@ test('all three failure states exist and none of them looks like a bug', () => {
   // was removed from the union, because the string still appeared elsewhere in
   // the file. What matters is not that the word exists — it is that the 404 is
   // ROUTED to it, which is one specific expression.
+  //
+  // AND IT PINNED THE DEFECT IN PLACE. This asserted `looksDeleted(message)`
+  // verbatim — the prose match — so `isGone`, written to retire it, shipped as
+  // dead code with a commit message describing a wiring that had not happened,
+  // and correcting the call site would have FAILED the test that claims to
+  // guard the behaviour. A pin written against today's implementation rather
+  // than against the behaviour becomes an argument for not fixing it.
   assert.match(
     code(VIEW),
-    /setLoad\(looksDeleted\(message\) \? \{ state: 'gone' \} : \{ state: 'failed', message \}\)/,
+    /setLoad\(isGone\(e\) \? \{ state: 'gone' \} : \{ state: 'failed', message \}\)/,
     'a deleted conversation reads as a fault',
   )
+  // The status is the fact; the prose is the fallback inside `isGone` and must
+  // not be the thing the view reaches for.
+  assert.doesNotMatch(code(VIEW), /looksDeleted\(/, 'the viewer is matching the server prose again')
   assert.match(code(VIEW), /This conversation was deleted\./, 'the deleted state says nothing')
   assert.match(code(VIEW), /onClick=\{onRetry\}/, 'a failed transcript offers no way to try again')
 })
@@ -319,4 +329,37 @@ test('the LIVE conversation reaches the list, and its row does not open', () => 
   // history it is showing; opening it would hand somebody a read-only record of
   // the conversation already on screen behind the menu.
   assert.match(code(MENU), /disabled=\{live && !viewing\}/, 'the live row is openable again')
+})
+
+test('a conversation has a BOUNDARY, and the transcript resets with the id', () => {
+  // Before this, `conversationRef` was minted once per hook mount and never
+  // reassigned — and `DeckeHost` is mounted at the router's root precisely so it
+  // survives navigation, while `DeckeChat` returns null rather than unmounting.
+  // Nothing cleared the transcript either. So "a conversation" was the lifetime
+  // of the TAB, and a long session filed days of unrelated exchanges as one row.
+  //
+  // The ref's comment claimed the id "survives until the transcript is cleared",
+  // describing a mechanism that did not exist.
+  const hook = code(read('../useDeckeChat.ts'))
+  assert.match(hook, /conversationRef\.current = newConversationId\(\)/, 'the id can no longer be rotated')
+  assert.match(hook, /seqRef\.current = 0/, 'seq does not restart, so the unique constraint will collide')
+  // THE PAIR IS THE RULE. Rotating the id while the old messages stay on screen
+  // files one visible conversation as two; clearing the screen while keeping the
+  // id files two as one. Either way the history stops describing the product.
+  const fn = hook.slice(hook.indexOf('const newConversation'))
+  const body = fn.slice(0, fn.indexOf('}, [])'))
+  assert.match(body, /setMessages\(\[\]\)/, 'the transcript is not cleared with the id')
+  assert.match(body, /abortRef\.current\?\.abort\(\)/, 'a turn in flight could land in the new conversation')
+
+  // And it is reachable: exposed, threaded, and rendered as a control.
+  assert.match(hook, /\n    newConversation,/, 'the hook stopped exposing it')
+  assert.match(code(read('../DeckeHost.tsx')), /onNewChat=\{chat\.newConversation\}/, 'the host stopped wiring it')
+  assert.match(code(PANEL), /onNewChat\?\.\(\)/, 'the panel stopped forwarding it')
+  assert.match(code(MENU), /New chat/, 'there is no way to start one')
+})
+
+test('opening a new chat closes any record being read', () => {
+  // A saved transcript left open onto a transcript that has just been emptied
+  // shows a record with no way to tell it from the new blank conversation.
+  assert.match(code(PANEL), /setViewingId\(null\)[\s\S]{0,120}onNewChat\?\.\(\)/, 'a record stays open across a reset')
 })

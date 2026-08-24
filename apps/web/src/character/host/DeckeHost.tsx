@@ -1139,6 +1139,7 @@ export function DeckeHost() {
         // So the history list can mark the row the reader is actually in. It
         // cannot be inferred from the list itself — see `liveId`.
         conversationId={chat.conversationId}
+        onNewChat={chat.newConversation}
         onRetryTool={chat.retry}
         desktop={wide}
         characterPx={charPx}

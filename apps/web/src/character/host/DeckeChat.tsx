@@ -937,6 +937,7 @@ export function DeckeChat({
   characterPx,
   credits,
   conversationId,
+  onNewChat,
   onTopUp,
 }: {
   open: boolean
@@ -1016,6 +1017,8 @@ export function DeckeChat({
   credits?: CreditBalance | null
   /** The conversation being recorded right now, so the list can mark it. */
   conversationId?: string | null
+  /** Start a fresh conversation: clears the transcript and rotates the id. */
+  onNewChat?: () => void
   /** Where "Top up" goes. Absent means no route yet, and the chip is not a button. */
   onTopUp?: () => void
 }) {
@@ -1713,6 +1716,13 @@ export function DeckeChat({
           <HistoryMenu
             viewingId={viewingId}
             liveId={conversationId ?? null}
+            onNewChat={() => {
+              // Leaving a record open onto a transcript that has just been
+              // emptied would show a saved chat with no way to tell it from
+              // the new blank one.
+              setViewingId(null)
+              onNewChat?.()
+            }}
             onOpenConversation={setViewingId}
             // A CONVERSATION DELETED WHILE IT IS BEING READ TAKES ITS OWN VIEWER
             // WITH IT. Leaving the transcript up after the row is gone would be

@@ -65,7 +65,7 @@ import {
   errorLine,
   fullWhen,
   historyToolRows,
-  looksDeleted,
+  isGone,
   shortSha,
   turnStamp,
   whenLabel,
@@ -115,9 +115,14 @@ export function TranscriptPane({ id, onBack }: { id: string; onBack: () => void 
         const message = errorLine(e)
         // DELETED IS NOT BROKEN. Opening a conversation that another tab
         // removed a second ago is an ordinary thing to do and must not look
-        // like a fault — see `looksDeleted` for how sure this is and what the
-        // cost of being wrong is.
-        setLoad(looksDeleted(message) ? { state: 'gone' } : { state: 'failed', message })
+        // like a fault.
+        //
+        // `isGone`, not `looksDeleted`: the status is the fact and the server's
+        // prose is only the fallback. Matching the sentence was the only option
+        // before `lib/api.ts` carried a status, and it is a coupling to a string
+        // somebody will reword — the day they do, a deleted conversation starts
+        // reporting "something went wrong" with a retry that can never succeed.
+        setLoad(isGone(e) ? { state: 'gone' } : { state: 'failed', message })
       })
     return () => ac.abort()
   }, [id, attempt])

@@ -722,7 +722,13 @@ function MockChatHeader() {
       <span className="shrink-0 whitespace-nowrap rounded-full border border-border-subtle px-[7px] py-[1px] text-[10.5px] font-medium uppercase leading-[15px] tracking-[0.04em] text-text-muted">
         Experimental
       </span>
-      <HistoryMenu viewingId={null} liveId={null} onOpenConversation={() => {}} onDeleted={() => {}} />
+      <HistoryMenu
+        viewingId={null}
+        liveId={null}
+        onNewChat={() => {}}
+        onOpenConversation={() => {}}
+        onDeleted={() => {}}
+      />
       <button
         type="button"
         aria-label="Close chat"
