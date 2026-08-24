@@ -1591,7 +1591,48 @@ export function DeckeChat({
       if (window.scrollY !== 0) window.scrollTo(0, 0)
     }
     window.addEventListener('scroll', pin, { passive: true })
+
+    // ── AND THE READER'S FINGER IS STOPPED BEFORE IT SCROLLS, NOT AFTER ───────
+    //
+    //   *"It keeps trying to snap back down while scrolling so it flickers back
+    //   and forth in a way that feels glitchy."*
+    //
+    // `pin` above is a CORRECTION: the page moves, then it is put back. That is
+    // invisible for the one scroll iOS performs on its own, and awful for a drag
+    // — the finger moves the page, the listener yanks it home, and the two race
+    // for as long as the gesture lasts. A correction cannot be the answer to a
+    // continuous gesture; the gesture has to not scroll in the first place.
+    //
+    // `touchmove` with `passive: false` is the only thing that can refuse it,
+    // and the non-passive flag is the whole trick — a passive listener may not
+    // call `preventDefault`, and iOS 11.3+ makes document-level touch listeners
+    // passive BY DEFAULT, so the obvious version of this silently does nothing.
+    // It is also why this is a real `addEventListener` rather than a React prop:
+    // React attaches at the root, passively.
+    //
+    // THE TRANSCRIPT IS EXEMPT, because it is the one thing that SHOULD scroll.
+    // The test is "did this touch start inside it, and does it actually have
+    // somewhere to go" — a transcript shorter than its box would otherwise
+    // chain its unused scroll to the document, which is the same drag by
+    // another route. `overscroll-contain` on the element stops the chaining at
+    // its ends; this stops it when there was never anything to scroll at all.
+    const onTouchMove = (e: TouchEvent) => {
+      const list = transcriptRef.current
+      const target = e.target
+      if (
+        list &&
+        target instanceof Node &&
+        list.contains(target) &&
+        list.scrollHeight > list.clientHeight
+      ) {
+        return
+      }
+      if (e.cancelable) e.preventDefault()
+    }
+    document.addEventListener('touchmove', onTouchMove, { passive: false })
+
     return () => {
+      document.removeEventListener('touchmove', onTouchMove)
       window.removeEventListener('scroll', pin)
       decke?.holdElastic(false)
       html.style.height = was.htmlH
@@ -2418,7 +2459,13 @@ export function DeckeChat({
           onPointerDown={onSurfaceDown}
           onClick={onSurfaceClick}
           className={[
-            'decke-transcript-fade pointer-events-auto flex w-full flex-col overflow-y-auto',
+            // `overscroll-contain` KEEPS ITS OVERSCROLL TO ITSELF. Without it,
+            // dragging past either end of the transcript chains the remaining
+            // scroll to the document, which is the page-drag the panel is
+            // holding off by hand in the effect above — the same glitch by a
+            // second route, and one `touchmove` cannot refuse because the touch
+            // legitimately began inside a scroller.
+            'decke-transcript-fade pointer-events-auto flex w-full flex-col overflow-y-auto overscroll-contain',
             // `min-h-0` ON BOTH, AND THE EMPTY STATE MAY NOW SHRINK.
             //
             // It was `shrink-0`, which says "never give up any of my content's

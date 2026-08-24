@@ -9956,3 +9956,31 @@ correct, the reveal has nothing to reveal and the snap-back is invisible.
   invalidating two experiments — a panel that "did not shrink" was a panel whose
   code had never reached the browser. Restart the dev server and confirm with
   `curl … | grep -c <newSymbol>` before believing any on-device result.
+
+### 2026-08-24, same day — refuse the gesture, do not correct it
+
+*"It keeps trying to snap back down while scrolling so it flickers back and
+forth in a way that feels glitchy."*
+
+The scroll pin added above is a CORRECTION: the page moves, then it is put back.
+That is invisible for the single scroll iOS performs on its own, and awful for a
+drag — the finger moves the page, the listener yanks it home, and the two race
+for as long as the gesture lasts. A correction cannot answer a continuous
+gesture. The gesture has to not scroll in the first place.
+
+So a `touchmove` listener with `passive: false` refuses it. The non-passive flag
+is the whole trick: a passive listener may not call `preventDefault`, and iOS
+11.3+ makes document-level touch listeners passive BY DEFAULT — which is also
+why this is a real `addEventListener` and not a React prop, since React attaches
+at the root, passively. The pin stays for iOS's own programmatic scroll, where
+there is no gesture to fight.
+
+THE TRANSCRIPT IS EXEMPT, because it is the one thing that should scroll. The
+test is "did the touch start inside it, and does it actually have somewhere to
+go" — a transcript shorter than its box would otherwise chain its unused scroll
+to the document, which is the same drag by another route. `overscroll-contain`
+on the element closes the other end of that: chaining when it hits its limits.
+
+Verified on both runtimes: dragging outside the transcript moves nothing at all
+(no movement, so nothing to snap back), dragging inside it scrolls the transcript
+smoothly and the page stays put.
