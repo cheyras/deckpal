@@ -1452,6 +1452,27 @@ export function DeckeChat({
     desktop || !characterPx ? 0 : Math.max(0, PARK_LEFT + parkW + PARK_GAP - CONTENT_PAD)
 
   /**
+   * TELL HIM HIS MARK MOVED, ONCE THE MARK HAS ACTUALLY MOVED.
+   *
+   * A LAYOUT effect, and that is the entire point of it. The keyboard wakes two
+   * things with one `visualViewport` resize: this component, which re-measures
+   * `kbInset`, re-lays the panel and moves the park box with it, and `DeckE`,
+   * which marks its station dirty and re-solves on the next frame. Nothing
+   * orders those against each other — and if he re-solves first he measures a
+   * park box React has not moved yet, latches the composer's OLD position, and
+   * stays there, because a keyboard fires exactly one resize and no second
+   * event comes to correct him. A character parked behind the keyboard for as
+   * long as it is open is indistinguishable from one that has vanished.
+   *
+   * Running after the commit and before paint makes the ordering a fact rather
+   * than a hope. `restation` only sets a flag, so the extra call when nothing
+   * has moved costs one boolean.
+   */
+  useLayoutEffect(() => {
+    decke?.restation()
+  }, [decke, composerTop, kbInset])
+
+  /**
    * When the turn in progress started, for the thinking row's counter.
    *
    * Latched on the transition into `busy` rather than read from a message,
