@@ -32,8 +32,14 @@
  *   `partial`  — the call ran out of time or output room and what came back is
  *                INCOMPLETE. This is neither `ok` nor `error` and must not look
  *                like either. It is the state the owner mistook for success.
+ *   `unknown`  — **the record does not say.** This one does not come from a live
+ *                turn at all; it comes back out of the transcript history, where
+ *                `shapeTools()` on the server writes `unknown` for any phase
+ *                string it does not recognise. A row that reaches the screen
+ *                with no recorded outcome must not be dressed as one, which is
+ *                the whole of X2 applied to a stored row rather than a live one.
  */
-export type ToolPhase = 'start' | 'progress' | 'ok' | 'partial' | 'error' | 'declined'
+export type ToolPhase = 'start' | 'progress' | 'ok' | 'partial' | 'error' | 'declined' | 'unknown'
 
 export type ToolRowData = {
   id: string
@@ -46,6 +52,27 @@ export type ToolRowData = {
   note?: string
   /** Why a `partial` is partial. */
   reason?: 'timeout' | 'truncated'
+  /**
+   * ── THIS ROW IS A RECORD, NOT A LIVE CALL ──────────────────────────────────
+   *
+   * Set by the transcript viewer and by nothing else. It is a fact about the
+   * row's PROVENANCE rather than about the call, which is why it lives on the
+   * data instead of being a prop on the component: the same `<ToolRow>` renders
+   * both, and it should not have to be told twice.
+   *
+   * Two things stop being true the moment a row is a record, and both of them
+   * are lies if left alone:
+   *
+   *  1. **Nothing here is still happening.** A `start` phase that survived into
+   *     the record means the call had not finished when the turn ended — the
+   *     reader pressed stop, or closed the panel. Drawing the travelling ring on
+   *     it would say "still going" about something that stopped days ago.
+   *  2. **There is nothing to retry.** The turn is over and the call site is
+   *     gone. `ToolRow` already needs an `onRetry` to draw the control, and the
+   *     viewer passes none — but "the caller happens not to wire it" is a habit,
+   *     and this makes it a property.
+   */
+  recorded?: boolean
 }
 
 /**
@@ -101,11 +128,37 @@ export function toolRowFromChip(chip: ToolRowData): ToolRowData {
  *                did NOT happen is the fact. It is deliberately not `danger`:
  *                a red band across the transcript would tell somebody their own
  *                decision was a problem.
+ *   `unknown`  — **no outcome was recorded for this call.** Only reachable from
+ *                the transcript history. Muted, with a dash rather than a tick,
+ *                and it says so in words.
+ *
+ *                It is deliberately NOT `warn`. A tinted amber card is the right
+ *                weight for a live failure the reader can still act on, and the
+ *                wrong weight for a months-old record of a turn somebody
+ *                abandoned: a history read back through an amber wash would
+ *                train the eye to skip exactly the tint that matters. The state
+ *                word carries it, which is the same argument that made the pill
+ *                text rather than colour in the first place.
  */
-export type ToolTone = 'quiet' | 'running' | 'warn' | 'danger' | 'declined'
+export type ToolTone = 'quiet' | 'running' | 'warn' | 'danger' | 'declined' | 'unknown'
+
+/**
+ * The glyph at the head of the row, decided HERE rather than inferred there.
+ *
+ * `ToolRow` used to pick it with a nested ternary over the tone — `declined ? ✗
+ * : quiet ? ✓ : ⚠` — which reads as tidy and has a trapdoor in it: every tone
+ * that is not `declined` and not `quiet` gets the warning triangle, and every
+ * tone that IS quiet gets a TICK. Add one tone whose row is muted but whose
+ * outcome is unknown and that inference silently draws a check mark on it. The
+ * tick on a refusal is a bug this codebase has already shipped once, from the
+ * same shape of reasoning; this makes the glyph a stated answer.
+ */
+export type ToolGlyph = 'check' | 'alert' | 'close' | 'dash'
 
 export type ToolRowAppearance = {
   tone: ToolTone
+  /** Which mark leads the row. See `ToolGlyph` for why this is not inferred. */
+  glyph: ToolGlyph
   /**
    * The explicit state word shown beside the title.
    *
@@ -180,13 +233,49 @@ export function hintFrom(detail?: string): string | undefined {
   return flat.slice(0, at).replace(/[.,—:;]+$/, '') + '…'
 }
 
+/**
+ * The two ways a row can reach the screen with no outcome behind it.
+ *
+ *  • `unknown` — the stored phase was not one this app knows. The record does
+ *    not say what happened, so neither does the row.
+ *  • a `start`/`progress` row that is a RECORD — the call had not settled when
+ *    the turn was filed. It did not fail; it simply never came back.
+ *
+ * Both get the same muted tone and the same dash, because they are the same
+ * fact to a reader: *there is no outcome here*. They get different words,
+ * because the reasons are different and the maintainer reading a history to
+ * find a regression cares which one he is looking at.
+ */
+/**
+ * One mark per tone, exhaustively, so a new tone cannot inherit a tick by
+ * being none of the cases somebody remembered to write down.
+ */
+const GLYPH: Record<ToolTone, ToolGlyph> = {
+  quiet: 'check',
+  running: 'check',
+  declined: 'close',
+  unknown: 'dash',
+  warn: 'alert',
+  danger: 'alert',
+}
+
+function unrecordedLabel(data: ToolRowData): string | null {
+  if (data.phase === 'unknown') return 'Outcome not recorded'
+  if (data.recorded && (data.phase === 'start' || data.phase === 'progress')) return 'Never finished'
+  return null
+}
+
 export function toolRowAppearance(data: ToolRowData): ToolRowAppearance {
-  const running = data.phase === 'start' || data.phase === 'progress'
+  const live = data.phase === 'start' || data.phase === 'progress'
+  // NOTHING IN A RECORD IS STILL RUNNING. See `ToolRowData.recorded`.
+  const running = live && !data.recorded
   // A running row's detail is the live note; a settled row's is the real
-  // result's first line. Never both, never model prose.
+  // result's first line. Never both, never model prose. A record has no live
+  // note by construction, so it always reads the stored summary.
   const detail = (running ? data.note : data.summary)?.trim() || undefined
   const failed = isFailedPhase(data.phase)
   const hasDetail = detail !== undefined
+  const unrecorded = unrecordedLabel(data)
 
   const label =
     data.phase === 'error'
@@ -198,19 +287,28 @@ export function toolRowAppearance(data: ToolRowData): ToolRowAppearance {
           // fact that nothing was written.
           data.phase === 'declined'
           ? 'Cancelled'
-          : ''
+          : (unrecorded ?? '')
 
-  return {
-    tone:
-      data.phase === 'error'
-        ? 'danger'
-        : data.phase === 'partial'
-          ? 'warn'
-          : data.phase === 'declined'
-            ? 'declined'
+  const tone: ToolTone =
+    data.phase === 'error'
+      ? 'danger'
+      : data.phase === 'partial'
+        ? 'warn'
+        : data.phase === 'declined'
+          ? 'declined'
+          : unrecorded
+            ? 'unknown'
             : running
               ? 'running'
-              : 'quiet',
+              : 'quiet'
+
+  return {
+    tone,
+    // A TICK IS AN ASSERTION. It is drawn for a call that ran and came back,
+    // and every other state names its own mark. (`running` draws the travelling
+    // ring instead of any glyph, but it still has to answer, because a phase
+    // that stops being busy must not fall through to a tick by default.)
+    glyph: GLYPH[tone],
     label,
     expandable: hasDetail,
     // NEVER COLLAPSE A FAILURE. When there is genuinely nothing to reveal the
@@ -218,13 +316,23 @@ export function toolRowAppearance(data: ToolRowData): ToolRowAppearance {
     // explicit label and the retry control still carry the state.
     defaultExpanded: failed && hasDetail,
     busy: running,
-    canRetry: failed,
+    // A RECORD HAS NOTHING TO RETRY. The turn is over and the call site is gone.
+    canRetry: failed && !data.recorded,
     detail,
     hint: failed ? undefined : hintFrom(detail),
     announce: announceFor(data, label, detail),
     // Successes stay silent: the answer itself is about to be announced and
     // narrating every read would bury it. Failures do not get that courtesy.
-    live: data.phase === 'error' ? 'assertive' : data.phase === 'partial' ? 'polite' : 'off',
+    // A RECORD ANNOUNCES NOTHING AT ALL: it is not news, it is a document, and
+    // a viewer that shouted three old failures at a screen-reader user the
+    // moment it opened would be the live-region defect with the sign flipped.
+    live: data.recorded
+      ? 'off'
+      : data.phase === 'error'
+        ? 'assertive'
+        : data.phase === 'partial'
+          ? 'polite'
+          : 'off',
   }
 }
 
@@ -232,9 +340,14 @@ function announceFor(data: ToolRowData, label: string, detail?: string): string 
   const title = data.title.trim() || data.name
   switch (data.phase) {
     case 'start':
-      return `${title}: running`
+      return data.recorded ? `${title}: never finished` : `${title}: running`
     case 'progress':
+      if (data.recorded) return `${title}: never finished`
       return detail ? `${title}: running. ${detail}` : `${title}: running`
+    case 'unknown':
+      // The sentence a screen reader gets has to say the same thing the pill
+      // says. "Outcome not recorded" is not a hedge; it is the fact.
+      return detail ? `${title}: outcome not recorded. ${detail}` : `${title}: outcome not recorded`
     case 'ok':
       return detail ? `${title}: done. ${detail}` : `${title}: done`
     case 'partial':

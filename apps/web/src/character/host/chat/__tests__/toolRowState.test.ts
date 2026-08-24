@@ -248,3 +248,105 @@ test('a cancellation stays as quiet as a success', () => {
   assert.notEqual(a.tone, 'warn')
   assert.equal(a.live, 'off', 'they pressed it themselves; it must not interrupt')
 })
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * A ROW THAT IS A RECORD, NOT A LIVE CALL.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The transcript viewer replays stored rows through this exact module and this
+ * exact component, deliberately, so that a restyle of one is a restyle of both.
+ * That is only safe if the two facts that stop being true in a record are
+ * enforced here rather than remembered at the call site:
+ *
+ *   nothing replayed is still running, and nothing replayed can be retried.
+ *
+ * The third fact is the one this codebase has already got wrong once, in the
+ * other direction: a tick is an ASSERTION, and a row with no recorded outcome
+ * must not draw one.
+ */
+test('a record is never busy, however it was left', () => {
+  // MUTATION: drop `&& !data.recorded` from `running` and this goes red. Without
+  // it a call that was still in flight when somebody closed the panel draws a
+  // travelling ring forever, in a document, saying "still going" about something
+  // that stopped days ago.
+  for (const phase of ['start', 'progress'] as const) {
+    assert.equal(toolRowAppearance(row({ phase })).busy, true, `${phase} is busy while live`)
+    assert.equal(toolRowAppearance(row({ phase, recorded: true })).busy, false, `${phase} is busy in a record`)
+  }
+})
+
+test('a record is never retryable, even when it failed', () => {
+  // MUTATION: drop `&& !data.recorded` from `canRetry`. The turn is over and the
+  // call site is gone; a "Try again" there is a button that cannot do its job.
+  for (const phase of ['partial', 'error'] as const) {
+    assert.equal(toolRowAppearance(row({ phase })).canRetry, true)
+    assert.equal(toolRowAppearance(row({ phase, recorded: true })).canRetry, false, `${phase} offered a retry in a record`)
+  }
+})
+
+test('a record announces nothing', () => {
+  // Opening a transcript must not shout three old failures at a screen-reader
+  // user. It is a document, not news.
+  for (const phase of ['error', 'partial'] as const) {
+    assert.notEqual(toolRowAppearance(row({ phase })).live, 'off')
+    assert.equal(toolRowAppearance(row({ phase, recorded: true })).live, 'off', `${phase} interrupted from a record`)
+  }
+})
+
+test('a call that never finished says so, and does not read as a success', () => {
+  const a = toolRowAppearance(row({ phase: 'start', recorded: true }))
+  assert.match(a.label, /never finished/i)
+  assert.notEqual(a.glyph, 'check', 'a call that never came back drew a tick')
+  assert.match(a.announce, /never finished/i)
+})
+
+test('a phase the app does not recognise draws no tick and says why', () => {
+  // `shapeTools` on the server writes `unknown` for any phase string it does not
+  // know. This is the whole of X2 applied to a stored row: an outcome nobody
+  // recorded must not be dressed as one.
+  const a = toolRowAppearance(row({ phase: 'unknown', summary: 'something' }))
+  assert.notEqual(a.glyph, 'check', 'an unknown outcome drew a tick')
+  assert.notEqual(a.label, '', 'an unknown outcome said nothing at all')
+  assert.match(a.label, /not recorded/i)
+  assert.match(a.announce, /not recorded/i)
+  assert.equal(a.busy, false)
+  assert.equal(a.canRetry, false)
+})
+
+test('an unknown row is not dressed as a failure either', () => {
+  // MUTATION: give `unknown` the `warn` tone. A history read back through an
+  // amber wash trains the eye to skip exactly the tint that matters, and it
+  // would be claiming something went wrong when nobody knows that it did.
+  const a = toolRowAppearance(row({ phase: 'unknown' }))
+  assert.notEqual(a.tone, 'warn')
+  assert.notEqual(a.tone, 'danger')
+  assert.equal(a.defaultExpanded, false)
+})
+
+test('exactly one appearance draws a tick', () => {
+  // MUTATION: point any other tone at `check` in the GLYPH map. This is the
+  // guard against the defect this codebase actually shipped — a refusal drawn
+  // with a check mark — coming back through a new phase nobody thought about.
+  const cases: { data: ToolRowData; ticks: boolean }[] = [
+    { data: row({ phase: 'ok', summary: 'Read 604 cards' }), ticks: true },
+    { data: row({ phase: 'partial' }), ticks: false },
+    { data: row({ phase: 'error' }), ticks: false },
+    { data: row({ phase: 'declined' }), ticks: false },
+    { data: row({ phase: 'unknown' }), ticks: false },
+    { data: row({ phase: 'start', recorded: true }), ticks: false },
+  ]
+  for (const c of cases) {
+    const a = toolRowAppearance(c.data)
+    assert.equal(a.glyph === 'check', c.ticks, `${c.data.phase}${c.data.recorded ? ' (recorded)' : ''} drew the wrong mark`)
+  }
+})
+
+test('a record reads its stored summary even for a phase that was mid-flight', () => {
+  // The live branch reads `note`, which a record never has. Without the
+  // `recorded` split, a stored row left at `progress` would show nothing at all
+  // and quietly lose whatever the record DID keep.
+  const a = toolRowAppearance(row({ phase: 'progress', recorded: true, summary: 'Read 3 of 11 pages' }))
+  assert.equal(a.detail, 'Read 3 of 11 pages')
+  assert.equal(a.expandable, true)
+})
