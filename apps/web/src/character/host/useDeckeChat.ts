@@ -1434,6 +1434,16 @@ export function useDeckeChat(
     onApprovalChoice,
     approvalBusy,
     credits,
+    /**
+     * The conversation being recorded right now.
+     *
+     * The history list contains it — turns are filed as they happen — so
+     * without this the list cannot mark which row is the chat you are actually
+     * in. The alternatives are both guesses dressed as facts: the newest
+     * `updatedAt` is wrong the moment two tabs are open, and matching on title
+     * is wrong the moment two conversations open the same way.
+     */
+    conversationId: conversationRef.current,
   }
 }
 

@@ -1136,6 +1136,9 @@ export function DeckeHost() {
         // is the shape of defect this pass has now produced seven times: the
         // panel rendered `unknown` forever and looked completely correct.
         credits={chat.credits}
+        // So the history list can mark the row the reader is actually in. It
+        // cannot be inferred from the list itself — see `liveId`.
+        conversationId={chat.conversationId}
         onRetryTool={chat.retry}
         desktop={wide}
         characterPx={charPx}

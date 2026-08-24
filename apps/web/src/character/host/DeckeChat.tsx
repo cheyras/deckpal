@@ -936,6 +936,7 @@ export function DeckeChat({
   desktop,
   characterPx,
   credits,
+  conversationId,
   onTopUp,
 }: {
   open: boolean
@@ -1013,6 +1014,8 @@ export function DeckeChat({
    * `creditState.ts` owns what counts as low and what he says when it is gone.
    */
   credits?: CreditBalance | null
+  /** The conversation being recorded right now, so the list can mark it. */
+  conversationId?: string | null
   /** Where "Top up" goes. Absent means no route yet, and the chip is not a button. */
   onTopUp?: () => void
 }) {
@@ -1709,6 +1712,7 @@ export function DeckeChat({
           */}
           <HistoryMenu
             viewingId={viewingId}
+            liveId={conversationId ?? null}
             onOpenConversation={setViewingId}
             // A CONVERSATION DELETED WHILE IT IS BEING READ TAKES ITS OWN VIEWER
             // WITH IT. Leaving the transcript up after the row is gone would be
