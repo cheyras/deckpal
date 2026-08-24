@@ -1137,11 +1137,28 @@ body {
   max-width: calc(100% - var(--decke-gutter, 0px));
 }
 
-/* The composer's left padding is the same clearance, so the input never starts
- * underneath him. `16px` is the panel's own content padding. */
-.decke-composer {
-  padding-left: calc(16px + var(--decke-gutter, 0px));
-}
+/* ── THE COMPOSER KEEPS NO GUTTER, and that is a consequence of where he now
+ * stands rather than a change of mind about clearance.
+ *
+ * This used to be `padding-left: calc(16px + var(--decke-gutter, 0px))` — the
+ * same clearance the transcript keeps, so that the input never began underneath
+ * him. That was correct for as long as he stood BESIDE the composer, down in
+ * the panel's bottom-left corner with his feet in its band.
+ *
+ * He does not stand there any more. `PARK_ABOVE` in `DeckeChat.tsx` puts him ON
+ * the composer's top edge, so there is nothing beside the input to clear, and
+ * the reserved 108px was carving a hole out of the one control on screen for a
+ * character standing above it. The owner, on the panel after that move: the
+ * input text "should be fully left justified rather than clearing a space for
+ * him to fit."
+ *
+ * So the rule is deleted rather than zeroed, and the form's own `p-[8px]` is
+ * what remains — symmetric, which is what "fully left justified" asks for.
+ *
+ * THE TRANSCRIPT'S GUTTER STAYS. `.decke-shift`, `.decke-bubble` and
+ * `.decke-figure` above are unaffected and must be: a message can still be low
+ * enough to sit beside him, which is exactly the case `data-clear` exists to
+ * resolve. Only the composer is guaranteed to be below him. */
 
 @media (prefers-reduced-motion: reduce) {
   .decke-shift { transition-duration: 1ms; }

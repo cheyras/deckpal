@@ -1078,6 +1078,14 @@ export function DeckeChat({
   const transcriptRef = useRef<HTMLDivElement | null>(null)
   const parkRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLFormElement | null>(null)
+  /**
+   * The panel itself, and it exists for ONE reason: it is the park box's
+   * containing block, so it is the only honest reference for a `bottom` offset
+   * measured in the same coordinate space the offset is applied in. See
+   * `composerTop`, which was measured against the viewport and was wrong for
+   * the whole of the entrance because of it.
+   */
+  const panelRef = useRef<HTMLDivElement | null>(null)
   const [draft, setDraft] = useState('')
   const empty = messages.length === 0
   // `spent` gates the composer, and nothing else about the panel. History,
@@ -1252,10 +1260,42 @@ export function DeckeChat({
   /**
    * ── HOW HIGH THE COMPOSER'S TOP EDGE SITS ABOVE THE PANEL'S FLOOR ─────────
    *
-   * In CSS pixels, so the park box can be expressed as "that, plus a gap". The
-   * panel is `fixed … bottom-0`, so distance-from-the-viewport-bottom and
-   * distance-from-the-panel's-floor are the same number and no second reference
-   * element is needed.
+   * In CSS pixels, so the park box can be expressed as "that, plus a gap".
+   *
+   * ── MEASURED AGAINST THE PANEL, NOT THE VIEWPORT ──────────────────────────
+   *
+   * This used to read `window.innerHeight - composer.top`, on the reasoning
+   * that the panel is `fixed … bottom-0` so the two references are the same
+   * number. They are the same number ONLY WHILE THE PANEL IS UNTRANSFORMED,
+   * and on a phone it never is at the moment this first runs: the panel enters
+   * under `sheet-panel-up`, whose `from` is `translateY(100%)` with a
+   * `backwards` fill — so the from-state is already applied when this
+   * `useLayoutEffect` fires, and the composer is measured a full panel-height
+   * BELOW the screen.
+   *
+   * Measured, at 375x812: `composerTop` latched to **-670**, the park box got
+   * `bottom: -662px`, and it landed off-screen. Everything downstream then did
+   * exactly what it should with a landmark that is not on the screen — and all
+   * three of the symptoms this fixes are that one number:
+   *
+   *   1. `DeckeHost`'s `onScreen()` check rejected the box and fell back to
+   *      `STAND_MOBILE`, the OLD low corner. Which is why he was "still too
+   *      low" after the pass that was supposed to raise him: the new placement
+   *      was correct and was never the one being used.
+   *   2. `reflow` reads the same box to decide what has cleared his head. A
+   *      `limit` of ~2078 marks EVERY bubble clear, so the right-edge
+   *      clearance silently stopped happening.
+   *   3. Nothing ever re-measured. A `ResizeObserver` on the composer does not
+   *      fire for an ancestor's transform — the composer's own box never
+   *      changes size — so the wrong number was latched for the life of the
+   *      panel rather than being corrected when the entrance finished.
+   *
+   * The panel's own rect is the fix and it is not a workaround: `bottom` on the
+   * park box resolves against the panel, so the panel is the reference the
+   * offset was always implicitly using. Under a translate both rects move by
+   * the same amount and the DIFFERENCE is exact — correct DURING the entrance,
+   * not merely correct once it has finished, which is what lets him fly to the
+   * right mark on the first frame instead of jumping when it lands.
    *
    * MEASURED, NOT DERIVED, for the reason the composer's own FLIP above states
    * and this one inherits: the composer's height is a 14px card around a
@@ -1280,15 +1320,25 @@ export function DeckeChat({
     }
     const measure = () =>
       setComposerTop((prev) => {
-        const next = Math.round(window.innerHeight - el.getBoundingClientRect().top)
+        const panel = panelRef.current
+        if (!panel) return prev
+        const next = Math.round(
+          panel.getBoundingClientRect().bottom - el.getBoundingClientRect().top,
+        )
         // Sub-pixel jitter from a rounding boundary would otherwise re-render
         // the whole panel — and re-fly him — several times a second while a
         // textarea animates its own height.
         return Math.abs(next - prev) < 1 ? prev : next
       })
     measure()
+    // BOTH ENDS OF THE SUBTRACTION. The composer is the auto-grow — typing a
+    // third line moves its top edge without touching anything React knows
+    // about. The panel is the other term now that the measurement is relative
+    // to it, and its height moves on its own: a phone keyboard shortens the
+    // visual viewport without necessarily firing `resize` on every browser.
     const ro = new ResizeObserver(measure)
     ro.observe(el)
+    if (panelRef.current) ro.observe(panelRef.current)
     window.addEventListener('resize', measure)
     return () => {
       ro.disconnect()
@@ -1575,11 +1625,19 @@ export function DeckeChat({
   // because that runs at scroll rate and must not wait on a render.
   const stickRef = useRef(true)
   const [atLatest, setAtLatest] = useState(true)
+  //
+  // `composerTop` IS A DEPENDENCY, and it is the one that was missing. `reflow`
+  // measures the park box's top edge, and the park box is positioned FROM
+  // `composerTop` — so every time the composer grows a line, the line he has to
+  // be above moves, and every `data-clear` decision taken against the old
+  // position is stale. Nothing else here would notice: the composer's own
+  // `ResizeObserver` is not a React render, and a textarea growing fires
+  // neither `scroll` nor `resize`.
   useLayoutEffect(() => {
     const el = transcriptRef.current
     if (el && stickRef.current) el.scrollTop = el.scrollHeight
     reflow()
-  }, [messages, reflow, gutter])
+  }, [messages, reflow, gutter, composerTop])
 
   /**
    * Go to the end, and put focus somewhere it can survive.
@@ -1846,6 +1904,7 @@ export function DeckeChat({
         still see invites you to do.
       */}
       <div
+        ref={panelRef}
         role="dialog"
         // NOT `aria-modal`, and removing it is the fix rather than the
         // omission. `aria-modal="true"` tells assistive technology that
@@ -2686,6 +2745,13 @@ export function DeckeChat({
           to four lines all move him by exactly the amount they moved the thing
           he is standing on — where the old `calc()` had to restate the safe
           area by hand and could only ever be right about one of the three.
+
+          `composerTop` is measured against THIS BOX'S CONTAINING BLOCK — the
+          panel — and not against the viewport, which is a correctness
+          requirement rather than a preference: the panel is mid-entrance and
+          translated a full height down when the measurement first runs. See
+          the long note on `composerTop` for what measuring the wrong reference
+          cost, which was this placement not being used at all.
         */}
         {!desktop && characterPx > 0 ? (
           <div
