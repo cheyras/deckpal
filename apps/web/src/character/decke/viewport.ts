@@ -101,6 +101,51 @@ export function canvasHeight(): number {
  * where he starts. They are the only `window.inner*` reads left in the runtime,
  * and they are read once each.
  */
+/**
+ * WHERE THE CANVAS'S OWN TOP-LEFT SITS, in client coordinates.
+ *
+ * Almost always (0, 0), because the canvas is `fixed; inset: 0` — and the
+ * projection used to hard-code that assumption, with a comment saying "the
+ * canvas is top-anchored, so a viewport Y and a canvas Y are the same number".
+ *
+ * THEY STOP BEING THE SAME NUMBER WHEN THE SOFTWARE KEYBOARD OPENS, and this is
+ * measured on a real iPhone rather than reasoned about. Focusing the composer
+ * makes iOS scroll the document to reveal it — which it does even though the
+ * page is held and `overflow` is `hidden`, because WebKit ships a regression
+ * test asserting exactly that. Every `position: fixed` layer on the page,
+ * including this canvas, stops behaving as viewport-fixed and rides the scroll:
+ *
+ *   keyboard down   canvas client rect  0 .. 760      park 447..592
+ *   keyboard up     canvas client rect  -268 .. 492   park 179..324
+ *
+ * The canvas moved to -268 while `viewportToBlender` kept mapping DOM rects as
+ * though its top were still 0, so every projected point landed 268px too high.
+ * The park box at client 251 was drawn at client -16: the character standing
+ * a few pixels off the top of the screen, which reads as him having vanished,
+ * and moving at twice the page's rate on the way there because the page moved
+ * him once and the stale origin moved him again.
+ *
+ * Subtracting the canvas's own origin is the whole repair, and it asks the
+ * browser nothing about keyboards — no `visualViewport`, no version sniffing,
+ * no interpretation of what the platform is up to. It only stops assuming that
+ * a box is somewhere it can be measured to not be.
+ */
+let ox = 0
+let oy = 0
+
+export function setCanvasOrigin(x: number, y: number) {
+  ox = x
+  oy = y
+}
+
+export function canvasOriginX(): number {
+  return ox
+}
+
+export function canvasOriginY(): number {
+  return oy
+}
+
 export function viewWidth(): number {
   return w || window.innerWidth
 }
