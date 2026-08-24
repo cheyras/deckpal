@@ -24,6 +24,7 @@ import {
   canvasHeight,
   documentHeight,
   elasticOffset,
+  setCanvasOrigin,
   setViewport,
   viewHeight,
   viewWidth,
@@ -638,6 +639,9 @@ export class DeckE {
   private readonly trackShift = new Vector3()
   private readonly onScroll = () => {
     this.stationDirty = true
+    // The very same events that move his mark can move the CANVAS he is drawn
+    // into — iOS slides every fixed layer when it reveals a focused input.
+    this.originDirty = true
   }
   /** How he is turned toward the viewer where he stands. See `framing.ts`. */
   /** How long the last frame took INSIDE this class — update, render, and the
@@ -655,6 +659,10 @@ export class DeckE {
   /** The bounce currently applied to the overlays, so a no-op frame writes no
    *  style — this runs every frame and is 0 for almost all of them. */
   private elasticNow = 0
+  /** Set while something is holding the document still — see `holdElastic`. */
+  private elasticHeld = false
+  /** The canvas's client origin needs re-measuring — see `canvasOriginY`. */
+  private originDirty = true
   /** The document offset the overlays are pinned at, or null while they are
    *  pinned to the viewport and he is tracking by hand. See `pageAnchor.ts`. */
   private pinnedAt: number | null = null
@@ -1347,6 +1355,22 @@ export class DeckE {
     this.stationDirty = true
   }
 
+  /**
+   * "The page is being held still — stop chasing its scroll offset."
+   *
+   * Called by whatever is holding the document (today: the chat panel, for as
+   * long as it is open). See `followElastic` for what goes wrong without it: a
+   * held page still gets scrolled by iOS to reveal a focused input, and every
+   * pixel of that scroll reads as a rubber band that does not exist.
+   *
+   * A flag rather than a teardown because the hold is temporary and the bounce
+   * is a real feature the rest of the time — this suspends the follow, it does
+   * not remove it.
+   */
+  holdElastic(held: boolean) {
+    this.elasticHeld = held
+  }
+
   /** The live entrance scale on the rig root. 1 unless a `playEntry` is running
    *  or a caller has pinned it. See `entry.ts`. */
   get entryScale(): number {
@@ -1697,6 +1721,30 @@ export class DeckE {
    * moment the main thread is busiest.
    */
   private followElastic() {
+    // ── WHILE THE PAGE IS HELD THERE IS NO BOUNCE TO RIDE ─────────────────────
+    //
+    // MEASURED ON A REAL iPhone, chat open, tapping the composer: iOS reveals a
+    // focused input by scrolling the document — and it does this even when the
+    // page is held and there is no scroll range to scroll through, so `scrollY`
+    // goes positive against a `maxScroll` of 0. `elasticOffset` then reports
+    // every pixel of it as a rubber band, and the line below translates his
+    // whole canvas up by that much. He leaves the top of the screen while the
+    // panel he is standing on stays exactly where it should be:
+    //
+    //   "Deck-E disappears, and then if I scroll up a little he comes back into
+    //    view... he scrolls at a faster rate than the rest of the page."
+    //
+    // Twice the rate, because the page moved once and he moved with it and then
+    // again by the same amount. The holder tells him when the page is held, and
+    // a held page cannot bounce, so there is nothing to follow.
+    if (this.elasticHeld) {
+      if (this.elasticNow !== 0) {
+        this.elasticNow = 0
+        this.opts.canvas.style.transform = ''
+        setHighlightShift(0)
+      }
+      return
+    }
     const e = elasticOffset()
     if (e !== 0 && !this.reportsElastic) {
       // Evidence beats the default. This engine reports the bounce, so it can be
@@ -2442,6 +2490,20 @@ export class DeckE {
   private update(dt: number) {
     if (!this.rig) return
 
+    // ---- and the CANVAS may have moved ----------------------------------
+    //
+    // Re-measured only when something that can move it has happened, because
+    // `getBoundingClientRect` forces layout and this runs every frame. The
+    // dirty flag is set by the same capture-phase `scroll` listener that marks
+    // the station dirty, by `visualViewport` resize, and by `resize` — which is
+    // the complete list of things that can slide a `fixed` canvas, iOS's
+    // reveal-the-focused-input scroll very much included. See `canvasOriginY`.
+    if (this.originDirty) {
+      this.originDirty = false
+      const b = this.opts.canvas.getBoundingClientRect()
+      setCanvasOrigin(b.left, b.top)
+    }
+
     // ---- the page may have moved ---------------------------------------
     // Or it may have moved him, which is the cheaper of the two and the one this
     // runtime now aims for. Pinned, the compositor is carrying both overlays and
@@ -2774,6 +2836,7 @@ export class DeckE {
     // THE one place the runtime learns how big the screen is. Everything else
     // asks `viewport.ts`; see the note there for why that matters on a phone.
     setViewport(width, height, canvasH)
+    this.originDirty = true
     this.stage.setSize(width, height, canvasH)
     // A resize that did not change anything is not a resize. Safari's toolbars
     // slide away on a fast scroll and slide back when it stops, and each of

@@ -7,7 +7,7 @@
  */
 import { PerspectiveCamera, Plane, Raycaster, Vector2, Vector3 } from 'three'
 import { BODY_H, BODY_W } from './constants'
-import { canvasHeight, viewHeight, viewWidth } from './viewport'
+import { canvasHeight, canvasOriginX, canvasOriginY, viewHeight, viewWidth } from './viewport'
 
 export type Depth = 'foreground' | 'background'
 export type Side = 'auto' | 'left' | 'right'
@@ -282,12 +282,17 @@ export function viewportToBlender(
   out = new Vector3(),
 ): Vector3 {
   // NDC SPANS THE CANVAS, NOT THE VIEWPORT, and those stopped being the same
-  // thing when the canvas grew to cover the strip Safari's toolbar vacates. The
-  // canvas is top-anchored, so a viewport Y and a canvas Y are the same number —
-  // only the denominator differs.
+  // thing when the canvas grew to cover the strip Safari's toolbar vacates.
+  //
+  // AND THE CANVAS IS NOT ALWAYS AT THE ORIGIN. This used to say "the canvas is
+  // top-anchored, so a viewport Y and a canvas Y are the same number" and
+  // subtract nothing. That is true of every frame except the ones that matter:
+  // when iOS reveals a focused input it scrolls the document, every fixed layer
+  // rides along, and the canvas's own top measured -268 while this kept mapping
+  // rects as though it were 0. See `canvasOriginY` for the measurement.
   const ndc = new Vector2(
-    (clientX / viewWidth()) * 2 - 1,
-    -(clientY / canvasHeight()) * 2 + 1,
+    ((clientX - canvasOriginX()) / viewWidth()) * 2 - 1,
+    -((clientY - canvasOriginY()) / canvasHeight()) * 2 + 1,
   )
   const ray = new Raycaster()
   ray.setFromCamera(ndc, camera)
