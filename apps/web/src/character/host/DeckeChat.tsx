@@ -1280,10 +1280,36 @@ export function DeckeChat({
    * from, so it would fix Android and change nothing here while leaving two
    * different mechanisms to keep in step.
    *
-   * `offsetTop` is part of the subtraction because iOS PANS the visual viewport
-   * over the layout viewport to reveal a focused field. What is occluded at the
-   * bottom is what the layout viewport has left after the visible band and the
-   * pan above it are taken out.
+   * ── THE PAN IS DELIBERATELY NOT IN THIS NUMBER ────────────────────────────
+   *
+   * iOS also PANS the visual viewport around the layout viewport while the
+   * keyboard is up, and `offsetTop` reports it. The first version of this
+   * subtracted it, on the reasoning that what is occluded at the bottom is what
+   * is left after the visible band and the pan above it. That is true of the
+   * geometry and was wrong as a design, because it makes the panel's FLOOR
+   * chase the visible bottom while its top stays pinned to the layout viewport
+   * — so the panel stretches and shrinks through React on every frame of a
+   * drag. Measured on the device, that is all three of these at once:
+   *
+   *   *"Am still able to scroll everything up even further, causing a huge gap.
+   *   Can also scroll everything down, so far that the top chrome of the chat
+   *   is intersecting with stuff — lots of broken jank going on."*
+   *
+   * The gap is the floor lifting away from the composer, the intersection is
+   * two fixed layers laid out against different pan offsets in the same frame,
+   * and the character going missing is his mark being re-solved against a panel
+   * whose height was computed from a pan that had already moved on.
+   *
+   * A KEYBOARD'S HEIGHT DOES NOT CHANGE WHEN YOU PAN. Only the offset does. So
+   * this measures the keyboard and nothing else, and the panel is then an
+   * ordinary fixed box that the platform pans as one piece along with the page
+   * behind it — which is the actual requirement:
+   *
+   *   *"He should stay in his correct spot on the left side above the text
+   *   input, and he should still scroll 1-to-1 with the rest of the page while
+   *   the phone keyboard is up."*
+   *
+   * Rigid is what 1-to-1 means. Nothing here may track the pan.
    *
    * ROUNDED, AND ONLY ACCEPTED WHEN IT MOVES. This fires continuously through
    * the keyboard's own open animation, and every distinct value re-lays the
@@ -1309,18 +1335,20 @@ export function DeckeChat({
         // shrink. Never `innerHeight` — on iOS that is the visual viewport and
         // the subtraction would collapse to zero.
         const layout = document.documentElement.clientHeight
-        const next = Math.max(0, Math.round(layout - vv.height - vv.offsetTop))
+        const next = Math.max(0, Math.round(layout - vv.height))
         // A couple of pixels of disagreement between the two viewports is
         // normal with no keyboard at all (sub-pixel rounding, a scrollbar
         // gutter). Only a real occlusion is worth moving the panel for.
         return Math.abs(next - prev) < 1 ? prev : next < 24 ? 0 : next
       })
     measure()
+    // `resize` ONLY. `scroll` on the visual viewport is the pan, and the pan is
+    // the thing this deliberately does not track — subscribing to it would put
+    // the churn back through a formula that no longer has anything to say about
+    // it.
     vv.addEventListener('resize', measure)
-    vv.addEventListener('scroll', measure)
     return () => {
       vv.removeEventListener('resize', measure)
-      vv.removeEventListener('scroll', measure)
       setKbInset(0)
     }
   }, [visible, shownMinimised])
