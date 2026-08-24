@@ -23,10 +23,18 @@
  * thinks in is available without an API call, a token, or a second source of
  * truth that can disagree with the deploy.
  *
- * **It is read at BUILD time, not at request time.** `VERCEL_GIT_*` is populated
- * during the build and inlined into the bundle; a serverless invocation reads
- * whatever was captured then, which is exactly right — the question is which
- * CODE ran, and the code cannot change under a running function.
+ * **It is a RUNTIME environment variable of the deployment, and that correction
+ * matters.** This comment used to claim the value was "inlined into the bundle
+ * at build time" — that is a frontend bundler mechanism and nothing does it to
+ * `apps/api/dist`. What actually happens is that Vercel exposes `VERCEL_GIT_*`
+ * as ordinary runtime env on every invocation, **provided the project's
+ * "Automatically expose System Environment Variables" setting is on.**
+ *
+ * The distinction is not pedantic: under the old story the stamp could not fail,
+ * and under the true one it can — somebody turning that setting off makes every
+ * stamp silently NULL, and a history that quietly stops recording which build it
+ * ran on is worse than one that never did, because the gap looks like a run of
+ * preview deploys. It is declared in `DEPLOYMENT.md` for that reason.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * NULL IS AN ANSWER, AND ZERO IS NOT
@@ -85,10 +93,15 @@ export interface BuildStamp {
 /**
  * Read the stamp from the environment.
  *
- * Read per call rather than cached at module load. A serverless instance can
- * outlive a redeploy of its own configuration, and a stale stamp is worse than
- * no stamp — it would attribute new turns to old code, which is the exact
- * mistake this feature exists to prevent somebody making by hand.
+ * Read per call, and the honest reason is that it costs nothing — NOT the one
+ * this comment used to give. It claimed a serverless instance "can outlive a
+ * redeploy of its own configuration", which is not true: an instance belongs to
+ * one immutable deployment and its environment cannot change underneath it.
+ * Per-call and module-load are indistinguishable here.
+ *
+ * The comment is corrected rather than deleted because a stated reason that is
+ * imaginary is worse than none — the next person to touch this would have
+ * preserved a property that was never at risk, and might have paid for it.
  */
 export function buildStamp(): BuildStamp {
   const sha = process.env.VERCEL_GIT_COMMIT_SHA;

@@ -169,3 +169,29 @@ test('the ROUTE uses seqFrom, and clampInt is nowhere near the body', () => {
   assert.match(src, /const seq = seqFrom\(body\.seq\)/, 'the route no longer parses seq properly')
   assert.doesNotMatch(src, /clampInt\(\s*body\./, 'clampInt is being used on a JSON body again')
 })
+
+test('the write path checks WHOSE conversation it is, and cannot rewrite a turn', () => {
+  // Two blocking defects found in review, both in one statement.
+  //
+  // 1. `ON CONFLICT (id) DO NOTHING` on the conversation swallows the case where
+  //    the id belongs to somebody else, and every statement here runs as the
+  //    OWNING ROLE with RLS bypassed — so an entitled account posting another's
+  //    conversationId had its turns written into that conversation. 043's claim
+  //    that a guessed id "reaches nothing because it is namespaced by user_id in
+  //    every query" was false for exactly the write path.
+  //
+  // 2. `DO UPDATE` made POST an update route, which 044 exists to forbid — and
+  //    because `buildStamp()` is re-read on every post, a repost after a deploy
+  //    silently RE-ATTRIBUTED the turn to the new build, destroying the one
+  //    correlation this feature provides.
+  const src = readFileSync(
+    fileURLToPath(new URL('../../routes/deckeHistory.ts', import.meta.url)),
+    'utf8',
+  )
+  assert.match(src, /SELECT user_id FROM decke_conversation WHERE id = \$1/, 'the write path no longer checks ownership')
+  assert.match(src, /owner\.user_id !== userId\) throw notFound/, 'a foreign conversation is no longer refused')
+  assert.match(src, /ON CONFLICT \(conversation_id, seq\) DO NOTHING/, 'the turn insert can rewrite a recorded turn again')
+  assert.doesNotMatch(src, /DO UPDATE\s+SET asked/, 'the rewrite path is back')
+  // And the list read carries the first lock as well as the second.
+  assert.match(src, /LEFT JOIN decke_turn t ON t\.conversation_id = c\.id AND t\.user_id = \$1/, 'the summary can be polluted by another user’s turns')
+})
