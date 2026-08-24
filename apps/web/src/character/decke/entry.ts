@@ -77,10 +77,17 @@ export function entryEase(u: number): number {
   return 1 + (BACK + 1) * t * t * t + BACK * t * t
 }
 
-/** The scale at progress `u` through the beat, growing from `from` to 1. */
-export function entryScaleAt(u: number, from: number): number {
+/**
+ * The scale at progress `u` through the beat, from `from` toward `to`.
+ *
+ * `to` defaults to 1 — the entrance — and every existing caller keeps that
+ * meaning. Passing `to: 0` runs the same curve the other way, which is the
+ * exit: the ease is direction-agnostic (it maps progress, not size), so a
+ * shrink gets the same arrive-with-weight character the grow has.
+ */
+export function entryScaleAt(u: number, from: number, to = 1): number {
   const e = entryEase(u)
-  return from + (1 - from) * e
+  return from + (to - from) * e
 }
 
 /**

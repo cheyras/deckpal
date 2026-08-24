@@ -75,19 +75,41 @@ decke.setCardArt('card_r', card)               // the card he holds up in card_p
 decke.scrollIntoView()                         // bring him back when he has scrolled off
 
 decke.setEntryScale(0)                         // absent: no body, not a faded one
-decke.playEntry({ onDone: travel })            // grow from nothing where he stands -> returns ms
+decke.playEntry()                              // grow from nothing where he stands -> returns ms
+decke.playEntry({ from: 1, to: 0 })            // the same curve the other way: a shrink, on its own clock
+decke.flyTo(chip, { scaleTo: 0, arrived: tuck })  // the EXIT: shrink rides the flight, gone == landed
 decke.setReducedMotion(true)                   // the HOST reads the media query; this is the answer
 decke.flyTo(mark, { centre: true, facing: -1 })  // face the composer, not away from it
 decke.flyTo(mark, { instant: true })           // arrive without travelling (ring, `then`, station: yes)
 ```
 
-**The entrance** is three calls, and the middle one is the only one in the
-engine: place him (`flyTo` the launcher's rect, `instant: true`), `setEntryScale(0)`
-before the first frame is drawn, then `playEntry()` and fly him to his stand
-point when it reports done. The scale is on `DeckE_Root` and pivots about his
-CENTRE — `setCharacterHeight` is the wrong knob for this and always will be, it
-dollies the camera, so scaling toward zero sends the camera toward infinity. See
-`entry.ts`.
+**The entrance** is CONCURRENT, not sequential — this changed in the 2026-08-24
+animation pass, on the owner's ruling: *"he should just be scaling up during
+the hop, really, so that it feels snappy."* Place him (`flyTo` the launcher's
+rect, `instant: true`) with `setEntryScale(0)` already holding him absent, then
+`playEntry()` immediately — and launch the travel leg as soon as its
+destination is measurable, WITHOUT waiting for the grow to land. Scale
+(`entryNow`) and flight (`track`) are independent per-frame machines that
+`applyPose` composes every frame, so the grow's tail overlapping the hop is
+supported, on purpose. (`playEntry({ onDone })` still exists and still fires on
+the landing frame; it is simply no longer how the entrance sequences travel.)
+
+**The exit** is the entrance's mirror, and it lives in ONE call: `flyTo` the
+launcher's rect with `scaleTo: 0`. The shrink is driven by the flight's own
+progress — eased toward the destination end, so he flies most of the way at
+size and dives into the target — which makes "gone" and "landed" the same
+frame by construction. Never approximate this with a timer against a flight
+whose duration is solved, not chosen; that is the 520 ms mid-air wink-out the
+`arrived` callback was built to end. A flight replaced before it lands fires
+its `arrived` with `aborted: true` and skips the ring and the `then` state.
+
+The scale is on `DeckE_Root` and pivots about his CENTRE —
+`setCharacterHeight` is the wrong knob for this and always will be, it dollies
+the camera, so scaling toward zero sends the camera toward infinity. (The
+dolly grew up too: `DeckE.setCharacterHeight` — the public one, not the
+`Stage` internal — re-solves his station in the same frame, so the "measure,
+THEN move" hand-ordering call sites used to carry is now the engine's own
+invariant.) See `entry.ts`.
 
 **Reduced motion** is a flag in, never a media query here: the host owns the
 query, the engine owns the behaviour. `reduced` (an option, or `setReducedMotion`)

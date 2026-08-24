@@ -740,7 +740,6 @@ export function useDeckeChat(
       // user's `text` — conflating the two is how the follow-up request came to
       // replay the READER's words back as the assistant's own.
       let saidSoFar = ''
-      let travelAnnounced = false
 
       /**
        * Put the question to the reader and wait.
@@ -1143,8 +1142,17 @@ export function useDeckeChat(
           // Told ONCE, on the first leg that moves him: the transcript should
           // already be out of the way when he starts, and re-announcing on every
           // leg would re-minimise a panel that is already minimised.
-          if (!travelAnnounced && outcome.pending.some((c) => c.name !== 'scrollToMe')) {
-            travelAnnounced = true
+          // ON EVERY LEG THAT MOVES HIM, not once per turn. The once-guard
+          // existed so a later leg would not "re-minimise a panel that is
+          // already minimised" — but `setTravelling(true)` on an already-
+          // travelling host is a no-op, and the guard had a real cost: the
+          // route watcher rightly tidies `travelling` away when the READER
+          // navigates mid-turn, and a turn that then moved him again could
+          // not say so. He ended up parked out on the page with the host
+          // believing he was home — no bubble, no read-timer, no retirement.
+          // The owner found him exactly there: "he never left. He just
+          // stayed parked."
+          if (outcome.pending.some((c) => c.name !== 'scrollToMe')) {
             onTravelRef.current?.()
           }
 

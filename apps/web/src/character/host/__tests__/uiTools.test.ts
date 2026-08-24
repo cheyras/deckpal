@@ -21,7 +21,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
-import { CLIENT_TOOLS, isClientTool, routeAllowed } from '../uiTools'
+import {
+  CLIENT_TOOLS,
+  DECKE_REVEAL_EVENT,
+  REVEAL_RETRY_MS,
+  cardTileSelector,
+  isClientTool,
+  revealCardId,
+  routeAllowed,
+} from '../uiTools'
 
 const SERVER_TOOLS_SRC = fileURLToPath(
   new URL('../../../../../api/src/decke/tools.ts', import.meta.url),
@@ -80,6 +88,100 @@ test('routeAllowed keeps /profile out, by both smuggled spellings', () => {
   assert.equal(routeAllowed('/\\evil.example'), false)
   assert.equal(routeAllowed('/series/mega-evolution/me05'), true)
   assert.equal(routeAllowed(42), false)
+})
+
+test('a card tile is addressable by ONE spelling, and that spelling only', () => {
+  // The card tile is the only target that is allowed on its own authority
+  // rather than by an ancestor `data-decke-landmark`, because the grid is
+  // virtualized and the tile has no stable ancestor on three of the four pages
+  // it renders on. What buys that exception is the strictness of the form: the
+  // whole attribute name, the whole quoted id, and nothing else in the string.
+  assert.equal(revealCardId('[data-decke-card="me05-084"]'), 'me05-084')
+  assert.equal(revealCardId('[data-decke-card="swshp-SWSH001"]'), 'swshp-SWSH001')
+  assert.equal(revealCardId(cardTileSelector('sv3pt5-151')), 'sv3pt5-151')
+
+  // NOT a general CSS opening. Every one of these reaches for a tile, and every
+  // one of them is a different capability from "name one card".
+  assert.equal(revealCardId('[data-decke-card]'), null, 'any tile at all')
+  assert.equal(revealCardId('[data-decke-card^="me05"]'), null, 'a prefix match')
+  assert.equal(revealCardId('[data-decke-card="a"], .x'), null, 'a selector list')
+  assert.equal(revealCardId('main [data-decke-card="a"]'), null, 'a descendant combinator')
+  assert.equal(revealCardId('[data-decke-card="a"] img'), null, 'a child of a tile')
+  assert.equal(revealCardId("[data-decke-card='a']"), null, 'single quotes')
+
+  // The id cannot leave its own quoted value, which is what makes the single
+  // `querySelector` downstream of this safe to hand a model-authored string.
+  assert.equal(revealCardId('[data-decke-card="a"] [data-x="b"]'), null)
+  assert.equal(revealCardId('[data-decke-card="a\\"]"]'), null)
+  assert.equal(revealCardId('[data-decke-card="a b"]'), null)
+  assert.equal(revealCardId('[data-decke-card=""]'), null)
+  assert.equal(revealCardId(`[data-decke-card="${'x'.repeat(61)}"]`), null, 'unbounded length')
+  assert.equal(revealCardId(undefined), null)
+  assert.equal(revealCardId(42), null)
+})
+
+test('the near miss: two ordinary landmarks START with the tile attribute', () => {
+  // `data-decke-card-grid` and `data-decke-card-image` are landmarks that have
+  // been marked since Deck-E could point at anything, and both contain
+  // `data-decke-card` as a prefix. A tile check written as a prefix match — or
+  // a refusal written as `selector.includes('data-decke-card')` — would either
+  // promote them to tiles or refuse two selectors the model is TOLD to use, and
+  // the failure would look like Deck-E suddenly being unable to find the grid.
+  const src = readFileSync(UI_TOOLS_SRC, 'utf8')
+  assert.match(
+    src,
+    /data-decke-card\(\?!\[\\w-\]\)/,
+    'the "is this about a tile" test must exclude a following `-` or word character',
+  )
+  assert.equal(revealCardId('[data-decke-card-grid]'), null)
+  assert.equal(revealCardId('[data-decke-card-image]'), null)
+  for (const near of ['[data-decke-card-grid]', '[data-decke-card-image]']) {
+    assert.equal(
+      /data-decke-card(?![\w-])/.test(near),
+      false,
+      `${near} must not read as a reach for a card tile`,
+    )
+  }
+  assert.equal(/data-decke-card(?![\w-])/.test('[data-decke-card="me05-084"]'), true)
+})
+
+test('the reveal seam is one contract, named in one place', () => {
+  // The event name and the retry interval are read by the set page, so they are
+  // exported rather than inlined — a page listening for `decke:reveal` while the
+  // host dispatches `deckeReveal` is a feature that silently does nothing, and
+  // nothing in the type system would say so.
+  assert.equal(DECKE_REVEAL_EVENT, 'decke:reveal')
+  // Comfortably shorter than the 6 s cap on the wait it accompanies, so a page
+  // that mounts late still gets asked several times before he gives up.
+  assert.ok(REVEAL_RETRY_MS > 0 && REVEAL_RETRY_MS < 1000)
+  const src = readFileSync(UI_TOOLS_SRC, 'utf8')
+  assert.match(
+    src,
+    /window\.clearInterval\(asking\)/,
+    'the repeated ask must be cleared when the wait ends, down every path',
+  )
+})
+
+test('the addressable-card audit: exactly two components carry the tile address', () => {
+  // The same tripwire the clickable audit is, for the same reason. This
+  // attribute is what makes an element reachable WITHOUT a landmark ancestor,
+  // so marking a new thing with it widens what Deck-E can point at by exactly
+  // that thing — and unlike a landmark, there is no wrapper in a route file to
+  // notice in review. Adding an entry here is meant to be a deliberate act.
+  const root = fileURLToPath(new URL('../../../', import.meta.url))
+  assert.deepEqual(
+    markedAddressableFiles(root),
+    [
+      // The card tile itself, on its own anchor, for every page that renders a
+      // grid of cards: the set page, the species page, a list, search results.
+      'components/CardTile.tsx',
+      // The set page's table view, so "take me to that card" means the same
+      // thing whichever of the three views the reader left the page in.
+      'components/TableView.tsx',
+    ],
+    'something new was marked addressable. It becomes a flyTo/highlight target with ' +
+      'no landmark ancestor required — confirm it is a card tile, then add it here.',
+  )
 })
 
 test('click is advertised, and the two attributes are kept distinct', () => {
@@ -257,6 +359,35 @@ function markedClickableFiles(root: string): string[] {
 
 function marksClickable(src: string): boolean {
   return /(^|[^\w[-])data-decke-clickable(?![\w-])/.test(stripComments(src))
+}
+
+/**
+ * Every `.tsx` file under `root` that gives an element Deck-E's CARD ADDRESS.
+ *
+ * The same marking-versus-mention distinction `markedClickableFiles` draws, and
+ * here the mentions genuinely outnumber the markings: `GridView.tsx` and
+ * `SetDetail.tsx` both BUILD `[data-decke-card="…"]` to look a tile up, and a
+ * leading `[` is what tells those apart from a JSX attribute. The trailing
+ * guard is the load-bearing half — `data-decke-card-grid` and
+ * `data-decke-card-image` are ordinary landmarks and must not be listed here.
+ */
+function markedAddressableFiles(root: string): string[] {
+  const out: string[] = []
+  const walk = (dir: string, prefix: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === '__tests__') continue
+        walk(join(dir, entry.name), rel)
+        continue
+      }
+      if (!entry.name.endsWith('.tsx')) continue
+      const src = stripComments(readFileSync(join(dir, entry.name), 'utf8'))
+      if (/(^|[^\w[-])data-decke-card(?![\w-])/.test(src)) out.push(rel)
+    }
+  }
+  walk(root, '')
+  return out.sort()
 }
 
 /** Block comments, then line comments — `://` spared so a URL survives. */

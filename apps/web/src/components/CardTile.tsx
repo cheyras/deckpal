@@ -219,6 +219,28 @@ export function CardTile({
     </>
   )
 
+  // ── DECK-E'S ADDRESS FOR THIS ONE CARD ─────────────────────────────────────
+  //
+  // The full card id (`me05-084`), on the tile's own anchor, on every tile this
+  // component renders anywhere. It is the second deliberate marking in the app
+  // — `data-decke-landmark` is the other — and it is the one that sits ON the
+  // thing rather than around it, because the grid is virtualized and a tile is
+  // not a place, it is a row that happens to be on screen.
+  //
+  // A plain attribute and nothing else: no ref, no registry, no effect, no
+  // per-tile subscription. There can be three hundred of these on a page and
+  // several dozen mounting per second while somebody flicks through a set, so
+  // whatever addressing costs has to be paid by the code that goes LOOKING for
+  // a tile (`uiTools.resolveTarget`, and the reveal listener on the set page),
+  // never by the tile itself. See `DECKE_REVEAL_EVENT` in
+  // `character/host/uiTools.ts` for the half that makes an off-screen id
+  // reachable at all.
+  //
+  // Pointable, not pressable: no `data-decke-clickable` here, deliberately —
+  // this anchor opens the card sheet, and the click allowlist is a separate and
+  // smaller list for exactly that kind of reason.
+  const address = { 'data-decke-card': card.cardId }
+
   // Set page: open the sheet via a scroll-preserving search-param change.
   if (onSetPage) {
     return (
@@ -228,6 +250,7 @@ export function CardTile({
         search={((prev: CardSearch) => ({ ...prev, card: card.number })) as never}
         resetScroll={false}
         className="group block"
+        {...address}
       >
         {inner}
       </Link>
@@ -243,6 +266,7 @@ export function CardTile({
         search={((prev: { card?: string }) => ({ ...prev, card: card.cardId })) as never}
         resetScroll={false}
         className="group block"
+        {...address}
       >
         {inner}
       </Link>
@@ -255,6 +279,7 @@ export function CardTile({
       to="/series/$series/$set/$number"
       params={{ series, set, number: card.number }}
       className="group block"
+      {...address}
     >
       {inner}
     </Link>

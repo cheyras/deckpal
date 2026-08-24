@@ -165,16 +165,22 @@ const SCENES = [
   {
     name: 'chat-entry',
     what:
-      'The open transition, as motion. Frames should show: no character at ' +
-      'first, then a character that grows from nothing at the button in the ' +
-      'bottom-right, then travels to its stand point. A character that is ' +
-      'simply already there at full size in frame two has not got an entrance.',
+      'The open transition, as motion. The entrance is CONCURRENT since the ' +
+      '2026-08-24 pass: he grows out of the launcher chip in the corner WHILE ' +
+      'the panel plays its own entrance, and the hop to his stand point ' +
+      'launches as the panel settles, overlapping the tail of the grow — ' +
+      '"chat window up → wait → ok, I\'m coming" is the exact staging this ' +
+      'replaced. The whole beat is ~0.7-1 s now, so judge this with frames ' +
+      'DENSE enough to catch it (24+; the judge\'s 9-frame default reads a ' +
+      'fast entrance as a teleport and fails honest work).',
     platforms: ['desktop', 'mobile'],
     video: true,
-    frames: 16,
+    frames: 24,
     assert:
-      'the character is absent in the first frames, then appears small near the ' +
-      'bottom-right and grows, then moves to a different position on the screen',
+      'the character is absent at first, then present and at or near full ' +
+      'size beside the text input by the end, and at least one intermediate ' +
+      'frame shows it partially grown or between positions — it never blinks ' +
+      'from absent straight to settled with no frame of motion in between',
     async act({ page }) {
       // WARM FIRST, AND WAIT FOR THE RUNTIME, so the recording is of the
       // ENTRANCE and not of the download. This was the first version's mistake
@@ -261,6 +267,53 @@ const SCENES = [
       // mark ~1050 ms. This is that, plus a beat of him standing still at the
       // end so the last frames show the pose he SETTLES into.
       await page.waitForTimeout(2600)
+    },
+  },
+  {
+    name: 'chat-exit',
+    what:
+      'The close, as motion — the owner: "he should remain exactly where he ' +
+      'was but quickly jump back to his chat bubble and scale down to zero so ' +
+      'that it looks like he\'s jumping into his chat bubble/hiding," and ' +
+      '"Chat window should also animate out, always, rather than simply ' +
+      'disappearing." The 2026-08-23 recording measured the opposite of both: ' +
+      'the panel unmounted in one frame, he LEFT the viewport (the off-screen ' +
+      'beacon fired), grew from 260 to 452 px on the way back, and vanished in ' +
+      'a 70 ms cut at full size. `scaleTo` now drives the shrink from the ' +
+      'flight\'s own progress, so a mid-air wink-out is structurally ' +
+      'impossible — this scene is the claim that stays true.',
+    platforms: ['desktop', 'mobile'],
+    video: true,
+    // The dive is ~500-900 ms inside a clip of about four seconds; 16 frames
+    // puts a sample roughly every 250 ms, tight enough that "vanished in one
+    // frame from mid-screen" cannot hide between samples.
+    frames: 16,
+    assert:
+      'after the chat closes, the character moves toward the launcher button ' +
+      'in the bottom-right while getting smaller, and is last seen small at ' +
+      'or near the button — it never disappears abruptly at full size in the ' +
+      'middle of the screen, and it never grows during the trip',
+    async act({ page }) {
+      // Warm off camera — see `chat-entry` for why at length.
+      await page.getByRole('button', { name: 'Chat with Deck-E' }).hover()
+      await page
+        .waitForFunction(() => !!window.__decke, undefined, { timeout: 60_000 })
+        .catch(() => {})
+      await page.waitForTimeout(1200)
+      await openDeckE(page)
+      await waitForCharacter(page)
+      await waitForSettled(page)
+      // A beat of him standing on his mark, so the clip has a clean "before".
+      await page.waitForTimeout(900)
+      // The header X, not the scrim — see `close-reopen` for the shared-label
+      // trap in full.
+      await page
+        .getByRole('dialog', { name: 'Chat with Deck-E' })
+        .getByRole('button', { name: 'Close chat' })
+        .click({ timeout: 5000 })
+      // The dive plus the farewell line's dwell, and a beat of "after" where
+      // only the launcher chip should be on screen.
+      await page.waitForTimeout(3200)
     },
   },
   {
