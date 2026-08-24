@@ -14,8 +14,8 @@
  * and the slot keeps its placeholder. A character animation is the last place
  * that should be able to break a page.
  */
-import { api, type CollectionEvent, type SearchCard } from '../../lib/api'
-import type { CardArt } from './cardArt'
+import { api, type CollectionEvent, type SearchCard } from '../lib/api'
+import type { CardArt } from './decke/cardArt'
 
 /** Turn the two image URLs the API returns into one piece of art. */
 function toArt(

@@ -28,7 +28,7 @@
  * which would teach the reader something false about what it is.
  */
 import { useEffect, useRef } from 'react'
-import { BEACON, beaconRect, type Beacon } from '../../character/decke/beacon'
+import { BEACON, beaconRect, type Beacon } from '../../character/beacon'
 
 export type DeckeBeaconProps = {
   /** Null when he is on screen, which is when there is nothing to draw. */

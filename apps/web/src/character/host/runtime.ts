@@ -21,7 +21,7 @@
  * ships in the main bundle. Only `import type` above the fold.
  */
 import type { DeckE as DeckEClass, DeckEOptions } from '../decke/DeckE'
-import type { Beacon } from '../decke/beacon'
+import type { Beacon } from '../beacon'
 
 export type { Beacon }
 export type DeckEInstance = DeckEClass
