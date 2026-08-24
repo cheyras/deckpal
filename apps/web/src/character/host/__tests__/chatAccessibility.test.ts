@@ -110,7 +110,11 @@ test('every behaviour the second pass added has a live call site in the panel', 
     [/openers=\{said\.openers\}/, 'the openers would stop rotating'],
     [/const spent = creditState\(credits \?\? null\) === 'empty'/, 'the out-of-credits state would be unreachable'],
     [
-      /\{spent \? \(/,
+      // A THIRD BRANCH JOINED THIS SLOT — the transcript viewer — so the pin is
+      // on the ternary's `spent` ARM rather than on its first token. Same
+      // property, still exactly one composer slot, and it no longer breaks the
+      // moment something else legitimately replaces the composer.
+      /[){]\s*:?\s*spent \? \(/,
       'the composer would stay on screen with no credits behind it — an input that ' +
         'takes a question it cannot answer is the pretending this pass exists to remove',
     ],

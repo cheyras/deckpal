@@ -1,0 +1,38 @@
+-- @supabase-only
+-- 045 · Withdrawal is conversation-granular. Take back the turn-level DELETE.
+--
+-- ══════════════════════════════════════════════════════════════════════════════
+-- REVISION BY OMISSION, WHICH 044 SET OUT TO PREVENT AND THEN PERMITTED
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- 044 argued the shape carefully: SELECT and DELETE, deliberately not UPDATE,
+-- because "you may withdraw your own words, you may not revise them. A history
+-- whose subject can rewrite it is not evidence." Then it granted DELETE on
+-- `decke_turn` as well as on `decke_conversation`, which hands back the thing it
+-- had just refused — in a quieter form.
+--
+-- On Supabase every policied table is reachable through the Data API with an
+-- ordinary user's JWT. A turn-level DELETE lets somebody remove turn 3 of 5 and
+-- keep the rest: the conversation still reads as a continuous record, the seq
+-- numbers still ascend, and the exchange that would have been inconvenient is
+-- simply not there. That is a more effective edit than UPDATE would have been,
+-- because nothing about the result looks touched.
+--
+-- The API never used it. Deletion is by conversation (`DELETE FROM
+-- decke_conversation`), and 043's foreign key carries the turns away with
+-- `ON DELETE CASCADE` — which runs with the CONSTRAINT's privileges rather than
+-- the deleting role's, so the cascade does not need this policy and does not
+-- lose it.
+--
+-- Withdrawal stays whole: take the conversation, take all of it.
+--
+-- ══════════════════════════════════════════════════════════════════════════════
+-- WHY A NEW MIGRATION RATHER THAN EDITING 044
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- 044 has already run against production. A migration that has run is a record
+-- of what was done, and rewriting it would leave every deployment that applied
+-- it disagreeing with the file that claims to describe it. The mistake stays on
+-- the record and this is the correction.
+
+DROP POLICY IF EXISTS decke_turn_delete ON decke_turn;

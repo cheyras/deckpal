@@ -49,6 +49,8 @@ import { ToolRow } from './chat/ToolRow'
 import { toolRowFromChip } from './chat/toolRowState'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
 import { deepRequestLine } from './chat/deepRequest'
+import { HistoryMenu } from './chat/HistoryMenu'
+import { TranscriptExit, TranscriptPane } from './chat/TranscriptView'
 import {
   creditHeaderLabel,
   creditState,
@@ -934,6 +936,8 @@ export function DeckeChat({
   desktop,
   characterPx,
   credits,
+  conversationId,
+  onNewChat,
   onTopUp,
 }: {
   open: boolean
@@ -1011,6 +1015,10 @@ export function DeckeChat({
    * `creditState.ts` owns what counts as low and what he says when it is gone.
    */
   credits?: CreditBalance | null
+  /** The conversation being recorded right now, so the list can mark it. */
+  conversationId?: string | null
+  /** Start a fresh conversation: clears the transcript and rotates the id. */
+  onNewChat?: () => void
   /** Where "Top up" goes. Absent means no route yet, and the chip is not a button. */
   onTopUp?: () => void
 }) {
@@ -1024,6 +1032,38 @@ export function DeckeChat({
   // scrolling, the header and the approval card are all unaffected: running out
   // of credits stops him taking NEW work, it does not close what is open.
   const spent = creditState(credits ?? null) === 'empty'
+
+  /**
+   * ── THE PAST CONVERSATION BEING READ, OR NULL FOR THE LIVE ONE ─────────────
+   *
+   * One id, held here rather than in a route, because reading a record is a
+   * MODE of this panel and not a place in the app. Routing to it would put the
+   * live conversation behind a browser Back button, and the live conversation
+   * is the thing the reader is in the middle of.
+   *
+   * NOTHING ABOUT THE LIVE TURN IS TOUCHED WHILE THIS IS SET. `messages`,
+   * `busy`, the abort controller and any held approval all live in the hook and
+   * carry on exactly as they were; this only decides what the column draws. So
+   * wandering into the archive mid-answer and coming back loses nothing, which
+   * is the property that makes the archive safe to open at all.
+   */
+  const [viewingId, setViewingId] = useState<string | null>(null)
+  const viewing = viewingId !== null
+  const backToChat = useCallback(() => setViewingId(null), [])
+  // A REF, because the Escape listener is registered once per `open` and would
+  // otherwise close over the value of `viewing` at the moment the panel opened
+  // — which is always `false`, so Escape inside a record would always have
+  // closed the whole panel. Re-registering the listener on every change instead
+  // would work and would also rebind a window listener on a state flip.
+  const viewingRef = useRef(viewing)
+  viewingRef.current = viewing
+
+  // CLOSING THE PANEL LEAVES THE ARCHIVE. Reopening him is a new intention —
+  // "talk to Deck-E" — and landing back in a transcript somebody read yesterday
+  // would be the panel remembering the wrong half of what happened.
+  useEffect(() => {
+    if (!open) setViewingId(null)
+  }, [open])
 
   /**
    * THE COMPOSER STARTS IN THE MIDDLE AND DROPS ON THE FIRST MESSAGE.
@@ -1233,13 +1273,24 @@ export function DeckeChat({
   }, [open])
 
   // Escape closes; focus lands in the composer.
+  //
+  // ── UNLESS A RECORD IS OPEN, IN WHICH CASE IT CLOSES THE RECORD ────────────
+  //
+  // Escape unwinds one layer at a time, which is the only behaviour that lets
+  // somebody press it without thinking. Closing the whole panel from inside a
+  // transcript would throw away the live conversation to dismiss a thing the
+  // reader opened two seconds ago and can leave with a button.
+  //
+  // The dropdown's own Escape runs BEFORE this one — it listens in the capture
+  // phase and stops propagation — so the three layers unwind in the order they
+  // were opened.
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        onClose()
-      }
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      if (viewingRef.current) setViewingId(null)
+      else onClose()
     }
     window.addEventListener('keydown', onKey)
     const t = window.setTimeout(() => inputRef.current?.focus(), 260)
@@ -1585,7 +1636,22 @@ export function DeckeChat({
           heavier than the sans at 600 beside it.
         */}
         <header className="flex w-full shrink-0 items-center gap-[10px] px-[16px] py-[9px] nav:px-[22px]">
-          <span className="font-display text-[17px] font-normal leading-[24px] text-text-primary">
+          {/*
+            `shrink-0 whitespace-nowrap`, AND IT IS NOT DEFENSIVE PADDING.
+
+            Photographed at 390px the moment a third item joined this row: the
+            name broke across two lines as **Deck-** / **E** and the header grew
+            to 48px. A flex child's default is `min-width: auto`, so "Deck-E" was
+            a legal wrap opportunity the moment the row wanted more room than it
+            had — and a hyphenated character name is about the most obviously
+            broken thing a panel can open with.
+
+            The row's total at 390 is ~312px inside 358px of content box, so it
+            fits; what it must not do is fit by BREAKING. Anything that has to
+            give when the balance chip appears should give somewhere the reader
+            can afford, which is why the chip itself is the elastic one.
+          */}
+          <span className="shrink-0 whitespace-nowrap font-display text-[17px] font-normal leading-[24px] text-text-primary">
             Deck-E
           </span>
           {/*
@@ -1603,7 +1669,7 @@ export function DeckeChat({
             look at twice after the first time.
           */}
           <span
-            className="rounded-full border border-border-subtle px-[7px] py-[1px] text-[10.5px] font-medium uppercase leading-[15px] tracking-[0.04em] text-text-muted"
+            className="shrink-0 whitespace-nowrap rounded-full border border-border-subtle px-[7px] py-[1px] text-[10.5px] font-medium uppercase leading-[15px] tracking-[0.04em] text-text-muted"
             title="Deck-E is experimental and changes often."
           >
             Experimental
@@ -1623,6 +1689,46 @@ export function DeckeChat({
             label={creditHeaderLabel(credits ?? null)}
             spent={creditState(credits ?? null) === 'empty'}
             onTopUp={onTopUp}
+          />
+          {/*
+            ── THE HISTORY, TO THE RIGHT OF THE TITLE ────────────────────────
+
+            *"To the right of the chat page title, I'd like a dropdown that has
+            a chat history saved."* Which is where it is — and the ordering
+            around it took a decision, because three things now want this row.
+
+            `Deck-E` · `Experimental` · balance · **History** ·······  ✕
+
+            The name and the two things that are FACTS ABOUT IT stay together at
+            the leading edge; the one CONTROL comes after them; the trailing edge
+            still belongs to the single control that closes the panel. The
+            balance renders nothing at all unless it is running low, so in the
+            ordinary case this button sits immediately beside the badge — which
+            is literally "to the right of the title" — and in the rare case where
+            the balance IS showing, the urgent chip is not pushed past a control
+            to make room for it.
+
+            It carries the WORD as well as the glyph at both widths. A bare clock
+            icon is a thing you have to hover to identify, on a surface where
+            half the readers are on a phone and cannot hover at all; the word
+            costs ~46px and buys a control nobody has to learn twice.
+          */}
+          <HistoryMenu
+            viewingId={viewingId}
+            liveId={conversationId ?? null}
+            onNewChat={() => {
+              // Leaving a record open onto a transcript that has just been
+              // emptied would show a saved chat with no way to tell it from
+              // the new blank one.
+              setViewingId(null)
+              onNewChat?.()
+            }}
+            onOpenConversation={setViewingId}
+            // A CONVERSATION DELETED WHILE IT IS BEING READ TAKES ITS OWN VIEWER
+            // WITH IT. Leaving the transcript up after the row is gone would be
+            // a document that no longer exists, and the next thing the reader
+            // does with it — reload, share, come back — finds nothing.
+            onDeleted={(id) => setViewingId((cur) => (cur === id ? null : cur))}
           />
           <button
             type="button"
@@ -1663,7 +1769,11 @@ export function DeckeChat({
             // saying explicitly: when the conversation is empty the transcript
             // is `shrink-0`, so without this the column packs everything at the
             // top and leaves a third of the screen blank underneath.
-            empty ? (desktop ? 'justify-center' : 'justify-end') : '',
+            // A RECORD IS NEVER THE NEW-CHAT SCREEN. `empty` is about the live
+            // conversation and stays true while a past one is open, so without
+            // this the archive would inherit the centred no-transcript layout
+            // and a five-turn record would be pinned to the middle of the pane.
+            !viewing && empty ? (desktop ? 'justify-center' : 'justify-end') : '',
           ].join(' ')}
         >
         {/*
@@ -1769,6 +1879,23 @@ export function DeckeChat({
           to, because he is painted by a canvas above this element and takes no
           pointer events at all. The owner said that case is fine.
         */}
+        {viewing ? (
+          /*
+            ── THE ARCHIVE TAKES THE TRANSCRIPT'S PLACE, NOT A LAYER OVER IT ──
+
+            A modal over the conversation would have put a record in front of a
+            live turn, with the panel's own scrim between them and two scroll
+            containers fighting for the wheel. Replacing the column is what makes
+            the mode unmistakable, and it is also what lets the composer be
+            GONE rather than covered — see `TranscriptView`, where that is the
+            whole design.
+
+            `key` on the id so switching conversations from the dropdown
+            remounts rather than transitioning: the scroll position of the record
+            you just left is not a sensible place to open the next one.
+          */
+          <TranscriptPane key={viewingId} id={viewingId} onBack={backToChat} />
+        ) : (
         <div
           ref={transcriptRef}
           onPointerDown={onSurfaceDown}
@@ -1993,6 +2120,7 @@ export function DeckeChat({
           )}
           </div>
         </div>
+        )}
 
         {/*
           THE WAY BACK DOWN.
@@ -2012,7 +2140,12 @@ export function DeckeChat({
           Rendered only when there is somewhere to go: never on the empty state,
           and never while the view is already at the end.
         */}
-        {!empty && !atLatest ? (
+        {/* NEVER OVER A RECORD. `atLatest` is measured from the LIVE scroller,
+            which is unmounted while the archive is open, so its last reading is
+            whatever it was when the reader left — and "Jump to latest" floating
+            over a transcript from last week would scroll something that is not
+            on screen. */}
+        {!viewing && !empty && !atLatest ? (
           <div className="relative z-[1] mx-auto h-0 w-full max-w-[760px]">
             <button
               type="button"
@@ -2096,7 +2229,20 @@ export function DeckeChat({
           bottom of the screen.
         */}
         <div className="mx-auto w-full max-w-[760px]">
-        {spent ? (
+        {viewing ? (
+          /*
+            ── READING A RECORD: THE COMPOSER IS GONE, NOT DISABLED ───────────
+
+            The same ruling as `spent` immediately below, applied to the same
+            slot for the same reason, and it is the single strongest guard
+            against the one failure this feature can have: somebody typing a
+            question into a transcript they are only reading. A greyed box takes
+            a keystroke and explains afterwards; a box that is not there cannot.
+
+            It is also where the way out lives — see `TranscriptExit`.
+          */
+          <TranscriptExit onBack={backToChat} />
+        ) : spent ? (
           /*
             ── OUT OF CREDITS: THE COMPOSER IS REPLACED, NOT DISABLED ─────────
 
@@ -2154,7 +2300,9 @@ export function DeckeChat({
           Outside the composer's own padded wrapper so the chips clear the safe
           area on their own terms and the card's rounded corners keep their gap.
         */}
-        {empty && desktop && !spent ? (
+        {/* `!viewing`: the openers are the new-chat screen's second half, and
+            there is no new chat on screen while a record is. */}
+        {empty && desktop && !spent && !viewing ? (
           <div
             className="pointer-events-auto mx-auto w-full max-w-[760px] shrink-0 px-[16px]"
             style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}

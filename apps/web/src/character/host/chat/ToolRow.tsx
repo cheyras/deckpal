@@ -43,10 +43,25 @@
  */
 
 import { useId, useState, type JSX } from 'react'
-import { Icon } from '../../../components/Icon'
-import { toolRowAppearance, type ToolRowData, type ToolTone } from './toolRowState'
+import { Icon, type IconName } from '../../../components/Icon'
+import { toolRowAppearance, type ToolGlyph, type ToolRowData, type ToolTone } from './toolRowState'
 
 export type { ToolPhase, ToolRowData } from './toolRowState'
+
+/**
+ * The mark this app draws for each answer `toolRowAppearance` can give.
+ *
+ * `dash` is `minus` because there is no dedicated glyph for "we do not know" in
+ * `Icon` and a hyphen is exactly the right shape for it: it holds the column so
+ * a run of rows stays aligned, and it cannot be misread as an outcome the way a
+ * dot, a question mark or a faded tick all can.
+ */
+const GLYPH_ICON: Record<ToolGlyph, IconName> = {
+  check: 'check',
+  alert: 'alert',
+  close: 'close',
+  dash: 'minus',
+}
 
 /**
  * The "still going" indicator.
@@ -111,6 +126,9 @@ const TONE_ROW: Record<ToolTone, string> = {
   quiet: 'text-text-muted',
   running: 'text-text-muted',
   declined: 'text-text-muted',
+  // A record with no outcome behind it. Quiet like a success, marked like
+  // neither — see `ToolTone` in `toolRowState.ts` for why this is not amber.
+  unknown: 'text-text-muted',
   warn: 'rounded-[10px] border border-warning/35 bg-warning/[0.07] px-[11px] py-[8px] text-text-body',
   danger: 'rounded-[10px] border border-error/35 bg-error/[0.08] px-[11px] py-[8px] text-text-body',
 }
@@ -118,6 +136,7 @@ const TONE_ROW: Record<ToolTone, string> = {
 const TONE_LABEL: Record<ToolTone, string> = {
   quiet: '',
   running: '',
+  unknown: '',
   declined: 'text-error',
   warn: 'text-warning',
   danger: 'text-error',
@@ -146,6 +165,11 @@ const TONE_PILL: Record<ToolTone, string> = {
   // decision the same visual weight as a failure; the word and the colour are
   // enough, and the row around it stays as quiet as a success.
   declined: 'border-error/35 text-error',
+  // NO COLOUR ON AN UNKNOWN, and that is the honest choice rather than a
+  // timid one. Amber would say "something went wrong" and red would say
+  // "something failed"; neither is known. The border makes it a pill so the
+  // eye reads it as a state word, and the word does the rest.
+  unknown: 'border-border-default text-text-muted',
   warn: 'border-warning/40 bg-warning/[0.12] text-warning',
   danger: 'border-error/40 bg-error/[0.12] text-error',
 }
@@ -209,9 +233,15 @@ export function ToolRow({
             It was ticked because `deny` emits the row as `phase: 'ok'`, which is
             the phase for a call that SUCCEEDED. See `toolRowFromChip`, which
             bridges that until the emitter can say `declined` itself.
+
+            AND THE CHOICE IS NO LONGER MADE HERE. It was a nested ternary over
+            the tone whose fall-through cases were "tick" and "warning", so any
+            tone nobody remembered to add drew one of those two by accident —
+            which is precisely how the tick on a refusal happened. `appearance`
+            names the mark now, exhaustively, and this only draws it.
           */
           <Icon
-            name={a.tone === 'declined' ? 'close' : a.tone === 'quiet' ? 'check' : 'alert'}
+            name={GLYPH_ICON[a.glyph]}
             size={13}
             className={['mt-[3px] shrink-0', TONE_LABEL[a.tone] || 'text-icon-muted'].join(' ')}
           />
