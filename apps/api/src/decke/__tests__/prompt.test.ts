@@ -210,8 +210,15 @@ test('the journey doctrine states its own limits, including the one that does no
   // Conditional waits, never timed ones — stated as an absence of the ability.
   assert.match(p, /there is no pause to ask for and no way to ask for one/)
 
-  // The addressability floor, said out loud rather than discovered.
-  assert.match(p, /card TILE inside a grid is not addressable/)
+  // The addressability floor MOVED in the 2026-08-24 card-spotlight pass: a
+  // tile inside the virtualized grid became the one exception to "you cannot
+  // write CSS of your own", addressed by the strict one-spelling form the
+  // client allowlist enforces (`uiTools.ts` — CARD_TILE_SELECTOR). The pin
+  // follows the truth: the recipe must be stated, in the exact spelling,
+  // and the tile must still be declared unpressable.
+  assert.match(p, /\[data-decke-card="<cardId>"\]/)
+  assert.match(p, /"Take me to <some card>" is therefore one move/)
+  assert.match(p, /never something you can `click`/)
 
   // TRUTHFULNESS (PLAN X2): steps that never ran must not be narrated.
   assert.match(p, /The steps after it did not run and were not said/)

@@ -65,6 +65,107 @@ export function routeAllowed(path: unknown): path is string {
 }
 
 /**
+ * ── THE CARD TILE, AND WHY IT NEEDED A SEAM OF ITS OWN ───────────────────────
+ *
+ * Everything else he can point at is a LANDMARK: the app marks it, it is in the
+ * document for as long as its page is, and `travelAfterRoute` only has to wait
+ * for the page to paint. A card tile is not like that. The set grid is
+ * window-virtualized (`GridView`, `useWindowVirtualizer`), so the page holds
+ * only the tiles you can currently SEE — two screens' worth out of a set that
+ * runs to three hundred cards. Waiting for `[data-decke-card="me05-084"]` to
+ * turn up therefore never finished, because nothing was ever going to render
+ * it: the tile does not exist until somebody scrolls to where it lives. The
+ * system prompt said exactly that out loud, and told him not to try.
+ *
+ * The owner asked for it anyway, and described the shape he wanted:
+ *
+ *   "bring up the set page … then scrolled down the page for me to the specific
+ *    card … so it looks like he's flying down the page to the card."
+ *
+ * So the wait becomes a REQUEST. `decke:reveal` is that request: a window event
+ * carrying the selector he is waiting on and the card id inside it. The page
+ * that owns the grid is the only thing that knows where `me05-084` sits in a
+ * filtered, sorted, virtualized list, so it does the scrolling; this side only
+ * asks, and then goes on waiting exactly as it always did. The tile mounts, the
+ * MutationObserver sees it, the settle fires, and the ordinary `flyTo` carries
+ * him to a tile that is now real and already near the middle of the screen.
+ *
+ * Deliberately an EVENT rather than a callback registry or a module singleton:
+ * the requester lives in the character host, the responder lives in a route,
+ * they mount and unmount on their own schedules, and neither should hold a
+ * reference to the other. A page that is not listening simply does not answer,
+ * which is the same outcome as the old behaviour — a polite failure at the 6 s
+ * cap, not a hang.
+ */
+export const DECKE_REVEAL_EVENT = 'decke:reveal'
+
+export type DeckeRevealDetail = {
+  /** The selector he is waiting on, verbatim. */
+  selector: string
+  /** The card id inside it, when the selector names a card tile. */
+  cardId?: string
+}
+
+/**
+ * How often the request is repeated while he is still waiting.
+ *
+ * FIRE-AND-FORGET WOULD LOSE THE RACE IT MATTERS MOST IN. The common case is a
+ * `goTo` that navigates to a set page and then waits for a tile on it, and the
+ * navigation is what MOUNTS the listener — so the first dispatch reliably
+ * arrives at a page that is not there yet and lands on nobody. Repeating is the
+ * cheap half of a handshake: an event with no listener costs a function call,
+ * and the listener dedupes a request it is already acting on, so the only cost
+ * of asking again is the asking. Cleared the instant the wait resolves, and
+ * bounded anyway by the same 6 s cap that bounds the wait.
+ */
+export const REVEAL_RETRY_MS = 400
+
+/**
+ * The ONE selector shape that names something the app does not keep in the DOM.
+ *
+ * Strict on purpose, and strict in both directions:
+ *
+ *   - the attribute name is matched literally, not as a prefix. `data-decke-card`
+ *     is a distinct attribute from `data-decke-card-grid` and
+ *     `data-decke-card-image`, both of which are ordinary landmarks and must keep
+ *     going through the ordinary path;
+ *   - the id is a bounded charset that cannot leave the quoted attribute value:
+ *     no quote, no backslash, no bracket, no whitespace, no comma. Card ids are
+ *     `<setId>-<number>` (`me05-084`, `swshp-SWSH001`), so alphanumerics with
+ *     dash/underscore/dot is the shape, and 60 characters is generous for it.
+ *
+ * This is NOT a general CSS opening. `[data-decke-card]` on its own, a `^=`
+ * prefix match, a descendant combinator, a comma-separated list — every one of
+ * those reaches for a tile and none of them is this form, so every one is
+ * refused rather than being quietly allowed through the landmark path. The
+ * whole value of the allowlist is that a selector is a capability, and widening
+ * "he may name one specific card" into "he may write attribute selectors" would
+ * give away the second while only meaning the first.
+ */
+const CARD_TILE_SELECTOR = /^\[data-decke-card="([A-Za-z0-9][A-Za-z0-9._-]{0,59})"\]$/
+/** Reaches for a card tile at all, however badly written. See above. */
+const NAMES_A_CARD_TILE = /data-decke-card(?![\w-])/
+
+/**
+ * The card id inside a card-tile selector, or null if this is not one.
+ *
+ * The single source of truth for the shape, shared by the thing that ALLOWS it
+ * (`resolveTarget`) and the thing that ACTS on it (`travelAfterRoute`, and
+ * through the event, the set page). Two regexes that agree today are two
+ * regexes that disagree after the next set with an odd id.
+ */
+export function revealCardId(selector: unknown): string | null {
+  if (typeof selector !== 'string') return null
+  const m = CARD_TILE_SELECTOR.exec(selector)
+  return m ? m[1]! : null
+}
+
+/** The selector for one card's tile. Build it here so nobody hand-writes it. */
+export function cardTileSelector(cardId: string): string {
+  return `[data-decke-card="${cardId}"]`
+}
+
+/**
  * Elements he is allowed to travel to or ring.
  *
  * AN ALLOWLIST, and it is load-bearing rather than tidy. A selector is a
@@ -77,10 +178,33 @@ export function routeAllowed(path: unknown): path is string {
  * The `#`-prefixed forms are the app's own layout anchors; everything else must
  * be marked. A selector that resolves to something unmarked is refused with a
  * reason he can say.
+ *
+ * ── AND ONE MARKING THAT IS NOT AN ANCESTOR ──────────────────────────────────
+ *
+ * `data-decke-card` is the second deliberate marking, and it sits ON the thing
+ * rather than around it. A tile is inside the grid's landmark on the set page,
+ * so the ancestor rule would already have let it through there — but the same
+ * `CardTile` renders on the species page and in search results, where nothing
+ * wraps it, and "he can point at this card here but not there" is not a rule
+ * anybody could hold in their head. So the strict tile form is allowed on its
+ * own authority: the attribute IS the marking, written in exactly one place
+ * (`CardTile`), on the tile's own anchor, and grep-auditable like the other one.
+ *
+ * It stays a POINTING capability. `resolveClickTarget` runs this first and then
+ * demands `data-decke-clickable`, which no tile carries, so nothing here makes
+ * a card pressable — which matters, because a tile's anchor opens the card
+ * sheet and the click policy is a separate, smaller allowlist on purpose.
  */
 function resolveTarget(selector: string): { el: Element | null; refused?: string } {
   if (typeof selector !== 'string' || !selector || selector.length > 120) {
     return { el: null, refused: 'that is not a selector I can use' }
+  }
+  // Refused BEFORE the query, so a loose reach for a tile ("any tile", "tiles
+  // whose id starts with…") is answered as the mistake it is rather than
+  // resolving to whichever card happens to be on screen.
+  const cardId = revealCardId(selector)
+  if (!cardId && NAMES_A_CARD_TILE.test(selector)) {
+    return { el: null, refused: 'I need a card’s full number before I can point at it' }
   }
   let el: Element | null
   try {
@@ -89,6 +213,7 @@ function resolveTarget(selector: string): { el: Element | null; refused?: string
     return { el: null, refused: 'that selector is not valid' }
   }
   if (!el) return { el: null }
+  if (cardId) return { el }
   const marked = el.closest('[data-decke-landmark]')
   if (!marked) {
     return { el: null, refused: 'that part of the page is not something I can point at' }
@@ -335,7 +460,16 @@ export async function runUiTool(
         ctx.decke.flyTo(
           { selector: String(input.selector) },
           {
-            depth: 'foreground',
+            // HE RESTS SMALL WHILE PRESENTING. The background depth system was
+            // only ever used as a mid-flight waypoint; every destination
+            // hard-coded 'foreground', so he swelled back to full size the
+            // instant he arrived — "he's very big himself here, annoyingly
+            // big." A presentation is pointing at someone else's content: he
+            // parks on the far plane (a third of his size), the ring and the
+            // bubble carry the message, and the content stays the subject.
+            // The park solve, keep-out, screenRect and the beacon all take the
+            // same depth-scaled distance, so everything downstream agrees.
+            depth: 'background',
             highlight: input.highlight !== false,
             then: input.point === true ? 'point' : undefined,
             via: far ? 'background' : undefined,
@@ -472,10 +606,37 @@ function travelAfterRoute(
 ): Promise<UiToolResult> {
   const LIMIT_MS = 6000
   return new Promise((resolve) => {
+    // ── ASKING FOR THE DESTINATION TO EXIST ──────────────────────────────────
+    //
+    // A virtualized tile is the one target that will not turn up on its own,
+    // so waiting for it has to be accompanied by asking for it. See
+    // `DECKE_REVEAL_EVENT` above for why this is an event and why it repeats.
+    // Everything below this — the observer, the settle, the flight, the cap —
+    // is untouched: the request only changes whether the thing being waited
+    // for ever mounts, not what happens when it does.
+    const cardId = revealCardId(selector)
+    let asking = 0
+    const ask = () => {
+      window.dispatchEvent(
+        new CustomEvent<DeckeRevealDetail>(DECKE_REVEAL_EVENT, {
+          detail: { selector, cardId: cardId ?? undefined },
+        }),
+      )
+    }
+    // ONE EXIT, so the interval cannot outlive the wait down any of the four
+    // paths that end it (found, refused, settled-but-gone, capped). An interval
+    // that survives its promise would keep scrolling the reader's page for a
+    // turn that finished.
+    const settle = (result: UiToolResult) => {
+      if (asking) window.clearInterval(asking)
+      asking = 0
+      resolve(result)
+    }
+
     const go = (): boolean => {
       const { el, refused } = resolveTarget(selector)
       if (refused) {
-        resolve({ ok: false, reason: refused })
+        settle({ ok: false, reason: refused })
         return true
       }
       if (!el) return false
@@ -493,14 +654,18 @@ function travelAfterRoute(
       ctx.decke.flyTo(
         { selector },
         {
-          depth: 'foreground',
+          // Background, for the same reason the same-page `flyTo` case gives:
+          // arriving on a new page to present something is still presenting,
+          // and full size over fresh content is the "annoyingly big" the
+          // owner filed. See the `flyTo` case above.
+          depth: 'background',
           highlight: true,
           then: 'point',
           via: far ? 'background' : undefined,
           scrollWith: true,
         },
       )
-      resolve({ ok: true })
+      settle({ ok: true })
       return true
     }
 
@@ -514,6 +679,24 @@ function travelAfterRoute(
       }
     }
 
+    // BOTH PATHS ARRIVE HERE, and both need the request. The waiting path is
+    // obvious — the page is being replaced and the tile has never existed. The
+    // `immediate` path is the one the owner actually hit: he was ALREADY on the
+    // set page, the card was two thousand pixels below the fold, and the only
+    // difference between that and a bad card id was that one of them could be
+    // fixed by scrolling. Falling through to here means the selector did not
+    // resolve, which is precisely when the reveal is worth asking for.
+    //
+    // Asking is unconditional rather than "only if it is missing" for the
+    // navigating case: the outgoing page can still be mounted for a tick, so a
+    // resolve-first test would read the OLD page's tile and skip the request
+    // that the new page needs. A reveal for a card already sitting in the
+    // middle of the screen is a no-op on the listening side.
+    if (cardId) {
+      ask()
+      asking = window.setInterval(ask, REVEAL_RETRY_MS)
+    }
+
     let quiet = 0
     const finish = () => {
       obs.disconnect()
@@ -522,7 +705,7 @@ function travelAfterRoute(
       // settle: the whole point of waiting is that the page moved, and the
       // element that armed it may have been replaced by the real one.
       if (!go()) {
-        resolve({ ok: false, reason: 'we are on the page, but I could not find that part of it' })
+        settle({ ok: false, reason: 'we are on the page, but I could not find that part of it' })
       }
     }
     const obs = new MutationObserver(() => {
@@ -547,7 +730,7 @@ function travelAfterRoute(
       // He ARRIVED — the navigation happened. Only the last step failed, and
       // saying which half worked is the difference between "I took you there,
       // but I cannot find it" and an unexplained shrug.
-      resolve({ ok: false, reason: 'we are on the page, but I could not find that part of it' })
+      settle({ ok: false, reason: 'we are on the page, but I could not find that part of it' })
     }, LIMIT_MS)
   })
 }

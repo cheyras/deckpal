@@ -198,7 +198,7 @@ export default function Decke() {
       // is right on a laptop and swallows a 390px phone. Parity mode opts out
       // entirely, since it needs Blender's exact staging distance.
       if (!parity) {
-        decke.stage.setCharacterHeight(Math.round(Math.min(300, h * 0.3, w * 0.55)))
+        decke.setCharacterHeight(Math.round(Math.min(300, h * 0.3, w * 0.55)))
       }
     }
     measure()

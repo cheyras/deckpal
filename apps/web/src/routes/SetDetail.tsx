@@ -1,16 +1,78 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useParams, useSearch, useNavigate } from '@tanstack/react-router'
 import { api } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
 import { SetHeader } from '../components/SetHeader'
 import { OwnershipStrip, SearchBox, SortChips, VariantLegend, ViewToggle } from '../components/FilterControls'
-import { GridView } from '../components/GridView'
+import { GridView, type GridReveal } from '../components/GridView'
 import { BinderView } from '../components/BinderView'
 import { TableView } from '../components/TableView'
 import { CardSheet } from './CardDetail'
 import { type CardSearch } from './setSearch'
 import { useSignedIn } from '../lib/session'
+import { DECKE_REVEAL_EVENT, type DeckeRevealDetail } from '../character/host/uiTools'
+
+/**
+ * How long a request for the same card is treated as the one already in flight.
+ *
+ * Deck-E repeats his ask every 400 ms while he waits (`REVEAL_RETRY_MS`), so
+ * without a window here every retry would restart the scroll from wherever the
+ * last one had got to and the page would crawl instead of travelling. Longer
+ * than a browser's smooth scroll takes, and short enough that a SECOND, later
+ * request for the same card — a reader who scrolled away and asked again — is
+ * answered rather than swallowed. It is a dedupe, not a mute.
+ */
+const REVEAL_DEDUPE_MS = 2000
+
+/**
+ * The page's half of the reveal seam.
+ *
+ * The owner's spec, verbatim: *"bring up the set page … then scrolled down the
+ * page for me to the specific card … so it looks like he's flying down the page
+ * to the card."* Deck-E cannot do the middle step himself: the card grid is
+ * virtualized, so a tile two thousand pixels below the fold is not merely
+ * off-screen, it is ABSENT, and the wait he does for every other landmark can
+ * never finish. `character/host/uiTools.ts` describes the whole handshake; this
+ * is the end of it that knows what is on this page.
+ *
+ * ── WHY IT LIVES AT THE ROUTE, ABOVE THE GRID ────────────────────────────────
+ *
+ * Because the request usually arrives BEFORE there is a grid to answer it. The
+ * common shape is a `goTo` that navigates here and then waits for a tile, so
+ * the ask lands while the set query is still in the air and the page is a
+ * spinner. This component is mounted for all of that, and the grid is not — so
+ * the route remembers the request and the grid honours it whenever rows exist,
+ * which is the same reason Deck-E's landmarks are marked at the route level too.
+ *
+ * ── AND WHY THE TEST IS THE SET PREFIX, NOT THE LOADED ROWS ──────────────────
+ *
+ * `me05-084` belongs to `me05` by construction (card ids are `<setId>-<number>`,
+ * and the tiles' own count boxes already build them that way). Asking the
+ * prefix rather than searching `cards` is what lets an empty, still-loading page
+ * accept a request it cannot yet act on — and what makes a page for a DIFFERENT
+ * set ignore it, silently and correctly, while it is still mounted mid-navigation.
+ */
+function useCardReveal(setId: string): GridReveal | null {
+  const [reveal, setReveal] = useState<GridReveal | null>(null)
+  useEffect(() => {
+    const onReveal = (e: Event) => {
+      const cardId = (e as CustomEvent<DeckeRevealDetail>).detail?.cardId
+      if (!cardId || !cardId.startsWith(`${setId}-`)) return
+      setReveal((prev) =>
+        // The SAME object back is how a repeat is deduped: React bails out of
+        // the update, and the grid's effect — which keys on this identity —
+        // never re-runs, so a scroll already under way is left to finish.
+        prev && prev.cardId === cardId && Date.now() - prev.at < REVEAL_DEDUPE_MS
+          ? prev
+          : { cardId, at: Date.now() },
+      )
+    }
+    window.addEventListener(DECKE_REVEAL_EVENT, onReveal)
+    return () => window.removeEventListener(DECKE_REVEAL_EVENT, onReveal)
+  }, [setId])
+  return reveal
+}
 
 export function SetDetail() {
   const { series, set } = useParams({ from: '/series/$series/$set' })
@@ -61,6 +123,9 @@ export function SetDetail() {
     return { have, need, dupes }
   }, [allCards])
 
+  // Deck-E asking for one card to be brought into view. See `useCardReveal`.
+  const reveal = useCardReveal(set)
+
   const cards = useMemo(() => {
     if (search.own === 'all') return allCards
     return allCards.filter((c) =>
@@ -73,6 +138,25 @@ export function SetDetail() {
         : true,
     )
   }, [allCards, search.own])
+
+  // THE OTHER TWO VIEWS, answered honestly rather than not at all. Only the
+  // grid is virtualized, so only the grid needs a row index computed for it;
+  // the table renders every row it has, which means a reveal there is the
+  // ordinary browser problem of scrolling to an element that already exists.
+  // Kept out of the grid's way by the view test — in grid view `GridView` owns
+  // this, and two scrollers aiming at the same card would fight each other.
+  // (The binder paginates rather than scrolls, so a card on another binder page
+  // is still out of reach; it fails at the 6 s cap, politely, as before.)
+  useEffect(() => {
+    if (!reveal || search.view === 'grid') return
+    let el: Element | null = null
+    try {
+      el = document.querySelector(`[data-decke-card="${CSS.escape(reveal.cardId)}"]`)
+    } catch {
+      el = null
+    }
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [reveal, search.view, cards])
 
   return (
     <Content cap={1165}>
@@ -137,7 +221,7 @@ export function SetDetail() {
                 {allCards.length === 0 ? 'No cards in this set yet.' : 'No cards match this filter.'}
               </div>
             ) : search.view === 'grid' ? (
-              <GridView cards={cards} seriesSlug={series} setId={set} />
+              <GridView cards={cards} seriesSlug={series} setId={set} reveal={reveal} />
             ) : search.view === 'binder' ? (
               <BinderView cards={cards} />
             ) : (

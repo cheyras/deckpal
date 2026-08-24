@@ -746,7 +746,13 @@ export const PARK_LANDMARK = 'data-decke-park'
 /**
  * Fallback stand point if the landmark is not in the DOM — he is parked before
  * the panel has laid out, or someone renders the host without the chat.
- * Deliberately the same lower-left corner the landmark describes.
+ * Deliberately the same lower-left CORNER the landmark describes.
+ *
+ * The corner, and no longer the same HEIGHT: the park box now stands on top of
+ * the composer rather than in the corner beside it (see `PARK_ABOVE`). This
+ * stays where it is on purpose — every case that reaches it is a case with no
+ * composer on screen to stand above, and raising him by the height of a control
+ * that is not there would leave him hovering for no reason a reader could see.
  */
 export const STAND_MOBILE = { x: 0.14, y: 0.84 }
 
@@ -756,9 +762,55 @@ export const NAV_BREAKPOINT = 1068
 /** The panel's own content padding, and the base the gutter is measured from. */
 const CONTENT_PAD = 16
 
-/** How far the park box sits from the panel's left and bottom edges. */
+/** How far the park box sits from the panel's left edge. */
 const PARK_LEFT = 10
+
+/**
+ * The floor the park box falls back to when the composer has not been measured.
+ *
+ * Only reachable for the frame or two before layout settles, and while he is out
+ * of credits (the composer is replaced by a notice and there is nothing to stand
+ * above). It is the OLD resting height, deliberately: if the measurement is
+ * missing the honest thing is to put him where he used to be rather than to
+ * guess a new number and have him jump when the real one arrives.
+ */
 const PARK_BOTTOM = 6
+
+/**
+ * AIR BETWEEN HIS FEET AND THE TOP OF THE COMPOSER.
+ *
+ * *"We had decided to have him not be this low anymore… he should be up above
+ * this… move him up so he's just above the input."*
+ *
+ * Small on purpose. "Just above" is a specific instruction — he is meant to
+ * stand ON the composer the way you stand on a step, not float in a band of his
+ * own halfway up the panel — so this is a hairline of clearance that reads as
+ * "not touching", not as a layout row.
+ */
+const PARK_ABOVE = 8
+
+/**
+ * How long the panel stays on screen after `open` goes false.
+ *
+ * KEPT IN STEP WITH `Sheet`'s `EXIT_MS` and with the `[data-closing]` rules in
+ * theme.css, and matching the sheet rather than picking a new number is the
+ * point: he is one of several things in this app that can be dismissed, and a
+ * dismissal that takes noticeably longer here than in a card sheet reads as the
+ * app being inconsistent rather than as him being special.
+ */
+const EXIT_MS = 220
+
+/**
+ * The same test `Sheet` runs, duplicated rather than imported because `Sheet`
+ * keeps it private — and a two-line media query is a cheaper dependency than
+ * widening another module's public surface for it.
+ */
+function prefersReducedMotion() {
+  return (
+    typeof window !== 'undefined' &&
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+  )
+}
 
 /**
  * HIS DRAWN SILHOUETTE, as multiples of `characterPx`.
@@ -1034,6 +1086,89 @@ export function DeckeChat({
   const spent = creditState(credits ?? null) === 'empty'
 
   /**
+   * ── THE PANEL OUTLIVES ITS OWN `open` PROP ────────────────────────────────
+   *
+   * *"The chat window should also animate out, always, rather than simply
+   * disappearing."*
+   *
+   * `if (!open) return null` is the entire bug, and the reason it cannot be
+   * fixed the way `Sheet` fixes it is that `Sheet` owns every one of its own
+   * closers. Its scrim, its ✕ and its Escape all route through a private
+   * `requestClose` that plays the exit and only THEN tells the caller — which
+   * works because nothing outside a `Sheet` can close a `Sheet`.
+   *
+   * This panel is closed from outside constantly. `DeckeHost` drops `open` when
+   * HE decides the conversation is over: `seeYouOut()` after he has walked the
+   * reader to a page, the auto-retire after a presentation. Wrapping the four
+   * click handlers would animate the closes the reader asked for and blink out
+   * the ones he asked for — the half that matter most, because those are the
+   * ones where the reader is watching him rather than the panel.
+   *
+   * So the interception happens at the PROP, not at the buttons: watch `open`
+   * for a falling edge, keep rendering for `EXIT_MS` with `data-closing` on,
+   * and stop. Whoever flipped it, and for whatever reason, gets the same exit.
+   *
+   * THE RISING EDGE IS HANDLED IN RENDER, not in the effect, and that is not
+   * style. Half a dozen effects below gate on "the panel is up" and then touch
+   * the DOM — the transcript's scroll listener reads `transcriptRef.current`
+   * and returns early if it is null. Re-keying those to a `visible` that lags
+   * `open` by a commit would run them against an empty ref and never re-run
+   * them, because their deps would not have changed by the time the DOM
+   * existed. Adjusting state during render (React's documented pattern for
+   * exactly this) makes `visible` a strict superset of `open` with an IDENTICAL
+   * rising edge, so those effects fire on the same commit they always did and
+   * the only behaviour that changes is the one being fixed.
+   */
+  const [visible, setVisible] = useState(open)
+  const [closing, setClosing] = useState(false)
+  /**
+   * Whether he was out on the page at the moment the close was asked for.
+   *
+   * FROZEN AT THE EDGE, because `minimised` is `DeckeHost`'s `travelling` flag
+   * and the host clears it in its own effect one commit after `open` falls. An
+   * arrival-triggered close would therefore un-minimise mid-exit: the docked bar
+   * would vanish and the full panel would appear, at full size, purely in order
+   * to fade away. Capturing the value on the falling edge means the exit plays
+   * on whichever of the two forms the reader was actually looking at.
+   */
+  const [closingMinimised, setClosingMinimised] = useState(false)
+  const [wasOpen, setWasOpen] = useState(open)
+  if (wasOpen !== open) {
+    setWasOpen(open)
+    if (open) {
+      setVisible(true)
+      setClosing(false)
+    } else if (visible) {
+      setClosingMinimised(minimised)
+    }
+  }
+  useEffect(() => {
+    if (open || !visible) return
+    // Reduced motion gets the old behaviour, and the old behaviour is CORRECT
+    // for it: someone who has asked the system not to move things has asked for
+    // the panel to be gone, not for a shorter version of it leaving.
+    if (prefersReducedMotion()) {
+      setVisible(false)
+      return
+    }
+    setClosing(true)
+    const t = window.setTimeout(() => {
+      setVisible(false)
+      setClosing(false)
+    }, EXIT_MS)
+    return () => window.clearTimeout(t)
+  }, [open, visible])
+
+  /**
+   * WHICH FORM IS ON SCREEN — the docked bar, or the whole panel.
+   *
+   * One derived boolean rather than reading `minimised` at four call sites, so
+   * that the freeze above cannot be honoured in one place and forgotten in
+   * another.
+   */
+  const shownMinimised = closing ? closingMinimised : minimised
+
+  /**
    * ── THE PAST CONVERSATION BEING READ, OR NULL FOR THE LIVE ONE ─────────────
    *
    * One id, held here rather than in a route, because reading a record is a
@@ -1061,9 +1196,26 @@ export function DeckeChat({
   // CLOSING THE PANEL LEAVES THE ARCHIVE. Reopening him is a new intention —
   // "talk to Deck-E" — and landing back in a transcript somebody read yesterday
   // would be the panel remembering the wrong half of what happened.
+  //
+  //
+  // ── KEYED ON `visible`, READING `open`, AND BOTH HALVES ARE DELIBERATE ────
+  //
+  // WHAT it tests is `open`, because that is the prop that means "closed" and
+  // the rule above is about closing. WHEN it tests is `visible`, because the
+  // panel now stays on screen for `EXIT_MS` after `open` falls: firing on the
+  // raw prop would swap an archived transcript back to the live conversation
+  // for the last few frames of its own exit, and the reader would watch the
+  // thing they were reading turn into something else on the way out.
+  //
+  // The read is never stale, because `visible` can only fall AFTER `open` has.
+  // And a close that is cancelled mid-exit — reopened before the timer lands —
+  // never moves `visible` at all, which leaves the record open: correct, since
+  // the panel did not go anywhere.
   useEffect(() => {
     if (!open) setViewingId(null)
-  }, [open])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above: the
+    // dependency is the panel's visibility, not the prop it reads.
+  }, [visible])
 
   /**
    * THE COMPOSER STARTS IN THE MIDDLE AND DROPS ON THE FIRST MESSAGE.
@@ -1096,6 +1248,53 @@ export function DeckeChat({
     lastTopRef.current = top
     wasEmptyRef.current = empty
   }, [empty, messages.length])
+
+  /**
+   * ── HOW HIGH THE COMPOSER'S TOP EDGE SITS ABOVE THE PANEL'S FLOOR ─────────
+   *
+   * In CSS pixels, so the park box can be expressed as "that, plus a gap". The
+   * panel is `fixed … bottom-0`, so distance-from-the-viewport-bottom and
+   * distance-from-the-panel's-floor are the same number and no second reference
+   * element is needed.
+   *
+   * MEASURED, NOT DERIVED, for the reason the composer's own FLIP above states
+   * and this one inherits: the composer's height is a 14px card around a
+   * textarea that GROWS to six lines, sitting in a wrapper whose bottom padding
+   * is 20 or 40 depending on whether anything has been said and is overridden
+   * entirely by a home indicator. There is no constant that is right at more
+   * than one viewport, on more than one device, holding more than one draft.
+   *
+   * The `ResizeObserver` is the auto-grow: typing a third line moves the top
+   * edge without touching anything React knows about, and he has to come up
+   * with it or he ends up standing in the text. Everything else that moves the
+   * edge — the empty-state FLIP, a rotation, the credit notice replacing the
+   * composer outright — re-runs the effect through its deps or its resize
+   * listener.
+   */
+  const [composerTop, setComposerTop] = useState(0)
+  useLayoutEffect(() => {
+    const el = composerRef.current
+    if (!el) {
+      setComposerTop(0)
+      return
+    }
+    const measure = () =>
+      setComposerTop((prev) => {
+        const next = Math.round(window.innerHeight - el.getBoundingClientRect().top)
+        // Sub-pixel jitter from a rounding boundary would otherwise re-render
+        // the whole panel — and re-fly him — several times a second while a
+        // textarea animates its own height.
+        return Math.abs(next - prev) < 1 ? prev : next
+      })
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    window.addEventListener('resize', measure)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [visible, shownMinimised, empty, spent, desktop])
 
   // HIS FOOTPRINT, from the one number that decides his size.
   //
@@ -1169,11 +1368,16 @@ export function DeckeChat({
   // Closing re-arms the choice, so the NEXT opening reads what this one wrote.
   // Doing it on close rather than on open means the fresh set is already in
   // place before the panel animates in, with no swap mid-flight.
+  //
+  // Which is now `visible` rather than `open`, because "no swap mid-flight" has
+  // acquired a second flight. On an empty panel the greeting and the three
+  // opener chips are the whole screen; re-rolling them the instant `open` fell
+  // would rewrite every word on the panel during the 220ms it spends leaving.
   useEffect(() => {
-    if (open) return
+    if (visible) return
     openersLoggedRef.current = false
     setSaid(chooseWhatToSay())
-  }, [open])
+  }, [visible])
 
   // ── What a screen reader is told, and when ────────────────────────────────
   //
@@ -1223,12 +1427,25 @@ export function DeckeChat({
   // delta equal to the entire scroll offset and throws him across the screen.
   //
   // Sending him home releases the pin first. Only then is it safe to freeze.
+  //
+  // ── AND THE LOCK IS HELD FOR THE WHOLE EXIT, NOT UNTIL `open` FALLS ────────
+  //
+  // This is the one thing the exit animation could easily have broken, and it
+  // would have broken it spectacularly. `unlockScroll` restores the document's
+  // real scroll offset, which is the very number the character's pinned station
+  // differences against — so releasing the lock on the raw `open` prop hands
+  // that solve a delta equal to the entire page scroll WHILE the glass panel is
+  // still visibly on screen, and throws him across it in front of the reader.
+  // Keying on `visible` means the page is frozen until the panel is genuinely
+  // gone, and the 220ms of held scroll costs nothing: the CSS in theme.css has
+  // already given every click through to the page, so the only thing waiting is
+  // the wheel.
   useEffect(() => {
-    if (!open || minimised) return
+    if (!visible || shownMinimised) return
     decke?.returnHome()
     lockScroll()
     return () => unlockScroll()
-  }, [open, minimised, decke])
+  }, [visible, shownMinimised, decke])
 
   /**
    * Where focus was before he opened, so it can go back.
@@ -1240,7 +1457,7 @@ export function DeckeChat({
    */
   const returnFocusRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
-    if (!open) return
+    if (!visible) return
     returnFocusRef.current = (document.activeElement as HTMLElement) ?? null
     return () => {
       const el = returnFocusRef.current
@@ -1270,7 +1487,11 @@ export function DeckeChat({
         focus(document.querySelector<HTMLElement>('button[aria-label="Chat with Deck-E"]'))
       })
     }
-  }, [open])
+    // `visible`, so the restore lands when the panel is actually gone. On `open`
+    // it would fire a frame into the exit, and the rAF fallback would then race
+    // a launcher that has remounted UNDERNEATH a panel still sliding off it —
+    // focus arriving somewhere the reader cannot yet see.
+  }, [visible])
 
   // Escape closes; focus lands in the composer.
   //
@@ -1389,7 +1610,12 @@ export function DeckeChat({
   // can fire several times per frame and the pass reads layout.
   useEffect(() => {
     const el = transcriptRef.current
-    if (!open || minimised || !el) return
+    // `visible`/`shownMinimised` rather than the raw props. The transcript is no
+    // longer torn down when he goes out on the page, so this is now the ONLY
+    // thing that detaches the listener while he is minimised — and it stays
+    // attached through the exit, where the last frames of a scroll deceleration
+    // still want to be drawn.
+    if (!visible || shownMinimised || !el) return
     let raf = 0
     const STICK_SLACK = 48
     const on = () => {
@@ -1415,7 +1641,7 @@ export function DeckeChat({
       window.removeEventListener('resize', on)
       if (raf) cancelAnimationFrame(raf)
     }
-  }, [open, minimised, reflow])
+  }, [visible, shownMinimised, reflow])
 
   /**
    * Dismiss on a click that landed on nothing.
@@ -1458,41 +1684,97 @@ export function DeckeChat({
     [draft, busy, onSend],
   )
 
-  if (!open) return null
+  // `visible`, not `open`. See the state block at the top of this component:
+  // the panel is still on screen for `EXIT_MS` after the prop falls, and this
+  // is the line that used to make every close a blink.
+  if (!visible) return null
 
-  // MINIMISED: the conversation does not vanish while he is out on the page —
-  // it collapses to a bar showing the last thing the READER said, which is the
-  // context they need to make sense of what he is doing. What HE says goes to
-  // the speech bubble beside him instead, so the words are where the action is.
-  //
-  // No scrim: the page has to be visible for showing them something on it to
-  // mean anything, and the scroll lock is released for the same reason — he may
-  // be driving the page under himself.
-  if (minimised) {
-    const lastAskedMsg = [...messages].reverse().find((m) => m.role === 'user')
-    const lastAsked = lastAskedMsg ? messageText(lastAskedMsg) : undefined
-    return (
+  const lastAskedMsg = [...messages].reverse().find((m) => m.role === 'user')
+  const lastAsked = lastAskedMsg ? messageText(lastAskedMsg) : undefined
+
+  return (
+    <>
+      {/*
+        MINIMISED: the conversation does not vanish while he is out on the page —
+        it collapses to a bar showing the last thing the READER said, which is
+        the context they need to make sense of what he is doing. What HE says
+        goes to the speech bubble beside him instead, so the words are where the
+        action is.
+
+        No scrim, no scroll lock: the page has to be visible AND drivable for
+        showing them something on it to mean anything — he may be scrolling the
+        page under himself.
+
+        ── AND IT IS A SIBLING NOW, NOT A SECOND `return` ────────────────────
+
+        *"There's a hiccup where it kind of re-renders."*
+
+        There was, and this is it. The bar used to be an early return, so
+        toggling `minimised` swapped the element type React found in this slot —
+        `<button>` where a `<Fragment>` had been — and React's reconciler cannot
+        morph one into the other. It unmounted the entire panel and mounted a
+        bar, then did the reverse on expand, replaying `sheet-scrim-in` and
+        `decke-chat-in` from the top every single time. That is the hiccup: not
+        a slow render, a REBIRTH, and it took the transcript's scroll position
+        and the composer's focus with it each way.
+
+        Rendering all three surfaces unconditionally and hiding two of them in
+        CSS costs one idle DOM subtree and buys a stable tree — the swap becomes
+        a repaint, the entrance animation plays once per OPENING as it always
+        should have, and the transcript comes back exactly where it was left.
+
+        The bar is the one surface that may use `hidden`, because it is the one
+        with nothing to preserve: no scroll box, no focus, no text mid-typing.
+        Its entrance replaying every time he goes out is correct — the bar IS
+        arriving.
+      */}
       <button
         type="button"
         onClick={onExpand}
         aria-label="Back to the conversation"
+        data-closing={closing || undefined}
         className={[
-          'fixed inset-x-[12px] bottom-[12px] z-[25] flex items-center gap-[10px]',
-          'rounded-full border border-border-default bg-surface-raised/95 px-[16px] py-[10px]',
-          'text-left shadow-xl backdrop-blur-sm nav:inset-x-auto nav:right-[24px] nav:w-[420px]',
+          'decke-chat-bar fixed inset-x-[12px] bottom-[12px] z-[25] items-center gap-[10px]',
+          shownMinimised ? 'flex' : 'hidden',
+          // ── IT IS THE COMPOSER'S SMALLER SIBLING, NOT A GREY PILL ────────
+          //
+          // Measured at 1.3:1 before this: `text-muted` (#8b847e) on
+          // `surface-raised/95` (#79716b), which is two greys four steps apart
+          // on the same stone ramp. Unreadable is the polite word — at a
+          // glance it is a dead slab with a smudge in it, and the smudge is the
+          // reader's own question.
+          //
+          // The theme's composer-card comment already argued this exact case
+          // and named this exact mistake: "raised" is stone-500, a colour sized
+          // for a 56px circular button where a light disc reads as lifted, and
+          // a full-width bar in it is "a pale slab across the bottom of a
+          // near-black page". The fix is the same one the composer took —
+          // `surface-secondary` with a `surface-tertiary` hairline and a real
+          // shadow, because a card over a dark page is lifted by its edge and
+          // its shadow, not by being lighter than everything.
+          //
+          // Which also makes it read as what it IS. This bar is the composer,
+          // compacted: same background, same border, same 14px radius, same
+          // elevation, in the same place at the bottom of the screen. The
+          // reader is meant to recognise it as the conversation folded up
+          // rather than as a new piece of chrome that has appeared.
+          'rounded-[14px] border border-surface-tertiary bg-surface-secondary px-[14px] py-[10px]',
+          'text-left shadow-elevated nav:inset-x-auto nav:right-[24px] nav:w-[420px]',
           'motion-safe:animate-[decke-chat-in_220ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]',
         ].join(' ')}
       >
-        <span className="min-w-0 flex-1 truncate text-[13px] text-text-muted">
+        {/* `text-body` (#cac6c4) on `surface-secondary` (#292524) measures
+            8.9:1. It is the reader's own sentence quoted back at them and it
+            has to be legible at a glance from across a page he is busy
+            driving. */}
+        <span className="min-w-0 flex-1 truncate text-[13px] text-text-body">
           {lastAsked ? `“${lastAsked}”` : 'Back to the conversation'}
         </span>
-        <Icon name="chevron-down" size={16} className="shrink-0 rotate-180 text-icon-muted" />
+        {/* `icon-default`, not `icon-muted`: 4.1:1 against the card where muted
+            manages 3.0 and misses even the non-text floor. */}
+        <Icon name="chevron-down" size={16} className="shrink-0 rotate-180 text-icon-default" />
       </button>
-    )
-  }
 
-  return (
-    <>
       {/*
         THE SCRIM DIMS THE CONTENT PANE AND NOTHING ELSE — on both platforms
         now, which is the change. It used to differ, and the phone version was
@@ -1520,14 +1802,31 @@ export function DeckeChat({
         type="button"
         aria-label="Close chat"
         onClick={onClose}
+        // NOT REACHABLE while he is out on the page or while the panel is
+        // leaving, and `disabled` rather than a class because this is a real
+        // control: hiding it in CSS would leave a full-viewport button in the
+        // tab order over a page the reader has been sent to look at, and the
+        // first Tab would land on "Close chat" spread invisibly across it.
+        disabled={shownMinimised || closing}
+        // The two attributes the CSS in theme.css keys off. `data-minimised`
+        // takes the darkening AND the blur away — see the rule; `data-closing`
+        // fades it out instead of deleting it.
+        data-minimised={shownMinimised || undefined}
+        data-closing={closing || undefined}
         style={{
-          background: 'var(--color-decke-scrim)',
-          backdropFilter: 'blur(var(--decke-scrim-blur))',
-          WebkitBackdropFilter: 'blur(var(--decke-scrim-blur))',
+          // THE WITHDRAWAL HAS TO BE INLINE BECAUSE THE PAINT IS. An inline
+          // declaration outranks every selector in a stylesheet, so a
+          // `[data-minimised]` rule reaching for the blur would lose silently
+          // and the page he has taken the reader out to look at would stay
+          // frosted. `data-minimised` still carries the opacity and the pointer
+          // events, which nothing here sets.
+          background: shownMinimised ? 'transparent' : 'var(--color-decke-scrim)',
+          backdropFilter: shownMinimised ? 'none' : 'blur(var(--decke-scrim-blur))',
+          WebkitBackdropFilter: shownMinimised ? 'none' : 'blur(var(--decke-scrim-blur))',
           top: desktop ? 0 : 'calc(var(--app-header-h) + env(safe-area-inset-top))',
         }}
         className={[
-          'fixed inset-x-0 bottom-0 cursor-default',
+          'decke-chat-scrim fixed inset-x-0 bottom-0 cursor-default',
           'motion-safe:animate-[sheet-scrim-in_180ms_ease-out_backwards]',
           desktop ? 'z-[15]' : 'z-[24]',
         ].join(' ')}
@@ -1569,6 +1868,24 @@ export function DeckeChat({
         // below — is returning focus where it came from on close, which is
         // ordinary courtesy and is missing either way.
         aria-label="Chat with Deck-E"
+        // ── STILL IN THE DOM WHILE HE IS OUT, AND THAT NEEDS SAYING ────────
+        //
+        // The panel no longer unmounts when it minimises (see the docked bar
+        // above for why), so a transcript and a composer now sit invisibly over
+        // a page the reader has been sent to look at. `inert` is the whole of
+        // the repair and it is not optional: without it the first Tab lands in
+        // a composer nobody can see, and a screen reader walks a conversation
+        // that is not on screen. It also covers the exit, where the panel is
+        // visible but no longer accepting anything.
+        //
+        // `opacity` and pointer-events come from the `[data-minimised]` and
+        // `[data-closing]` rules in theme.css rather than from Tailwind's
+        // `hidden`, and the reason is written out there: `display: none` would
+        // destroy the transcript's scroll box and reset it to the bottom on
+        // every expand, which is half the "hiccup" this restructure removes.
+        inert={shownMinimised || closing}
+        data-minimised={shownMinimised || undefined}
+        data-closing={closing || undefined}
         style={{
           '--decke-gutter': `${gutter}px`,
           // THE PANEL IS THE CONTENT PANE, on both platforms.
@@ -1596,7 +1913,12 @@ export function DeckeChat({
           // where they are while he talks, and a sheet you can see through must
           // not swallow taps meant for what is behind it. Only the parts that
           // ARE something take pointer events back.
-          'pointer-events-none fixed bottom-0 right-0 z-[25] flex flex-col',
+          'decke-chat-panel pointer-events-none fixed bottom-0 right-0 z-[25] flex flex-col',
+          // The entrance stays a utility and the EXIT lives in theme.css, which
+          // is not an inconsistency — it is how the exit wins. A
+          // `.decke-chat-panel[data-closing]` selector outranks a single-class
+          // utility, so the two never have to be spelled as one conditional
+          // expression and the entrance cannot be left on during the exit.
           desktop
             ? 'motion-safe:animate-[decke-chat-in_280ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]'
             : 'motion-safe:animate-[sheet-panel-up_260ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]',
@@ -2331,11 +2653,39 @@ export function DeckeChat({
           edge to decide what has cleared him, so his position and the space kept
           for him are the same fact stated once.
 
-          Offset from the panel's bottom-left corner by a hair, because he is
-          meant to sit IN the corner — and tall enough that his head is well
-          above the composer's band while about half of him overlaps it. That
-          overlap is the point: it puts him BESIDE the input rather than in a row
-          of his own above it.
+          ── HE STANDS ON THE COMPOSER, NOT IN IT ────────────────────────────
+
+          *"We had decided to have him not be this low anymore… he should be up
+          above this… move him up so he's just above the input."*
+
+          Said four times in one sitting, which is the tell that the previous
+          answer was not a misunderstanding but a disagreement. THIS SUPERSEDES
+          the 2026-08-23 "beside the composer" placement, whose comment used to
+          sit here and argued the opposite case in the strongest terms: it
+          offset him a hair from the panel's bottom-left corner so that "about
+          half of him overlaps [the composer's band]", and it called that
+          overlap "the point" — the thing that put him BESIDE the input rather
+          than in a row of his own above it.
+
+          It is not the point any more. Standing him in the corner buried his
+          feet in the one control the reader is trying to use, and the reading
+          it produced — a character half-sunk behind a text field — was never
+          the "beside" it was reaching for. He now stands ON the composer's top
+          edge with `PARK_ABOVE` of daylight under him: still bottom-left, still
+          in the same column of the panel, still the same silhouette and the
+          same gutter kept clear beside him. What changed is the floor he
+          stands on.
+
+          NOTE FOR THE DESKTOP CASE, which is NOT this box: on wide viewports
+          `DeckeHost` parks him beside the composer itself and this landmark is
+          not rendered at all. Nothing here moves him there.
+
+          MEASURED, NOT OFFSET FROM THE BOTTOM. `composerTop` is the live
+          distance from the panel's floor to the top of the composer card, so
+          the home indicator, the empty-state FLIP and a textarea that has grown
+          to four lines all move him by exactly the amount they moved the thing
+          he is standing on — where the old `calc()` had to restate the safe
+          area by hand and could only ever be right about one of the three.
         */}
         {!desktop && characterPx > 0 ? (
           <div
@@ -2345,13 +2695,13 @@ export function DeckeChat({
             className="pointer-events-none absolute opacity-0"
             style={{
               left: `${PARK_LEFT}px`,
-              // SAFE-AREA AWARE, because the composer above it now is. Padding
-              // the composer up off the home indicator without moving his mark
-              // by the same amount would drop him relative to the input he is
-              // meant to stand beside — the overlap that puts him BESIDE the
-              // composer rather than in a row above it is the whole point of
-              // this box's geometry.
-              bottom: `calc(${PARK_BOTTOM}px + env(safe-area-inset-bottom))`,
+              bottom: composerTop
+                ? `${composerTop + PARK_ABOVE}px`
+                : // Not yet measured — one or two frames on open, and the whole
+                  // time he is out of credits and the composer has been replaced
+                  // by a notice. The old resting height, for the reason
+                  // `PARK_BOTTOM` gives.
+                  `calc(${PARK_BOTTOM}px + env(safe-area-inset-bottom))`,
               width: `${parkW}px`,
               height: `${parkH}px`,
             }}

@@ -20,35 +20,25 @@
  * unmounting out from under it. Sharing a component would mean one of them
  * carrying flags for the other.
  *
- * ── WHY IT IS NOT WIRED, AND EXACTLY WHAT WIRING IT IS ───────────────────────
+ * ── WIRED, AND TO WHAT ────────────────────────────────────────────────────────
  *
- * **IT IS NOT MOUNTED BY ANYTHING TODAY.** That is stated first because this
- * repository has a bad history with it: `CardRows`, `onRemoveCard` and
- * `resetDeckeEntitlement` were all built and never wired, and the last of them
- * meant Deck-E never appeared for a signed-in reader. A component with no call
- * site is a defect wearing a feature's clothes, and this comment is the record
- * of which one it is.
+ * `DeckeHost.tsx` mounts this beside `<DeckeBubble>` — the reason it isn't in
+ * `DeckeChat` is unchanged: that panel returns `null` the instant `open` goes
+ * false, the same tick this needs to appear. What changed is the rect it's
+ * fed. It used to be `himRect`, his LIVE on-page position, sampled while he was
+ * `travelling` — which is exactly wrong for a line spoken at arrival, because
+ * by the time he's home that sampling has long since gone `null` (see the
+ * repo's own recon of the sampling effect). `DeckeHost.tsx` now captures the
+ * LAUNCHER CHIP's box instead, at the moment he tucks into it, and holds it in
+ * `farewell.rect` alongside the picked line — a value that answers "where is
+ * he becoming himself again" rather than "where was he last seen moving",
+ * which is the rect this component actually wants. Its own null-check above
+ * exists for the case that measurement fails, not because the host might skip
+ * it on purpose.
  *
- * The reason is ownership rather than design: the dismissal and the flight home
- * live in `DeckeHost.tsx`, which belongs to another lane of this pass. The panel
- * cannot mount it — `DeckeChat` returns `null` the moment `open` goes false,
- * which is the same tick the farewell would need to appear.
- *
- * `DeckeHost.tsx` needs, in its `onClose`:
- *
- *     const [bye, setBye] = useState<{ text: string; at: number } | null>(null)
- *     const byeIdRef = useRef<string | null>(null)
- *     // …inside onClose, before setChatOpen(false):
- *     const f = pickFarewell({ avoid: byeIdRef.current })
- *     byeIdRef.current = f.id
- *     setBye({ text: f.text, at: Date.now() })
- *
- * and, beside `<DeckeBubble>`:
- *
- *     {bye ? <DeckeFarewell text={bye.text} himRect={himRect} onDone={() => setBye(null)} /> : null}
- *
- * The `avoid` id should be persisted through `writeLastSaid(store, { farewellId })`
- * so the no-repeat rule survives a reload; `LastSaid` already carries the field.
+ * The words, the pool and the no-repeat rule stay in `deckeVoice.ts`; picking
+ * happens at `seeYouOut()` (close) and this renders at arrival — see that
+ * function's own comment for why those are two different ticks.
  */
 import { useEffect, useState, type JSX } from 'react'
 
@@ -74,14 +64,44 @@ export const FAREWELL_MS = 2600
  * the WORDS are the information — so removing it costs nothing. It is never a
  * blanket duration override.
  */
+
+/** How far above the chip the line sits, in px. Small, because the chip it's
+ *  quoting is only ~36px tall — the old GAP-less `-10` this replaces was tuned
+ *  for the same distance, just unnamed. */
+const GAP = 10
+/** How close the label's centre may come to the viewport edge before it
+ *  clamps, in px. Deliberately small: `himRect` used to be his full sprite
+ *  wandering anywhere on the page, and a wide margin kept a large character
+ *  from pushing the label off-screen. It is now the launcher chip, ~44px wide
+ *  and parked ~24px from the corner — the old 96px margin clamped the label
+ *  50-70px away from a chip that small, which is exactly the "horizontally
+ *  aligned to it" the chip-anchor was supposed to deliver. 16px is enough to
+ *  keep the label on-screen on a narrow phone without fighting the common
+ *  case. */
+const EDGE_MARGIN = 16
+/** How far above the header band the label may not rise, so it never sits
+ *  under the nav bar it would otherwise be able to reach on a short viewport.
+ *  Unrelated to `EDGE_MARGIN` — this bound is vertical and the chip is always
+ *  near the BOTTOM of the screen, so it rarely binds. */
+const TOP_MARGIN = 72
+/** Pop-in travel distance, in px — the same beat `DeckeBubble` gives its own
+ *  entrance (`POP`/`ENTER_MS` there), so the two things he leaves behind on
+ *  the page read as one family rather than two components that happened to
+ *  animate near each other. */
+const POP = 8
+const ENTER_MS = 180
+
 export function DeckeFarewell({
   text,
   himRect,
   onDone,
 }: {
   text: string
-  /** His rect, if the host has one. Without it the label sits in the corner. */
-  himRect?: HimRect | null
+  /** The launcher chip's box, captured the moment he tucked into it. The host
+   *  never sets a farewell without one — see `DeckeHost.tsx`'s `farewell`
+   *  state — but the type stays nullable because "no rect" is a real state a
+   *  caller could reach, and there is nothing to speak FROM without one. */
+  himRect: HimRect | null
   onDone: () => void
 }): JSX.Element | null {
   const [gone, setGone] = useState(false)
@@ -96,19 +116,56 @@ export function DeckeFarewell({
     // full beat rather than the second inheriting the first's remaining time.
   }, [text, onDone])
 
-  if (gone || !text) return null
+  // Plays the pop-in once per mount, mirroring `DeckeBubble` beat-for-beat —
+  // including the bug fix: NO once-guard ref. StrictMode's dev mount runs
+  // effect → cleanup → effect; a latched ref survived into the second run,
+  // whose early-return meant the rAF the cleanup had just cancelled was never
+  // rescheduled — `entered` stayed false and the farewell spent its whole
+  // 2.6 s mounted at opacity 0. Caught by screenshotting the very frame the
+  // DOM said the words were on screen. "Once per mount" is `key={farewell.at}`'s
+  // job in the host, not a ref's.
+  const [entered, setEntered] = useState(false)
+  useEffect(() => {
+    if (!himRect || !text) return
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setEntered(true))
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+    }
+  }, [himRect, text])
+
+  // NO RECT, NO LINE. The old fallback put the words in the top-left corner
+  // of the screen when `himRect` was null — the owner's reaction, verbatim,
+  // was "What the fuck?" — because a line anchored to nothing reads as a
+  // stray notification, not as him speaking. The host now only ever sets a
+  // farewell once it has measured the chip, so null here means the words
+  // have nowhere to come from, and nothing is the correct amount to show.
+  if (gone || !text || !himRect) return null
 
   /*
-    ABOVE HIS HEAD, CLAMPED INTO THE VIEWPORT.
+    JUST ABOVE THE CHIP, RIGHT-ALIGNED TO IT.
 
-    `translate(-50%, -100%)` centres the label on him and lifts it clear, and the
-    clamp is what stops it leaving the screen when he is parked in a corner —
-    which is the only place he is ever parked. Without it the phone case puts
-    half the sentence off the left edge, which is the same class of defect as the
-    bubble that had to learn to slide away from his bolts.
+    Anchored by its RIGHT edge, not centred: a centre + translate(-50%) at a
+    chip parked in the corner pushes half the label past the viewport, and a
+    CSS clamp on the centre cannot know the box's width to compensate —
+    photographed as a line of text sliced off at the screen edge. The chip
+    lives in a corner by design, so the honest anchor is the edge it shares
+    with the corner: the label's right edge sits on the chip's right edge and
+    the words grow leftward, into the screen, always fully visible. `GAP` is
+    the breathing room between the label's bottom edge and the chip's top.
   */
-  const left = himRect ? himRect.left + himRect.width / 2 : 72
-  const top = himRect ? himRect.top - 10 : 0
+  // `window` is guarded because the farewell renders in node too — its own
+  // test renders through `react-dom/server`, where the honest answer to
+  // "how far from the right edge" is simply the margin.
+  const viewportW = typeof window === 'undefined' ? 0 : window.innerWidth
+  const right = Math.max(
+    EDGE_MARGIN,
+    Math.round(viewportW - (himRect.left + himRect.width)),
+  )
+  const top = himRect.top - GAP
 
   return (
     <div
@@ -121,7 +178,12 @@ export function DeckeFarewell({
         // POINTER-TRANSPARENT, ALWAYS. It sits over a page the reader has just
         // asked to get back to; a label that eats the first click after a
         // dismissal would be worse than no label at all.
-        'pointer-events-none fixed z-[26] max-w-[220px] -translate-x-1/2 -translate-y-full',
+        // `w-max`: a fixed element's auto width shrink-wraps against the
+        // VIEWPORT edge before the transform is applied, so a label whose
+        // `left` sits near the right edge resolved to ~40px and wrapped one
+        // word per line (photographed). `max-content` makes the words size
+        // the box and the translate centre it, edge or no edge.
+        'pointer-events-none fixed z-[26] w-max max-w-[220px]',
         // `surface-secondary`, NOT `surface-raised`, for the reason `theme.css`
         // gives at the composer card: "raised" is stone-500, sized for a small
         // circular button where a light disc reads as lifted, and at label width
@@ -129,11 +191,26 @@ export function DeckeFarewell({
         // a dark page is lifted by its border and its shadow.
         'rounded-[12px] border border-surface-tertiary bg-surface-secondary/95 px-[11px] py-[6px]',
         'text-[12.5px] leading-[18px] text-text-body shadow-lg backdrop-blur-sm',
-        'motion-safe:animate-[decke-chat-in_220ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]',
+        // A transition, not a keyframe: the centring/lift transform above is
+        // computed per-render alongside the pop-in offset, and a keyframe's
+        // literal `transform` would clobber it for the animation's duration —
+        // the exact bug this replaces (see `DeckeBubble.tsx` for the same
+        // fix, done first there). `motion-reduce:transition-none` makes the
+        // pop-in instant under reduced motion per X1 above; the position is
+        // still correct on the first frame either way.
+        'motion-safe:transition-[opacity,transform] motion-safe:ease-[cubic-bezier(0.2,0.9,0.3,1)]',
+        'motion-reduce:transition-none',
       ].join(' ')}
       style={{
-        left: `clamp(96px, ${Math.round(left)}px, calc(100vw - 96px))`,
-        top: `max(72px, ${Math.round(top)}px)`,
+        right: `${right}px`,
+        top: `max(${TOP_MARGIN}px, ${Math.round(top)}px)`,
+        // The pop-in travels straight down (toward the chip below it) rather
+        // than `DeckeBubble`'s direction-of-him vector: the chip is always
+        // beneath this label, never to a side, so there is only one direction
+        // "toward him" ever means here.
+        transform: `translateY(-100%) translateY(${entered ? 0 : POP}px) scale(${entered ? 1 : 0.94})`,
+        opacity: entered ? 1 : 0,
+        transitionDuration: `${ENTER_MS}ms`,
       }}
     >
       {text}

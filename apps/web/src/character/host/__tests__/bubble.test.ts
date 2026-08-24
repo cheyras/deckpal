@@ -78,3 +78,37 @@ test('a target covering everything still yields a placed bubble', () => {
   assert.ok(Number.isFinite(p.left) && Number.isFinite(p.top))
   assert.ok(p.left >= 0 && p.top >= 0)
 })
+
+// ── T1: the bubble must never cover HIM, `avoid` or not ─────────────────────
+//
+// "this is like covering him up… we need to be a lot more smart about where
+// this is going" — the owner, on a build that only ever scored candidates
+// against the highlight. When there was nothing to avoid, the FIRST candidate
+// won unconditionally, overlap with his own rect be damned. These two pin
+// that fix rather than just the viewport clamp the pre-existing tests check.
+
+test('with nothing to avoid, the chosen rect never overlaps him even when the preferred slot would put it there', () => {
+  // The exact fixture that reproduced the bug: he is pinned near the top of
+  // the screen, so the preferred "above him" candidate clamps down into his
+  // own rect instead of going off-screen. The old solve, scoring only
+  // against `avoid` (null here), returned that candidate anyway.
+  const him = rect(600, 4, 200, 240)
+  const p = place(BUBBLE, him, null, VW, VH)
+  assert.equal(overlapArea(asRect(p), him), 0, 'bubble must not land on top of him')
+  // Still viewport-safe — the pre-existing assertion, kept.
+  assert.ok(p.top >= 0 && p.top + BUBBLE.height <= VH)
+})
+
+test('with both him and a highlight present, the choice clears both rectangles', () => {
+  // Same top-of-screen pin as above, but now there is also something to
+  // avoid tucked directly below him. A solve that only scores against
+  // `avoid` (the pre-fix behaviour) is satisfied by the "above him" candidate
+  // — it doesn't touch the highlight — and would return it anyway, still
+  // landing on top of him. The fix must reject that candidate on the `him`
+  // overlap alone and fall through to one that clears both.
+  const him = rect(600, 4, 200, 240)
+  const avoid = rect(500, 200, 400, 300)
+  const p = place(BUBBLE, him, avoid, VW, VH)
+  assert.equal(overlapArea(asRect(p), him), 0, 'bubble must not land on top of him')
+  assert.equal(overlapArea(asRect(p), avoid), 0, 'bubble must not land on the highlight either')
+})
