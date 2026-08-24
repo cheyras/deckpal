@@ -37,7 +37,7 @@
  * would re-fetch forever.
  */
 import { useEffect, useState } from 'react'
-import { artForIds } from '../../decke/cardSource'
+import { artForIds } from '../../cardSource'
 import type { CardArt } from '../../decke/cardArt'
 
 export type CardArtMap = Record<string, CardArt | null | undefined>

@@ -1,5 +1,5 @@
 /**
- * Two build gates on the 3D character's assets.
+ * Three build gates on the 3D character's assets.
  *
  * ONE: fail the build if the service worker would precache the 3D character.
  *
@@ -24,8 +24,29 @@
  * fresh clone — which is what CI and Vercel both are — would have had the file
  * missing from `dist` and said nothing, because nothing was looking.
  *
- * These are the same check from two directions: the first says an asset must not
- * ship to everyone, the second says it must actually ship.
+ * THREE: fail the build if `index.html` puts the 3D character on the critical
+ * path. Gate ONE guards the service worker's door and guarded it well; issue #75
+ * was the same 1.2 MB walking in through the other one. `character/decke/
+ * cardSource.ts` imported nothing but `lib/api`, but it LIVED in the directory
+ * that `vite.config.ts`'s chunk group selects on, and `character/host/chat/
+ * useCardArt.ts` imported it statically. That one edge made the character chunk
+ * a static import of the ENTRY chunk, so Vite wrote a `<link rel="modulepreload">`
+ * for it into `index.html` — 361 kB gzipped of three.js fetched at high priority,
+ * ahead of first paint, by every visitor including signed-out ones who cannot
+ * open the route at all. Measured on production: 6.3 s to first content on a
+ * throttled cold load, against 0.3 s once cached. The reporter called it "a blank
+ * gray screen that wouldn't load for a while."
+ *
+ * So: anything `index.html` references directly — the entry `<script>` and every
+ * `modulepreload` beside it — is fetched before the app can render, and must not
+ * contain three.js. Same content check as gate ONE, different door. A `name`-
+ * based rule would not have caught this one either, which is the whole lesson:
+ * the payload was correctly named, correctly excluded from precache, and on the
+ * critical path anyway.
+ *
+ * These are the same check from three directions: the first says an asset must
+ * not ship to everyone via the service worker, the third says it must not ship to
+ * everyone via the document, and the second says it must actually ship.
  *
  *   node scripts/check-precache.mjs [distDir]
  */
@@ -139,7 +160,66 @@ if (missing.length) {
   process.exit(1)
 }
 
+// ---- gate three: the document's critical path must not carry the character --
+//
+// Everything `index.html` names directly is fetched before the app can render:
+// the entry `<script type="module">` and every `<link rel="modulepreload">` Vite
+// emits beside it for the entry's STATIC imports. A dynamic import produces no
+// such link, which is exactly why the character is supposed to be dynamic — so a
+// modulepreload for it is the signal that some static edge crept back in.
+const HTML = join(DIST, 'index.html')
+if (!existsSync(HTML)) {
+  console.error(`check-precache: no index.html at ${HTML}`)
+  process.exit(1)
+}
+const html = readFileSync(HTML, 'utf8')
+const critical = [
+  ...html.matchAll(/<script[^>]+src=["']([^"']+)["']/g),
+  ...html.matchAll(/<link[^>]+rel=["']modulepreload["'][^>]+href=["']([^"']+)["']/g),
+  // Attribute order is not guaranteed; catch href-before-rel too.
+  ...html.matchAll(/<link[^>]+href=["']([^"']+)["'][^>]*rel=["']modulepreload["']/g),
+].map((m) => m[1])
+
+if (critical.length === 0) {
+  console.error('check-precache: index.html references no scripts — has the build format changed?')
+  process.exit(1)
+}
+
+const onCriticalPath = []
+for (const ref of new Set(critical)) {
+  if (!ref.endsWith('.js')) continue
+  // `base` may be '/' or '/deckpal/'; resolve against dist by basename path.
+  const rel = ref.replace(/^https?:\/\/[^/]+/, '').replace(/^\/+/, '')
+  const file = existsSync(join(DIST, rel))
+    ? join(DIST, rel)
+    : join(DIST, 'assets', rel.split('/').pop())
+  if (!existsSync(file)) continue
+  const body = readFileSync(file, 'utf8')
+  const hit = THREE_MARKERS.find((m) => body.includes(m))
+  if (hit) {
+    onCriticalPath.push(`${ref} (${Math.round(body.length / 1024)} kB) contains three.js ("${hit}")`)
+  }
+}
+
+if (onCriticalPath.length) {
+  console.error('\ncheck-precache FAILED: the 3D character is on the document critical path:\n')
+  for (const p of onCriticalPath) console.error('  - ' + p)
+  console.error(
+    '\nindex.html fetches these before first paint, for every visitor, including\n' +
+      'signed-out ones who cannot open the character at all (issue #75).\n' +
+      '\nThis means something the ENTRY reaches statically now lands in the\n' +
+      "character's chunk. The usual cause is a module that lives in\n" +
+      '`src/character/decke/` — which `vite.config.ts` groups with three.js BY\n' +
+      'DIRECTORY, not by what it imports — being imported statically from\n' +
+      '`character/host/**` or a route. Find the static import and either make it\n' +
+      'dynamic, or move the module out of `src/character/decke/` (see\n' +
+      '`src/character/cardSource.ts`, which is out here for exactly this reason).\n',
+  )
+  process.exit(1)
+}
+
 console.log(
   `check-precache: ${urls.length} entries, no character payload; ` +
-    `${referenced.size} character asset(s) present. OK`,
+    `${referenced.size} character asset(s) present; ` +
+    `${new Set(critical).size} critical-path script(s) clean. OK`,
 )

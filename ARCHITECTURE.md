@@ -541,6 +541,28 @@ visitor's cache on first load for a route exactly one account can open.
 `vite.config.ts` excludes `models/**` and `assets/Decke-*.js`; measured, the
 precache is unchanged at 25 entries / 1964 KiB with the route shipping.
 
+**The precache is not the only door, and that sentence used to end here.** It
+was wrong for months. Issue #75 (2026-08-24) found the character chunk being
+fetched by every visitor anyway — not by the service worker but by
+`index.html`, as `<link rel="modulepreload">`, ahead of first paint. An
+`advancedChunks` group absorbs the DEPENDENCIES of the modules it matches, so
+`character/decke/cardSource.ts` importing `lib/api.ts` pulled `lib/api.ts`
+(and `supabase.ts`, `landingRoute.ts`, `returningVisitor.ts`) into the character
+chunk; the entry imports those from ~50 places, so the entry gained a static
+edge to three.js and Vite preloaded it. Cold first content measured 6.3 s on a
+throttled connection against 0.3 s warm.
+
+Two things hold the line now. `vite.config.ts` claims `src/lib/**` and
+`src/character/*.ts` into a higher-priority `app-lib` group so the character
+group cannot own them — which is also why `viewport.ts`, `beacon.ts` and
+`cardSource.ts` live directly under `character/` rather than in `decke/`: they
+import no three.js, the app shell imports them statically, and inside `decke/`
+each such import was another rope tying the entry to the engine. And
+`check-precache.mjs` gate THREE fails the build if anything `index.html`
+references directly contains three.js. **When adding a "this must not ship to
+everyone" rule, enumerate the doors** — a name-based or single-door guard will
+pass while the payload uses the other one.
+
 Deck-E is a stylized robot deck box who IS the AI assistant's body: the LLM
 drives his animation from the conversation, and when he presents part of the UI
 he parks beside that element facing inward. §15b covers that layer — the runtime

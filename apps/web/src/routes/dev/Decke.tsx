@@ -25,10 +25,10 @@ import {
   defaultStash,
   randomCatalog,
   recentlyAdded,
-} from '../../character/decke/cardSource'
+} from '../../character/cardSource'
 import { api } from '../../lib/api'
 import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
-import type { Beacon } from '../../character/decke/beacon'
+import type { Beacon } from '../../character/beacon'
 import { DeckeDiag, diagMode } from './DeckeDiag'
 
 /**
