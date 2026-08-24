@@ -86,6 +86,76 @@ type WireCommand = {
 let seq = 0
 const nextId = () => `m${++seq}`
 
+/**
+ * A conversation id.
+ *
+ * `crypto.randomUUID` where it exists — every browser this app supports and
+ * every context it runs in except an insecure origin, which is the one case a
+ * local `http://` dev server hits. The fallback is not security-sensitive: this
+ * id names a row the caller already owns and every query is scoped to their user
+ * id, so a guessed value reaches nothing. It only has to be unique.
+ */
+/**
+ * File one exchange in the history.
+ *
+ * ── WHY THE CLIENT DOES THIS AND NOT THE SERVER ──────────────────────────────
+ *
+ * What belongs in a history is what the READER ACTUALLY SAW. The server streams
+ * parts; this is the only place that knows which of them survived to the screen,
+ * in what order, with which rows still showing and what phase each finished in.
+ * A server-side recorder would file what was sent, which is a different and less
+ * useful record when the question is "why did it look wrong".
+ *
+ * The cost is that the content is not evidence ABOUT the server, so the two
+ * fields that are — the build stamp — are written server-side and are not
+ * accepted from this body at all. See `routes/deckeHistory.ts`.
+ *
+ * ── IT NEVER AFFECTS THE TURN ────────────────────────────────────────────────
+ *
+ * Fire-and-forget with the error swallowed to a warning. A history that could
+ * fail a conversation would be a feature that makes the product worse the first
+ * time the table is unreachable — and this is the one thing here that is
+ * genuinely optional.
+ *
+ * ── `keepalive`, BECAUSE THE LAST TURN IS THE ONE THAT MATTERS ───────────────
+ *
+ * The commonest end of a conversation is: read the answer, close the tab. A
+ * plain `fetch` is cancelled when the document goes away, so the turn most
+ * likely to be lost was systematically the FINAL one — the interesting end of
+ * every session, missing from a feature whose whole value is completeness.
+ * Losing a random middle turn is tolerable and shows up as a gap in `seq`;
+ * losing the last one every time is a silent bias in the record.
+ *
+ * `keepalive` caps the body at 64KB across all in-flight keepalive requests, so
+ * the text is trimmed to fit rather than dropped. A truncated record of the last
+ * exchange beats no record of it, and `TRUNCATED` says which one it is instead
+ * of leaving somebody to wonder why an answer stops mid-sentence. It is also the reason the route is idempotent by position:
+ * a retry is safe, so a caller that wanted one could add it without risking a
+ * duplicate.
+ */
+function recordTurn(body: {
+  conversationId: string
+  seq: number
+  asked: string
+  answered: string
+  tools: { name: string; phase: string; title: string; summary: string }[]
+}): void {
+  void api
+    .deckeHistoryRecord(body)
+    .catch((e: unknown) => console.warn('[decke] history not recorded:', e))
+}
+
+function newConversationId(): string {
+  try {
+    if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID()
+  } catch {
+    // Insecure origin, or a runtime without it. Fall through.
+  }
+  const h = (n: number) => Math.floor(Math.random() * 16 ** n).toString(16).padStart(n, '0')
+  return `${h(8)}-${h(4)}-4${h(3)}-a${h(3)}-${h(12)}`
+}
+
+
 /** A browser-side tool the model asked for, captured mid-stream. */
 type PendingTool = { id: string; name: string; input: Record<string, unknown> }
 
@@ -174,6 +244,36 @@ export function useDeckeChat(
   onArrived?: () => void,
 ) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  /**
+   * The transcript, readable from a callback declared before it.
+   *
+   * The turn boundary is inside `send`, which closed over `messages` as it was
+   * when the turn STARTED — so recording from there would save a reply that had
+   * not been written yet. A ref is the only thing that has the finished turn at
+   * the moment the turn finishes.
+   */
+  const messagesRef = useRef<ChatMessage[]>([])
+  messagesRef.current = messages
+  /**
+   * This conversation's id and position, for the history.
+   *
+   * The id is minted by the CLIENT so every turn of one exchange can be filed
+   * together without a round trip to claim one first, and it is a real uuid
+   * because the server refuses anything else. It survives until the transcript
+   * is cleared, which is what makes "a conversation" mean what a reader thinks
+   * it means rather than "everything since the tab opened".
+   */
+  const conversationRef = useRef<string>(newConversationId())
+  const seqRef = useRef(0)
+  /**
+   * Bumped when a new conversation starts, so anything reading the id re-renders.
+   *
+   * The id lives in a ref because the RECORDING path reads it from inside a
+   * callback and must always see the current one. But the history list needs to
+   * know which row is live, and a ref alone never re-renders — so the panel
+   * would keep marking the previous conversation after a reset.
+   */
+  const [conversationEpoch, setConversationEpoch] = useState(0)
   const [busy, setBusy] = useState(false)
   /**
    * `busy` and `send`, reachable from a callback declared above `send`.
@@ -1218,6 +1318,58 @@ export function useDeckeChat(
         // second aborts the first, and the first then arrives here and tears
         // down the overlay and overrides the second has already set. Comparing
         // the controller identifies whose turn this cleanup belongs to.
+        // ── RECORDED WHETHER OR NOT THIS IS STILL THE LIVE TURN ──────────
+        //
+        // This sat inside the `abortRef.current === ac` guard below, which is
+        // the right guard for TEARING DOWN a turn's visual state — a superseded
+        // turn must not reset an overlay the new one has already set. It is the
+        // wrong guard for recording.
+        //
+        // `send` replaces `abortRef.current` and THEN aborts the previous
+        // controller, so a turn interrupted by the next question fails that
+        // comparison and skipped recording entirely. The reader saw that partial
+        // answer on screen; the history claimed it never happened — which is the
+        // one thing a record of what the reader saw may not do.
+        // ── FILE THE EXCHANGE ────────────────────────────────────────────
+        //
+        // Read from `messagesRef`, not from the `messages` this callback
+        // closed over when the turn STARTED — that one has no reply in it yet.
+        //
+        // The user's line is the last thing THEY said rather than the `text`
+        // argument, because an approval replay re-enters `send` with no new
+        // question and would otherwise file an empty `asked` against a turn
+        // that plainly had one.
+        const all = messagesRef.current
+        const reply = all.find((m) => m.id === replyId)
+        const asked = [...all]
+          .reverse()
+          .find((m) => m.role === 'user')
+        if (reply) {
+          const tools = messageTools(reply).map((c) => ({
+            name: c.name,
+            phase: c.phase,
+            title: c.title ?? '',
+            summary: c.summary ?? '',
+          }))
+          const answered = messageText(reply)
+          const question = asked ? messageText(asked) : ''
+          // THE QUESTION COUNTS AS SOMETHING TO RECORD. This required an answer
+          // or a tool call, so a turn he chose to answer with SILENCE — which
+          // the prompt explicitly encourages, "silence is a valid emission" —
+          // recorded nothing, and the reader's own question disappeared with it.
+          // A history missing the questions that got no reply is missing exactly
+          // the turns somebody would go looking for.
+          if (question || answered || tools.length > 0) {
+            recordTurn({
+              conversationId: conversationRef.current,
+              seq: seqRef.current++,
+              asked: question,
+              answered,
+              tools,
+            })
+          }
+        }
+
         if (abortRef.current === ac) {
           if (!movedRef.current) decke.setState('idle')
           decke.setOverlay(null)
@@ -1241,6 +1393,7 @@ export function useDeckeChat(
           const arrived = navigatedAwayRef.current
           navigatedAwayRef.current = false
           if (arrived) onArrivedRef.current?.()
+
         }
       }
     },
@@ -1279,6 +1432,42 @@ export function useDeckeChat(
    * reads as what happened. Only when he was genuinely mid-turn — closing an
    * idle chat should leave no trace at all.
    */
+  /**
+   * Start a fresh conversation.
+   *
+   * ── WHY THIS HAD TO EXIST BEFORE THE HISTORY DID ────────────────────────────
+   *
+   * `conversationRef` was minted once per hook mount and never reassigned, and
+   * `DeckeHost` is mounted at the router's root precisely so it survives every
+   * navigation — `DeckeChat` returns `null` when closed rather than unmounting.
+   * Nothing cleared the transcript either. So "a conversation" was the lifetime
+   * of the TAB: a long-lived session filed days of unrelated exchanges into one
+   * row, titled with whatever was asked after the last full reload.
+   *
+   * The comment on the ref used to say the id "survives until the transcript is
+   * cleared", describing a mechanism that did not exist. This is that mechanism.
+   *
+   * THE TRANSCRIPT AND THE ID RESET TOGETHER, and that is the whole rule. The
+   * record is meant to be what the reader saw; rotating the id while the old
+   * messages stayed on screen would file one visible conversation as two, and
+   * clearing the screen while keeping the id would file two as one. Either way
+   * the history stops describing the product.
+   *
+   * `seq` restarts at zero because it is a position WITHIN a conversation, and
+   * the unique constraint is `(conversation_id, seq)`.
+   */
+  const newConversation = useCallback(() => {
+    // A turn in flight belongs to the conversation being left. Stopping it first
+    // means it is recorded against that one and cannot land in the new one.
+    abortRef.current?.abort()
+    queuedRef.current = null
+    setBusy(false)
+    conversationRef.current = newConversationId()
+    seqRef.current = 0
+    setConversationEpoch((n) => n + 1)
+    setMessages([])
+  }, [])
+
   const close = useCallback(() => {
     if (!busyRef.current) return
     // ── A QUEUED QUESTION IS DROPPED, NOT DEFERRED ────────────────────────
@@ -1324,6 +1513,20 @@ export function useDeckeChat(
     onApprovalChoice,
     approvalBusy,
     credits,
+    /**
+     * The conversation being recorded right now.
+     *
+     * The history list contains it — turns are filed as they happen — so
+     * without this the list cannot mark which row is the chat you are actually
+     * in. The alternatives are both guesses dressed as facts: the newest
+     * `updatedAt` is wrong the moment two tabs are open, and matching on title
+     * is wrong the moment two conversations open the same way.
+     */
+    conversationId: conversationRef.current,
+    /** Start a fresh conversation — see `newConversation`. */
+    newConversation,
+    /** Changes when the conversation does, so readers of the id re-render. */
+    conversationEpoch,
   }
 }
 
