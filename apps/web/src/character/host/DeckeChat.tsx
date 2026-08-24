@@ -1257,6 +1257,66 @@ export function DeckeChat({
   }, [empty, messages.length])
 
   /**
+   * ── HOW MUCH OF THE SCREEN THE SOFTWARE KEYBOARD IS SITTING ON ────────────
+   *
+   * The panel's floor moves up by this, so the composer is ALREADY above the
+   * keyboard and nothing has to be revealed.
+   *
+   * ── WHY WE STOPPED LETTING iOS DO IT ──────────────────────────────────────
+   *
+   * The previous pass left this to the platform, on the evidence that a real
+   * tap on the composer gets iOS to scroll the panel up and put the composer
+   * exactly where it belongs. It does — SOMETIMES. Measured on an iPhone 17 Pro
+   * / iOS 26.5: the same tap, on the same build, reveals on one attempt and
+   * does nothing on the next, leaving the composer behind the keyboard with the
+   * panel's empty upper half staring back:
+   *
+   *   *"I can still scroll down a bunch and create a pretty big gap when the
+   *   keyboard is up."*
+   *
+   * That gap is the panel's own empty region, seen because the content it holds
+   * is below the keyboard. A behaviour that works on most attempts is not a
+   * layout, so the panel now fits by construction and the reveal has nothing
+   * left to do. `holdViewport` below pins the scroll so the two cannot compound
+   * the way they did when this was first attempted.
+   *
+   * ── THE MEASUREMENT IS CHECKED, NOT TRUSTED ───────────────────────────────
+   *
+   * `visualViewport` is the only thing that knows the keyboard's height and it
+   * is not reliable across iOS versions (WebKit 229876 on 15, 297779 on 26). So
+   * this asks for ONE number, the occluded height, and rejects it unless the
+   * page is unzoomed (`scale`), the occlusion is big enough to be a keyboard
+   * rather than a rounding error, and small enough to leave a panel behind. A
+   * rejected reading is 0, which is a full-height panel — the pre-existing
+   * behaviour rather than a broken one.
+   *
+   * `offsetTop` is deliberately absent: it reports the PAN, and tracking the pan
+   * makes the floor chase the visible bottom while the top stays put, which is
+   * the stretching-and-shrinking that produced the gaps the first time round. A
+   * keyboard's height does not change when you pan. `resize` only, never
+   * `scroll`.
+   */
+  const [kbInset, setKbInset] = useState(0)
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv || desktop) return
+    const measure = () =>
+      setKbInset((prev) => {
+        const layout = document.documentElement.clientHeight
+        const occluded = Math.round(layout - vv.height)
+        const ok = vv.scale <= 1.01 && occluded >= 48 && occluded <= layout * 0.7
+        const next = ok ? occluded : 0
+        return Math.abs(next - prev) < 1 ? prev : next
+      })
+    measure()
+    vv.addEventListener('resize', measure)
+    return () => {
+      vv.removeEventListener('resize', measure)
+      setKbInset(0)
+    }
+  }, [visible, shownMinimised, desktop])
+
+  /**
    * ── HOW HIGH THE COMPOSER'S TOP EDGE SITS ABOVE THE PANEL'S FLOOR ─────────
    *
    * In CSS pixels, so the park box can be expressed as "that, plus a gap".
@@ -1513,7 +1573,26 @@ export function DeckeChat({
     // pixel of that would otherwise translate his canvas off the top. See
     // `followElastic`.
     decke?.holdElastic(true)
+    // ── AND THE DOCUMENT STAYS AT 0, WHATEVER iOS WANTS ───────────────────────
+    //
+    // `overflow: hidden` stops the READER scrolling and does not stop iOS: it
+    // scrolls a held document anyway to reveal a focused input, and WebKit ships
+    // a regression test asserting that is deliberate. Measured, that scroll is
+    // 268px on a 402x874 phone, and it is the last thing that can move the panel
+    // out from under the composer now that the panel fits above the keyboard on
+    // its own. Left alone the two compound and the composer ends up near the top
+    // of the screen; snapped back, the reveal is a no-op because there is
+    // nothing left to reveal.
+    //
+    // A `scroll` listener rather than a per-frame check, because this fires only
+    // when something has actually moved the document — which, with the reader
+    // locked out, is only ever iOS itself.
+    const pin = () => {
+      if (window.scrollY !== 0) window.scrollTo(0, 0)
+    }
+    window.addEventListener('scroll', pin, { passive: true })
     return () => {
+      window.removeEventListener('scroll', pin)
       decke?.holdElastic(false)
       html.style.height = was.htmlH
       html.style.overflow = was.htmlO
@@ -1680,7 +1759,13 @@ export function DeckeChat({
     const el = transcriptRef.current
     if (el && stickRef.current) el.scrollTop = el.scrollHeight
     reflow()
-  }, [messages, reflow, gutter, composerTop])
+    // `kbInset` BELONGS HERE AND `composerTop` IS NOT ENOUGH. `composerTop` is
+  // measured from the panel's own floor, so it does NOT change when the floor
+  // itself moves up for the keyboard — the one case that moves the park box
+  // relative to the transcript. Without it, every `data-clear` decision is
+  // stale the moment the keyboard opens, and he is drawn straight over the
+  // greeting he is supposed to be standing beside.
+}, [messages, reflow, gutter, composerTop, kbInset])
 
   /**
    * Go to the end, and put focus somewhere it can survive.
@@ -2007,6 +2092,14 @@ export function DeckeChat({
           // and it is the same offset the scrim uses, from the same source.
           left: desktop ? 'var(--app-sidebar-w)' : 0,
           top: 'calc(var(--app-header-h) + env(safe-area-inset-top))',
+          // The floor is the top of the keyboard when there is one. `bottom-0`
+          // in the class list stays the default, so the no-keyboard case is
+          // untouched. Moving the FLOOR rather than translating the panel is
+          // what makes the rest fall out of machinery that already exists: the
+          // `ResizeObserver` re-measures `composerTop` against the shorter
+          // panel, the park box rides up with the composer, and he stands on
+          // its top edge exactly as he does with the keyboard down.
+          bottom: kbInset || undefined,
         } as React.CSSProperties}
         className={[
           // GLASS ON BOTH, and pointer-transparent on both. It was already so
@@ -2326,7 +2419,22 @@ export function DeckeChat({
           onClick={onSurfaceClick}
           className={[
             'decke-transcript-fade pointer-events-auto flex w-full flex-col overflow-y-auto',
-            empty ? 'shrink-0' : 'flex-1',
+            // `min-h-0` ON BOTH, AND THE EMPTY STATE MAY NOW SHRINK.
+            //
+            // It was `shrink-0`, which says "never give up any of my content's
+            // height" — fine while the panel was always full-height, and a
+            // defect the moment it is not. With the keyboard up the panel is
+            // only as tall as the screen above the keyboard, and an item that
+            // refuses to shrink simply overflows its container: measured on an
+            // iPhone 17 Pro, the greeting rode up THROUGH the panel's own header
+            // and the two drew on top of each other.
+            //
+            // `min-h-0` is the other half and is the part that is easy to miss:
+            // a flex item's automatic minimum size is its content, so `flex-1`
+            // alone still will not shrink past that, and the scroll container
+            // never gets to scroll. With both, a short panel scrolls its
+            // transcript instead of overflowing it.
+            empty ? 'min-h-0' : 'min-h-0 flex-1',
           ].join(' ')}
         >
           <div

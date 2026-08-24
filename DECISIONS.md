@@ -9890,3 +9890,69 @@ TOOLING, for whoever verifies next:
   is NOT compatible with Python 3.14 — `asyncio.get_event_loop()` raises — so
   install `fb-idb` into a 3.11 venv. `idb ui tap/swipe/text` then drives any
   booted device by udid, including ones the built-in tool cannot see.
+
+---
+
+## 2026-08-24 — The keyboard, part two: the panel fits, and the scroll is pinned
+
+**Decided by:** @cheyras (report), agent
+
+**Decision:** Reverses the "let the platform reveal it" call from earlier today.
+The panel now fits above the keyboard by construction, and three things make
+that hold:
+
+1. `kbInset` — `documentElement.clientHeight - visualViewport.height`, rejected
+   unless the page is unzoomed and the occlusion is plausibly a keyboard —
+   moves the panel's FLOOR. `offsetTop` is still deliberately absent.
+2. The document's scroll is PINNED at 0 while the chat is open. A `scroll`
+   listener snaps it back, because `overflow: hidden` stops the reader and does
+   not stop iOS.
+3. The empty-state transcript may shrink: `shrink-0` became `min-h-0`, and the
+   populated case gained `min-h-0` beside its `flex-1`.
+
+**Why:** *"I can still scroll down a bunch and create a pretty big gap when the
+keyboard is up."*
+
+The earlier entry concluded that iOS's reveal-the-focused-input scroll produces
+the right result on its own, and left it alone. Measured again on an iPhone 17
+Pro / iOS 26.5, that is only true SOMETIMES: the same tap on the same build
+reveals on one attempt and does nothing on the next, leaving the composer behind
+the keyboard with the panel's empty upper half on screen. That empty half is the
+"gap" — it is not a spacer, it is the transcript's unused space seen because
+everything in it is below the keyboard. A behaviour that works on most attempts
+is not a layout.
+
+So the panel fits on its own now, which was tried and rejected earlier in the
+day for a good reason: iOS reveals whether or not the input is already visible,
+so the resize and the scroll compounded and put the composer near the top of the
+screen. Pinning the scroll removes that second term. With the panel already
+correct, the reveal has nothing to reveal and the snap-back is invisible.
+
+**Implications:**
+
+- **`min-h-0` was the hidden requirement, and it is worth stating plainly.** A
+  flex item's automatic minimum size is its content, so `flex-1` alone will not
+  shrink past it and an `overflow-y-auto` child never gets to scroll. The empty
+  state was additionally `shrink-0`, which refuses to give up any height at all.
+  In a full-height panel neither mattered; in a short one the greeting rode up
+  THROUGH the panel's own header and the two drew on top of each other — which
+  is the "top chrome of the chat is intersecting with stuff" from the report,
+  finally explained. It was never a positioning bug.
+- **`reflow` needed `kbInset` too, and `composerTop` was not enough.**
+  `composerTop` is measured from the panel's floor, so it does not change when
+  the floor itself moves — the one case that moves the park box relative to the
+  transcript. Without it every `data-clear` decision went stale the moment the
+  keyboard opened and he was drawn over the greeting.
+- **Verified on BOTH runtimes with a real software keyboard.** iOS 26.5 /
+  iPhone 17 Pro and iOS 18.6 / iPhone 16 Pro: opens with no keyboard; tapping
+  the composer fits the panel above the keyboard with him beside it and the text
+  indented clear of him; three hard scroll attempts in each direction move
+  nothing; dismissal restores exactly. The stranding recorded in the previous
+  entry is also gone, since the document no longer scrolls at all.
+- **The canvas-origin fix from the previous entry is still the load-bearing
+  one.** Everything here is layout; without `canvasOriginY` he would still be
+  drawn 268px above his mark the moment anything scrolled.
+- **Vite served stale modules twice more during this pass**, silently
+  invalidating two experiments — a panel that "did not shrink" was a panel whose
+  code had never reached the browser. Restart the dev server and confirm with
+  `curl … | grep -c <newSymbol>` before believing any on-device result.
