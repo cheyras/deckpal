@@ -149,6 +149,57 @@ const LAUNCHER_SELECTOR = 'button[aria-label="Chat with Deck-E"]'
  */
 const EXIT_GUARD_MS = 3000
 
+/**
+ * The travel leg launches when his MARK stops moving, not on a clock.
+ *
+ * The entrance used to wait a fixed 320 ms before doing anything at all —
+ * 320 ms of a committed tap with nothing on screen but the panel sliding —
+ * and a fixed number is also simply wrong on a slow first paint, where the
+ * sheet is still mid-translate when it fires (probed: the park box read at
+ * y≈1038 of a 664 px viewport, and he flew off the bottom). He grows at the
+ * launcher from frame zero now, and the park is launched by watching the
+ * mark's rect settle: STEP is the poll cadence, MIN is the floor (a cut
+ * entrance still gets a readable beat at the chip), CAP is the give-up bound
+ * after which he parks against whatever the page is doing and the composer
+ * watch takes it from there.
+ */
+const PARK_SETTLE_STEP_MS = 90
+const PARK_SETTLE_MIN_MS = 240
+const PARK_SETTLE_CAP_MS = 2400
+
+/**
+ * How long the speech bubble stays after his last line, per character of it.
+ *
+ * "Show them the screen. Short line of text. Stays just long enough to read.
+ * Small text bubble animates away. Then Deck-E himself hops back down to the
+ * bottom corner to 'become' the chat bubble again." Reading pace is ~17
+ * characters a second; 45 ms/char with a floor and a ceiling means a short
+ * line breathes and a long one does not squat on the page for a minute — the
+ * recorded wall of text sat unchanged for 63 seconds because nothing ever
+ * dismissed it.
+ */
+const BUBBLE_READ_BASE_MS = 2600
+const BUBBLE_READ_PER_CHAR_MS = 45
+const BUBBLE_READ_MIN_MS = 4000
+const BUBBLE_READ_MAX_MS = 10000
+/** The bubble's own animate-away, before he flies. See `DeckeBubble`. */
+const BUBBLE_OUT_MS = 260
+/**
+ * A presentation with NOTHING TO READ still ends. A turn that highlighted
+ * something and said nothing used to leave him parked beside it for the life
+ * of the page — the read-timer keyed off the bubble's text, and no text meant
+ * no timer. The ring deserves a beat of attention; then he goes.
+ */
+const SILENT_RETIRE_MS = 3600
+/**
+ * The chat open/close legs play at twice pace — the owner: "I'd like his
+ * travel from the chat bubble to the chat window and vice versa be twice as
+ * fast … nice and snappy." A playback rate, not a physics change, and scoped
+ * to exactly these legs: presentations, journeys and re-parks keep the
+ * distance-ramped pace they had. See `FlyOptions.rate`.
+ */
+const SNAP_RATE = 2
+
 type Phase = 'idle' | 'loading' | 'ready' | 'failed'
 
 export function DeckeHost() {
@@ -217,7 +268,26 @@ export function DeckeHost() {
    * moment `open` goes false — which is the same tick the farewell has to
    * appear. The words, the pool and the no-repeat rule are `deckeVoice.ts`.
    */
-  const [farewell, setFarewell] = useState<{ text: string; at: number } | null>(null)
+  const [farewell, setFarewell] = useState<{
+    text: string
+    at: number
+    /** The launcher chip's box at the moment he tucked into it — the line
+     *  belongs to the chip he just became, not to wherever he was sampled
+     *  mid-session. Null only if the chip could not be measured, and the
+     *  farewell is simply skipped then: a line floating in the top-left
+     *  corner (the old null-rect fallback) is worse than no line. */
+    rect: Rect | null
+  } | null>(null)
+  /**
+   * The farewell line, PICKED at close and SPOKEN at arrival.
+   *
+   * The owner: *"his message has appeared long before he's actually gone into
+   * the chat button, which is also wrong."* Picking has side effects (the
+   * no-repeat rule persists the id) and must happen while the close is still
+   * an event; showing must wait ~700 ms for the flight home to land. A ref
+   * carries the text across that gap, and the exit's `arrived` publishes it.
+   */
+  const pendingFarewellRef = useRef<string | null>(null)
 
   /**
    * Put him away, with a line.
@@ -236,11 +306,14 @@ export function DeckeHost() {
     const said = readLastSaid(store)
     const bye = pickFarewell({ avoid: said.farewellId ?? null })
     writeLastSaid(store, { ...said, farewellId: bye.id })
-    setFarewell({ text: bye.text, at: Date.now() })
+    pendingFarewellRef.current = bye.text
     setChatOpen(false)
   }, [])
   /** True while he is away from the chat doing something on the page. */
   const [travelling, setTravelling] = useState(false)
+  /** The bubble is animating away — the beat between "read" and "he leaves".
+   *  See the retire effect below. */
+  const [bubbleLeaving, setBubbleLeaving] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   /** A zero-width `100svh` strut. The always-visible height has to come from
    *  CSS, not `innerHeight` — see the measurement note below. */
@@ -274,6 +347,23 @@ export function DeckeHost() {
   /** Has this turn navigated yet? Drives push-then-replace; see the navigate
    *  callback below. Reset when a turn starts. */
   const turnNavigatedRef = useRef(false)
+  /**
+   * The pathname a UI TOOL is navigating to right now, or null.
+   *
+   * The route watcher's missing distinction, made explicit. `journeyStepRef`
+   * covers a journey's own hops, but a bare `goTo` — the tool the prompt tells
+   * the model to use for "take me to X", and the one both of the owner's
+   * spoken requests actually produced (the recording's own tool chips say so)
+   * — navigated with nothing set, so the watcher tidied up mid-hop: stomped
+   * `travelling`, which replayed the entrance and remounted the panel. Every
+   * tool-driven navigation flows through the navigate callback below (journey
+   * `click` steps press real links instead, and `journeyStepRef` covers
+   * those), so the callback is the one honest place to mark it. CONSUMED by
+   * the watcher on the very next pathname change, match or not — it describes
+   * one navigation, never a policy, so it cannot leak an exemption to a
+   * person's own click later.
+   */
+  const toolNavRef = useRef<string | null>(null)
   const chat = useDeckeChat(
     live,
     // PUSH THE FIRST HOP, REPLACE THE REST — and the first version of this got
@@ -305,6 +395,11 @@ export function DeckeHost() {
     (to) => {
       const first = !turnNavigatedRef.current
       turnNavigatedRef.current = true
+      // The PATH half only: the watcher compares this against the router's
+      // `pathname`, which never carries a query — and a `goTo` may (the card
+      // spotlight rides `?card=`). Comparing path-to-path or the exemption
+      // silently stops matching the moment a query appears.
+      toolNavRef.current = to.split('?')[0].split('#')[0]
       navigate({ to, replace: !first })
     },
     () => setTravelling(true),
@@ -330,7 +425,16 @@ export function DeckeHost() {
     // A hop inside a journey or an escort does not reach here; only a standalone
     // arrival does, and only at the turn boundary, so whatever he said about
     // arriving is already in the transcript to come back to.
+    //
+    // UNLESS HE IS PRESENTING. A turn can navigate AND then point at something
+    // on the destination page (`goTo` with a selector, or `goTo` then `flyTo`)
+    // — and closing at the turn boundary would cut the bubble off unread, over
+    // the very thing he flew there to show. A live presentation owns its own
+    // ending now: the bubble's read-timer retires him through the same
+    // `seeYouOut`, just after a person could actually have read the line.
     () => {
+      const s = deckeRef.current?.getState()
+      if (s && (s.flying || s.highlighting || s.highlighted)) return
       seeYouOut()
     },
   )
@@ -432,9 +536,30 @@ export function DeckeHost() {
   const travellingRef = useRef(false)
   travellingRef.current = travelling
   useEffect(() => {
+    // Consumed FIRST, unconditionally: the token describes exactly one
+    // navigation — this one — whether or not it matches, whether or not the
+    // engine is even alive. A token left lying around is an exemption a
+    // person's own later click could inherit.
+    const toolDrove = toolNavRef.current === pathname
+    toolNavRef.current = null
     const d = deckeRef.current
     if (!d) return
+    // A journey step owns its transition COMPLETELY — the sequencer draws and
+    // clears its own rings between its own hops.
     if (journeyStepRef.current) return
+    if (toolDrove) {
+      // A tool's own `goTo` owns the TIDY-UP — stomping `travelling` under its
+      // pending flight is the measured teleport-back-and-regrow churn — but
+      // not the ring: whatever was ringed lived on the page that just left,
+      // and `travelAfterRoute` re-rings its own target on arrival if it has
+      // one.
+      try {
+        d.clearHighlight()
+      } catch {
+        /* An engine that has gone away must not take a navigation with it. */
+      }
+      return
+    }
     try {
       // The ring is the most obviously wrong thing to leave behind: it is
       // drawn around a rectangle that no longer means anything.
@@ -443,14 +568,13 @@ export function DeckeHost() {
       /* An engine that has gone away must not take a navigation with it. */
     }
     // Dropping `travelling` is what retires the speech bubble and gives the
-    // transcript back — the bubble is derived from it, so there is no separate
-    // thing to clear.
+    // transcript back — the bubble is derived from it, and the re-park effect
+    // below is what flies him back to his chat mark once it flips.
     if (travellingRef.current) setTravelling(false)
-    // RE-SOLVE, OR GO HOME. Standing beside a remembered rectangle on a page
-    // that has been replaced is worse than standing in his corner, because it
-    // looks deliberate.
-    if (chatOpenRef.current) parkForChatRef.current?.()
-    else {
+    else if (!chatOpenRef.current && d.entryScale > 0.05) {
+      // Defensive, not a code path the machine can reach: closed means the
+      // exit tucked him away, so a VISIBLE character on a closed chat is a
+      // failure being recovered from, and the corner is the honest recovery.
       try {
         d.returnHome()
       } catch {
@@ -484,213 +608,422 @@ export function DeckeHost() {
     if (!chatOpen) setTravelling(false)
   }, [chatOpen])
 
-  // OPENING THE CHAT RESIZES HIM, THEN MOVES HIM — in that order, and the order
-  // is load-bearing.
+  // ── THE CHOREOGRAPHY: ONE MACHINE, TWO EDGES ────────────────────────────
   //
-  // `setCharacterHeight` dollies the camera, so it changes the mapping between
-  // screen pixels and world units for the whole scene. A destination solved
-  // before the dolly lands somewhere else after it. `measure()` first therefore
-  // is not tidiness: it is the difference between him standing in the corner and
-  // him standing wherever that corner used to be.
+  // The old shape here was a single effect keyed on `[chatOpen, live, wide,
+  // travelling]` whose body replayed the FULL entrance whenever any dependency
+  // moved. A `travelling` flip with the chat already open therefore cut him to
+  // a stale launcher rect, regrew him from nothing and re-parked — the
+  // measured "hiccup", fired by nothing the user did — and a close flipped
+  // `chatOpen` and `travelling` one render apart, so the exit tore down and
+  // relaunched mid-flight with a fresh anticipation dip. WHAT IS ON SCREEN had
+  // several authorities that could disagree; presence now has ONE.
+  // `presenceRef` records whether he is in or out of the chat composition, the
+  // effect below acts only on the EDGE, and everything that merely wants him
+  // re-parked goes through the re-park effect after it instead of replaying an
+  // entrance.
   //
-  // On the way back out the same order runs in reverse — restore the page size,
-  // THEN send him home, because `homeCorner` unprojects through the camera too.
-  //
-  // He flies to a spot beside the panel using the same `flyTo` that parks him
-  // next to a deck list. On a phone that spot is the panel's own park box, so
-  // the layout and the character are working from one geometry; on desktop it is
-  // a viewport fraction out on the open page. `centre: true` either way, because
-  // a stand point is a place to BE — the default parks him outboard of a target
-  // with a gap, which is right for pointing at something and wrong for "stand
-  // here".
-  //
-  // The 320 ms wait is the panel's entrance: `getBoundingClientRect` on an
-  // element mid-transform reports where it IS, not where it lands, and the rAF
-  // after it lets the dolly settle before the park is solved against it.
-  /**
-   * Put him on his chat mark, re-solvable.
-   *
-   * Held in a ref rather than inlined in the effect below because the route
-   * watcher needs to run exactly this again after a navigation: his mark on a
-   * phone is a box inside the panel and on desktop a fraction of the open page,
-   * and both want re-solving once the page underneath has been replaced.
-   */
-  const parkForChatRef = useRef<(() => void) | null>(null)
+  // The dolly ordering the old version enforced by hand — measure, THEN solve
+  // a destination — still binds and is still honoured here, and
+  // `DeckE.setCharacterHeight` now re-solves his station itself, so the
+  // ordering is belt and the engine is braces.
 
-  useEffect(() => {
+  /**
+   * Put him on his chat mark.
+   *
+   * A callback rather than a closure inside the effect because three things
+   * run it: the entrance (once the panel has settled), the re-park effect (a
+   * breakpoint crossing, or coming back from a presentation) and the composer
+   * watch (his mark moving under him). `parkRef` mirrors it for callers that
+   * must not capture a stale `wide`. `rate` is the entrance's snap — the
+   * chip→mark leg plays at `SNAP_RATE`; every other caller parks at the
+   * ordinary pace.
+   */
+  const park = useCallback((opts: { rate?: number } = {}) => {
     const d = deckeRef.current
     if (!d) return
-    measureRef.current?.()
-    if (!chatOpen) {
-      parkForChatRef.current = null
-
-      // ── THE WAY OUT MIRRORS THE WAY IN ────────────────────────────────────
-      //
-      // The entrance is: cut to the launcher, GROW there, then fly to his mark.
-      // So the exit is: fly back to the launcher, then stop being there — and
-      // the destination is the launcher itself rather than `returnHome`'s
-      // abstract corner, because "his spot" is the chip. Measured at 1440x900,
-      // `HOME_INSET` puts him at (1195, 702) and the chip is at (1392, 852):
-      // 240 px apart, so the old flight ended a body's width short of the thing
-      // he was going back into. `homeCorner`'s own note calls itself provisional
-      // and says it "will move again once he is wired into the real product
-      // chrome" — the chip IS that chrome, and it is on screen from the frame
-      // the panel closes.
-      //
-      // WHY THE 520 ms TIMER WAS THE DEFECT AND NOT A DETAIL. It claimed to be
-      // "the canvas's own opacity fade", and there is no fade: `phase` is still
-      // `ready` after a close, so the canvas stays at `opacity-100` and the
-      // whole flight is on screen. Sampled through the dismissal, the trip took
-      // ~1300 ms and `entryScale` hit 0.001 at 520 — he vanished in mid-air,
-      // barely a third of the way across, and the rest of the trip was flown by
-      // nobody. `arrived` replaces the guess with the event.
-      //
-      // AND IT IS THE REDUCED-MOTION PATH WITH NO BRANCH. `flyTo` cuts when
-      // `reduced` is set and `settleCut` fires `arrived` synchronously, so he
-      // is simply already gone — X1's "ships with the motion", not a second
-      // code path that can rot.
-      const chip = document.querySelector(LAUNCHER_SELECTOR)
-      const rect = chip?.getBoundingClientRect() ?? launchRectRef.current
-      let tucked = false
-      const tuck = () => {
-        if (tucked) return
-        tucked = true
-        const away = deckeRef.current
-        if (!away) return
-        // BACK TO NOTHING. He has to end where the next entrance begins, or the
-        // second open finds him already at full size with nothing to grow.
-        away.setEntryScale(0)
-        // AND HOLDING A STATION THE COLLAPSED STATE CAN LIVE WITH. A `{rect}`
-        // station is a remembered box: every later resize would re-solve and
-        // fly an invisible character to where the launcher used to be. Home is
-        // viewport-relative and re-solves to something sane forever. Safe from
-        // inside `arrived` — the arrival branch clears `track` before it fires.
-        away.returnHome({ instant: true })
-      }
-      if (rect && rect.width > 0) {
-        d.flyTo({ rect }, { centre: true, highlight: false, arrived: tuck })
-      } else {
-        // No launcher to go back to — hidden by preference, or a close on a
-        // route that never rendered one. The corner is the honest fallback.
-        d.returnHome()
-      }
-      // A GUARD, NOT THE MECHANISM — see `EXIT_GUARD_MS`. It is comfortably
-      // longer than the measured trip, so it never pre-empts the arrival.
-      const t = window.setTimeout(tuck, EXIT_GUARD_MS)
-      return () => window.clearTimeout(t)
+    // A MARK THAT IS NOT ON SCREEN IS NOT A MARK. Probed on a cold mobile
+    // load: the glb parse chokes the main thread while the sheet's entrance
+    // animation is mid-translate, so the park box reads at y≈1044 of a 664 px
+    // viewport — stable, because the animation itself is stalled — and a park
+    // solved against it flew him off the bottom of the screen (the beacon
+    // fired, truthfully). The engine also fails silently on a zero-area rect,
+    // into the top-left keep-out corner. So every landmark park is gated on
+    // the landmark actually being inside the viewport, and anything else
+    // falls through to the fraction park, which is sane by construction —
+    // the composer watch re-parks him onto the real mark once it settles.
+    const onScreen = (el: Element | null): el is Element => {
+      if (!el) return false
+      const r = el.getBoundingClientRect()
+      return (
+        r.width > 0 &&
+        r.top > -8 &&
+        r.left > -8 &&
+        r.bottom < window.innerHeight + 8 &&
+        r.right < window.innerWidth + 8
+      )
     }
-    // HE IS OUT ON THE PAGE. Leave him there.
+    // The park box only exists while the phone panel is mounted AND he has
+    // a measured size. `flyTo` THROWS on a selector that resolves to
+    // nothing, so this asks rather than assumes — and falls back to the
+    // same corner expressed as a fraction.
+    if (!wide && onScreen(document.querySelector(`[${PARK_LANDMARK}]`))) {
+      d.flyTo(
+        { selector: `[${PARK_LANDMARK}]` },
+        // `facing: -1` is screen-RIGHT. He stands in the panel's bottom-left
+        // corner with the composer to his right, and a centre park returns no
+        // facing (a point has no inward) — so without this, `flyTo`
+        // re-asserts the boot default of screen-left and he stands with his
+        // back to the conversation. The first thing the owner says in the
+        // recording, said four times; the desktop call three branches down
+        // was already fixed for exactly this and the fix never reached here.
+        { depth: 'foreground', highlight: false, centre: true, facing: -1, rate: opts.rate },
+      )
+      return
+    }
+    // DESKTOP PARKS HIM BESIDE THE COMPOSER, not on a viewport fraction.
     //
-    // While `travelling` the transcript collapses to a bar and the panel —
-    // including the composer he anchors to — is not in the DOM at all. Parking
-    // him against a mark that does not exist is how he ends up standing on a
-    // viewport fraction chosen for a layout that no longer applies.
-    if (travelling) return
-
-    const park = () => {
-      // The park box only exists while the phone panel is mounted AND he has
-      // a measured size. `flyTo` THROWS on a selector that resolves to
-      // nothing, so this asks rather than assumes — and falls back to the
-      // same corner expressed as a fraction.
-      if (!wide && document.querySelector(`[${PARK_LANDMARK}]`)) {
+    // An ordinary beside-park is what `flyTo` is FOR: `side: 'left'` puts him
+    // outboard of the card's left edge with the usual gap, and a beside-park
+    // is the branch of `solvePark` that RETURNS A FACING, so he turns to face
+    // the thing he is standing next to.
+    if (wide) {
+      // `flyTo` THROWS on a selector that resolves to nothing, so ask — and
+      // the same on-screen gate as the phone box, for the same stalled-
+      // entrance reason.
+      const composer = document.querySelector(`[${COMPOSER_LANDMARK}]`)
+      if (onScreen(composer)) {
         d.flyTo(
-          { selector: `[${PARK_LANDMARK}]` },
-          { depth: 'foreground', highlight: false, centre: true },
+          { selector: `[${COMPOSER_LANDMARK}]` },
+          // `anchor: 'optical'`, not `centre` and not `bottom`.
+          //
+          // `centre` was the first version: the composer is 58px and he is
+          // ~216 drawn, so matching middles hangs ~79px of him below it, and
+          // against the bottom of the window that is off the edge —
+          // "too low, and going off the bottom edge. Cut off."
+          //
+          // `bottom` fixed that and overshot. A base flush with the card's
+          // baseline reads as him standing ON the card: "strictly aligned
+          // with his very bottom corner, which makes him look like he's kind
+          // of above the thing." `optical` sinks him far enough that the
+          // card's baseline crosses his body. See `OPTICAL_OVERLAP`.
+          { depth: 'foreground', highlight: false, side: 'left', anchor: 'optical', rate: opts.rate },
         )
         return
       }
-      // DESKTOP PARKS HIM BESIDE THE COMPOSER, not on a viewport fraction.
-      //
-      // `STAND_DESKTOP` was `{x: 0.36, y: 0.58}` — a spot chosen when the panel
-      // was a 420px card in the bottom-right corner and the rest of the page
-      // was empty. The panel is the content pane now and the composer is
-      // centred in it, so that fraction puts him standing ON the conversation.
-      //
-      // The right primitive was already here and is what `flyTo` is FOR: an
-      // ordinary beside-park. `side: 'left'` puts him outboard of the card's
-      // left edge with the usual gap, and — the part worth having — a
-      // beside-park is the branch of `solvePark` that RETURNS A FACING, so he
-      // turns to face the thing he is standing next to. Both chat-open calls
-      // used to pass `centre: true`, whose branch deliberately returns no
-      // facing because a point has no inward, and `flyTo` then re-asserted the
-      // boot default of screen-left. That is why he stood with his back to the
-      // composer: not a facing bug, a consequence of asking to stand ON a
-      // point instead of BESIDE a thing.
-      if (wide) {
-        // `flyTo` THROWS on a selector that resolves to nothing, so ask.
-        const composer = document.querySelector(`[${COMPOSER_LANDMARK}]`)
-        if (composer) {
-          d.flyTo(
-            { selector: `[${COMPOSER_LANDMARK}]` },
-            // `anchor: 'optical'`, not `centre` and not `bottom`.
-            //
-            // `centre` was the first version: the composer is 58px and he is
-            // ~216 drawn, so matching middles hangs ~79px of him below it, and
-            // against the bottom of the window that is off the edge —
-            // "too low, and going off the bottom edge. Cut off."
-            //
-            // `bottom` fixed that and overshot. A base flush with the card's
-            // baseline reads as him standing ON the card: "strictly aligned
-            // with his very bottom corner, which makes him look like he's kind
-            // of above the thing." `optical` sinks him far enough that the
-            // card's baseline crosses his body. See `OPTICAL_OVERLAP`.
-            { depth: 'foreground', highlight: false, side: 'left', anchor: 'optical' },
-          )
-          return
-        }
-      }
-      const at = wide ? STAND_DESKTOP : STAND_MOBILE
-      d.flyTo(
-        { x: window.innerWidth * at.x, y: window.innerHeight * at.y },
-        { depth: 'foreground', highlight: false, centre: true },
-      )
     }
-    parkForChatRef.current = park
+    const at = wide ? STAND_DESKTOP : STAND_MOBILE
+    d.flyTo(
+      { x: window.innerWidth * at.x, y: window.innerHeight * at.y },
+      { depth: 'foreground', highlight: false, centre: true, rate: opts.rate },
+    )
+  }, [wide])
+  const parkRef = useRef(park)
+  parkRef.current = park
 
-    // THE ENTRANCE: absent → grows from nothing at the button → travels.
-    //
-    // The order is the whole of it. He is placed at the launcher's rect with
-    // `instant: true` — a cut, not a flight, because he was never anywhere
-    // before this and flying him from his home corner would be a journey from
-    // a place he had not been. Then he grows. Then, and only when the grow has
-    // landed, he sets off for his mark.
-    //
-    // `playEntry` returns the milliseconds it will take and calls `onDone` on
-    // the frame it lands, so the travel is sequenced off the engine's own clock
-    // rather than a second copy of the duration living here. Under reduced
-    // motion it returns 0 and calls `onDone` synchronously — which makes this
-    // the reduce path as well, with no branch: he is simply already there and
-    // then travels, or under a reduced-motion flight, cuts.
-    const rect = launchRectRef.current
-    let raf = 0
-    const t = window.setTimeout(() => {
-      raf = requestAnimationFrame(() => {
-        if (rect && rect.width > 0) {
-          d.flyTo({ rect }, { centre: true, highlight: false, instant: true })
-          d.playEntry({ onDone: park })
-        } else {
-          // No rect means he was opened by something other than the button.
-          // Nothing to grow from, so he simply takes his mark.
-          d.setEntryScale(1)
-          park()
+  /** Is he IN the chat composition or OUT of it? The edge detector: presence
+   *  is the thing the entrance and the exit actually change, and a re-render
+   *  is not an edge. */
+  const presenceRef = useRef<'in' | 'out'>('out')
+  /** Has this visit's first park happened yet? The re-park effect must not
+   *  race the entrance's own scheduled park. */
+  const parkedRef = useRef(false)
+  /**
+   * While true, `measure()` must not run.
+   *
+   * The close flips the bottom keep-out band, which fires the ResizeObserver,
+   * which used to re-dolly the camera to the full-page height MID-EXIT — the
+   * measured 260 → 452 px balloon on his way back into the button, and a
+   * keep-out clamp that would shove his destination off the chip. The exit
+   * holds the camera where the chat put it until he is gone, then restores
+   * the page size while he is invisible, where a dolly costs nothing to see.
+   */
+  const holdMeasureRef = useRef(false)
+
+  useEffect(() => {
+    const d = deckeRef.current
+    if (!live || !d) return
+
+    if (chatOpen) {
+      // ── THE WAY IN: grow WHILE the panel opens, travel as it settles. ────
+      //
+      // Measured before this existed: 1.30 s from committed tap to landed, of
+      // which 0.43 s was dead air and 0.27 s a static scale-up — "chat window
+      // up → wait → 'ok, I'm coming.'" The fix is concurrency, not haste: the
+      // grow starts the same frame the panel starts opening, the hop launches
+      // as the panel settles, and the grow's tail overlaps the hop — "he
+      // should just be scaling up during the hop, really." Scale and flight
+      // are independent per-frame machines composed in `applyPose`; nothing
+      // fights.
+      holdMeasureRef.current = false
+      pendingFarewellRef.current = null
+      setFarewell(null)
+      // Measure FIRST: `setCharacterHeight` dollies the camera, and a
+      // destination solved before the dolly lands somewhere else after it.
+      // The composer is measurable the frame the panel mounts — its entrance
+      // is a translate, which moves its box without changing its height.
+      measureRef.current?.()
+      let t = 0
+      let raf = 0
+      const schedulePark = () => {
+        // WATCHED SETTLED, NOT WAITED OUT. `getBoundingClientRect` on an
+        // element mid-transform reports where it IS, not where it lands — and
+        // the fixed 320 ms this used to wait was a lie on a slow first paint:
+        // probed on the mobile emulation, the sheet was still translating up
+        // when the timer fired, the park solved against the box's
+        // mid-transform rect at y≈1038 of a 664 px viewport, and he flew off
+        // the bottom of the screen (the off-screen beacon fired, truthfully).
+        // So the marks are POLLED until two consecutive reads agree — a
+        // translate moves every frame, so agreement means the entrance is
+        // actually over — with a floor so a cut (reduced motion) still gets a
+        // beat of him at the chip, and a cap so a pathological page cannot
+        // strand him there. The grow is playing the whole time, so a slower
+        // panel costs a longer grow at the chip, never dead air.
+        const read = () => {
+          const key = (el: Element | null) => {
+            if (!el) return 'x'
+            const r = el.getBoundingClientRect()
+            // An off-viewport mark can be perfectly STABLE — probed: the glb
+            // parse stalls the sheet's entrance animation mid-translate for
+            // hundreds of milliseconds, and two agreeing reads of a frozen
+            // wrong place are not "settled". Flag it so stability cannot be
+            // reached until the mark is actually where a mark can be.
+            const off =
+              r.top < -8 || r.left < -8 || r.bottom > window.innerHeight + 8
+                ? '!'
+                : ''
+            return `${off}${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.height)}`
+          }
+          return (
+            key(document.querySelector(`[${PARK_LANDMARK}]`)) +
+            '|' +
+            key(document.querySelector(`[${COMPOSER_LANDMARK}]`))
+          )
         }
-      })
-    }, 320)
-    return () => {
-      window.clearTimeout(t)
-      cancelAnimationFrame(raf)
+        let last = ''
+        let waited = 0
+        const tick = () => {
+          waited += PARK_SETTLE_STEP_MS
+          const now = read()
+          const settled = now === last && !now.includes('!')
+          last = now
+          // At the cap he parks REGARDLESS — `park()` itself now refuses an
+          // off-screen landmark and takes the fraction fallback, and the
+          // composer watch re-parks him onto the real mark once it settles.
+          if ((settled && waited >= PARK_SETTLE_MIN_MS) || waited >= PARK_SETTLE_CAP_MS) {
+            raf = requestAnimationFrame(() => {
+              measureRef.current?.()
+              // The chip→mark leg, at snap pace — the entrance is the owner's
+              // "twice as fast" leg. Every other park stays ordinary.
+              parkRef.current({ rate: SNAP_RATE })
+              parkedRef.current = true
+            })
+            return
+          }
+          t = window.setTimeout(tick, PARK_SETTLE_STEP_MS)
+        }
+        t = window.setTimeout(tick, PARK_SETTLE_STEP_MS)
+      }
+      if (presenceRef.current === 'out') {
+        presenceRef.current = 'in'
+        parkedRef.current = false
+        const rect = launchRectRef.current
+        const stillVisible = d.entryScale > 0.05 || d.getState().flying
+        if (stillVisible) {
+          // A reopen caught him mid-exit. He is on screen, so cutting him to
+          // the launcher to regrow would be exactly the churn this machine
+          // exists to end — he simply turns around: regrow from whatever
+          // scale the dive left him at, and fly straight back to his mark.
+          if (d.entryScale < 1) d.playEntry({ from: d.entryScale })
+          parkRef.current({ rate: SNAP_RATE })
+          parkedRef.current = true
+        } else if (rect && rect.width > 0) {
+          // Absent → grows out of the button → travels. The placement is a
+          // cut, not a flight: he was never anywhere before this.
+          d.flyTo({ rect }, { centre: true, highlight: false, instant: true })
+          d.playEntry()
+          schedulePark()
+        } else {
+          // Opened by something other than the button. Nothing to grow from,
+          // so he simply takes his mark.
+          d.setEntryScale(1)
+          parkRef.current()
+          parkedRef.current = true
+        }
+      } else if (!parkedRef.current) {
+        // The effect re-ran mid-entrance (a dependency moved under it). The
+        // grow is the engine's and survives; the park promise is ours and is
+        // re-made.
+        schedulePark()
+      }
+      return () => {
+        window.clearTimeout(t)
+        cancelAnimationFrame(raf)
+      }
     }
-    // `wide` is a dependency, not a value read inside: crossing the breakpoint
-    // with the chat open swaps which mark he is standing on, and re-running is
-    // what moves him to the new one.
+
+    // ── THE WAY OUT: dive into the button, shrinking as he goes. ──────────
     //
-    // AND `travelling`, which was missing and is the more common case. Coming
-    // back from a journey re-mounts the panel and with it his mark — and until
-    // this dependency existed, NOTHING re-parked him. He simply stayed wherever
-    // the journey had left him, which after a `goTo` is a position solved
-    // against a page that is no longer on screen: standing over the
-    // conversation he had just been asked to come back to.
-  }, [chatOpen, live, wide, travelling])
+    // "He should remain exactly where he was but quickly jump back to his
+    // chat bubble and scale down to zero so that it looks like he's jumping
+    // into his chat bubble/hiding." `scaleTo: 0` rides the flight itself, so
+    // "gone" and "landed" are the same frame BY CONSTRUCTION — the 520 ms
+    // timer that once vanished him in mid-air is not approximated better
+    // here, it is structurally impossible. The destination is the chip, not
+    // `returnHome`'s abstract corner, because "his spot" IS the chip.
+    //
+    // Reduced motion ships inside the same call, no second path: `flyTo`
+    // cuts, the scale arrives with it, and `arrived` fires synchronously.
+    if (presenceRef.current !== 'in') return
+    presenceRef.current = 'out'
+    parkedRef.current = false
+    holdMeasureRef.current = true
+    try {
+      d.clearHighlight()
+    } catch {
+      /* an engine mid-teardown must not take the close with it */
+    }
+    const chip = document.querySelector(LAUNCHER_SELECTOR)
+    const rect = chip?.getBoundingClientRect() ?? launchRectRef.current
+    let finished = false
+    const finish = (aborted: boolean) => {
+      if (finished) return
+      finished = true
+      // A reopen took the flight over; the entrance owns every flag now.
+      if (aborted) return
+      const away = deckeRef.current
+      holdMeasureRef.current = false
+      if (away) {
+        // BACK TO NOTHING, at a station the collapsed state can live with: a
+        // `{rect}` station is a remembered box that every later resize would
+        // re-solve an invisible character toward. Home is viewport-relative
+        // and sane forever. Safe from inside `arrived` — the arrival branch
+        // clears the track before it fires.
+        away.setEntryScale(0)
+        away.returnHome({ instant: true })
+      }
+      // Restore the page-size dolly while he is invisible, where a camera
+      // move costs nothing to look at. The engine re-solves his (home)
+      // station itself now.
+      measureRef.current?.()
+      // The farewell, AT the arrival, not at the click: he becomes the chat
+      // bubble and THEN the bubble gets its line — "his message has appeared
+      // long before he's actually gone into the chat button" was the
+      // complaint. Anchored to the chip he just became; no chip, no line,
+      // because a farewell floating in a corner is worse than none.
+      const bye = pendingFarewellRef.current
+      pendingFarewellRef.current = null
+      const at = document.querySelector(LAUNCHER_SELECTOR)?.getBoundingClientRect() ?? rect
+      if (bye && at && at.width > 0) {
+        setFarewell({
+          text: bye,
+          at: Date.now(),
+          rect: {
+            left: at.left,
+            top: at.top,
+            right: at.right,
+            bottom: at.bottom,
+            width: at.width,
+            height: at.height,
+          },
+        })
+      }
+    }
+    if (rect && rect.width > 0) {
+      d.flyTo(
+        { rect },
+        // `rate: SNAP_RATE` — the dive back into the chip is the other half of
+        // the owner's "twice as fast" ask, and a quick exit is also what makes
+        // "jumping into his chat bubble/hiding" read as one gesture.
+        { centre: true, highlight: false, scaleTo: 0, rate: SNAP_RATE, arrived: finish },
+      )
+    } else {
+      // No launcher to dive into — hidden by preference, or a close on a
+      // route that never rendered one. He still leaves like somebody: shrink
+      // on his own clock while flying to the corner, then settle.
+      d.returnHome()
+      d.playEntry({ from: d.entryScale, to: 0, durationMs: 420, onDone: () => finish(false) })
+    }
+    // A GUARD, NOT THE MECHANISM — see `EXIT_GUARD_MS`. What it catches is a
+    // leg that never lands: the engine's own flight cap, or a controller
+    // disposed mid-trip. Reaching that state without the guard leaves a
+    // full-size character parked over the page for the rest of the session.
+    const guard = window.setTimeout(() => finish(false), EXIT_GUARD_MS)
+    return () => window.clearTimeout(guard)
+  }, [chatOpen, live])
+
+  // ── RE-PARK, WITHOUT RE-ENTERING ────────────────────────────────────────
+  //
+  // Everything that used to replay the whole entrance because it shared the
+  // entrance's effect: crossing the breakpoint swaps which mark he stands on,
+  // and coming back from a presentation (`travelling` → false) re-mounts the
+  // panel and his mark with it. Both want exactly a measure and a park — a
+  // flight from wherever he is to where he now belongs — and neither is an
+  // entrance. `parkedRef` keeps this from racing the entrance's own first
+  // park.
+  useEffect(() => {
+    if (!live || !chatOpen || travelling) return
+    if (!parkedRef.current) return
+    measureRef.current?.()
+    parkRef.current()
+  }, [live, chatOpen, wide, travelling])
+
+  // ── THE ENDING A PRESENTATION NEVER HAD ─────────────────────────────────
+  //
+  // "Show them the screen. Short line of text. Stays just long enough to
+  // read. Small text bubble animates away. Then Deck-E himself hops back down
+  // to the bottom corner to 'become' the chat bubble again with something
+  // like 'You know where to find me!' … the user's message bubble at the
+  // bottom of the screen should go away too." Every piece of that already
+  // existed — the farewell pool, the flight home, the dive — but only a full
+  // manual close ever fired it, so a presentation just SAT there: the
+  // recorded bubble was pixel-identical 63 seconds later, over the content it
+  // described. This gives "finished showing something" the same graceful
+  // ending as ✕: read-time passes, the bubble animates away, and `seeYouOut`
+  // runs the close choreography — panel state retired, him diving into the
+  // chip, farewell on arrival.
+  //
+  // Only an IDLE presentation retires: a turn still running (`busy`), a
+  // pending approval (`asking`), or the reader pulling the transcript back up
+  // (`travelling` → false) each cancel it by moving a dependency.
+  const closeChatRef = useRef(chat.close)
+  closeChatRef.current = chat.close
+  const lastAssistant = chat.messages.filter((m) => m.role === 'assistant').at(-1)
+  const bubbleText = chatOpen && travelling && lastAssistant ? messageText(lastAssistant) : ''
+  useEffect(() => {
+    setBubbleLeaving(false)
+    if (!chatOpen || !travelling || chat.busy || chat.asking) return
+    // A WORDLESS presentation retires too — on a shorter clock, because there
+    // is nothing to read, only a ring to glance at. Keying the timer on the
+    // bubble having text was how a highlight-and-say-nothing turn left him
+    // parked beside a card for the life of the page ("he never left. He just
+    // stayed parked there").
+    const text = bubbleText.trim()
+    const readMs = text
+      ? Math.min(
+          BUBBLE_READ_MAX_MS,
+          Math.max(BUBBLE_READ_MIN_MS, BUBBLE_READ_BASE_MS + text.length * BUBBLE_READ_PER_CHAR_MS),
+        )
+      : SILENT_RETIRE_MS
+    let out = 0
+    const read = window.setTimeout(() => {
+      if (!text) {
+        // No bubble to animate away; he simply goes.
+        closeChatRef.current()
+        seeYouOut()
+        return
+      }
+      setBubbleLeaving(true)
+      out = window.setTimeout(() => {
+        closeChatRef.current()
+        seeYouOut()
+      }, BUBBLE_OUT_MS)
+    }, readMs)
+    return () => {
+      window.clearTimeout(read)
+      window.clearTimeout(out)
+    }
+  }, [chatOpen, travelling, chat.busy, chat.asking, bubbleText, seeYouOut])
 
   // ── HIS MARK CAN MOVE WITHOUT ANYTHING TELLING HIM ──────────────────────────
   //
@@ -766,7 +1099,7 @@ export function DeckeHost() {
       // well as the position: he is sized from the composer, and a composer
       // that grew a line is both taller and higher up.
       measureRef.current?.()
-      parkForChatRef.current?.()
+      parkRef.current()
     }
     const id = window.setInterval(() => {
       const was = last
@@ -860,6 +1193,18 @@ export function DeckeHost() {
       )
       decke = acquired.decke
       deckeRef.current = decke
+      // A FRESH controller knows nothing, so neither may the choreography: a
+      // reused one (StrictMode's synchronous remount, a quick canvas swap)
+      // keeps his pose and his presence, but a fresh one boots at scale 0 —
+      // and if the chat was open across the teardown (a chromeless route and
+      // back), a stale presence of 'in' would skip the entrance and re-park a
+      // character nobody can see. Reset, and the entrance effect brings him
+      // in properly once `live` lands.
+      if (acquired.fresh) {
+        presenceRef.current = 'out'
+        parkedRef.current = false
+        holdMeasureRef.current = false
+      }
 
       // MEASURE THE CANVAS, NOT THE WINDOW.
       //
@@ -871,6 +1216,11 @@ export function DeckeHost() {
       // and the right value; a `resize` listener is neither.
       const measure = () => {
         if (!decke) return
+        // NOT DURING THE EXIT. The close itself flips the bottom keep-out
+        // band, which fires the ResizeObserver that calls this — and a
+        // re-dolly plus a re-clamp mid-dive is the measured balloon-and-miss.
+        // The exit's `arrived` runs the deferred measure once he is invisible.
+        if (holdMeasureRef.current) return
         const w = Math.round(canvas.clientWidth) || window.innerWidth
         // TWO HEIGHTS, both CSS-derived. The canvas is `100lvh` (covers the
         // screen once the toolbar slides away); the probe is `100svh` (the part
@@ -895,7 +1245,11 @@ export function DeckeHost() {
           composerH > 0
             ? characterHeightBeside(composerH, w, h)
             : characterHeightFor(w, h, chatOpenRef.current && w < NAV_BREAKPOINT)
-        decke.stage.setCharacterHeight(px)
+        // The PUBLIC method, not `decke.stage`'s: the dolly moves the camera,
+        // and the controller's own wrapper is what re-solves his station in
+        // the same frame — the invariant this file used to enforce by
+        // hand-ordering call sites, now owned by the engine.
+        decke.setCharacterHeight(px)
         // ── WHERE HE MAY NOT STAND ────────────────────────────────────────
         //
         // His canvas is at z-30, above the app chrome at 20, and that is
@@ -1146,27 +1500,29 @@ export function DeckeHost() {
       />
 
       {/* His words while the transcript is minimised. Anchored to him and
-          solved against the highlight so it can never cover what he is
-          pointing at — see DeckeBubble. */}
+          solved against the highlight AND his own silhouette so it can cover
+          neither — see DeckeBubble. `leaving` is the retire effect's
+          animate-away beat, played before he flies. */}
       {chatOpen && travelling ? (
         <DeckeBubble
-          text={(() => {
-            const last = chat.messages.filter((m) => m.role === 'assistant').at(-1)
-            return last ? messageText(last) : ''
-          })()}
+          text={bubbleText}
           himRect={himRect}
           avoidSelector={live?.getState().highlighted ?? null}
+          leaving={bubbleLeaving}
         />
       ) : null}
 
       {/* The line he leaves as he goes. Survives the panel unmounting — that is
           the whole reason it is mounted out here — and retires itself after
-          `FAREWELL_MS`. It takes no pointer events and moves no layout. */}
+          `FAREWELL_MS`. Anchored to the LAUNCHER CHIP he just tucked into,
+          captured by the exit's `arrived`: the live `himRect` is null by then
+          (he is a third of a pixel tall), and the old null fallback was the
+          top-left corner of the screen. */}
       {farewell ? (
         <DeckeFarewell
           key={farewell.at}
           text={farewell.text}
-          himRect={himRect}
+          himRect={farewell.rect}
           onDone={() => setFarewell(null)}
         />
       ) : null}

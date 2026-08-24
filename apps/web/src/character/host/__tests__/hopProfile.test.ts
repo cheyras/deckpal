@@ -177,12 +177,34 @@ const farPlaneWaypoint = (r: RectLike) =>
   parkOn(cam, r.left + r.width / 2, r.top + r.height / 2, { depth: 'background', baseDistance })
 
 /** Duration, and how far off vertical his body gets, for one solved leg. */
-function fly(a: Vector3, b: Vector3, legIndex = 0) {
-  const track = solveFlight(a, b, { camera: cam, tanHalfFovY, ...shapeFor(a, b, legIndex) })
+function fly(a: Vector3, b: Vector3, legIndex = 0, rate?: number) {
+  const track = solveFlight(a, b, { camera: cam, tanHalfFovY, ...shapeFor(a, b, legIndex), rate })
   let peakTiltDeg = 0
   for (const s of track.samples) peakTiltDeg = Math.max(peakTiltDeg, Math.hypot(s.rx, s.ry))
   return { ms: track.durationMs, peakTiltDeg, worldUnits: a.distanceTo(b) }
 }
+
+test('a per-leg rate scales playback exactly, and nothing else', () => {
+  // The chat open/close legs play at 2× — "I'd like that to be nice and
+  // snappy" — and the whole point of `rate` living on the PLAYBACK side of
+  // the solve is that it cannot change what was solved: same samples, same
+  // path, same tilt, half the time. If this ever drifts, someone routed the
+  // rate into the integrator, which is the knob that wakes the frame guard.
+  const a = standBeside(rectOf(1000, 600, 300, 58), 'left')
+  const b = homeCorner(cam, baseDistance)
+  const plain = fly(a, b)
+  const snappy = fly(a, b, 0, 2)
+  assert.ok(plain.ms > 0, 'the premise: the leg takes time at all')
+  assert.ok(
+    Math.abs(snappy.ms - plain.ms / 2) < 1,
+    `rate 2 must halve the duration: ${plain.ms.toFixed(1)} → ${snappy.ms.toFixed(1)}`,
+  )
+  assert.equal(
+    snappy.peakTiltDeg.toFixed(6),
+    plain.peakTiltDeg.toFixed(6),
+    'playback speed must not touch the solved pose',
+  )
+})
 
 test('the far-plane round trip costs multiples of the hop it replaces', () => {
   // The composer he stands beside, and a card near the middle of a page he has
@@ -219,17 +241,20 @@ test('the far-plane round trip costs multiples of the hop it replaces', () => {
   )
 })
 
-test('D8 is still open: the close and reopen legs both lean past banking', () => {
-  // NOT A GATE, AND NOT A PIN ON THE DEFECT — a recorded measurement, so that
-  // the next person is told rather than having to re-derive it. The brief
-  // predicted D8 would dissolve once he travelled "a much shorter distance to a
-  // composer-adjacent stand point". He does not: closing sends him home across
-  // the whole page and reopening brings him from the launcher chip in the
-  // opposite corner, and both are ten-plus world units at this framing.
-  //
-  // If a future change to the lean law makes this assertion fail, that is very
-  // likely GOOD NEWS — go and look at `close-reopen` in the visual harness, and
-  // if he now reads as upright, close D8 and delete this test.
+test('D8 is closed: the close and reopen legs bank without toppling', () => {
+  // A GATE NOW. The previous version of this test was a recorded MEASUREMENT
+  // that the defect was still present (`peakTiltDeg > 20` on both long legs),
+  // with its own instruction: "if a future change to the lean law makes this
+  // assertion fail, that is very likely GOOD NEWS — go and look at
+  // `close-reopen` in the visual harness, and if he now reads as upright,
+  // close D8 and delete this test." The 2026-08-24 animation pass made that
+  // change (`flight.ts` — LEAD_MAX 34 → 12 and the body-curl clamp 0.72 →
+  // 0.35, the acceleration law kept; apparent tilt is the SUM of the root
+  // rotation and the curl morphs, the arithmetic the old numbers skipped), the
+  // vision judge had read a frame of the old capture as "nearly upside-down
+  // as it falls", and rather than deleting the test it is inverted: the same
+  // two legs, the same measurement, pinned on the healthy side. 18 leaves
+  // the law headroom without readmitting the band.
   const composer = rectOf(420, 760, 620, 100)
   const launcher = rectOf(1372, 832, 44, 44)
 
@@ -246,18 +271,24 @@ test('D8 is still open: the close and reopen legs both lean past banking', () =>
   const reopening = fly(atLauncher, mark)
 
   // The owner caught him "tilted roughly 25-35 degrees off vertical" on close
-  // and "tilted the other way" on reopen. Both legs still produce that band.
+  // and "tilted the other way" on reopen. Neither leg may produce that band
+  // again — and the legs must still be LONG, or this gate is testing a hop
+  // too short to lean in the first place.
   for (const [name, leg] of [
     ['closing (returnHome)', closing],
     ['reopening (launcher → his mark)', reopening],
   ] as const) {
     assert.ok(
-      leg.peakTiltDeg > 20,
-      `${name}: expected the D8 lean to still be present; peak is ${leg.peakTiltDeg.toFixed(1)} degrees`,
+      leg.peakTiltDeg > 4,
+      `${name}: a long leg with no lean at all reads as sliding; got ${leg.peakTiltDeg.toFixed(1)} degrees`,
+    )
+    assert.ok(
+      leg.peakTiltDeg <= 18,
+      `${name}: D8 is back — peak tilt ${leg.peakTiltDeg.toFixed(1)} degrees is past banking`,
     )
     assert.ok(
       leg.worldUnits > 5,
-      `${name}: expected a long leg, the thing the brief predicted would shrink; got ${leg.worldUnits.toFixed(1)} units`,
+      `${name}: expected a long leg, the premise of the measurement; got ${leg.worldUnits.toFixed(1)} units`,
     )
   }
 })

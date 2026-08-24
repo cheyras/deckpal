@@ -221,8 +221,14 @@ export type FlyOptions = {
    *
    * `playEntry({ onDone })` is the same contract on the entrance, deliberately
    * — the way out mirrors the way in, and one shape of "tell me when" beats two.
+   *
+   * `aborted` is true when the flight was REPLACED before it landed — another
+   * `flyTo` or a `returnHome` took over. The ring and the `then` state are
+   * skipped in that case (he is not there), and the callback must not do its
+   * arrival work either; it is being told so it can stop waiting, not so it
+   * can pretend.
    */
-  arrived?: () => void
+  arrived?: (aborted: boolean) => void
   /**
    * Stand ON the target rather than beside it.
    *
@@ -289,6 +295,29 @@ export type FlyOptions = {
    * caller decides; `flyTo` does not guess.
    */
   via?: 'background'
+  /**
+   * Tween the entrance scale to this value ACROSS THE FLIGHT, driven by the
+   * flight's own progress rather than a clock of its own.
+   *
+   * `scaleTo: 0` is the exit the owner asked for by name — "jump back to his
+   * chat bubble and scale down to zero so that it looks like he's jumping into
+   * his chat bubble/hiding". The change is eased toward the destination end
+   * for a shrink (he flies most of the way at size and dives into the target)
+   * and toward the origin end for a grow, and because the driver is flight
+   * progress, "gone" and "landed" are the same frame by construction — no
+   * duration to guess, no mid-air wink-out. With `via: 'background'` the
+   * scale rides the FINAL leg. Instant flights simply arrive at the scale.
+   */
+  scaleTo?: number
+  /**
+   * Extra playback speed for this flight, multiplied on top of the distance-
+   * ramped `travelRate`. Scales playback of the solved track only — it cannot
+   * destabilise the integrator or wake the frame guard (see `SolveOptions.rate`).
+   * The chat open/close legs pass 2, per the owner: "twice as fast … nice and
+   * snappy", without touching the pace of anything else he does. A `via:
+   * 'background'` trip carries it across both legs.
+   */
+  rate?: number
   /**
    * Scroll the page under him while he travels, so the net effect is HIM moving
    * through the page rather than the page jumping and him following.
@@ -587,6 +616,9 @@ export class DeckE {
   private track: FlightTrack | null = null
   private trackStart = 0
   private legIndex = 0
+  /** Playback-rate multiplier for the current flight's legs. Written by the
+   *  two public flight entry points, read by `launch`. See `FlyOptions.rate`. */
+  private legRate = 1
   /** Where he is parked when not flying, in the Blender frame. */
   private readonly anchor = new Vector3(0, 0, 0)
   private readonly flightSample: FlightSample = {
@@ -675,16 +707,41 @@ export class DeckE {
   private beacon: Beacon | null = null
   /** The pending trailing-edge re-park. See `resize`. */
   private rePark: ReturnType<typeof setTimeout> | null = null
-  /** Set when a flight is in the air; applied the frame it lands. See `update`. */
-  private onArrive: (() => void) | null = null
+  /** Set when a flight is in the air; applied the frame it lands. See `update`.
+   *  Fired with `aborted: true` when a new flight replaces it before it lands —
+   *  silence was worse: the ring, the `then` state and the caller's callback
+   *  all vanished with nothing to say so, and the host's "scale him away on
+   *  arrival" is exactly the kind of cleanup that must run or be told why not. */
+  private onArrive: ((aborted: boolean) => void) | null = null
+
+  /** Fire-and-clear the pending arrival, exactly once. */
+  private fireOnArrive(aborted: boolean) {
+    const arrived = this.onArrive
+    this.onArrive = null
+    arrived?.(aborted)
+  }
 
   // ---- entrance and reduced motion -------------------------------------
   /** The whole-body entrance scale on the rig root. 1 is "fully here". */
   private entryNow = 1
-  /** The grow in progress, if any. See `playEntry`. */
+  /** The grow (or shrink — see `playEntry`'s `to`) in progress, if any. */
   private entryTween:
-    | { from: number; started: number; durationMs: number; onDone?: () => void }
+    | { from: number; to: number; started: number; durationMs: number; onDone?: () => void }
     | null = null
+  /**
+   * A scale change RIDING THE FLIGHT rather than running on its own clock.
+   *
+   * `entryTween` answers "grow over N ms, wherever you are". The exit wants
+   * the other contract: "be gone exactly when you land" — a fixed-duration
+   * tween against a flight whose duration is solved, not chosen, is how the
+   * old host vanished him in mid-air at 520 ms of a 1300 ms trip. So the
+   * flight's own progress drives the scale, eased so the change concentrates
+   * at the destination end (shrinks dive INTO the target, grows pop OUT of
+   * the origin), and arrival and full-scale are the same frame by
+   * construction. Set by `flyTo({ scaleTo })`; null whenever no flight owns
+   * the scale.
+   */
+  private flightScale: { from: number; to: number } | null = null
   /** The reader's reduced-motion preference, as told to us. See `DeckEOptions`. */
   private reduced = false
   /**
@@ -1266,6 +1323,30 @@ export class DeckE {
     this.stationDirty = true
   }
 
+  /**
+   * How tall he is on screen, in CSS pixels — the dolly, WITH the re-solve it
+   * was always missing.
+   *
+   * `Stage.setCharacterHeight` moves the CAMERA (see `stage.ts` — the height
+   * is in the dolly's denominator), which changes the pixel-to-world mapping
+   * for the whole scene. His station is a fixed world-space point, so moving
+   * the camera without re-solving it renders the same point at a different
+   * screen position and a different apparent size — the measured "he's
+   * suddenly massive / he snapped off-screen" pair. Callers used to reach
+   * through `decke.stage` and the invariant was enforced by hand-ordering at
+   * every call site; this method IS the invariant. Same shape as `setKeepOut`:
+   * unpin (a pinned rect was captured under the old distance and cannot
+   * self-correct), mark the station dirty, and `syncStation` re-solves at the
+   * top of the next `update`, before anything is drawn — same-frame, no seam.
+   * A flight in the air is corrected too: `syncStation` measures the shift
+   * against `trackDest` and ramps it in with the flight's own progress.
+   */
+  setCharacterHeight(px: number | null) {
+    this.stage.setCharacterHeight(px)
+    this.unpin()
+    this.stationDirty = true
+  }
+
   /** The live entrance scale on the rig root. 1 unless a `playEntry` is running
    *  or a caller has pinned it. See `entry.ts`. */
   get entryScale(): number {
@@ -1282,6 +1363,7 @@ export class DeckE {
    */
   setEntryScale(s: number) {
     this.entryTween = null
+    this.flightScale = null
     this.entryNow = clampEntryScale(s)
   }
 
@@ -1299,12 +1381,22 @@ export class DeckE {
    * reduced form of this beat rather than its absence.
    */
   playEntry(
-    opts: { from?: number; durationMs?: number; instant?: boolean; onDone?: () => void } = {},
+    opts: {
+      from?: number
+      /** Where the tween ends. Defaults to 1 — the entrance. `0` is the exit,
+       *  clamped to `ENTRY_MIN` like every other scale the rig is handed. */
+      to?: number
+      durationMs?: number
+      instant?: boolean
+      onDone?: () => void
+    } = {},
   ): number {
     const instant = opts.instant ?? this.reduced
+    const to = clampEntryScale(opts.to ?? 1)
+    this.flightScale = null
     if (instant) {
       this.entryTween = null
-      this.entryNow = 1
+      this.entryNow = to
       opts.onDone?.()
       return 0
     }
@@ -1312,12 +1404,12 @@ export class DeckE {
     const from = Math.min(1, clampEntryScale(opts.from ?? 0))
     if (durationMs === 0) {
       this.entryTween = null
-      this.entryNow = 1
+      this.entryNow = to
       opts.onDone?.()
       return 0
     }
     this.entryNow = from
-    this.entryTween = { from, started: this.elapsed, durationMs, onDone: opts.onDone }
+    this.entryTween = { from, to, started: this.elapsed, durationMs, onDone: opts.onDone }
     return durationMs
   }
 
@@ -1382,10 +1474,26 @@ export class DeckE {
       this.pendingScroll = offscreen ? scrollToCentre(cy, scrollableAncestor(document.body)) : null
     }
 
+    // THE SCALE RIDES THE FLIGHT. Decided before the launch so an instant
+    // flight can arrive already at the asked-for scale, and cleared of any
+    // clock-driven tween so there is exactly one writer of `entryNow` at a
+    // time. See `flightScale`.
+    const instant = opts.instant ?? this.reduced
+    this.legRate = opts.rate ?? 1
+    if (opts.scaleTo !== undefined) {
+      if (instant) {
+        this.setEntryScale(opts.scaleTo)
+      } else {
+        this.entryTween = null
+        this.flightScale = { from: this.entryNow, to: clampEntryScale(opts.scaleTo) }
+      }
+    } else {
+      this.flightScale = null
+    }
+
     // VIA THE BACKGROUND: queue the destination, fly the waypoint first. The
     // waypoint is directly above the destination's column on the far plane, so
     // the second leg comes straight in rather than crossing twice.
-    const instant = opts.instant ?? this.reduced
     if (opts.via === 'background') {
       const waypoint = parkOn(
         camera,
@@ -1427,13 +1535,22 @@ export class DeckE {
       throw new Error(`decke: flyTo "then" names an unknown state "${then}"`)
     }
     const arrived = opts.arrived
-    this.onArrive = () => {
+    // A flight still in the air is being replaced RIGHT NOW — tell its caller,
+    // as an abort, before installing the new arrival. Silence here is how the
+    // host lost its own "scale him away when he lands" and left a full-size
+    // character parked over the page.
+    this.fireOnArrive(true)
+    this.onArrive = (aborted) => {
+      if (aborted) {
+        arrived?.(true)
+        return
+      }
       if (ring && selector) highlightElement(selector)
       if (then) this.setState(then)
       // LAST, so the caller's callback sees the ring raised and the state
       // entered rather than racing them — and so a throw in a caller's
       // callback cannot swallow the two things the flight itself promised.
-      arrived?.()
+      arrived?.(false)
     }
     // A cut has already put him there; this is where it becomes an ARRIVAL.
     // Last, so `onArrive` above exists to be fired.
@@ -1490,7 +1607,11 @@ export class DeckE {
     // still in place when it runs, however early `launch` unpins.
     this.unpin()
     this.station = { kind: 'home' }
-    this.onArrive = null
+    // The trip home replaces whatever flight was pending, and its caller is
+    // TOLD — an abort, not a silence. See `fireOnArrive`.
+    this.fireOnArrive(true)
+    this.flightScale = null
+    this.legRate = 1
     clearHighlight()
     this.launch(
       homeCorner(this.stage.camera, this.stage.camera.position.length()),
@@ -1930,6 +2051,9 @@ export class DeckE {
       camera: this.stage.camera,
       tanHalfFovY: Math.tan(vFov / 2),
       ...shape,
+      // Playback speed only — a queued (via-background) leg launched from the
+      // arrival branch inherits the same rate, so the whole trip is one pace.
+      rate: this.legRate,
     })
     this.trackStart = this.elapsed
     this.rampMod(TRAVEL_MOD_MS)
@@ -2009,9 +2133,7 @@ export class DeckE {
   private settleCut() {
     if (!this.cutPending) return
     this.cutPending = false
-    const arrived = this.onArrive
-    this.onArrive = null
-    arrived?.()
+    this.fireOnArrive(false)
   }
 
   /**
@@ -2340,11 +2462,11 @@ export class DeckE {
       const e = this.entryTween
       const u = ((this.elapsed - e.started) * 1000) / e.durationMs
       if (u >= 1) {
-        this.entryNow = 1
+        this.entryNow = clampEntryScale(e.to)
         this.entryTween = null
         e.onDone?.()
       } else {
-        this.entryNow = clampEntryScale(entryScaleAt(u, e.from))
+        this.entryNow = clampEntryScale(entryScaleAt(u, e.from, e.to))
       }
     }
 
@@ -2523,6 +2645,16 @@ export class DeckE {
       this.pose.twist += f.twist
       // The flight lid can never be closed by an expression key — max, not add.
       this.pose.mouth = Math.max(this.pose.mouth, f.mouth)
+      // THE SCALE RIDES THE FLIGHT — the final leg of it, so a via-background
+      // trip shrinks into its destination rather than into its waypoint. The
+      // ease is directional: a shrink is cubed toward arrival (he flies most
+      // of the way at size and dives into the target), a grow is cubed away
+      // from departure (he pops out of the origin and cruises the rest).
+      if (this.flightScale && this.legQueue.length === 0) {
+        const s = this.flightScale
+        const e = s.to < s.from ? u * u * u : 1 - (1 - u) ** 3
+        this.entryNow = clampEntryScale(s.from + (s.to - s.from) * e)
+      }
       this.driveScroll(tf / this.track.durationMs)
       if (tf >= this.track.durationMs) {
         this.track = null
@@ -2533,10 +2665,14 @@ export class DeckE {
         if (next) {
           this.launch(next)
         } else {
+          // The exact asked-for scale, not the last sampled one — landing and
+          // "at scale" are the same frame by contract.
+          if (this.flightScale) {
+            this.entryNow = clampEntryScale(this.flightScale.to)
+            this.flightScale = null
+          }
           this.rampMod(TRAVEL_MOD_MS)
-          const arrived = this.onArrive
-          this.onArrive = null
-          arrived?.()
+          this.fireOnArrive(false)
         }
       }
     } else {

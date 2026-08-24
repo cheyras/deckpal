@@ -771,6 +771,119 @@ body {
   }
 }
 
+/* ── Deck-E's chat panel, on the way OUT ─────────────────────────────────────
+ *
+ * *"The chat window should also animate out, always, rather than simply
+ * disappearing."*
+ *
+ * "Always" is the load-bearing word and it is why this lives here rather than
+ * in a close handler. The panel's `open` prop falls from two unrelated places —
+ * the reader pressing ✕/Escape/the scrim, and the CHARACTER deciding he is done
+ * (`seeYouOut` after an arrival, the auto-retire after a presentation) — so an
+ * exit wired to the buttons animates half the closes and blinks the other half
+ * out of existence. `DeckeChat` watches its own prop for the falling edge and
+ * stamps `data-closing` on the three surfaces below; the rules here are what
+ * that attribute buys, and they cover every closer by construction.
+ *
+ * The pairing mirrors the entrance exactly: the scrim FADES (`sheet-scrim-out`,
+ * shared with Sheet — a fade is a fade), the phone panel goes back DOWN the way
+ * it came up (`sheet-panel-up` ⇄ `sheet-panel-down`, also shared), and the
+ * desktop panel shrinks back toward the launcher chip it grew out of. That last
+ * one had no mirror, hence `decke-chat-out`: same 16px/0.94 endpoint as
+ * `decke-chat-in`'s start, so the panel retraces its own arrival rather than
+ * performing a second, different move.
+ *
+ * `forwards` for the same reason Sheet documents above: these elements unmount
+ * a frame after the animation ends, so the retained transform has nothing left
+ * to trap as a containing block, and without it the panel would snap back to
+ * fully open on the final frame — the exact blink this is here to remove. */
+@keyframes decke-chat-out {
+  to {
+    opacity: 0;
+    transform: translateY(16px) scale(0.94);
+  }
+}
+
+.decke-chat-scrim[data-closing] {
+  animation: sheet-scrim-out 220ms ease-in forwards;
+}
+
+.decke-chat-panel[data-closing] {
+  animation: sheet-panel-down 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.decke-chat-bar[data-closing] {
+  animation: decke-chat-out 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@media (min-width: 1068px) {
+  .decke-chat-panel[data-closing] {
+    animation: decke-chat-out 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  }
+}
+
+/* THE PAGE IS INTERACTIVE THE INSTANT THE CLOSE IS ASKED FOR, not 220ms later.
+ *
+ * An exit animation is a courtesy to the eye and must never become a tax on the
+ * hand: whatever the reader reaches for the moment they press ✕ has to receive
+ * that click, even though the glass is still visibly sliding over it. So the
+ * closing panel keeps its pixels and gives up its pointer events — the
+ * descendant selector because the panel is `pointer-events-none` at the root
+ * and its children (transcript, composer, close button) each take them back.
+ *
+ * Scroll is the deliberate exception and is held for the full 220ms; see the
+ * scroll-lock effect in DeckeChat.tsx for why letting go early throws the page
+ * — and him with it — sideways under a panel that is still on screen. */
+.decke-chat-scrim[data-closing],
+.decke-chat-bar[data-closing],
+.decke-chat-panel[data-closing],
+.decke-chat-panel[data-closing] * {
+  pointer-events: none;
+}
+
+/* ── Minimised: he is out on the page, and the page is the subject ───────────
+ *
+ * These two rules replace a `return <button/>` early-exit that swapped the
+ * component's whole returned tree. React saw a different element type in the
+ * same slot, tore the panel down and built it again — which replayed the
+ * entrance animation on every expand, dropped focus, and reset the transcript's
+ * scroll to the bottom. The tree is now stable and the swap is CSS, so
+ * expanding is a repaint rather than a rebirth.
+ *
+ * `opacity`, NOT `display: none`, and that is the whole reason this is a rule
+ * rather than a Tailwind `hidden`: a display-less element loses its scroll box,
+ * so the transcript would come back at the top however carefully the position
+ * was preserved in React — and re-showing it would restart `decke-chat-in`, the
+ * replay this restructure exists to stop.
+ *
+ * The scrim gives up its darkening AND its blur: he has taken the reader out to
+ * look at something on the page, and a page you are being shown through frosted
+ * glass has not been shown to you. */
+.decke-chat-panel[data-minimised] {
+  opacity: 0;
+}
+
+.decke-chat-panel[data-minimised],
+.decke-chat-panel[data-minimised] *,
+.decke-chat-scrim[data-minimised] {
+  pointer-events: none;
+}
+
+/* Opacity only. The scrim's colour and its blur are set INLINE by DeckeChat and
+ * an inline declaration outranks anything here, so their withdrawal is done at
+ * the same place they are applied — see the comment on that style object. */
+.decke-chat-scrim[data-minimised] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .decke-chat-scrim[data-closing],
+  .decke-chat-panel[data-closing],
+  .decke-chat-bar[data-closing] {
+    animation-duration: 1ms;
+  }
+}
+
 /* ── Deck-E's button chip ────────────────────────────────────────────────────
  *
  * A 2D stand-in for the character, drawn in CSS. It exists so the floating

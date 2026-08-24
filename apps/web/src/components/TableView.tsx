@@ -99,6 +99,11 @@ export function TableView({
             to="/series/$series/$set/$number"
             params={{ series, set, number: card.number }}
             className="group flex items-stretch overflow-hidden rounded-lg bg-surface-tertiary hover:bg-action-default-hover"
+            // Deck-E's address for this card, the same attribute `CardTile`
+            // carries so that "take me to Pitch Black 84" means the same thing
+            // whichever view the reader happens to have left the page in. This
+            // list is not virtualized, so the row is simply there to be found.
+            data-decke-card={card.cardId}
           >
             {/* Thumbnail: object-cover into a landscape window crops to the card's
                 art box — full card width, centred on the upper illustration. */}

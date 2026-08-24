@@ -98,16 +98,30 @@ export function travelRate(distance: number): number {
 }
 
 // --- orientation constants -------------------------------------------------
-const LEAD_ACC = 26.0 // degrees. Lean follows ACCELERATION, not speed:
-const LEAD_SPD = 13.0 // theta = arctan(a/g) is the real physics of anything
-const LEAD_MAX = 34.0 // that flies by vectoring thrust. A speed-driven lean
+const LEAD_ACC = 12.0 // degrees. Lean follows ACCELERATION, not speed:
+const LEAD_SPD = 5.0 // theta = arctan(a/g) is the real physics of anything
+const LEAD_MAX = 12.0 // that flies by vectoring thrust. A speed-driven lean
 // holds the extreme pose flat through cruise (measured 36 degrees sustained for
 // six frames, which read as toppling) and — decisively — cannot tip him
 // BACKWARD to brake, because speed has no sign.
+//
+// THE MAGNITUDES CAME DOWN in the 2026-08-24 animation pass, and this closed
+// D8. The acceleration LAW was right; the numbers were an aircraft's, not a
+// mascot's — and the budget has to be counted ACROSS LAYERS, which is the
+// arithmetic the old numbers never did. The apparent tilt of a frame is the
+// root rotation (theta, capped here) PLUS the body-curl morphs the `bend`/
+// `lean` channels drive at 18°/15° full-scale (`CHANNEL_RANGE`). At the old
+// LEAD_MAX 34 with curve clamp 0.72 the stack peaked near 34 + 0.72×(15..18)
+// ≈ 46-58 apparent degrees — the vision judge read a frame of `close-reopen`
+// as "nearly upside-down as it falls", and the owner's complaint band
+// (25-35°) was crossed on every long leg. The budget now: theta ≤ 12, curl ≤
+// 0.35×(15..18) ≈ 5-6 — a worst-phase stack under ~20°, a bank a cartoon
+// body wears while staying upright. The whip transient and the squash below
+// carry the sense of effort instead.
 const YAW_MAX = 20.0
-const CURVE_GAIN = 0.62
-const WHIP_GAIN = 0.85
-const CURVE_CLAMP = 0.72
+const CURVE_GAIN = 0.25 // sustained body curl through cruise (was 0.62 — it
+const WHIP_GAIN = 0.6 // stacked on the lean and read as toppling; the WHIP
+const CURVE_CLAMP = 0.35 // transient keeps the launch/brake snap)
 const TWIST_GAIN = 0.22
 const WHIP_LAG_MS = 66.0
 const STRETCH = 0.15 // NOT the wiki's 0.27, which pumped the face vertically
@@ -269,6 +283,17 @@ export type SolveOptions = {
   arc?: number
   bow?: number
   cruise?: number
+  /**
+   * Extra playback speed for THIS leg, multiplied on top of `travelRate`.
+   *
+   * The safe knob, per the file's own invariant: it scales how fast the
+   * already-solved track is played and can never destabilise the integrator
+   * or wake the 600-frame guard, unlike `cruise`. `sampleTrack` indexes by
+   * progress through `durationMs`, so any rate is exact. The chat open/close
+   * legs use 2 — the owner: "I'd like that to be nice and snappy" — without
+   * touching the pace of anything else he does.
+   */
+  rate?: number
 }
 
 /**
@@ -317,7 +342,7 @@ export function solveFlight(a: Vector3, b: Vector3, opts: SolveOptions): FlightT
 
   const arcs = simulate(pathLen, cruise)
   const nf = arcs.length - 1
-  const durationMs = (nf * 1000) / (FPS * travelRate(a.distanceTo(b)))
+  const durationMs = (nf * 1000) / (FPS * travelRate(a.distanceTo(b)) * (opts.rate ?? 1))
 
   // Position at a given arc length, extrapolating along the end tangent outside
   // the path so anticipation and overshoot have somewhere to go.
