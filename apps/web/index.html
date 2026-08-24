@@ -69,7 +69,105 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <!--
+      FIRST PAINT, BEFORE ANY JAVASCRIPT HAS RUN.
+
+      `#root` used to be empty, so the browser painted `body`'s background and
+      then had nothing else to show until the entry chunk had downloaded, parsed
+      and mounted React. On a cold client that gap is real — issue #75 measured
+      6.3 s of it on a throttled connection — and an empty dark page for six
+      seconds is indistinguishable from a broken one. The reporter described
+      exactly that: "a blank gray screen that wouldn't load for a while."
+
+      The cause of the six seconds was a 1.2 MB three.js chunk on the critical
+      path and it is fixed in `vite.config.ts`; this is the other half, because
+      the gap can never be driven to zero and an unexplained blank page is the
+      wrong thing to show for whatever remains of it.
+
+      IT IS INLINE ON PURPOSE — markup, styles and all. A loading state that
+      needs a request of its own cannot cover the wait for requests.
+
+      IT FADES IN AFTER 350 ms rather than immediately, so a warm load (measured
+      ~250 ms) shows nothing at all. A skeleton that flashes on every fast
+      navigation is worse than no skeleton; this one only appears if the wait is
+      long enough to need explaining.
+
+      React clears it: `createRoot(...).render()` replaces the container's
+      children on first commit, so there is nothing to tear down and no state to
+      keep in sync. Do not move it outside `#root` — then it would need removing
+      by hand, and the hand would eventually forget.
+    -->
+    <style>
+      #boot {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.25rem;
+        background: #1c1917;
+        opacity: 0;
+        animation: boot-in 0.4s ease 0.35s forwards;
+      }
+      #boot-card {
+        width: 88px;
+        height: 122px;
+        border-radius: 8px;
+        background: #292524;
+        border: 1px solid #3a3532;
+        position: relative;
+        overflow: hidden;
+      }
+      /* A light sweep across the card face — the same gesture the app's own
+         card tiles use while their art loads, so the wait looks like DeckPal
+         rather than like a generic spinner. */
+      #boot-card::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          105deg,
+          transparent 30%,
+          rgba(0, 211, 243, 0.13) 50%,
+          transparent 70%
+        );
+        transform: translateX(-100%);
+        animation: boot-sweep 1.4s ease-in-out infinite;
+      }
+      #boot-word {
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        font-size: 0.8125rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #8b847e;
+      }
+      @keyframes boot-in {
+        to {
+          opacity: 1;
+        }
+      }
+      @keyframes boot-sweep {
+        to {
+          transform: translateX(100%);
+        }
+      }
+      /* Motion is decoration here; the card and the word carry the meaning. */
+      @media (prefers-reduced-motion: reduce) {
+        #boot {
+          animation: boot-in 0.01s linear 0.35s forwards;
+        }
+        #boot-card::after {
+          animation: none;
+        }
+      }
+    </style>
+    <div id="root">
+      <div id="boot" role="status" aria-live="polite">
+        <div id="boot-card"></div>
+        <div id="boot-word">Loading DeckPal</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

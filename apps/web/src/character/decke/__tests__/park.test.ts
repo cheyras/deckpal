@@ -27,7 +27,7 @@ import assert from 'node:assert/strict'
 import { PerspectiveCamera, Vector3 } from 'three'
 import { BLENDER_CAMERA, blenderCameraQuaternion, blenderToThree, BODY_H, BODY_W } from '../constants'
 import { parkOn, solvePark, viewportToBlender, type RectLike } from '../dom'
-import { setViewport } from '../viewport'
+import { setViewport } from '../../viewport'
 
 const VIEW_W = 390
 const VIEW_H = 844

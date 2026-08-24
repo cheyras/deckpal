@@ -28,14 +28,14 @@ import {
   setViewport,
   viewHeight,
   viewWidth,
-} from './viewport'
+} from '../viewport'
 import {
   BEACON,
   beaconRect,
   scrollableAncestor,
   scrollToCentre,
   type Beacon,
-} from './beacon'
+} from '../beacon'
 import { bindRig, applyLook, applyPose, resolveFacing, type RigNodes } from './rig'
 import {
   CARD_BACK_URL,

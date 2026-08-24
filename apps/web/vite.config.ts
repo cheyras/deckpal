@@ -233,11 +233,70 @@ export default defineConfig(async ({ command }) => {
           // Naming the group pins it: `[name]` resolves to `Decke-runtime`, the
           // emitted file is `assets/Decke-runtime-<hash>.js`, and it matches the
           // glob no matter how many modules import the engine from now on.
+          // AND THE APP'S OWN SHARED CODE MUST NOT BE SWEPT INTO IT.
+          //
+          // A group does not only collect the modules its `test` matches — it
+          // also absorbs their DEPENDENCIES, when nothing else has claimed them
+          // first. `character/decke/cardSource.ts` imports `lib/api.ts`, so
+          // `lib/api.ts` was pulled into the character group, and with it
+          // `lib/supabase.ts`, `lib/landingRoute.ts` and `lib/returningVisitor.ts`.
+          //
+          // Those four are imported by roughly fifty modules the ENTRY reaches:
+          // `main.tsx`, `AppShell`, `AuthGuard`, every route. So the entry chunk
+          // gained a static import of the character chunk, and Vite — correctly,
+          // for a static entry dependency — wrote a `<link rel="modulepreload">`
+          // for it into `index.html`. That handed 361 kB gzipped of three.js to
+          // every visitor at high priority, ahead of first paint, on a route two
+          // accounts can open. Measured on production: 6.3 s to first content on
+          // a throttled cold load against 0.3 s warm — issue #75, reported as
+          // "a blank gray screen that wouldn't load for a while".
+          //
+          // Claiming those modules FIRST, at a higher priority, is what stops the
+          // absorption: the character group can still reference them, it just
+          // cannot own them, so the edge from the entry now points at the app's
+          // own plumbing instead of at three.js.
+          //
+          // WHAT `app-lib` CLAIMS, and why it is those two patterns:
+          //
+          //   `src/lib/**`            — the app's shared plumbing (api, supabase,
+          //                             routing helpers). Everything imports it.
+          //   `src/character/*.ts`    — the FLAT files directly under `character/`,
+          //                             and nothing in `character/decke/`. This is
+          //                             the deliberate boundary layer: modules the
+          //                             app shell is allowed to touch that do NOT
+          //                             import three.js. `viewport.ts`, `beacon.ts`
+          //                             and `cardSource.ts` were moved out of
+          //                             `decke/` to sit here, because `DeckeBeacon`
+          //                             and `useCardArt` import them statically and
+          //                             each such import was one more rope tying
+          //                             the entry to the engine.
+          //
+          // So the directory now means something enforceable: `character/decke/`
+          // is the engine and is NEVER on the critical path; `character/*.ts` is
+          // the boundary the shell may import; `character/host/**` is the React
+          // host in between. A new file that both the shell and the engine need
+          // goes in the boundary layer, not in `decke/`.
+          //
+          // DO NOT widen `app-lib` to "everything except decke". That was tried:
+          // the group then absorbs three.js as a dependency of `character/host`
+          // and emits ONE 2.3 MB chunk that is both precached and preloaded —
+          // strictly worse than the bug being fixed. `check-precache.mjs` gate
+          // ONE catches it, which is how we know.
+          //
+          // `check-precache.mjs` gate THREE fails the build if the character is
+          // ever on the document's critical path again. Gate ONE only ever
+          // watched the service worker's door; this walked in through the other.
           advancedChunks: {
             groups: [
               {
+                name: 'app-lib',
+                test: /[\\/]src[\\/]lib[\\/]|[\\/]src[\\/]character[\\/][^\\/]+\.tsx?$/,
+                priority: 20,
+              },
+              {
                 name: 'Decke-runtime',
                 test: /[\\/]node_modules[\\/]three[\\/]|[\\/]src[\\/]character[\\/]decke[\\/]/,
+                priority: 10,
               },
             ],
           },

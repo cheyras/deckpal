@@ -36,7 +36,7 @@ import assert from 'node:assert/strict'
 import { PerspectiveCamera, Vector3 } from 'three'
 import { BLENDER_CAMERA, blenderCameraQuaternion, blenderToThree, BODY_H } from '../constants'
 import { OPTICAL_OVERLAP, SILHOUETTE, solvePark, type RectLike } from '../dom'
-import { setViewport } from '../viewport'
+import { setViewport } from '../../viewport'
 import { DeckE } from '../DeckE'
 
 const VIEW_W = 1440

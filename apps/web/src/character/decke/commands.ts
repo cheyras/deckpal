@@ -17,7 +17,7 @@ import type { CardArt, CardSlot } from './cardArt'
  *  Matches the dev page's own bound on the same fetch. */
 const DEFAULT_CARDS_MS = 700
 import { BATCH_MAX, MAX_RUN } from './cards'
-import { artForIds, defaultStash } from './cardSource'
+import { artForIds, defaultStash } from '../cardSource'
 import type { Depth, Side } from './dom'
 import { CHANNEL_RANGE } from './constants'
 import { IDLE } from './sustain'

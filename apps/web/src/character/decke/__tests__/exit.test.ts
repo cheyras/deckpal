@@ -33,7 +33,7 @@ import {
   blenderCameraQuaternion,
   blenderToThree,
 } from '../constants'
-import { setViewport } from '../viewport'
+import { setViewport } from '../../viewport'
 
 const VIEW_W = 1280
 const VIEW_H = 900
