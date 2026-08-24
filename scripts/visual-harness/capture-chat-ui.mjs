@@ -48,6 +48,7 @@ const SECTIONS = [
   'approval',
   'notices',
   'farewell',
+  'history',
   'flow',
 ]
 
