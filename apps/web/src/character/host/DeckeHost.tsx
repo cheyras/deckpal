@@ -171,26 +171,21 @@ const EXIT_GUARD_MS = 3000
  *
  * That earlier version had a real reason — a rect read mid-transform aims him
  * at a place the mark is still leaving — and the reason is answered rather than
- * ignored: the leg now launches at the first ON-SCREEN read and is STEERED, by
- * `DeckE.restation()` on every frame of `PARK_CHASE_MS`, onto wherever the mark
- * finishes. `syncStation` folds that into the arc it is already flying instead
- * of launching a second hop. The off-viewport guard (`!`) is untouched, because
- * "the mark is not on screen yet" is a different claim from "the mark is still
- * moving", and only the first is a reason to wait.
+ * ignored: the leg is aimed at where the mark LANDS (`settledRect`, which reads
+ * the untransformed layout box) instead of where it currently is, so it does
+ * not matter that the panel is still animating. The off-viewport guard (`!`) is
+ * untouched, because "the mark is not on screen yet" is a different claim from
+ * "the mark is still moving", and only the first is a reason to wait.
+ *
+ * Measured against the build this replaced, four runs each: he leaves the chip
+ * at 0.23 scale instead of 1.046 and reaches full size 150 ms AFTER the leg
+ * starts instead of 100 ms before it; the entrance flies ONE leg instead of
+ * two; and the correction after touchdown is 4.3-5.0 px — the idle float — where
+ * it was 8.8 px plus a second hop.
  */
 const PARK_SETTLE_STEP_MS = 90
 const PARK_SETTLE_CAP_MS = 2400
 
-/**
- * How long the entrance keeps re-solving its destination after launching, in ms.
- *
- * Long enough to cover the panel's own entrance — the composer's drop is a
- * 360 ms keyframe animation (`decke-composer-drop`) and the sheet's translate is
- * shorter — with margin, and it costs one `querySelector` and one solve per
- * frame while it runs. It stops on its own; it is not tied to the flight, which
- * may be shorter or longer than the panel's animation.
- */
-const PARK_CHASE_MS = 600
 
 /**
  * How long the speech bubble stays after his last line, per character of it.
@@ -689,6 +684,42 @@ export function DeckeHost() {
   // `DeckE.setCharacterHeight` now re-solves his station itself, so the
   // ordering is belt and the engine is braces.
 
+/**
+ * Where an element will BE once whatever transform is animating it is done.
+ *
+ * ── WHY A LAYOUT BOX AND NOT A RECT ──────────────────────────────────────────
+ *
+ * `getBoundingClientRect()` includes transforms, so during the chat panel's own
+ * entrance it reports the composer where it currently IS rather than where it
+ * lands. Measured at 1440x900: at t+152 ms it reads (515, 542) and it settles at
+ * (494, 528) by t+347 — 21 px left and 14 px up.
+ *
+ * That matters because the entrance now launches his leg immediately, so that
+ * the grow and the hop overlap, and a leg solved against the moving rect lands
+ * 25 px away from the mark and is corrected in a single frame after touchdown.
+ * √(21² + 14²) is 25, which is the jump, measured to the decimal on every run.
+ *
+ * `offsetTop`/`offsetLeft` walk the offset-parent chain and IGNORE transforms
+ * entirely, so they give the settled box on the very first frame — verified
+ * stable at (527, 494) from t+152 through t+1103 while the animated rect was
+ * still moving. Aiming at that is what makes launching early safe.
+ *
+ * Returns viewport coordinates, like `getBoundingClientRect`, so it drops
+ * straight into a `{ rect }` target.
+ */
+function settledRect(el: HTMLElement): DOMRect {
+  const live = el.getBoundingClientRect()
+  let top = 0
+  let left = 0
+  let n: HTMLElement | null = el
+  while (n) {
+    top += n.offsetTop
+    left += n.offsetLeft
+    n = n.offsetParent as HTMLElement | null
+  }
+  return new DOMRect(left - window.scrollX, top - window.scrollY, live.width, live.height)
+}
+
   /**
    * Put him on his chat mark.
    *
@@ -705,7 +736,7 @@ export function DeckeHost() {
    * cut to his mark at scale zero and grown there. A flight from nowhere is
    * not a flight.
    */
-  const park = useCallback((opts: { rate?: number; instant?: boolean } = {}) => {
+  const park = useCallback((opts: { rate?: number; instant?: boolean; settled?: boolean } = {}) => {
     const d = deckeRef.current
     if (!d) return
     // A MARK THAT IS NOT ON SCREEN IS NOT A MARK. Probed on a cold mobile
@@ -733,9 +764,13 @@ export function DeckeHost() {
     // a measured size. `flyTo` THROWS on a selector that resolves to
     // nothing, so this asks rather than assumes — and falls back to the
     // same corner expressed as a fraction.
-    if (!wide && onScreen(document.querySelector(`[${PARK_LANDMARK}]`))) {
+    const box = document.querySelector<HTMLElement>(`[${PARK_LANDMARK}]`)
+    if (!wide && onScreen(box)) {
       d.flyTo(
-        { selector: `[${PARK_LANDMARK}]` },
+        // The phone's park box gets the same treatment as the desktop composer
+        // — see `settledRect`. The sheet translates up on its way in, so a leg
+        // launched during that entrance is aimed at a box still in motion.
+        opts.settled && box ? { rect: settledRect(box) } : { selector: `[${PARK_LANDMARK}]` },
         // `facing: -1` is screen-RIGHT. He stands in the panel's bottom-left
         // corner with the composer to his right, and a centre park returns no
         // facing (a point has no inward) — so without this, `flyTo`
@@ -743,7 +778,29 @@ export function DeckeHost() {
         // back to the conversation. The first thing the owner says in the
         // recording, said four times; the desktop call three branches down
         // was already fixed for exactly this and the fix never reached here.
-        { depth: 'foreground', highlight: false, centre: true, facing: -1, rate: opts.rate, instant: opts.instant },
+        {
+          depth: 'foreground',
+          highlight: false,
+          centre: true,
+          facing: -1,
+          rate: opts.rate,
+          instant: opts.instant,
+          arrived: opts.settled
+            ? (aborted) => {
+                if (aborted) return
+                const d2 = deckeRef.current
+                if (!d2 || !document.querySelector(`[${PARK_LANDMARK}]`)) return
+                try {
+                  d2.flyTo(
+                    { selector: `[${PARK_LANDMARK}]` },
+                    { depth: 'foreground', highlight: false, centre: true, facing: -1, instant: true },
+                  )
+                } catch {
+                  /* the box went away mid-landing; the watch re-parks */
+                }
+              }
+            : undefined,
+        },
       )
       return
     }
@@ -757,10 +814,20 @@ export function DeckeHost() {
       // `flyTo` THROWS on a selector that resolves to nothing, so ask — and
       // the same on-screen gate as the phone box, for the same stalled-
       // entrance reason.
-      const composer = document.querySelector(`[${COMPOSER_LANDMARK}]`)
+      const composer = document.querySelector<HTMLElement>(`[${COMPOSER_LANDMARK}]`)
       if (onScreen(composer)) {
+        // AIM AT WHERE IT LANDS, not where it is. Only the entrance asks for
+        // this, and only because it launches while the panel is still animating
+        // — see `settledRect`. The STATION stays the element either way: `flyTo`
+        // is re-issued against the selector on arrival, by which time the two
+        // agree, so nothing moves and he is left tracking the real thing rather
+        // than a remembered box.
+        const aim =
+          opts.settled && composer
+            ? ({ rect: settledRect(composer) } as const)
+            : ({ selector: `[${COMPOSER_LANDMARK}]` } as const)
         d.flyTo(
-          { selector: `[${COMPOSER_LANDMARK}]` },
+          aim,
           // `anchor: 'optical'`, not `centre` and not `bottom`.
           //
           // `centre` was the first version: the composer is 58px and he is
@@ -773,7 +840,30 @@ export function DeckeHost() {
           // with his very bottom corner, which makes him look like he's kind
           // of above the thing." `optical` sinks him far enough that the
           // card's baseline crosses his body. See `OPTICAL_OVERLAP`.
-          { depth: 'foreground', highlight: false, side: 'left', anchor: 'optical', rate: opts.rate, instant: opts.instant },
+          {
+            depth: 'foreground',
+            highlight: false,
+            side: 'left',
+            anchor: 'optical',
+            rate: opts.rate,
+            instant: opts.instant,
+            arrived: opts.settled
+              ? (aborted) => {
+                  if (aborted) return
+                  const d2 = deckeRef.current
+                  if (!d2 || !document.querySelector(`[${COMPOSER_LANDMARK}]`)) return
+                  // Hand the station back to the element, without moving him.
+                  try {
+                    d2.flyTo(
+                      { selector: `[${COMPOSER_LANDMARK}]` },
+                      { depth: 'foreground', highlight: false, side: 'left', anchor: 'optical', instant: true },
+                    )
+                  } catch {
+                    /* the composer went away mid-landing; the watch re-parks */
+                  }
+                }
+              : undefined,
+          },
         )
         return
       }
@@ -897,45 +987,34 @@ export function DeckeHost() {
             measureRef.current?.()
             // The chip→mark leg, at snap pace — the entrance is the owner's
             // "twice as fast" leg. Every other park stays ordinary.
-            parkRef.current({ rate: SNAP_RATE })
+            parkRef.current({ rate: SNAP_RATE, settled: true })
             parkedRef.current = true
-            // AND KEEP LOOKING. The panel is still playing its own entrance, so
-            // the mark he was just aimed at is not where it will end up. Every
-            // frame of the chase window tells the engine to look again, and
-            // `syncStation` ramps the difference into the arc he is already
-            // flying — one leg that curves onto a moving target, rather than a
-            // leg to the wrong place and a second hop to fix it.
+            // THE LANDING IS THE SIGNAL. The composer watch below must not
+            // count the panel's own entrance as a move — it re-baselines on
+            // this timestamp. See `entranceParkedAtRef`.
             //
-            // AND IT STOPS WHEN HE LANDS. `syncStation` STEERS a leg that is in
-            // the air and SNAPS the anchor when there is no leg to steer — so a
-            // chase that outlives the flight converts every remaining pixel of
-            // panel movement into a hard jump after touchdown. Measured: the
-            // post-landing displacement went 9 px to 29 px with the chase
-            // running 80 ms past the landing, which is the arrival flinch this
-            // pass is supposed to be removing, re-introduced by the fix for the
-            // entrance. The window is a CAP, not the mechanism; the landing is
-            // the mechanism.
-            const until = Date.now() + PARK_CHASE_MS
-            const chase = () => {
-              const d = deckeRef.current
-              if (!d) return
+            // There is no destination-chasing loop here any more, and there was
+            // one: it called `restation()` every frame of the flight to steer
+            // the leg onto the settling composer. It measured as completely
+            // inert — disabling it changed the landing by nothing at all — and
+            // `settledRect` removes the need for it, because the leg is now
+            // aimed at where the composer LANDS rather than where it is.
+            const settleWatch = () => {
+              const d2 = deckeRef.current
+              if (!d2) return
               let flying = false
               try {
-                flying = d.getState().flying
-                if (flying) d.restation()
+                flying = d2.getState().flying
               } catch {
-                /* an engine mid-teardown must not take the entrance with it */
-              }
-              if (flying && Date.now() < until) {
-                raf = requestAnimationFrame(chase)
                 return
               }
-              // The leg is down (or the cap expired). Everything the composer
-              // did up to this instant was the panel's entrance and is already
-              // in his arc; the watch starts counting from here.
+              if (flying) {
+                raf = requestAnimationFrame(settleWatch)
+                return
+              }
               entranceParkedAtRef.current = Date.now()
             }
-            raf = requestAnimationFrame(chase)
+            raf = requestAnimationFrame(settleWatch)
           })
         }
         const tick = () => {
@@ -1085,7 +1164,22 @@ export function DeckeHost() {
         // `rate: SNAP_RATE` — the dive back into the chip is the other half of
         // the owner's "twice as fast" ask, and a quick exit is also what makes
         // "jumping into his chat bubble/hiding" read as one gesture.
-        { centre: true, highlight: false, scaleTo: 0, rate: SNAP_RATE, arrived: finish },
+        {
+          centre: true,
+          highlight: false,
+          scaleTo: 0,
+          rate: SNAP_RATE,
+          // KEEP THE PLANE HE IS ALREADY ON. `flyTo` defaults `depth` to
+          // `foreground`, and omitting it meant a dismissal that started from a
+          // PRESENTATION — which parks him on the far plane at a third scale —
+          // pulled him toward the camera on his way into the chip. Measured:
+          // 43.3 px of drawn height to 62.9, a 45% swell, on a leg whose own
+          // contract is that he "never grows during the trip". He is shrinking
+          // to nothing at the end of it either way, so there is nothing the
+          // near plane buys here.
+          depth: d.getState().depth,
+          arrived: finish,
+        },
       )
     } else {
       // No launcher to dive into — hidden by preference, or a close on a
