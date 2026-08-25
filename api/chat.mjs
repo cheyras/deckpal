@@ -87,6 +87,7 @@ import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
 import { stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
+import { RepairLog, clampStrings } from '../apps/api/dist/decke/repair.js'
 import { makePool } from '@deckpal/db'
 
 /**
@@ -595,9 +596,13 @@ async function serve(request) {
       // step one is what `showScreen` may draw on step three — evidence is a
       // property of the turn, not of a call.
       const grounding = createGrounding()
+      // What `repairToolCall` below mended, so the tool can say so in its own
+      // result rather than being silently corrected. Per request, like the
+      // grounding beside it.
+      const repairs = new RepairLog()
 
       const allDeckeTools = {
-        ...buildTools(writer, grounding),
+        ...buildTools(writer, grounding, repairs),
         // READS AND WRITES, because the approval round-trip now exists.
         //
         // `include: () => true` is not "no filter" — every write is still
@@ -810,6 +815,57 @@ async function serve(request) {
         prepareStep: ({ stepNumber }) => ({
           activeTools: focusedTools(allDeckeTools, stepNumber),
         }),
+        // ── A CAPTION THAT IS TOO LONG IS NOT A LOST TURN ─────────────────
+        //
+        // Measured on a real gate run against production: `showScreen` failed
+        // schema validation FIVE TIMES in one turn, and the model — told only
+        // that something had gone wrong — spent five of its twelve steps
+        // shortening the panel's TITLE while the actual fault, a text block over
+        // the 280-character cap, went untouched in every retry. The reader got
+        // no panel and no explanation.
+        //
+        // Surfacing the validation message (further down this file) was the
+        // first half of the fix and did not stop the loop: "expected string to
+        // have <=280 characters" over a schema with several capped strings says
+        // WHAT broke and not WHERE.
+        //
+        // A validation failure never reaches `execute`, so the repeat ledger in
+        // `decke/repeat.ts` cannot see it either — this is the one thrash class
+        // everything else in this pass leaves standing.
+        //
+        // DETERMINISTIC, NOT A SECOND MODEL CALL. The usual implementation of
+        // this hook asks a model to fix its own arguments, which costs latency
+        // and money on the exact turn that has already wasted both. This mends
+        // one class of fault mechanically — a string past its documented
+        // maximum — because that is the class that occurred, it has exactly one
+        // correct fix, and trimming a caption cannot change what the call MEANS.
+        // Anything else returns null and takes the ordinary error path.
+        //
+        // AND IT IS NOT SILENT. `tools.ts` states the rule twice: "a model that
+        // is silently corrected learns nothing and repeats the mistake." Every
+        // repair is recorded and the tool reports it in its own result, naming
+        // the exact field — which is strictly more than the failure gave it,
+        // and costs no step.
+        repairToolCall: async ({ toolCall, inputSchema, error }) => {
+          if (error?.name === 'NoSuchToolError') return null
+          let parsed
+          try {
+            parsed = JSON.parse(toolCall.input)
+          } catch {
+            // Malformed JSON is not a length problem and guessing at it would
+            // be inventing arguments.
+            return null
+          }
+          const schema = await inputSchema({ toolName: toolCall.toolName })
+          const { value, repairs: made } = clampStrings(parsed, schema)
+          if (made.length === 0) return null
+          for (const r of made) repairs.note(toolCall.toolCallId, r)
+          console.warn(
+            `[deck-e] repaired ${toolCall.toolName}: ` +
+              made.map((r) => `${r.path} ${r.was}→${r.now} chars`).join(', '),
+          )
+          return { ...toolCall, input: JSON.stringify(value) }
+        },
         // ── APPROVALS ARE SIGNED, SO THEY CANNOT BE FORGED ────────────────
         //
         // The SDK holds a write until an approval arrives. Until this line,

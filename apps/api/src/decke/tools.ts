@@ -493,6 +493,18 @@ export function buildTools(
    * `grounding.ts`.
    */
   grounding?: Grounding,
+  /**
+   * What `repairToolCall` mended on the way in, so this tool can SAY so.
+   *
+   * A repaired call arrives here looking perfectly valid — the over-long
+   * caption has already been trimmed — and reporting nothing would be exactly
+   * the silent correction `validateCommand` above refuses to make: "a model
+   * that is silently corrected learns nothing and repeats the mistake."
+   *
+   * Optional, because the dev preview and the tests have no repair log, and a
+   * call that needed no repair reports none either way.
+   */
+  repairs?: { take(toolCallId: string): string[] },
 ): ToolSet {
   return {
     express: tool({
@@ -739,7 +751,7 @@ export function buildTools(
       description:
         'Show a small panel of results in the chat — a summary, a haul, a set of figures. You choose which components to use and what goes in them; you never write markup, styling or layout. Use it when the answer is a SHAPE (a list of cards, a few numbers, a progress bar) rather than a sentence. For a sentence, just say the sentence.',
       inputSchema: screenSchema,
-      execute: async (screen) => {
+      execute: async (screen, { toolCallId }) => {
         // Same contract as `express`: sanitise here, report what was dropped,
         // and put the payload on a TRANSIENT part so it renders once and never
         // enters message history. A screen echoed back into history would be
@@ -749,7 +761,15 @@ export function buildTools(
         // reader had no way to tell: an invented id draws real card art for
         // somebody else's card. The prompt forbids it and the prompt is not an
         // enforcement mechanism; this is.
-        const { screen: clean, dropped } = sanitizeScreen(screen, grounding)
+        const { screen: clean, dropped: cut } = sanitizeScreen(screen, grounding)
+        // ── WHAT WAS MENDED ON THE WAY IN, SAID OUT LOUD ────────────────────
+        //
+        // A repaired call arrives here looking valid: the over-long caption has
+        // already been trimmed by `repairToolCall`. Saying nothing would be the
+        // silent correction this file refuses twice above — so the trim joins
+        // the same `errors` channel a dropped block already uses, naming the
+        // exact field, which is more than the raw validation failure ever gave.
+        const dropped = [...(repairs?.take(toolCallId) ?? []), ...cut]
         if (clean.blocks.length) {
           writer.write({ type: 'data-decke-screen', data: { screen: clean }, transient: true })
         }
