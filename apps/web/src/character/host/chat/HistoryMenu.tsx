@@ -278,7 +278,14 @@ export function HistoryMenu({ viewingId, liveId, onNewChat, onOpenConversation, 
           className={[
             'absolute top-full z-[20] mt-[6px] overflow-hidden rounded-[14px]',
             'border border-border-default bg-surface-primary shadow-lg',
+            // A dropdown is the entrance where a silent arrival costs the most:
+            // it opens directly under the control that was just pressed, over
+            // content that stays put, so with no fade the only evidence the
+            // press did anything is that the page abruptly looks different.
+            // `motion-safe:` on its own left exactly that — the class does not
+            // apply under `reduce`, so the panel was simply there.
             'motion-safe:animate-[decke-chat-in_160ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]',
+            'motion-reduce:animate-[decke-calm-in_220ms_ease-out_backwards]',
           ].join(' ')}
         >
           <HistorySheet

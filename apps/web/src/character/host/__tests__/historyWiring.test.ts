@@ -295,15 +295,34 @@ test('reduced motion ships with the motion, per element (X1)', () => {
   for (const [name, src] of [['HistoryMenu', MENU], ['TranscriptView', VIEW]] as const) {
     assert.doesNotMatch(src, /0\.01ms/, `${name} must not carry a blanket motion kill-switch`)
     // Every animation and transition in these two files, without exception.
-    for (const m of code(src).matchAll(/(?<!motion-safe:)\b(animate-\[|transition-)/g)) {
+    //
+    // `motion-reduce:` counts as a guard for the same reason `motion-safe:`
+    // does — it compiles to a `prefers-reduced-motion` query, so the class is
+    // preference-aware by construction, which is the whole property this pin
+    // is protecting. It was added because the two variants are not
+    // alternatives: `motion-safe:` says what happens when movement is welcome
+    // and says NOTHING about `reduce`, where the class simply stops applying
+    // and the menu appears with no arrival at all. The fix for that is a
+    // second, `motion-reduce:` class naming a fade — and a pin that only ever
+    // accepted `motion-safe:` would have failed the fix for the defect.
+    for (const m of code(src).matchAll(/(?<!motion-(safe|reduce):)\b(animate-\[|transition-)/g)) {
       const at = m.index ?? 0
-      const before = code(src).slice(Math.max(0, at - 12), at)
+      const before = code(src).slice(Math.max(0, at - 14), at)
       assert.ok(
-        before.endsWith('motion-safe:'),
+        before.endsWith('motion-safe:') || before.endsWith('motion-reduce:'),
         `${name}: "${code(src).slice(at, at + 40)}" animates regardless of the reader's preference`,
       )
     }
   }
+
+  // And the menu's entrance covers BOTH sides, not just the welcome one. The
+  // pin above is satisfied by either variant on its own; this is the one that
+  // says a reader with `reduce` on still sees the panel arrive.
+  assert.match(
+    code(MENU),
+    /motion-reduce:animate-\[decke-calm-in_/,
+    'HistoryMenu: the dropdown has no arrival at all under prefers-reduced-motion',
+  )
 })
 
 test('the LIVE conversation reaches the list, and its row does not open', () => {

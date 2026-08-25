@@ -212,9 +212,18 @@ export function DeckeBubble({
       // keyframe's `transform` is a literal value that would fight the
       // per-render `dir`-based offset below (two different sources both
       // wanting to own `transform` on the same element), and it can't reverse
-      // for `leaving` without a second keyframe. `motion-reduce:transition-none`
-      // makes both directions instant under reduced motion — the position is
-      // still correct immediately, only the travel between positions is gone.
+      // for `leaving` without a second keyframe.
+      //
+      // REDUCED MOTION KEEPS THE FADE AND DROPS THE TRAVEL. This used to be
+      // `motion-reduce:transition-none`, which sounds like the careful choice
+      // and is the same mistake issue #49 found on the premium skin: with both
+      // directions instant, a line he starts saying and a line he stops saying
+      // are the same event — the bubble is simply there, or simply not, with
+      // nothing to mark the change. Opacity is not movement and costs nothing,
+      // so it keeps transitioning; only `transform` goes, and it goes at the
+      // source (theme.css neutralises the custom property below) rather than by
+      // being transitioned instantly, which would still snap through the offset
+      // position on the way.
       className={[
         // `w-max` for the same photographed reason as `DeckeFarewell`: a
         // fixed element's auto width shrink-wraps against the viewport edge
@@ -224,8 +233,9 @@ export function DeckeBubble({
         'pointer-events-none fixed z-[31] w-max max-w-[280px] max-h-[38vh] overflow-y-auto rounded-[14px]',
         'border border-border-default bg-surface-raised px-[12px] py-[8px]',
         'text-[13px] leading-[19px] text-text-primary shadow-xl',
+        'decke-speech-pop',
         'motion-safe:transition-[opacity,transform] motion-safe:ease-[cubic-bezier(0.2,0.9,0.3,1)]',
-        'motion-reduce:transition-none',
+        'motion-reduce:transition-[opacity] motion-reduce:ease-out',
       ].join(' ')}
       style={{
         left: pos?.left ?? -9999,
@@ -233,9 +243,16 @@ export function DeckeBubble({
         // Hidden until placed, so it never flashes at the measuring position.
         visibility: pos ? 'visible' : 'hidden',
         opacity: anim.opacity,
-        transform: anim.transform,
+        // THROUGH A CUSTOM PROPERTY, NOT `transform` DIRECTLY. The offset is a
+        // per-render JS value and so has to be inline, and an inline
+        // declaration outranks every selector in every stylesheet — writing it
+        // here as `transform` would have forced `!important` on the
+        // reduced-motion rule that takes it away. `.decke-speech-pop` in
+        // theme.css reads this property; the `reduce` rule beside it says
+        // `none` and wins on source order alone.
+        '--decke-speech-pop': anim.transform,
         transitionDuration: `${leaving ? LEAVE_MS : ENTER_MS}ms`,
-      }}
+      } as React.CSSProperties}
     >
       {/*
         MARKDOWN HERE TOO, and this is the half that gets forgotten.
