@@ -161,6 +161,37 @@ export function GridView({
                 width: '100%',
                 transform: `translateY(${vRow.start - virtualizer.options.scrollMargin}px)`,
                 display: 'grid',
+                // `alignItems: 'start'` — WITHOUT it, CSS Grid's default `stretch`
+                // makes each CardTile's outer `<Link className="group block">`
+                // (the element `data-decke-card` sits on) fill the whole row
+                // track, i.e. `rowH`, which BAKES IN the 30px `GAP_Y` that is
+                // meant to be empty space *between* rows. So the Link's measured
+                // box ran 30px past its own visible content (art + 74px footer),
+                // and `elementHighlight`'s halo adds another 6px outward on top of
+                // that (`INSET = -6` in `ui/elementHighlight.ts`) — landing the
+                // ring's bottom edge 6px INSIDE the next row's tile. That is the
+                // reported defect verbatim: "his highlight extends way down below
+                // the card's info and even slightly into the card below." Making
+                // grid items content-height instead makes the 30px gap real empty
+                // space again, so the ring's 6px halo lands in it with 24px to
+                // spare — pinned in `ui/__tests__/elementHighlight.test.ts`.
+                //
+                // Checked before taking this fix: every GridView caller
+                // (SearchResults, ListDetail, SetDetail, SpeciesDetail) renders
+                // only CardTile into these cells, across all three Link branches
+                // CardTile can take (set-page sheet, species-page sheet, plain
+                // nav). Nothing inside CardTile depends on the Link filling the
+                // row — the remove button, the "+N Variants" badge, the owned-qty
+                // chip and VariantCounters are all absolutely positioned against
+                // the inner `<div className="relative">` that wraps just the art,
+                // not against the Link, so none of them shift. TableView (the
+                // 'binder' view) is a separate sibling of GridView, never rendered
+                // into this grid, so it is untouched. The only observable change
+                // is that the Link's click/hover target stops extending into the
+                // 30px gap below the footer — that gap has no background or
+                // border today, so it never looked clickable; losing it reads as
+                // a fix, not a regression.
+                alignItems: 'start',
                 gridTemplateColumns: `repeat(${cols}, minmax(0, ${MAX_TILE}px))`,
                 justifyContent: 'space-between',
                 columnGap: gap,

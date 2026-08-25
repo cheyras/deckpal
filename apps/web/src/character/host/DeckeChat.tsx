@@ -1485,7 +1485,13 @@ export function DeckeChat({
   // the wheel.
   useEffect(() => {
     if (!visible || shownMinimised) return
-    decke?.returnHome()
+    // RELEASE THE PIN, DO NOT FLY HIM HOME. This effect re-runs on every return
+    // from a presentation as well as on the open, and `DeckeHost` parks him on
+    // exactly those edges — so a flight from here always had a second flight
+    // launched over the top of it in the same commit, and the abandoned first
+    // leg is the mid-hop stutter the 2026-08-24 review found on nearly every
+    // hop. `releasePin` is the half of `returnHome` this actually needed.
+    decke?.releasePin()
     // EXPERIMENT 1 (see DECISIONS.md): a keyboard-safe lock that does NOT pin
     // the body. `lockScroll`'s `position: fixed` body is half of the pair that
     // makes iOS misbehave; this holds the page with overflow alone.

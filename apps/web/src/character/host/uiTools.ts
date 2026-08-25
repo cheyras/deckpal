@@ -585,7 +585,108 @@ export async function runUiTool(
  * untouched — `DeckE.flyTo` still cuts, and a cut lands on a settled page for
  * the same reason a flight does.
  */
+/**
+ * How long to wait for the page to stop scrolling before flying at something.
+ *
+ * ── THE RACE THIS CLOSES ─────────────────────────────────────────────────────
+ *
+ * There are TWO things that scroll this page on his behalf and they were never
+ * introduced to each other.
+ *
+ * `DeckE.driveScroll` is the good one: `flyTo({ scrollWith: true })` solves a
+ * scroll target and drives it from the flight's own clock, so the page moves
+ * because he is moving. Its cancel is deliberately paranoid and its own comment
+ * says why — "between frames `window.scrollY` should equal what the drive last
+ * wrote; anything else is the reader's wheel, their trackpad, or a keyboard" —
+ * and the reader is meant to win, instantly and permanently.
+ *
+ * The other one is `GridView`'s answer to a `decke:reveal`: a virtualized tile
+ * does not exist until it is scrolled to, so the grid scrolls to it ITSELF, with
+ * the browser's own `behavior: 'smooth'`. That scroll is not the reader and the
+ * drive has no way to know it. So the sequence was: the grid starts a smooth
+ * scroll, the tile mounts, the mutation observer settles 120 ms later with the
+ * scroll still animating, `flyTo` solves its destination and its scroll target
+ * against a rect captured MID-SCROLL, and on the drive's very first frame it
+ * sees a `scrollY` it did not write and disarms itself for good.
+ *
+ * What that looks like is the report: "he goes to show me a card, but the
+ * scrolling doesn't happen so he just dives off the page downward, leaving me
+ * to scroll down myself. defeats the point." — and then, once the reader
+ * scrolls down by hand, "his message is still there, but he's nowhere to be
+ * seen", because he flew to a spot solved against a rect that had not finished
+ * moving.
+ *
+ * Waiting for quiet is the whole fix: one writer at a time, and the rect he is
+ * aimed at is the rect it will still be when he gets there.
+ *
+ * The cap is a bound, not a schedule. A page that never stops scrolling — an
+ * infinite loader, a reader with their finger on the wheel — must not strand a
+ * tool call, and flying at a moving rect is what he did before this existed, so
+ * the fallback is the old behaviour rather than a failure.
+ */
+const SCROLL_QUIET_CAP_MS = 700
+
+/**
+ * Call `then` once the page's scroll offset has held still for two consecutive
+ * frames, or the cap expires.
+ *
+ * TWO frames, not one: a smooth scroll's final frame and the frame after it
+ * carry the same offset only once it has actually finished, and a single
+ * sample cannot tell "arrived" from "a frame where it happened not to move".
+ * The same shape the entrance's park-settle poll uses, and for the same reason.
+ */
+function whenScrollQuiet(then: () => void): void {
+  // A FRAME, or a timer where there are no frames. `runUiTool`'s tests drive
+  // this module against a hand-built `window` with no compositor behind it, and
+  // a bare `requestAnimationFrame` there is a `ReferenceError` that surfaces as
+  // the tool answering "requestAnimationFrame is not defined" — a real failure
+  // mode for any host that is not a browser tab, not only for the tests.
+  const frame =
+    typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame
+      : (fn: () => void) => window.setTimeout(fn, 16)
+  const read = () => window.scrollY ?? 0
+  let last = read()
+  let same = 0
+  const started = Date.now()
+  const tick = () => {
+    const now = read()
+    same = now === last ? same + 1 : 0
+    last = now
+    if (same >= 2 || Date.now() - started >= SCROLL_QUIET_CAP_MS) {
+      then()
+      return
+    }
+    frame(tick)
+  }
+  frame(tick)
+}
+
+
 const SETTLE_MS = 120
+
+/**
+ * How long the destination may take to arrive before he shows that he is
+ * waiting for it.
+ *
+ * THE DEAD AIR IS THE DEFECT, not the wait. `travelAfterRoute` is bounded at
+ * six seconds and routinely uses a good fraction of that on a cold cache, and
+ * for all of it he stood in whatever pose the last sentence left him in while
+ * the panel was already collapsed to its bar. The owner, watching it back:
+ * "waits way too long here to announce what he's showing… then the page just
+ * suddenly becomes the actual thing I asked about — really broken feeling."
+ *
+ * `loading` is the authored answer to exactly this and has never once been
+ * played — declared engine-owned in the model's own prompt, present in the
+ * shipped playbook with its own spin rate, and reachable from nothing but the
+ * dev preview. It is played here.
+ *
+ * 300 ms because a navigation that resolves faster than that has no dead air to
+ * fill, and a spinner that flashes for two frames is worse than none. Roughly
+ * the threshold the interaction literature puts on "did that respond?", and
+ * comfortably longer than a warm same-origin route swap.
+ */
+const DEAD_AIR_MS = 300
 
 /**
  * Wait for the destination to actually exist and stop moving, then travel to it.
@@ -627,9 +728,29 @@ function travelAfterRoute(
     // paths that end it (found, refused, settled-but-gone, capped). An interval
     // that survives its promise would keep scrolling the reader's page for a
     // turn that finished.
+    // ── SHOWING THAT HE IS WAITING ───────────────────────────────────────────
+    //
+    // Armed below, once, if the destination has not turned up promptly. Cleared
+    // through `settle`, which is the one exit — the same reason the reveal
+    // interval is cleared there.
+    let waiting = 0
+    let showedWaiting = false
     const settle = (result: UiToolResult) => {
       if (asking) window.clearInterval(asking)
       asking = 0
+      window.clearTimeout(waiting)
+      // A SUCCESS HANDS HIM OVER, A FAILURE HANDS HIM BACK. `go` has just
+      // launched a flight whose `then: 'point'` owns his state from the moment
+      // it lands, so clearing the posture here would fight it. Nothing was
+      // launched on the failing paths, and a character left spinning over a
+      // page he never reached is the dead air again with a costume on.
+      if (showedWaiting && !result.ok) {
+        try {
+          ctx.decke.setState('idle')
+        } catch {
+          /* an engine mid-teardown must not take the tool's answer with it */
+        }
+      }
       resolve(result)
     }
 
@@ -640,31 +761,60 @@ function travelAfterRoute(
         return true
       }
       if (!el) return false
-      // THE SAME QUESTION `flyTo` ASKS, and it used to be answered here with a
-      // hard-coded "always the long way round". `viaBackground` carries the
-      // measurement and the reason; the short version is that forcing the
-      // far-plane round trip made every navigation cost two 30-unit legs, which
-      // is the "it kind of just became big" this is filed under (C35).
+      // AFTER THE PAGE HAS STOPPED MOVING, and the measurement below is the
+      // reason. `whenScrollQuiet`'s header has the full account; the short
+      // version is that the reveal this tool just asked for is answered with
+      // the grid's own smooth scroll, the settle above waits for DOM mutations
+      // rather than for that scroll, and both the destination rect and the
+      // flight's own scroll drive were being solved against a page still in
+      // motion.
       //
-      // A destination genuinely across the new page still gets it. That reading
-      // — he travelled, the page changed under him — is what the round trip was
-      // for, and it survives.
-      const target = el.getBoundingClientRect()
-      const far = viaBackground(himX(ctx), target.left + target.width / 2, window.innerWidth)
-      ctx.decke.flyTo(
-        { selector },
-        {
-          // Background, for the same reason the same-page `flyTo` case gives:
-          // arriving on a new page to present something is still presenting,
-          // and full size over fresh content is the "annoyingly big" the
-          // owner filed. See the `flyTo` case above.
-          depth: 'background',
-          highlight: true,
-          then: 'point',
-          via: far ? 'background' : undefined,
-          scrollWith: true,
-        },
-      )
+      // The rect is therefore read INSIDE the callback, not out here: reading
+      // it now and using it later is the same bug wearing a different hat.
+      whenScrollQuiet(() => {
+        const again = resolveTarget(selector)
+        // The page moved for most of a second; the thing being pointed at may
+        // not have survived it. Nothing to fly to is not an error worth
+        // re-answering — `settle` below has already told the model he is on
+        // his way — but flying at a stale rect is. He does have to stop
+        // LOOKING like he is on his way, though: no flight will arrive to take
+        // his state back off the waiting posture.
+        if (!again.el || again.refused) {
+          if (showedWaiting) {
+            try {
+              ctx.decke.setState('idle')
+            } catch {
+              /* an engine mid-teardown must not take the tool's answer with it */
+            }
+          }
+          return
+        }
+        // THE SAME QUESTION `flyTo` ASKS, and it used to be answered here with
+        // a hard-coded "always the long way round". `viaBackground` carries the
+        // measurement and the reason; the short version is that forcing the
+        // far-plane round trip made every navigation cost two 30-unit legs,
+        // which is the "it kind of just became big" this is filed under (C35).
+        //
+        // A destination genuinely across the new page still gets it. That
+        // reading — he travelled, the page changed under him — is what the
+        // round trip was for, and it survives.
+        const target = again.el.getBoundingClientRect()
+        const far = viaBackground(himX(ctx), target.left + target.width / 2, window.innerWidth)
+        ctx.decke.flyTo(
+          { selector },
+          {
+            // Background, for the same reason the same-page `flyTo` case gives:
+            // arriving on a new page to present something is still presenting,
+            // and full size over fresh content is the "annoyingly big" the
+            // owner filed. See the `flyTo` case above.
+            depth: 'background',
+            highlight: true,
+            then: 'point',
+            via: far ? 'background' : undefined,
+            scrollWith: true,
+          },
+        )
+      })
       settle({ ok: true })
       return true
     }
@@ -696,6 +846,15 @@ function travelAfterRoute(
       ask()
       asking = window.setInterval(ask, REVEAL_RETRY_MS)
     }
+
+    waiting = window.setTimeout(() => {
+      try {
+        ctx.decke.setState('loading')
+        showedWaiting = true
+      } catch {
+        /* an engine mid-teardown must not take the tool's answer with it */
+      }
+    }, DEAD_AIR_MS)
 
     let quiet = 0
     const finish = () => {

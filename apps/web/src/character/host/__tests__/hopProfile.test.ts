@@ -316,6 +316,12 @@ function installFakeDom(opts: { selector: string; left: number; width: number })
     location: { pathname: '/series', href: 'https://deckpal.app/series' },
     setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
     clearTimeout: (id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>),
+    // THE FLIGHT WAITS FOR THE PAGE TO STOP SCROLLING before it launches — see
+    // `whenScrollQuiet`, which exists because `GridView` answers a reveal with
+    // the browser's own smooth scroll and the flight's scroll drive disarms
+    // itself the moment it sees an offset it did not write. A fake page never
+    // scrolls, so this reads the same twice and the wait is two ticks long.
+    scrollY: 0,
   }
   g.MutationObserver = class {
     #cb: () => void
@@ -438,5 +444,15 @@ test('already on the page, he goes at once — there is nothing to settle', asyn
   })
   assert.deepEqual(result, { ok: true })
   assert.deepEqual(navigated, [], 'he must not re-navigate to the page he is on')
-  assert.equal(calls.length, 1, 'the same-page branch should fly immediately')
+  // THE ANSWER COMES BACK BEFORE THE FLIGHT LAUNCHES, and that is not a
+  // regression from "immediately". `runUiTool` has always resolved when he was
+  // COMMITTED to the trip rather than when he arrived — `flyTo` is a
+  // multi-second journey and nothing ever waited for it. What is new is that
+  // the launch waits for the page's scroll to settle first, because the reveal
+  // this same call asks for is answered with the grid's own smooth scroll and
+  // solving a destination against a rect mid-scroll is how he "dives off the
+  // page downward" while the reader is still at the top. See `whenScrollQuiet`.
+  assert.equal(calls.length, 0, 'the flight waits for the page to stop moving')
+  await sleep(80)
+  assert.equal(calls.length, 1, 'and then the same-page branch flies, with no settle wait')
 })

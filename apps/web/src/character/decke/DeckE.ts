@@ -126,6 +126,18 @@ const FACING_YAW_DEG = 80.39
 const FACING_TURN_MS = 866.7 / 1.75
 
 /**
+ * The shortest a turn may be compressed to when it rides a flight.
+ *
+ * A turn matched to a 240 ms nudge would be a flick rather than a yaw, and the
+ * near/far asymmetry that makes it read as a TURN needs time to wash through
+ * zero (see `FACING_TURN_MS` above). So a short leg's turn finishes with the
+ * leg where it can, and lands a little after it where it cannot — the flinch
+ * this bounds is a turn that outlasts its flight by 100-250 ms, and 280 ms is
+ * inside every shipped leg except the two shortest.
+ */
+const FACING_TURN_MIN_MS = 280
+
+/**
  * The default crossfade between base states.
  *
  * WAS 100 ms, measured from the Banjo-Kazooie decompilation. That number is
@@ -1388,12 +1400,31 @@ export class DeckE {
    * top of the next `update`, before anything is drawn — same-frame, no seam.
    * A flight in the air is corrected too: `syncStation` measures the shift
    * against `trackDest` and ramps it in with the flight's own progress.
+   *
+   * A CALL THAT CHANGES NOTHING DOES NOTHING. `resize` has always had that
+   * guard (`if (width === this.viewW …) return`) and this did not, which is a
+   * real cost rather than a tidiness point: `measure()` runs on every
+   * ResizeObserver fire and on every settled composer move, and most of those
+   * arrive at the height he already has — but the unpin and the dirty flag
+   * were paid anyway, dropping a page pin and re-solving a station that had no
+   * reason to move. Both are visible whenever the re-solve lands fractionally
+   * away from where he is already standing.
    */
   setCharacterHeight(px: number | null) {
+    if (px === this.characterHeightPx) return
+    this.characterHeightPx = px
     this.stage.setCharacterHeight(px)
     this.unpin()
     this.stationDirty = true
   }
+
+  /**
+   * The height last applied, so the guard above has something to compare
+   * against. `Stage` keeps its own copy for the dolly; this one exists because
+   * a getter through `this.stage` would be a second reader of a private the
+   * stage does not publish.
+   */
+  private characterHeightPx: number | null = null
 
   /**
    * "The page is being held still — stop chasing its scroll offset."
@@ -1409,6 +1440,34 @@ export class DeckE {
    */
   holdElastic(held: boolean) {
     this.elasticHeld = held
+  }
+
+  /**
+   * Let go of the page — WITHOUT going anywhere.
+   *
+   * Whoever is about to freeze the document has to get his canvas out of
+   * DOCUMENT space first, because `pageAnchor` parks it at an absolute offset
+   * that the freeze and the later restore both move underneath it. The chat
+   * panel used to do that by calling `returnHome()`, which does release the pin
+   * — on its way to LAUNCHING A FLIGHT to the abstract home corner.
+   *
+   * That flight was the problem. `DeckeHost` decides where he stands and parks
+   * him on exactly the same edges the panel runs on (open, and every return
+   * from a presentation), so both fired in one commit and the second one
+   * replaced the first mid-air. A leg abandoned in its deceleration and
+   * re-opened toward somewhere else is precisely "he makes to stop right here,
+   * before then continuing to where he's supposed to go" — reported on the tape
+   * as happening on nearly every hop, and it is also how he ends up shrinking
+   * into a spot well above the launcher instead of into it, because
+   * `returnHome` clears `flightScale` and the dive's shrink freezes wherever it
+   * had got to.
+   *
+   * So: the narrow call, for the narrow reason. The station is left alone; it
+   * is solved from a `getBoundingClientRect`, which is viewport-relative and
+   * stays true whether or not the document is held.
+   */
+  releasePin() {
+    this.unpin()
   }
 
   /** The live entrance scale on the rig root. 1 unless a `playEntry` is running
@@ -1505,20 +1564,48 @@ export class DeckE {
     return durationMs
   }
 
-  /** `facing` is continuous over [-1, +1]. Animated over `FACING_TURN_MS`. */
-  setFacing(value: number, opts: { animate?: boolean } = {}) {
+  /**
+   * `facing` is continuous over [-1, +1]. Animated over `turnMs`, which
+   * defaults to `FACING_TURN_MS`.
+   *
+   * ASKING FOR THE TURN HE IS ALREADY MAKING IS NOT A NEW TURN. Every caller
+   * that re-solves his station also re-asserts his facing, and several of them
+   * run on a timer — so without this guard a turn is restarted from wherever it
+   * had got to, over and over, and the result is the yaw judder the review
+   * describes as "an odd little shift back and forth on his yaw axis". The
+   * comparison is against the TARGET, not the current value: mid-turn, `facing`
+   * is somewhere between the two and would never match.
+   *
+   * `turnMs` exists because a fixed 495 ms outlasts a short hop. See `flyTo`.
+   */
+  setFacing(value: number, opts: { animate?: boolean; turnMs?: number } = {}) {
     const v = Math.max(-1, Math.min(1, value))
     if (opts.animate === false) {
       this.facing = v
       this.facingFrom = v
       this.facingTarget = v
       this.facingT = 1
-    } else {
-      this.facingFrom = this.facing
-      this.facingTarget = v
-      this.facingT = 0
+      this.facingMs = FACING_TURN_MS
+      return
     }
+    if (v === this.facingTarget) return
+    this.facingFrom = this.facing
+    this.facingTarget = v
+    this.facingT = 0
+    this.facingMs = Math.max(FACING_TURN_MIN_MS, opts.turnMs ?? FACING_TURN_MS)
   }
+
+  /**
+   * How long the turn in progress takes, in ms.
+   *
+   * A FIELD, not the constant, because a turn taken as part of a flight has to
+   * be over when the flight is — the review's "after arriving in the right spot
+   * he does an unnecessary turn/adjustment that feels like a flinch". The
+   * shipped short hop is 303-385 ms and the nudge 242-313 ms (`flight.ts`),
+   * all of them under the 495 ms this used to always take, so the last stretch
+   * of every short leg's turn played out after he had already landed.
+   */
+  private facingMs = FACING_TURN_MS
 
   /**
    * Fly to a spot beside a DOM element (or a viewport coordinate).
@@ -1609,7 +1696,18 @@ export class DeckE {
     // heading re-asserted. Without `opts.facing` that fallback is how a fresh
     // page ends up standing him at the composer with his back to it: the boot
     // default is +1, screen-left. See `FlyOptions.facing`.
-    this.setFacing(opts.facing ?? park.facing ?? this.facingTarget)
+    //
+    // AND IT IS OVER WHEN THE FLIGHT IS. The turn's own 495 ms is longer than
+    // every short leg the flight solver produces, so a nudge or a short hop
+    // used to land and then keep turning for another 100-250 ms — read back on
+    // the tape as "after arriving in the right spot he does an unnecessary
+    // turn/adjustment that feels like a flinch". `this.track` was set by the
+    // `launch` above, so its solved duration is available here; a leg longer
+    // than the default keeps the default rather than being slowed to match.
+    const legMs = this.track?.durationMs
+    this.setFacing(opts.facing ?? park.facing ?? this.facingTarget, {
+      turnMs: legMs !== undefined ? Math.min(FACING_TURN_MS, legMs) : undefined,
+    })
     this.station = { kind: 'element', target, depth, side, centre: !!opts.centre, anchor: opts.anchor }
 
     // Presenting is a TWO-part signal: he stands beside the thing, and the thing
@@ -2111,11 +2209,25 @@ export class DeckE {
     window.scrollTo(0, y)
   }
 
+  /**
+   * Re-solve the station, if something has said it moved.
+   *
+   * A FAILED SOLVE LEAVES THE FLAG UP. `solveStation` returns null when the
+   * station's element cannot be measured this instant — a selector that does
+   * not resolve mid-commit, a rect of zero while the panel is still laying
+   * out — and clearing the flag on that path threw the correction away for
+   * good: nothing re-arms it until some unrelated event (a scroll, another
+   * resize) happens along, so he stands at a position solved against a camera
+   * that has since moved, for as long as that takes. That is the "wrong for
+   * ten or twenty seconds, then a hop" half of the size-pop report. Leaving it
+   * dirty costs one `querySelector` per frame until the element is measurable,
+   * which is the same work the next frame would have done anyway.
+   */
   private syncStation() {
     if (!this.stationDirty) return
-    this.stationDirty = false
     const park = this.solveStation()
     if (!park) return
+    this.stationDirty = false
     if (this.track) this.trackShift.copy(park.position).sub(this.trackDest)
     this.anchor.copy(park.position)
     // Only when it actually changed: `setFacing` restarts the turn, and calling
@@ -2679,7 +2791,7 @@ export class DeckE {
 
     // ---- facing --------------------------------------------------------
     if (this.facingT < 1) {
-      this.facingT = Math.min(1, this.facingT + (dt * 1000) / FACING_TURN_MS)
+      this.facingT = Math.min(1, this.facingT + (dt * 1000) / this.facingMs)
       const u = this.facingT
       const e = u < 0.5 ? 4 * u * u * u : 1 - (-2 * u + 2) ** 3 / 2 // easeInOutCubic
       this.facing = this.facingFrom + (this.facingTarget - this.facingFrom) * e
@@ -3026,7 +3138,21 @@ export class DeckE {
         this.trackDest.copy(this.anchor)
         return
       }
-      this.launch(park.position)
+      // A LEG ALREADY IN THE AIR IS STEERED, NOT REPLACED. `launch` throws the
+      // current track away and opens a new one with its own anticipation dip —
+      // so a resize that lands mid-flight reads as him starting to stop at
+      // nowhere in particular and then setting off again, which is "he makes to
+      // stop right here before continuing" from the review, reported as
+      // happening on nearly every hop. `syncStation` has always steered instead
+      // (it differences the new destination against `trackDest` and ramps the
+      // shift in with the flight's own progress); this path simply never
+      // learned to, and there is no reason for the two to disagree.
+      if (this.track) {
+        this.stationDirty = true
+        this.syncStation()
+      } else {
+        this.launch(park.position)
+      }
       if (park.facing !== undefined) this.setFacing(park.facing)
     }, RE_PARK_SETTLE_MS)
   }

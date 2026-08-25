@@ -14,6 +14,7 @@ import assert from 'node:assert/strict'
 import { evalCurve, makeCurve } from '../curve'
 import {
   CARD_HALF,
+  holdGate,
   MAX_STASH,
   type StashStation,
   STASH,
@@ -424,4 +425,57 @@ test('a card faces the reader at either facing', () => {
       assert.ok(face > 0.82, `a card is ${(Math.acos(face) * 180) / Math.PI}° off square`)
     }
   }
+})
+
+/**
+ * ── THE PRESENT GATE MAY NOT SWING UNDER A VISIBLE CARD ──────────────────────
+ *
+ * The tests above pin the authored gate data and the algebra `k` is computed
+ * with. The moment between them had nothing on it, and that is where the
+ * 2026-08-24 review found this:
+ *
+ *   "card suddenly snaps over to the other side (the wrong side for the way
+ *    he's facing) right before putting it away. in real time this makes it feel
+ *    like the card just glitches and disappears."                        (c54)
+ *
+ * The mechanism: `gate` is keyed by STATE NAME and `state` switches on the tick
+ * `setState` is called, but the pose that carries the card's scale crossfades
+ * for 320 ms after it — and `card_present` has no outro, so its dismissal goes
+ * straight to `enter`. For that fifth of a second the card is plainly on screen
+ * while the gate has already fallen 1 -> 0, which flips `k` from -1 to +1 at
+ * `facing: -1` and mirrors the whole loose-card chain across his body.
+ *
+ * `holdGate` is the rule that makes the file's own long-standing claim — "the
+ * gate only ever swings while the card is invisible" — true by construction
+ * rather than by the authored curves happening to line up.
+ */
+test('the gate follows its curve while there is no card on screen', () => {
+  assert.equal(holdGate(0, 1, 0), 1)
+  assert.equal(holdGate(1, 0, 0), 0)
+  // A card at 2% of its scale is a few tenths of a millimetre of geometry, and
+  // the crossfade approaches zero asymptotically — waiting for exactly 0 costs
+  // frames for no benefit.
+  assert.equal(holdGate(1, 0, 0.02), 0)
+})
+
+test('and holds it while a card IS on screen — the defect, directly', () => {
+  // Mid-dismissal: the state has already changed (target 0) and the card is
+  // still most of the way up. The old code took the 0 here and mirrored the
+  // card under the reader.
+  assert.equal(holdGate(1, 0, 0.9), 1)
+  assert.equal(holdGate(1, 0, 0.35), 1)
+  // And the same in the other direction, which is the pop-in half of the same
+  // rule: a gate rising under a visible card is the swoosh the file's own
+  // comment says can never happen.
+  assert.equal(holdGate(0, 1, 0.5), 0)
+})
+
+test('the held value survives an arbitrary run of visible frames', () => {
+  // 320ms of crossfade at 60fps is ~19 frames, and every one of them must give
+  // the same answer — a rule that only holds for one frame is not a hold.
+  let held = 1
+  for (let f = 0; f < 19; f++) held = holdGate(held, 0, 1 - f / 19)
+  assert.equal(held, 1)
+  // Then the card finishes fading and the gate is free to catch up.
+  assert.equal(holdGate(held, 0, 0), 0)
 })
