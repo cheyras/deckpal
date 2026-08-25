@@ -21,11 +21,11 @@
     "test:decke": "node --import tsx --test src/decke/__tests__/*.test.ts"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "^4.0.52",
+    "@ai-sdk/gateway": "^4.0.62",
     "@deckpal/agent-tools": "workspace:*",
     "@deckpal/db": "workspace:*",
     "@deckpal/storage": "workspace:*",
-    "ai": "7.0.66",
+    "ai": "7.0.77",
     "express": "^5.0.0",
     "helmet": "^8.0.0",
     "pdfkit": "^0.19.1",
@@ -37,7 +37,7 @@
     "@types/express": "^5.0.0",
     "@types/node": "^26.2.0",
     "@types/pdfkit": "^0.17.6",
-    "@types/pg": "^8.21.0",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   }
