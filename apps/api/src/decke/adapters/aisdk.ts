@@ -47,6 +47,7 @@ import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { allTools, type Ctx, type ToolDefinition, type ToolResult } from '@deckpal/agent-tools';
 import { withToolCtx, type ToolCtxOptions } from '../ctx.js';
+import { CallLedger, callKey } from '../repeat.js';
 
 /**
  * A tool-call lifecycle event, for the chip the reader sees.
@@ -704,6 +705,11 @@ function summarise(result: ToolResult): string {
  */
 export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
   const include = opts.include ?? ((d: ToolDefinition) => d.annotations.readOnlyHint);
+  // ONE PER TOOL SET, which is one per request — never module state. A sub-agent
+  // builds its own tool set and gets its own ledger, and nothing here is shared
+  // between users or between requests. That isolation is the difference between
+  // a cache and a cross-account read.
+  const ledger = new CallLedger();
   const maxChars = opts.maxChars ?? DEFAULT_MAX_TOOL_CHARS;
   const out: ToolSet = {};
 
@@ -784,17 +790,48 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           // preview — so make it one, explicitly, rather than trusting a
           // default to agree with the classification.
           const effective = requiresApproval(def, args) ? args : forcePreview(def, args);
-          const result = await withToolCtx(opts, (ctx: Ctx) => def.handler(effective, ctx));
-          const text = clampToolText(result.text, maxChars);
-          // BEFORE the clamp would have been wrong: an id cut off by the
-          // ceiling is an id the model never saw, and grounding it would let a
-          // half-read page license a full grid. Observe exactly what he gets.
-          if (!result.isError) opts.grounding?.observe(text);
-          opts.onEvent?.({
-            phase: result.isError ? 'error' : 'ok',
-            ...chip,
-            summary: summarise(result),
-          });
+
+          // ── ASKED ALREADY? ───────────────────────────────────────────────
+          //
+          // Only reads take this path. A write is always executed — "add one
+          // more" twice is two adds — and it drops the ledger, because every
+          // read taken before it may now be stale. See `repeat.ts` for the
+          // measurements this exists for (the same failing call up to 14 times
+          // in one turn, twice ending a turn with no answer at all).
+          //
+          // `readOnlyHint` and not the verb in the name: `set_cart` only
+          // composes a URL and is a read, `deck_history` can roll a deck back
+          // and is a write. `registry.ts` says so and this is why it is
+          // required there.
+          const runOnce = async (): Promise<{ text: string; failed: boolean }> => {
+            const result = await withToolCtx(opts, (ctx: Ctx) => def.handler(effective, ctx));
+            const text = clampToolText(result.text, maxChars);
+            // BEFORE the clamp would have been wrong: an id cut off by the
+            // ceiling is an id the model never saw, and grounding it would let
+            // a half-read page license a full grid. Observe exactly what he
+            // gets.
+            if (!result.isError) opts.grounding?.observe(text);
+            opts.onEvent?.({
+              phase: result.isError ? 'error' : 'ok',
+              ...chip,
+              summary: summarise(result),
+            });
+            return { text, failed: result.isError === true };
+          };
+
+          if (!def.annotations.readOnlyHint) {
+            ledger.invalidate();
+            return (await runOnce()).text;
+          }
+
+          const { text, repeated } = await ledger.share(callKey(def.name, effective), runOnce);
+
+          if (repeated) {
+            // A REPEAT GETS ITS OWN CHIP, and it says so. The reader watching
+            // nine identical rows stack up was watching nine lookups; they
+            // should be able to see that eight of them were the same question.
+            opts.onEvent?.({ phase: 'ok', ...chip, summary: 'asked again — same answer as before' });
+          }
           return text;
         } catch (err) {
           // A message, not an object: this string goes straight into the

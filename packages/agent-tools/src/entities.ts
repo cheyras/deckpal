@@ -465,16 +465,28 @@ function need<T>(
   return { ok: false, message: explainMiss(what, ref, res, fallback) };
 }
 
+/**
+ * The last-resort advice, when there is not even a near match to offer.
+ *
+ * NAMED CONSTANTS RATHER THAN LITERALS AT THE CALL SITES, so `entities.test.ts`
+ * can assert the real strings instead of a copy of them. The test that guards
+ * the "advice must not read as a value" rule caught its own copy drifting from
+ * production on the first run, which is precisely the failure mode a duplicated
+ * string has.
+ *
+ * Each one describes what a listing CONTAINS rather than instructing the caller
+ * to omit a field. "Call set_progress with NO set_id" came back as
+ * `set_id: 'none'` seven times; nothing here has that shape.
+ */
+export const MISS_ADVICE = {
+  set: 'Try the set name as you would say it, or fewer words of it.',
+  deck: 'The `decks` index lists every deck you have, each with its id.',
+  list: 'The `lists` index lists every list you have, each with its id.',
+} as const;
+
 /** A set, or the sentence explaining why not. */
 export async function needSet(ctx: Ctx, ref: unknown, opts: ResolveOptions = {}): Promise<Need<ResolvedSet>> {
-  return need(
-    'set',
-    await resolveSet(ctx, ref, opts),
-    ref,
-    (v) => v.tcgdexId,
-    (v) => v.name,
-    'Try the set name as you would say it, or fewer words of it.',
-  );
+  return need('set', await resolveSet(ctx, ref, opts), ref, (v) => v.tcgdexId, (v) => v.name, MISS_ADVICE.set);
 }
 
 /**
@@ -486,26 +498,12 @@ export async function needSet(ctx: Ctx, ref: unknown, opts: ResolveOptions = {})
  * cannot be undone by asking again.
  */
 export async function needDeck(ctx: Ctx, ref: unknown, opts: ResolveOptions = {}): Promise<Need<ResolvedDeck>> {
-  return need(
-    'deck',
-    await resolveDeck(ctx, ref, opts),
-    ref,
-    (v) => v.id,
-    (v) => v.name,
-    'Call `decks` with no deck_id to see them all with their ids.',
-  );
+  return need('deck', await resolveDeck(ctx, ref, opts), ref, (v) => v.id, (v) => v.name, MISS_ADVICE.deck);
 }
 
 /** A list, or the sentence explaining why not. */
 export async function needList(ctx: Ctx, ref: unknown, opts: ResolveOptions = {}): Promise<Need<ResolvedList>> {
-  return need(
-    'list',
-    await resolveList(ctx, ref, opts),
-    ref,
-    (v) => v.id,
-    (v) => v.name,
-    'Call `lists` with no list_id to see them all with their ids.',
-  );
+  return need('list', await resolveList(ctx, ref, opts), ref, (v) => v.id, (v) => v.name, MISS_ADVICE.list);
 }
 
 // ── Saying it back ───────────────────────────────────────────────────────────
