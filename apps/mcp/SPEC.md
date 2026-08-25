@@ -77,6 +77,20 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
   rule as `apps/api/src/db.ts`).
 - Identifiers exposed to Claude are **TCGdex ids** (`set_id` like `me05`, `card_id` like
   `me05-84`) and numeric `card_variant.id` for variants — matching the REST API convention.
+- **`set_id`, `deck_id` and `list_id` also accept a NAME** (added 2026-08-25). A valid id behaves
+  exactly as before; a name is resolved by `packages/agent-tools/src/entities.ts`, and the tool
+  reports which id it used so the next call can be exact. Ambiguity is returned as a candidate
+  list carrying ids, never guessed — the rule card resolution has always followed. **Reads take
+  the single best fuzzy match; every WRITE takes an exact id or an exact unique name only**, and
+  a prefix or trigram hit comes back as a choice. That asymmetry is load-bearing:
+  `deck_strategy`, `add_battle_log` and `edit_battle_log` have no `dry_run`, and MCP has no
+  approval dialog, so a fuzzy match reaching one of them would silently rewrite the wrong deck.
+- **`sv3pt5` is not a set id in this catalog.** It is TCGdex's public spelling of `sv03.5`, and it
+  appeared as an example in migration 003's column comment, in `search_cards`'s input schema and
+  in `set_progress`'s not-found message. Deck-E called it nine times in a single turn.
+  `normaliseSetId` now maps both it and the unpadded `sv3.5` onto the real id — and no example id
+  is quoted in any failure message any more. Any example that does appear in a description must
+  be verified against the catalog first.
 - Money: DB stores integer minor units (`price_current.market_minor` etc.). Tools always render
   majors with currency (`$3.12`), NULL price = "unpriced", **never $0**. Unpriced counts are
   reported separately in any valuation sum.
@@ -161,6 +175,17 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   explicit `variant_id` or variant kind code wins; omitted → the card's primary variant
   (`card_variant.is_primary`); "set absolute quantity" on a card where the user owns multiple
   variants and no variant was given → refuse with the owned-variant list.
+- **Set / deck / list resolution** (`entities.ts`, added 2026-08-25) applies the same doctrine to
+  the other three id types, which had none: exact id → exact name → prefix/fuzzy, `strict` for
+  writes, candidates-with-ids for an ambiguity. A uuid that matches nothing is never fuzzed
+  against names, and when it belongs to the OTHER index the failure says so ("that id is a LIST").
+  Values meaning "I have none" — `none`, `null`, `undefined`, `""` — are read as an absent
+  argument rather than as a lookup key.
+- **A failure message must never contain an example identifier, and never phrase advice as
+  something that could be mistaken for a value.** Both rules were written from measured loops:
+  `set_progress`'s message offered `'sv3pt5'` as an example and got nine calls with it, and said
+  "call set_progress with NO set_id" and got seven calls with `set_id: 'none'`. Ids in a failure
+  message come from the caller's own data or are absent.
 
 ## 5. Tool surface (23 tools + 1 resource)
 
