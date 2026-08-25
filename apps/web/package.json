@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test:insights": "node --import tsx --test src/lib/__tests__/*.test.ts",
-    "test:decke": "node --import tsx --test src/character/decke/__tests__/*.test.ts src/character/host/__tests__/*.test.ts src/character/host/chat/__tests__/*.test.ts"
+    "test:decke": "node --import tsx --test src/character/decke/__tests__/*.test.ts src/character/host/__tests__/*.test.ts src/character/host/chat/__tests__/*.test.ts src/components/ui/__tests__/*.test.ts"
   },
   "dependencies": {
     "@fontsource-variable/figtree": "^5.3.0",

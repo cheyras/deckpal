@@ -42,6 +42,7 @@ import {
   STAND_MOBILE,
 } from './DeckeChat'
 import { deckeHidden, onDeckeVisibilityChange } from '../deckePreference'
+import { type ComposerRuler, ruleComposer, rulerFor } from './composerRuler'
 import { MARK_SETTLE_MS, MARK_WATCH_MS, markMoved, type MarkBox } from './markWatch'
 import { DeckeBubble, type Rect } from './DeckeBubble'
 import { DeckeFarewell } from './DeckeFarewell'
@@ -57,18 +58,8 @@ import {
 } from './runtime'
 
 /**
- * How much of himself he keeps while a phone is being used to talk to him.
- *
- * At full size he is 55% of a 390 px screen wide, which was fine when the panel
- * was an opaque sheet he stood in front of and wrong the moment the panel became
- * glass: he sat in the middle of the conversation with his shoulders across the
- * text. Half is small enough to live in the corner beside the composer and still
- * large enough to read as a character rather than an avatar.
- */
-const CHAT_COMPACT = 0.5
-
-/**
- * HOW TALL HE IS, and this is the ONLY place that decides.
+ * HOW TALL HE IS WITH NOBODY TALKING TO HIM, and this is the ONLY place that
+ * decides it.
  *
  * ONE WRITER, which is the part that was learned the hard way. An earlier
  * version had the chat panel set its own height for him, and the two callers
@@ -84,10 +75,15 @@ const CHAT_COMPACT = 0.5
  *
  * 300 px suits a laptop and swallows a 390 px phone, so it scales with the
  * viewport.
+ *
+ * IT NO LONGER HAS A COMPACT MODE. `compact` was only ever true with the chat
+ * open below the nav breakpoint, and `characterHeightBeside` now owns every
+ * chat-open case on both platforms — a phone included, where the composer is
+ * the smaller ruler anyway. A parameter that only one dead branch could set is
+ * a parameter that will be set wrongly by whoever revives it.
  */
-function characterHeightFor(w: number, h: number, compact: boolean): number {
-  const full = Math.min(300, h * 0.3, w * 0.55)
-  return Math.round(compact ? full * CHAT_COMPACT : full)
+function characterHeightFor(w: number, h: number): number {
+  return Math.round(Math.min(300, h * 0.3, w * 0.55))
 }
 
 /**
@@ -311,6 +307,15 @@ export function DeckeHost() {
   }, [])
   /** True while he is away from the chat doing something on the page. */
   const [travelling, setTravelling] = useState(false)
+  /**
+   * The same, for readers that are not re-created per render: the route watcher
+   * below, and the arrival callback, which is built once and read at the turn
+   * boundary. Declared here beside the state it mirrors rather than beside its
+   * first reader — it now has two, and a ref that lives in the middle of one
+   * of them reads as belonging to it.
+   */
+  const travellingRef = useRef(false)
+  travellingRef.current = travelling
   /** The bubble is animating away — the beat between "read" and "he leaves".
    *  See the retire effect below. */
   const [bubbleLeaving, setBubbleLeaving] = useState(false)
@@ -340,6 +345,13 @@ export function DeckeHost() {
   /** Read inside `measure`, which is not re-created when the chat opens. */
   const chatOpenRef = useRef(false)
   chatOpenRef.current = chatOpen
+  /**
+   * The composer height he is ruled off — the SHORTEST one seen at this
+   * viewport, not the one the draft has grown to. A ref rather than state
+   * because `measure` reads and writes it several times per second and nothing
+   * renders from it. See `composerRuler.ts`.
+   */
+  const rulerRef = useRef<ComposerRuler | null>(null)
   const navigate = useNavigate()
   /** True while a journey step owns the transition. Read by the route watcher
    *  below; written by the chat's sequencer through `onStepping`. */
@@ -432,9 +444,27 @@ export function DeckeHost() {
     // the very thing he flew there to show. A live presentation owns its own
     // ending now: the bubble's read-timer retires him through the same
     // `seeYouOut`, just after a person could actually have read the line.
+    //
+    // AND NOT WHILE THERE IS SOMETHING TO READ. The presenting test above only
+    // catches an arrival that ENDED in a ring or a flight. A bare `goTo` — "here
+    // is the list you asked for" — rings nothing, so every one of those went
+    // straight out of this branch and closed the chat SYNCHRONOUSLY, in the same
+    // React batch that set `busy` false. The retire effect's very first run then
+    // saw `chatOpen` already false and returned before arming any timer at all,
+    // and `bubbleText` collapsed to '' in the same render, so `DeckeBubble`
+    // unmounted rather than playing its leave. On the tape that is one frame of
+    // his line and then nothing: "his comment about where we've ended up comes
+    // up… speech bubble disappears suddenly right after — not nearly enough time
+    // to actually read it."
+    //
+    // While he is out on the page the read timer already owns the ending, for
+    // every kind of presentation, and it is the only thing here that knows how
+    // long the line takes to read. Deferring to it is not a delay bolted on; it
+    // is the one path that was being jumped over.
     () => {
       const s = deckeRef.current?.getState()
       if (s && (s.flying || s.highlighting || s.highlighted)) return
+      if (travellingRef.current) return
       seeYouOut()
     },
   )
@@ -537,8 +567,6 @@ export function DeckeHost() {
   // A journey step owns its own transition and is expected to navigate; nothing
   // sets this yet, and the sequencer will.
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const travellingRef = useRef(false)
-  travellingRef.current = travelling
   useEffect(() => {
     // Consumed FIRST, unconditionally: the token describes exactly one
     // navigation — this one — whether or not it matches, whether or not the
@@ -642,8 +670,13 @@ export function DeckeHost() {
    * must not capture a stale `wide`. `rate` is the entrance's snap — the
    * chip→mark leg plays at `SNAP_RATE`; every other caller parks at the
    * ordinary pace.
+   *
+   * `instant` PLACES him rather than flying him, for the one caller that has
+   * nothing to fly FROM: an open with no launcher chip on screen, where he is
+   * cut to his mark at scale zero and grown there. A flight from nowhere is
+   * not a flight.
    */
-  const park = useCallback((opts: { rate?: number } = {}) => {
+  const park = useCallback((opts: { rate?: number; instant?: boolean } = {}) => {
     const d = deckeRef.current
     if (!d) return
     // A MARK THAT IS NOT ON SCREEN IS NOT A MARK. Probed on a cold mobile
@@ -681,7 +714,7 @@ export function DeckeHost() {
         // back to the conversation. The first thing the owner says in the
         // recording, said four times; the desktop call three branches down
         // was already fixed for exactly this and the fix never reached here.
-        { depth: 'foreground', highlight: false, centre: true, facing: -1, rate: opts.rate },
+        { depth: 'foreground', highlight: false, centre: true, facing: -1, rate: opts.rate, instant: opts.instant },
       )
       return
     }
@@ -711,7 +744,7 @@ export function DeckeHost() {
           // with his very bottom corner, which makes him look like he's kind
           // of above the thing." `optical` sinks him far enough that the
           // card's baseline crosses his body. See `OPTICAL_OVERLAP`.
-          { depth: 'foreground', highlight: false, side: 'left', anchor: 'optical', rate: opts.rate },
+          { depth: 'foreground', highlight: false, side: 'left', anchor: 'optical', rate: opts.rate, instant: opts.instant },
         )
         return
       }
@@ -719,7 +752,7 @@ export function DeckeHost() {
     const at = wide ? STAND_DESKTOP : STAND_MOBILE
     d.flyTo(
       { x: window.innerWidth * at.x, y: window.innerHeight * at.y },
-      { depth: 'foreground', highlight: false, centre: true, rate: opts.rate },
+      { depth: 'foreground', highlight: false, centre: true, rate: opts.rate, instant: opts.instant },
     )
   }, [wide])
   const parkRef = useRef(park)
@@ -831,7 +864,17 @@ export function DeckeHost() {
       if (presenceRef.current === 'out') {
         presenceRef.current = 'in'
         parkedRef.current = false
-        const rect = launchRectRef.current
+        // THE CHIP AS IT IS NOW, and only then the rect the click captured.
+        // The click's rect is read at `onOpen` and consumed after the runtime
+        // has loaded — measured at 7.4s cold, 0.95s warm — so on a cold open it
+        // can be seconds old, and anything that moved the launcher in between
+        // (a scrollbar appearing, a rotation, a resize) leaves him growing out
+        // of where the button used to be. The dismissal has always re-queried;
+        // the entrance is the same question asked at the other end, and it is
+        // the reported "not growing out of the chat button but close to the
+        // centre of the screen for some reason".
+        const chip = document.querySelector(LAUNCHER_SELECTOR)?.getBoundingClientRect()
+        const rect = chip && chip.width > 0 ? chip : launchRectRef.current
         const stillVisible = d.entryScale > 0.05 || d.getState().flying
         if (stillVisible) {
           // A reopen caught him mid-exit. He is on screen, so cutting him to
@@ -848,10 +891,16 @@ export function DeckeHost() {
           d.playEntry()
           schedulePark()
         } else {
-          // Opened by something other than the button. Nothing to grow from,
-          // so he simply takes his mark.
-          d.setEntryScale(1)
-          parkRef.current()
+          // Opened by something other than the button, with no chip on screen
+          // to grow out of. HE STILL GROWS — from his own mark rather than from
+          // the corner. Cutting him in at full size was the other half of
+          // "spawned in the wrong spot and at full size rather than growing out
+          // of the chat button as he moves": there is no button to come from,
+          // but appearing whole in one frame is not the alternative. `park`
+          // places him first so the grow happens where he is going to stand.
+          d.setEntryScale(0)
+          parkRef.current({ instant: true })
+          d.playEntry()
           parkedRef.current = true
         }
       } else if (!parkedRef.current) {
@@ -1305,23 +1354,38 @@ export function DeckeHost() {
         // platforms — one rule rather than a desktop branch and a phone branch
         // that were free to disagree, and did.
         //
-        // The fallback is not defensive noise: `flyTo` and this measure both
-        // run on the frame the panel mounts, and if the card has not laid out
-        // yet a rect of zero would collapse him to nothing. The old formula is
-        // the right thing to fall back TO, because it is what he was before.
+        // FROM THE COMPOSER AT REST, not from the composer as it stands. The
+        // textarea grows with the draft, and ruling him off the live height
+        // made his size a function of how much the reader had typed — the
+        // most-reported defect of the 2026-08-24 review, fourteen tagged
+        // instances of him growing 1.4x on a wrapped line and snapping back on
+        // send. `composerRuler.ts` carries the measurement and the reasoning.
+        //
+        // A composer that cannot be measured this instant returns no ruler, and
+        // that means KEEP HIS HEIGHT — see `rulerFor`. Falling back to the
+        // full-page formula while the chat is open is a near-2x pop of its own,
+        // which is the same defect wearing a different hat.
         const composer = chatOpenRef.current
           ? document.querySelector<HTMLElement>(`[${COMPOSER_LANDMARK}]`)
           : null
         const composerH = composer?.getBoundingClientRect().height ?? 0
-        const px =
-          composerH > 0
-            ? characterHeightBeside(composerH, w, h)
-            : characterHeightFor(w, h, chatOpenRef.current && w < NAV_BREAKPOINT)
+        let px: number | null
+        if (chatOpenRef.current) {
+          const sample = { composerH, w, h }
+          rulerRef.current = ruleComposer(rulerRef.current, sample)
+          const resting = rulerFor(rulerRef.current, sample)
+          px = resting === null ? null : characterHeightBeside(resting, w, h)
+        } else {
+          rulerRef.current = null
+          px = characterHeightFor(w, h)
+        }
         // The PUBLIC method, not `decke.stage`'s: the dolly moves the camera,
         // and the controller's own wrapper is what re-solves his station in
         // the same frame — the invariant this file used to enforce by
-        // hand-ordering call sites, now owned by the engine.
-        decke.setCharacterHeight(px)
+        // hand-ordering call sites, now owned by the engine. It ignores a call
+        // that changes nothing, so the common case of a measure that agrees
+        // with the last one costs nothing at all.
+        if (px !== null) decke.setCharacterHeight(px)
         // ── WHERE HE MAY NOT STAND ────────────────────────────────────────
         //
         // His canvas is at z-30, above the app chrome at 20, and that is
@@ -1352,7 +1416,7 @@ export function DeckeHost() {
           top: Math.round(topBandRef.current?.clientHeight ?? 0),
           bottom: Math.round(bottomBandRef.current?.clientHeight ?? 0),
         })
-        setCharPx((prev) => (prev === px ? prev : px))
+        if (px !== null) setCharPx((prev) => (prev === px ? prev : px))
       }
       measureRef.current = measure
 
@@ -1425,7 +1489,16 @@ export function DeckeHost() {
       // So the last thing loading does is scale him to nothing. He is present,
       // started, and rendering — and a third of a pixel tall, until an
       // entrance is played. `playEntry` on open is what brings him.
-      decke.setEntryScale(0)
+      //
+      // ONLY FOR A CONTROLLER THAT IS ACTUALLY NEW. `acquireDeckE` hands the
+      // LIVE controller back on a StrictMode remount (`fresh: false`), and
+      // collapsing that one to nothing snaps an already-visible character out
+      // of existence in a single frame with nothing scheduled to bring him
+      // back — the presence flags are reset on the `fresh` path only, so
+      // nothing downstream even knows he left. "Now Deck-E has disappeared…
+      // now he's back" from the review is this shape of bug; a hard cut to
+      // invisible is never the entrance, whoever asks for it.
+      if (acquired.fresh) decke.setEntryScale(0)
       decke.start()
       if (!cancelled) {
         setPhase('ready')
@@ -1455,6 +1528,14 @@ export function DeckeHost() {
       // room for". A stale height would reserve a gutter for a character that is
       // no longer on the page.
       setCharPx(0)
+      // AND BACK TO "NOT READY". `phase` drives the canvas's own opacity, and
+      // leaving it at `ready` across a chromeless-route round trip means the
+      // NEXT mount paints a brand-new canvas at full opacity while the runtime,
+      // the glb and the shader compile are all still ahead of it. Nothing is
+      // drawn there yet; what shows is whatever the first frames of a cold
+      // start look like, which is not an entrance.
+      setPhase('idle')
+      rulerRef.current = null
       // Deferred inside `releaseDeckE`, so StrictMode's synchronous remount
       // reclaims the same controller instead of reloading the character.
       releaseDeckE(canvas)

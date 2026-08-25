@@ -61,6 +61,15 @@ import { LOW_FRACTION, type CreditBalance } from './chat/creditState'
 import { beatForChip } from './thinkingBeat'
 import { runJourney, type JourneyResult, type JourneyStep } from './journey'
 import { api } from '../../lib/api'
+// The same resolver the dev page's `commands.ts` uses to turn a catalog id
+// into art — see DEFECT 1's fix in `apply()` below. Reusing it rather than
+// writing a second id-to-CardArt fetch is deliberate: this codebase has an
+// explicit hygiene history of deduping copy-pasted helpers (#95), and a
+// second resolver is exactly the kind of thing that drifts from the first
+// one's caching and failure behaviour the day somebody touches only one of
+// them.
+import { artForIds } from '../cardSource'
+import type { CardSlot } from '../decke/cardArt'
 import {
   initialChoices,
   runAccept,
@@ -951,17 +960,56 @@ export function useDeckeChat(
                 // It does NOT set `movedRef`: this is the app punctuating a
                 // transition, not the model choosing a state, and claiming
                 // otherwise would stop the turn boundary restoring `idle`.
-                try {
-                  decke.setState('curious', { mode: 'once' })
-                } catch {
-                  /* an unknown state must never take a turn down */
+                //
+                // ── AND IT YIELDS TO A CHOICE ALREADY MADE ─────────────────
+                //
+                // `movedRef` is set by a successful `express`, and a model that
+                // has already expressed something this turn has said what this
+                // reply feels like — with more information about it than a
+                // transition marker has. Overwriting that was not a small
+                // thing: `curious` is a forward lean at `lean: 0.62`, it fired
+                // on EVERY reply regardless of content, and it is what the
+                // owner was describing when he watched twenty minutes back and
+                // said *"he's kind of just falling back to a few ones that he
+                // uses all the time… leaning in toward the message, and then
+                // also just talking."* The one pose he named as the problem was
+                // this line, not a model choice at all.
+                //
+                // The beat still fires for the ordinary case, which is the case
+                // it was written for: a turn that has expressed nothing yet
+                // still needs the moment the waiting ended to be marked.
+                if (!movedRef.current) {
+                  try {
+                    decke.setState('curious', { mode: 'once' })
+                  } catch {
+                    /* an unknown state must never take a turn down */
+                  }
                 }
               }
               appendText(chunk)
             },
-            onCommands: (commands) => {
-              apply(decke, commands)
-              movedRef.current = true
+            onCommands: async (commands) => {
+              // AWAITED, not fired and forgotten. `apply`'s own header
+              // explains why at length; the short version is that resolving
+              // named card art is a catalog lookup, and the one thing that
+              // lookup must never be allowed to do is finish out of order —
+              // either against a command that follows it in the SAME
+              // `express` call, or against a LATER `express` call, or against
+              // a turn that has since been superseded. Awaiting here, inside
+              // the loop that reads the rest of this leg's SSE stream, is
+              // what makes all three impossible: the reader cannot reach the
+              // next line — and so cannot start applying the next batch of
+              // commands — until this one has fully landed.
+              const moved = await apply(decke, commands, ac.signal)
+              // ONLY IF A REAL STATE CHANGE HAPPENED. A `card_stash` whose
+              // every named card id is missing from the catalog is a
+              // REJECTED command (see `apply`) — it calls `decke.setState`
+              // zero times. Setting `movedRef` regardless, as this used to,
+              // would tell the turn boundary below that he moved when he did
+              // not, and `thinking` is a SUSTAINED state: with nothing else
+              // to release it, he would rock in place for the rest of the
+              // page's life instead of settling back to idle.
+              if (moved) movedRef.current = true
             },
             onScreen: (screen) => {
               // Attached to the reply being streamed, so it stays with its turn.
@@ -1085,6 +1133,25 @@ export function useDeckeChat(
                 // is true of the change actually dropped.
                 " — I ran out of room to make that last change, so I left it. Ask me again and I'll go straight to it.",
               )
+              // AND THE POSTURE, for the same reason as the leg-budget branch
+              // below and with the same words behind it: *"he should probably
+              // do his error state or something"*. This is the strictly worse
+              // failure of the two — the reader has given consent for a WRITE
+              // and it did not happen — so it is the last place in this file
+              // that should announce itself in prose alone while he stands
+              // there looking like nothing went wrong.
+              //
+              // `appendText`, not `noticeInstead`, unlike that branch: an
+              // approval this late in a turn is preceded by real narration and
+              // often by earlier writes that DID commit, and replacing the
+              // whole reply would erase the record of them. The words are
+              // already the right words; only the body was missing.
+              try {
+                decke.setState('alert_error', { mode: 'once' })
+              } catch {
+                /* an unknown state must never take a turn down */
+              }
+              movedRef.current = true
               console.warn('[decke] approval replay budget exhausted; the write was NOT applied')
               break
             }
@@ -1282,7 +1349,51 @@ export function useDeckeChat(
             // there is still a decision to make.
             //
             // So this is only ever the unfinished-journey case, and it says so.
-            appendText(' — I ran out of steps there. Ask me again and I can pick it up.')
+            //
+            // ── AND NOW IT SAYS SO THE WAY EVERY SIBLING FAILURE DOES ────────
+            //
+            // Filed on the animation review: *"he doesn't really telegraph
+            // that properly. he should probably do his error state or
+            // something and then... he parks here for way too long before
+            // displaying his error message, and he's full size. feels
+            // awkward."* The words were always here — `appendText` put them
+            // on the transcript — but nothing told the CHARACTER. Every other
+            // failure in this file pairs its notice with `alert_error`
+            // (`onHttpError`, the `outcome.error` branch above, and the
+            // network catch below); this was the one place a real failure
+            // reached the reader with him still standing in whatever he was
+            // doing a moment before — full size, at the composer, giving no
+            // sign that anything had gone wrong until the sentence finished.
+            //
+            // GUARDED THE SAME WAY `outcome.error` IS, not the way
+            // `onHttpError` is, and that is a deliberate choice between the
+            // two existing shapes rather than an oversight: by the time the
+            // LAST leg of a multi-leg turn has exhausted its budget, he has
+            // almost always already said something real across the earlier
+            // legs — narration alongside the tool calls that got him this
+            // far. `noticeInstead` REPLACES every text part on the reply, so
+            // calling it unconditionally here would erase that genuine
+            // progress and leave only "I ran out of steps", which is the
+            // opposite of X2's truth-surface rule applied to his own words.
+            // `outcome.error`'s rule is the right one for this shape: if
+            // nothing has been said yet, the notice carries the news; if
+            // something has, the posture alone tells it — the words already
+            // on screen stand, and `alert_error` marks that they are where
+            // this attempt stopped, before he leaves.
+            //
+            // NOTHING ELSE CHANGES HERE. This turn is still `for` its own
+            // sake — no dismissal, no navigation — those belong to whichever
+            // file drives his position and the chat's open/closed state, and
+            // this file's contract for this pass is posture and notice only.
+            if (!saidSoFar) {
+              noticeInstead({
+                tone: 'limit',
+                title: 'I ran out of steps there.',
+                detail: 'Ask me again and I can pick it up.',
+              })
+            }
+            decke.setState('alert_error', { mode: 'once' })
+            movedRef.current = true
             console.warn('[decke] leg budget exhausted with work still outstanding')
           }
         }
@@ -1541,7 +1652,10 @@ export function useDeckeChat(
 type LegHandlers = {
   onText: (chunk: string) => void
   onApprovalPreview: (preview: ApprovalPreview) => void
-  onCommands: (commands: WireCommand[]) => void
+  /** Returns a promise, and `streamLeg` awaits it — see the call site below
+   *  and `apply`'s own header for why command application had to become
+   *  ordered against the rest of the stream rather than fire-and-forget. */
+  onCommands: (commands: WireCommand[]) => Promise<void>
   onScreen: (screen: ScreenSpec) => void
   onToolChip: (chip: ToolChip) => void
   onHttpError: (status: number) => void
@@ -1842,7 +1956,13 @@ async function streamLeg(
         out.text += part.delta
         handlers.onText(part.delta)
       } else if (part.type === 'data-decke' && part.data?.commands) {
-        handlers.onCommands(part.data.commands)
+        // AWAITED. This is the one line that turns "read the stream" and
+        // "apply what it says" into a single ordered sequence instead of two
+        // racing ones — see `apply`'s header and the `onCommands` closure in
+        // `send` for the failure this prevents: a card lookup from an
+        // earlier `express` call finishing after a later one and clobbering
+        // it, or after the turn that asked for it has been superseded.
+        await handlers.onCommands(part.data.commands)
       } else if (part.type === 'error') {
         // AN ERROR PART IS NOT A THROWN EXCEPTION. The request already
         // returned 200 and the stream is well-formed; the failure arrives
@@ -2138,41 +2258,164 @@ function collectLandmarks(): { selector: string; label: string }[] {
     .map(({ selector, label, clickable }) => (clickable ? { selector, label, clickable } : { selector, label }))
 }
 
-/** Commands arrive validated by the server; this is the last mile into the engine. */
-function apply(decke: DeckEInstance, commands: WireCommand[]) {
+/** The four faces `cardArt` can put art on. Mirrors `commands.ts`'s own
+ *  `SLOTS`, which is not exported — four literals is not the class of thing
+ *  the hygiene pass (#95) means by "copy-pasted helper", and importing it
+ *  would couple this file to `commands.ts`'s internals for four strings. The
+ *  RESOLVER those two files share (`artForIds`) is the thing actually worth
+ *  not duplicating, and it is imported, not reimplemented — see the header
+ *  comment on `apply` below. */
+const CARD_SLOTS: readonly CardSlot[] = ['card_l', 'card_r', 'single', 'deck']
+
+function isCardSlot(v: string | undefined): v is CardSlot {
+  return v !== undefined && (CARD_SLOTS as readonly string[]).includes(v)
+}
+
+/**
+ * Apply one `express` call's commands, in order, and report whether any of
+ * them actually put him in a new STATE.
+ *
+ * ── WHY THIS IS ASYNC NOW ────────────────────────────────────────────────
+ *
+ * It used to be a plain synchronous loop, because there was nothing here to
+ * wait for: `cardArt` was a no-op — "nothing to do here until PR 5 wires the
+ * card source through" — and `card_stash`'s `cards` field was read only for
+ * its LENGTH, to fake a count of placeholder cards. Both are DEFECT 1 from
+ * the animation review this pass fixes: *"shows a card, but it's a
+ * placeholder one rather than being the actual card the user asked about."*
+ * Putting the user's actual card on him means turning a catalog id into art,
+ * which is a network request, and there is no honest way to make that
+ * synchronous — `commands.ts`'s own `runTurn`, which does the equivalent job
+ * for the dev page, is async for exactly this reason.
+ *
+ * ── ORDER, WITHIN ONE CALL ───────────────────────────────────────────────
+ *
+ * `for...of` with `await` inside it, not `Promise.all` over the array and not
+ * a fire-and-forget promise per command. `prompt.ts` tells the model to "set
+ * its art first with the `cardArt` op on slot `card_r`" and THEN enter
+ * `card_present` — two commands in one `commands` array, order-dependent by
+ * design — so a `cardArt` that resolved AFTER the `state` command behind it
+ * would show `card_present` on the old art for a beat and then pop to the
+ * new one. Awaiting each command before moving to the next is what keeps
+ * that promise, exactly as `commands.ts`'s own comment on this describes for
+ * the dev page.
+ *
+ * ── ORDER, ACROSS CALLS AND ACROSS TURNS ─────────────────────────────────
+ *
+ * The caller (`onCommands` in `send`) awaits this function inline, inside the
+ * same loop that reads the rest of the SSE stream — see the comments at both
+ * of those call sites. That is what stops a SECOND `express` call in the same
+ * turn from being applied while this one is still resolving: the stream
+ * reader cannot reach the next `data-decke` line, and so cannot start the
+ * next batch, until this `await` returns. Without that, two calls could
+ * finish in EITHER order — whichever card id happened to be cached — and the
+ * one that arrived second on the wire but resolved first would lose to a
+ * late finish from the one before it.
+ *
+ * `signal` closes the other half of that gap: it is the turn's own
+ * `AbortController.signal`, threaded down to `artForIds` exactly the way
+ * `cardSource.ts` was built to accept one. A lookup still in flight when the
+ * reader asks a NEW question aborts along with the rest of that turn's fetch,
+ * instead of quietly resolving moments later and overwriting whatever the new
+ * turn just put on him — "an in-flight resolution superseded by a later
+ * command" landing late is the specific race this review called out, and this
+ * is what closes it for both the within-turn and the across-turn case.
+ *
+ * ── REJECT, DO NOT CLAMP ──────────────────────────────────────────────────
+ *
+ * An id that is not in the catalog is reported with `console.warn` — the
+ * established way this file surfaces a class of thing the model cannot be
+ * told about after the fact, `express`'s server-side `execute` having already
+ * returned by the time this runs — and the slot, or the stash, is left
+ * exactly as it was. It is never silently filled with the model's baked-in
+ * placeholder art standing in for the card that was actually asked for,
+ * because presenting a placeholder AS the requested card is the bug this pass
+ * exists to fix. A console warning and no visible change is honest where a
+ * silent fallback was not; see `commands.ts`'s identical rule on its own
+ * `cardArt` and `card_stash` cases, which this mirrors on purpose.
+ *
+ * ── THE RETURN VALUE ──────────────────────────────────────────────────────
+ *
+ * `movedRef` (declared in the hook above `send`) exists so the turn boundary
+ * can tell whether to force him back to `idle` once the turn ends. A
+ * `card_stash` whose every named id fails to resolve calls `decke.setState`
+ * ZERO times, by the paragraph above — it is a rejected command, not a
+ * degraded one. Reporting "he moved" regardless, the way this function used
+ * to be treated by its one caller, would leave him rocking in the sustained
+ * `thinking` state for the rest of the page's life instead of settling back
+ * to idle, which is precisely the outcome the turn boundary exists to
+ * prevent.
+ */
+async function apply(
+  decke: DeckEInstance,
+  commands: WireCommand[],
+  signal: AbortSignal,
+): Promise<boolean> {
+  let moved = false
   for (const c of commands) {
+    // A superseded turn's remaining commands must not land either — not only
+    // the one that happened to be mid-lookup at the moment it was superseded.
+    if (signal.aborted) return moved
     try {
       switch (c.op) {
-        case 'state':
+        case 'state': {
           if (!c.value) break
           if (c.value === 'card_stash' && c.cards?.length) {
-            // COUNT, not art, and deliberately so until PR 5.
-            //
-            // The point of this animation is the user's OWN cards going into
-            // the box, which needs a catalog lookup that belongs with the scan
-            // work. Passing an array of nulls would render the model's baked-in
-            // placeholder Pokemon — cards that do not exist — and present them
-            // as the user's collection, which is worse than generic card backs.
-            decke.setStashCount(Math.min(c.cards.length, 48))
+            const art = await artForIds(c.cards, signal)
+            if (art.every((a) => a === null)) {
+              // NONE of the named cards are in the catalog. Matches
+              // `commands.ts`'s `card_stash` rule exactly (see its own long
+              // comment on this branch): playing anyway would put a fan of
+              // the model's baked-in, nonexistent Pokemon in front of the
+              // reader and call it their collection — worse than not playing
+              // at all, because it looks like the feature working. The
+              // command is rejected whole: no stash change, no state change.
+              console.warn(
+                `[decke] card_stash: none of these card ids are in the catalog: ${c.cards.join(', ')}`,
+              )
+              break
+            }
+            // A PARTIAL failure still plays, same rule as `commands.ts`: the
+            // model named cards it just watched get added to the collection,
+            // so one bad id among several good ones is not a reason to show
+            // none of them. `setStashCards` BEFORE `setState`, so the cards
+            // are already on him at the moment `card_stash` is entered rather
+            // than one frame behind it.
+            decke.setStashCards(art, { autoClose: c.autoClose === true })
           }
           decke.setState(c.value, { mode: c.mode, durationMs: c.durationMs })
+          moved = true
           break
+        }
         case 'facing':
           decke.setFacing(c.value === 'left' ? 1 : -1)
           break
         case 'idle':
           decke.setState('idle')
+          moved = true
           break
         case 'clearHighlight':
           decke.clearHighlight()
           break
-        case 'cardArt':
-          // Resolving art is a catalog lookup the engine owns; nothing to do
-          // here until PR 5 wires the card source through.
+        case 'cardArt': {
+          if (!isCardSlot(c.slot) || !c.card) break
+          const [art] = await artForIds([c.card], signal)
+          if (!art) {
+            // REJECT, DO NOT CLAMP — see the header above. This is the exact
+            // branch DEFECT 1 was filed against: it used to `break`
+            // unconditionally, with no lookup at all, which is why he was
+            // always holding the placeholder baked into the glb no matter
+            // which card the model actually asked for.
+            console.warn(`[decke] cardArt: no card "${c.card}" in the catalog`)
+            break
+          }
+          decke.setCardArt(c.slot, art)
           break
+        }
       }
     } catch {
       // One malformed command must not take the rest of the reaction with it.
     }
   }
+  return moved
 }

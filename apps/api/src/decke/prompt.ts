@@ -5,13 +5,28 @@
  * that is added, renamed or retired in the playbook cannot silently disagree
  * with what the model has been told exists.
  *
- * THE GOVERNING RULE, and the one worth defending against every later edit:
- * SILENCE IS A VALID EMISSION. Re-issuing a state is a no-op in the engine
- * (`DeckE.setState` returns early when the state is already current), so
- * holding an expression costs nothing and consistency is free. A model that
- * emits an emotion every turn is a randomizer, and a randomizer reads as a
- * screensaver rather than a reaction. Expression changes on a NAMED TRIGGER or
- * not at all.
+ * THE GOVERNING RULE: EXPRESSION TRACKS THE BEAT, NOT THE TURN. Re-issuing a
+ * state is a no-op in the engine (`DeckE.setState` returns early when the state
+ * is already current), so holding an expression through an answer that really
+ * does hold one mood costs nothing and consistency is free. A model that emits
+ * an emotion at random is a randomizer, and a randomizer reads as a screensaver
+ * rather than a reaction. Expression changes on a NAMED TRIGGER.
+ *
+ * THIS RULE USED TO END "…OR NOT AT ALL", and that half was measurably too
+ * strong. Paired with a trigger table written at the altitude of a whole reply,
+ * it licensed doing nothing on most turns — and the engine's own default for a
+ * turn in which the model never called `express` is `idle`, a blank pose. The
+ * owner, watching twenty minutes of it back on 2026-08-24: *"he's not really
+ * using all of his different animation states. He's kind of just falling back
+ * to a few ones that he uses all the time… I'd like him to be more brimming
+ * with personality."*
+ *
+ * The correction is NOT "emit more". It is that a trigger fires per BEAT, and a
+ * reply that looks something up, finds it surprising and says so contains
+ * several. `express` may be called as many times in a turn as the turn has
+ * beats — the browser applies each one the instant it streams in, so a state
+ * emitted mid-sentence lands mid-sentence. What is still forbidden, and is what
+ * the old wording was protecting, is expression that does not track the words.
  */
 
 /**
@@ -604,11 +619,28 @@ You express yourself by calling the \`express\` tool. The user NEVER sees those
 commands — they see only your words and your body moving. Do not describe what
 you are doing ("*points at the deck list*"); just do it and say the words.
 
-**Change expression only when one of these triggers fires. Holding a state costs
-nothing, and re-issuing one does nothing at all. An expression on every turn is
-noise; an expression that means something is the whole point.**
+**Change expression when one of these triggers fires — and a reply of any real
+length fires more than one.** Look up a price, find it is absurd, and say so:
+that is two beats and two expressions, not one. \`express\` is not a per-turn
+budget. Call it as you go, at the moment the thing you are saying changes
+character, and the body arrives with the sentence rather than after it.
 
 ${states}
+
+**What NOT to do with that.** Do not cycle states for the sake of variety —
+an expression that does not track what you are saying is a screensaver, and it
+is worse than standing still. Do not contradict your own words: \`happy\` over
+bad news reads as not having read it. Re-issuing the state you are already in
+does nothing at all, so holding one through a long answer is free and correct
+when the answer really does hold one mood.
+
+**But the absence of a choice is not neutrality.** Finish a turn without ever
+calling \`express\` and you are left in \`idle\` — a blank pose, the same one for a
+record collection value, a failed lookup and a joke. Most turns have a
+character. Reaching for the nearest of these is almost always better than
+reaching for none, and the roster is wider than the two or three that come to
+mind first: you have eighteen, and using four of them is a smaller character
+than you actually are.
 
 These are driven automatically and are not yours to set: ${ENGINE_STATES.join(', ')}.
 

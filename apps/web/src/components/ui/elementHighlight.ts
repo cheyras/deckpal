@@ -56,8 +56,35 @@ import { pinToPage, unpinToViewport } from '../../character/decke/pageAnchor'
 const LAYER_ID = 'decke-highlight-layer'
 const CYCLE_MS = 2600
 /** How far outside the element's box the ring sits. Enough to clear a 1px border
- *  and a focus ring without looking detached. */
-const INSET = -6
+ *  and a focus ring without looking detached. Exported so `ringRect`'s test can
+ *  state its assertions in terms of this constant rather than a copied `-6`. */
+export const INSET = -6
+
+/** A box in the same shape `getBoundingClientRect()` returns — narrowed to the
+ *  four fields `ringRect` actually needs, so a test can hand it a plain object
+ *  instead of a real DOMRect. */
+export type BoxLike = { left: number; top: number; width: number; height: number }
+
+/**
+ * The ring's own box, in the layer's coordinate space, given the box being rung
+ * and the layer's current drift (0 unless the layer is pinned into the page —
+ * see `place` and `setHighlightAnchor`).
+ *
+ * Pulled out to a pure function rather than left inline in `place()` because
+ * this arithmetic used to be checkable only by opening a browser and eyeballing
+ * whether a ring's edge cleared a card's footer — which is exactly how the
+ * GridView regression this file's test now pins (ring bleeding into the next
+ * row) shipped unnoticed in the first place. Given a DOMRect-shaped box, none of
+ * this needs a DOM at all.
+ */
+export function ringRect(box: BoxLike, drift = 0): BoxLike {
+  return {
+    left: box.left + INSET,
+    top: box.top + drift + INSET,
+    width: box.width - INSET * 2,
+    height: box.height - INSET * 2,
+  }
+}
 
 type HighlightOptions = {
   /** Rounded-corner radius in px. Defaults to the element's own, so it traces
@@ -162,10 +189,11 @@ function place(l: Live) {
   // drift rises, so the answer is a constant. That is the whole point, and it is
   // why `follow` stops calling this the moment the layer is pinned.
   const drift = anchorDocY === null ? 0 : window.scrollY - anchorDocY
-  s.left = `${r.left + INSET}px`
-  s.top = `${r.top + drift + INSET}px`
-  s.width = `${r.width - INSET * 2}px`
-  s.height = `${r.height - INSET * 2}px`
+  const box = ringRect(r, drift)
+  s.left = `${box.left}px`
+  s.top = `${box.top}px`
+  s.width = `${box.width}px`
+  s.height = `${box.height}px`
 }
 
 function follow() {

@@ -497,7 +497,7 @@ export function buildTools(
   return {
     express: tool({
       description:
-        'Move your body and change your expression. The user never sees these commands — only your words and the animation. Call this alongside speaking, not instead of it.',
+        'Move your body and change your expression. The user never sees these commands — only your words and the animation. Call this alongside speaking, not instead of it, and call it again mid-reply whenever the beat changes — a turn is not limited to one expression.',
       inputSchema: z.object({
         commands: z.array(commandSchema).min(1).max(6)
           .describe('Applied in order. Combine a few to express one reaction.'),
@@ -546,9 +546,16 @@ export function buildTools(
         //
         // So this says exactly one thing — do not SAY IT TWICE — and explicitly
         // licenses finishing a reply that has not been made yet.
+        //
+        // AND IT SAYS THE REPLY MAY CARRY ON CHANGING. The sentence above was
+        // written to stop a second step re-saying the first step's answer, and
+        // it did — but read as a whole it also implied the body was now settled
+        // for the turn, which is how twenty minutes of tape ended up with one
+        // pose per reply. A reply has beats; so does he.
         const done =
           'Animation applied; the user sees it. Do not describe or repeat it in words. ' +
-          'If you have not finished answering, carry on; if you already have, add nothing.'
+          'If you have not finished answering, carry on — and call express again when ' +
+          'what you are saying changes character. If you already have, add nothing.'
         return errors.length
           ? { applied: good.length, errors, done }
           : { applied: good.length, done }

@@ -304,6 +304,37 @@ const RAD = Math.PI / 180
 const POP_MS = 280
 
 /**
+ * The largest presented-card scale at which the present gate may still swing.
+ *
+ * The gate mirrors the whole loose-card chain across his body, so it has to
+ * move while there is nothing on screen to see moving. 2% of a card that is
+ * 1.57 x 2.20 Blender units at scale 1 is a few tenths of a millimetre of
+ * rendered geometry — below the point where the flip is a picture rather than a
+ * number. Larger than a hard zero on purpose: the crossfade approaches zero
+ * asymptotically over its last frames, and a gate that waits for exactly 0
+ * waits a frame or two longer than it needs to for no benefit.
+ */
+const GATE_SWING_MAX = 0.02
+
+/**
+ * The present gate for this frame: the new value if nothing is on screen to see
+ * it change, and the previous one otherwise.
+ *
+ * A FUNCTION, EXPORTED, because the rule it encodes is the whole of the fix and
+ * a rule that lives inside a closure over a three.js scene cannot be tested.
+ * `cards.test.ts` has always pinned the algebra either side of this — the
+ * authored gate keys, and `k` at facing ±1 — and the moment BETWEEN them was
+ * the one nothing covered, which is where the defect was.
+ *
+ * `shown` is the presented card's own scale, 0 when there is no presented card
+ * (the orbit's cards are scheduled rather than posed, and are deliberately
+ * ungated — see the caller).
+ */
+export function holdGate(held: number, target: number, shown: number): number {
+  return shown <= GATE_SWING_MAX ? target : held
+}
+
+/**
  * The spawn pop, as ONE curve every card shares.
  *
  * It used to be read per card, from that card's own baked `s` F-curve. All five
@@ -1094,6 +1125,14 @@ export function createCardSystem(
    *  two places; threading it would mean passing it through every helper. */
   let facingNow = 1
 
+  /**
+   * The present gate as it was last allowed to change — see `apply`.
+   *
+   * Per system, not per module: two controllers on one page (the compare page
+   * runs two) must not share a card's mirror state.
+   */
+  let presentHeld = 0
+
   function apply(pose: Pose, frame: CardFrame) {
     const { facing, state, tMs, clipTMs, phase, phaseTMs, orbit, float } = frame
     facingNow = facing
@@ -1117,8 +1156,34 @@ export function createCardSystem(
     // precisely the swoosh the note above says can never happen. It could not,
     // while a state was a one-shot. `clipTMs` holds at the loop point, so the
     // gate holds with the pose it belongs to.
+    //
+    // AND IT MAY ONLY SWING WHILE THE CARD IS INVISIBLE, WHICH IS NOW ENFORCED
+    // RATHER THAN ARRANGED.
+    //
+    // Everything above is about the gate's own authored shape lining up with
+    // the card's scale pop — true within one state, and silent about the moment
+    // the STATE changes. `state` is switched by `DeckE.enter` on the tick
+    // `setState` is called, but the POSE that carries the card's scale is
+    // crossfaded over 320 ms after it (`card_present` has no outro, so its
+    // dismissal goes straight to `enter`). So for a fifth of a second the card
+    // is still plainly on screen while `gate.get(state)` has already become
+    // undefined, `present` has already fallen 1 -> 0, and `k` has already
+    // flipped -1 -> +1 at `facing: -1`. On screen that is the card teleporting
+    // to the side he is not facing, one beat before it fades: "card suddenly
+    // snaps over to the other side (the wrong side for the way he's facing)
+    // right before putting it away… in real time this makes it feel like the
+    // card just glitches and disappears."
+    //
+    // Holding the last value while a presented card is visible enforces the
+    // invariant this comment has always claimed, instead of hoping the authored
+    // curves and the crossfade happen to agree. The orbit is excluded because
+    // its cards are scheduled rather than posed and it is deliberately ungated —
+    // holding through it would carry a presentation's mirror into `loading`.
     const g = gate.get(state)
-    const present = g ? clamp01(evalCurve(g, clipTMs)) : 0
+    const target = g ? clamp01(evalCurve(g, clipTMs)) : 0
+    const shown = orbit ? 0 : Math.max(clamp01(pose.card_l ?? 0), clamp01(pose.card_r ?? 0))
+    presentHeld = holdGate(presentHeld, target, shown)
+    const present = presentHeld
     const k = 1 - present * (1 - facing)
 
     const orb = clamp01(pose.orb_on ?? 0)

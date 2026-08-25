@@ -108,6 +108,48 @@ test('a standalone arrival closes the chat; a hop inside a walk does NOT', () =>
   assert.match(HOST, /seeYouOut\(\)/, 'the host no longer sees him out on arrival')
 })
 
+test('running out of legs mid-journey pairs its notice with the error posture, not bare prose', () => {
+  // Filed on the animation review: *"he doesn't really telegraph that
+  // properly. he should probably do his error state or something and then
+  // fucking leave. he parks here for way too long before displaying his
+  // error message, and he's full size."* The sentence was always written to
+  // the transcript via `appendText` — this is the same shape as the refusal
+  // this file otherwise pins throughout: real information with no signal
+  // reaching the CHARACTER, so he stood there giving no sign anything had
+  // gone wrong until the words finished appearing.
+  //
+  // Anchored on the `console.warn` text rather than on a brace-matched block,
+  // because that text is unique in the file and does not move if the branch
+  // above it is reformatted or its long history comment is edited again.
+  const marker = "console.warn('[decke] leg budget exhausted with work still outstanding')"
+  const idx = HOOK.indexOf(marker)
+  assert.ok(idx >= 0, 'the leg-budget-exhausted warning is gone from useDeckeChat.ts')
+  const around = HOOK.slice(Math.max(0, idx - 900), idx + marker.length)
+  assert.match(
+    around,
+    /if \(!saidSoFar\) \{/,
+    'no longer guards against erasing everything he already said across earlier legs — ' +
+      '`noticeInstead` replaces every text part on the reply, and a multi-leg journey has ' +
+      'almost always said something real by its last leg',
+  )
+  assert.match(
+    around,
+    /title: 'I ran out of steps there\.'/,
+    'the exhaustion notice no longer carries this wording',
+  )
+  assert.match(
+    around,
+    /decke\.setState\('alert_error', \{ mode: 'once' \}\)/,
+    'running out of legs no longer sets his error posture — the exact complaint this pins',
+  )
+  assert.match(
+    around,
+    /movedRef\.current = true/,
+    'running out of legs no longer tells the turn boundary he moved, so it would force him ' +
+      'back to idle over the posture just set',
+  )
+})
+
 test('both ways out share one farewell path', () => {
   // The ✕ and an arrival are the same event to a reader. Two copies is two
   // places for the no-repeat rule to be forgotten, and it is persisted rather
