@@ -746,9 +746,20 @@ async function readPresence(page) {
     // where it is absent this falls back to the old canvas test, which is the
     // right way round — a production run reports a possible defect rather than
     // silently passing.
+    // `data-decke-present` is written by the engine itself and SHIPS, so this
+    // is exact in production too. `__decke.entryScale` is the dev-only second
+    // opinion; the bare canvas test is the last resort, and it errs toward
+    // reporting a defect rather than silently passing.
     const d = window.__decke
     const canvasUp = visible(canvas)
-    const body = canvasUp && (d && typeof d.entryScale === 'number' ? d.entryScale > 0.01 : true)
+    const flag = canvas && canvas.dataset ? canvas.dataset.deckePresent : undefined
+    const body =
+      canvasUp &&
+      (flag !== undefined
+        ? flag === '1'
+        : d && typeof d.entryScale === 'number'
+          ? d.entryScale > 0.01
+          : true)
     const chip = visible(launcher)
     return {
       characterBodyVisible: body,
