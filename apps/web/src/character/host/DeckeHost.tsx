@@ -465,44 +465,48 @@ export function DeckeHost() {
     }
   }, [])
 
-  // HE DOES NOT LOAD UNTIL SOMEBODY WANTS HIM, and there used to be an effect
-  // here that broke that. It set `phase='loading'` on a `requestIdleCallback`
-  // (4 s timeout) or a 1.5 s fallback, gated only on `entitled && !chromeless`
-  // — never on a click, never on a hover. Every entitled visitor downloaded the
-  // whole character on every page, whether or not they ever spoke to him.
+  // WHEN HE LOADS, AND WHY IT HAS MOVED TWICE.
   //
-  // MEASURED, not estimated: 5,905,250 bytes of assets — glb 2,918,432, HDR
-  // 1,608,057, atlas 1,069,793, playbook 186,833, cards 44,311, card back
-  // 77,824 — plus the ~1.14 MB runtime chunk in a production build. It is the
-  // owner's stated number-one complaint about this feature.
+  // This is the third answer to that question and each one was right about the
+  // numbers it had, so the numbers are the thing to read before changing it.
   //
-  // DELETING IT RESTORES TWO DECISIONS THIS FILE ALREADY MADE, which is why it
-  // is a restoration rather than a reversal, and why it is low risk:
+  //   1. ORIGINALLY: an idle-callback timer gated only on `entitled &&
+  //      !chromeless`. Every entitled visitor downloaded the whole character on
+  //      every page whether or not they ever spoke to him — 5,905,250 bytes of
+  //      assets plus a ~1.14 MB runtime chunk. The owner's stated number-one
+  //      complaint about the feature. It also put the 3D body and the launcher
+  //      chip on screen together on the default closed state of every page: the
+  //      "two Deck-Es" defect the whole well design exists to avoid.
   //
-  //   1. The launcher is hidden while the chat is open because "two Deck-Es …
-  //      is the exact thing the whole well design exists to avoid" (see the
-  //      `DeckeButton` call below). The timer broke that invariant in the
-  //      opposite direction: on the DEFAULT closed state of every page, the 3D
-  //      body and the chip were both on screen at once. Reproduced on demand by
-  //      `scripts/visual-harness/capture-decke.mjs --scene idle`, which reports
-  //      `twoDeckEs: true` on desktop and mobile alike.
-  //   2. `vite.config.ts:163-166` excludes these assets from precache on the
-  //      premise that "the route is lazy, so the cost is paid only by whoever
-  //      actually opens it." That premise was false. This makes it true.
+  //   2. THEN: intent only — `DeckeButton`'s `onWarm` (pointer-enter,
+  //      touch-start, focus) and `onOpen`. Nobody who never taps paid anything.
+  //      The accepted cost, stated at the time rather than discovered later: a
+  //      phone has no hover, so mobile traded "already there" for "tap, then
+  //      wait". It also removed the only thing that loaded him before a
+  //      booster-pack rip, which killed rip-watching on the owner's ruling —
+  //      see `ripPresence.ts`.
   //
-  // Loading now starts in exactly two places, both of them intent:
-  // `DeckeButton`'s `onWarm` (pointer-enter, touch-start, focus) and `onOpen`.
+  //   3. NOW: after the page, at idle — the effect below. BOTH of the reasons
+  //      for (2) are gone, and neither went away by itself:
   //
-  // THE ACCEPTED COST, stated rather than discovered: a phone has no hover, and
-  // `touchstart` beats `click` by around 100 ms, so mobile trades "already
-  // there" for "tap, then wait" — a beat on a good connection and possibly
-  // several seconds on a bad one. Nobody who never taps pays anything, which
-  // was the point. The chip's loading state below is what covers that wait, and
-  // it is load-bearing UI now rather than decoration.
+  //      The payload is 5.9 MB -> ~545 kB of assets and 1.14 MB -> 199 kB of
+  //      runtime chunk (2026-08-24/25: the glb is quantised, the SDF atlas is
+  //      8-bit at a quarter of the resolution, the HDRI is 256x128, and the
+  //      RectAreaLight BRDF tables are a 51 kB binary instead of 307 kB of
+  //      JavaScript). On top of that `DeckE.precompile` took the engine work
+  //      from 7.4 s of blocked main thread to 0.95 s of mostly-background work.
   //
-  // It also removed the only thing that ever loaded him before a booster-pack
-  // rip. That killed rip-watching, deliberately and with the owner's ruling —
-  // see `ripPresence.ts`.
+  //      And the two-Deck-Es defect was fixed independently, by the
+  //      `setEntryScale(0)` at the end of loading further down this file: he
+  //      finishes present, started, rendering, and a third of a pixel tall,
+  //      until `playEntry` brings him. Arriving early is invisible now, whoever
+  //      triggered it. VERIFIED rather than reasoned —
+  //      `scripts/visual-harness/capture-decke.mjs --scene idle` reports
+  //      `{"characterBodyVisible":false,"launcherChipVisible":true,
+  //      "twoDeckEs":false}` with the warm firing at 4.3 s.
+  //
+  // If the payload ever grows back, (2) is the correct thing to return to, and
+  // the harness above is how to tell.
 
   // WHEN THE PAGE CHANGES UNDER HIM, HE HAS TO NOTICE.
   //
@@ -1150,6 +1154,74 @@ export function DeckeHost() {
     mq.addEventListener('change', on)
     return () => mq.removeEventListener('change', on)
   }, [])
+
+  // ── Warm him once the PAGE is done, instead of waiting for a hover ─────────
+  //
+  // Warming used to be hover-only, and the reason was the payload: the runtime
+  // plus the assets came to well over 6 MB, which is not something to spend on
+  // someone who may never open the chat. That number is now about 780 kB — the
+  // glb is quantised, the atlas is 8-bit at a quarter of the resolution, the
+  // HDRI is 256x128, and the RectAreaLight tables are a binary rather than
+  // 307 kB of JavaScript — so the calculus has changed.
+  //
+  // THE OTHER REASON IT USED TO BE UNSAFE IS ALREADY FIXED, and it is worth
+  // knowing before anyone reverts this. A timer-driven warm once produced the
+  // two-Deck-Es defect: he faded in at his home corner while the launcher chip
+  // sat in that same corner. What fixed that was `setEntryScale(0)` at the end
+  // of loading — he finishes present, started, rendering, and a third of a
+  // pixel tall, until `playEntry` brings him. So arriving early is invisible
+  // now, whoever triggers it.
+  //
+  // AFTER THE PAGE, AND THEN AT IDLE. This must never compete with first paint
+  // or with the reader's first interaction: it waits for `load`, then for an
+  // idle callback, so the fetches and the ~950 ms of engine work land in the
+  // gap after the page is usable. `DeckeButton` still warms on pointer-enter,
+  // which now only matters when someone hovers inside that gap.
+  useEffect(() => {
+    if (hidden || !entitled || chromeless) return
+    if (phase !== 'idle') return
+
+    // NOT ON A CONNECTION THAT SAID NOT TO. Save-Data is an explicit request
+    // and 2G is an implicit one; on either, he goes back to loading on intent,
+    // which is exactly the behaviour this replaces. Reading `connection` is
+    // feature-detected — Safari and Firefox do not implement it, and absence
+    // must mean "no objection", not "no character".
+    const conn = (navigator as unknown as {
+      connection?: { saveData?: boolean; effectiveType?: string }
+    }).connection
+    if (conn?.saveData) return
+    if (conn?.effectiveType && /(^|-)2g$/.test(conn.effectiveType)) return
+
+    let cancelled = false
+    let idleHandle: number | undefined
+    let timer: number | undefined
+
+    const warm = () => {
+      if (cancelled) return
+      setPhase((p) => (p === 'idle' ? 'loading' : p))
+    }
+    const atIdle = () => {
+      if (cancelled) return
+      const ric = (window as unknown as {
+        requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number
+      }).requestIdleCallback
+      // The timeout is the point of `requestIdleCallback` here: a page that
+      // never goes idle must still get him, just last.
+      if (ric) idleHandle = ric(warm, { timeout: 4000 })
+      else timer = window.setTimeout(warm, 1200)
+    }
+
+    if (document.readyState === 'complete') atIdle()
+    else window.addEventListener('load', atIdle, { once: true })
+
+    return () => {
+      cancelled = true
+      window.removeEventListener('load', atIdle)
+      const cic = (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback
+      if (idleHandle !== undefined && cic) cic(idleHandle)
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [hidden, entitled, chromeless, phase])
 
   useEffect(() => {
     if (!active) return

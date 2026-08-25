@@ -37,7 +37,6 @@ import {
   type Texture,
   type ToneMapping,
 } from 'three'
-import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js'
 import { BLENDER_CAMERA, blenderCameraQuaternion, blenderToThree, BODY_H, DEG } from './constants'
 import { BEACON } from '../beacon'
 
@@ -619,7 +618,15 @@ export function createStage(opts: StageOptions): Stage {
   let characterHeightPx: number | null =
     opts.characterHeightPx === undefined ? null : opts.characterHeightPx
 
-  RectAreaLightUniformsLib.init()
+  // NO `RectAreaLightUniformsLib.init()` HERE. That addon inlines two 64x64
+  // BRDF tables as JavaScript number literals — 307 KB of source, a quarter of
+  // the character chunk — for data that is now fetched as a 64 KB binary and
+  // installed by `ltc.ts`, which `DeckE.load()` awaits alongside the glb.
+  // Importing it again would put all 307 KB straight back into the bundle.
+  //
+  // The lights below are constructed before those uniforms exist. That is safe
+  // only because nothing renders between here and the end of `load()`; if a
+  // render is ever added in between, the area lights will sample nothing.
   // ONE NODE FOR ALL SIX, so the whole rig is a rigid body that can be carried.
   // Adding them straight to the scene puts them at fixed world positions, which
   // is right only while the character is at the origin — see `setFraming`.
