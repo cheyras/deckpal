@@ -807,6 +807,45 @@ body {
   }
 }
 
+/* ── The same arrivals, for a reader who asked for less movement ─────────────
+ *
+ * `reduce` asks for less MOVEMENT, not for the app to stop telling you things
+ * happened. Every entrance above is gated in the TSX with Tailwind's
+ * `motion-safe:`, which compiles to `@media (prefers-reduced-motion:
+ * no-preference)` — so under `reduce` the class does not apply AT ALL and the
+ * panel, the bar and the history menu do not arrive quietly, they simply exist
+ * on the next frame, indistinguishable from a page that never moved. That is
+ * the same defect issue #49 found in premium.css §8, reached by a different
+ * road: there a blanket `1ms` crushed the fades along with the travel, here the
+ * fades are never started.
+ *
+ * So each of those sites names this alongside its `motion-safe:` animation,
+ * under `motion-reduce:`. It is `decke-chat-in` with the `transform` leg cut
+ * out — the arrival keeps the fade that says something arrived and loses the
+ * 16px rise and the 0.94 scale that are the actual movement. The split is by
+ * PROPERTY, exactly as §8 now splits it, rather than by turning the whole
+ * animation up or down.
+ *
+ * One duration for every site rather than each one's authored number. The
+ * authored 160/180/220/280ms differ because they are pacing travel of
+ * different lengths across surfaces of different sizes, and with the travel
+ * gone there is no length left to pace — what is wanted is a single calm fade,
+ * and 220ms is the value premium.css already settled on for a reduced-motion
+ * entrance (`--px-dur`, which cannot be referenced here: it is defined inside
+ * `:root[data-skin='premium']` and this has to work on `classic` too).
+ *
+ * `backwards` for the reason the Sheet block gives: it holds the `from` opacity
+ * through the animation's delay, and there is no transform here to retain as a
+ * containing block. */
+@keyframes decke-calm-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .decke-chat-scrim[data-closing] {
   animation: sheet-scrim-out 220ms ease-in forwards;
 }
@@ -1135,6 +1174,44 @@ body {
    * The gutter clearance stays: on a phone he physically stands in the
    * bottom-left, and a reply that grew into him would be unreadable. */
   max-width: calc(100% - var(--decke-gutter, 0px));
+}
+
+/* ── His on-page speech bubble's pop, routed through a variable ──────────────
+ *
+ * `DeckeBubble` computes its own offset every render — the direction he is
+ * standing relative to the bubble decides which corner it pops out of — so the
+ * `transform` is a JS value and has to be applied inline. Which is exactly the
+ * problem: an inline declaration outranks every selector in every stylesheet,
+ * so the reduced-motion rule below could not have taken the travel away without
+ * `!important`, and this file does not spend that.
+ *
+ * The indirection buys it back. The component sets the custom property, this
+ * rule reads it, and a later rule in the same file can then say `none` and win
+ * on source order — the same no-`!important` discipline premium.css §8 states
+ * for its own overrides.
+ *
+ * The fallback matters on the first paint, before the placement solve has run
+ * and while `visibility: hidden` is still holding the box back. */
+.decke-speech-pop {
+  transform: var(--decke-speech-pop, none);
+}
+
+/* Reduced motion: the bubble still FADES in and out, it just does not travel.
+ *
+ * It used to carry `motion-reduce:transition-none`, which read as the careful
+ * choice and was the same mistake in miniature as the one issue #49 found on
+ * the premium skin — an appearance and a disappearance both collapsed into a
+ * single frame, so a line he says and a line he stops saying looked identical:
+ * they were simply there, or simply not. A short opacity fade is not movement,
+ * costs nothing to render, and is the only thing left that marks the two apart.
+ *
+ * The travel goes at the source rather than by being transitioned to zero: the
+ * bubble is placed at its final position immediately and never occupies the
+ * offset one, so there is no snap between them either. */
+@media (prefers-reduced-motion: reduce) {
+  .decke-speech-pop {
+    transform: none;
+  }
 }
 
 /* A panel he composed is a FIGURE, not a remark — it takes the full column so a

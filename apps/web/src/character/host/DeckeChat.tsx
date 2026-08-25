@@ -1861,7 +1861,14 @@ export function DeckeChat({
           // rather than as a new piece of chrome that has appeared.
           'rounded-[14px] border border-surface-tertiary bg-surface-secondary px-[14px] py-[10px]',
           'text-left shadow-elevated nav:inset-x-auto nav:right-[24px] nav:w-[420px]',
+          // BOTH BRANCHES ARE SPELLED OUT, here and at every other entrance in
+          // this file. `motion-safe:` alone compiles to `(prefers-reduced-motion:
+          // no-preference)` and therefore says nothing about what happens under
+          // `reduce` — the class just stops applying, and the bar appears with no
+          // arrival at all. `decke-calm-in` is this same animation with the
+          // travel cut out; see its comment in theme.css.
           'motion-safe:animate-[decke-chat-in_220ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]',
+          'motion-reduce:animate-[decke-calm-in_220ms_ease-out_backwards]',
         ].join(' ')}
       >
         {/* `text-body` (#cac6c4) on `surface-secondary` (#292524) measures
@@ -1928,7 +1935,13 @@ export function DeckeChat({
         }}
         className={[
           'decke-chat-scrim fixed inset-x-0 bottom-0 cursor-default',
+          // The one entrance whose two branches name the SAME animation, because
+          // `sheet-scrim-in` is opacity and nothing else — there is no travel in
+          // it to take away. Written out rather than left unguarded so that this
+          // element reads like every other one here, and so that changing the
+          // fade on one line cannot silently leave the other behind.
           'motion-safe:animate-[sheet-scrim-in_180ms_ease-out_backwards]',
+          'motion-reduce:animate-[sheet-scrim-in_180ms_ease-out_backwards]',
           desktop ? 'z-[15]' : 'z-[24]',
         ].join(' ')}
       />
@@ -2024,6 +2037,13 @@ export function DeckeChat({
           desktop
             ? 'motion-safe:animate-[decke-chat-in_280ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]'
             : 'motion-safe:animate-[sheet-panel-up_260ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]',
+          // The two platforms converge under `reduce`, and that is correct
+          // rather than a shortcut. Desktop's arrival was a fade plus a shrink
+          // and the phone's was pure travel up from the edge, but what makes
+          // either one legible without moving is the same fade — a sheet that
+          // slid 100% of its own height and a card that grew out of a corner
+          // both reduce to "he is here now", said once, calmly.
+          'motion-reduce:animate-[decke-calm-in_220ms_ease-out_backwards]',
         ].join(' ')}
       >
         {/* A SLIM ROW UNDER THE APP HEADER, not a card's title bar. The panel
@@ -2582,6 +2602,11 @@ export function DeckeChat({
                 'hover:text-text-primary focus-visible:outline focus-visible:outline-2',
                 'focus-visible:outline-offset-2 focus-visible:outline-border-focus',
                 'motion-safe:animate-[decke-chat-in_180ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]',
+                // This one earns its fade more than the panels do: the button
+                // appears over a transcript the reader is actively scrolling, so
+                // popping into existence mid-scroll is the case where a silent
+                // arrival is most likely to be missed entirely.
+                'motion-reduce:animate-[decke-calm-in_220ms_ease-out_backwards]',
               ].join(' ')}
             >
               <Icon name="chevron-down" size={14} className="shrink-0 text-icon-muted" />
