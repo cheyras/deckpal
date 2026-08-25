@@ -189,6 +189,12 @@ function DeckeFrame() {
         )
         if (cancelled) return
         decke.setEnvironment(hdr)
+        // Compile before the first frame rather than inside it: otherwise the
+        // two frames disagree by six seconds of shader compilation and the
+        // first thing this page shows is the one difference it is not there to
+        // measure. See `DeckE.precompile`.
+        await decke.precompile()
+        if (cancelled) return
         // NEVER `start()`. The shell owns the clock — see this file's header.
         decke.step(1 / 60)
         ;(window as FrameWindow).__deckeFrame = {
