@@ -48,7 +48,7 @@ export function loadDeckeRuntime(): Promise<RuntimeModule> {
     return {
       DeckE,
       loadEnvironment: (baseUrl: string) =>
-        new HDRLoader().loadAsync(`${baseUrl}models/decke/studio_small_09_1k.hdr`),
+        new HDRLoader().loadAsync(`${baseUrl}models/decke/studio_small_09_256.hdr`),
     }
   })()
   // A failed import must not be remembered as a failure forever — a dropped

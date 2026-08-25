@@ -393,6 +393,7 @@ const designRoute = createRoute({
 // dead weight in every session. Do not remove it without re-reading the note
 // there.
 const LazyDecke = lazyRoute(() => import('./routes/dev/Decke'))
+const LazyDeckeCompare = lazyRoute(() => import('./routes/dev/DeckeCompare'))
 const LazyChatUi = lazyRoute(() => import('./routes/dev/ChatUi'))
 const DeckeRoute = () => (
   <Suspense
@@ -457,7 +458,49 @@ const chatUiRoute = createRoute({
   component: ChatUiRoute,
 })
 
-const routeTree = rootRoute.addChildren([...coreRoutes, designRoute, deckeRoute, chatUiRoute])
+/**
+ * `/dev/decke-compare` — the shipped glb beside an optimized candidate, driven
+ * in lockstep from one animation frame.
+ *
+ * Same owner gate and the same lazy chunk as `/dev/decke`, and for the same
+ * reason: it pulls the whole character runtime, twice over, and is a review
+ * surface rather than a product page.
+ */
+const DeckeCompareRoute = () => (
+  <Suspense
+    fallback={
+      <div className="flex h-screen items-center justify-center text-text-muted">
+        Loading Deck-E…
+      </div>
+    }
+  >
+    <LazyDeckeCompare />
+  </Suspense>
+)
+const deckeCompareRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/dev/decke-compare',
+  beforeLoad: async () => {
+    if (import.meta.env.DEV) return
+    if (!isCloudMode) return
+    try {
+      const me = await api.me()
+      if (me.owner) return
+    } catch {
+      // Signed out, or /me unavailable — fall through to not-found.
+    }
+    throw notFound()
+  },
+  component: DeckeCompareRoute,
+})
+
+const routeTree = rootRoute.addChildren([
+  ...coreRoutes,
+  designRoute,
+  deckeRoute,
+  deckeCompareRoute,
+  chatUiRoute,
+])
 
 const router = createRouter({
   routeTree,

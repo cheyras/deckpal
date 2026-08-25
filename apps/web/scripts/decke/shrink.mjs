@@ -12,21 +12,28 @@
  *  - **meshopt, NEVER Draco.** `KHR_draco_mesh_compression` structurally cannot
  *    carry morph targets, and every body deformation on this character is one.
  *
- *  - **NEVER quantize.** This is the expensive one. `quantize()` normalises each
- *    mesh's positions and parks the inverse transform on the mesh's NODE — and
- *    the runtime's rider system (`riders.ts`) computes an absolute placement and
- *    writes the whole TRS of those same nodes, which throws the de-quantisation
- *    away. The visible result is `Hinge_Pin_R` inflating into a cylinder wider
- *    than the character; the measurable one is every parity frame losing 5-10
- *    points of IoU at a uniform area ratio of 1.08. Quantizing would take the
- *    asset to 1.39 MB. It is not worth it.
+ *  - **Do not quantize HERE.** Everything this note used to say about the damage
+ *    is still true — `quantize()` parks the inverse transform on the mesh's
+ *    NODE, `riders.ts` overwrites the whole TRS of those same nodes, and the
+ *    result is `Hinge_Pin_R` inflating into a cylinder wider than the character
+ *    at a uniform area ratio of 1.08. What was wrong was the conclusion. The
+ *    damage comes from the mesh and the rig SHARING a node, not from
+ *    quantisation, and `scripts/decke/optimize.mjs` fixes that by moving each
+ *    mesh onto a wrapper child before quantising. It runs on this script's
+ *    output and takes it to 592 KB. See DECISIONS.md, 2026-08-24.
  *
  *  - **never `optimize` wholesale**: `--simplify` defaults on and would average
  *    away exactly the facial detail the character is made of.
  *
- *  - **the grain map is a NORMAL map: lossless only.** Lossy compression on a
- *    normal map shows up as shading artefacts across a large flat surface, which
- *    is exactly what this one covers.
+ *  - **the grain map is a NORMAL map**, and the `lossless: true` below has never
+ *    actually taken effect: the shipped texture is a `VP8 ` chunk, which is
+ *    lossy webp. Verified by reading the RIFF chunk id, and corroborated by size
+ *    — a true lossless encode of its decoded pixels is 1769 KB against the
+ *    526.9 KB that ships. So the rule this line asserts has not been in force,
+ *    and the character has looked fine throughout. Treat it as unproven rather
+ *    than as a constraint. (It is moot downstream: `optimize.mjs` replaces this
+ *    texture with a 256² tile and compensates both its amplitude and its tiling
+ *    factor, because the map is per-pixel noise rather than structure.)
  *
  * The SDF glyph atlas is embedded here AND shipped standalone at
  * `models/decke/symbol_sdf_atlas.png`. The runtime replaces both eye materials

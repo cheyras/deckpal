@@ -6,6 +6,18 @@ he parks beside that element facing inward.
 
 **Preview:** `/dev/decke` — always in dev, owner-only in production. **Status:** complete and measured against the `.blend`; see `PARITY.md` for what is and is not matched.
 
+**The glb is 592 KB** (337 KB over the wire), down from 2850 KB, since the
+quantisation pass on 2026-08-24 — see `scripts/decke/optimize.mjs` and
+DECISIONS.md. Quote its transfer size at **brotli q=3**, which is what Vercel
+actually applies to `model/gltf-binary`; node's default q=11 flatters it by 13%.
+
+**Comparing two builds of the asset:** `/dev/decke-compare` puts the shipped glb
+beside another candidate and drives both from ONE animation frame with the
+same `dt`, so the only thing that can differ between the two images is the asset.
+Two same-origin iframes, not two controllers in one document — `viewport.ts` is a
+module singleton and the second mount wins its canvas origin, which draws him
+hundreds of pixels off. See `scripts/decke/optimize.mjs`.
+
 He is authored in Blender in a separate working directory —
 `~/Documents/DeckPal Character/` — which carries its own extensive wiki. That
 wiki is the design record; **the `.blend` is the authority** (its regeneration
@@ -277,16 +289,45 @@ Each of these cost someone a debugging pass, upstream or here.
   entirely here — it lists them as lid riders at `H_mouth * field(P)` — and the
   file contradicts it twice: the parentage, and the fact that their world
   position is measurably not `field(P)`.
-- **The SDF glyph atlas must stay 16-BIT.** It is the largest single asset after
-  the mesh (1.07 MB, 2560x1024 RGB16) and looks like an obvious thing to shrink;
-  an 8-bit greyscale version is 0.18 MB. It does not work. The eye shader maps
-  the glyph edge over `[0.4985, 0.5020]` — a band **0.0035** wide, narrower than
-  one 8-bit step (0.0039), so the entire antialiased edge collapses to a single
-  quantisation level. The channels are also not duplicates: `.r` is the glyph and
-  `.g` is a second layer (`.b` is unused).
-- **Never quantize the glb.** `KHR_mesh_quantization` parks a de-quantisation
-  transform on each mesh's *node*, and `riders.ts` overwrites the whole TRS of
-  those nodes. `Hinge_Pin_R` inflates into a cylinder wider than the character.
+- **The SDF glyph atlas must keep all THREE CHANNELS. The bit depth was a red
+  herring.** This entry used to say it had to stay 16-bit, on the evidence that
+  an 8-bit *greyscale* version broke the glyph edges. The greyscale was the
+  problem, not the 8 bits: `.r` is the glyph and `.g` is a second layer, and they
+  differ on 28% of texels, so collapsing to one channel destroys half the data.
+
+  The 16 bits never reached the GPU at all. `TextureLoader` decodes a PNG through
+  the browser's image decoder, which truncates to 8 bits per channel — read the
+  decoded texels back and there are **176 distinct values per channel, not
+  65536**. So the shipped atlas is 8-bit RGB now (2560x1024, 1045 KB → 288 KB),
+  and it renders identically: worst mean 0.0076/255 across all six alert states,
+  with zero pixels differing by more than 8.
+
+  The old reasoning is still worth reading as a warning, because the arithmetic
+  was right and the conclusion was still wrong: the eye shader maps the glyph
+  edge over `[0.4985, 0.5020]`, a band **0.0035** wide, narrower than one 8-bit
+  step (0.0039). That is true — and it means the antialiased edge has never been
+  resolved, at any point, because the decoder was already 8-bit. Zero texels land
+  inside that band today. If the glyph edges ever need to be softer, the fix is
+  the shader's band or a float texture, NOT the file's bit depth.
+- **The glb IS quantized, and the de-quantisation lives on a wrapper node.**
+  This used to read "never quantize", which was right about the symptom and
+  wrong about the cause. `KHR_mesh_quantization` parks a de-quantisation
+  transform on each mesh's *node* — and in this glb the mesh nodes ARE the rig
+  nodes (`Hinge_Pin_R_anim`, `Card_Deck_anim`, every `Stash_Card_*`), whose
+  whole TRS `riders.ts` and `cards.ts` overwrite every frame. That is the
+  `Hinge_Pin_R` cylinder. `scripts/decke/optimize.mjs` moves each mesh onto a
+  `__qmesh` child FIRST, so the de-quantisation lands where nothing writes.
+  **The consequence for you: a rig node is no longer necessarily the mesh.**
+  Resolve meshes by traversal, never by casting the named node — `eyeSocket.ts`
+  always did, `DeckE.ts`'s eye binding had to learn. And anything READING vertex
+  positions must compose the mesh's own matrix first, or it is comparing
+  normalised integers against blender units.
+- **Never DROP the morph normals**, however tempting 182 KB looks. Measured over
+  15 poses: it moves 31% of his pixels on `bend_back`, because the shell deforms
+  while the shading stays at the base pose and he is metallic 0.85. The surprise
+  is where it shows — the mouth poses stay fine and the whole-body bends fall
+  apart. `optimize.mjs` tier `c` reproduces it on `/dev/decke-compare` if you
+  want to see it. Quantising them to 8 bits is free (1.687 vs 1.679 worst mean).
 - **Cameras convert differently from objects.** Objects are `C·R·C⁻¹`; a camera
   is `C·R`, because Blender and glTF cameras already share the −Z-forward
   convention. Getting it wrong aims the camera along its up axis.
@@ -378,6 +419,36 @@ identical runs differ by up to **0.045 IoU** — `card_stash` alone swung 0.907 
 
 The harness itself is in `apps/web/scripts/decke/parity/`; it needs Playwright,
 which is deliberately not a repo dependency.
+
+**Changing the asset itself** has its own gate, because the ways it breaks are
+silent:
+
+```bash
+# produce a candidate (tier bx is the shipped recipe)
+node apps/web/scripts/decke/optimize.mjs \
+  apps/web/public/models/decke/decke.glb \
+  apps/web/public/models/decke/decke.opt.glb --tier=bx
+
+# and prove it is still the same character
+node apps/web/scripts/decke/verify-opt.mjs \
+  apps/web/public/models/decke/decke.glb \
+  apps/web/public/models/decke/decke.opt.glb
+```
+
+`verify-opt.mjs` checks the things that fail without throwing: every node still
+present (a default `prune()` deletes the 29 childless `Ctrl_*` empties the rig
+drives by name, and he loads with no face), every rig node keeping its authored
+TRS, morph target names AND ORDER per mesh, materials unmerged, no vertex lost to
+simplification, and the surface within 5e-4 blender units of the original —
+measured in the RIG NODE's space, because in world space the zero-scale stash
+cards collapse to a point and compare as perfect against any asset at all.
+
+**Never screenshot this renderer from outside the page.** There is no
+`preserveDrawingBuffer`, so an out-of-process capture reads an undefined back
+buffer: it produced two completely different images from two controllers a camera
+dump proved were in identical states. Render and `toDataURL` in the same task.
+`DeckE.step(dt)` exists for exactly this — it is `start()`'s tick without the
+rAF, and it is the supported version of the stop-and-step trick above.
 
 For image comparison, `/dev/decke?parity=1` puts the browser on Blender's exact
 camera and backdrop. `markers.json` maps every Blender timeline frame to its
