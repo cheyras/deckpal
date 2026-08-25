@@ -18,6 +18,7 @@ import {
   type CardRef,
 } from './layout.js';
 import { closePool, existingCacheKeys, getStoredEtag } from './assets.js';
+import { parallelMap } from './parallel.js';
 import { ensureRecorded, fromUrl, putAsset } from './store.js';
 
 /**
@@ -139,19 +140,6 @@ async function runTask(t: Task, st: Stats, dryRun: boolean): Promise<void> {
       process.stderr.write(`[warmer] ERROR ${url}: ${result.reason}\n`);
       break;
   }
-}
-
-// Bounded parallel map. The fetcher gate is the real limiter; this just keeps the
-// queue fed with up to `width` outstanding tasks.
-async function parallelMap(tasks: Task[], width: number, fn: (t: Task) => Promise<void>): Promise<void> {
-  let idx = 0;
-  const workers = Array.from({ length: Math.min(width, tasks.length) }, async () => {
-    while (idx < tasks.length) {
-      const my = idx++;
-      await fn(tasks[my]!);
-    }
-  });
-  await Promise.all(workers);
 }
 
 export interface WarmOptions {

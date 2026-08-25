@@ -10,8 +10,9 @@
  * every light.
  *
  * The maths itself is a verbatim transcription of the 209 reachable nodes; the
- * dependency-ordered trace lives in `scratchpad/EYE-GLSL.md` and the CPU parity
- * implementation in `eyeReference.ts`. Do not "tidy" any expression here:
+ * node-for-node record it can be checked against is `eyeReference.ts` (the
+ * dependency-ordered trace document, `scratchpad/EYE-GLSL.md`, was a session
+ * artifact of the port and is gone). Do not "tidy" any expression here:
  * algebraically-equal rearrangements are numerically different at the feather
  * widths this thing works at (0.0012 object units).
  *

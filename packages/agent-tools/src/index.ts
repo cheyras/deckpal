@@ -58,20 +58,14 @@ export function allTools(): ToolDefinition[] {
   return [...ALL];
 }
 
-/** One tool by name, or undefined. Adapters and access-control layers use this. */
-export function toolByName(name: string): ToolDefinition | undefined {
-  return ALL.find((t) => t.name === name);
-}
-
 // ── The shared surface every caller needs ────────────────────────────────────
 
 export type { Ctx } from './ctx.js';
 export { defineTool, type ToolAnnotations, type ToolDefinition } from './registry.js';
-export { fail, ok, type ToolResult } from './result.js';
+export { ok, type ToolResult } from './result.js';
 
 export { apiBase, makeApi, type Api } from './api.js';
 export { q, q1, type Queryable } from './db.js';
-export { money, pagingFooter, row, table, toMajor, winLoss } from './format.js';
 
 /**
  * Re-exported because `apps/mcp/src/server.ts` backs the `collection://summary`

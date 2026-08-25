@@ -2,10 +2,9 @@
 // ownership/query live in the URL (wiki: Frontend-Research §A.5). `custom` sort = the list's
 // manual arrangement (list_item.position order).
 
+import { pick, type SortDir, type ViewMode, type Ownership } from './searchParams'
+
 export type ListSortKey = 'custom' | 'number' | 'name' | 'rarity' | 'price' | 'artist' | 'released'
-export type SortDir = 'asc' | 'desc'
-export type ViewMode = 'grid' | 'table' | 'binder'
-export type Ownership = 'all' | 'have' | 'need' | 'dupes'
 
 export interface ListSearch {
   sort: ListSortKey
@@ -27,10 +26,6 @@ const SORTS: ListSortKey[] = ['custom', 'number', 'name', 'rarity', 'price', 'ar
 const DIRS: SortDir[] = ['asc', 'desc']
 const VIEWS: ViewMode[] = ['grid', 'table', 'binder']
 const OWNS: Ownership[] = ['all', 'have', 'need', 'dupes']
-
-function pick<T extends string>(v: unknown, allowed: T[], dflt: T): T {
-  return typeof v === 'string' && (allowed as string[]).includes(v) ? (v as T) : dflt
-}
 
 export function validateListSearch(raw: Record<string, unknown>): ListSearch {
   return {

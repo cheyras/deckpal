@@ -24,6 +24,13 @@ export class ApiError extends Error {
 export const notFound = (msg = 'Not found'): ApiError => new ApiError(404, 'not_found', msg);
 export const badRequest = (msg: string): ApiError => new ApiError(400, 'bad_request', msg);
 
+/**
+ * The canonical uuid shape, shared by every route that validates a uuid id
+ * before it reaches Postgres (where a malformed uuid is a 22P02 error rather
+ * than "no such row"). Each call site keeps its own 404/400 message.
+ */
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Wrap an async handler so thrown/rejected errors reach the error middleware. */
 export function asyncHandler(fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler {
   return (req, res, next) => {
@@ -69,7 +76,7 @@ export function strList(v: unknown): string[] {
   return [];
 }
 
-export function int(v: unknown, fallback: number): number {
+function int(v: unknown, fallback: number): number {
   const s = str(v);
   if (s === undefined) return fallback;
   const n = Number.parseInt(s, 10);
@@ -86,6 +93,31 @@ export function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallb
   const s = str(v)?.toLowerCase();
   const hit = allowed.find((a) => a.toLowerCase() === s);
   return hit ?? fallback;
+}
+
+// ── Body-text parsers (shared by the lists and decks routers) ───────────────
+
+const NAME_MAX = 120;
+
+/** Trimmed name, ≤ 120 chars. Required by default; `required = false` returns ''. */
+export function parseName(v: unknown, required = true): string {
+  const s = typeof v === 'string' ? v.trim() : '';
+  if (!s) {
+    if (required) throw badRequest('name is required');
+    return '';
+  }
+  if (s.length > NAME_MAX) throw badRequest(`name must be ≤ ${NAME_MAX} chars`);
+  return s;
+}
+
+/** Optional free text: trimmed, ≤ max chars, empty → null (never stored as ''). */
+export function parseOptText(v: unknown, max: number, field: string): string | null {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== 'string') throw badRequest(`${field} must be a string`);
+  const s = v.trim();
+  if (!s) return null;
+  if (s.length > max) throw badRequest(`${field} must be ≤ ${max} chars`);
+  return s;
 }
 
 // ── Raw-body helpers (Vercel compat) ────────────────────────────────────────

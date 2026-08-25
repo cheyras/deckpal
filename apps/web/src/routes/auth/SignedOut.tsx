@@ -13,7 +13,8 @@
 import { useEffect } from 'react'
 import { Link } from '@tanstack/react-router'
 import { supabase } from '../../lib/supabase'
-import { AuthPage, CTA_PRIMARY, CTA_QUIET, StatusPanel } from './authUi'
+import { AuthPage, CTA_PRIMARY, CTA_QUIET } from './authUi'
+import { StatusPanel } from '../../components/ui/StatusPanel'
 
 export function SignedOut() {
   // Landing here means the session should be gone. If anything left one behind

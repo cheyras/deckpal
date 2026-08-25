@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import express from 'express';
 import { pool } from './db.js';
+import { MAX_ACTIVE_TOKENS } from './routes/tokens.js';
 import {
   OAuthValidationError,
   consumeAuthCode,
@@ -32,9 +33,6 @@ import {
  * it, so it is a normal frontend route (apps/web `/authorize`) served by the
  * existing SPA catch-all, not a JSON endpoint.
  */
-
-const TOKEN_TTL_HINT = undefined; // access_token does not expire; omit expires_in (RFC 6749 §5.1 — absent means unspecified lifetime).
-const MAX_ACTIVE_TOKENS = 20; // mirrors routes/tokens.ts
 
 function originFor(req: Request): string {
   const configured = process.env.DECKPAL_PUBLIC_ORIGIN;
@@ -200,7 +198,8 @@ export function mountOAuthServer(app: Express): void {
           res.status(200).json({
             access_token: created.raw,
             token_type: 'Bearer',
-            ...(TOKEN_TTL_HINT !== undefined ? { expires_in: TOKEN_TTL_HINT } : {}),
+            // access_token does not expire; omit expires_in (RFC 6749 §5.1 —
+            // absent means unspecified lifetime).
           });
         } catch (err) {
           console.error('[deckpal-api] /token mint failed:', (err as Error).message);

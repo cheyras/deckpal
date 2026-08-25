@@ -5,9 +5,10 @@
 # The catalog is a point-in-time extract. Promos and Trainer Gallery subsets keep
 # being added to sets that already shipped, so a snapshot silently rots: issue #21
 # ("I have a 087 Binacle that I can't add") was a 2.5-week-old extract missing 222
-# cards across 10 sets. Nothing refreshes this automatically today — the `catalog`
-# entry in apps/sync/src/index.ts is still a logging stub — so this script is the
-# supported way to do it until that job is real.
+# cards across 10 sets. Refresh is scheduled weekly by
+# .github/workflows/catalog-refresh.yml, which calls this script rather than
+# re-implementing the extraction; running it by hand is the self-host/manual
+# path (the `catalog` entry in apps/sync/src/index.ts is still a logging stub).
 #
 # Contract B3 — NEVER run the TCGdex API server. It statically imports all 18
 # languages' cards.json per cluster worker (measured 6.4x JSON->object expansion)

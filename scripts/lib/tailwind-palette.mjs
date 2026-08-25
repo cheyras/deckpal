@@ -3,9 +3,10 @@
  * rather than transcribed — so it cannot drift from what the app actually uses.
  *
  * Tailwind v4 ships its colours as oklch(), which nothing in the image pipeline
- * understands, so they are converted here: oklch → Oklab → linear sRGB → sRGB.
- * The conversion is the CSS Color 4 definition; `verify()` checks it against
- * three known Tailwind hexes so a bad matrix cannot pass silently.
+ * understands, so they are converted here: oklch → Oklab → linear sRGB → sRGB,
+ * per the CSS Color 4 definition. When cross-checking output against a crib
+ * sheet, use v4 hexes: v4 rebased the blues in oklch (sky-500 is #00a6f4, NOT
+ * v3's #0ea5e9), so a v3 sheet makes a correct conversion look like a bug.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -75,27 +76,4 @@ export function loadTailwindPalette() {
     out.push({ name: `${family}-${step}`, family, step: Number(step), ...rgb, hex: hex(rgb) });
   }
   return out;
-}
-
-/** Guard: three colours everyone knows. Throws if the maths regressed. */
-export function verify() {
-  const p = loadTailwindPalette();
-  const pick = (n) => p.find((c) => c.name === n);
-  // v4 hexes. Note sky-500 is NOT v3's #0ea5e9 — v4 rebased the blues in oklch,
-  // so a v3 crib sheet will look like a conversion bug when it is not one.
-  const checks = [
-    ['sky-500', '#00a6f4'],
-    ['rose-500', '#ff2056'],
-    ['amber-400', '#ffb900'],
-  ];
-  const results = checks.map(([name, expected]) => {
-    const got = pick(name);
-    if (!got) throw new Error(`palette missing ${name}`);
-    const d = ['r', 'g', 'b'].reduce((acc, k) => {
-      const e = parseInt(expected.slice(1 + 'rgb'.indexOf(k) * 2, 3 + 'rgb'.indexOf(k) * 2), 16);
-      return Math.max(acc, Math.abs(got[k] - e));
-    }, 0);
-    return { name, expected, got: got.hex, maxChannelDelta: d };
-  });
-  return { count: p.length, results };
 }

@@ -8,6 +8,10 @@
 | **[D]** | Documented in a pkmn.gg help-center article (URL in `BEHAVIOR-SPEC.md` §source table). |
 | **[I]** | Inferred. Not confirmed to exist. |
 
+The raw pkmn.gg captures behind **[O]** were deliberately not committed (they
+lived at `~/pokedex/research/pkmn-gg/` on the capture machine), so **[O]** means
+observed at capture time, not re-checkable from this repo.
+
 **Method.** Every `url` field from the 24 style captures was extracted, plus every `href` attribute from the 24 DOM captures (≈600 distinct internal links after de-duplication). Query strings were extracted separately by scanning for `[?&]param=` across all captures — the **complete** set of param names found anywhere is: `tab`, `redirect`, `Printing`, `Condition`, `signature`, `_nkw`, `id`. Nothing else. That negative result drives several recommendations below.
 
 ---

@@ -940,12 +940,6 @@ export function messageTools(m: ChatMessage): ToolChip[] {
   return out
 }
 
-/** A message with nothing in it yet renders nothing — see the transcript. */
-export function messageIsEmpty(m: ChatMessage): boolean {
-  return m.parts.every((p) => (p.kind === 'text' ? p.text.length === 0 : false))
-}
-
-
 /**
  * The status lines the thinking row shows, newest last.
  *

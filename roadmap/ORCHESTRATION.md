@@ -21,7 +21,7 @@ operational shape: branches, worktrees, review, and the merge protocol.
 ## Branches, worktrees, status
 
 Worktrees live outside the main tree to avoid interfering with the deployed
-code.
+code. Statuses as of 2026-08-16 — check git for current branch state.
 
 | Wave | Branch | Plan | Status |
 |---|---|---|---|
@@ -38,8 +38,8 @@ code.
 Create a worktree when its gate merges:
 
 ```bash
-git -C ~/pokedex branch <branch> main
-git -C ~/pokedex worktree add <path>/<slug> <branch>
+git -C <repo-root> branch <branch> main
+git -C <repo-root> worktree add <path>/<slug> <branch>
 cd <path>/<slug> && pnpm install
 ```
 
@@ -68,8 +68,8 @@ preview URL for review instead of a local dev server.
 - [ ] UI features: verified in a real browser at 390px **and** desktop;
       screenshots taken.
 - [ ] DECISIONS.md entry drafted (dated, on the branch).
-- [ ] `research/SCHEMA.md` updated if schema moved; SKILL.md shipped if the
-      plan requires one.
+- [ ] Schema moved: migration landed in `packages/db/src/migrations/` and
+      `ARCHITECTURE.md` updated; SKILL.md shipped if the plan requires one.
 - [ ] Tell Chey: branch name, one-paragraph summary, Vercel preview URL if
       visual.
 

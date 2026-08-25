@@ -20,7 +20,7 @@
  * lives up top; DB adapters below.
  */
 import { q, q1, cardImages, toMajor } from '../db.js';
-import { setLevelFromCounts, setLevelLabel } from './trainerLevel.js';
+import { pct, setLevelFromCounts, setLevelLabel } from './trainerLevel.js';
 
 export const NATIONAL_DEX_SIZE = 1025;
 
@@ -114,7 +114,6 @@ export async function dexCompletion(userId: string): Promise<DexCompletion> {
       ORDER BY d.generation`,
     [userId],
   );
-  const round1 = (o: number, t: number): number => (o && t ? Math.round((o / t) * 1000) / 10 : 0);
   let capturedTotal = 0;
   let total = 0;
   const byGeneration = rows.map((r) => {
@@ -122,9 +121,9 @@ export async function dexCompletion(userId: string): Promise<DexCompletion> {
     const genTotal = Number(r.total);
     capturedTotal += captured;
     total += genTotal;
-    return { generation: r.generation, captured, total: genTotal, pct: round1(captured, genTotal) };
+    return { generation: r.generation, captured, total: genTotal, pct: pct(captured, genTotal) };
   });
-  return { captured: capturedTotal, total, pct: round1(capturedTotal, total), byGeneration };
+  return { captured: capturedTotal, total, pct: pct(capturedTotal, total), byGeneration };
 }
 
 /**

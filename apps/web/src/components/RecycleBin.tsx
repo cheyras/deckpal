@@ -16,7 +16,7 @@ import { Icon } from './Icon'
  * its own confirmation.
  */
 
-export interface BinEntry {
+interface BinEntry {
   id: string
   name: string
   detail: string

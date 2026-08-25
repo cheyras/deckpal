@@ -5,6 +5,10 @@
 
 ## Evidence tags — read this first
 
+The raw pkmn.gg captures behind **[O]** were deliberately not committed (they
+lived at `~/pokedex/research/pkmn-gg/` on the capture machine), so **[O]** means
+observed at capture time, not re-checkable from this repo.
+
 Every factual claim below carries exactly one tag:
 
 | Tag | Meaning |

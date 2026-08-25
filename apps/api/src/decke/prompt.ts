@@ -122,6 +122,14 @@ const MODEL_STATES: ReadonlyArray<{ state: string; when: string }> = [
  * The split is one question: does deciding this require reading the
  * conversation? Lifecycle and latency do not — the app knows when a fetch
  * started better than the model does, and knows it sooner.
+ *
+ * Two further states exist in the playbook and are NOT available to anyone,
+ * model or engine: `travel_point` and `travel_far`. They look like the travel
+ * states and are a trap — their `flight_spans_ms` is authored, generated,
+ * typed, shipped, and deleted at runtime by `sustain.ts`, so setting
+ * `travel_far` gives 6,917 ms of flight body language while standing perfectly
+ * still. They are for replaying the Blender legs in the parity harness. Travel
+ * is `flyTo`.
  */
 const ENGINE_STATES = [
   'boot',
@@ -132,18 +140,6 @@ const ENGINE_STATES = [
   'sleep',
   'alert_error',
 ] as const
-
-/**
- * States that exist in the playbook and are NOT available to anyone.
- *
- * `travel_point` and `travel_far` are the trap this list exists for. They look
- * like the travel states and are not: their `flight_spans_ms` is authored,
- * generated, typed, shipped — and deleted at runtime by `sustain.ts`. Setting
- * `travel_far` gives 6,917 ms of flight body language while standing perfectly
- * still. They are for replaying the Blender legs in the parity harness. Travel
- * is `flyTo`.
- */
-export const RETIRED_STATES = ['travel_point', 'travel_far'] as const
 
 /**
  * The URL shapes the app actually owns, and why the model has to be handed them.

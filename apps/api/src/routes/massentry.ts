@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { q, q1 } from '../db.js';
-import { asyncHandler, badRequest, notFound, oneOf, strList, userCache } from '../http.js';
+import { asyncHandler, badRequest, notFound, oneOf, strList, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { assertKnownRarities, FINISHES, GOALS, missingForGoal, type Goal } from '../missing.js';
 import { buildCart, type CartInput } from '../tcgplayer/massentry.js';
@@ -32,7 +32,6 @@ export const massEntryRouter: Router = Router();
 /** Mounted at '/' — carries its own full paths (see index.ts). */
 export const cartRouter: Router = Router();
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_ADHOC_ITEMS = 500;
 
 /** One row the cart builder needs, straight out of SQL. */
@@ -180,10 +179,10 @@ cartRouter.get(
       throw badRequest('A pokedex_binder list tracks species, not printings — there is nothing to buy from it.');
     }
 
-    // `owned_only: false` (default) carts the whole list; true carts only the
+    // `missing_only=false` (default) carts the whole list; true carts only the
     // rows the user does not already own, which is what "buy what I still need
     // from this list" means for a dynamic list.
-    const ownedOnly = String(req.query.missing_only ?? '') === 'true';
+    const missingOnly = String(req.query.missing_only ?? '') === 'true';
 
     const rows = await q<CartRow>(
       `SELECT c.name, c.local_id, cs.tcgdex_id AS set_tcgdex_id, c.rarity,
@@ -202,12 +201,12 @@ cartRouter.get(
     LEFT JOIN collection_item ci ON ci.card_variant_id = cv.id AND ci.user_id = $2
         WHERE li.list_id = $1 AND li.card_variant_id IS NOT NULL
         ORDER BY li.position`,
-      [listId, userId, ownedOnly],
+      [listId, userId, missingOnly],
     );
 
     userCache(res);
     res.json(
-      cartPayload({ source: 'list', list: { id: list.id, name: list.name, kind: list.kind }, missingOnly: ownedOnly }, rows),
+      cartPayload({ source: 'list', list: { id: list.id, name: list.name, kind: list.kind }, missingOnly }, rows),
     );
   }),
 );

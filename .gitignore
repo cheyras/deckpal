@@ -1,7 +1,9 @@
 # ── secrets ───────────────────────────────────────────────────────────────
-.env
-.env.local
-.env.cloud
+# One rule for every dotenv variant (.env, .env.local, .env.cloud, and the
+# .env.local that `vercel link` regenerates), with the committed template
+# negated back in — mirroring the same pair in .vercelignore.
+.env*
+!.env.example
 *.secret
 
 # ── node / build ──────────────────────────────────────────────────────────
@@ -78,7 +80,10 @@ deploy/
 # ── machine-local agent instructions (not portable) ─────────────────────
 CLAUDE.local.md
 .vercel
-.env*
+
+# ── agent scheduler state (live session state, never committed) ──────────
+.claude/scheduled_tasks.lock
+.claude/scheduled_tasks.json
 
 # ── credentials ──────────────────────────────────────────────────────────
 # .qa-account holds the shared QA login used to verify the DEPLOYED site (every

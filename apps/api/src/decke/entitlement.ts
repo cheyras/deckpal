@@ -57,9 +57,11 @@ export const DECKE_ENTITLED_VAR = 'DECKE_ENTITLED_USER_IDS'
  * Parse the list.
  *
  * Comma-separated, whitespace-tolerant, empties dropped. Read on every call
- * rather than cached at module load: a serverless instance can outlive a
- * configuration change, and a gate that needs a redeploy to notice it was
- * widened is a gate that will be described as broken.
+ * rather than cached at module load, and the honest reason is that it costs
+ * nothing — not the "a serverless instance can outlive a configuration change"
+ * this comment used to give. As `build.ts` records, an instance belongs to one
+ * immutable deployment and its environment cannot change underneath it, so
+ * per-call and module-load are indistinguishable here.
  */
 function extraEntitled(): string[] {
   return (process.env[DECKE_ENTITLED_VAR] ?? '')

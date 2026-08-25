@@ -1,12 +1,17 @@
 /**
- * eyeReference.ts — CPU parity harness for the Deck-E eye shader.
+ * eyeReference.ts — the Deck-E eye material as CPU arithmetic, kept as
+ * REFERENCE DOCUMENTATION. Nothing imports this file and no diff harness
+ * consumes it any more; it stays because it is the node-for-node record of
+ * what `eyeMaterial.ts` is a port of, and prose cannot carry 215 nodes of
+ * arithmetic without rounding it.
  *
  * A literal, node-for-node transcription of the Blender material
- * `Eye_L_Face_anim` (215 nodes / 287 links). It exists so the GLSL port can be
- * diffed numerically against Blender without a GPU.
- *
- * Source of truth: scratchpad/blender/07-materials-eyes.md
- * Companion doc:   scratchpad/EYE-GLSL.md  (sections A and B match this file 1:1)
+ * `Eye_L_Face_anim` (215 nodes / 287 links), written so the GLSL port could be
+ * diffed numerically against Blender without a GPU. The documents it was
+ * transcribed from (`scratchpad/blender/07-materials-eyes.md`, the
+ * dependency-ordered `scratchpad/EYE-GLSL.md`) were session artifacts of the
+ * port and are gone; the `.blend` remains the authority, and `../PARITY.md`
+ * records what the port was measured against.
  *
  * RULES OBSERVED HERE:
  *  - Every float literal is verbatim from the dump. Nothing is rounded.

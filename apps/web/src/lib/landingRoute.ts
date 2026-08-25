@@ -1,19 +1,3 @@
-// Is this pathname the public marketing landing (the app's index route)?
-//
-// Both RootComponent (which must NOT wrap the landing in AuthGuard) and
-// AppShell (which must render it chrome-free) need this answer, and they each
-// only have the router's pathname to hand — hence one shared predicate rather
-// than two subtly different string tests.
-//
-// The router's `location.pathname` carries the deploy's base path in the
-// self-host build (`/deckpal`) and not in the cloud build (`/`), so the base
-// is stripped first and what's left has to be empty. That makes `/deckpal`,
-// `/deckpal/` and `/` all landing, while `/series` and `/deckpal/series`
-// are not.
-export function isLandingPathname(pathname: string): boolean {
-  return stripBase(pathname) === ''
-}
-
 /** Strips the deploy's base path and any trailing slash. `/deckpal/auth` → `/auth`. */
 function stripBase(pathname: string): string {
   const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
@@ -40,6 +24,8 @@ const CHROMELESS_PATHS = new Set([
 
 export function isChromelessPathname(pathname: string): boolean {
   const rest = stripBase(pathname)
+  // rest === '' is the public marketing landing (the app's index route): the
+  // base path is stripped first, so `/deckpal`, `/deckpal/` and `/` all count.
   return rest === '' || CHROMELESS_PATHS.has(rest)
 }
 

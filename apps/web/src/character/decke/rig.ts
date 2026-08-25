@@ -23,7 +23,6 @@ import {
   CHANNEL_RANGE,
   CTRL,
   DEG,
-  EYE_SOCKET_SCALE,
   HINGE_REST,
   MOUTH,
 } from './constants'
@@ -596,31 +595,6 @@ function applyBrowFollow(rig: RigNodes, pose: Pose): void {
     n.position.z = z
     n.rotation.x = rest.rx + t
   }
-}
-
-/**
- * The eye-in-socket scale compensation, read off the live `delta_scale` drivers.
- *
- * The recess is LID GEOMETRY and rides the shape keys; the eyeballs are child
- * objects that only follow object transforms. Uncompensated they diverge by
- * 0.133 — sixteen times the 0.008 bezel width — and the socket also grows 11.6%
- * while the eyeball stays rigid, which is the part that actually reads wrong.
- *
- * `k` is indexed in the lid's shape-key order. Note k2 (Mouth_S) is deliberately
- * absent from the fit, and the divisor normalises the result to 1.0 at rest.
- */
-export function eyeSocketScale(k: number[]): number {
-  const { a0, linear, cross, divisor } = EYE_SOCKET_SCALE
-  const s =
-    a0 +
-    linear.k0 * (k[0] ?? 0) +
-    linear.k1 * (k[1] ?? 0) +
-    linear.k3 * (k[3] ?? 0) +
-    linear.k4 * (k[4] ?? 0) +
-    linear.k5 * (k[5] ?? 0) +
-    cross.k4k5 * (k[4] ?? 0) * (k[5] ?? 0) +
-    cross.k6k7 * (k[6] ?? 0) * (k[7] ?? 0)
-  return Math.sqrt(Math.max(0, s)) / divisor
 }
 
 /**

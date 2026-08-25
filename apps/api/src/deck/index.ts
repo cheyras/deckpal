@@ -1,6 +1,15 @@
 /**
- * Deck-format validation engine + PTCG Live interchange. Phase 5 backend, part 1.
- * Self-contained module; a later task wires it into a route + UI.
+ * Deck-format validation engine + PTCG Live interchange.
+ *
+ * Wired into the app at `routes/decks.ts` (deck builder — persistence,
+ * validation, interchange, test hands) and `export/router.ts` (PDF export's
+ * legality verdicts), both of which import from this barrel. `versions.ts` and
+ * `battlelog.ts` are deliberately NOT re-exported here: they are Deck
+ * Intelligence bookkeeping and log parsing rather than the engine proper, and
+ * their consumers deep-import them.
+ *
+ * This barrel is the module's declared public API surface — a re-export with no
+ * external consumer yet is intended surface, not evidence of dead code.
  *
  * See research/DECK-FORMATS.md for the spec and data/_provenance.json for what is
  * vendored vs derived.

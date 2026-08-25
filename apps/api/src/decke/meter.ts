@@ -36,7 +36,7 @@
  * magnitude.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * Not inside `withUserContext`
+ * Not inside the per-request RLS middleware
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * Every other table this codebase touches holds user data, and is read and
@@ -44,8 +44,9 @@
  * holds the server's accounting ABOUT a user, and migration 040 gives
  * `authenticated` a SELECT policy and nothing else — deliberately, because a
  * meter its subject can UPDATE is not a meter. So this runs as the connection's
- * own role. See 040's header; if this is ever "tidied" into `withUserContext`
- * it will fail closed and the reason will not be obvious from the error.
+ * own role. See 040's header; if this is ever "tidied" into the per-request
+ * RLS middleware's transaction (`apps/api/src/index.ts`) it will fail closed
+ * and the reason will not be obvious from the error.
  */
 
 /** How the counters are spelled in the schema. */

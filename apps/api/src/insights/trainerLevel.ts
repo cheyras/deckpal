@@ -68,8 +68,11 @@ export function trainerLevelProgress(uniqueCards: number): TrainerLevelProgress 
  */
 export const MAX_SET_LEVEL = 5;
 
-/** One-decimal, round-half-up percentage — matches every % pkmn.gg renders. */
-export function pct(owned: number, total: number): number {
+/**
+ * One-decimal, round-half-up percentage — matches every % pkmn.gg renders.
+ * Accepts null (→ 0) because progress rollups bind SQL NULLs (routes/series.ts).
+ */
+export function pct(owned: number | null, total: number | null): number {
   if (!owned || !total) return 0;
   return Math.round((owned / total) * 1000) / 10;
 }

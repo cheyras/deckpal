@@ -45,7 +45,7 @@ export PGUSER=postgres
 export PGPASSWORD="<password>"
 export PGSSLMODE=require        # Supabase terminates TLS with its own CA
 
-# Build the db package and run all migrations (001-024)
+# Build the db package and run all migrations
 pnpm --filter @deckpal/db build
 pnpm --filter @deckpal/db migrate
 
@@ -74,9 +74,11 @@ pnpm --filter @deckpal/db migrate:status
 > An unrecognised value is rejected outright — a typo must not silently
 > downgrade the connection to plaintext.
 
-Migrations 001-020 are platform-agnostic (any Postgres 15+). Migration 021 adds
-RLS policies and links `app_user` to `auth.users` (Supabase-specific; skipped
-automatically when `SUPABASE_MODE` is unset).
+Whether a migration is platform-agnostic or Supabase-only is a per-file marker,
+not a numbered range: a migration whose first line is `-- @supabase-only` (021's
+RLS policies + `auth.users` link, and the later RLS/Storage companions) is
+skipped automatically when `SUPABASE_MODE` is unset (`packages/db/src/migrate.ts`);
+everything else runs on any Postgres 15+.
 
 > **Fresh-project note:** Migration 013 seeds a default `app_user` row for
 > self-host use. On a fresh Supabase project this row's UUID has no matching
@@ -503,8 +505,8 @@ chmod 600 .env
 ```bash
 pnpm install
 pnpm --filter @deckpal/db build
-pnpm --filter @deckpal/db migrate     # applies migrations 001-020 (skip 021+ for self-host)
-pnpm --filter deckpal-sync catalog:run
+pnpm --filter @deckpal/db migrate     # auto-skips `-- @supabase-only` migrations (SUPABASE_MODE unset)
+pnpm --filter deckpal-sync import:catalog   # optional arg: dataDir (default data/catalog/en)
 pnpm --filter deckpal-web build
 pnpm --filter deckpal-api build
 ```

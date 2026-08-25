@@ -64,12 +64,6 @@ export function resolveLegend() {
 
 export const SIZE = 32;
 
-export function legendDoc() {
-  return Object.entries(LEGEND)
-    .map(([ch, name]) => `  ${ch}  ${name ?? 'TRANSPARENT (background)'}`)
-    .join('\n');
-}
-
 /** Strict parse: 32 lines × 32 legal characters, or a thrown error saying why. */
 export function parseGrid(text) {
   const lines = text

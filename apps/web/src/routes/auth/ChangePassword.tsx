@@ -14,7 +14,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../../lib/supabase'
 import { PASSWORD_MIN_LENGTH, friendlyAuthError, passwordProblem } from '../../lib/authErrors'
-import { Field, FormAlert } from './authUi'
+import { Field } from '../../components/ui/Field'
+import { FormAlert } from '../../components/ui/FormAlert'
 import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/Icon'
 

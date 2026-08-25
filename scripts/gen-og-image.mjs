@@ -20,6 +20,13 @@
  *
  * That is also why it needs `pnpm --filter deckpal-web build` first: it reads
  * apps/web/dist, not src.
+ *
+ * NOTE: this script reads `PLAYWRIGHT_PATH` — a require() specifier handed
+ * straight to createRequire below — while every other script in this repo
+ * (decke-gates.mjs, scripts/visual-harness/*) reads `PLAYWRIGHT_MODULE`, a
+ * `playwright` package DIRECTORY (see visual-harness/lib/resolve-playwright.mjs
+ * for that convention). The names are not interchangeable and neither are the
+ * values; this difference is documented here rather than papered over.
  */
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';

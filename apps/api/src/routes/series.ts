@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { q, q1 } from '../db.js';
 import { asyncHandler, notFound, userCache } from '../http.js';
 import { optionalUserId } from '../identity.js';
+import { pct } from '../insights/trainerLevel.js';
 
 export const seriesRouter: Router = Router();
 
@@ -146,11 +147,6 @@ interface SetSummaryRow {
   master_total: number | null;
   grand_owned: number | null;
   grand_total: number | null;
-}
-
-function pct(owned: number | null, total: number | null): number {
-  if (!owned || !total) return 0;
-  return Math.round((owned / total) * 1000) / 10; // one decimal, matches pkmn.gg
 }
 
 /**

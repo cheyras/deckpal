@@ -169,6 +169,13 @@ dataset. Rectify the tilt, never reject it.
    into a texture field separates them (131/146 frames).
 3. `measure*.mjs` — features, within-pair AUC, leave-one-pair-out.
 
+The scripts' `DIR`/`SRC` constants hardcode the capture session's paths — a
+scratchpad directory that no longer exists and the `~/iPad` clip folder — so
+re-point them before rerunning anything. The per-frame measurements behind the
+round-1 feature tables are preserved as
+`research/foil-harness/features-rectified.json`; the script inventory is
+`research/foil-harness/README.md`.
+
 ## What is left
 
 The blocker is no longer "is there a signal" — there is. It is **lighting

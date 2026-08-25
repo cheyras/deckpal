@@ -450,18 +450,11 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
     title: string;
     description: string;
     inputSchema: z.ZodObject<Record<string, z.ZodType>>;
-    /**
-     * True when this tool ITSELF writes, so the human is asked once, here, for
-     * the operation they actually understand — "let him write and store a
-     * guide for this deck?" — rather than about an implementation detail
-     * halfway down a sub-agent nobody can see.
-     *
-     * This is where the approval for the whole operation is taken. The
-     * sub-agent's own write tools are then built with `approvals: 'upstream'`,
-     * because there is no channel inside a sub-agent to ask on and an
-     * unanswerable question is not a gate, it is a silent no.
-     */
-    writes?: boolean;
+    // HISTORY — superseded: a `writes?: boolean` flag lived here and gated
+    // `needsApproval` on the one tool that stores (`write_strategy_guide`).
+    // The every-deep-call-asks reversal below made it dead, and it is gone;
+    // the asked-once-at-the-boundary rationale now lives with that tool's
+    // `approvals: 'upstream'` comment.
     /**
      * Takes an emitter as its second argument, because the chip id it has to be
      * keyed to only exists inside `execute` below. A beat that could be emitted
@@ -691,7 +684,6 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
       title: 'Write and store a strategy guide',
       // THE ONE DEEP TOOL THAT WRITES. Asked once, at the boundary a person
       // can actually evaluate.
-      writes: true,
       description:
         'Write a real strategy guide for one of their decks and save it. Reads the deck, ' +
         'its battle logs and the current meta, then writes the guide and stores it with ' +
@@ -710,12 +702,9 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
           modelId: pickModel(choice, args.deepest === true),
           instructions: `${ANALYST}\n\nYou are writing a strategy guide for one deck. Read the deck's card list and its battle logs first. Name real cards from the list. Cite real results from the logs. A guide that could have been written about any deck is a failure, however well written.\n\nWhen the guide is ready, store it with deck_strategy. Then report what you stored, briefly.`,
           prompt: `Write a strategy guide for the deck: ${String(args.deck ?? '')}${args.focus ? `\nThey particularly want: ${String(args.focus)}` : ''}`,
-          // Reads PLUS the one write it needs. `deck_strategy` is dumb storage
-          // and idempotent; it replaces a guide rather than appending, so a
-          // retry cannot duplicate anything.
           // Reads PLUS the one write it needs, and `approvals: 'upstream'`
           // because the human was already asked — this whole tool required
-          // approval before it ran (see `needsApproval` below).
+          // approval before it ran (see `needsApproval` above).
           //
           // Without that, the write is not gated, it is SUSPENDED FOR EVER: a
           // sub-agent runs inside `streamText`'s own loop with nothing draining

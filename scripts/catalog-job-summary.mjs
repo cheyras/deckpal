@@ -61,7 +61,7 @@ try {
         `_(${(err && err.message) || 'unreadable summary'})_\n`,
     );
   }
-  process.exit(gate ? 0 : 0);
+  process.exit(0);
 }
 
 const renames = Array.isArray(s.renames) ? s.renames : [];

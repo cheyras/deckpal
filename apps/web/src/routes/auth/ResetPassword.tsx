@@ -32,14 +32,14 @@ import { Link } from '@tanstack/react-router'
 import { supabase } from '../../lib/supabase'
 import { PASSWORD_MIN_LENGTH, friendlyAuthError, passwordProblem } from '../../lib/authErrors'
 import { Spinner } from '../../components/ui'
+import { Field } from '../../components/ui/Field'
+import { FormAlert } from '../../components/ui/FormAlert'
+import { StatusPanel } from '../../components/ui/StatusPanel'
 import {
   AuthCard,
   AuthPage,
   CTA_PRIMARY,
   CTA_QUIET,
-  Field,
-  FormAlert,
-  StatusPanel,
   SubmitButton,
 } from './authUi'
 

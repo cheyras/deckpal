@@ -10,6 +10,7 @@ import {
   type CardRef,
 } from './layout.js';
 import { closePool, getPool } from './assets.js';
+import { parallelMap } from './parallel.js';
 import { fromUrl, putAsset } from './store.js';
 
 /**
@@ -50,7 +51,6 @@ interface Stats {
   rejected: number;
   errors: number;
   bytes: number;
-  gapKeys: string[];
 }
 
 async function jobsFromDb(setFilter?: string): Promise<Job[]> {
@@ -127,17 +127,14 @@ async function runJob(j: Job, st: Stats, dryRun: boolean, knownGaps: Set<string>
       st.warmed++;
       st.bytes += result.body.length;
       break;
-    case 'not-modified':
-      break;
+    // No 'not-modified' case: the fetch above sends no etag, so a 304 cannot happen.
     case 'rejected':
       // content-type/magic-byte failure — the soft-404 trap. A genuine gap.
       st.rejected++;
-      st.gapKeys.push(key);
       break;
     case 'error':
       if (result.httpStatus === 404) {
         st.upstreamGap++;
-        st.gapKeys.push(key);
       } else {
         st.errors++;
         process.stderr.write(`[warm:gaps] ERROR ${url}: ${result.reason}\n`);
@@ -177,22 +174,16 @@ export async function warmGaps(opts: WarmGapsOptions = {}): Promise<Stats> {
     rejected: 0,
     errors: 0,
     bytes: 0,
-    gapKeys: [],
   };
 
-  let idx = 0;
-  const workers = Array.from({ length: Math.min(MAX_CONCURRENCY, work.length) }, async () => {
-    while (idx < work.length) {
-      const my = idx++;
-      await runJob(work[my]!, st, opts.dryRun ?? false, knownGaps);
-      if (st.considered % 200 === 0) {
-        process.stderr.write(
-          `[warm:gaps] ${st.considered}/${work.length} warmed=${st.warmed} gap=${st.upstreamGap}\n`,
-        );
-      }
+  await parallelMap(work, MAX_CONCURRENCY, async (j) => {
+    await runJob(j, st, opts.dryRun ?? false, knownGaps);
+    if (st.considered % 200 === 0) {
+      process.stderr.write(
+        `[warm:gaps] ${st.considered}/${work.length} warmed=${st.warmed} gap=${st.upstreamGap}\n`,
+      );
     }
   });
-  await Promise.all(workers);
 
   process.stderr.write(
     `[warm:gaps] done. considered=${st.considered} already-on-disk=${st.alreadyOnDisk} ` +

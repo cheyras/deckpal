@@ -21,7 +21,7 @@
  *   node scripts/gen-marketing-images.mjs all
  *
  * After `generate`, look at the candidates and record your choices in
- * .marketing-raw/picks.json, e.g. { "hero-bg": "cand-2.png", "og-image": "cand-1.png" }.
+ * .marketing-raw/picks.json, e.g. { "hero-bg": "cand-2.png", "texture-grid": "cand-1.png" }.
  * If a pick is missing, `optimize` falls back to cand-1.png for that asset.
  *
  * ── Auth ──────────────────────────────────────────────────────────────────────
@@ -128,27 +128,6 @@ const ASSETS = [
       'Flat and even overall with no focal point, no vignette, no strong highlights, ' +
       'uniform brightness edge to edge so it tiles invisibly behind body text. ' +
       'Very low contrast, quiet, almost imperceptible. ' +
-      PALETTE_CLAUSE +
-      ' ' +
-      NEGATIVE_SPACE_RULES,
-  },
-  {
-    name: 'og-image',
-    model: 'bfl/flux-2-pro',
-    width: 1200,
-    height: 630,
-    aspectRatio: '16:9', // rendered wide, then cropped to the exact 1200x630 social ratio
-    candidates: 3,
-    widths: [1200],
-    formats: ['jpeg'], // social crawlers do not reliably decode AVIF/WebP
-    budgetKB: 200,
-    prompt:
-      'An abstract social share card background, dark and premium. ' +
-      'Deep charcoal-slate field with a warm amber-gold light bloom concentrated in the right third, ' +
-      'dissolving into soft shadow. Elegant faint geometric planes drift through the right side at ' +
-      'shallow angles, catching thin gold rim light. The entire middle-left region is calm, uncluttered ' +
-      'negative space — smooth dark gradient only, nothing competing there. ' +
-      'Cinematic, balanced, restrained, subtle grain. ' +
       PALETTE_CLAUSE +
       ' ' +
       NEGATIVE_SPACE_RULES,
@@ -512,7 +491,6 @@ async function manifest() {
 function roleFor(def) {
   if (def.name === 'hero-bg') return 'hero-background';
   if (def.name === 'texture-grid') return 'section-texture';
-  if (def.name === 'og-image') return 'social-card';
   return 'feature-accent';
 }
 

@@ -61,7 +61,6 @@ export function deckeApprovalSigning(): 'signed' | 'unsigned' {
   return process.env.DECKE_APPROVAL_SECRET ? 'signed' : 'unsigned'
 }
 
-/** The boot line. Returns null when there is nothing worth saying. */
 /**
  * Said at boot when approvals are unsigned.
  *
@@ -81,6 +80,7 @@ export function deckeApprovalWarning(): string | null {
   )
 }
 
+/** The boot line. Returns null when there is nothing worth saying. */
 export function deckeGateWarning(): string | null {
   switch (deckeGateStatus()) {
     case 'unset':

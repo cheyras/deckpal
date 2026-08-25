@@ -72,7 +72,7 @@ function RootComponent() {
   //   • the marketing landing at `/` and every auth surface — wrapping them in
   //     AuthGuard would bounce the visitor straight to /auth, including off the
   //     page they were just sent to by email;
-  //   • the catalog (/series, /pokedex, /search) — the whole point: 23 546 cards
+  //   • the catalog (/series, /pokedex, /search) — the whole point: 20,964 cards
   //     are readable without an account. AppShell still renders the nav for
   //     these; what it does NOT do is mount an authenticated query while signed
   //     out (see isChromelessPathname vs isCatalogPathname).

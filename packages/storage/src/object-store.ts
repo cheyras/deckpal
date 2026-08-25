@@ -105,6 +105,36 @@ function normaliseEtag(raw: string | null): string | null {
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * The one retry ladder `uploadObject` and `moveObject` share: exponential
+ * backoff with jitter, retrying only 429/5xx and network errors — see
+ * `uploadObject`'s header for why, and for the deliberately small default
+ * budget. `attemptOnce` runs the request; `onSuccess` shapes the result for a
+ * 2xx (only the upload has an etag to record).
+ */
+async function withRetries(
+  maxAttempts: number,
+  attemptOnce: () => Promise<Response>,
+  onSuccess: (res: Response) => UploadResult,
+): Promise<UploadResult> {
+  let last: UploadResult = { ok: false, status: 0, error: 'no attempt made' };
+
+  for (let attempt = 0; attempt < Math.max(1, maxAttempts); attempt++) {
+    if (attempt > 0) await sleep(400 * 2 ** (attempt - 1) + Math.floor(Math.random() * 200));
+    try {
+      const res = await attemptOnce();
+      if (res.ok) return onSuccess(res);
+      const body = await res.text().catch(() => '');
+      last = { ok: false, status: res.status, error: body.slice(0, 200) };
+      if (res.status !== 429 && res.status < 500) return last; // a real rejection
+    } catch (err) {
+      // Network error / timeout — worth another try, same as a 5xx.
+      last = { ok: false, status: 0, error: (err as Error).message };
+    }
+  }
+  return last;
+}
+
+/**
  * Upload bytes, overwriting any existing object (`x-upsert`).
  *
  * Idempotent by construction, which is the whole concurrency story: two requests
@@ -134,12 +164,10 @@ export async function uploadObject(
 ): Promise<UploadResult> {
   const { supabaseUrl, bucket } = storageEnv();
   const url = `${supabaseUrl}/storage/v1/object/${bucket}/${encodeURI(objectPath)}`;
-  let last: UploadResult = { ok: false, status: 0, error: 'no attempt made' };
-
-  for (let attempt = 0; attempt < Math.max(1, maxAttempts); attempt++) {
-    if (attempt > 0) await sleep(400 * 2 ** (attempt - 1) + Math.floor(Math.random() * 200));
-    try {
-      const res = await fetch(url, {
+  return withRetries(
+    maxAttempts,
+    () =>
+      fetch(url, {
         method: 'POST',
         headers: {
           ...authHeaders(),
@@ -149,19 +177,9 @@ export async function uploadObject(
         },
         body: bytes as unknown as BodyInit,
         signal: AbortSignal.timeout(timeoutMs),
-      });
-      if (res.ok) {
-        return { ok: true, status: res.status, etag: normaliseEtag(res.headers.get('etag')) };
-      }
-      const body = await res.text().catch(() => '');
-      last = { ok: false, status: res.status, error: body.slice(0, 200) };
-      if (res.status !== 429 && res.status < 500) return last; // a real rejection
-    } catch (err) {
-      // Network error / timeout — worth another try, same as a 5xx.
-      last = { ok: false, status: 0, error: (err as Error).message };
-    }
-  }
-  return last;
+      }),
+    (res) => ({ ok: true, status: res.status, etag: normaliseEtag(res.headers.get('etag')) }),
+  );
 }
 
 // ── Inventory ────────────────────────────────────────────────────────────────
@@ -310,12 +328,10 @@ export async function moveObject(
   maxAttempts = 4,
 ): Promise<UploadResult> {
   const { supabaseUrl, bucket } = storageEnv();
-  let last: UploadResult = { ok: false, status: 0, error: 'no attempt made' };
-
-  for (let attempt = 0; attempt < Math.max(1, maxAttempts); attempt++) {
-    if (attempt > 0) await sleep(400 * 2 ** (attempt - 1) + Math.floor(Math.random() * 200));
-    try {
-      const res = await fetch(`${supabaseUrl}/storage/v1/object/move`, {
+  return withRetries(
+    maxAttempts,
+    () =>
+      fetch(`${supabaseUrl}/storage/v1/object/move`, {
         method: 'POST',
         headers: { ...authHeaders(), 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -324,16 +340,9 @@ export async function moveObject(
           destinationKey,
         }),
         signal: AbortSignal.timeout(timeoutMs),
-      });
-      if (res.ok) return { ok: true, status: res.status };
-      const body = await res.text().catch(() => '');
-      last = { ok: false, status: res.status, error: body.slice(0, 200) };
-      if (res.status !== 429 && res.status < 500) return last; // a real rejection
-    } catch (err) {
-      last = { ok: false, status: 0, error: (err as Error).message };
-    }
-  }
-  return last;
+      }),
+    (res) => ({ ok: true, status: res.status }),
+  );
 }
 
 /** Remove an object. Used only to roll back a torn write. */

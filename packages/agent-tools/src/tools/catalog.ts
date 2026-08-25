@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { money, pagingFooter, row } from '../format.js';
 import { describeCard, resolveCard } from '../resolve.js';
-import { defaultGoal, errText, type Goal } from './collection.js';
+import { GOALS, defaultGoal, errText, type Goal } from '../shared.js';
 
 /**
  * Catalog tools — SPEC §5 #3 search_cards, #4 get_card, #5 set_progress.
@@ -22,8 +22,6 @@ const pageSizeArg = z
   .max(200)
   .default(50)
   .describe('Rows per page (default 50, hard cap 200).');
-
-const GOALS = ['complete', 'master', 'grandmaster'] as const;
 
 // ── search_cards — SPEC §5 #3 ──────────────────────────────────────────────
 interface SearchRow {
@@ -469,8 +467,8 @@ const setProgressTool = defineTool({
 
       if (!args.set_id) {
         // Overview: one line per set with any progress, sorted by goal pct
-        // desc. `goal` is a closed zod enum, so interpolating it into the
-        // ORDER BY FILTER clauses is allow-list-safe (house rule).
+        // desc. `goal` is bound as $4 in the ORDER BY FILTER clauses below —
+        // parameterized like everything else, never interpolated.
         const having = `HAVING max(p.owned_required) > 0`;
         const totalRow = await q1<{ total: string }>(
           ctx.db,

@@ -3,6 +3,7 @@
 
 import { supabase, isCloudMode } from './supabase'
 import { isPublicPathname } from './landingRoute'
+import type { ValueRangeKey } from './insightsCaption'
 
 const BASE = isCloudMode ? '/api' : '/deckpal/api'
 
@@ -23,7 +24,9 @@ async function handle401(path: string, init: RequestInit): Promise<Response | nu
     // location.assign loop. Same predicate the router and shell use, so the
     // three can never disagree about which pages are safe to sit on.
     if (!isPublicPathname(window.location.pathname)) {
-      window.location.assign(isCloudMode ? '/auth' : '/deckpal/auth')
+      // Literal '/auth': the !isCloudMode early return above means the
+      // self-host arm of a mode ternary could never be taken here.
+      window.location.assign('/auth')
     }
     throw new Error('Session expired')
   }
@@ -56,11 +59,6 @@ export class ApiError extends Error {
   }
 }
 
-/** The status of a failure, when it came from the API. */
-export function statusOf(e: unknown): number | null {
-  return e instanceof ApiError ? e.status : null
-}
-
 function extractError(res: Response): Promise<string> {
   return res.json().then(
     (b: { error?: { message?: string } }) => b?.error?.message ?? `HTTP ${res.status}`,
@@ -73,15 +71,24 @@ async function apiError(res: Response): Promise<ApiError> {
   return new ApiError(await extractError(res), res.status)
 }
 
-async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const headers = await authHeaders()
-  let res = await fetch(`${BASE}${path}`, { signal, headers })
+// The one fetch pipeline: request → single 401-refresh retry (handle401, which
+// re-sends the same init with fresh auth headers) → ApiError on failure →
+// parsed JSON. Callers own their init — headers, body, keepalive, signal — and
+// this owns what happens to it. keepaliveJson stays off this path on purpose:
+// it has no 401 retry (see its comment).
+async function request<T>(path: string, init: RequestInit): Promise<T> {
+  let res = await fetch(`${BASE}${path}`, init)
   if (res.status === 401) {
-    const retry = await handle401(path, { signal, headers })
+    const retry = await handle401(path, init)
     if (retry) res = retry
   }
   if (!res.ok) throw await apiError(res)
   return res.json() as Promise<T>
+}
+
+async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const headers = await authHeaders()
+  return request<T>(path, { signal, headers })
 }
 
 async function send<T>(
@@ -96,30 +103,14 @@ async function send<T>(
   signal?: AbortSignal,
 ): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...await authHeaders() }
-  const init: RequestInit = {
+  return request<T>(path, {
     method,
     headers,
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     ...(signal ? { signal } : {}),
-  }
-  let res = await fetch(`${BASE}${path}`, init)
-  if (res.status === 401) {
-    const retry = await handle401(path, init)
-    if (retry) res = retry
-  }
-  if (!res.ok) throw await apiError(res)
-  return res.json() as Promise<T>
+  })
 }
 
-/**
- * POST raw bytes (an image file) rather than JSON.
- *
- * `application/octet-stream` is deliberate: the server decides the real type
- * from the file's magic bytes and ignores this header entirely, and declaring
- * octet-stream keeps the API's app-wide `express.json` parser from trying to
- * consume the body first. A `Blob` body survives the 401-refresh retry because
- * a Blob can be read more than once — a ReadableStream could not.
- */
 /**
  * A POST that survives the page going away.
  *
@@ -171,16 +162,18 @@ async function keepaliveJson<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/**
+ * POST raw bytes (an image file) rather than JSON.
+ *
+ * `application/octet-stream` is deliberate: the server decides the real type
+ * from the file's magic bytes and ignores this header entirely, and declaring
+ * octet-stream keeps the API's app-wide `express.json` parser from trying to
+ * consume the body first. A `Blob` body survives the 401-refresh retry because
+ * a Blob can be read more than once — a ReadableStream could not.
+ */
 async function upload<T>(path: string, blob: Blob): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream', ...await authHeaders() }
-  const init: RequestInit = { method: 'POST', headers, body: blob }
-  let res = await fetch(`${BASE}${path}`, init)
-  if (res.status === 401) {
-    const retry = await handle401(path, init)
-    if (retry) res = retry
-  }
-  if (!res.ok) throw await apiError(res)
-  return res.json() as Promise<T>
+  return request<T>(path, { method: 'POST', headers, body: blob })
 }
 
 // ── Profile photo ──────────────────────────────────────────────
@@ -864,7 +857,9 @@ export interface CollectionEvent {
 export interface CollectionEventsResponse {
   events: CollectionEvent[]
 }
-export type ValueRange = '30d' | '3m' | '6m' | '1y'
+// One definition of the range union — insightsCaption.ts owns it (that module
+// stays runtime-import-free); this re-export keeps every existing import site.
+export type ValueRange = ValueRangeKey
 export interface ValuePoint {
   date: string
   value: number
@@ -1070,24 +1065,12 @@ export const api = {
   scan: async (bytes: ArrayBuffer, contentType: string, k = 5, quality: 'low' | 'high' = 'low', signal?: AbortSignal): Promise<ScanResponse> => {
     const params = new URLSearchParams({ k: String(k), quality })
     const auth = await authHeaders()
-    const path = `/scan?${params.toString()}`
-    let res = await fetch(`${BASE}${path}`, {
+    return request<ScanResponse>(`/scan?${params.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': contentType || 'application/octet-stream', ...auth },
       body: bytes,
       signal,
     })
-    if (res.status === 401) {
-      const retry = await handle401(path, {
-        method: 'POST',
-        headers: { 'Content-Type': contentType || 'application/octet-stream', ...auth },
-        body: bytes,
-        signal,
-      })
-      if (retry) res = retry
-    }
-    if (!res.ok) throw await apiError(res)
-    return res.json() as Promise<ScanResponse>
   },
   // PDF export URLs (streamed by the API; open in a new tab).
   deckPdfUrl: (id: string) => `${BASE}/decks/${encodeURIComponent(id)}/pdf`,

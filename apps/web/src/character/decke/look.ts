@@ -66,7 +66,7 @@ export const GAZE_GAIN = 0.2563
  */
 export const PUPIL_ROAM = { x: 0.115, z: 0.225 } as const
 
-export type LookTarget = {
+type LookTarget = {
   /** The gaze target in the BLENDER frame: the camera plus the pose offset. */
   target: V3
 }

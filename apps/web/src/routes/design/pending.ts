@@ -4,7 +4,7 @@
  * The design-system page renders a completeness meter from this.
  */
 
-export interface PendingItem {
+interface PendingItem {
   /** Backlog ID from the plan (C1-C13) or descriptive ID for off-theme values */
   id: string
   /** Human-readable label */

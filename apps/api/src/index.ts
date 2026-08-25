@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
-import { closePool, pool, q, rlsStore, SUPABASE_MODE, withUserContext } from './db.js';
+import { closePool, pool, q, rlsStore, SUPABASE_MODE } from './db.js';
 import { ownerGateStatus } from './routes/me.js';
 import { deckeApprovalSigning, deckeApprovalWarning, deckeGateStatus, deckeGateWarning } from './decke/gate.js';
 import {
@@ -124,7 +124,8 @@ export function createApp(): express.Express {
   const api = express.Router();
 
   // JWT verification runs on every request (extracts req.user from Bearer token).
-  // It never rejects — routes that need auth use requireAuth below.
+  // It never rejects — user-scoped routers are gated by resolveIdentity below,
+  // and the session-only ones (/tokens, /avatar, /oauth) by requireSession too.
   api.use(authMiddleware);
 
   // RLS context: in SUPABASE_MODE, wrap authenticated requests in a transaction

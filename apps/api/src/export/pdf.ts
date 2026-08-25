@@ -47,7 +47,7 @@ function beginDoc(stream: Writable, title: string): Doc {
 const contentWidth = (doc: Doc): number => doc.page.width - doc.page.margins.left - doc.page.margins.right;
 const bottomLimit = (doc: Doc): number => doc.page.height - doc.page.margins.bottom;
 
-/** Title band: red accent bar + title + right-aligned "DeckPal", then meta lines. */
+/** Title band: red accent bar + title + right-aligned "pokédex" brand mark, then meta lines. */
 function header(doc: Doc, title: string, meta: string[]): void {
   const x = doc.page.margins.left;
   const w = contentWidth(doc);
@@ -160,7 +160,7 @@ class ColumnFlow {
 function cardRow(
   doc: Doc,
   cell: { x: number; y: number; w: number },
-  r: { number: string | null; name: string | null; rarity?: string | null; owned: boolean; qty?: number | null },
+  r: { number: string | null; name: string | null; owned: boolean; qty?: number | null },
 ): void {
   const cbY = cell.y + 1.5;
   checkbox(doc, cell.x, cbY, r.owned);
@@ -360,7 +360,7 @@ export function renderSetChecklistPdf(stream: Writable, d: SetChecklistData): vo
   const flow = new ColumnFlow(doc, { columns: 2, gutter: 24, rowHeight: 15 });
   for (const c of d.cards) {
     const cell = flow.row();
-    cardRow(doc, cell, { number: c.number, name: c.name, rarity: c.rarity, owned: c.owned });
+    cardRow(doc, cell, { number: c.number, name: c.name, owned: c.owned });
     if (c.rarity) {
       doc.font(F.reg).fontSize(7).fillColor(MUTED).text(c.rarity, cell.x + 15 + 34, cell.y + 9.5, { width: cell.w - 49, lineBreak: false, ellipsis: true });
     }

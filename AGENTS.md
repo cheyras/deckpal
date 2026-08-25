@@ -17,11 +17,11 @@ packages:
 
 | Package | Filter name | Role |
 |---|---|---|
-| `apps/api` | `deckpal-api` | Express API (~49 endpoints); Vercel catch-all serverless function (cloud) or standalone (self-host) |
+| `apps/api` | `deckpal-api` | Express API (endpoints inventoried in `API.md`); Vercel catch-all serverless function (cloud) or standalone (self-host) |
 | `apps/sync` | `deckpal-sync` | Catalog import, dex import, price ingest (GitHub Actions or local cron) |
 | `apps/web` | `deckpal-web` | React 19 + Vite + Tailwind 4 SPA |
 | `apps/images` | `deckpal-images` | Self-host image server (card art cache on local disk); cloud path uses Supabase Storage |
-| `apps/mcp` | `deckpal-mcp` | **deckpal-mcp** -- MCP server (Wave 3 for cloud; available now for self-host) |
+| `apps/mcp` | `deckpal-mcp` | **deckpal-mcp** -- MCP server, live and multi-user on cloud; also runs self-host |
 | `packages/db` | `@deckpal/db` | Shared Postgres pool + numbered SQL migrations |
 | `packages/storage` | `@deckpal/storage` | Shared image path algebra + the `putAsset()` provenance choke point (B1), used by `apps/images` and the cloud image function |
 | `packages/agent-tools` | `@deckpal/agent-tools` | The 23 agent tool definitions (reads + writes) shared by `apps/mcp` and Deck-E (`apps/api/src/decke`) -- one definition of what an agent can do, two front-ends |
@@ -486,3 +486,5 @@ is the running ledger. Agents append one line per work session:
 | `add-tcg` | Onboard a new TCG or refresh an existing catalog/images |
 | `add-image-slot` | Add a new kind of image the app does not yet source |
 | `fill-missing-assets` | Fill gaps in an existing image slot |
+| `design-requests` | Drain the design-system change-request queue from the `/design` editor |
+| `setup-clone` | Bring a fresh clone to a verified working dev environment (a command: `.claude/commands/setup-clone.md`) |

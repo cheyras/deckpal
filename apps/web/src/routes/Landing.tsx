@@ -26,6 +26,7 @@ import {
   ValueMockup,
 } from './landing/Mockups'
 import './landing/landing.css'
+import { prefersReducedMotion } from '../lib/reducedMotion'
 
 type Vars = CSSProperties & Record<`--${string}`, string>
 
@@ -38,10 +39,6 @@ const MCP_DOCS = `${REPO}/blob/main/DEPLOYMENT.md#connect-an-ai-assistant-mcp`
 const ASSETS = `${import.meta.env.BASE_URL}marketing/`
 
 /* ── motion plumbing ──────────────────────────────────────────────────────── */
-
-function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
 
 /**
  * Stamps `data-revealed` on every `[data-reveal]` as it enters the viewport.

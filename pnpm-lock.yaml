@@ -140,12 +140,6 @@ importers:
       express:
         specifier: ^5.0.0
         version: 5.2.1
-      pg:
-        specifier: ^8.23.0
-        version: 8.23.0
-      zod:
-        specifier: ^4.2
-        version: 4.4.3
     devDependencies:
       '@types/express':
         specifier: ^5.0.0
@@ -278,9 +272,6 @@ importers:
       '@deckpal/db':
         specifier: workspace:*
         version: link:../db
-      pg:
-        specifier: ^8.23.0
-        version: 8.23.0
       zod:
         specifier: ^4.2
         version: 4.4.3

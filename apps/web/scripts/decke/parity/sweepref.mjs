@@ -18,7 +18,6 @@ for (const [tag, ref, state, F, M] of CASES) {
   const p = await b.newPage({ viewport:{width:720,height:720}, deviceScaleFactor:1 })
   await p.goto('http://localhost:5199/deckpal/dev/decke?parity=1',{waitUntil:'networkidle'})
   await p.waitForTimeout(7500)
-  if (process.env.LEGACY_HINGE) await p.evaluate(() => { globalThis.__LEGACY_HINGE = true })
   await p.evaluate(({state,F,M}) => {
     const d = window.deckE
     if (state) {
