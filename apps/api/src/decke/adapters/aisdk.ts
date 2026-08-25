@@ -48,6 +48,7 @@ import { z } from 'zod';
 import { allTools, type Ctx, type ToolDefinition, type ToolResult } from '@deckpal/agent-tools';
 import { withToolCtx, type ToolCtxOptions } from '../ctx.js';
 import { CallLedger, callKey } from '../repeat.js';
+import { alreadyDeclinedMessage } from '../declined.js';
 
 /**
  * A tool-call lifecycle event, for the chip the reader sees.
@@ -108,7 +109,18 @@ export type ToolEvent =
       summary: string;
       reason: 'timeout' | 'truncated';
     }
-  | { phase: 'error'; id: string; name: string; title: string; summary: string };
+  | { phase: 'error'; id: string; name: string; title: string; summary: string }
+  /**
+   * The reader already refused this exact call earlier in the conversation, so
+   * it was neither run nor asked about again. See `declined.ts`.
+   *
+   * `declined` was already the transcript's word for a refused call — the
+   * CLIENT emits it when somebody answers a dialog with no, and `shapeTools` in
+   * `deckeHistory.ts` has always accepted it. This is the same phase reached
+   * without a dialog, so a reader scanning their history sees one kind of row
+   * for "this did not happen because I said no", however it was decided.
+   */
+  | { phase: 'declined'; id: string; name: string; title: string; summary: string };
 
 /**
  * One printing a row could mean, for the picker on the approval card.
@@ -249,6 +261,15 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    * it one.
    */
   include?: (def: ToolDefinition) => boolean;
+  /**
+   * `callKey`s the reader has explicitly refused earlier in this conversation.
+   *
+   * A matching call is refused without a dialog and without running — see
+   * `declined.ts` for the reader's own complaint about being asked three times
+   * for the same thing. Absent means nothing was refused, which is correct for
+   * a sub-agent (no reader, no dialog) and for the tests.
+   */
+  declined?: ReadonlySet<string>;
   /** Receives the lifecycle events above. Optional; the chips are a UI concern. */
   onEvent?: (e: ToolEvent) => void;
   /**
@@ -710,6 +731,12 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
   // between users or between requests. That isolation is the difference between
   // a cache and a cross-account read.
   const ledger = new CallLedger();
+  // Empty when the caller does not supply one, which means "nothing was ever
+  // refused" — the right default for a sub-agent, which has no reader and no
+  // dialog, and for the tests.
+  const declined = opts.declined ?? new Set<string>();
+  const alreadyDeclined = (name: string, input: unknown): boolean =>
+    declined.size > 0 && declined.has(callKey(name, input));
   const maxChars = opts.maxChars ?? DEFAULT_MAX_TOOL_CHARS;
   const out: ToolSet = {};
 
@@ -729,10 +756,20 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
       // `upstream` means a human already approved this operation at a coarser
       // boundary and there is no channel here to ask on — see `approvals`. It
       // is never the default, and never reachable from the conversational path.
+      // ── AND A CALL THEY ALREADY REFUSED IS NOT ASKED AGAIN ──────────────
+      //
+      // `false` here does NOT mean "run it" — `execute` refuses it below. It
+      // means "do not raise a dialog", which is the whole complaint: the reader
+      // was shown the same `deck_strategy` panel on three consecutive turns
+      // having declined it each time, and said so in the chat.
+      //
+      // The pair has to stay in step. `needsApproval` false with an `execute`
+      // that did NOT check would silently perform an unapproved write, so the
+      // two read the same predicate and there is a test for it.
       needsApproval:
         opts.approvals === 'upstream'
           ? false
-          : (input: unknown) => requiresApproval(def, input),
+          : (input: unknown) => requiresApproval(def, input) && !alreadyDeclined(def.name, input),
       /**
        * RUN THE DRY RUN FOR THE DIALOG, HERE, BEFORE ANYONE IS ASKED.
        *
@@ -786,6 +823,17 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
         const chip = { id: toolCallId, name: def.name, title: def.title };
         opts.onEvent?.({ phase: 'start', ...chip });
         try {
+          // REFUSED HERE, not executed and not asked. The counterpart to
+          // `needsApproval` above: that stops the dialog, this stops the work.
+          // Checked BEFORE the preview coercion, because a call they refused
+          // must not run even as a dry run — a preview is still a query against
+          // their data on their behalf, for a question they closed.
+          if (alreadyDeclined(def.name, args)) {
+            const message = alreadyDeclinedMessage(def.name);
+            opts.onEvent?.({ phase: 'declined', ...chip, summary: 'already declined — not asked again' });
+            return message;
+          }
+
           // If this call was NOT classified as needing approval, then it is a
           // preview — so make it one, explicitly, rather than trusting a
           // default to agree with the classification.

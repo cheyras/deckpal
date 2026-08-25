@@ -69,6 +69,7 @@ import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
 import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
+import { declinedCalls } from '../apps/api/dist/decke/declined.js'
 import {
   BALANCE_SQL,
   COST,
@@ -422,6 +423,15 @@ async function serve(request) {
     return json({ error: 'messages must be a non-empty array' }, 400)
   }
 
+  // ── WHAT THEY HAVE ALREADY REFUSED ────────────────────────────────────────
+  //
+  // Derived from the replayed conversation, before anything else uses it. The
+  // reader watched the same `deck_strategy` dialog on three consecutive turns
+  // having declined it every time, and wrote in the chat that this was the
+  // problem. A matching call is now refused without a dialog. See
+  // `decke/declined.ts` for why the tool is not simply taken away instead.
+  const declined = declinedCalls(messages)
+
   // ── THE METER ─────────────────────────────────────────────────────────────
   //
   // Charged AFTER validation and BEFORE the model, which is the only ordering
@@ -610,6 +620,17 @@ async function serve(request) {
           // whether or not one was asked for, so his word cannot be the witness
           // to his own guess. See `printingSaid.ts` for the measurement.
           readerNamedPrinting: readerNamedPrinting(latestUserText(messages)),
+          // ── AND WHAT THEY HAVE ALREADY SAID NO TO ────────────────────────
+          //
+          // Read from the replayed history, the only place it can come from:
+          // the browser re-POSTs the whole conversation each leg and the server
+          // keeps nothing between requests.
+          //
+          // Given to the data tools AND to the deep tier below, because the
+          // reader's complaint named one of each — `deck_strategy` (a data
+          // write) and `research_meta` (a deep call), four declines apiece
+          // across the corpus. See `decke/declined.ts`.
+          declined,
           grounding,
         }),
         // THE DEEP TIER. Four sub-agents, each with its own model, step
@@ -636,6 +657,10 @@ async function serve(request) {
               credits: deepCost(toolName),
               reason: `deep:${toolName}`,
             }),
+          // `research_meta` was declined four times across the corpus, twice in
+          // consecutive turns, with the reader saying in the chat that being
+          // re-asked was the problem. Same set as the data tools above.
+          declined,
           onEvent: emitToolEvent(writer),
         }),
       }

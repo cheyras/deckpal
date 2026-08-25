@@ -55,6 +55,8 @@ import { z } from 'zod';
 import type { GatewayProvider } from '@ai-sdk/gateway';
 import { MODELS, budgetFor, type ModelChoice } from './models.js';
 import { deepFailed, deepRefused } from './deepOutcome.js';
+import { alreadyDeclinedMessage } from './declined.js';
+import { callKey } from './repeat.js';
 import {
   buildDataTools,
   safeToolError,
@@ -129,6 +131,13 @@ export interface DeepToolOptions {
     /** What this call needed. */
     needed?: number;
   }>;
+  /**
+   * `callKey`s the reader has already explicitly refused in this conversation.
+   *
+   * A matching call raises no dialog, runs nothing, and is not charged. Absent
+   * means nothing was refused. See `declined.ts`.
+   */
+  declined?: ReadonlySet<string>;
   /** Lifecycle events, so deep work gets a chip like everything else. */
   onEvent?: (e: ToolEvent) => void;
   /**
@@ -419,7 +428,17 @@ function finishOutcome(
 export function buildDeepTools(opts: DeepToolOptions): ToolSet {
   const budgetMs = deepBudgetMs();
 
-  /** Read tools for a sub-agent. No ceiling — this tier wants the whole page. */
+  const declined = opts.declined ?? new Set<string>();
+  const alreadyDeclined = (name: string, input: unknown): boolean =>
+    declined.size > 0 && declined.has(callKey(name, input));
+
+  /**
+   * Read tools for a sub-agent. No ceiling — this tier wants the whole page.
+   *
+   * The declined set is deliberately NOT passed down. It records what the
+   * reader refused of DECK-E's proposals; a sub-agent's internal reads are not
+   * proposals and were never put to anybody.
+   */
   const readTools = (): ToolSet => buildDataTools({ ...opts.ctx, maxChars: 0 });
 
   /**
@@ -487,9 +506,25 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
     // so the tap confirms a specific piece of work rather than acknowledging a
     // dialog. A confirmation with nothing in it is the one people learn to click
     // through.
-    needsApproval: true,
+    //
+    // ── EXCEPT ONE THEY ALREADY REFUSED, WHICH IS NOT ASKED AGAIN ──────────
+    //
+    // `research_meta` was declined four times across the corpus, twice in
+    // consecutive turns, and the reader wrote the complaint into the chat
+    // itself: "You asked to do meta research. I said no because you'd already
+    // done it." `false` here means RAISE NO DIALOG, not "run it" — `execute`
+    // refuses it below, and both read the same predicate so they cannot
+    // disagree about which calls are exempt.
+    needsApproval: (input: unknown) => !alreadyDeclined(spec.name, input),
     execute: async (args: Record<string, unknown>, { toolCallId }: { toolCallId: string }) => {
       const chip = { id: toolCallId, name: spec.name, title: spec.title };
+      if (alreadyDeclined(spec.name, args)) {
+        opts.onEvent?.({ phase: 'declined', ...chip, summary: 'already declined — not asked again' });
+        // Returns BEFORE the charge below: nothing ran, no sub-agent started,
+        // and the account must not be billed a deep call — the scarcest thing
+        // it has — for a question the reader had already closed.
+        return alreadyDeclinedMessage(spec.name);
+      }
       opts.onEvent?.({ phase: 'start', ...chip });
       const progress = (b: Beat): void => {
         opts.onEvent?.({
