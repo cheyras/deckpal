@@ -113,6 +113,29 @@ const FLINCH_MAX_PX = 14
 const FLINCH_MS = 1000
 
 /**
+ * How far `facing` may still move after he has landed.
+ *
+ * `facing` is continuous over [-1, +1] and the two authored directions are its
+ * ends, so a full turn is 2.0 and the quarter-turn the owner calls "an
+ * unnecessary turn/adjustment that feels like a flinch" is a few tenths. Zero
+ * is not the target — a park solve can land a hair off and ease in over a frame
+ * or two. 0.05 is comfortably under what reads as a TURN and comfortably over
+ * that easing.
+ */
+const TURN_MAX = 0.05
+
+/**
+ * How long he may stand at the chip AT FULL SIZE before the leg starts, in ms.
+ *
+ * The entrance is meant to be concurrent — the owner's ruling, in the engine
+ * README: "he should just be scaling up during the hop, really, so that it
+ * feels snappy." A grow that finishes and then waits is the sequential staging
+ * that ruling replaced, arriving back by a different route. A couple of frames
+ * is scheduling noise; a quarter of a second is the defect.
+ */
+const GROW_LEAD_MAX_MS = 40
+
+/**
  * Sample his drawn box every animation frame, for `ms`, and hand back the
  * series.
  *
@@ -143,6 +166,12 @@ async function record(page, ms) {
           flying: !!s.flying,
           state: s.state,
           scale: d.entryScale,
+          // FACING IS THE FLINCH. The first version of this probe measured the
+          // arrival wobble as centre DISPLACEMENT and passed a build the owner
+          // could plainly see turning: a yaw is a rotation about his own axis,
+          // so it moves his centroid by a couple of pixels and his silhouette
+          // barely more. `facing` is the channel the turn actually drives.
+          facing: s.facing,
           x: r ? (r.left + r.right) / 2 : null,
           y: r ? (r.top + r.bottom) / 2 : null,
           h: r ? r.bottom - r.top : null,
@@ -228,10 +257,28 @@ function analyse(samples) {
   const after = visible.filter((s) => s.t > landed.t && s.t <= landed.t + FLINCH_MS)
   let flinch = 0
   let sizeDrift = 0
+  let turn = 0
+  let turnAtMs = null
   for (const s of after) {
     flinch = Math.max(flinch, Math.hypot(s.x - landed.x, s.y - landed.y))
     if (landed.h) sizeDrift = Math.max(sizeDrift, Math.abs(s.h - landed.h) / landed.h)
+    const d = Math.abs(s.facing - landed.facing)
+    if (d > turn) {
+      turn = d
+      turnAtMs = Math.round(s.t - landed.t)
+    }
   }
+
+  // AND HOW THE GROW SITS AGAINST THE LEG. The entrance is meant to be
+  // CONCURRENT — the owner's ruling, recorded in the engine README: "he should
+  // just be scaling up during the hop, really, so that it feels snappy." What
+  // ships is sequential: he grows to full size standing on the chip and only
+  // then sets off. `growDoneBeforeLegMs` is how long he stands there finished
+  // and motionless; negative means the grow was still running when the leg
+  // began, which is the shape that was asked for.
+  const grown = visible.find((s) => s.scale >= 0.995)
+  const growDoneBeforeLegMs = grown ? Math.round(leg[0].t - grown.t) : null
+  const scaleAtLaunch = Number(leg[0].scale.toFixed(3))
   return {
     ok: true,
     legMs: Math.round(span),
@@ -241,7 +288,11 @@ function analyse(samples) {
     peakPxPerMs: Number(peak.toFixed(2)),
     stall,
     flinchPx: Math.round(flinch),
+    turn: Number(turn.toFixed(3)),
+    turnAtMs,
     sizeDrift: Number(sizeDrift.toFixed(3)),
+    scaleAtLaunch,
+    growDoneBeforeLegMs,
   }
 }
 
@@ -292,7 +343,9 @@ async function main() {
       const line = verdict.ok
         ? `  run ${run + 1}: leg ${verdict.legMs}ms over ${verdict.travelledPx}px at ${verdict.fps}fps · ` +
           `stall ${verdict.stall ? `YES at +${verdict.stall.atMs}ms (${verdict.stall.ratio})` : 'no'} · ` +
-          `flinch ${verdict.flinchPx}px · size drift ${(verdict.sizeDrift * 100).toFixed(1)}%`
+          `turn-after ${verdict.turn}${verdict.turnAtMs === null ? '' : ` @+${verdict.turnAtMs}ms`} · ` +
+          `flinch ${verdict.flinchPx}px · ` +
+          `launch@scale ${verdict.scaleAtLaunch} (full ${verdict.growDoneBeforeLegMs}ms before the leg)`
         : `  run ${run + 1}: unreadable — ${verdict.reason}`
       console.log(line)
       await page.waitForTimeout(1500)
@@ -300,17 +353,20 @@ async function main() {
 
     const usable = report.runs.filter((r) => r.ok)
     const stalled = usable.filter((r) => r.stall).length
-    const flinched = usable.filter((r) => r.flinchPx > FLINCH_MAX_PX).length
-    report.summary = { runs: report.runs.length, usable: usable.length, stalled, flinched }
+    const flinched = usable.filter((r) => r.flinchPx > FLINCH_MAX_PX || r.turn > TURN_MAX).length
+    const sequential = usable.filter((r) => (r.growDoneBeforeLegMs ?? -1) > GROW_LEAD_MAX_MS).length
+    report.summary = { runs: report.runs.length, usable: usable.length, stalled, flinched, sequential }
     writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 2))
     console.log(
-      `\n  ${usable.length}/${report.runs.length} readable · ${stalled} stalled · ${flinched} flinched (> ${FLINCH_MAX_PX}px)`,
+      `\n  ${usable.length}/${report.runs.length} readable · ${stalled} stalled · ` +
+        `${flinched} flinched (> ${FLINCH_MAX_PX}px or > ${TURN_MAX} facing) · ` +
+        `${sequential} grew before setting off (> ${GROW_LEAD_MAX_MS}ms)`,
     )
     if (!usable.length) {
       console.log('  INCONCLUSIVE — nothing was measurable.\n')
       return 4
     }
-    const ok = stalled === 0 && flinched === 0
+    const ok = stalled === 0 && flinched === 0 && sequential === 0
     console.log(ok ? '  PASS — every leg was one continuous arc.\n' : '  FAIL — see above.\n')
     console.log(`  samples + report: ${OUT}\n`)
     return ok ? 0 : 1
