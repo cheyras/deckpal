@@ -1418,6 +1418,34 @@ export class DeckE {
   }
 
   /**
+   * Mirror "is he actually on screen" onto the canvas as `data-decke-present`.
+   *
+   * He is mounted and rendering on every page since the warm moved off hover,
+   * at `entryScale` 0 — a third of a pixel tall, drawing nothing, until
+   * `playEntry` brings him. So a visible CANVAS stopped being the same question
+   * as a visible CHARACTER, and the "two Deck-Es" probe in
+   * `scripts/visual-harness/capture-decke.mjs` was asking the first one.
+   *
+   * That probe can read `__decke.entryScale` in dev, and `__decke` is stripped
+   * from production — which left it reporting the defect on every production
+   * run. A harness that cries wolf is a harness people stop reading, so the
+   * invariant gets a signal that ships: one attribute, written only when the
+   * answer changes, so it costs nothing per frame.
+   */
+  private presentBit: boolean | null = null
+
+  private markPresence(): void {
+    const present = this.entryNow > 0.01
+    if (present === this.presentBit) return
+    this.presentBit = present
+    try {
+      this.opts.canvas.dataset.deckePresent = present ? '1' : '0'
+    } catch {
+      /* A detached canvas during teardown is not worth taking a frame down for. */
+    }
+  }
+
+  /**
    * Pin the entrance scale, with no animation.
    *
    * For the frames BEFORE the entrance: the host places him at the launcher's
@@ -2359,6 +2387,7 @@ export class DeckE {
 
   private frame(dt: number) {
     {
+      this.markPresence()
       // What OUR frame actually costs, so a slow character can be told apart
       // from a browser that is not calling us often — on a phone those look
       // identical from the outside and have completely different fixes.
