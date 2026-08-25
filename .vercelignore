@@ -32,3 +32,9 @@
 .env.*
 !.env.example
 .owner-temp-password
+
+# Deck-E comparison artifacts for /dev/decke-compare. Gitignored, so a CI build
+# never sees them — but `vercel --prod` from a maintainer machine copies
+# public/ wholesale and would ship 3.3 MB of them.
+apps/web/public/models/decke/decke.orig.glb
+apps/web/public/models/decke/decke.min.glb
