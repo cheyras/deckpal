@@ -30,6 +30,7 @@ of eyes.
 | `run-visual-smoke.mjs` | End-to-end proof the harness works: desktop + mobile screenshots, a recorded interaction, a contact sheet, timing and console/network reports. |
 | `judge-motion.mjs` | Ask a vision model what a video or screenshot actually shows. Prose (`--describe`) or a machine-checkable verdict (`--assert`). |
 | `probe-decke-size.mjs` | **Does he change SIZE when nothing about the viewport did?** Measures his silhouette off the pixels, types a draft into the composer, measures again. Exits non-zero on a change. |
+| `probe-decke-present.mjs` | **The presentation round trip** — out to a page element, hold, and the dismissal. The leg no other probe covered, which is why a defect on it was once reported fixed without being exercised. Checks the turn after landing, whether he vanishes while presenting, whether he swells on the way back, and where he actually disappears relative to the chip. |
 | `probe-decke-flight.mjs` | **Does his hop stop halfway, and does he twitch after landing?** Samples `DeckE.screenRect()` every animation frame of a real entrance and reads the answer off the trajectory. Repeats, because "happens every time pretty much" is a claim about a rate. |
 | `lib/resolve-playwright.mjs` | Finds Playwright without it being a repo dependency. |
 | `lib/devices.mjs` | Desktop and iPhone-class viewport profiles. |
@@ -68,14 +69,25 @@ build that stalls to a dead stop 4 times out of 4; headed, at 180 fps, it found
 it every run. This is the same trap `character/decke/README.md` records for
 float measurements, arriving down a different path.
 
-**Both probes want a CONTROL.** A probe that has never failed is a probe that
+**A metric that cannot fail is worse than no metric.** Three separate flaws in
+these probes each produced a confident PASS on a build the owner could see was
+broken: a flinch measured as centre displacement (nearly blind to a yaw), a
+launcher rect read while the launcher was unmounted (`nullpx` every run, and the
+check silently never ran), and a "did he miss the button" distance measured
+against a frame in which he was already invisible and had been deliberately
+parked elsewhere (262 px of artifact on a dive landing 17 px from the chip).
+Before believing a green run, ask what the number would be if the defect were
+present — and then go and make it present.
+
+**All three probes want a CONTROL.** A probe that has never failed is a probe that
 cannot fail. Cut a second worktree at the commit before the fix, run a second
 dev server on another port, and run the probe against both:
 
 ```bash
 git -C <repo> worktree add --detach ../wt-base <commit-before>
 # install, start it on 5211, then:
-node scripts/visual-harness/probe-decke-flight.mjs --base http://localhost:5211 --headed
+node scripts/visual-harness/probe-decke-flight.mjs   --base http://localhost:5211 --headed
+node scripts/visual-harness/probe-decke-present.mjs  --base http://localhost:5211 --headed
 ```
 
 ## Looking at Deck-E

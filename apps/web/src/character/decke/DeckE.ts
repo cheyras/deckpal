@@ -1118,6 +1118,19 @@ export class DeckE {
        *  highlighted — a lie to the one caller that cannot look at the screen. */
       highlighting: !!highlighted(),
       highlighted: highlighted()?.id || null,
+      /**
+       * The depth plane he is STANDING ON — `background` is a third his size,
+       * on the far plane, which is where a presentation parks him.
+       *
+       * Published because a caller that flies him somewhere else has to be able
+       * to keep it. `flyTo` defaults `depth` to `foreground`, so the dismissal
+       * — which omitted it — was flying him from the far plane to the near one
+       * on his way into the chip. Measured on the return leg: his drawn height
+       * went 43.3 px to 62.9, a 45% SWELL, before the `scaleTo: 0` shrink took
+       * him down. The chat-exit contract says in as many words that he "never
+       * grows during the trip", and that is the number that broke it.
+       */
+      depth: this.station.kind === 'element' ? this.station.depth : ('foreground' as const),
     }
   }
 

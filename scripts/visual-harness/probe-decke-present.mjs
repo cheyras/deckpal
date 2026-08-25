@@ -79,6 +79,18 @@ const ROUTE = arg('route', '/series/base/base1')
 const TURN_MAX = 0.05
 
 /**
+ * How much bigger he may get on the way BACK into the chip.
+ *
+ * The chat-exit contract is explicit that he "never grows during the trip", and
+ * the dismissal broke it for one specific start: leaving a PRESENTATION, which
+ * parks him on the far plane at a third scale, while `flyTo` defaults `depth`
+ * to `foreground`. He was pulled toward the camera on his way out — measured,
+ * 43.3 px of drawn height to 62.9, a 45% swell — and only then shrank away.
+ * 1.08 is slack for the landing squash and the float, and nothing like 1.45.
+ */
+const RETURN_GROWTH_MAX = 1.08
+
+/**
  * The smallest he may be and still count as ON SCREEN.
  *
  * He presents on the BACKGROUND plane at about a third his normal size, so a
@@ -312,12 +324,32 @@ async function main() {
       const far = phase(samples, 'far')
       const near = phase(samples, 'near')
       const back = phase(samples, 'back')
-      // Where he ACTUALLY ended, against the chip he was diving into.
-      const rest = samples.filter((s) => s.mark === 'back' && s.onScreen).at(-1)
+      // WHERE HE VANISHED, not where he was parked afterwards.
+      //
+      // The first version took the last frame he was on screen at all, and
+      // reported 262 px on a dive that was actually landing 17 px from the chip
+      // centre — i.e. on it. The dismissal deliberately puts him back at the
+      // abstract home corner once he is invisible (`DeckeHost`'s `finish`:
+      // "BACK TO NOTHING, at a station the collapsed state can live with"), and
+      // that parking of an INVISIBLE character was the whole of the 262. The
+      // number to compare against the chip is the last frame anyone could still
+      // see him in.
+      const rest = samples
+        .filter((s) => s.mark === 'back' && s.onScreen && s.scale > VANISH_FRACTION)
+        .at(-1)
       const homeMiss =
         launcher && rest ? Math.round(Math.hypot(rest.x - launcher.x, rest.y - launcher.y)) : null
       const verdict = { far, near, back, launcher, homeMiss }
       report.runs.push(verdict)
+
+      // DID HE SWELL ON THE WAY BACK? Measured off his drawn height, not off
+      // `entryScale`: the shrink and the depth change compose, so the scale
+      // channel can be falling while he is visibly getting bigger.
+      const backVis = samples.filter((s) => s.mark === 'back' && s.onScreen && s.scale > 0.02)
+      const backH = backVis.map((s) => s.h)
+      verdict.returnGrowth = backH.length
+        ? Number((Math.max(...backH) / backH[0]).toFixed(2))
+        : null
 
       const fmt = (p) =>
         p.ok
@@ -328,7 +360,9 @@ async function main() {
       console.log(`    far : ${fmt(far)}`)
       console.log(`    near: ${fmt(near)}`)
       console.log(`    back: ${fmt(back)}`)
-      console.log(`    home: ended ${homeMiss}px from the launcher centre`)
+      console.log(
+        `    home: ended ${homeMiss}px from the launcher centre · grew x${verdict.returnGrowth} on the way`,
+      )
       await page.waitForTimeout(1500)
     }
 
@@ -341,14 +375,17 @@ async function main() {
     // not having run, and it has to say so out loud.
     const unmeasured = usable.filter((r) => r.homeMiss === null).length
     const missed = usable.filter((r) => r.homeMiss !== null && r.homeMiss > HOME_MISS_MAX_PX).length
-    report.summary = { runs: report.runs.length, usable: usable.length, turned, vanished, missed, unmeasured }
+    const grew = usable.filter((r) => (r.returnGrowth ?? 1) > RETURN_GROWTH_MAX).length
+    report.summary = { runs: report.runs.length, usable: usable.length, turned, vanished, missed, unmeasured, grew }
     writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 2))
     console.log(
       `\n  ${usable.length}/${report.runs.length} readable · ${turned} turned after landing (> ${TURN_MAX}) · ` +
-        `${vanished} vanished while presenting · ${missed} missed the button (> ${HOME_MISS_MAX_PX}px)` +
+        `${vanished} vanished while presenting · ${missed} missed the button (> ${HOME_MISS_MAX_PX}px) · ` +
+        `${grew} grew on the way back (> x${RETURN_GROWTH_MAX})` +
         (unmeasured ? ` · ${unmeasured} UNMEASURED (no launcher rect)` : ''),
     )
-    const ok = usable.length > 0 && turned === 0 && vanished === 0 && missed === 0 && unmeasured === 0
+    const ok =
+      usable.length > 0 && turned === 0 && vanished === 0 && missed === 0 && unmeasured === 0 && grew === 0
     console.log(ok ? '  PASS\n' : '  FAIL — see above.\n')
     console.log(`  samples + report: ${OUT}\n`)
     return usable.length ? (ok ? 0 : 1) : 4

@@ -95,6 +95,8 @@ decke.setReducedMotion(true)                   // the HOST reads the media query
 decke.flyTo(mark, { centre: true, facing: -1 })  // face the composer, not away from it
 decke.flyTo(mark, { instant: true })           // arrive without travelling (ring, `then`, station: yes)
 decke.releasePin()                             // let go of the page WITHOUT going anywhere
+decke.restation()                              // "your mark moved — look again"
+decke.getState().depth                         // which plane he is standing on
 ```
 
 **`releasePin()` is not a small `returnHome()`, it is the OTHER HALF of it.**
@@ -237,6 +239,30 @@ Each of these cost someone a debugging pass, upstream or here.
   from `float_amp: 0` to `1` makes the hover appear at whatever point of its cycle
   it silently reached. Every authored channel is continuous across boot -> idle
   and it still popped: 0.0174 units in one frame against a 0.0012 ceiling.
+- **`flyTo` DEFAULTS `depth` TO `foreground`, and the caller who omits it is
+  usually the one who most needs to keep the plane he is on.** A presentation
+  parks him on the BACKGROUND plane at a third scale; the dismissal omitted
+  `depth`, so the trip into the chip pulled him toward the camera and his drawn
+  height went 43.3 px to 62.9 — a 45% swell on a leg whose own contract is that
+  he "never grows during the trip". `getState().depth` publishes the plane so a
+  caller can keep it. `scripts/visual-harness/probe-decke-present.mjs` gates it.
+- **A leg launched while a panel is still animating must be aimed at the
+  UNTRANSFORMED box, not the rect.** `getBoundingClientRect()` includes
+  transforms, so during the chat panel's entrance the composer reads 21 px left
+  and 14 px down of where it lands; a leg solved against that arrives 25 px off
+  and is corrected in one frame after touchdown, which reads as a flinch.
+  `offsetTop`/`offsetLeft` ignore transforms and give the settled box on the
+  first frame — measured stable from t+152 ms while the animated rect was still
+  moving. `DeckeHost.settledRect()` is that read, and it is what makes the
+  entrance's grow and hop able to overlap at all.
+- **Anything that watches an element for movement has to be told when YOU moved
+  him for the same reason.** The composer watch takes its baseline the frame the
+  chat opens, so it sees the panel's own entrance as a move and sends him after
+  it — a second flight, 244 ms after the first one landed, on every single
+  entrance. That is the "unnecessary little turns when he arrives" report, and
+  it is not the turn system at all: `facing`, `lean`, `twist` and `bend` have
+  exactly zero excursion after a landing. It re-baselines at the entrance's
+  landing now.
 - **His SIZE is a camera dolly, and whatever you rule it off had better hold
   still.** `DeckeHost` sizes him from the composer he stands beside, which is
   right — and it read the composer's LIVE height, which made him a function of
