@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
+import { needList, presentRef } from '../entities.js';
 import { row, usd } from '../format.js';
 import { describeCard, describeVariant, pickVariant, resolveCardsBatch, variantsOfMany, type CardRef } from '../resolve.js';
 import { FINISHES, GOALS } from '../shared.js';
@@ -245,7 +246,7 @@ const listsTool = defineTool({
     'remove items via edit_list). Pass deleted:true for the recycle bin — lists that were deleted ' +
     'but can still be restored. Read-only — use edit_list to create/change, delete_list to delete.',
   inputSchema: z.object({
-    list_id: z.string().optional().describe('List UUID from the index. Omit to list all lists.'),
+    list_id: z.string().optional().describe('One list, by UUID or by NAME. Omit to list them all with their ids.'),
     deleted: z
       .boolean()
       .default(false)
@@ -254,7 +255,8 @@ const listsTool = defineTool({
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async ({ list_id, deleted }, ctx) => {
     try {
-      if (!list_id) {
+      const ref = presentRef(list_id);
+      if (!ref) {
         const res = (await ctx.api.get(`/lists${deleted ? '?deleted=true' : ''}`)) as { lists: ListSummary[] };
         if (res.lists.length === 0) {
           return ok(deleted ? 'Nothing in the recycle bin — no deleted lists.' : 'No lists yet. Create one with edit_list.');
@@ -267,10 +269,16 @@ const listsTool = defineTool({
         );
         return ok(lines.join('\n'));
       }
-      const detail = (await ctx.api.get(`/lists/${encodeURIComponent(list_id)}`)) as ListDetail;
+      // Loose: a read. A wrong hit costs one sentence, and the candidate list
+      // makes the next call exact. `lists` also answered `No list '55d8fabb-…'`
+      // in the record for an id that was a DECK's — `needList` says so now.
+      const picked = await needList(ctx, ref);
+      if (!picked.ok) return fail(picked.message);
+      const detail = (await ctx.api.get(`/lists/${encodeURIComponent(picked.value.id)}`)) as ListDetail;
       const lines = [summaryLine(detail.list)];
       if (detail.items.length === 0) lines.push('(list is empty)');
       for (const it of detail.items) lines.push(`  ${itemLine(it, detail.list.kind)}`);
+      if (picked.note) lines.push(picked.note);
       return ok(lines.join('\n'));
     } catch (err) {
       return fail(`lists failed: ${(err as Error).message}`);
@@ -291,7 +299,7 @@ const editListTool = defineTool({
     'lists tool. Defaults to a dry run that prints the exact operations without executing — ' +
     're-run with dry_run:false to apply. Lists never modify the collection itself.',
   inputSchema: z.object({
-    list_id: z.string().optional().describe('List UUID to edit. Omit to create a new list.'),
+    list_id: z.string().optional().describe('The list to edit, by UUID or by its exact name. Omit to create a new list.'),
     name: z.string().max(120).optional().describe('List name — required when creating; renames when editing.'),
     kind: z
       .enum(KINDS)
@@ -330,20 +338,30 @@ const editListTool = defineTool({
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   handler: async ({ list_id, name, kind, add_cards, add_missing, remove_item_ids, restore, dry_run }, ctx) => {
     try {
+      // STRICT: this adds to, removes from and renames a list. A fuzzy hit
+      // would edit a list that merely sounded like the one they meant.
+      let resolvedId: string | null = null;
+      const givenList = presentRef(list_id);
+      if (givenList) {
+        const picked = await needList(ctx, givenList, { strict: true });
+        if (!picked.ok) return fail(picked.message);
+        resolvedId = picked.value.id;
+      }
+
       if (restore) {
-        if (!list_id) return fail('restore needs list_id.');
+        if (!resolvedId) return fail('restore needs resolvedId.');
         if (dry_run) {
-          return ok(`DRY RUN — would restore deleted list ${list_id}.\nRe-run with dry_run: false to restore.`);
+          return ok(`DRY RUN — would restore deleted list ${resolvedId}.\nRe-run with dry_run: false to restore.`);
         }
-        const r = (await ctx.api.send('POST', `/lists/${encodeURIComponent(list_id)}/restore`, { source: SOURCE })) as {
+        const r = (await ctx.api.send('POST', `/lists/${encodeURIComponent(resolvedId)}/restore`, { source: SOURCE })) as {
           list: ListSummary;
         };
         return ok(`Restored ${summaryLine(r.list)}`);
       }
 
       let current: ListDetail | null = null;
-      if (list_id) {
-        current = (await ctx.api.get(`/lists/${encodeURIComponent(list_id)}`)) as ListDetail;
+      if (resolvedId) {
+        current = (await ctx.api.get(`/lists/${encodeURIComponent(resolvedId)}`)) as ListDetail;
       } else if (!name) {
         return fail('name is required to create a list.');
       }
@@ -356,10 +374,10 @@ const editListTool = defineTool({
       // dry run reports exactly what the execute call will add.
       let missingPreview: { wouldAdd: number; items: Array<{ label: string }> } | null = null;
       if (add_missing) {
-        if (!list_id) {
-          return fail('add_missing needs an existing list_id — create the list first, then add to it.');
+        if (!resolvedId) {
+          return fail('add_missing needs an existing resolvedId — create the list first, then add to it.');
         }
-        missingPreview = (await ctx.api.send('POST', `/lists/${encodeURIComponent(list_id)}/items/bulk`, {
+        missingPreview = (await ctx.api.send('POST', `/lists/${encodeURIComponent(resolvedId)}/items/bulk`, {
           addMissing: {
             setId: add_missing.set_id,
             goal: add_missing.goal,
@@ -402,7 +420,7 @@ const editListTool = defineTool({
       // ── Execute ──────────────────────────────────────────────────────────
       const lines: string[] = [];
       let failures = 0;
-      let targetId = list_id;
+      let targetId = resolvedId;
       if (!current) {
         const created = (await ctx.api.send('POST', '/lists', { name, kind: listKind, source: SOURCE })) as {
           list: ListSummary;
@@ -497,7 +515,9 @@ const deleteListTool = defineTool({
     'the user has said they want it gone permanently. To remove individual items keep the ' +
     'list and use edit_list.',
   inputSchema: z.object({
-    list_id: z.string().describe('List UUID to delete (from the lists index).'),
+    // EXACT ONLY. With `purge` this destroys a list and its items with no undo,
+    // so an approximate name comes back as a choice rather than as an action.
+    list_id: z.string().describe('The list to delete, by UUID or by its exact name.'),
     purge: z
       .boolean()
       .default(false)
@@ -507,8 +527,13 @@ const deleteListTool = defineTool({
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
   handler: async ({ list_id, purge, dry_run }, ctx) => {
     try {
-      const detail = (await ctx.api.get(`/lists/${encodeURIComponent(list_id)}`)) as ListDetail;
-      const what = `${detail.list.kind} list '${detail.list.name}' (${list_id}) — ${detail.list.itemCount} item(s)`;
+      // STRICT: destructive, and `purge` has no undo.
+      const picked = await needList(ctx, list_id, { strict: true });
+      if (!picked.ok) return fail(picked.message);
+      const listId = picked.value.id;
+
+      const detail = (await ctx.api.get(`/lists/${encodeURIComponent(listId)}`)) as ListDetail;
+      const what = `${detail.list.kind} list '${detail.list.name}' (${listId}) — ${detail.list.itemCount} item(s)`;
       if (dry_run) {
         return ok(
           purge
@@ -518,12 +543,12 @@ const deleteListTool = defineTool({
       }
       const r = (await ctx.api.send(
         'DELETE',
-        `/lists/${encodeURIComponent(list_id)}${purge ? '?purge=true' : ''}`,
+        `/lists/${encodeURIComponent(listId)}${purge ? '?purge=true' : ''}`,
         { source: SOURCE },
       )) as { restorable: boolean; batchId?: string };
       return ok(
         r.restorable
-          ? `Deleted ${what}. It is in the recycle bin — restore with edit_list(list_id: "${list_id}", restore: true)` +
+          ? `Deleted ${what}. It is in the recycle bin — restore with edit_list(list_id: "${listId}", restore: true)` +
               (r.batchId ? `, or revert(batch_id: "${r.batchId}")` : '') +
               '.'
           : `PURGED ${what}. This is gone for good.`,

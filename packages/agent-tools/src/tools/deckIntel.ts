@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
+import { needDeck } from '../entities.js';
 import { pagingFooter, row, winLoss } from '../format.js';
 
 /**
@@ -206,7 +207,7 @@ const deckStrategyTool = defineTool({
     'Typical loop: read battle_logs for the current version, then update the guide here (and ' +
     'the card list via save_deck with a version_note). For version history use deck_history.',
   inputSchema: z.object({
-    deck_id: z.string().describe('Deck UUID (from the decks index).'),
+    deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
     markdown: z
       .string()
       .max(STRATEGY_MAX)
@@ -217,9 +218,14 @@ const deckStrategyTool = defineTool({
       ),
   }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-  handler: async ({ deck_id, markdown }, ctx) => {
+  handler: async ({ deck_id: deckRef, markdown }, ctx) => {
     try {
-      const before = (await ctx.api.get(deckPath(deck_id))) as DeckDetailLite;
+      // STRICT — replaces the deck’s whole strategy guide, so an approximate name is a choice, never an action.
+      const picked = await needDeck(ctx, deckRef, { strict: true });
+      if (!picked.ok) return fail(picked.message);
+      const deckId = picked.value.id;
+
+      const before = (await ctx.api.get(deckPath(deckId))) as DeckDetailLite;
 
       if (markdown === undefined) {
         const md = before.deck.strategyMd;
@@ -239,7 +245,7 @@ const deckStrategyTool = defineTool({
       }
 
       const previous = strategyLabel(before.deck.strategyMd);
-      const after = (await ctx.api.send('PUT', `${deckPath(deck_id)}/strategy`, {
+      const after = (await ctx.api.send('PUT', `${deckPath(deckId)}/strategy`, {
         strategyMd: markdown.trim() ? markdown : null,
         source: SOURCE,
       })) as DeckDetailLite;
@@ -271,7 +277,7 @@ const addBattleLogTool = defineTool({
     'the log) or an explicit result — retry with one of those. Read logs back with battle_logs; ' +
     'to correct or remove an existing entry use edit_battle_log / delete_battle_log.',
   inputSchema: z.object({
-    deck_id: z.string().describe('Deck UUID (from the decks index).'),
+    deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
     log: z.string().max(50000).describe('The raw PTCG Live battle log text, pasted verbatim (max 50000 chars).'),
     result: z
       .enum(['win', 'loss', 'tie'])
@@ -294,9 +300,14 @@ const addBattleLogTool = defineTool({
     played_at: z.string().optional().describe('ISO-8601 timestamp of when the game was played. Omit for now.'),
   }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  handler: async ({ deck_id, log, result, player_name, opponent_deck, notes, played_at }, ctx) => {
+  handler: async ({ deck_id: deckRef, log, result, player_name, opponent_deck, notes, played_at }, ctx) => {
     try {
-      const res = (await ctx.api.send('POST', `${deckPath(deck_id)}/logs`, {
+      // STRICT — attaches a battle log to a deck version, so an approximate name is a choice, never an action.
+      const picked = await needDeck(ctx, deckRef, { strict: true });
+      if (!picked.ok) return fail(picked.message);
+      const deckId = picked.value.id;
+
+      const res = (await ctx.api.send('POST', `${deckPath(deckId)}/logs`, {
         rawLog: log,
         ...(result !== undefined ? { result } : {}),
         ...(player_name !== undefined ? { playerName: player_name } : {}),
@@ -318,7 +329,7 @@ const addBattleLogTool = defineTool({
         ),
       ];
       // One cheap read for the running record of the version this landed on.
-      const totals = (await ctx.api.get(`${deckPath(deck_id)}/logs?version=${res.attachedToVersion}&pageSize=1`)) as LogsPayload;
+      const totals = (await ctx.api.get(`${deckPath(deckId)}/logs?version=${res.attachedToVersion}&pageSize=1`)) as LogsPayload;
       lines.push(`v${res.attachedToVersion} record: ${winLoss(totals.totals)} (${totals.totals.total} log(s))`);
       return ok(lines.join('\n'));
     } catch (err) {
@@ -341,7 +352,7 @@ const battleLogsTool = defineTool({
     'small to stay inside result-size budgets and page through the rest. Read-only. To record a ' +
     'game use add_battle_log; for version history use deck_history.',
   inputSchema: z.object({
-    deck_id: z.string().describe('Deck UUID (from the decks index).'),
+    deck_id: z.string().describe('The deck, by UUID or by NAME.'),
     log_id: z.number().int().positive().optional().describe('One battle log id (from the list) → full detail instead of the list.'),
     version: z
       .number()
@@ -363,11 +374,16 @@ const battleLogsTool = defineTool({
       .describe('Logs per page (default 50, cap 200; default 10 when include_raw is true).'),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
-  handler: async ({ deck_id, log_id, version, include_raw, page, page_size }, ctx) => {
+  handler: async ({ deck_id: deckRef, log_id, version, include_raw, page, page_size }, ctx) => {
     try {
+      // Loose — reads only, so a near match costs a sentence at worst.
+      const picked = await needDeck(ctx, deckRef);
+      if (!picked.ok) return fail(picked.message);
+      const deckId = picked.value.id;
+
       // ── Detail mode ───────────────────────────────────────────────────────
       if (log_id !== undefined) {
-        const { log: l } = (await ctx.api.get(`${deckPath(deck_id)}/logs/${log_id}`)) as { log: LogFull };
+        const { log: l } = (await ctx.api.get(`${deckPath(deckId)}/logs/${log_id}`)) as { log: LogFull };
         const p = l.parsed;
         const lines = [
           row(`battle log #${l.id}`, `v${l.deckVersion}`, matchup(l), `played ${day(l.playedAt)}`, `source ${l.source}`),
@@ -398,7 +414,7 @@ const battleLogsTool = defineTool({
       const pageSize = page_size ?? (include_raw ? 10 : 50);
       const qs = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
       if (version !== undefined) qs.set('version', String(version));
-      const res = (await ctx.api.get(`${deckPath(deck_id)}/logs?${qs}`)) as LogsPayload;
+      const res = (await ctx.api.get(`${deckPath(deckId)}/logs?${qs}`)) as LogsPayload;
 
       if (res.totals.total === 0) {
         return ok(
@@ -412,7 +428,7 @@ const battleLogsTool = defineTool({
       for (const l of res.logs) {
         lines.push(logRow(l));
         if (include_raw) {
-          const full = (await ctx.api.get(`${deckPath(deck_id)}/logs/${l.id}`)) as { log: LogFull };
+          const full = (await ctx.api.get(`${deckPath(deckId)}/logs/${l.id}`)) as { log: LogFull };
           lines.push(`--- raw log #${l.id} ---`, full.log.rawLog, '---');
         }
       }
@@ -420,7 +436,7 @@ const battleLogsTool = defineTool({
       lines.push(`record (${scope}): ${winLoss(res.totals)} over ${res.totals.total} log(s)`);
       if (version === undefined) {
         // Per-version breakdown from the versions timeline (accurate across pages).
-        const vres = (await ctx.api.get(`${deckPath(deck_id)}/versions`)) as VersionsPayload;
+        const vres = (await ctx.api.get(`${deckPath(deckId)}/versions`)) as VersionsPayload;
         const per = vres.versions.filter((v) => v.battleLogs.total > 0).map((v) => `v${v.version}: ${winLoss(v.battleLogs)}`);
         if (per.length > 1) lines.push(`  by version: ${per.join(' · ')}`);
       }
@@ -447,7 +463,7 @@ const deckHistoryTool = defineTool({
     'to a dry run showing the exact card diff that would be applied; re-run with dry_run: false ' +
     'to execute. Battle logs are read with battle_logs, not here.',
   inputSchema: z.object({
-    deck_id: z.string().describe('Deck UUID (from the decks index).'),
+    deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
     version: z
       .number()
       .int()
@@ -475,15 +491,20 @@ const deckHistoryTool = defineTool({
       .describe('Reverting only. true (default): preview the exact diff, change nothing. false: execute the revert.'),
   }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  handler: async ({ deck_id, version, revert_to, include_strategy, note, dry_run }, ctx) => {
+  handler: async ({ deck_id: deckRef, version, revert_to, include_strategy, note, dry_run }, ctx) => {
     try {
+      // STRICT — can roll a deck back to an older list, so an approximate name is a choice, never an action.
+      const picked = await needDeck(ctx, deckRef, { strict: true });
+      if (!picked.ok) return fail(picked.message);
+      const deckId = picked.value.id;
+
       if (version !== undefined && revert_to !== undefined) {
         return fail('Pass either version (inspect) or revert_to (restore), not both.');
       }
 
       // ── Snapshot mode ─────────────────────────────────────────────────────
       if (version !== undefined) {
-        const v = (await ctx.api.get(`${deckPath(deck_id)}/versions/${version}`)) as VersionDetail;
+        const v = (await ctx.api.get(`${deckPath(deckId)}/versions/${version}`)) as VersionDetail;
         const lines = [
           row(
             `v${v.version}${v.isCurrent ? ' (current)' : ''}`,
@@ -510,12 +531,12 @@ const deckHistoryTool = defineTool({
       // ── Revert mode ───────────────────────────────────────────────────────
       if (revert_to !== undefined) {
         if (dry_run) {
-          const timeline = (await ctx.api.get(`${deckPath(deck_id)}/versions`)) as VersionsPayload;
+          const timeline = (await ctx.api.get(`${deckPath(deckId)}/versions`)) as VersionsPayload;
           if (revert_to === timeline.current) {
             return fail(`deck is already at version ${revert_to} — nothing to revert.`);
           }
-          const target = (await ctx.api.get(`${deckPath(deck_id)}/versions/${revert_to}`)) as VersionDetail;
-          const current = (await ctx.api.get(`${deckPath(deck_id)}/versions/${timeline.current}`)) as VersionDetail;
+          const target = (await ctx.api.get(`${deckPath(deckId)}/versions/${revert_to}`)) as VersionDetail;
+          const current = (await ctx.api.get(`${deckPath(deckId)}/versions/${timeline.current}`)) as VersionDetail;
           // The revert applies the target snapshot on top of the current list —
           // show exactly that diff (the API has no dry-run mode of its own).
           const diff = diffSnapshots(current.cards, target.cards);
@@ -538,7 +559,7 @@ const deckHistoryTool = defineTool({
           return ok(lines.join('\n'));
         }
 
-        const res = (await ctx.api.send('POST', `${deckPath(deck_id)}/revert`, {
+        const res = (await ctx.api.send('POST', `${deckPath(deckId)}/revert`, {
           toVersion: revert_to,
           includeStrategy: include_strategy,
           ...(note !== undefined ? { note } : {}),
@@ -557,7 +578,7 @@ const deckHistoryTool = defineTool({
       }
 
       // ── Timeline mode ─────────────────────────────────────────────────────
-      const res = (await ctx.api.get(`${deckPath(deck_id)}/versions`)) as VersionsPayload;
+      const res = (await ctx.api.get(`${deckPath(deckId)}/versions`)) as VersionsPayload;
       const lines = res.versions.map((v) =>
         row(
           `v${v.version}${v.isCurrent ? ' (current)' : ''}`,
@@ -590,7 +611,7 @@ const editBattleLogTool = defineTool({
     'Passing null clears a field (not played_at). To remove an entry entirely use ' +
     'delete_battle_log; to add one use add_battle_log.',
   inputSchema: z.object({
-    deck_id: z.string().describe('Deck UUID (from the decks index).'),
+    deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
     log_id: z.number().int().positive().describe('Battle log id (the #N from battle_logs).'),
     result: z
       .enum(['win', 'loss', 'tie'])
@@ -603,8 +624,13 @@ const editBattleLogTool = defineTool({
     played_at: z.string().optional().describe('Corrected ISO-8601 played-at timestamp.'),
   }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-  handler: async ({ deck_id, log_id, result, opponent, opponent_deck, notes, played_at }, ctx) => {
+  handler: async ({ deck_id: deckRef, log_id, result, opponent, opponent_deck, notes, played_at }, ctx) => {
     try {
+      // STRICT — edits a stored battle log, so an approximate name is a choice, never an action.
+      const picked = await needDeck(ctx, deckRef, { strict: true });
+      if (!picked.ok) return fail(picked.message);
+      const deckId = picked.value.id;
+
       const body: Record<string, unknown> = {};
       if (result !== undefined) body.result = result;
       if (opponent !== undefined) body.opponent = opponent;
@@ -612,9 +638,9 @@ const editBattleLogTool = defineTool({
       if (notes !== undefined) body.notes = notes;
       if (played_at !== undefined) body.playedAt = played_at;
       if (Object.keys(body).length === 0) return fail('edit_battle_log: pass at least one field to change.');
-      const res = (await ctx.api.send('PATCH', `${deckPath(deck_id)}/logs/${log_id}`, body)) as { log: LogFull };
+      const res = (await ctx.api.send('PATCH', `${deckPath(deckId)}/logs/${log_id}`, body)) as { log: LogFull };
       const l = res.log;
-      const totals = (await ctx.api.get(`${deckPath(deck_id)}/logs?version=${l.deckVersion}&pageSize=1`)) as LogsPayload;
+      const totals = (await ctx.api.get(`${deckPath(deckId)}/logs?version=${l.deckVersion}&pageSize=1`)) as LogsPayload;
       return ok(
         [
           `Updated battle #${l.id} (v${l.deckVersion}).`,
@@ -638,20 +664,25 @@ const deleteBattleLogTool = defineTool({
     'deleted; re-run with dry_run: false to delete. To fix a wrong result/opponent instead, ' +
     'use edit_battle_log — deletion is not undoable.',
   inputSchema: z.object({
-    deck_id: z.string().describe('Deck UUID (from the decks index).'),
+    deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
     log_id: z.number().int().positive().describe('Battle log id (the #N from battle_logs).'),
     dry_run: z.boolean().default(true).describe('true (default): only report what would be deleted. false: delete.'),
   }),
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-  handler: async ({ deck_id, log_id, dry_run }, ctx) => {
+  handler: async ({ deck_id: deckRef, log_id, dry_run }, ctx) => {
     try {
-      const res = (await ctx.api.get(`${deckPath(deck_id)}/logs/${log_id}`)) as { log: LogFull };
+      // STRICT — deletes a battle log, so an approximate name is a choice, never an action.
+      const picked = await needDeck(ctx, deckRef, { strict: true });
+      if (!picked.ok) return fail(picked.message);
+      const deckId = picked.value.id;
+
+      const res = (await ctx.api.get(`${deckPath(deckId)}/logs/${log_id}`)) as { log: LogFull };
       const l = res.log;
       const what = row(`battle #${l.id}`, `v${l.deckVersion}`, matchup(l), day(l.playedAt));
       if (dry_run) {
         return ok(`DRY RUN — nothing deleted. Would delete ${what}.\nRe-run with dry_run: false to delete.`);
       }
-      await ctx.api.send('DELETE', `${deckPath(deck_id)}/logs/${log_id}`);
+      await ctx.api.send('DELETE', `${deckPath(deckId)}/logs/${log_id}`);
       return ok(`Deleted ${what}.`);
     } catch (err) {
       return fail(`delete_battle_log failed: ${(err as Error).message}`);
