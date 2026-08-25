@@ -147,7 +147,13 @@ function recordTurn(body: {
   seq: number
   asked: string
   answered: string
-  tools: { name: string; phase: string; title: string; summary: string }[]
+  tools: {
+    name: string
+    phase: string
+    title: string
+    summary: string
+    args?: Record<string, unknown>
+  }[]
 }): void {
   void api
     .deckeHistoryRecord(body)
@@ -213,6 +219,16 @@ export type ToolChip = {
   step?: number
   /** Why a `partial` is partial. */
   reason?: 'timeout' | 'truncated'
+  /**
+   * What the tool was called WITH, already bounded by the server.
+   *
+   * Sent on `start` only and carried forward by `emitToolChip`. See
+   * `decke/toolArgs.ts` for why the transcript needs it: `{name, phase,
+   * title, summary}` answers WHICH tool and HOW IT WENT, and never WITH
+   * WHAT — which is where every defect the agent-quality pass fixed
+   * actually lived (`set_id: 'sv3pt5'` nine times, `set_id: 'none'` seven).
+   */
+  args?: Record<string, unknown>
 }
 
 /** Everything one request's stream produced. */
@@ -899,7 +915,23 @@ export function useDeckeChat(
             const at = x.parts.findIndex((p) => p.kind === 'tool' && p.chip.id === chip.id)
             if (at >= 0) {
               const next = [...x.parts]
-              next[at] = { kind: 'tool', id: next[at].id, chip }
+              // ── ARGS SURVIVE THE PHASE CHANGE ────────────────────────
+              //
+              // This row is REPLACED, not merged, which is right for every
+              // other field — `ok` supersedes `start`. But `args` is sent
+              // once, on `start`, because it does not change and repeating
+              // it on every beat of a 210-second deep call would put the
+              // same payload on the wire dozens of times.
+              //
+              // So it is the one field carried forward. Without this the
+              // transcript records arguments only for calls that never
+              // finished, which is precisely backwards.
+              const was = next[at]
+              // `findIndex` already proved this is the tool part; the check is
+              // what lets the compiler agree, and it costs nothing.
+              const priorArgs = was.kind === 'tool' ? was.chip.args : undefined
+              const merged = !chip.args && priorArgs ? { ...chip, args: priorArgs } : chip
+              next[at] = { kind: 'tool', id: was.id, chip: merged }
               return { ...x, parts: next }
             }
             return { ...x, parts: [...x.parts, { kind: 'tool' as const, id: nextId(), chip }] }
@@ -1469,6 +1501,10 @@ export function useDeckeChat(
             phase: c.phase,
             title: c.title ?? '',
             summary: c.summary ?? '',
+            // OMITTED when absent rather than sent as `{}`, matching the
+            // server: a no-argument tool records no args, and an empty
+            // object beside `health` would suggest it takes some.
+            ...(c.args ? { args: c.args } : {}),
           }))
           const answered = messageText(reply)
           const question = asked ? messageText(asked) : ''

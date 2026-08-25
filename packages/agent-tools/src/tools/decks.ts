@@ -3,6 +3,7 @@ import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { row, usd, winLoss } from '../format.js';
+import { needDeck, presentRef } from '../entities.js';
 import { strategyLabel } from './deckIntel.js';
 
 /**
@@ -319,10 +320,15 @@ const decksTool = defineTool({
     'deck_strategy (the full strategy guide), battle_logs (game results per version), ' +
     'deck_history (version timeline, snapshots, revert).',
   inputSchema: z.object({
+    // TAKES THE NAME. `decks` failed five times in the transcript record on
+    // 'dhelmise', 'slowking-toolbox' and 'None' — a reader saying "my dhelmise
+    // deck" and a model turning that into a slug, because a UUID was the only
+    // thing this field accepted and there was no way to get one without a
+    // separate call the model did not know it needed.
     deck_id: z
       .string()
       .optional()
-      .describe('Deck UUID from the index. Omit to list all decks.'),
+      .describe('One deck, by UUID or by NAME. Omit to list all decks with their ids.'),
     deleted: z
       .boolean()
       .default(false)
@@ -337,7 +343,11 @@ const decksTool = defineTool({
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async ({ deck_id, deleted, include }, ctx) => {
     try {
-      if (!deck_id) {
+      // `presentRef`, so a model filling the field with 'none' or 'None' gets
+      // the index it was reaching for rather than a lookup failure. 'None' is
+      // in the record.
+      const ref = presentRef(deck_id);
+      if (!ref) {
         const res = (await ctx.api.get(`/decks${deleted ? '?deleted=true' : ''}`)) as { decks: DeckIndexRow[] };
         if (res.decks.length === 0) {
           return ok(deleted ? 'Nothing in the recycle bin — no deleted decks.' : 'No decks yet. Create one with save_deck.');
@@ -359,12 +369,19 @@ const decksTool = defineTool({
         return ok(lines.join('\n'));
       }
 
-      const detail = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
+      // RESOLVED ONCE, then used everywhere below. Loose matching is right
+      // here: this tool only reads, so a wrong hit costs one sentence and the
+      // candidate list makes the caller's next call exact.
+      const picked = await needDeck(ctx, ref);
+      if (!picked.ok) return fail(picked.message);
+      const deckId = picked.value.id;
+
+      const detail = (await ctx.api.get(`/decks/${encodeURIComponent(deckId)}`)) as DeckDetail;
       const want = new Set(include ?? []);
       const lines: string[] = [deckHeader(detail)];
 
       // Intelligence headline: battle record + strategy presence, one cheap call.
-      const logs = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/logs?pageSize=1`)) as LogTotals;
+      const logs = (await ctx.api.get(`/decks/${encodeURIComponent(deckId)}/logs?pageSize=1`)) as LogTotals;
       lines.push(
         row(
           `record ${winLoss(logs.totals)} (${logs.totals.total} battle log(s))`,
@@ -379,23 +396,23 @@ const decksTool = defineTool({
         for (const l of cardLines(detail.cards)) lines.push(`  ${l}`);
       }
       if (want.has('validate')) {
-        const v = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/validate`)) as { validation: Validation };
+        const v = (await ctx.api.get(`/decks/${encodeURIComponent(deckId)}/validate`)) as { validation: Validation };
         lines.push(...validationLines(v.validation));
       }
       if (want.has('pricing')) {
-        const p = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/pricing`)) as Pricing;
+        const p = (await ctx.api.get(`/decks/${encodeURIComponent(deckId)}/pricing`)) as Pricing;
         // Cart deep links are additive — a massentry failure (e.g. TCGCSV
         // unreachable) must not sink the whole gap analysis.
         let me: DeckMassEntry | null = null;
         try {
-          me = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/massentry`)) as DeckMassEntry;
+          me = (await ctx.api.get(`/decks/${encodeURIComponent(deckId)}/massentry`)) as DeckMassEntry;
         } catch {
           /* links omitted; the mass-entry text above still works */
         }
         lines.push(...pricingLines(p, detail.cards, me));
       }
       if (want.has('testhand')) {
-        const t = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/testhand`)) as TestHand;
+        const t = (await ctx.api.get(`/decks/${encodeURIComponent(deckId)}/testhand`)) as TestHand;
         lines.push(...testhandLines(t));
       }
       if (want.size === 0) {
@@ -429,10 +446,14 @@ const saveDeckTool = defineTool({
     "losses to Dragapult') — future agents read it in deck_history. Strategy guides are edited " +
     'with deck_strategy, not here. Not for reading (use decks) or deleting (use delete_deck).',
   inputSchema: z.object({
+    // A NAME IS ACCEPTED, BUT ONLY AN EXACT ONE — see `needDeck`'s `strict`.
+    // This tool edits a deck's card list, and a trigram hit on "toolbox"
+    // reconciling the WRONG deck's sixty cards is not a mistake anyone would
+    // catch from a summary line. An inexact name comes back as a choice.
     deck_id: z
       .string()
       .optional()
-      .describe('Deck UUID to edit. Omit to create a new deck.'),
+      .describe('The deck to edit, by UUID or by its exact name. Omit to create a new deck.'),
     name: z
       .string()
       .max(120)
@@ -485,8 +506,22 @@ const saveDeckTool = defineTool({
         return fail('Pass either ptcgl_text or cards, not both.');
       }
 
+      // STRICT. This tool reconciles a deck's whole card list; a fuzzy hit on
+      // the wrong deck would rewrite sixty cards under a name that merely looked
+      // similar. Exact id or exact unique name, or a choice — never a guess.
+      // (`dry_run` defaults true and Deck-E holds this behind approval, but MCP
+      // callers can pass `dry_run: false` on the first call, so the guard has to
+      // be here rather than in the front-end.)
+      let deckRef: string | null = null;
+      const given = presentRef(deck_id);
+      if (given) {
+        const picked = await needDeck(ctx, given, { strict: true });
+        if (!picked.ok) return fail(picked.message);
+        deckRef = picked.value.id;
+      }
+
       // ── Create ────────────────────────────────────────────────────────────
-      if (!deck_id) {
+      if (!deckRef) {
         if (ptcgl_text !== undefined) {
           const lineCount = ptcgl_text.split(/\r?\n/).filter((l) => /^\d/.test(l.trim())).length;
           if (dry_run) {
@@ -547,7 +582,7 @@ const saveDeckTool = defineTool({
       if (ptcgl_text !== undefined) {
         return fail('ptcgl_text imports always create a NEW deck — to edit an existing deck pass cards instead.');
       }
-      const current = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
+      const current = (await ctx.api.get(`/decks/${encodeURIComponent(deckRef)}`)) as DeckDetail;
       const ops: Op[] = [];
       if (name !== undefined && name !== current.deck.name) {
         ops.push({ kind: 'rename', from: current.deck.name, to: name });
@@ -561,14 +596,14 @@ const saveDeckTool = defineTool({
         return ok(`No changes — deck '${current.deck.name}' already matches the requested state.`);
       }
       if (dry_run) {
-        const lines = [`DRY RUN — nothing executed. Would apply to deck '${current.deck.name}' (${deck_id}):`];
+        const lines = [`DRY RUN — nothing executed. Would apply to deck '${current.deck.name}' (${deckRef}):`];
         for (const op of ops) lines.push(`  ${describeOp(op)}`);
         lines.push('Re-run with dry_run: false to execute.');
         return ok(lines.join('\n'));
       }
-      const { lines: opLines, failures } = await runOps(ctx, deck_id, ops, version_note);
-      const after = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
-      const lines = [`Updated deck '${after.deck.name}' (${deck_id}):`, ...opLines];
+      const { lines: opLines, failures } = await runOps(ctx, deckRef, ops, version_note);
+      const after = (await ctx.api.get(`/decks/${encodeURIComponent(deckRef)}`)) as DeckDetail;
+      const lines = [`Updated deck '${after.deck.name}' (${deckRef}):`, ...opLines];
       const versionChanged = after.deck.version !== current.deck.version;
       lines.push(
         `${failures ? `${failures} operation(s) FAILED — applied partially. ` : ''}Deck now has ${after.counts.total} card(s), ${after.validation.legal ? 'legal' : 'NOT legal'}, at v${after.deck.version}${
@@ -597,7 +632,12 @@ const deleteDeckTool = defineTool({
     'used when the user has said they want it gone permanently. To remove individual cards ' +
     'use save_deck; to roll back to an older list use deck_history revert_to.',
   inputSchema: z.object({
-    deck_id: z.string().describe('Deck UUID to delete (from the decks index).'),
+    // EXACT ONLY, and this is the field where that matters most in the whole
+    // package: with `purge`, this destroys a deck, its version history and
+    // every battle log with no undo. A name is accepted because a reader says
+    // "delete my toolbox deck" and not a uuid — but only an exact one; anything
+    // approximate comes back as a choice, never as an action.
+    deck_id: z.string().describe('The deck to delete, by UUID or by its exact name.'),
     purge: z
       .boolean()
       .default(false)
@@ -611,20 +651,31 @@ const deleteDeckTool = defineTool({
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
   handler: async ({ deck_id, purge, restore, dry_run }, ctx) => {
     try {
+      // STRICT: with `purge` this destroys a deck, its version history and every
+      // battle log, and there is no undo to fall back on if the name matched
+      // approximately.
+      // `deleted: restore` — a deck being RESTORED is in the recycle bin, and
+      // the live index it would otherwise be looked up in excludes it. Without
+      // this, `delete_deck`'s own "restore with…" instruction answered "No deck
+      // matches", making migration 038's whole point unreachable from here.
+      const picked = await needDeck(ctx, deck_id, { strict: true, deleted: restore });
+      if (!picked.ok) return fail(picked.message);
+      const deckId = picked.value.id;
+
       if (restore) {
-        if (dry_run) return ok(`DRY RUN — would restore deleted deck ${deck_id}.\nRe-run with dry_run: false to restore.`);
-        const r = (await ctx.api.send('POST', `/decks/${encodeURIComponent(deck_id)}/restore`, { source: SOURCE })) as {
+        if (dry_run) return ok(`DRY RUN — would restore deleted deck ${deckId}.\nRe-run with dry_run: false to restore.`);
+        const r = (await ctx.api.send('POST', `/decks/${encodeURIComponent(deckId)}/restore`, { source: SOURCE })) as {
           deck: DeckDetail;
         };
-        return ok(`Restored deck '${r.deck.deck.name}' (${deck_id}).`);
+        return ok(`Restored deck '${r.deck.deck.name}' (${deckId}).`);
       }
-      const detail = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}`)) as DeckDetail;
-      const versions = (await ctx.api.get(`/decks/${encodeURIComponent(deck_id)}/versions`)) as {
+      const detail = (await ctx.api.get(`/decks/${encodeURIComponent(deckId)}`)) as DeckDetail;
+      const versions = (await ctx.api.get(`/decks/${encodeURIComponent(deckId)}/versions`)) as {
         versions: { battleLogs: { total: number } }[];
       };
       const logCount = versions.versions.reduce((n, v) => n + v.battleLogs.total, 0);
       const what =
-        `deck '${detail.deck.name}' (${deck_id}) — ${detail.counts.total} card(s), ${detail.counts.distinctNames} distinct name(s), ` +
+        `deck '${detail.deck.name}' (${deckId}) — ${detail.counts.total} card(s), ${detail.counts.distinctNames} distinct name(s), ` +
         `${versions.versions.length} version(s) and ${logCount} battle log(s)`;
       if (dry_run) {
         return ok(
@@ -635,12 +686,15 @@ const deleteDeckTool = defineTool({
       }
       const r = (await ctx.api.send(
         'DELETE',
-        `/decks/${encodeURIComponent(deck_id)}${purge ? '?purge=true' : ''}`,
+        `/decks/${encodeURIComponent(deckId)}${purge ? '?purge=true' : ''}`,
         { source: SOURCE },
       )) as { restorable: boolean; batchId?: string };
       return ok(
         r.restorable
-          ? `Deleted ${what}. It is in the recycle bin — restore with delete_deck(deck_id: "${deck_id}", restore: true, dry_run: false)` +
+          // `deck_id`, which is the field's real name. It said `deckId` — so a
+          // model following this instruction verbatim failed schema validation
+          // on the one call that undoes a deletion.
+          ? `Deleted ${what}. It is in the recycle bin — restore with delete_deck(deck_id: "${deckId}", restore: true, dry_run: false)` +
               (r.batchId ? `, or revert(batch_id: "${r.batchId}")` : '') +
               '.'
           : `PURGED ${what}. This is gone for good.`,

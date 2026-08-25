@@ -1018,7 +1018,14 @@ export const api = {
     seq: number
     asked: string
     answered: string
-    tools: { name: string; phase: string; title: string; summary: string }[]
+    tools: {
+      name: string
+      phase: string
+      title: string
+      summary: string
+      /** What the call carried, already bounded server-side. See `decke/toolArgs.ts`. */
+      args?: Record<string, unknown>
+    }[]
   }) => keepaliveJson<{ ok: true; recorded: boolean }>('/decke/history', body),
   deckeHistoryList: (signal?: AbortSignal) =>
     get<DeckeHistoryList>('/decke/history', signal),

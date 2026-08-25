@@ -47,6 +47,32 @@ at all** (§4), silently reversed a recorded `maxDuration` decision (§8.4),
 specified prompt-enforced write confirmation when the SDK offers a real control
 (§10), and marked two write controls as clickable in its own landmark table (§9).
 
+### What USING it found, 2026-08-25
+
+The tool layer shipped and worked. Then the owner used it for a day, and the
+transcript history this spec asked for (§7, migration 043) was read end to end —
+15 conversations, 65 turns, 275 tool calls, builds #80–#95. That is a different
+instrument from a gate, and it found a different class of thing.
+
+**229 ok, 35 error, 8 declined, 2 partial**, plus 41 of 97 `search_cards` calls
+returning "No cards match" — recorded `ok`, and useless. The reader's own words
+in the record: *"are you fucking retarded? What happened?"* and, deliberately
+addressed to whoever read it later, *"this is a great example of a really piss
+poor agentic experience."*
+
+| This spec assumed | A day of real use found |
+|---|---|
+| Ids are what a tool takes, because that is what the REST API takes | **32 of 35 errors — 91% — were an id the model had to guess from a name.** `resolve.ts` had solved this for CARDS and nothing had for sets, decks or lists. Every id field now takes a name; writes take an exact one only, because `deck_strategy` and the battle-log writes have no `dry_run` and MCP has no dialog. |
+| A tool's failure message tells the model how to recover | **Three of ours taught it the wrong thing.** `'sv3pt5'` was offered as an example of a valid set id and does not exist in this catalog — nine calls in one turn, each answered by the message that recommended it. "Call set_progress with NO set_id" came back as `set_id: 'none'` — seven. And "that lists every set with its id" was false: the overview is `HAVING max(owned_required) > 0`. |
+| The 12-step budget bounds a turn (§8.5) | It bounds the COUNT and not the WASTE. The same failing call ran up to **14 times in one turn**, several concurrently within one step, and two turns in a row spent the whole budget and shipped the "went round in circles" apology. |
+| Approval is per call, and a refusal settles it (§10) | A refusal settled that call and nothing else. `research_meta` and `deck_strategy` were each declined **four times**, and the reader wrote the complaint into the chat itself. |
+| The transcript answers "did this get worse, and when" (§7) | It answers WHICH tool and HOW IT WENT and never WITH WHAT — so every defect above had to be recovered from error prose, and three of those messages were themselves the bug. `tools[].args` now records it. |
+
+Recorded in full in `DECISIONS.md` 2026-08-25, with the six fixes. The rule
+worth lifting out, because it generalises past this feature: **a failure message
+must never contain an invented example identifier, and must never phrase advice
+as something a model could send back as a value.** Both cost measured turns.
+
 ---
 
 ## 1. The problem, stated precisely

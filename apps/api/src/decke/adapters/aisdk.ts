@@ -47,6 +47,9 @@ import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { allTools, type Ctx, type ToolDefinition, type ToolResult } from '@deckpal/agent-tools';
 import { withToolCtx, type ToolCtxOptions } from '../ctx.js';
+import { CallLedger, callKey } from '../repeat.js';
+import { alreadyDeclinedMessage } from '../declined.js';
+import { briefArgs } from '../toolArgs.js';
 
 /**
  * A tool-call lifecycle event, for the chip the reader sees.
@@ -96,7 +99,7 @@ import { withToolCtx, type ToolCtxOptions } from '../ctx.js';
  * exists to prevent.
  */
 export type ToolEvent =
-  | { phase: 'start'; id: string; name: string; title: string }
+  | { phase: 'start'; id: string; name: string; title: string; args?: Record<string, unknown> }
   | { phase: 'progress'; id: string; name: string; title: string; note: string; step?: number }
   | { phase: 'ok'; id: string; name: string; title: string; summary: string }
   | {
@@ -107,7 +110,18 @@ export type ToolEvent =
       summary: string;
       reason: 'timeout' | 'truncated';
     }
-  | { phase: 'error'; id: string; name: string; title: string; summary: string };
+  | { phase: 'error'; id: string; name: string; title: string; summary: string }
+  /**
+   * The reader already refused this exact call earlier in the conversation, so
+   * it was neither run nor asked about again. See `declined.ts`.
+   *
+   * `declined` was already the transcript's word for a refused call — the
+   * CLIENT emits it when somebody answers a dialog with no, and `shapeTools` in
+   * `deckeHistory.ts` has always accepted it. This is the same phase reached
+   * without a dialog, so a reader scanning their history sees one kind of row
+   * for "this did not happen because I said no", however it was decided.
+   */
+  | { phase: 'declined'; id: string; name: string; title: string; summary: string; args?: Record<string, unknown> };
 
 /**
  * One printing a row could mean, for the picker on the approval card.
@@ -248,6 +262,15 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    * it one.
    */
   include?: (def: ToolDefinition) => boolean;
+  /**
+   * `callKey`s the reader has explicitly refused earlier in this conversation.
+   *
+   * A matching call is refused without a dialog and without running — see
+   * `declined.ts` for the reader's own complaint about being asked three times
+   * for the same thing. Absent means nothing was refused, which is correct for
+   * a sub-agent (no reader, no dialog) and for the tests.
+   */
+  declined?: ReadonlySet<string>;
   /** Receives the lifecycle events above. Optional; the chips are a UI concern. */
   onEvent?: (e: ToolEvent) => void;
   /**
@@ -702,8 +725,32 @@ function summarise(result: ToolResult): string {
  * search?" is a usable answer and a stack trace is not. This is the same
  * reasoning `runUiTool` carries on the browser side.
  */
+
+/**
+ * `{ args }`, or nothing at all.
+ *
+ * Spread rather than assigned, so a call that genuinely took no arguments
+ * carries no `args` key rather than an empty object — the transcript stores
+ * this verbatim and `{}` beside `health` would suggest it takes some.
+ */
+function argsPart(input: unknown): { args?: Record<string, unknown> } {
+  const a = briefArgs(input);
+  return a ? { args: a } : {};
+}
+
 export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
   const include = opts.include ?? ((d: ToolDefinition) => d.annotations.readOnlyHint);
+  // ONE PER TOOL SET, which is one per request — never module state. A sub-agent
+  // builds its own tool set and gets its own ledger, and nothing here is shared
+  // between users or between requests. That isolation is the difference between
+  // a cache and a cross-account read.
+  const ledger = new CallLedger();
+  // Empty when the caller does not supply one, which means "nothing was ever
+  // refused" — the right default for a sub-agent, which has no reader and no
+  // dialog, and for the tests.
+  const declined = opts.declined ?? new Set<string>();
+  const alreadyDeclined = (name: string, input: unknown): boolean =>
+    declined.size > 0 && declined.has(callKey(name, input));
   const maxChars = opts.maxChars ?? DEFAULT_MAX_TOOL_CHARS;
   const out: ToolSet = {};
 
@@ -723,10 +770,20 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
       // `upstream` means a human already approved this operation at a coarser
       // boundary and there is no channel here to ask on — see `approvals`. It
       // is never the default, and never reachable from the conversational path.
+      // ── AND A CALL THEY ALREADY REFUSED IS NOT ASKED AGAIN ──────────────
+      //
+      // `false` here does NOT mean "run it" — `execute` refuses it below. It
+      // means "do not raise a dialog", which is the whole complaint: the reader
+      // was shown the same `deck_strategy` panel on three consecutive turns
+      // having declined it each time, and said so in the chat.
+      //
+      // The pair has to stay in step. `needsApproval` false with an `execute`
+      // that did NOT check would silently perform an unapproved write, so the
+      // two read the same predicate and there is a test for it.
       needsApproval:
         opts.approvals === 'upstream'
           ? false
-          : (input: unknown) => requiresApproval(def, input),
+          : (input: unknown) => requiresApproval(def, input) && !alreadyDeclined(def.name, input),
       /**
        * RUN THE DRY RUN FOR THE DIALOG, HERE, BEFORE ANYONE IS ASKED.
        *
@@ -760,6 +817,12 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
         const emit = opts.onApprovalPreview;
         if (!emit) return;
         if (opts.approvals === 'upstream') return;
+        // ALREADY REFUSED — no dialog will open, so a preview here is work
+        // against the reader's data for a question they closed, and the card it
+        // emits is an orphan no approval will ever match. `execute` below states
+        // that a declined call "must not run even as a dry run"; this is the
+        // other half of that sentence, and it was missing.
+        if (alreadyDeclined(def.name, input)) return;
         if (!requiresApproval(def, input)) return;
         if (!canPreviewSafely(def, input)) return;
         try {
@@ -778,23 +841,74 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
       },
       execute: async (args: unknown, { toolCallId }) => {
         const chip = { id: toolCallId, name: def.name, title: def.title };
-        opts.onEvent?.({ phase: 'start', ...chip });
+        // ARGS ON THE START EVENT, and only there — the client carries them
+        // forward across later phases. They are what makes the transcript able
+        // to answer 'with WHAT', which is where every defect this pass fixed
+        // actually lived. Bounded by `briefArgs`; see `toolArgs.ts`.
+        opts.onEvent?.({ phase: 'start', ...chip, ...argsPart(args) });
         try {
+          // REFUSED HERE, not executed and not asked. The counterpart to
+          // `needsApproval` above: that stops the dialog, this stops the work.
+          // Checked BEFORE the preview coercion, because a call they refused
+          // must not run even as a dry run — a preview is still a query against
+          // their data on their behalf, for a question they closed.
+          if (alreadyDeclined(def.name, args)) {
+            const message = alreadyDeclinedMessage(def.name);
+            opts.onEvent?.({
+              phase: 'declined',
+              ...chip,
+              summary: 'already declined — not asked again',
+              ...argsPart(args),
+            });
+            return message;
+          }
+
           // If this call was NOT classified as needing approval, then it is a
           // preview — so make it one, explicitly, rather than trusting a
           // default to agree with the classification.
           const effective = requiresApproval(def, args) ? args : forcePreview(def, args);
-          const result = await withToolCtx(opts, (ctx: Ctx) => def.handler(effective, ctx));
-          const text = clampToolText(result.text, maxChars);
-          // BEFORE the clamp would have been wrong: an id cut off by the
-          // ceiling is an id the model never saw, and grounding it would let a
-          // half-read page license a full grid. Observe exactly what he gets.
-          if (!result.isError) opts.grounding?.observe(text);
-          opts.onEvent?.({
-            phase: result.isError ? 'error' : 'ok',
-            ...chip,
-            summary: summarise(result),
-          });
+
+          // ── ASKED ALREADY? ───────────────────────────────────────────────
+          //
+          // Only reads take this path. A write is always executed — "add one
+          // more" twice is two adds — and it drops the ledger, because every
+          // read taken before it may now be stale. See `repeat.ts` for the
+          // measurements this exists for (the same failing call up to 14 times
+          // in one turn, twice ending a turn with no answer at all).
+          //
+          // `readOnlyHint` and not the verb in the name: `set_cart` only
+          // composes a URL and is a read, `deck_history` can roll a deck back
+          // and is a write. `registry.ts` says so and this is why it is
+          // required there.
+          const runOnce = async (): Promise<{ text: string; failed: boolean }> => {
+            const result = await withToolCtx(opts, (ctx: Ctx) => def.handler(effective, ctx));
+            const text = clampToolText(result.text, maxChars);
+            // BEFORE the clamp would have been wrong: an id cut off by the
+            // ceiling is an id the model never saw, and grounding it would let
+            // a half-read page license a full grid. Observe exactly what he
+            // gets.
+            if (!result.isError) opts.grounding?.observe(text);
+            opts.onEvent?.({
+              phase: result.isError ? 'error' : 'ok',
+              ...chip,
+              summary: summarise(result),
+            });
+            return { text, failed: result.isError === true };
+          };
+
+          if (!def.annotations.readOnlyHint) {
+            ledger.invalidate();
+            return (await runOnce()).text;
+          }
+
+          const { text, repeated } = await ledger.share(callKey(def.name, effective), runOnce);
+
+          if (repeated) {
+            // A REPEAT GETS ITS OWN CHIP, and it says so. The reader watching
+            // nine identical rows stack up was watching nine lookups; they
+            // should be able to see that eight of them were the same question.
+            opts.onEvent?.({ phase: 'ok', ...chip, summary: 'asked again — same answer as before' });
+          }
           return text;
         } catch (err) {
           // A message, not an object: this string goes straight into the
