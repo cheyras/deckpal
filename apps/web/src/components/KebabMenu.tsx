@@ -1,17 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Icon, type IconName } from './Icon'
+import { useDismiss } from './ui/useDismiss'
 
 // Reusable kebab (⋮) trigger + dismissible dropdown menu (GitHub #34) — replaces
 // standalone, always-visible danger-icon-buttons that sat next to an entity's
-// title (deck/list "Delete" button). Outside-click + Escape dismiss follow the
-// same pattern as PokedexIndex's OwnFilterMenu (`mousedown`/`keydown` listeners
-// in a useEffect, cleaned up on unmount) rather than a new approach or a dep.
+// title (deck/list "Delete" button). Outside-click + Escape dismiss come from
+// the shared `useDismiss` hook (ui/useDismiss.ts) — the same mechanism
+// PokedexIndex's OwnFilterMenu uses — rather than a new approach or a dep.
 //
 // Built to hold more than one item even though today's two call sites each pass
 // exactly one — that's the point of the ask (a real menu, not a delete-button
 // in a costume). The menu itself is neutral; only a `danger: true` item gets
 // destructive coloring.
-export type KebabMenuItem = {
+type KebabMenuItem = {
   key: string
   label: string
   icon?: IconName
@@ -31,21 +32,7 @@ export function KebabMenu({
   className?: string
 }) {
   const [open, setOpen] = useState(false)
-  const wrapRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDoc)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const wrapRef = useDismiss<HTMLDivElement>(open, () => setOpen(false))
 
   return (
     <div ref={wrapRef} className={`relative shrink-0 ${className ?? ''}`}>

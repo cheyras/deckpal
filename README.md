@@ -28,7 +28,6 @@ self-hosters.
   card from a photo, or run **rip mode** to log a whole booster pack without
   stopping between cards. The scanner matches artwork, so it names the card and
   you say which printing -- a card and its reverse holo are the same picture.
-  *(Cloud: parked for Wave 3 -- see Roadmap.)*
 - **Completion goals** -- Complete Set, Master Set, Grandmaster tiers with
   accurate progress tracking.
 - **Pokedex** -- species data from PokeAPI, linked to the cards they appear on.
@@ -63,7 +62,7 @@ pnpm monorepo, deployed on Vercel + Supabase (cloud) or plain Postgres
 
 | App | Role |
 |---|---|
-| `apps/api` (`deckpal-api`) | Express API (~49 endpoints), deployed as a Vercel catch-all serverless function |
+| `apps/api` (`deckpal-api`) | Express API (endpoints inventoried in [`API.md`](API.md)), deployed as a Vercel catch-all serverless function |
 | `apps/sync` (`deckpal-sync`) | Catalog import, dex import, price ingest (GitHub Actions scheduled jobs) |
 | `apps/web` (`deckpal-web`) | React 19 + Vite + Tailwind 4 SPA/PWA, deployed as Vercel static output |
 | `apps/images` (`deckpal-images`) | Self-host image server (local disk cache); cloud path uses Supabase Storage |
@@ -73,8 +72,9 @@ pnpm monorepo, deployed on Vercel + Supabase (cloud) or plain Postgres
 | `packages/agent-tools` (`@deckpal/agent-tools`) | The 23 agent tool definitions shared by `deckpal-mcp` and Deck-E, the AI assistant |
 
 For the full topology, data flow, and design rationale, see
-[`ARCHITECTURE.md`](ARCHITECTURE.md). The authoritative schema is in
-[`research/SCHEMA.md`](research/SCHEMA.md).
+[`ARCHITECTURE.md`](ARCHITECTURE.md). The schema of record is
+`packages/db/src/migrations/`; [`research/SCHEMA.md`](research/SCHEMA.md) is the
+dated design research behind it.
 
 ---
 
@@ -109,13 +109,13 @@ Prerequisites: Node >= 20, pnpm >= 10, Postgres >= 15.
    ```bash
    pnpm install
    pnpm --filter @deckpal/db build
-   pnpm --filter @deckpal/db migrate       # applies migrations 001-020
+   pnpm --filter @deckpal/db migrate       # auto-skips `-- @supabase-only` files
    pnpm --filter @deckpal/db migrate:status # [x] per applied migration
    ```
 
 4. **Import the card catalog:**
    ```bash
-   pnpm --filter deckpal-sync catalog:run
+   pnpm --filter deckpal-sync import:catalog   # optional arg: dataDir (default data/catalog/en)
    ```
 
 5. **Build and run:**
@@ -130,7 +130,8 @@ Prerequisites: Node >= 20, pnpm >= 10, Postgres >= 15.
    in self-host mode -- the proxy is the auth boundary. See
    [`SECURITY.md`](SECURITY.md).
 
-Self-host deployments skip Supabase-specific migrations (021+) and use the
+Self-host deployments skip the migrations marked `-- @supabase-only` (the
+runner skips them automatically when `SUPABASE_MODE` is unset) and use the
 `apps/images` Express server for card art instead of Supabase Storage.
 
 ---
@@ -167,11 +168,9 @@ users of that service.
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Target architecture, RLS model, storage design, sync design |
 | [`DEPLOYMENT.md`](DEPLOYMENT.md) | Deploy-your-own runbook (Vercel + Supabase) and self-host setup |
-| [`research/SCHEMA.md`](research/SCHEMA.md) | The data model -- variant taxonomy, tier/goal derivation, full DDL |
-| [`API.md`](API.md) | REST API contract (~49 endpoints) |
+| [`research/SCHEMA.md`](research/SCHEMA.md) | Dated data-model research -- variant taxonomy, tier/goal derivation (schema of record: `packages/db/src/migrations/`) |
+| [`API.md`](API.md) | REST API contract -- the endpoint inventory lives here |
 | [`DECISIONS.md`](DECISIONS.md) | Dated audit trail of every decision, correction, and gotcha |
 | [`AGENTS.md`](AGENTS.md) | Engineering contracts and conventions for AI agents |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contributor guide -- setup, workflow, code conventions |
 | [`SECURITY.md`](SECURITY.md) | Security model (auth, RLS, self-host) and disclosure policy |
-
-<!-- deploy pipeline verified 2026-08-09 -->

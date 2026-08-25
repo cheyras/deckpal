@@ -203,9 +203,4 @@ export function EnergyIcon({
   )
 }
 
-/** True when we have a real glyph for this type (callers can gate mixed UI). */
-export function hasEnergyIcon(type: string): boolean {
-  return normalize(type) in TYPES
-}
-
 export const ENERGY_TYPES = Object.keys(TYPES)

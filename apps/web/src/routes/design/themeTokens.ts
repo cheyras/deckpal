@@ -30,7 +30,7 @@ export interface TokenInfo {
   note?: string
 }
 
-export function categorize(name: string, block: 'theme' | 'root'): TokenCategory {
+function categorize(name: string, block: 'theme' | 'root'): TokenCategory {
   // :root holds two families: z-index layers and the variant gradient fills.
   // Gradients take the permissive free-text treatment (they are full
   // linear-gradient() expressions consumed via var(), so they DO live-preview).
@@ -45,7 +45,7 @@ export function categorize(name: string, block: 'theme' | 'root'): TokenCategory
   return 'color' // fallback — should not happen with well-formed theme.css
 }
 
-export function isLivePreviewable(cat: TokenCategory): boolean {
+function isLivePreviewable(cat: TokenCategory): boolean {
   // Breakpoints compile to @media literals — save-then-HMR only. Shadows use
   // inlined values in Tailwind's --tw-shadow variable, not var(--shadow-*).
   // z tokens became live-previewable when C11a converted call sites to
@@ -55,7 +55,7 @@ export function isLivePreviewable(cat: TokenCategory): boolean {
   return true
 }
 
-export function noteFor(cat: TokenCategory, name: string): string | undefined {
+function noteFor(cat: TokenCategory, name: string): string | undefined {
   if (cat === 'breakpoint') return 'Applies on save only (media queries use literal values)'
   if (cat === 'shadow') return 'Save-then-HMR (Tailwind inlines shadow values into --tw-shadow)'
   if (name.endsWith('--line-height')) return 'Paired with its size token'

@@ -1,6 +1,6 @@
-import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { sniffContentType } from '@deckpal/storage';
+import { sniffContentType, type Provenance } from '@deckpal/storage';
 import { absoluteFromRelative } from './layout.js';
 import {
   deleteAsset,
@@ -47,31 +47,13 @@ import {
  */
 
 // ── Provenance ───────────────────────────────────────────────────────────────
-/**
- * Where the bytes came from. A discriminated union with no default, so the
- * caller has to make a conscious, documented choice.
- *
- *  - `{ origin: 'url' }`     — fetched from a real, resolvable URL. This is what
- *                              you want; `url` is persisted to `source_url`.
- *  - `{ origin: 'unknown' }` — provenance genuinely could not be established.
- *                              Persists `source_url = NULL`. `reason` is required
- *                              and is logged, so "I couldn't be bothered" reads
- *                              differently from "upstream 404s for this path".
- *
- * NEVER pick `unknown` to avoid looking up a URL, and NEVER pass a plausible-but-
- * unverified URL as `url` — an invented source is worse than an honest blank.
- */
-export type Provenance =
-  | { origin: 'url'; url: string; etag?: string | null }
-  | { origin: 'unknown'; reason: string };
-
-/** Convenience constructors — they read better at call sites than object literals. */
-export const fromUrl = (url: string, etag: string | null = null): Provenance => ({
-  origin: 'url',
-  url,
-  etag,
-});
-export const unknownProvenance = (reason: string): Provenance => ({ origin: 'unknown', reason });
+// Where the bytes came from. The discriminated union and its constructors are
+// defined ONCE in @deckpal/storage (put-asset.ts, the cloud tier's twin choke
+// point) and re-exported here, so both tiers force the same conscious,
+// documented choice — read the definition there before picking
+// `unknownProvenance`. Only `provenanceColumns` stays local: its error
+// messages name this tier's `[store]` prefix.
+export { fromUrl, unknownProvenance, type Provenance } from '@deckpal/storage';
 
 function provenanceColumns(p: Provenance): { sourceUrl: string | null; etag: string | null } {
   if (p.origin === 'url') {
@@ -286,9 +268,4 @@ export async function sniffFile(absPath: string, size?: number): Promise<string>
   } finally {
     await fh.close();
   }
-}
-
-/** Read a cached asset's bytes (helper for tooling; serving uses sendFile). */
-export async function readAsset(relativePath: string): Promise<Buffer> {
-  return readFile(absoluteFromRelative(relativePath));
 }

@@ -9,13 +9,14 @@
  *     parts never enter message history, so the commands cost nothing on later
  *     turns and cannot be echoed back as text.
  *
- *   - `flyTo`, `highlight`, `goTo`, `scrollToMe`, `click` and `journey` have no
- *     `execute` here. A tool with no server-side execute is forwarded to the
- *     BROWSER, run there, and answered with a real result. That matters: "no
- *     element matches '#deck-list'" is something the model has to be able to
- *     recover from, and a fire-and-forget command would leave it narrating a
- *     thing that never happened. `journey` is the same contract for a whole
- *     ordered plan rather than one move.
+ *   - `flyTo`, `highlight`, `goTo`, `scrollToMe`, `click`, `escort` and
+ *     `journey` have no `execute` here. A tool with no server-side execute is
+ *     forwarded to the BROWSER, run there, and answered with a real result.
+ *     That matters: "no element matches '#deck-list'" is something the model
+ *     has to be able to recover from, and a fire-and-forget command would
+ *     leave it narrating a thing that never happened. `journey` is the same
+ *     contract for a whole ordered plan rather than one move, and `escort` is
+ *     that plan built by the app from two ids.
  *
  * WHY THE MODEL NEVER SEES COMMAND SYNTAX AS TEXT: it calls a tool, and the
  * TOOL does the writing. There is no inline syntax to leak, no parser to get
@@ -213,12 +214,6 @@ export function validateCommand(c: RawCommand): string | null {
       return `unknown op "${String((c as { op?: string }).op)}"`
   }
 }
-
-/** What the client sends back after running a browser-side tool. */
-export const uiResultSchema = z.object({
-  ok: z.boolean(),
-  reason: z.string().optional(),
-})
 
 /**
  * ── A JOURNEY IS ONE CALL, AND THAT IS THE WHOLE POINT ──────────────────────

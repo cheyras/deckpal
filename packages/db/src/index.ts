@@ -1,6 +1,7 @@
+// Curated surface: only what apps and tests actually import. Migrations are
+// deliberately absent — cli.ts imports ./migrate.js directly, and the compiled
+// package could not run them anyway (no .sql copy step into dist/).
 export { makePool } from './pool.js';
-export { migrateUp, migrationStatus } from './migrate.js';
-export type { MigrationResult } from './migrate.js';
 export { loadEnv } from './env.js';
 export {
   TOKEN_PREFIX,
@@ -14,16 +15,12 @@ export {
   tokenPrefix,
   touchToken,
 } from './tokens.js';
-export type { ApiTokenRow, CreatedToken, Queryable, ResolvedToken } from './tokens.js';
+export type { ApiTokenRow, Queryable } from './tokens.js';
 export {
-  CLIENT_ID_PREFIX,
   OAuthValidationError,
   consumeAuthCode,
   createAuthCode,
-  generateAuthCode,
-  generateClientId,
   getClient,
   registerClient,
   verifyPkceS256,
 } from './oauth.js';
-export type { AuthCodeRow, CreateAuthCodeInput, OAuthClientRow } from './oauth.js';

@@ -144,15 +144,13 @@ function braceType(name: string): string | null {
   return m ? (BRACE_TO_TYPE[m[1]!] ?? null) : null;
 }
 
-export interface ResolvedEntry extends DeckEntry {}
-
 /**
  * Resolve one parsed line to a CardFacts via the §1.7.2 five-step ladder.
  * Returns the entry (with resolution provenance) or null if wholly unresolved.
  */
 export async function resolveLine(
   pool: pg.Pool, line: ParsedLine, formatCode: FormatCode,
-): Promise<ResolvedEntry | null> {
+): Promise<DeckEntry | null> {
   const provenance = {
     quantity: line.quantity,
     section: line.section,

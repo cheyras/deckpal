@@ -17,7 +17,7 @@ import { closePool, defaultUserId, q, q1 } from '../db.js';
 import { TRAINER_UNIQUE_MODE, trainerLevel, trainerLevelProgress } from './trainerLevel.js';
 import { currentCollectionValue, ownedCounts, snapshotCollectionValue, valueSeries } from './collectionValue.js';
 import { dexCapturedCount, dexCompletion } from './pokedex.js';
-import { insightsRouter } from '../routes/insights.js';
+import { insightsRouter, publicPokedexRouter } from '../routes/insights.js';
 
 const line = (s = ''): void => console.log(s);
 
@@ -69,6 +69,19 @@ async function main(): Promise<void> {
 
   line('\n=== 5. Router harness (throwaway express app, ephemeral port) ===');
   const app = express();
+  // Stub identity: the real app settles "who is calling" via resolveIdentity /
+  // resolveOptionalIdentity (index.ts) before these routers; this harness pins
+  // the proven user so currentUserId()/optionalUserId() answer without the
+  // auth plumbing.
+  app.use((req, _res, next) => {
+    req.user = { id: userId };
+    req.identityResolution = 'user';
+    next();
+  });
+  // Mounted in the same order as index.ts: the two public Pokédex reads live on
+  // publicPokedexRouter; everything else (overview, value) stays on
+  // insightsRouter.
+  app.use('/insights', publicPokedexRouter);
   app.use('/insights', insightsRouter);
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((r) => server.once('listening', () => r()));

@@ -95,6 +95,9 @@ jobs:
       # a function imports and never the function itself, so a package that is
       # imported but not declared resolves locally by hoisting and 500s in
       # production. That shipped once; this is the guard.
+      #
+      # The two builds here are also THE api/mcp deployable builds for this
+      # workflow — do not re-add separate "Build api"/"Build mcp" steps below.
       - name: Serverless functions load and export a handler
         run: |
           pnpm --filter deckpal-api build
@@ -107,6 +110,12 @@ jobs:
       # look-at solve that nothing consumed survived a full parity pass.
       - name: Deck-E character runtime tests (pure, no DB)
         run: pnpm --filter deckpal-web test:decke
+
+      # The Insights caption logic (apps/web/src/lib/__tests__). Same story as
+      # the step above: the suite existed and was only ever run by hand, and CI
+      # does not run `pnpm -r test`, so an unwired suite never runs at all.
+      - name: Insights caption tests (pure, no DB)
+        run: pnpm --filter deckpal-web test:insights
 
       # Mass Entry line building (product-id lines, the all-or-nothing URL
       # split), idempotency key derivation, batch folding, and the source guard
@@ -135,12 +144,6 @@ jobs:
       # or a bucket is proved on every push.
       - name: Image re-key address algebra (pure, no DB)
         run: pnpm --filter deckpal-images test
-
-      - name: Build api
-        run: pnpm --filter deckpal-api build
-
-      - name: Build mcp
-        run: pnpm --filter deckpal-mcp build
 
       - name: Build web
         run: pnpm --filter deckpal-web build

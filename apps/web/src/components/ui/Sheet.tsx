@@ -40,6 +40,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../Icon'
+import { prefersReducedMotion } from '../../lib/reducedMotion'
 
 /**
  * Closes the sheet WITH its exit animation. A sheet that draws its own header
@@ -55,13 +56,6 @@ export function useSheetClose(): () => void {
 
 /** Kept in step with the exit animations in theme.css. */
 const EXIT_MS = 220
-
-function prefersReducedMotion() {
-  return (
-    typeof window !== 'undefined' &&
-    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
-  )
-}
 
 // ── Body scroll lock ─────────────────────────────────────────────────────────
 // Ref-counted, because a sheet can open a confirm sheet on top of itself and

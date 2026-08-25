@@ -2,8 +2,10 @@
 // conventions in setSearch.ts: state lives in the URL, defaults are stripped so
 // the canonical URL only carries deviations.
 
+import { pick } from './searchParams'
+
 export type GlobalSortKey = 'name' | 'number' | 'price' | 'rarity' | 'released'
-export type GlobalSortDir = 'asc' | 'desc'
+type GlobalSortDir = 'asc' | 'desc'
 
 export interface GlobalSearch {
   q: string
@@ -22,10 +24,6 @@ export const GLOBAL_SEARCH_DEFAULTS: GlobalSearch = {
 // Must stay a subset of the API's SORT_COLUMNS (apps/api/src/routes/search.ts).
 const SORTS: GlobalSortKey[] = ['name', 'number', 'price', 'rarity', 'released']
 const DIRS: GlobalSortDir[] = ['asc', 'desc']
-
-function pick<T extends string>(v: unknown, allowed: T[], dflt: T): T {
-  return typeof v === 'string' && (allowed as string[]).includes(v) ? (v as T) : dflt
-}
 
 export function validateGlobalSearch(raw: Record<string, unknown>): GlobalSearch {
   const pageNum = Number(raw.page)

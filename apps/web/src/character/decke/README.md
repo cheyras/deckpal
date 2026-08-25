@@ -46,11 +46,12 @@ mappings, and an `AnimationClip` cannot answer "40% of the way to a frown".
 | `playbook.ts` / `curve.ts` | the 27 states, and Blender-compatible curve evaluation |
 | `procedural.ts` | idle float, blink, gaze — seeded and deterministic |
 | `flight.ts` / `dom.ts` | travel, and choosing where beside an element to stand |
+| `pageAnchor.ts` | parks the canvas in DOCUMENT space while he stands still, so the compositor scrolls him and following the page costs no frames |
 | `sustain.ts` | the loop window per state, the synthesized `idle`/`sleep`/outro clips |
 | `look.ts` | where the pupils point — the camera constraint that could not export |
 | `entry.ts` | the entrance: the whole-body scale on the rig root, and its centre pivot |
 | `framing.ts` | how he is SEEN wherever he stands: canonical yaw, no lean, vertical angle by height |
-| `beacon.ts` | where the off-screen chip goes, and how far to scroll to bring him back |
+| `beacon.ts` | where the off-screen chip goes, and how far to scroll to bring him back — lives one level up, at `src/character/beacon.ts` |
 | — | the highlight ring is `components/ui/elementHighlight.ts`, in the design system |
 | `commands.ts` | the JSON surface an LLM drives |
 | `eyeSocket.ts` | `Eye_Rig`'s VERTEX_3 parenting to the morphed lid |

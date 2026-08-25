@@ -59,7 +59,7 @@ const CYCLE_MS = 2600
  *  and a focus ring without looking detached. */
 const INSET = -6
 
-export type HighlightOptions = {
+type HighlightOptions = {
   /** Rounded-corner radius in px. Defaults to the element's own, so it traces
    *  the shape the reader already sees rather than boxing it. */
   radius?: number

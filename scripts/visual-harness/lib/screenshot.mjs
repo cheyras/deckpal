@@ -8,7 +8,7 @@
  * true on-screen scale — not stretched or duplicated down the page.
  */
 import { mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { stripDevChrome } from './dev-chrome.mjs'
 
 /**
@@ -79,14 +79,4 @@ export async function captureViewport(page, dir, name) {
   const p = join(dir, `${name}.png`)
   await page.screenshot({ path: p, fullPage: false })
   return p
-}
-
-export function ensureDir(path) {
-  mkdirSync(path, { recursive: true })
-  return path
-}
-
-export function ensureParentDir(filePath) {
-  mkdirSync(dirname(filePath), { recursive: true })
-  return filePath
 }

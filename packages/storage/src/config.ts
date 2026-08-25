@@ -48,8 +48,3 @@ export function storageEnv(): StorageEnv {
 export function hasStorageEnv(): boolean {
   return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
-
-/** Test seam — forget memoised env (never used in production paths). */
-export function resetStorageEnv(): void {
-  cached = null;
-}

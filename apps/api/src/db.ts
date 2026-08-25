@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import pg from 'pg';
 import { loadEnv, makePool } from '@deckpal/db';
+import { pct } from './insights/trainerLevel.js';
 
 /**
  * Shared pool + query helpers for the read API.
@@ -48,66 +49,6 @@ export { SUPABASE_MODE };
 
 /** AsyncLocalStorage carrying the per-request RLS-enabled PoolClient. */
 export const rlsStore = new AsyncLocalStorage<pg.PoolClient>();
-
-/**
- * Run `fn` inside a per-request RLS context (defense-in-depth).
- *
- * When SUPABASE_MODE is set:
- *   1. Check out a PoolClient and BEGIN a transaction.
- *   2. SET LOCAL role = 'authenticated' and set request.jwt.claims so
- *      auth.uid() resolves to `userId` for the remainder of the transaction.
- *   3. Run `fn` inside the AsyncLocalStorage context (q/q1/withTx pick it up).
- *   4. COMMIT (or ROLLBACK on error) and release the client.
- *
- * When SUPABASE_MODE is unset: passthrough — `fn` runs directly with no RLS,
- * and the existing parameterized-query pattern is the sole access-control layer.
- */
-export async function withUserContext<T>(
-  userId: string,
-  fn: (client: pg.PoolClient) => Promise<T>,
-): Promise<T> {
-  if (!SUPABASE_MODE) {
-    // Self-host: no RLS, no role switching. Hand the caller a plain client.
-    const client = await pool.connect();
-    try {
-      return await fn(client);
-    } finally {
-      client.release();
-    }
-  }
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(
-      `SELECT set_config('request.jwt.claims', $1, true)`,
-      [JSON.stringify({ sub: userId, role: 'authenticated' })],
-    );
-    await client.query(`SET LOCAL role = 'authenticated'`);
-    const result = await rlsStore.run(client, () => fn(client));
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch {
-      /* ignore rollback failure — original error is what matters */
-    }
-    throw err;
-  } finally {
-    // RESET ROLE so the connection is returned to the pool in a clean state.
-    // This is defensive: pg releases connections back to the pool after the
-    // COMMIT/ROLLBACK above, but if the connection is reused before the pool
-    // closes, we want the role to be the connection default (the pool user),
-    // not 'authenticated'.
-    try {
-      await client.query('RESET ROLE');
-    } catch {
-      /* best-effort; the pool will discard a broken connection */
-    }
-    client.release();
-  }
-}
 
 /**
  * Commit the per-request RLS transaction NOW, before the response is written.
@@ -204,16 +145,16 @@ export async function closePool(): Promise<void> {
  * recompute either all land together or not at all. Stays within the 2-connection
  * budget: one client is checked out for the duration and released in `finally`.
  *
- * When an RLS context is active (withUserContext middleware), the request is
- * already inside a transaction on the rlsStore client. In that case withTx
- * nests via SAVEPOINT instead of a separate BEGIN/COMMIT, reuses the same
- * client (no second connection), and inherits the RLS settings.
+ * When an RLS context is active (the per-request RLS middleware in index.ts),
+ * the request is already inside a transaction on the rlsStore client. In that
+ * case withTx nests via SAVEPOINT instead of a separate BEGIN/COMMIT, reuses the
+ * same client (no second connection), and inherits the RLS settings.
  */
 let _spCounter = 0;
 export async function withTx<T>(fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
   const rlsClient = rlsStore.getStore();
   if (rlsClient) {
-    // Already inside withUserContext's transaction — nest with SAVEPOINT.
+    // Already inside the request's RLS transaction — nest with SAVEPOINT.
     const sp = `sp_${++_spCounter}`;
     await rlsClient.query(`SAVEPOINT ${sp}`);
     try {
@@ -260,11 +201,6 @@ export interface SetProgress {
   complete: GoalProgress;
   master: GoalProgress;
   grandmaster: GoalProgress;
-}
-
-function pct(owned: number, total: number): number {
-  if (!owned || !total) return 0;
-  return Math.round((owned / total) * 1000) / 10;
 }
 
 interface ProgressDbRow {

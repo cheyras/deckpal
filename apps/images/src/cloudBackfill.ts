@@ -12,6 +12,7 @@ import {
 } from '@deckpal/storage';
 import { absoluteFromRelative } from './layout.js';
 import { closePool, getPool } from './assets.js';
+import { parallelMap } from './parallel.js';
 
 /**
  * storage:backfill — mirror part of the local image cache into the cloud object
@@ -220,72 +221,67 @@ export async function cloudBackfill(opts: CloudBackfillOptions): Promise<CloudBa
 
   const limit = opts.limit && opts.limit > 0 ? opts.limit : Infinity;
   const concurrency = Math.max(1, Math.min(16, opts.concurrency ?? 3));
-  const queue = work.slice();
 
-  const worker = async (): Promise<void> => {
-    for (;;) {
-      if (report.uploaded >= limit) return;
-      const item = queue.shift();
-      if (!item) return;
-      const abs = absoluteFromRelative(item.relativePath);
-      try {
-        // Already published? Do not re-send 65 KB to prove it — but DO record the
-        // per-tier row from the object's OWN metadata, which is what makes a
-        // re-run repair a partial one (and regularise bytes some other writer
-        // published). The existence check is a HEAD either way, so asking for the
-        // metadata at the same time costs nothing and saves a second sweep.
-        const existing = opts.force ? null : await headObject(item.relativePath);
-        if (existing) {
-          report.skippedExisting++;
-          if (!opts.dryRun) {
-            await upsertImageObjectRow({
-              cacheKey: item.cacheKey,
-              tier: 'object',
-              byteSize: existing.byteSize,
-              contentType: existing.contentType,
-              etag: existing.etag,
-            });
-            report.rowsRepaired++;
-          }
-          continue;
-        }
-        const st = await stat(abs).catch(() => null);
-        if (!st || !st.isFile() || st.size === 0) {
-          report.missingFiles++;
-          continue;
-        }
-        if (opts.dryRun) {
-          report.uploaded++;
-          report.bytesSent += st.size;
-          continue;
-        }
-        const res = await putStorageAssetFromFile({
-          cacheKey: item.cacheKey,
-          kind: item.kind,
-          relativePath: item.relativePath,
-          absolutePath: abs,
-          provenance: mirrorProvenance(item),
-        });
-        report.uploaded++;
-        report.bytesSent += res.byteSize;
-        if (!res.objectRecorded) {
-          report.failures.push({
-            relativePath: item.relativePath,
-            error: 'uploaded but image_object row was not recorded — re-run with --reconcile',
+  await parallelMap(work, concurrency, async (item) => {
+    // --limit budget spent: the remaining items drain as no-ops.
+    if (report.uploaded >= limit) return;
+    const abs = absoluteFromRelative(item.relativePath);
+    try {
+      // Already published? Do not re-send 65 KB to prove it — but DO record the
+      // per-tier row from the object's OWN metadata, which is what makes a
+      // re-run repair a partial one (and regularise bytes some other writer
+      // published). The existence check is a HEAD either way, so asking for the
+      // metadata at the same time costs nothing and saves a second sweep.
+      const existing = opts.force ? null : await headObject(item.relativePath);
+      if (existing) {
+        report.skippedExisting++;
+        if (!opts.dryRun) {
+          await upsertImageObjectRow({
+            cacheKey: item.cacheKey,
+            tier: 'object',
+            byteSize: existing.byteSize,
+            contentType: existing.contentType,
+            etag: existing.etag,
           });
+          report.rowsRepaired++;
         }
-        if (report.uploaded % 200 === 0) {
-          process.stderr.write(
-            `[storage:backfill] ${report.uploaded} uploaded ` +
-              `(${(report.bytesSent / 1024 / 1024).toFixed(1)} MB) …\n`,
-          );
-        }
-      } catch (err) {
-        report.failures.push({ relativePath: item.relativePath, error: (err as Error).message });
+        return;
       }
+      const st = await stat(abs).catch(() => null);
+      if (!st || !st.isFile() || st.size === 0) {
+        report.missingFiles++;
+        return;
+      }
+      if (opts.dryRun) {
+        report.uploaded++;
+        report.bytesSent += st.size;
+        return;
+      }
+      const res = await putStorageAssetFromFile({
+        cacheKey: item.cacheKey,
+        kind: item.kind,
+        relativePath: item.relativePath,
+        absolutePath: abs,
+        provenance: mirrorProvenance(item),
+      });
+      report.uploaded++;
+      report.bytesSent += res.byteSize;
+      if (!res.objectRecorded) {
+        report.failures.push({
+          relativePath: item.relativePath,
+          error: 'uploaded but image_object row was not recorded — re-run with --reconcile',
+        });
+      }
+      if (report.uploaded % 200 === 0) {
+        process.stderr.write(
+          `[storage:backfill] ${report.uploaded} uploaded ` +
+            `(${(report.bytesSent / 1024 / 1024).toFixed(1)} MB) …\n`,
+        );
+      }
+    } catch (err) {
+      report.failures.push({ relativePath: item.relativePath, error: (err as Error).message });
     }
-  };
-  await Promise.all(Array.from({ length: concurrency }, worker));
+  });
   return report;
 }
 

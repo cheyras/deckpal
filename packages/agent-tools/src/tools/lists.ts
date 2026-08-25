@@ -2,8 +2,9 @@ import { z } from 'zod';
 import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
-import { row } from '../format.js';
+import { row, usd } from '../format.js';
 import { describeCard, describeVariant, pickVariant, resolveCardsBatch, variantsOfMany, type CardRef } from '../resolve.js';
+import { FINISHES, GOALS } from '../shared.js';
 
 /**
  * List tools — SPEC §5 #11–#13. Everything goes through deckpal-api
@@ -37,8 +38,7 @@ import { describeCard, describeVariant, pickVariant, resolveCardsBatch, variants
  */
 
 const KINDS = ['dynamic', 'static', 'pokedex_binder'] as const;
-const GOALS = ['complete', 'master', 'grandmaster'] as const;
-const FINISHES = ['normal', 'reverse', 'holo', 'lenticular', 'metal'] as const;
+const SOURCE = 'deckpal-mcp';
 
 // ── API response shapes (only what we render) ─────────────────────────────────
 
@@ -75,8 +75,6 @@ interface ListDetail {
   list: ListSummary;
   items: ListItem[];
 }
-
-const usd = (v: number | null | undefined): string => (v == null ? 'unpriced' : `$${v.toFixed(2)}`);
 
 function summaryLine(l: ListSummary): string {
   return row(
@@ -216,7 +214,7 @@ async function resolveAdds(
         out[inputIdx] = {
           ok: false,
           label: `${card.name} (${card.tcgdexId})`,
-          error: vres.status === 'not_found' ? vres.message : vres.message,
+          error: vres.message,
           detail: vres.status === 'ambiguous' ? vres.variants.map(describeVariant) : undefined,
         };
         return;
@@ -337,7 +335,7 @@ const editListTool = defineTool({
         if (dry_run) {
           return ok(`DRY RUN — would restore deleted list ${list_id}.\nRe-run with dry_run: false to restore.`);
         }
-        const r = (await ctx.api.send('POST', `/lists/${encodeURIComponent(list_id)}/restore`, { source: 'deckpal-mcp' })) as {
+        const r = (await ctx.api.send('POST', `/lists/${encodeURIComponent(list_id)}/restore`, { source: SOURCE })) as {
           list: ListSummary;
         };
         return ok(`Restored ${summaryLine(r.list)}`);
@@ -372,7 +370,7 @@ const editListTool = defineTool({
             pricedOnly: add_missing.priced_only,
           },
           dryRun: true,
-          source: 'deckpal-mcp',
+          source: SOURCE,
         })) as { wouldAdd: number; items: Array<{ label: string }> };
       }
 
@@ -406,14 +404,14 @@ const editListTool = defineTool({
       let failures = 0;
       let targetId = list_id;
       if (!current) {
-        const created = (await ctx.api.send('POST', '/lists', { name, kind: listKind, source: 'deckpal-mcp' })) as {
+        const created = (await ctx.api.send('POST', '/lists', { name, kind: listKind, source: SOURCE })) as {
           list: ListSummary;
         };
         targetId = created.list.id;
         lines.push(`Created ${created.list.kind} list '${created.list.name}' — id ${targetId}`);
       } else if (name !== undefined && name !== current.list.name) {
         try {
-          await ctx.api.send('PATCH', `/lists/${targetId}`, { name, source: 'deckpal-mcp' });
+          await ctx.api.send('PATCH', `/lists/${targetId}`, { name, source: SOURCE });
           lines.push(`  done: rename → '${name}'`);
         } catch (err) {
           failures++;
@@ -452,7 +450,7 @@ const editListTool = defineTool({
                   },
                 }
               : {}),
-            source: 'deckpal-mcp',
+            source: SOURCE,
           })) as { added: number; alreadyPresent: number; unresolved: string[]; batchId: string };
           lines.push(
             `  done: added ${res.added}` +
@@ -521,7 +519,7 @@ const deleteListTool = defineTool({
       const r = (await ctx.api.send(
         'DELETE',
         `/lists/${encodeURIComponent(list_id)}${purge ? '?purge=true' : ''}`,
-        { source: 'deckpal-mcp' },
+        { source: SOURCE },
       )) as { restorable: boolean; batchId?: string };
       return ok(
         r.restorable

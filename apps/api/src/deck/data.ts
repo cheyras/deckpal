@@ -63,6 +63,11 @@ export interface ExclusiveGroup {
   max_total: number;
   members: string[];
 }
+/**
+ * Vendored, not yet enforced — DECK-FORMATS §2.3.4 item 5. glc-rules.json
+ * carries `set_carveouts` and this types it, but no validation rule reads it
+ * yet; do not mistake the type for a wired rule.
+ */
 export interface SetCarveout {
   set: string;
   mode: string;
@@ -76,6 +81,7 @@ interface GlcRulesFile {
   rule_box_name_suffixes: string[];
   exclusive_groups: ExclusiveGroup[];
   not_tournament_legal: string[];
+  /** Loaded and typed, but vendored-not-yet-enforced — see `SetCarveout`. */
   set_carveouts: SetCarveout[];
 }
 

@@ -175,7 +175,7 @@ const fail = (
   failure: { step, verb: s.verb, target: s.landmark ?? s.route, why, reason },
 })
 
-export type JourneyContext = UiToolContext & {
+type JourneyContext = UiToolContext & {
   /**
    * Say a line out loud, mid-journey.
    *

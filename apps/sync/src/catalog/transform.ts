@@ -260,7 +260,8 @@ export function numberSort(localId: string): string {
 
 // ── primary-variant selection (at most one per card; SCHEMA §4.4 partial unique) ──
 // Prefer a standard-tier, plainest base printing; finish order normal < holo < reverse.
-const FINISH_RANK: Record<string, number> = { normal: 0, holo: 1, reverse: 2, lenticular: 3, metal: 4 };
+// Exported because prices/cardmarket.ts routes base-vs-reverse prices on the same order.
+export const FINISH_RANK: Record<string, number> = { normal: 0, holo: 1, reverse: 2, lenticular: 3, metal: 4 };
 export function pickPrimaryIndex(facets: Facet[]): number {
   let best = 0;
   let bestKey: number[] | null = null;

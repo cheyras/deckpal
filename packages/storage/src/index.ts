@@ -15,13 +15,73 @@
  *
  * Importing this package is side-effect free; credentials are read lazily, so
  * apps/images can depend on it for the path algebra alone.
+ *
+ * THIS EXPORT LIST IS CURATED, not `export *`: only what consumers actually
+ * import, plus documented manual tools (e.g. `listAvatarObjectKeys`,
+ * DECISIONS.md 2026-08). Internal plumbing — `uploadObject`, `storageEnv`,
+ * the manifest row writers `putStorageAsset` wraps — stays inside the package;
+ * add a name here only when something outside gains a real caller.
  */
-export * from './paths.js';
-export * from './sniff.js';
-export * from './placeholder.js';
-export * from './config.js';
-export * from './object-store.js';
-export * from './manifest.js';
-export * from './fetch-source.js';
-export * from './put-asset.js';
-export * from './avatar-store.js';
+export {
+  LANG,
+  QUALITIES,
+  SPRITES_SHA,
+  cardCacheKey,
+  cardRelativePath,
+  cardSourceUrl,
+  imageSubPathFromUrl,
+  parseImagePath,
+  setImageCacheKey,
+  setImageRelativePath,
+  setImageSourceUrl,
+  spriteRelativePath,
+  spriteSourceUrl,
+  type CardRef,
+  type ParsedImage,
+  type Quality,
+  type SetImageKind,
+} from './paths.js';
+export { isWebp, sniffContentType } from './sniff.js';
+export { PLACEHOLDER_CONTENT_TYPE, PLACEHOLDER_WEBP } from './placeholder.js';
+export {
+  FAILURE_CACHE_CONTROL,
+  IMMUTABLE_CACHE_CONTROL,
+  USER_AGENT,
+  hasStorageEnv,
+} from './config.js';
+export {
+  headObject,
+  listObjectsRecursive,
+  moveObject,
+  objectExists,
+  publicObjectUrl,
+} from './object-store.js';
+export {
+  getManifestRow,
+  recordProvenanceIfUnknown,
+  upsertImageObjectRow,
+  type ImageAssetKind,
+} from './manifest.js';
+export { fetchSourceBytesWithExtensionFallback } from './fetch-source.js';
+export {
+  fromUrl,
+  putStorageAsset,
+  putStorageAssetFromFile,
+  putUnmanifestedObject,
+  unknownProvenance,
+  type Provenance,
+} from './put-asset.js';
+export {
+  ACCEPTED_AVATAR_UPLOAD_TYPES,
+  AVATAR_EDGE,
+  MAX_AVATAR_UPLOAD_BYTES,
+  avatarPublicUrl,
+  deleteAvatarObject,
+  hasAvatarStorage,
+  isAvatarKey,
+  listAvatarObjectKeys,
+  newAvatarKey,
+  putAvatarObject,
+  type AvatarRecorder,
+  type StoredAvatar,
+} from './avatar-store.js';

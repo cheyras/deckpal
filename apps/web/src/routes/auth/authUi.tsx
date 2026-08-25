@@ -20,16 +20,6 @@ import { BrandMark } from '../../components/Icon'
 import { Button, buttonClass } from '../../components/ui/Button'
 import '../landing/landing.css'
 
-// Re-export primitives relocated to components/ui/ so existing
-// `import { Field, FormAlert, StatusPanel } from './authUi'` call sites
-// keep working without a mass import-rewrite.
-export { Field } from '../../components/ui/Field'
-export type { FieldProps } from '../../components/ui/Field'
-export { FormAlert } from '../../components/ui/FormAlert'
-export type { FormAlertProps } from '../../components/ui/FormAlert'
-export { StatusPanel } from '../../components/ui/StatusPanel'
-export type { StatusPanelProps } from '../../components/ui/StatusPanel'
-
 /* ── page frame ───────────────────────────────────────────────────────────── */
 
 /**

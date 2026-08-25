@@ -222,12 +222,6 @@ export function evalState(state: CompiledState, t: number, rest: Pose, out: Pose
   return out
 }
 
-/** Linear blend between two poses. Used for state crossfades. */
-export function blendPose(a: Pose, b: Pose, w: number, out: Pose): Pose {
-  for (const k in a) out[k] = a[k] + (b[k] - a[k]) * w
-  return out
-}
-
 export async function loadPlaybook(baseUrl: string): Promise<PlaybookDoc> {
   const res = await fetch(`${baseUrl}models/decke/playbook.json`)
   if (!res.ok) throw new Error(`playbook: ${res.status} ${res.statusText}`)

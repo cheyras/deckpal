@@ -31,6 +31,23 @@ export function money(minor: number | null | undefined, currency = 'USD'): strin
   return sym ? `${sym}${rendered}` : `${rendered} ${cur}`;
 }
 
+/**
+ * Render a MAJOR-unit USD amount the API already computed: 3.5 → "$3.50".
+ * Unlike {@link money} the input is dollars, not cents — API responses carry
+ * majors. NULL still means "no price" and renders "unpriced", never $0.
+ */
+export const usd = (v: number | null | undefined): string => (v == null ? 'unpriced' : `$${v.toFixed(2)}`);
+
+/** Count with en-US thousands separators: 12345 → "12,345". */
+export const nfmt = (v: string | number): string => Number(v).toLocaleString('en-US');
+
+/** timestamptz/Date → compact UTC stamp 'YYYY-MM-DD HH:MMZ' (Z so the zone is unambiguous). */
+export function stamp(v: unknown): string {
+  const d = v instanceof Date ? v : new Date(String(v));
+  if (Number.isNaN(d.getTime())) return String(v);
+  return `${d.toISOString().slice(0, 16).replace('T', ' ')}Z`;
+}
+
 /** One compact row: cells joined with ' | ', null/undefined/'' cells dropped. */
 export function row(...cells: ReadonlyArray<string | number | null | undefined>): string {
   return cells

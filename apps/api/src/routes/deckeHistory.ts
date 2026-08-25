@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { buildStamp } from '../decke/build.js';
 import { isDeckeEntitled } from '../decke/entitlement.js';
 import { pool, q, q1 } from '../db.js';
-import { ApiError, asyncHandler, badRequest, clampInt, notFound, str } from '../http.js';
+import { ApiError, asyncHandler, badRequest, clampInt, notFound, str, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 
 /**
@@ -70,8 +70,8 @@ const MAX_TEXT = 24_000;
 export const MAX_TOOLS = 60;
 const MAX_TITLE = 140;
 
-/** A uuid, and nothing that merely looks like one. */
-export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A uuid, and nothing that merely looks like one (the shared http.ts shape). */
+export const UUID = UUID_RE;
 
 /**
  * A non-negative integer from a JSON body, or `null`.
@@ -169,8 +169,9 @@ async function write<T extends Record<string, unknown> = Record<string, unknown>
 
 /** Every route here needs the same two facts. */
 function caller(req: Parameters<Parameters<typeof asyncHandler>[0]>[0]): string {
+  // currentUserId is total — it returns a string or throws its own loud 500 —
+  // so "signed in" needs no second check here; only entitlement does.
   const userId = currentUserId(req);
-  if (!userId) throw forbidden('Sign in to use Deck-E.');
   if (!isDeckeEntitled(userId)) throw forbidden('Deck-E is not available on this account.');
   return userId;
 }

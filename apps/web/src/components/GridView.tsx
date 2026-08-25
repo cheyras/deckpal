@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { CardRow } from '../lib/api'
 import { CardTile } from './CardTile'
+import { prefersReducedMotion } from '../lib/reducedMotion'
 
 // Fluid grid + window virtualization (wiki: Frontend-Research §B.2). ONE ResizeObserver is
 // the source of truth for column count; we virtualize ROWS (row-major reading
@@ -34,17 +35,6 @@ function colsFor(width: number): { cols: number; small: boolean } {
  * which mints these from `decke:reveal`.
  */
 export type GridReveal = { cardId: string; at: number }
-
-/** `prefers-reduced-motion`, asked the way the rest of the character asks it. */
-function prefersReduced(): boolean {
-  try {
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  } catch {
-    // `matchMedia` is absent under test and in some embedded webviews. Erring
-    // toward the animation matches every other caller in this app.
-    return false
-  }
-}
 
 /** How near the middle of the screen counts as "already shown". */
 const CENTRED_BAND = 0.2
@@ -151,7 +141,7 @@ export function GridView({
     }
     virtualizer.scrollToIndex(Math.floor(index / cols), {
       align: 'center',
-      behavior: prefersReduced() ? 'auto' : 'smooth',
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
     })
   }, [reveal, cards, cols, width, virtualizer])
 

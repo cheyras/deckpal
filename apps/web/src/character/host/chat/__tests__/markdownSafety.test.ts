@@ -10,7 +10,7 @@
  */
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { chatUrlTransform, isSafeChatUrl } from '../../../../lib/markdownSafety'
+import { chatUrlTransform } from '../../../../lib/markdownSafety'
 
 test('the three protocols a chat link may use are allowed, in any case', () => {
   for (const url of [
@@ -33,7 +33,7 @@ test('every scripting and data protocol is refused', () => {
     'file:///etc/passwd',
   ]) {
     assert.equal(chatUrlTransform(url), '', `${url} must be blanked`)
-    assert.equal(isSafeChatUrl(url), false)
+    assert.equal(chatUrlTransform(url), '')
   }
 })
 
@@ -67,5 +67,5 @@ test('a colon inside the path, query or fragment is not a protocol', () => {
 
 test('an empty href is not a safe URL', () => {
   assert.equal(chatUrlTransform(''), '')
-  assert.equal(isSafeChatUrl(''), false)
+  assert.equal(chatUrlTransform(''), '')
 })

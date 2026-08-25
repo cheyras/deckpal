@@ -526,9 +526,11 @@ export function formatRekeyReport(r: RekeyReport, dryRun: boolean): string {
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
-// Anchored on the whole filename, not a suffix: `src/__tests__/rekeySet.test.ts`
-// ends with 'rekeySet.ts' under a plain endsWith, and importing this module from
-// its own test would then run the CLI (and exit the test process).
+// Anchored on the whole filename, not a suffix: a plain endsWith('rekeySet.ts')
+// has no notion of a path boundary, so any OTHER entrypoint whose name merely
+// ends in those characters would also match and run this CLI (which exits the
+// process). The regex demands a path separator (or nothing) right before the
+// name, so only this module itself ever counts as the entrypoint.
 const isMain = /(?:^|[\\/])rekeySet\.(?:ts|js)$/.test(entryPath);
 if (isMain) {
   const argv = process.argv.slice(2);

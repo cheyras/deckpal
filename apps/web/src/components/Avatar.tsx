@@ -137,7 +137,7 @@ function AvatarDiscInner({ url, iconSize, alt = '', dimmed = false, fallbackClas
   )
 }
 
-export interface AvatarEditor {
+interface AvatarEditor {
   /** Server truth, or the local preview while an upload is in flight. */
   displayUrl: string | null
   /** Is the feature available at all (false on self-host)? */

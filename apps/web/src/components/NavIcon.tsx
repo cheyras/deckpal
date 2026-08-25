@@ -20,13 +20,6 @@
 import { Icon, type IconName } from './Icon'
 import { useSkin } from '../lib/useSkin'
 
-/** The subset with a selected-state animation. Everything else falls through. */
-const ANIMATED = new Set<IconName>(['cards', 'lists', 'deck', 'pokedex', 'chart', 'camera'])
-
-export function isAnimatedNavIcon(name: IconName): boolean {
-  return ANIMATED.has(name)
-}
-
 function Svg({ size, active, children }: { size: number; active: boolean; children: React.ReactNode }) {
   return (
     <svg

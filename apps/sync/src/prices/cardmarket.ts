@@ -11,6 +11,7 @@
 
 import { fetchJson } from './http.js';
 import { toMinor, type CardmarketFile, type CardmarketGuide, type Metrics } from './types.js';
+import { FINISH_RANK } from '../catalog/transform.js';
 import {
   type Queryable, type PricePoint, appendObservations, upsertCurrent, ensureObservationPartition,
   startRun, finishRun, lastOkStamp, tryLock, unlock,
@@ -61,7 +62,6 @@ async function assertFieldMap(client: Queryable): Promise<void> {
 }
 
 interface VarRef { cvId: number; finish: string; isPrimary: boolean; sortOrder: number }
-const FINISH_RANK: Record<string, number> = { normal: 0, holo: 1, reverse: 2, lenticular: 3, metal: 4 };
 
 async function productVariants(client: Queryable, sets: string[] | null): Promise<Map<number, VarRef[]>> {
   const { rows } = await client.query<{ id: string; pid: number; finish: string; prim: boolean; so: number }>(

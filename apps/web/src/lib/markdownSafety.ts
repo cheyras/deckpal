@@ -94,8 +94,3 @@ export function chatUrlTransform(value: string): string {
 
   return SAFE_PROTOCOL.test(url.slice(0, colon)) ? url : ''
 }
-
-/** True when `chatUrlTransform` would keep the URL. Convenience for callers. */
-export function isSafeChatUrl(value: string): boolean {
-  return chatUrlTransform(value) !== ''
-}

@@ -8,6 +8,7 @@ import { ValueChart } from '../components/ValueChart'
 import { Icon } from '../components/Icon'
 import { AvatarDisc, useAvatar } from '../components/Avatar'
 import { rangeCoverageCaption } from '../lib/insightsCaption'
+import { fmtMoney } from '../lib/format'
 
 const RANGES: { key: ValueRange; label: string }[] = [
   { key: '30d', label: '30 Days' },
@@ -16,14 +17,6 @@ const RANGES: { key: ValueRange; label: string }[] = [
   { key: '1y', label: '1 Year' },
 ]
 const PRO_RANGES = ['1.5 Years', '2 Years']
-
-function money(v: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(v)
-  } catch {
-    return `${v} ${currency}`
-  }
-}
 
 export function Insights() {
   const [tab, setTab] = useState<'overview' | 'trends'>('overview')
@@ -113,7 +106,7 @@ export function Insights() {
                             : 'text-[18px] font-bold text-text-secondary'
                         }
                       >
-                        {money(c.total, c.currency)}
+                        {fmtMoney(c.total, c.currency)}
                       </span>
                     </div>
                   ))}
@@ -133,7 +126,7 @@ export function Insights() {
                   Total Estimated Collection Value
                 </div>
                 <div className="text-[28px] font-extrabold leading-[36px] text-text-primary">
-                  {val ? money(val.current.total, val.currency) : '—'}
+                  {val ? fmtMoney(val.current.total, val.currency) : '—'}
                 </div>
               </div>
               {/* currency toggle */}
@@ -245,7 +238,7 @@ export function Insights() {
                           m.change >= 0 ? 'text-[14px] text-change-positive' : 'text-[14px] text-change-negative'
                         }
                       >
-                        {m.change >= 0 ? '▲' : '▼'} {money(Math.abs(m.change), m.currency)}
+                        {m.change >= 0 ? '▲' : '▼'} {fmtMoney(Math.abs(m.change), m.currency)}
                         {m.changePct != null && <span className="ml-[6px] text-text-muted">{m.changePct}%</span>}
                       </span>
                     </li>
@@ -295,7 +288,7 @@ function DeltaCard({ delta, currency }: { delta: { value: number; pct: number | 
         <div>
           <div className={valueCls}>
             {up ? '▲' : '▼'}{' '}
-            {new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Math.abs(delta.value))}
+            {fmtMoney(Math.abs(delta.value), currency)}
           </div>
           <div className={labelCls}>Price Change</div>
         </div>

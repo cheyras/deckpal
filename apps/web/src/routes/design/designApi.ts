@@ -9,7 +9,7 @@ import { type TokenInfo } from './themeTokens'
 
 export { type TokenInfo }
 
-export interface TokensResponse {
+interface TokensResponse {
   fileHash: string
   tokens: TokenInfo[]
 }
@@ -31,7 +31,7 @@ export interface ChangeRequest {
   result?: unknown
 }
 
-export interface RequestsResponse {
+interface RequestsResponse {
   agentAlive: boolean
   requests: ChangeRequest[]
 }

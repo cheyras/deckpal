@@ -1,7 +1,7 @@
 # DeckPal Design-System Editor — Implementation Plan
 
-**Status:** proposed — awaiting product-owner sign-off on the items in §8.1 before
-any implementation begins.
+**Status:** IMPLEMENTED (2026-08 — see `ARCHITECTURE.md` §14 and `DECISIONS.md`).
+The `/design` editor shipped owner-gated.
 **Prerequisite reading:** `DESIGN-SYSTEM-AUDIT.md` (same directory). This plan
 builds directly on that audit and does not restate its evidence; section
 references of the form "audit §N" point there.

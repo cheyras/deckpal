@@ -16,16 +16,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makePool, loadEnv } from '@deckpal/db';
+import { batchInsert } from '../batchInsert.js';
 import {
   buildSpecies, buildSpeciesIndex, detectConflicts, mapCard, MAX_SPECIES,
   type RawCatalogCard, type SpeciesLink,
 } from './transform.js';
-
-interface Queryable {
-  query<R extends Record<string, unknown> = Record<string, unknown>>(
-    text: string, params?: unknown[],
-  ): Promise<{ rows: R[] }>;
-}
 
 const EXPECTED_CONFLICTS = 13; // DEX-DATA §A.4-F6, measured 2026-07-24
 
@@ -39,18 +34,6 @@ export interface DexImportSummary {
   mappedByOverride: number;
   zeroSpeciesCards: number;
   conflictsSeeded: number;
-}
-
-async function batchInsert(
-  client: Queryable, sql: (n: number) => string, cols: number, values: unknown[][], chunkRows = 400,
-): Promise<void> {
-  for (let i = 0; i < values.length; i += chunkRows) {
-    const chunk = values.slice(i, i + chunkRows);
-    const ph = chunk
-      .map((_, r) => `(${Array.from({ length: cols }, (_, c) => `$${r * cols + c + 1}`).join(',')})`)
-      .join(',');
-    await client.query(sql(chunk.length).replace('__VALUES__', ph), chunk.flat());
-  }
 }
 
 export async function importDex(pokeapiDir: string, catalogDir: string): Promise<DexImportSummary> {

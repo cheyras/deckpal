@@ -16,7 +16,7 @@ here.
 blender -b "$BLEND" -P render-refs.py
 
 # 2. the dev server
-pnpm --filter web dev
+pnpm --filter deckpal-web dev
 
 # 3. the sweeps, from THIS directory
 node sweepref.mjs      # 8 states, stills

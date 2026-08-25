@@ -5,8 +5,10 @@
  * WHY THIS EXISTS — MEASURED, NOT SUPPOSED
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * The conversational model holds 34 tools: 7 cosmetic, 23 data, 4 deep. The
- * bake-off that measured it 100% clean on every metric gave it about ten.
+ * The conversational model holds 36 tools: 9 cosmetic, 23 data, 4 deep. (It
+ * held 34 when the bisection below ran — `journey` and `escort` arrived
+ * later; the arm labels keep the counts they were measured at.) The bake-off
+ * that measured it 100% clean on every metric gave it about ten.
  *
  * Then a defect appeared on the deployed preview. Asked to add 4000 of a card —
  * a request that should fire an `alert_dizzy` reaction — it emitted this as
@@ -88,8 +90,8 @@ const CONVERSATIONAL_WRITE = 'log_cards';
 /**
  * What he can see on the FIRST step of a turn.
  *
- * Everything except the ten heavy writes. In practice that is 24 of 34 — the
- * arm that measured cleanest with `log_cards` still in reach.
+ * Everything except the ten heavy writes. In practice that is 26 of 36 — the
+ * shape of the arm that measured cleanest, with `log_cards` still in reach.
  */
 export function openingTools(tools: ToolSet): string[] {
   const writes = new Set(

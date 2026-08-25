@@ -212,7 +212,7 @@ function setMarkKind(setId?: string | null, name?: string | null): SetMark {
 
 // Derive a short, readable acronym tag from a set's code/id (falling back to its
 // name). Purpose-built for the tile — keeps it to a few uppercase chars so it fits.
-export function deriveSetTag(setId?: string | null, name?: string | null): string {
+function deriveSetTag(setId?: string | null, name?: string | null): string {
   const raw = (setId ?? '').trim()
   const compact = raw.replace(/[^a-zA-Z0-9]/g, '')
   // Short clean codes (mep, mee, svp, rc, np, A3, B1a, P-A, me02…) read best as-is.

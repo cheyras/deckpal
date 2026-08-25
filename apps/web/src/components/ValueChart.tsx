@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import type { ValuePoint } from '../lib/api'
+import { fmtMoney } from '../lib/format'
 
 // Hand-rolled SVG line chart (wiki: Frontend-Research §6: recharts REJECTED for bundle size).
 // Zero charting dependency — a linear scale computed by hand is more than enough
@@ -7,18 +8,6 @@ import type { ValuePoint } from '../lib/api'
 // with <2 points there is no trend to draw, so we render the single reading as a
 // lone marker on a flat baseline and let the caller show the "not enough history"
 // copy. We NEVER interpolate or pad the axis (matches pkmn.gg — pkmn.gg captures §14.4).
-
-function money(v: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 2,
-    }).format(v)
-  } catch {
-    return `${v} ${currency}`
-  }
-}
 
 function shortDate(iso: string): string {
   const [, m, d] = iso.split('-')
@@ -128,7 +117,7 @@ export function ValueChart({
                 fill="var(--color-text-muted)"
                 fontSize={10}
               >
-                {money(t, currency)}
+                {fmtMoney(t, currency, 2)}
               </text>
             </g>
           )
@@ -193,7 +182,7 @@ export function ValueChart({
         >
           <div className="flex items-center gap-[6px]">
             <span className="inline-block h-[8px] w-[8px] rounded-sm bg-action-primary" />
-            <span className="font-semibold text-text-primary">{money(active.value, currency)}</span>
+            <span className="font-semibold text-text-primary">{fmtMoney(active.value, currency, 2)}</span>
           </div>
           <div className="text-text-muted">{shortDate(active.date)}</div>
         </div>

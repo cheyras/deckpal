@@ -1,7 +1,11 @@
 /**
  * Resolve Playwright from wherever it actually is — the same policy as
- * `scripts/decke-gates.mjs`, extracted so both scripts share one rule instead
- * of two copies that could drift.
+ * `scripts/decke-gates.mjs`, which keeps its OWN copy of this logic BY DESIGN
+ * and must not be pointed here: that suite has one dependency (Playwright,
+ * resolved at runtime) and imports nothing from this harness, so a gate run
+ * never fails because a sibling harness was refactored (see the isolation
+ * note above CHARACTER_RUNTIME in decke-gates.mjs). Do not "deduplicate" the
+ * two copies; keep their POLICY in step by hand if either changes.
  *
  * DELIBERATELY NOT A DEPENDENCY OF THIS REPO. CI installs with a frozen
  * lockfile on every push and runs no browser; adding Playwright to

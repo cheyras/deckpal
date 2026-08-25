@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import type pg from 'pg';
 import { cardImages, q, q1, toMajor, withTx } from '../db.js';
-import { asyncHandler, badRequest, notFound, oneOf, str, userCache } from '../http.js';
+import { asyncHandler, badRequest, notFound, oneOf, parseName, parseOptText, str, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
+import { pct } from '../insights/trainerLevel.js';
 import { assertKnownRarities, FINISHES, GOALS, missingForGoal, type Goal as MissingGoal } from '../missing.js';
 import { closeBatch, openBatch, OPS, parseSource, recordEvents, type MutationEventInput } from '../mutations.js';
 
@@ -41,25 +42,9 @@ const VIS = ['private', 'public'] as const;
 
 /** Ceiling for one bulk add. Comfortably inside the API's 30 s RLS hold. */
 const BULK_MAX = 500;
-const NAME_MAX = 120;
 const DESC_MAX = 2000;
 const NOTE_MAX = 500;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function parseName(v: unknown): string {
-  const s = typeof v === 'string' ? v.trim() : '';
-  if (!s) throw badRequest('name is required');
-  if (s.length > NAME_MAX) throw badRequest(`name must be ≤ ${NAME_MAX} chars`);
-  return s;
-}
-function parseOptText(v: unknown, max: number, field: string): string | null {
-  if (v === undefined || v === null) return null;
-  if (typeof v !== 'string') throw badRequest(`${field} must be a string`);
-  const s = v.trim();
-  if (!s) return null;
-  if (s.length > max) throw badRequest(`${field} must be ≤ ${max} chars`);
-  return s;
-}
 function parseListId(v: string): string {
   // uuid PK; validate shape so a junk id is a clean 404-ish rather than a pg error.
   if (!UUID_RE.test(v)) {
@@ -88,11 +73,6 @@ interface ListSummaryRow {
   cover_serie: string | null;
   cover_setcode: string | null;
   cover_local: string | null;
-}
-
-function pct(owned: number, total: number): number {
-  if (!owned || !total) return 0;
-  return Math.round((owned / total) * 1000) / 10;
 }
 
 function shapeSummary(r: ListSummaryRow) {
@@ -328,7 +308,7 @@ listsRouter.get(
           kind: 'species' as const,
           dexId: Number(r.dex_id),
           // Shaped as a CardRow so the same GridView/BinderView renders it.
-          cardId: rep ? `dex-${r.dex_id}` : `dex-${r.dex_id}`,
+          cardId: `dex-${r.dex_id}`,
           number: String(r.dex_id),
           numberSort: String(r.dex_id).padStart(4, '0'),
           name: r.species_name,

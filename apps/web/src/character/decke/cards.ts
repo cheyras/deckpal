@@ -188,7 +188,7 @@ function writeLocal(node: Object3D, t: Local, k: number) {
 
 // --------------------------------------------------------------- the system
 
-export type CardFrame = {
+type CardFrame = {
   facing: number
   /** The base state's name — the stash flight and the present gate are keyed to
    *  it, because neither has a pose channel of its own. */

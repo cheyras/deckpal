@@ -1,4 +1,5 @@
 import type pg from 'pg';
+import type { Queryable } from '@deckpal/db';
 
 /**
  * Tiny query helpers, mirroring apps/api/src/db.ts's q/q1 shape — but with NO
@@ -15,13 +16,12 @@ import type pg from 'pg';
  * itself and nothing changes.
  */
 
-/** Anything with `.query()` — a `pg.Pool` or a checked-out `pg.PoolClient`. */
-export interface Queryable {
-  query<T extends pg.QueryResultRow = pg.QueryResultRow>(
-    text: string,
-    params?: unknown[],
-  ): Promise<pg.QueryResult<T>>;
-}
+/**
+ * Anything with `.query()` — a `pg.Pool` or a checked-out `pg.PoolClient`.
+ * The one definition lives in `@deckpal/db` (tokens.ts); re-exported here so
+ * this package's consumers keep importing it from the tool layer.
+ */
+export type { Queryable };
 
 export async function q<T extends pg.QueryResultRow = pg.QueryResultRow>(
   db: Queryable,

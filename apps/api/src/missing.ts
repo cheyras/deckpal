@@ -36,7 +36,6 @@ export const GOALS = ['complete', 'master', 'grandmaster'] as const;
 export type Goal = (typeof GOALS)[number];
 
 export const FINISHES = ['normal', 'reverse', 'holo', 'lenticular', 'metal'] as const;
-export type Finish = (typeof FINISHES)[number];
 
 export interface MissingFilters {
   finishes?: string[] | null;

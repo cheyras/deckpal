@@ -331,7 +331,7 @@ export function CardDetail() {
 // `cardId`; the authoritative series-slug + set-id come from the card fetch, so any
 // entry point (set page, species page, scanner) can open it without knowing the
 // route params up front. `inSheet` swaps the standalone BackPill for sheet chrome.
-export function CardDetailBody({
+function CardDetailBody({
   cardId,
   inSheet = false,
   backTo,

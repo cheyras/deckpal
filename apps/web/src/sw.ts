@@ -9,7 +9,7 @@
 //            + fonts + icons. Always available offline.
 //   Tier 1 — visited card/set art: CacheFirst, LRU-capped at 2000 entries.
 //   API GETs — NetworkFirst: fresh catalog/collection online, last-good offline.
-//   API mutations (POST/PATCH/DELETE) — NetworkOnly, never cached (hard rule).
+//   API mutations (POST/PUT/PATCH/DELETE) — NetworkOnly, never cached (hard rule).
 //   Client-route navigations under /deckpal/ — fall back to the precached shell.
 import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching'
 import { registerRoute, NavigationRoute } from 'workbox-routing'
@@ -86,7 +86,7 @@ registerRoute(
 // ── API mutations: NetworkOnly, never cached (hard rule) ───────────────────────
 // A queued-offline-write system is explicitly out of scope; the UI disables the
 // steppers when offline instead (CardDetail QtyStepper).
-for (const method of ['POST', 'PATCH', 'DELETE'] as const) {
+for (const method of ['POST', 'PUT', 'PATCH', 'DELETE'] as const) {
   registerRoute(({ url }) => url.pathname.startsWith(`${BASE}api/`), new NetworkOnly(), method)
 }
 

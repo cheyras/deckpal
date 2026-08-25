@@ -23,7 +23,6 @@ import {
   Euler,
   FloatType,
   HalfFloatType,
-  MathUtils,
   Matrix4,
   Object3D,
   PerspectiveCamera,
@@ -895,5 +894,3 @@ export function createStage(opts: StageOptions): Stage {
     setSize, setViewShift, setCharacterHeight, dispose,
   }
 }
-
-export const degToRad = MathUtils.degToRad
