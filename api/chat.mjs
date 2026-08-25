@@ -54,6 +54,19 @@ import {
  * drift, and the drift would be silent — the check would simply stop firing.
  */
 const MAX_STEPS = 12
+
+/**
+ * Tools whose over-long arguments may be trimmed by `repairToolCall`.
+ *
+ * A tool belongs here only if it RENDERS rather than stores, and only if its
+ * own result reports what was trimmed (`repairs.take(toolCallId)`). Both halves
+ * are required: trimming a stored value is editing the reader's own words, and
+ * trimming without reporting is the silent correction `decke/tools.ts` refuses
+ * to make. `showScreen` draws a panel and says what it shortened; nothing else
+ * qualifies today.
+ */
+const REPAIRABLE = new Set(['showScreen'])
+
 import { createGateway } from '@ai-sdk/gateway'
 
 // Everything imported here comes from `apps/api/dist` — COMPILED output, not
@@ -69,6 +82,7 @@ import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
 import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
+import { declinedCalls } from '../apps/api/dist/decke/declined.js'
 import {
   BALANCE_SQL,
   COST,
@@ -86,6 +100,7 @@ import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
 import { stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
+import { RepairLog, clampStrings } from '../apps/api/dist/decke/repair.js'
 import { makePool } from '@deckpal/db'
 
 /**
@@ -422,6 +437,15 @@ async function serve(request) {
     return json({ error: 'messages must be a non-empty array' }, 400)
   }
 
+  // ── WHAT THEY HAVE ALREADY REFUSED ────────────────────────────────────────
+  //
+  // Derived from the replayed conversation, before anything else uses it. The
+  // reader watched the same `deck_strategy` dialog on three consecutive turns
+  // having declined it every time, and wrote in the chat that this was the
+  // problem. A matching call is now refused without a dialog. See
+  // `decke/declined.ts` for why the tool is not simply taken away instead.
+  const declined = declinedCalls(messages)
+
   // ── THE METER ─────────────────────────────────────────────────────────────
   //
   // Charged AFTER validation and BEFORE the model, which is the only ordering
@@ -585,9 +609,13 @@ async function serve(request) {
       // step one is what `showScreen` may draw on step three — evidence is a
       // property of the turn, not of a call.
       const grounding = createGrounding()
+      // What `repairToolCall` below mended, so the tool can say so in its own
+      // result rather than being silently corrected. Per request, like the
+      // grounding beside it.
+      const repairs = new RepairLog()
 
       const allDeckeTools = {
-        ...buildTools(writer, grounding),
+        ...buildTools(writer, grounding, repairs),
         // READS AND WRITES, because the approval round-trip now exists.
         //
         // `include: () => true` is not "no filter" — every write is still
@@ -610,6 +638,17 @@ async function serve(request) {
           // whether or not one was asked for, so his word cannot be the witness
           // to his own guess. See `printingSaid.ts` for the measurement.
           readerNamedPrinting: readerNamedPrinting(latestUserText(messages)),
+          // ── AND WHAT THEY HAVE ALREADY SAID NO TO ────────────────────────
+          //
+          // Read from the replayed history, the only place it can come from:
+          // the browser re-POSTs the whole conversation each leg and the server
+          // keeps nothing between requests.
+          //
+          // Given to the data tools AND to the deep tier below, because the
+          // reader's complaint named one of each — `deck_strategy` (a data
+          // write) and `research_meta` (a deep call), four declines apiece
+          // across the corpus. See `decke/declined.ts`.
+          declined,
           grounding,
         }),
         // THE DEEP TIER. Four sub-agents, each with its own model, step
@@ -636,6 +675,10 @@ async function serve(request) {
               credits: deepCost(toolName),
               reason: `deep:${toolName}`,
             }),
+          // `research_meta` was declined four times across the corpus, twice in
+          // consecutive turns, with the reader saying in the chat that being
+          // re-asked was the problem. Same set as the data tools above.
+          declined,
           onEvent: emitToolEvent(writer),
         }),
       }
@@ -785,6 +828,71 @@ async function serve(request) {
         prepareStep: ({ stepNumber }) => ({
           activeTools: focusedTools(allDeckeTools, stepNumber),
         }),
+        // ── A CAPTION THAT IS TOO LONG IS NOT A LOST TURN ─────────────────
+        //
+        // Measured on a real gate run against production: `showScreen` failed
+        // schema validation FIVE TIMES in one turn, and the model — told only
+        // that something had gone wrong — spent five of its twelve steps
+        // shortening the panel's TITLE while the actual fault, a text block over
+        // the 280-character cap, went untouched in every retry. The reader got
+        // no panel and no explanation.
+        //
+        // Surfacing the validation message (further down this file) was the
+        // first half of the fix and did not stop the loop: "expected string to
+        // have <=280 characters" over a schema with several capped strings says
+        // WHAT broke and not WHERE.
+        //
+        // A validation failure never reaches `execute`, so the repeat ledger in
+        // `decke/repeat.ts` cannot see it either — this is the one thrash class
+        // everything else in this pass leaves standing.
+        //
+        // DETERMINISTIC, NOT A SECOND MODEL CALL. The usual implementation of
+        // this hook asks a model to fix its own arguments, which costs latency
+        // and money on the exact turn that has already wasted both. This mends
+        // one class of fault mechanically — a string past its documented
+        // maximum — because that is the class that occurred, it has exactly one
+        // correct fix, and trimming a caption cannot change what the call MEANS.
+        // Anything else returns null and takes the ordinary error path.
+        //
+        // AND IT IS NOT SILENT. `tools.ts` states the rule twice: "a model that
+        // is silently corrected learns nothing and repeats the mistake." Every
+        // repair is recorded and the tool reports it in its own result, naming
+        // the exact field — which is strictly more than the failure gave it,
+        // and costs no step.
+        repairToolCall: async ({ toolCall, inputSchema, error }) => {
+          if (error?.name === 'NoSuchToolError') return null
+          // ── ONLY TOOLS THAT REPORT THE TRIM MAY BE TRIMMED ────────────────
+          //
+          // The hook fires for EVERY tool, and left unrestricted it would clamp
+          // `deck_strategy.markdown` (40k), `add_battle_log.log` (50k) and every
+          // other capped string — silently, because only `showScreen` drains the
+          // repair log. A 45,000-character strategy guide cut mid-word at 40,000,
+          // stored, and reported as saved in full is exactly the silent
+          // correction `tools.ts` forbids twice, and it would be OUR edit to the
+          // reader's own words.
+          //
+          // So the allowlist is the tools that both (a) render rather than store,
+          // and (b) tell the model what was trimmed. Adding a name here without
+          // draining `repairs` in that tool's result re-opens the hole.
+          if (!REPAIRABLE.has(toolCall.toolName)) return null
+          let parsed
+          try {
+            parsed = JSON.parse(toolCall.input)
+          } catch {
+            // Malformed JSON is not a length problem and guessing at it would
+            // be inventing arguments.
+            return null
+          }
+          const schema = await inputSchema({ toolName: toolCall.toolName })
+          const { value, repairs: made } = clampStrings(parsed, schema)
+          if (made.length === 0) return null
+          for (const r of made) repairs.note(toolCall.toolCallId, r)
+          console.warn(
+            `[deck-e] repaired ${toolCall.toolName}: ` +
+              made.map((r) => `${r.path} ${r.was}→${r.now} chars`).join(', '),
+          )
+          return { ...toolCall, input: JSON.stringify(value) }
+        },
         // ── APPROVALS ARE SIGNED, SO THEY CANNOT BE FORGED ────────────────
         //
         // The SDK holds a write until an approval arrives. Until this line,

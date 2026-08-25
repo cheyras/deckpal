@@ -4,6 +4,7 @@ import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { money, pagingFooter, row } from '../format.js';
 import { describeCard, resolveCard } from '../resolve.js';
+import { explainMiss, presentRef, resolveSet, resolvedNote } from '../entities.js';
 import { GOALS, defaultGoal, errText, type Goal } from '../shared.js';
 
 /**
@@ -69,10 +70,24 @@ const searchCardsTool = defineTool({
     // Nothing in the description said so, and an empty result reads as "not
     // found" rather than "wrong index" — which is the same shape as the bug
     // where a wrong `set_id` made him announce a card does not exist.
+    // AND THE RECOVERY IT NAMED WAS FALSE, which cost far more than the
+    // omission did. This used to end "To find a SET, call set_progress with no
+    // set_id and match the name in the list". The no-argument overview reads
+    // `FROM user_set_progress WHERE user_id = $1 … HAVING max(owned_required) >
+    // 0` — it lists only sets the reader ALREADY HAS PROGRESS IN, and pages
+    // them. A set they own nothing from has no row at all, which is exactly the
+    // set somebody asks about by name.
+    //
+    // Measured: "show me how to get to phantasmal flames set" took FIVE turns
+    // and produced one turn with no answer at all, for a set that exists as
+    // `me02`. Every documented route to its id was a dead end.
+    //
+    // `set_id` now takes the NAME as well, so the recovery is one argument
+    // rather than another tool.
     'Search cards by NAME. `query` matches CARD names only — never a set name, ' +
-    'a series name or an artist. To find a SET, call set_progress with no set_id ' +
-    'and match the name in the list; searching for a set name here always returns ' +
-    'nothing, however many ways you spell it. ' +
+    'a series name or an artist. To narrow to a set, put the set in `set_id` — ' +
+    'it takes the set NAME as readily as the id. Searching for a set name in ' +
+    '`query` always returns nothing, however many ways you spell it. ' +
     'Accent-insensitive substring, with ' +
     'optional filters: set, category, rarity, Standard legality, owned-only, and minimum ' +
     'USD market value. Each row shows owned quantity and best USD market price. When multiple ' +
@@ -84,7 +99,25 @@ const searchCardsTool = defineTool({
     'for set completion use set_progress.',
   inputSchema: z.object({
     query: z.string().optional().describe("Card-name substring, accent/case-insensitive, e.g. 'charizard'."),
-    set_id: z.string().optional().describe("Limit to one set by TCGdex set id, e.g. 'me05' or 'sv3pt5'."),
+    // 'sv3pt5' USED TO BE THE SECOND EXAMPLE HERE AND IT IS NOT A SET ID IN
+    // THIS CATALOG. TCGdex writes Pokémon 151 that way in public; this database
+    // stores `sv03.5` (see `apps/sync/src/prices/crossfill.ts`). The string came
+    // from the column comment in migration 003, which is checksummed and cannot
+    // be corrected in place, and was copied here and into `set_progress`'s
+    // not-found message.
+    //
+    // The model read it out of this schema — which it sees on every turn,
+    // before making any call — and spent NINE calls in a single turn on
+    // `sv3pt5`, each answered by a message that named `sv3pt5` as an example of
+    // the correct format. An invented example is not a documentation slip; it
+    // is a loop with a source.
+    //
+    // Both examples below are real ids in this catalog. Better still, the field
+    // now takes a NAME, so an example id is no longer the only way in.
+    set_id: z
+      .string()
+      .optional()
+      .describe("One set, by id ('me05') or by NAME ('Pitch Black'). A name that matches several sets comes back as a choice."),
     category: z.enum(['Pokemon', 'Trainer', 'Energy']).optional().describe('Limit to one card category.'),
     rarity: z.string().optional().describe("Exact rarity name, case-insensitive, e.g. 'Double Rare'."),
     owned_only: z.boolean().default(false).describe('true → only cards you own at least one copy of (any variant).'),
@@ -100,29 +133,101 @@ const searchCardsTool = defineTool({
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async (args, ctx) => {
     try {
-      const conds: string[] = [`c.lang = 'en'`];
-      const params: unknown[] = [ctx.userId]; // $1 feeds the owned CTE
-      const p = (v: unknown): string => {
-        params.push(v);
-        return `$${params.length}`;
-      };
-
       const query = args.query?.trim();
-      if (query) conds.push(`unaccent(c.name) ILIKE unaccent(${p(`%${query}%`)})`);
-      if (args.set_id) conds.push(`cs.tcgdex_id = ${p(args.set_id.trim())}`);
-      if (args.category) conds.push(`c.category = ${p(args.category)}`);
-      if (args.rarity) conds.push(`lower(c.rarity) = lower(${p(args.rarity.trim())})`);
-      if (args.standard_legal !== undefined) conds.push(`c.legal_standard = ${p(args.standard_legal)}`);
-      if (args.owned_only) conds.push(`COALESCE(o.qty, 0) > 0`);
-      if (args.min_value_usd !== undefined) conds.push(`b.best_minor >= ${p(Math.round(args.min_value_usd * 100))}`);
 
-      const fromWhere = `
+      // RESOLVED, NOT COMPARED. `cs.tcgdex_id = 'sv3pt5'` matched nothing and
+      // said nothing about why; the filter now accepts the name, the near-miss
+      // spellings, and reports a real choice when the name is ambiguous.
+      let setNote: string | null = null;
+      let setTid: string | null = null;
+      if (presentRef(args.set_id)) {
+        const found = await resolveSet(ctx, args.set_id);
+        if (found.kind !== 'found') {
+          // A FAILURE, not an empty result. An unresolvable set filter means
+          // this search could never have matched, and returning `ok` with no
+          // rows would let "no cards found" stand as evidence that the CARD
+          // does not exist — the defect that made him tell somebody their own
+          // 120-card set was imaginary.
+          return fail(
+            explainMiss(
+              'set',
+              args.set_id,
+              found,
+              'Drop set_id and search by card name alone, or call set_progress to see the sets you have progress in.',
+            ),
+          );
+        }
+        setTid = found.value.tcgdexId;
+        setNote = resolvedNote('set', args.set_id, found.value.tcgdexId, found.value.name, found.matchedBy);
+      }
+
+      // ── FILTERS AS A LABELLED LIST, SO ONE CAN BE DROPPED AND RE-COUNTED ───
+      //
+      // These used to be pushed straight into `conds` with positional params,
+      // which made "which filter emptied this?" unanswerable without rebuilding
+      // the query by hand. Naming them costs nothing on the happy path and is
+      // what lets the zero-result branch below say something useful instead of
+      // "loosen the query or drop a filter" — advice the model followed 41 times
+      // in this corpus, blind, because nothing told it WHICH.
+      type Filter = { label: string; sql: (p: (v: unknown) => string) => string };
+      const filters: Filter[] = [];
+      if (query) {
+        filters.push({
+          label: `name contains '${query}'`,
+          sql: (p) => `unaccent(c.name) ILIKE unaccent(${p(`%${query}%`)})`,
+        });
+      }
+      if (setTid) filters.push({ label: `set ${setTid}`, sql: (p) => `cs.tcgdex_id = ${p(setTid)}` });
+      if (args.category) {
+        filters.push({ label: `category ${args.category}`, sql: (p) => `c.category = ${p(args.category)}` });
+      }
+      if (args.rarity) {
+        filters.push({
+          label: `rarity '${args.rarity.trim()}'`,
+          sql: (p) => `lower(c.rarity) = lower(${p(args.rarity!.trim())})`,
+        });
+      }
+      if (args.standard_legal !== undefined) {
+        filters.push({
+          label: `standard_legal ${args.standard_legal}`,
+          sql: (p) => `c.legal_standard = ${p(args.standard_legal)}`,
+        });
+      }
+      if (args.owned_only) filters.push({ label: 'owned_only', sql: () => `COALESCE(o.qty, 0) > 0` });
+      if (args.min_value_usd !== undefined) {
+        filters.push({
+          label: `min_value_usd ${args.min_value_usd}`,
+          sql: (p) => `b.best_minor >= ${p(Math.round(args.min_value_usd! * 100))}`,
+        });
+      }
+
+      /** Build WHERE + its params for a subset of the filters. */
+      const build = (use: readonly Filter[]): { fromWhere: string; params: unknown[] } => {
+        const ps: unknown[] = [ctx.userId]; // $1 feeds the owned CTE
+        const p = (v: unknown): string => {
+          ps.push(v);
+          return `$${ps.length}`;
+        };
+        const cs = [`c.lang = 'en'`, ...use.map((f) => f.sql(p))];
+        return {
+          fromWhere: `
         FROM card c
         JOIN card_set cs ON cs.id = c.set_id
         JOIN series se    ON se.id = cs.series_id
         LEFT JOIN owned o ON o.card_id = c.id
         LEFT JOIN best b  ON b.card_id = c.id
-       WHERE ${conds.join(' AND ')}`;
+       WHERE ${cs.join(' AND ')}`,
+          params: ps,
+        };
+      };
+
+      const built = build(filters);
+      const params = built.params;
+      const p = (v: unknown): string => {
+        params.push(v);
+        return `$${params.length}`;
+      };
+      const fromWhere = built.fromWhere;
       const ctes = `
         WITH owned AS (
           SELECT cv.card_id, sum(ci.quantity)::int AS qty
@@ -159,48 +264,59 @@ const searchCardsTool = defineTool({
       );
 
       if (total === 0) {
-        // ── "NOTHING FOUND" AND "YOU FILTERED ON A SET THAT DOES NOT EXIST"
-        //    ARE DIFFERENT ANSWERS, AND ONLY ONE OF THEM IS TRUE ──────────────
+        // ── "NO CARDS MATCH" WAS TRUE AND USELESS 41 TIMES ────────────────────
         //
-        // An unknown `set_id` used to produce the same empty result as a
-        // genuine miss, because it is just another `WHERE` clause. So a caller
-        // who guessed the id was told, in effect, that the CARD does not exist
-        // — and that is the precise failure this entire effort exists to
-        // remove, arriving through a filter instead of through a model's
-        // memory.
+        // Measured over the whole transcript history: 41 of 97 `search_cards`
+        // calls came back "No cards match. Loosen the query or drop a filter."
+        // The advice is sound and unactionable — it never said WHICH filter, so
+        // the model loosened at random. One turn spent fourteen consecutive
+        // calls doing that and never answered the question.
         //
-        // Observed against the live preview: asked to add a Basic Grass Energy
-        // from Pitch Black, Deck-E guessed `set_id: 'pbp'` (the set is `me05`),
-        // searched twice, and reported "No Basic Grass Energy in Pitch Black —
-        // checked the catalog, nothing matches." He had checked nothing of the
-        // kind. The sentence was confident, sourced-sounding, and false.
-        //
-        // One extra query, only on the empty path, so the common case pays
-        // nothing.
-        if (args.set_id) {
-          const known = await q<{ tcgdex_id: string }>(
-            ctx.db,
-            'SELECT tcgdex_id FROM card_set WHERE tcgdex_id = $1',
-            [args.set_id.trim()],
-          );
-          if (known.length === 0) {
-            // `fail`, not `ok`, and the reason is not cosmetic. This message
-            // ECHOES A MODEL-SUPPLIED STRING, and `grounding.observe` runs over
-            // every successful tool result, harvesting anything card-id-shaped
-            // as evidence that a tool returned it. A guessed `set_id` of
-            // `sv1-25` is card-id-shaped. Echoed through `ok`, the guess would
-            // ground ITSELF — and `sanitizeScreen` would then wave through a
-            // card grid built on it. An error result is excluded from grounding
-            // (`adapters/aisdk.ts:341`), which is also the honest shape: the
-            // call could not have succeeded as issued.
-            return fail(
-              `There is no set with id '${args.set_id.trim()}', so this search could never ` +
-                `match anything — this is NOT evidence that the card does not exist. ` +
-                `Call set_progress with no set_id to list every set with its real id, then search again.`,
+        // Two things are worth one extra query each, and only ever on this
+        // path, so the common case pays nothing.
+        const notes: string[] = [];
+
+        // 1. THE QUERY IS A SET NAME. This is the single commonest shape of the
+        //    41: `query: 'Pitch Black'`, `query: 'phantasmal flames'` — a set
+        //    name in the field that matches CARD names. Dropping filters can
+        //    never fix it, because there is no filter to drop. The description
+        //    already warns about this and the warning did not take; naming the
+        //    set and its id turns the dead end into the next call.
+        if (query) {
+          const asSet = await resolveSet(ctx, query);
+          if (asSet.kind === 'found') {
+            notes.push(
+              `'${query}' is a SET, not a card — ${asSet.value.name} (${asSet.value.tcgdexId}), ` +
+                `series ${asSet.value.seriesSlug}. For what is IN it, call set_progress with ` +
+                `set_id '${asSet.value.tcgdexId}', or search again with set_id set and a card name in query.`,
             );
           }
         }
-        return ok('No cards match. Loosen the query or drop a filter.');
+
+        // 2. WHICH FILTER EMPTIED IT. Re-count with each filter dropped in
+        //    turn and report the ones that were individually responsible.
+        //    Bounded by the number of filters actually supplied (at most 6),
+        //    and skipped entirely when there is only one — dropping the only
+        //    filter is not a diagnosis, it is the empty catalog.
+        if (filters.length > 1) {
+          for (const f of filters) {
+            const without = filters.filter((x) => x !== f);
+            const b = build(without);
+            const r = await q1<{ total: string }>(ctx.db, `${ctes} SELECT count(*) AS total ${b.fromWhere}`, b.params);
+            const n = Number(r?.total ?? 0);
+            if (n > 0) notes.push(`${n} match without ${f.label} — that filter is what emptied it.`);
+          }
+        }
+
+        const head =
+          filters.length > 0
+            ? `No cards match: ${filters.map((f) => f.label).join(' AND ')}.`
+            : 'No cards match.';
+        return ok(
+          [head, ...notes, notes.length ? null : 'Nothing to loosen — this is the whole catalog.']
+            .filter(Boolean)
+            .join('\n'),
+        );
       }
       const lines = rows.map((r) =>
         row(
@@ -213,11 +329,17 @@ const searchCardsTool = defineTool({
         ),
       );
       if (lines.length === 0) lines.push('(page past the end)');
-      return ok([...lines, pagingFooter(args.page, args.page_size, total)].join('\n'), {
-        total,
-        page: args.page,
-        pageSize: args.page_size,
-      });
+      // `setNote` LAST, not first. It is a footnote about how an argument was
+      // read, and putting it above the rows would push the answer down the
+      // model's context for every by-name call.
+      return ok(
+        [...lines, pagingFooter(args.page, args.page_size, total), setNote].filter(Boolean).join('\n'),
+        {
+          total,
+          page: args.page,
+          pageSize: args.page_size,
+        },
+      );
     } catch (err) {
       return fail(`search_cards failed: ${errText(err)}`);
     }
@@ -264,13 +386,27 @@ const getCardTool = defineTool({
   inputSchema: z.object({
     card_id: z.string().optional().describe("TCGdex card id, e.g. 'me05-084'. Wins over name if both given."),
     name: z.string().optional().describe('Card name (exact or substring, accent-insensitive).'),
-    set_id: z.string().optional().describe("Narrow a name lookup to one set, e.g. 'me05'."),
+    set_id: z
+      .string()
+      .optional()
+      .describe("Narrow a name lookup to one set, by id ('me05') or by NAME ('Pitch Black')."),
     number: z.string().optional().describe("Narrow a name lookup to a collector number, e.g. '084'."),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async (args, ctx) => {
     try {
-      const res = await resolveCard(ctx, args);
+      // The set narrowing is resolved BEFORE `resolveCard` sees it, so a set
+      // NAME here behaves like a set name everywhere else. `resolveCard`
+      // compares `cs.tcgdex_id` directly and would silently narrow to nothing.
+      let ref = args;
+      if (presentRef(args.set_id)) {
+        const found = await resolveSet(ctx, args.set_id);
+        if (found.kind !== 'found') {
+          return fail(explainMiss('set', args.set_id, found, 'Drop set_id and identify the card by name alone.'));
+        }
+        ref = { ...args, set_id: found.value.tcgdexId };
+      }
+      const res = await resolveCard(ctx, ref);
       if (res.status === 'not_found') return fail(res.message);
       if (res.status === 'ambiguous') {
         return ok(
@@ -417,13 +553,31 @@ const setProgressTool = defineTool({
   description:
     'Completion progress toward the three goals (complete = one of any variant per card, ' +
     'master = every standard-tier variant, grandmaster = every variant). Without set_id: ' +
-    'every set with any progress, sorted by completion of the requested goal. With set_id: ' +
+    // "EVERY SET WITH ANY PROGRESS" — SAID PLAINLY, BECAUSE IT USED TO BE SOLD
+    // AS "EVERY SET". The overview reads `FROM user_set_progress WHERE user_id
+    // = $1 … HAVING max(owned_required) > 0`: a set the reader owns nothing
+    // from has no row and cannot appear. Two other places promised this branch
+    // as the way to turn a set NAME into an id, and for the case that actually
+    // arises — a set you do not own yet — it returns nothing at all.
+    'every set YOU ALREADY OWN SOMETHING FROM, sorted by completion of the requested goal ' +
+    '(a set you own nothing from does not appear — pass its name as set_id to reach it). ' +
+    'With set_id: ' +
     "that set's three goal lines plus the paged list of missing cards/variants for the " +
     'requested goal with the cheapest USD price each, and the total cost to finish (unpriced ' +
     'items counted separately, never $0). Goal defaults to your default goal setting. Not ' +
     'for whole-collection stats — use collection_summary.',
   inputSchema: z.object({
-    set_id: z.string().optional().describe("TCGdex set id for per-set detail, e.g. 'me05'. Omit for the all-sets overview."),
+    // TAKES THE NAME. 21 of this tool's 31 recorded calls failed, every one of
+    // them on an id the model had guessed from a name it had been given —
+    // 'base', 'fossil', 'jungle', 'phantasmal', 'sv3.5', and 'sv3pt5' nine
+    // times in one turn. There was no way to turn a name into an id; now the
+    // field simply takes either.
+    set_id: z
+      .string()
+      .optional()
+      .describe(
+        "One set, by id ('me05') or by NAME ('Pitch Black'). Omit it for the overview of sets you have progress in.",
+      ),
     goal: z
       .enum(GOALS)
       .optional()
@@ -465,7 +619,13 @@ const setProgressTool = defineTool({
         `AND ($3::text[] IS NULL OR lower(${col}) = ANY($3))
          AND ($4::text[] IS NULL OR ${col} IS NULL OR NOT (lower(${col}) = ANY($4)))`;
 
-      if (!args.set_id) {
+      // `presentRef`, NOT `!args.set_id`. The model sent `set_id: 'none'` SEVEN
+      // times in one turn — it had been told, by this tool's own not-found
+      // message, to "call set_progress with NO set_id", and rendered the
+      // instruction as a value. Read as a lookup key it is a hard failure; read
+      // as what it means it is the overview the caller was asking for.
+      const setRef = presentRef(args.set_id);
+      if (!setRef) {
         // Overview: one line per set with any progress, sorted by goal pct
         // desc. `goal` is bound as $4 in the ORDER BY FILTER clauses below —
         // parameterized like everything else, never interpolated.
@@ -518,40 +678,49 @@ const setProgressTool = defineTool({
         );
       }
 
-      // Per-set detail.
-      // The `series` join was already here, for the language tie-break in the
-      // ORDER BY; it now also yields the slug the set route needs.
-      const set = await q1<{ id: string; name: string; tid: string; released_on: string | null; series_slug: string }>(
-        ctx.db,
-        `SELECT cs.id, cs.name, cs.tcgdex_id AS tid, cs.released_on::text AS released_on, s.slug AS series_slug
-           FROM card_set cs
-           JOIN series s ON s.id = cs.series_id
-          WHERE cs.tcgdex_id = $1
-          ORDER BY (s.catalogue_code = 'en') DESC
-          LIMIT 1`,
-        [args.set_id.trim()],
-      );
-      // SAY HOW TO RECOVER, not just what was wrong.
+      // ── PER-SET DETAIL, VIA THE RESOLVER ─────────────────────────────────
       //
-      // Observed against the live preview: asked "what is in Pitch Black?",
-      // Deck-E guessed `set_id: 'pb'`, then searched `search_cards` twice for
-      // "Pitch Black" (which matches CARD names, not set names, so both came
-      // back empty), then called this tool with no `set_id` at all before
-      // finally arriving at `me05`. Four wasted calls, each re-billing the
-      // whole prompt, to answer a question about a set whose name he was told.
+      // This used to be a raw `WHERE cs.tcgdex_id = $1`, and its not-found
+      // message was the single most expensive sentence in the codebase. It said:
       //
-      // Nothing in the old message pointed anywhere useful — it named the
-      // FORMAT of an id to someone who has a NAME and no way to turn one into
-      // the other. The recovery already exists; it was simply never mentioned.
-      if (!set) {
+      //   "Set ids are TCGdex ids like 'me05', 'sv3pt5'. If you have a set NAME
+      //    rather than an id, call set_progress with NO set_id — that lists
+      //    every set with its id …"
+      //
+      // Three defects in one message, each measured in the transcript record:
+      //
+      //  1. `'sv3pt5'` IS NOT A SET ID HERE. It is TCGdex's public spelling of
+      //     `sv03.5`, copied from migration 003's column comment. Offered as an
+      //     example of a valid id, it was then called nine times in one turn —
+      //     each failure re-serving the same example.
+      //  2. "call set_progress with NO set_id" CAME BACK AS `set_id: 'none'`,
+      //     seven times in the turn that produced no answer at all.
+      //  3. "lists every set with its id" IS FALSE. That branch lists only sets
+      //     the reader already has progress in.
+      //
+      // The replacement carries no invented example, no instruction that could
+      // be mistaken for a value, and no claim about another branch — it answers
+      // with the reader's own candidate sets and their real ids.
+      const found = await resolveSet(ctx, setRef);
+      if (found.kind !== 'found') {
         return fail(
-          `No set with id '${args.set_id}'. Set ids are TCGdex ids like 'me05', 'sv3pt5'. ` +
-            `If you have a set NAME rather than an id, call set_progress with NO set_id — ` +
-            `that lists every set with its id, and you can match the name there. ` +
-            `search_cards will not help: it matches card names, not set names.`,
+          explainMiss(
+            'set',
+            setRef,
+            found,
+            'Try the set name as you would say it, or fewer words of it.',
+          ),
         );
       }
-      const setId = Number(set.id);
+      const set = {
+        id: String(found.value.setId),
+        name: found.value.name,
+        tid: found.value.tcgdexId,
+        released_on: found.value.releasedOn,
+        series_slug: found.value.seriesSlug,
+      };
+      const setNote = resolvedNote('set', setRef, set.tid, set.name, found.matchedBy);
+      const setId = found.value.setId;
 
       const goalRows = await q<GoalRow>(
         ctx.db,
@@ -664,6 +833,8 @@ const setProgressTool = defineTool({
             `${unpriced > 0 ? `; ${unpriced} missing items unpriced and NOT included` : ''})`,
         );
       }
+      // The by-name footnote goes LAST, so it never pushes the answer down.
+      if (setNote) lines.push(setNote);
       return ok(lines.join('\n'), { set: set.tid, goal, missing: missingTotal });
     } catch (err) {
       return fail(`set_progress failed: ${errText(err)}`);
