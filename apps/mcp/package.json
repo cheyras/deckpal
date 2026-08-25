@@ -17,9 +17,7 @@
     "@modelcontextprotocol/server": "^2.0.0",
     "@deckpal/db": "workspace:*",
     "@deckpal/agent-tools": "workspace:*",
-    "express": "^5.0.0",
-    "pg": "^8.23.0",
-    "zod": "^4.2"
+    "express": "^5.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

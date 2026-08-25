@@ -17,8 +17,8 @@ import {
 
 /**
  * Unit tests for personal access tokens (migration 026). No database: the
- * `Queryable` seam lets a fake stand in for pg, so these run in CI alongside
- * the other pure suites (contract B7).
+ * `Queryable` seam lets a fake stand in for pg, so these run in CI as part of
+ * `test:pure` alongside the other pure suites (contract B7).
  *
  * Run: node --import tsx --test src/__tests__/tokens.test.ts
  */

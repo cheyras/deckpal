@@ -81,7 +81,7 @@ export function deepFailed(message: string): string {
   return `${NO_WORK} FAILED — this tool ran and errored. ${message}. ${TAIL}`;
 }
 
-/** Did a deep tool produce nothing? Used by the turn guard and by tests. */
+/** Did a deep tool produce nothing? Exported for `deepOutcome.test.ts`; nothing else consumes it yet. */
 export function isNoWork(text: unknown): boolean {
   return typeof text === 'string' && text.startsWith(NO_WORK);
 }

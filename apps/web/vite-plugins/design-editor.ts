@@ -31,7 +31,7 @@ interface LedgerEntry {
   to: string
 }
 
-export interface ChangeRequest {
+interface ChangeRequest {
   id: string
   kind: string
   target: string

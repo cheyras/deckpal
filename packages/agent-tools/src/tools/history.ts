@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
-import { row } from '../format.js';
+import { row, stamp } from '../format.js';
 
 /**
  * `mutation_history` and `revert` — SPEC §5 #22/#23.
@@ -25,10 +25,7 @@ import { row } from '../format.js';
  * quietly applying something that looks right and is not.
  */
 
-const stampOf = (v: unknown): string => {
-  const d = new Date(String(v));
-  return Number.isNaN(d.getTime()) ? String(v) : `${d.toISOString().slice(0, 16).replace('T', ' ')}Z`;
-};
+const SOURCE = 'deckpal-mcp';
 
 interface BatchSummary {
   batchId: string;
@@ -76,7 +73,7 @@ interface PlanEntry {
 function batchLine(b: BatchSummary): string {
   const undone = b.revertedEventCount > 0 ? `${b.revertedEventCount}/${b.eventCount} undone` : null;
   return row(
-    stampOf(b.startedAt),
+    stamp(b.startedAt),
     b.tool,
     b.source,
     `${b.eventCount} change(s)`,
@@ -256,7 +253,7 @@ const revertTool = defineTool({
         strategy: args.strategy,
         force: args.force,
         dryRun: args.dry_run,
-        source: 'deckpal-mcp',
+        source: SOURCE,
       };
       if (args.batch_id) body.batchId = args.batch_id;
       if (args.event_id) body.eventId = args.event_id;

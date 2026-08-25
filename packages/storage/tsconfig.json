@@ -3,9 +3,10 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    // No file here imports from `node:*` (the package is deliberately runtime-
-    // agnostic), so nothing pulls @types/node in implicitly — but `process`,
-    // `Buffer` and `fetch` all come from it. Ask for it explicitly.
+    // @types/node is needed for `process`, `Buffer` and `fetch`, and for the
+    // `node:crypto` / `node:fs/promises` imports in avatar-store.ts and
+    // put-asset.ts. Ask for it explicitly rather than relying on an implicit
+    // pull-in.
     "types": ["node"]
   },
   "include": ["src"],

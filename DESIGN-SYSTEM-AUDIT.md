@@ -296,7 +296,7 @@ from a static PNG (`public/brand-icon.png`), not a vector icon.
 A second, self-contained icon-set primitive: 11 original Pokémon-TCG energy-type
 glyphs (grass, fire, water, lightning, psychic, fighting, darkness, metal, fairy,
 dragon, colorless), each a colored-disc SVG with a white symbol baked in. Also exports
-`hasEnergyIcon(type)` and `ENERGY_TYPES` (the list of known keys), and gracefully
+`ENERGY_TYPES` (the list of known keys), and gracefully
 falls back to a neutral disc + first-letter glyph for an unrecognized type name — never
 a broken icon. As flagged in §1.5, its 11 fill colors are a real palette that lives
 entirely inside this component's JS, not in `theme.css`.

@@ -58,6 +58,11 @@ export const MODELS: Record<Job, ModelChoice> = {
    * Latency-critical and by far the highest volume — this is the model the user
    * actually experiences as "how fast is he".
    *
+   * HISTORY — superseded by the 4.1 → 4.20 switch recorded below, 2026-08-22.
+   * The rationale that follows picked grok-4.1-fast-non-reasoning, which is no
+   * longer the shipped id; it stays because the measurements are why the 4.20
+   * comparison was run at all.
+   *
    * grok-4.1-fast-non-reasoning: 593 ms median TTFT over 3 trials (fastest
    * measured), 3/3 on the exact animation-command tool schema, honours
    * json_schema, streams tool-call arguments incrementally, and is
@@ -226,6 +231,10 @@ export const MODELS: Record<Job, ModelChoice> = {
   },
 
   /**
+   * HISTORY — superseded by the Sonnet-by-default decision recorded below,
+   * 2026-08-21. The Opus measurement here is no longer the default's rationale;
+   * it survives as the reason `escalate` exists.
+   *
    * Deck analysis and multi-step planning. Quality-critical, low volume — a few
    * calls a month per user, where being right is the entire value.
    *

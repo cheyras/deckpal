@@ -24,7 +24,10 @@ import {
   friendlyAuthError,
   passwordProblem,
 } from '../lib/authErrors'
-import { AuthCard, AuthPage, CTA_GHOST, Field, FormAlert, StatusPanel, SubmitButton } from './auth/authUi'
+import { AuthCard, AuthPage, CTA_GHOST, SubmitButton } from './auth/authUi'
+import { Field } from '../components/ui/Field'
+import { FormAlert } from '../components/ui/FormAlert'
+import { StatusPanel } from '../components/ui/StatusPanel'
 
 type Mode = 'signin' | 'signup' | 'forgot'
 

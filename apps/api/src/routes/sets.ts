@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { cardImages, q, q1, toMajor } from '../db.js';
 import { asyncHandler, clampInt, notFound, oneOf, str, strList, userCache } from '../http.js';
 import { optionalUserId } from '../identity.js';
+import { pct } from '../insights/trainerLevel.js';
+import { GOALS, type Goal } from '../missing.js';
 import { raritySortSql } from '../rarity.js';
 
 export const setsRouter: Router = Router();
@@ -14,8 +16,6 @@ const SORT_COLUMNS = {
   artist: 'c.illustrator',
 } as const;
 type SortKey = keyof typeof SORT_COLUMNS;
-const GOALS = ['complete', 'master', 'grandmaster'] as const;
-type Goal = (typeof GOALS)[number];
 const OWN = ['all', 'have', 'need', 'dupes'] as const;
 type Own = (typeof OWN)[number];
 
@@ -73,11 +73,6 @@ interface StandardVariant {
   displayName: string;
   tier: 'standard';
   quantity: number;
-}
-
-function pct(owned: number, total: number): number {
-  if (!owned || !total) return 0;
-  return Math.round((owned / total) * 1000) / 10;
 }
 
 /** Builds the SQL boolean for the active ownership tab, given the goal. */

@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs';
-import { appendFile, readFile } from 'node:fs/promises';
+import { appendFile, readFile, stat } from 'node:fs/promises';
 import { LANG, MAX_CONCURRENCY, QUALITIES, type Quality } from './config.js';
 import { headAsset } from './fetch.js';
 import {
+  absoluteFromRelative,
   cardCacheKey,
   cardSourceUrl,
   setImageCacheKey,
@@ -10,10 +11,9 @@ import {
   type SetImageKind,
 } from './layout.js';
 import { closePool, getPool, upsertImageObject } from './assets.js';
+import { parallelMap } from './parallel.js';
 import { ensureRecorded, fromUrl, sniffFile, unknownProvenance, type Provenance } from './store.js';
 import { checkManifest } from './manifestCheck.js';
-import { absoluteFromRelative } from './layout.js';
-import { stat } from 'node:fs/promises';
 
 /**
  * manifest:backfill — give every un-recorded file in the image cache a manifest
@@ -270,7 +270,6 @@ export async function backfill(opts: BackfillOptions = {}): Promise<BackfillRepo
     );
   }
 
-  let idx = 0;
   let probed = 0;
   const decide = async (p: OrphanPlan): Promise<void> => {
     if (p.decision) return; // already settled (unrecognised path)
@@ -303,17 +302,12 @@ export async function backfill(opts: BackfillOptions = {}): Promise<BackfillRepo
     }
   };
 
-  await Promise.all(
-    Array.from({ length: Math.min(MAX_CONCURRENCY, plans.length) }, async () => {
-      while (idx < plans.length) {
-        const my = idx++;
-        await decide(plans[my]!);
-        if (probed > 0 && probed % 200 === 0) {
-          process.stderr.write(`[backfill] probed ${probed} …\n`);
-        }
-      }
-    }),
-  );
+  await parallelMap(plans, MAX_CONCURRENCY, async (p) => {
+    await decide(p);
+    if (probed > 0 && probed % 200 === 0) {
+      process.stderr.write(`[backfill] probed ${probed} …\n`);
+    }
+  });
 
   // ── stage 2: record ──
   for (const p of plans) {

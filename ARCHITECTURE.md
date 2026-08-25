@@ -322,17 +322,17 @@ integration is an additive layer, not a hard dependency.
 
 ### Migration split
 
-```
-migrations/
-  001-019:  Core schema (any Postgres 15+)
-  020:      Multi-user UUID transformation (any Postgres 15+)
-  021:      RLS policies + auth.users FK (Supabase-only)
-  022:      Storage integration + bug_report (Supabase-only)
-```
+The split is a per-file marker, not a numbered range: a migration whose first
+line is `-- @supabase-only` is applied only when `SUPABASE_MODE` is set, and
+skipped automatically otherwise (`packages/db/src/migrate.ts`). The marked
+files are the Supabase-integration migrations -- 021's RLS policies +
+`auth.users` FK and the later per-feature RLS/Storage companions -- while a
+feature's own schema migration (e.g. 022 `bug_report`) is plain Postgres and
+runs everywhere.
 
-Self-host deployments run 001-020 and skip 021+. Auth is handled by the reverse
-proxy. Images are served by `apps/images`. Sync jobs run via cron or any
-scheduler.
+Self-host deployments run every unmarked migration and skip the
+`-- @supabase-only` ones. Auth is handled by the reverse proxy. Images are
+served by `apps/images`. Sync jobs run via cron or any scheduler.
 
 ## 10. The agent tool layer — one definition, two front-ends
 

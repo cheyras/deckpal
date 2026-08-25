@@ -61,10 +61,3 @@ export function variantMeta(v: { kind: string; tier?: string | null }): VariantM
     order: 0,
   }
 }
-
-/** Legend entries, in the order the legend renders them. */
-export const VARIANT_LEGEND: readonly { label: string; kind: string }[] = [
-  { label: 'Normal', kind: 'normal' },
-  { label: 'Holofoil', kind: 'holofoil' },
-  { label: 'Reverse Holofoil', kind: 'reverse holofoil' },
-]

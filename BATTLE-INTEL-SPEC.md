@@ -1,3 +1,5 @@
+> **Predates the cloud pivot -- re-scope before executing.** (Ground truths #5 -- local ollama/pgvector -- and #6 -- connection budget 4 -- are superseded; pooling is now AGENTS.md B2.)
+
 # Battle Intelligence & Foil Renderer — Feature Spec
 
 **Audience:** the orchestrating Fable agent and its worktree subagents.

@@ -60,11 +60,6 @@ export function loadDeckeRuntime(): Promise<RuntimeModule> {
   return modulePromise
 }
 
-/** Has the runtime already been fetched? Lets the host skip its fade-in. */
-export function isRuntimeLoaded(): boolean {
-  return modulePromise !== null
-}
-
 // ── the single controller ───────────────────────────────────────────────────
 //
 // ONE RENDERER PER CANVAS. `character/decke/README.md` is explicit: React 19
@@ -149,11 +144,6 @@ function dropContext(decke: DeckEInstance): void {
   } catch {
     /* Nothing to do — the context goes with the page in the worst case. */
   }
-}
-
-/** The live controller, for callers outside the host's own effect. */
-export function currentDeckE(): DeckEInstance | null {
-  return held?.decke ?? null
 }
 
 /**

@@ -11,16 +11,8 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { makePool, loadEnv } from '@deckpal/db';
-
-// Structural client type — avoids a direct `pg` type dependency in this package. pg.PoolClient
-// satisfies it; we only ever call .query here.
-interface Queryable {
-  query<R extends Record<string, unknown> = Record<string, unknown>>(
-    text: string,
-    params?: unknown[],
-  ): Promise<{ rows: R[] }>;
-}
+import { makePool, loadEnv, type Queryable } from '@deckpal/db';
+import { batchInsert } from '../batchInsert.js';
 import {
   planCardVariants, toFacet, variantKindCode, tierDerived, kindDisplayName, printRunCode,
   slugify, normalizeName, numberSort, localIdNumeric, subtypeLabel, foilLabel, humanize,
@@ -51,23 +43,6 @@ const DEFAULT_USER = process.env.DECKPAL_DEFAULT_USER ?? 'cheyras';
 // (see the park step in the per-set loop). Must exceed the largest variant count of any single
 // card — asserted below rather than assumed — and 1000 + that must stay inside smallint.
 const PARK_BASE = 1000;
-
-// ── tiny batch-insert helper (respects pg's 65535-param limit via chunking) ──
-async function batchInsert(
-  client: Queryable,
-  sql: (rows: number) => string,
-  cols: number,
-  values: unknown[][],
-  chunkRows = 400,
-): Promise<void> {
-  for (let i = 0; i < values.length; i += chunkRows) {
-    const chunk = values.slice(i, i + chunkRows);
-    const placeholders = chunk
-      .map((_, r) => `(${Array.from({ length: cols }, (_, c) => `$${r * cols + c + 1}`).join(',')})`)
-      .join(',');
-    await client.query(sql(chunk.length).replace('__VALUES__', placeholders), chunk.flat());
-  }
-}
 
 export interface ImportSummary {
   series: number;

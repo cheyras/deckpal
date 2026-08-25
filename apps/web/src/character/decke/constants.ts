@@ -8,23 +8,25 @@
  * looks plausible, it just leans the wrong way.
  *
  * Source of truth, in order: the live .blend > wiki/_raw/src/*.py > wiki prose.
- * Several wiki pages are known stale; see the scratchpad PORT-SPEC-* documents.
+ * Several wiki pages are known stale; the corrections, with their measurements,
+ * are recorded in `README.md` ("Wiki pages that are stale") and in `PARITY.md`.
+ * (The scratchpad PORT-SPEC-* trace documents were session artifacts of the
+ * port and are gone.)
  */
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three'
 
-/** 1 blender unit = 40.13 mm. Scale is NEVER converted — the whole model ships
- *  in blender units, so rescaling one channel desynchronises the entire rig. */
-export const MM_PER_UNIT = 40.13
+/** 1 blender unit = 40.13 mm — measured, and recorded as prose only: scale is
+ *  NEVER converted. The whole model ships in blender units, so rescaling one
+ *  channel desynchronises the entire rig. */
 
-/** Deck-E's bounding box in blender units: W x D x H. */
+/** Deck-E's bounding box in blender units. Depth measures 1.15 — recorded as
+ *  prose only; nothing consumes it. */
 export const BODY_W = 1.75
-export const BODY_D = 1.15
 /** Full height. The deformation field divides by this, so it is load-bearing. */
 export const BODY_H = 2.4
 
 /** Authored at 30 fps. 1 frame = 33.333 ms. Procedural layers take SECONDS. */
 export const FPS = 30
-export const MS_PER_FRAME = 1000 / FPS
 
 /**
  * The Blender staging camera, measured off `Camera_anim` in the live file.
@@ -44,13 +46,12 @@ export const BLENDER_CAMERA = {
   far: 100,
 } as const
 
-/** Environment. Both numbers are measured off the world node tree, and both
- *  contradict `wiki/shading/body-materials.md`, which is stale: the rotation is
- *  261deg (not 215) and is DRIVEN by facing, and the Background strength is 0.6
- *  (not 2.6) with no multiply node anywhere between the Environment Texture and
- *  the Background shader. `stage.ts` owns the live values. */
-export const ENV_ROTATION_DEG = 261.0
-export const ENV_INTENSITY_DEFAULT = 0.6
+/** Environment: rotation 261deg (not the wiki's 215, and DRIVEN by facing) and
+ *  Background strength 0.6 (not 2.6 — no multiply node anywhere between the
+ *  Environment Texture and the Background shader). Both measured off the world
+ *  node tree; `wiki/shading/body-materials.md` is stale on both. `stage.ts`
+ *  owns the live values (`ENV_ROT_BASE_DEG`, `ENV_INTENSITY`) — the numbers
+ *  stay here as prose only, so this record cannot drift from them. */
 
 /**
  * Blender Z-up -> three.js Y-up. Do not re-derive this.
@@ -203,17 +204,13 @@ export const HINGE_REST = new Vector3(0, 0.575, 1.88)
  * pair reads +1.4001 / -1.4001, summing to ZERO rather than splitting a gape;
  * and `Lid_Hinge.location` tracks `field(HINGE_REST)`, not HINGE_REST.
  *
- * `hingeShare`/`lidShare` therefore only reproduce frame 1834 and drift
- * elsewhere; they are kept because `rig.ts` still consumes them. `riders.ts`
- * composes `Cf * MouthRot * Cf^-1` directly and does not use them.
+ * A fixed `hingeShare`/`lidShare` ratio fitted to that frame therefore only
+ * reproduces frame 1834 and drifts everywhere else; nothing carries one any
+ * more — `riders.ts` composes `Cf * MouthRot * Cf^-1` directly.
  */
 export const MOUTH = {
   /** Degrees of total lid rotation per unit of `mouth`. */
   maxDeg: 55,
-  /** Fraction of the total carried by `Lid_Hinge_anim`. */
-  hingeShare: 105.10174200467311 / 114.9499979622968,
-  /** Fraction carried by `DeckBox_Lid_anim` itself. */
-  lidShare: 9.848255957623687 / 114.9499979622968,
   /** Whole-body tip back on `DeckE_Body` rot X at mouth = 1. */
   bodyTipDeg: -4.5,
   /** Back arch folded into the FIELD's bend input at mouth = 1. Without it every
@@ -265,24 +262,7 @@ export const EYE_SOCKET_SCALE = {
   divisor: 0.590178,
 } as const
 
-/** `Eye_Rig_anim` is VERTEX_3-parented to these three lid vertices. three.js has
- *  no vertex parenting, so the basis is rebuilt each frame from the morphed lid
- *  positions via `Mesh.getVertexPosition()`. */
-export const EYE_RIG_PARENT_VERTS = [1975, 2095, 1935] as const
-
-/** Morph target order, identical on both shells. `Basis` is not exported, so
- *  the exported indices are 0..9 for the ten keys after it. */
-export const MORPH_ORDER = [
-  'Mouth_Shift',
-  'Mouth_Curve',
-  'Mouth_S',
-  'Mouth_W',
-  'Body_Bend_Fwd',
-  'Body_Bend_Back',
-  'Body_Lean_R',
-  'Body_Lean_L',
-  'Body_Twist_L',
-  'Body_Twist_R',
-] as const
-
-export type MorphName = (typeof MORPH_ORDER)[number]
+/** `Eye_Rig_anim` is VERTEX_3-parented to three lid vertices — Blender indices
+ *  1975 / 2095 / 1935, recorded as prose only: the exporter's vertex splits do
+ *  not preserve indices, so `eyeSocket.ts` owns the live lookup (by POSITION)
+ *  and rebuilds the basis each frame via `Mesh.getVertexPosition()`. */

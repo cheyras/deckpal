@@ -1,7 +1,8 @@
 import { q } from '../db.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
-import { errText } from './collection.js';
+import { nfmt } from '../format.js';
+import { errText } from '../shared.js';
 
 /**
  * `health` — SPEC §5 #1: DB ok + API ok, catalog counts, owned totals, last
@@ -29,8 +30,6 @@ interface FreshnessRow {
   source_code: string;
   fetched_at: string;
 }
-
-const n = (s: string | number): string => Number(s).toLocaleString('en-US');
 
 /** Compact relative age, e.g. "3h ago", "2d ago". */
 function ago(iso: string | null): string {
@@ -135,9 +134,9 @@ const healthTool = defineTool({
       ]);
 
       const c = counts[0];
-      if (c) lines.push(`catalog: ${n(c.cards)} cards · ${n(c.variants)} variants · ${n(c.sets)} sets`);
+      if (c) lines.push(`catalog: ${nfmt(c.cards)} cards · ${nfmt(c.variants)} variants · ${nfmt(c.sets)} sets`);
       const o = owned[0];
-      if (o) lines.push(`owned: ${n(o.owned_cards)} distinct cards · ${n(o.total_qty)} total copies`);
+      if (o) lines.push(`owned: ${nfmt(o.owned_cards)} distinct cards · ${nfmt(o.total_qty)} total copies`);
 
       if (syncs.length > 0) {
         lines.push('last sync per job:');

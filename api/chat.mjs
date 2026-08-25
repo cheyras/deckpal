@@ -222,6 +222,30 @@ function errCode(err) {
 }
 
 /**
+ * Race against a deadline, and CLEAR THE TIMER when the race settles.
+ *
+ * Both halves matter and they pull opposite ways. A timer left running keeps
+ * the caller alive for the full five seconds after a meter that answered
+ * in ninety milliseconds — on a serverless platform billed by wall clock, on
+ * the hot path of every single turn. And `unref()`ing it instead is the bug
+ * CI just caught one layer down in `rls.ts`: an unref'd timer does not hold
+ * the loop open, so the case the timer EXISTS for — something that never
+ * settles — is exactly the case where the process can exit with the race
+ * pending.
+ *
+ * Clearing on settle is the version that is right in both directions.
+ * `label` carries the caller's prefix (`credits:` / `meter:`) so the thrown
+ * message still says which system timed out.
+ */
+const withDeadline = (promise, label) => {
+  let timer
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out`)), METER_TIMEOUT_MS)
+  })
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer))
+}
+
+/**
  * Spend credits, or refuse.
  *
  * ── THE SAME DEADLINE AND THE SAME FAIL DIRECTION AS `charge` ────────────────
@@ -240,23 +264,15 @@ function errCode(err) {
  * swallowed with a loud line rather than rolled back.
  */
 async function spend(userId, credits, reason) {
-  const withDeadline = (promise, what) => {
-    let timer
-    const deadline = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`credits: ${what} timed out`)), METER_TIMEOUT_MS)
-    })
-    return Promise.race([promise, deadline]).finally(() => clearTimeout(timer))
-  }
-
   let client
   try {
-    client = await withDeadline(chatPool().connect(), 'pool connect')
-    const res = await withDeadline(client.query(SPEND_SQL, [userId, credits]), 'spend')
+    client = await withDeadline(chatPool().connect(), 'credits: pool connect')
+    const res = await withDeadline(client.query(SPEND_SQL, [userId, credits]), 'credits: spend')
     let left = 0
     if (res.rows.length === 0) {
       // Refused. Read what they DO have so the refusal can say a number —
       // "you have 12 and this costs 75" is answerable, "no" is not.
-      const b = await withDeadline(client.query(BALANCE_SQL, [userId]), 'balance').catch(() => null)
+      const b = await withDeadline(client.query(BALANCE_SQL, [userId]), 'credits: balance').catch(() => null)
       left = Number(b?.rows?.[0]?.balance ?? 0)
     } else {
       // AWAITED, and it was not — which meant it never ran.
@@ -308,32 +324,10 @@ async function charge(userId, tier) {
   const cap = capFor(tier)
   if (cap <= 0) return { allowed: false, used: 0, cap }
 
-  /**
-   * Race against a deadline, and CLEAR THE TIMER when the race settles.
-   *
-   * Both halves matter and they pull opposite ways. A timer left running keeps
-   * this function alive for the full five seconds after a meter that answered
-   * in ninety milliseconds — on a serverless platform billed by wall clock, on
-   * the hot path of every single turn. And `unref()`ing it instead is the bug
-   * CI just caught one layer down in `rls.ts`: an unref'd timer does not hold
-   * the loop open, so the case the timer EXISTS for — something that never
-   * settles — is exactly the case where the process can exit with the race
-   * pending.
-   *
-   * Clearing on settle is the version that is right in both directions.
-   */
-  const withDeadline = (promise, what) => {
-    let timer
-    const deadline = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`meter: ${what} timed out`)), METER_TIMEOUT_MS)
-    })
-    return Promise.race([promise, deadline]).finally(() => clearTimeout(timer))
-  }
-
   let client
   try {
-    client = await withDeadline(chatPool().connect(), 'pool connect')
-    const res = await withDeadline(client.query(chargeSql(tier), [userId, cap]), 'query')
+    client = await withDeadline(chatPool().connect(), 'meter: pool connect')
+    const res = await withDeadline(client.query(chargeSql(tier), [userId, cap]), 'meter: query')
     return verdictFrom(res.rows, cap)
   } catch (err) {
     // THE CODE AND THE NAME, NEVER THE MESSAGE.
@@ -673,17 +667,18 @@ async function serve(request) {
         messages: await convertToModelMessages(stripPriorCommands(messages)),
         // THE BODY AND THE DATA, in one set.
         //
-        // `buildTools` is the six cosmetic ones — express, showScreen, and the
-        // four the browser runs. `buildDataTools` is the read half of the same
+        // `buildTools` is the cosmetic ones — express, showScreen, and the
+        // rest the browser runs. `buildDataTools` is the read half of the same
         // 23 tools the MCP server exposes, through the other adapter onto the
         // same definitions. Until this line, every factual claim Deck-E made
         // was the model's training data, because there was nothing else for it
         // to be.
         //
-        // READ-ONLY, by the adapter's default: the write half is gated on an
-        // approval round-trip that does not exist yet, and a write tool
-        // reachable from a conversational model before then is a tool that gets
-        // called by accident.
+        // READS AND WRITES, now that the approval round-trip exists: every
+        // write is still gated by the adapter's `needsApproval` — the SDK
+        // holds the call until the client carries back an approval, HMAC-signed
+        // at issuance (see APPROVALS ARE SIGNED below) — so a write tool
+        // reachable from a conversational model still cannot run by accident.
         //
         // The context is built PER TOOL CALL, not here — the database handle is
         // lazy and the connection is held for one call and released. Nothing in
@@ -961,15 +956,6 @@ async function serve(request) {
 }
 
 /**
- * Drop `express` tool calls from history before replaying it to the model.
- *
- * The transient data part never enters history, but the TOOL CALL that produced
- * it does — and it is both a token cost on every later turn and a worked example
- * of command syntax sitting in the model's own context, which is exactly the
- * thing most likely to end up echoed as prose. The animation has already
- * happened; the model does not need to remember how it asked.
- */
-/**
  * The reader's OWN latest message, as plain text.
  *
  * Assistant turns are skipped deliberately: Deck-E says "Normal" constantly,
@@ -989,6 +975,15 @@ function latestUserText(messages) {
   return ''
 }
 
+/**
+ * Drop `express` tool calls from history before replaying it to the model.
+ *
+ * The transient data part never enters history, but the TOOL CALL that produced
+ * it does — and it is both a token cost on every later turn and a worked example
+ * of command syntax sitting in the model's own context, which is exactly the
+ * thing most likely to end up echoed as prose. The animation has already
+ * happened; the model does not need to remember how it asked.
+ */
 function stripPriorCommands(messages) {
   return messages.map((m) => {
     if (!Array.isArray(m.parts)) return m

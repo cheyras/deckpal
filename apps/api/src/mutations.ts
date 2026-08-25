@@ -49,7 +49,7 @@ import { ApiError } from './http.js';
 // Every event carries WHO wrote it. The shape mirrors the DB CHECK exactly, so
 // a bad value is a 400 here rather than a 500 out of Postgres.
 
-const SOURCE_SHAPE = /^[a-z0-9][a-z0-9._-]{0,39}$/;
+export const SOURCE_SHAPE = /^[a-z0-9][a-z0-9._-]{0,39}$/;
 
 /** Writer attribution; omitted → 'web' (the UI, matching the column default). */
 export function parseSource(v: unknown): string {

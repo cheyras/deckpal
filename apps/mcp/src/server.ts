@@ -39,7 +39,7 @@ const iconDataUri: string | null = (() => {
  * The context is process-wide on self-host (one user, one pool) and
  * per-request in the cloud (the caller's token → their user id → their RLS
  * transaction client). Every tool registered below reads its identity from
- * `ctx` and never from module state, which is what makes the same 21 tools
+ * `ctx` and never from module state, which is what makes the same tool set
  * safe to serve to one user or to thousands.
  */
 export function buildServer(ctx: Ctx): McpServer {

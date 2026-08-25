@@ -46,10 +46,10 @@ app.listen(PORT, '127.0.0.1', ...);
 process.on('SIGTERM'/'SIGINT', async () => { await handler.close(); await pool.end(); ... });
 ```
 
-- **Auth** (house convention, copied from the Deno MCP fleet): header `x-brain-key` (fallback
-  `?key=` query) must equal `DECKPAL_MCP_KEY`; `OPTIONS` passes; failure → bare `401`, **no
-  `WWW-Authenticate` header** (claude.ai treats 401+WWW-Authenticate as an OAuth trigger).
-  Fatal-exit at startup if `DECKPAL_MCP_KEY` unset.
+- **Auth** (house convention, copied from the Deno MCP fleet): header `x-brain-key` only (the
+  reverse proxy can inject it) must equal `DECKPAL_MCP_KEY`; `OPTIONS` passes; failure → bare
+  `401`, **no `WWW-Authenticate` header** (claude.ai treats 401+WWW-Authenticate as an OAuth
+  trigger). Fatal-exit at startup if `DECKPAL_MCP_KEY` unset.
 - Startup self-check: ping Postgres (`SELECT 1`) and `GET ${DECKPAL_API_BASE}/health`; log clearly
   and `process.exit(1)` if the DB is unreachable (the supervisor restarts). API unreachable = warn only
   (read tools still work; API-backed tools will fail per-call).
@@ -69,8 +69,9 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
   "4 TOTAL (API 2 + sync 1 + mcp 1)" as part of this build.
 - The `pokedex` role carries `statement_timeout=30s` — design every query to finish well under
   that; a timeout surfaces as an `isError` tool result with a "narrow the query" hint.
-- API client: native `fetch`, thin helper in `src/api.ts` (`apiGet`, `apiSend`), JSON in/out,
-  surfaces the API's `{ error: { code, message } }` envelope as tool errors. No retries on 4xx;
+- API client: native `fetch`, via `makeApi` from `@deckpal/agent-tools`
+  (`packages/agent-tools/src/api.ts` — `api.get` / `api.send`), JSON in/out, surfaces the API's
+  `{ error: { code, message } }` envelope as tool errors. No retries on 4xx;
   one retry on ECONNREFUSED after 500 ms.
 - User: single-user box. Resolve `defaultUserId` = lowest `app_user.id` once at startup (same
   rule as `apps/api/src/db.ts`).

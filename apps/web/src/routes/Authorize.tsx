@@ -19,7 +19,8 @@ import { supabase, isCloudMode } from '../lib/supabase'
 import { api } from '../lib/api'
 import { Icon } from '../components/Icon'
 import { Spinner } from '../components/ui'
-import { AuthCard, AuthPage, CTA_GHOST, FormAlert, SubmitButton } from './auth/authUi'
+import { AuthCard, AuthPage, CTA_GHOST, SubmitButton } from './auth/authUi'
+import { FormAlert } from '../components/ui/FormAlert'
 import type { Session } from '@supabase/supabase-js'
 
 interface AuthorizeSearch {

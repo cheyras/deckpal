@@ -266,33 +266,12 @@ export type VariantResolution =
   | { status: 'ambiguous'; variants: ResolvedVariant[]; message: string }
   | { status: 'not_found'; message: string };
 
-async function variantsOf(ctx: Ctx, cardId: number): Promise<ResolvedVariant[]> {
-  const rows = await q(
-    ctx.db,
-    `SELECT cv.id, cv.variant_kind_code, cv.display_name, cv.is_primary,
-            COALESCE(ci.quantity, 0) AS owned_qty
-       FROM card_variant cv
-       LEFT JOIN collection_item ci ON ci.card_variant_id = cv.id AND ci.user_id = $2
-      WHERE cv.card_id = $1
-      ORDER BY cv.sort_order`,
-    [cardId, ctx.userId],
-  );
-  return rows.map((r) => ({
-    id: Number(r.id),
-    kindCode: String(r.variant_kind_code),
-    displayName: r.display_name == null ? null : String(r.display_name),
-    isPrimary: Boolean(r.is_primary),
-    ownedQty: Number(r.owned_qty),
-  }));
-}
-
 export function describeVariant(v: ResolvedVariant): string {
   return `${v.displayName ?? v.kindCode}${v.isPrimary ? ' (primary)' : ''} — owned x${v.ownedQty}`;
 }
 
 /**
- * Every variant of many cards, in one query — the batch counterpart of
- * {@link variantsOf}. Keyed by internal `card.id`.
+ * Every variant of many cards, in one query. Keyed by internal `card.id`.
  */
 export async function variantsOfMany(ctx: Ctx, cardIds: readonly number[]): Promise<Map<number, ResolvedVariant[]>> {
   const out = new Map<number, ResolvedVariant[]>();
@@ -323,8 +302,14 @@ export async function variantsOfMany(ctx: Ctx, cardIds: readonly number[]): Prom
 }
 
 /**
- * The same decision {@link resolveVariant} makes, against an already-loaded
- * variant list. Pure — no query — so a batch can call it N times for free.
+ * Resolve which variant of a card an operation targets, against an
+ * already-loaded variant list (see {@link variantsOfMany}). Pure — no query —
+ * so a batch can call it N times for free.
+ * - explicit variant_id / variant_kind wins;
+ * - omitted → the card's primary variant;
+ * - EXCEPT: setting an absolute quantity (opts.forAbsoluteQuantity) on a card
+ *   where the user owns >1 distinct variant and gave no explicit variant →
+ *   ambiguous, per SPEC §4.
  */
 export function pickVariant(
   all: readonly ResolvedVariant[],
@@ -360,55 +345,6 @@ export function pickVariant(
     };
   }
   return { status: 'ok', variant: all.find((x) => x.isPrimary) ?? all[0]! };
-}
-
-/**
- * Resolve which variant of a card an operation targets.
- * - explicit variant_id / variant_kind wins;
- * - omitted → the card's primary variant;
- * - EXCEPT: setting an absolute quantity (opts.forAbsoluteQuantity) on a card where the
- *   user owns >1 distinct variant and gave no explicit variant → ambiguous, per SPEC §4.
- */
-export async function resolveVariant(
-  ctx: Ctx,
-  cardId: number,
-  ref: VariantRef,
-  opts: { forAbsoluteQuantity?: boolean } = {},
-): Promise<VariantResolution> {
-  const all = await variantsOf(ctx, cardId);
-  if (all.length === 0) return { status: 'not_found', message: 'Card has no variants in the catalog' };
-
-  if (ref.variant_id != null) {
-    const v = all.find((x) => x.id === ref.variant_id);
-    return v
-      ? { status: 'ok', variant: v }
-      : {
-          status: 'not_found',
-          message: `Variant ${ref.variant_id} does not belong to this card. Its variants: ${all.map(describeVariant).join('; ')}`,
-        };
-  }
-  if (ref.variant_kind) {
-    const kind = ref.variant_kind.trim().toLowerCase();
-    const v = all.find((x) => x.kindCode === kind);
-    return v
-      ? { status: 'ok', variant: v }
-      : {
-          status: 'not_found',
-          message: `No '${kind}' variant. Available: ${all.map((x) => x.kindCode).join(', ')}`,
-        };
-  }
-
-  const ownedDistinct = all.filter((x) => x.ownedQty > 0);
-  if (opts.forAbsoluteQuantity && ownedDistinct.length > 1) {
-    return {
-      status: 'ambiguous',
-      variants: all,
-      message:
-        'Multiple variants of this card are owned — setting an absolute quantity needs an explicit variant_id or variant_kind.',
-    };
-  }
-  const primary = all.find((x) => x.isPrimary) ?? all[0]!;
-  return { status: 'ok', variant: primary };
 }
 
 /**
@@ -535,7 +471,9 @@ export function variantCertainty(
  * Does this row need a person to pick a printing before it is written?
  *
  * The single place the four kinds collapse into two buckets, so a caller
- * cannot get the split subtly different from the next caller.
+ * cannot get the split subtly different from the next caller. (One caller
+ * cannot import it: `apps/web` does not depend on this package, so
+ * `approvalCardState.ts` MIRRORS this check and says so in a comment there.)
  */
 export function certaintyAsksSelection(c: VariantCertainty): boolean {
   return c.kind === 'unstated' || c.kind === 'ambiguous';

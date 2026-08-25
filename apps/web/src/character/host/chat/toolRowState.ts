@@ -107,7 +107,7 @@ export type ToolRowData = {
  * **When `useDeckeChat` gains the phase, delete this and the call in
  * `DeckeChat.tsx`.**
  */
-export const DECLINED_ID_SUFFIX = '-declined'
+const DECLINED_ID_SUFFIX = '-declined'
 
 export function toolRowFromChip(chip: ToolRowData): ToolRowData {
   if (chip.phase === 'ok' && chip.id.endsWith(DECLINED_ID_SUFFIX)) {

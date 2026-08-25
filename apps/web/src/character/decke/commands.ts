@@ -131,7 +131,7 @@ export type CommandResult = {
 /** Where card ids become artwork. Injected so the surface can be exercised
  *  without a network, and so this file's dependency on the catalog is one
  *  argument rather than a hard import in the middle of a validator. */
-export type CommandOptions = {
+type CommandOptions = {
   resolveCards?: (ids: string[]) => Promise<(CardArt | null)[]>
   /**
    * Cards to show when `card_stash` is entered with neither `cards` nor

@@ -29,7 +29,7 @@ type Vars = CSSProperties & Record<`--${string}`, string>
 /* ── shared atoms ─────────────────────────────────────────────────────────── */
 
 /** Browser/app chrome around a mockup. `label` is the faux URL pill. */
-export function AppFrame({
+function AppFrame({
   label,
   ariaLabel,
   children,
@@ -65,7 +65,7 @@ export function AppFrame({
  * this has a saturated accent window, and where it has a name it has a bar.
  * Reads unmistakably as "a card" at grid size without being one.
  */
-export function CardPlaceholder({
+function CardPlaceholder({
   accent = 'var(--color-variant-normal)',
   dim = false,
 }: {

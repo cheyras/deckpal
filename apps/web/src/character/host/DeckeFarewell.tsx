@@ -42,7 +42,7 @@
  */
 import { useEffect, useState, type JSX } from 'react'
 
-/** Where he is on screen, in CSS pixels. The same shape `DeckeBubble` takes. */
+/** Where he is on screen, in CSS pixels. A subset of `DeckeBubble`'s `Rect`. */
 export type HimRect = { left: number; top: number; width: number; height: number }
 
 /**

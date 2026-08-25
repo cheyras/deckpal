@@ -27,7 +27,6 @@ import {
  */
 export interface ValidateContext {
   isInFormatByReprint?: (card: CardFacts) => boolean;
-  now?: Date;
 }
 
 function counts(work: WorkCard[], unresolved: number): ValidationCounts {
@@ -163,11 +162,6 @@ function ruleSetAllowancePool(
 function ruleTypeCoherence(work: WorkCard[], deckType: PokemonType | null | undefined): Violation[] {
   if (!deckType) return [];
   const out: Violation[] = [];
-  // names of pokemon that DO match the type — used for the Eevee-style helper message
-  const okNames = new Set(
-    work.filter((w) => w.card.category === 'Pokemon' && w.card.types.includes(deckType))
-      .map((w) => w.card.normalizedName),
-  );
   for (const w of work) {
     const c = w.card;
     if (c.category !== 'Pokemon') continue; // Trainers, Special Energy, Item-Pokémon exempt (§2.3.4.7)
@@ -192,7 +186,6 @@ function ruleTypeCoherence(work: WorkCard[], deckType: PokemonType | null | unde
       detail: { deck_type: deckType, card_types: c.types, on_type_evolution: evolvesInto?.card.name ?? null },
     });
   }
-  void okNames;
   return out;
 }
 

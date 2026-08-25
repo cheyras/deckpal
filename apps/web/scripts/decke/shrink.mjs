@@ -33,6 +33,13 @@
  * with an analytic shader that loads the standalone file, so the embedded copy
  * is 1.04 MB of dead weight. We swap it for a 1x1 stub rather than deleting the
  * texture, so the glb stays valid on its own.
+ *
+ * `@gltf-transform/*` and `meshoptimizer` are required and are deliberately not
+ * repo dependencies — nothing else in the repo needs them, and this script runs
+ * once per re-export, not in CI. Install them where you run it
+ * (`npm i @gltf-transform/core @gltf-transform/extensions
+ * @gltf-transform/functions meshoptimizer`), or run it with a global copy —
+ * same policy as Playwright in `parity/README.md`.
  */
 import { NodeIO } from '@gltf-transform/core'
 import { ALL_EXTENSIONS, EXTMeshoptCompression } from '@gltf-transform/extensions'

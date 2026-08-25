@@ -12,7 +12,8 @@ import { ALGO, hashPath, hashToBytes } from './phash.js';
  * the live services:
  *   • idempotent + resumable — skips cards already hashed (unless --force);
  *   • bounded concurrency (default 2) so it never pegs all four cores;
- *   • decode delegated to system ImageMagick (no native node addon);
+ *   • decode via sharp/libvips (prebuilt binaries) — see ./phash.ts's header
+ *     for why the original ImageMagick shell-out was dropped (issue #20);
  *   • one pooled DB connection, batched upserts (short connection hold).
  *
  * Intended launch (nice + idle IO so it yields to live traffic):

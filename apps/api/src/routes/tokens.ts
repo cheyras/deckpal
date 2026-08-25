@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { pool, rlsStore } from '../db.js';
-import { asyncHandler, badRequest, notFound, userCache } from '../http.js';
+import { asyncHandler, badRequest, notFound, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { createToken, listTokens, revokeToken, type Queryable } from '@deckpal/db';
 
@@ -18,8 +18,9 @@ import { createToken, listTokens, revokeToken, type Queryable } from '@deckpal/d
 export const tokensRouter: Router = Router();
 
 const MAX_NAME_LEN = 60;
-/** Enough for a lifetime of clients; a cheap stop on runaway automation. */
-const MAX_ACTIVE_TOKENS = 20;
+/** Enough for a lifetime of clients; a cheap stop on runaway automation.
+ * Exported so the OAuth token mint (oauthServer.ts) enforces the same cap. */
+export const MAX_ACTIVE_TOKENS = 20;
 
 /** The RLS transaction client when one is active, else the shared pool. */
 function db(): Queryable {
@@ -71,7 +72,7 @@ tokensRouter.delete(
     const id = String(req.params.id ?? '');
     // Reject junk before it reaches Postgres, where a malformed UUID is a
     // 22P02 error rather than "no such row".
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    if (!UUID_RE.test(id)) {
       throw notFound('No such token');
     }
     const userId = currentUserId(req);

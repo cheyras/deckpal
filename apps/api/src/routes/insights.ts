@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { q1 } from '../db.js';
 import { asyncHandler, clampInt, notFound, oneOf, str, userCache } from '../http.js';
 import { currentUserId, optionalUserId } from '../identity.js';
-import { TRAINER_UNIQUE_MODE, trainerLevelProgress } from '../insights/trainerLevel.js';
+import { pct, TRAINER_UNIQUE_MODE, trainerLevelProgress } from '../insights/trainerLevel.js';
 import {
   aggregateValue,
   currentCollectionValue,
@@ -98,8 +98,6 @@ insightsRouter.get(
     );
     const dexCaptured = Number(bundle?.dex?.captured ?? 0);
     const dexTotal = Number(bundle?.dex?.total ?? 0);
-    const round1 = (o: number, t: number): number =>
-      o && t ? Math.round((o / t) * 1000) / 10 : 0;
 
     const uniqueForLevel = TRAINER_UNIQUE_MODE === 'pairs'
       ? counts.uniquePairs : counts.uniqueCards;
@@ -116,7 +114,7 @@ insightsRouter.get(
       pokedex: {
         captured: dexCaptured,
         total: dexTotal,
-        pct: round1(dexCaptured, dexTotal),
+        pct: pct(dexCaptured, dexTotal),
       },
     });
   }),

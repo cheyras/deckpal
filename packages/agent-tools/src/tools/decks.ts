@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
-import { row, winLoss } from '../format.js';
+import { row, usd, winLoss } from '../format.js';
 import { strategyLabel } from './deckIntel.js';
 
 /**
@@ -112,8 +112,6 @@ interface ImportResult extends DeckDetail {
 }
 
 // ── Rendering helpers (deck prices arrive as USD majors, null = unpriced) ────
-
-const usd = (v: number | null | undefined): string => (v == null ? 'unpriced' : `$${v.toFixed(2)}`);
 
 function deckHeader(d: DeckDetail): string {
   const c = d.counts;

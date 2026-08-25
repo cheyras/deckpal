@@ -5,7 +5,9 @@
 # that `supabase db push` can be used as a one-shot alternative for initial
 # project setup, and for future Supabase CLI commands (functions, storage, etc.).
 #
-# The project id is filled in when the Supabase project is created.
+# The project id stays deliberately empty here: the CLI's link state (which
+# project this clone talks to) lives in the gitignored supabase/.temp/, not in
+# this committed file. Do not fill it in.
 
 [project]
 id = ""

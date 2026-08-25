@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import type pg from 'pg';
 import { commitRequestTx, q, q1, recomputeSetProgress, withTx } from '../db.js';
-import { asyncHandler, badRequest, clampInt, notFound, str, userCache } from '../http.js';
+import { asyncHandler, badRequest, clampInt, notFound, str, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { recordStrategyChange } from '../deck/versions.js';
-import { closeBatch, openBatch, recordEvents, type MutationEventInput } from '../mutations.js';
+import { closeBatch, openBatch, recordEvents, SOURCE_SHAPE, type MutationEventInput } from '../mutations.js';
 
 /**
  * The mutation log — read side and undo.
@@ -58,8 +58,6 @@ import { closeBatch, openBatch, recordEvents, type MutationEventInput } from '..
 
 export const mutationsRouter: Router = Router();
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SOURCE_SHAPE = /^[a-z0-9][a-z0-9._-]{0,39}$/;
 const REVERT_MAX_EVENTS = 500;
 
 // ── Row shapes ───────────────────────────────────────────────────────────────

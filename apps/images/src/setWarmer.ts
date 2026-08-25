@@ -8,6 +8,7 @@ import {
   type SetImageKind,
 } from './layout.js';
 import { closePool, getStoredEtag, listSetImageSources } from './assets.js';
+import { parallelMap } from './parallel.js';
 import { ensureRecorded, fromUrl, putAsset } from './store.js';
 
 /**
@@ -111,17 +112,6 @@ async function runTask(t: Task, st: Stats, dryRun: boolean): Promise<void> {
       process.stderr.write(`[set-warmer] ERROR ${url}: ${result.reason}\n`);
       break;
   }
-}
-
-async function parallelMap(tasks: Task[], width: number, fn: (t: Task) => Promise<void>): Promise<void> {
-  let idx = 0;
-  const workers = Array.from({ length: Math.min(width, tasks.length) }, async () => {
-    while (idx < tasks.length) {
-      const my = idx++;
-      await fn(tasks[my]!);
-    }
-  });
-  await Promise.all(workers);
 }
 
 export interface SetWarmOptions {

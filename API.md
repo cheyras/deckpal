@@ -2,6 +2,13 @@
 
 The React frontend's contract. TypeScript/Express, ~55 routes.
 
+**Scope.** This documents the surface the web frontend's data layer consumes.
+Registered on the same app but documented elsewhere, not repeated here: OAuth
+2.1 + personal-access-token management (`/oauth`, `/tokens`) in
+`apps/mcp/SPEC.md`; Deck-E's history and owner-gate/account routes (`/decke`,
+`/me`) — and his chat function (`api/chat.mjs`) — in `DECKE-AGENT-SPEC.md`;
+the profile-avatar routes (`/avatar`) in `DECISIONS.md` 2026-08-10.
+
 **Deployment modes:**
 
 | Mode | Base path | Port | Auth boundary |
@@ -18,14 +25,20 @@ exports), the **collection write endpoints** (§Collection) that mutate
 `user_set_progress` rows in one transaction, list/deck CRUD, the deck engine
 (validate / import / export / test-hand / pricing / versions / battle logs),
 the insights/gamification router, a perceptual-hash card scanner, and an
-in-app bug reporter. All queries parameterized, connection budget **2** (shared
-`@deckpal/db` pool, hard-capped at 3).
+in-app bug reporter. All queries parameterized; pool sizing is role- and
+backend-aware — see `AGENTS.md` B2 (a direct-Postgres self-host keeps the
+historical cap of 3).
 
 Base path: **`/deckpal/api`** (self-host) or **`/api`** (Vercel). Examples below
 omit the host.
 
 ## Conventions
 
+- **Identity.** Every request resolves to one `user_id`, and every per-user read
+  and write below is scoped to it — "the requesting user". Cloud mode: the
+  Supabase JWT (or personal access token) names the user (§Authentication).
+  Self-host mode: no built-in auth — the reverse proxy is the auth boundary,
+  and every request maps to the single local user.
 - **Money.** Prices are per `(variant, source, currency)`. Amounts are returned in
   **major units** (e.g. `800.43`) with a `currency` code. A missing price is
   `null` / an empty `prices` array — **never `0`**. Every price carries `pricedAt`
@@ -42,7 +55,7 @@ omit the host.
   `checklist.pdf` paths resolve to the PDF renderer (those routers define no such
   routes — explicit ordering removes the ambiguity). Rendered with pdfkit
   (pure-JS/ARM-safe); `private, no-cache`.
-- **Progress.** Read from `user_set_progress` for the single default user. **Complete
+- **Progress.** Read from `user_set_progress` for the requesting user. **Complete
   is a card fraction; Master and Grandmaster are `(card,variant)` pair fractions** —
   the three totals differ (e.g. sv03.5: 207 / 373 / 384). `pct` is one-decimal,
   round-half-up. `setLevel` (0–5) is on the Complete goal only.
@@ -105,7 +118,7 @@ DB liveness + latest run per sync job. Never cached.
 
 ## GET /deckpal/api/series
 The English-catalogue series list (newest-era ordering via `sortOrder`), each with
-the default user's per-series completion rollup (owned/total cards summed across
+the requesting user's per-series completion rollup (owned/total cards summed across
 the series' sets for the Complete goal, from the materialised `user_set_progress`).
 Pokémon TCG Pocket (`tcgp`) is a separate game and is excluded. `private` cached.
 ```json
@@ -119,7 +132,7 @@ Pokémon TCG Pocket (`tcgp`) is a separate game and is excluded. `private` cache
 sharing the series name, else the earliest non-promo set with a logo).
 
 ## GET /deckpal/api/series/:seriesSlug
-Sets in a series, each with the three-goal completion summary for the default user.
+Sets in a series, each with the three-goal completion summary for the requesting user.
 Zero-card catalogue artifacts (e.g. `base/wp`, `miscellaneous/jumbo`) are hidden.
 ```json
 { "series": { "slug": "base", "tcgdexId": "base", "name": "Base", "firstReleaseOn": … },
@@ -209,7 +222,7 @@ sources/currencies.
 `tier`: `standard` counts toward Master; `special` is Grandmaster-only.
 `source:"tcgcsv"` variants are cross-filled reverse holos and count for real.
 Empty `prices` ⇒ render "no price". `buyUrl` is `null` when there is no TCGplayer
-mapping at all. `quantity` is the default user's owned count of that variant (0 if
+mapping at all. `quantity` is the requesting user's owned count of that variant (0 if
 unowned) — the initial value for the card-detail quantity stepper.
 
 ## GET /deckpal/api/search
@@ -269,7 +282,7 @@ National-dex species list.
 ```
 `totalCardCount` is computed live from `card_species` (the stored
 `dex_species.total_card_count` column is unpopulated — 0 everywhere). `captured`
-= the default user owns ≥1 card featuring the species.
+= the requesting user owns ≥1 card featuring the species.
 
 ## GET /deckpal/api/dex/:speciesId
 A species and every card featuring it (card→species is many-to-many, so tag-team
@@ -288,8 +301,7 @@ cards appear on both species). `sort` = `number`\|`price`\|`rarity`\|`artist`\|
 
 ## Collection — mutation & activity log
 
-The only writers against `collection_item`. The single default user owns the
-collection (no auth in self-host; reverse proxy is the ingress). Each mutation runs in
+The only writers against `collection_item`. Each mutation runs in
 **one transaction**: upsert `collection_item` to the new quantity, append a
 `collection_event` for the non-zero delta, then **recompute the affected set's
 three `user_set_progress` rows** and return them authoritatively. Idempotent
@@ -339,7 +351,7 @@ Internal nightly consistency sweep — recomputes the three `user_set_progress` 
 for **every** set that has progress rows, from the live catalog + collection
 (bumps `recomputed_at` AND `reconciled_at`). On a quiet system this never changes
 derived values; it exists to heal drift. One transaction per set, strictly
-sequential (connection budget: the API owns 2 connections total). Called by the
+sequential (the API's request pool is deliberately small — `AGENTS.md` B2). Called by the
 deckpal-sync `reconcile` cron over HTTP. Any request body is ignored.
 ```json
 { "sets": 218, "ms": 412 }
@@ -386,12 +398,12 @@ static, pokedex_binder}`):
 - **pokedex_binder** — one slot per dex species (`list_item.dex_id`). Read-through
   "captured?" from the collection (owns ≥1 card of that species).
 
-Single default user, `user_id` threaded everywhere. Writes go through `withTx` so
+The requesting user's `user_id` is threaded everywhere. Writes go through `withTx` so
 the item write + position bookkeeping are atomic. `:id` is a UUID;
 `400`-as-`404` on a non-UUID id.
 
 ### GET /deckpal/api/lists
-All lists for the default user, favorite-first then `updated_at DESC`, each with
+All lists for the requesting user, favorite-first then `updated_at DESC`, each with
 summary aggregates.
 ```json
 { "lists": [ { "id": "47333f45-…", "kind": "dynamic", "name": "Wants",
@@ -473,7 +485,7 @@ Persistence + validation + interchange on top of the verified deck engine in
 `apps/api/src/deck`. `deck` is keyed by UUID; `deck_card` is **variant-agnostic**
 (keyed by `card.id`, a print — same print on two import lines is summed).
 Unresolved import lines cannot be stored (`card_id NOT NULL`, FK) and are reported
-to the caller, never dropped silently. Single default user; every write carries
+to the caller, never dropped silently. Every write carries
 optional `source` attribution and (for card ops + format-changing `PATCH`) a
 `versionNote` that lands on the `deck_version` row.
 
@@ -797,7 +809,7 @@ Collection value over time + top movers. Query: `range` =
 
 ### POST /deckpal/api/insights/value/snapshot
 Internal daily snapshot — appends today's per-currency totals to
-`collection_value_point` for the default user. Idempotent per
+`collection_value_point` for the requesting user. Idempotent per
 `(user, observed_on, currency)`: a same-day re-run inserts nothing
 (`ON CONFLICT DO NOTHING`) and reports `inserted: 0`. Any request body is
 ignored. Returns the snapshot result (`{ currencies, inserted, observedOn }`).

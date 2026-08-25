@@ -20,7 +20,7 @@ import {
 } from './types.js';
 import { normalizeName } from '../catalog/transform.js';
 import type { Queryable } from './db.js';
-import { fetchGroupPrices, writeSetPrices, resolveSets } from './tcgcsv.js';
+import { fetchGroupPrices, writeSetPrices } from './tcgcsv.js';
 
 const BASE = 'https://tcgcsv.com/tcgplayer/3';
 const REVERSE_KIND = 'reverse'; // variantKindCode({finish:'reverse', …}) — deterministic
@@ -175,6 +175,3 @@ export async function crossFillReverse(client: Queryable, opts: CrossFillOpts = 
 
   return { byEra, totalFilled, controlAdditions, pricedObservations };
 }
-
-// keep resolveSets imported so the CLI can share set resolution
-export { resolveSets };

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
+import { FINISHES, GOALS } from '../shared.js';
 
 /**
  * `set_cart` — TCGplayer Mass Entry deep links, built from a set, a saved list,
@@ -31,9 +32,6 @@ import { fail, ok } from '../result.js';
  * reported as unlinkable instead of being guessed at, because a guess that
  * misses would take the whole cart down with it.
  */
-
-const GOALS = ['complete', 'master', 'grandmaster'] as const;
-const FINISHES = ['normal', 'reverse', 'holo', 'lenticular', 'metal'] as const;
 
 interface CartResponse {
   source: 'set' | 'list' | 'items';

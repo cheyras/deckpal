@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { pool, q, q1 } from '../db.js';
-import { asyncHandler, notFound } from '../http.js';
+import { asyncHandler, notFound, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import {
-  validateDeck, buildReprintOracle, formatConfig, setAliases, normalizeName,
+  validateDeck, buildReprintOracle, formatConfig, normalizeName, ptcglCodeForSet,
   type FormatCode, type PokemonType, type CardFacts, type Deck, type DeckEntry, type Section,
 } from '../deck/index.js';
 import {
@@ -25,19 +25,6 @@ import {
  */
 
 export const exportRouter: Router = Router();
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// tcgdex set id -> PTCGL set code (reverse of resolveSetAlias), for the deck list
-// reference column. Built once; prefer the 'main' printing of a code.
-const REVERSE_ALIAS: Map<string, string> = (() => {
-  const m = new Map<string, string>();
-  for (const [ptcgl, a] of Object.entries(setAliases())) {
-    if (!a.set) continue;
-    if (!m.has(a.set) || a.kind === 'main') m.set(a.set, ptcgl);
-  }
-  return m;
-})();
 
 const nowStamp = (): string => new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 
@@ -168,7 +155,9 @@ exportRouter.get(
     const toLine = (r: DeckCardRow): DeckLine => ({
       quantity: r.quantity,
       name: r.name,
-      setCode: REVERSE_ALIAS.get(r.set_tcgdex_id) ?? r.set_tcgdex_id.toUpperCase(),
+      // PTCGL set code for the deck list reference column (the engine's own
+      // reverse-alias map — prefers the 'main' printing of a code).
+      setCode: ptcglCodeForSet(r.set_tcgdex_id)?.code ?? r.set_tcgdex_id.toUpperCase(),
       number: r.local_id,
       owned: Number(r.owned_qty),
     });

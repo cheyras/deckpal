@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import type pg from 'pg';
 import { cardImages, pool, q, q1, toMajor, tcgplayerUrl, withTx } from '../db.js';
-import { asyncHandler, badRequest, clampInt, notFound, oneOf, str, userCache } from '../http.js';
+import { asyncHandler, badRequest, clampInt, notFound, oneOf, parseName, parseOptText, str, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { recordDeckChange, recordStrategyChange, type SnapshotEntry } from '../deck/versions.js';
-import { closeBatch, openBatch, OPS, recordEvents } from '../mutations.js';
+import { closeBatch, openBatch, OPS, parseSource, recordEvents } from '../mutations.js';
 import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
 import { parseBattleLog } from '../deck/battlelog.js';
 import {
@@ -44,9 +44,7 @@ export const decksRouter: Router = Router();
  */
 
 const FORMATS = ['standard', 'expanded', 'glc', 'unlimited'] as const;
-const NAME_MAX = 120;
 const DESC_MAX = 2000;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function parseFormat(v: unknown, fallback: FormatCode = 'standard'): FormatCode {
   return oneOf<FormatCode>(v, FORMATS, fallback);
@@ -57,44 +55,16 @@ function parseGlcType(v: unknown): PokemonType | null {
   const hit = glcTypes().find((t) => t.toLowerCase() === s.toLowerCase());
   return hit ?? null;
 }
-function parseName(v: unknown, required = true): string {
-  const s = typeof v === 'string' ? v.trim() : '';
-  if (!s) {
-    if (required) throw badRequest('name is required');
-    return '';
-  }
-  if (s.length > NAME_MAX) throw badRequest(`name must be ≤ ${NAME_MAX} chars`);
-  return s;
-}
-function parseOptText(v: unknown, max: number, field: string): string | null {
-  if (v === undefined || v === null) return null;
-  if (typeof v !== 'string') throw badRequest(`${field} must be a string`);
-  const s = v.trim();
-  if (!s) return null;
-  if (s.length > max) throw badRequest(`${field} must be ≤ ${max} chars`);
-  return s;
-}
 function parseDeckId(v: string): string {
   if (!UUID_RE.test(v)) throw notFound(`No deck '${v}'`);
   return v;
 }
 
 // ── Attribution + version notes (migration 019) ───────────────────────────────
-// Every deck write carries WHO wrote it (source) — same shape/validation as
-// collection.ts parseSource, mirroring the DB CHECKs so a bad value is a 400,
-// never a 500 from Postgres. Card ops also accept an optional versionNote that
-// lands on the deck_version row (see deck/versions.ts).
-
-const SOURCE_SHAPE = /^[a-z0-9][a-z0-9._-]{0,39}$/;
-
-/** Writer attribution for a deck write; omitted → 'web' (the column default). */
-function parseSource(v: unknown): string {
-  if (v === undefined || v === null) return 'web';
-  if (typeof v !== 'string' || !SOURCE_SHAPE.test(v)) {
-    throw badRequest("source must match ^[a-z0-9][a-z0-9._-]{0,39}$ (e.g. 'web', 'deckpal-mcp')");
-  }
-  return v;
-}
+// Every deck write carries WHO wrote it (source) — the shared parseSource in
+// ../mutations.ts, mirroring the DB CHECKs so a bad value is a 400, never a 500
+// from Postgres. Card ops also accept an optional versionNote that lands on the
+// deck_version row (see deck/versions.ts).
 
 /** Optional free-text note: trimmed, length-capped, empty → null (never stored as ''). */
 function parseNoteText(v: unknown, max: number, field: string): string | null {

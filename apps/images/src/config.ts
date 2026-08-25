@@ -24,7 +24,8 @@ function repoRoot(): string {
  * bare `tsx` run behaves identically to a managed process.
  */
 
-// On-disk cache root. Wired in .env + ecosystem.config.cjs as IMAGE_CACHE_ROOT.
+// On-disk cache root. Wired as IMAGE_CACHE_ROOT in the repo .env (and whatever
+// env the process manager passes through).
 // It sits on the same filesystem as the repo and is gitignored (`cache/` and
 // `**/*.webp` in .gitignore). DATA-LAYER §5.3 draws the layout under `data/`,
 // but the shipped wiring points at `cache/`; we honour the wiring — the sub-tree

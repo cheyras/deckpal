@@ -18,6 +18,17 @@ export function fmtUsd(n: number | null | undefined): string {
   return USD.format(n)
 }
 
+// A number in an explicit currency (Insights, ValueChart). `maximumFractionDigits`
+// is threaded through untouched — passing `undefined` is spec-identical to
+// omitting it — so each call site keeps its exact Intl options.
+export function fmtMoney(v: number, currency: string, maximumFractionDigits?: number): string {
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits }).format(v)
+  } catch {
+    return `${v} ${currency}`
+  }
+}
+
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—'
   const d = new Date(iso)

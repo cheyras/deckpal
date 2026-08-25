@@ -54,7 +54,8 @@ For the database itself, either works:
 - **Supabase CLI** (matches the cloud path — auth and RLS): `supabase init && supabase start`.
   The CLI prints the local URL, anon key, and service role key.
 - **Plain Postgres 15+** (simpler; the self-host path): a dedicated database and
-  role. Skip the Supabase-only migrations (021+). See [DEPLOYMENT.md](DEPLOYMENT.md).
+  role. The runner auto-skips migrations marked `-- @supabase-only` when
+  `SUPABASE_MODE` is unset. See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 Point the dev server at any other deployment — a preview URL, a fork's — with
 `DECKPAL_DEV_ORIGIN=https://...`.
@@ -117,7 +118,8 @@ Before marking a PR ready for review:
       screenshots attached
 - [ ] Migrations: new file only, never edited a shipped `.sql` file
 - [ ] `DECISIONS.md` entry added if the change involves a non-trivial decision
-- [ ] `research/SCHEMA.md` updated if the schema changed
+- [ ] `ARCHITECTURE.md` updated if the schema changed (the schema of record is
+      `packages/db/src/migrations/`)
 
 ## Attribution
 

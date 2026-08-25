@@ -16,6 +16,7 @@ import {
   parseSource,
   recordEvents,
   ReplayError,
+  SOURCE_SHAPE,
   type MutationEventInput,
 } from '../mutations.js';
 
@@ -80,10 +81,9 @@ function parseDelta(v: unknown): number {
   return n;
 }
 
-// Attribution (migration 018) — `parseSource` / `parseNote` live in
-// ../mutations.ts now, because every mutating route needs them, not just this one.
-
-const SOURCE_SHAPE = /^[a-z0-9][a-z0-9._-]{0,39}$/;
+// Attribution (migration 018) — `parseSource` / `parseNote` / `SOURCE_SHAPE`
+// live in ../mutations.ts now, because every mutating route needs them, not
+// just this one.
 
 /**
  * Apply a new absolute quantity to (user, variant) and recompute set progress, all
