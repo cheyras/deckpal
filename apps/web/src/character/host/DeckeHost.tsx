@@ -1293,6 +1293,20 @@ export function DeckeHost() {
           const hdr = await runtime.loadEnvironment(import.meta.env.BASE_URL)
           if (cancelled) return
           decke.setEnvironment(hdr)
+          // AND THEN COMPILE HIS SHADERS, before anything tries to draw with
+          // them. This is the expensive step — 6.2 s of a thread that never
+          // yields on a fast GPU, against 34 ms to load the glb — and it is
+          // what "it chugs when I hover" was. See `DeckE.precompile`.
+          //
+          // Awaited on purpose. Warming is a hover, so this time is spent
+          // before the reader has clicked anything; going to 'ready' first
+          // would only move the stall to the moment the panel opens.
+          //
+          // AFTER `setEnvironment`, never before: the environment map changes
+          // the program define set, and compiling first would compile the wrong
+          // variants and recompile every one of them on the first real frame.
+          await decke.precompile()
+          if (cancelled) return
         } catch {
           if (!cancelled) setPhase('failed')
           return

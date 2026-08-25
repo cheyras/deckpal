@@ -245,6 +245,12 @@ export default function Decke() {
         )
         if (cancelled) return
         decke.setEnvironment(hdr)
+        // Shader compilation, off the main thread, before the first frame asks
+        // for it. On this scene that is 6.2 s of blocking against 0.7 s of
+        // background work — see `DeckE.precompile`. After `setEnvironment`,
+        // never before.
+        await decke.precompile()
+        if (cancelled) return
         decke.start()
         setStatus('ready')
         // THE CARDS HE IS HOLDING ARE THE USER'S OWN, from the first frame. Not

@@ -239,6 +239,26 @@ Each of these cost someone a debugging pass, upstream or here.
   `sampleTrack` must index by progress. `(tMs / 1000) * FPS` is the same thing
   only at a rate of 1; when they disagree the past-the-end guard fires
   early and he teleports the rest of the leg, with every duration still correct.
+- **The slow part of putting him on screen is SHADER COMPILATION, not the
+  assets.** Measured end to end on an RTX 5080 with a cold shader cache: **7.4
+  seconds** to the first frame, of which loading the glb was 36 ms. The scene
+  needs 12 distinct programs and `WebGLRenderer` compiles and links each one
+  synchronously inside the first `render()`. `DeckE.precompile()` — call it
+  after `setEnvironment` and before `start()` — hands that to the driver's own
+  threads via `KHR_parallel_shader_compile`, and the same measurement becomes
+  **0.95 s** with no stall over 400 ms.
+
+  Two traps when measuring this. **Chrome caches linked programs on disk**, so
+  the second run in a profile measures the cache and not the work — 7.4 s and
+  575 ms are the same code, and only a fresh browser profile per run tells you
+  which you are looking at. And **headless has no GPU**: SwiftShader compiles
+  these in 1.4 s and reports `KHR_parallel_shader_compile: false`, so it both
+  understates the problem and cannot exercise the fix.
+
+  What is left after that is PMREM, at **329 ms** cold and ~14 ms warm — its own
+  shader compile, cached the same way. It cannot be hidden by reordering; there
+  is nothing substantial to overlap it with. Removing it means shipping a
+  precomputed cubemap instead of prefiltering at load.
 - **Headless Chromium runs rAF at about 1 Hz**, so his loop is frozen and
   `await`ing a wall-clock delay measures a still frame. Stop the loop and step it:
   `d.stop()`, then `d.elapsed += 1/60; d.update(1/60)`. A float measurement taken
