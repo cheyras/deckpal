@@ -131,6 +131,44 @@ had taught him to ask wrongly.
   that always answered false — it now calls it.
 - The repeat ledger, the repair log and the declined set are all per request and
   never module state. A shared one would be a cross-account read.
+
+### What the adversarial review found, before merge
+
+The finished branch built, typechecked and passed every suite. It was reviewed
+hostilely anyway, and that found **two production incidents CI could not see**.
+Both are recorded because both are the same shape: a change that is correct in
+the case it was written for and destructive one step outside it.
+
+1. **The resolver broke RESTORE.** `GET /decks` and `GET /lists` exclude
+   soft-deleted rows, and resolution had been inserted in FRONT of the restore
+   branch in `delete_deck` and `edit_list`. A deleted deck's own uuid matched no
+   live row, `UUID_RE` correctly refused to fuzz it into a name, and the handler
+   failed before reaching `POST /:id/restore`. `delete_deck`'s own success
+   message tells the reader how to undo it — and following that instruction
+   answered "No deck matches". Migration 038 exists so that "an agent deleted my
+   deck" is recoverable; this made it unrecoverable from the agent surface.
+   A restore now resolves against the bin (`deleted: true`).
+
+2. **`strict` was not exact for non-Latin names.** `foldName` stripped
+   everything outside `[a-z0-9]`, which deletes Japanese, Chinese, Korean,
+   Cyrillic and Greek entirely — so every such name folded to `''` and two
+   unrelated names compared EQUAL under the one flag standing between a fuzzy
+   match and a rewritten deck. On a catalogue for a Japanese game. Fixed with
+   `\p{L}\p{N}`, a blank-fold guard, and NFC recomposition so a dakuten is not
+   read as punctuation.
+
+**The rule this adds, and it is the general one:** a fold or a normalisation is
+an equality claim, and any input it maps to the empty string is an input it
+claims is equal to every other such input. Guard the degenerate output, not just
+the interesting one.
+
+Four smaller findings fixed in the same commit: `repairToolCall` clamped strings
+on all 36 tools while only `showScreen` reported it (a stored strategy guide
+would have been silently truncated — allowlisted now); a declined write still
+ran its dry run and emitted an orphan approval preview; `battle_logs` printed
+logs with no deck named after a loose match; and two sed-rename artifacts leaked
+an internal variable name into tool output.
+
 ## 2026-08-25 — The entrance grows while it hops, the arrival stops flinching, and he stops swelling on the way home
 **Decided by:** Claude, on the owner's report against the pass merged earlier
 the same day: *"he's still doing a lot of unnecessary little turns when he
