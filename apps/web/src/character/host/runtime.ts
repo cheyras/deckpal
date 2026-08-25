@@ -1,16 +1,23 @@
 /**
  * Getting the character into the page without making everyone pay for him.
  *
- * The engine is expensive in a way no amount of care in `character/decke/`
- * can fix: ~945 kB of three.js plus 5.7 MB of assets (2.85 MB glb, 1.57 MB
- * HDRI, 1.05 MB SDF atlas). Two of those are load-bearing at their current
- * size and cannot be shrunk — the glb must not be quantized (`riders.ts`
- * overwrites node TRS, so `KHR_mesh_quantization`'s de-quantisation transform
- * is destroyed and `Hinge_Pin_R` inflates into a cylinder wider than the
- * character), and the SDF atlas must stay 16-bit (the eye shader maps the glyph
- * edge over a band 0.0035 wide, narrower than one 8-bit step, so the whole
- * antialiased edge collapses to one quantisation level). Both are documented in
- * `character/decke/README.md` and both were paid for in debugging.
+ * The engine is expensive: ~960 kB of three.js plus 740 kB of assets over the
+ * wire (592 kB glb, 288 kB SDF atlas, 103 kB HDRI). Both of the "cannot be
+ * shrunk" claims that used to be in this comment turned out to be false and
+ * were fixed on 2026-08-24 — the glb IS quantized now (the de-quantisation
+ * rides a wrapper node, so `riders.ts` can keep overwriting the rig node's TRS)
+ * and the SDF atlas IS 8-bit (the browser's image decoder truncated it to 8
+ * bits before the GPU ever saw it, so the 16 bits were never reaching anything).
+ * See `character/decke/README.md` and DECISIONS.md.
+ *
+ * THE BYTES ARE NOT THE SLOW PART, AND CUTTING THEM 4.2 MB -> 0.74 MB CHANGED
+ * NOTHING THE READER COULD FEEL. Measured end to end on an RTX 5080, cold
+ * shader cache: 7.4 SECONDS to first frame, of which the glb accounted for 36
+ * ms. Essentially all of it was `WebGLRenderer` compiling and linking the
+ * scene's 12 shader programs synchronously inside the first `render()`.
+ * `DeckE.precompile()` moves that onto the driver's own threads and the same
+ * measurement is 0.95 s. Anyone tempted to make the character load faster
+ * should read that method's comment BEFORE looking at asset sizes again.
  *
  * So: nothing here is imported statically. `import()` defers the entire cost to
  * the moment someone is actually going to see him, and `vite.config.ts` pins

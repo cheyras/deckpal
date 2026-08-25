@@ -2270,6 +2270,50 @@ export class DeckE {
 
   // ------------------------------------------------------------------ loop
 
+  /**
+   * Compile every shader program the scene needs BEFORE the first frame tries
+   * to draw with them.
+   *
+   * THIS IS THE SINGLE BIGGEST COST OF PUTTING HIM ON SCREEN, and it is not the
+   * download. Measured on an RTX 5080 through ANGLE/D3D11, with the whole
+   * payload already in memory:
+   *
+   *   import the module        84 ms
+   *   construct the renderer   40 ms
+   *   load() — glb, atlas…     34 ms
+   *   HDRI fetch + parse        7 ms
+   *   PMREM prefilter         326 ms
+   *   FIRST FRAME            6184 ms   <-- all of it shader compilation
+   *   second frame              1 ms
+   *
+   * The scene needs 12 distinct programs (the eye shader, the clearcoated body,
+   * the iridescent card fronts, and the morph/non-morph variants of several of
+   * those), and `WebGLRenderer` compiles and links each one synchronously the
+   * first time it is asked to draw with it. Six seconds of a thread that never
+   * yields, which is exactly what "it chugs when I hover" is.
+   *
+   * `compileAsync` compiles the same programs through
+   * `KHR_parallel_shader_compile`, which lets the driver do the work on its own
+   * threads while this one keeps answering. Same machine, same scene: **720 ms,
+   * with a worst main-thread stall of 16 ms**, and a 53 ms first frame after it.
+   *
+   * ORDER MATTERS. Call this AFTER `setEnvironment`, never before: an
+   * environment map changes the program's define set, so compiling first would
+   * compile the wrong variants and every one of them would be compiled again on
+   * the first real frame — strictly worse than not calling this at all.
+   *
+   * Never throws. Where the extension is missing (a software rasteriser, an old
+   * driver) this degrades to what happened before — compilation on the first
+   * frame — and a failure to PRE-compile must not be a failure to appear.
+   */
+  async precompile(): Promise<void> {
+    try {
+      await this.stage.renderer.compileAsync(this.stage.scene, this.stage.camera)
+    } catch {
+      /* Falls back to compiling on the first frame, as it always did. */
+    }
+  }
+
   start() {
     this.clock.start()
     const tick = () => {
