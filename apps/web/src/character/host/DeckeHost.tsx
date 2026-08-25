@@ -153,15 +153,44 @@ const EXIT_GUARD_MS = 3000
  * and a fixed number is also simply wrong on a slow first paint, where the
  * sheet is still mid-translate when it fires (probed: the park box read at
  * y≈1038 of a 664 px viewport, and he flew off the bottom). He grows at the
- * launcher from frame zero now, and the park is launched by watching the
- * mark's rect settle: STEP is the poll cadence, MIN is the floor (a cut
- * entrance still gets a readable beat at the chip), CAP is the give-up bound
- * after which he parks against whatever the page is doing and the composer
- * watch takes it from there.
+ * launcher from frame zero now, and the park is launched as soon as the mark is
+ * ON SCREEN: STEP is the poll cadence and CAP is the give-up bound after which
+ * he parks against whatever the page is doing and the composer watch takes it
+ * from there.
+ *
+ * ── THE FLOOR IS GONE, AND THE AGREEMENT TEST WITH IT ────────────────────────
+ *
+ * There used to be a `MIN` of 240 ms and a requirement that two consecutive
+ * reads agree, so the leg did not start until the panel had stopped moving.
+ * Both are what made the entrance SEQUENTIAL: the grow takes about 245 ms and
+ * the settle about 345, so he finished growing and then stood at full size on
+ * the chip for a beat before setting off. Measured on this build, three runs
+ * out of three: full size 100 ms before the leg started. The owner, watching
+ * it: *"He's growing out of the button THEN moving — i want him to grow as
+ * he's hopping out of the button so it feels quicker."*
+ *
+ * That earlier version had a real reason — a rect read mid-transform aims him
+ * at a place the mark is still leaving — and the reason is answered rather than
+ * ignored: the leg now launches at the first ON-SCREEN read and is STEERED, by
+ * `DeckE.restation()` on every frame of `PARK_CHASE_MS`, onto wherever the mark
+ * finishes. `syncStation` folds that into the arc it is already flying instead
+ * of launching a second hop. The off-viewport guard (`!`) is untouched, because
+ * "the mark is not on screen yet" is a different claim from "the mark is still
+ * moving", and only the first is a reason to wait.
  */
 const PARK_SETTLE_STEP_MS = 90
-const PARK_SETTLE_MIN_MS = 240
 const PARK_SETTLE_CAP_MS = 2400
+
+/**
+ * How long the entrance keeps re-solving its destination after launching, in ms.
+ *
+ * Long enough to cover the panel's own entrance — the composer's drop is a
+ * 360 ms keyframe animation (`decke-composer-drop`) and the sheet's translate is
+ * shorter — with margin, and it costs one `querySelector` and one solve per
+ * frame while it runs. It stops on its own; it is not tied to the flight, which
+ * may be shorter or longer than the panel's animation.
+ */
+const PARK_CHASE_MS = 600
 
 /**
  * How long the speech bubble stays after his last line, per character of it.
@@ -766,6 +795,31 @@ export function DeckeHost() {
    *  race the entrance's own scheduled park. */
   const parkedRef = useRef(false)
   /**
+   * When the entrance's own park last LANDED, as a timestamp.
+   *
+   * ── WHY THE COMPOSER WATCH HAS TO KNOW ──────────────────────────────────────
+   *
+   * The watch below notices that his mark has moved and sends him after it,
+   * which is right for a composer that drops when the first message is sent and
+   * wrong for a composer that is still playing the panel's OWN entrance. Its
+   * baseline is taken when the effect mounts — the frame the chat opens — so it
+   * captures the composer mid-animation, compares that against where the
+   * composer settles, and correctly concludes it moved. Then it re-parks him.
+   *
+   * That re-park is a FLIGHT, and it lands after he has already arrived:
+   * measured on the entrance, two flights every time, the second starting
+   * 244 ms after the first one landed and moving him 8.8 px. That is the
+   * "unnecessary little turns when he arrives at his destination after a hop"
+   * the owner reports — he lands, and then a beat later hops again.
+   *
+   * The entrance already aimed him at the settled mark (it steers the leg with
+   * `restation` while the panel animates), so the movement the watch is
+   * reacting to has already been accounted for. Re-baselining the watch at the
+   * landing is what tells it so: everything before that instant was the
+   * entrance's business, and everything after it is genuinely the watch's.
+   */
+  const entranceParkedAtRef = useRef(0)
+  /**
    * While true, `measure()` must not run.
    *
    * The close flips the bottom keep-out band, which fires the ResizeObserver,
@@ -837,29 +891,72 @@ export function DeckeHost() {
             key(document.querySelector(`[${COMPOSER_LANDMARK}]`))
           )
         }
-        let last = ''
         let waited = 0
+        const launch = () => {
+          raf = requestAnimationFrame(() => {
+            measureRef.current?.()
+            // The chip→mark leg, at snap pace — the entrance is the owner's
+            // "twice as fast" leg. Every other park stays ordinary.
+            parkRef.current({ rate: SNAP_RATE })
+            parkedRef.current = true
+            // AND KEEP LOOKING. The panel is still playing its own entrance, so
+            // the mark he was just aimed at is not where it will end up. Every
+            // frame of the chase window tells the engine to look again, and
+            // `syncStation` ramps the difference into the arc he is already
+            // flying — one leg that curves onto a moving target, rather than a
+            // leg to the wrong place and a second hop to fix it.
+            //
+            // AND IT STOPS WHEN HE LANDS. `syncStation` STEERS a leg that is in
+            // the air and SNAPS the anchor when there is no leg to steer — so a
+            // chase that outlives the flight converts every remaining pixel of
+            // panel movement into a hard jump after touchdown. Measured: the
+            // post-landing displacement went 9 px to 29 px with the chase
+            // running 80 ms past the landing, which is the arrival flinch this
+            // pass is supposed to be removing, re-introduced by the fix for the
+            // entrance. The window is a CAP, not the mechanism; the landing is
+            // the mechanism.
+            const until = Date.now() + PARK_CHASE_MS
+            const chase = () => {
+              const d = deckeRef.current
+              if (!d) return
+              let flying = false
+              try {
+                flying = d.getState().flying
+                if (flying) d.restation()
+              } catch {
+                /* an engine mid-teardown must not take the entrance with it */
+              }
+              if (flying && Date.now() < until) {
+                raf = requestAnimationFrame(chase)
+                return
+              }
+              // The leg is down (or the cap expired). Everything the composer
+              // did up to this instant was the panel's entrance and is already
+              // in his arc; the watch starts counting from here.
+              entranceParkedAtRef.current = Date.now()
+            }
+            raf = requestAnimationFrame(chase)
+          })
+        }
         const tick = () => {
           waited += PARK_SETTLE_STEP_MS
+          // ON SCREEN IS THE ONLY TEST. Not "has it stopped moving" — see the
+          // constants above for why that wait was the whole defect.
           const now = read()
-          const settled = now === last && !now.includes('!')
-          last = now
-          // At the cap he parks REGARDLESS — `park()` itself now refuses an
-          // off-screen landmark and takes the fraction fallback, and the
-          // composer watch re-parks him onto the real mark once it settles.
-          if ((settled && waited >= PARK_SETTLE_MIN_MS) || waited >= PARK_SETTLE_CAP_MS) {
-            raf = requestAnimationFrame(() => {
-              measureRef.current?.()
-              // The chip→mark leg, at snap pace — the entrance is the owner's
-              // "twice as fast" leg. Every other park stays ordinary.
-              parkRef.current({ rate: SNAP_RATE })
-              parkedRef.current = true
-            })
+          if (!now.includes('!') || waited >= PARK_SETTLE_CAP_MS) {
+            launch()
             return
           }
           t = window.setTimeout(tick, PARK_SETTLE_STEP_MS)
         }
-        t = window.setTimeout(tick, PARK_SETTLE_STEP_MS)
+        // THE FIRST LOOK IS THIS FRAME, not one poll interval from now. On a
+        // desktop open the mark is already laid out and measurable, so a 90 ms
+        // wait before the first read is 90 ms of him standing still for no
+        // reason at all.
+        raf = requestAnimationFrame(() => {
+          if (!read().includes('!')) launch()
+          else t = window.setTimeout(tick, PARK_SETTLE_STEP_MS)
+        })
       }
       if (presenceRef.current === 'out') {
         presenceRef.current = 'in'
@@ -1135,6 +1232,10 @@ export function DeckeHost() {
     }
     let last = read()
     let settle = 0
+    // The entrance's landing re-baselines this watch — see
+    // `entranceParkedAtRef`. Without it the watch chases the panel's own
+    // entrance and lands a second flight on top of the first.
+    let baselinedAt = entranceParkedAtRef.current
     const parkNow = () => {
       const d = deckeRef.current
       if (!d) return
@@ -1155,6 +1256,12 @@ export function DeckeHost() {
       parkRef.current()
     }
     const id = window.setInterval(() => {
+      if (entranceParkedAtRef.current !== baselinedAt) {
+        baselinedAt = entranceParkedAtRef.current
+        last = read()
+        window.clearTimeout(settle)
+        return
+      }
       const was = last
       last = read()
       if (!markMoved(was, last)) return

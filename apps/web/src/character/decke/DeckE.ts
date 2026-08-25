@@ -1470,6 +1470,30 @@ export class DeckE {
     this.unpin()
   }
 
+  /**
+   * "The thing you are standing beside — or flying toward — has moved. Look
+   * again."
+   *
+   * The engine re-solves a station on its own for the events it can see: a
+   * scroll, a resize, a keep-out change, a dolly. It cannot see a PANEL
+   * ANIMATING, because that moves an element without any of those firing — and
+   * the entrance needs exactly that. The chip-to-composer leg is launched while
+   * the chat panel is still playing its own entrance, so that the grow and the
+   * hop overlap; the composer is then a hundred pixels from where it will end
+   * up, and something has to keep pointing him at it.
+   *
+   * `syncStation` has always known how to steer a leg already in the air — it
+   * differences the new destination against `trackDest` and ramps the shift in
+   * with the flight's own progress, so the correction arrives as part of the arc
+   * rather than as a second hop. This is the switch that lets a caller who KNOWS
+   * something moved say so, which is what makes launching the leg early safe.
+   * Cheap: one `querySelector` and a solve on the next frame, and nothing at all
+   * if the station is `home`.
+   */
+  restation() {
+    this.stationDirty = true
+  }
+
   /** The live entrance scale on the rig root. 1 unless a `playEntry` is running
    *  or a caller has pinned it. See `entry.ts`. */
   get entryScale(): number {
