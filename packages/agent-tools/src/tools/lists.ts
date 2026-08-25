@@ -343,13 +343,16 @@ const editListTool = defineTool({
       let resolvedId: string | null = null;
       const givenList = presentRef(list_id);
       if (givenList) {
-        const picked = await needList(ctx, givenList, { strict: true });
+        // `deleted: restore` — a list being RESTORED is in the recycle bin, and
+        // the live index excludes it. Without this the restore route documented
+        // in `delete_list`'s own success message could never resolve.
+        const picked = await needList(ctx, givenList, { strict: true, deleted: restore });
         if (!picked.ok) return fail(picked.message);
         resolvedId = picked.value.id;
       }
 
       if (restore) {
-        if (!resolvedId) return fail('restore needs resolvedId.');
+        if (!resolvedId) return fail('restore needs list_id.');
         if (dry_run) {
           return ok(`DRY RUN — would restore deleted list ${resolvedId}.\nRe-run with dry_run: false to restore.`);
         }
@@ -375,7 +378,7 @@ const editListTool = defineTool({
       let missingPreview: { wouldAdd: number; items: Array<{ label: string }> } | null = null;
       if (add_missing) {
         if (!resolvedId) {
-          return fail('add_missing needs an existing resolvedId — create the list first, then add to it.');
+          return fail('add_missing needs an existing list_id — create the list first, then add to it.');
         }
         missingPreview = (await ctx.api.send('POST', `/lists/${encodeURIComponent(resolvedId)}/items/bulk`, {
           addMissing: {

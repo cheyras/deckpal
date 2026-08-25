@@ -102,6 +102,27 @@ export interface ResolveOptions {
   strict?: boolean;
   /** How many candidates to offer. More than a handful is not a choice, it is a list. */
   limit?: number;
+  /**
+   * Look in the RECYCLE BIN instead of the live index. Decks and lists only.
+   *
+   * ── WHY THIS EXISTS: THE RESOLVER BROKE RESTORE ────────────────────────────
+   *
+   * `GET /decks` and `GET /lists` exclude soft-deleted rows unless asked
+   * (`?deleted=true`). Resolution was inserted in FRONT of the restore branch in
+   * `delete_deck` and `edit_list` — so a deleted deck's own uuid matched no live
+   * row, `UUID_RE` correctly refused to fuzz it into a name, and the handler
+   * failed before it ever reached `POST /:id/restore`.
+   *
+   * The result was worse than a missing feature: `delete_deck`'s own success
+   * message tells the reader how to undo it, and following that instruction
+   * answered "No deck matches". Migration 038 exists so that "an agent deleted my
+   * deck" is a recoverable event, and this made it unrecoverable from the agent
+   * surface — Deck-E and MCP both. Caught by an adversarial review before
+   * merge, not by any test.
+   *
+   * A restore therefore resolves against the bin, where the row actually is.
+   */
+  deleted?: boolean;
 }
 
 const LIMIT = 8;
@@ -118,7 +139,17 @@ const LIMIT = 8;
  * words, and treating one as a lookup key guarantees a failure that reads like
  * a missing record rather than like a missing argument.
  */
-const ABSENT = new Set(['', 'none', 'null', 'nil', 'undefined', 'n/a', 'na', 'unknown', 'any', '-']);
+/**
+ * NARROWED after review. This list is applied to NAMES as well as to ids, so
+ * every word on it is a name nobody can address. `unknown`, `any`, `na` and `-`
+ * were all here and are all plausible titles for a deck or a list — swallowing
+ * them bought nothing, because not one of them appears anywhere in the record.
+ *
+ * What does appear is `none` (seven times, produced by our own advice) and
+ * `None` (once), so those stay, along with the spellings a serialiser emits for
+ * a value it does not have.
+ */
+const ABSENT = new Set(['', 'none', 'null', 'nil', 'undefined']);
 
 /** `undefined` when the caller did not really give us anything. */
 export function presentRef(raw: unknown): string | undefined {
@@ -128,14 +159,62 @@ export function presentRef(raw: unknown): string | undefined {
   return ABSENT.has(s.toLowerCase()) ? undefined : s;
 }
 
-/** Casefold + strip accents + collapse punctuation, for comparing NAMES. */
+/**
+ * Casefold + strip accents + collapse punctuation, for comparing NAMES.
+ *
+ * \u2500\u2500 IT KEEPS LETTERS IN EVERY SCRIPT, AND THAT IS A SAFETY PROPERTY \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+ *
+ * This used to strip everything outside `[a-z0-9]`, which deletes the whole of
+ * Japanese, Chinese, Korean, Cyrillic and Greek. Every name written in one of
+ * those folded to the EMPTY STRING \u2014 so on this catalogue, where a deck called
+ * `\u30c9\u30e9\u30b4\u30f3\u30c7\u30c3\u30ad` is entirely ordinary, two unrelated Japanese names compared
+ * EQUAL, and `matchNamed` reported an exact unique name match between them.
+ *
+ * That defeated `strict` at the one place `strict` exists to hold: a write.
+ * Measured, against the built package:
+ *
+ *   matchNamed([\u30c9\u30e9\u30b4\u30f3\u30c7\u30c3\u30ad, Slowking Toolbox], '\u30df\u30e5\u30a6\u30c4\u30fc\u30c7\u30c3\u30ad', {strict:true})
+ *     \u2192 found: \u30c9\u30e9\u30b4\u30f3\u30c7\u30c3\u30ad          \u2190 a DIFFERENT deck, on a write path
+ *
+ * `\p{L}\p{N}` with the `u` flag keeps letters and digits in any script and
+ * drops only punctuation and symbols, so those two names now differ. The empty
+ * fold is still reachable \u2014 a name of pure punctuation folds to `''` \u2014 and
+ * `blankFold` below is what stops it matching anything.
+ */
 export function foldName(s: string): string {
-  return s
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+  return (
+    s
+      .normalize('NFD')
+      // Latin combining accents only \u2014 this range is `\u00e9`\u2192`e`, not Japanese.
+      .replace(/[\u0300-\u036f]/g, '')
+      // \u2500\u2500 RECOMPOSE BEFORE DROPPING NON-LETTERS, OR JAPANESE LOSES ITS VOICING
+      //
+      // NFD splits \u30c9 into \u30c8 + U+3099 (the dakuten). That mark is category Mn,
+      // so it is not `\p{L}` and the strip below would delete it \u2014 folding
+      // \u30c9\u30e9\u30b4\u30f3 and \u30c8\u30e9\u30b3\u30f3 to the same string, which is the same
+      // false-equality class as the `''` bug above, just narrower.
+      //
+      // NFC puts it back on the character it belongs to, so \u30c9 is one letter
+      // again and survives. It also means a precomposed \u30c9 and a decomposed
+      // \u30c8+\u309b compare equal, which is what a reader typing either would expect.
+      .normalize('NFC')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim()
+  );
+}
+
+/**
+ * A fold that carries no letters or digits, and must therefore match NOTHING.
+ *
+ * `''` compares equal to every other `''` and `'x'.startsWith('')` is true, so
+ * an unguarded empty fold is simultaneously an exact match for every other
+ * empty fold and a prefix match for every name in the index. Both were live:
+ * `'???'` resolved to a real deck under `strict`, and `'###'` fuzzy-matched a
+ * reader's only deck.
+ */
+function blankFold(folded: string): boolean {
+  return folded === '';
 }
 
 /**
@@ -164,9 +243,16 @@ export function normaliseSetId(raw: string): string[] {
   // `pt` between digits is a decimal point: sv3pt5 → sv3.5
   const depointed = base.replace(/(\d)pt(\d)/g, '$1.$2');
   out.add(depointed);
-  // Zero-pad the FIRST run of digits to two, which is how this catalog writes
-  // them: sv3.5 → sv03.5, me2 → me02. Only when it is currently one digit, so
-  // `base1` is left alone rather than becoming `base01`.
+  // Zero-pad a single leading digit to two, which is how this catalog writes
+  // them: sv3.5 → sv03.5, me2 → me02.
+  //
+  // This also produces `base01` from `base1`, which is not a real id — an
+  // earlier version of this comment claimed otherwise and was simply wrong.
+  // It costs nothing and is left in deliberately: every spelling here is only a
+  // CANDIDATE, matched with `= ANY($1)`, so the database decides which of them
+  // exists and an extra miss changes no result. Suppressing it would need this
+  // function to know which prefixes pad and which do not, which is a table it
+  // has no business carrying.
   for (const v of [...out]) {
     const m = v.match(/^([a-z]+)(\d)(\D.*)?$/);
     if (m) out.add(`${m[1]}0${m[2]}${m[3] ?? ''}`);
@@ -188,6 +274,10 @@ function rank<T>(items: readonly T[], needle: string, textOf: (t: T) => string):
 }
 
 function score(hay: string, needle: string): number {
+  // NOTHING MATCHES NOTHING. Without this, `'x'.startsWith('')` scores 80 and a
+  // reference of pure punctuation fuzzy-matches every name in the index —
+  // measured: `'###'` resolved to a reader's only deck.
+  if (blankFold(needle) || blankFold(hay)) return 0;
   if (hay === needle) return 100;
   if (hay.startsWith(needle)) return 80 - hay.length / 100;
   if (hay.includes(needle)) return 60 - hay.length / 100;
@@ -263,8 +353,8 @@ export async function resolveSet(
   //    is full of names a keyboard cannot reproduce.
   const byName = await q<SetRow>(
     ctx.db,
-    `${SET_SELECT} WHERE lower(unaccent(cs.name)) = lower(unaccent($1)) ${SET_ORDER} LIMIT ${limit + 1}`,
-    [ref],
+    `${SET_SELECT} WHERE lower(unaccent(cs.name)) = lower(unaccent($1)) ${SET_ORDER} LIMIT $2`,
+    [ref, limit + 1],
   );
   if (byName.length === 1) return { kind: 'found', value: asSet(byName[0]!), matchedBy: 'name' };
   if (byName.length > 1) return { kind: 'ambiguous', candidates: byName.slice(0, limit).map(setCandidate) };
@@ -285,14 +375,27 @@ export async function resolveSet(
   return { kind: 'not-found', nearest: [] };
 }
 
+/**
+ * `%`, `_` and `\` are LIKE metacharacters, not letters.
+ *
+ * A set called "Pokémon 151 (100%)" or a reference containing `_` would
+ * otherwise widen the pattern instead of narrowing it. Never a security
+ * problem — every value here is bound — but a wildcard the caller did not ask
+ * for is a wrong answer, and `%` alone matches the entire catalogue.
+ */
+function likeSafe(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
 async function nearestSets(ctx: Ctx, ref: string, limit: number): Promise<EntityCandidate[]> {
+  const pattern = likeSafe(ref);
   const rows = await q<SetRow>(
     ctx.db,
     `${SET_SELECT}
       WHERE unaccent(cs.name) ILIKE unaccent($1)
          OR cs.tcgdex_id ILIKE $2
-      ${SET_ORDER} LIMIT ${limit}`,
-    [`%${ref}%`, `${ref}%`],
+      ${SET_ORDER} LIMIT $3`,
+    [`%${pattern}%`, `${pattern}%`, limit],
   );
   return rank(rows.map(setCandidate), ref, (c) => c.label);
 }
@@ -325,7 +428,16 @@ export function matchNamed<T extends NamedRow>(
   if (byId) return { kind: 'found', value: byId, matchedBy: 'id' };
 
   const folded = foldName(ref);
-  const exact = rows.filter((r) => foldName(r.name) === folded);
+  // A REFERENCE WITH NO LETTERS OR DIGITS IN IT MATCHES NOTHING. `''` equals
+  // every other `''`, so without this a name of pure punctuation was an "exact
+  // unique name" match against any name that also folded blank — which, before
+  // `foldName` learned about non-Latin scripts, meant every Japanese deck name
+  // in the index, on a write path.
+  if (blankFold(folded)) return { kind: 'not-found', nearest: [] };
+  const exact = rows.filter((r) => {
+    const f = foldName(r.name);
+    return !blankFold(f) && f === folded;
+  });
   if (exact.length === 1) return { kind: 'found', value: exact[0]!, matchedBy: 'name' };
   if (exact.length > 1) return { kind: 'ambiguous', candidates: exact.slice(0, limit).map(describe) };
 
@@ -386,9 +498,15 @@ export async function resolveDeck(
 ): Promise<EntityResolution<ResolvedDeck>> {
   const ref = presentRef(raw);
   if (!ref) return { kind: 'not-found', nearest: [] };
-  const res = (await ctx.api.get('/decks')) as { decks: ResolvedDeck[] };
+  const res = (await ctx.api.get(`/decks${opts.deleted ? '?deleted=true' : ''}`)) as {
+    decks: ResolvedDeck[];
+  };
   const hit = matchNamed(res.decks ?? [], ref, deckCandidate, opts);
   if (hit.kind !== 'not-found') return hit;
+  // No cross-type hint when looking in the bin: it compares against the LIVE
+  // list index, so it would answer "that id is a LIST" about a live list while
+  // the caller is asking about a deleted deck.
+  if (opts.deleted) return hit;
   return { ...hit, crossType: await crossType(ctx, ref, 'deck') };
 }
 
@@ -400,9 +518,12 @@ export async function resolveList(
 ): Promise<EntityResolution<ResolvedList>> {
   const ref = presentRef(raw);
   if (!ref) return { kind: 'not-found', nearest: [] };
-  const res = (await ctx.api.get('/lists')) as { lists: ResolvedList[] };
+  const res = (await ctx.api.get(`/lists${opts.deleted ? '?deleted=true' : ''}`)) as {
+    lists: ResolvedList[];
+  };
   const hit = matchNamed(res.lists ?? [], ref, listCandidate, opts);
   if (hit.kind !== 'not-found') return hit;
+  if (opts.deleted) return hit;
   return { ...hit, crossType: await crossType(ctx, ref, 'list') };
 }
 

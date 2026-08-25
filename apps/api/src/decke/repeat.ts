@@ -81,10 +81,26 @@ export function callKey(name: string, args: unknown): string {
   return `${name}\u0000${stable(args)}`
 }
 
-function stable(v: unknown): string {
+/**
+ * How deep this walks before giving up.
+ *
+ * `callKey` runs over CLIENT-SUPPLIED history in `declined.ts`, and that body is
+ * arbitrary JSON. Unbounded recursion lets a crafted request blow the stack —
+ * the caller's own turn only, so a self-DoS rather than an attack on anybody
+ * else, but a request that dies before the model is reached fails with nothing
+ * attached to explain it.
+ *
+ * Nothing real is close: `log_cards`'s items are two levels deep.
+ */
+const MAX_DEPTH = 12
+
+function stable(v: unknown, depth = 0): string {
   if (v === undefined) return 'undefined'
   if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'undefined'
-  if (Array.isArray(v)) return `[${v.map(stable).join(',')}]`
+  // Deeper than anything real. Collapsed to a constant rather than thrown on:
+  // the key stays stable and comparable, which is all a dedup needs of it.
+  if (depth >= MAX_DEPTH) return '"deep"'
+  if (Array.isArray(v)) return `[${v.map((x) => stable(x, depth + 1)).join(',')}]`
   const o = v as Record<string, unknown>
   // UNDEFINED-VALUED KEYS ARE DROPPED, matching `JSON.stringify`. `{set_id:
   // 'me05'}` and `{set_id: 'me05', goal: undefined}` are the same call — zod
@@ -93,7 +109,7 @@ function stable(v: unknown): string {
   const keys = Object.keys(o)
     .filter((k) => o[k] !== undefined)
     .sort()
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stable(o[k])}`).join(',')}}`
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stable(o[k], depth + 1)}`).join(',')}}`
 }
 
 /**

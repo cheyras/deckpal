@@ -23,7 +23,12 @@ test("presentRef reads the words a model writes for 'I have no value'", () => {
   // `set_progress` told the model to "call with NO set_id" and got back
   // `set_id: 'none'` seven times in one turn — the turn that then produced no
   // answer at all.
-  for (const v of ['none', 'None', 'NONE', 'null', 'undefined', 'n/a', 'NA', '', '   ', '-', 'any', 'unknown']) {
+  //
+  // NARROWED after review. This list is applied to NAMES as well as to ids, so
+  // every word on it is a title nobody could address — see the sentinel test at
+  // the foot of this file. Only the spellings that actually appear in the
+  // record, plus what a serialiser emits for a value it does not have.
+  for (const v of ['none', 'None', 'NONE', 'null', 'undefined', 'nil', '', '   ']) {
     assert.equal(presentRef(v), undefined, `${JSON.stringify(v)} should read as absent`);
   }
 });
@@ -63,10 +68,14 @@ test('normaliseSetId always keeps the original spelling', () => {
   assert.ok(normaliseSetId('base1').includes('base1'));
 });
 
-test('normaliseSetId does not pad a two-digit id into a wrong one', () => {
-  // `base1` must not become `base01`, and `me05` must not become `me005`.
+test('normaliseSetId does not pad an already-two-digit id', () => {
+  // `me05` must not become `me005`. Note it DOES produce `base01` from `base1`,
+  // which is not a real id — harmless, because every spelling here is only a
+  // candidate matched with `= ANY($1)` and the database decides which exist.
+  // An earlier comment claimed the opposite; the review caught it.
   assert.ok(!normaliseSetId('me05').includes('me005'));
   assert.deepEqual(normaliseSetId('me05'), ['me05']);
+  assert.ok(normaliseSetId('base1').includes('base1'), 'the real id is always a candidate');
 });
 
 test('normaliseSetId lowercases, because a model will shout an id', () => {
@@ -233,4 +242,153 @@ test('an id match says nothing; a name match teaches the id', () => {
   assert.ok(note);
   assert.match(note, /me05/);
   assert.match(note, /Use me05 from now on/);
+});
+
+// ── Regressions caught by the adversarial pass, not by the suite above ───────
+
+test('a non-Latin name does NOT falsely match another non-Latin name under strict', () => {
+  // THE BUG: `foldName` stripped everything outside [a-z0-9], so every Japanese
+  // name folded to '' and compared EQUAL to every other one. `strict` — the only
+  // thing standing between a fuzzy hit and a rewritten deck — reported an exact
+  // unique name match between two unrelated decks, on a write path with no
+  // dry run and, over MCP, no approval dialog.
+  const decks = [
+    { id: 'a', name: 'ドラゴンデッキ' },
+    { id: 'b', name: 'Slowking Toolbox' },
+  ];
+  const d = (x: { id: string; name: string }): EntityCandidate => ({ id: x.id, label: x.name });
+
+  const r = matchNamed(decks, 'ミュウツーデッキ', d, { strict: true });
+  assert.equal(r.kind, 'not-found', 'two different Japanese names must not match');
+
+  // And the same name still resolves to itself.
+  const self = matchNamed(decks, 'ドラゴンデッキ', d, { strict: true });
+  assert.equal(self.kind, 'found');
+  if (self.kind === 'found') assert.equal(self.value.id, 'a');
+});
+
+test('non-Latin names still fuzzy-match on a read — the fix is not "Latin only"', () => {
+  const decks = [{ id: 'a', name: 'ドラゴンデッキ 2024' }];
+  const d = (x: { id: string; name: string }): EntityCandidate => ({ id: x.id, label: x.name });
+  const r = matchNamed(decks, 'ドラゴンデッキ', d);
+  assert.equal(r.kind, 'found');
+});
+
+test('a reference of pure punctuation matches NOTHING, loose or strict', () => {
+  // `'x'.startsWith('')` is true, so an unguarded blank fold prefix-matched
+  // every name in the index. Measured: '###' resolved to a reader's only deck.
+  const one = [{ id: 'a', name: 'Toolbox' }];
+  const many = [
+    { id: 'a', name: 'Toolbox' },
+    { id: 'b', name: 'Hide n Sneak' },
+  ];
+  const d = (x: { id: string; name: string }): EntityCandidate => ({ id: x.id, label: x.name });
+
+  for (const ref of ['###', '???', '...', '—']) {
+    assert.equal(matchNamed(one, ref, d).kind, 'not-found', `loose, one deck: ${ref}`);
+    assert.equal(matchNamed(many, ref, d).kind, 'not-found', `loose, many decks: ${ref}`);
+    assert.equal(matchNamed(one, ref, d, { strict: true }).kind, 'not-found', `strict: ${ref}`);
+  }
+});
+
+test('a deck whose NAME folds blank cannot be matched by a different blank name', () => {
+  const decks = [{ id: 'a', name: '!!!' }];
+  const d = (x: { id: string; name: string }): EntityCandidate => ({ id: x.id, label: x.name });
+  assert.equal(matchNamed(decks, '???', d, { strict: true }).kind, 'not-found');
+  // Its id still reaches it — an unaddressable-by-name row is not a lost row.
+  const byId = matchNamed(decks, 'a', d, { strict: true });
+  assert.equal(byId.kind, 'found');
+});
+
+test('names that are plausible titles are no longer swallowed as sentinels', () => {
+  // The ABSENT list is applied to NAMES as well as ids. 'Unknown', 'Any', 'NA'
+  // and '-' are all real titles somebody might give a deck.
+  for (const v of ['Unknown', 'Any', 'NA', 'N/A', '-']) {
+    assert.equal(presentRef(v), v, `${v} is a usable name`);
+  }
+  // The measured sentinels still read as absent.
+  for (const v of ['none', 'None', 'null', 'undefined', 'nil', '']) {
+    assert.equal(presentRef(v), undefined, `${v} must read as absent`);
+  }
+});
+
+test('a RESTORE looks in the recycle bin, because that is where the row is', async () => {
+  // THE INCIDENT: resolution was inserted in front of the restore branch in
+  // `delete_deck` and `edit_list`. `GET /decks` excludes soft-deleted rows, the
+  // deleted deck's own uuid matched nothing, UUID_RE correctly refused to fuzz
+  // it into a name — and the handler failed before reaching POST /:id/restore.
+  //
+  // `delete_deck`'s own success message tells the reader how to undo it, and
+  // following that instruction answered "No deck matches". Migration 038 exists
+  // so that "an agent deleted my deck" is recoverable; this made it
+  // unrecoverable from the agent surface, for Deck-E and for MCP.
+  const { resolveDeck } = await import('../entities.js');
+
+  const LIVE = { decks: [{ id: 'live-uuid', name: 'Toolbox Slowking' }] };
+  const BIN = { decks: [{ id: '55d8fabb-7d60-4fd5-b7f2-2bcc41e10c16', name: 'Deleted Deck' }] };
+
+  const asked: string[] = [];
+  const ctx = {
+    db: { query: async () => ({ rows: [] }) },
+    userId: 'u1',
+    api: {
+      get: async (path: string) => {
+        asked.push(path);
+        return path.includes('deleted=true') ? BIN : LIVE;
+      },
+      send: async () => ({}),
+    },
+  } as never;
+
+  // Without the flag the deleted deck is invisible — which is correct, and is
+  // exactly what broke restore.
+  const live = await resolveDeck(ctx, '55d8fabb-7d60-4fd5-b7f2-2bcc41e10c16');
+  assert.equal(live.kind, 'not-found');
+
+  // With it, the row resolves and the restore can proceed.
+  const binned = await resolveDeck(ctx, '55d8fabb-7d60-4fd5-b7f2-2bcc41e10c16', {
+    strict: true,
+    deleted: true,
+  });
+  assert.equal(binned.kind, 'found');
+  if (binned.kind === 'found') assert.equal(binned.value.name, 'Deleted Deck');
+  assert.ok(asked.some((p) => p.includes('deleted=true')), 'the bin was never asked for');
+});
+
+test('a restore miss does not claim the id belongs to a live LIST', async () => {
+  // The cross-type hint compares against the LIVE list index, so on a restore
+  // lookup it would answer "that id is a LIST" about some live list while the
+  // caller is asking after a deleted deck — confidently, and wrongly.
+  const { resolveDeck } = await import('../entities.js');
+  const ctx = {
+    db: { query: async () => ({ rows: [] }) },
+    userId: 'u1',
+    api: {
+      get: async (path: string) =>
+        path.startsWith('/lists')
+          ? { lists: [{ id: 'shared-uuid', name: 'A Live List' }] }
+          : { decks: [] },
+      send: async () => ({}),
+    },
+  } as never;
+
+  const r = await resolveDeck(ctx, 'shared-uuid', { strict: true, deleted: true });
+  assert.equal(r.kind, 'not-found');
+  if (r.kind === 'not-found') assert.equal(r.crossType, undefined, 'a restore must not cross-type');
+});
+
+test('Japanese voicing marks survive the fold — ドラゴン is not トラコン', () => {
+  // NFD splits ド into ト + U+3099, a nonspacing mark that is not \p{L}. Without
+  // recomposing before the non-letter strip, the dakuten was deleted and two
+  // genuinely different names folded together — the same false-equality class
+  // as the blank fold, just narrower, and still on a write path.
+  assert.notEqual(foldName('ドラゴンデッキ'), foldName('トラコンテツキ'));
+  assert.equal(foldName('ドラゴン'), 'ドラゴン');
+
+  // Decomposed and precomposed forms of the same name still agree, which is
+  // what a reader typing either would expect.
+  assert.equal(foldName('ド'.normalize('NFD')), foldName('ド'.normalize('NFC')));
+
+  // And Latin accent folding is untouched.
+  assert.equal(foldName('Pokémon'), 'pokemon');
 });

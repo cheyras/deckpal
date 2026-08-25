@@ -654,7 +654,11 @@ const deleteDeckTool = defineTool({
       // STRICT: with `purge` this destroys a deck, its version history and every
       // battle log, and there is no undo to fall back on if the name matched
       // approximately.
-      const picked = await needDeck(ctx, deck_id, { strict: true });
+      // `deleted: restore` — a deck being RESTORED is in the recycle bin, and
+      // the live index it would otherwise be looked up in excludes it. Without
+      // this, `delete_deck`'s own "restore with…" instruction answered "No deck
+      // matches", making migration 038's whole point unreachable from here.
+      const picked = await needDeck(ctx, deck_id, { strict: true, deleted: restore });
       if (!picked.ok) return fail(picked.message);
       const deckId = picked.value.id;
 
@@ -687,7 +691,10 @@ const deleteDeckTool = defineTool({
       )) as { restorable: boolean; batchId?: string };
       return ok(
         r.restorable
-          ? `Deleted ${what}. It is in the recycle bin — restore with delete_deck(deckId: "${deckId}", restore: true, dry_run: false)` +
+          // `deck_id`, which is the field's real name. It said `deckId` — so a
+          // model following this instruction verbatim failed schema validation
+          // on the one call that undoes a deletion.
+          ? `Deleted ${what}. It is in the recycle bin — restore with delete_deck(deck_id: "${deckId}", restore: true, dry_run: false)` +
               (r.batchId ? `, or revert(batch_id: "${r.batchId}")` : '') +
               '.'
           : `PURGED ${what}. This is gone for good.`,

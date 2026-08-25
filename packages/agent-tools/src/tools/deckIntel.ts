@@ -441,6 +441,12 @@ const battleLogsTool = defineTool({
         if (per.length > 1) lines.push(`  by version: ${per.join(' · ')}`);
       }
       lines.push(pagingFooter(page, pageSize, res.pagination.total));
+      // NAME THE DECK WHENEVER A NAME WAS RESOLVED. This is the only deck tool
+      // that matches loosely, and its rows carry log numbers and opponents but
+      // never the deck itself — so a wrong fuzzy hit rendered a page of real
+      // battle logs about a deck nobody asked about, with nothing on screen to
+      // notice it by.
+      if (picked.note) lines.push(picked.note);
       return ok(lines.join('\n'));
     } catch (err) {
       return fail(`battle_logs failed: ${(err as Error).message}`);

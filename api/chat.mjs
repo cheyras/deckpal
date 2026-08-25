@@ -54,6 +54,19 @@ import {
  * drift, and the drift would be silent — the check would simply stop firing.
  */
 const MAX_STEPS = 12
+
+/**
+ * Tools whose over-long arguments may be trimmed by `repairToolCall`.
+ *
+ * A tool belongs here only if it RENDERS rather than stores, and only if its
+ * own result reports what was trimmed (`repairs.take(toolCallId)`). Both halves
+ * are required: trimming a stored value is editing the reader's own words, and
+ * trimming without reporting is the silent correction `decke/tools.ts` refuses
+ * to make. `showScreen` draws a panel and says what it shortened; nothing else
+ * qualifies today.
+ */
+const REPAIRABLE = new Set(['showScreen'])
+
 import { createGateway } from '@ai-sdk/gateway'
 
 // Everything imported here comes from `apps/api/dist` — COMPILED output, not
@@ -848,6 +861,20 @@ async function serve(request) {
         // and costs no step.
         repairToolCall: async ({ toolCall, inputSchema, error }) => {
           if (error?.name === 'NoSuchToolError') return null
+          // ── ONLY TOOLS THAT REPORT THE TRIM MAY BE TRIMMED ────────────────
+          //
+          // The hook fires for EVERY tool, and left unrestricted it would clamp
+          // `deck_strategy.markdown` (40k), `add_battle_log.log` (50k) and every
+          // other capped string — silently, because only `showScreen` drains the
+          // repair log. A 45,000-character strategy guide cut mid-word at 40,000,
+          // stored, and reported as saved in full is exactly the silent
+          // correction `tools.ts` forbids twice, and it would be OUR edit to the
+          // reader's own words.
+          //
+          // So the allowlist is the tools that both (a) render rather than store,
+          // and (b) tell the model what was trimmed. Adding a name here without
+          // draining `repairs` in that tool's result re-opens the hole.
+          if (!REPAIRABLE.has(toolCall.toolName)) return null
           let parsed
           try {
             parsed = JSON.parse(toolCall.input)

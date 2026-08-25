@@ -101,3 +101,28 @@ test('the refusal message tells him not to ask again, and how it can be undone',
   // But a changed mind must still work.
   assert.match(m, /If they tell you to go ahead/);
 });
+
+test('the ABANDONED wording matches the client that emits it, exactly', async () => {
+  // `approval.ts` (apps/web) composes the string and `declined.ts` (apps/api)
+  // recognises it, and they are in different packages with no shared module
+  // between them. If either side is reworded on its own, an abandoned panel
+  // starts reading as a permanent refusal — a tool would silently stop working
+  // because somebody's phone locked mid-turn, and nothing would fail loudly.
+  const fs = await import('node:fs');
+  const url = await import('node:url');
+  const here = url.fileURLToPath(new URL('.', import.meta.url));
+  const client = fs.readFileSync(
+    `${here}../../../../../apps/web/src/character/host/approval.ts`,
+    'utf8',
+  );
+  const m = client.match(/export const ABANDONED_REASON = '([^']+)'/);
+  assert.ok(m, 'approval.ts no longer declares ABANDONED_REASON as a plain literal');
+
+  // The server's copy is private; drive it through the public behaviour instead
+  // of exporting it just for a test.
+  const abandoned = declinedCalls([msg([part('research_meta', { q: 1 }, false, m![1]!)])]);
+  assert.equal(abandoned.size, 0, `"${m![1]}" must be read as abandoned, not declined`);
+
+  const declined = declinedCalls([msg([part('research_meta', { q: 1 }, false, 'the reader declined')])]);
+  assert.equal(declined.size, 1, 'a real decline must still be recorded');
+});

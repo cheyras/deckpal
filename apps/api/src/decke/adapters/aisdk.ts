@@ -817,6 +817,12 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
         const emit = opts.onApprovalPreview;
         if (!emit) return;
         if (opts.approvals === 'upstream') return;
+        // ALREADY REFUSED — no dialog will open, so a preview here is work
+        // against the reader's data for a question they closed, and the card it
+        // emits is an orphan no approval will ever match. `execute` below states
+        // that a declined call "must not run even as a dry run"; this is the
+        // other half of that sentence, and it was missing.
+        if (alreadyDeclined(def.name, input)) return;
         if (!requiresApproval(def, input)) return;
         if (!canPreviewSafely(def, input)) return;
         try {
