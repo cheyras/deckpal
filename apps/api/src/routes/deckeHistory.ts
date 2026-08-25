@@ -109,6 +109,61 @@ export interface ToolRecord {
   phase: string;
   title: string;
   summary: string;
+  /**
+   * What the call carried. Absent for a tool that takes no arguments.
+   *
+   * ── WHY 043's FOUR KEYS BECAME FIVE ──────────────────────────────────────
+   *
+   * The four answered WHICH tool and HOW IT WENT, and never WITH WHAT. The pass
+   * that added this diagnosed six defects from the owner's own history and every
+   * one of them turned on an argument value — `set_id: 'sv3pt5'` nine times in
+   * one turn, `set_id: 'none'` seven, a LIST's uuid in `deck_id`. None of those
+   * is visible in `{name, phase, title, summary}`.
+   *
+   * They were recovered by reading the ERROR PROSE, which worked only because
+   * the failure messages echoed the offending value back — and three of those
+   * messages were themselves the bug. Fixing them removes the only channel the
+   * arguments were travelling on, which is why this is not optional.
+   *
+   * 043's own header documents the four-key shape and is checksummed, so the
+   * extension is documented here and in DECISIONS.md rather than there.
+   */
+  args?: Record<string, unknown>;
+}
+
+/**
+ * A per-record ceiling on the serialised arguments.
+ *
+ * `briefArgs` already bounds these on the way out, and this is the SECOND bound,
+ * because the client is not the authority on how big a row it may write. A
+ * caller that skipped the client entirely — the body is just JSON — could
+ * otherwise put a megabyte of anything into a table the owner reads for years.
+ *
+ * Sized against the server's own cap (800) with room for the JSON overhead the
+ * client's re-serialisation adds.
+ */
+const MAX_ARGS_CHARS = 1_200;
+
+/**
+ * Keep the arguments if they are small, shaped and actually an object.
+ *
+ * DROPPED WHOLE rather than truncated mid-structure when they are not: half a
+ * JSON object is not queryable, and `tools @> '[{"args":{"set_id":"me05"}}]'`
+ * is the whole reason this column is jsonb. A record with no `args` is honest;
+ * a record with mangled args is a trap for whoever queries it next.
+ */
+function shapeArgs(v: unknown): Record<string, unknown> | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  let json: string;
+  try {
+    json = JSON.stringify(v);
+  } catch {
+    // A cycle, or a BigInt. Neither can arrive over JSON, and neither is worth
+    // failing the whole turn's record over.
+    return undefined;
+  }
+  if (json.length > MAX_ARGS_CHARS) return undefined;
+  return v as Record<string, unknown>;
 }
 
 /**
@@ -116,8 +171,8 @@ export interface ToolRecord {
  *
  * SHAPED, not trusted. The jsonb column's whole value is that a regression hunt
  * can query it — `tools @> '[{"name":"plan_deck"}]'` — and that only works if
- * every row has the same four keys with the same meanings. A free-form blob
- * would be a column nobody can ask a question of.
+ * every row has the same keys with the same meanings. A free-form blob would be
+ * a column nobody can ask a question of.
  */
 export function shapeTools(input: unknown): ToolRecord[] {
   if (!Array.isArray(input)) return [];
@@ -127,11 +182,16 @@ export function shapeTools(input: unknown): ToolRecord[] {
     const name = str(t?.name)?.slice(0, 80);
     if (!name) continue;
     const phase = str(t?.phase) ?? '';
+    const args = shapeArgs(t?.args);
     out.push({
       name,
       phase: PHASES.has(phase) ? phase : 'unknown',
       title: (str(t?.title) ?? '').slice(0, 200),
       summary: (str(t?.summary) ?? '').slice(0, 500),
+      // Spread, so a tool with no arguments has no `args` KEY rather than a
+      // null one — `args IS NULL` and "no args key" read differently in a jsonb
+      // containment query, and the second is what "took none" means.
+      ...(args ? { args } : {}),
     });
   }
   return out;

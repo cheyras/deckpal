@@ -57,6 +57,7 @@ import { MODELS, budgetFor, type ModelChoice } from './models.js';
 import { deepFailed, deepRefused } from './deepOutcome.js';
 import { alreadyDeclinedMessage } from './declined.js';
 import { callKey } from './repeat.js';
+import { briefArgs } from './toolArgs.js';
 import {
   buildDataTools,
   safeToolError,
@@ -425,6 +426,19 @@ function finishOutcome(
   return { text: body };
 }
 
+
+/**
+ * `{ args }`, or nothing at all.
+ *
+ * Spread rather than assigned, so a call that genuinely took no arguments
+ * carries no `args` key rather than an empty object — the transcript stores
+ * this verbatim and `{}` beside `health` would suggest it takes some.
+ */
+function argsPart(input: unknown): { args?: Record<string, unknown> } {
+  const a = briefArgs(input);
+  return a ? { args: a } : {};
+}
+
 export function buildDeepTools(opts: DeepToolOptions): ToolSet {
   const budgetMs = deepBudgetMs();
 
@@ -519,13 +533,18 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
     execute: async (args: Record<string, unknown>, { toolCallId }: { toolCallId: string }) => {
       const chip = { id: toolCallId, name: spec.name, title: spec.title };
       if (alreadyDeclined(spec.name, args)) {
-        opts.onEvent?.({ phase: 'declined', ...chip, summary: 'already declined — not asked again' });
+        opts.onEvent?.({
+          phase: 'declined',
+          ...chip,
+          summary: 'already declined — not asked again',
+          ...argsPart(args),
+        });
         // Returns BEFORE the charge below: nothing ran, no sub-agent started,
         // and the account must not be billed a deep call — the scarcest thing
         // it has — for a question the reader had already closed.
         return alreadyDeclinedMessage(spec.name);
       }
-      opts.onEvent?.({ phase: 'start', ...chip });
+      opts.onEvent?.({ phase: 'start', ...chip, ...argsPart(args) });
       const progress = (b: Beat): void => {
         opts.onEvent?.({
           phase: 'progress',

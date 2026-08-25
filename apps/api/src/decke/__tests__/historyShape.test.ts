@@ -195,3 +195,53 @@ test('the write path checks WHOSE conversation it is, and cannot rewrite a turn'
   // And the list read carries the first lock as well as the second.
   assert.match(src, /LEFT JOIN decke_turn t ON t\.conversation_id = c\.id AND t\.user_id = \$1/, 'the summary can be polluted by another user’s turns')
 })
+
+// ── ARGUMENTS: 043's four keys became five ──────────────────────────────────
+//
+// The four answered WHICH tool and HOW IT WENT and never WITH WHAT, which is
+// where every defect the agent-quality pass fixed actually lived. See
+// `decke/toolArgs.ts`.
+
+test('args are kept, and are queryable jsonb rather than a blob', () => {
+  const [row] = shapeTools([
+    { name: 'set_progress', phase: 'error', title: 'Check set completion', summary: 'no', args: { set_id: 'sv3pt5' } },
+  ]);
+  assert.deepEqual(row?.args, { set_id: 'sv3pt5' });
+  // The whole point of the column: `tools @> '[{"args":{"set_id":"sv3pt5"}}]'`.
+  assert.doesNotThrow(() => JSON.stringify([row]));
+});
+
+test('a tool with no args has NO args key, not a null one', () => {
+  const [row] = shapeTools([{ name: 'health', phase: 'ok', title: 'Health', summary: 'ok' }]);
+  assert.ok(row);
+  assert.equal('args' in row, false, 'an absent key and a null one read differently in jsonb');
+});
+
+test('oversized args are dropped WHOLE rather than truncated into nonsense', () => {
+  // Half a JSON object is not queryable, and the containment query is the whole
+  // reason this column is jsonb. A record with no args is honest; one with
+  // mangled args is a trap for whoever queries it next.
+  const [row] = shapeTools([
+    { name: 'deck_strategy', phase: 'ok', title: 'x', summary: 'y', args: { markdown: 'z'.repeat(50_000) } },
+  ]);
+  assert.equal(row?.args, undefined);
+});
+
+test('args that are not an object are refused', () => {
+  // The body is just JSON — a caller that skipped the client entirely can send
+  // anything, and this column is read for years.
+  for (const bad of ['string', 42, true, null, ['a'], undefined]) {
+    const [row] = shapeTools([{ name: 't', phase: 'ok', title: '', summary: '', args: bad }]);
+    assert.equal(row?.args, undefined, String(bad));
+  }
+});
+
+test('the other four keys are unchanged by the addition', () => {
+  const [row] = shapeTools([
+    { name: 'decks', phase: 'ok', title: 'Read decks', summary: 'one', args: { deck_id: 'd1' } },
+  ]);
+  assert.equal(row?.name, 'decks');
+  assert.equal(row?.phase, 'ok');
+  assert.equal(row?.title, 'Read decks');
+  assert.equal(row?.summary, 'one');
+});

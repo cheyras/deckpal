@@ -49,6 +49,7 @@ import { allTools, type Ctx, type ToolDefinition, type ToolResult } from '@deckp
 import { withToolCtx, type ToolCtxOptions } from '../ctx.js';
 import { CallLedger, callKey } from '../repeat.js';
 import { alreadyDeclinedMessage } from '../declined.js';
+import { briefArgs } from '../toolArgs.js';
 
 /**
  * A tool-call lifecycle event, for the chip the reader sees.
@@ -98,7 +99,7 @@ import { alreadyDeclinedMessage } from '../declined.js';
  * exists to prevent.
  */
 export type ToolEvent =
-  | { phase: 'start'; id: string; name: string; title: string }
+  | { phase: 'start'; id: string; name: string; title: string; args?: Record<string, unknown> }
   | { phase: 'progress'; id: string; name: string; title: string; note: string; step?: number }
   | { phase: 'ok'; id: string; name: string; title: string; summary: string }
   | {
@@ -120,7 +121,7 @@ export type ToolEvent =
    * without a dialog, so a reader scanning their history sees one kind of row
    * for "this did not happen because I said no", however it was decided.
    */
-  | { phase: 'declined'; id: string; name: string; title: string; summary: string };
+  | { phase: 'declined'; id: string; name: string; title: string; summary: string; args?: Record<string, unknown> };
 
 /**
  * One printing a row could mean, for the picker on the approval card.
@@ -724,6 +725,19 @@ function summarise(result: ToolResult): string {
  * search?" is a usable answer and a stack trace is not. This is the same
  * reasoning `runUiTool` carries on the browser side.
  */
+
+/**
+ * `{ args }`, or nothing at all.
+ *
+ * Spread rather than assigned, so a call that genuinely took no arguments
+ * carries no `args` key rather than an empty object — the transcript stores
+ * this verbatim and `{}` beside `health` would suggest it takes some.
+ */
+function argsPart(input: unknown): { args?: Record<string, unknown> } {
+  const a = briefArgs(input);
+  return a ? { args: a } : {};
+}
+
 export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
   const include = opts.include ?? ((d: ToolDefinition) => d.annotations.readOnlyHint);
   // ONE PER TOOL SET, which is one per request — never module state. A sub-agent
@@ -821,7 +835,11 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
       },
       execute: async (args: unknown, { toolCallId }) => {
         const chip = { id: toolCallId, name: def.name, title: def.title };
-        opts.onEvent?.({ phase: 'start', ...chip });
+        // ARGS ON THE START EVENT, and only there — the client carries them
+        // forward across later phases. They are what makes the transcript able
+        // to answer 'with WHAT', which is where every defect this pass fixed
+        // actually lived. Bounded by `briefArgs`; see `toolArgs.ts`.
+        opts.onEvent?.({ phase: 'start', ...chip, ...argsPart(args) });
         try {
           // REFUSED HERE, not executed and not asked. The counterpart to
           // `needsApproval` above: that stops the dialog, this stops the work.
@@ -830,7 +848,12 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           // their data on their behalf, for a question they closed.
           if (alreadyDeclined(def.name, args)) {
             const message = alreadyDeclinedMessage(def.name);
-            opts.onEvent?.({ phase: 'declined', ...chip, summary: 'already declined — not asked again' });
+            opts.onEvent?.({
+              phase: 'declined',
+              ...chip,
+              summary: 'already declined — not asked again',
+              ...argsPart(args),
+            });
             return message;
           }
 
