@@ -29,6 +29,8 @@ of eyes.
 | `capture-decke.mjs` | **Photograph Deck-E, signed in, on both platforms.** Named scenes, before/after runs. The only thing here that can see a surface behind auth. |
 | `run-visual-smoke.mjs` | End-to-end proof the harness works: desktop + mobile screenshots, a recorded interaction, a contact sheet, timing and console/network reports. |
 | `judge-motion.mjs` | Ask a vision model what a video or screenshot actually shows. Prose (`--describe`) or a machine-checkable verdict (`--assert`). |
+| `probe-decke-size.mjs` | **Does he change SIZE when nothing about the viewport did?** Measures his silhouette off the pixels, types a draft into the composer, measures again. Exits non-zero on a change. |
+| `probe-decke-flight.mjs` | **Does his hop stop halfway, and does he twitch after landing?** Samples `DeckE.screenRect()` every animation frame of a real entrance and reads the answer off the trajectory. Repeats, because "happens every time pretty much" is a claim about a rate. |
 | `lib/resolve-playwright.mjs` | Finds Playwright without it being a repo dependency. |
 | `lib/devices.mjs` | Desktop and iPhone-class viewport profiles. |
 | `lib/screenshot.mjs` | Viewport and full-page captures to a predictable path. |
@@ -43,6 +45,38 @@ of eyes.
 
 Artifacts land in `.visual-harness/` (gitignored, same convention as
 `.gate-shots/`). Regenerate them; never commit them.
+
+### The two probes ASSERT, and the captures do not
+
+`capture-decke.mjs` deliberately asserts nothing — it produces artifacts a human
+can be wrong in front of, because a script that both takes the photograph and
+grades it grades its own homework. The probes are the other kind of instrument
+and exist because two defects from the 2026-08-24 review cannot be settled by
+looking at pictures:
+
+- **"He grew for no reason"** is a claim about a RATIO, and no contact sheet of
+  a twenty-minute session can hold both sides of it. `probe-decke-size.mjs`
+  reads it off the pixels: 1.281 before the fix, 0.995 after, same machine, same
+  minute, two dev servers.
+- **"He makes to stop before continuing"** is a shape in TIME, roughly 60 ms
+  long. `probe-decke-flight.mjs` samples every frame instead.
+
+**Run the flight probe `--headed`.** Headless Chromium throttles
+`requestAnimationFrame` to about 5 Hz here — measured, 200 ms between samples —
+which is coarser than the entire defect. Headless it reported a clean leg on a
+build that stalls to a dead stop 4 times out of 4; headed, at 180 fps, it found
+it every run. This is the same trap `character/decke/README.md` records for
+float measurements, arriving down a different path.
+
+**Both probes want a CONTROL.** A probe that has never failed is a probe that
+cannot fail. Cut a second worktree at the commit before the fix, run a second
+dev server on another port, and run the probe against both:
+
+```bash
+git -C <repo> worktree add --detach ../wt-base <commit-before>
+# install, start it on 5211, then:
+node scripts/visual-harness/probe-decke-flight.mjs --base http://localhost:5211 --headed
+```
 
 ## Looking at Deck-E
 

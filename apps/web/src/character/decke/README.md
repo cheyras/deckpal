@@ -94,7 +94,18 @@ decke.flyTo(chip, { scaleTo: 0, arrived: tuck })  // the EXIT: shrink rides the 
 decke.setReducedMotion(true)                   // the HOST reads the media query; this is the answer
 decke.flyTo(mark, { centre: true, facing: -1 })  // face the composer, not away from it
 decke.flyTo(mark, { instant: true })           // arrive without travelling (ring, `then`, station: yes)
+decke.releasePin()                             // let go of the page WITHOUT going anywhere
 ```
+
+**`releasePin()` is not a small `returnHome()`, it is the OTHER HALF of it.**
+Anything about to freeze the document has to get his canvas out of DOCUMENT
+space first, because `pageAnchor` parks it at an absolute offset the freeze
+moves underneath it. `returnHome()` does that on its way to launching a flight
+— and the chat panel, which is the only caller that wants it, runs on the same
+edges `DeckeHost` parks him on. Two flights per commit, the first abandoned in
+its deceleration: that is the mid-hop stutter the 2026-08-24 review found on
+nearly every hop, measured at a dead stop 314 ms into a 1.2 s leg, 4 runs out
+of 4. See `scripts/visual-harness/probe-decke-flight.mjs`.
 
 **The entrance** is CONCURRENT, not sequential — this changed in the 2026-08-24
 animation pass, on the owner's ruling: *"he should just be scaling up during
@@ -226,6 +237,38 @@ Each of these cost someone a debugging pass, upstream or here.
   from `float_amp: 0` to `1` makes the hover appear at whatever point of its cycle
   it silently reached. Every authored channel is continuous across boot -> idle
   and it still popped: 0.0174 units in one frame against a 0.0012 ceiling.
+- **His SIZE is a camera dolly, and whatever you rule it off had better hold
+  still.** `DeckeHost` sizes him from the composer he stands beside, which is
+  right — and it read the composer's LIVE height, which made him a function of
+  how much the reader had typed. The textarea grows with the draft; he grew
+  with it, 1.28x measured, and snapped back on send. Fourteen tagged instances
+  in one twenty-minute recording, the most frequent defect on it. The ruler is
+  the composer at REST now (`host/composerRuler.ts`), and the general lesson is
+  the one worth carrying: `setCharacterHeight` moves the camera, so every input
+  to it is a thing that must not wobble. `probe-decke-size.mjs` gates it.
+- **A turn that outlasts its flight reads as a flinch.** `FACING_TURN_MS` is
+  495 ms and the shipped short hop is 303-385 ms, so for the last fifth of a
+  second of every short leg he had landed and was still turning — "after
+  arriving in the right spot he does an unnecessary turn/adjustment that feels
+  like a flinch." `flyTo` now bounds the turn by the leg it rides. And
+  `setFacing` ignores a request for the facing it is already turning to: every
+  path that re-solves his station re-asserts his facing, several of them on a
+  timer, and each restart from mid-turn is the yaw judder that was filed
+  separately as "a shift back and forth on his yaw axis".
+- **A failed station solve must stay dirty.** `syncStation` cleared the flag
+  before it knew whether the solve worked, so a `querySelector` that missed by
+  one frame threw the correction away until some unrelated event re-armed it —
+  and in between he stands where a camera that has since moved used to put him.
+  This is the "wrong for ten or twenty seconds, then a hop" half of the size
+  report.
+- **The present gate is keyed by STATE NAME, and the state changes a whole
+  crossfade before the pose does.** `card_present` has no outro, so its
+  dismissal goes straight to `enter`: `state` flips this tick and the card's
+  scale takes 320 ms to follow. For that fifth of a second the gate had already
+  fallen to 0 and mirrored the whole loose-card chain across his body, with the
+  card plainly on screen — "the card just glitches and disappears". `holdGate`
+  now enforces what `cards.ts` always claimed, which is that the gate may only
+  swing while there is nothing to see swing.
 - **Pace is `travelRate()`, never the cruise speed.** It ramps with the length of
   the leg — short hops play slower and depth changes faster, because the review
   asked for both at once and a single number cannot do both. A depth change is
