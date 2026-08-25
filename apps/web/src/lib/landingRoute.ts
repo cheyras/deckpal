@@ -19,6 +19,8 @@ const CHROMELESS_PATHS = new Set([
   '/authorize', // OAuth "Connect" consent screen — must render signed-out, see Authorize.tsx
   '/design', // design-system editor — no app chrome; owner-only in prod (gated in main.tsx via /me.designEditor)
   '/dev/decke', // Deck-E three.js preview — full-viewport canvas; owner-only in prod (gated in main.tsx via /me.owner)
+  '/dev/decke-compare', // shipped glb vs an optimized one, side by side; owner-only in prod, same gate
+
   '/dev/chat-ui', // every chat surface at once, for review — no app chrome, owner-only in prod
 ])
 

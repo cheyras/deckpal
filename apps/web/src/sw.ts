@@ -8,12 +8,14 @@
 //   Tier 0 — app shell (precache, self.__WB_MANIFEST): index.html + hashed JS/CSS
 //            + fonts + icons. Always available offline.
 //   Tier 1 — visited card/set art: CacheFirst, LRU-capped at 2000 entries.
+//   Tier 2 — the Deck-E character assets: StaleWhileRevalidate, so a repeat
+//            chat-open is instant and costs a 304 rather than ~600 KB.
 //   API GETs — NetworkFirst: fresh catalog/collection online, last-good offline.
 //   API mutations (POST/PUT/PATCH/DELETE) — NetworkOnly, never cached (hard rule).
 //   Client-route navigations under /deckpal/ — fall back to the precached shell.
 import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching'
 import { registerRoute, NavigationRoute } from 'workbox-routing'
-import { NetworkFirst, CacheFirst, NetworkOnly } from 'workbox-strategies'
+import { NetworkFirst, CacheFirst, NetworkOnly, StaleWhileRevalidate } from 'workbox-strategies'
 import { ExpirationPlugin } from 'workbox-expiration'
 import { CacheableResponsePlugin } from 'workbox-cacheable-response'
 
@@ -115,6 +117,50 @@ registerRoute(
       new ExpirationPlugin({
         maxEntries: 2000,
         maxAgeSeconds: 60 * 24 * 60 * 60,
+        purgeOnQuotaError: true,
+      }),
+    ],
+  }),
+)
+
+// ── Tier 2: the Deck-E character assets, StaleWhileRevalidate ─────────────────
+//
+// Opening the chat pulls a fixed set of large, rarely-changing files from
+// `models/decke/` — the glb, the environment map, the SDF glyph atlas, the
+// playbook. Without this route every one of them is refetched on every visit,
+// because Vercel serves static files as `max-age=0, must-revalidate`: the
+// browser must ask before reusing what it already has.
+//
+// STALE-WHILE-REVALIDATE, NOT CACHEFIRST, and the reason is that these
+// filenames are NOT content-hashed. They live in `public/` and the runtime asks
+// for them by name (`runtime.ts` and `DeckE.load()` spell them out as literals
+// so `scripts/check-precache.mjs` can prove they exist). CacheFirst would pin
+// whatever was cached until the expiry ran out, so a deploy that changes the
+// character would not reach anyone who had already opened the chat — for up to
+// the maxAge below. SWR serves the cached copy IMMEDIATELY, then refreshes in
+// the background, so a deploy lands on the very next open.
+//
+// The background refresh is nearly free rather than a second download: Vercel
+// sends an `Etag`, so the revalidation is a conditional GET that comes back
+// `304` with a zero-byte body (measured against production). The visitor pays
+// one round trip of headers, not 337 KB of glb.
+//
+// NOT PRECACHED, deliberately. Precaching would put the whole character in
+// `__WB_MANIFEST` and every visitor would download it on first load whether or
+// not they ever open the chat — which is exactly what `check-precache.mjs`'s
+// first gate exists to prevent. This route only ever caches what was actually
+// asked for.
+registerRoute(
+  ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith(`${BASE}models/decke/`),
+  new StaleWhileRevalidate({
+    cacheName: 'deckpal-decke-v1',
+    plugins: [
+      new CacheableResponsePlugin({ statuses: [200] }),
+      new ExpirationPlugin({
+        // The directory is a known, small, fixed set — this is a ceiling
+        // against a typo'd URL filling the cache, not a working limit.
+        maxEntries: 20,
+        maxAgeSeconds: 90 * 24 * 60 * 60,
         purgeOnQuotaError: true,
       }),
     ],

@@ -118,3 +118,14 @@ core.*
 # convention as .gate-shots/ above: operator-produced evidence, never
 # committed, regenerated on demand.
 .visual-harness/
+
+# Deck-E optimization candidates for /dev/decke-compare. Build artifacts, not
+# source: regenerate with `apps/web/scripts/decke/optimize.mjs` (see that file's
+# header). The SHIPPED asset, `decke.glb`, is tracked and must stay tracked.
+apps/web/public/models/decke/decke.opt.glb
+apps/web/public/models/decke/decke.min.glb
+
+# The pre-optimization Deck-E glb, kept so /dev/decke-compare has something to
+# compare against. Recoverable from git history either way (DECISIONS.md
+# 2026-08-24); this is just convenience.
+apps/web/public/models/decke/decke.orig.glb

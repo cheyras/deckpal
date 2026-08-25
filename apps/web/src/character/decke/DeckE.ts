@@ -336,6 +336,15 @@ export type FlyOptions = {
 export type DeckEOptions = {
   canvas: HTMLCanvasElement
   baseUrl: string
+  /**
+   * Which glb under `models/decke/` to load. Defaults to the shipped
+   * `decke.glb`.
+   *
+   * This exists for `/dev/decke-compare`, which runs two controllers side by
+   * side — the shipped asset and an optimized candidate — driven from one set
+   * of buttons, so a size win can be judged against the thing it costs.
+   */
+  modelFile?: string
   clearColor?: readonly [number, number, number] | null
   onReady?: () => void
   onError?: (e: unknown) => void
@@ -786,13 +795,22 @@ export class DeckE {
 
   async load(): Promise<void> {
     const { baseUrl } = this.opts
-    // The shipped glb is meshopt-compressed and quantized (7.48 MB -> 1.39 MB).
     // meshopt, never Draco: `KHR_draco_mesh_compression` structurally cannot
     // carry morph targets, and every body deformation on this character is one.
-    // See `scripts/decke/shrink.mjs` for how the asset is produced.
+    // `scripts/decke/shrink.mjs` takes the raw export to 2.92 MB;
+    // `scripts/decke/optimize.mjs` is the second pass that quantises it.
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
     const [gltf, doc, cards, atlas] = await Promise.all([
-      loader.loadAsync(`${baseUrl}models/decke/decke.glb`),
+      // The default is spelled out as a LITERAL and not interpolated, because
+      // `scripts/check-precache.mjs` proves the assets exist by scanning this
+      // directory for `models/decke/<file>` — a fully templated path hides the
+      // name from that gate, and the failure it exists to catch (a 404 in
+      // production and nowhere else) comes back.
+      loader.loadAsync(
+        this.opts.modelFile
+          ? `${baseUrl}models/decke/${this.opts.modelFile}`
+          : `${baseUrl}models/decke/decke.glb`,
+      ),
       loadPlaybook(baseUrl),
       loadCards(baseUrl),
       // The SDF atlas is Non-Color data, not an image: decoding it as sRGB
@@ -952,7 +970,18 @@ export class DeckE {
       },
     ]
     for (const s of sides) {
-      const mesh = model.getObjectByName(s.mesh) as Mesh | undefined
+      // The named node may hold the mesh itself or carry it as a child — a
+      // quantised glb parks the de-quantisation on a `__qmesh` wrapper so that
+      // `riders.ts` and `cards.ts` can keep overwriting the rig node's TRS.
+      // `eyeSocket.ts` has always resolved its mesh this way; this used to cast
+      // the node straight to `Mesh` and would have set `.material` on a node
+      // that has none, losing the eye shader with no error at all.
+      const node = model.getObjectByName(s.mesh)
+      let mesh: Mesh | undefined
+      node?.traverse((o) => {
+        const m = o as Mesh
+        if (!mesh && m.isMesh) mesh = m
+      })
       if (!mesh) throw new Error(`decke eyes: mesh "${s.mesh}" missing from the glb`)
       const mat = createEyeMaterial({
         side: s.side,
@@ -960,7 +989,13 @@ export class DeckE {
         spinPhaseDeg: this.doc.symbol_atlas.spin_phase_deg[s.side],
       })
       mesh.material = mat
-      this.eyes.push({ mat, ctrls: { eye: mesh, ...s.ctrls } })
+      // `eye` is the NODE, not the mesh, and the distinction is load-bearing:
+      // it feeds `uEyeObjectInverse`, which the shader uses as `mat3(...)` to
+      // carry the view direction into the eye's object space. A `__qmesh`
+      // wrapper carries the de-quantisation SCALE, so passing the mesh would
+      // fold that scale into the parallax basis and sink every eye feature to
+      // the wrong depth. The node is the same object the unquantised glb gave.
+      this.eyes.push({ mat, ctrls: { eye: node ?? mesh, ...s.ctrls } })
     }
   }
 
@@ -2242,6 +2277,39 @@ export class DeckE {
       this.raf = requestAnimationFrame(tick)
       // Clamp dt so a backgrounded tab cannot hand the integrators a huge step.
       const dt = Math.min(this.clock.getDelta(), 0.1)
+      this.frame(dt)
+    }
+    this.raf = requestAnimationFrame(tick)
+  }
+
+  /**
+   * Advance and draw exactly one frame, on a caller-supplied clock.
+   *
+   * `start()` is a rAF loop against wall time, which is right for the product
+   * and wrong for any comparison: two controllers in one document get their own
+   * `Clock`s and their own `getDelta()`, so they drift apart within a second and
+   * every difference you then see between them is timing rather than the thing
+   * you were trying to look at.
+   *
+   * `/dev/decke-compare` drives two controllers from ONE rAF with the same `dt`,
+   * which makes their frames identical by construction and any remaining
+   * difference attributable to the asset. It is also the supported form of the
+   * trick the parity harness has always done by hand — headless Chromium runs
+   * rAF at about 1 Hz, so measuring a running loop there measures a still frame,
+   * and `README.md` tells you to stop the loop and step it. That advice reached
+   * for `elapsed` and `update`, both private; this is the same thing with a door
+   * on it.
+   *
+   * Do not call this while `start()` is running — they would both advance the
+   * same integrators.
+   */
+  step(dt: number) {
+    if (this.disposed) return
+    this.frame(Math.min(dt, 0.1))
+  }
+
+  private frame(dt: number) {
+    {
       // What OUR frame actually costs, so a slow character can be told apart
       // from a browser that is not calling us often — on a phone those look
       // identical from the outside and have completely different fixes.
@@ -2285,7 +2353,6 @@ export class DeckE {
       }
       this.tickMs = performance.now() - t0
     }
-    this.raf = requestAnimationFrame(tick)
   }
 
   stop() {

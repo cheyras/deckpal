@@ -106,6 +106,22 @@ export function createEyeSocket(scene: Object3D): EyeSocket | null {
   if (!mesh) return null
   const lidMesh: Mesh = mesh
 
+  // Geometry space -> the LID's space.
+  //
+  // `PARENT_VERTS_REST` is in blender units in the lid's frame, but a quantised
+  // glb stores POSITION as normalised integers and leaves the de-quantisation on
+  // the mesh's node — which `optimize.mjs` deliberately makes a `__qmesh` child
+  // of the lid so that nothing overwrites it. Reading the attribute raw would
+  // compare numbers in [-1, 1] against blender units, fail the tolerance below,
+  // and switch this whole layer off silently: no exception, just eyes that stop
+  // tracking the morphed lid.
+  //
+  // Composed from world matrices rather than assumed, so it is exactly the
+  // identity when the mesh sits directly on the lid (the unquantised glb) and
+  // exactly the de-quantisation when it does not.
+  scene.updateWorldMatrix(true, true)
+  const geomToLid = lid.matrixWorld.clone().invert().multiply(lidMesh.matrixWorld)
+
   // Resolve the three parent vertices by nearest rest position.
   //
   // The tolerance is deliberately loose. The shipped glb is quantized
@@ -122,7 +138,7 @@ export function createEyeSocket(scene: Object3D): EyeSocket | null {
     let best = -1
     let bestD = Infinity
     for (let i = 0; i < pos.count; i++) {
-      probe.fromBufferAttribute(pos, i)
+      probe.fromBufferAttribute(pos, i).applyMatrix4(geomToLid)
       const d = probe.distanceToSquared(target)
       if (d < bestD) {
         bestD = d
@@ -136,9 +152,9 @@ export function createEyeSocket(scene: Object3D): EyeSocket | null {
   // Shape check: every edge of the found triangle must match the rest triangle.
   // This is what makes the loose tolerance above safe — a wrong triple fails it.
   {
-    const a = new Vector3().fromBufferAttribute(pos, indices[0])
-    const b = new Vector3().fromBufferAttribute(pos, indices[1])
-    const c = new Vector3().fromBufferAttribute(pos, indices[2])
+    const a = new Vector3().fromBufferAttribute(pos, indices[0]).applyMatrix4(geomToLid)
+    const b = new Vector3().fromBufferAttribute(pos, indices[1]).applyMatrix4(geomToLid)
+    const c = new Vector3().fromBufferAttribute(pos, indices[2]).applyMatrix4(geomToLid)
     const got = [a.distanceTo(b), a.distanceTo(c), b.distanceTo(c)]
     const want = [
       PARENT_VERTS_REST[0].distanceTo(PARENT_VERTS_REST[1]),
@@ -157,9 +173,9 @@ export function createEyeSocket(scene: Object3D): EyeSocket | null {
   const b = new Vector3()
   const c = new Vector3()
   const restBasis = new Matrix4()
-  lidMesh.getVertexPosition(indices[0], a)
-  lidMesh.getVertexPosition(indices[1], b)
-  lidMesh.getVertexPosition(indices[2], c)
+  lidMesh.getVertexPosition(indices[0], a).applyMatrix4(geomToLid)
+  lidMesh.getVertexPosition(indices[1], b).applyMatrix4(geomToLid)
+  lidMesh.getVertexPosition(indices[2], c).applyMatrix4(geomToLid)
   triBasis(a, b, c, restBasis)
   const restBasisInv = restBasis.clone().invert()
 
@@ -197,9 +213,15 @@ export function createEyeSocket(scene: Object3D): EyeSocket | null {
   function apply() {
     // `getVertexPosition` applies morph targets on the CPU, which is exactly the
     // deformed surface Blender's vertex parent follows.
-    lidMesh.getVertexPosition(indices[0], a)
-    lidMesh.getVertexPosition(indices[1], b)
-    lidMesh.getVertexPosition(indices[2], c)
+    //
+    // `geomToLid` here for the same reason it is on the rest basis, and it has
+    // to be BOTH: the delta below is `nowBasis * restBasisInv`, and that product
+    // is only the lid-space motion of the triangle if both bases were built in
+    // lid space. Composing one and not the other yields a delta in no space at
+    // all.
+    lidMesh.getVertexPosition(indices[0], a).applyMatrix4(geomToLid)
+    lidMesh.getVertexPosition(indices[1], b).applyMatrix4(geomToLid)
+    lidMesh.getVertexPosition(indices[2], c).applyMatrix4(geomToLid)
     triBasis(a, b, c, nowBasis)
 
     lid!.updateWorldMatrix(true, false)
