@@ -65,7 +65,7 @@
       "destination": "/api"
     },
     {
-      "source": "/:path((?!.*\\.(?:png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|css|js|mjs|map|txt|xml|json|webmanifest)$).*)",
+      "source": "/:path((?!.*\\.(?:png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|css|js|mjs|map|txt|xml|json|webmanifest|glb|hdr|bin)$).*)",
       "destination": "/index.html"
     }
   ],
