@@ -35,13 +35,17 @@
  * The cost is that the character runtime and three.js are instantiated twice.
  * That is the point of the page, and it is owner-only.
  *
- * Regenerate the candidates (they are gitignored — build artifacts, not source):
+ * The dropdown offers three files. Only `decke.glb` is tracked; the other two
+ * are gitignored build artifacts, so a fresh clone sees this page with one
+ * working option and two that report a 404 until they are regenerated:
  *
+ *   # the "before" — recover the pre-optimization asset from git
+ *   git show 30efc6e:apps/web/public/models/decke/decke.glb \
+ *     > apps/web/public/models/decke/decke.orig.glb
+ *
+ *   # the "too far" — morph normals dropped, for the regression below
  *   node apps/web/scripts/decke/optimize.mjs \
- *     apps/web/public/models/decke/decke.glb \
- *     apps/web/public/models/decke/decke.opt.glb --tier=bx
- *   node apps/web/scripts/decke/optimize.mjs \
- *     apps/web/public/models/decke/decke.glb \
+ *     apps/web/public/models/decke/decke.orig.glb \
  *     apps/web/public/models/decke/decke.min.glb --tier=c
  *
  * Tier c is on the menu on purpose. It is the one change that is visibly worse,
