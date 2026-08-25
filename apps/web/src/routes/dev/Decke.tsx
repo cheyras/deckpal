@@ -241,7 +241,7 @@ export default function Decke() {
         // with nothing to reflect renders near-black. Loaded second so the
         // character appears as soon as possible.
         const hdr = await new HDRLoader().loadAsync(
-          `${import.meta.env.BASE_URL}models/decke/studio_small_09_1k.hdr`,
+          `${import.meta.env.BASE_URL}models/decke/studio_small_09_256.hdr`,
         )
         if (cancelled) return
         decke.setEnvironment(hdr)

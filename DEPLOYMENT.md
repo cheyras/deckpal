@@ -205,6 +205,35 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_COMMIT_MESSAGE` | set by Vercel | **Not set by hand — but the feature that reads them can be switched off by accident.** Deck-E's transcript history stamps every turn with the build that served it, so *"did this get worse, and when"* is a query rather than a guess. The PR number is parsed from the squash-merge subject (`Title (#78)`) and the sha is the commit. Both arrive as ordinary runtime environment variables **only while the project's "Automatically expose System Environment Variables" setting is ON** (Vercel → Project → Settings → Environment Variables). Turn it off and every new turn records `buildPr: null, buildSha: null` — silently, and indistinguishably from a run of preview deploys, which is the failure this row exists to make findable. Nothing else depends on them; the history keeps working and simply stops being correlatable. Verified live: a turn recorded on a preview came back stamped with the deploying commit. |
 | `DECKE_CREDITS_ENABLED` | unset (default) | **Switches Deck-E from the daily two-counter meter to a single credit balance.** Unset or anything other than the exact string `true` keeps `decke_usage` (migration 039) and changes nothing. Set to `true` and every turn and every deep call spends from `decke_credit_balance` (migrations 041/042) instead, with a HARD STOP at zero — the owner's call: *"I can use him while I have credits. If I'm out, I can't use him."* **Do not set this before granting balances.** 041 creates every balance at `0`, so switching it on first makes Deck-E unavailable to every account at once, the owner's included. The order is: run the migrations, grant balances, then set the flag. 039's tables are left in place so the flag is reversible. Prices live in `apps/api/src/decke/credits.ts`, derived from measured per-call cost via `CREDIT_USD` — the retail price of a top-up is a separate decision and is not encoded anywhere yet. |
 
+### Static asset caching (`vercel.json` → `headers`)
+
+Vercel serves every static file as `public, max-age=0, must-revalidate` by
+default, so the browser re-asks about **every** asset on **every** page load.
+Two rules in `vercel.json` fix that. They are split because the two directories
+have opposite safety properties, and merging them would be a bug:
+
+| Path | Header | Why |
+|---|---|---|
+| `/assets/(.*)` | `public, max-age=31536000, immutable` | Vite CONTENT-HASHES these (`index-Dx7HewrO.js`). The filename changes whenever the bytes do, so a stale copy is unreachable by construction and caching forever is free. This is the whole app's JS and CSS. |
+| `/models/decke/(.*)` | `public, max-age=3600, stale-while-revalidate=86400` | Deck-E's assets are **not** hashed — the runtime asks for them by name as string literals so `apps/web/scripts/check-precache.mjs` can prove they exist. A long `max-age` here would pin people to an old character across a deploy, so this bounds staleness at an hour, then serves stale for a day while refreshing behind the reader. |
+
+**`index.html` and `sw.js` are deliberately absent, and must stay absent.** Both
+have to keep revalidating. `index.html` is what points at the hashed assets, so
+caching *it* is the thing that would actually strand someone on an old deploy;
+and a stale `sw.js` cannot be corrected by a later deploy at all, because the
+stale worker is what would have to fetch the fix. Vercel's default is correct
+for both, which is why no rule matches them — **do not add a catch-all rule.**
+
+When a `/models/decke/` asset has to change incompatibly, **rename it** rather
+than relying on the hour. That is what `studio_small_09_1k.hdr` →
+`studio_small_09_256.hdr` was for (DECISIONS.md, 2026-08-24).
+
+Repeat visits are handled separately and more aggressively by the service
+worker's Tier 2 route (`apps/web/src/sw.ts`), which serves the character from
+the device instantly and revalidates in the background. These headers are what
+the visit *before* the worker takes over gets, plus every browser where a
+service worker never activates.
+
 ### Turning Deck-E's credits on
 
 **The order is not the obvious one.** Migration 041 creates every balance at
