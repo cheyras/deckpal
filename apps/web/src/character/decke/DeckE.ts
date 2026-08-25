@@ -18,6 +18,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { createStage, type Stage } from './stage'
+import { installLtcTables } from './ltc'
 import { CENTRE_OFFSET, makeFraming, solveFraming, type Framing } from './framing'
 import { ENTRY_MS, bodySpan, clampEntryScale, entryScaleAt } from './entry'
 import {
@@ -800,7 +801,7 @@ export class DeckE {
     // `scripts/decke/shrink.mjs` takes the raw export to 2.92 MB;
     // `scripts/decke/optimize.mjs` is the second pass that quantises it.
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
-    const [gltf, doc, cards, atlas] = await Promise.all([
+    const [gltf, doc, cards, , atlas] = await Promise.all([
       // The default is spelled out as a LITERAL and not interpolated, because
       // `scripts/check-precache.mjs` proves the assets exist by scanning this
       // directory for `models/decke/<file>` — a fully templated path hides the
@@ -813,6 +814,10 @@ export class DeckE {
       ),
       loadPlaybook(baseUrl),
       loadCards(baseUrl),
+      // The RectAreaLight BRDF tables. Must land before the first render — see
+      // `ltc.ts`. Fetched here rather than at construction so it shares this
+      // waterfall instead of adding one.
+      installLtcTables(baseUrl),
       // The SDF atlas is Non-Color data, not an image: decoding it as sRGB
       // shifts the 0.5 edge and every glyph comes out fat and soft.
       new TextureLoader().loadAsync(`${baseUrl}models/decke/symbol_sdf_atlas.png`),

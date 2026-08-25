@@ -132,9 +132,13 @@ const SCENES = [
     name: 'idle',
     what:
       'The page as a visitor finds it: the launcher chip and nothing else. ' +
-      'Two things to check — the chip is the ONLY Deck-E on screen (a 3D body ' +
-      'here as well is the "two Deck-Es" defect), and the network log shows ' +
-      'whether the 7.1 MB runtime loaded without being asked for.',
+      'The chip must be the ONLY Deck-E on screen — a 3D body here as well is ' +
+      'the "two Deck-Es" defect. NOTE that the runtime IS expected in the ' +
+      'network log now: since 2026-08-25 he warms after the page loads rather ' +
+      'than on hover, so the payload line is a SIZE check (~545 kB of assets, ' +
+      '199 kB of chunk over the wire), not a should-this-be-here check. What ' +
+      'must stay false is `twoDeckEs` — he loads at entryScale 0 and draws ' +
+      'nothing until `playEntry`.',
     platforms: ['desktop', 'mobile'],
     async act({ page }) {
       // Long enough to be past the old idle/1.5 s auto-load window, so the
@@ -729,7 +733,22 @@ async function readPresence(page) {
     }
     const canvas = document.querySelector('canvas.fixed.inset-0')
     const launcher = document.querySelector('button[aria-label="Chat with Deck-E"]')
-    const body = visible(canvas)
+    // A VISIBLE CANVAS IS NO LONGER A VISIBLE CHARACTER, and reading it as one
+    // makes this probe report the defect it exists to catch on every page.
+    //
+    // He is warmed after the page loads now, not on hover, so the canvas is
+    // mounted and rendering on the default closed state of every page — with
+    // `entryScale` at 0, which is a third of a pixel tall and draws nothing.
+    // `playEntry` is what brings him. So the question this probe has to ask is
+    // whether he has been ENTERED, not whether a canvas is in the document.
+    //
+    // `window.__decke` is DEV-only (see the note on `readDiagnostics` below);
+    // where it is absent this falls back to the old canvas test, which is the
+    // right way round — a production run reports a possible defect rather than
+    // silently passing.
+    const d = window.__decke
+    const canvasUp = visible(canvas)
+    const body = canvasUp && (d && typeof d.entryScale === 'number' ? d.entryScale > 0.01 : true)
     const chip = visible(launcher)
     return {
       characterBodyVisible: body,
