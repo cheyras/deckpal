@@ -219,6 +219,10 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   name and groups the interchangeable ids; the warning sits above the paging footer, not in a
   footnote, because a caller that has already picked has already erred. NULL = too thin to hash,
   which is the absence of a claim and never evidence of sameness.
+- **The reprint-legality oracle reads that column** rather than hashing per request: 185 queries
+  and 5.6s became 1 query and 0.03s for 30 rotated cards, same verdicts. A NULL fingerprint is
+  never read as "no reprint" — it falls back to hashing, because on an unfilled index the fast
+  form would turn every legal deck illegal and throw nothing.
 - **The fingerprint is filled by a PASS, not by the importer** (`fingerprint:index`, run from
   `scripts/refresh-catalog.sh` after every import). The hash covers child tables the importer
   writes after the card row exists, so there is no moment during the insert when it is
