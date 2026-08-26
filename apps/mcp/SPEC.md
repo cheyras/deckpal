@@ -205,8 +205,9 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   `deck/battlelog.ts` strips it before anything reads a line. It did not, and the parser never
   threw: it kept counting turns while the NAMES it extracted carried the code, so deck-overlap
   scoring hit zero for both players. Across fourteen real logs that meant five with no owner
-  and **two with the owner identified as the opponent**, prizes and win/loss inverted and
-  stored. The discriminator is underscore-then-digits, which is what leaves `(Ability)` and
+  and **two with the owner identified as the opponent**, prizes and win/loss attributed to
+  the wrong player. The stored `result`/`opponent` columns were unaffected — those are
+  supplied explicitly — so the win/loss record was never wrong; the `parsed` detail was. The discriminator is underscore-then-digits, which is what leaves `(Ability)` and
   `(Item)` — read by the same parser — untouched.
 - **A failure message must never contain an example identifier, and never phrase advice as
   something that could be mistaken for a value.** Both rules were written from measured loops:

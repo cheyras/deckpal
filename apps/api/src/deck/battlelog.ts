@@ -72,12 +72,27 @@ function emptyParse(): ParsedBattleLog {
  *   #47 #46 #40 #38 #35   confidence LOW, no owner, 0-0 prizes, no knockouts
  *   #36 #34               confidence HIGH and the owner identified as THE
  *                         OPPONENT — prizes, knockouts and the win/loss all
- *                         attributed to the wrong player, and stored that way
+ *                         attributed to the wrong player
  *   #41 #39 #37           high, but the deck guess read
  *                         "(me1_1) Bulbasaur / (me1_8…)"
  *
- * The two inverted ones are the worst outcome available: confident, wrong, and
- * written down. The owner reported it from the far end — *"seems like he
+ * ── HOW MUCH OF THAT REACHED THE DATABASE, CHECKED RATHER THAN ASSUMED ──────
+ *
+ * Less than the list implies, and the difference is worth stating plainly so
+ * nobody re-derives it in a panic. Every `battle_log.result` and `opponent`
+ * column on file is CORRECT: `add_battle_log` takes both explicitly, and the
+ * caller supplied them whenever the parser came back unsure. The deck's
+ * win/loss record was never wrong.
+ *
+ * The damage is confined to the `parsed` JSONB detail: **#34** is stored with
+ * `players` and `prizesTaken` inverted, #46 is stored empty, and the code-era
+ * rows carry codes inside their names. #36 re-parses inverted from raw but is
+ * stored correctly, because that write named the player.
+ *
+ * An earlier draft of this comment said all of it was "stored that way". It was
+ * not, and a note that overstates its own blast radius is the same failure as a
+ * message that misstates its evidence. The owner reported it from the far end —
+ * *"seems like he
  * interpreted MY deck as being my opponent's deck"* — and it was never the
  * model. `add_battle_log` refused the two most recent games outright, which is
  * why a battle they asked to record simply was not recorded.
