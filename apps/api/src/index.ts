@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import { closePool, pool, q, rlsStore, SUPABASE_MODE } from './db.js';
 import { ownerGateStatus } from './routes/me.js';
 import { deckeApprovalSigning, deckeApprovalWarning, deckeGateStatus, deckeGateWarning } from './decke/gate.js';
+import { checkModels, modelCheckStatus, modelCheckWarning, type ModelCheck } from './decke/modelCheck.js';
 import {
   deckeEntitledCount,
   deckeEntitlementStatus,
@@ -76,6 +77,26 @@ export function createApp(): express.Express {
   // separately so the louder message cannot hide the quieter one.
   const approvalWarning = deckeApprovalWarning();
   if (approvalWarning) console.warn(approvalWarning);
+
+  // ── AND WHETHER THE MODELS WE ARE CONFIGURED TO CALL ACTUALLY EXIST ──────
+  //
+  // MODELS.research.id was a model that is not on the Gateway key, for the
+  // whole life of the feature. It typechecked, built, passed CI and passed
+  // review, and every call 404d — while the failure was framed as an answer,
+  // so even USING it did not reveal the fault. Six ways to not notice.
+  //
+  // Fired and forgotten: this must never delay a boot, and a Gateway that is
+  // unreachable at cold start is a thing to say, not a reason to stay down.
+  let modelCheck: ModelCheck = { missing: [], checked: 0, unreachable: 'not checked yet' };
+  void checkModels(process.env.DECKE_VERCEL_AI_GATEWAY_KEY ?? process.env.AI_GATEWAY_API_KEY)
+    .then((c) => {
+      modelCheck = c;
+      const w = modelCheckWarning(c);
+      if (w) console.warn(w);
+    })
+    .catch(() => {
+      /* checkModels already turns every failure into . */
+    });
 
   const app = express();
   app.disable('x-powered-by');
@@ -298,6 +319,12 @@ export function createApp(): express.Express {
           status: deckeEntitlementStatus(),
           extraAccounts: deckeEntitledCount(),
         },
+        // Whether every configured model id is real. NAMES the missing ones,
+        // unlike the entitlement block above — a model id is a public product
+        // name, and "one model is wrong" without saying which is a puzzle
+        // rather than a report. B11: the configuration defect that was
+        // invisible from outside for months is now the first thing visible.
+        deckeModels: modelCheckStatus(modelCheck),
         // The CONFIGURED caps, and the configured size of a pool this process
         // cannot see. `api/chat.mjs` is a separate serverless function with a
         // separate process, so the live census above covers the Express app's
