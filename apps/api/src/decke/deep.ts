@@ -22,7 +22,7 @@
  * ══════════════════════════════════════════════════════════════════════════════
  *
  *   plan_deck            analysis  read tools            reads the collection, plans
- *   write_strategy_guide analysis  read tools + research synthesises, then STORES it
+ *   write_strategy_guide analysis  read tools + deck_strategy  writes a guide, STORES it
  *   research_meta        research  NOTHING               live web only
  *   analyze_collection   analysis  read tools            synthesis beyond a summary
  *
@@ -150,6 +150,27 @@ export interface DeepToolOptions {
    * never wrong.
    */
   readerDisplayName?: string | null;
+  /**
+   * The turn's grounding, so a card a deep tool RESOLVED can be rendered.
+   *
+   * ── THE BUG THIS CLOSES, WHICH WAS LATENT FOR THE WHOLE DEEP TIER ────────
+   *
+   * `grounding.observe()` runs only inside the data-tool adapter. A deep tool's
+   * result never reached it — so on any turn that also made one data-tool call
+   * (the normal case: he searches, then plans), `grounding.size() > 0` and
+   * every id that exists only in a deep result is partitioned `invented` and
+   * STRIPPED from the panel by `sanitizeScreen`.
+   *
+   * The failure lands exactly on the payoff: "here is the deck I planned for
+   * you", and the grid is empty. Found by adversarial review rather than by
+   * anything going wrong loudly, which is how it survived `plan_deck` shipping.
+   *
+   * NOTE WHAT IS DELIBERATELY *NOT* OBSERVED: `research_meta`'s output. That is
+   * text fetched from the open web, and an id-shaped string in a stranger's
+   * blog post must never become evidence that a tool returned it. Only the
+   * sub-agents that hold real catalogue tools ground their results.
+   */
+  grounding?: { observe(text: string): void };
   /** Lifecycle events, so deep work gets a chip like everything else. */
   onEvent?: (e: ToolEvent) => void;
   /**
@@ -331,27 +352,42 @@ async function runSubAgent(opts: {
       prompt: opts.prompt,
       ...(opts.tools ? { tools: opts.tools } : {}),
       stopWhen: [stepCountIs(opts.maxSteps)],
-      // `budgetFor` applies RESERVE (2.5x) when the choice declares an effort.
-      //
-      // NOTE, HONESTLY: that reserve is currently the ONLY thing `effort` does.
-      // Nothing in this codebase actually sends a reasoning-effort parameter to
-      // the provider — not here and not in `api/chat.mjs` — so a model runs at
-      // its own default and the field sizes the token headroom rather than
-      // buying more thinking.
-      //
-      // That headroom is not decoration: `models.ts` records four separate
+      // `budgetFor` applies RESERVE (2.5x) when the choice declares an effort,
+      // and that headroom is not decoration: `models.ts` records four separate
       // measurements where a reasoning model provisioned at exactly the
       // expected answer length spent 100% of its budget on hidden reasoning and
-      // returned EMPTY content with `finish_reason: "length"` — a silent, billed
-      // non-answer. So the mitigation that matters is in place.
-      //
-      // Wiring the parameter itself is worth doing and is deliberately NOT done
-      // blind: the shape differs per vendor behind the Gateway
-      // (`openai.reasoningEffort` vs `anthropic.thinking.budgetTokens`), and
-      // this repo has a recorded scar from exactly this class of guess — the
-      // `providerOptions.gateway.cacheControl` defect, which typechecked fine
-      // and did nothing. It needs a live probe, not an inference.
+      // returned EMPTY content with `finish_reason: "length"` — a silent,
+      // billed non-answer. A fifth was measured on 2026-08-25:
+      // `perplexity/sonar-reasoning-pro` returns zero visible characters at
+      // 3,000 tokens.
       maxOutputTokens: budgetFor(opts.choice),
+      // ── AND THE EFFORT ITSELF, WHICH USED TO GO NOWHERE ──────────────────
+      //
+      // This comment used to say that nothing in the codebase sends a
+      // reasoning-effort parameter to any provider, so `effort` only ever sized
+      // the token reserve — a declared capability that did nothing, exactly
+      // like `ModelChoice.fallback` and exactly like the phantom research model.
+      // It also said the wiring "needs a live probe, not an inference", because
+      // of the `providerOptions.gateway.cacheControl` scar.
+      //
+      // The probe was run, and it earned its keep — an inference would have
+      // been wrong in both directions:
+      //
+      //   openai/gpt-5-mini   default        23.1 s   1,620 out   292 chars
+      //                       effort low     10.3 s     768 out   290 chars
+      //                       effort high    82.9 s   2,944 out     0 chars
+      //   claude-sonnet-5     all four Anthropic shapes: no measurable change
+      //
+      // So `reasoningEffort` genuinely reaches OpenAI and HALVES the write
+      // tier's latency for the same answer — and `high` is a trap that returns
+      // nothing at all, which is why nothing here sends it. Anthropic's
+      // parameters pass through and do nothing observable; Sonnet already
+      // reasons adaptively, so `MODELS.analysis.effort` remains a reserve
+      // multiplier and `models.ts` now says so rather than implying otherwise.
+      //
+      // Sent per vendor, from the model id, because that is the axis the shapes
+      // actually differ on.
+      ...reasoningOptions(opts.modelId, opts.choice.effort),
       abortSignal: ac.signal,
     });
     // STREAMED, not awaited whole. `generateText` would give us nothing at all
@@ -488,6 +524,38 @@ async function runSubAgent(opts: {
       finishReason === 'length' || (finishReason === 'tool-calls' && steps >= opts.maxSteps),
     steps,
   };
+}
+
+/**
+ * The reasoning-effort parameter, in the spelling the vendor actually reads.
+ *
+ * ── MEASURED PER VENDOR, BECAUSE THE SHAPES DIFFER AND ONE IS A NO-OP ──────
+ *
+ * OpenAI honours `providerOptions.openai.reasoningEffort` through the Gateway,
+ * observably: `gpt-5-mini` went 23.1 s / 1,620 output tokens at its default to
+ * 10.3 s / 768 for the same 290-character answer at `low`.
+ *
+ * Anthropic does not, in any of the four shapes tried — `thinking.enabled` is
+ * rejected outright by Sonnet 5 ("use thinking.type.adaptive"), and
+ * `thinking.adaptive`, `output_config.effort` and both together are
+ * indistinguishable from baseline at ~9 s and ~1,100 characters. Sonnet reasons
+ * adaptively on its own, so there is nothing here to buy. Sending the parameter
+ * anyway would be the `cacheControl` scar repeated: a line that typechecks,
+ * ships, and does nothing, while its presence implies otherwise to the next
+ * reader.
+ *
+ * `high` IS NEVER SENT, by anybody. At high effort `gpt-5-mini` took 82.9 s and
+ * returned ZERO visible characters — the reasoning tax, for the fifth recorded
+ * time. `MODELS.analysis` declares `effort: 'high'` and gets its 2.5x reserve
+ * from it; it does not get a parameter, and the measurement above is why.
+ */
+function reasoningOptions(
+  modelId: string,
+  effort: ModelChoice['effort'],
+): { providerOptions?: { openai: { reasoningEffort: string } } } {
+  if (!effort || effort === 'high') return {};
+  if (!modelId.startsWith('openai/')) return {};
+  return { providerOptions: { openai: { reasoningEffort: effort } } };
 }
 
 /**
@@ -688,6 +756,16 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
     title: string;
     description: string;
     inputSchema: z.ZodObject<Record<string, z.ZodType>>;
+    /**
+     * May this tool's result ground a card id for `showScreen`?
+     *
+     * TRUE for the sub-agents that hold real catalogue tools — an id in their
+     * output was resolved against the database. FALSE for `research_meta`,
+     * whose text is fetched from the open web: an id-shaped string in a
+     * stranger's blog post is not evidence that any tool returned it, and
+     * grounding it would let web prose license a card grid.
+     */
+    grounds?: boolean;
     // HISTORY — superseded: a `writes?: boolean` flag lived here and gated
     // `needsApproval` on the one tool that stores (`write_strategy_guide`).
     // The every-deep-call-asks reversal below made it dead, and it is gone;
@@ -793,6 +871,16 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
       try {
         const out = await spec.run(args, progress);
         const summary = out.text.slice(0, 110);
+        // ── GROUND WHAT THIS TOOL RESOLVED, SO IT CAN BE SHOWN ──────────────
+        //
+        // Without this, a card id that exists only in a deep result is
+        // partitioned `invented` and stripped from the panel — the payoff turn
+        // renders an empty grid. See `DeepToolOptions.grounding`.
+        //
+        // `spec.grounds` is opt-in per tool and is FALSE for `research_meta`:
+        // its text comes from the open web, and an id-shaped string in a
+        // stranger's blog must never become evidence that a tool returned it.
+        if (spec.grounds && !out.failed) opts.grounding?.observe(out.text);
         // H3. `ok` is the word that let a timed-out call be praised on camera;
         // a call the server WATCHED stop short gets its own phase instead, with
         // the reason it stopped, so the chip cannot read as success.
@@ -821,6 +909,8 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
   return {
     plan_deck: deepTool({
       name: 'plan_deck',
+      // Holds real catalogue tools: an id here was resolved against the database.
+      grounds: true,
       title: 'Plan a deck',
       description:
         'Build a deck plan around an idea, using what this user actually owns. Reads the ' +
@@ -860,6 +950,8 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
 
     analyze_collection: deepTool({
       name: 'analyze_collection',
+      // Holds real catalogue tools: an id here was resolved against the database.
+      grounds: true,
       title: 'Analyse the collection',
       description:
         'Synthesis beyond what collection_summary reports — patterns, gaps, what is worth ' +
@@ -1007,14 +1099,31 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
 
     write_strategy_guide: deepTool({
       name: 'write_strategy_guide',
+      // Holds real catalogue tools: an id here was resolved against the database.
+      grounds: true,
       title: 'Write and store a strategy guide',
       // THE ONE DEEP TOOL THAT WRITES. Asked once, at the boundary a person
       // can actually evaluate.
+      // ── IT PROMISED THE META AND COULD NOT READ IT ───────────────────────
+      //
+      // This said "Reads the deck, its battle logs and the current meta", and
+      // this file's own header table says "read tools + research". Neither was
+      // true: the toolset below is the read tools plus `deck_strategy`, and no
+      // research capability has ever been in it. So the one tool whose contract
+      // claims exactly the synthesis this product is for was inviting itself to
+      // make the meta half up.
+      //
+      // Now it says what it does. If a guide should carry the current meta, the
+      // caller researches first and passes the findings in `focus` — which
+      // keeps the web text where it belongs: read by the conversational model,
+      // under the frame that says it is data, never fetched by the sub-agent
+      // that also holds a write.
       description:
-        'Write a real strategy guide for one of their decks and save it. Reads the deck, ' +
-        'its battle logs and the current meta, then writes the guide and stores it with ' +
-        'deck_strategy. Note that deck_strategy only STORES text — this is the tool that ' +
-        'writes it.',
+        'Write a real strategy guide for one of their decks and save it. Reads the deck and ' +
+        'its battle logs, then writes the guide and stores it with deck_strategy. ' +
+        'It CANNOT look anything up on the web — if the guide should reflect the current ' +
+        'meta, research that first and pass what you found in `focus`. ' +
+        'Note that deck_strategy only STORES text — this is the tool that writes it.',
       inputSchema: z.object({
         deck: z.string().max(120).describe('Which deck, by name or id.'),
         focus: z.string().max(300).optional().describe('Anything specific they asked for.'),

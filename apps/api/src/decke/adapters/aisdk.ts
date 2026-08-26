@@ -909,7 +909,23 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             // should be able to see that eight of them were the same question.
             opts.onEvent?.({ phase: 'ok', ...chip, summary: 'asked again — same answer as before' });
           }
-          return text;
+
+          // ── AND A RUN OF DIFFERENT CALLS THAT ALL FIND NOTHING ────────────
+          //
+          // The ledger above catches the same call made twice. This catches
+          // five DIFFERENT wordings of a question the tool was never going to
+          // answer — measured, and the reason one turn spent its whole budget
+          // rewording "hidden gem" instead of researching it.
+          //
+          // "Empty" is judged HERE rather than inside the ledger because only
+          // the tool knows what its own nothing looks like: every one of these
+          // says so in its first line, which is the same line `summarise` reads
+          // for the chip.
+          const emptyish = /^no (?:cards|sets?|decks|lists|battle logs)\b|found nothing/i.test(
+            text.trimStart(),
+          );
+          const nudge = ledger.noteEmptiness(def.name, emptyish);
+          return nudge ? text + nudge : text;
         } catch (err) {
           // A message, not an object: this string goes straight into the
           // model's context, and it should read like something that happened

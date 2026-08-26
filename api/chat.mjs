@@ -679,6 +679,11 @@ async function serve(request) {
           // consecutive turns, with the reader saying in the chat that being
           // re-asked was the problem. Same set as the data tools above.
           declined,
+          // The turn grounding, so a card a deep tool RESOLVED survives into the
+          // panel. Without it every id that exists only in a plan_deck result is
+          // partitioned invented and stripped — the payoff turn renders an empty
+          // grid. research_meta is excluded at the tool, not here.
+          grounding,
           onEvent: emitToolEvent(writer),
         }),
       }

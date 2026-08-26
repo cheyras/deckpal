@@ -174,3 +174,42 @@ test('two ledgers do not see each other — one per request, never module state'
   assert.equal(ran, 2, "a second request's ledger must start empty");
   assert.equal(other.repeated, false);
 });
+
+// ── The empty-run nudge ─────────────────────────────────────────────────────
+//
+// The ledger above catches the SAME call twice. This catches five different
+// wordings of a question the tool was never going to answer.
+
+test('three empty results in a row from one tool says to change approach', () => {
+  const ledger = new CallLedger();
+  assert.equal(ledger.noteEmptiness('search_cards', true), null, 'one is not a pattern');
+  assert.equal(ledger.noteEmptiness('search_cards', true), null, 'two is a fair second try');
+  const nudge = ledger.noteEmptiness('search_cards', true);
+  assert.ok(nudge, 'three in a row is a pattern');
+  assert.match(nudge, /3 calls to search_cards in a row/);
+  // The point is NOT to reword — that is what the failing turn did five times.
+  assert.match(nudge, /wording is not the problem/);
+  assert.match(nudge, /research it first/i);
+});
+
+test('finding something clears the run', () => {
+  const ledger = new CallLedger();
+  ledger.noteEmptiness('search_cards', true);
+  ledger.noteEmptiness('search_cards', true);
+  assert.equal(ledger.noteEmptiness('search_cards', false), null, 'a hit resets it');
+  assert.equal(ledger.noteEmptiness('search_cards', true), null, 'counting starts again');
+  assert.equal(ledger.noteEmptiness('search_cards', true), null);
+});
+
+test('the run is per TOOL — one tool going quiet is not another one failing', () => {
+  const ledger = new CallLedger();
+  // Two empties each, interleaved.
+  ledger.noteEmptiness('search_cards', true);
+  ledger.noteEmptiness('set_progress', true);
+  ledger.noteEmptiness('search_cards', true);
+  ledger.noteEmptiness('set_progress', true);
+  // A HIT on one must not reset the other.
+  assert.equal(ledger.noteEmptiness('search_cards', false), null);
+  assert.ok(ledger.noteEmptiness('set_progress', true), 'set_progress reached its own three');
+  assert.equal(ledger.noteEmptiness('search_cards', true), null, 'search_cards started over');
+});

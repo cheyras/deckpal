@@ -98,7 +98,29 @@ const searchCardsTool = defineTool({
     'full detail on ONE card (variants, tiers, per-source prices) use get_card instead, and ' +
     'for set completion use set_progress.',
   inputSchema: z.object({
-    query: z.string().optional().describe("Card-name substring, accent/case-insensitive, e.g. 'charizard'."),
+    // ── IT IS A SUBSTRING, NOT A SEARCH ENGINE, AND THAT WAS NOT SAID ───────
+    //
+    // Measured: asked for "a hidden gem with really cool artwork", the model
+    // sent `query: "hidden gem OR underrated OR favorite artwork OR cool art"`
+    // and then three more variations of the same idea. This is
+    // `ILIKE '%…%'` over the printed card name — there is no card named any of
+    // that, so every one was guaranteed empty before it was sent.
+    //
+    // The old text said "Card-name substring", which is true and was not
+    // enough: it describes the mechanism without ruling out the two things the
+    // model actually tried, which were boolean operators and searching for a
+    // CONCEPT rather than a name.
+    query: z
+      .string()
+      .optional()
+      .describe(
+        "One card's printed name, or part of it — 'charizard', 'iono'. " +
+          'A plain substring match, accent- and case-insensitive. ' +
+          'NOT a search engine: OR, AND, quotes and wildcards are matched literally ' +
+          'and will find nothing. ' +
+          'It can only see the NAME — not artwork, not rarity, not popularity, not ' +
+          'whether a card is good or admired or a bargain. For any of those, research it.',
+      ),
     // 'sv3pt5' USED TO BE THE SECOND EXAMPLE HERE AND IT IS NOT A SET ID IN
     // THIS CATALOG. TCGdex writes Pokémon 151 that way in public; this database
     // stores `sv03.5` (see `apps/sync/src/prices/crossfill.ts`). The string came
@@ -122,11 +144,30 @@ const searchCardsTool = defineTool({
     rarity: z.string().optional().describe("Exact rarity name, case-insensitive, e.g. 'Double Rare'."),
     owned_only: z.boolean().default(false).describe('true → only cards you own at least one copy of (any variant).'),
     standard_legal: z.boolean().optional().describe('Filter on Standard-format legality (card.legal_standard).'),
+    // ── `0` IS NOT A NO-OP, AND IT WAS BEING SENT AS ONE ────────────────────
+    //
+    // This compiles to `b.best_minor >= 0` against a LEFT JOIN, so a card with
+    // no USD price is NULL, `NULL >= 0` is not true, and the row disappears.
+    // Measured on the live catalogue: 23,546 English cards become 16,281.
+    // "At least $0" quietly deletes 30.9% of the database.
+    //
+    // And the model sent it on EVERY call of the turn that failed, plainly
+    // believing it meant "no minimum" — six searches in a row, each one
+    // silently blind to a third of the catalogue.
+    //
+    // `0` now means what the model thought it meant. Anyone who genuinely wants
+    // only-priced cards has `min_value_usd: 0.01`, and the description says so
+    // rather than leaving "unpriced excluded" attached to a value that no
+    // longer excludes them.
     min_value_usd: z
       .number()
       .min(0)
       .optional()
-      .describe('Only cards whose best USD market price is at least this many dollars (unpriced cards excluded).'),
+      .describe(
+        'Only cards worth at least this many USD. 0 means no minimum and is ignored. ' +
+          'Any value ABOVE 0 also drops cards with no price at all, so use 0.01 for ' +
+          '"only cards that have a price".',
+      ),
     page: pageArg,
     page_size: pageSizeArg,
   }),
@@ -194,7 +235,10 @@ const searchCardsTool = defineTool({
         });
       }
       if (args.owned_only) filters.push({ label: 'owned_only', sql: () => `COALESCE(o.qty, 0) > 0` });
-      if (args.min_value_usd !== undefined) {
+      // `> 0`, not `!== undefined` — see the schema. A zero minimum is not a
+      // filter, and treating it as one cost a third of the catalogue on every
+      // call of the turn that failed.
+      if (args.min_value_usd !== undefined && args.min_value_usd > 0) {
         filters.push({
           label: `min_value_usd ${args.min_value_usd}`,
           sql: (p) => `b.best_minor >= ${p(Math.round(args.min_value_usd! * 100))}`,
@@ -275,6 +319,35 @@ const searchCardsTool = defineTool({
         // Two things are worth one extra query each, and only ever on this
         // path, so the common case pays nothing.
         const notes: string[] = [];
+
+        // 0. THE QUERY IS NOT A NAME AT ALL. Checked first, because when it is
+        //    true nothing else in this branch can help: no filter is at fault,
+        //    no set is hiding, and re-wording will not save it.
+        //
+        //    Two shapes, both measured in one turn:
+        //      `"hidden gem OR underrated OR favorite artwork OR cool art"`
+        //      `"beautiful OR stunning OR underrated OR favorite OR gem"`
+        //    then, having dropped the operators, `"beautiful"` — which is not
+        //    a card either. He was searching card names for a VIBE, four times.
+        if (query) {
+          const operator = /\b(?:OR|AND|NOT)\b|["*]|\bnear:|\|\||&&/.test(query);
+          const wordy = query.trim().split(/\s+/).length >= 4;
+          if (operator || wordy) {
+            notes.push(
+              operator
+                ? `'${query}' contains search-engine syntax. This field is a plain substring ` +
+                    `of one card's printed NAME — OR, AND, quotes and wildcards match literally ` +
+                    `and never find anything.`
+                : `'${query}' reads like a description rather than a card's name. This field ` +
+                    `only matches the printed name.`,
+            );
+            notes.push(
+              'It cannot see artwork, popularity, price or whether a card is admired. ' +
+                'Research that question first, then search for the card NAMES the research ' +
+                'gives you, one at a time.',
+            );
+          }
+        }
 
         // 1. THE QUERY IS A SET NAME. This is the single commonest shape of the
         //    41: `query: 'Pitch Black'`, `query: 'phantasmal flames'` — a set
