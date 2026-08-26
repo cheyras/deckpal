@@ -415,8 +415,27 @@ const decksTool = defineTool({
         const t = (await ctx.api.get(`/decks/${encodeURIComponent(deckId)}/testhand`)) as TestHand;
         lines.push(...testhandLines(t));
       }
+      // ── SAY THAT THE CARD LIST IS NOT HERE ──────────────────────────────
+      //
+      // The old line offered the includes as options and left the reader of
+      // this output to notice which sections were missing. Measured: asked
+      // "show me my slowking decklist", the model called this WITHOUT
+      // `include: ['cards']`, got a header saying `60 cards (23 Pokemon / 27
+      // Trainer / 10 Energy)` — a true sentence containing no cards — and
+      // told the user "here it is". The reply had no list in it at all.
+      //
+      // A count is the most misleading thing this response can hold: it reads
+      // like evidence the list was fetched. So the absence is now stated as an
+      // absence, in the imperative, right where the list would have been.
+      if (!want.has('cards')) {
+        lines.push(
+          'NO CARD LIST WAS FETCHED — the counts above are totals only, and this response ' +
+            "does not contain a single card. To show or read the deck list, call decks again with " +
+            "include: ['cards'].",
+        );
+      }
       if (want.size === 0) {
-        lines.push("(pass include: ['cards','validate','pricing','testhand'] for detail sections)");
+        lines.push("(also available: include: ['validate','pricing','testhand'])");
       }
       return ok(lines.join('\n'));
     } catch (err) {

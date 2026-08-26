@@ -49,9 +49,63 @@ function emptyParse(): ParsedBattleLog {
   };
 }
 
-/** Curly apostrophes → straight, collapse trailing whitespace. Applied to every line. */
+/**
+ * A PTCG Live card code, as the client now prints it before every card name.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE FORMAT CHANGED UNDER THIS PARSER AND IT FAILED QUIETLY
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Live began prefixing every card with its set code:
+ *
+ *     JazzyWazzy11222 played (sv10_102) Cynthia's Gible to the Active Spot.
+ *
+ * Every action line still matched, so the parser still counted turns and still
+ * returned a populated-looking result. What broke is that the card NAME it
+ * extracts became `(sv10_102) Cynthia's Gible` — and player identification
+ * scores the overlap between the names a player uses and the names in the deck,
+ * which is now zero for BOTH players, because no deck contains a card called
+ * "(sv10_102) Cynthia's Gible".
+ *
+ * Measured across the owner's own history, re-parsed with and without this:
+ *
+ *   #47 #46 #40 #38 #35   confidence LOW, no owner, 0-0 prizes, no knockouts
+ *   #36 #34               confidence HIGH and the owner identified as THE
+ *                         OPPONENT — prizes, knockouts and the win/loss all
+ *                         attributed to the wrong player, and stored that way
+ *   #41 #39 #37           high, but the deck guess read
+ *                         "(me1_1) Bulbasaur / (me1_8…)"
+ *
+ * The two inverted ones are the worst outcome available: confident, wrong, and
+ * written down. The owner reported it from the far end — *"seems like he
+ * interpreted MY deck as being my opponent's deck"* — and it was never the
+ * model. `add_battle_log` refused the two most recent games outright, which is
+ * why a battle they asked to record simply was not recorded.
+ *
+ * ── WHAT IT MATCHES, AND WHAT IT DELIBERATELY DOES NOT ──────────────────────
+ *
+ * A code is `(<set>_<number>[_variant])`: `(sv10_102)`, `(me2-5_98)`,
+ * `(rsv10-5_171)`, `(mee_6)`, `(me5_29_ph)`. Underscore-then-digits is the
+ * whole discriminator, and it is what keeps the damage-breakdown labels this
+ * parser also reads — `(Ability) Cheer On to Glory`, `(Item) Premium Power
+ * Pro` — untouched: neither has one.
+ *
+ * Stripped rather than captured, on purpose. The set code is genuinely useful
+ * — it names the exact printing — but every consumer here matches on NAMES,
+ * and half-adopting it would leave two identifiers to keep in step. If a caller
+ * ever wants the printing, that is a new field, not a new meaning for this one.
+ */
+const LIVE_CARD_CODE = /\([A-Za-z0-9][A-Za-z0-9.-]*_\d+[A-Za-z_]*\)\s?/g;
+
+/**
+ * Curly apostrophes → straight, Live card codes removed, trailing whitespace
+ * collapsed. Applied to every line before anything else reads it.
+ */
 function normalizeLine(line: string): string {
-  return line.replace(/[’‘]/g, "'").replace(/\s+$/, '');
+  return line
+    .replace(/[’‘]/g, "'")
+    .replace(LIVE_CARD_CODE, '')
+    .replace(/\s+$/, '');
 }
 
 /** Case-insensitive name key for overlap scoring ("Boss's Orders" ≡ "boss's orders"). */
