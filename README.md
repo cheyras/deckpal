@@ -31,9 +31,11 @@ self-hosters.
 - **Completion goals** -- Complete Set, Master Set, Grandmaster tiers with
   accurate progress tracking.
 - **Pokedex** -- species data from PokeAPI, linked to the cards they appear on.
-- **Image storage** -- ~1.9 GB of WebP card art. Cloud deployments use Supabase
-  Storage with CDN; self-host uses a local disk cache with a dedicated image
-  server.
+- **Image storage** -- ~1.9 GB of WebP card art at two resolutions. Cloud
+  deployments serve it straight off the Supabase Storage CDN (the browser
+  addresses the object directly; the image function stays as the fallback that
+  fills a cold asset); self-host uses a local disk cache with a dedicated image
+  server. `warm:cloud` warms the whole catalog into the cloud tier.
 - **MCP server** ("deckpal-mcp") -- 23 tools for Claude, ChatGPT, Gemini, or any
   MCP-speaking assistant to query the collection, catalog, prices, and decks,
   and to log collection changes with attribution. Live and multi-user on

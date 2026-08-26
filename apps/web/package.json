@@ -13,6 +13,7 @@
     "test:decke": "node --import tsx --test src/character/decke/__tests__/*.test.ts src/character/host/__tests__/*.test.ts src/character/host/chat/__tests__/*.test.ts src/components/ui/__tests__/*.test.ts"
   },
   "dependencies": {
+    "@deckpal/storage": "workspace:*",
     "@fontsource-variable/figtree": "^5.3.0",
     "@fontsource-variable/fraunces": "^5.3.0",
     "@supabase/supabase-js": "^2.112.3",

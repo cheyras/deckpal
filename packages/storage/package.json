@@ -9,6 +9,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./paths": {
+      "types": "./src/paths.ts",
+      "default": "./dist/paths.js"
     }
   },
   "scripts": {

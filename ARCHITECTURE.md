@@ -242,22 +242,51 @@ something with no provenance record cannot be represented at all.
 the real bucket, which is what makes the "every byte has a row" claim falsifiable
 on the cloud side rather than self-reported.
 
-**CDN:** Supabase Storage includes a CDN, but the SPA does not link to it
-directly -- it requests the same relative paths self-host does
+**CDN:** the API still emits the same relative paths self-host uses
 (`/deckpal/images/en/<serie>/<set>/<localId>/<low|high>.webp`, built by
 `cardImages()` in `apps/api/src/db.ts` and `setAssetUrl()` in
-`apps/web/src/components/ui.tsx`). `vercel.json` rewrites that prefix to
-`/api/images?p=…`, a serverless function (`apps/api/src/images/handler.ts`)
-that lazily fills the bucket on demand: a HIT 302s straight to the public
-object URL (`max-age=31536000, immutable`, so a warm asset costs the function
-nothing after the first request per edge); a MISS reads the `image_asset`
-row, fetches the bytes from its `source_url`, writes them through
-`putAsset()`, then 302s; a genuine FAIL serves the same ~1 KB placeholder
+`apps/web/src/components/ui.tsx`), and `vercel.json` still rewrites that prefix
+to `/api/images?p=…`, a serverless function (`apps/api/src/images/handler.ts`)
+that lazily fills the bucket on demand: a MISS reads the `image_asset` row,
+fetches the bytes from its `source_url` (or, for card art, the canonical
+derivation of the request path), writes them through `putAsset()`, then 302s to
+the public object URL; a genuine FAIL serves the same ~1 KB placeholder
 self-host uses, or 404 for set imagery. An image URL never answers with HTML
 -- the invariant that closed the bug where every `<img>` on deckpal.app was
 silently serving the index shell (DECISIONS.md 2026-08-10, "Cloud image tier:
 lazy cache-on-demand out of Supabase Storage"). Image transforms (resize,
 format conversion) are available on Pro.
+
+**But on the cloud the SPA no longer asks the function first.** Since
+DECISIONS.md 2026-08-26 the browser addresses the public object URL DIRECTLY
+(`apps/web/src/lib/cardArt.ts`, applied by `CardImage`, `SpriteTile`, `SetLogo`
+and `SetSymbolTile`), deriving it with the same `parseImagePath` the tier itself
+parses requests with, imported from the `@deckpal/storage/paths` subpath export.
+The relative path is a pure function of the request path (B6) and the bucket is
+public, so the function and its redirect are simply not needed for an asset that
+is already there.
+
+That matters because a HIT was never free: the function still had to be invoked
+and still probed Storage before answering `302`, so every tile cost a serverless
+invocation plus two sequential round trips. Measured on production before the
+change: 89-320 image requests per page, **100% of them 302s**, card art arriving
+at p50 1954 ms / p90 4154 ms / slowest 12.6 s.
+
+**The proxied path remains, as the fallback.** A cold or genuinely absent object
+fails the direct request, `CardImage` retries through `/deckpal/images/…`, and
+the lazy fill runs exactly as described above -- so nothing lost the ability to
+self-heal, and self-host (no Supabase URL, so no direct base) is untouched. Art
+is fetched `crossorigin="anonymous"`, which the bucket allows, so the service
+worker caches CORS-readable responses rather than opaque ones the browser pads
+against the origin's storage quota (`apps/web/src/sw.ts`, cache `deckpal-img-v2`).
+
+**Warming is a first-class step, not a side effect of traffic.**
+`pnpm --filter deckpal-images warm:cloud` (`apps/images/src/cloudWarm.ts`) drives
+the tier's own fill across the whole catalog from the public API, with no
+credentials. Before it existed the bucket held only what someone had happened to
+look at -- 18,840 of 21,066 cards had no object at all -- because every other
+warmer targets the self-host disk cache and `storage:backfill` only mirrors one
+that already exists. Run it after a catalog import or a set release.
 
 A second public bucket, `user-avatars`, holds profile photos independently of
 `image_asset`/`putAsset()` -- the record lives on `user_profile` (migration

@@ -46,7 +46,17 @@ hides the gap.
 
 Existing fillers to reuse rather than reinvent — both already write through the choke point:
 - `pnpm --filter deckpal-images warm:gaps` — probes the catalog CDN for cards its manifest omits.
-- `pnpm --filter deckpal-images warm:pkmn` — pkmn.gg fallback for art the CDN 404s.
+- `pnpm --filter deckpal-images warm:cloud` — warms the CLOUD object tier for the whole
+  catalog by driving the deployed image tier's own lazy fill. This is the one that matters on
+  deckpal.app; the disk warmers above cannot reach the bucket, and `storage:backfill` only
+  mirrors a disk cache that a cloud box does not have (DECISIONS.md 2026-08-26).
+- ~~`warm:pkmn`~~ — **pkmn.gg is ruled out as a source** (owner's decision, 2026-08-26, on
+  legal grounds). `apps/images/src/warmFromPkmn.ts` still exists but must not be run, and
+  pkmn.gg must not be reintroduced as a fallback for a new gap. **TCGplayer images are also
+  ruled out**: their terms forbid automated collection outside the API, bar redistributing
+  content to end users, and new API access is not being granted. See
+  `research/CARD-ART-SOURCES.md` for the full source evaluation, the approved candidate
+  (pokemontcg.io), and the documented residue of cards no approved source covers.
 
 If you need something they don't do, add a command in `apps/images/src/` — **not** a loose script
 in `scripts/`. Loose scripts are exactly how 1,970 files ended up in the cache with no record of

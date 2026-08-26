@@ -21,15 +21,17 @@ import { api } from '../lib/api'
 
 // ── Why the clone's images are inlined before the render walk ────────────────
 //
-// Card art is requested from a *same-origin* path (`/deckpal/images/...`).
-// On cloud that path 302-redirects to a Supabase Storage object on a different
-// origin, so the bytes that actually arrive are cross-origin. html2canvas only
-// sets `crossOrigin="anonymous"` on URLs that *look* cross-origin
-// (`useCORS && !isSameOrigin`), so it loads these with no CORS request at all,
-// every card taints the render canvas, and `toDataURL()` throws
-// `SecurityError: Tainted canvases may not be exported` — after a full,
-// successful render. Setting `crossorigin` on the app's own <img> tags would
-// not help: html2canvas builds its own Image objects from the URL.
+// Card art arrives from a DIFFERENT ORIGIN on cloud, whichever route it took:
+// since 2026-08-26 the app addresses the Supabase Storage object directly
+// (`lib/cardArt.ts`), and the `/deckpal/images/...` fallback 302-redirects to
+// that same object. html2canvas only sets `crossOrigin="anonymous"` on URLs that
+// *look* cross-origin (`useCORS && !isSameOrigin`) — which the redirecting
+// same-origin path did not — so it loaded these with no CORS request at all,
+// every card tainted the render canvas, and `toDataURL()` threw
+// `SecurityError: Tainted canvases may not be exported`, after a full and
+// otherwise successful render. Setting `crossorigin` on the app's own <img> tags
+// does not fix that by itself: html2canvas builds its own Image objects from the
+// URL and does not inherit the attribute.
 //
 // The fix that holds in both deployments and needs no knowledge of where the
 // bytes come from: replace every image in the *cloned* document with a `data:`
@@ -42,12 +44,19 @@ const INLINE_CONCURRENCY = 8
 const INLINE_TIMEOUT_MS = 4000
 
 /**
- * The read has to be on a URL the page has not already loaded. An <img> fetches
- * in `no-cors` mode, so by the time the reporter opens, every card URL has a
- * browser-cache entry (and a service-worker entry) that is not CORS-clean, and a
- * later `cors` request for that same URL fails outright — measured on the
- * deployed app: plain fetch, `cache: 'reload'` and `cache: 'no-store'` all throw
- * `TypeError: Failed to fetch`; only a distinct URL succeeds. `bugshot=1` is a
+ * The read has to be on a URL the page has not already loaded. An <img> WITHOUT
+ * `crossorigin` fetches in `no-cors` mode, so by the time the reporter opens,
+ * every card URL has a browser-cache entry (and a service-worker entry) that is
+ * not CORS-clean, and a later `cors` request for that same URL fails outright —
+ * measured on the deployed app: plain fetch, `cache: 'reload'` and
+ * `cache: 'no-store'` all throw `TypeError: Failed to fetch`; only a distinct URL
+ * succeeds.
+ *
+ * Card art on cloud now sets `crossorigin="anonymous"` (see CardImage), so ITS
+ * cache entries are CORS-clean and would survive a plain re-read. This marker is
+ * kept anyway, and deliberately: it still covers the proxied fallback, self-host,
+ * and any image slot that has not been moved onto the direct path — and one code
+ * path that always works beats two that differ by deployment. `bugshot=1` is a
  * fixed marker rather than a random nonce so the CORS copy is itself cacheable
  * and a second report costs nothing, and so the service worker can recognise and
  * skip these reads instead of filling the LRU image cache with duplicates
