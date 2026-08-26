@@ -86,12 +86,16 @@ export function sameNameDifferentCard(rows: readonly SearchRow[]): string[] {
       `'${name}' is ${buckets.length} DIFFERENT CARDS here, not ${buckets.length} printings of one — ` +
         'they have different text, so swapping between them changes what the deck does:',
     );
-    for (const b of buckets) {
-      // HP separates Pokémon at a glance; a Trainer or Energy has none, so the
-      // ids carry it. Either way the ids are the actionable part.
-      const label = b[0]!.hp !== null ? `${b[0]!.hp} HP` : 'one version';
-      out.push(`  ${label}: ${b.map((x) => x.tcgdex_id).join(', ')}`);
-    }
+    buckets.forEach((b, i) => {
+      // NUMBERED, and that is not decoration. Standard-legal `Shaymin` is three
+      // distinct 70 HP cards plus one 80 HP card, so labelling by HP alone
+      // printed "70 HP:" three times — which reads as one card listed oddly,
+      // the exact conclusion this warning exists to prevent. The ordinal says
+      // "these are separate things"; the HP, where there is one, says how they
+      // differ at a glance; the ids are what the caller acts on.
+      const hp = b[0]!.hp !== null ? ` (${b[0]!.hp} HP)` : '';
+      out.push(`  card ${i + 1} of ${buckets.length}${hp}: ${b.map((x) => x.tcgdex_id).join(', ')}`);
+    });
     out.push(
       "Cheapest-first ordering mixes them. Choose by what the card DOES; 'cheapest printing' " +
         'is only safe between ids on the SAME line above.',

@@ -46,7 +46,11 @@ test('a name that is two cards is called out, with the ids grouped', () => {
   const text = warn.join('\n');
   assert.match(text, /'Shaymin' is 3 DIFFERENT CARDS here/);
   // The two printings of ONE card share a line; that is the actionable part.
-  assert.match(text, /80 HP: sv10-010, sv10-185/);
+  assert.match(text, /card 3 of 3 \(80 HP\): sv10-010, sv10-185/);
+  // Numbered, because three separate 70 HP cards labelled only "70 HP" read as
+  // one card listed oddly — the conclusion this warning exists to prevent.
+  assert.match(text, /card 1 of 3 \(70 HP\)/);
+  assert.match(text, /card 2 of 3 \(70 HP\)/);
   assert.match(text, /sv08\.5-087/);
   assert.match(text, /only safe between ids on the SAME line/);
 });
@@ -87,8 +91,8 @@ test('a Trainer with no HP is still grouped, by id', () => {
   ]);
   const text = warn.join('\n');
   assert.match(text, /'Potion' is 2 DIFFERENT CARDS/);
-  assert.match(text, /one version: x-1/);
-  assert.match(text, /one version: x-2/);
+  assert.match(text, /card 1 of 2: x-1/);
+  assert.match(text, /card 2 of 2: x-2/);
 });
 
 test('two ambiguous names on one page are both reported', () => {
