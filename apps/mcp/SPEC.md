@@ -209,6 +209,21 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   the wrong player. The stored `result`/`opponent` columns were unaffected — those are
   supplied explicitly — so the win/loss record was never wrong; the `parsed` detail was. The discriminator is underscore-then-digits, which is what leaves `(Ability)` and
   `(Item)` — read by the same parser — untouched.
+- **Same name is not same card, and `card.playable_fingerprint` is what knows the difference.**
+  A SHA-256 over name + gameplay attributes (attacks, abilities, weaknesses, resistances,
+  retreat, types) and never over print fields, so rows sharing one are the SAME CARD in
+  different printings and may be swapped; rows sharing only a NAME may not. Of 1,409
+  Standard-legal names, 897 have several printings and **218 are several different cards** —
+  `Shaymin` sv08.5-087 (70 HP, $0.20) is not `Shaymin` sv10-010 (80 HP, $0.83). `search_cards`
+  sorts cheapest-first within a name, so it now WARNS when a page holds several cards under one
+  name and groups the interchangeable ids; the warning sits above the paging footer, not in a
+  footnote, because a caller that has already picked has already erred. NULL = too thin to hash,
+  which is the absence of a claim and never evidence of sameness.
+- **The fingerprint is filled by a PASS, not by the importer** (`fingerprint:index`, run from
+  `scripts/refresh-catalog.sh` after every import). The hash covers child tables the importer
+  writes after the card row exists, so there is no moment during the insert when it is
+  computable. Declared in migration 003 and NULL on all 23,546 rows until 047 — the column
+  comment "NULL until full data present" read as missing upstream data and meant missing code.
 - **A failure message must never contain an example identifier, and never phrase advice as
   something that could be mistaken for a value.** Both rules were written from measured loops:
   `set_progress`'s message offered `'sv3pt5'` as an example and got nine calls with it, and said

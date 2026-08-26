@@ -26,7 +26,7 @@ const pageSizeArg = z
   .describe('Rows per page (default 50, hard cap 200).');
 
 // ── search_cards — SPEC §5 #3 ──────────────────────────────────────────────
-interface SearchRow {
+export interface SearchRow {
   name: string;
   tcgdex_id: string;
   rarity: string | null;
@@ -34,6 +34,70 @@ interface SearchRow {
   best_minor: number | null;
   // The set's series slug — see SERIES_SLUG_NOTE below.
   series_slug: string;
+  /** Which rows are the SAME CARD. See {@link sameNameDifferentCard}. */
+  playable_fingerprint: string | null;
+  hp: number | null;
+}
+
+/**
+ * Names on this page that are SEVERAL DIFFERENT CARDS, not several printings.
+ *
+ * ── WHY THIS WARNING EXISTS ────────────────────────────────────────────────
+ *
+ * This tool's own description, and `save_deck`'s, tell the model to prefer the
+ * cheapest printing of a named card — sound for a REPRINT, wrong for a NAME.
+ * Rows are sorted cheapest-first WITHIN a name group, which presents several
+ * distinct cards as if they were one card's price list. Of 1,409 Standard-legal
+ * names in this catalogue, 218 are more than one card.
+ *
+ * `Shaymin`, in the order this tool emits:
+ *
+ *     sv08.5-087   70 HP   $0.20
+ *     me03-003     70 HP   $0.21
+ *     sv10-010     80 HP   $0.83   <- what a decklist calling for Shaymin meant
+ *
+ * Taking the cheapest puts a different Pokémon in the deck. It stays 60 cards,
+ * stays format-legal, and nothing errors; the deck just does not do what the
+ * list said. The failure is silent, which is why the tool has to say it out
+ * loud rather than leave it to be noticed.
+ *
+ * ROWS WITH NO FINGERPRINT ARE SKIPPED, not guessed at. A null means the card
+ * has too little gameplay data to hash, which is the absence of a claim — not
+ * evidence of sameness and not evidence of difference.
+ */
+export function sameNameDifferentCard(rows: readonly SearchRow[]): string[] {
+  const byName = new Map<string, Map<string, SearchRow[]>>();
+  for (const r of rows) {
+    if (!r.playable_fingerprint) continue;
+    const key = r.name.toLowerCase();
+    const groups = byName.get(key) ?? new Map<string, SearchRow[]>();
+    const bucket = groups.get(r.playable_fingerprint) ?? [];
+    bucket.push(r);
+    groups.set(r.playable_fingerprint, bucket);
+    byName.set(key, groups);
+  }
+
+  const out: string[] = [];
+  for (const groups of byName.values()) {
+    if (groups.size < 2) continue;
+    const buckets = [...groups.values()];
+    const name = buckets[0]![0]!.name;
+    out.push(
+      `'${name}' is ${buckets.length} DIFFERENT CARDS here, not ${buckets.length} printings of one — ` +
+        'they have different text, so swapping between them changes what the deck does:',
+    );
+    for (const b of buckets) {
+      // HP separates Pokémon at a glance; a Trainer or Energy has none, so the
+      // ids carry it. Either way the ids are the actionable part.
+      const label = b[0]!.hp !== null ? `${b[0]!.hp} HP` : 'one version';
+      out.push(`  ${label}: ${b.map((x) => x.tcgdex_id).join(', ')}`);
+    }
+    out.push(
+      "Cheapest-first ordering mixes them. Choose by what the card DOES; 'cheapest printing' " +
+        'is only safe between ids on the SAME line above.',
+    );
+  }
+  return out;
 }
 
 /**
@@ -91,11 +155,14 @@ const searchCardsTool = defineTool({
     '`query` always returns nothing, however many ways you spell it. ' +
     'Accent-insensitive substring, with ' +
     'optional filters: set, category, rarity, Standard legality, owned-only, and minimum ' +
-    'USD market value. Each row shows owned quantity and best USD market price. When multiple ' +
-    'printings of the same card name appear (e.g. a regular and a Special Illustration Rare), ' +
-    'they sort cheapest first within that name group. When building or pricing a deck, prefer ' +
-    'the cheapest printing of a named card unless the user specifically asked for a particular ' +
-    'rarity, parallel, or set. Use this to find cards or list slices of the collection; for ' +
+    'USD market value. Each row shows owned quantity and best USD market price. Rows sharing a ' +
+    'name sort cheapest first. PREFER THE CHEAPEST PRINTING OF THE SAME CARD — a regular and a ' +
+    'Special Illustration Rare play identically and can differ by hundreds of dollars — but ' +
+    'SAME NAME IS NOT SAME CARD: this game reuses names across sets for cards with different HP ' +
+    'and different text, and 218 Standard-legal names here are more than one card. When a page ' +
+    'contains several cards under one name this tool says so, and groups the ids that really ' +
+    'are interchangeable; swap only within one of those groups. Use this to find cards or list ' +
+    'slices of the collection; for ' +
     'full detail on ONE card (variants, tiers, per-source prices) use get_card instead, and ' +
     'for set completion use set_progress.',
   inputSchema: z.object({
@@ -306,7 +373,8 @@ const searchCardsTool = defineTool({
       const rows = await q<SearchRow>(
         ctx.db,
         `${ctes}
-         SELECT c.name, c.tcgdex_id, c.rarity, o.qty AS owned_qty, b.best_minor, se.slug AS series_slug
+         SELECT c.name, c.tcgdex_id, c.rarity, o.qty AS owned_qty, b.best_minor, se.slug AS series_slug,
+                c.playable_fingerprint, c.hp
          ${fromWhere}
          ${orderBy}
          LIMIT ${p(args.page_size)} OFFSET ${p((args.page - 1) * args.page_size)}`,
@@ -448,11 +516,19 @@ const searchCardsTool = defineTool({
         ),
       );
       if (lines.length === 0) lines.push('(page past the end)');
+      // ── WHEN A NAME ON THIS PAGE IS SEVERAL CARDS, SAY SO ────────────────
+      //
+      // Unlike `setNote` this goes BEFORE the paging footer and is not a
+      // footnote: it changes which row the caller should pick, and a caller
+      // that has already picked has already made the mistake.
+      const identityWarning = sameNameDifferentCard(rows);
       // `setNote` LAST, not first. It is a footnote about how an argument was
       // read, and putting it above the rows would push the answer down the
       // model's context for every by-name call.
       return ok(
-        [...lines, pagingFooter(args.page, args.page_size, total), setNote].filter(Boolean).join('\n'),
+        [...lines, ...identityWarning, pagingFooter(args.page, args.page_size, total), setNote]
+          .filter(Boolean)
+          .join('\n'),
         {
           total,
           page: args.page,

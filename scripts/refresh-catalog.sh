@@ -101,6 +101,19 @@ echo "    target: $PGUSER@$PGHOST:${PGPORT:-5432}/$PGDATABASE"
 
 pnpm --filter deckpal-sync import:catalog
 
+# ── THE FINGERPRINT INDEX, WHICH THE IMPORTER CANNOT FILL ────────────────────
+#
+# `card.playable_fingerprint` says which rows are the SAME CARD rather than
+# merely the same name, and two agent tools tell the model to pick "the cheapest
+# printing" — advice that is only safe when something knows the difference. The
+# hash covers attacks, abilities and matchups, which live in child tables the
+# importer writes AFTER the card row exists, so there is no moment during the
+# import when it is computable. It is a pass, and it runs here.
+#
+# Only rows with no hash, so a weekly refresh pays for what upstream added.
+# After changing fingerprint.ts itself, run it once with --all.
+pnpm --filter deckpal-api fingerprint:index
+
 cat <<'EOF'
 
 ==> done. Two things worth checking after a refresh:
@@ -109,4 +122,7 @@ cat <<'EOF'
       re-keyed or re-warmed (apps/images).
     * Brand-new cards have no art until the warmers run, and upstream often
       publishes a promo's data before its image.
+    * The fingerprint line reports how many card NAMES are more than one CARD.
+      If that number is zero, the hash has collapsed distinct cards together and
+      "cheapest printing" advice is unsafe until it is fixed.
 EOF
