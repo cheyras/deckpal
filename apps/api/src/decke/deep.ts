@@ -56,6 +56,7 @@ import type { GatewayProvider } from '@ai-sdk/gateway';
 import { MODELS, budgetFor, type ModelChoice } from './models.js';
 import { deepFailed, deepRefused } from './deepOutcome.js';
 import { alreadyDeclinedMessage } from './declined.js';
+import { checkResearchQuery } from './researchQuery.js';
 import { callKey } from './repeat.js';
 import { briefArgs } from './toolArgs.js';
 import {
@@ -139,6 +140,16 @@ export interface DeepToolOptions {
    * means nothing was refused. See `declined.ts`.
    */
   declined?: ReadonlySet<string>;
+  /**
+   * The reader's own display name, when the caller knows it.
+   *
+   * Used for ONE thing: refusing a research query that carries it. The research
+   * call is the only one that leaves the owner's chosen vendor list, and it does
+   * so on the promise that it carries nothing about this person — see
+   * `researchQuery.ts`. Optional, and its absence only makes that check weaker,
+   * never wrong.
+   */
+  readerDisplayName?: string | null;
   /** Lifecycle events, so deep work gets a chip like everything else. */
   onEvent?: (e: ToolEvent) => void;
   /**
@@ -225,6 +236,12 @@ async function runSubAgent(opts: {
   gateway: GatewayProvider;
   choice: ModelChoice;
   modelId: string;
+  /**
+   * Tried ONCE if `modelId` produces nothing at all. Opt-in per caller — see
+   * the retry near the end of this function for why this is not read from
+   * `choice.fallback` here.
+   */
+  fallbackModelId?: string;
   instructions: string;
   prompt: string;
   tools?: ToolSet;
@@ -258,6 +275,8 @@ async function runSubAgent(opts: {
    * error string, under a green tick, for the entire life of the feature.
    */
   let failure: string | undefined;
+  /** Every URL the provider reported reading, in the order it cited them. */
+  const sources: string[] = [];
   /** How much of `text` has already left as a beat. */
   let forwarded = 0;
   const startedAt = Date.now();
@@ -359,7 +378,15 @@ async function runSubAgent(opts: {
           emit(toolBeat(part.toolName, steps));
           break;
         case 'source':
-          if (part.sourceType === 'url') emit(sourceBeat(part.url, steps));
+          if (part.sourceType === 'url') {
+            emit(sourceBeat(part.url, steps));
+            // KEPT, not just announced. These used to be emitted as a progress
+            // beat and then dropped, which left the findings citing "[2][3][4]"
+            // with nothing for those numbers to refer to — markers pointing at
+            // a list the model never received. Collected in arrival order,
+            // because that IS the numbering the provider cites against.
+            sources.push(part.url);
+          }
           break;
         case 'finish':
           finishReason = part.finishReason;
@@ -374,6 +401,7 @@ async function runSubAgent(opts: {
           // before the error is still worth keeping, and so is the fact that it
           // broke. They are different facts and both now survive.
           failure = safeToolError(part.error);
+          logRealFailure(opts.modelId, part.error);
           break;
         default:
           break;
@@ -387,6 +415,7 @@ async function runSubAgent(opts: {
       // Into `failure`, never into `text`. A thrown model error — a 404 on a
       // model id that does not exist, for instance — is not a shorter answer.
       failure = safeToolError(err);
+      logRealFailure(opts.modelId, err);
     }
   } finally {
     clearTimeout(deadline);
@@ -394,12 +423,39 @@ async function runSubAgent(opts: {
     opts.signal?.removeEventListener('abort', onOuterAbort);
   }
 
+  // ── ONE RETRY, ON A DIFFERENT MODEL, WHEN THERE IS NOTHING TO LOSE ────────
+  //
+  // `ModelChoice.fallback` has been declared on every model in `models.ts`
+  // since the tier was built and referenced NOWHERE — `grep '\.fallback'`
+  // outside that file returned nothing. Five comments describing a resilience
+  // mechanism that did not exist.
+  //
+  // Wired here, and deliberately NARROW: only when the primary produced NO text
+  // at all, only once, and only when the caller opted in by passing a fallback.
+  // A call that produced a partial answer keeps it — retrying would throw away
+  // work the reader has already paid for and waited through.
+  //
+  // The caller opts in per model rather than this reading `choice.fallback`
+  // itself, because for RESEARCH the generic rule is actively harmful: its old
+  // cross-lab fallback cannot search, so falling back to it would answer from
+  // training data under a "fetched from the open web" frame. See `models.ts`.
+  if (failure && !text.trim() && !timedOut && opts.fallbackModelId) {
+    console.warn(
+      `[deck-e] '${opts.modelId}' produced nothing; retrying once on '${opts.fallbackModelId}'.`,
+    );
+    return runSubAgent({ ...opts, modelId: opts.fallbackModelId, fallbackModelId: undefined });
+  }
+
   // Anything the heartbeat had not got to yet, so the last words the sub-agent
   // wrote are not lost between the final tick and the end of the call.
   emit(proseBeat(text.slice(forwarded), steps));
 
   return {
-    text,
+    // The sources ride WITH the findings, because a citation and the thing it
+    // cites are one fact. Appended rather than framed separately so that
+    // `finishOutcome`'s failure path — which returns before this — can never
+    // emit a source list for a call that read nothing.
+    text: text + sourceList(sources),
     // ── DID THIS ACTUALLY PRODUCE AN ANSWER? ────────────────────────────────
     //
     // Three ways it did not, and every one of them used to resolve `ok`:
@@ -432,6 +488,78 @@ async function runSubAgent(opts: {
       finishReason === 'length' || (finishReason === 'tool-calls' && steps >= opts.maxSteps),
     steps,
   };
+}
+
+/**
+ * The sources a research call read, as a numbered list the citations resolve to.
+ *
+ * ── HOSTS, NOT FULL URLS, AND THAT IS A SECURITY CHOICE ────────────────────
+ *
+ * The findings come back citing "[2][3]", and those numbers are the provider's
+ * own ordering of what it read. Without this list they refer to nothing, and
+ * Deck-E can repeat a bracket at a reader for whom it means less than nothing.
+ *
+ * But a URL here is chosen by whatever happened to rank on the open web, and it
+ * lands in the context of a model that talks to a person. A full URL is
+ * something he can be induced to recommend, and `research_meta`'s no-tools
+ * argument covers what the researcher can DO, not what it can persuade the
+ * conversational model to say. A host is enough to judge a source by —
+ * `limitlesstcg.com` and `some-blog.example` are very different claims — and
+ * carries no path, no query string and nothing clickable that an attacker
+ * controls the tail of.
+ *
+ * Capped, deduplicated by host, and ordered by first citation so the numbers
+ * still line up with the prose.
+ */
+function sourceList(urls: readonly string[], max = 10): string {
+  const seen = new Map<string, number>();
+  for (const raw of urls) {
+    let host: string;
+    try {
+      host = new URL(raw).host.replace(/^www\./, '');
+    } catch {
+      continue;
+    }
+    if (!seen.has(host)) seen.set(host, seen.size + 1);
+    if (seen.size >= max) break;
+  }
+  if (seen.size === 0) return '';
+  const lines = [...seen.entries()].map(([host, n]) => `  [${n}] ${host}`);
+  return (
+    `\n\nSources read, in the order they are cited above:\n${lines.join('\n')}\n` +
+    `(Hosts only. Name the source when a claim matters — "Limitless has it at 51% win rate" ` +
+    `is worth far more to a reader than the same number with nobody behind it.)`
+  );
+}
+
+/**
+ * Say what really went wrong, to the SERVER LOG, where it is safe to.
+ *
+ * ── TWO AUDIENCES, TWO STRINGS, AND ONLY ONE OF THEM WAS SERVED ─────────────
+ *
+ * `safeToolError` is deliberately paranoid: its output goes into a MODEL's
+ * context, so it allowlists by class and otherwise says "it failed". That is
+ * right, and it is why a connection string or a SQLSTATE cannot leak through
+ * it.
+ *
+ * It is also why nobody found the research defect for months. The Gateway was
+ * answering `Model 'openai/o3-deep-research' not found` on every single call,
+ * and the only place that string could have gone — the model's context — was
+ * correctly refusing to carry it. So it went nowhere at all.
+ *
+ * A maintainer is not a model. The log is not attacker-readable, it is where
+ * every other B11 configuration fault in this codebase already reports, and a
+ * 404 on a model id is precisely the kind of fault that is trivially fixable
+ * the moment somebody can see it. So the real error is logged, the safe
+ * summary goes to the model, and the two are no longer forced to be one string.
+ */
+function logRealFailure(modelId: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  const status = (err as { statusCode?: unknown } | null)?.statusCode;
+  console.error(
+    `[deck-e] sub-agent call to '${modelId}' failed` +
+      `${typeof status === 'number' ? ` (HTTP ${status})` : ''}: ${message.slice(0, 300)}`,
+  );
 }
 
 /** Which model this call actually gets, and why. */
@@ -762,42 +890,101 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
 
     research_meta: deepTool({
       name: 'research_meta',
-      title: 'Research the current meta',
+      title: 'Look it up on the web',
+      // ── THE DIVISION OF LABOUR, IN THE OWNER'S OWN WORDS ──────────────────
+      //
+      //   "What Deck-E gets from our app is collections, cards, what the user
+      //    owns, and prices. Everything else, he gets from research."
+      //
+      // The old description scoped this to the competitive metagame, which is
+      // one corner of "everything else" — so a question about artwork, or what
+      // is popular, or whether a card is worth holding, had no tool that
+      // obviously answered it. Measured: asked for "a hidden gem with really
+      // cool artwork that people talk about online", he called `search_cards`
+      // six times with things like `"hidden gem OR underrated OR cool art"`,
+      // searching CARD NAMES for a vibe, and never answered.
+      //
+      // This is the tool for anything the catalogue does not hold. The
+      // catalogue holds cards, ownership and prices; it holds no opinions, no
+      // popularity, no news and no taste.
       description:
-        'Find out what is actually happening in the game right now — which decks are ' +
-        'strong, what people are saying about a card or archetype, what changed recently. ' +
-        'This is the ONLY way to answer a "what is good right now" question; your training ' +
-        'data cannot, and neither can the catalog.',
+        'Look something up on the live web. Use this for ANYTHING DeckPal itself does not ' +
+        'store — what is strong right now, what people think of a card, which artwork is ' +
+        'admired, what is worth holding, what just got announced, how an archetype is meant ' +
+        'to be played. ' +
+        'DeckPal knows cards, what this user owns, and prices; it knows nothing about ' +
+        'opinion, popularity, news or taste, and neither does your training data, which is ' +
+        'old. If the answer is not a fact about a card or a collection, it comes from here. ' +
+        'Returns findings with sources. Look things up BEFORE answering, not after.',
       inputSchema: z.object({
         query: z
           .string()
           .max(300)
           .describe(
-            'What to find out. Card and archetype names only — never anything about ' +
-              'this user, their collection, or their account.',
+            'What to find out, in plain words — a real question, not keywords. ' +
+              'About the GAME and the HOBBY only: cards, sets, decks, artists, prices, ' +
+              "news. Never anything about this user, their collection or their account.",
           ),
       }),
       run: async (args, progress) => {
+        // ── THE ONE CALL THAT LEAVES THE IN-LIST VENDORS ─────────────────────
+        //
+        // The owner's data-processor ruling was relaxed for this call on the
+        // strength of one claim: that it carries card and archetype names and
+        // never anything about this reader. That claim used to live in a
+        // `.describe()` string, which is a request to a model rather than a
+        // control over one. Checked here instead, on the way out — and a query
+        // carrying identity is REFUSED rather than sent, because a ruling
+        // relaxed on a promise should be relaxed on a control.
+        const vetted = checkResearchQuery(args.query, opts.readerDisplayName);
+        if (!vetted.ok) {
+          return { text: deepRefused(vetted.reason), failed: true };
+        }
         const choice = MODELS.research;
         const r = await runSubAgent({
           gateway: opts.gateway,
           choice,
           modelId: choice.id,
+          // Falls back WITHIN perplexity — see `models.ts`. The cross-lab rule
+          // every other model follows would put a non-searching model behind a
+          // "fetched from the open web" frame, which is the failure this whole
+          // commit exists to remove.
+          ...(choice.fallback ? { fallbackModelId: choice.fallback } : {}),
+          // ── THESE INSTRUCTIONS DECIDE WHETHER THE FINDINGS ARE ANY USE ────
+          //
+          // Measured across both. Asked for the current Standard metagame, the
+          // instruction to name things concretely is what produced "Dragapult
+          // ex … 439 decks, 9.54% share, 51.76% win rate across 77 tournaments,
+          // 4,602 players, 10,042 matches", cited to limitlesstcg — rather than
+          // a paragraph saying some decks are popular.
+          //
+          // "Findings, not advice" is load-bearing for a second reason: Deck-E
+          // gives the advice, in his own voice, having read this. A researcher
+          // that also advises produces two characters talking over each other,
+          // which is the same rule `ANALYST` states above.
           instructions: [
-            'You research the competitive Pokémon TCG metagame. Return findings, not advice.',
+            'You research the Pokémon TCG — competitive play, the cards themselves, the',
+            'artists, the market, and what the collecting community is saying.',
+            'You are briefing an assistant who will talk to a player about it.',
             '',
-            'CITE YOUR SOURCES with URLs. A claim with no source is not a finding, and the',
-            'reader will be asked to check one.',
+            'Return FINDINGS: what is actually true right now, concretely.',
+            'Name decks, cards, sets, artists, people and events BY NAME. A finding with no',
+            'name in it cannot be looked up and is worth nothing to the caller.',
+            'Give numbers where they exist — placements, win rates, shares, prices, dates.',
             '',
-            'Say how recent each claim is. A metagame report from two formats ago is',
-            'actively misleading rather than merely stale.',
+            'CITE A URL for every claim. A claim with no source is not a finding.',
+            'Say how recent each one is. A metagame report from two formats ago is actively',
+            'misleading rather than merely stale.',
+            'Where sources disagree, say so and give both — the disagreement is often the',
+            'most useful thing on the page.',
             '',
-            'If you cannot find something, say so. Do not fill the gap.',
+            'If you cannot find something, say that plainly. Do not fill the gap.',
+            'No advice and no recommendations: the assistant reading this gives those.',
           ].join('\n'),
           // NO TOOLS. Deliberately — see this file's header. The least
           // trustworthy input in the system is handled by the one agent with no
           // way to act on it.
-          prompt: String(args.query ?? ''),
+          prompt: vetted.query,
           maxSteps: 1,
           signal: opts.ctx.signal,
           budgetMs,
