@@ -194,6 +194,20 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   boundary, and refuses a string that is entirely a rarity. The retry puts the rarity in the query
   as a real condition — filtering a candidate list instead would miss cards whose printings exceed
   it. A near match at the WRONG rarity is left to fail rather than substituted.
+- **An `ambiguous` resolution with ONE candidate does not say "more than one".** `strict`
+  turns any inexact hit into `ambiguous`, single hits included, so the count in the message
+  was not the count of anything. One candidate reads as a near miss, with its id and the next
+  call named; two or more keep the old wording. Measured: `deck_strategy` refused
+  `'slowking toolbox'` as "more than one" while `decks` resolved the same words in the same
+  turn — and strictness now follows the WRITE, so a tool that is only reading is never harder
+  to address than the tool beside it.
+- **PTCG Live prefixes every card with its set code** — `(sv10_102) Cynthia's Gible` — and
+  `deck/battlelog.ts` strips it before anything reads a line. It did not, and the parser never
+  threw: it kept counting turns while the NAMES it extracted carried the code, so deck-overlap
+  scoring hit zero for both players. Across fourteen real logs that meant five with no owner
+  and **two with the owner identified as the opponent**, prizes and win/loss inverted and
+  stored. The discriminator is underscore-then-digits, which is what leaves `(Ability)` and
+  `(Item)` — read by the same parser — untouched.
 - **A failure message must never contain an example identifier, and never phrase advice as
   something that could be mistaken for a value.** Both rules were written from measured loops:
   `set_progress`'s message offered `'sv3pt5'` as an example and got nine calls with it, and said
@@ -276,7 +290,11 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
 8. **`decks`** — `{ deck_id?, include?: subset of [cards, validate, pricing, testhand] }`.
    No id: deck index (id, name, format, version, card count, battle record). With id: deck +
    an intelligence headline (W/L record, battle-log count, strategy-guide presence as first
-   heading + char count) + requested includes. `pricing` include **is the gap analysis**:
+   heading + char count) + requested includes. **Without `cards` the response says so, in
+   the imperative, where the list would have been** — the header carries a card COUNT, which
+   reads as evidence the list was fetched, and a turn asked to "show me my decklist" called
+   this without the include, got `60 cards (23 Pokemon / …)`, and answered "here it is" with
+   no cards in the reply. `pricing` include **is the gap analysis**:
    per-card owned vs needed, missing list with cost to close, TCGplayer mass-entry lines,
    plus the cart deep link(s) from `GET /decks/:id/massentry` (one line per URL — the user
    opens them; each adds to the same cart) and the Cart Optimizer consolidation tip

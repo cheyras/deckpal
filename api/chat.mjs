@@ -941,35 +941,6 @@ async function serve(request) {
         // every outbound API fetch carries, so one abort stops the whole turn
         // rather than only the visible part of it.
         abortSignal,
-        // ── WHY THIS LEG STOPPED, ONTO THE STREAM ─────────────────────────────
-        //
-        // `finishReason` is returned on every call and was read here, used for
-        // control flow, and discarded. So a reply that ended mid-word could not
-        // be told apart from one that simply finished: the record held the text
-        // and nothing about how it ended. Reviewing exactly that, the answer had
-        // to be written as a hypothesis — the output budget is 1200 tokens and a
-        // step carrying a sixty-card panel plus prose plausibly reaches it, but
-        // 'length' would have SAID so.
-        //
-        // Transient, like the chips: it is a fact about a moment, and it must
-        // not enter message history where the model would read its own stop
-        // reason back as context next turn.
-        //
-        // The LAST leg to report wins on the client, which is the honest one —
-        // an earlier leg that stopped on `tool-calls` was continued, and the
-        // reason the reader's answer ended is the reason the final leg ended.
-        onFinish: ({ finishReason }) => {
-          try {
-            writer.write({
-              type: 'data-decke-finish',
-              data: { finishReason: String(finishReason ?? 'unknown').slice(0, 40) },
-              transient: true,
-            })
-          } catch {
-            // A closed stream is the ordinary end of an aborted turn, and a
-            // diagnostic must never take the turn down with it.
-          }
-        },
         onError: ({ error }) => {
           // Surfaced rather than swallowed: a silent empty turn is
           // indistinguishable from a broken feature.
@@ -1055,6 +1026,41 @@ async function serve(request) {
       // this is something to say to the reader, and it belongs in his voice in
       // the transcript rather than in a failure surface. What it must never do
       // is claim an answer it does not have.
+      // ── WHY THIS LEG STOPPED ───────────────────────────────────────────────
+      //
+      // `finishReason` is returned on every call and used to be read here, used
+      // for control flow, and discarded — so a reply that ended mid-word could
+      // not be told apart from one that simply finished. Migration 046 gives it
+      // a column; this is what fills it.
+      //
+      // WRITTEN HERE RATHER THAN IN `onFinish`, and that is the whole fix. The
+      // first attempt used `streamText`'s `onFinish` callback, which races the
+      // close of the merged UI stream: the write landed on a closed writer, the
+      // catch swallowed it, and every turn recorded NULL. Verified against
+      // production — two turns on the build that shipped it, both NULL, which
+      // is exactly what "declared but never exercised" looks like when the
+      // declaration is a callback nobody watched fire.
+      //
+      // `execute` is still running at this point — it is already awaiting
+      // `result.steps` below for the empty-turn guard — so the writer is
+      // provably open. Awaiting the promise form makes the ordering ours
+      // instead of the SDK's.
+      //
+      // Transient, like the chips: a fact about a moment, and it must not enter
+      // message history where the model would read its own stop reason back as
+      // context next turn.
+      try {
+        const finishReason = await result.finishReason
+        writer.write({
+          type: 'data-decke-finish',
+          data: { finishReason: String(finishReason ?? 'unknown').slice(0, 40) },
+          transient: true,
+        })
+      } catch {
+        // An aborted turn has no finish reason and needs no diagnostic. This
+        // must never take the turn down with it.
+      }
+
       try {
         const steps = await result.steps
         const spoke = steps.some((s) => (s.text ?? '').trim().length > 0)

@@ -1,0 +1,248 @@
+Setup
+PlayerB chose heads for the opening coin flip.
+PlayerB won the coin toss.
+PlayerB decided to go first.
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (sv6-5_54) Academy at Night, (me3_81) Poké Pad, (me3_88) Telepathic Psychic Energy, (me5_29_ph) Slowpoke, (sv5_145) Ciphermaniac's Codebreaking, (ec_5) Basic Psychic Energy, (ec_5) Basic Psychic Energy
+PlayerB played (sv10_102) Cynthia's Gible to the Active Spot.
+PlayerA played (me5_29_ph) Slowpoke to the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB attached (mee_6) Basic Fighting Energy to (sv10_102) Cynthia's Gible in the Active Spot.
+PlayerB played (me1_116) Fighting Gong.
+- PlayerB drew (sv10_102) Cynthia's Gible.
+- PlayerB shuffled their deck.
+PlayerB played (sv10_102) Cynthia's Gible to the Bench.
+PlayerB played (me1_116) Fighting Gong.
+- PlayerB drew (mee_6) Basic Fighting Energy.
+- PlayerB shuffled their deck.
+PlayerB played (me3_81) Poké Pad.
+- PlayerB drew (sv10_103) Cynthia's Gabite.
+- PlayerB shuffled their deck.
+PlayerB played (me3_81) Poké Pad.
+- PlayerB drew (sv10_7) Cynthia's Roselia.
+- PlayerB shuffled their deck.
+PlayerB played (sv10_7) Cynthia's Roselia to the Bench.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (me1_119) Lillie's Determination.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (sv7_58) Slowking.
+- PlayerA shuffled their deck.
+PlayerA played (sv5_145) Ciphermaniac's Codebreaking.
+- PlayerA shuffled their deck.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_29_ph) Slowpoke in the Active Spot.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (sv8_76) Latias ex, (me2-5_280) Lillie's Clefairy ex
+- PlayerA shuffled their deck.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB attached (mee_6) Basic Fighting Energy to (sv10_102) Cynthia's Gible on the Bench.
+PlayerB evolved (sv10_102) Cynthia's Gible to (sv10_103) Cynthia's Gabite in the Active Spot.
+PlayerB evolved (sv10_102) Cynthia's Gible to (sv10_103) Cynthia's Gabite on the Bench.
+PlayerB attached (sv10_162) Cynthia's Power Weight to (sv10_103) Cynthia's Gabite in the Active Spot.
+PlayerB's (sv10_103) Cynthia's Gabite used Champion's Call.
+- PlayerB drew (sv10_232) Cynthia's Garchomp ex.
+- PlayerB shuffled their deck.
+PlayerB's (sv10_103) Cynthia's Gabite used Champion's Call.
+- PlayerB drew (sv10_184) Cynthia's Roserade.
+- PlayerB shuffled their deck.
+PlayerB evolved (sv10_7) Cynthia's Roselia to (sv10_184) Cynthia's Roserade on the Bench.
+PlayerB's (sv10_103) Cynthia's Gabite used Dragonslice on PlayerA’s (me5_29_ph) Slowpoke for 40 damage. PlayerA's (me5_29_ph) Slowpoke took -30 less damage because of Fighting Resistance.
+- Damage breakdown:
+   • Base damage: 40 damage
+   • (Ability) Cheer On to Glory: 30 damage
+   • Resistance to Fighting: -30 damage
+   • Total damage: 40 damage
+
+
+PlayerA's Turn
+PlayerA drew (sv6-5_47) Kyurem.
+PlayerA evolved (me5_29_ph) Slowpoke to (sv7_58) Slowking in the Active Spot.
+PlayerA attached (ec_5) Basic Psychic Energy to (sv7_58) Slowking in the Active Spot.
+PlayerA played (sv6-5_54) Academy at Night to the Stadium spot.
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled 2 cards into their deck.
+   • (ec_5) Basic Psychic Energy, (sv6-5_47) Kyurem
+- PlayerA drew 8 cards.
+   • (me2-5_98) Spectrier, (sv7_58) Slowking, (sv1_196) Ultra Ball, (sv1_194) Switch, (sv6-5_61) Night Stretcher, (me5_29_ph) Slowpoke, (me1_119) Lillie's Determination, (me1_104) Mega Kangaskhan ex
+PlayerA played (me1_104) Mega Kangaskhan ex to the Bench.
+PlayerA played (sv1_196) Ultra Ball.
+- PlayerA discarded 2 cards.
+   • (sv1_194) Switch, (sv6-5_61) Night Stretcher
+- PlayerA drew (me4_61) Metagross.
+- PlayerA shuffled their deck.
+PlayerA played (me5_29_ph) Slowpoke to the Bench.
+PlayerA played Academy at Night.
+- PlayerA put (me4_61) Metagross on top of their deck.
+PlayerA's (sv7_58) Slowking used Seek Inspiration on PlayerB’s (sv10_103) Cynthia's Gabite for 300 damage.
+- Damage breakdown:
+   • Base damage: 150 damage
+   • Total damage: 300 damage
+
+- PlayerA chose Metallic Hammer
+- PlayerA discarded (me4_61) Metagross.
+PlayerB's (sv10_103) Cynthia's Gabite was Knocked Out!
+- 3 cards were discarded from PlayerB's (sv10_103) Cynthia's Gabite.
+   • (mee_6) Basic Fighting Energy, (sv10_102) Cynthia's Gible, (sv10_162) Cynthia's Power Weight
+PlayerA took a Prize card.
+(sv7_58) Slowking was added to PlayerA's hand.
+PlayerB's (sv10_103) Cynthia's Gabite is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB evolved (sv10_103) Cynthia's Gabite to (sv10_232) Cynthia's Garchomp ex in the Active Spot.
+PlayerB played Academy at Night.
+- PlayerB put a card on top of their deck.
+PlayerB played (me1_184) Lillie's Determination.
+- PlayerB drew 8 cards.
+PlayerB attached (sv10_162) Cynthia's Power Weight to (sv10_232) Cynthia's Garchomp ex in the Active Spot.
+PlayerB played (me1_167) Buddy-Buddy Poffin.
+- PlayerB drew 2 cards and played them to the Bench.
+   • (sv10_102) Cynthia's Gible, (sv10_7_ph) Cynthia's Roselia
+- PlayerB shuffled their deck.
+PlayerB played (me1_167) Buddy-Buddy Poffin.
+- PlayerB drew 2 cards and played them to the Bench.
+   • (sv10_7) Cynthia's Roselia, (sv10_102) Cynthia's Gible
+- PlayerB shuffled their deck.
+PlayerB played (sv1_186) Pokégear 3.0.
+- PlayerB drew (rsv10-5_171) Hilda.
+- PlayerB shuffled their deck.
+PlayerB's (sv10_232) Cynthia's Garchomp ex used Corkscrew Dive on PlayerA’s (sv7_58) Slowking for 100 damage. PlayerA's (sv7_58) Slowking took -30 less damage because of Fighting Resistance.
+- Damage breakdown:
+   • Base damage: 100 damage
+   • (Ability) Cheer On to Glory: 30 damage
+   • Resistance to Fighting: -30 damage
+   • Total damage: 100 damage
+
+- PlayerB drew a card.
+PlayerA's (sv7_58) Slowking was Knocked Out!
+- 3 cards were discarded from PlayerA's (sv7_58) Slowking.
+   • (me3_88) Telepathic Psychic Energy, (ec_5) Basic Psychic Energy, (me5_29_ph) Slowpoke
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me1_104) Mega Kangaskhan ex is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me3_88) Telepathic Psychic Energy.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_29_ph) Slowpoke on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (me5_29_ph) Slowpoke, (sv8_76) Latias ex
+- PlayerA shuffled their deck.
+PlayerA evolved (me5_29_ph) Slowpoke to (sv7_58) Slowking on the Bench.
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled 2 cards into their deck.
+   • (me2-5_98) Spectrier, (sv7_58) Slowking
+- PlayerA drew 6 cards.
+   • (me2-5_98) Spectrier, (me3_81) Poké Pad, (me1_119) Lillie's Determination, (sv1_196) Ultra Ball, (sv5_145) Ciphermaniac's Codebreaking, (me4_61) Metagross
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (sv10_78) Zeraora.
+- PlayerA shuffled their deck.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me1_124) Premium Power Pro.
+PlayerB evolved (sv10_102) Cynthia's Gible to (sv10_103) Cynthia's Gabite on the Bench.
+PlayerB's (sv10_103) Cynthia's Gabite used Champion's Call.
+- PlayerB drew (sv10_184) Cynthia's Roserade.
+- PlayerB shuffled their deck.
+PlayerB evolved (sv10_7_ph) Cynthia's Roselia to (sv10_184) Cynthia's Roserade on the Bench.
+PlayerB played (rsv10-5_171) Hilda.
+- PlayerB drew (sv10_103) Cynthia's Gabite.
+- PlayerB shuffled their deck.
+PlayerB evolved (sv10_102) Cynthia's Gible to (sv10_103) Cynthia's Gabite on the Bench.
+PlayerB's (sv10_103) Cynthia's Gabite used Champion's Call.
+- PlayerB drew (sv10_184) Cynthia's Roserade.
+- PlayerB shuffled their deck.
+PlayerB evolved (sv10_7) Cynthia's Roselia to (sv10_184) Cynthia's Roserade on the Bench.
+PlayerB attached (me3_87) Rocky Fighting Energy to (sv10_103) Cynthia's Gabite on the Bench.
+PlayerB's (sv10_232) Cynthia's Garchomp ex used Corkscrew Dive on PlayerA’s (me1_104) Mega Kangaskhan ex for 440 damage. PlayerA's (me1_104) Mega Kangaskhan ex took 220 more damage because of Fighting Weakness.
+- Damage breakdown:
+   • Base damage: 100 damage
+   • (Ability) Cheer On to Glory: 30 damage
+   • (Item) (me1_124) Premium Power Pro: 30 damage
+   • (Ability) Cheer On to Glory: 30 damage
+   • (Ability) Cheer On to Glory: 30 damage
+   • Weakness to Fighting: 220 damage
+   • Total damage: 440 damage
+
+- PlayerB drew 2 cards.
+PlayerA's (me1_104) Mega Kangaskhan ex was Knocked Out!
+PlayerB took 3 Prize cards.
+A card was added to PlayerB's hand.
+A card was added to PlayerB's hand.
+A card was added to PlayerB's hand.
+PlayerA's (sv8_76) Latias ex is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (rsv10-5_62) Zoroark.
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled 6 cards into their deck.
+   • (me2-5_98) Spectrier, (sv1_196) Ultra Ball, (sv5_145) Ciphermaniac's Codebreaking, (me4_61) Metagross, (sv10_78) Zeraora, (rsv10-5_62) Zoroark
+- PlayerA drew 6 cards.
+   • (me2-5_98) Spectrier, (sv5_145) Ciphermaniac's Codebreaking, (me3_88) Telepathic Psychic Energy, (sv8_100) Annihilape, (me1_119) Lillie's Determination, (sv1_196) Ultra Ball
+PlayerA attached (me3_88) Telepathic Psychic Energy to (sv7_58) Slowking on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerA drew (me5_29_ph) Slowpoke and played it to the Bench.
+- PlayerA shuffled their deck.
+PlayerA retreated (sv8_76) Latias ex to the Bench.
+PlayerA's (sv7_58) Slowking is now in the Active Spot.
+PlayerA played Academy at Night.
+- PlayerA put (sv8_100) Annihilape on top of their deck.
+PlayerA's (sv7_58) Slowking used Seek Inspiration.
+- PlayerA discarded (sv8_100) Annihilape.
+- PlayerA chose Destined Fight
+PlayerB's (sv10_232) Cynthia's Garchomp ex was Knocked Out!
+- 4 cards were discarded from PlayerB's (sv10_232) Cynthia's Garchomp ex.
+   • (mee_6) Basic Fighting Energy, (sv10_103) Cynthia's Gabite, (sv10_102) Cynthia's Gible, (sv10_162) Cynthia's Power Weight
+PlayerA's (sv7_58) Slowking was Knocked Out!
+- 3 cards were discarded from PlayerA's (sv7_58) Slowking.
+   • (me3_88) Telepathic Psychic Energy, (me3_88) Telepathic Psychic Energy, (me5_29_ph) Slowpoke
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA took 2 Prize cards.
+(sv6-5_54) Academy at Night was added to PlayerA's hand.
+(me3_88) Telepathic Psychic Energy was added to PlayerA's hand.
+PlayerB's (sv10_103) Cynthia's Gabite is now in the Active Spot.
+PlayerA's (sv8_76) Latias ex is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me3_81) Poké Pad.
+- PlayerB drew (sv10_185) Shaymin.
+- PlayerB shuffled their deck.
+PlayerB played (sv10_185) Shaymin to the Bench.
+PlayerB's (sv10_103) Cynthia's Gabite used Champion's Call.
+- PlayerB drew (sv10_232) Cynthia's Garchomp ex.
+- PlayerB shuffled their deck.
+PlayerB's (sv10_103) Cynthia's Gabite used Champion's Call.
+- PlayerB drew (sv10_232) Cynthia's Garchomp ex.
+- PlayerB shuffled their deck.
+PlayerB evolved (sv10_103) Cynthia's Gabite to (sv10_232) Cynthia's Garchomp ex in the Active Spot.
+PlayerB evolved (sv10_103) Cynthia's Gabite to (sv10_232) Cynthia's Garchomp ex on the Bench.
+PlayerB attached (me3_87) Rocky Fighting Energy to (sv10_232) Cynthia's Garchomp ex in the Active Spot.
+PlayerB's (sv10_232) Cynthia's Garchomp ex used Draconic Buster on PlayerA’s (sv8_76) Latias ex for 320 damage. PlayerA's (sv8_76) Latias ex took -30 less damage because of Fighting Resistance.
+- Damage breakdown:
+   • Base damage: 260 damage
+   • (Ability) Cheer On to Glory: 30 damage
+   • (Ability) Cheer On to Glory: 30 damage
+   • (Ability) Cheer On to Glory: 30 damage
+   • Resistance to Fighting: -30 damage
+   • Total damage: 320 damage
+
+- 2 cards were discarded from PlayerB's (sv10_232) Cynthia's Garchomp ex.
+   • (me3_87) Rocky Fighting Energy, (me3_87) Rocky Fighting Energy
+PlayerA's (sv8_76) Latias ex was Knocked Out!
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+Opponent took all of their Prize cards. PlayerB wins.
