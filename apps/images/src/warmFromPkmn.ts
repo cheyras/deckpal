@@ -8,6 +8,21 @@ import { closePool, getPool } from './assets.js';
 import { fromUrl, isWebp, putAsset, sniffContentType } from './store.js';
 
 /**
+ * warm:pkmn — RETIRED. DO NOT RUN. Kept for its provenance history only.
+ *
+ * pkmn.gg was ruled out as a source by the repository owner on 2026-08-26, on legal
+ * grounds. Nothing here should be executed and pkmn.gg must not be reintroduced as a
+ * fallback for a new gap. The approved ladder, the sources that were evaluated against
+ * it, and the residue of cards no approved source covers are in
+ * `research/CARD-ART-SOURCES.md`; `cloudWarm.ts` is the warmer that matters for the
+ * deployed product.
+ *
+ * The file is not deleted because its header documents how the 2026-08 orphan cleanup
+ * concluded, and because deleting it would silently drop that record. Treat it as an
+ * artefact, not as a tool.
+ *
+ * ORIGINAL HEADER FOLLOWS.
+ *
  * warm:pkmn — fallback card-art warmer for cards the catalog CDN does not have.
  *
  * TCGdex lacks art for energy sets, promos, e-card, trainer kits and special

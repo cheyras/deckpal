@@ -1,9 +1,14 @@
-import { useState } from 'react'
+import { useArtSrc } from '../lib/useArtSrc'
 
 // A species sprite in a fixed-geometry box. The sprite job may still be running,
 // so a 404 is expected and handled EXACTLY like un-warmed card art: the box owns
 // its geometry before any byte arrives (no layout shift) and falls back to a
 // Poké-ball glyph placeholder on error. Uncaptured species render dimmed.
+//
+// Source order is the ladder in lib/cardArt.ts — the object URL directly, then
+// the image tier. It matters most here: the Pokédex asks for ~320 sprites on one
+// screen, and every one of them used to be a serverless invocation plus a
+// redirect (measured p50 2456 ms / slowest 8557 ms on production, 2026-08-26).
 export function SpriteTile({
   src,
   alt,
@@ -17,21 +22,23 @@ export function SpriteTile({
   pixelated?: boolean
   className?: string
 }) {
-  const [failed, setFailed] = useState(false)
+  const art = useArtSrc(src)
   return (
     <div
       className={`relative flex items-center justify-center overflow-hidden rounded-lg bg-surface-tertiary ${className}`}
       style={{ aspectRatio: '1 / 1' }}
     >
-      {failed ? (
+      {art.failed || !art.src ? (
         <Placeholder />
       ) : (
         <img
-          src={src}
+          key={art.step}
+          src={art.src}
+          {...(art.crossOrigin ? { crossOrigin: art.crossOrigin } : {})}
           alt={alt}
           loading="lazy"
           decoding="async"
-          onError={() => setFailed(true)}
+          onError={art.onError}
           className="h-[82%] w-[82%] object-contain"
           style={{
             imageRendering: pixelated ? 'pixelated' : 'auto',

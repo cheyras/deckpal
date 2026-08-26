@@ -38,6 +38,20 @@ const BASE = new URL('./', self.location.href).pathname
 // never requests.
 const IMAGES_PATH = '/deckpal/images/'
 
+// ── The direct object URLs card art actually asks for now ────────────────────
+// `src/lib/cardArt.ts` addresses the public Storage object itself rather than
+// going through the image function's probe-and-302. Those URLs are cross-origin,
+// so the route below has to match on origin + bucket prefix as well as on
+// IMAGES_PATH — which is still requested, as the fallback for a cold asset.
+// Empty on self-host, where `isDirectArt` is then never true.
+const ART_ORIGIN = (import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/+$/, '')
+const ART_BUCKET = import.meta.env.VITE_CARD_ART_BUCKET || 'card-art'
+const ART_PATH_PREFIX = `/storage/v1/object/public/${ART_BUCKET}/`
+
+function isDirectArt(url: URL): boolean {
+  return ART_ORIGIN !== '' && url.origin === ART_ORIGIN && url.pathname.startsWith(ART_PATH_PREFIX)
+}
+
 // ── Tier 0: precache the app shell ────────────────────────────────────────────
 // __WB_MANIFEST is injected at build time with the hashed dist assets.
 precacheAndRoute(self.__WB_MANIFEST)
@@ -93,25 +107,34 @@ for (const method of ['POST', 'PUT', 'PATCH', 'DELETE'] as const) {
 }
 
 // ── Tier 1: card & set art, CacheFirst, LRU-capped at 2000 entries ─────────────
-// statuses: [0, 200] is load-bearing, not defensive: on cloud the same-origin
-// request to /deckpal/images/... answers with a 302 to a cross-origin Supabase
-// Storage object URL. Image requests (<img> tags, intercepted by this SW) run in
-// 'no-cors' mode, so the browser follows that redirect and hands back an opaque
-// (status 0) Response — unreadable to JS but fully cacheable and re-servable to
-// the next no-cors request, which is the whole point. Caching the fixed-up 302
-// itself isn't an option: `redirect: manual` would be required to observe it as
-// 'opaqueredirect', and Workbox can't safely replay a stored redirect response
-// on a cache hit. Self-host answers 200 directly off apps/images' disk cache;
-// both statuses need to be accepted here for the single strategy to cover both.
+// CACHE NAME IS v2 ON PURPOSE. Card art is now requested from the Storage origin
+// directly, with crossorigin="anonymous" (src/lib/cardArt.ts, src/components/CardImage.tsx),
+// so the entries this route stores are CORS-readable 200s rather than the opaque
+// (status 0) responses v1 filled up with. That distinction is not cosmetic: the
+// browser pads an opaque response against the origin's storage quota — by far
+// more than the ~14 KB a card actually weighs — so a full 2000-entry v1 cache
+// could trip `purgeOnQuotaError` and drop the entire cache, refetching everything
+// from cold. Recycling the old name would have inherited exactly those entries.
+//
+// statuses: [0, 200] still covers both shapes, because both still occur:
+//   200 — the direct object URL (cloud), and apps/images' own answer (self-host);
+//   0   — the /deckpal/images/... fallback, which on cloud answers 302 to the
+//         Storage object. <img> requests without crossorigin run in 'no-cors'
+//         mode, so the browser follows that redirect and hands back an opaque
+//         Response: unreadable to JS but cacheable and re-servable to the next
+//         no-cors request. Caching the 302 itself isn't an option — `redirect:
+//         manual` would be needed to observe it as 'opaqueredirect', and Workbox
+//         can't safely replay a stored redirect on a cache hit.
 // `bugshot=1` is the in-app bug reporter reading the same bytes back through a
 // CORS request so it can inline them into its screenshot (components/BugReport.tsx).
 // Those reads must reach the network — an opaque cache hit reads as zero bytes —
 // and they must not fill this LRU with a duplicate entry per card, so the route
 // declines them and they fall through to the browser.
 registerRoute(
-  ({ url }) => url.pathname.startsWith(IMAGES_PATH) && !url.searchParams.has('bugshot'),
+  ({ url }) =>
+    (url.pathname.startsWith(IMAGES_PATH) || isDirectArt(url)) && !url.searchParams.has('bugshot'),
   new CacheFirst({
-    cacheName: 'deckpal-img-v1',
+    cacheName: 'deckpal-img-v2',
     plugins: [
       new CacheableResponsePlugin({ statuses: [0, 200] }),
       new ExpirationPlugin({
@@ -166,6 +189,29 @@ registerRoute(
     ],
   }),
 )
+
+// ── Retiring a renamed runtime cache ─────────────────────────────────────────
+// `cleanupOutdatedCaches()` above only retires old PRECACHES; a renamed runtime
+// cache is not its business and would simply be left behind. That matters more
+// than usual for this one: `deckpal-img-v1` is up to 2000 OPAQUE entries, each
+// padded against the origin's storage quota far beyond the bytes it holds, so
+// leaving it would make the quota pressure v2 exists to relieve strictly worse —
+// the browser would be holding both copies. Deleting it is safe and costs the
+// user nothing but a re-fetch of art they look at again, now on the fast path.
+//
+// Keyed by exact name rather than a `startsWith('deckpal-img')` sweep, so a
+// future v3 cannot accidentally delete itself on first activation.
+const RETIRED_CACHES = ['deckpal-img-v1']
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      const names = await caches.keys()
+      await Promise.all(
+        names.filter((n) => RETIRED_CACHES.includes(n)).map((n) => caches.delete(n)),
+      )
+    })(),
+  )
+})
 
 // ── Update flow: registerType 'prompt' (wiki: Frontend-Research §C.2) ──────────────────────
 // The app posts SKIP_WAITING when the user accepts the update toast; until then we

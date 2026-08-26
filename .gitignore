@@ -26,6 +26,13 @@ assets/sprites/
 **/*.webp
 **/*.avif
 
+# The local cache root, machine-local in its entirety: IMAGE_CACHE_ROOT defaults
+# to .cache/card-art, warm:cloud writes its resumable progress + residue here
+# (apps/images/src/cloudWarm.ts), and one-off research probes land here too.
+# Nothing under it has ever been tracked. The art itself is also covered by
+# **/*.webp above; this rule is what keeps the bookkeeping out.
+.cache/
+
 # Marketing imagery is the exception: these are a small, deliberately committed set
 # of original AI-generated landing-page assets (see apps/web/public/marketing/CREDITS.md).
 # Without these negations the blanket **/*.webp and **/*.avif rules above would

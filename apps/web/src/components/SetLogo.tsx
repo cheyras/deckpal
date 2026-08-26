@@ -1,4 +1,5 @@
 import { setAssetUrl } from './ui'
+import { useArtSrc } from '../lib/useArtSrc'
 import { setLogoNeedsLightPlate } from '../lib/setLogoContrast'
 
 /**
@@ -41,12 +42,26 @@ export function SetLogo({
   onError?: (e: React.SyntheticEvent<HTMLImageElement>) => void
 }) {
   const plated = setLogoNeedsLightPlate(setId)
+  // Object URL first, image tier as the fallback — see lib/cardArt.ts. A series
+  // page draws one of these per set, so they were one serverless hop each.
+  const art = useArtSrc(setAssetUrl(setId, 'logo'))
   const img = (
     <img
-      src={setAssetUrl(setId, 'logo')}
+      key={art.step}
+      src={art.src ?? undefined}
+      {...(art.crossOrigin ? { crossOrigin: art.crossOrigin } : {})}
       alt={alt}
       className={`${(plated && platedImgClassName) || imgClassName} object-contain`}
-      onError={onError ?? ((e) => (e.currentTarget.style.display = 'none'))}
+      onError={(e) => {
+        // Not exhausted yet: step to the next source and let it try.
+        if (!art.failed && art.step === 0) {
+          art.onError()
+          return
+        }
+        // Genuinely unavailable — hand it to the caller, or hide it.
+        if (onError) onError(e)
+        else e.currentTarget.style.display = 'none'
+      }}
     />
   )
 

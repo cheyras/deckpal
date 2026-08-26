@@ -1,0 +1,279 @@
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { dirname } from 'node:path';
+
+/**
+ * warm:cloud — fill the CLOUD object tier for every card in the catalog.
+ *
+ * WHY THIS EXISTS. The cloud tier had no bulk warm path at all, and the gap was
+ * invisible because each individual miss still "worked":
+ *
+ *   - `warm` / `warm:gaps` / `warm:pkmn` fill the SELF-HOST DISK cache. They write
+ *     through `store.ts putAsset` to `IMAGE_CACHE_ROOT`, which a Vercel deployment
+ *     does not have and cannot read.
+ *   - `storage:backfill` mirrors an EXISTING disk cache into the bucket. It is a
+ *     copy, not a fetch — on a box with no disk cache (every CI box, every fresh
+ *     clone, this machine) its work-list is empty.
+ *   - which left the deployed handler's own lazy fill as the only thing that ever
+ *     put card art in the bucket, one card per page view.
+ *
+ * So the bucket only ever held what someone had happened to look at. Swept on
+ * 2026-08-26: 18,840 of 21,066 cards — 89% of the catalog — had no object at all,
+ * and every first view of one paid a ~1.5-2.5s fill (upstream fetch + upload)
+ * inside the image function before a single byte reached the page. That is what
+ * "the art loads slowly and unevenly, and some tiles never load" actually was.
+ *
+ * WHAT IT DOES. It drives the deployed image tier's OWN lazy fill over a work-list
+ * of every card the catalog has. It writes nothing itself: each GET makes the
+ * handler resolve the asset's source, fetch it, and write bytes+row together
+ * through `putStorageAsset` — the B1 choke point — exactly as a page view would.
+ * That is deliberate. A second fetch-and-upload implementation here would be a
+ * second thing to keep in step with the handler's provenance rules, and the class
+ * of bug that produces is precisely what B1 exists to prevent.
+ *
+ * NO CREDENTIALS. The catalog endpoints (`/api/series`, `/api/sets/:id`) and the
+ * image route are public, so this runs against any deployment with nothing but a
+ * base URL. It needs no database, no service-role key and no session.
+ *
+ *   pnpm --filter deckpal-images warm:cloud -- --dry-run
+ *   pnpm --filter deckpal-images warm:cloud                        # low + high, whole catalog
+ *   pnpm --filter deckpal-images warm:cloud -- --qualities low
+ *   pnpm --filter deckpal-images warm:cloud -- --set sv10 --concurrency 6
+ *   pnpm --filter deckpal-images warm:cloud -- --base https://staging.example.com
+ *
+ * IDEMPOTENT AND RESUMABLE. A warm asset answers `302 X-Cache: HIT` and costs one
+ * cheap request; only a miss fills. Progress is written to `--state` as it goes,
+ * so an interrupted run resumes rather than restarting. Run it after a set
+ * releases and after any catalog import.
+ *
+ * REPORTS THE RESIDUE, NEVER INVENTS AN ASSET. A card whose art upstream genuinely
+ * does not have answers the placeholder; those are written to the residue file
+ * with the tier's own `X-Image-Reason`, broken down by set, rather than being
+ * counted as success. Do not "fix" a residue by pointing it at a plausible URL —
+ * see the fill-missing-assets skill.
+ */
+
+interface Args {
+  base: string;
+  qualities: string[];
+  concurrency: number;
+  set: string | null;
+  limit: number;
+  state: string;
+  residue: string;
+  dryRun: boolean;
+}
+
+function parseArgs(argv: string[]): Args {
+  const get = (name: string, fallback?: string): string | undefined => {
+    const i = argv.indexOf(`--${name}`);
+    return i === -1 ? fallback : (argv[i + 1] ?? fallback);
+  };
+  const qualities = (get('qualities', 'low,high') as string)
+    .split(',')
+    .map((q) => q.trim())
+    .filter((q) => q === 'low' || q === 'high');
+  if (qualities.length === 0) throw new Error('--qualities must name at least one of low,high');
+  return {
+    base: (get('base', 'https://deckpal.app') as string).replace(/\/+$/, ''),
+    qualities,
+    concurrency: Math.max(1, Number(get('concurrency', '8'))),
+    set: get('set') ?? null,
+    limit: Number(get('limit', '0')),
+    state: get('state', '.cache/warm-cloud-state.json') as string,
+    residue: get('residue', '.cache/warm-cloud-residue.json') as string,
+    dryRun: argv.includes('--dry-run'),
+  };
+}
+
+interface Job {
+  setId: string;
+  cardId: string;
+  url: string;
+  key: string;
+}
+
+interface SeriesRow {
+  slug: string;
+}
+interface SetRow {
+  setId: string;
+}
+interface CardRow {
+  cardId: string;
+  images: { low: string; high: string };
+}
+
+async function getJson<T>(url: string, tries = 5): Promise<T> {
+  let last: unknown;
+  for (let attempt = 0; attempt < tries; attempt++) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+      if (res.ok) return (await res.json()) as T;
+      // 4xx that is not rate limiting is a real answer, not a blip.
+      if (res.status < 500 && res.status !== 429) throw new Error(`HTTP ${res.status} ${url}`);
+      last = new Error(`HTTP ${res.status} ${url}`);
+    } catch (err) {
+      last = err;
+    }
+    await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+  }
+  throw last instanceof Error ? last : new Error(String(last));
+}
+
+/**
+ * The work-list comes from OUR catalog, never from the upstream manifest — the
+ * rule from the fill-missing-assets skill, and the reason `warm:gaps` exists at
+ * all: TCGdex's compiled datas.json omits whole classes of set (promos, energy,
+ * trainer kits) that our catalog carries and its CDN may still serve.
+ */
+async function buildWorkList(args: Args): Promise<Job[]> {
+  const { series } = await getJson<{ series: SeriesRow[] }>(`${args.base}/api/series`);
+  const setIds: string[] = [];
+  for (const s of series) {
+    const detail = await getJson<{ sets: SetRow[] }>(
+      `${args.base}/api/series/${encodeURIComponent(s.slug)}`,
+    );
+    for (const set of detail.sets) setIds.push(set.setId);
+  }
+
+  const jobs: Job[] = [];
+  for (const setId of setIds) {
+    if (args.set && setId !== args.set) continue;
+    let page = 1;
+    for (;;) {
+      const url =
+        `${args.base}/api/sets/${encodeURIComponent(setId)}` +
+        `?pageSize=250&page=${page}&own=all&goal=complete`;
+      const body = await getJson<{
+        cards: CardRow[];
+        pagination: { pageCount: number };
+      }>(url);
+      for (const card of body.cards) {
+        for (const q of args.qualities) {
+          const path = q === 'low' ? card.images.low : card.images.high;
+          if (path) jobs.push({ setId, cardId: card.cardId, url: `${args.base}${path}`, key: path });
+        }
+      }
+      if (page >= body.pagination.pageCount || body.cards.length === 0) break;
+      page++;
+    }
+  }
+  return jobs;
+}
+
+type Outcome = 'filled' | 'hit' | 'placeholder' | 'failed';
+
+async function warmOne(job: Job): Promise<{ outcome: Outcome; reason?: string }> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      // `manual` so a HIT is one cheap request: we read the tier's answer and
+      // never follow it to the object, which would download the whole image for
+      // no reason on every already-warm card.
+      const res = await fetch(job.url, { redirect: 'manual', signal: AbortSignal.timeout(45_000) });
+      if (res.status === 302) {
+        return { outcome: res.headers.get('x-cache') === 'FILLED' ? 'filled' : 'hit' };
+      }
+      if (res.headers.get('x-placeholder') === '1') {
+        return { outcome: 'placeholder', reason: res.headers.get('x-image-reason') ?? 'placeholder' };
+      }
+      if (res.status === 404) return { outcome: 'failed', reason: 'not found' };
+    } catch {
+      /* retried below */
+    }
+    await new Promise((r) => setTimeout(r, 900 * (attempt + 1)));
+  }
+  return { outcome: 'failed', reason: 'exhausted retries' };
+}
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+  console.log(
+    `[warm:cloud] ${args.base} — qualities ${args.qualities.join('+')}, concurrency ${args.concurrency}` +
+      `${args.set ? `, set ${args.set}` : ''}${args.dryRun ? ' (dry run)' : ''}`,
+  );
+
+  let jobs = await buildWorkList(args);
+  const done: Set<string> = existsSync(args.state)
+    ? new Set(JSON.parse(await readFile(args.state, 'utf-8')) as string[])
+    : new Set();
+  jobs = jobs.filter((j) => !done.has(j.key));
+  if (args.limit > 0) jobs = jobs.slice(0, args.limit);
+
+  console.log(`[warm:cloud] ${jobs.length} assets to check`);
+  if (args.dryRun) {
+    const bySet = new Map<string, number>();
+    for (const j of jobs) bySet.set(j.setId, (bySet.get(j.setId) ?? 0) + 1);
+    for (const [setId, n] of [...bySet].sort((a, b) => b[1] - a[1]).slice(0, 20)) {
+      console.log(`  ${setId.padEnd(14)} ${n}`);
+    }
+    return;
+  }
+
+  await mkdir(dirname(args.state), { recursive: true }).catch(() => undefined);
+
+  const counts: Record<Outcome, number> = { filled: 0, hit: 0, placeholder: 0, failed: 0 };
+  const residue: Array<{ setId: string; cardId: string; key: string; reason: string }> = [];
+  const started = Date.now();
+  let index = 0;
+  let processed = 0;
+
+  const flush = async (): Promise<void> => {
+    await writeFile(args.state, JSON.stringify([...done]));
+  };
+
+  await Promise.all(
+    Array.from({ length: args.concurrency }, async () => {
+      for (;;) {
+        const i = index++;
+        if (i >= jobs.length) return;
+        const job = jobs[i]!;
+        const { outcome, reason } = await warmOne(job);
+        counts[outcome]++;
+        if (outcome === 'placeholder' || outcome === 'failed') {
+          residue.push({ setId: job.setId, cardId: job.cardId, key: job.key, reason: reason ?? '' });
+        }
+        // A failure is recorded too: re-running should not re-hammer upstream for
+        // art it has already told us it does not have. Delete the state file to
+        // force a full re-check once upstream may have changed.
+        done.add(job.key);
+        if (++processed % 250 === 0) {
+          const rate = processed / ((Date.now() - started) / 1000);
+          const eta = (jobs.length - processed) / rate / 60;
+          console.log(
+            `[warm:cloud] ${processed}/${jobs.length}  filled=${counts.filled} hit=${counts.hit} ` +
+              `placeholder=${counts.placeholder} failed=${counts.failed}  ${rate.toFixed(1)}/s  eta ${eta.toFixed(0)}min`,
+          );
+          await flush();
+        }
+      }
+    }),
+  );
+
+  await flush();
+  await writeFile(args.residue, JSON.stringify(residue, null, 2));
+
+  const secs = (Date.now() - started) / 1000;
+  console.log(
+    `\n[warm:cloud] done in ${secs.toFixed(0)}s — filled=${counts.filled} hit=${counts.hit} ` +
+      `placeholder=${counts.placeholder} failed=${counts.failed}`,
+  );
+
+  if (residue.length > 0) {
+    const bySet = new Map<string, number>();
+    for (const r of residue) bySet.set(r.setId, (bySet.get(r.setId) ?? 0) + 1);
+    console.log(
+      `[warm:cloud] ${residue.length} asset(s) upstream could not serve — written to ${args.residue}.\n` +
+        `             These are REAL gaps, not a bug to route around: the placeholder is the honest\n` +
+        `             answer until a source for them exists (see warm:pkmn, and the fill-missing-assets skill).`,
+    );
+    for (const [setId, n] of [...bySet].sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+      console.log(`  ${setId.padEnd(14)} ${n}`);
+    }
+  }
+}
+
+main().catch((err: unknown) => {
+  console.error('[warm:cloud]', err instanceof Error ? err.message : err);
+  process.exitCode = 1;
+});

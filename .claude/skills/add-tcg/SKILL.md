@@ -1,6 +1,6 @@
 ---
 name: add-tcg
-description: Onboard a new trading card game into this collection tracker — or fill catalog/image gaps in an existing one. The agent researches the best open data + image sources for the game, maps them to the game-agnostic schema, populates the catalog, sources and optimizes card art (with fallbacks), and rebuilds the scan index. Use when the user wants to add a TCG (Magic, Yu-Gi-Oh, Lorcana, One Piece, …), refresh a catalog after a new set, or fix missing card images. The reference implementation is Pokémon (TCGdex + TCGCSV + pkmn.gg).
+description: Onboard a new trading card game into this collection tracker — or fill catalog/image gaps in an existing one. The agent researches the best open data + image sources for the game, maps them to the game-agnostic schema, populates the catalog, sources and optimizes card art (with fallbacks), and rebuilds the scan index. Use when the user wants to add a TCG (Magic, Yu-Gi-Oh, Lorcana, One Piece, …), refresh a catalog after a new set, or fix missing card images. The reference implementation is Pokémon (TCGdex for catalog + art, TCGCSV for prices; see research/CARD-ART-SOURCES.md for the approved art-fallback ladder).
 ---
 
 # add-tcg — populate a TCG catalog and its imagery
@@ -69,7 +69,7 @@ each candidate on:
 
 | Game | Catalog + images | Prices |
 |---|---|---|
-| **Pokémon** (reference) | TCGdex (compiled JSON) for catalog; pkmn.gg (`api.tcg.gg`) for art TCGdex lacks | TCGCSV (TCGplayer mirror), Cardmarket via TCGdex |
+| **Pokémon** (reference) | TCGdex (compiled JSON) for catalog + art; pokemontcg.io for art TCGdex lacks (pkmn.gg and TCGplayer images are **ruled out** — `research/CARD-ART-SOURCES.md`) | TCGCSV (TCGplayer mirror), Cardmarket via TCGdex |
 | **Magic: The Gathering** | **Scryfall** bulk data — catalog + images + prices in one, excellent IDs, CC0-ish data | Scryfall (USD/EUR/tix) |
 | **Yu-Gi-Oh!** | YGOPRODeck API (bulk cardinfo + images) | YGOPRODeck price fields |
 | **Lorcana / One Piece / Digimon** | community APIs / datasets (e.g. lorcana-api, an OP TCG API) — vet coverage carefully | often none; may be TCGplayer-derived |
@@ -178,10 +178,11 @@ most of them.
    off `card` rows and check per-card whether a real cache file already exists.
 2. **Primary source first, then fallback(s).** Try the catalog CDN (e.g. TCGdex
    `assets.tcgdex.net/<lang>/<serie>/<set>/<localId>/high.webp`). On a 404/miss, fall back to a
-   secondary (for Pokémon: pkmn.gg's `assets.pkmn.gg` art, whose URLs come from
-   `api.tcg.gg/…/v1/card/<set>` — the JSON carries **signed** `largeImageUrl`(→high) +
-   `thumbImageUrl`(→low); the signature is in the URL so no auth on the download itself). See
-   `apps/images/src/warmFromPkmn.ts` for the working fallback warmer.
+   secondary — **and check the source is an approved one first.** For Pokémon that is
+   pokemontcg.io (`images.pokemontcg.io/<setId>/<number>_hires.png`, 600×825+, free and
+   unauthenticated); pkmn.gg and TCGplayer images are both **ruled out**, for the reasons in
+   `research/CARD-ART-SOURCES.md`. A new game's fallback needs the same licensing check
+   before you fetch anything — that note is the worked example of what "checked" means.
 3. **Two resolutions.** `high` (detail view) and `low` (grid + the scanner). WebP.
 4. **Validate every download** — content-type + magic bytes (RIFF/WEBP), reject tiny/placeholder
    bodies (`< ~800 B`); then hand the bytes to `putAsset`, which does the temp-file +
@@ -236,7 +237,7 @@ The offline scanner matches an uploaded photo against a **dHash per cached card 
 - **Reindex + restart** the scan service after warming; the index is in-memory.
 - **Two image tiers, WebP, LRU-capped**; keep the serving path contract exact.
 - **Don't run heavy upstreams on the host** — extract compiled data.
-- **Secrets** (a source session/token, e.g. a pkmn.gg cookie) live at runtime only
+- **Secrets** (a source session/token, e.g. an API key for a gated catalog) live at runtime only
   (`~/Transfer/…`), read per-run, **never committed or logged**; the token may rotate on
   refresh, so a *single* consumer uses it at a time. If a subagent is blocked from a
   credentialed source by a safety check, the lead performs that step.
@@ -286,6 +287,29 @@ keep game-specific specifics in the game's runbook / the slot's `image-slots.md`
   as a command in `apps/images/src/` rather than a loose script — that is where the contract lives.
 - **Validate the format, not just the size.** `length >= 800` passes an HTML error page and a PNG
   alike; sniff magic bytes and refuse anything the cache path doesn't claim to be.
+- **Check that a warm path exists for the tier you actually deploy.** A project can have several
+  warmers and still have none for the tier serving users — DeckPal's all filled the self-host disk
+  cache, and the one "cloud" command only *mirrored* an existing disk cache, so on a box without
+  one its work-list was empty and silently succeeded. The cloud bucket was left holding only what
+  someone had happened to look at: 89% of the catalog missing, hidden because each miss still
+  rendered via an on-demand fill. Ask "which command fills the tier my users hit, and what happens
+  when it runs on a machine with no local cache?"
+- **Prefer driving the deployed tier's own lazy fill over writing a second fetch-and-upload.** If
+  the read path already fills on miss through the choke point, a bulk warmer that just requests
+  each asset inherits its provenance rules exactly, needs no credentials when the routes are
+  public, and cannot drift from them. Two implementations of "where may these bytes come from" is
+  the bug B1 exists to prevent.
+- **A "we don't know this asset" guard can become a permanent blank.** Refusing to fetch when no
+  manifest row exists sounds careful, but if the request path is one your OWN api emitted from your
+  OWN catalog, the derived source URL is a derivation, not a guess — and refusing it means those
+  cards serve a placeholder forever, self-healing never fires, and no amount of re-warming helps.
+  Treat "no row" and "row with no source" as the same case for asset classes whose URL is a pure
+  function of the path.
+- **Distinguish "absent" from "throttled" before reporting a gap.** Supabase Storage answers a
+  missing public object with **HTTP 400** and a JSON body (`NoSuchKey`), not 404 — so a status-only
+  probe both miscounts absences and retries them as if transient. Read the body, treat only the
+  definitive answer as absent, and re-probe anything inconclusive serially before it reaches a
+  "missing" total.
 
 ## Definition of done (adding a TCG, or a refresh)
 
@@ -303,11 +327,15 @@ keep game-specific specifics in the game's runbook / the slot's `image-slots.md`
 - `research/SCHEMA.md` — the data model (read before mapping).
 - `wiki: Data-Layer (https://github.com/cheyras/deckpal/wiki/Data-Layer)` — source-field → schema details, price/id coverage.
 - `ARCHITECTURE.md` — services, ports, the image cache design.
-- The Pokémon-specific sync runbook (per-release procedure, the pkmn.gg
-  API map, the image-fallback flow) — the concrete instance of this skill.
+- The Pokémon-specific sync runbook (per-release procedure, the image-fallback
+  flow) — the concrete instance of this skill.
+- `research/CARD-ART-SOURCES.md` — **which art sources are approved and which are
+  ruled out, and why**. Read it before sourcing any card-art gap; it is also the
+  worked example of the licensing check step 4 asks for.
 - Code: `apps/sync/src/catalog` (catalog import), `apps/sync/src/prices` (prices + cross-fill),
   `apps/images/src/store.ts` (**the cache write choke point — read this first**),
   `apps/images/src/{layout,fetch,warmer,setWarmer,evict}.ts` (image cache + warmers),
-  `apps/images/src/{warmGaps,warmFromPkmn}.ts` (CDN gap-fill + pkmn.gg fallback warmer),
+  `apps/images/src/warmGaps.ts` (CDN gap-fill, disk tier), `apps/images/src/cloudWarm.ts`
+  (**warms the cloud object tier — the one the deployed product serves from**),
   `apps/images/src/{manifestCheck,manifestBackfill}.ts` (drift check + provenance backfill),
   `apps/api/src/scan/{index,phash,router}.ts` (scanner).
