@@ -1,0 +1,6547 @@
+{
+  "generated": "2026-08-26",
+  "note": "Cards with no card art in the object store and no APPROVED source. See research/CARD-ART-SOURCES.md. tcgplayerHeight is recorded for the record only; TCGplayer is not an approved source (its terms prohibit automated collection outside the API, and new API access is not granted).",
+  "catalogCards": 21066,
+  "missingCards": 592,
+  "withoutApprovedSource": 504,
+  "bySet": {
+    "mfb": 34,
+    "tk-bw-e": 30,
+    "tk-bw-z": 30,
+    "tk-hs-g": 30,
+    "tk-hs-r": 30,
+    "tk-sm-r": 30,
+    "tk-xy-b": 30,
+    "tk-xy-latia": 30,
+    "tk-xy-latio": 30,
+    "tk-xy-n": 30,
+    "tk-xy-p": 30,
+    "tk-xy-su": 30,
+    "tk-xy-sy": 30,
+    "tk-xy-w": 30,
+    "tk-sm-l": 18,
+    "cel25cc": 17,
+    "tk-dp-m": 12,
+    "tk-dp-l": 11,
+    "ecard2": 7,
+    "xya": 6,
+    "ex5.5": 5,
+    "bwp": 2,
+    "exu": 1,
+    "svp": 1
+  },
+  "cards": [
+    {
+      "cardId": "bog-1",
+      "setId": "bog",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 285
+    },
+    {
+      "cardId": "bog-2",
+      "setId": "bog",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 284
+    },
+    {
+      "cardId": "bog-3",
+      "setId": "bog",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 283
+    },
+    {
+      "cardId": "bog-4",
+      "setId": "bog",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 284
+    },
+    {
+      "cardId": "bog-5",
+      "setId": "bog",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 284
+    },
+    {
+      "cardId": "bog-6",
+      "setId": "bog",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 285
+    },
+    {
+      "cardId": "bog-7",
+      "setId": "bog",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 285
+    },
+    {
+      "cardId": "bog-8",
+      "setId": "bog",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 772
+    },
+    {
+      "cardId": "bog-9",
+      "setId": "bog",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 781
+    },
+    {
+      "cardId": "bwp-BW04",
+      "setId": "bwp",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "bwp-BW05",
+      "setId": "bwp",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "cel25cc-CC001",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 834
+    },
+    {
+      "cardId": "cel25cc-CC002",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC003",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 835
+    },
+    {
+      "cardId": "cel25cc-CC004",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC005",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC006",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 835
+    },
+    {
+      "cardId": "cel25cc-CC007",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 836
+    },
+    {
+      "cardId": "cel25cc-CC008",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 833
+    },
+    {
+      "cardId": "cel25cc-CC009",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 835
+    },
+    {
+      "cardId": "cel25cc-CC010",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 835
+    },
+    {
+      "cardId": "cel25cc-CC011",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC012",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC013",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 838
+    },
+    {
+      "cardId": "cel25cc-CC014",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC015",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 835
+    },
+    {
+      "cardId": "cel25cc-CC016",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC017",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 834
+    },
+    {
+      "cardId": "cel25cc-CC018",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC019",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC020",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC021",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC022",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC023",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC024",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "cel25cc-CC025",
+      "setId": "cel25cc",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "dc1-1",
+      "setId": "dc1",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "dc1-10",
+      "setId": "dc1",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "dc1-11",
+      "setId": "dc1",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "dc1-12",
+      "setId": "dc1",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "dc1-13",
+      "setId": "dc1",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "dc1-14",
+      "setId": "dc1",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "ecard2-103a",
+      "setId": "ecard2",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard2-50a",
+      "setId": "ecard2",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard2-50b",
+      "setId": "ecard2",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard2-74a",
+      "setId": "ecard2",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard2-74b",
+      "setId": "ecard2",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard2-95a",
+      "setId": "ecard2",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "ecard2-95b",
+      "setId": "ecard2",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "ecard2-H01",
+      "setId": "ecard2",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard2-H02",
+      "setId": "ecard2",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard2-H03",
+      "setId": "ecard2",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard2-H04",
+      "setId": "ecard2",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard2-H05",
+      "setId": "ecard2",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard2-H06",
+      "setId": "ecard2",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard2-H07",
+      "setId": "ecard2",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard2-H08",
+      "setId": "ecard2",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard2-H09",
+      "setId": "ecard2",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard3-H01",
+      "setId": "ecard3",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard3-H02",
+      "setId": "ecard3",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard3-H03",
+      "setId": "ecard3",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard3-H04",
+      "setId": "ecard3",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard3-H05",
+      "setId": "ecard3",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard3-H06",
+      "setId": "ecard3",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard3-H07",
+      "setId": "ecard3",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard3-H08",
+      "setId": "ecard3",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ecard3-H09",
+      "setId": "ecard3",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "ex5.5-1",
+      "setId": "ex5.5",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 474
+    },
+    {
+      "cardId": "ex5.5-2",
+      "setId": "ex5.5",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 474
+    },
+    {
+      "cardId": "ex5.5-3",
+      "setId": "ex5.5",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 474
+    },
+    {
+      "cardId": "ex5.5-4",
+      "setId": "ex5.5",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 474
+    },
+    {
+      "cardId": "ex5.5-5",
+      "setId": "ex5.5",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 475
+    },
+    {
+      "cardId": "exu-%3F",
+      "setId": "exu",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 825
+    },
+    {
+      "cardId": "mfb-1",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1425
+    },
+    {
+      "cardId": "mfb-10",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 892
+    },
+    {
+      "cardId": "mfb-11",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-12",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 864
+    },
+    {
+      "cardId": "mfb-13",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-14",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 893
+    },
+    {
+      "cardId": "mfb-15",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-16",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 749
+    },
+    {
+      "cardId": "mfb-17",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1422
+    },
+    {
+      "cardId": "mfb-18",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-19",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-2",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 892
+    },
+    {
+      "cardId": "mfb-20",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-21",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 863
+    },
+    {
+      "cardId": "mfb-22",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 890
+    },
+    {
+      "cardId": "mfb-23",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 887
+    },
+    {
+      "cardId": "mfb-24",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 733
+    },
+    {
+      "cardId": "mfb-25",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1433
+    },
+    {
+      "cardId": "mfb-26",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 893
+    },
+    {
+      "cardId": "mfb-27",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-28",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-29",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-3",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-30",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-31",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 863
+    },
+    {
+      "cardId": "mfb-32",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 739
+    },
+    {
+      "cardId": "mfb-33",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "mfb-34",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "mfb-4",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-5",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-6",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 891
+    },
+    {
+      "cardId": "mfb-7",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 863
+    },
+    {
+      "cardId": "mfb-8",
+      "setId": "mfb",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 704
+    },
+    {
+      "cardId": "mfb-9",
+      "setId": "mfb",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1427
+    },
+    {
+      "cardId": "svp-500",
+      "setId": "svp",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "swshp-SWSH303",
+      "setId": "swshp",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 585
+    },
+    {
+      "cardId": "swshp-SWSH304",
+      "setId": "swshp",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 585
+    },
+    {
+      "cardId": "swshp-SWSH305",
+      "setId": "swshp",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 585
+    },
+    {
+      "cardId": "tk-bw-e-1",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-10",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-11",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-12",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-13",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-14",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-15",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-16",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-17",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-18",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-19",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-2",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-20",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-21",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-22",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-23",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-24",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-25",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-26",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-27",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-28",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-29",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-3",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-30",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-4",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-5",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-6",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-7",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-8",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-e-9",
+      "setId": "tk-bw-e",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-1",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-10",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-11",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-12",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-13",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-14",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-15",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-16",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-17",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-18",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-19",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-2",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-20",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-21",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-22",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-23",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-24",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-25",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-26",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-27",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-28",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-29",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-3",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-30",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-4",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-5",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-6",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-7",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-8",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-bw-z-9",
+      "setId": "tk-bw-z",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-dp-l-1",
+      "setId": "tk-dp-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-dp-l-10",
+      "setId": "tk-dp-l",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-dp-l-11",
+      "setId": "tk-dp-l",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-dp-l-2",
+      "setId": "tk-dp-l",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 283
+    },
+    {
+      "cardId": "tk-dp-l-3",
+      "setId": "tk-dp-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-dp-l-4",
+      "setId": "tk-dp-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 284
+    },
+    {
+      "cardId": "tk-dp-l-5",
+      "setId": "tk-dp-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-dp-l-6",
+      "setId": "tk-dp-l",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 283
+    },
+    {
+      "cardId": "tk-dp-l-7",
+      "setId": "tk-dp-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-dp-l-8",
+      "setId": "tk-dp-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-dp-l-9",
+      "setId": "tk-dp-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-dp-m-1",
+      "setId": "tk-dp-m",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 284
+    },
+    {
+      "cardId": "tk-dp-m-10",
+      "setId": "tk-dp-m",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 282
+    },
+    {
+      "cardId": "tk-dp-m-11",
+      "setId": "tk-dp-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 282
+    },
+    {
+      "cardId": "tk-dp-m-12",
+      "setId": "tk-dp-m",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-dp-m-2",
+      "setId": "tk-dp-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 284
+    },
+    {
+      "cardId": "tk-dp-m-3",
+      "setId": "tk-dp-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-dp-m-4",
+      "setId": "tk-dp-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 284
+    },
+    {
+      "cardId": "tk-dp-m-5",
+      "setId": "tk-dp-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-dp-m-6",
+      "setId": "tk-dp-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 284
+    },
+    {
+      "cardId": "tk-dp-m-7",
+      "setId": "tk-dp-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-dp-m-8",
+      "setId": "tk-dp-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 285
+    },
+    {
+      "cardId": "tk-dp-m-9",
+      "setId": "tk-dp-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-latia-1",
+      "setId": "tk-ex-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latia-10",
+      "setId": "tk-ex-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 756
+    },
+    {
+      "cardId": "tk-ex-latia-2",
+      "setId": "tk-ex-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latia-3",
+      "setId": "tk-ex-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latia-4",
+      "setId": "tk-ex-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latia-5",
+      "setId": "tk-ex-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latia-6",
+      "setId": "tk-ex-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latia-7",
+      "setId": "tk-ex-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latia-8",
+      "setId": "tk-ex-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 1403
+    },
+    {
+      "cardId": "tk-ex-latia-9",
+      "setId": "tk-ex-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 504
+    },
+    {
+      "cardId": "tk-ex-latio-1",
+      "setId": "tk-ex-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latio-10",
+      "setId": "tk-ex-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 756
+    },
+    {
+      "cardId": "tk-ex-latio-2",
+      "setId": "tk-ex-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latio-3",
+      "setId": "tk-ex-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latio-4",
+      "setId": "tk-ex-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latio-5",
+      "setId": "tk-ex-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latio-6",
+      "setId": "tk-ex-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latio-7",
+      "setId": "tk-ex-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 1024,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-ex-latio-8",
+      "setId": "tk-ex-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 756
+    },
+    {
+      "cardId": "tk-ex-latio-9",
+      "setId": "tk-ex-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 756
+    },
+    {
+      "cardId": "tk-ex-m-1",
+      "setId": "tk-ex-m",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-m-10",
+      "setId": "tk-ex-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-m-11",
+      "setId": "tk-ex-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-m-12",
+      "setId": "tk-ex-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-m-2",
+      "setId": "tk-ex-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-m-3",
+      "setId": "tk-ex-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-ex-m-4",
+      "setId": "tk-ex-m",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-m-5",
+      "setId": "tk-ex-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-m-6",
+      "setId": "tk-ex-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 282
+    },
+    {
+      "cardId": "tk-ex-m-7",
+      "setId": "tk-ex-m",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-m-8",
+      "setId": "tk-ex-m",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-ex-m-9",
+      "setId": "tk-ex-m",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-p-1",
+      "setId": "tk-ex-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 282
+    },
+    {
+      "cardId": "tk-ex-p-10",
+      "setId": "tk-ex-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-ex-p-11",
+      "setId": "tk-ex-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-p-12",
+      "setId": "tk-ex-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-p-2",
+      "setId": "tk-ex-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-p-3",
+      "setId": "tk-ex-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-ex-p-4",
+      "setId": "tk-ex-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-p-5",
+      "setId": "tk-ex-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-p-6",
+      "setId": "tk-ex-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 990,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-ex-p-7",
+      "setId": "tk-ex-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-ex-p-8",
+      "setId": "tk-ex-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-ex-p-9",
+      "setId": "tk-ex-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "pokemontcgio-full",
+      "pokemontcgioHeight": 825,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-hs-g-1",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-10",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-11",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-12",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-hs-g-13",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-14",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-15",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-hs-g-16",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-17",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-18",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-hs-g-19",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-hs-g-2",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-20",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-hs-g-21",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-22",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-hs-g-23",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-24",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-hs-g-25",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-26",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-27",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-hs-g-28",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-29",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-3",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-30",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-hs-g-4",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-5",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-hs-g-6",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-7",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-8",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-g-9",
+      "setId": "tk-hs-g",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-1",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-hs-r-10",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-11",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-12",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-hs-r-13",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-14",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-15",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-16",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-hs-r-17",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-hs-r-18",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-19",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 284
+    },
+    {
+      "cardId": "tk-hs-r-2",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-hs-r-20",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-21",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-hs-r-22",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-hs-r-23",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-24",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-hs-r-25",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-26",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-hs-r-27",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-hs-r-28",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-29",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-hs-r-3",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-hs-r-30",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 281
+    },
+    {
+      "cardId": "tk-hs-r-4",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-hs-r-5",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-6",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-7",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-8",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-hs-r-9",
+      "setId": "tk-hs-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-sm-l-1",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-11",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-12",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-13",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-14",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-15",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-16",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-18",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-19",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-21",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-22",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-23",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-25",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-27",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-29",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 450
+    },
+    {
+      "cardId": "tk-sm-l-30",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 450
+    },
+    {
+      "cardId": "tk-sm-l-4",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-l-5",
+      "setId": "tk-sm-l",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-1",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-10",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-11",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-12",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-13",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-14",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1100
+    },
+    {
+      "cardId": "tk-sm-r-15",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-16",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-17",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-18",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-19",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-2",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-20",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-21",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-22",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1395
+    },
+    {
+      "cardId": "tk-sm-r-23",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-24",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-25",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-26",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-27",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-28",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-29",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-3",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-30",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 450
+    },
+    {
+      "cardId": "tk-sm-r-4",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-5",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-6",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-7",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-8",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-sm-r-9",
+      "setId": "tk-sm-r",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-1",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-10",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-11",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-12",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-13",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-14",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-15",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-16",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-17",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-18",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-19",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-2",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-20",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 835
+    },
+    {
+      "cardId": "tk-xy-b-21",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-22",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-23",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-24",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-25",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-26",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-27",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-28",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-29",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-3",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-30",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-4",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-5",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-6",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-7",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-8",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-b-9",
+      "setId": "tk-xy-b",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-1",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-10",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-11",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-12",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-13",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-14",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-15",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-16",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-17",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-18",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-19",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-2",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-20",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 450
+    },
+    {
+      "cardId": "tk-xy-latia-21",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-22",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-23",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-24",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-25",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-26",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-27",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-28",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-29",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 450
+    },
+    {
+      "cardId": "tk-xy-latia-3",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-30",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 419
+    },
+    {
+      "cardId": "tk-xy-latia-4",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-5",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-6",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-7",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-8",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latia-9",
+      "setId": "tk-xy-latia",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-1",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-10",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-11",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-12",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-13",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-14",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-15",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-16",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-17",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-18",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-19",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-2",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-20",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 450
+    },
+    {
+      "cardId": "tk-xy-latio-21",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-22",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-23",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-24",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-25",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-26",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-27",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-28",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-29",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-3",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-30",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-xy-latio-4",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-5",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-6",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-7",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-8",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-latio-9",
+      "setId": "tk-xy-latio",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-n-1",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-xy-n-10",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-11",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-12",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-xy-n-13",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-xy-n-14",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-n-15",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-16",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-17",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-18",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-19",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-2",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-20",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-21",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-n-22",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-23",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-n-24",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-n-25",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-26",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-27",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-28",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-29",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-n-3",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-30",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-4",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-xy-n-5",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-6",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-7",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-8",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-n-9",
+      "setId": "tk-xy-n",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-p-1",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-10",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-11",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-12",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-13",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 309
+    },
+    {
+      "cardId": "tk-xy-p-14",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-15",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 308
+    },
+    {
+      "cardId": "tk-xy-p-16",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 309
+    },
+    {
+      "cardId": "tk-xy-p-17",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-18",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-19",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-2",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-20",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 310
+    },
+    {
+      "cardId": "tk-xy-p-21",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 309
+    },
+    {
+      "cardId": "tk-xy-p-22",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 309
+    },
+    {
+      "cardId": "tk-xy-p-23",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 308
+    },
+    {
+      "cardId": "tk-xy-p-24",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1024
+    },
+    {
+      "cardId": "tk-xy-p-25",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-26",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-27",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-28",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-29",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-3",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-30",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-4",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-5",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-6",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-7",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-8",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-p-9",
+      "setId": "tk-xy-p",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-1",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-10",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-11",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 308
+    },
+    {
+      "cardId": "tk-xy-su-12",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-13",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-14",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-15",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 306
+    },
+    {
+      "cardId": "tk-xy-su-16",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 309
+    },
+    {
+      "cardId": "tk-xy-su-17",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-18",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-19",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-2",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-20",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 310
+    },
+    {
+      "cardId": "tk-xy-su-21",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 304
+    },
+    {
+      "cardId": "tk-xy-su-22",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-23",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 308
+    },
+    {
+      "cardId": "tk-xy-su-24",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 306
+    },
+    {
+      "cardId": "tk-xy-su-25",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-26",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-27",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-28",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-29",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 309
+    },
+    {
+      "cardId": "tk-xy-su-3",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-30",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 550
+    },
+    {
+      "cardId": "tk-xy-su-4",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 308
+    },
+    {
+      "cardId": "tk-xy-su-5",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-6",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 304
+    },
+    {
+      "cardId": "tk-xy-su-7",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 306
+    },
+    {
+      "cardId": "tk-xy-su-8",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-su-9",
+      "setId": "tk-xy-su",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 307
+    },
+    {
+      "cardId": "tk-xy-sy-1",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-sy-10",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-sy-11",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-sy-12",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-sy-13",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-sy-14",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 1532
+    },
+    {
+      "cardId": "tk-xy-sy-15",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-sy-16",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-xy-sy-17",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-sy-18",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-sy-19",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-sy-2",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-sy-20",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-sy-21",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-sy-22",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-xy-sy-23",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-sy-24",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-sy-25",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-sy-26",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-sy-27",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-sy-28",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-sy-29",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 279
+    },
+    {
+      "cardId": "tk-xy-sy-3",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-sy-30",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-sy-4",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 280
+    },
+    {
+      "cardId": "tk-xy-sy-5",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-sy-6",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-sy-7",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-sy-8",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-sy-9",
+      "setId": "tk-xy-sy",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 278
+    },
+    {
+      "cardId": "tk-xy-w-1",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-10",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-11",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-12",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-13",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-14",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-15",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-16",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-17",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-18",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-19",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-2",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-20",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-21",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-22",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-23",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-24",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": 835
+    },
+    {
+      "cardId": "tk-xy-w-25",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-26",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-27",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-28",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-29",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-3",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-30",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-4",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-5",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-6",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-7",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-8",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "tk-xy-w-9",
+      "setId": "tk-xy-w",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "xya-107a",
+      "setId": "xya",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "xya-24a",
+      "setId": "xya",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "xya-28a",
+      "setId": "xya",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "xya-54a",
+      "setId": "xya",
+      "missingQualities": [
+        "low",
+        "high"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "xya-55a",
+      "setId": "xya",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    },
+    {
+      "cardId": "xya-92a",
+      "setId": "xya",
+      "missingQualities": [
+        "high",
+        "low"
+      ],
+      "status": "no-approved-source",
+      "pokemontcgioHeight": null,
+      "tcgplayerHeight": null
+    }
+  ]
+}

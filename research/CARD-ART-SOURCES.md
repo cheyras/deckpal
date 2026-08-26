@@ -1,7 +1,10 @@
 # CARD-ART-SOURCES.md — where the last 592 cards' art could come from
 
 **Author:** Claude Opus 5 on behalf of @cheyras · **Date:** 2026-08-26
-**Status:** RESEARCH ONLY. **Nothing was fetched into the image store.** Every
+**Status:** RESEARCH ONLY. **Nothing was fetched into the image store.**
+**Revised 2026-08-26b** with the TCGplayer terms research the owner asked for
+(section 2.3): that source is **ruled out**, which moves the closable gap from
+415 cards to 88 and the documented residue from 177 to 504. Every
 figure below comes from read-only probes that measured a response and discarded
 the bytes. No source has been adopted; §7 lists the decisions this note exists
 to inform.
@@ -27,8 +30,11 @@ pkmn.gg out entirely, on legal grounds**, which retires `warm:pkmn`
 ## 1. The gap: 592 cards, 32 sets **[measured]**
 
 Derived by driving `warm:cloud` across all 42,132 card assets and re-probing
-every residue row against the public bucket. The per-card list is written to
-`.cache/missing-art.json` (gitignored).
+every residue row against the public bucket. **The per-card list is committed as
+[`card-art-residue.json`](card-art-residue.json)** — every one of the 592, with
+which resolutions are missing, whether an approved source covers it, and the
+measured heights behind that judgement. It is the durable record; the working
+files under `.cache/` are gitignored scratch.
 
 | Class | Sets | Cards |
 |---|---|---|
@@ -103,12 +109,50 @@ and 1:1 crops are visually indistinguishable. Any pipeline that requested a big
 it as a 717×1000 asset**. Use `product-images.tcgplayer.com/{id}.jpg` (the native
 object) and measure it. **[measured]**
 
-**Posture (observation, not legal advice):** a commercial marketplace CDN. Unlike
-TCGdex and pokemontcg.io it is not a catalog project distributing card imagery for
-that purpose, and hotlinking or re-hosting its product photography is not
-obviously covered by anything we have agreed to. Higher risk than 2.2. Note the
-project *already* consumes TCGplayer **pricing** via TCGCSV, which is a different
-question from re-hosting their images.
+**Posture — RULED OUT on their own published terms. [measured, with a caveat]**
+
+Researched 2026-08-26 at the owner's request. Read the caveat first: **both
+TCGplayer help-centre pages answer HTTP 403 to automated fetching**, so the
+findings below come from search-engine summaries of those pages and from the
+developer documentation, *not* from the primary text. I did not scrape past the
+403 - doing so to read a document about not scraping would be indefensible, and
+it is the exact conduct the terms prohibit. **Read the primary sources before
+relying on this; I am not a lawyer.**
+
+Three things converge, and any one of them would be enough:
+
+1. **Automated collection outside the API is prohibited.** The Terms of Service
+   forbid collecting content or information from the Site by crawlers, scrapers,
+   bots, scripts, devices or browser add-ons - expressly *other than through API
+   access*. A warmer walking `product-images.tcgplayer.com/{productId}.jpg` for
+   575 cards is precisely that.
+2. **Redistribution to end users is restricted.** The API Terms bar distributing
+   "TCG Content" or making it available to end users or third parties for
+   commercial or competitive purposes, and bar rebranding it. DeckPal is a live
+   multi-user product that would be re-hosting those bytes from our own bucket
+   and serving them under our own UI. Rights not expressly granted are reserved.
+3. **The one sanctioned channel is closed.** TCGplayer is not granting new API
+   access; multiple independent 2025-2026 developer write-ups describe the public
+   application process as effectively shut since the eBay acquisition, with access
+   limited to existing key holders and approved partners.
+
+So there is no compliant route: the API path is unavailable to us, and the
+non-API path is explicitly prohibited. **TCGplayer is not an approved source for
+images and this note does not plan around it.** Its measured heights are retained
+in section 3 and in `card-art-residue.json` as evidence only - so that if the
+licensing position ever changes, the coverage work does not have to be redone.
+
+**One adjacent thing the owner should look at separately, flagged because this
+research surfaced it and not because it is in scope here:** the project already
+ingests TCGplayer **pricing** via TCGCSV, a third-party bulk mirror rather than
+TCGplayer's own API. That is a different artefact (prices, not images) reached by
+a different route, and this note makes no finding about it - but the clause in
+(1) is about collecting *information* from the Site generally, so it is worth a
+deliberate look rather than an assumption.
+
+**Sources consulted:** TCGplayer Terms of Service and API Terms & Conditions
+(help.tcgplayer.com, both 403 to automated fetch - read them directly), and
+docs.tcgplayer.com.
 
 ### 2.4 Bulbagarden Archives — **crosswalk unresolved** **[unresolved]**
 
@@ -135,23 +179,27 @@ transfer to a third party re-hosting the files. The weakest of the three.
 
 ## 3. Best available source, per card **[derived]**
 
-Merging §2.2 and §2.3, taking the taller native image for each card, against our
-slots (`low` 245×337, `high` 600×825):
+**Approved sources only** - i.e. pokemontcg.io, TCGdex being exhausted and
+TCGplayer ruled out by section 2.3:
 
 | Outcome | Cards | Share |
 |---|---|---|
-| **Full quality** — fills `low` and `high` honestly (≥825 tall) | **208** | 35% |
-| **`low` slot only** (337–824 tall) | 17 | 3% |
-| **Below even the `low` slot** (<337 tall) | 190 | 32% |
-| **No source found in either** | 177 | 30% |
+| **Full quality** - fills `low` and `high` honestly (>=825 tall) | **88** | 15% |
+| **No approved source** | **504** | 85% |
 
-Per-set detail is in `.cache/source-synthesis.json`. The shape of it: `tk-bw-*`,
-`cel25cc`, `tk-ex-*`, `ecard2/3`, `bog`, `dc1`, `mfb` come out **whole**; the
-`tk-xy-*`, `tk-hs-*`, `tk-dp-*` and `tk-sm-*` kits are where the 367 problem
-cards live.
+There is no middle tier: pokemontcg.io either has a card at 825+ or does not have
+it at all. Everything it covers, it covers well.
 
-**So the two lowest-risk sources together reach 38% of the gap at usable quality.**
-Closing the rest requires either accepting ~200px art or solving §2.4.
+*Had TCGplayer been usable*, the same merge would have given 208 full / 17
+`low`-only / 190 below-slot / 177 none. That comparison is kept because it is the
+entire cost of the section 2.3 finding - **it is the difference between 88 and 415
+cards fixed** - and because the measurements need not be redone if the position
+changes.
+
+Per-card detail, including the recorded-for-evidence TCGplayer heights, is in
+[`card-art-residue.json`](card-art-residue.json). The shape of the residue:
+`tk-*` (17 kits, 385 cards), `mfb` (34), and the tail of `cel25cc`/`ecard2`
+that pokemontcg.io numbers differently.
 
 ## 4. A blocking finding: "fill `low` only" does not work today **[measured]**
 
@@ -188,16 +236,19 @@ first, don't fetch yet".
 
 | Step | Cards addressed | Blocked on |
 |---|---|---|
-| Adopt pokemontcg.io + TCGplayer for the full-quality 208 | 208 | source approval (§7) |
-| Fix the `high: null` API shape (§4) | prerequisite for any `low`-only fill | approval to change the API |
-| Fill the 17 `low`-only cards | 17 | §4 |
-| Accept ~200px upscales, or solve §2.4 | 190 | quality decision, or Bulbapedia research |
-| Find any source for the 177 with none | 177 | genuinely open |
+| Adopt pokemontcg.io for the full-quality 88 | 88 | source approval (section 7) |
+| Solve the Bulbagarden crosswalk (section 2.4) | up to 504 | unresolved research + weakest posture |
 | `exu-!` / `exu-?` | 2 | B6 path-contract change |
 
-**100% is not reachable from the sources evaluated here.** 177 cards (30% of the
-gap) have no candidate at all yet, and a further 190 only have art below our
-smallest slot.
+**100% is not reachable.** With TCGplayer ruled out, 504 cards (85% of the gap)
+have no approved source at all, and the only remaining candidate is the one with
+the weakest licensing posture and an unsolved crosswalk. The residue is documented
+in [`card-art-residue.json`](card-art-residue.json) rather than chased.
+
+Two notes on why the `low`-only question from section 4 is now largely moot:
+pokemontcg.io has no card below our `high` slot, so nothing it supplies needs a
+`low`-only fill. Section 4 remains a real latent bug - the app cannot express
+"no high-res art exists" - but it no longer blocks any planned work.
 
 ## 6. Method, so this can be re-run
 
@@ -216,15 +267,15 @@ under `.cache/` (gitignored); the reusable part is the work-list:
 
 ## 7. Decisions this note is asking for
 
-1. **Which sources may be used?** pokemontcg.io alone (lowest risk, 208 cards at
-   full quality between it and nothing else), or pokemontcg.io + TCGplayer, or
-   also Bulbagarden once §2.4 is solved.
-2. **May the API advertise `high: null`?** Without it (§4), no `low`-only fill is
-   viable, and 17 cards stay blank that need not.
-3. **What happens to the 190 cards whose only art is below the `low` slot?**
-   Store an upscale, or keep the placeholder and report them.
-4. **Is the 177-card remainder worth further research** (Bulbapedia reprint
-   mapping), or is a documented residue acceptable?
+1. **May pokemontcg.io be adopted?** It is the only approved-shaped candidate
+   left: public, unauthenticated, 600x825 or better, and it closes 88 cards.
+2. **Is the 504-card residue accepted as documented** (`card-art-residue.json`),
+   or is the Bulbagarden crosswalk (section 2.4) worth commissioning despite the
+   posture?
+
+Decisions 2 and 3 from the first draft of this note are withdrawn: with TCGplayer
+out, no approved source supplies art below our `high` slot, so neither the
+`high: null` API change nor the upscale question has anything left to decide.
 
 ---
 
