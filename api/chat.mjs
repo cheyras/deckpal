@@ -615,7 +615,13 @@ async function serve(request) {
       const repairs = new RepairLog()
 
       const allDeckeTools = {
-        ...buildTools(writer, grounding, repairs),
+        // `emitToolEvent` here too, so a panel becomes a row like every data
+        // lookup already does. Without it `showScreen` and `express` were
+        // absent from the transcript entirely — and, worse, absent from the
+        // compacted evidence the client replays into the next leg, so a turn
+        // that drew a panel and then flew somewhere came back not knowing the
+        // panel existed and narrated its contents a second time.
+        ...buildTools(writer, grounding, repairs, emitToolEvent(writer)),
         // READS AND WRITES, because the approval round-trip now exists.
         //
         // `include: () => true` is not "no filter" — every write is still
@@ -935,6 +941,35 @@ async function serve(request) {
         // every outbound API fetch carries, so one abort stops the whole turn
         // rather than only the visible part of it.
         abortSignal,
+        // ── WHY THIS LEG STOPPED, ONTO THE STREAM ─────────────────────────────
+        //
+        // `finishReason` is returned on every call and was read here, used for
+        // control flow, and discarded. So a reply that ended mid-word could not
+        // be told apart from one that simply finished: the record held the text
+        // and nothing about how it ended. Reviewing exactly that, the answer had
+        // to be written as a hypothesis — the output budget is 1200 tokens and a
+        // step carrying a sixty-card panel plus prose plausibly reaches it, but
+        // 'length' would have SAID so.
+        //
+        // Transient, like the chips: it is a fact about a moment, and it must
+        // not enter message history where the model would read its own stop
+        // reason back as context next turn.
+        //
+        // The LAST leg to report wins on the client, which is the honest one —
+        // an earlier leg that stopped on `tool-calls` was continued, and the
+        // reason the reader's answer ended is the reason the final leg ended.
+        onFinish: ({ finishReason }) => {
+          try {
+            writer.write({
+              type: 'data-decke-finish',
+              data: { finishReason: String(finishReason ?? 'unknown').slice(0, 40) },
+              transient: true,
+            })
+          } catch {
+            // A closed stream is the ordinary end of an aborted turn, and a
+            // diagnostic must never take the turn down with it.
+          }
+        },
         onError: ({ error }) => {
           // Surfaced rather than swallowed: a silent empty turn is
           // indistinguishable from a broken feature.

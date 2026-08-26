@@ -1026,6 +1026,8 @@ export const api = {
       /** What the call carried, already bounded server-side. See `decke/toolArgs.ts`. */
       args?: Record<string, unknown>
     }[]
+    /** Why the last leg stopped. Absent means the server did not say. */
+    finishReason?: string
   }) => keepaliveJson<{ ok: true; recorded: boolean }>('/decke/history', body),
   deckeHistoryList: (signal?: AbortSignal) =>
     get<DeckeHistoryList>('/decke/history', signal),

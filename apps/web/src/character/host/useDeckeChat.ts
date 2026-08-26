@@ -55,7 +55,15 @@ import {
 import { messageText, messageTools, type ChatMessage } from './DeckeChat'
 import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
-import { CLIENT_TOOLS, isClientTool, isPressable, runUiTool, type UiToolResult } from './uiTools'
+import { freshCalls, lookupRecord } from './chat/lookupRecord'
+import {
+  CLIENT_TOOLS,
+  isClientTool,
+  isPressable,
+  runUiTool,
+  uiToolArgs,
+  type UiToolResult,
+} from './uiTools'
 import { buildEscortSteps, type EscortInput } from './escortPlan'
 import { LOW_FRACTION, type CreditBalance } from './chat/creditState'
 import { beatForChip } from './thinkingBeat'
@@ -154,6 +162,8 @@ function recordTurn(body: {
     summary: string
     args?: Record<string, unknown>
   }[]
+  /** Why the last leg stopped. Absent means the server did not say. */
+  finishReason?: string
 }): void {
   void api
     .deckeHistoryRecord(body)
@@ -239,6 +249,14 @@ type LegOutcome = {
   screen: ScreenSpec | null
   /** A failure that arrived as a VALUE on a 200 stream. */
   error: string | null
+  /**
+   * Why the model stopped on this leg — 'stop', 'length', 'tool-calls', …
+   *
+   * Undefined when the server did not say, which is what a deployment older
+   * than this field looks like. Never defaulted to 'stop': reading silence as a
+   * clean finish is exactly the inference migration 046 exists to prevent.
+   */
+  finishReason?: string
   /**
    * The request itself was refused, and the reader has already been told why.
    *
@@ -950,6 +968,17 @@ export function useDeckeChat(
         ? [...priorWire]
         : [...priorWire, { role: 'user', parts: [{ type: 'text', text }] }]
 
+      /**
+       * Why the LAST leg stopped, which is why the reader's answer ended.
+       *
+       * Declared OUT here rather than beside the leg loop because the turn is
+       * filed in the `finally` — the same reason `saidSoFar` lives at this
+       * scope. Overwritten each leg on purpose: an earlier leg finishing on
+       * 'tool-calls' was continued and says nothing about the reply the reader
+       * is looking at.
+       */
+      let finishReason: string | undefined
+
       try {
         // `approvalReplays` is read on EVERY iteration, so committing to a
         // replay below extends this bound by exactly the one leg needed to POST
@@ -957,6 +986,8 @@ export function useDeckeChat(
         // an answer is granted at the moment the answer is taken, never assumed
         // to be spare.
         let approvalReplays = 0
+        /** Tool call ids already carried into a later leg. See `lookupRecord`. */
+        const replayedChips = new Set<string>()
         for (let leg = 0; leg < legBudget(approvalReplays); leg++) {
           const outcome = await streamLeg(wire, ac.signal, {
             onText: (chunk) => {
@@ -1119,6 +1150,7 @@ export function useDeckeChat(
             },
           })
 
+          if (outcome.finishReason) finishReason = outcome.finishReason
           if (outcome.refused) return
           if (outcome.error) {
             // Said out loud, in his voice, rather than swallowed. The reader gets
@@ -1257,6 +1289,27 @@ export function useDeckeChat(
 
           const parts: WirePart[] = []
           if (outcome.text.trim()) parts.push({ type: 'text', text: outcome.text })
+          // ── WHAT HE LOOKED UP ON THIS LEG, CARRIED INTO THE NEXT ──────────
+          //
+          // Without this the follow-up request contained his words and the
+          // client tool's result and nothing else, so a turn that flew
+          // anywhere arrived at its next leg having forgotten every server
+          // tool it had just run — including `showScreen`'s "the panel is on
+          // screen, do not repeat its contents". He re-read the deck and wrote
+          // the decklist out a second time as prose. See `lookupRecord`.
+          //
+          // ONLY THE CALLS THIS LEG ADDED. Chips live on the reply message for
+          // the whole turn, so replaying all of them would re-send leg 1's
+          // record on leg 2 and again on leg 3 — the same lookups arriving
+          // three times reads as three separate readings, which is precisely
+          // the drift this record exists to prevent.
+          const replyNow = messagesRef.current.find((m) => m.id === replyId)
+          const { send, mark } = freshCalls(replyNow ? messageTools(replyNow) : [], replayedChips)
+          const record = lookupRecord(send)
+          if (record) {
+            parts.push(record)
+            for (const id of mark) replayedChips.add(id)
+          }
           for (const call of outcome.pending) {
             // ── A JOURNEY IS NOT AN ORDINARY CLIENT TOOL ────────────────────
             //
@@ -1343,6 +1396,15 @@ export function useDeckeChat(
               // phase that is neither, and it renders loudly with its reason.
               phase: journeyPhase(result),
               summary: journeySummary(result),
+              // WHERE HE WENT, not just that he went. A movement's argument is
+              // the whole event — a `flyTo` without its selector says he flew
+              // and refuses to say where — and until now the transcript
+              // recorded `args` for the data tools and nothing for these. See
+              // `uiToolArgs`, and `decke/toolArgs.ts` for the original case.
+              ...(() => {
+                const args = uiToolArgs(call.input)
+                return args ? { args } : {}
+              })(),
               ...(isJourneyResult(result) && !result.ok ? { reason: 'truncated' as const } : {}),
             })
             // The wire shape matters: `convertToModelMessages` on the server
@@ -1521,6 +1583,10 @@ export function useDeckeChat(
               asked: question,
               answered,
               tools,
+              // OMITTED when the server did not say, rather than defaulted:
+              // a NULL here means "unknown", and reading it as a clean finish
+              // would turn an absence of evidence into evidence. Migration 046.
+              ...(finishReason ? { finishReason } : {}),
             })
           }
         }
@@ -2048,6 +2114,12 @@ async function streamLeg(
         // `streamText`. It survives only because the question is asked once the
         // leg has finished draining.
         handlers.onApprovalPreview(part.data as unknown as ApprovalPreview)
+      } else if (part.type === 'data-decke-finish' && part.data) {
+        // WHY THIS LEG STOPPED. Kept on the outcome and filed with the turn, so
+        // "the answer ends mid-word" can be answered with 'length' instead of a
+        // hypothesis. See migration 046.
+        const reason = (part.data as { finishReason?: unknown }).finishReason
+        if (typeof reason === 'string' && reason) out.finishReason = reason
       } else if (part.type === 'data-decke-tool' && part.data) {
         // A tool-call chip. Emitted by the SERVER's execute wrapper, never by
         // the model, so it corresponds 1:1 to a real invocation of a real
@@ -2113,38 +2185,12 @@ async function streamLeg(
 /**
  * The transcript, as the server wants it back.
  *
- * ══════════════════════════════════════════════════════════════════════════════
- * WHY A TURN'S LOOKUPS ARE REPLAYED, COMPACTED (spec §2.3)
- * ══════════════════════════════════════════════════════════════════════════════
- *
- * This used to keep text and nothing else. So turn N+1 had no record that turn
- * N had read 604 cards — only its own prose about them. Which re-creates the
- * original pathology in a new form: he asserts from his own earlier sentences
- * rather than from data, and a sentence is exactly the thing that can drift.
- * "You've got 70 of them" becomes "you've got most of them" becomes a number
- * nobody looked up.
- *
- * Three options were on the table and the owner chose this one:
- *
- *   replay everything     truthful, and the input bill grows without bound on
- *                         a long conversation — colliding with the per-turn
- *                         input budget the tool ceiling exists to defend
- *   re-read per turn      always fresh, never stale, and costs a tool call and
- *                         a round trip on every follow-up question
- *   replay COMPACTED      what a lookup FOUND, in one line, not its 200 rows
- *
- * The compact form is the chip's own summary — the first line of the real tool
- * result, produced by the server's execute wrapper. So the record cannot
- * describe a lookup that did not happen: there is no chip without an
- * invocation.
- *
- * MARKED AS A RECORD, not folded into his speech. Appending "I read 604 cards"
- * to his words would put sentences in his mouth he never said, and the next
- * turn would replay them as if he had. It is a separate part, prefixed, and
- * plainly not dialogue.
+ * Each turn's lookups ride along COMPACTED, so turn N+1 asserts from what a
+ * tool found rather than from its own earlier prose about it — the argument,
+ * the two options it beat, and the leg-boundary bug that came from leaving it
+ * out are all in `chat/lookupRecord.ts`, which does the compacting for this
+ * function and for the leg loop in `send`.
  */
-const TOOL_RECORD_PREFIX = '[lookups on that turn, for your own reference —'
-
 function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
   return msgs
     .filter((m) => messageText(m).trim().length > 0 || messageTools(m).length > 0)
@@ -2160,26 +2206,8 @@ function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
       // Including it unlabelled is worse: he would carry a reading that stopped
       // half way through the collection forward as a complete one, and quote
       // its figure again with more confidence than the first time.
-      const done = messageTools(m).filter(
-        (t) => (t.phase === 'ok' || t.phase === 'partial') && t.summary,
-      )
-      if (done.length) {
-        parts.push({
-          type: 'text',
-          text:
-            `${TOOL_RECORD_PREFIX} you actually ran these, so the figures in them are real ` +
-            `and yours are not a guess]\n` +
-            done
-              .map((t) =>
-                t.phase === 'partial'
-                  ? `${t.name}: ${t.summary} [INCOMPLETE — this one ran out of ` +
-                    `${t.reason === 'truncated' ? 'room' : 'time'} and did not finish. ` +
-                    `Do not present its figures as a full answer.]`
-                  : `${t.name}: ${t.summary}`,
-              )
-              .join('\n'),
-        })
-      }
+      const record = lookupRecord(messageTools(m))
+      if (record) parts.push(record)
       // A turn that produced only tool records and no speech still has to be a
       // valid message; the filter above lets it through, so guard the shape.
       return { role: m.role, parts: parts.length ? parts : [{ type: 'text', text }] }
