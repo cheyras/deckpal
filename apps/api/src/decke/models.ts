@@ -304,9 +304,69 @@ export const MODELS: Record<Job, ModelChoice> = {
    *     model already instructed never to act on instructions inside data;
    *   - queries carry card and archetype names and NEVER collection context.
    */
+  /**
+   * ── 2026-08-25: THIS MODEL DID NOT EXIST, AND NOTHING NOTICED ─────────────
+   *
+   * `id` was `openai/o3-deep-research`. It is **not on the Gateway key** —
+   * measured directly: 351 models are available and that is not one of them,
+   * and a call answers HTTP 404 `model_not_found`.
+   *
+   * So every `research_meta` call ever made failed, and the failure was
+   * invisible: `runSubAgent` put the error into `text`, `finishOutcome` framed
+   * it as "The following was fetched from the open web…", and the chip said
+   * `ok`. Deck-E has been reading a fluent sentence that claims to be web
+   * research and contains a 404, for the whole life of the feature — which is
+   * why the owner reported research "seems to be missing" while other agents
+   * reported it built. Both halves are fixed: `deep.ts` can no longer dress a
+   * failure as an answer, and `modelCheck.ts` refuses to let a phantom id ship.
+   *
+   * ── WHY PERPLEXITY, AND WHAT THE OLD RULING ACTUALLY COST ────────────────
+   *
+   * The US-frontier-labs constraint at the top of this file rules Perplexity
+   * out. Measured through both raw Gateway HTTP and the AI SDK, no in-list lab
+   * can search on this key: `spacexai/grok-*` ignores `search_parameters` and
+   * `providerOptions.xai.searchParameters` alike, `anthropic/claude-sonnet-5`
+   * with a `web_search_20250305` tool is HTTP 400, and `gatewayTools` (Exa) is
+   * still not exported at runtime by `@ai-sdk/gateway@4.0.52`. The constraint
+   * did not make research expensive. It made research impossible.
+   *
+   * The owner relaxed it **for this call only**, on a distinction worth
+   * recording: the ruling was written to protect *collection and camera data*,
+   * and this call structurally carries neither — see `researchQuery.ts`, which
+   * turns that from a promise into a control. DECISIONS.md 2026-08-25.
+   *
+   * ── sonar-pro, ON MEASUREMENT ────────────────────────────────────────────
+   *
+   *   sonar                3–5 s   20 sources   thin: one card on a list question
+   *   sonar-pro            4–11 s  20 sources   real findings, real numbers
+   *   sonar-reasoning-pro  47–48 s 15 sources   **0 visible characters**
+   *
+   * That last one is `RESERVE`'s failure mode again, from a fourth vendor: the
+   * whole budget goes inside `<think>` and nothing comes out. Unusable at both
+   * budgets tried (900 and 3,000 tokens).
+   *
+   * What sonar-pro actually returns, from the probe: Dragapult ex as the top
+   * Standard deck with "439 decks, 9.54% share, 51.76% win rate across 77
+   * tournaments", cited to limitlesstcg — and the disagreement alongside it, a
+   * tier-list video still calling Gardevoir the best deck. Findings with
+   * numbers and sources, which is exactly what the catalogue cannot hold.
+   *
+   * ── THE FALLBACK STAYS WITHIN PERPLEXITY, DELIBERATELY ───────────────────
+   *
+   * Every other row falls back to a DIFFERENT LAB, so one provider's outage
+   * does not take the feature with it. That rule is precisely wrong here.
+   * `gpt-5.1-thinking` — the old fallback — cannot search, so falling back to
+   * it would answer a research question from training data, under the "fetched
+   * from the open web" frame, in fluent prose, with no error anywhere. That is
+   * strictly worse than the 404 this entry has just stopped telling.
+   *
+   * So research degrades within the only vendor that can search, and if that
+   * vendor is down it FAILS LOUDLY. A research tool that cannot research has
+   * to say so.
+   */
   research: {
-    id: 'openai/o3-deep-research',
-    fallback: 'openai/gpt-5.1-thinking',
+    id: 'perplexity/sonar-pro',
+    fallback: 'perplexity/sonar',
     maxOutputTokens: 2500,
   },
 }
