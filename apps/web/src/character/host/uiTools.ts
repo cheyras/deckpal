@@ -45,6 +45,69 @@ export function isClientTool(name: unknown): name is ClientToolName {
   return typeof name === 'string' && (CLIENT_TOOLS as readonly string[]).includes(name)
 }
 
+/** Total serialised size of one movement's recorded arguments. */
+const UI_ARGS_MAX = 800
+
+/**
+ * What a movement was asked to do, small enough to keep for ever.
+ *
+ * ── WHY THE TRANSCRIPT NEEDS THIS ───────────────────────────────────────────
+ *
+ * Server tools have recorded their arguments since `decke/toolArgs.ts`, on the
+ * argument that `{name, phase, title, summary}` answers WHICH tool and HOW IT
+ * WENT and never WITH WHAT — and that every defect that pass fixed lived in an
+ * argument value. The movements were left out, and they are the calls where the
+ * argument IS the whole event: `flyTo` without its selector says he flew and
+ * refuses to say where.
+ *
+ * That gap has already cost a diagnosis. Reviewing a turn where a needless
+ * flight forced an extra leg, the record held six `flyTo` calls across the
+ * entire history with `args` null on every one — so "which landmark did he
+ * reach for" was unanswerable, and the empty object printed in its place read
+ * as a malformed call that had never happened.
+ *
+ * ── AND WHY IT IS NOT `briefArgs` ───────────────────────────────────────────
+ *
+ * `apps/web` deliberately does not depend on the API package (see
+ * `__tests__/approvalPhrases.test.ts`), so that helper cannot be imported here,
+ * and reproducing its shaping would be the copy-pasted-helper problem the
+ * hygiene pass removed. It does not need reproducing: every field a movement
+ * takes is bounded by its own schema — `selector` is `.max(120)`, `journey` is
+ * `.max(JOURNEY_MAX_STEPS)` — so the only real risk is a long journey, and one
+ * total cap covers it.
+ *
+ * KEYS ARE ALWAYS KEPT, which is the one rule worth carrying over: a key whose
+ * value was too big still answers "was this field even sent", and that question
+ * is most of what a transcript is read for.
+ */
+export function uiToolArgs(input: unknown): Record<string, unknown> | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined
+  const obj = input as Record<string, unknown>
+  const keys = Object.keys(obj)
+  if (keys.length === 0) return undefined
+
+  const out: Record<string, unknown> = {}
+  let used = 0
+  for (const k of keys) {
+    let json: string
+    try {
+      json = JSON.stringify(obj[k] ?? null)
+    } catch {
+      // A cyclic or otherwise unserialisable value is not worth throwing on the
+      // path that records what he did.
+      out[k] = '…(not recordable)'
+      continue
+    }
+    if (used + json.length > UI_ARGS_MAX) {
+      out[k] = `…(${json.length} chars, too big to record)`
+      continue
+    }
+    out[k] = obj[k]
+    used += json.length
+  }
+  return out
+}
+
 /** Routes he may navigate to. MIRRORS the server's allowlist deliberately. */
 const ROUTE_ALLOWLIST = ['/series', '/lists', '/decks', '/pokedex', '/insights', '/scan', '/search']
 

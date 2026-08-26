@@ -28,6 +28,8 @@ import { z } from 'zod'
 import { ALLOWED_STATES, ROUTE_SHAPE_LINES } from './prompt.js'
 import { sanitizeScreen, screenSchema } from './screens.js'
 import type { Grounding } from './grounding.js'
+import type { ToolEvent } from './adapters/aisdk.js'
+import { briefArgs } from './toolArgs.js'
 
 /**
  * Routes Deck-E may navigate to.
@@ -505,7 +507,36 @@ export function buildTools(
    * call that needed no repair reports none either way.
    */
   repairs?: { take(toolCallId: string): string[] },
+  /**
+   * The tool-event sink the data tools already use, so a panel becomes a row.
+   *
+   * ── WHY THE COSMETIC TOOLS WERE INVISIBLE ─────────────────────────────────
+   *
+   * Chips came only from `buildDataTools`' execute wrapper. These two are built
+   * here and spread in beside them (`api/chat.mjs`), so they never emitted one
+   * — and `showScreen` and `express` had, between them, NOT ONE appearance in
+   * the owner's entire recorded history. A turn where he drew a decklist panel
+   * and then narrated the same list in prose read, in the transcript, as nine
+   * searches and a flight with nothing visual in it at all, which sent the
+   * first diagnosis of that turn looking in the wrong place.
+   *
+   * It matters beyond the record: `messagesToWire` replays each chip's summary
+   * as the next turn's evidence, so a panel that emits no chip is a panel the
+   * next turn does not know exists — and redraws.
+   *
+   * Optional, because the dev preview and the tests have no stream to write to.
+   */
+  onEvent?: (e: ToolEvent) => void,
 ): ToolSet {
+  /** `start` now, and the matching `ok` when the work is done. */
+  const began = (id: string, name: string, title: string, args: unknown): void => {
+    if (!onEvent) return
+    const brief = briefArgs(args)
+    onEvent({ phase: 'start', id, name, title, ...(brief ? { args: brief } : {}) })
+  }
+  const ended = (id: string, name: string, title: string, summary: string): void => {
+    onEvent?.({ phase: 'ok', id, name, title, summary })
+  }
   return {
     express: tool({
       description:
@@ -514,7 +545,8 @@ export function buildTools(
         commands: z.array(commandSchema).min(1).max(6)
           .describe('Applied in order. Combine a few to express one reaction.'),
       }),
-      execute: async ({ commands }) => {
+      execute: async ({ commands }, { toolCallId }) => {
+        began(toolCallId, 'express', 'Change how he looks', { commands })
         // Validated HERE, because the flat schema above cannot express which
         // fields go with which op. A rejected command is reported back rather
         // than dropped: the engine's own surface rejects loudly and never
@@ -568,6 +600,14 @@ export function buildTools(
           'Animation applied; the user sees it. Do not describe or repeat it in words. ' +
           'If you have not finished answering, carry on — and call express again when ' +
           'what you are saying changes character. If you already have, add nothing.'
+        ended(
+          toolCallId,
+          'express',
+          'Change how he looks',
+          errors.length
+            ? `${good.length} of ${commands.length} applied — ${errors.length} rejected`
+            : `applied ${good.length} command(s)`,
+        )
         return errors.length
           ? { applied: good.length, errors, done }
           : { applied: good.length, done }
@@ -752,6 +792,7 @@ export function buildTools(
         'Show a small panel of results in the chat — a summary, a haul, a set of figures. You choose which components to use and what goes in them; you never write markup, styling or layout. Use it when the answer is a SHAPE (a list of cards, a few numbers, a progress bar) rather than a sentence. For a sentence, just say the sentence.',
       inputSchema: screenSchema,
       execute: async (screen, { toolCallId }) => {
+        began(toolCallId, 'showScreen', 'Put a panel on screen', screen)
         // Same contract as `express`: sanitise here, report what was dropped,
         // and put the payload on a TRANSIENT part so it renders once and never
         // enters message history. A screen echoed back into history would be
@@ -776,15 +817,29 @@ export function buildTools(
         // A screen that lost every block is a failure the model must hear about,
         // not a silent no-op — otherwise it believes it answered and moves on.
         if (!clean.blocks.length) {
+          ended(toolCallId, 'showScreen', 'Put a panel on screen', 'nothing could be rendered')
           return {
             shown: false,
             errors: dropped,
             done: 'Nothing could be rendered. Say the answer in words instead of retrying the panel.',
           }
         }
+        // ── THE SUMMARY THAT STOPS THE SECOND DECKLIST ──────────────────────
+        //
+        // This line is what `messagesToWire` replays as the next turn's — and
+        // now the next LEG's — evidence. Phrased as the fact plus the standing
+        // instruction, because that is the form the replay carries: "a panel
+        // exists" alone did not stop him writing the list out again in prose,
+        // and the `done` below never survived a leg boundary to say otherwise.
         const done =
           'The panel is on screen and the user can read it. Do not repeat its contents in words — ' +
           'add only what the panel does not already say.'
+        ended(
+          toolCallId,
+          'showScreen',
+          'Put a panel on screen',
+          `panel drawn, ${clean.blocks.length} block(s) — the user can see it; do not repeat it in words`,
+        )
         return dropped.length
           ? { shown: true, blocks: clean.blocks.length, errors: dropped, done }
           : { shown: true, blocks: clean.blocks.length, done }
