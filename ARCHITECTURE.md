@@ -1057,6 +1057,18 @@ unknown-id error names the recovery. This is a better frame than "the model is
 unreliable", because a contract gap is findable, fixable and testable, and an
 instruction not to guess is none of those.
 
+**And the fix belongs in the shared helper, not the caller that reported it.**
+`resolve.ts` compared a card reference's `set_id` raw, so `search_cards`
+understood `sv3.5` and `add_cards`/`log_cards` did not — a bug that works
+wherever it is tested and fails wherever it writes. `get_card` had been patched
+individually, which is exactly how a fix stays half-applied. The same shape
+appears once more in the name field: a rarity written into it (`Tatsugiri
+Illustration Rare`) matches no printed name, returns nothing, and is read as
+"that card does not exist" — after which a price gets quoted from memory. Both
+are now handled inside `resolve.ts` and `entities.ts`, so the next tool to take
+a card reference gets them without knowing they exist. The rarity vocabulary is
+read from `card.rarity` rather than hardcoded, because it grows with every set.
+
 **That unknown-set result is a `fail`, not an `ok`, and the difference is not
 cosmetic.** `grounding.ts` collects the card ids tools actually returned this
 turn, and `screens.ts`'s `sanitizeScreen` drops any id in a grid that was not

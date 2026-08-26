@@ -160,6 +160,49 @@ export function presentRef(raw: unknown): string | undefined {
 }
 
 /**
+ * Words a model writes in an id field when it means "make me a new one".
+ *
+ * ── THE MEASURED FAILURE ────────────────────────────────────────────────────
+ *
+ * `edit_list` and `save_deck` both CREATE when their id is omitted. A model
+ * does not omit fields; it fills them. Asked to "make a new list with these
+ * cards", he sent:
+ *
+ *     edit_list({ list_id: 'new', name: 'Fan-Favorite Awesome Art Under $20', … })
+ *       → No list matches 'new'.
+ *     edit_list({ list_id: 'Fan-Favorite Awesome Art Under $20', name: same, … })
+ *       → No list matches 'Fan-Favorite Awesome Art Under $20'.
+ *
+ * The second attempt is the tell: told the id did not resolve, he tried the
+ * NAME OF THE LIST HE WAS ASKING US TO CREATE — which by definition does not
+ * exist yet. The turn then died with no answer at all. There was no reachable
+ * way for him to create a list.
+ *
+ * None of these words is a plausible identifier: a real one is a uuid, and a
+ * list genuinely called "new" is still reachable by its uuid or a fuller name.
+ * Reading them as "no id given" costs nothing and restores the create path.
+ *
+ * NOT folded into `ABSENT`, deliberately. That set means "this field was not
+ * supplied" and every tool honours it. This one means "supplied, and what it
+ * says is: make a new thing" — which is only meaningful on the two tools where
+ * omitting the id creates something, and would be a strange thing to honour on
+ * a read.
+ */
+const CREATE_WORDS = new Set(['new', 'create', 'newlist', 'new list', 'new deck', 'newdeck']);
+
+/**
+ * Does this id field mean "create a new one"?
+ *
+ * True for an absent value — the documented way to say it — and for the words a
+ * model reaches for instead of omitting the field.
+ */
+export function meansCreate(raw: unknown): boolean {
+  const s = presentRef(raw);
+  if (!s) return true;
+  return CREATE_WORDS.has(s.toLowerCase());
+}
+
+/**
  * Casefold + strip accents + collapse punctuation, for comparing NAMES.
  *
  * \u2500\u2500 IT KEEPS LETTERS IN EVERY SCRIPT, AND THAT IS A SAFETY PROPERTY \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -677,4 +720,83 @@ export function explainMiss(
 export function resolvedNote(what: string, ref: unknown, id: string, label: string, by: MatchKind): string | null {
   if (by === 'id') return null;
   return `(read '${String(ref)}' as ${what} ${id} — ${label}. Use ${id} from now on.)`;
+}
+
+/** The rarity vocabulary already read under this `Ctx`. See {@link peelRarity}. */
+const rarityCache = new WeakMap<Ctx, string[]>();
+
+/** A card name with a rarity that had been smeared onto the end of it. */
+export interface RarityPeel {
+  /** What is left once the rarity is taken off — the printed name, hopefully. */
+  name: string;
+  /** The rarity, spelled the way THIS catalogue spells it ('Illustration rare'). */
+  rarity: string;
+}
+
+/**
+ * Take a trailing rarity off a name the model wrote as one string.
+ *
+ * ── WHY ────────────────────────────────────────────────────────────────────
+ *
+ * `search_cards` has a `rarity` filter and a `query` that matches the printed
+ * NAME. Asked for a specific printing, the model writes the whole phrase into
+ * the name:
+ *
+ *     query: 'Tatsugiri Illustration Rare'
+ *
+ * No card is printed with its rarity in its name, so this always returns
+ * nothing — and in the measured turn the model took the empty result as
+ * evidence the card did not exist and quoted a price it had invented instead.
+ * The card is real: `Tatsugiri | Illustration rare`.
+ *
+ * The rarity vocabulary is DATA, not a constant — forty values today, and new
+ * ones ship with new sets (One Shiny, Mega Hyper Rare). Reading it from the
+ * catalogue means this keeps working for rarities that do not exist yet.
+ *
+ * SUFFIX ONLY, and deliberately. `Rare Candy` is a real Trainer card; peeling
+ * prefixes would read it as a Candy of rarity Rare. Longest match wins, so
+ * 'Special illustration rare' is not truncated to 'illustration rare'.
+ *
+ * Callers run this only on a path that has ALREADY come back empty, so the
+ * common case pays nothing for it.
+ */
+export async function peelRarity(ctx: Ctx, raw: string): Promise<RarityPeel | null> {
+  const text = raw.trim();
+  if (!text) return null;
+
+  // Cached per request, for the same reason `resolve.ts` caches set lookups: a
+  // batch of add_cards with several bad names would otherwise re-read the whole
+  // rarity vocabulary once per bad name. Per `Ctx` rather than module-global so
+  // a rarity that ships with a new set does not need a process restart.
+  let rows = rarityCache.get(ctx);
+  if (!rows) {
+    rows = (
+      await q<{ rarity: string }>(
+        ctx.db,
+        `SELECT DISTINCT rarity FROM card WHERE rarity IS NOT NULL AND rarity <> ''`,
+        [],
+      )
+    ).map((r) => r.rarity);
+    rarityCache.set(ctx, rows);
+  }
+  const lower = text.toLowerCase();
+
+  // A string that is ENTIRELY a rarity has no name to peel it off. Without this
+  // guard the longest-match loop takes the shortest suffix it can and reports
+  // 'Illustration rare' as a card called 'Illustration' of rarity 'Rare'.
+  if (rows.some((r) => r.toLowerCase() === lower)) return null;
+
+  let best: RarityPeel | null = null;
+  for (const rarity of rows) {
+    const tail = rarity.toLowerCase();
+    if (!lower.endsWith(tail)) continue;
+    // The rarity has to be its own word. Without this, any card whose name ends
+    // in the same letters as a rarity would be cut apart mid-word.
+    const boundary = text[text.length - rarity.length - 1];
+    if (boundary === undefined || !/\s/.test(boundary)) continue;
+    const cut = text.slice(0, text.length - rarity.length).trim();
+    if (cut.length < 2) continue;
+    if (!best || rarity.length > best.rarity.length) best = { name: cut, rarity };
+  }
+  return best;
 }

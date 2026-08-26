@@ -4,6 +4,8 @@
 // the cheapest printing (issue #31).
 import type { Ctx } from './ctx.js';
 import { q, q1 } from './db.js';
+import type { RarityPeel } from './entities.js';
+import { peelRarity, resolveSet } from './entities.js';
 import { money } from './format.js';
 
 export interface CardRef {
@@ -78,6 +80,67 @@ export function describeCard(c: ResolvedCard): string {
   return `${c.name} | ${c.tcgdexId} | ${c.setName} #${c.localId}${c.rarity ? ` | ${c.rarity}` : ''} | ${money(c.bestMinor)}`;
 }
 
+/**
+ * Turn every set reference in a batch into this catalogue's own id, once each.
+ *
+ * ── WHY THIS IS HERE AND NOT AT THE CALL SITES ──────────────────────────────
+ *
+ * `set_id` was compared RAW: `cs.tcgdex_id = $1`. So the set resolver — which
+ * takes names, TCGdex's public spellings and unpadded near-misses — reached
+ * `search_cards` and `set_progress` and nothing else. Measured, from a real
+ * turn: asked to put researched cards into a list, the model sent
+ *
+ *     add_cards: [{ name: "Blastoise ex", set_id: "sv3.5" }, { …, set_id: "sv6" }]
+ *
+ * and every row came back UNRESOLVABLE, because this catalogue writes those
+ * `sv03.5` and `sv06`. The same `set_id` in `search_cards` resolves fine, which
+ * is the worst version of the bug: it works where you test it and fails where
+ * the write happens.
+ *
+ * Fixing it here rather than at each call site is the point of this file —
+ * `edit_list`, `log_cards` and `get_card` all route through it, and a fourth
+ * caller gets it for free instead of getting it wrong.
+ *
+ * Deduplicated by raw string, so eighty cards from one set cost one lookup. An
+ * unresolvable reference is left ALONE rather than dropped: the query then
+ * matches nothing and the caller reports an unresolvable row naming the set the
+ * user actually typed, which is the honest message.
+ */
+async function canonicalSets(ctx: Ctx, refs: readonly CardRef[]): Promise<Map<string, string>> {
+  const seen = setCache.get(ctx) ?? new Map<string, string | null>();
+  setCache.set(ctx, seen);
+
+  const out = new Map<string, string>();
+  const wanted = [...new Set(refs.map((r) => r.set_id?.trim()).filter((x): x is string => !!x))];
+  for (const raw of wanted) {
+    if (!seen.has(raw)) {
+      const hit = await resolveSet(ctx, raw);
+      seen.set(raw, hit.kind === 'found' ? hit.value.tcgdexId : null);
+    }
+    const id = seen.get(raw);
+    if (id) out.set(raw, id);
+  }
+  return out;
+}
+
+/**
+ * Set lookups already made under this `Ctx`, misses included.
+ *
+ * `resolveCardsBatch` canonicalises the whole batch in one pass, then hands its
+ * leftovers to `resolveCard` one at a time — which would re-resolve the same
+ * set per item. That path is already the expensive one (a 99-card haul was 10.8
+ * seconds of per-item resolution before this file batched it), and paying an
+ * extra query per leftover to re-learn a fact from four lines ago is exactly
+ * the kind of quiet regression a fix like this smuggles in.
+ *
+ * Keyed on `Ctx` rather than module-global on purpose. Sets are catalogue data
+ * and would be safe to share, but a self-host MCP process lives for weeks and a
+ * cache that outlives an import is a set that "does not exist" until restart.
+ * A `Ctx` is per request; this collapses the duplicates inside one and is
+ * collected with it.
+ */
+const setCache = new WeakMap<Ctx, Map<string, string | null>>();
+
 export async function resolveCard(ctx: Ctx, ref: CardRef): Promise<CardResolution> {
   if (ref.card_id) {
     const r = await q1(ctx.db, `${CARD_SELECT} WHERE c.tcgdex_id = $1 AND c.lang = 'en'`, [
@@ -90,35 +153,79 @@ export async function resolveCard(ctx: Ctx, ref: CardRef): Promise<CardResolutio
   const name = ref.name?.trim();
   if (!name) return { status: 'not_found', message: 'Provide card_id, or name (+ set_id/number)' };
 
-  const conds: string[] = [`c.lang = 'en'`];
-  const params: unknown[] = [];
-  const p = (v: unknown) => {
-    params.push(v);
-    return `$${params.length}`;
-  };
-  if (ref.set_id) conds.push(`cs.tcgdex_id = ${p(ref.set_id.trim())}`);
-  if (ref.number) conds.push(`c.local_id = ${p(ref.number.trim())}`);
+  // Set references arrive as whatever the user or the model called the set —
+  // a name, a TCGdex spelling, an unpadded id. canonicalSets turns those into
+  // this catalogue's own id; anything it cannot place is passed through, so the
+  // query misses and the caller reports the set the user actually typed.
+  const sets = await canonicalSets(ctx, [ref]);
+  const givenSet = ref.set_id?.trim();
+  const setId = givenSet ? (sets.get(givenSet) ?? givenSet) : undefined;
 
-  // Tier 1: exact accent/case-insensitive name; Tier 2: contains (same operator the REST API uses).
-  const exactCond = `lower(unaccent(c.name)) = lower(unaccent(${p(name)}))`;
-  let rows = await q(
-    ctx.db,
-    `${CARD_SELECT} WHERE ${[...conds, exactCond].join(' AND ')} ORDER BY cs.tcgdex_id, c.local_id_numeric NULLS LAST, c.local_id LIMIT 9`,
-    params,
-  );
-  if (rows.length === 0) {
-    const containsCond = `unaccent(c.name) ILIKE unaccent(${p(`%${name}%`)})`;
-    rows = await q(
+  /**
+   * Both tiers, narrowed by set/number and — for the rarity rescue below — by
+   * rarity. Tier 1 is the exact accent/case-insensitive name; tier 2 is
+   * `contains`, the same operator the REST API uses.
+   *
+   * Fresh params per call so a second lookup cannot inherit the first's
+   * bindings, and tier 2's ranking refers to the name by the placeholder tier 1
+   * already bound rather than by arithmetic on the array length.
+   */
+  const lookup = async (nm: string, rarity?: string): Promise<Record<string, unknown>[]> => {
+    const params: unknown[] = [];
+    const p = (v: unknown) => {
+      params.push(v);
+      return `$${params.length}`;
+    };
+    const conds: string[] = [`c.lang = 'en'`];
+    if (setId) conds.push(`cs.tcgdex_id = ${p(setId)}`);
+    if (ref.number) conds.push(`c.local_id = ${p(ref.number.trim())}`);
+    if (rarity) conds.push(`lower(c.rarity) = lower(${p(rarity)})`);
+    const namePh = p(nm);
+
+    const exact = await q(
       ctx.db,
-      `${CARD_SELECT} WHERE ${[...conds, containsCond].join(' AND ')} ORDER BY (lower(unaccent(c.name)) = lower(unaccent($${params.length - 1}))) DESC, length(c.name), cs.tcgdex_id, c.local_id_numeric NULLS LAST LIMIT 9`,
+      `${CARD_SELECT} WHERE ${[...conds, `lower(unaccent(c.name)) = lower(unaccent(${namePh}))`].join(' AND ')} ORDER BY cs.tcgdex_id, c.local_id_numeric NULLS LAST, c.local_id LIMIT 9`,
       params,
     );
+    if (exact.length > 0) return exact;
+
+    const containsCond = `unaccent(c.name) ILIKE unaccent(${p(`%${nm}%`)})`;
+    return q(
+      ctx.db,
+      `${CARD_SELECT} WHERE ${[...conds, containsCond].join(' AND ')} ORDER BY (lower(unaccent(c.name)) = lower(unaccent(${namePh}))) DESC, length(c.name), cs.tcgdex_id, c.local_id_numeric NULLS LAST LIMIT 9`,
+      params,
+    );
+  };
+
+  let rows = await lookup(name);
+  let peel: RarityPeel | null = null;
+  if (rows.length === 0) {
+    // ── THE NAME MAY CARRY ITS RARITY ────────────────────────────────────────
+    //
+    // `add_cards: [{ name: 'Tatsugiri Illustration Rare' }]` is the same mistake
+    // `search_cards` gets, and it lands here on the WRITE path, where the cost
+    // of a shrug is a card silently missing from the list the user asked for.
+    //
+    // Retry with the rarity taken off and pushed into the query as a real
+    // condition — NOT by re-resolving the bare name and filtering what comes
+    // back. Wailord has more printings than the candidate list holds, so
+    // filtering would have missed the one Illustration rare that exists and
+    // reported it absent, which is precisely the shape of failure that got a
+    // card priced from memory instead of from the catalogue.
+    peel = await peelRarity(ctx, name);
+    if (peel) rows = await lookup(peel.name, peel.rarity);
   }
   if (rows.length === 0) {
     const where = [ref.set_id && `set '${ref.set_id}'`, ref.number && `#${ref.number}`]
       .filter(Boolean)
       .join(', ');
-    return { status: 'not_found', message: `No card matching '${name}'${where ? ` (${where})` : ''}` };
+    const rarityHint = peel
+      ? ` — '${peel.rarity}' is a RARITY, not part of any card's printed name, and nothing called '${peel.name}' is one`
+      : '';
+    return {
+      status: 'not_found',
+      message: `No card matching '${name}'${where ? ` (${where})` : ''}${rarityHint}`,
+    };
   }
   if (rows.length === 1) return { status: 'ok', card: shape(rows[0]!) };
   // Sort candidates cheapest-first so agents naturally pick the cheapest
@@ -202,7 +309,15 @@ export async function resolveCardsBatch(ctx: Ctx, refs: readonly CardRef[]): Pro
     // the columns aligned and handles NULL set/number cleanly.
     // `unaccent`/`lower` match resolveCard's tier-1 rule exactly.
     const names = byName.map((i) => refs[i]!.name!.trim());
-    const setIds = byName.map((i) => refs[i]!.set_id?.trim() ?? null);
+    // Same canonicalisation as resolveCard, deduplicated across the whole batch.
+    const sets = await canonicalSets(
+      ctx,
+      byName.map((i) => refs[i]!),
+    );
+    const setIds = byName.map((i) => {
+      const raw = refs[i]!.set_id?.trim();
+      return raw ? (sets.get(raw) ?? raw) : null;
+    });
     const numbers = byName.map((i) => refs[i]!.number?.trim() ?? null);
     const rows = await q(
       ctx.db,
