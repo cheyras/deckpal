@@ -73,6 +73,39 @@ worth lifting out, because it generalises past this feature: **a failure message
 must never contain an invented example identifier, and must never phrase advice
 as something a model could send back as a value.** Both cost measured turns.
 
+### And what a SECOND day of use found, 2026-08-25
+
+The pass above fixed how he CALLS tools. The owner used it and reported that the
+thing it was for was still missing: *"he is supposed to have the ability to do
+research online — that's a core part of what he should be able to do… Currently
+Deck-E seems to be missing that, and that is a functionality I prompted other
+agents to build and that they told me WAS built."*
+
+They were right, and the reason is the most instructive defect in this file.
+
+| This spec assumed | The second day found |
+|---|---|
+| `research_meta` gives him live web findings | **It had never worked once.** `MODELS.research.id` was `openai/o3-deep-research`, which is not on the Gateway key — 351 models are, and that one answers HTTP 404 `model_not_found`. Every research call in the feature's life failed. |
+| A failed tool is visible (§7) | The 404 was caught, written into `text`, framed as *"The following was fetched from the open web…"*, and reported with a green `ok` chip. A failure wearing a success's clothes — and `deepOutcome.ts` exists to prevent precisely that, and was bypassed. |
+| `ModelChoice.fallback` gives resilience (§8) | Declared on all five models and referenced NOWHERE. Five comments describing a mechanism that did not exist. |
+| `ModelChoice.effort` buys thinking (§8) | Its own comment admitted it only sized a token reserve. Probed: `reasoningEffort` reaches OpenAI and HALVES the write tier's latency; Anthropic's four shapes do nothing measurable; `high` returns zero visible characters. |
+| The catalogue answers what he is asked | It holds cards, ownership and prices — and no opinion, popularity, news or taste. Asked for "a hidden gem with really cool artwork", he searched card NAMES for a vibe six times and never answered at all. |
+
+**The rule worth carrying past this feature: a capability that is declared but
+never exercised will eventually be reported as built.** Three were live here at
+once — a phantom model id, a dead fallback, an inert effort flag — each of which
+typechecked, shipped, passed review and did nothing. Review does not catch that
+class. Verifying configuration against the thing it configures does, which is
+what `modelCheck.ts` now is: it asks the Gateway which model ids actually exist
+and reports on `/api/health`.
+
+The division of labour that came out of it, in the owner's words — *"What Deck-E
+gets from our app is collections, cards, what the user owns, and prices.
+Everything else, he gets from research"* — is now stated in the system prompt,
+and `research_meta` is described as the tool for everything DeckPal does not
+hold rather than for the metagame alone.
+
+
 ---
 
 ## 1. The problem, stated precisely
