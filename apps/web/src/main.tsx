@@ -19,6 +19,7 @@ import './theme.css'
 // which is what makes the pass reversible without a rebuild. See lib/skin.ts.
 import './premium.css'
 import { initSkin } from './lib/skin'
+import { preconnectArtOrigin } from './lib/cardArt'
 import { initTopbar } from './lib/topbar'
 import { registerPwa } from './pwa'
 import { lazyRoute } from './lib/lazyRoute'
@@ -545,6 +546,11 @@ router.subscribe('onRendered', () => {
 // Before first paint, so the skin never flashes from classic to premium.
 initSkin()
 initTopbar()
+// Open the connection to the card-art origin now, not when the first tile asks.
+// Card art is served straight off the Storage CDN (lib/cardArt.ts), which is a
+// different origin from the app — so without this the first image on a cold load
+// pays DNS + TCP + TLS before a single byte of art moves.
+preconnectArtOrigin()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

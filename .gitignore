@@ -26,6 +26,11 @@ assets/sprites/
 **/*.webp
 **/*.avif
 
+# warm:cloud progress + residue (apps/images/src/cloudWarm.ts). Operational state
+# for a resumable bulk warm, written next to the cache it warms. The art itself is
+# already covered by **/*.webp above; these are the run's bookkeeping.
+.cache/*.json
+
 # Marketing imagery is the exception: these are a small, deliberately committed set
 # of original AI-generated landing-page assets (see apps/web/public/marketing/CREDITS.md).
 # Without these negations the blanket **/*.webp and **/*.avif rules above would

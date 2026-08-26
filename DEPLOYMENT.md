@@ -297,6 +297,24 @@ call 4, a deck plan 75, and the panel starts showing a balance at 100.
    If you rotate the anon key, redeploy: every developer's next `pnpm dev` picks
    the new one up automatically, with no commit and no coordination.
 
+   **Card-art delivery (optional):**
+
+   | Variable | Effect |
+   |---|---|
+   | `VITE_CARD_ART_BUCKET` | Storage bucket the SPA addresses card art in **directly**, skipping the `/deckpal/images` function and its redirect (DECISIONS.md 2026-08-26). Build-time only. Defaults to `card-art`, which is the same default the server uses (`CARD_ART_BUCKET`, `packages/storage/src/config.ts`) — **set it only if you renamed the bucket, and set it to the same value on both.** Getting it wrong does not break images: the direct URL 404s, `CardImage` falls back to the image tier, and you silently get the slower pre-2026-08-26 behaviour. `VITE_SUPABASE_URL` must be set at build time for the fast path to exist at all; without it every image uses the proxy (expected on self-host, and the dev build warns). |
+
+   After a catalog import or a set release, warm the new art or the first person
+   to view it pays a ~1.5–2.5 s fill per image:
+
+   ```bash
+   pnpm --filter deckpal-images warm:cloud                 # whole catalog, low + high
+   pnpm --filter deckpal-images warm:cloud -- --set sv11   # just the new set
+   ```
+
+   It needs no credentials (the catalog and image routes are public), is
+   idempotent and resumable, and reports the assets upstream genuinely cannot
+   serve rather than counting them as filled.
+
    **Dev-server-only variables** (never set these on a deployment):
 
    | Variable | Effect |

@@ -91,11 +91,30 @@ function sendFailure(res: ServerResponse, asset: ParsedImage, reason: string): v
  *
  * Provenance rules (see @deckpal/storage put-asset.ts):
  *  - a recorded `source_url` is authoritative and always wins;
- *  - a card row with NULL provenance may fall back to the canonical TCGdex URL,
- *    which is a documented *derivation* of the requested path (DATA-LAYER §5.3),
- *    not a guess — and it is only ever written back to the manifest after a fetch
- *    from it actually succeeded;
- *  - no row at all → we do not know this asset exists and we do not invent a URL.
+ *  - CARD art otherwise falls back to the canonical TCGdex URL, which is a
+ *    documented *derivation* of the requested path (DATA-LAYER §5.3), not a
+ *    guess — and it is only ever written to the manifest after a fetch from it
+ *    actually succeeded;
+ *  - set imagery has no derivable URL, so a missing source there is a dead end.
+ *
+ * THE MISSING-ROW CASE USED TO BE A DEAD END TOO, and that was a bug worth naming
+ * because it failed silently and permanently. The rule was "no row at all → we do
+ * not know this asset exists and we do not invent a URL", which sounds careful and
+ * is wrong for cards specifically: the request path is not user-supplied trivia,
+ * it is what OUR OWN api emits from OUR OWN catalog (`cardImages()` in db.ts), and
+ * `canonicalSourceUrl` is a pure function of it. So a card whose manifest row was
+ * never created — the promo/trainer-kit/e-card sets TCGdex's compiled datas.json
+ * omits, which is how the manifest was seeded — served the placeholder on every
+ * request forever, and no amount of re-viewing or re-warming could heal it,
+ * because the fill declined to try the one URL that might have worked. Found by
+ * sweeping the catalog on 2026-08-26: 585 cards in that state, of which the
+ * derivation does in fact recover `svp/500`. The other 584 genuinely 404 upstream
+ * and still answer the placeholder — which is the honest outcome, reached by
+ * asking rather than by assuming.
+ *
+ * Trying the derivation costs a 404 against a fixed host for a card we have no
+ * bytes for either way, and the failure answer carries a SHORT ttl, so nothing is
+ * cached long on a miss. Nothing is written unless a fetch succeeded.
  */
 async function resolveSourceUrl(
   asset: ParsedImage,
@@ -107,9 +126,12 @@ async function resolveSourceUrl(
     return { url: asset.canonicalSourceUrl, provenanceWasUnknown: false };
   }
   const row = await getManifestRow(asset.cacheKey);
-  if (!row) return null;
-  if (row.source_url) return { url: row.source_url, provenanceWasUnknown: false };
+  if (row?.source_url) return { url: row.source_url, provenanceWasUnknown: false };
   if (asset.kind === 'card') {
+    // Missing row and NULL source_url are the same situation from here: no
+    // recorded provenance, one documented derivation. `putStorageAsset` inserts
+    // the manifest row before it publishes bytes, so a fill that starts from no
+    // row still lands as row-then-bytes and never as an orphan (B1).
     return { url: asset.canonicalSourceUrl, provenanceWasUnknown: true };
   }
   // Set imagery has no derivable URL — the upstream path lives in card_set, and

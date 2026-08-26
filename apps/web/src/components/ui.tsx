@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Icon } from './Icon'
 import { EnergyIcon } from './EnergyIcon'
+import { useArtSrc } from '../lib/useArtSrc'
 
 // Re-export new primitives from ui/ so existing `import { X } from '../components/ui'`
 // call sites keep working without a mass import-rewrite.
@@ -319,12 +320,7 @@ export function SetSymbolTile({
       ) : mark === 'energy' ? (
         <EnergySymbolsMark size={size} />
       ) : showImg ? (
-        <img
-          src={setAssetUrl(setId!, 'symbol')}
-          alt=""
-          className="h-[70%] w-[70%] object-contain"
-          onError={() => setFailed(true)}
-        />
+        <SetSymbolImg setId={setId!} onExhausted={() => setFailed(true)} />
       ) : (
         <span
           className="font-black leading-none text-surface-on-light-text"
@@ -334,6 +330,33 @@ export function SetSymbolTile({
         </span>
       )}
     </div>
+  )
+}
+
+/**
+ * The symbol image itself, split out so it can own the source ladder from
+ * lib/cardArt.ts (object URL first, image tier as fallback) with its own hook.
+ * `onExhausted` fires only once BOTH have failed, which is when the tile above
+ * switches to the derived acronym tag.
+ */
+function SetSymbolImg({ setId, onExhausted }: { setId: string; onExhausted: () => void }) {
+  const art = useArtSrc(setAssetUrl(setId, 'symbol'))
+  if (!art.src) {
+    // Both sources gone; the parent has been told and is about to re-render.
+    return null
+  }
+  return (
+    <img
+      key={art.step}
+      src={art.src}
+      {...(art.crossOrigin ? { crossOrigin: art.crossOrigin } : {})}
+      alt=""
+      className="h-[70%] w-[70%] object-contain"
+      onError={() => {
+        if (art.step === 0) art.onError()
+        else onExhausted()
+      }}
+    />
   )
 }
 

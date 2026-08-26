@@ -286,6 +286,29 @@ keep game-specific specifics in the game's runbook / the slot's `image-slots.md`
   as a command in `apps/images/src/` rather than a loose script — that is where the contract lives.
 - **Validate the format, not just the size.** `length >= 800` passes an HTML error page and a PNG
   alike; sniff magic bytes and refuse anything the cache path doesn't claim to be.
+- **Check that a warm path exists for the tier you actually deploy.** A project can have several
+  warmers and still have none for the tier serving users — DeckPal's all filled the self-host disk
+  cache, and the one "cloud" command only *mirrored* an existing disk cache, so on a box without
+  one its work-list was empty and silently succeeded. The cloud bucket was left holding only what
+  someone had happened to look at: 89% of the catalog missing, hidden because each miss still
+  rendered via an on-demand fill. Ask "which command fills the tier my users hit, and what happens
+  when it runs on a machine with no local cache?"
+- **Prefer driving the deployed tier's own lazy fill over writing a second fetch-and-upload.** If
+  the read path already fills on miss through the choke point, a bulk warmer that just requests
+  each asset inherits its provenance rules exactly, needs no credentials when the routes are
+  public, and cannot drift from them. Two implementations of "where may these bytes come from" is
+  the bug B1 exists to prevent.
+- **A "we don't know this asset" guard can become a permanent blank.** Refusing to fetch when no
+  manifest row exists sounds careful, but if the request path is one your OWN api emitted from your
+  OWN catalog, the derived source URL is a derivation, not a guess — and refusing it means those
+  cards serve a placeholder forever, self-healing never fires, and no amount of re-warming helps.
+  Treat "no row" and "row with no source" as the same case for asset classes whose URL is a pure
+  function of the path.
+- **Distinguish "absent" from "throttled" before reporting a gap.** Supabase Storage answers a
+  missing public object with **HTTP 400** and a JSON body (`NoSuchKey`), not 404 — so a status-only
+  probe both miscounts absences and retries them as if transient. Read the body, treat only the
+  definitive answer as absent, and re-probe anything inconclusive serially before it reaches a
+  "missing" total.
 
 ## Definition of done (adding a TCG, or a refresh)
 
