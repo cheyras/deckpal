@@ -451,11 +451,16 @@ const saveDeckTool = defineTool({
     'Create a deck (omit deck_id) or edit one (pass deck_id): rename, change format, and reconcile ' +
     'its card list to the given cards array (only changed rows are touched — adds, quantity sets, ' +
     'removes). To create from a PTCG Live decklist pass ptcgl_text instead of cards (creation only). ' +
-    'Card ids are TCGdex ids (e.g. sv01-25). When choosing a card_id for a deck, always use the ' +
-    'cheapest available printing of the named card unless the user explicitly asked for a specific ' +
-    'rarity or alternate art — different printings of the same card are gameplay-identical but can ' +
-    'differ by hundreds of dollars (e.g. a Special Illustration Rare vs the regular version). Use ' +
-    'search_cards to compare prices across printings. ' +
+    'Card ids are TCGdex ids (e.g. sv01-25). When choosing a card_id, use the cheapest printing OF ' +
+    'THE SAME CARD unless the user asked for a specific rarity or art: printings of one card are ' +
+    'gameplay-identical and can differ by hundreds of dollars (a Special Illustration Rare vs the ' +
+    'regular version). SAME NAME IS NOT SAME CARD, and this is the trap — the game reuses names ' +
+    'across sets for cards with different HP and different text, so the cheapest row under a name ' +
+    'can be a different card that happens to share it. Shaymin sv08.5-087 (70 HP, $0.20) and ' +
+    'sv10-010 (80 HP, $0.83) are not the same card. Picking wrong is SILENT: the deck still has 60 ' +
+    'cards and is still legal, it just does not do what the list said. search_cards flags a name ' +
+    'that is several cards and groups the ids that really are interchangeable — swap only within ' +
+    'one of those groups, and when in doubt keep the printing the decklist named. ' +
     'Defaults to a dry run that prints the exact operations ' +
     'without executing — re-run with dry_run: false to apply. ' +
     'Versioning is automatic: card and format changes to a deck version that already has battle ' +
