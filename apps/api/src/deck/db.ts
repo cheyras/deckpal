@@ -291,15 +291,23 @@ export async function computeFingerprints(pool: pg.Pool, ids: number[]): Promise
 }
 
 /**
- * Build the reprint-legality oracle for a specific deck (§2.1.5). For each deck
- * card, precompute whether a fingerprint-identical card with a legal mark exists,
- * so the (synchronous) validator can consult it. Name is the cheap prefilter.
+ * The oracle computed from scratch, without consulting the stored fingerprint.
+ *
+ * The original implementation, kept whole because it is the ONLY path that
+ * works on a database where `card.playable_fingerprint` has not been filled — a
+ * fresh deployment, or one migrated without running `fingerprint:index`. See
+ * {@link buildReprintOracle}.
+ *
+ * `name_normalized` is a prefilter and nothing more: it narrows the candidates
+ * cheaply, and fingerprint equality decides. The two are not the same test —
+ * measured, 30 rotated cards sharing a normalized name with a legal-marked card
+ * produced ZERO fingerprint matches, because a promo Grookey and a modern
+ * Grookey are different cards with one name.
  */
-export async function buildReprintOracle(
-  pool: pg.Pool, cards: CardFacts[], legalMarks: string[],
-): Promise<(card: CardFacts) => boolean> {
+async function reprintOracleByCompute(
+  pool: pg.Pool, need: CardFacts[], legalMarks: string[],
+): Promise<Set<number>> {
   const legalIds = new Set<number>();
-  const need = cards.filter((c) => !(c.regulationMark && legalMarks.includes(c.regulationMark)));
   const fpCache = await computeFingerprints(pool, need.map((c) => c.id));
 
   for (const card of need) {
@@ -317,5 +325,94 @@ export async function buildReprintOracle(
       if (cfp === fp) { legalIds.add(card.id); break; }
     }
   }
+  return legalIds;
+}
+
+/**
+ * Build the reprint-legality oracle for a specific deck (§2.1.5): for each deck
+ * card, whether a fingerprint-identical card carrying a legal mark exists, so
+ * the (synchronous) validator can consult it.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * ONE QUERY, BECAUSE THE FINGERPRINT IS A COLUMN NOW
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * This used to hash everything at request time: `computeFingerprints` over the
+ * deck, then per card a candidate lookup plus another five-query hydration to
+ * hash the candidates. Measured against the real catalogue, 30 rotated cards
+ * cost **185 queries and 5.6 seconds** — on `/decks/:id/validate`, which is
+ * what `decks(include: ['validate'])` calls, which is what the agent calls.
+ *
+ * It hashed at request time because nothing had ever written
+ * `card.playable_fingerprint`. Migration 047 and `fingerprintIndex.ts` fixed
+ * that and indexed the column for exactly this lookup, so the whole oracle is
+ * now one statement: for each deck card, does a row with the same fingerprint
+ * carry a legal mark.
+ *
+ * ── AND IT MUST NOT ANSWER "NO" JUST BECAUSE THE INDEX IS EMPTY ─────────────
+ *
+ * The failure this guards is severe and silent. On a database where the pass
+ * has not run, every `playable_fingerprint` is NULL, `NULL = NULL` is not true,
+ * and the one-query form would report NO CARD as reprint-legal — turning legal
+ * decks illegal, with a confident violation, on the validator whose whole job
+ * is to be trusted. Nothing would throw.
+ *
+ * So a NULL fingerprint is never read as "no reprint". Those cards fall back to
+ * {@link reprintOracleByCompute}, which consults no column, and the answer is
+ * the one this code has always given.
+ *
+ * The warning separates the two reasons a fingerprint can be NULL, because one
+ * is a problem and the other is not: a card too thin to hash is legitimately
+ * NULL for ever (107 rows here), while a card that CAN be hashed and is not
+ * stored means the index is behind. Only the second is worth saying — and
+ * saying it is B11's shape, a deployment missing something saying so rather
+ * than degrading quietly.
+ */
+export async function buildReprintOracle(
+  pool: pg.Pool, cards: CardFacts[], legalMarks: string[],
+): Promise<(card: CardFacts) => boolean> {
+  const need = cards.filter((c) => !(c.regulationMark && legalMarks.includes(c.regulationMark)));
+  if (need.length === 0) return () => false;
+
+  const byId = new Map(need.map((c) => [c.id, c]));
+  const { rows } = await pool.query<{ id: string; has_fp: boolean; legal: boolean }>(
+    `SELECT mine.id,
+            (mine.playable_fingerprint IS NOT NULL) AS has_fp,
+            EXISTS (
+              SELECT 1 FROM card legal
+               WHERE legal.playable_fingerprint = mine.playable_fingerprint
+                 AND legal.regulation_mark = ANY($2)
+                 AND legal.lang = 'en'
+            ) AS legal
+       FROM card mine
+      WHERE mine.id = ANY($1)`,
+    [[...byId.keys()], legalMarks],
+  );
+
+  const legalIds = new Set<number>();
+  const unindexed: CardFacts[] = [];
+  for (const r of rows) {
+    const id = Number(r.id);
+    if (!r.has_fp) {
+      const card = byId.get(id);
+      if (card) unindexed.push(card);
+    } else if (r.legal) {
+      legalIds.add(id);
+    }
+  }
+
+  if (unindexed.length > 0) {
+    const computed = await computeFingerprints(pool, unindexed.map((c) => c.id));
+    const stale = unindexed.filter((c) => computed.get(c.id));
+    if (stale.length > 0) {
+      console.warn(
+        `[deck] ${stale.length} of ${need.length} card(s) can be hashed but have no stored ` +
+          'playable_fingerprint — the index is behind the catalogue. Falling back to per-request ' +
+          'hashing for those: correct, and slow. Run `pnpm --filter deckpal-api fingerprint:index`.',
+      );
+    }
+    for (const id of await reprintOracleByCompute(pool, unindexed, legalMarks)) legalIds.add(id);
+  }
+
   return (card: CardFacts) => legalIds.has(card.id);
 }
