@@ -4,7 +4,8 @@ import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { money, pagingFooter, row } from '../format.js';
 import { describeCard, resolveCard } from '../resolve.js';
-import { explainMiss, presentRef, resolveSet, resolvedNote } from '../entities.js';
+import type { RarityPeel } from '../entities.js';
+import { explainMiss, peelRarity, presentRef, resolveSet, resolvedNote } from '../entities.js';
 import { GOALS, defaultGoal, errText, type Goal } from '../shared.js';
 
 /**
@@ -212,11 +213,16 @@ const searchCardsTool = defineTool({
       // in this corpus, blind, because nothing told it WHICH.
       type Filter = { label: string; sql: (p: (v: unknown) => string) => string };
       const filters: Filter[] = [];
+      // Held by reference so the zero-result branch can swap THIS one out
+      // without matching on its label — same identity compare the drop-one
+      // diagnosis below uses.
+      let nameFilter: Filter | null = null;
       if (query) {
-        filters.push({
+        nameFilter = {
           label: `name contains '${query}'`,
           sql: (p) => `unaccent(c.name) ILIKE unaccent(${p(`%${query}%`)})`,
-        });
+        };
+        filters.push(nameFilter);
       }
       if (setTid) filters.push({ label: `set ${setTid}`, sql: (p) => `cs.tcgdex_id = ${p(setTid)}` });
       if (args.category) {
@@ -316,11 +322,49 @@ const searchCardsTool = defineTool({
         // the model loosened at random. One turn spent fourteen consecutive
         // calls doing that and never answered the question.
         //
-        // Two things are worth one extra query each, and only ever on this
+        // These checks are worth an extra query each, and run only on this
         // path, so the common case pays nothing.
         const notes: string[] = [];
 
-        // 0. THE QUERY IS NOT A NAME AT ALL. Checked first, because when it is
+        // 0. THE NAME FIELD CARRIES A RARITY. First, because it is the only
+        //    shape in this branch with an exact answer rather than advice —
+        //    and because the "reads like a description" heuristic below fires
+        //    on 'Tatsugiri Special Illustration Rare' and blames the wrong
+        //    thing, sending the model off to research a card it already found.
+        //
+        //    The corrected search is COUNTED, under the same other filters, so
+        //    the suggestion is never a guess: either it names how many cards
+        //    the next call will return, or it says the name is wrong too.
+        let peeled: RarityPeel | null = null;
+        if (query && !args.rarity) {
+          peeled = await peelRarity(ctx, query);
+        }
+        if (query && peeled) {
+          const name = peeled.name;
+          const rarity = peeled.rarity;
+          const swapped: Filter[] = [
+            {
+              label: `name contains '${name}'`,
+              sql: (pp) => `unaccent(c.name) ILIKE unaccent(${pp(`%${name}%`)})`,
+            },
+            { label: `rarity '${rarity}'`, sql: (pp) => `lower(c.rarity) = lower(${pp(rarity)})` },
+            ...filters.filter((f) => f !== nameFilter),
+          ];
+          const b = build(swapped);
+          const r = await q1<{ total: string }>(ctx.db, `${ctes} SELECT count(*) AS total ${b.fromWhere}`, b.params);
+          const n = Number(r?.total ?? 0);
+          notes.push(
+            n > 0
+              ? `'${query}' puts a RARITY in the name field. No card is printed with its ` +
+                  `rarity in its name — '${rarity}' is a separate filter. Search again with ` +
+                  `query '${name}' and rarity '${rarity}': ${n} match.`
+              : `'${query}' puts a RARITY in the name field — '${rarity}' belongs in the ` +
+                  `rarity filter, not the name. Nothing called '${name}' is a ${rarity} either, ` +
+                  `so the name needs checking too.`,
+          );
+        }
+
+        // 1. THE QUERY IS NOT A NAME AT ALL. Checked next, because when it is
         //    true nothing else in this branch can help: no filter is at fault,
         //    no set is hiding, and re-wording will not save it.
         //
@@ -331,7 +375,9 @@ const searchCardsTool = defineTool({
         //    a card either. He was searching card names for a VIBE, four times.
         if (query) {
           const operator = /\b(?:OR|AND|NOT)\b|["*]|\bnear:|\|\||&&/.test(query);
-          const wordy = query.trim().split(/\s+/).length >= 4;
+          // Suppressed once the rarity check has explained the length: a name
+          // plus 'Special illustration rare' is four words and is NOT a vibe.
+          const wordy = query.trim().split(/\s+/).length >= 4 && !peeled;
           if (operator || wordy) {
             notes.push(
               operator
@@ -349,7 +395,7 @@ const searchCardsTool = defineTool({
           }
         }
 
-        // 1. THE QUERY IS A SET NAME. This is the single commonest shape of the
+        // 2. THE QUERY IS A SET NAME. This is the single commonest shape of the
         //    41: `query: 'Pitch Black'`, `query: 'phantasmal flames'` — a set
         //    name in the field that matches CARD names. Dropping filters can
         //    never fix it, because there is no filter to drop. The description
@@ -366,7 +412,7 @@ const searchCardsTool = defineTool({
           }
         }
 
-        // 2. WHICH FILTER EMPTIED IT. Re-count with each filter dropped in
+        // 3. WHICH FILTER EMPTIED IT. Re-count with each filter dropped in
         //    turn and report the ones that were individually responsible.
         //    Bounded by the number of filters actually supplied (at most 6),
         //    and skipped entirely when there is only one — dropping the only
@@ -468,9 +514,10 @@ const getCardTool = defineTool({
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async (args, ctx) => {
     try {
-      // The set narrowing is resolved BEFORE `resolveCard` sees it, so a set
-      // NAME here behaves like a set name everywhere else. `resolveCard`
-      // compares `cs.tcgdex_id` directly and would silently narrow to nothing.
+      // `resolveCard` canonicalises set references itself now, so this pass is
+      // about the MESSAGE, not correctness: resolving here lets an unplaceable
+      // set fail as a set — with near-miss suggestions — instead of surfacing as
+      // "no card by that name", which sends the model hunting the wrong thing.
       let ref = args;
       if (presentRef(args.set_id)) {
         const found = await resolveSet(ctx, args.set_id);
