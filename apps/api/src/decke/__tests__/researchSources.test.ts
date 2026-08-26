@@ -18,8 +18,16 @@ test('a competitive question is pinned to the live competitive sources', () => {
   const o = researchProviderOptions('competitive');
   const list = o.providerOptions?.perplexity?.search_domain_filter;
   assert.ok(Array.isArray(list), 'the allowlist must reach the provider');
-  assert.ok(list.includes('limitlesstcg.com'), 'the format’s results database');
-  assert.ok(list.includes('pokemon.com'), 'the publisher');
+  // A SET, not `.includes`. `list` is an array so `.includes` is already exact
+  // membership — but CodeQL reads it as `String.prototype.includes` and flags
+  // `js/incomplete-url-substring-sanitization`, and it is right about the
+  // PATTERN: that is the shape that lets `pokemon.com.attacker.net` through
+  // when the same line appears in real sanitising code. `deck.test.ts` reached
+  // the same conclusion about the same rule and wrote it down; a habit left in
+  // a file people copy from is a habit that gets copied.
+  const domains = new Set(list);
+  assert.ok(domains.has('limitlesstcg.com'), 'the format’s results database');
+  assert.ok(domains.has('pokemon.com'), 'the publisher');
 });
 
 test('a general question is NOT pinned — open web is the point', () => {
