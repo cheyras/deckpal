@@ -45,9 +45,18 @@ omit the host.
   (the source's observation time, not fetch time). Sources: `tcgcsv` (TCGplayer
   bulk, USD), `tcgdex-cardmarket` (Cardmarket, EUR), `tcgdex-tcgplayer`.
 - **Images.** The API returns image **paths**, never bytes. Card images resolve to
-  `/deckpal/images/en/{serie}/{set}/{localId}/{low|high}.webp`, served by the image
-  service on 3701 (behind nginx at the same base). Set chrome (`logoUrl`,
-  `symbolUrl`, `backgroundUrl`) are stored upstream URLs and may be `null`.
+  `/deckpal/images/en/{serie}/{set}/{localId}/{low|high}.webp`. Self-host serves that
+  path from `apps/images` on 3701 (behind nginx at the same base); on cloud it is a
+  serverless function that fills the object store on demand and `302`s to the public
+  object URL. **Since 2026-08-26 the SPA does not request that path first on cloud** —
+  it derives the public object URL itself and requests the object directly, keeping
+  `/deckpal/images/…` as the fallback that fills a cold asset (DECISIONS.md
+  2026-08-26). The path in the payload is unchanged and remains the contract; what
+  changed is only which URL the browser ends up fetching. A card the image tier
+  cannot source answers a ~1 KB placeholder WebP with `200` and `X-Placeholder: 1` —
+  **a valid image, not an error**, so a client cannot detect it via `onError`.
+  Set chrome (`logoUrl`, `symbolUrl`, `backgroundUrl`) are stored upstream URLs and
+  may be `null`.
 - **PDF routes.** `GET /decks/:id/pdf`, `GET /lists/:id/pdf`, and
   `GET /sets/:setId/checklist.pdf` stream `application/pdf` with a
   `Content-Disposition: attachment` filename. They are mounted at the `/deckpal/api`

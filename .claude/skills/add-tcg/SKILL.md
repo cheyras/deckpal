@@ -1,6 +1,6 @@
 ---
 name: add-tcg
-description: Onboard a new trading card game into this collection tracker — or fill catalog/image gaps in an existing one. The agent researches the best open data + image sources for the game, maps them to the game-agnostic schema, populates the catalog, sources and optimizes card art (with fallbacks), and rebuilds the scan index. Use when the user wants to add a TCG (Magic, Yu-Gi-Oh, Lorcana, One Piece, …), refresh a catalog after a new set, or fix missing card images. The reference implementation is Pokémon (TCGdex + TCGCSV + pkmn.gg).
+description: Onboard a new trading card game into this collection tracker — or fill catalog/image gaps in an existing one. The agent researches the best open data + image sources for the game, maps them to the game-agnostic schema, populates the catalog, sources and optimizes card art (with fallbacks), and rebuilds the scan index. Use when the user wants to add a TCG (Magic, Yu-Gi-Oh, Lorcana, One Piece, …), refresh a catalog after a new set, or fix missing card images. The reference implementation is Pokémon (TCGdex for catalog + art, TCGCSV for prices; see research/CARD-ART-SOURCES.md for the approved art-fallback ladder).
 ---
 
 # add-tcg — populate a TCG catalog and its imagery
@@ -69,7 +69,7 @@ each candidate on:
 
 | Game | Catalog + images | Prices |
 |---|---|---|
-| **Pokémon** (reference) | TCGdex (compiled JSON) for catalog; pkmn.gg (`api.tcg.gg`) for art TCGdex lacks | TCGCSV (TCGplayer mirror), Cardmarket via TCGdex |
+| **Pokémon** (reference) | TCGdex (compiled JSON) for catalog + art; pokemontcg.io for art TCGdex lacks (pkmn.gg and TCGplayer images are **ruled out** — `research/CARD-ART-SOURCES.md`) | TCGCSV (TCGplayer mirror), Cardmarket via TCGdex |
 | **Magic: The Gathering** | **Scryfall** bulk data — catalog + images + prices in one, excellent IDs, CC0-ish data | Scryfall (USD/EUR/tix) |
 | **Yu-Gi-Oh!** | YGOPRODeck API (bulk cardinfo + images) | YGOPRODeck price fields |
 | **Lorcana / One Piece / Digimon** | community APIs / datasets (e.g. lorcana-api, an OP TCG API) — vet coverage carefully | often none; may be TCGplayer-derived |
@@ -178,10 +178,11 @@ most of them.
    off `card` rows and check per-card whether a real cache file already exists.
 2. **Primary source first, then fallback(s).** Try the catalog CDN (e.g. TCGdex
    `assets.tcgdex.net/<lang>/<serie>/<set>/<localId>/high.webp`). On a 404/miss, fall back to a
-   secondary (for Pokémon: pkmn.gg's `assets.pkmn.gg` art, whose URLs come from
-   `api.tcg.gg/…/v1/card/<set>` — the JSON carries **signed** `largeImageUrl`(→high) +
-   `thumbImageUrl`(→low); the signature is in the URL so no auth on the download itself). See
-   `apps/images/src/warmFromPkmn.ts` for the working fallback warmer.
+   secondary — **and check the source is an approved one first.** For Pokémon that is
+   pokemontcg.io (`images.pokemontcg.io/<setId>/<number>_hires.png`, 600×825+, free and
+   unauthenticated); pkmn.gg and TCGplayer images are both **ruled out**, for the reasons in
+   `research/CARD-ART-SOURCES.md`. A new game's fallback needs the same licensing check
+   before you fetch anything — that note is the worked example of what "checked" means.
 3. **Two resolutions.** `high` (detail view) and `low` (grid + the scanner). WebP.
 4. **Validate every download** — content-type + magic bytes (RIFF/WEBP), reject tiny/placeholder
    bodies (`< ~800 B`); then hand the bytes to `putAsset`, which does the temp-file +
@@ -236,7 +237,7 @@ The offline scanner matches an uploaded photo against a **dHash per cached card 
 - **Reindex + restart** the scan service after warming; the index is in-memory.
 - **Two image tiers, WebP, LRU-capped**; keep the serving path contract exact.
 - **Don't run heavy upstreams on the host** — extract compiled data.
-- **Secrets** (a source session/token, e.g. a pkmn.gg cookie) live at runtime only
+- **Secrets** (a source session/token, e.g. an API key for a gated catalog) live at runtime only
   (`~/Transfer/…`), read per-run, **never committed or logged**; the token may rotate on
   refresh, so a *single* consumer uses it at a time. If a subagent is blocked from a
   credentialed source by a safety check, the lead performs that step.
@@ -326,11 +327,15 @@ keep game-specific specifics in the game's runbook / the slot's `image-slots.md`
 - `research/SCHEMA.md` — the data model (read before mapping).
 - `wiki: Data-Layer (https://github.com/cheyras/deckpal/wiki/Data-Layer)` — source-field → schema details, price/id coverage.
 - `ARCHITECTURE.md` — services, ports, the image cache design.
-- The Pokémon-specific sync runbook (per-release procedure, the pkmn.gg
-  API map, the image-fallback flow) — the concrete instance of this skill.
+- The Pokémon-specific sync runbook (per-release procedure, the image-fallback
+  flow) — the concrete instance of this skill.
+- `research/CARD-ART-SOURCES.md` — **which art sources are approved and which are
+  ruled out, and why**. Read it before sourcing any card-art gap; it is also the
+  worked example of the licensing check step 4 asks for.
 - Code: `apps/sync/src/catalog` (catalog import), `apps/sync/src/prices` (prices + cross-fill),
   `apps/images/src/store.ts` (**the cache write choke point — read this first**),
   `apps/images/src/{layout,fetch,warmer,setWarmer,evict}.ts` (image cache + warmers),
-  `apps/images/src/{warmGaps,warmFromPkmn}.ts` (CDN gap-fill + pkmn.gg fallback warmer),
+  `apps/images/src/warmGaps.ts` (CDN gap-fill, disk tier), `apps/images/src/cloudWarm.ts`
+  (**warms the cloud object tier — the one the deployed product serves from**),
   `apps/images/src/{manifestCheck,manifestBackfill}.ts` (drift check + provenance backfill),
   `apps/api/src/scan/{index,phash,router}.ts` (scanner).
