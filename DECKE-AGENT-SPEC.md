@@ -202,6 +202,26 @@ earlier text rather than from data. **Decide the fidelity question explicitly** 
 replay tool results in history (token cost, truthful) or re-read per turn (latency
 and spend) — but do not leave it accidental.
 
+**Resolved: replay COMPACTED** — each call's own summary, one line, marked as a
+record rather than folded into his speech (`chat/lookupRecord.ts`).
+
+**And it was resolved at the wrong boundary first, which is worth recording.**
+The replay was applied between TURNS and not between the LEGS of §2.2 — so the
+follow-up a client tool forces carried his text and the movement's result and
+nothing else. Measured: asked to show a decklist he drew the panel with
+`showScreen`, called `flyTo`, and on the next leg re-read `decks` and wrote all
+sixty cards out again as prose in a second bubble. The prompt's *"when a panel
+carries the answer, do not also narrate it"* and `showScreen`'s own *"the panel
+is on screen, do not repeat its contents in words"* were both live; neither
+could fire, because a rule cannot apply to evidence discarded before it is read.
+
+Two things followed from the same root and are fixed with it: the cosmetic tools
+(`showScreen`, `express`) emitted no chip at all, so a panel was invisible both
+to the transcript and to the replay; and the movements recorded no `args`, so
+`flyTo` said he flew and refused to say where. A capability declared at one
+boundary and not the other is the same defect as one declared and never
+exercised — see DECISIONS.md, 2026-08-26.
+
 ## 3. Decision
 
 **Extract `apps/mcp`'s tool layer into `packages/agent-tools`, and give it two

@@ -259,6 +259,14 @@ deckeHistoryRouter.post(
     const asked = (str(body.asked) ?? '').slice(0, MAX_TEXT);
     const answered = (str(body.answered) ?? '').slice(0, MAX_TEXT);
     const tools = shapeTools(body.tools);
+    // ── WHY THE TURN STOPPED ────────────────────────────────────────────────
+    //
+    // Accepted from the body, unlike the build stamp, and for the reason the
+    // header gives: this is a fact about what the READER saw end, and only the
+    // client knows which leg was the last one. Absent stays absent — NULL means
+    // "not reported", and defaulting it to 'stop' would manufacture evidence of
+    // a clean finish. Bounded to the column's own limit; see migration 046.
+    const finishReason = str(body.finishReason)?.slice(0, 40) || null;
     // A turn with nothing in it is not a turn. Recording it would put empty rows
     // in a history whose only job is to be read later.
     if (!asked && !answered && tools.length === 0) {
@@ -313,14 +321,45 @@ deckeHistoryRouter.post(
     // the idempotency the unique constraint was added for and leaves no path to
     // revise a recorded turn. A conflict is reported as `recorded: false` rather
     // than as an error: the turn IS on file, which is what the caller wanted.
-    const row = await write<{ id: string }>(
-      `INSERT INTO decke_turn
-         (conversation_id, user_id, seq, asked, answered, tools, build_pr, build_sha)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
-       ON CONFLICT (conversation_id, seq) DO NOTHING
-       RETURNING id`,
-      [conversationId, userId, seq, asked, answered, JSON.stringify(tools), buildPr, buildSha],
-    );
+    // ── THE DEPLOY CAN LAND BEFORE THE MIGRATION ────────────────────────────
+    //
+    // Migrations are run BY HAND (`pnpm --filter @deckpal/db migrate`,
+    // DEPLOYMENT.md §2) and Vercel deploys on merge, so between those two
+    // moments this code names a column 046 has not added yet. Every insert
+    // would fail with 42703 — and the client posts this fire-and-forget with
+    // the error swallowed to a console warning, so the history would simply
+    // stop, silently, and stay stopped until somebody noticed months of
+    // conversations were missing.
+    //
+    // So the column is OPTIONAL at runtime: one retry without it, and a loud
+    // warning naming the migration. This is the B11 shape — a deployment that
+    // is missing something must say so rather than degrade quietly — applied to
+    // schema rather than to configuration.
+    //
+    // It is deliberately not a capability probe cached in module state: this
+    // path runs once per turn, the fallback runs at most once per process per
+    // missing column, and a `information_schema` round trip on every insert
+    // would cost more than the case it guards.
+    const columns = '(conversation_id, user_id, seq, asked, answered, tools, build_pr, build_sha';
+    const values = 'VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8';
+    const tail = `ON CONFLICT (conversation_id, seq) DO NOTHING RETURNING id`;
+    const params = [conversationId, userId, seq, asked, answered, JSON.stringify(tools), buildPr, buildSha];
+
+    let row: { id: string } | null;
+    try {
+      row = await write<{ id: string }>(
+        `INSERT INTO decke_turn ${columns}, finish_reason) ${values}, $9) ${tail}`,
+        [...params, finishReason],
+      );
+    } catch (err) {
+      if ((err as { code?: string })?.code !== '42703') throw err;
+      console.warn(
+        '[decke] decke_turn.finish_reason is missing — migration 046 has not been run against ' +
+          'this database. The turn is being recorded WITHOUT it; run `pnpm --filter @deckpal/db ' +
+          'migrate` to stop losing why turns end.',
+      );
+      row = await write<{ id: string }>(`INSERT INTO decke_turn ${columns}) ${values}) ${tail}`, params);
+    }
 
     // Derived rather than incremented, so a repost cannot inflate it and a
     // deleted turn cannot leave it wrong.
@@ -396,11 +435,26 @@ deckeHistoryRouter.get(
     // A 403 here would confirm the id exists, which is a fact about another
     // account's data.
     if (!head) throw notFound('No such conversation.');
-    const turns = await q(
-      `SELECT seq, asked, answered, tools, build_pr, build_sha, created_at
-         FROM decke_turn WHERE conversation_id = $1 AND user_id = $2 ORDER BY seq`,
-      [id, userId],
-    );
+    // OPTIONAL AT RUNTIME, for the reason the POST handler gives at length: the
+    // deploy can land before 046 is run by hand. Here it matters more — this
+    // route is what draws the transcript viewer, so an unmigrated database
+    // would answer a reader's click with a 500 rather than losing a field.
+    const TURN_COLUMNS = 'seq, asked, answered, tools, build_pr, build_sha';
+    let turns;
+    try {
+      turns = await q(
+        `SELECT ${TURN_COLUMNS}, finish_reason, created_at
+           FROM decke_turn WHERE conversation_id = $1 AND user_id = $2 ORDER BY seq`,
+        [id, userId],
+      );
+    } catch (err) {
+      if ((err as { code?: string })?.code !== '42703') throw err;
+      turns = await q(
+        `SELECT ${TURN_COLUMNS}, created_at
+           FROM decke_turn WHERE conversation_id = $1 AND user_id = $2 ORDER BY seq`,
+        [id, userId],
+      );
+    }
     res.json({
       id: head.id,
       title: head.title,
@@ -412,6 +466,8 @@ deckeHistoryRouter.get(
         tools: t.tools ?? [],
         buildPr: t.build_pr === null ? null : Number(t.build_pr),
         buildSha: t.build_sha ?? null,
+        // NULL is "not reported", never "finished cleanly" — see migration 046.
+        finishReason: t.finish_reason ?? null,
         at: t.created_at,
       })),
     });
