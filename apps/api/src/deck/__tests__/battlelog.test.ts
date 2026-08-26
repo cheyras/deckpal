@@ -151,3 +151,85 @@ test('never throws on arbitrary text — degrades to the empty low-confidence sh
     assert.deepEqual(p.knockouts, { byMe: [], byOpponent: [] });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE FORMAT CHANGED: PTCG LIVE NOW PREFIXES EVERY CARD WITH ITS SET CODE
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `fixtures/battle-log-cardcodes.txt` is a real game in the current format,
+// player names anonymised. Every card is written "(sv10_102) Cynthia's Gible".
+//
+// The parser did not throw on these and did not look broken. It kept counting
+// turns and kept returning a populated shape — while the card NAMES it
+// extracted carried the code, so deck-overlap scoring hit zero for BOTH
+// players. Re-parsed across the owner's real history, five logs came back
+// with no owner and 0-0 prizes, three produced deck guesses like
+// "(me1_1) Bulbasaur", and TWO were confidently attributed to the wrong
+// player — their prizes, knockouts and win/loss all inverted, and stored.
+
+const CODED = readFileSync(
+  fileURLToPath(new URL('./fixtures/battle-log-cardcodes.txt', import.meta.url)),
+  'utf8',
+);
+
+/** The Slowking deck this game was played with, as deck_card⋈card would give it. */
+const CODED_DECK_NAMES = [
+  'Slowpoke', 'Slowking', 'Latias ex', 'Mega Kangaskhan ex', 'Metagross', 'Spectrier',
+  'Annihilape', 'Kyurem', 'Zeraora', 'Zoroark', "Lillie's Clefairy ex",
+  'Academy at Night', "Ciphermaniac's Codebreaking", "Lillie's Determination",
+  'Poké Pad', 'Ultra Ball', 'Night Stretcher', 'Switch', 'Telepathic Psychic Energy',
+  'Basic Psychic Energy',
+];
+
+test('card codes: the deck owner is still identified, and is not the opponent', () => {
+  // The regression that mattered. Two stored logs had these two swapped, which
+  // is how "he thought my deck was my opponent's deck" reaches a user.
+  const p = parseBattleLog(CODED, CODED_DECK_NAMES);
+  assert.equal(p.players.me, 'PlayerA');
+  assert.equal(p.players.opponent, 'PlayerB');
+  assert.equal(p.confidence, 'high');
+});
+
+test('card codes: the game is read correctly end to end', () => {
+  const p = parseBattleLog(CODED, CODED_DECK_NAMES);
+  assert.equal(p.result, 'loss');
+  assert.equal(p.wentFirst, 'opponent');
+  // PlayerA took 1 then 2; PlayerB took 1 + 3 + 1 + 1. Counted from the log.
+  assert.deepEqual(p.prizesTaken, { me: 3, opponent: 6 });
+  assert.equal(p.knockouts.byMe.length, 2);
+  assert.equal(p.knockouts.byOpponent.length, 4);
+});
+
+test('card codes: no extracted name carries a code', () => {
+  // The half-broken case: high confidence with "(me1_1) Bulbasaur" as the deck
+  // guess. A name that parses but reads wrong is worse than one that fails.
+  const p = parseBattleLog(CODED, CODED_DECK_NAMES);
+  const names = [...p.myPokemon, ...p.opponentPokemon, ...p.knockouts.byMe, ...p.knockouts.byOpponent];
+  assert.ok(names.length > 0, 'nothing was extracted at all');
+  for (const n of names) {
+    assert.doesNotMatch(n, /\(/, `card code survived into a name: ${n}`);
+  }
+  assert.ok(p.opponentDeckGuess, 'no deck guess');
+  assert.doesNotMatch(p.opponentDeckGuess!, /\(/);
+  assert.match(p.opponentDeckGuess!, /Cynthia's Garchomp ex/);
+});
+
+test('card codes: the damage-breakdown labels are NOT stripped', () => {
+  // "(Ability)" and "(Item)" are parenthesised too. The discriminator is
+  // underscore-then-digits, and this is the test that says so.
+  const p = parseBattleLog(CODED, CODED_DECK_NAMES);
+  assert.equal(p.confidence, 'high');
+  // A line the stripper must leave alone, checked directly rather than via a
+  // field, because nothing else in the shape would notice if it vanished.
+  assert.ok(CODED.includes('(Ability) Cheer On to Glory'));
+  assert.ok(CODED.includes('(Item) (me1_124) Premium Power Pro'));
+});
+
+test('the OLD format still parses identically — this is additive', () => {
+  // The fixture above this block has no card codes. Nothing about it may change.
+  const p = parseBattleLog(FIXTURE, DECK_NAMES);
+  assert.equal(p.players.me, 'PlayerA');
+  assert.equal(p.confidence, 'high');
+  assert.equal(p.result, 'win');
+  assert.deepEqual(p.prizesTaken, { me: 6, opponent: 5 });
+});

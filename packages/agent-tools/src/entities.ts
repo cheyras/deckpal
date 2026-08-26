@@ -694,10 +694,28 @@ export function explainMiss(
 ): string {
   const said = typeof ref === 'string' && ref.trim() ? `'${ref.trim()}'` : '(nothing)';
   if (res.kind === 'ambiguous') {
-    return [
-      `More than one ${what} matches ${said}. Say which by passing its id:`,
-      ...res.candidates.map((c) => `  ${c.id} — ${c.label}${c.hint ? ` (${c.hint})` : ''}`),
-    ].join('\n');
+    const rows = res.candidates.map((c) => `  ${c.id} — ${c.label}${c.hint ? ` (${c.hint})` : ''}`);
+    // ── ONE CANDIDATE IS NOT "MORE THAN ONE" ────────────────────────────────
+    //
+    // `strict` turns ANY inexact hit into `ambiguous`, including a single one —
+    // deliberately, because a lone fuzzy match is exactly what would rewrite the
+    // wrong deck. The sentence did not know that, and said "More than one deck
+    // matches 'slowking toolbox'" about a set containing exactly one deck.
+    //
+    // Measured: the owner has one deck whose name resembles that. `decks`
+    // resolved it fine — reads are not strict — and `deck_strategy` refused it
+    // with a count that was simply false, in the same turn, about the same
+    // words. Two tools disagreeing is bad; one of them being wrong about how
+    // many things it found is worse, because this file's whole doctrine is that
+    // the failure message is what teaches the model its next move.
+    if (rows.length === 1) {
+      return [
+        `No ${what} is named exactly ${said}. The closest is:`,
+        ...rows,
+        'If that is the one you mean, call this again with its id.',
+      ].join('\n');
+    }
+    return [`More than one ${what} matches ${said}. Say which by passing its id:`, ...rows].join('\n');
   }
   const lines = [`No ${what} matches ${said}.`];
   if (res.crossType) lines.push(res.crossType);

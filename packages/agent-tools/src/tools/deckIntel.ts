@@ -220,8 +220,17 @@ const deckStrategyTool = defineTool({
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   handler: async ({ deck_id: deckRef, markdown }, ctx) => {
     try {
-      // STRICT — replaces the deck’s whole strategy guide, so an approximate name is a choice, never an action.
-      const picked = await needDeck(ctx, deckRef, { strict: true });
+      // ── STRICT ONLY WHEN IT WRITES ──────────────────────────────────────
+      //
+      // Replacing a guide on an approximate name is a choice, never an action —
+      // that half is unchanged. But this handler resolved ONCE, before the
+      // read/write branch below, so READING a guide was strict too. The result
+      // was two tools disagreeing about the same words in the same turn:
+      // `decks({deck_id: 'slowking toolbox'})` returned the deck, and
+      // `deck_strategy({deck_id: 'slowking toolbox'})` refused it. Nothing about
+      // reading a guide justifies being harder to address than reading the deck
+      // it belongs to.
+      const picked = await needDeck(ctx, deckRef, { strict: markdown !== undefined });
       if (!picked.ok) return fail(picked.message);
       const deckId = picked.value.id;
 
