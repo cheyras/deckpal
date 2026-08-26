@@ -21,6 +21,7 @@ export {
   type ParsedDeck, type ParsedLine, type SerializableLine, type MassEntryLine, type Section,
 } from './ptcgl.js';
 export { playableFingerprint, hasFullGameplayData, type FingerprintInput } from './fingerprint.js';
+export { indexFingerprints, collisionReport, type IndexResult } from './fingerprintIndex.js';
 export { validateDeck, type ValidateContext } from './formats.js';
 export {
   ruleBoxKind, cardIsAceSpec, cardIsRadiant, cardIsPrismStar, cardIsBasicEnergy,
