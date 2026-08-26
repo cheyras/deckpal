@@ -149,8 +149,57 @@ export interface LedgerEntry {
  * between requests. That isolation is load-bearing — a shared cache here would
  * be a cross-account read.
  */
+/**
+ * How many fruitless calls to ONE tool before saying the approach is wrong.
+ *
+ * ── WHY A SECOND COUNTER, WHEN THE LEDGER ALREADY DEDUPES ─────────────────
+ *
+ * The ledger stops the SAME call repeating. It does nothing about a run of
+ * DIFFERENT calls that all return nothing, which is the shape of the turn that
+ * prompted this:
+ *
+ *   search_cards  "hidden gem OR underrated OR favorite artwork OR cool art"
+ *   search_cards  "hidden gem cool artwork"
+ *   search_cards  "beautiful OR stunning OR underrated OR favorite artwork"
+ *   search_cards  "beautiful OR stunning OR underrated OR favorite OR gem"
+ *   search_cards  "beautiful"
+ *
+ * Five distinct keys, five empty results, and no repeat for the ledger to
+ * catch. Every one was a rewording, and rewording was never going to work: the
+ * tool matches printed card names and none of those is one.
+ *
+ * Three, because two is a fair second attempt and four is already a pattern
+ * that a fifth try will not break.
+ */
+const EMPTY_RUN = 3
+
 export class CallLedger {
   private entries = new Map<string, LedgerEntry>()
+  /** Consecutive empty results per tool. Cleared by anything that finds something. */
+  private empties = new Map<string, number>()
+
+  /**
+   * Record whether a result found anything, and say so once a tool has come up
+   * empty several times running.
+   *
+   * Returns a line to append, or `null`. The CALLER decides what counts as
+   * empty, because only the tool knows what its own nothing looks like.
+   */
+  noteEmptiness(tool: string, wasEmpty: boolean): string | null {
+    if (!wasEmpty) {
+      this.empties.delete(tool)
+      return null
+    }
+    const n = (this.empties.get(tool) ?? 0) + 1
+    this.empties.set(tool, n)
+    if (n < EMPTY_RUN) return null
+    return (
+      `\n\n(That is ${n} calls to ${tool} in a row that found nothing. The wording is not the ` +
+      `problem — change the APPROACH. If you are after something this tool cannot see, like ` +
+      `what is popular or admired or worth buying, research it first and then look up the ` +
+      `card NAMES the research gives you.)`
+    )
+  }
 
   /**
    * Run `exec`, or join the identical call already running or finished.

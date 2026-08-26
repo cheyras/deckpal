@@ -135,7 +135,23 @@ async function runDeep(o: {
       heartbeatMs: o.heartbeatMs ?? 40,
     }) as unknown as Record<string, Runnable>
     const name = o.tool ?? 'analyze_collection'
-    const args = { question: 'what should I finish?' }
+    // ── THE ARGUMENTS EACH TOOL ACTUALLY TAKES ────────────────────────────
+    //
+    // This used to pass `{ question }` to every tool. `research_meta` takes
+    // `query`, so every research test in this file ran with an EMPTY prompt —
+    // the stream still flowed, the beats still fired and the assertions still
+    // passed, so nothing ever said so. It surfaced only when a guard on the
+    // query started refusing an empty one.
+    //
+    // A harness that supplies the wrong shape is testing the harness.
+    const args: Record<string, unknown> =
+      name === 'research_meta'
+        ? { query: 'what is winning Standard right now?' }
+        : name === 'plan_deck'
+          ? { idea: 'a mill deck' }
+          : name === 'write_strategy_guide'
+            ? { deck: 'Toolbox Slowking' }
+            : { question: 'what should I finish?' }
     const text = await deep[name]!.execute(args, { toolCallId: 't1' })
     return { events, text }
   } finally {
@@ -256,8 +272,16 @@ test('a long call reports progress WHILE it runs, not only when it ends', async 
   )
   // Ordering matters as much as presence: progress that all arrives after the
   // answer is the silence with extra steps.
+  //
+  // `error` counts as settled here alongside `ok` and `partial`. This fixture
+  // streams NO TEXT — `stream-start` then `finish` — and a sub-agent that says
+  // nothing at all is now a failure rather than an empty success, which is the
+  // whole point of the failure path. What this test is about is the ORDER of
+  // the progress, and that is unchanged by which terminal phase it ends on.
   const first = events.findIndex((e) => e.phase === 'progress')
-  const settled = events.findIndex((e) => e.phase === 'ok' || e.phase === 'partial')
+  const settled = events.findIndex(
+    (e) => e.phase === 'ok' || e.phase === 'partial' || e.phase === 'error',
+  )
   assert.ok(first !== -1 && first < settled, 'progress arrived only after the call had settled')
 })
 

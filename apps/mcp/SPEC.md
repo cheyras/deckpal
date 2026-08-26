@@ -209,6 +209,22 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
    2026-08-21, `packages/agent-tools` extraction) — the web route for a card is
    `/series/<seriesSlug>/<setId>/<number>` and no field elsewhere in the line supplies the slug.
    Trailing addition only: no existing field moved, changed or was removed.
+
+   **`query` is a plain substring of the printed card NAME** — not a query
+   language. `OR`, `AND`, quotes and wildcards match literally and find nothing,
+   and it cannot see artwork, rarity, popularity or price. A caller asking a
+   question of that kind must research it and then look up the names.
+
+   **`min_value_usd: 0` is ignored** (changed 2026-08-25). It compiled to
+   `best_minor >= 0` over a LEFT JOIN, so unpriced cards were `NULL` and silently
+   dropped — measured, 23,546 English cards became 16,281, a third of the
+   catalogue removed by a value every caller sent as a no-op. Any value **above**
+   zero still excludes unpriced cards, so `0.01` is "only cards that have a
+   price".
+
+   The empty-result path names the filters that were applied, re-counts with each
+   one dropped to identify the culprit, and recognises a SET name or
+   search-engine syntax in `query`.
 4. **`get_card`** — `{ card_id? | name? + set_id? + number? }`. Card core (category, rarity, HP,
    regulation mark, legality flags, set + local number), then per-variant rows: kind code,
    display name, tier (from `variant_tier_resolved` — never re-derive), owned qty, market price,

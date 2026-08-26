@@ -58,7 +58,16 @@ test('he is never told he knows what is in the hobby, only how it works', () => 
   // "You know this hobby" is an invitation to answer from memory about sets and
   // cards, which is precisely the class of claim he must never make from memory.
   assert.equal(/know this hobby/i.test(flat(p)), false)
-  assert.match(flat(p), /training data is out of date/i)
+  // THE PROPERTY, not one phrasing of it: he must be told his own memory is not
+  // authoritative about this hobby. This used to pin the exact words "training
+  // data is out of date", so a rewrite of the section failed a test that had no
+  // complaint about the new text — which says the same thing, and now says it
+  // about research as well as about the catalogue.
+  assert.match(flat(p), /training data is (?:out of date|far too old)/i)
+  // And research must be named as the source for everything DeckPal does not
+  // hold. Taste, popularity and news are the half he was answering from memory,
+  // and the half a broken research tool left him no way to answer at all.
+  assert.match(flat(p), /Research\*\* answers everything else/i)
 })
 
 test('the non-existence rule is present and names the tools that settle it', () => {
