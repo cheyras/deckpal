@@ -57,6 +57,7 @@ import { MODELS, budgetFor, type ModelChoice } from './models.js';
 import { deepFailed, deepRefused } from './deepOutcome.js';
 import { alreadyDeclinedMessage } from './declined.js';
 import { checkResearchQuery } from './researchQuery.js';
+import { researchProviderOptions, topicInstructions, type ResearchTopic } from './researchSources.js';
 import { callKey } from './repeat.js';
 import { briefArgs } from './toolArgs.js';
 import {
@@ -273,6 +274,17 @@ async function runSubAgent(opts: {
   onProgress?: (b: Beat) => void;
   /** See `DeepToolOptions.heartbeatMs`. */
   heartbeatMs?: number;
+  /**
+   * Vendor-specific options for THIS call, merged over the reasoning effort.
+   *
+   * The research tool uses it to pin a competitive question to the live
+   * competitive sources. It has to be forwarded explicitly: the first attempt
+   * spread it into these options and this function never passed it on, so the
+   * allowlist did nothing and a question about Pokemon Standard came back about
+   * MAGIC: THE GATHERING. Declared and never exercised, again — caught by a
+   * live probe rather than by the compiler, which is the point of running one.
+   */
+  providerOptions?: Record<string, Record<string, unknown>>;
 }): Promise<{
   text: string;
   /** Set when the call produced no usable answer. See the return statement. */
@@ -387,7 +399,15 @@ async function runSubAgent(opts: {
       //
       // Sent per vendor, from the model id, because that is the axis the shapes
       // actually differ on.
-      ...reasoningOptions(opts.modelId, opts.choice.effort),
+      // MERGED, not spread twice. Two callers want provider options — the
+      // reasoning effort above, and the research tool's domain allowlist — and
+      // a second `...` would silently clobber the first. They target different
+      // vendors today, so a clobber would look fine and do nothing, which is
+      // the failure shape this whole pass keeps finding.
+      providerOptions: {
+        ...reasoningOptions(opts.modelId, opts.choice.effort).providerOptions,
+        ...opts.providerOptions,
+      },
       abortSignal: ac.signal,
     });
     // STREAMED, not awaited whole. `generateText` would give us nothing at all
@@ -1017,6 +1037,27 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
               'About the GAME and the HOBBY only: cards, sets, decks, artists, prices, ' +
               "news. Never anything about this user, their collection or their account.",
           ),
+        // ── WHICH KIND OF QUESTION, BECAUSE TIME MEANS DIFFERENT THINGS ─────
+        //
+        // Competitive answers expire: Standard rotates every year, so a deck
+        // report from the previous format describes a game that no longer
+        // exists. Collecting answers do not — why an illustration is admired is
+        // as true now as it was in 2023.
+        //
+        // Declared by the caller rather than inferred from the query text,
+        // because it decides WHERE the answer may come from, and a control
+        // whose input is a regex over a model's phrasing is not a control.
+        topic: z
+          .enum(['competitive', 'general'])
+          .default('general')
+          .describe(
+            "'competitive' for anything about winning — the current meta, which decks are " +
+              'strong, matchups, tournament results, rotation. Answered ONLY from the live ' +
+              'competitive sources, because those answers go stale within months. ' +
+              "'general' for everything else — artwork, collecting, prices, history, news, " +
+              'how the hobby works. Answered from the open web, where older writing is still ' +
+              'good.',
+          ),
       }),
       run: async (args, progress) => {
         // ── THE ONE CALL THAT LEAVES THE IN-LIST VENDORS ─────────────────────
@@ -1032,6 +1073,7 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
         if (!vetted.ok) {
           return { text: deepRefused(vetted.reason), failed: true };
         }
+        const topic: ResearchTopic = args.topic === 'competitive' ? 'competitive' : 'general';
         const choice = MODELS.research;
         const r = await runSubAgent({
           gateway: opts.gateway,
@@ -1072,7 +1114,22 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
             '',
             'If you cannot find something, say that plainly. Do not fill the gap.',
             'No advice and no recommendations: the assistant reading this gives those.',
+            // What THIS kind of question needs on top. Competitive work gets the
+            // rotation warning; general work is told that older sources are fine.
+            topicInstructions(topic),
           ].join('\n'),
+          // ── AND WHERE IT MAY LOOK ────────────────────────────────────────
+          //
+          // A competitive question is answered ONLY from the live competitive
+          // sources. Measured: that takes the hosts from `gamesradar`,
+          // `ultimateguard` and `monstercardcorner` to `limitlesstcg`,
+          // `pokemon.com` and `pokebeach`, and removes the Magic: The Gathering
+          // results that "Standard format" otherwise drags in.
+          //
+          // It is also the injection control `models.ts` recorded as
+          // unavailable: for competitive questions the least trustworthy input
+          // in the system can now only come from a named list.
+          ...researchProviderOptions(topic),
           // NO TOOLS. Deliberately — see this file's header. The least
           // trustworthy input in the system is handled by the one agent with no
           // way to act on it.
