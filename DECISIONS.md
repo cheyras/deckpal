@@ -33,15 +33,28 @@ Re-parsed across the owner’s fourteen most recent logs, before and after:
 | logs | before | after |
 |---|---|---|
 | #47 #46 #40 #38 #35 | confidence LOW, no owner, 0-0 prizes, no knockouts | high, correct |
-| **#36 #34** | **high confidence, owner identified as the OPPONENT** — prizes, knockouts and win/loss all inverted, and stored that way | high, correct |
+| **#36 #34** | **high confidence, owner identified as the OPPONENT** — prizes, knockouts and win/loss all attributed to the wrong player | high, correct |
 | #41 #39 #37 | high, deck guess reads `(me1_1) Bulbasaur / (me1_8…)` | `Bulbasaur / Chikorita` |
 | #45 #44 #43 #42 | fine (these predate the format change) | unchanged |
 
-14 of 14 now parse `high` with the right owner. The two inverted ones are the
-worst outcome available — confident, wrong, written down — and they are the
+14 of 14 now parse `high` with the right owner, and the inverted pair is the
 literal source of "he interpreted MY deck as being my opponent’s".
 `add_battle_log` refused the two most recent games outright, which is why a
 battle the owner asked to record simply was not recorded.
+
+**How much of that reached the database — checked, because the first draft of
+this entry got it wrong.** It said the inverted parse was "stored that way".
+It was not. Every `battle_log.result` and `opponent` column on file is correct:
+`add_battle_log` takes both explicitly and the caller supplied them whenever
+the parser came back unsure, so **the deck's win/loss record was never wrong.**
+The damage is confined to the `parsed` JSONB detail — #34 stored with `players`
+and `prizesTaken` inverted, #46 stored empty, and the code-era rows carrying
+codes inside their names. #36 re-parses inverted from raw but is stored
+correctly, because that write named the player.
+
+Recorded rather than quietly amended: an entry that overstates its own blast
+radius is the same failure as a message that misstates its evidence, which is
+the fault this very entry corrects two sections down.
 
 **The discriminator is underscore-then-digits.** `(sv10_102)`, `(me2-5_98)`,
 `(mee_6)`, `(me5_29_ph)` go; `(Ability) Cheer On to Glory` and `(Item) Premium
