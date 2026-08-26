@@ -181,6 +181,19 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   against names, and when it belongs to the OTHER index the failure says so ("that id is a LIST").
   Values meaning "I have none" — `none`, `null`, `undefined`, `""` — are read as an absent
   argument rather than as a lookup key.
+- **A card reference's `set_id` is resolved by that same set resolver, inside `resolve.ts`**, not at
+  each call site. It used to be compared raw (`cs.tcgdex_id = $1`), so `search_cards` understood
+  `sv3.5` and `add_cards`/`log_cards` did not — the shape of bug that works wherever it is tested
+  and fails wherever it writes. Deduplicated per batch, and an unplaceable reference is passed
+  through rather than dropped so the miss names the set the user actually typed.
+- **A rarity written into the name is peeled off and retried**, on both the search and the write
+  path (`peelRarity`). `Tatsugiri Illustration Rare` matches no printed name and returned nothing,
+  which the model read as "the card does not exist" before quoting a price from memory. The rarity
+  vocabulary is read from `card.rarity` rather than hardcoded, so new rarities need no code change;
+  the peel is suffix-only (`Rare Candy` is a real card), takes the longest match, requires a word
+  boundary, and refuses a string that is entirely a rarity. The retry puts the rarity in the query
+  as a real condition — filtering a candidate list instead would miss cards whose printings exceed
+  it. A near match at the WRONG rarity is left to fail rather than substituted.
 - **A failure message must never contain an example identifier, and never phrase advice as
   something that could be mistaken for a value.** Both rules were written from measured loops:
   `set_progress`'s message offered `'sv3pt5'` as an example and got nine calls with it, and said
@@ -274,12 +287,22 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    per-card routes — every write attributed `source: 'deckpal-mcp'` (`writeSource` on the
    import route, whose `source` names the decklist syntax). `version_note` rides as
    `versionNote` on card ops and format PATCH and lands on the deck_version snapshot (§6b).
-   Dry run returns the would-be diff (current vs proposed lines) and changes nothing.
+   Dry run returns the would-be diff (current vs proposed lines) and changes nothing, and
+   says CREATE or EDIT by name — `mode?: create|edit` carries the same explicit choice and
+   the same create-leaning default as `edit_list` (§12), for the same reason: an unintended
+   edit here rewrites a decklist rather than appending to it.
 10. **`delete_deck`** — `{ deck_id, dry_run? = true }`. `destructiveHint: true`. The dry run
     (and the deed) spell out that the deck's version history and battle logs cascade with it.
 11. **`lists`** — `{ list_id? }`. Index or one list with items (compact).
-12. **`edit_list`** — `{ list_id?, name?, add_cards?, remove_item_ids?, dry_run? = true }`.
-    Creates the list when `list_id` omitted. Item payload shape comes from `lists.ts`.
+12. **`edit_list`** — `{ mode?: create|edit, list_id?, name?, add_cards?, remove_item_ids?,
+    dry_run? = true }`. Item payload shape comes from `lists.ts`. `mode` is the explicit
+    choice: `create` never touches an existing list even when the name is already taken,
+    `edit` requires `list_id` and never creates. Omitted, it is inferred — `list_id` absent
+    or a word meaning "a new one" (`new`, `create`) creates, anything else resolves. The
+    default leans to CREATE because the two mistakes are not symmetrical: a spare list is
+    deletable, a silently appended one has already changed data the user did not name. The
+    dry run always states which of the two it is, by name, and warns when a create collides
+    with an existing name.
 13. **`delete_list`** — `{ list_id, dry_run? = true }`. `destructiveHint: true`.
 
 ### Collection writes — via deckpal-api

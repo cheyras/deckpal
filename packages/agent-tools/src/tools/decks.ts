@@ -3,7 +3,7 @@ import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { row, usd, winLoss } from '../format.js';
-import { needDeck, presentRef } from '../entities.js';
+import { meansCreate, needDeck, presentRef } from '../entities.js';
 import { strategyLabel } from './deckIntel.js';
 
 /**
@@ -446,6 +446,26 @@ const saveDeckTool = defineTool({
     "losses to Dragapult') — future agents read it in deck_history. Strategy guides are edited " +
     'with deck_strategy, not here. Not for reading (use decks) or deleting (use delete_deck).',
   inputSchema: z.object({
+    // ── SAY WHICH, RATHER THAN LEAVING IT TO BE INFERRED ────────────────────
+    //
+    // Same fix, same reason, as `edit_list`: a reader asked for a NEW list and
+    // got cards appended to an existing one, because both outcomes came out of
+    // one call shape and which happened depended on whether an id resolved.
+    // A deck is worse if it goes wrong — `save_deck` RECONCILES a card list, so
+    // an unintended "edit" rewrites sixty cards rather than appending a few.
+    //
+    // The two mistakes are not symmetrical, and that sets the default:
+    //   creating when they meant edit  → a spare deck. Deletable.
+    //   editing when they meant create → an existing decklist is overwritten.
+    mode: z
+      .enum(['create', 'edit'])
+      .optional()
+      .describe(
+        "'create' makes a NEW deck and never touches an existing one, even if a deck of the " +
+          "same name exists. 'edit' changes the deck named by deck_id and never creates. " +
+          'Say which — leaving it out infers from deck_id, and an inference is how someone’s ' +
+          'existing decklist gets rewritten by accident.',
+      ),
     // A NAME IS ACCEPTED, BUT ONLY AN EXACT ONE — see `needDeck`'s `strict`.
     // This tool edits a deck's card list, and a trigram hit on "toolbox"
     // reconciling the WRONG deck's sixty cards is not a mistake anyone would
@@ -453,7 +473,10 @@ const saveDeckTool = defineTool({
     deck_id: z
       .string()
       .optional()
-      .describe('The deck to edit, by UUID or by its exact name. Omit to create a new deck.'),
+      .describe(
+        'The deck to EDIT, by UUID or by its exact name. Leave it out to create a new one. ' +
+          "Ignored entirely when mode is 'create'.",
+      ),
     name: z
       .string()
       .max(120)
@@ -500,7 +523,7 @@ const saveDeckTool = defineTool({
       .describe('true (default): only print what would happen. false: execute.'),
   }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  handler: async ({ deck_id, name, format, cards, ptcgl_text, version_note, dry_run }, ctx) => {
+  handler: async ({ mode, deck_id, name, format, cards, ptcgl_text, version_note, dry_run }, ctx) => {
     try {
       if (ptcgl_text !== undefined && cards !== undefined) {
         return fail('Pass either ptcgl_text or cards, not both.');
@@ -513,7 +536,20 @@ const saveDeckTool = defineTool({
       // callers can pass `dry_run: false` on the first call, so the guard has to
       // be here rather than in the front-end.)
       let deckRef: string | null = null;
-      const given = presentRef(deck_id);
+      // `mode` decides; inference is only the fallback. See the schema: a model
+      // fills fields rather than omitting them, so on the list side "create"
+      // arrived as `list_id: 'new'` and then as the list's own, not-yet-existing
+      // name. The same shape is reachable here, and the consequence is worse —
+      // `save_deck` RECONCILES a card list, so an unintended edit rewrites sixty
+      // cards rather than appending a few.
+      const wantsCreate = mode === 'create' || (mode !== 'edit' && meansCreate(deck_id));
+      const given = wantsCreate ? undefined : presentRef(deck_id);
+      if (mode === 'edit' && !given) {
+        return fail(
+          "mode 'edit' needs deck_id — which deck? Call `decks` to see them with their ids, " +
+            "or use mode 'create' with a name to make a new one.",
+        );
+      }
       if (given) {
         const picked = await needDeck(ctx, given, { strict: true });
         if (!picked.ok) return fail(picked.message);
@@ -522,6 +558,32 @@ const saveDeckTool = defineTool({
 
       // ── Create ────────────────────────────────────────────────────────────
       if (!deckRef) {
+        // ── IS THERE ALREADY ONE OF THESE? ──────────────────────────────────
+        //
+        // Not a block — they asked for a new deck and they get one — but the
+        // approval card has to SAY it. "Build me a Charizard deck" when a
+        // Charizard deck already exists is the moment the old behaviour would
+        // have picked the existing one and rewritten its sixty cards, and a
+        // reader who can see the collision can stop it before it happens.
+        //
+        // One extra read, only on the create path, and a warning we could not
+        // compute is never a reason to fail the write.
+        let nameCollision = false;
+        const wanted = name?.trim().toLowerCase();
+        if (wanted) {
+          try {
+            const all = (await ctx.api.get('/decks')) as { decks?: Array<{ name: string }> };
+            nameCollision = (all.decks ?? []).some((d) => d.name.trim().toLowerCase() === wanted);
+          } catch {
+            // ignored on purpose — see above
+          }
+        }
+        /** The line that keeps 'create' and 'overwrite' from looking alike. */
+        const collisionNote = (what: string): string[] =>
+          nameCollision
+            ? [`  (heads up: you already have a ${what} called '${name}' — this makes a SECOND one, it does not change that one)`]
+            : [];
+
         if (ptcgl_text !== undefined) {
           const lineCount = ptcgl_text.split(/\r?\n/).filter((l) => /^\d/.test(l.trim())).length;
           if (dry_run) {
@@ -529,6 +591,7 @@ const saveDeckTool = defineTool({
               [
                 'DRY RUN — nothing executed. Would:',
                 `  import a PTCGL decklist (${lineCount} card line(s)) as new deck '${name ?? 'Imported Deck'}' (${format ?? 'standard'})`,
+                ...collisionNote('deck'),
                 'Card resolution happens at import time; unresolved lines will be reported.',
                 'Re-run with dry_run: false to execute.',
               ].join('\n'),
@@ -555,7 +618,11 @@ const saveDeckTool = defineTool({
         if (!name) return fail('name is required to create a deck (or pass ptcgl_text).');
         const target = aggregate(cards ?? []);
         if (dry_run) {
-          const lines = ['DRY RUN — nothing executed. Would:', `  create deck '${name}' (${format ?? 'standard'})`];
+          const lines = [
+            'DRY RUN — nothing executed. Would:',
+            `  CREATE a new deck called '${name}' (${format ?? 'standard'})`,
+            ...collisionNote('deck'),
+          ];
           for (const [cardId, qty] of target) lines.push(`  ${describeOp({ kind: 'add', cardId, qty })}`);
           lines.push('Re-run with dry_run: false to execute.');
           return ok(lines.join('\n'));
@@ -596,7 +663,12 @@ const saveDeckTool = defineTool({
         return ok(`No changes — deck '${current.deck.name}' already matches the requested state.`);
       }
       if (dry_run) {
-        const lines = [`DRY RUN — nothing executed. Would apply to deck '${current.deck.name}' (${deckRef}):`];
+        // Says EDIT and names the deck, so this can never be mistaken on the
+        // approval card for the create branch above.
+        const lines = [
+          'DRY RUN — nothing executed. Would:',
+          `  EDIT your existing deck '${current.deck.name}' (${deckRef}), ${current.cards.length} distinct card(s) in it:`,
+        ];
         for (const op of ops) lines.push(`  ${describeOp(op)}`);
         lines.push('Re-run with dry_run: false to execute.');
         return ok(lines.join('\n'));

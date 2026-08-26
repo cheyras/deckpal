@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
-import { needList, presentRef } from '../entities.js';
+import { meansCreate, needList, presentRef } from '../entities.js';
 import { row, usd } from '../format.js';
 import { describeCard, describeVariant, pickVariant, resolveCardsBatch, variantsOfMany, type CardRef } from '../resolve.js';
 import { FINISHES, GOALS } from '../shared.js';
@@ -299,7 +299,36 @@ const editListTool = defineTool({
     'lists tool. Defaults to a dry run that prints the exact operations without executing — ' +
     're-run with dry_run:false to apply. Lists never modify the collection itself.',
   inputSchema: z.object({
-    list_id: z.string().optional().describe('The list to edit, by UUID or by its exact name. Omit to create a new list.'),
+    // ── SAY WHICH, RATHER THAN LEAVING IT TO BE INFERRED ────────────────────
+    //
+    // THE REPORTED BUG: asked to make a NEW list, it appended to an existing
+    // one instead. Both outcomes were reachable from the same call shape, and
+    // which one happened depended on whether an id happened to resolve — so a
+    // list that merely shared a name with the one being asked for silently
+    // became the target, and the reader's existing list gained cards they
+    // never asked to put in it.
+    //
+    // The two mistakes are NOT symmetrical, which is what decides the default:
+    //   creating when they meant edit  → a spare list. Annoying, deletable.
+    //   editing when they meant create → someone's existing list is mutated.
+    // So an ambiguous call creates, and only an explicit, resolvable target
+    // edits.
+    mode: z
+      .enum(['create', 'edit'])
+      .optional()
+      .describe(
+        "'create' makes a NEW list and never touches an existing one, even if a list of the " +
+          "same name is already there. 'edit' changes the list named by list_id and never " +
+          'creates. Say which — if you leave it out it is inferred from list_id, and an ' +
+          'inference is how an existing list gets written to by accident.',
+      ),
+    list_id: z
+      .string()
+      .optional()
+      .describe(
+        'The list to EDIT, by UUID or by its exact name. Leave it out to create a new one. ' +
+          "Ignored entirely when mode is 'create'.",
+      ),
     name: z.string().max(120).optional().describe('List name — required when creating; renames when editing.'),
     kind: z
       .enum(KINDS)
@@ -336,18 +365,52 @@ const editListTool = defineTool({
     dry_run: z.boolean().default(true).describe('true (default): only print what would happen. false: execute.'),
   }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  handler: async ({ list_id, name, kind, add_cards, add_missing, remove_item_ids, restore, dry_run }, ctx) => {
+  handler: async ({ mode, list_id, name, kind, add_cards, add_missing, remove_item_ids, restore, dry_run }, ctx) => {
     try {
       // STRICT: this adds to, removes from and renames a list. A fuzzy hit
       // would edit a list that merely sounded like the one they meant.
       let resolvedId: string | null = null;
-      const givenList = presentRef(list_id);
+      // ── "new" MEANS CREATE, BECAUSE MODELS FILL FIELDS RATHER THAN OMIT ──
+      //
+      // Creating is documented as "omit list_id", and omitting is the one thing
+      // a model reliably will not do. Measured: asked to make a list, he sent
+      // `list_id: 'new'`, was told no list matches it, and then sent the NAME OF
+      // THE LIST HE WAS ASKING US TO CREATE — which cannot exist yet. The turn
+      // died with no answer. See `meansCreate`.
+      //
+      // ── AND `mode` OVERRIDES BOTH ────────────────────────────────────────
+      //
+      // `mode: 'create'` discards the id entirely. That is the fix for the
+      // reported bug: "make a new list called X" while a list called X already
+      // exists must not become "append to X". A restore is always an edit —
+      // there is nothing to create.
+      const wantsCreate = !restore && (mode === 'create' || (mode !== 'edit' && meansCreate(list_id)));
+      const givenList = wantsCreate ? undefined : presentRef(list_id);
+      if (mode === 'edit' && !givenList) {
+        return fail(
+          "mode 'edit' needs list_id — which list? Call `lists` to see them with their ids, " +
+            "or use mode 'create' with a name to make a new one.",
+        );
+      }
       if (givenList) {
         // `deleted: restore` — a list being RESTORED is in the recycle bin, and
         // the live index excludes it. Without this the restore route documented
         // in `delete_list`'s own success message could never resolve.
         const picked = await needList(ctx, givenList, { strict: true, deleted: restore });
-        if (!picked.ok) return fail(picked.message);
+        if (!picked.ok) {
+          // ── AND IF IT STILL DOES NOT RESOLVE, SAY HOW TO CREATE ───────────
+          //
+          // Deliberately NOT "create it for them". This is a write, and writes
+          // in this package do not act on a guess — an unresolvable id plus a
+          // name could equally be a typo against an existing list. But the
+          // failure must carry its own recovery, which is the rule the
+          // `sv3pt5` loop was written into this codebase to enforce: one extra
+          // call with the right shape beats a dead end.
+          const how = name
+            ? ` To CREATE a new list called '${name}' instead, call edit_list again with NO list_id at all.`
+            : ' To CREATE a new list, call edit_list with no list_id and a name.';
+          return fail(picked.message + how);
+        }
         resolvedId = picked.value.id;
       }
 
@@ -363,10 +426,28 @@ const editListTool = defineTool({
       }
 
       let current: ListDetail | null = null;
+      /** Creating one that shares a name with a list they already have. */
+      let nameCollision = false;
       if (resolvedId) {
         current = (await ctx.api.get(`/lists/${encodeURIComponent(resolvedId)}`)) as ListDetail;
       } else if (!name) {
         return fail('name is required to create a list.');
+      } else {
+        // ── IS THERE ALREADY ONE OF THESE? ─────────────────────────────────
+        //
+        // Not to block it — they asked for a new list and they get one — but so
+        // the approval card can SAY it. "Make a list called X" when X exists is
+        // exactly the moment the old behaviour quietly appended instead, and a
+        // reader who can see the collision can stop it.
+        //
+        // One extra read, only on the create path.
+        try {
+          const all = (await ctx.api.get('/lists')) as { lists: ListSummary[] };
+          const want = name.trim().toLowerCase();
+          nameCollision = (all.lists ?? []).some((l) => l.name.trim().toLowerCase() === want);
+        } catch {
+          // A warning we could not compute is not a reason to fail the write.
+        }
       }
       const listKind = current?.list.kind ?? kind;
 
@@ -397,8 +478,33 @@ const editListTool = defineTool({
 
       // ── Plan ─────────────────────────────────────────────────────────────
       const plan: string[] = [];
-      if (!current) plan.push(`create ${listKind} list '${name!}'`);
-      else if (name !== undefined && name !== current.list.name) plan.push(`rename '${current.list.name}' → '${name}'`);
+      // ── THE TARGET IS ALWAYS THE FIRST LINE ──────────────────────────────
+      //
+      // It used to be named only when CREATING. So an append read as
+      //
+      //     Would:  add Blastoise ex   add Tatsugiri   add Sinistcha ex
+      //
+      // with nothing anywhere saying which list was about to receive them —
+      // and the reader approved it. That is how cards ended up appended to an
+      // existing list when a new one was asked for: the dialog could not have
+      // shown the difference, because the difference was never written down.
+      //
+      // Now the first line always says which it is, by name, so "create" and
+      // "add to the list you already had" cannot look alike on the card.
+      if (!current) {
+        plan.push(`CREATE a new ${listKind} list called '${name!}'`);
+        // A name collision is the reader's call, not ours: they asked for a new
+        // list, so they get one — but they are told, on the dialog, before they
+        // agree to it.
+        if (nameCollision) {
+          plan.push(
+            `  (heads up: you already have a list called '${name!}' — this makes a SECOND one, it does not add to that one)`,
+          );
+        }
+      } else {
+        plan.push(`ADD TO your existing list '${current.list.name}' (${current.items.length} item(s) already in it)`);
+        if (name !== undefined && name !== current.list.name) plan.push(`rename '${current.list.name}' → '${name}'`);
+      }
       for (const a of adds) {
         plan.push(a.ok ? `add ${a.label}` : `add ${a.label} — UNRESOLVABLE: ${a.error}`);
         if (!a.ok && a.detail) for (const d of a.detail) plan.push(`     ${d}`);
