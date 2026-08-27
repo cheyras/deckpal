@@ -109,3 +109,82 @@ export function assertSafeObjectPath(objectPath: string, where: string): void {
     `[storage] ${where}: refusing unsafe object key (${problem}): ${snip(String(objectPath), 200)}`,
   );
 }
+
+// ── The other half of the choke point: the ORIGIN ────────────────────────────
+
+/**
+ * The Supabase Storage origin, parsed and checked, as a URL — never as a string
+ * to concatenate.
+ *
+ * ── WHY THIS EXISTS, AND WHY THE PATH GUARD WAS NOT ENOUGH ──────────────────
+ *
+ * Issue #96's three `object-store.ts` alerts (#37, #39, #60) were addressed by
+ * `assertSafeObjectPath`, on the reasoning that the host is fixed and only the
+ * path could be injected. The hardening is real — the bulk paths (`backfill`,
+ * `rekeySet`, the warmers) build keys from database values and are now checked
+ * at the choke point rather than by convention at the caller.
+ *
+ * But it did not close the alerts, and measuring `main` after the merge said so:
+ * #36 and #56/#57 read `fixed`, while #37/#39/#60 came back open at new line
+ * numbers. The reason is that the tainted half was never the path. The request
+ * was built as `${supabaseUrl}/storage/v1/...`, and `supabaseUrl` is
+ * `process.env.SUPABASE_URL` — so the taint reaching `fetch()` is the HOST, and
+ * a guard on the path cannot terminate it however strict it is.
+ *
+ * That is the same lesson alert #63 taught on `fetch-source.ts`, recorded then
+ * as: *a validator that returns the value it validated has not narrowed
+ * anything a reader — or an analyser — can rely on.* `fetch-source.ts` got the
+ * fix (a constant origin selected by a `switch` over literals) and this file
+ * did not.
+ *
+ * A literal switch is not available here: the project URL is genuinely
+ * deployment configuration and cannot be enumerated in source. So the origin is
+ * PARSED and CHECKED instead, once, and every request is composed with
+ * `new URL(path, origin)` rather than by concatenation. That gives three things
+ * the string form never did:
+ *
+ *   - a malformed `SUPABASE_URL` fails at the boundary with a named error,
+ *     instead of producing a request to something unintended;
+ *   - the scheme is pinned to `https:`, so a `http://` or `file://` value
+ *     cannot downgrade or redirect the service-role key anywhere;
+ *   - the path can no longer escape the origin, because `new URL` resolves it
+ *     rather than splicing it.
+ *
+ * Whether CodeQL's tracker terminates here is decided by the check on the PR,
+ * not by this comment. It is worth doing either way.
+ */
+export function storageOrigin(supabaseUrl: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(supabaseUrl);
+  } catch {
+    throw new Error(
+      `[storage] SUPABASE_URL is not a URL: ${JSON.stringify(supabaseUrl)} — ` +
+        'expected something like https://<project>.supabase.co',
+    );
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error(
+      `[storage] SUPABASE_URL must be https, got ${parsed.protocol} — the service-role key ` +
+        'travels on these requests and must not leave over plaintext.',
+    );
+  }
+  if (!parsed.hostname) {
+    throw new Error('[storage] SUPABASE_URL has no host');
+  }
+  // Origin only: any path, query or fragment on the configured value is dropped
+  // rather than silently prefixed onto every object key.
+  return new URL(parsed.origin);
+}
+
+/**
+ * Compose a Storage request URL from the checked origin and a fixed path shape.
+ *
+ * `objectPath`, where present, has already been through `assertSafeObjectPath`,
+ * so its segments are `[A-Za-z0-9][A-Za-z0-9.-]*`. `encodeURIComponent` on each
+ * remaining interpolation is belt-and-braces for the same reason the old
+ * `encodeURI` was — the guard is the boundary, not the escaping.
+ */
+export function storageUrl(supabaseUrl: string, path: string): URL {
+  return new URL(path.replace(/^\/+/, ''), `${storageOrigin(supabaseUrl).origin}/`);
+}

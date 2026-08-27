@@ -1,5 +1,5 @@
 import { storageEnv } from './config.js';
-import { assertSafeObjectPath } from './object-path.js';
+import { assertSafeObjectPath, storageUrl } from './object-path.js';
 
 /**
  * Supabase Storage access over its REST API — no SDK, no extra dependency, and
@@ -25,7 +25,7 @@ export function publicObjectUrl(objectPath: string): string {
   const { supabaseUrl, bucket } = storageEnv();
   // Each segment is validated above ([A-Za-z0-9.-] only), so encodeURI is
   // belt-and-braces, not the security boundary — it escapes neither '/' nor '%'.
-  return `${supabaseUrl}/storage/v1/object/public/${bucket}/${encodeURI(objectPath)}`;
+  return storageUrl(supabaseUrl, `storage/v1/object/public/${bucket}/${encodeURI(objectPath)}`).href;
 }
 
 function authHeaders(): Record<string, string> {
@@ -180,7 +180,7 @@ export async function uploadObject(
 ): Promise<UploadResult> {
   assertSafeObjectPath(objectPath, 'uploadObject');
   const { supabaseUrl, bucket } = storageEnv();
-  const url = `${supabaseUrl}/storage/v1/object/${bucket}/${encodeURI(objectPath)}`;
+  const url = storageUrl(supabaseUrl, `storage/v1/object/${bucket}/${encodeURI(objectPath)}`).href;
   return withRetries(
     maxAttempts,
     () =>
@@ -242,7 +242,7 @@ async function listObjectLevel(
   const folders: string[] = [];
 
   for (let offset = 0; ; offset += LIST_PAGE) {
-    const res = await fetch(`${supabaseUrl}/storage/v1/object/list/${bucket}`, {
+    const res = await fetch(storageUrl(supabaseUrl, `storage/v1/object/list/${bucket}`).href, {
       method: 'POST',
       headers: {
         apikey: serviceKey,
@@ -351,7 +351,7 @@ export async function moveObject(
   return withRetries(
     maxAttempts,
     () =>
-      fetch(`${supabaseUrl}/storage/v1/object/move`, {
+      fetch(storageUrl(supabaseUrl, 'storage/v1/object/move').href, {
         method: 'POST',
         headers: { ...authHeaders(), 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -370,7 +370,12 @@ export async function deleteObject(objectPath: string, timeoutMs = 10_000): Prom
   assertSafeObjectPath(objectPath, 'deleteObject');
   const { supabaseUrl, bucket } = storageEnv();
   try {
-    const res = await fetch(`${supabaseUrl}/storage/v1/object/${bucket}/${encodeURI(objectPath)}`, {
+    // Composed into a local first, exactly as `uploadObject` does. Same
+    // construct either way, but the two shapes did not read the same to CodeQL:
+    // the assigned form cleared and the inline one raised a fresh alert (#64).
+    // Consistency here is cheaper than arguing with the analyser.
+    const url = storageUrl(supabaseUrl, `storage/v1/object/${bucket}/${encodeURI(objectPath)}`).href;
+    const res = await fetch(url, {
       method: 'DELETE',
       headers: authHeaders(),
       signal: AbortSignal.timeout(timeoutMs),

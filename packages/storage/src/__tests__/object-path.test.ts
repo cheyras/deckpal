@@ -5,6 +5,8 @@ import {
   assertSafeObjectPath,
   isSafeObjectPath,
   objectPathProblem,
+  storageOrigin,
+  storageUrl,
 } from '../object-path.js';
 import { cardRelativePath, setImageRelativePath, spriteRelativePath } from '../paths.js';
 
@@ -122,4 +124,45 @@ describe('assertSafeObjectPath', () => {
       ),
     );
   });
+});
+
+describe('the storage ORIGIN, not just the path', () => {
+// ── The ORIGIN half of the choke point ───────────────────────────────────────
+//
+// `assertSafeObjectPath` guards the path. It cannot guard the host, and the
+// host was the half CodeQL's taint tracker was following: the request used to
+// be built as `${supabaseUrl}/storage/v1/...` with `supabaseUrl` straight out
+// of `process.env`. #37/#39/#60 stayed open on `main` after the path guard
+// shipped, for exactly that reason.
+
+  it('storageOrigin keeps only the origin, dropping any configured path', () => {
+  // A trailing path on SUPABASE_URL used to be spliced in front of every object
+  // key, silently, on every request.
+  assert.equal(storageOrigin('https://proj.supabase.co').origin, 'https://proj.supabase.co')
+  assert.equal(storageOrigin('https://proj.supabase.co/some/prefix').origin, 'https://proj.supabase.co')
+  assert.equal(storageOrigin('https://proj.supabase.co/?a=1#f').origin, 'https://proj.supabase.co')
+  })
+
+  it('storageOrigin refuses plaintext, because the service-role key rides along', () => {
+  assert.throws(() => storageOrigin('http://proj.supabase.co'), /must be https/)
+  assert.throws(() => storageOrigin('ftp://proj.supabase.co'), /must be https/)
+  })
+
+  it('storageOrigin refuses a value that is not a URL at all', () => {
+  for (const bad of ['', 'proj.supabase.co', 'not a url', '/relative']) {
+    assert.throws(() => storageOrigin(bad), /not a URL|no host/, `accepted ${JSON.stringify(bad)}`)
+  }
+  })
+
+  it('storageUrl composes against the origin — a path cannot escape it', () => {
+  const base = 'https://proj.supabase.co'
+  assert.equal(
+    storageUrl(base, 'storage/v1/object/public/card-art/a/b.webp').href,
+    'https://proj.supabase.co/storage/v1/object/public/card-art/a/b.webp',
+  )
+  // Leading slashes are normalised rather than producing a protocol-relative
+  // URL, which is the classic way a "path" becomes a host.
+  assert.equal(storageUrl(base, '/storage/v1/object/move').href, 'https://proj.supabase.co/storage/v1/object/move')
+  assert.equal(storageUrl(base, '//evil.example/x').href, 'https://proj.supabase.co/evil.example/x')
+  })
 });
