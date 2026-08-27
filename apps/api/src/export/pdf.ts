@@ -31,6 +31,19 @@ const ACCENT = '#b91c1c'; // DeckPal red (UI-SPEC brand) for the title accent ba
 const OWNED = '#166534'; // dark green check — legible in B&W too
 const F = { reg: 'Helvetica', bold: 'Helvetica-Bold', italic: 'Helvetica-Oblique' };
 
+/**
+ * The product name, as it appears to a reader of an exported PDF: the header
+ * brand mark, the footer stamps, and the document's Author metadata.
+ *
+ * One constant rather than five literals, because that is precisely how this
+ * broke: the pokédex → DeckScout → DeckPal renames swept the stamps and the
+ * Author field and missed the header's literal, so every export shipped a
+ * brand from two names ago (issue #92). A rename now has one place to land.
+ * NOT for the `pokedex_binder` list kind or its "Pokédex binder" label — those
+ * name the dex feature, which kept its name.
+ */
+const BRAND = 'DeckPal';
+
 type Doc = PDFKit.PDFDocument;
 
 function beginDoc(stream: Writable, title: string): Doc {
@@ -38,7 +51,7 @@ function beginDoc(stream: Writable, title: string): Doc {
     size: PAGE.size,
     margin: PAGE.margin,
     bufferPages: true,
-    info: { Title: title, Author: 'DeckPal', Creator: 'deckpal-api' },
+    info: { Title: title, Author: BRAND, Creator: 'deckpal-api' },
   });
   doc.pipe(stream);
   return doc;
@@ -47,7 +60,7 @@ function beginDoc(stream: Writable, title: string): Doc {
 const contentWidth = (doc: Doc): number => doc.page.width - doc.page.margins.left - doc.page.margins.right;
 const bottomLimit = (doc: Doc): number => doc.page.height - doc.page.margins.bottom;
 
-/** Title band: red accent bar + title + right-aligned "pokédex" brand mark, then meta lines. */
+/** Title band: red accent bar + title + right-aligned BRAND mark, then meta lines. */
 function header(doc: Doc, title: string, meta: string[]): void {
   const x = doc.page.margins.left;
   const w = contentWidth(doc);
@@ -57,7 +70,7 @@ function header(doc: Doc, title: string, meta: string[]): void {
   doc.fillColor(INK).font(F.bold).fontSize(19).text(title, x + 14, doc.y + 1, { width: w - 90, lineBreak: false, ellipsis: true });
   // brand mark, right-aligned on the title baseline
   const brandY = doc.y - 22;
-  doc.font(F.bold).fontSize(11).fillColor(ACCENT).text('pokédex', x, brandY + 6, { width: w, align: 'right' });
+  doc.font(F.bold).fontSize(11).fillColor(ACCENT).text(BRAND, x, brandY + 6, { width: w, align: 'right' });
   doc.moveDown(0.5);
   doc.font(F.reg).fontSize(9).fillColor(MUTED);
   for (const line of meta) doc.text(line, x, doc.y, { width: w });
@@ -241,7 +254,7 @@ export interface SetChecklistData {
 
 export function renderDeckPdf(stream: Writable, d: DeckPdfData): void {
   const doc = beginDoc(stream, `${d.name} — deck`);
-  const stamp = `DeckPal · deck export · ${d.generatedAt}`;
+  const stamp = `${BRAND} · deck export · ${d.generatedAt}`;
   header(doc, d.name, [
     `Format: ${d.formatName}${d.glcType ? ` (${d.glcType})` : ''}`,
     `${d.counts.total} cards · ${d.counts.pokemon} Pokémon · ${d.counts.trainer} Trainer · ${d.counts.energy} Energy · ${d.counts.distinctNames} unique`,
@@ -306,7 +319,7 @@ export function renderDeckPdf(stream: Writable, d: DeckPdfData): void {
 
 export function renderListPdf(stream: Writable, d: ListPdfData): void {
   const doc = beginDoc(stream, `${d.name} — list`);
-  const stamp = `DeckPal · list export · ${d.generatedAt}`;
+  const stamp = `${BRAND} · list export · ${d.generatedAt}`;
   const kindLabel = d.kind === 'pokedex_binder' ? 'Pokédex binder' : d.kind.charAt(0).toUpperCase() + d.kind.slice(1);
   header(doc, d.name, [
     `${kindLabel} list · ${d.itemCount} ${d.itemCount === 1 ? 'entry' : 'entries'}` +
@@ -344,7 +357,7 @@ export function renderListPdf(stream: Writable, d: ListPdfData): void {
 
 export function renderSetChecklistPdf(stream: Writable, d: SetChecklistData): void {
   const doc = beginDoc(stream, `${d.setName} — set checklist`);
-  const stamp = `DeckPal · set checklist · ${d.generatedAt}`;
+  const stamp = `${BRAND} · set checklist · ${d.generatedAt}`;
   header(doc, d.setName, [
     `${d.seriesName} · ${d.setId}${d.releasedOn ? ` · released ${d.releasedOn}` : ''}`,
     `${d.progress.owned}/${d.progress.total} owned (${d.progress.pct}%) · ${d.printedCount} printed${d.total > d.printedCount ? ` + ${d.total - d.printedCount} secret` : ''}`,
