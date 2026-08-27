@@ -19,7 +19,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { setAliases, banList } from '../data.js';
+import { setAliases, banList, glcRules } from '../data.js';
 import type { FormatCode } from '../types.js';
 
 const RETIRED_TG_IDS = ['swsh9.5tg', 'swsh10.5tg', 'swsh11.5tg', 'swsh12.5tg'];
@@ -41,6 +41,20 @@ test('no retired Trainer Gallery set id appears anywhere in ptcgl-set-alias.json
       `alias "${code}" still points at retired set id "${alias.set}"`,
     );
   }
+});
+
+test('the GLC Classic Collection carve-out is keyed on the set id the alias table resolves to', () => {
+  // A carve-out keyed on a set id fails SILENTLY if upstream re-keys the set --
+  // the same rename class as the Trainer Gallery incident above, except here the
+  // failure mode is a legality false-negative (an illegal deck reported legal).
+  // Pin it to the same set id the PTCGL alias table maps CEL-CC to.
+  const ccSetId = setAliases()['CEL-CC']?.set;
+  assert.equal(ccSetId, 'cel25cc');
+  const cc = glcRules().set_carveouts.find((c) => c.set === ccSetId);
+  assert.ok(cc, `no GLC set carve-out for the Classic Collection (${ccSetId})`);
+  // DECK-FORMATS §2.3.4 item 5, verbatim: "only Reshiram and Zekrom are legal in GLC".
+  assert.equal(cc!.mode, 'deny_except');
+  assert.deepEqual(cc!.except_names, ['Reshiram', 'Zekrom']);
 });
 
 test('no retired Trainer Gallery set id appears in any banlist', () => {
