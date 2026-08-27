@@ -20,6 +20,62 @@ export function apiBase(): string {
   return process.env.DECKPAL_API_BASE ?? DEFAULT_BASE;
 }
 
+/**
+ * Compose `base` + `path` into a URL that provably still points at deckpal-api.
+ *
+ * WHY THIS IS NOT `base + path` (CodeQL `js/request-forgery` #56/#57). `base` is
+ * deployment configuration, but `path` is assembled at the tool call sites out of
+ * ids that came from a MODEL, which got them from a user. Plain concatenation
+ * means an id containing `?` or `#` stops being a path segment and becomes a
+ * query string or a fragment on an INTERNAL, ALREADY-AUTHENTICATED call —
+ * `read_deck('x?deleted=true')` is not the request the tool believed it was
+ * making. An id containing `../` is worse: it re-points the call at a different
+ * endpoint entirely.
+ *
+ * Host redirection was never reachable here (a `path` beginning `https://` makes
+ * `base + path` a malformed URL, not a hostname swap), so this is parameter
+ * injection rather than SSRF — but the fix for both is the same one CodeQL is
+ * asking for: resolve the URL properly, then check the result.
+ *
+ * Three guarantees, in order:
+ *   1. `path` must be a single-slash absolute path. `//evil.example` is a
+ *      protocol-relative URL to `new URL()`, so it is refused outright rather
+ *      than normalised — nothing here legitimately produces one.
+ *   2. resolution happens against the base's own directory, so the deployment's
+ *      path prefix (`/deckpal/api`) survives. `new URL('/decks', base)` on its
+ *      own would silently drop it and call the wrong endpoint.
+ *   3. the RESULT is checked: same scheme, same host, still underneath the base's
+ *      path. That is what catches a `..` escape, and it is the local,
+ *      terminating barrier the analyser could not previously find.
+ *
+ * The call sites percent-encode their ids as well (`encodeURIComponent`), so a
+ * hostile id is a weird 404 rather than a different request. Both layers, on
+ * purpose: encoding is the fix, this is the backstop for the call site that
+ * forgets.
+ */
+export function resolveApiUrl(base: string, path: string): URL {
+  if (!path.startsWith('/') || path.startsWith('//')) {
+    throw new Error(
+      `deckpal-api path must be an absolute single-slash path, got ${JSON.stringify(
+        path.slice(0, 120),
+      )}`,
+    );
+  }
+  const root = new URL(base.endsWith('/') ? base : `${base}/`);
+  const target = new URL(path.slice(1), root);
+  if (
+    target.protocol !== root.protocol ||
+    target.host !== root.host ||
+    !target.pathname.startsWith(root.pathname)
+  ) {
+    throw new Error(
+      `deckpal-api path ${JSON.stringify(path.slice(0, 120))} resolves outside the configured ` +
+        `API base (${root.origin}${root.pathname}) — refusing to send it`,
+    );
+  }
+  return target;
+}
+
 function isConnRefused(err: unknown): boolean {
   if (err === null || typeof err !== 'object') return false;
   const anyErr = err as { code?: string; cause?: unknown; errors?: unknown[] };
@@ -83,7 +139,7 @@ export function makeApi(
   };
 
   async function request(method: string, path: string, body?: unknown): Promise<unknown> {
-    const url = base + path;
+    const url = resolveApiUrl(base, path);
     const init: RequestInit = {
       method,
       headers: {

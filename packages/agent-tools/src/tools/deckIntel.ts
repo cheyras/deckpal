@@ -338,7 +338,7 @@ const addBattleLogTool = defineTool({
         ),
       ];
       // One cheap read for the running record of the version this landed on.
-      const totals = (await ctx.api.get(`${deckPath(deckId)}/logs?version=${res.attachedToVersion}&pageSize=1`)) as LogsPayload;
+      const totals = (await ctx.api.get(`${deckPath(deckId)}/logs?version=${encodeURIComponent(res.attachedToVersion)}&pageSize=1`)) as LogsPayload;
       lines.push(`v${res.attachedToVersion} record: ${winLoss(totals.totals)} (${totals.totals.total} log(s))`);
       return ok(lines.join('\n'));
     } catch (err) {
@@ -392,7 +392,7 @@ const battleLogsTool = defineTool({
 
       // ── Detail mode ───────────────────────────────────────────────────────
       if (log_id !== undefined) {
-        const { log: l } = (await ctx.api.get(`${deckPath(deckId)}/logs/${log_id}`)) as { log: LogFull };
+        const { log: l } = (await ctx.api.get(`${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`)) as { log: LogFull };
         const p = l.parsed;
         const lines = [
           row(`battle log #${l.id}`, `v${l.deckVersion}`, matchup(l), `played ${day(l.playedAt)}`, `source ${l.source}`),
@@ -437,7 +437,7 @@ const battleLogsTool = defineTool({
       for (const l of res.logs) {
         lines.push(logRow(l));
         if (include_raw) {
-          const full = (await ctx.api.get(`${deckPath(deckId)}/logs/${l.id}`)) as { log: LogFull };
+          const full = (await ctx.api.get(`${deckPath(deckId)}/logs/${encodeURIComponent(l.id)}`)) as { log: LogFull };
           lines.push(`--- raw log #${l.id} ---`, full.log.rawLog, '---');
         }
       }
@@ -519,7 +519,7 @@ const deckHistoryTool = defineTool({
 
       // ── Snapshot mode ─────────────────────────────────────────────────────
       if (version !== undefined) {
-        const v = (await ctx.api.get(`${deckPath(deckId)}/versions/${version}`)) as VersionDetail;
+        const v = (await ctx.api.get(`${deckPath(deckId)}/versions/${encodeURIComponent(version)}`)) as VersionDetail;
         const lines = [
           row(
             `v${v.version}${v.isCurrent ? ' (current)' : ''}`,
@@ -550,8 +550,8 @@ const deckHistoryTool = defineTool({
           if (revert_to === timeline.current) {
             return fail(`deck is already at version ${revert_to} — nothing to revert.`);
           }
-          const target = (await ctx.api.get(`${deckPath(deckId)}/versions/${revert_to}`)) as VersionDetail;
-          const current = (await ctx.api.get(`${deckPath(deckId)}/versions/${timeline.current}`)) as VersionDetail;
+          const target = (await ctx.api.get(`${deckPath(deckId)}/versions/${encodeURIComponent(revert_to)}`)) as VersionDetail;
+          const current = (await ctx.api.get(`${deckPath(deckId)}/versions/${encodeURIComponent(timeline.current)}`)) as VersionDetail;
           // The revert applies the target snapshot on top of the current list —
           // show exactly that diff (the API has no dry-run mode of its own).
           const diff = diffSnapshots(current.cards, target.cards);
@@ -653,9 +653,9 @@ const editBattleLogTool = defineTool({
       if (notes !== undefined) body.notes = notes;
       if (played_at !== undefined) body.playedAt = played_at;
       if (Object.keys(body).length === 0) return fail('edit_battle_log: pass at least one field to change.');
-      const res = (await ctx.api.send('PATCH', `${deckPath(deckId)}/logs/${log_id}`, body)) as { log: LogFull };
+      const res = (await ctx.api.send('PATCH', `${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`, body)) as { log: LogFull };
       const l = res.log;
-      const totals = (await ctx.api.get(`${deckPath(deckId)}/logs?version=${l.deckVersion}&pageSize=1`)) as LogsPayload;
+      const totals = (await ctx.api.get(`${deckPath(deckId)}/logs?version=${encodeURIComponent(l.deckVersion)}&pageSize=1`)) as LogsPayload;
       return ok(
         [
           `Updated battle #${l.id} (v${l.deckVersion}).`,
@@ -691,13 +691,13 @@ const deleteBattleLogTool = defineTool({
       if (!picked.ok) return fail(picked.message);
       const deckId = picked.value.id;
 
-      const res = (await ctx.api.get(`${deckPath(deckId)}/logs/${log_id}`)) as { log: LogFull };
+      const res = (await ctx.api.get(`${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`)) as { log: LogFull };
       const l = res.log;
       const what = row(`battle #${l.id}`, `v${l.deckVersion}`, matchup(l), day(l.playedAt));
       if (dry_run) {
         return ok(`DRY RUN — nothing deleted. Would delete ${what}.\nRe-run with dry_run: false to delete.`);
       }
-      await ctx.api.send('DELETE', `${deckPath(deckId)}/logs/${log_id}`);
+      await ctx.api.send('DELETE', `${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`);
       return ok(`Deleted ${what}.`);
     } catch (err) {
       return fail(`delete_battle_log failed: ${(err as Error).message}`);

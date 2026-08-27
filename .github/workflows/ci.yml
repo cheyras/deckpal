@@ -79,7 +79,11 @@ jobs:
       #
       # Its own step, because CI does not run `pnpm -r test` and an unwired
       # test never runs at all.
-      - name: Variant classification (agent-tools)
+      #
+      # The script globs the whole `src/__tests__` directory, so it also carries
+      # resolve/entities/lists/cardIdentity and — since issue #96 — the self-hop
+      # URL composition (`api-url.test.ts`).
+      - name: Variant classification + agent-tools guards
         run: pnpm --filter @deckpal/agent-tools test:variants
 
       # The MCP wire result. Eleven tools pass metadata to `ok()`, and while the
@@ -123,11 +127,18 @@ jobs:
       - name: Cart, idempotency, batch-fold and soft-delete guards (pure, no DB)
         run: pnpm --filter deckpal-api test:pure
 
-      # The storage package's own pure suites: the path algebra (paths.test.ts)
-      # and the avatar choke point's guards — key shape, accepted magic bytes,
-      # and the record-before-publish ordering that keeps a failed upload from
-      # leaving a row behind (contract B1's shape for user uploads).
-      - name: Storage path algebra + avatar choke point (pure, no DB)
+      # The storage package's own pure suites:
+      #   - the avatar choke point's guards — key shape, accepted magic bytes,
+      #     and the record-before-publish ordering that keeps a failed upload
+      #     from leaving a row behind (contract B1's shape for user uploads);
+      #   - the SSRF boundary added for issue #96 — the upstream host allow-list
+      #     and its per-redirect re-check (fetch-source.test.ts stands up two
+      #     real loopback servers and asserts the non-allow-listed one is
+      #     never contacted), the resolved-address classifier, and the
+      #     object-key guard at every exported Storage function. That suite
+      #     is the compensating control for a class CodeQL flags but cannot
+      #     prove fixed locally.
+      - name: Storage guards — avatar choke point + SSRF boundary (pure, no DB)
         run: pnpm --filter @deckpal/storage test
 
       # JWT verification plus the cloud/self-host identity seam. The live-DB

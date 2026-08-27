@@ -257,6 +257,23 @@ silently serving the index shell (DECISIONS.md 2026-08-10, "Cloud image tier:
 lazy cache-on-demand out of Supabase Storage"). Image transforms (resize,
 format conversion) are available on Pro.
 
+**The fill has a destination control, not only a content check.** The bytes for
+a MISS come from `image_asset.source_url`, and `packages/storage/src/upstream.ts`
+holds the allow-list of hosts that URL is permitted to name — `assets.tcgdex.net`
+and `raw.githubusercontent.com`, the only two any code path derives. It is
+enforced with `redirect: 'manual'` and re-checked on every hop, because a check
+that only ever sees the first URL is bypassed by a `302`; the resolved addresses
+are checked too, so an allow-listed name pointing at loopback or `169.254.169.254`
+is refused. That sits *alongside* the older content check (image content-type
+plus magic-byte sniff), which exists for a different failure —
+`assets.tcgdex.net` answering `200 text/html` for an asset it does not have.
+One is about the body, the other about the destination; neither substitutes for
+the other. The object KEY is likewise checked at each exported Storage function
+rather than only at `parseImagePath`, so the bulk paths that address the bucket
+from database rows get the same guarantee as a request does
+(`packages/storage/src/object-path.ts`). Both were added on 2026-08-27 to close
+GitHub issue #96; `SECURITY.md` records what they do and do not cover.
+
 **But on the cloud the SPA no longer asks the function first.** Since
 DECISIONS.md 2026-08-26 the browser addresses the public object URL DIRECTLY
 (`apps/web/src/lib/cardArt.ts`, applied by `CardImage`, `SpriteTile`, `SetLogo`

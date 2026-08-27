@@ -536,9 +536,17 @@ const editListTool = defineTool({
         };
         targetId = created.list.id;
         lines.push(`Created ${created.list.kind} list '${created.list.name}' — id ${targetId}`);
-      } else if (name !== undefined && name !== current.list.name) {
+      }
+      if (targetId === null) {
+        // Unreachable: `current` only exists when `resolvedId` resolved to it, and
+        // the branch above assigns a freshly created id. Narrowed rather than
+        // asserted, because the alternative was interpolating the STRING 'null'
+        // into every path below — which `/lists/${targetId}` silently did.
+        throw new Error('no list to act on — neither resolved nor created');
+      }
+      if (current && name !== undefined && name !== current.list.name) {
         try {
-          await ctx.api.send('PATCH', `/lists/${targetId}`, { name, source: SOURCE });
+          await ctx.api.send('PATCH', `/lists/${encodeURIComponent(targetId)}`, { name, source: SOURCE });
           lines.push(`  done: rename → '${name}'`);
         } catch (err) {
           failures++;
@@ -557,7 +565,7 @@ const editListTool = defineTool({
       }
       if (resolvedAdds.length > 0 || add_missing) {
         try {
-          const res = (await ctx.api.send('POST', `/lists/${targetId}/items/bulk`, {
+          const res = (await ctx.api.send('POST', `/lists/${encodeURIComponent(targetId)}/items/bulk`, {
             items: resolvedAdds.map((a) => ({
               cardVariantId: a.body.cardVariantId,
               dexId: a.body.dexId,
@@ -593,7 +601,7 @@ const editListTool = defineTool({
 
       for (const id of remove_item_ids ?? []) {
         try {
-          await ctx.api.send('DELETE', `/lists/${targetId}/items/${encodeURIComponent(id)}`);
+          await ctx.api.send('DELETE', `/lists/${encodeURIComponent(targetId)}/items/${encodeURIComponent(id)}`);
           lines.push(`  done: remove item ${id}`);
         } catch (err) {
           failures++;
@@ -601,7 +609,7 @@ const editListTool = defineTool({
         }
       }
 
-      const after = (await ctx.api.get(`/lists/${targetId}`)) as ListDetail;
+      const after = (await ctx.api.get(`/lists/${encodeURIComponent(targetId)}`)) as ListDetail;
       lines.push(
         `${failures ? `${failures} operation(s) FAILED — applied partially. ` : ''}List '${after.list.name}' now has ${after.list.itemCount} item(s).`,
       );

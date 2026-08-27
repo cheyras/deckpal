@@ -1,4 +1,5 @@
 import { storageEnv } from './config.js';
+import { assertSafeObjectPath } from './object-path.js';
 
 /**
  * Supabase Storage access over its REST API — no SDK, no extra dependency, and
@@ -7,12 +8,23 @@ import { storageEnv } from './config.js';
  *
  * The bucket is PUBLIC, so reads are served straight off Supabase's CDN and the
  * function only ever answers a 302 pointing at it. Writes carry the service role.
+ *
+ * THE OBJECT KEY IS CHECKED HERE, in every exported function that takes one.
+ * The host is `process.env.SUPABASE_URL` and is never attacker-controlled, so the
+ * exposure was path injection into a fixed host rather than host redirection —
+ * but the key's allow-list lived in `parseImagePath`, i.e. in the CALLER, and the
+ * bulk paths (`storage:backfill`, `rekey:set`, the warmers) reach these functions
+ * with `relative_path` values read back out of Postgres without passing through
+ * it. `assertSafeObjectPath` makes that an invariant of the function instead of a
+ * convention of its call sites. See `object-path.ts` for the full reasoning and
+ * for why `encodeURI` was never the boundary it looks like.
  */
 
 export function publicObjectUrl(objectPath: string): string {
+  assertSafeObjectPath(objectPath, 'publicObjectUrl');
   const { supabaseUrl, bucket } = storageEnv();
-  // Each segment is already validated by parseImagePath ([A-Za-z0-9.-] only), so
-  // encodeURI is belt-and-braces, not the security boundary.
+  // Each segment is validated above ([A-Za-z0-9.-] only), so encodeURI is
+  // belt-and-braces, not the security boundary — it escapes neither '/' nor '%'.
   return `${supabaseUrl}/storage/v1/object/public/${bucket}/${encodeURI(objectPath)}`;
 }
 
@@ -31,6 +43,9 @@ function authHeaders(): Record<string, string> {
  * HIT), so a cold fill is visible to the very next request.
  */
 export async function objectExists(objectPath: string, timeoutMs = 5_000): Promise<boolean> {
+  // OUTSIDE the try, deliberately: an unsafe key is a bug, not a cache miss, and
+  // must not be swallowed into `false` by the catch below.
+  assertSafeObjectPath(objectPath, 'objectExists');
   try {
     const res = await fetch(publicObjectUrl(objectPath), {
       method: 'HEAD',
@@ -60,6 +75,7 @@ export async function headObject(
   objectPath: string,
   timeoutMs = 5_000,
 ): Promise<StoredObject | null> {
+  assertSafeObjectPath(objectPath, 'headObject'); // outside the try — see objectExists
   try {
     const res = await fetch(publicObjectUrl(objectPath), {
       method: 'HEAD',
@@ -162,6 +178,7 @@ export async function uploadObject(
   timeoutMs = 20_000,
   maxAttempts = 4,
 ): Promise<UploadResult> {
+  assertSafeObjectPath(objectPath, 'uploadObject');
   const { supabaseUrl, bucket } = storageEnv();
   const url = `${supabaseUrl}/storage/v1/object/${bucket}/${encodeURI(objectPath)}`;
   return withRetries(
@@ -327,6 +344,9 @@ export async function moveObject(
   timeoutMs = 20_000,
   maxAttempts = 4,
 ): Promise<UploadResult> {
+  // BOTH keys: a move is two addresses, and only checking one of them checks nothing.
+  assertSafeObjectPath(sourceKey, 'moveObject(source)');
+  assertSafeObjectPath(destinationKey, 'moveObject(destination)');
   const { supabaseUrl, bucket } = storageEnv();
   return withRetries(
     maxAttempts,
@@ -347,6 +367,7 @@ export async function moveObject(
 
 /** Remove an object. Used only to roll back a torn write. */
 export async function deleteObject(objectPath: string, timeoutMs = 10_000): Promise<boolean> {
+  assertSafeObjectPath(objectPath, 'deleteObject');
   const { supabaseUrl, bucket } = storageEnv();
   try {
     const res = await fetch(`${supabaseUrl}/storage/v1/object/${bucket}/${encodeURI(objectPath)}`, {
