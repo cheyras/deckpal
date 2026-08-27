@@ -40,6 +40,7 @@ import { dirname } from 'node:path';
  *   pnpm --filter deckpal-images warm:cloud -- --qualities low
  *   pnpm --filter deckpal-images warm:cloud -- --set sv10 --concurrency 6
  *   pnpm --filter deckpal-images warm:cloud -- --base https://staging.example.com
+ *   pnpm --filter deckpal-images warm:cloud -- --warm-edge   # also fill the CDN
  *
  * IDEMPOTENT AND RESUMABLE. A warm asset answers `302 X-Cache: HIT` and costs one
  * cheap request; only a miss fills. Progress is written to `--state` as it goes,
@@ -62,6 +63,7 @@ interface Args {
   state: string;
   residue: string;
   dryRun: boolean;
+  warmEdge: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -83,6 +85,7 @@ function parseArgs(argv: string[]): Args {
     state: get('state', '.cache/warm-cloud-state.json') as string,
     residue: get('residue', '.cache/warm-cloud-residue.json') as string,
     dryRun: argv.includes('--dry-run'),
+    warmEdge: argv.includes('--warm-edge'),
   };
 }
 
@@ -164,14 +167,45 @@ async function buildWorkList(args: Args): Promise<Job[]> {
 
 type Outcome = 'filled' | 'hit' | 'placeholder' | 'failed';
 
-async function warmOne(job: Job): Promise<{ outcome: Outcome; reason?: string }> {
+async function warmOne(job: Job, warmEdge: boolean): Promise<{ outcome: Outcome; reason?: string }> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      // `manual` so a HIT is one cheap request: we read the tier's answer and
-      // never follow it to the object, which would download the whole image for
-      // no reason on every already-warm card.
+      // `manual` so a HIT is one cheap request: we read the tier's answer without
+      // following it to the object.
+      //
+      // THAT IS ALSO THIS COMMAND'S BLIND SPOT, and it is worth stating plainly
+      // because the original version of this comment called following the
+      // redirect "downloading the whole image for no reason". There is a reason.
+      // Putting an object in the bucket does not put it in the CDN: Supabase
+      // Storage is fronted by Cloudflare, which caches per data centre, on first
+      // request. So a fully warmed bucket can still serve every card slowly the
+      // first time anyone looks at it — measured on production 2026-08-26 against
+      // sets nobody had opened since the warm: first view p50 **1215 ms** with 61
+      // blank-tile-steps while scrolling, second view of the same set p50
+      // **151 ms** and 6. `CF-Cache-Status` goes MISS then HIT. That is an 8x
+      // difference that the bucket-only warm cannot touch.
+      //
+      // `--warm-edge` therefore follows the redirect and reads the body, purely
+      // so the CDN keeps a copy. The bytes are discarded. It costs real bandwidth
+      // (~1.3 GB for the English corpus at both resolutions), so it is opt-in.
+      //
+      // IT WARMS THE DATA CENTRE THAT SERVES THE MACHINE IT RUNS ON, not the
+      // world. Run it from somewhere that shares an edge with the people who will
+      // read the pages; running it in CI warms CI's edge and nobody else's.
       const res = await fetch(job.url, { redirect: 'manual', signal: AbortSignal.timeout(45_000) });
       if (res.status === 302) {
+        if (warmEdge) {
+          const object = res.headers.get('location');
+          if (object) {
+            try {
+              const obj = await fetch(object, { signal: AbortSignal.timeout(45_000) });
+              // Read to completion — a cache only stores what was actually served.
+              await obj.arrayBuffer();
+            } catch {
+              /* the bucket has it; a failed edge fill is a slow read, not a gap */
+            }
+          }
+        }
         return { outcome: res.headers.get('x-cache') === 'FILLED' ? 'filled' : 'hit' };
       }
       if (res.headers.get('x-placeholder') === '1') {
@@ -228,7 +262,7 @@ async function main(): Promise<void> {
         const i = index++;
         if (i >= jobs.length) return;
         const job = jobs[i]!;
-        const { outcome, reason } = await warmOne(job);
+        const { outcome, reason } = await warmOne(job, args.warmEdge);
         counts[outcome]++;
         if (outcome === 'placeholder' || outcome === 'failed') {
           residue.push({ setId: job.setId, cardId: job.cardId, key: job.key, reason: reason ?? '' });
