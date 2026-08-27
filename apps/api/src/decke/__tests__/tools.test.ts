@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { buildTools, CLIENT_TOOLS, isAllowedRoute } from '../tools.js'
+import { buildTools, CLIENT_TOOLS, COSMETIC_TOOLS, SERVER_TOOLS, isAllowedRoute } from '../tools.js'
 import { ROUTE_SHAPE_LINES } from '../prompt.js'
 
 /** `buildTools` only ever calls `write`; nothing here needs a real stream. */
@@ -32,15 +32,53 @@ test('CLIENT_TOOLS is exactly the set of tools with no server-side execute', () 
   )
 })
 
-test('every server-executed tool really does have an execute', () => {
+test('SERVER_TOOLS is exactly the set of tools that DO have an execute', () => {
   const tools = buildTools(noopWriter) as Record<string, { execute?: unknown }>
-  for (const name of ['express', 'showScreen']) {
-    assert.equal(
-      typeof tools[name]?.execute,
-      'function',
-      `${name} runs on the server; without an execute it would be forwarded to a browser that cannot run it`,
-    )
-  }
+  const executed = Object.entries(tools)
+    .filter(([, t]) => typeof t.execute === 'function')
+    .map(([name]) => name)
+    .sort()
+
+  // A deepEqual and not a per-name spot check, which is what this used to be.
+  // The spot check proved each named tool has an execute; it could not notice a
+  // NEW server tool that nobody listed — and `COSMETIC_TOOLS` below is the union
+  // of the two halves, so an unlisted half is a hole in the union.
+  assert.deepEqual(
+    executed,
+    [...SERVER_TOOLS].sort(),
+    'a tool with an `execute` runs on the server whether or not it is listed. ' +
+      'Without an execute it would be forwarded to a browser that cannot run it.',
+  )
+})
+
+/**
+ * The union, and the thing that reads it.
+ *
+ * `narration.ts` strips leaked tool syntax from the reader's speech bubble and
+ * derives its tag alternation from `COSMETIC_TOOLS`. Before that derivation the
+ * list was written out by hand and went stale the day `journey` and `escort`
+ * were added: two of the nine tools could be emitted as prose and reach the
+ * reader untouched, with nothing failing to say so (issue #90).
+ *
+ * The two assertions above already pin each half against the property that
+ * decides it. This pins the union against the registry itself, so the failure
+ * message names the real problem — "a tool exists that the leak filter has
+ * never heard of" — rather than leaving it to be inferred from a halves test.
+ */
+test('COSMETIC_TOOLS is every tool buildTools exposes — the list the leak filter uses', () => {
+  const tools = buildTools(noopWriter) as Record<string, unknown>
+
+  assert.deepEqual(
+    Object.keys(tools).sort(),
+    [...COSMETIC_TOOLS].sort(),
+    'a tool missing from COSMETIC_TOOLS is a tool `narration.ts` will not strip ' +
+      'when the model writes it out as prose instead of calling it.',
+  )
+  assert.equal(
+    new Set(COSMETIC_TOOLS).size,
+    COSMETIC_TOOLS.length,
+    'a duplicate would be harmless in the regex and confusing everywhere else',
+  )
 })
 
 test('the route allowlist keeps /profile out, by both spellings', () => {

@@ -61,14 +61,85 @@
  * DELIBERATELY NARROW
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * Anchored on OUR seven tool names in every form it matches. A general markup
+ * Anchored on OUR OWN tool names in every form it matches. A general markup
  * filter WOULD be the "stripping pass to get wrong" that `tools.ts` warns
  * about: card names contain angle brackets, prices contain `<`, and a filter
  * that eats those is worse than the problem. `<b>` survives.
  * `10% < 15%` survives. `<input name="email">` survives.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * AND NARROW IS NOT THE SAME AS FROZEN
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * This constant used to be a literal, and its comment used to say "OUR SEVEN
+ * tool names" — which was true when it was written and false eight months
+ * later. `journey` and `escort` were added to `buildTools`, nobody came back
+ * here, and a filter whose entire job is to catch leaked tool syntax stopped
+ * catching two of the nine kinds. Nothing failed: no type error, no test, no
+ * log line. The only symptom was a reader seeing `<journey>…</journey>` in a
+ * speech bubble, which is exactly the defect this file exists to remove.
+ *
+ * So it is DERIVED, not written. Adding a tool to `buildTools` extends this
+ * automatically, and `tools.test.ts` pins `COSMETIC_TOOLS` to the tools that
+ * factory actually returns — while `narration.test.ts` goes the other way and
+ * asserts every key of `buildTools(…)` is stripped in all three shapes, reading
+ * the registry rather than the constant. A count in a comment cannot go stale
+ * if there is no count in the comment.
+ *
+ * ── AND THE OTHER 27 ARE HERE TOO, IN ONE SHAPE ONLY ───────────────────────
+ *
+ * The 23 data tools and the 4 deep tools are model-callable and can leak the
+ * same way. An earlier pass left them out ENTIRELY, on the grounds that their
+ * names are ordinary English — `decks`, `lists`, `health`, `revert` — and the
+ * attribute rule strips a whole element on a bare `name="…"` match, so
+ * including them would eat `<input name="decks">`.
+ *
+ * That reasoning is right about the ATTRIBUTE form and wrong as a reason to
+ * exclude them altogether, because the two forms do not carry the same risk.
+ * `<decks>` is not a thing prose contains: a model discussing decks writes the
+ * word, not the word in angle brackets — and this filter already strips
+ * `<express>` and `<click>`, words at least as ordinary, on exactly that
+ * reasoning. So they are matched as ELEMENT NAMES and never as `name="…"`.
+ * See `ELEMENT_ONLY_TAGS`. `<input name="decks">` still survives, and is a test.
  */
 
-const TOOL_TAGS = 'express|showScreen|flyTo|goTo|highlight|scrollToMe|click';
+import { allTools } from '@deckpal/agent-tools';
+import { COSMETIC_TOOLS, DEEP_TOOLS } from './tools.js';
+
+/**
+ * Names matched in EVERY shape, including the `name="…"` attribute form. The
+ * nine cosmetic tools — the ones the model has actually been caught leaking.
+ */
+const TOOL_TAGS = COSMETIC_TOOLS.join('|');
+
+/**
+ * Names matched as an ELEMENT NAME ONLY — never as a `name="…"` attribute.
+ *
+ * ── WHY THESE ARE A SEPARATE LIST AND NOT SIMPLY ADDED ABOVE ────────────────
+ *
+ * The 23 data tools and 4 deep tools are model-callable and can leak the same
+ * way, but their names are ordinary English: `decks`, `lists`, `health`,
+ * `revert`. The attribute rule strips a WHOLE ELEMENT on a bare `name="…"`
+ * match, so folding these into `TOOL_TAGS` would eat `<input name="decks">` and
+ * anything else legitimately carrying one of those words as a field name. That
+ * is the "stripping pass to get wrong" `tools.ts` warns about, and it is why an
+ * earlier pass left them out altogether.
+ *
+ * But out-altogether was too much. The ELEMENT form carries no such risk:
+ * `<decks>` is not a thing prose contains. A model discussing decks writes the
+ * word, not the word in angle brackets — and this filter already strips
+ * `<express>` and `<click>`, words at least as ordinary, on exactly that
+ * reasoning. So the leak is caught in the shape it actually arrives in, and the
+ * ambiguous shape is left alone.
+ *
+ * Derived, not written: `allTools()` is the same registry the MCP server and
+ * Deck-E both serve, and `DEEP_TOOLS` is pinned to `buildDeepTools` by its own
+ * test. Adding a tool anywhere extends this with nowhere else to remember.
+ */
+const ELEMENT_ONLY_TAGS = [...allTools().map((t) => t.name), ...DEEP_TOOLS].join('|');
+
+/** Every name, for the two positions that match an element by its own name. */
+const ANY_TOOL_TAGS = `${TOOL_TAGS}|${ELEMENT_ONLY_TAGS}`;
 
 /**
  * ── THE THREE SHAPES, BECAUSE MATCHING ON TAG NAME WAS NOT ENOUGH ───────────
@@ -95,8 +166,22 @@ const TOOL_TAGS = 'express|showScreen|flyTo|goTo|highlight|scrollToMe|click';
  * So match the SHAPE: an element whose name is one of ours, ANY namespace
  * prefix allowed; or an element that carries `name="<one of ours>"` as an
  * attribute, whatever the element is called. Still narrow — it is anchored on
- * OUR seven names either way — so `<b>` and `10% < 15%` survive, which the
+ * OUR OWN names either way — so `<b>` and `10% < 15%` survive, which the
  * tests check.
+ *
+ * ── AND WHY THE ALTERNATION IS SAFE TO EXTEND ──────────────────────────────
+ *
+ * `TOOL_TAGS` is joined into all four regexes below with no escaping pass, so
+ * two properties have to hold of every name in it, and both are tested:
+ *
+ *   - No regex metacharacter. `narration.test.ts` asserts the shape of every
+ *     name `buildTools` returns; a tool called `get*` would widen these
+ *     patterns rather than fail loudly.
+ *   - No prefix shadowing. A regex alternation is FIRST-MATCH, so a set
+ *     containing both `go` and `goTo` would match `go` inside `<goTo>` — except
+ *     that every use below follows the alternation with `\b`, or with the
+ *     closing quote of a `name="…"`, which forces the backtrack to the longer
+ *     name. `<journeyman>` survives for the same reason, and is a test.
  */
 const NS = '(?:[A-Za-z_][\\w.-]*:)?';
 const NAMED = `name\\s*=\\s*["'](?:${TOOL_TAGS})["']`;
@@ -105,7 +190,7 @@ const NAMED = `name\\s*=\\s*["'](?:${TOOL_TAGS})["']`;
 const TOOL_ELEMENT = new RegExp(
   [
     // <express …>…</express>, <xai:express …>…</xai:express>
-    `<(${NS}(?:${TOOL_TAGS}))\\b[^>]*>[\\s\\S]*?</\\1\\s*>`,
+    `<(${NS}(?:${ANY_TOOL_TAGS}))\\b[^>]*>[\\s\\S]*?</\\1\\s*>`,
     // <function_call name="flyTo">…</function_call>, any element name
     `<(${NS}[\\w.-]+)\\b[^>]*${NAMED}[^>]*>[\\s\\S]*?</\\2\\s*>`,
   ].join('|'),
@@ -114,7 +199,7 @@ const TOOL_ELEMENT = new RegExp(
 
 /** A stray tag with no partner: the tail of a truncated emission. */
 const TOOL_TAG = new RegExp(
-  `</?${NS}(?:${TOOL_TAGS})\\b[^>]*>|</?${NS}[\\w.-]+\\b[^>]*${NAMED}[^>]*>`,
+  `</?${NS}(?:${ANY_TOOL_TAGS})\\b[^>]*>|</?${NS}[\\w.-]+\\b[^>]*${NAMED}[^>]*>`,
   'gi',
 );
 
@@ -128,7 +213,7 @@ const TOOL_TAG = new RegExp(
 const PARAMETER_TAG = new RegExp(`</?${NS}parameter\\b[^>]*>`, 'gi');
 /** An OPENING tool tag. After complete elements are removed, one of these means
  *  an element is still in progress and everything after it must be held. */
-const OPEN_TAG = new RegExp(`^<${NS}(?:${TOOL_TAGS})\\b|^<${NS}[\\w.-]+\\b[^>]*${NAMED}`, 'i');
+const OPEN_TAG = new RegExp(`^<${NS}(?:${ANY_TOOL_TAGS})\\b|^<${NS}[\\w.-]+\\b[^>]*${NAMED}`, 'i');
 
 /**
  * The earliest point from which text must be held back, or -1.
