@@ -533,6 +533,16 @@ password reset will not work for any account at that domain.
 
 ## Path B — Self-host (plain Postgres)
 
+> **Deck-E is not available on this tier.** His turn endpoint is `POST
+> /api/chat`, which exists only as the Vercel serverless function
+> `api/chat.mjs`; `apps/api` serves no Express equivalent, so a self-host
+> deployment has nothing to answer a conversation with. The client gates the
+> entry point off accordingly (`apps/web/src/character/host/entitlement.ts`)
+> rather than drawing a button that fails only after the reader has opened the
+> chat and typed something. Every `DECKE_*` row in the environment table above
+> is cloud-only for the same reason. Nothing else in the product is withheld
+> from this tier.
+
 ### 1. Create the database role and database
 
 ```bash
