@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase, isCloudMode } from './supabase'
+import { readSession } from './authSession'
 
 /**
  * "Is somebody signed in?" — the one answer the catalog UI needs.
@@ -31,10 +32,16 @@ export function useSignedIn(): boolean | undefined {
   useEffect(() => {
     if (!isCloudMode) return
     let live = true
-    // getSession() reads the persisted session out of localStorage, so the
-    // common case settles in a tick with no network round trip.
-    void supabase.auth.getSession().then(({ data }) => {
-      if (live) setSignedIn(!!data.session)
+    // A warm read settles in a tick out of localStorage; a cold one refreshes
+    // over the network first, and that refresh has no timeout of its own
+    // (issue #75, lib/sessionDeadline.ts). Bounded, therefore — and a timeout
+    // leaves this hook at `undefined`, which is already its documented "not
+    // known yet" state. `onLate` settles it if the answer turns up afterwards.
+    const settle = (s: unknown) => {
+      if (live) setSignedIn(!!s)
+    }
+    void readSession(settle).then(({ session, timedOut }) => {
+      if (!timedOut) settle(session)
     })
     const {
       data: { subscription },

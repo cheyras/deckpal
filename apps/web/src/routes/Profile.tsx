@@ -15,6 +15,7 @@ import { DeckeVisibility } from '../components/DeckeVisibility'
 import { Sheet } from '../components/ui/Sheet'
 import { fmtUsd } from '../lib/format'
 import { useLateEntrance } from '../lib/lateEntrance'
+import { signOutBounded } from '../lib/authSession'
 
 const SHOWCASE_KEY = 'deckpal.showcase.v1'
 
@@ -201,7 +202,7 @@ export function Profile() {
                   // treating this browser as mine" — an expiring session does
                   // not, which is why AuthGuard's path leaves the marker alone.
                   forgetReturningVisitor()
-                  await supabase.auth.signOut()
+                  await signOutBounded()
                   // AuthGuard sends a lost session to the same place, so the two
                   // cannot race each other to different pages.
                   navigate({ to: '/signed-out' })

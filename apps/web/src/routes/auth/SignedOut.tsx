@@ -13,16 +13,18 @@
 import { useEffect } from 'react'
 import { Link } from '@tanstack/react-router'
 import { supabase } from '../../lib/supabase'
+import { readSession } from '../../lib/authSession'
 import { AuthPage, CTA_PRIMARY, CTA_QUIET } from './authUi'
 import { StatusPanel } from '../../components/ui/StatusPanel'
+import { signOutBounded } from '../../lib/authSession'
 
 export function SignedOut() {
   // Landing here means the session should be gone. If anything left one behind
   // (a failed signOut, a second tab), clear it locally so "Sign back in" is a
   // real sign-in and not a silent resume of the session you just ended.
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => {
-      if (data.session) void supabase.auth.signOut({ scope: 'local' })
+    void readSession().then(({ session }) => {
+      if (session) void signOutBounded('local')
     })
   }, [])
 
