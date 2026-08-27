@@ -10,7 +10,7 @@ import type {
 } from './types.js';
 import {
   banList, formatConfig, formatsCheckedAt, glcRules,
-  type BanEntry, type FormatConfig,
+  type BanEntry, type FormatConfig, type SetCarveout,
 } from './data.js';
 import { normalizeName } from './names.js';
 import {
@@ -132,14 +132,20 @@ function ruleStandardPool(work: WorkCard[], cfg: FormatConfig, ctx: ValidateCont
   return out;
 }
 
-/** Expanded/GLC: set is BW-onward (prefix) OR mark ∈ pool, OR legal reprint. */
+/**
+ * Expanded/GLC: set is BW-onward (prefix) OR mark ∈ pool, OR legal reprint.
+ * `carvedOut` names cards a format-specific carve-out already takes out of the
+ * pool (GLC, §2.3.6 item 5) — they are reported by that rule, not twice here.
+ */
 function ruleSetAllowancePool(
   work: WorkCard[], cfg: FormatConfig, formatName: string, ctx: ValidateContext,
+  carvedOut?: (card: CardFacts) => boolean,
 ): Violation[] {
   const prefixes = cfg.pool_from_series_prefixes ?? [];
   const out: Violation[] = [];
   for (const w of work) {
     if (cardIsBasicEnergy(w.card)) continue; // basic Energy is always legal (§3.3)
+    if (carvedOut?.(w.card) === true) continue;
     if (setInPool(w.card, prefixes)) continue;
     if (markLegal(w.card, cfg.legal_marks)) continue;
     if (ctx.isInFormatByReprint?.(w.card) === true) continue;
@@ -158,6 +164,65 @@ function ruleSetAllowancePool(
 }
 
 // ── GLC-specific (§2.3) ───────────────────────────────────────────────────────
+
+/**
+ * The set carve-out that DENIES this card, or null if nothing carves it out.
+ *
+ * DECK-FORMATS §2.3.4 item 5: `deny_except` puts a whole printed set outside the
+ * GLC pool except for the enumerated card names — *"The Classic Collection cards
+ * are not permitted in GLC unless they are from Black & White or later … only
+ * Reshiram and Zekrom are legal in GLC."*
+ *
+ * This is a HARD deny: §2.3.6 item 5 defines the GLC pool as BW-onward **minus**
+ * these carve-outs, so it outranks the reprint oracle. That precedence is the
+ * whole point — every Classic Collection card is a fingerprint-identical reprint
+ * of an in-pool print, so an oracle-rescued pool check waves the entire set
+ * through and hands the user a "legal" verdict for an illegal deck.
+ *
+ * Matching is `set` + normalized card NAME, the same keys bans (§2.2) and
+ * exclusive groups (§2.3.4 item 2) use elsewhere in this file. Carve-out modes
+ * other than `deny_except` are left alone rather than guessed at.
+ */
+function glcSetCarveout(card: CardFacts): SetCarveout | null {
+  if (cardIsBasicEnergy(card)) return null; // basic Energy is always legal, any print (§3.3)
+  for (const co of glcRules().set_carveouts) {
+    if (co.mode !== 'deny_except' || co.set !== card.setTcgdexId) continue;
+    if (co.except_names.some((n) => normalizeName(n) === card.normalizedName)) return null;
+    return co;
+  }
+  return null;
+}
+
+/** ["Reshiram","Zekrom"] -> "Reshiram and Zekrom"; [] -> "". */
+function andList(names: string[]): string {
+  if (names.length < 2) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+function ruleSetCarveouts(work: WorkCard[]): Violation[] {
+  const out: Violation[] = [];
+  for (const w of work) {
+    const co = glcSetCarveout(w.card);
+    if (!co) continue;
+    const only = andList(co.except_names);
+    out.push({
+      code: 'NOT_IN_FORMAT',
+      severity: 'error',
+      rule: `GLC excludes ${co.set.toUpperCase()}${only ? ` except ${only}` : ''}.`,
+      message: `${w.card.name} (${w.card.setTcgdexId.toUpperCase()} ${w.card.localId}) is not in the GLC card pool${only ? ` — only ${only} are legal from that set` : ''}.`,
+      scope: 'card',
+      subject: w.card.name,
+      card_ids: [w.card.id],
+      detail: {
+        set: w.card.setTcgdexId,
+        carveout_mode: co.mode,
+        except_names: co.except_names,
+        source_text: co.note,
+      },
+    });
+  }
+  return out;
+}
 
 function ruleTypeCoherence(work: WorkCard[], deckType: PokemonType | null | undefined): Violation[] {
   if (!deckType) return [];
@@ -255,12 +320,18 @@ export function validateDeck(deck: Deck, ctx: ValidateContext = {}): ValidationR
   if (cfg.pool_strategy === 'regulation_mark') {
     violations.push(...ruleStandardPool(work, cfg, ctx));
   } else if (cfg.pool_strategy === 'set_allowance') {
-    violations.push(...ruleSetAllowancePool(work, cfg, cfg.name, ctx));
+    // GLC's pool is the set allowance MINUS its carve-outs (§2.3.6 item 5); the
+    // carved-out cards are reported by ruleSetCarveouts below, not here.
+    const carvedOut = deck.formatCode === 'glc'
+      ? (c: CardFacts) => glcSetCarveout(c) !== null
+      : undefined;
+    violations.push(...ruleSetAllowancePool(work, cfg, cfg.name, ctx, carvedOut));
   }
   violations.push(...ruleBanned(work, deck.formatCode, cfg.name));
 
   // GLC extras
   if (deck.formatCode === 'glc') {
+    violations.push(...ruleSetCarveouts(work));
     violations.push(...ruleTypeCoherence(work, deck.glcType ?? null));
     violations.push(...ruleExclusiveGroups(work));
     violations.push(...ruleNotTournamentLegal(work));

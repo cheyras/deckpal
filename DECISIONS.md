@@ -12884,3 +12884,106 @@ precisely how `TOOL_TAGS` came to say "seven" while the factory returned nine.
 - Adding a data or deep tool extends the filter automatically via `allTools()`.
 - Adding a DEEP tool needs its name in `DEEP_TOOLS`; the test says so if not.
 - The attribute rule stays cosmetic-only. Widening it needs its own evidence.
+## 2026-08-27 — GLC's Classic Collection carve-out is enforced, and it outranks the reprint oracle
+**Decided by:** Claude Opus 5 on behalf of @cheyras
+
+**Decision.** `apps/api/src/deck/formats.ts` gains `ruleSetCarveouts`, which
+enforces the `set_carveouts` block that `glc-rules.json` has carried since the
+data was vendored (DECK-FORMATS §2.3.4 item 5). It runs in the GLC extras and
+emits `NOT_IN_FORMAT` for any `cel25cc` print whose normalized name is not in
+`except_names` — today, anything that is not Reshiram or Zekrom. The
+"vendored, not yet enforced" annotations the 2026-08-24 hygiene pass left on
+`SetCarveout` in `data.ts` are gone, because they are no longer true. Closes
+issue #93, which that pass filed.
+
+**Why it was a real user-facing bug, not dead data.** The GLC pool rule
+(`ruleSetAllowancePool`) passes a card three ways: set prefix, regulation mark,
+or the reprint oracle (§2.1.5). `cel25cc` matches no GLC prefix and its prints
+carry no regulation mark — but **every** Classic Collection card is a
+fingerprint-identical reprint of an older print, which is the exact condition
+the reprint oracle exists to wave through. So against the real catalogue, where
+`db.ts` supplies a live oracle, the whole set validated as GLC-legal: a
+legality **false-negative**, the app telling a user an illegal deck is legal.
+The pure test suite never saw it, because a test with no oracle injected gets a
+`NOT_IN_FORMAT` from the pool rule for an unrelated reason and looks fine. The
+new fixtures inject `isInFormatByReprint: () => true` — the production shape —
+so the carve-out is the only thing standing between the deck and a wrong
+"legal".
+
+**Why the carve-out is a hard deny rather than another pool escape hatch.**
+§2.3.6 item 5 defines the GLC pool as Black & White onward **minus** the
+§2.3.4 carve-outs. Subtraction, not another way in — so the deny is evaluated
+ahead of the oracle, and `ruleSetAllowancePool` now takes an optional
+`carvedOut` predicate and stays quiet about those cards so one illegal card
+produces one violation row, not two saying the same thing.
+
+**Matching keys, stated explicitly, because the mirror-image bug is worse.**
+The deny keys on `setTcgdexId`; the exception keys on `normalizeName(name)` —
+the same keys bans (§2.2) and exclusive groups (§2.3.4 item 2) already use in
+this file. Getting that wrong in the other direction (matching the deny on name
+alone) would fail every Blastoise ever printed — a false *positive*, which is
+worse for a user than the gap being fixed. There is a fixture for exactly that.
+Basic Energy is skipped, per §3.3's unconditional exemption, consistent with
+every other pool rule here. Carve-out `mode`s other than `deny_except` are
+ignored rather than guessed at, so §2.3.4 item 6 (the Pokémon TCG Classic
+fingerprint allow) can be vendored later without this rule mis-reading it.
+
+**Implications.**
+- No new violation code: `NOT_IN_FORMAT` already covers "outside this format's
+  card pool" and the §5.6 enumeration is unchanged, so no API or frontend
+  change rides along. `detail` carries `set`, `carveout_mode`, `except_names`
+  and the vendored note as `source_text`.
+- A GLC deck holding a non-excepted Classic Collection card now reports
+  **Not Legal** where it previously reported legal. That is the fix, but it is
+  a visible verdict change for any stored deck in that shape.
+- `data.test.ts` pins the carve-out's set id to the same id the PTCGL alias
+  table maps `CEL-CC` to. A carve-out keyed on a set id fails **silently** if
+  upstream re-keys the set — the Trainer Gallery rename class, except the
+  failure mode here is the false-negative above rather than a wrong print.
+
+**Verified.** `test:deck` 68/68 (the carve-out fixture fails before the change:
+`expected illegal, got []`, and passes after), plus the full CI-equivalent
+sequence green locally: builds of `@deckpal/db`, `@deckpal/storage`,
+`@deckpal/agent-tools`; workspace-wide `tsc --noEmit`; `test:images` 33,
+`test:decke` 316, `test:variants` 61, `test:adapter` 7, `check-functions` 4/4,
+web `test:decke` 618, `test:insights` 12, `test:pure` 61, storage 11,
+`test:auth` 36, images 8; builds of web and images. No UI change to capture —
+this is a validator verdict, rendered by the existing `LegalityPanel` rows.
+
+---
+
+## 2026-08-27 — GLC §2.3.4 item 6 was never missing, and the `cel25` prefix is not a gap (issue #93 follow-up)
+
+**Decided by:** Claude Opus 5 on behalf of @cheyras
+
+**Decision:** No code or data change. Two things that were carried as deferred
+gaps are recorded as already-correct, and pinned by tests so they stop reading
+as unfinished.
+
+**Item 6 (Pokémon TCG Classic).** It has no row in `glc-rules.json`, which reads
+like the gap item 5 actually had. It is not one. The spec resolves item 6 to
+*"fingerprint-based allow, same primitive as §2.1.5"* — the reprint oracle the
+pool rule already consults — so the rule is live with no vendored data. A
+set-keyed `deny_except` row would be the wrong shape entirely: **item 5 names
+two cards, item 6 names a property.** Two fixtures now prove it, using a
+DISCRIMINATING oracle rather than the always-true one the item-5 tests use,
+because an always-true oracle cannot tell "admits reprints" from "admits
+everything".
+
+**The `cel25` prefix.** GLC's `pool_from_series_prefixes` omits `cel25`, so the
+two cards item 5 excepts reach the pool only via the reprint rule. That looked
+like a second gap. It is what item 5 *says*: *"unless they are from Black &
+White or later"*. Adding `cel25` to the prefix list would admit the whole set,
+which is the opposite of the rule.
+
+**What did need doing was the invariant underneath both.** The oracle is
+optional in `ValidateContext` because pure tests inject their own — load-bearing
+optionality, and also the hole. A caller that forgets it does not get a slightly
+different answer; it reports a legal GLC deck as **illegal**, which is the worse
+direction. A source guard now asserts every production `validateDeck` call
+supplies one; mutation-tested by removing it from `routes/decks.ts`, which the
+guard names.
+
+**Implications.**
+- Do not add `cel25` to GLC's prefix list, and do not vendor an item-6 row.
+- Never call `validateDeck` without the oracle outside a test. The guard says so.
