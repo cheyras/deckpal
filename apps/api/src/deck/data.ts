@@ -68,6 +68,27 @@ export interface ExclusiveGroup {
  * a whole printed set outside the pool except for `except_names`. Enforced by
  * `ruleSetCarveouts` in formats.ts, which subtracts it from the set-allowance
  * pool (§2.3.6 item 5) ahead of the reprint oracle.
+ *
+ * ── ITEM 6 IS NOT MISSING FROM HERE; IT DOES NOT BELONG HERE ────────────────
+ *
+ * §2.3.4 item 6 (Pokémon TCG Classic — *"the exception is for cards printed in
+ * this set as reprints of GLC-legal cards"*) has no row in `glc-rules.json`,
+ * and its absence reads like the gap item 5 used to have. It is not one. The
+ * spec resolves item 6 to *"fingerprint-based allow, same primitive as
+ * §2.1.5"* — the reprint oracle the pool rule already consults — so the rule is
+ * live and needs no vendored data. A set-keyed `deny_except` row would be the
+ * wrong shape: item 5 names two CARDS, item 6 names a PROPERTY.
+ *
+ * The same is true of the two cards item 5 excepts. GLC's
+ * `pool_from_series_prefixes` does not list `cel25`, so CC Reshiram and CC
+ * Zekrom reach the pool only via the reprint rule — which is exactly what item
+ * 5's *"unless they are from Black & White or later"* means. Widening the
+ * prefix list to "fix" that would admit all of `cel25`.
+ *
+ * Both are pinned in `__tests__/formats.test.ts`, along with the invariant they
+ * rest on: every production `validateDeck` call supplies the oracle. Without it
+ * these cards are reported ILLEGAL when they are legal — the worse of the two
+ * directions to be wrong in.
  */
 export interface SetCarveout {
   set: string;
