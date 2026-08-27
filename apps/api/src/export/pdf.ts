@@ -31,6 +31,19 @@ const ACCENT = '#b91c1c'; // DeckPal red (UI-SPEC brand) for the title accent ba
 const OWNED = '#166534'; // dark green check — legible in B&W too
 const F = { reg: 'Helvetica', bold: 'Helvetica-Bold', italic: 'Helvetica-Oblique' };
 
+/**
+ * The product name, as it appears to a reader of an exported PDF: the header
+ * brand mark, the footer stamps, and the document's Author metadata.
+ *
+ * One constant rather than five literals, because that is precisely how this
+ * broke: the pokédex → DeckScout → DeckPal renames swept the stamps and the
+ * Author field and missed the header's literal, so every export shipped a
+ * brand from two names ago (issue #92). A rename now has one place to land.
+ * NOT for the `pokedex_binder` list kind or its "Pokédex binder" label — those
+ * name the dex feature, which kept its name.
+ */
+const BRAND = 'DeckPal';
+
 type Doc = PDFKit.PDFDocument;
 
 function beginDoc(stream: Writable, title: string): Doc {
@@ -38,7 +51,7 @@ function beginDoc(stream: Writable, title: string): Doc {
     size: PAGE.size,
     margin: PAGE.margin,
     bufferPages: true,
-    info: { Title: title, Author: 'DeckPal', Creator: 'deckpal-api' },
+    info: { Title: title, Author: BRAND, Creator: 'deckpal-api' },
   });
   doc.pipe(stream);
   return doc;
@@ -47,7 +60,7 @@ function beginDoc(stream: Writable, title: string): Doc {
 const contentWidth = (doc: Doc): number => doc.page.width - doc.page.margins.left - doc.page.margins.right;
 const bottomLimit = (doc: Doc): number => doc.page.height - doc.page.margins.bottom;
 
-/** Title band: red accent bar + title + right-aligned "pokédex" brand mark, then meta lines. */
+/** Title band: red accent bar + title + right-aligned BRAND mark, then meta lines. */
 function header(doc: Doc, title: string, meta: string[]): void {
   const x = doc.page.margins.left;
   const w = contentWidth(doc);
@@ -57,7 +70,7 @@ function header(doc: Doc, title: string, meta: string[]): void {
   doc.fillColor(INK).font(F.bold).fontSize(19).text(title, x + 14, doc.y + 1, { width: w - 90, lineBreak: false, ellipsis: true });
   // brand mark, right-aligned on the title baseline
   const brandY = doc.y - 22;
-  doc.font(F.bold).fontSize(11).fillColor(ACCENT).text('pokédex', x, brandY + 6, { width: w, align: 'right' });
+  doc.font(F.bold).fontSize(11).fillColor(ACCENT).text(BRAND, x, brandY + 6, { width: w, align: 'right' });
   doc.moveDown(0.5);
   doc.font(F.reg).fontSize(9).fillColor(MUTED);
   for (const line of meta) doc.text(line, x, doc.y, { width: w });
@@ -157,6 +170,69 @@ class ColumnFlow {
 
 // ── Shared row painter for card checklists (checkbox • number • name • rarity) ─
 
+/**
+ * Row geometry for the two exports that print a sub-label under the card name.
+ *
+ * ── THE BUG THESE CONSTANTS EXIST TO CLOSE ───────────────────────────────────
+ *
+ * `rowHeight` was 15 and the sub-label was drawn at `cell.y + 9.5`. Measured
+ * against pdfkit's real metrics rather than guessed at:
+ *
+ *   Helvetica  9pt  currentLineHeight = 8.325
+ *   Helvetica  7pt  currentLineHeight = 6.475
+ *
+ * So the sub-label cleared the name (9.5 > 8.325) — the placement was fine —
+ * but it ran to **9.5 + 6.475 = 15.975 inside a 15pt row**, overflowing by
+ * ~1pt into the top of the next row's name. Every list export and every set
+ * checklist printed that collision on every row carrying a set id or a rarity.
+ *
+ * A single point is easy to dismiss on screen and is exactly the kind of defect
+ * that survives review, but it is a descender's worth of ink landing on the
+ * line below on a page someone prints and ticks off by hand.
+ *
+ * `rowHeight: 15` is the right height for a row that is ONE line of 9pt text,
+ * which is what it was when it was written. Nothing recomputed it when a second
+ * line was added underneath.
+ *
+ * So the geometry is DERIVED rather than typed in: `listRowMetrics()` asks
+ * pdfkit for each font's real line height and stacks them, which means a font
+ * or size change cannot silently reintroduce the overflow — and the regression
+ * test asserts the stack against those same metrics rather than against numbers
+ * copied out of here.
+ *
+ * The cost is ~2pt per row (15 → 17), i.e. about one extra page per fourteen.
+ * That is the price of the two lines not touching, and it is worth paying.
+ */
+export const ROW_NAME_SIZE = 9;
+export const ROW_SUB_SIZE = 7;
+/**
+ * Gap between the bottom of the name's line box and the top of the sub-label.
+ * Chosen so the sub-label lands where it always did (8.325 + 1.2 ≈ the original
+ * 9.5): the placement was never the bug, so it is deliberately not changed.
+ */
+export const ROW_SUB_LEAD = 1.2;
+/** Breathing room below the sub-label. Small: these are dense checklists. */
+export const ROW_SUB_GAP = 1.0;
+
+export interface ListRowMetrics {
+  /** Height of one flow row: name line + lead + sub-label line + gap. */
+  rowHeight: number;
+  /** Top of the sub-label, measured from the row's top. */
+  subLabelY: number;
+}
+
+/**
+ * Measured from the document, not assumed. `currentLineHeight()` accounts for
+ * the font's ascender and descender — exactly the part a bare point size leaves
+ * out, and the part that produced the overflow.
+ */
+export function listRowMetrics(doc: Doc): ListRowMetrics {
+  const nameLine = doc.font(F.reg).fontSize(ROW_NAME_SIZE).currentLineHeight();
+  const subLine = doc.font(F.reg).fontSize(ROW_SUB_SIZE).currentLineHeight();
+  const subLabelY = nameLine + ROW_SUB_LEAD;
+  return { subLabelY, rowHeight: subLabelY + subLine + ROW_SUB_GAP };
+}
+
 function cardRow(
   doc: Doc,
   cell: { x: number; y: number; w: number },
@@ -241,7 +317,7 @@ export interface SetChecklistData {
 
 export function renderDeckPdf(stream: Writable, d: DeckPdfData): void {
   const doc = beginDoc(stream, `${d.name} — deck`);
-  const stamp = `DeckPal · deck export · ${d.generatedAt}`;
+  const stamp = `${BRAND} · deck export · ${d.generatedAt}`;
   header(doc, d.name, [
     `Format: ${d.formatName}${d.glcType ? ` (${d.glcType})` : ''}`,
     `${d.counts.total} cards · ${d.counts.pokemon} Pokémon · ${d.counts.trainer} Trainer · ${d.counts.energy} Energy · ${d.counts.distinctNames} unique`,
@@ -306,7 +382,7 @@ export function renderDeckPdf(stream: Writable, d: DeckPdfData): void {
 
 export function renderListPdf(stream: Writable, d: ListPdfData): void {
   const doc = beginDoc(stream, `${d.name} — list`);
-  const stamp = `DeckPal · list export · ${d.generatedAt}`;
+  const stamp = `${BRAND} · list export · ${d.generatedAt}`;
   const kindLabel = d.kind === 'pokedex_binder' ? 'Pokédex binder' : d.kind.charAt(0).toUpperCase() + d.kind.slice(1);
   header(doc, d.name, [
     `${kindLabel} list · ${d.itemCount} ${d.itemCount === 1 ? 'entry' : 'entries'}` +
@@ -322,7 +398,8 @@ export function renderListPdf(stream: Writable, d: ListPdfData): void {
     return;
   }
 
-  const flow = new ColumnFlow(doc, { columns: 2, gutter: 24, rowHeight: 15 });
+  const rowMetrics = listRowMetrics(doc);
+  const flow = new ColumnFlow(doc, { columns: 2, gutter: 24, rowHeight: rowMetrics.rowHeight });
   for (const it of d.items) {
     const cell = flow.row();
     cardRow(doc, cell, {
@@ -332,7 +409,7 @@ export function renderListPdf(stream: Writable, d: ListPdfData): void {
       qty: d.kind === 'static' ? it.quantity : null,
     });
     if (it.setId) {
-      doc.font(F.reg).fontSize(7).fillColor(MUTED).text(it.setId, cell.x + 15 + 34, cell.y + 9.5, { width: cell.w - 49, lineBreak: false, ellipsis: true });
+      doc.font(F.reg).fontSize(ROW_SUB_SIZE).fillColor(MUTED).text(it.setId, cell.x + 15 + 34, cell.y + rowMetrics.subLabelY, { width: cell.w - 49, lineBreak: false, ellipsis: true });
     }
   }
 
@@ -344,7 +421,7 @@ export function renderListPdf(stream: Writable, d: ListPdfData): void {
 
 export function renderSetChecklistPdf(stream: Writable, d: SetChecklistData): void {
   const doc = beginDoc(stream, `${d.setName} — set checklist`);
-  const stamp = `DeckPal · set checklist · ${d.generatedAt}`;
+  const stamp = `${BRAND} · set checklist · ${d.generatedAt}`;
   header(doc, d.setName, [
     `${d.seriesName} · ${d.setId}${d.releasedOn ? ` · released ${d.releasedOn}` : ''}`,
     `${d.progress.owned}/${d.progress.total} owned (${d.progress.pct}%) · ${d.printedCount} printed${d.total > d.printedCount ? ` + ${d.total - d.printedCount} secret` : ''}`,
@@ -357,12 +434,13 @@ export function renderSetChecklistPdf(stream: Writable, d: SetChecklistData): vo
     return;
   }
 
-  const flow = new ColumnFlow(doc, { columns: 2, gutter: 24, rowHeight: 15 });
+  const rowMetrics = listRowMetrics(doc);
+  const flow = new ColumnFlow(doc, { columns: 2, gutter: 24, rowHeight: rowMetrics.rowHeight });
   for (const c of d.cards) {
     const cell = flow.row();
     cardRow(doc, cell, { number: c.number, name: c.name, owned: c.owned });
     if (c.rarity) {
-      doc.font(F.reg).fontSize(7).fillColor(MUTED).text(c.rarity, cell.x + 15 + 34, cell.y + 9.5, { width: cell.w - 49, lineBreak: false, ellipsis: true });
+      doc.font(F.reg).fontSize(ROW_SUB_SIZE).fillColor(MUTED).text(c.rarity, cell.x + 15 + 34, cell.y + rowMetrics.subLabelY, { width: cell.w - 49, lineBreak: false, ellipsis: true });
     }
   }
 
