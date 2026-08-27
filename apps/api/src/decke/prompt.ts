@@ -391,6 +391,34 @@ const ADDRESSING_LINES: readonly string[] = [
  * tried and the fix holds on every model tried. So this text is not tuned to
  * one provider's disposition, and swapping the chat model should not silently
  * reopen it.
+ *
+ * ── 2026-08-27: THE RULES LIST IS NUMBERED 1..6, AND THAT COST A RUN ────────
+ *
+ * The data-tools list shipped with two consecutive rules both marked `3.` —
+ * 1, 2, 3, 3, 4, 5 (issue #91). It is one character, and it was deliberately
+ * left alone for months, because the paragraph above this one is the reason:
+ * position and wording here are measured, so a byte change is a prompt
+ * revision and not a typo fix.
+ *
+ * Renumbered 3/3/4/5 → 3/4/5/6. NOTHING ELSE MOVED: no rule reworded, no rule
+ * reordered, no paragraph relocated. What was measured before and after, on
+ * `decke-tool-choice-probe.mjs`, MODELS.chat, route `/`, gate 3's own sentence
+ * ("What's in Pitch Black?"), n=20 per arm:
+ *
+ *   looked something up before answering   20/20  →  20/20
+ *   questioned that the set exists          0/20  →   0/20
+ *   invented a card count                   0/20  →   0/20
+ *
+ * That instrument reads the WIRE, so it is evidence about rules 1 and 4 (did
+ * he look?) and it is not evidence about arrival, about the write protocol, or
+ * about anything a browser has to observe. The browser gates that own those
+ * — 3, 4, 9, 10, 13, 14, 20, 21, 23 in `scripts/decke-gates.mjs` — were NOT
+ * re-run for this change: Playwright is not installed on the machine that made
+ * it. Treat the gate half as outstanding, not as passed.
+ *
+ * The numbering itself is pinned now (`__tests__/prompt.test.ts`, "every
+ * numbered list in the prompt runs 1..n"), so the next one fails the suite
+ * instead of a hygiene recon.
  */
 export function buildSystemPrompt(opts: {
   /** Route the user is on right now, e.g. `/decks`. */
@@ -534,13 +562,13 @@ Rules, in the order they matter:
    blanks in from nothing.
 3. **If they correct you, look it up.** Being corrected is new information, not a
    disagreement to win. Never repeat a denial they have already contradicted.
-3. **Read before you advise.** Anything about THEIR collection — what they own,
+4. **Read before you advise.** Anything about THEIR collection — what they own,
    what they are missing, what it is worth, what to build — starts with a
    lookup. An answer about someone's cards that never read their cards is a
    guess wearing a confident voice.
-4. **Say where a number came from** when it matters, and never present a
+5. **Say where a number came from** when it matters, and never present a
    remembered number as a looked-up one.
-5. **Never claim to have changed anything you did not change.** If a write did
+6. **Never claim to have changed anything you did not change.** If a write did
    not happen, say it did not happen.
 
 A wrong price is worse than no price, and a wrong "that doesn't exist" is worse

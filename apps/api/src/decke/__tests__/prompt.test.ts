@@ -78,6 +78,82 @@ test('the non-existence rule is present and names the tools that settle it', () 
   assert.match(flat(p), /[Nn]ever claim to have changed anything you did not change/)
 })
 
+/**
+ * Every ordered list the model is handed is numbered 1..n, once each.
+ *
+ * ── WHY A TYPO GETS A TEST ───────────────────────────────────────────────────
+ *
+ * The data-tools list shipped as 1, 2, 3, 3, 4, 5 — two consecutive rules both
+ * numbered `3.` (issue #91). Nothing broke, which is the problem: this is prose
+ * in a template literal, so no compiler and no other test in this file had an
+ * opinion about it. It survived long enough to be found by a hygiene recon
+ * rather than by the suite.
+ *
+ * It is worth pinning because the list's own header is "Rules, in the order
+ * they matter" — the numbers are the ordering claim, not decoration — and
+ * because renumbering is not free here: `prompt.ts` documents that wording and
+ * even paragraph POSITION are measured artifacts, so the cost of finding the
+ * next one late is a re-measurement, not a one-character edit.
+ *
+ * Numbers are read at column 0 only. Continuation paragraphs inside an item are
+ * indented, so an indented digit is prose, not a marker. A list is taken to
+ * start wherever a `1.` appears, which is how two lists separated by unnumbered
+ * paragraphs stay two lists.
+ */
+const orderedLists = (prompt: string): number[][] => {
+  const lists: number[][] = []
+  for (const line of prompt.split('\n')) {
+    const m = /^(\d+)\. /.exec(line)
+    if (!m) continue
+    const n = Number(m[1])
+    const open = lists[lists.length - 1]
+    if (n === 1 || !open) lists.push([n])
+    else open.push(n)
+  }
+  return lists
+}
+
+test('every numbered list in the prompt runs 1..n with no repeat and no gap', () => {
+  for (const opts of [
+    { route: '/', signedIn: true, dataTools: TOOLS },
+    { route: '/series', signedIn: false, dataTools: TOOLS },
+    { route: '/', signedIn: true },
+  ] as const) {
+    const lists = orderedLists(buildSystemPrompt(opts))
+    for (const list of lists) {
+      assert.deepEqual(
+        list,
+        list.map((_, i) => i + 1),
+        `a numbered list reads ${list.join(', ')} — ${JSON.stringify(opts)}`,
+      )
+    }
+  }
+})
+
+test('the rules that matter most are numbered in the order they matter', () => {
+  // The specific list issue #91 was about, asserted by its own text so a future
+  // reorder has to be deliberate: each rule is pinned to the position the
+  // header promises it occupies.
+  const p = buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS })
+  const rules = p
+    .split('\n')
+    .filter((l) => /^\d+\. \*\*/.test(l))
+    .slice(0, 6)
+  assert.deepEqual(
+    rules.map((l) => l.slice(0, l.indexOf(' '))),
+    ['1.', '2.', '3.', '4.', '5.', '6.'],
+  )
+  const rule = (n: number): string => {
+    const line = rules[n - 1]
+    assert.ok(line, `rule ${n} is missing`)
+    return line
+  }
+  assert.match(rule(1), /Never say a card, set or series does not exist/)
+  assert.match(rule(3), /If they correct you, look it up/)
+  assert.match(rule(4), /Read before you advise/)
+  assert.match(rule(6), /Never claim to have changed anything you did not change/)
+})
+
 test('a signed-out visitor is still told not to promise writes', () => {
   const p = buildSystemPrompt({ route: '/', signedIn: false, dataTools: TOOLS })
   assert.match(flat(p), /NOT signed in/)
