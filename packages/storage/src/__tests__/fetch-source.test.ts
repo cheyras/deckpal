@@ -119,8 +119,7 @@ before(async () => {
   upstreamPort = await listen(upstream);
 
   policy = {
-    allowedHosts: new Set(['127.0.0.1']),
-    protocols: new Set(['https:', 'http:']),
+    originFor: (host) => (host === '127.0.0.1' ? `http://127.0.0.1:${upstreamPort}` : null),
     allowPrivateAddresses: true,
   };
 });

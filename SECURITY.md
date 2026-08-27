@@ -232,7 +232,13 @@ Two outbound paths were hardened on 2026-08-27 (GitHub issue #96, six critical
   the only two hosts any code path can derive — with `redirect: 'manual'` and the
   host re-checked on **every hop**, plus a resolved-address check that refuses
   loopback, RFC1918, CGNAT and link-local answers (`169.254.169.254` included).
-  Non-web schemes and URLs carrying embedded credentials are refused outright.
+  Non-web schemes and URLs carrying embedded credentials are refused outright,
+  as is an explicit port that is not the allow-listed one. The outgoing request
+  is then **rebuilt from a constant origin selected by that hostname** rather
+  than from the URL we were handed, so the scheme, host and port of the socket
+  we open are never derived from the input; only the path survives, and it is
+  checked after one decode against the same `[A-Za-z0-9.-]` id space
+  `parseImagePath` allows.
   The pre-existing content checks (image content-type, magic-byte sniff,
   non-empty, under 8 MB) are unchanged and remain complementary: they catch a
   bad *body* from a good host, the allow-list catches a bad *host*.

@@ -20,15 +20,23 @@ import { lookup } from 'node:dns/promises';
  *     the FINAL url of every hop rather than only on the one we asked for.
  *  2. **The blast radius is unusually bad for an image fetcher.** This runs in
  *     the cloud image function, which holds `SUPABASE_SERVICE_ROLE_KEY`, and on
- *     success the bytes are republished to the PUBLIC card-art bucket at a
- *     guessable path. An SSRF response that passes the sniff is not merely
- *     fetched, it is served back to the internet.
+ *     success the bytes are written to the PUBLIC card-art bucket at a guessable
+ *     path. An SSRF response that passes the sniff is not merely fetched, it is
+ *     served back to the internet.
  *
  * The content checks in `fetch-source.ts` (image content-type, magic bytes,
  * non-empty, under 8 MB) stay exactly as they were. They are complementary, not
  * redundant: they were written to catch TCGdex's `200 text/html` soft-404 and
  * they still do that. What they never were is a destination control, which is
  * what lives here.
+ *
+ * **The origin is SELECTED, not carried.** `originFor` maps a validated hostname
+ * to a constant origin string and the request URL is rebuilt from that constant
+ * plus a character-checked path. Nothing about the host of the outgoing request
+ * is derived from the input — which is both the strongest form of the control
+ * and, not by coincidence, exactly what the CodeQL rule's own guidance asks for
+ * ("Pick the hostname from an allow-list instead of constructing it directly
+ * from user input").
  */
 
 /**
@@ -51,18 +59,21 @@ import { lookup } from 'node:dns/promises';
  * in the bucket and still serve as a `HIT`, but a future refill would answer the
  * placeholder with `host 'assets.pkmn.gg' is not an allow-listed image upstream`
  * instead of silently re-fetching from a source the owner rejected. If that is
- * ever reversed, it is one line here plus a DECISIONS.md entry.
+ * ever reversed, it is one case arm below plus a DECISIONS.md entry.
  */
-export const IMAGE_SOURCE_HOSTS: ReadonlySet<string> = new Set([
+export const IMAGE_SOURCE_HOSTS: readonly string[] = [
   'assets.tcgdex.net',
   'raw.githubusercontent.com',
-]);
+];
 
 export interface UpstreamPolicy {
-  /** Hostnames (exact, lower-case, no port) we will fetch bytes from. */
-  allowedHosts: ReadonlySet<string>;
-  /** URL schemes we will speak. Everything else — `file:`, `data:`, … — is refused. */
-  protocols: ReadonlySet<string>;
+  /**
+   * The constant origin to talk to for this hostname, or `null` to refuse it.
+   * Returning a fixed string rather than echoing the input is the point: the
+   * outgoing request's scheme, host and port come from here, never from the URL
+   * we were handed.
+   */
+  originFor(host: string): string | null;
   /**
    * Skip the resolved-address check. ONLY the tests set this, so that a
    * loopback HTTP server can stand in for an upstream; production must never.
@@ -72,14 +83,36 @@ export interface UpstreamPolicy {
 
 /** The policy the cloud image tier runs under. */
 export const IMAGE_SOURCE_POLICY: UpstreamPolicy = {
-  allowedHosts: IMAGE_SOURCE_HOSTS,
-  // http as well as https because a recorded `source_url` predates this check and
-  // may not be https; the host allow-list is the control, and both allow-listed
-  // hosts are HSTS CDNs that would upgrade anyway. Everything that is not a web
-  // scheme is refused outright.
-  protocols: new Set(['https:', 'http:']),
+  originFor(host: string): string | null {
+    // A literal per arm on purpose. An `http://` stored URL for one of these is
+    // upgraded rather than refused, because both are HTTPS-only CDNs that would
+    // answer a plaintext request with a redirect to exactly this origin anyway.
+    switch (host) {
+      case 'assets.tcgdex.net':
+        return 'https://assets.tcgdex.net';
+      case 'raw.githubusercontent.com':
+        return 'https://raw.githubusercontent.com';
+      default:
+        return null;
+    }
+  },
   allowPrivateAddresses: false,
 };
+
+/**
+ * Characters an upstream asset path may contain, checked AFTER one decode.
+ *
+ * Every path this project can derive is `{lang}/{serie}/{set}/{localId}/{quality}.webp`,
+ * a set logo/symbol base out of `card_set`, or a PokeAPI sprite path — the same
+ * `[A-Za-z0-9.-]` id space `paths.ts` allows, plus separators. Checking the
+ * DECODED form is the point: `URL` percent-encodes almost everything unusual
+ * into `%NN`, so a class that allowed `%` would allow `%00` and `%20` straight
+ * back in. Same rule, same reason, as `parseImagePath` — decode first, validate
+ * after.
+ */
+const UPSTREAM_PATH = /^\/[A-Za-z0-9._~/-]*$/;
+/** Empty, or a query of the same shape. Neither upstream uses one today. */
+const UPSTREAM_QUERY = /^[A-Za-z0-9._~&=/-]*$/;
 
 // ── Address classification ───────────────────────────────────────────────────
 /**
@@ -131,7 +164,7 @@ function ipv6Words(ip: string): number[] | null {
     if (!isIPv4(maybeV4)) return null;
     const o = maybeV4.split('.').map(Number) as [number, number, number, number];
     tail = [(o[0] << 8) | o[1], (o[2] << 8) | o[3]];
-    text = text.slice(0, lastColon + 1) + '0';
+    text = `${text.slice(0, lastColon + 1)}0`;
   }
 
   const halves = text.split('::');
@@ -197,23 +230,30 @@ function abortable<T>(work: Promise<T>, signal: AbortSignal | undefined): Promis
 }
 
 /**
- * Is `raw` a URL we are willing to send a request to?
+ * Decide whether we will talk to `raw`, and return the URL we will actually use.
  *
  * Called on the initial URL AND on the resolved target of every redirect hop —
- * that ordering is the whole point, because a check that only ever sees the first
- * URL passes while the bug it was written for is still there.
+ * that ordering is the whole point, because a check that only ever sees the
+ * first URL passes while the bug it was written for is still there.
  *
- * Three layers, in order of how much they cost:
- *   1. shape — parses, no embedded credentials, a web scheme;
- *   2. host  — an exact match in the allow-list (an IP literal never matches one,
- *              so `http://169.254.169.254/…` is refused right here);
- *   3. address — what the name actually resolves to, so a hijacked or poisoned
- *              record for an allow-listed host cannot point us at the metadata
- *              service. This narrows DNS rebinding but does not eliminate it:
- *              `fetch` resolves the name again when it connects, and nothing here
- *              pins the answer. Closing that fully needs a custom undici
- *              connector that validates the socket's peer address, which is a
- *              bigger change than this one — see DECISIONS.md 2026-08-27.
+ * Layers, cheapest first:
+ *   1. shape   — parses, no embedded credentials, a web scheme;
+ *   2. host    — `policy.originFor` accepts it and hands back a CONSTANT origin.
+ *                An IP literal is never a key, so `http://169.254.169.254/…` is
+ *                refused right here, and so is `assets.tcgdex.net.evil.example`;
+ *   3. port    — an explicit port that is not the allow-listed origin's is
+ *                refused rather than silently rewritten;
+ *   4. path    — a character allow-list on `pathname` and `search`;
+ *   5. address — what the name actually resolves to, so a hijacked or poisoned
+ *                record for an allow-listed host cannot point us at the metadata
+ *                service. This narrows DNS rebinding but does not eliminate it:
+ *                `fetch` resolves the name again when it connects, and nothing
+ *                here pins the answer. Closing that fully needs a custom undici
+ *                connector that validates the socket's peer address, which is a
+ *                bigger change than this one — see DECISIONS.md 2026-08-27.
+ *
+ * The URL that comes back is **rebuilt from the constant origin**, so the
+ * request's scheme, host and port are the allow-list's and not the caller's.
  */
 export async function checkUpstreamUrl(
   raw: string,
@@ -226,7 +266,7 @@ export async function checkUpstreamUrl(
   } catch {
     return { ok: false, reason: `not a parseable URL: ${JSON.stringify(raw.slice(0, 120))}` };
   }
-  if (!policy.protocols.has(url.protocol)) {
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     return { ok: false, reason: `scheme '${url.protocol}' is not fetchable` };
   }
   if (url.username !== '' || url.password !== '') {
@@ -234,22 +274,58 @@ export async function checkUpstreamUrl(
   }
 
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
-  if (!policy.allowedHosts.has(host)) {
+  const origin = policy.originFor(host);
+  if (origin === null) {
     return { ok: false, reason: `host '${host}' is not an allow-listed image upstream` };
   }
-  if (policy.allowPrivateAddresses) return { ok: true, url };
-
-  let addresses: Array<{ address: string }>;
-  try {
-    addresses = await abortable(lookup(host, { all: true, verbatim: true }), signal);
-  } catch (err) {
-    return { ok: false, reason: `could not resolve '${host}': ${(err as Error).message}` };
+  const allowed = new URL(origin);
+  if (url.port !== '' && url.port !== allowed.port) {
+    return { ok: false, reason: `port '${url.port}' is not the allow-listed port for '${host}'` };
   }
-  if (addresses.length === 0) return { ok: false, reason: `'${host}' resolved to no address` };
-  for (const { address } of addresses) {
-    if (isPrivateAddress(address)) {
-      return { ok: false, reason: `'${host}' resolves to non-public address ${address}` };
+  let decodedPath: string;
+  let decodedQuery: string;
+  try {
+    decodedPath = decodeURIComponent(url.pathname);
+    decodedQuery = decodeURIComponent(url.search.replace(/^\?/, ''));
+  } catch {
+    return { ok: false, reason: 'malformed percent-escape in the URL' };
+  }
+  if (!UPSTREAM_PATH.test(decodedPath)) {
+    return {
+      ok: false,
+      reason: `path is not allow-listed: ${JSON.stringify(decodedPath.slice(0, 120))}`,
+    };
+  }
+  if (!UPSTREAM_QUERY.test(decodedQuery)) {
+    return {
+      ok: false,
+      reason: `query is not allow-listed: ${JSON.stringify(decodedQuery.slice(0, 120))}`,
+    };
+  }
+
+  if (!policy.allowPrivateAddresses) {
+    let addresses: Array<{ address: string }>;
+    try {
+      addresses = await abortable(lookup(allowed.hostname, { all: true, verbatim: true }), signal);
+    } catch (err) {
+      return { ok: false, reason: `could not resolve '${host}': ${(err as Error).message}` };
+    }
+    if (addresses.length === 0) return { ok: false, reason: `'${host}' resolved to no address` };
+    for (const { address } of addresses) {
+      if (isPrivateAddress(address)) {
+        return { ok: false, reason: `'${host}' resolves to non-public address ${address}` };
+      }
     }
   }
-  return { ok: true, url };
+
+  // Rebuilt from the CONSTANT origin. `allowed.origin` decides scheme, host and
+  // port; only the character-checked path and query survive from the input.
+  const target = new URL(`${allowed.origin}${url.pathname}${url.search}`);
+  if (target.origin !== allowed.origin) {
+    // Unreachable — the path allow-list contains no separator or authority
+    // characters — but asserted rather than assumed, because this is the line
+    // that decides which machine we open a socket to.
+    return { ok: false, reason: `refusing ${target.origin}: not the allow-listed origin` };
+  }
+  return { ok: true, url: target };
 }

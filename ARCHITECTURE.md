@@ -264,7 +264,9 @@ and `raw.githubusercontent.com`, the only two any code path derives. It is
 enforced with `redirect: 'manual'` and re-checked on every hop, because a check
 that only ever sees the first URL is bypassed by a `302`; the resolved addresses
 are checked too, so an allow-listed name pointing at loopback or `169.254.169.254`
-is refused. That sits *alongside* the older content check (image content-type
+is refused. The request is rebuilt from the allow-list's own constant origin, so
+the host we actually open a socket to is selected rather than carried through.
+That sits *alongside* the older content check (image content-type
 plus magic-byte sniff), which exists for a different failure —
 `assets.tcgdex.net` answering `200 text/html` for an asset it does not have.
 One is about the body, the other about the destination; neither substitutes for

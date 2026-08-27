@@ -12192,3 +12192,31 @@ would have passed while the bug was still there.
   alerts re-evaluate when the workflow runs on the PR. Per B9 no alert was
   dismissed in the UI; that is the maintainer's call, and it should only be
   needed if an alert survives the fix.
+
+### Addendum, same day — the analyser saw five of six, and the sixth said something true
+
+The first push of this change closed alerts #37, #60, #39, #56 and #57 (CodeQL
+run on PR #123: those five gone from `refs/pull/123/merge`), and re-raised the
+`fetch-source.ts` finding as **#63** at the new `fetch()` inside the hop loop.
+That is not a false positive worth arguing with: the check *decided* on the URL
+but then handed the caller back the URL it had been given, so the host of the
+outgoing request was still, literally, a value derived from the input.
+
+Fixed by taking the rule's own advice — *"pick the hostname from an allow-list
+instead of constructing it directly from user input"*. `originFor(host)` returns
+a **constant** origin per allow-listed host, and `checkUpstreamUrl` rebuilds the
+request URL from that constant plus the path. The scheme, host and port of the
+socket we open now come from a `switch` over string literals; only the path
+survives from the input, and it is validated after one `decodeURIComponent`
+against the same `[A-Za-z0-9.-]` id space `parseImagePath` uses — checking the
+decoded form because `URL` percent-encodes anything unusual, so a class that
+allowed `%` would let `%00` and `%20` straight back in. An explicit port that is
+not the allow-listed origin's is refused rather than silently rewritten, and a
+plaintext `http://` URL to one of the two hosts is upgraded rather than refused,
+because both are HTTPS-only CDNs that would answer with a redirect to exactly
+that origin anyway.
+
+Worth writing down as the general lesson: **a validator that returns the value it
+validated has not narrowed anything a reader — or an analyser — can rely on.**
+Returning a value built from the allow-list is a different and stronger claim
+than returning the caller's value with a blessing attached.

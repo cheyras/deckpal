@@ -19,8 +19,7 @@ import {
 
 /** Allows `localhost` so the resolved-address layer can be exercised offline. */
 const localhostPolicy = (allowPrivateAddresses: boolean): UpstreamPolicy => ({
-  allowedHosts: new Set(['localhost']),
-  protocols: new Set(['https:', 'http:']),
+  originFor: (host) => (host === 'localhost' ? 'http://localhost' : null),
   allowPrivateAddresses,
 });
 
@@ -30,13 +29,28 @@ describe('IMAGE_SOURCE_HOSTS', () => {
       'assets.tcgdex.net',
       'raw.githubusercontent.com',
     ]);
+    for (const host of IMAGE_SOURCE_HOSTS) {
+      assert.equal(IMAGE_SOURCE_POLICY.originFor(host), `https://${host}`);
+    }
+  });
+
+  it('hands back a CONSTANT origin rather than echoing the input', async () => {
+    // The host of the outgoing request is chosen from the list, never carried
+    // through from the URL — which is what makes a hostname trick impossible
+    // rather than merely unlikely. Run against the localhost policy so the
+    // assertion needs no DNS; the production constants are pinned above.
+    const res = await checkUpstreamUrl('http://LOCALHOST.:80/en/sv/x.webp', localhostPolicy(true));
+    assert.equal(res.ok, true, res.ok ? '' : res.reason);
+    assert.equal(res.ok && res.url.origin, 'http://localhost');
+    assert.equal(res.ok && res.url.href, 'http://localhost/en/sv/x.webp');
   });
 
   it('does NOT include assets.pkmn.gg — the source ruled out on 2026-08-26', () => {
     // warm:pkmn recorded ~58 image_asset rows against this host before pkmn.gg
     // was ruled out on legal grounds; the rows were never purged. Leaving the
     // host off the list is what enforces that ruling on a refill.
-    assert.equal(IMAGE_SOURCE_HOSTS.has('assets.pkmn.gg'), false);
+    assert.equal(IMAGE_SOURCE_HOSTS.includes('assets.pkmn.gg'), false);
+    assert.equal(IMAGE_SOURCE_POLICY.originFor('assets.pkmn.gg'), null);
   });
 });
 
@@ -71,6 +85,32 @@ describe('checkUpstreamUrl — host allow-list (default policy, no DNS)', () => 
       assert.match(res.ok ? '' : res.reason, reason);
     });
   }
+
+  it('refuses an explicit port that is not the allow-listed one', async () => {
+    const res = await checkUpstreamUrl('https://assets.tcgdex.net:8443/en/sv/x.webp');
+    assert.equal(res.ok, false);
+    assert.match(res.ok ? '' : res.reason, /port '8443' is not the allow-listed port/);
+  });
+
+  it('refuses a path outside the character allow-list', async () => {
+    for (const path of ['/en/sv/x webp', '/en/sv/x|webp', '/en/sv/x%00', '/en/(sv)/x.webp', '/en/sv/x@y']) {
+      const res = await checkUpstreamUrl(`https://assets.tcgdex.net${path}`);
+      assert.equal(res.ok, false, `${path} must be refused`);
+      assert.match(res.ok ? '' : res.reason, /path is not allow-listed|query is not allow-listed/);
+    }
+  });
+
+  it('accepts the paths this project actually derives', async () => {
+    for (const path of [
+      '/en/sv/sv03.5/102/low.webp',
+      '/univ/mc/2021swsh/symbol.webp',
+      '/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/shiny/150.png',
+    ]) {
+      const res = await checkUpstreamUrl(`http://localhost${path}`, localhostPolicy(true));
+      assert.equal(res.ok, true, `${path}: ${res.ok ? '' : res.reason}`);
+      assert.equal(res.ok && res.url.href, `http://localhost${path}`);
+    }
+  });
 
   it('refuses an allow-listed host carrying embedded credentials', async () => {
     const res = await checkUpstreamUrl('https://user:pw@assets.tcgdex.net/x.webp');
