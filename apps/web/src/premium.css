@@ -522,6 +522,21 @@
   animation: px-rise var(--px-dur-slow) var(--px-ease) backwards;
 }
 
+/* The same entrance, for content that arrives AFTER its wrapper (issue #49).
+   The rule above fires when `<Content>` mounts — which is while react-query is
+   still fetching and the wrapper holds nothing but a `<Spinner>`. Measured on
+   a cold cache, `/decks` finished its entrance 927ms in and showed its first
+   deck card at 6985ms: the animation was over six seconds spent on an empty
+   page, which is why the motion layer measurably runs and is still reported as
+   missing. `lib/lateEntrance.ts` puts this class on the part that actually
+   appears, and ONLY when it was late — a warm cache keeps the rule above and
+   must not get two nested rises. Deliberately the same `px-rise` keyframes, so
+   §8's reduced-motion redefinition (fade kept, travel dropped) covers this
+   without a second copy that could drift out of step with it. */
+:root[data-skin='premium'] .px-enter {
+  animation: px-rise var(--px-dur-slow) var(--px-ease) backwards;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
    5. Navigation
    ───────────────────────────────────────────────────────────────────────── */
@@ -918,7 +933,8 @@
       opacity: 1;
     }
   }
-  :root[data-skin='premium'] .app-content > * {
+  :root[data-skin='premium'] .app-content > *,
+  :root[data-skin='premium'] .px-enter {
     animation-duration: var(--px-dur);
   }
 
