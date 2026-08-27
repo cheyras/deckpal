@@ -16,6 +16,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { supabase, isCloudMode } from '../lib/supabase'
+import { readSession } from '../lib/authSession'
 import { api } from '../lib/api'
 import { Icon } from '../components/Icon'
 import { Spinner } from '../components/ui'
@@ -64,7 +65,20 @@ export function Authorize() {
 
   useEffect(() => {
     if (!isCloudMode) return
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    let live = true
+    // Bounded (lib/sessionDeadline.ts). A TIMEOUT MUST NOT SET `null` HERE: the
+    // effect below reads `null` as "signed out" and navigates away, and this
+    // page is mid-OAuth-handshake — bouncing a signed-in visitor to /auth over
+    // a slow network would restart a flow their client is waiting on. Stay
+    // `undefined` (the spinner) and let `onLate` settle it if it arrives.
+    void readSession((s) => {
+      if (live) setSession(s)
+    }).then(({ session: s, timedOut }) => {
+      if (live && !timedOut) setSession(s)
+    })
+    return () => {
+      live = false
+    }
   }, [])
 
   useEffect(() => {

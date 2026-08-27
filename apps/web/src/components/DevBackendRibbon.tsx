@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { readSession } from '../lib/authSession'
 
 // A dev server that talks to production is the useful default (AGENTS.md B12),
 // and it is also the one that can quietly delete somebody's real collection.
@@ -20,8 +21,10 @@ export function DevBackendRibbon() {
   useEffect(() => {
     if (!LIVE_ORIGIN) return
     let alive = true
-    supabase.auth.getSession().then(({ data }) => {
-      if (alive) setEmail(data.session?.user?.email ?? null)
+    // Bounded (lib/sessionDeadline.ts). A stalled read leaves the ribbon
+    // saying "signed out", which is the honest answer to "we could not ask".
+    void readSession().then(({ session }) => {
+      if (alive) setEmail(session?.user?.email ?? null)
     })
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       if (alive) setEmail(session?.user?.email ?? null)

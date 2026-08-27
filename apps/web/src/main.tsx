@@ -28,7 +28,8 @@ import { AppShell } from './components/AppShell'
 import { AuthGuard } from './components/AuthGuard'
 import { isPublicPathname, isSafeNextPath } from './lib/landingRoute'
 import { api } from './lib/api'
-import { supabase, isCloudMode } from './lib/supabase'
+import { isCloudMode } from './lib/supabase'
+import { readSession } from './lib/authSession'
 import { isReturningVisitor } from './lib/returningVisitor'
 import { Auth } from './routes/Auth'
 import { Authorize } from './routes/Authorize'
@@ -122,15 +123,27 @@ const rootRoute = createRootRoute({
 //     (issue #50). "Lapsed" means a session existed in this browser and was
 //     not deliberately signed out of — see lib/returningVisitor.ts.
 //   • cloud + signed out        → the public marketing landing.
-// getSession() reads the persisted session out of localStorage, so the common
-// case resolves in a tick without a network round-trip.
+//
+// THE READ IS BOUNDED, AND THIS IS THE ROUTE THAT PROVED IT HAD TO BE. A warm
+// read does resolve in a tick out of localStorage — which is what the comment
+// here used to claim it ALWAYS did — but inside the 90 s expiry margin, and on
+// every load where the stored token has already expired, `getSession()`
+// refreshes over the network first, and there is no timeout anywhere in
+// `@supabase/auth-js`. `beforeLoad` is awaited before the router renders
+// anything at all, so a stalled refresh left `#root` empty: an indefinite blank
+// page, which is issue #75. See lib/sessionDeadline.ts.
+//
+// On timeout we route to `/series` rather than guess. It is public, it renders
+// for signed-in and signed-out visitors alike, and it is where a signed-in
+// visitor was going anyway — so "I don't know yet" costs at worst a marketing
+// page nobody with an account wanted, and never a wrongful bounce to /auth.
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   beforeLoad: async () => {
     if (!isCloudMode) throw redirect({ to: '/series' })
-    const { data } = await supabase.auth.getSession()
-    if (data.session) throw redirect({ to: '/series' })
+    const { session, timedOut } = await readSession()
+    if (session || timedOut) throw redirect({ to: '/series' })
     if (isReturningVisitor()) throw redirect({ to: '/auth' })
   },
   component: Landing,

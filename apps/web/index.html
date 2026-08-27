@@ -161,6 +161,46 @@
           animation: none;
         }
       }
+      #boot-stuck {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        padding: 1.5rem;
+        text-align: center;
+        background: #1c1917;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        color: #d6d3d1;
+      }
+      #boot-stuck h1 {
+        margin: 0;
+        font-size: 1.0625rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        color: #fafaf9;
+      }
+      #boot-stuck p {
+        margin: 0;
+        max-width: 30rem;
+        font-size: 0.875rem;
+        line-height: 1.6;
+        color: #a8a29e;
+      }
+      #boot-reload {
+        margin-top: 0.5rem;
+        border: 0;
+        border-radius: 999px;
+        padding: 0.625rem 1.25rem;
+        font: inherit;
+        font-size: 0.875rem;
+        font-weight: 700;
+        color: #06202a;
+        background: #00d3f3;
+        cursor: pointer;
+      }
     </style>
     <div id="root">
       <div id="boot" role="status" aria-live="polite">
@@ -168,6 +208,83 @@
         <div id="boot-word">Loading DeckPal</div>
       </div>
     </div>
+    <!--
+      FIRST-PAINT WATCHDOG.
+
+      The boot state above explains a WAIT. It cannot explain a HANG, because
+      React's first commit replaces `#root`'s children — so the moment the app
+      mounts and then renders nothing, the "Loading DeckPal" card is gone and
+      what is left is a bare dark page with no explanation and no way out.
+      That is exactly what issue #75 reported, and exactly what a stalled
+      `beforeLoad` produced: measured against a dev build with an auth endpoint
+      that accepts and never answers, `#root` had 0 children 15 s in.
+
+      The specific stall that caused it is fixed (src/lib/sessionDeadline.ts
+      bounds the auth read). This is the backstop for every OTHER way first
+      paint can fail to arrive — an entry chunk that 404s after a deploy, a
+      module that throws at import, a route that never resolves, a service
+      worker serving a shell whose scripts are gone. It cannot know the cause,
+      so it does not guess: it says the honest thing and offers the one action
+      that helps.
+
+      IT IS INLINE, AND IT MUST STAY INLINE. A watchdog that needs a request of
+      its own cannot cover a failure to fetch. It also runs BEFORE the module
+      script below, so it is already armed if that script never arrives.
+
+      "Painted" is read off the DOM rather than off a flag the app sets, so
+      there is no cross-file contract to drift: the app has painted when `#root`
+      has children and the boot card is no longer one of them. If React commits
+      after this fires, it replaces these children like any others and the panel
+      disappears on its own.
+    -->
+    <script>
+      ;(function () {
+        // Long enough that a genuinely slow cold load never sees it (#87
+        // measured 6.3 s at its worst, 2.4 s after), short enough that nobody
+        // sits in front of an unexplained page wondering.
+        var LIMIT_MS = 12000
+        function painted() {
+          var root = document.getElementById('root')
+          return !!root && root.childElementCount > 0 && !document.getElementById('boot')
+        }
+        var timer = setTimeout(function () {
+          if (painted()) return
+          try {
+            performance.mark('deckpal:first-paint-watchdog')
+          } catch (e) {}
+          // The one line to ask a reporter for next time this happens.
+          console.error(
+            '[deckpal] first paint watchdog: no content after ' +
+              LIMIT_MS +
+              'ms at ' +
+              location.pathname +
+              ' (sw=' +
+              (navigator.serviceWorker && navigator.serviceWorker.controller ? 'controlled' : 'none') +
+              ')',
+          )
+          var root = document.getElementById('root')
+          if (!root) return
+          root.innerHTML =
+            '<div id="boot-stuck" role="alert">' +
+            '<h1>DeckPal is taking longer than usual</h1>' +
+            '<p>The page has not finished loading. This is almost always a network that stalled ' +
+            'mid-request. Reloading usually clears it; if it does not, closing this tab and ' +
+            'opening deckpal.app again will.</p>' +
+            '<button id="boot-reload" type="button">Reload</button>' +
+            '</div>'
+          var button = document.getElementById('boot-reload')
+          if (button) {
+            button.addEventListener('click', function () {
+              location.reload()
+            })
+          }
+        }, LIMIT_MS)
+        // A page put in the back/forward cache is not a page that failed.
+        window.addEventListener('pagehide', function () {
+          clearTimeout(timer)
+        })
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

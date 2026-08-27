@@ -534,6 +534,34 @@ always. Tier 1: visited art, LRU-capped ~2,000 images. Tier 2: opt-in pack
 (owned cards + tracked sets). Offline means full metadata browse, search and
 edit everywhere; real art for what you own.
 
+**Nothing may block first paint without a deadline, and the auth session is the
+one that did.** `supabase.auth.getSession()` reads localStorage only while the
+stored access token is more than 90 s from expiry; inside that margin — and on
+every cold load after the token has expired — it refreshes over the network
+first, and `@supabase/auth-js` attaches no `AbortSignal` and no timeout to that
+fetch. So a request that never SETTLES (a socket stranded by a network change or
+a sleep/resume, a captive portal, a stalled H2 connection) held it open forever,
+and three places awaited it before anything could render: `main.tsx`'s index
+route in `beforeLoad`, `AuthGuard`, and `api.ts`'s `authHeaders()` before every
+single request. The visible result was issue #75 — a blank dark page, or the
+public catalog as chrome with no content — and the inline "Loading DeckPal"
+state could not cover it, because React's first commit had already replaced it.
+
+`lib/sessionDeadline.ts` bounds the read; `lib/authSession.ts` is the only
+module allowed to call the client directly, and
+`apps/web/scripts/check-auth-deadlines.mjs` fails the build if a raw
+`auth.getSession()` / `auth.refreshSession()` reappears anywhere else — a bound
+one call site can opt out of silently is not a bound. **A timeout means UNKNOWN,
+never "signed out."** Every caller falls back somewhere non-destructive (`/`
+routes to the public catalog, `AuthGuard` says "still checking", a request goes
+out unauthenticated and takes a finite 401 rather than waiting), and a late
+answer settles the UI through `onLate` with no reload. Behind all of it, an
+inline watchdog in `index.html` replaces an unexplained blank page with a
+message and a Reload button after 12 s whatever the cause — that one is a
+backstop for the failures nobody has diagnosed yet, not for this one.
+`scripts/visual-harness/probe-first-paint.mjs` asserts the property against a
+real browser with the token endpoint held open.
+
 ## 14. Design system and the /design editor
 
 The visual language is a token system in `apps/web/src/theme.css`: three brand

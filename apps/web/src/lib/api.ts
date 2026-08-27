@@ -1,22 +1,34 @@
 // API client — consumes deckpal-api (read-only contract, API.md).
 // Cloud: /api (Vercel). Self-host: /deckpal/api (behind nginx proxy).
 
-import { supabase, isCloudMode } from './supabase'
+import { isCloudMode } from './supabase'
+import { readSession, refreshSessionBounded } from './authSession'
 import { isPublicPathname } from './landingRoute'
 import type { ValueRangeKey } from './insightsCaption'
 
 const BASE = isCloudMode ? '/api' : '/deckpal/api'
 
+// EVERY request in the app went through an unbounded `getSession()` here, which
+// is why issue #75 could empty the public catalog as well as blank the landing
+// page: one stalled token refresh and no query anywhere ever fired. Bounded now
+// — past the deadline the request goes out unauthenticated, and a 401 (a
+// FINITE failure the UI can render) beats a spinner that never resolves. See
+// lib/sessionDeadline.ts.
 async function authHeaders(): Promise<Record<string, string>> {
   if (!isCloudMode) return {}
-  const { data } = await supabase.auth.getSession()
-  if (!data.session) return {}
-  return { Authorization: `Bearer ${data.session.access_token}` }
+  const { session } = await readSession()
+  if (!session) return {}
+  return { Authorization: `Bearer ${session.access_token}` }
 }
 
 async function handle401(path: string, init: RequestInit): Promise<Response | null> {
   if (!isCloudMode) return null
-  const { error } = await supabase.auth.refreshSession()
+  const { error, timedOut } = await refreshSessionBounded()
+  // A refresh that never answered is NOT a rejected credential. Falling into
+  // the branch below would hard-redirect to /auth — i.e. sign somebody out over
+  // a bad connection. The caller gets an error it can show; the session is left
+  // exactly where it was.
+  if (timedOut) throw new Error('Session check timed out')
   if (error) {
     // Only hard-redirect when NOT already on a public page — otherwise
     // AppShell's ProfileChip (which fires an auth-required overview call)
