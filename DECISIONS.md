@@ -12220,3 +12220,10 @@ Worth writing down as the general lesson: **a validator that returns the value i
 validated has not narrowed anything a reader — or an analyser — can rely on.**
 Returning a value built from the allow-list is a different and stronger claim
 than returning the caller's value with a blessing attached.
+
+**Confirmed.** CodeQL on PR #123 after that second push: `No new alerts in code
+changed by this pull request`, and `refs/pull/123/merge` carries **zero open
+code-scanning alerts of any kind** — #36, #37, #39, #56, #57, #60 and the
+transient #63 all read `fixed`. Nothing was dismissed; the acceptance criterion
+("zero open `js/request-forgery` alerts") is met by code. `main` still shows the
+original six until this merges, which is how the diff-based check works.
