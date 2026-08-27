@@ -13076,3 +13076,58 @@ for.
   answer is already in context, or is the gate asserting more than §13.2 does?).
   Whoever takes it should start from the 9-vs-9 control above rather than from a
   single red run.
+
+---
+
+## 2026-08-27 — Gate 21's flake is NOT the second-turn lookup check, and is still open (issue #91 follow-up)
+
+**Decided by:** Claude Opus 5 on behalf of @cheyras
+
+**Two separate things, and only the first is fixed.**
+
+### 1. Fixed: gates 4 and 21 demanded a data tool on the SECOND turn
+
+Both gates ask a context question first (*"What's in <set>?"*) and a follow-up
+second (*"How close am I?"* / *"What percentage…?"*), then asserted a data tool
+on the follow-up alone. That assertion is wrong. Turn one fetches the set and
+this account's progress on it, so answering turn two from what turn one returned
+is correct — re-fetching is waste, and which the model does is a toss-up no
+prompt controls. The grounding requirement is now *"somewhere in this
+conversation"*, which is what it was always trying to express, and both scopes
+are printed so a reader can still see which turn did the work.
+
+Safe by construction: `chatPosts` is a superset of the turn slice, so the check
+is strictly more permissive and every content assertion is untouched.
+
+### 2. NOT fixed: gate 21 still fails about half the time, for a different reason
+
+I originally recorded the second-turn lookup as the cause. **That was wrong**,
+and measuring it said so. Across 9 runs against production with the fix in
+place, the failures are all `he was asked for a percentage and gave none` — and
+the text captured as the second turn is plainly an answer to the FIRST question:
+
+```
+legs: #1
+he said: **Pitch Black (me05)** dropped July 17 this year — 120-card Mega
+Evolution set. You're already on its page. I just walked you straight to the
+set row and opened it… Want the completion breakdown?
+data tools THIS turn: (none)   anywhere: set_progress
+```
+
+So the second message appears to be **swallowed while turn one's journey is
+still finishing**, and the slice picks up turn one's trailing leg. The obvious
+remedy is falsified too: raising turn one's `settleMs` to 90 s made it **worse**
+(3/3 failures), which suggests `waitForChatSettled` returns on network quiet
+that a client-side journey leg does not disturb, so a larger cap changes
+nothing.
+
+**Left open deliberately, with the evidence, rather than closed on a third
+guess.** This thread already contains two wrong diagnoses of the same flake —
+the original "botched rules list" reading, and mine — and a gate that fails half
+the time trains readers to re-run reds, which is the habit that hides a real
+failure. The next investigation should start by instrumenting whether turn two's
+draft is submitted at all, not by adjusting timeouts.
+
+**Implications.**
+- Do not read a red gate 21 as a regression without re-running `main` alongside.
+- The grounding fix removes one wrong assertion; it does not make the gate sound.

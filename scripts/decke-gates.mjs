@@ -1551,12 +1551,21 @@ GATES[4] = {
 
       const secondTurn = chatPosts.slice(before)
       const said = spoken(secondTurn)
-      const data = dataToolsUsed(secondTurn)
+      // Conversation-scoped, for the reason written out at length on gate 21:
+      // turn one fetched this set and this account's progress on it, so turn two
+      // answering from that is correct rather than a miss, and demanding a
+      // second lookup makes the gate a coin flip. The assertions that carry this
+      // gate are the ones below — the owned figure and the total, or (on an
+      // empty holding) that he invented no figure at all. This one only rules
+      // out a conversation with no data in it anywhere.
+      const dataThisTurn = dataToolsUsed(secondTurn)
+      const data = dataToolsUsed(chatPosts)
       const owns = truth.owned > 0
 
       const detail = [
         `ground truth (user_set_progress, complete goal): ${truth.owned} / ${truth.total} of ${truth.name}`,
-        `data tools on the wire for the second turn: ${data.join(', ') || '(NONE)'}`,
+        `data tools on the wire THIS turn: ${dataThisTurn.join(', ') || '(none — legitimate if turn 1 already fetched it)'}`,
+        `data tools anywhere in the conversation: ${data.join(', ') || '(NONE)'}`,
         `he said: ${said.replace(/\s+/g, ' ').slice(0, 300)}`,
         owns
           ? ''
@@ -1569,7 +1578,7 @@ GATES[4] = {
 
       check(
         data.length > 0,
-        `he answered a question about the reader's own collection with no lookup. ` +
+        `nothing in this conversation looked anything up. ` +
           `Tools: ${toolNames(secondTurn).join(', ') || 'none'}\n${detail}`,
       )
       if (owns) {
@@ -3186,6 +3195,21 @@ GATES[20] = {
  * distinguish from a completion figure without knowing which noun each number
  * belongs to, so it asserts that the right figure is PRESENT and does not
  * assert that no other figure is. Reported below so the reader can see the gap.
+ *
+ * ── AND IT NO LONGER DEMANDS A LOOKUP ON THE SECOND TURN ────────────────────
+ *
+ * It used to, and that made it a coin flip rather than a gate: measured 4/9 on
+ * a branch and 5/9 on `main` in the same hour, indistinguishable, with the
+ * failure always that check. The assertion was wrong rather than flaky. Turn
+ * one asks "What's in <set>?" and fetches the set, this account's progress
+ * included, so answering turn two from what turn one returned is correct —
+ * re-fetching it would be waste, and which he does is a toss-up no prompt
+ * controls.
+ *
+ * A gate that fails half the time on an unchanged tree is worse than no gate:
+ * it trains whoever sees the red to re-run it, which is exactly the habit that
+ * makes a real failure invisible. The grounding requirement is now "somewhere
+ * in this conversation", which is what it was always trying to express.
  */
 GATES[21] = {
   title: '"How close am I?" — the percentage matches user_set_progress, not his own arithmetic',
@@ -3202,7 +3226,25 @@ GATES[21] = {
 
       const turn = chatPosts.slice(before)
       const said = spoken(turn)
-      const data = dataToolsUsed(turn)
+      // ── GROUNDED IN THE CONVERSATION, NOT NECESSARILY IN THIS TURN ─────────
+      //
+      // This used to require a data tool on the SECOND turn, which made the gate
+      // a coin flip: measured 4/9 on a branch and 5/9 on `main` in the same hour
+      // — indistinguishable — with the failure always this check.
+      //
+      // The assertion was wrong, not flaky. Turn one asks "What's in <set>?" and
+      // fetches that set, this account's progress on it included. Answering turn
+      // two from what turn one already returned is CORRECT: re-fetching data he
+      // was handed a moment ago is waste, and which of the two he does is a
+      // toss-up no prompt controls.
+      //
+      // What the gate cares about is that the figure came from the product and
+      // not from his own head, and a lookup anywhere in the conversation
+      // establishes that. The percentage comparison below is what catches
+      // invention; this only rules out a conversation with no data in it at all.
+      // Both are still reported, so a reader can see which turn did the work.
+      const dataThisTurn = dataToolsUsed(turn)
+      const data = dataToolsUsed(chatPosts)
       // The renderings of 10.8 a careful answer can honestly use.
       // Compared NUMERICALLY, so "11", "11.0" and "10.80" are the same answer.
       const acceptable = [
@@ -3218,7 +3260,8 @@ GATES[21] = {
           `(${truth.owned} of ${truth.total})`,
         `acceptable renderings: ${acceptable.join('% | ')}%`,
         `percentages in the answer: ${percents.map((p) => `${p}%`).join(', ') || '(none)'}`,
-        `data tools on the wire for that turn: ${data.join(', ') || '(NONE)'}`,
+        `data tools on the wire THIS turn: ${dataThisTurn.join(', ') || '(none — legitimate if turn 1 already fetched it)'}`,
+        `data tools anywhere in the conversation: ${data.join(', ') || '(NONE)'}`,
         `legs: ${legSummary(turn)}`,
         `he said: ${said.replace(/\s+/g, ' ').slice(0, 400)}`,
         'SCOPE: this asserts the right percentage is PRESENT. It does not assert that every other',
@@ -3229,7 +3272,7 @@ GATES[21] = {
 
       check(
         data.length > 0,
-        `he answered a question about the reader's own progress with no lookup:\n${detail}`,
+        `nothing in this conversation looked anything up, so the percentage came from his own head:\n${detail}`,
       )
       check(percents.length > 0, `he was asked for a percentage and gave none:\n${detail}`)
       check(
