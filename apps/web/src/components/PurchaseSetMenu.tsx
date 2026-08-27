@@ -206,11 +206,24 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
                         {result.needed.items} card{result.needed.items === 1 ? '' : 's'}
                       </span>{' '}
                       needed across {result.needed.cards} line{result.needed.cards === 1 ? '' : 's'}
-                      {result.urls.length > 1 ? ` — split into ${result.urls.length} links (each adds to the same cart)` : ''}
+                      {result.exactUrls.length > 1
+                        ? ` — split into ${result.exactUrls.length} links (each adds to the same cart)`
+                        : ''}
                       .
                     </p>
+
+                    {/* The API deliberately keeps two kinds of link apart, and this used
+                        to staple them back together. `exact` lines are `<qty>-<productId>`
+                        and resolve against TCGplayer's catalog deterministically;
+                        `bestEffort` lines are curated name tokens — a guess that can miss.
+                        Mass Entry is all-or-nothing, which is exactly why `buildCart` gives
+                        the guesses their own urls: one bad token must not be able to void
+                        the cart that would have worked. Rendering both as an identical
+                        "part i of N" told the reader they were the same thing, so a link
+                        that added nothing looked like a link that worked — and that is the
+                        "spotty and unreliable" half of the report in issue #113. */}
                     <div className="flex flex-col gap-[8px]">
-                      {result.urls.map((u, i) => (
+                      {result.exactUrls.map((u, i) => (
                         <a
                           key={u}
                           href={u}
@@ -219,10 +232,38 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
                           className="flex h-[44px] items-center justify-center gap-[8px] rounded-lg bg-surface-tertiary text-[14px] font-bold text-text-primary hover:bg-action-default-hover"
                         >
                           <Icon name="external" size={15} className="text-action-brand" />
-                          {result.urls.length > 1 ? `Open on TCGplayer — part ${i + 1} of ${result.urls.length}` : 'Open cart on TCGplayer'}
+                          {result.exactUrls.length > 1
+                            ? `Open on TCGplayer — part ${i + 1} of ${result.exactUrls.length}`
+                            : 'Open cart on TCGplayer'}
                         </a>
                       ))}
                     </div>
+
+                    {result.bestEffortUrls.length > 0 && (
+                      <div className="flex flex-col gap-[8px]">
+                        <p className="text-[13px] leading-[18px] text-text-muted">
+                          {result.needed.bestEffortLines} line
+                          {result.needed.bestEffortLines === 1 ? '' : 's'} {result.needed.bestEffortLines === 1 ? 'has' : 'have'} no
+                          TCGplayer product id, so {result.needed.bestEffortLines === 1 ? 'it is' : 'they are'} matched by name.
+                          Kept separate on purpose: Mass Entry is all-or-nothing, and a name that
+                          misses would otherwise void the cart above.
+                        </p>
+                        {result.bestEffortUrls.map((u, i) => (
+                          <a
+                            key={u}
+                            href={u}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex h-[44px] items-center justify-center gap-[8px] rounded-lg border border-dashed border-border-default text-[14px] font-semibold text-text-secondary hover:bg-action-default-hover"
+                          >
+                            <Icon name="external" size={15} className="text-icon-muted" />
+                            {result.bestEffortUrls.length > 1
+                              ? `Open name-matched cart — part ${i + 1} of ${result.bestEffortUrls.length}`
+                              : 'Open name-matched cart'}
+                          </a>
+                        ))}
+                      </div>
+                    )}
                     <div className="flex items-center justify-between">
                       <span className="text-[14px] font-bold uppercase tracking-wide text-text-muted">
                         Mass Entry list (fallback)
