@@ -73,3 +73,13 @@ export { q, q1, type Queryable } from './db.js';
  * and a resource is not a tool — it needs the function, not the definition.
  */
 export { summaryText } from './tools/collection.js';
+
+/**
+ * Re-exported for `apps/mcp`, whose server-side `console.error` lines print a
+ * caught `pg` error's message — built from the connection parameters, so it
+ * carries the DSN precisely when the database is unreachable. AGENTS.md is
+ * unconditional: secrets are never logged. `errText` is the tool-result form of
+ * the same redaction and is deliberately lossy; a log wants the message with
+ * the endpoint removed, not a bare SQLSTATE.
+ */
+export { redactEndpoints } from './shared.js';

@@ -60,6 +60,30 @@ function withoutEndpoints(msg: string): string {
 }
 
 /**
+ * The same redaction, for a message going to a LOG rather than a tool result.
+ *
+ * `errText` is deliberately lossy — it reduces a driver error to its SQLSTATE,
+ * because a model does not need the message and may repeat it to a reader. An
+ * operator reading a server log is the opposite case: the message is the whole
+ * point, and reducing it to `28P01` would make the log useless for the job it
+ * exists to do.
+ *
+ * What does NOT differ is the credential. AGENTS.md is unconditional about it —
+ * *"Secrets are read at runtime only, never committed or logged"* — and a `pg`
+ * error's message is built from the connection parameters, so
+ * `connect ECONNREFUSED 10.1.2.3:5432` and `password authentication failed for
+ * user "deckpal"` are exactly what a catch sees when the database is
+ * unreachable. In cloud those lines go to Vercel's log dashboard, which is a
+ * different audience from a tool result but not a place a DSN belongs either.
+ *
+ * So: keep the message, drop the endpoint. Same patterns as `errText` uses, so
+ * the two cannot drift apart.
+ */
+export function redactEndpoints(err: unknown): string {
+  return withoutEndpoints(err instanceof Error ? err.message : String(err));
+}
+
+/**
  * Format a caught error for a TOOL RESULT. Surfaces a statement_timeout as an
  * actionable hint (SPEC §3); reduces every other driver error to its code.
  *

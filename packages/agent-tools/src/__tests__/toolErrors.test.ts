@@ -39,7 +39,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import type { Ctx } from '../ctx.js';
 import type { ToolDefinition } from '../registry.js';
-import { errText } from '../shared.js';
+import { errText, redactEndpoints } from '../shared.js';
 import { listTools } from '../tools/lists.js';
 import { loggingTools } from '../tools/logging.js';
 
@@ -271,4 +271,42 @@ test('the source guard can actually fail', () => {
       `the guard should NOT fire on: ${line}`,
     );
   }
+});
+
+// ── redactEndpoints: the same guarantee, for a LOG rather than a tool result ──
+//
+// `apps/mcp` prints caught `pg` errors to the server console. That is a
+// different audience from a model — an operator who needs the message — but not
+// a different rule: AGENTS.md says secrets are never logged, and in cloud those
+// lines land in Vercel's dashboard.
+
+test('redactEndpoints strips a DSN but keeps the message an operator needs', () => {
+  const out = redactEndpoints(
+    new Error('could not connect to postgres://deckpal:hunter2@db.internal.example:5432/deckpal'),
+  );
+  assert.ok(!out.includes('hunter2'), `password survived: ${out}`);
+  assert.ok(!out.includes('db.internal.example'), `host survived: ${out}`);
+  assert.match(out, /could not connect to/, 'the operator-facing half was thrown away');
+});
+
+test('redactEndpoints strips a bare host:port and a for-user clause', () => {
+  const conn = redactEndpoints(new Error('connect ECONNREFUSED 10.1.2.3:5432'));
+  assert.ok(!conn.includes('10.1.2.3'), `address survived: ${conn}`);
+  assert.match(conn, /ECONNREFUSED/, 'the errno an operator acts on was thrown away');
+
+  const auth = redactEndpoints(new Error('password authentication failed for user "deckpal_prod"'));
+  assert.ok(!auth.includes('deckpal_prod'), `role name survived: ${auth}`);
+  assert.match(auth, /password authentication failed/);
+});
+
+test('redactEndpoints is NOT the lossy tool-result form', () => {
+  // The distinction is the point: a model gets a SQLSTATE, a log keeps prose.
+  const err = Object.assign(new Error('relation "card" does not exist'), { code: '42P01' });
+  assert.equal(errText(err), 'the database refused that (42P01)');
+  assert.match(redactEndpoints(err), /relation "card" does not exist/);
+});
+
+test('redactEndpoints accepts a non-Error the way a catch actually sees one', () => {
+  assert.equal(redactEndpoints('plain string'), 'plain string');
+  assert.match(redactEndpoints({ toString: () => 'weird' }), /weird|object/);
 });
