@@ -73,6 +73,12 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
   (`packages/agent-tools/src/api.ts` — `api.get` / `api.send`), JSON in/out, surfaces the API's
   `{ error: { code, message } }` envelope as tool errors. No retries on 4xx;
   one retry on ECONNREFUSED after 500 ms.
+  Since 2026-08-27 (issue #96) the URL is composed with `new URL()` against
+  `DECKPAL_API_BASE` and then checked: same scheme, same host, still under the base's
+  path. `DECKPAL_API_BASE` must therefore be an ABSOLUTE url (it always had to be —
+  `fetch` cannot take a bare path in Node — the failure is just legible now). Tool
+  arguments are model-supplied, so an id carrying `?`, `#` or `..` can no longer
+  change which endpoint is called.
 - User: single-user box. Resolve `defaultUserId` = lowest `app_user.id` once at startup (same
   rule as `apps/api/src/db.ts`).
 - Identifiers exposed to Claude are **TCGdex ids** (`set_id` like `me05`, `card_id` like
