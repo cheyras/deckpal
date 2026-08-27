@@ -120,3 +120,105 @@ export async function refreshSessionBounded(): Promise<{
     return { error: err instanceof Error ? err : new Error(String(err)), timedOut: false }
   }
 }
+
+// ── The mutating auth calls ───────────────────────────────────────────────────
+//
+// `getSession()` was the one that produced issue #75's grey screen, because it
+// is awaited before first paint. These are not: every one of them is behind a
+// button the reader pressed, with a busy state next to it. That is why the
+// first pass deliberately left them alone.
+//
+// It is still the wrong place to stop. `@supabase/auth-js` puts no
+// `AbortSignal` and no timeout on ANY of its fetches — the same fact that made
+// the read hang forever — so a stalled connection here does not produce an
+// error a reader can act on, it produces a button that spins until the tab is
+// closed. For sign-out that is the worst of the set: the one action whose whole
+// point is to stop being signed in, on a machine that may not be yours, has no
+// way to tell you it did not happen.
+//
+// So they get a deadline too, with two differences from the read. The wait is
+// longer, because a person who just pressed a button will accept several
+// seconds and these are writes worth being patient for. And a timeout here
+// SURFACES — it becomes an ordinary `error` the existing form code already
+// knows how to display — rather than falling back to a quiet default, because
+// there is no safe assumption to make about whether a write landed.
+
+/**
+ * How long a user-initiated auth write may take before it is reported as
+ * failed. Deliberately much longer than `SESSION_DEADLINE_MS`: nothing is
+ * blocked on it except the button that started it.
+ */
+export const AUTH_ACTION_DEADLINE_MS = 15_000
+
+/** What the reader is told when one of these runs out of time. */
+function timeoutError(action: string): Error {
+  return new Error(
+    `${action} did not finish in ${Math.round(AUTH_ACTION_DEADLINE_MS / 1000)}s. ` +
+      'The network did not answer — check your connection and try again.',
+  )
+}
+
+/**
+ * Run one Supabase auth write under a deadline.
+ *
+ * Supabase resolves these with an `{ error }` shape rather than rejecting, so a
+ * timeout is expressed the same way and every existing call site handles it
+ * without changing shape. A throw is normalised into the same shape for the
+ * same reason.
+ */
+async function bounded<T extends { error: unknown }>(
+  work: Promise<T>,
+  action: string,
+): Promise<{ error: Error | null }> {
+  try {
+    const { value, timedOut } = await withDeadline(work, AUTH_ACTION_DEADLINE_MS)
+    if (timedOut) {
+      markStall(AUTH_ACTION_DEADLINE_MS)
+      return { error: timeoutError(action) }
+    }
+    const err = value?.error ?? null
+    return { error: err instanceof Error ? err : err ? new Error(String(err)) : null }
+  } catch (err) {
+    return { error: err instanceof Error ? err : new Error(String(err)) }
+  }
+}
+
+export function signInWithPasswordBounded(
+  email: string,
+  password: string,
+): Promise<{ error: Error | null }> {
+  return bounded(supabase.auth.signInWithPassword({ email, password }), 'Signing in')
+}
+
+export function signUpBounded(
+  email: string,
+  password: string,
+  options?: { emailRedirectTo?: string },
+): Promise<{ error: Error | null }> {
+  return bounded(supabase.auth.signUp({ email, password, options }), 'Creating your account')
+}
+
+export function resetPasswordForEmailBounded(
+  email: string,
+  options?: { redirectTo?: string },
+): Promise<{ error: Error | null }> {
+  return bounded(supabase.auth.resetPasswordForEmail(email, options), 'Sending the reset email')
+}
+
+export function updatePasswordBounded(password: string): Promise<{ error: Error | null }> {
+  return bounded(supabase.auth.updateUser({ password }), 'Updating your password')
+}
+
+/**
+ * Sign out, bounded.
+ *
+ * `scope: 'local'` clears the stored session without waiting on the server, and
+ * is what `SignedOut` wants: the local state is the part that matters there.
+ * The default global scope revokes the refresh token server-side, which is the
+ * part worth waiting for on a shared machine — and the part that can stall.
+ */
+export function signOutBounded(scope?: 'local' | 'global' | 'others'): Promise<{
+  error: Error | null
+}> {
+  return bounded(supabase.auth.signOut(scope ? { scope } : undefined), 'Signing out')
+}

@@ -19,6 +19,7 @@ import { Field } from '../../components/ui/Field'
 import { FormAlert } from '../../components/ui/FormAlert'
 import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/Icon'
+import { updatePasswordBounded } from '../../lib/authSession'
 
 export function ChangePassword() {
   const [email, setEmail] = useState<string | null>(null)
@@ -56,7 +57,7 @@ export function ChangePassword() {
 
     setSaving(true)
     try {
-      const { error } = await supabase.auth.updateUser({ password })
+      const { error } = await updatePasswordBounded(password)
       if (error) throw error
       setPassword('')
       setConfirm('')

@@ -28,6 +28,7 @@ import { AuthCard, AuthPage, CTA_GHOST, SubmitButton } from './auth/authUi'
 import { Field } from '../components/ui/Field'
 import { FormAlert } from '../components/ui/FormAlert'
 import { StatusPanel } from '../components/ui/StatusPanel'
+import { signInWithPasswordBounded, signUpBounded, resetPasswordForEmailBounded } from '../lib/authSession'
 
 type Mode = 'signin' | 'signup' | 'forgot'
 
@@ -85,7 +86,7 @@ export function Auth() {
     try {
       const address = email.trim()
       if (mode === 'signin') {
-        const { error } = await supabase.auth.signInWithPassword({ email: address, password })
+        const { error } = await signInWithPasswordBounded(address, password)
         if (error) throw error
         // A full navigation (not the router) when `next` leaves this route
         // tree — /authorize is a real destination but not one this sign-in
@@ -93,7 +94,7 @@ export function Auth() {
         if (next) window.location.assign(next)
         else navigate({ to: '/series' })
       } else if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({ email: address, password })
+        const { error } = await signUpBounded(address, password)
         if (error) throw error
         // With email confirmation on, Supabase deliberately returns the same
         // shape whether or not the address is already taken (account-existence
@@ -101,7 +102,7 @@ export function Auth() {
         // rather than claiming an email is always on its way.
         setDone('signup')
       } else {
-        const { error } = await supabase.auth.resetPasswordForEmail(address, {
+        const { error } = await resetPasswordForEmailBounded(address, {
           redirectTo: appUrl('auth/reset'),
         })
         if (error) throw error

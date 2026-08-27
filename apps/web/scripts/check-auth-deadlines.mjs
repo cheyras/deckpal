@@ -44,6 +44,27 @@ const BANNED = [
     pattern: /\bauth\s*\.\s*refreshSession\s*\(/,
     use: 'refreshSessionBounded() from lib/authSession',
   },
+  // The mutating calls. None of these is awaited before first paint, so none of
+  // them can produce issue #75's grey screen — which is why the first pass left
+  // them alone. But auth-js puts no `AbortSignal` and no timeout on ANY of its
+  // fetches, so a stalled one leaves a button spinning with no error a reader
+  // can act on. Sign-out is the one that matters most: the action whose whole
+  // point is to stop being signed in, on a machine that may not be yours, must
+  // be able to tell you it did not happen.
+  {
+    pattern: /\bauth\s*\.\s*signInWithPassword\s*\(/,
+    use: 'signInWithPasswordBounded() from lib/authSession',
+  },
+  { pattern: /\bauth\s*\.\s*signUp\s*\(/, use: 'signUpBounded() from lib/authSession' },
+  {
+    pattern: /\bauth\s*\.\s*resetPasswordForEmail\s*\(/,
+    use: 'resetPasswordForEmailBounded() from lib/authSession',
+  },
+  {
+    pattern: /\bauth\s*\.\s*updateUser\s*\(/,
+    use: 'updatePasswordBounded() from lib/authSession',
+  },
+  { pattern: /\bauth\s*\.\s*signOut\s*\(/, use: 'signOutBounded() from lib/authSession' },
 ]
 
 /** Remove line and block comments. Crude, and deliberately so — it only has to

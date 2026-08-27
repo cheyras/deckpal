@@ -30,7 +30,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from '@tanstack/react-router'
 import { supabase } from '../../lib/supabase'
-import { readSession } from '../../lib/authSession'
+import { readSession, updatePasswordBounded } from '../../lib/authSession'
 import { PASSWORD_MIN_LENGTH, friendlyAuthError, passwordProblem } from '../../lib/authErrors'
 import { Spinner } from '../../components/ui'
 import { Field } from '../../components/ui/Field'
@@ -125,7 +125,7 @@ export function ResetPassword() {
 
     setSaving(true)
     try {
-      const { error } = await supabase.auth.updateUser({ password })
+      const { error } = await updatePasswordBounded(password)
       if (error) throw error
       setPhase('done')
     } catch (err: unknown) {
