@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Goal } from '../routes/setSearch'
+import { api, type SetMassEntry } from '../lib/api'
 import { Icon } from './Icon'
 import { Button } from './ui/Button'
 import { Modal } from './ListModals'
@@ -29,35 +30,37 @@ const GOALS: { key: Goal; label: string; blurb: string }[] = [
   { key: 'grandmaster', label: 'Grandmaster Set', blurb: 'every printing, stamps included' },
 ]
 
-interface MassEntryResponse {
-  set: { setId: string; name: string }
-  goal: Goal
-  finishes: string[] | null
-  setCode: string | null
-  needed: { cards: number; items: number; unlinkable: number }
-  lines: string[]
-  text: string
-  urls: string[]
-  unlinkable: { name: string; number: string; variant: string | null }[]
-  warnings: string[]
-  note: string
-}
+// The response shape and the request itself live in `lib/api.ts` (api.setMassEntry).
+//
+// THIS COMPONENT USED TO HAND-ROLL THE FETCH, and it is worth saying why that
+// was fatal rather than merely untidy. It wrote the path literal
+// `/deckpal/api/sets/…` — correct for self-host behind nginx, and on cloud a
+// path `vercel.json` has no rewrite for, so it fell through to the SPA fallback
+// and came back as `200 text/html`. `res.ok` was true, `res.json()` then threw
+// the browser's parser error, and on iPad that error's whole text is "The
+// string did not match the expected pattern." It also sent no `Authorization`
+// header and had no 401 refresh, so fixing only the path would have replaced a
+// mystery with a 401 for every user. `api.setMassEntry` has all three (#89,
+// #113); nothing in apps/web should write an API path literal again, and
+// `apps/web/scripts/check-api-base.mjs` now fails the build if it does.
 
-async function fetchMassEntry(setId: string, goal: Goal, finishes: FinishCode[] | null, signal: AbortSignal) {
-  const params = new URLSearchParams({ goal })
-  for (const f of finishes ?? []) params.append('finish', f)
-  const res = await fetch(`/deckpal/api/sets/${encodeURIComponent(setId)}/massentry?${params}`, { signal })
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`
-    try {
-      const body = await res.json()
-      if (body?.error?.message) msg = body.error.message
-    } catch {
-      /* ignore */
-    }
-    throw new Error(msg)
+/** The API is asked to build the cart in one request; this is the deadline for it. */
+const GENERATE_TIMEOUT_MS = 20_000
+
+/**
+ * What to show when generation fails.
+ *
+ * An aborted fetch surfaces as a `TimeoutError`/`AbortError` DOMException whose
+ * message ("signal timed out") describes the plumbing rather than what the
+ * person asked for, and this is the one failure a large grandmaster set can hit
+ * on a slow connection. Everything else already arrives as an `ApiError` whose
+ * message is the API's own, which is what should be shown verbatim.
+ */
+function generateErrorMessage(err: unknown): string {
+  if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+    return `Building the cart link took longer than ${GENERATE_TIMEOUT_MS / 1000}s — try again, or pick a narrower goal.`
   }
-  return res.json() as Promise<MassEntryResponse>
+  return (err as Error).message
 }
 
 export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: Goal }) {
@@ -66,7 +69,7 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
   const [finishes, setFinishes] = useState<Set<FinishCode>>(new Set(FINISHES.map((f) => f.code)))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<MassEntryResponse | null>(null)
+  const [result, setResult] = useState<SetMassEntry | null>(null)
   const [copied, setCopied] = useState(false)
 
   const allFinishes = finishes.size === FINISHES.length
@@ -80,9 +83,10 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
     setBusy(true)
     reset()
     try {
-      setResult(await fetchMassEntry(setId, goal, goal !== 'complete' && !allFinishes ? [...finishes] : null, AbortSignal.timeout(20000)))
+      const scope: FinishCode[] | null = goal !== 'complete' && !allFinishes ? [...finishes] : null
+      setResult(await api.setMassEntry(setId, goal, scope, AbortSignal.timeout(GENERATE_TIMEOUT_MS)))
     } catch (err) {
-      setError((err as Error).message)
+      setError(generateErrorMessage(err))
     } finally {
       setBusy(false)
     }

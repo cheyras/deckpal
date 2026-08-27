@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/check-precache.mjs && node scripts/check-auth-deadlines.mjs",
+    "build": "node scripts/check-api-base.mjs && vite build && node scripts/check-precache.mjs && node scripts/check-auth-deadlines.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test:insights": "node --import tsx --test src/lib/__tests__/*.test.ts",
