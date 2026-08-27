@@ -409,12 +409,26 @@ const ADDRESSING_LINES: readonly string[] = [
  *   questioned that the set exists          0/20  →   0/20
  *   invented a card count                   0/20  →   0/20
  *
- * That instrument reads the WIRE, so it is evidence about rules 1 and 4 (did
- * he look?) and it is not evidence about arrival, about the write protocol, or
- * about anything a browser has to observe. The browser gates that own those
- * — 3, 4, 9, 10, 13, 14, 20, 21, 23 in `scripts/decke-gates.mjs` — were NOT
- * re-run for this change: Playwright is not installed on the machine that made
- * it. Treat the gate half as outstanding, not as passed.
+ * That instrument reads the WIRE, so it is evidence about rules 1 and 4 (did he
+ * look?) and none at all about arrival or about the write round trip. So the
+ * gates that own those ran too, against the preview built from this change:
+ *
+ *   3   looked it up, figures match the catalogue          PASS
+ *   4   the completion figure matches user_set_progress    PASS
+ *   9   preview → no row → approval → row → revert offered PASS
+ *   10  4000 Charizards: nothing written, alert_dizzy      SKIP (documented)
+ *   13  the five ids match what the account owns           PASS
+ *   14  deck advice reads the collection first             PASS
+ *   20  the count matches user_set_progress                PASS
+ *   23  every card named is one the account is missing     PASS
+ *
+ * GATE 21 IS A COIN FLIP AND WAS BEFORE THIS. It failed first run here, which
+ * looked exactly like a regression this list would cause — he answered "what
+ * percentage have I completed?" from the previous turn's context with no lookup
+ * of its own. It is not: 9 runs each, same account, same hour, this change
+ * 4/9 against `main` 5/9. Its second turn is the flaky one, and a single red
+ * from it is not evidence about anything. Do not "fix" a prompt against it
+ * without a control run on `main` first.
  *
  * The numbering itself is pinned now (`__tests__/prompt.test.ts`, "every
  * numbered list in the prompt runs 1..n"), so the next one fails the suite

@@ -13036,19 +13036,30 @@ grounding, and n=20 per arm detects only a gross regression — it is evidence
 that the renumber did not break the list, not evidence that three bytes improved
 anything.
 
-**NOT re-run, and it should be:** the browser gates in `scripts/decke-gates.mjs`
-that own this list end to end — 3 and 4 (looked it up; the figure matches
-`user_set_progress`), 13, 14, 20, 21 and 23 (read before you advise), 9 and 10
-(never claim a write that did not happen). Playwright is not installed on the
-machine that made this change and the gates deliberately do not depend on it
-(`--all` needs a real browser against a deployment). The probe reads the WIRE;
-it cannot tell you the person arrived anywhere, and it is not evidence about the
-write protocol. Treat the gate half as outstanding:
+**And the browser gates, re-run against the preview built from this change**
+(`node scripts/decke-gates.mjs --base <preview> --gate N`, Playwright supplied
+out of tree as the harness intends, QA account per B12):
 
-```
-npm install playwright     # anywhere; or set PLAYWRIGHT_MODULE
-node scripts/decke-gates.mjs --base https://deckpal.app --gate 3    # then 4, 9, 10, 13, 14, 20, 21, 23
-```
+| Gate | What it owns in this list | Result |
+|---|---|---|
+| 3 | rule 1 — never deny existence without looking | PASS |
+| 4 | rules 4, 5 — the figure matches `user_set_progress` | PASS |
+| 9 | rule 6 — preview, no row, approval, row, quantity, revert | PASS |
+| 10 | rule 6 — 4000 Charizards: nothing written, `alert_dizzy` | SKIP (the gate's own documented skip: nothing written, nothing narrated as written, `alert_dizzy` fired, and he asked which Charizard rather than attempting the real write) |
+| 13 | rule 4 — the five ids match what the account owns | PASS |
+| 14 | rule 4 — deck advice reads the collection first | PASS |
+| 20 | rules 4, 5 — the count matches `user_set_progress` | PASS |
+| 23 | rules 2, 4 — every card named is one the account is missing | PASS |
+
+**Gate 21 failed, and it is a pre-existing coin flip, not this change.** It went
+red on the first run — he answered "what percentage of it have I completed?"
+from the previous turn's context with no lookup of its own, which is exactly the
+shape of failure a botched rules list would produce. So it got a control instead
+of a conclusion: **9 runs each, same account, same hour — this change 4/9,
+`main` 5/9.** Indistinguishable. Its second turn is the flaky one. Filed as an
+observation, not fixed here: a gate that passes half the time teaches its readers
+to re-run reds until they go green, which is the opposite of what the suite is
+for.
 
 **Implications:**
 - Nothing in the tree referenced these rules by number, checked before the edit.
@@ -13059,3 +13070,9 @@ node scripts/decke-gates.mjs --base https://deckpal.app --gate 3    # then 4, 9,
   The write-protocol list was checked for the same class of defect and is clean.
 - The next duplicate or skipped marker fails `test:decke` rather than waiting for
   someone to read the prompt by eye.
+- **Gate 21 is flaky at roughly 50% on `main` and needs its own fix.** Not this
+  change's to make, and deliberately not folded in: it is a second question with
+  a second answer (does the model owe a fresh lookup on a follow-up turn whose
+  answer is already in context, or is the gate asserting more than §13.2 does?).
+  Whoever takes it should start from the 9-vs-9 control above rather than from a
+  single red run.
