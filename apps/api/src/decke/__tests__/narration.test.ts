@@ -9,7 +9,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createNarrationFilter } from '../narration.js'
-import { buildTools } from '../tools.js'
+import { buildTools, DEEP_TOOLS } from '../tools.js'
+import { allTools } from '@deckpal/agent-tools'
 
 /** Feed chunks through the filter and return everything the reader would see. */
 function through(chunks: string[]): string {
@@ -265,4 +266,70 @@ test('a longer word that merely BEGINS with a tool name survives', () => {
     'The journey to a full set is long, but I can escort you.',
   )
   assert.equal(through(['An <b>escort</b> is not a tag.']), 'An <b>escort</b> is not a tag.')
+})
+
+// ── The other 27 tools: stripped as elements, untouched as attributes ────────
+//
+// The data and deep tools were once excluded from the filter entirely, because
+// their names are ordinary English and the `name="…"` rule strips a whole
+// element. That is true of the ATTRIBUTE form and not of the ELEMENT form, so
+// they are now matched in the element form only. Both halves are pinned here:
+// the leak is caught, and the prose that motivated the exclusion still survives.
+
+test('a leaked data tool is stripped as an element, plain and namespaced', () => {
+  for (const name of allTools().map((t) => t.name)) {
+    assert.equal(
+      through([`Right — <${name}>{"q":"pikachu"}</${name}> here you go.`]).trim(),
+      'Right —  here you go.'.trim(),
+      `<${name}> reached the reader`,
+    )
+    assert.equal(
+      through([`Right — <xai:${name}>{"q":"x"}</xai:${name}> here you go.`]).trim(),
+      'Right —  here you go.'.trim(),
+      `<xai:${name}> reached the reader`,
+    )
+  }
+})
+
+test('a leaked deep tool is stripped as an element', () => {
+  for (const name of DEEP_TOOLS) {
+    assert.equal(
+      through([`One moment. <${name}>thinking…</${name}> Done.`]).trim(),
+      'One moment.  Done.'.trim(),
+      `<${name}> reached the reader`,
+    )
+  }
+})
+
+test('an ordinary attribute carrying a data-tool NAME still survives', () => {
+  // This is the exact false positive the earlier exclusion was protecting, and
+  // the reason these names are element-only. Widening the attribute rule to
+  // them would eat all four of these outright.
+  for (const markup of [
+    '<input name="decks">',
+    '<input name="lists">',
+    '<field name="health">',
+    '<button name="revert">Undo</button>',
+  ]) {
+    const out = through([`Try ${markup} on that form.`])
+    assert.ok(out.includes(markup), `the filter ate legitimate markup: ${markup} -> ${out}`)
+  }
+})
+
+test('prose containing a tool word is untouched', () => {
+  const line = 'Your decks and lists are fine, and health is good — no need to revert.'
+  assert.equal(through([line]), line)
+})
+
+test('no data or deep tool name can shadow another in the alternation', () => {
+  // A regex alternation is first-match. Every use is followed by \b or a closing
+  // quote, which forces the backtrack — but a name that is a strict prefix of
+  // another is still worth knowing about, and a metacharacter would silently
+  // widen every pattern.
+  const names = [...allTools().map((t) => t.name), ...DEEP_TOOLS]
+  for (const n of names) {
+    assert.match(n, /^[A-Za-z][A-Za-z0-9_]*$/, `${n} would need regex escaping`)
+  }
+  // And the longer-name case actually behaves.
+  assert.ok(through(['<search_cardsx>hi</search_cardsx>']).includes('search_cardsx'))
 })

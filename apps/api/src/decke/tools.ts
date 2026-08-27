@@ -888,3 +888,23 @@ export const SERVER_TOOLS = ['express', 'showScreen'] as const
  * first and most often.
  */
 export const COSMETIC_TOOLS = [...SERVER_TOOLS, ...CLIENT_TOOLS] as const
+
+/**
+ * The four deep tools, by name.
+ *
+ * Written out rather than derived because `buildDeepTools` needs a live
+ * `DeepToolOptions` to construct, and the only caller that wants just the NAMES
+ * is `narration.ts`'s leak filter, which runs on a streaming hot path and must
+ * not build a tool set to ask what they are called.
+ *
+ * `deep.test.ts` pins this against `Object.keys(buildDeepTools(…))`, so it is a
+ * cheap copy that cannot go stale — which is exactly the arrangement the old
+ * `TOOL_TAGS` literal did NOT have, and the reason it claimed seven names while
+ * the factory returned nine.
+ */
+export const DEEP_TOOLS = [
+  'plan_deck',
+  'analyze_collection',
+  'research_meta',
+  'write_strategy_guide',
+] as const

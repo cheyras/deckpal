@@ -86,19 +86,60 @@
  * the registry rather than the constant. A count in a comment cannot go stale
  * if there is no count in the comment.
  *
- * ── WHAT IS DELIBERATELY *NOT* HERE ────────────────────────────────────────
+ * ── AND THE OTHER 27 ARE HERE TOO, IN ONE SHAPE ONLY ───────────────────────
  *
- * The 23 data tools and the 4 deep tools. They are model-callable too and could
- * leak the same way, but their names are ordinary English — `decks`, `lists`,
- * `health`, `revert` — and the attribute rule strips a whole element on a bare
- * `name="…"` match. Widening to them trades a leak nobody has measured for
- * false positives on prose that is measured daily. That is a separate call with
- * its own evidence, not a side effect of this one.
+ * The 23 data tools and the 4 deep tools are model-callable and can leak the
+ * same way. An earlier pass left them out ENTIRELY, on the grounds that their
+ * names are ordinary English — `decks`, `lists`, `health`, `revert` — and the
+ * attribute rule strips a whole element on a bare `name="…"` match, so
+ * including them would eat `<input name="decks">`.
+ *
+ * That reasoning is right about the ATTRIBUTE form and wrong as a reason to
+ * exclude them altogether, because the two forms do not carry the same risk.
+ * `<decks>` is not a thing prose contains: a model discussing decks writes the
+ * word, not the word in angle brackets — and this filter already strips
+ * `<express>` and `<click>`, words at least as ordinary, on exactly that
+ * reasoning. So they are matched as ELEMENT NAMES and never as `name="…"`.
+ * See `ELEMENT_ONLY_TAGS`. `<input name="decks">` still survives, and is a test.
  */
 
-import { COSMETIC_TOOLS } from './tools.js';
+import { allTools } from '@deckpal/agent-tools';
+import { COSMETIC_TOOLS, DEEP_TOOLS } from './tools.js';
 
+/**
+ * Names matched in EVERY shape, including the `name="…"` attribute form. The
+ * nine cosmetic tools — the ones the model has actually been caught leaking.
+ */
 const TOOL_TAGS = COSMETIC_TOOLS.join('|');
+
+/**
+ * Names matched as an ELEMENT NAME ONLY — never as a `name="…"` attribute.
+ *
+ * ── WHY THESE ARE A SEPARATE LIST AND NOT SIMPLY ADDED ABOVE ────────────────
+ *
+ * The 23 data tools and 4 deep tools are model-callable and can leak the same
+ * way, but their names are ordinary English: `decks`, `lists`, `health`,
+ * `revert`. The attribute rule strips a WHOLE ELEMENT on a bare `name="…"`
+ * match, so folding these into `TOOL_TAGS` would eat `<input name="decks">` and
+ * anything else legitimately carrying one of those words as a field name. That
+ * is the "stripping pass to get wrong" `tools.ts` warns about, and it is why an
+ * earlier pass left them out altogether.
+ *
+ * But out-altogether was too much. The ELEMENT form carries no such risk:
+ * `<decks>` is not a thing prose contains. A model discussing decks writes the
+ * word, not the word in angle brackets — and this filter already strips
+ * `<express>` and `<click>`, words at least as ordinary, on exactly that
+ * reasoning. So the leak is caught in the shape it actually arrives in, and the
+ * ambiguous shape is left alone.
+ *
+ * Derived, not written: `allTools()` is the same registry the MCP server and
+ * Deck-E both serve, and `DEEP_TOOLS` is pinned to `buildDeepTools` by its own
+ * test. Adding a tool anywhere extends this with nowhere else to remember.
+ */
+const ELEMENT_ONLY_TAGS = [...allTools().map((t) => t.name), ...DEEP_TOOLS].join('|');
+
+/** Every name, for the two positions that match an element by its own name. */
+const ANY_TOOL_TAGS = `${TOOL_TAGS}|${ELEMENT_ONLY_TAGS}`;
 
 /**
  * ── THE THREE SHAPES, BECAUSE MATCHING ON TAG NAME WAS NOT ENOUGH ───────────
@@ -149,7 +190,7 @@ const NAMED = `name\\s*=\\s*["'](?:${TOOL_TAGS})["']`;
 const TOOL_ELEMENT = new RegExp(
   [
     // <express …>…</express>, <xai:express …>…</xai:express>
-    `<(${NS}(?:${TOOL_TAGS}))\\b[^>]*>[\\s\\S]*?</\\1\\s*>`,
+    `<(${NS}(?:${ANY_TOOL_TAGS}))\\b[^>]*>[\\s\\S]*?</\\1\\s*>`,
     // <function_call name="flyTo">…</function_call>, any element name
     `<(${NS}[\\w.-]+)\\b[^>]*${NAMED}[^>]*>[\\s\\S]*?</\\2\\s*>`,
   ].join('|'),
@@ -158,7 +199,7 @@ const TOOL_ELEMENT = new RegExp(
 
 /** A stray tag with no partner: the tail of a truncated emission. */
 const TOOL_TAG = new RegExp(
-  `</?${NS}(?:${TOOL_TAGS})\\b[^>]*>|</?${NS}[\\w.-]+\\b[^>]*${NAMED}[^>]*>`,
+  `</?${NS}(?:${ANY_TOOL_TAGS})\\b[^>]*>|</?${NS}[\\w.-]+\\b[^>]*${NAMED}[^>]*>`,
   'gi',
 );
 
@@ -172,7 +213,7 @@ const TOOL_TAG = new RegExp(
 const PARAMETER_TAG = new RegExp(`</?${NS}parameter\\b[^>]*>`, 'gi');
 /** An OPENING tool tag. After complete elements are removed, one of these means
  *  an element is still in progress and everything after it must be held. */
-const OPEN_TAG = new RegExp(`^<${NS}(?:${TOOL_TAGS})\\b|^<${NS}[\\w.-]+\\b[^>]*${NAMED}`, 'i');
+const OPEN_TAG = new RegExp(`^<${NS}(?:${ANY_TOOL_TAGS})\\b|^<${NS}[\\w.-]+\\b[^>]*${NAMED}`, 'i');
 
 /**
  * The earliest point from which text must be held back, or -1.

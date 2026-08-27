@@ -40,6 +40,7 @@ import { test } from 'node:test'
 import { MockLanguageModelV3 } from 'ai/test'
 import type { GatewayProvider } from '@ai-sdk/gateway'
 import type { ToolEvent } from '../adapters/aisdk.js'
+import { DEEP_TOOLS } from '../tools.js'
 import { buildDeepTools, DECKE_DEEP_BUDGET_VAR } from '../deep.js'
 import { openingBeatNames, proseBeat, sourceBeat, toolBeat } from '../beats.js'
 
@@ -457,4 +458,18 @@ test('sub-agent prose is filtered before it reaches the reader', () => {
   assert.ok(b)
   assert.equal(b.note.includes('<express>'), false)
   assert.match(b.note, /Reading on\./)
+})
+
+test('DEEP_TOOLS matches what buildDeepTools actually returns', () => {
+  // `DEEP_TOOLS` is a written-out copy, because `narration.ts`'s leak filter
+  // wants the NAMES on a streaming hot path and must not construct a tool set
+  // to ask for them. A cheap copy is fine; a cheap copy nothing checks is how
+  // `TOOL_TAGS` ended up claiming seven names while the factory returned nine
+  // (issue #90). This is the check that makes the copy safe.
+  const deep = buildDeepTools({
+    ctx: CTX,
+    gateway: (() => {}) as never,
+    charge: async () => ({ allowed: true, cap: 10 }),
+  })
+  assert.deepEqual([...DEEP_TOOLS].sort(), Object.keys(deep).sort())
 })
