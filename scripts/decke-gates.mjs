@@ -575,13 +575,52 @@ async function waitForChatSettled(chatPosts, { quietMs = 900, timeoutMs = 25_000
  * like "the chat is broken" and is in fact the feature working. The collapsed
  * bar is a button; clicking it is what a reader would do.
  */
-async function ensureComposer(page) {
+async function ensureComposer(page, { timeoutMs = 45_000 } = {}) {
   const composer = page.getByLabel('Message Deck-E')
-  if (await composer.isVisible().catch(() => false)) return composer
   const bar = page.getByRole('button', { name: 'Back to the conversation' })
-  if (await bar.isVisible().catch(() => false)) await bar.click()
-  await composer.waitFor({ state: 'visible', timeout: 20_000 })
-  return composer
+  // ── THE THIRD STATE: CLOSED, NOT MINIMISED ────────────────────────────────
+  //
+  // This function knew two states — composer present, or panel minimised behind
+  // "Back to the conversation". There is a third, and it is the one a journey
+  // leaves behind. Measured on production: ask him to open a set, and the panel
+  // is still there through the navigation (t+2s) and after it (t+3s), then at
+  // **t+21s it closes outright** — "Close chat" and "Stop" go with it, so it is
+  // the whole panel and not a minimise.
+  //
+  // Nothing is broken for a reader: the launcher is right there and reopens the
+  // same thread. But the harness had no route back from a state it did not know
+  // existed, so it waited out its timeout and the gate came up red. That is the
+  // rest of gate 21's ~50%.
+  const launcher = page.getByRole('button', { name: 'Chat with Deck-E' })
+
+  // ── POLLED, BECAUSE THE PANEL CAN MINIMISE AGAIN WHILE WE LOOK ─────────────
+  //
+  // The old version looked once, clicked the bar if it happened to be there,
+  // then waited on the composer. That is a single sample of a state that
+  // changes underneath it: `minimised={travelling}` is driven by a journey
+  // still ACTING in the browser after its last network leg finished, so the
+  // sequence can be composer-absent → bar-absent (mid-flight) → bar-present →
+  // composer. One look at the wrong moment saw neither, waited 20 s on a
+  // composer that only appears after a click nobody made, and timed out.
+  //
+  // Measured cost of that: gate 21 red about a quarter of the time with
+  // `locator.press: Timeout 30000ms exceeded` — a harness miss, and one that
+  // used to be worse, because before the receipt check in `submitDraft` it
+  // came out as a behavioural verdict about the model instead.
+  //
+  // So keep looking, and click the bar every time it is offered.
+  const end = Date.now() + timeoutMs
+  for (;;) {
+    if (await composer.isVisible().catch(() => false)) return composer
+    if (await bar.isVisible().catch(() => false)) await bar.click().catch(() => {})
+    else if (await launcher.isVisible().catch(() => false)) await launcher.click().catch(() => {})
+    if (Date.now() > end) break
+    await new Promise((r) => setTimeout(r, 250))
+  }
+  throw new Error(
+    `the composer never became available in ${Math.round(timeoutMs / 1000)}s — neither the ` +
+      'minimised bar nor the launcher brought it back. Nothing below is a statement about the model.',
+  )
 }
 
 /**
@@ -620,6 +659,11 @@ async function submitDraft(page, box, text, chatPosts) {
   // inside 5 s, the Enter fallback lost to the focus race, and the verdict
   // came out as "A never sent a request".
   for (const attempt of [0, 1, 2]) {
+    // Re-acquired every attempt, not taken on trust from the caller. The
+    // composer is unmounted while a journey acts, so a locator resolved before
+    // that can point at nothing by the time we type — which surfaced as
+    // `locator.press: Timeout 30000ms exceeded` rather than as a retry.
+    box = await ensureComposer(page)
     await box.fill(text)
     if (attempt === 1) await page.waitForTimeout(700)
     try {
@@ -631,7 +675,9 @@ async function submitDraft(page, box, text, chatPosts) {
       )
       await send.click()
     } catch {
-      await box.press('Enter')
+      // 5s, not Playwright's 30s default: this is the fallback, and a long
+      // block here is what turned a retryable miss into a whole-gate timeout.
+      await box.press('Enter', { timeout: 5_000 }).catch(() => {})
     }
     // ── THE RECEIPT IS A POST, NOT AN EMPTY BOX ──────────────────────────────
     //
@@ -649,8 +695,38 @@ async function submitDraft(page, box, text, chatPosts) {
     //
     // So wait for the WIRE when the caller gave us it, and fall back to the
     // DOM receipt only when it did not.
+    //
+    // ── AND THE RECEIPT HAS TO BE *THIS* POST, NOT ANY POST ──────────────────
+    //
+    // `chatPosts.length > before` was the receipt, and a post from the PREVIOUS
+    // turn satisfies it. Not hypothetical — it is what made gate 21 fail about
+    // half the time, measured over nine runs against production:
+    //
+    //   1. Turn one journeys. `waitForChatSettled` returns on NETWORK quiet, but
+    //      a journey keeps acting in the browser after its last leg finishes.
+    //   2. `DeckeHost` passes `minimised={travelling}`, so while it acts there is
+    //      no composer rendered at all — see `ensureComposer` below.
+    //   3. Turn two is typed into that, and swallowed.
+    //   4. A late leg of turn ONE then lands, `chatPosts.length > before` goes
+    //      true, and this function reports success for a message never sent.
+    //
+    // The gate then sliced from `before`, got turn one's trailing leg, and read
+    // its set description as the model's answer to "what percentage?" — one leg,
+    // no percentage, FAIL. A harness miss rendered as a verdict about the model,
+    // which is the exact failure the comment above says this receipt exists to
+    // prevent. It was checking the wrong property.
+    //
+    // The body carries the whole conversation, so a post made BEFORE this
+    // sentence was typed cannot contain it: matching the JSON-escaped text is an
+    // identity check, not a heuristic. When the message really was swallowed the
+    // retry loop tries twice more and then throws — "the HARNESS could not ask
+    // the question" — which is the honest outcome and already written below.
+    const needle = JSON.stringify(text).slice(1, -1)
     const sent = chatPosts
-      ? await waitFor(() => chatPosts.length > before, 12_000)
+      ? await waitFor(
+          () => chatPosts.slice(before).some((p) => (p.raw ?? '').includes(needle)),
+          12_000,
+        )
       : await page
           .waitForFunction(
             () => {
@@ -1551,12 +1627,21 @@ GATES[4] = {
 
       const secondTurn = chatPosts.slice(before)
       const said = spoken(secondTurn)
-      const data = dataToolsUsed(secondTurn)
+      // Conversation-scoped, for the reason written out at length on gate 21:
+      // turn one fetched this set and this account's progress on it, so turn two
+      // answering from that is correct rather than a miss, and demanding a
+      // second lookup makes the gate a coin flip. The assertions that carry this
+      // gate are the ones below — the owned figure and the total, or (on an
+      // empty holding) that he invented no figure at all. This one only rules
+      // out a conversation with no data in it anywhere.
+      const dataThisTurn = dataToolsUsed(secondTurn)
+      const data = dataToolsUsed(chatPosts)
       const owns = truth.owned > 0
 
       const detail = [
         `ground truth (user_set_progress, complete goal): ${truth.owned} / ${truth.total} of ${truth.name}`,
-        `data tools on the wire for the second turn: ${data.join(', ') || '(NONE)'}`,
+        `data tools on the wire THIS turn: ${dataThisTurn.join(', ') || '(none — legitimate if turn 1 already fetched it)'}`,
+        `data tools anywhere in the conversation: ${data.join(', ') || '(NONE)'}`,
         `he said: ${said.replace(/\s+/g, ' ').slice(0, 300)}`,
         owns
           ? ''
@@ -1569,7 +1654,7 @@ GATES[4] = {
 
       check(
         data.length > 0,
-        `he answered a question about the reader's own collection with no lookup. ` +
+        `nothing in this conversation looked anything up. ` +
           `Tools: ${toolNames(secondTurn).join(', ') || 'none'}\n${detail}`,
       )
       if (owns) {
@@ -3186,6 +3271,21 @@ GATES[20] = {
  * distinguish from a completion figure without knowing which noun each number
  * belongs to, so it asserts that the right figure is PRESENT and does not
  * assert that no other figure is. Reported below so the reader can see the gap.
+ *
+ * ── AND IT NO LONGER DEMANDS A LOOKUP ON THE SECOND TURN ────────────────────
+ *
+ * It used to, and that made it a coin flip rather than a gate: measured 4/9 on
+ * a branch and 5/9 on `main` in the same hour, indistinguishable, with the
+ * failure always that check. The assertion was wrong rather than flaky. Turn
+ * one asks "What's in <set>?" and fetches the set, this account's progress
+ * included, so answering turn two from what turn one returned is correct —
+ * re-fetching it would be waste, and which he does is a toss-up no prompt
+ * controls.
+ *
+ * A gate that fails half the time on an unchanged tree is worse than no gate:
+ * it trains whoever sees the red to re-run it, which is exactly the habit that
+ * makes a real failure invisible. The grounding requirement is now "somewhere
+ * in this conversation", which is what it was always trying to express.
  */
 GATES[21] = {
   title: '"How close am I?" — the percentage matches user_set_progress, not his own arithmetic',
@@ -3202,7 +3302,25 @@ GATES[21] = {
 
       const turn = chatPosts.slice(before)
       const said = spoken(turn)
-      const data = dataToolsUsed(turn)
+      // ── GROUNDED IN THE CONVERSATION, NOT NECESSARILY IN THIS TURN ─────────
+      //
+      // This used to require a data tool on the SECOND turn, which made the gate
+      // a coin flip: measured 4/9 on a branch and 5/9 on `main` in the same hour
+      // — indistinguishable — with the failure always this check.
+      //
+      // The assertion was wrong, not flaky. Turn one asks "What's in <set>?" and
+      // fetches that set, this account's progress on it included. Answering turn
+      // two from what turn one already returned is CORRECT: re-fetching data he
+      // was handed a moment ago is waste, and which of the two he does is a
+      // toss-up no prompt controls.
+      //
+      // What the gate cares about is that the figure came from the product and
+      // not from his own head, and a lookup anywhere in the conversation
+      // establishes that. The percentage comparison below is what catches
+      // invention; this only rules out a conversation with no data in it at all.
+      // Both are still reported, so a reader can see which turn did the work.
+      const dataThisTurn = dataToolsUsed(turn)
+      const data = dataToolsUsed(chatPosts)
       // The renderings of 10.8 a careful answer can honestly use.
       // Compared NUMERICALLY, so "11", "11.0" and "10.80" are the same answer.
       const acceptable = [
@@ -3218,7 +3336,8 @@ GATES[21] = {
           `(${truth.owned} of ${truth.total})`,
         `acceptable renderings: ${acceptable.join('% | ')}%`,
         `percentages in the answer: ${percents.map((p) => `${p}%`).join(', ') || '(none)'}`,
-        `data tools on the wire for that turn: ${data.join(', ') || '(NONE)'}`,
+        `data tools on the wire THIS turn: ${dataThisTurn.join(', ') || '(none — legitimate if turn 1 already fetched it)'}`,
+        `data tools anywhere in the conversation: ${data.join(', ') || '(NONE)'}`,
         `legs: ${legSummary(turn)}`,
         `he said: ${said.replace(/\s+/g, ' ').slice(0, 400)}`,
         'SCOPE: this asserts the right percentage is PRESENT. It does not assert that every other',
@@ -3229,7 +3348,7 @@ GATES[21] = {
 
       check(
         data.length > 0,
-        `he answered a question about the reader's own progress with no lookup:\n${detail}`,
+        `nothing in this conversation looked anything up, so the percentage came from his own head:\n${detail}`,
       )
       check(percents.length > 0, `he was asked for a percentage and gave none:\n${detail}`)
       check(

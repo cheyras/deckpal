@@ -12987,3 +12987,192 @@ guard names.
 **Implications.**
 - Do not add `cel25` to GLC's prefix list, and do not vendor an item-6 row.
 - Never call `validateDeck` without the oracle outside a test. The guard says so.
+## 2026-08-27 — Deck-E prompt revision: the rules list is numbered 1..6, and the numbering is now pinned
+
+**Decided by:** Claude Opus 5 on behalf of @cheyras (issue #91)
+
+**Decision:** Renumber the data-tools list in `apps/api/src/decke/prompt.ts`
+("Rules, in the order they matter") from 1, 2, 3, 3, 4, 5 to 1, 2, 3, 4, 5, 6.
+Two consecutive rules — "If they correct you, look it up." and "Read before you
+advise." — were both marked `3.`. Nothing else in the prompt moved: no rule
+reworded, no rule reordered, no paragraph relocated, no other list touched.
+
+Add the missing guard: `apps/api/src/decke/__tests__/prompt.test.ts` now asserts
+that **every** ordered list in the rendered prompt runs 1..n with no repeat and
+no gap, across the data-tools branch, the no-data-tools branch and the
+signed-out branch, plus a positional pin on the six rules themselves.
+
+**Why:** The defect was found by the 2026-08-24 hygiene recon and routed away
+from it on purpose — `prompt.ts` documents that wording and even paragraph
+POSITION here are measured artifacts ("Position is not cosmetic in a prompt, so
+it is not tidied"), so changing prompt bytes is a prompt revision and belongs in
+one, not in a zero-behaviour-change pass. This is that revision. The numbers are
+the list's ordering claim, not decoration: its own header says the rules are "in
+the order they matter", and a list that says 3, 3, 4, 5 has told the model two
+rules share a rank and that there are five rules where there are six.
+
+The test exists because nothing else could have caught it. Prompt text is prose
+inside a template literal; no compiler and no existing assertion in that file had
+an opinion about a duplicate marker, and it survived months and several prompt
+passes as a result.
+
+**What was measured, and what was not.** Per the procedure `prompt.ts` states
+for itself, before and after, everything else held identical:
+
+`scripts/decke-tool-choice-probe.mjs` (real `buildSystemPrompt`, real cosmetic
+and client tool surface, `MODELS.chat`, `search_cards`/`set_progress`/`log_cards`
+as fixtures), route `/` — the page gate 3 opens on — asking gate 3's own
+sentence, "What's in Pitch Black?", n=20 per arm:
+
+| | old prompt (3/3/4/5) | new prompt (3/4/5/6) |
+|---|---|---|
+| looked something up before answering | 20/20 | 20/20 |
+| questioned that the set exists | 0/20 | 0/20 |
+| invented a card count | 0/20 | 0/20 |
+| tool sequences | 12× `set_progress`→`escort`, 6× `set_progress`, 2× `search_cards`→`set_progress` | 13× `set_progress`→`escort`, 6× `set_progress`, 1× `search_cards`→`set_progress` |
+
+No measurable change. The 12→13 escort difference is the navigation split, not
+grounding, and n=20 per arm detects only a gross regression — it is evidence
+that the renumber did not break the list, not evidence that three bytes improved
+anything.
+
+**And the browser gates, re-run against the preview built from this change**
+(`node scripts/decke-gates.mjs --base <preview> --gate N`, Playwright supplied
+out of tree as the harness intends, QA account per B12):
+
+| Gate | What it owns in this list | Result |
+|---|---|---|
+| 3 | rule 1 — never deny existence without looking | PASS |
+| 4 | rules 4, 5 — the figure matches `user_set_progress` | PASS |
+| 9 | rule 6 — preview, no row, approval, row, quantity, revert | PASS |
+| 10 | rule 6 — 4000 Charizards: nothing written, `alert_dizzy` | SKIP (the gate's own documented skip: nothing written, nothing narrated as written, `alert_dizzy` fired, and he asked which Charizard rather than attempting the real write) |
+| 13 | rule 4 — the five ids match what the account owns | PASS |
+| 14 | rule 4 — deck advice reads the collection first | PASS |
+| 20 | rules 4, 5 — the count matches `user_set_progress` | PASS |
+| 23 | rules 2, 4 — every card named is one the account is missing | PASS |
+
+**Gate 21 failed, and it is a pre-existing coin flip, not this change.** It went
+red on the first run — he answered "what percentage of it have I completed?"
+from the previous turn's context with no lookup of its own, which is exactly the
+shape of failure a botched rules list would produce. So it got a control instead
+of a conclusion: **9 runs each, same account, same hour — this change 4/9,
+`main` 5/9.** Indistinguishable. Its second turn is the flaky one. Filed as an
+observation, not fixed here: a gate that passes half the time teaches its readers
+to re-run reds until they go green, which is the opposite of what the suite is
+for.
+
+**Implications:**
+- Nothing in the tree referenced these rules by number, checked before the edit.
+  The `step 1` / `step 2` / `items 2 and 3` / `after item 4` references in
+  `prompt.ts`'s own comments all belong to the **write-protocol** list under
+  "## Changing things", which was already 1..5 and is untouched.
+- Those were the only two ordered lists in the whole prompt, in every branch.
+  The write-protocol list was checked for the same class of defect and is clean.
+- The next duplicate or skipped marker fails `test:decke` rather than waiting for
+  someone to read the prompt by eye.
+- **Gate 21 is flaky at roughly 50% on `main` and needs its own fix.** Not this
+  change's to make, and deliberately not folded in: it is a second question with
+  a second answer (does the model owe a fresh lookup on a follow-up turn whose
+  answer is already in context, or is the gate asserting more than §13.2 does?).
+  Whoever takes it should start from the 9-vs-9 control above rather than from a
+  single red run.
+
+---
+
+## 2026-08-27 — Gate 21 was a harness bug in three parts, not a model defect (issue #91 follow-up)
+
+**Decided by:** Claude Opus 5 on behalf of @cheyras
+
+**Decision:** Gate 21 is deterministic. Measured **6/6 PASS** against production,
+against a baseline of 4/9 and 5/9 in the same hour. Three separate defects, all
+in the harness, none in Deck-E.
+
+**It took two wrong diagnoses to get there, and both are worth recording**
+because each was plausible and each was refuted by measuring rather than by
+argument.
+
+- *Wrong #1 (the original triage):* the failure looked like "a botched rules
+  list" — he answered a follow-up about his own progress with no lookup. A
+  control run put the branch at 4/9 and `main` at 5/9, which killed it.
+- *Wrong #2 (mine):* I read the failing assertion as the cause — the gate
+  demanded a data tool on the SECOND turn, which turn one had already done.
+  Fixing that changed nothing: the gate still failed, now reporting "asked for a
+  percentage and gave none".
+
+**What it actually was.**
+
+1. **A false receipt.** `submitDraft` treated `chatPosts.length > before` as
+   proof the message was sent. A late leg of the PREVIOUS turn satisfies it, so
+   the harness reported success for a message never sent — then sliced from
+   `before`, got turn one's trailing leg, and read its set description as the
+   answer to "what percentage?". A harness miss rendered as a verdict about the
+   model, which is the exact failure that function's own comment says it exists
+   to prevent. It was checking the wrong property. The receipt is now an
+   identity check: the post body carries the whole conversation, so a post made
+   before this sentence was typed cannot contain it.
+
+2. **A single-sample look at a changing state.** `ensureComposer` looked once,
+   clicked the minimise bar if it happened to be there, then waited. The panel's
+   state moves underneath that. It polls now.
+
+3. **A state it did not know existed.** The panel has three states, not two.
+   Measured on production: ask him to open a set and the panel survives the
+   navigation (t+2s) and outlives it (t+3s), then at **t+21s closes outright** —
+   "Close chat" and "Stop" go with it, so it is a close and not a minimise.
+   `ensureComposer` knew "present" and "minimised behind a bar" and had no route
+   back from "closed". Nothing is broken for a reader: the launcher is right
+   there. The harness simply had no way home from a room it had never seen.
+
+**The grounding check was still wrong, and is still fixed.** Gates 4 and 21
+required a data tool on the follow-up turn; turn one fetches the set and this
+account's progress on it, so answering from that is correct. Now
+conversation-scoped, with both scopes printed.
+
+**Regression-checked, because these helpers are shared by all 23 gates.** Gates
+4, 13 and 20 pass. Gates 3 and 23 fail at the same rate with and without the
+change — gate 3 at 1/3 either way, gate 23 failing both arms with *different*
+reasons — so both are pre-existing live-model variability on production, and
+neither is caused by this.
+
+**Implications.**
+- A harness receipt must identify the thing it is a receipt FOR. "Something
+  happened" is not "my thing happened".
+- Gates 3 and 23 are flaky on production today. Do not read either as a
+  regression without running `main` alongside.
+
+
+---
+
+## 2026-08-27 — §13.2 describes the suite that exists: 23 gates, not 17
+
+**Decided by:** Claude Opus 5 on behalf of @cheyras
+
+**Decision:** `DECKE-AGENT-SPEC.md` §13.2 gains rows 18–23, and states which
+rows are known-flaky.
+
+**Why it was wrong.** The gate suite was created on 2026-08-22 (PR #74) with 17
+gates, one per §13.2 row. The experience pass on 2026-08-23 (PR #78) added six
+more — 18 through 23 — from three screen recordings, and **added nothing to
+§13.2**. That PR wrote 592 lines to this file across ~20 entries and not one of
+them is about the gate suite.
+
+So for four days the suite ran 23 gates while the spec described 17, and each of
+the six extra gates carried its entire justification in a source comment. A
+reader trusting the spec would reasonably have concluded that 18–23 were
+somebody's private additions rather than part of the contract.
+
+That is not a filing error. **A gate with no row here is a gate nobody has
+agreed to** — and gate 21 is the demonstration: it failed about half the time
+for four days, and because it was outside the table there was no agreed statement
+of what it was for to check the failures against. Both wrong diagnoses of that
+flake started by re-deriving its purpose from its own code.
+
+**Also recorded: gates 3 and 23 are flaky on production today**, measured with
+and without harness changes and indistinguishable across the two. Stated in the
+table so a red is read correctly rather than chased.
+
+**Implications.**
+- A new gate gets a §13.2 row in the same commit. The source comment is the
+  reasoning; the row is the agreement.
+- Known-flaky gates say so where the gates are described, not only where they
+  are implemented.
