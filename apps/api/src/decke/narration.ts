@@ -61,14 +61,44 @@
  * DELIBERATELY NARROW
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * Anchored on OUR seven tool names in every form it matches. A general markup
+ * Anchored on OUR OWN tool names in every form it matches. A general markup
  * filter WOULD be the "stripping pass to get wrong" that `tools.ts` warns
  * about: card names contain angle brackets, prices contain `<`, and a filter
  * that eats those is worse than the problem. `<b>` survives.
  * `10% < 15%` survives. `<input name="email">` survives.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * AND NARROW IS NOT THE SAME AS FROZEN
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * This constant used to be a literal, and its comment used to say "OUR SEVEN
+ * tool names" — which was true when it was written and false eight months
+ * later. `journey` and `escort` were added to `buildTools`, nobody came back
+ * here, and a filter whose entire job is to catch leaked tool syntax stopped
+ * catching two of the nine kinds. Nothing failed: no type error, no test, no
+ * log line. The only symptom was a reader seeing `<journey>…</journey>` in a
+ * speech bubble, which is exactly the defect this file exists to remove.
+ *
+ * So it is DERIVED, not written. Adding a tool to `buildTools` extends this
+ * automatically, and `tools.test.ts` pins `COSMETIC_TOOLS` to the tools that
+ * factory actually returns — while `narration.test.ts` goes the other way and
+ * asserts every key of `buildTools(…)` is stripped in all three shapes, reading
+ * the registry rather than the constant. A count in a comment cannot go stale
+ * if there is no count in the comment.
+ *
+ * ── WHAT IS DELIBERATELY *NOT* HERE ────────────────────────────────────────
+ *
+ * The 23 data tools and the 4 deep tools. They are model-callable too and could
+ * leak the same way, but their names are ordinary English — `decks`, `lists`,
+ * `health`, `revert` — and the attribute rule strips a whole element on a bare
+ * `name="…"` match. Widening to them trades a leak nobody has measured for
+ * false positives on prose that is measured daily. That is a separate call with
+ * its own evidence, not a side effect of this one.
  */
 
-const TOOL_TAGS = 'express|showScreen|flyTo|goTo|highlight|scrollToMe|click';
+import { COSMETIC_TOOLS } from './tools.js';
+
+const TOOL_TAGS = COSMETIC_TOOLS.join('|');
 
 /**
  * ── THE THREE SHAPES, BECAUSE MATCHING ON TAG NAME WAS NOT ENOUGH ───────────
@@ -95,8 +125,22 @@ const TOOL_TAGS = 'express|showScreen|flyTo|goTo|highlight|scrollToMe|click';
  * So match the SHAPE: an element whose name is one of ours, ANY namespace
  * prefix allowed; or an element that carries `name="<one of ours>"` as an
  * attribute, whatever the element is called. Still narrow — it is anchored on
- * OUR seven names either way — so `<b>` and `10% < 15%` survive, which the
+ * OUR OWN names either way — so `<b>` and `10% < 15%` survive, which the
  * tests check.
+ *
+ * ── AND WHY THE ALTERNATION IS SAFE TO EXTEND ──────────────────────────────
+ *
+ * `TOOL_TAGS` is joined into all four regexes below with no escaping pass, so
+ * two properties have to hold of every name in it, and both are tested:
+ *
+ *   - No regex metacharacter. `narration.test.ts` asserts the shape of every
+ *     name `buildTools` returns; a tool called `get*` would widen these
+ *     patterns rather than fail loudly.
+ *   - No prefix shadowing. A regex alternation is FIRST-MATCH, so a set
+ *     containing both `go` and `goTo` would match `go` inside `<goTo>` — except
+ *     that every use below follows the alternation with `\b`, or with the
+ *     closing quote of a `name="…"`, which forces the backtrack to the longer
+ *     name. `<journeyman>` survives for the same reason, and is a test.
  */
 const NS = '(?:[A-Za-z_][\\w.-]*:)?';
 const NAMED = `name\\s*=\\s*["'](?:${TOOL_TAGS})["']`;

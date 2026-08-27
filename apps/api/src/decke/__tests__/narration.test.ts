@@ -9,6 +9,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createNarrationFilter } from '../narration.js'
+import { buildTools } from '../tools.js'
 
 /** Feed chunks through the filter and return everything the reader would see. */
 function through(chunks: string[]): string {
@@ -141,7 +142,7 @@ test('both new forms survive being split across deltas', () => {
 })
 
 test('a NON-tool element with a name attribute is left alone', () => {
-  // The attribute rule is anchored on OUR seven names. An ordinary form input
+  // The attribute rule is anchored on OUR OWN names. An ordinary form input
   // is not tool syntax and must survive, or this becomes the general markup
   // filter that tools.ts warns against.
   const out = through(['Fill in <input name="email"> and submit.'])
@@ -153,4 +154,115 @@ test('the word parameter in ordinary prose is untouched', () => {
   // sentence that merely mentions one is safe.
   const out = through(['The parameter you want is the completion goal.'])
   assert.equal(out, 'The parameter you want is the completion goal.')
+})
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE LIST THAT WENT STALE, AND THE TEST THAT NOTICES NEXT TIME
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `TOOL_TAGS` was a hand-written seven while `buildTools` exposed nine:
+ * `journey` and `escort` arrived later and nobody came back to the filter. A
+ * model that emitted `<journey>…</journey>` as prose therefore reached the
+ * reader in full — the exact defect this file exists to prevent, reintroduced
+ * by an unrelated feature and invisible until someone read both lists together.
+ *
+ * The constant is derived from `COSMETIC_TOOLS` now, so the two cannot disagree
+ * by hand. But a derivation is only as good as the list it derives from, so
+ * these read the TOOL REGISTRY — `Object.keys(buildTools(…))`, the structural
+ * truth about what the model is holding — and never `COSMETIC_TOOLS` itself.
+ * Asserting a constant against the constant the code was built from proves
+ * nothing at all.
+ */
+
+/** `buildTools` only ever calls `write`; nothing here needs a real stream. */
+const noopWriter = { write: () => {} }
+
+/** Every tool name the model can call from this module, today. */
+const toolNames = (): string[] => Object.keys(buildTools(noopWriter))
+
+test('every tool the model holds is stripped as a plain element', () => {
+  const names = toolNames()
+  assert.ok(names.length > 0, 'buildTools exposed nothing — this test would pass vacuously')
+  for (const name of names) {
+    const out = through([`Sure. <${name}><selector>#x</selector></${name}> Done.`])
+    assert.equal(out, 'Sure.  Done.', `${name} leaked as an element`)
+  }
+})
+
+test('every tool the model holds is stripped namespaced, and as a name attribute', () => {
+  for (const name of toolNames()) {
+    // `<xai:showScreen>` is verbatim from the deployed preview; any prefix.
+    assert.equal(
+      through([`A <xai:${name}><p>x</p></xai:${name}> B`]),
+      'A  B',
+      `${name} leaked behind a namespace prefix`,
+    )
+    // `<function_call name="flyTo">` is verbatim too: the tool name is an
+    // ATTRIBUTE and the element is called something else entirely.
+    assert.equal(
+      through([`A <function_call name="${name}"><parameter name="q">x</parameter></function_call> B`]),
+      'A  B',
+      `${name} leaked as a name attribute`,
+    )
+  }
+})
+
+test('every tool name is safe to drop into a regex alternation', () => {
+  // `TOOL_TAGS` is joined into four regexes with no escaping pass. A tool named
+  // with a metacharacter would not throw — it would quietly widen or break the
+  // alternation, which is the worst of the available failures.
+  for (const name of toolNames()) {
+    assert.match(
+      name,
+      /^[A-Za-z][A-Za-z0-9_]*$/,
+      `${name} would have to be escaped before it can join TOOL_TAGS`,
+    )
+  }
+})
+
+test('journey and escort, split across deltas exactly as the wire delivers them', () => {
+  // The two names the filter did not know about. Fed in fragments, because a
+  // whole-string test passes on a per-delta regex that fails in production.
+  const j = through([
+    'Right, follow me. <jour',
+    'ney><steps><step><verb>goTo</verb><landmark>[data-decke-sets]',
+    '</landmark></step></steps></journey>',
+    ' First stop.',
+  ])
+  assert.equal(j, 'Right, follow me.  First stop.')
+  assert.equal(j.includes('data-decke-sets'), false, 'the CONTENT must go too, not just the tags')
+
+  const e = through(['Sure. <xai:esc', 'ort><setId>me01</setId></xai:escort>', ' This way.'])
+  assert.equal(e, 'Sure.  This way.')
+  assert.equal(e.includes('me01'), false)
+  assert.equal(e.includes('xai:'), false)
+})
+
+test('a journey that never closes, and a self-closing escort', () => {
+  // OPEN_TAG handles the streaming partial: an element still in progress holds
+  // everything after it, and at end-of-stream the tag goes and the words stay.
+  const unclosed = through(['Off we go. <journey><steps>'])
+  assert.match(unclosed, /Off we go\./)
+  assert.equal(/<\/?(?:xai:)?journey/.test(unclosed), false, 'the opening tag reached the reader')
+
+  const selfClosing = through(['Here. <escort seriesSlug="mega-evolution" setId="me01" />', ' Have a look.'])
+  assert.equal(selfClosing, 'Here.  Have a look.')
+})
+
+test('a longer word that merely BEGINS with a tool name survives', () => {
+  // Every regex that consumes TOOL_TAGS follows it with `\b`, or with the
+  // closing quote of a `name="…"`. That is what stops `journey` matching the
+  // front of `<journeyman>` and leaving `man` on the reader's screen.
+  assert.equal(
+    through(['A <journeyman>guide</journeyman> for you.']),
+    'A <journeyman>guide</journeyman> for you.',
+  )
+  assert.equal(through(['<input name="escorted">']), '<input name="escorted">')
+  // And the words themselves are ordinary English in this domain.
+  assert.equal(
+    through(['The journey to a full set is long, but I can escort you.']),
+    'The journey to a full set is long, but I can escort you.',
+  )
+  assert.equal(through(['An <b>escort</b> is not a tag.']), 'An <b>escort</b> is not a tag.')
 })
