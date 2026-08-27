@@ -575,13 +575,52 @@ async function waitForChatSettled(chatPosts, { quietMs = 900, timeoutMs = 25_000
  * like "the chat is broken" and is in fact the feature working. The collapsed
  * bar is a button; clicking it is what a reader would do.
  */
-async function ensureComposer(page) {
+async function ensureComposer(page, { timeoutMs = 45_000 } = {}) {
   const composer = page.getByLabel('Message Deck-E')
-  if (await composer.isVisible().catch(() => false)) return composer
   const bar = page.getByRole('button', { name: 'Back to the conversation' })
-  if (await bar.isVisible().catch(() => false)) await bar.click()
-  await composer.waitFor({ state: 'visible', timeout: 20_000 })
-  return composer
+  // ── THE THIRD STATE: CLOSED, NOT MINIMISED ────────────────────────────────
+  //
+  // This function knew two states — composer present, or panel minimised behind
+  // "Back to the conversation". There is a third, and it is the one a journey
+  // leaves behind. Measured on production: ask him to open a set, and the panel
+  // is still there through the navigation (t+2s) and after it (t+3s), then at
+  // **t+21s it closes outright** — "Close chat" and "Stop" go with it, so it is
+  // the whole panel and not a minimise.
+  //
+  // Nothing is broken for a reader: the launcher is right there and reopens the
+  // same thread. But the harness had no route back from a state it did not know
+  // existed, so it waited out its timeout and the gate came up red. That is the
+  // rest of gate 21's ~50%.
+  const launcher = page.getByRole('button', { name: 'Chat with Deck-E' })
+
+  // ── POLLED, BECAUSE THE PANEL CAN MINIMISE AGAIN WHILE WE LOOK ─────────────
+  //
+  // The old version looked once, clicked the bar if it happened to be there,
+  // then waited on the composer. That is a single sample of a state that
+  // changes underneath it: `minimised={travelling}` is driven by a journey
+  // still ACTING in the browser after its last network leg finished, so the
+  // sequence can be composer-absent → bar-absent (mid-flight) → bar-present →
+  // composer. One look at the wrong moment saw neither, waited 20 s on a
+  // composer that only appears after a click nobody made, and timed out.
+  //
+  // Measured cost of that: gate 21 red about a quarter of the time with
+  // `locator.press: Timeout 30000ms exceeded` — a harness miss, and one that
+  // used to be worse, because before the receipt check in `submitDraft` it
+  // came out as a behavioural verdict about the model instead.
+  //
+  // So keep looking, and click the bar every time it is offered.
+  const end = Date.now() + timeoutMs
+  for (;;) {
+    if (await composer.isVisible().catch(() => false)) return composer
+    if (await bar.isVisible().catch(() => false)) await bar.click().catch(() => {})
+    else if (await launcher.isVisible().catch(() => false)) await launcher.click().catch(() => {})
+    if (Date.now() > end) break
+    await new Promise((r) => setTimeout(r, 250))
+  }
+  throw new Error(
+    `the composer never became available in ${Math.round(timeoutMs / 1000)}s — neither the ` +
+      'minimised bar nor the launcher brought it back. Nothing below is a statement about the model.',
+  )
 }
 
 /**
@@ -620,6 +659,11 @@ async function submitDraft(page, box, text, chatPosts) {
   // inside 5 s, the Enter fallback lost to the focus race, and the verdict
   // came out as "A never sent a request".
   for (const attempt of [0, 1, 2]) {
+    // Re-acquired every attempt, not taken on trust from the caller. The
+    // composer is unmounted while a journey acts, so a locator resolved before
+    // that can point at nothing by the time we type — which surfaced as
+    // `locator.press: Timeout 30000ms exceeded` rather than as a retry.
+    box = await ensureComposer(page)
     await box.fill(text)
     if (attempt === 1) await page.waitForTimeout(700)
     try {
@@ -631,7 +675,9 @@ async function submitDraft(page, box, text, chatPosts) {
       )
       await send.click()
     } catch {
-      await box.press('Enter')
+      // 5s, not Playwright's 30s default: this is the fallback, and a long
+      // block here is what turned a retryable miss into a whole-gate timeout.
+      await box.press('Enter', { timeout: 5_000 }).catch(() => {})
     }
     // ── THE RECEIPT IS A POST, NOT AN EMPTY BOX ──────────────────────────────
     //
@@ -649,8 +695,38 @@ async function submitDraft(page, box, text, chatPosts) {
     //
     // So wait for the WIRE when the caller gave us it, and fall back to the
     // DOM receipt only when it did not.
+    //
+    // ── AND THE RECEIPT HAS TO BE *THIS* POST, NOT ANY POST ──────────────────
+    //
+    // `chatPosts.length > before` was the receipt, and a post from the PREVIOUS
+    // turn satisfies it. Not hypothetical — it is what made gate 21 fail about
+    // half the time, measured over nine runs against production:
+    //
+    //   1. Turn one journeys. `waitForChatSettled` returns on NETWORK quiet, but
+    //      a journey keeps acting in the browser after its last leg finishes.
+    //   2. `DeckeHost` passes `minimised={travelling}`, so while it acts there is
+    //      no composer rendered at all — see `ensureComposer` below.
+    //   3. Turn two is typed into that, and swallowed.
+    //   4. A late leg of turn ONE then lands, `chatPosts.length > before` goes
+    //      true, and this function reports success for a message never sent.
+    //
+    // The gate then sliced from `before`, got turn one's trailing leg, and read
+    // its set description as the model's answer to "what percentage?" — one leg,
+    // no percentage, FAIL. A harness miss rendered as a verdict about the model,
+    // which is the exact failure the comment above says this receipt exists to
+    // prevent. It was checking the wrong property.
+    //
+    // The body carries the whole conversation, so a post made BEFORE this
+    // sentence was typed cannot contain it: matching the JSON-escaped text is an
+    // identity check, not a heuristic. When the message really was swallowed the
+    // retry loop tries twice more and then throws — "the HARNESS could not ask
+    // the question" — which is the honest outcome and already written below.
+    const needle = JSON.stringify(text).slice(1, -1)
     const sent = chatPosts
-      ? await waitFor(() => chatPosts.length > before, 12_000)
+      ? await waitFor(
+          () => chatPosts.slice(before).some((p) => (p.raw ?? '').includes(needle)),
+          12_000,
+        )
       : await page
           .waitForFunction(
             () => {

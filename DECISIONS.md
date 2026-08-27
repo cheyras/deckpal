@@ -13079,55 +13079,100 @@ for.
 
 ---
 
-## 2026-08-27 — Gate 21's flake is NOT the second-turn lookup check, and is still open (issue #91 follow-up)
+## 2026-08-27 — Gate 21 was a harness bug in three parts, not a model defect (issue #91 follow-up)
 
 **Decided by:** Claude Opus 5 on behalf of @cheyras
 
-**Two separate things, and only the first is fixed.**
+**Decision:** Gate 21 is deterministic. Measured **6/6 PASS** against production,
+against a baseline of 4/9 and 5/9 in the same hour. Three separate defects, all
+in the harness, none in Deck-E.
 
-### 1. Fixed: gates 4 and 21 demanded a data tool on the SECOND turn
+**It took two wrong diagnoses to get there, and both are worth recording**
+because each was plausible and each was refuted by measuring rather than by
+argument.
 
-Both gates ask a context question first (*"What's in <set>?"*) and a follow-up
-second (*"How close am I?"* / *"What percentage…?"*), then asserted a data tool
-on the follow-up alone. That assertion is wrong. Turn one fetches the set and
-this account's progress on it, so answering turn two from what turn one returned
-is correct — re-fetching is waste, and which the model does is a toss-up no
-prompt controls. The grounding requirement is now *"somewhere in this
-conversation"*, which is what it was always trying to express, and both scopes
-are printed so a reader can still see which turn did the work.
+- *Wrong #1 (the original triage):* the failure looked like "a botched rules
+  list" — he answered a follow-up about his own progress with no lookup. A
+  control run put the branch at 4/9 and `main` at 5/9, which killed it.
+- *Wrong #2 (mine):* I read the failing assertion as the cause — the gate
+  demanded a data tool on the SECOND turn, which turn one had already done.
+  Fixing that changed nothing: the gate still failed, now reporting "asked for a
+  percentage and gave none".
 
-Safe by construction: `chatPosts` is a superset of the turn slice, so the check
-is strictly more permissive and every content assertion is untouched.
+**What it actually was.**
 
-### 2. NOT fixed: gate 21 still fails about half the time, for a different reason
+1. **A false receipt.** `submitDraft` treated `chatPosts.length > before` as
+   proof the message was sent. A late leg of the PREVIOUS turn satisfies it, so
+   the harness reported success for a message never sent — then sliced from
+   `before`, got turn one's trailing leg, and read its set description as the
+   answer to "what percentage?". A harness miss rendered as a verdict about the
+   model, which is the exact failure that function's own comment says it exists
+   to prevent. It was checking the wrong property. The receipt is now an
+   identity check: the post body carries the whole conversation, so a post made
+   before this sentence was typed cannot contain it.
 
-I originally recorded the second-turn lookup as the cause. **That was wrong**,
-and measuring it said so. Across 9 runs against production with the fix in
-place, the failures are all `he was asked for a percentage and gave none` — and
-the text captured as the second turn is plainly an answer to the FIRST question:
+2. **A single-sample look at a changing state.** `ensureComposer` looked once,
+   clicked the minimise bar if it happened to be there, then waited. The panel's
+   state moves underneath that. It polls now.
 
-```
-legs: #1
-he said: **Pitch Black (me05)** dropped July 17 this year — 120-card Mega
-Evolution set. You're already on its page. I just walked you straight to the
-set row and opened it… Want the completion breakdown?
-data tools THIS turn: (none)   anywhere: set_progress
-```
+3. **A state it did not know existed.** The panel has three states, not two.
+   Measured on production: ask him to open a set and the panel survives the
+   navigation (t+2s) and outlives it (t+3s), then at **t+21s closes outright** —
+   "Close chat" and "Stop" go with it, so it is a close and not a minimise.
+   `ensureComposer` knew "present" and "minimised behind a bar" and had no route
+   back from "closed". Nothing is broken for a reader: the launcher is right
+   there. The harness simply had no way home from a room it had never seen.
 
-So the second message appears to be **swallowed while turn one's journey is
-still finishing**, and the slice picks up turn one's trailing leg. The obvious
-remedy is falsified too: raising turn one's `settleMs` to 90 s made it **worse**
-(3/3 failures), which suggests `waitForChatSettled` returns on network quiet
-that a client-side journey leg does not disturb, so a larger cap changes
-nothing.
+**The grounding check was still wrong, and is still fixed.** Gates 4 and 21
+required a data tool on the follow-up turn; turn one fetches the set and this
+account's progress on it, so answering from that is correct. Now
+conversation-scoped, with both scopes printed.
 
-**Left open deliberately, with the evidence, rather than closed on a third
-guess.** This thread already contains two wrong diagnoses of the same flake —
-the original "botched rules list" reading, and mine — and a gate that fails half
-the time trains readers to re-run reds, which is the habit that hides a real
-failure. The next investigation should start by instrumenting whether turn two's
-draft is submitted at all, not by adjusting timeouts.
+**Regression-checked, because these helpers are shared by all 23 gates.** Gates
+4, 13 and 20 pass. Gates 3 and 23 fail at the same rate with and without the
+change — gate 3 at 1/3 either way, gate 23 failing both arms with *different*
+reasons — so both are pre-existing live-model variability on production, and
+neither is caused by this.
 
 **Implications.**
-- Do not read a red gate 21 as a regression without re-running `main` alongside.
-- The grounding fix removes one wrong assertion; it does not make the gate sound.
+- A harness receipt must identify the thing it is a receipt FOR. "Something
+  happened" is not "my thing happened".
+- Gates 3 and 23 are flaky on production today. Do not read either as a
+  regression without running `main` alongside.
+
+
+---
+
+## 2026-08-27 — §13.2 describes the suite that exists: 23 gates, not 17
+
+**Decided by:** Claude Opus 5 on behalf of @cheyras
+
+**Decision:** `DECKE-AGENT-SPEC.md` §13.2 gains rows 18–23, and states which
+rows are known-flaky.
+
+**Why it was wrong.** The gate suite was created on 2026-08-22 (PR #74) with 17
+gates, one per §13.2 row. The experience pass on 2026-08-23 (PR #78) added six
+more — 18 through 23 — from three screen recordings, and **added nothing to
+§13.2**. That PR wrote 592 lines to this file across ~20 entries and not one of
+them is about the gate suite.
+
+So for four days the suite ran 23 gates while the spec described 17, and each of
+the six extra gates carried its entire justification in a source comment. A
+reader trusting the spec would reasonably have concluded that 18–23 were
+somebody's private additions rather than part of the contract.
+
+That is not a filing error. **A gate with no row here is a gate nobody has
+agreed to** — and gate 21 is the demonstration: it failed about half the time
+for four days, and because it was outside the table there was no agreed statement
+of what it was for to check the failures against. Both wrong diagnoses of that
+flake started by re-deriving its purpose from its own code.
+
+**Also recorded: gates 3 and 23 are flaky on production today**, measured with
+and without harness changes and indistinguishable across the two. Stated in the
+table so a red is read correctly rather than chased.
+
+**Implications.**
+- A new gate gets a §13.2 row in the same commit. The source comment is the
+  reasoning; the row is the agreement.
+- Known-flaky gates say so where the gates are described, not only where they
+  are implemented.
