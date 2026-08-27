@@ -370,7 +370,12 @@ export async function deleteObject(objectPath: string, timeoutMs = 10_000): Prom
   assertSafeObjectPath(objectPath, 'deleteObject');
   const { supabaseUrl, bucket } = storageEnv();
   try {
-    const res = await fetch(storageUrl(supabaseUrl, `storage/v1/object/${bucket}/${encodeURI(objectPath)}`).href, {
+    // Composed into a local first, exactly as `uploadObject` does. Same
+    // construct either way, but the two shapes did not read the same to CodeQL:
+    // the assigned form cleared and the inline one raised a fresh alert (#64).
+    // Consistency here is cheaper than arguing with the analyser.
+    const url = storageUrl(supabaseUrl, `storage/v1/object/${bucket}/${encodeURI(objectPath)}`).href;
+    const res = await fetch(url, {
       method: 'DELETE',
       headers: authHeaders(),
       signal: AbortSignal.timeout(timeoutMs),
