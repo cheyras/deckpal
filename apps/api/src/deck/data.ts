@@ -64,9 +64,10 @@ export interface ExclusiveGroup {
   members: string[];
 }
 /**
- * Vendored, not yet enforced — DECK-FORMATS §2.3.4 item 5. glc-rules.json
- * carries `set_carveouts` and this types it, but no validation rule reads it
- * yet; do not mistake the type for a wired rule.
+ * A GLC pool carve-out — DECK-FORMATS §2.3.4 item 5. `mode: 'deny_except'` puts
+ * a whole printed set outside the pool except for `except_names`. Enforced by
+ * `ruleSetCarveouts` in formats.ts, which subtracts it from the set-allowance
+ * pool (§2.3.6 item 5) ahead of the reprint oracle.
  */
 export interface SetCarveout {
   set: string;
@@ -81,7 +82,6 @@ interface GlcRulesFile {
   rule_box_name_suffixes: string[];
   exclusive_groups: ExclusiveGroup[];
   not_tournament_legal: string[];
-  /** Loaded and typed, but vendored-not-yet-enforced — see `SetCarveout`. */
   set_carveouts: SetCarveout[];
 }
 

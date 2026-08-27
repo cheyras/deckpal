@@ -117,6 +117,47 @@ test('GLC exclusive group: Boss’s Orders + Lysandre is EXCLUSIVE_GROUP', () =>
   assert.ok(codes(r).includes('EXCLUSIVE_GROUP'));
 });
 
+// ── GLC set carve-out — Celebrations Classic Collection (§2.3.4 item 5) ────────
+//
+// Every Classic Collection card is a REPRINT of an older print, so db.ts's real
+// reprint oracle (§2.1.5) answers "in format by reprint" for them and the pool
+// rule waves the set through. That is precisely why the carve-out has to be
+// enforced on its own: these tests inject the same always-true oracle, so the
+// carve-out is the only thing standing between the deck and a wrong "legal".
+const REPRINT_ORACLE = { isInFormatByReprint: () => true };
+const basicWater = () => mkCard({ name: 'Wailmer', category: 'Pokemon', stage: 'Basic', hp: 90, types: ['Water'], regulationMark: 'H', setTcgdexId: 'sv06' });
+const ccBlastoise = () => mkCard({ name: 'Blastoise', category: 'Pokemon', stage: 'Stage2', hp: 100, types: ['Water'], evolveFrom: 'Wartortle', setTcgdexId: 'cel25cc', localId: 'CC2', localIdNumeric: null });
+
+test('GLC carve-out: a Classic Collection card outside the exception list is NOT_IN_FORMAT', () => {
+  const r = validateDeck(deck('glc', padTo60([e(ccBlastoise(), 1), e(basicWater(), 1)], waterEnergy()), 'Water'), REPRINT_ORACLE);
+  assert.equal(r.legal, false, `expected illegal, got ${JSON.stringify(r.violations)}`);
+  const v = r.violations.find((x) => x.code === 'NOT_IN_FORMAT' && x.subject === 'Blastoise');
+  assert.ok(v, `has NOT_IN_FORMAT for Blastoise — got ${JSON.stringify(codes(r))}`);
+  assert.match(v!.message, /Reshiram and Zekrom/);
+  assert.equal(v!.detail!.set, 'cel25cc');
+  // exactly one row for the card: the carve-out replaces the generic pool message
+  assert.equal(r.violations.filter((x) => x.subject === 'Blastoise').length, 1);
+});
+
+test('GLC carve-out: Reshiram from the Classic Collection is excepted and stays legal', () => {
+  const ccReshiram = mkCard({ name: 'Reshiram', category: 'Pokemon', stage: 'Basic', hp: 130, types: ['Fire'], setTcgdexId: 'cel25cc', localId: 'CC4', localIdNumeric: null });
+  const r = validateDeck(deck('glc', padTo60([e(ccReshiram, 1)], fireEnergy()), 'Fire'), REPRINT_ORACLE);
+  assert.equal(r.legal, true, JSON.stringify(r.violations));
+});
+
+test('GLC carve-out is keyed on the SET, not the name: the same card from another set is unaffected', () => {
+  // Mirror-image guard: keying the deny on name alone would fail every Blastoise
+  // ever printed; keying the exception on name alone would let cel25cc through.
+  const swshBlastoise = mkCard({ name: 'Blastoise', category: 'Pokemon', stage: 'Stage2', hp: 180, types: ['Water'], evolveFrom: 'Wartortle', regulationMark: 'E', setTcgdexId: 'swsh3', localId: '25' });
+  const r = validateDeck(deck('glc', padTo60([e(swshBlastoise, 1), e(basicWater(), 1)], waterEnergy()), 'Water'), REPRINT_ORACLE);
+  assert.equal(r.legal, true, JSON.stringify(r.violations));
+});
+
+test('GLC carve-out does not leak into other formats: cel25cc is Expanded-legal', () => {
+  const r = validateDeck(deck('expanded', padTo60([e(ccBlastoise(), 1), e(basicWater(), 1)], waterEnergy())), REPRINT_ORACLE);
+  assert.equal(r.legal, true, JSON.stringify(r.violations));
+});
+
 test('all rules evaluate (no short-circuit): tiny deck reports DECK_SIZE among others', () => {
   const r = validateDeck(deck('standard', [e(mkCard({ name: 'Pikachu', category: 'Pokemon', stage: 'Basic', hp: 60, types: ['Lightning'], regulationMark: 'I' }), 1)]));
   assert.ok(codes(r).includes('DECK_SIZE'));
