@@ -391,6 +391,48 @@ const ADDRESSING_LINES: readonly string[] = [
  * tried and the fix holds on every model tried. So this text is not tuned to
  * one provider's disposition, and swapping the chat model should not silently
  * reopen it.
+ *
+ * ── 2026-08-27: THE RULES LIST IS NUMBERED 1..6, AND THAT COST A RUN ────────
+ *
+ * The data-tools list shipped with two consecutive rules both marked `3.` —
+ * 1, 2, 3, 3, 4, 5 (issue #91). It is one character, and it was deliberately
+ * left alone for months, because the paragraph above this one is the reason:
+ * position and wording here are measured, so a byte change is a prompt
+ * revision and not a typo fix.
+ *
+ * Renumbered 3/3/4/5 → 3/4/5/6. NOTHING ELSE MOVED: no rule reworded, no rule
+ * reordered, no paragraph relocated. What was measured before and after, on
+ * `decke-tool-choice-probe.mjs`, MODELS.chat, route `/`, gate 3's own sentence
+ * ("What's in Pitch Black?"), n=20 per arm:
+ *
+ *   looked something up before answering   20/20  →  20/20
+ *   questioned that the set exists          0/20  →   0/20
+ *   invented a card count                   0/20  →   0/20
+ *
+ * That instrument reads the WIRE, so it is evidence about rules 1 and 4 (did he
+ * look?) and none at all about arrival or about the write round trip. So the
+ * gates that own those ran too, against the preview built from this change:
+ *
+ *   3   looked it up, figures match the catalogue          PASS
+ *   4   the completion figure matches user_set_progress    PASS
+ *   9   preview → no row → approval → row → revert offered PASS
+ *   10  4000 Charizards: nothing written, alert_dizzy      SKIP (documented)
+ *   13  the five ids match what the account owns           PASS
+ *   14  deck advice reads the collection first             PASS
+ *   20  the count matches user_set_progress                PASS
+ *   23  every card named is one the account is missing     PASS
+ *
+ * GATE 21 IS A COIN FLIP AND WAS BEFORE THIS. It failed first run here, which
+ * looked exactly like a regression this list would cause — he answered "what
+ * percentage have I completed?" from the previous turn's context with no lookup
+ * of its own. It is not: 9 runs each, same account, same hour, this change
+ * 4/9 against `main` 5/9. Its second turn is the flaky one, and a single red
+ * from it is not evidence about anything. Do not "fix" a prompt against it
+ * without a control run on `main` first.
+ *
+ * The numbering itself is pinned now (`__tests__/prompt.test.ts`, "every
+ * numbered list in the prompt runs 1..n"), so the next one fails the suite
+ * instead of a hygiene recon.
  */
 export function buildSystemPrompt(opts: {
   /** Route the user is on right now, e.g. `/decks`. */
@@ -534,13 +576,13 @@ Rules, in the order they matter:
    blanks in from nothing.
 3. **If they correct you, look it up.** Being corrected is new information, not a
    disagreement to win. Never repeat a denial they have already contradicted.
-3. **Read before you advise.** Anything about THEIR collection — what they own,
+4. **Read before you advise.** Anything about THEIR collection — what they own,
    what they are missing, what it is worth, what to build — starts with a
    lookup. An answer about someone's cards that never read their cards is a
    guess wearing a confident voice.
-4. **Say where a number came from** when it matters, and never present a
+5. **Say where a number came from** when it matters, and never present a
    remembered number as a looked-up one.
-5. **Never claim to have changed anything you did not change.** If a write did
+6. **Never claim to have changed anything you did not change.** If a write did
    not happen, say it did not happen.
 
 A wrong price is worse than no price, and a wrong "that doesn't exist" is worse

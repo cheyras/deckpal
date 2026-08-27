@@ -725,9 +725,29 @@ Run in a real browser against deployed deckpal.app, at desktop width and 390 px.
 | 15 | "Write a strategy guide for it" | Stored guide (verified by reading `deck_strategy` back) names ≥3 cards actually in the deck, cites ≥1 detail present in `battle_logs`, and ≥1 meta claim traceable to the research log. Analysis-tier call confirmed in server logs. | PR 12 |
 | 16 | *(abort)* Start a deep turn, press stop | No stuck connection; no continued billing past the abort. | PR 7 |
 | 17 | *(concurrency)* Two users mid-turn simultaneously | Both complete; pool census shows no queueing collapse. | PR 4 |
+| 18 | *(cold load)* Open a page and do not invite him | **0 bytes** of character payload fetched; the runtime fires only on hover/intent. | PR 15 |
+| 19 | *(navigate)* Leave the page mid-bubble | The bubble retires and his anchor re-solves against the new page. | PR 15 |
+| 20 | "How many cards do I have in Pitch Black?" | The count matches `user_set_progress` — the product's figure, not his arithmetic. | PR 15 |
+| 21 | "What percentage of it have I completed?" | The **derived** percentage matches `progress.complete.pct`, in one of the product's own roundings. Gate 4 checks the fraction, which he can copy; this checks the division, which he cannot. | PR 15 |
+| 22 | "Help me find Pitch Black" | Lands on the canonical url, in two lines or fewer. | PR 15 |
+| 23 | "What should I buy next?" | Every card he names is one the account is actually missing, by the product's own `own=need` predicate. | PR 15 |
 
 A gate fails if the answer is right but unverified, or if he narrates an action the
 tool log does not contain.
+
+**Rows 1–17 are this spec's own; 18–23 were added by the experience pass (PR #78,
+2026-08-23) and back-filled into this table on 2026-08-27.** They came from three
+screen recordings rather than from a requirement written here first, which is why
+they sat outside the table for four days — the suite ran 23 gates while this
+section described 17, and a reader trusting the spec would have concluded that
+gates 18–23 were somebody's private additions rather than part of the contract.
+They are part of it. A gate with no row here is a gate nobody has agreed to.
+
+**Two rows are known-flaky on production as of 2026-08-27**, both live-model
+variability rather than regressions: **3** ("he never named the set") at roughly
+1 in 3, and **23** (fails with different reasons run to run). Measured with and
+without harness changes and indistinguishable across the two, so do not read
+either as a regression without running `main` alongside.
 
 ## 14. Open questions for the owner
 
