@@ -5,6 +5,7 @@ import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, ProgressBar } fr
 import { SetLogo } from '../components/SetLogo'
 import { fmtDate, setLevelLabel } from '../lib/format'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
+import { useLateEntrance } from '../lib/lateEntrance'
 
 function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
   // Absent for a logged-out visitor — the row then shows the set's own facts
@@ -102,16 +103,18 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
 
 export function SeriesDetail() {
   const { series } = useParams({ from: '/series/$series' })
+  // Issue #49: the wrapper entrance fires while this is still a spinner.
   const { data, isLoading, error } = useQuery({
     queryKey: ['series', series],
     queryFn: ({ signal }) => api.seriesDetail(series, signal),
   })
+  const enter = useLateEntrance(isLoading)
 
   return (
     <Content cap={1200}>
       <BackPill to="/series" label="All Series" />
       {isLoading && <Spinner label="Loading sets…" />}
-      {error && <ErrorState message={(error as Error).message} />}
+      {error && <ErrorState message={(error as Error).message} className={enter} />}
       {data && (
         <>
           <h1 className="mb-[2px] mt-[16px] text-[32px] font-bold leading-[40px] text-text-primary">
@@ -124,7 +127,7 @@ export function SeriesDetail() {
               a truncated list leaves him with a handful of arbitrary rows and no
               way to say "the sets are over here". */}
           <div
-            className="grid gap-[20px] [grid-template-columns:repeat(auto-fill,minmax(min(420px,100%),1fr))]"
+            className={`grid gap-[20px] [grid-template-columns:repeat(auto-fill,minmax(min(420px,100%),1fr))] ${enter}`}
             data-decke-set-list
             data-decke-landmark="[data-decke-set-list]"
             data-decke-label="the list of sets in this series"

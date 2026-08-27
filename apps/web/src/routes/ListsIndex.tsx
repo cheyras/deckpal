@@ -8,6 +8,7 @@ import { RecycleBin } from '../components/RecycleBin'
 import { Icon } from '../components/Icon'
 import { fmtUsd } from '../lib/format'
 import { LIST_SEARCH_DEFAULTS } from './listSearch'
+import { useLateEntrance } from '../lib/lateEntrance'
 
 const KIND_META: Record<ListKind, { label: string }> = {
   dynamic: { label: 'Dynamic List' },
@@ -74,6 +75,7 @@ export function ListsIndex() {
   const [showCreate, setShowCreate] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const { data, isLoading, error } = useQuery({ queryKey: ['lists'], queryFn: ({ signal }) => api.lists(signal) })
+  const enter = useLateEntrance(isLoading)
 
   const create = useMutation({
     mutationFn: (body: CreateListBody) => api.createList(body),
@@ -106,10 +108,10 @@ export function ListsIndex() {
       </div>
 
       {isLoading && <Spinner label="Loading lists…" />}
-      {error && <ErrorState message={(error as Error).message} />}
+      {error && <ErrorState message={(error as Error).message} className={enter} />}
 
       {data && lists.length === 0 && (
-        <div className="flex flex-col items-center justify-center gap-[12px] rounded-xl border border-dashed border-border-default py-[80px] text-center">
+        <div className={`flex flex-col items-center justify-center gap-[12px] rounded-xl border border-dashed border-border-default py-[80px] text-center ${enter}`}>
           <Icon name="lists" size={44} className="text-icon-muted" />
           <div className="text-[20px] font-bold text-text-primary">No Lists Yet</div>
           <p className="text-[14px] text-text-muted">Create your first Pokémon TCG list.</p>
@@ -124,7 +126,7 @@ export function ListsIndex() {
 
       {lists.length > 0 && (
         <div
-          className="grid gap-[20px]"
+          className={`grid gap-[20px] ${enter}`}
           style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}
           data-decke-list-index
           data-decke-landmark="[data-decke-list-index]"

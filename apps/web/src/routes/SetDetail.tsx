@@ -12,6 +12,7 @@ import { CardSheet } from './CardDetail'
 import { type CardSearch } from './setSearch'
 import { useSignedIn } from '../lib/session'
 import { DECKE_REVEAL_EVENT, type DeckeRevealDetail } from '../character/host/uiTools'
+import { useLateEntrance } from '../lib/lateEntrance'
 
 /**
  * How long a request for the same card is treated as the one already in flight.
@@ -108,6 +109,8 @@ export function SetDetail() {
     queryFn: ({ signal }) => api.set(set, params, signal),
     placeholderData: keepPreviousData,
   })
+  // Issue #49: the wrapper entrance fires while this is still a spinner.
+  const enter = useLateEntrance(isLoading && !data)
 
   const allCards = data?.cards ?? []
   const counts = useMemo(() => {
@@ -165,7 +168,7 @@ export function SetDetail() {
       </div>
 
       {isLoading && !data && <Spinner label="Loading set…" />}
-      {error && <ErrorState message={(error as Error).message} />}
+      {error && <ErrorState message={(error as Error).message} className={enter} />}
 
       {data && (
         <>
@@ -209,7 +212,7 @@ export function SetDetail() {
 
           {/* active view */}
           <div
-            className="mt-[24px]"
+            className={`mt-[24px] ${enter}`}
             style={{ opacity: isFetching ? 0.6 : 1 }}
             data-decke-card-grid
             data-decke-landmark="[data-decke-card-grid]"

@@ -166,7 +166,16 @@ export function DeckeButton({
         'flex h-[56px] w-[56px] items-center justify-center rounded-full',
         'border border-border-default bg-surface-raised shadow-lg',
         'transition-transform duration-200 hover:scale-[1.06] active:scale-95',
+        // His arrival, for a reader who asked for less movement. Every other
+        // entrance on this surface already names `decke-calm-in` beside its
+        // `motion-safe:` animation (theme.css, "The same arrivals…"); this one
+        // was missed, so under `reduce` the chip did not arrive quietly — it
+        // simply existed on the next frame. Same defect as issue #49, same
+        // split by PROPERTY: the fade that says he showed up is kept, the
+        // 320ms rise-and-scale that is the actual movement is dropped. The
+        // hover/press scale goes with it, for the same reason.
         'motion-safe:animate-[decke-button-in_320ms_cubic-bezier(0.2,0.9,0.3,1)_both]',
+        'motion-reduce:animate-[decke-calm-in_220ms_ease-out_backwards] motion-reduce:transition-none',
         loading ? 'decke-button--waking' : '',
         failed ? 'decke-button--failed' : '',
       ].join(' ')}

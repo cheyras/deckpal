@@ -9,6 +9,7 @@ import { Icon } from '../components/Icon'
 import { AvatarDisc, useAvatar } from '../components/Avatar'
 import { rangeCoverageCaption } from '../lib/insightsCaption'
 import { fmtMoney } from '../lib/format'
+import { useLateEntrance } from '../lib/lateEntrance'
 
 const RANGES: { key: ValueRange; label: string }[] = [
   { key: '30d', label: '30 Days' },
@@ -24,6 +25,8 @@ export function Insights() {
   const [currency, setCurrency] = useState<'USD' | 'EUR'>('USD')
 
   const overview = useQuery({ queryKey: ['insights', 'overview'], queryFn: ({ signal }) => api.overview(signal) })
+  // Issue #49: the wrapper entrance fires while this is still a spinner.
+  const enter = useLateEntrance(overview.isLoading)
   const avatar = useAvatar()
   const value = useQuery({
     queryKey: ['insights', 'value', range, currency],
@@ -51,13 +54,13 @@ export function Insights() {
       />
 
       {overview.isLoading && <Spinner label="Loading insights…" />}
-      {overview.error && <ErrorState message={(overview.error as Error).message} />}
+      {overview.error && <ErrorState message={(overview.error as Error).message} className={enter} />}
 
       {ov && (
         <>
           {/* Trainer level + collection value row */}
           <div
-            className="mt-[24px] grid grid-cols-1 gap-[16px] gap-y-[16px] md:grid-cols-2"
+            className={`mt-[24px] grid grid-cols-1 gap-[16px] gap-y-[16px] md:grid-cols-2 ${enter}`}
             data-decke-headline-figures
             data-decke-landmark="[data-decke-headline-figures]"
             data-decke-label="the headline figures — trainer level and collection value"

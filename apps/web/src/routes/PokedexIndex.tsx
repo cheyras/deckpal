@@ -9,6 +9,7 @@ import { SpeciesName } from '../components/SpeciesName'
 import { fmtNumber, typeColor } from '../lib/format'
 import { useSignedIn } from '../lib/session'
 import { SignInPrompt } from '../components/SignInPrompt'
+import { useLateEntrance } from '../lib/lateEntrance'
 
 type Own = 'all' | 'captured' | 'uncaptured'
 
@@ -216,11 +217,14 @@ export function PokedexIndex() {
   if (gen) params.set('generation', String(gen))
   if (q.trim()) params.set('q', q.trim())
 
+  // `isLoading` is false while `keepPreviousData` still shows the old page, so
+  // only the genuine first fetch counts as late here.
   const { data, isLoading, error, isFetching } = useQuery({
     queryKey: ['dex', gen, own, q.trim()],
     queryFn: ({ signal }) => api.dex(params, signal),
     placeholderData: keepPreviousData,
   })
+  const enter = useLateEntrance(isLoading && !data)
 
   // Completion is scoped to the selected generation, independent of the own/search
   // filters. We fetch the gen's full (own=all, no search) species list and count
@@ -319,11 +323,11 @@ export function PokedexIndex() {
       </div>
 
       {isLoading && !data && <Spinner label="Loading Pokédex…" />}
-      {error && <ErrorState message={(error as Error).message} />}
+      {error && <ErrorState message={(error as Error).message} className={enter} />}
 
       {data && (
         <div
-          className="mt-[20px]"
+          className={`mt-[20px] ${enter}`}
           style={{ opacity: isFetching ? 0.6 : 1 }}
           data-decke-dex-grid
           data-decke-landmark="[data-decke-dex-grid]"

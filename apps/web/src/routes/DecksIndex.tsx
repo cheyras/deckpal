@@ -11,6 +11,7 @@ import { fmtUsd } from '../lib/format'
 import { FORMAT_META, LegalBadge } from './deckShared'
 import { DECK_SEARCH_DEFAULTS } from './deckSearch'
 import { RecordSpans } from './deck/intelShared'
+import { useLateEntrance } from '../lib/lateEntrance'
 
 function DeckCard({ deck }: { deck: DeckSummary }) {
   // Battle record footer line — only once the deck has any scored logs.
@@ -173,6 +174,9 @@ export function DecksIndex() {
   const [showImport, setShowImport] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const { data, isLoading, error } = useQuery({ queryKey: ['decks'], queryFn: ({ signal }) => api.decks(signal) })
+  // Issue #49: on a cold cache the wrapper's entrance is over ~6s before the
+  // first deck card exists, so the content itself has to introduce it.
+  const enter = useLateEntrance(isLoading)
 
   const create = useMutation({
     mutationFn: (body: CreateDeckBody) => api.createDeck(body),
@@ -213,10 +217,11 @@ export function DecksIndex() {
       </div>
 
       {isLoading && <Spinner label="Loading decks…" />}
-      {error && <ErrorState message={(error as Error).message} />}
+      {error && <ErrorState message={(error as Error).message} className={enter} />}
 
       {data && decks.length === 0 && (
         <EmptyState
+          className={enter}
           icon="deck"
           title="No Decks Yet"
           body="Build one from scratch, or import a Pokémon TCG Live decklist."
@@ -232,7 +237,7 @@ export function DecksIndex() {
 
       {decks.length > 0 && (
         <div
-          className="grid gap-[20px]"
+          className={`grid gap-[20px] ${enter}`}
           style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}
           data-decke-deck-list
           data-decke-landmark="[data-decke-deck-list]"

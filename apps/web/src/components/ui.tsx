@@ -406,9 +406,9 @@ export function Spinner({
   )
 }
 
-export function ErrorState({ message }: { message: string }) {
+export function ErrorState({ message, className = '' }: { message: string; className?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-[8px] py-[80px] text-center">
+    <div className={`flex flex-col items-center justify-center gap-[8px] py-[80px] text-center ${className}`}>
       <div className="text-[24px] font-bold text-text-primary">Something went wrong</div>
       <div className="text-[14px] text-text-muted">{message}</div>
     </div>
