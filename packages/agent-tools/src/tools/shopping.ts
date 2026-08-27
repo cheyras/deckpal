@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
-import { FINISHES, GOALS } from '../shared.js';
+import { FINISHES, GOALS, errText } from '../shared.js';
 
 /**
  * `set_cart` — TCGplayer Mass Entry deep links, built from a set, a saved list,
@@ -210,7 +210,7 @@ const setCartTool = defineTool({
         ...(r.unresolved ? { unresolved: r.unresolved } : {}),
       });
     } catch (err) {
-      return fail(`set_cart failed: ${(err as Error).message}`);
+      return fail(`set_cart failed: ${errText(err)}`);
     }
   },
 });

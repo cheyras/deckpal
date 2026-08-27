@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
+import { errText } from '../shared.js';
 import { row, stamp } from '../format.js';
 
 /**
@@ -187,7 +188,7 @@ const mutationHistoryTool = defineTool({
       );
       return ok(lines.join('\n'), { total: r.total, page: r.page, returned: r.batches.length });
     } catch (err) {
-      return fail(`mutation_history failed: ${(err as Error).message}`);
+      return fail(`mutation_history failed: ${errText(err)}`);
     }
   },
 });
@@ -316,7 +317,7 @@ const revertTool = defineTool({
         batchId: r.batchId,
       });
     } catch (err) {
-      return fail(`revert failed: ${(err as Error).message}`);
+      return fail(`revert failed: ${errText(err)}`);
     }
   },
 });

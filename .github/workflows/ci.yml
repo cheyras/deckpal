@@ -80,9 +80,14 @@ jobs:
       # Its own step, because CI does not run `pnpm -r test` and an unwired
       # test never runs at all.
       #
-      # The script globs the whole `src/__tests__` directory, so it also carries
-      # resolve/entities/lists/cardIdentity and — since issue #96 — the self-hop
-      # URL composition (`api-url.test.ts`).
+      # The script's glob is the whole `src/__tests__` directory, so it also
+      # runs the package's other pure suites — entity/card resolution, the
+      # self-hop URL composition (`api-url.test.ts`, since issue #96), and
+      # `toolErrors.test.ts`, which proves a `pg` error's message (built from
+      # the connection parameters: host, role, DSN) cannot reach a tool result
+      # and therefore a model's context. That one drives the real handlers
+      # against a `ctx.db` that throws, so it needs no Postgres and does not
+      # break contract B7.
       - name: Variant classification + agent-tools guards
         run: pnpm --filter @deckpal/agent-tools test:variants
 

@@ -181,6 +181,29 @@ evaluate, and every approximation either passes on a real write or fails on the
 two audited disclosures. A test that cannot fail on the thing it names is worse
 than no test.
 
+**A failed tool never tells the model where the database is.** A `pg` error's
+message is built from the connection parameters, so `password authentication
+failed for user "deckpal"` and `connect ECONNREFUSED 10.1.2.3:5432` are what a
+tool's catch sees precisely when the database is unreachable -- the moment every
+tool fails at once and the model is most likely to be asked what went wrong.
+That text is not a log line: it is a tool result, so it enters a model's context
+and, on the MCP path, a third-party model provider's. Two controls stand there.
+`safeToolError` (`apps/api/src/decke/adapters/aisdk.ts`) handles an error that
+escapes a handler: it allowlists our own deliberate errors by class and reduces
+everything else to `it failed with <code>`. `errText`
+(`packages/agent-tools/src/shared.ts`) handles the far more common case, an
+error a handler caught and formatted itself: a driver error becomes its
+SQLSTATE, a statement timeout keeps its "narrow the query" hint, and the
+fallback that carries our own readable messages is scrubbed of DSNs, IP
+addresses, `host:port` pairs and `for user "…"`. Every one of the 23 tools
+formats through it -- not only the ones whose file runs SQL, because whether a
+given catch can reach the database is a call-graph question that was already
+answered wrongly once (issue #94: `log_cards` resolves cards over SQL before its
+write leaves the process, and printed the raw message). A source guard in
+`packages/agent-tools/src/__tests__/toolErrors.test.ts` fails the build if a
+tool source formats a caught error itself, and the same file runs the real
+handlers against a database that throws to prove the result text stays clean.
+
 **Model-written markdown renders under a URL and image allowlist.**
 `lib/markdownSafety.ts` is shared by the chat transcript
 (`character/host/chat/ChatMarkdownBody.tsx`) and the deck strategy view

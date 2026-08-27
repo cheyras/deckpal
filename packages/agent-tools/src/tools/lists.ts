@@ -5,7 +5,7 @@ import { fail, ok } from '../result.js';
 import { meansCreate, needList, presentRef } from '../entities.js';
 import { row, usd } from '../format.js';
 import { describeCard, describeVariant, pickVariant, resolveCardsBatch, variantsOfMany, type CardRef } from '../resolve.js';
-import { FINISHES, GOALS } from '../shared.js';
+import { FINISHES, GOALS, errText } from '../shared.js';
 
 /**
  * List tools — SPEC §5 #11–#13. Everything goes through deckpal-api
@@ -281,7 +281,7 @@ const listsTool = defineTool({
       if (picked.note) lines.push(picked.note);
       return ok(lines.join('\n'));
     } catch (err) {
-      return fail(`lists failed: ${(err as Error).message}`);
+      return fail(`lists failed: ${errText(err)}`);
     }
   },
 });
@@ -550,7 +550,7 @@ const editListTool = defineTool({
           lines.push(`  done: rename → '${name}'`);
         } catch (err) {
           failures++;
-          lines.push(`  FAILED: rename — ${(err as Error).message}`);
+          lines.push(`  FAILED: rename — ${errText(err)}`);
         }
       }
 
@@ -595,7 +595,7 @@ const editListTool = defineTool({
           if (res.batchId) lines.push(`  undo with revert(batch_id: "${res.batchId}")`);
         } catch (err) {
           failures++;
-          lines.push(`  FAILED: bulk add — ${(err as Error).message}`);
+          lines.push(`  FAILED: bulk add — ${errText(err)}`);
         }
       }
 
@@ -605,7 +605,7 @@ const editListTool = defineTool({
           lines.push(`  done: remove item ${id}`);
         } catch (err) {
           failures++;
-          lines.push(`  FAILED: remove item ${id} — ${(err as Error).message}`);
+          lines.push(`  FAILED: remove item ${id} — ${errText(err)}`);
         }
       }
 
@@ -615,7 +615,7 @@ const editListTool = defineTool({
       );
       return ok(lines.join('\n'), { listId: targetId, itemCount: after.list.itemCount, failures });
     } catch (err) {
-      return fail(`edit_list failed: ${(err as Error).message}`);
+      return fail(`edit_list failed: ${errText(err)}`);
     }
   },
 });
@@ -671,7 +671,7 @@ const deleteListTool = defineTool({
           : `PURGED ${what}. This is gone for good.`,
       );
     } catch (err) {
-      return fail(`delete_list failed: ${(err as Error).message}`);
+      return fail(`delete_list failed: ${errText(err)}`);
     }
   },
 });

@@ -24,9 +24,88 @@ export async function defaultGoal(ctx: Ctx): Promise<Goal> {
   return g === 'master' || g === 'grandmaster' ? g : 'complete';
 }
 
-/** Surface a statement_timeout as an actionable hint (SPEC §3). */
+/**
+ * Addresses, taken out of a message that is about to be said to a model.
+ *
+ * `errText` reduces a driver error to its `code` — but ONLY when it has one,
+ * because the fallback has to keep our own deliberate messages readable
+ * ("no response within 25s", "No deck 'dhelmise'"). A `pg` error with no
+ * `code` field therefore reaches a tool result verbatim, and some of those
+ * name the endpoint: a pool that fails mid-handshake, or anything a future
+ * driver version raises as a plain `Error`.
+ *
+ * So the fallback is scrubbed rather than trusted. Each pattern matches a way
+ * of writing WHERE the database is or WHO it thinks we are, and nothing else:
+ * a URL carrying userinfo, a Postgres DSN, an IPv4 address, a `host:port`
+ * pair, and `for user "…"`. A sentence keeps every word that describes what
+ * went wrong and loses only the part that would help someone reach the box.
+ */
+const ENDPOINT_PATTERNS: readonly RegExp[] = [
+  // Any URL with credentials in it — `postgres://deckpal:hunter2@db/deckpal`.
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s/@]*@\S*/gi,
+  // A DSN without credentials still names the host.
+  /\bpostgres(?:ql)?:\/\/\S+/gi,
+  // `connect ECONNREFUSED 10.1.2.3:5432`, with or without the port.
+  /\b\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?\b/g,
+  // `db.abcdefgh.supabase.co:5432`. The port is REQUIRED in this one — a
+  // dotted name on its own is how half the sentences in this codebase spell a
+  // filename, and redacting those would make every message unreadable.
+  /\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}:\d{1,5}\b/gi,
+  // `password authentication failed for user "deckpal"`.
+  /\bfor user ["'`][^"'`]{0,64}["'`]/gi,
+];
+
+function withoutEndpoints(msg: string): string {
+  return ENDPOINT_PATTERNS.reduce((s, re) => s.replace(re, '[redacted]'), msg);
+}
+
+/**
+ * The same redaction, for a message going to a LOG rather than a tool result.
+ *
+ * `errText` is deliberately lossy — it reduces a driver error to its SQLSTATE,
+ * because a model does not need the message and may repeat it to a reader. An
+ * operator reading a server log is the opposite case: the message is the whole
+ * point, and reducing it to `28P01` would make the log useless for the job it
+ * exists to do.
+ *
+ * What does NOT differ is the credential. AGENTS.md is unconditional about it —
+ * *"Secrets are read at runtime only, never committed or logged"* — and a `pg`
+ * error's message is built from the connection parameters, so
+ * `connect ECONNREFUSED 10.1.2.3:5432` and `password authentication failed for
+ * user "deckpal"` are exactly what a catch sees when the database is
+ * unreachable. In cloud those lines go to Vercel's log dashboard, which is a
+ * different audience from a tool result but not a place a DSN belongs either.
+ *
+ * So: keep the message, drop the endpoint. Same patterns as `errText` uses, so
+ * the two cannot drift apart.
+ */
+export function redactEndpoints(err: unknown): string {
+  return withoutEndpoints(err instanceof Error ? err.message : String(err));
+}
+
+/**
+ * Format a caught error for a TOOL RESULT. Surfaces a statement_timeout as an
+ * actionable hint (SPEC §3); reduces every other driver error to its code.
+ *
+ * ## Every handler's catch goes through here — not only the SQL-backed ones
+ *
+ * The tempting rule is "route the tools whose file runs SQL and leave the
+ * REST-backed ones alone", and it is the rule that produced issue #94:
+ * `log_cards` reads as an API tool — its own header says the write is one HTTP
+ * call — and its `planBatch` runs two queries before that call is made.
+ * `tools/lists.ts` opens with "everything goes through deckpal-api via
+ * ctx.api" in a file whose item planner calls `resolveCardsBatch`. Whether a
+ * given catch can see a driver error is a call-graph question, re-answered
+ * wrongly every time somebody adds a lookup to an existing tool.
+ *
+ * So the boundary is the one that is checkable instead: text that becomes a
+ * tool result is formatted by this function. It costs nothing where no driver
+ * error can reach — a message with no `code` and no address in it comes back
+ * unchanged — and `__tests__/toolErrors.test.ts` fails on any tool source that
+ * formats a caught error itself.
+ */
 export function errText(err: unknown): string {
-  const msg = err instanceof Error ? err.message : String(err);
+  const msg = withoutEndpoints(err instanceof Error ? err.message : String(err));
 
   // The one driver error worth quoting, because the model can act on it.
   if (/statement timeout/i.test(msg)) {
@@ -59,5 +138,11 @@ export function errText(err: unknown): string {
     return `the database refused that (${code})`;
   }
 
+  // No code: OUR OWN messages come through here, and they are written to be
+  // read ("no response within 25s", "More than one deck matches 'slow'").
+  // Reducing them all to "it failed" — which is the right answer one layer out,
+  // in `safeToolError`, where an error has already escaped a handler and
+  // nothing is known about it — would take the tool layer's whole vocabulary
+  // with it. The scrub above is what makes keeping the sentence safe.
   return msg;
 }
