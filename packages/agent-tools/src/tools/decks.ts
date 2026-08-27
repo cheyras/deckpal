@@ -270,19 +270,19 @@ async function runOp(ctx: Ctx, deckId: string, op: Op, versionNote?: string): Pr
   const attrib = { source: SOURCE, ...(versionNote !== undefined ? { versionNote } : {}) };
   switch (op.kind) {
     case 'rename':
-      await ctx.api.send('PATCH', `/decks/${deckId}`, { name: op.to, source: SOURCE });
+      await ctx.api.send('PATCH', `/decks/${encodeURIComponent(deckId)}`, { name: op.to, source: SOURCE });
       return;
     case 'format':
-      await ctx.api.send('PATCH', `/decks/${deckId}`, { formatCode: op.to, ...attrib });
+      await ctx.api.send('PATCH', `/decks/${encodeURIComponent(deckId)}`, { formatCode: op.to, ...attrib });
       return;
     case 'add':
-      await ctx.api.send('POST', `/decks/${deckId}/cards`, { cardId: op.cardId, quantity: op.qty, ...attrib });
+      await ctx.api.send('POST', `/decks/${encodeURIComponent(deckId)}/cards`, { cardId: op.cardId, quantity: op.qty, ...attrib });
       return;
     case 'set':
-      await ctx.api.send('PATCH', `/decks/${deckId}/cards/${op.cardId}`, { quantity: op.to, ...attrib });
+      await ctx.api.send('PATCH', `/decks/${encodeURIComponent(deckId)}/cards/${encodeURIComponent(op.cardId)}`, { quantity: op.to, ...attrib });
       return;
     case 'remove':
-      await ctx.api.send('DELETE', `/decks/${deckId}/cards/${op.cardId}`, attrib);
+      await ctx.api.send('DELETE', `/decks/${encodeURIComponent(deckId)}/cards/${encodeURIComponent(op.cardId)}`, attrib);
       return;
   }
 }
@@ -661,7 +661,7 @@ const saveDeckTool = defineTool({
         if (ops.length > 0) {
           const { lines: opLines, failures } = await runOps(ctx, created.deck.id, ops, version_note);
           lines.push(...opLines);
-          const after = (await ctx.api.get(`/decks/${created.deck.id}`)) as DeckDetail;
+          const after = (await ctx.api.get(`/decks/${encodeURIComponent(created.deck.id)}`)) as DeckDetail;
           lines.push(
             `${failures ? `${failures} operation(s) FAILED — deck saved partially. ` : ''}Deck now has ${after.counts.total} card(s).`,
           );

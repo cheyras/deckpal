@@ -215,6 +215,63 @@ domain-allowlist control available on this Gateway for other research tools —
 provider-side; the compensating controls here are structural rather than that
 allowlist.)
 
+**Server-side request forgery — where the server is allowed to fetch from.**
+Two outbound paths were hardened on 2026-08-27 (GitHub issue #96, six critical
+`js/request-forgery` code-scanning alerts):
+
+- **Cold image fills.** `packages/storage/src/fetch-source.ts` fetches an asset's
+  bytes from `image_asset.source_url` — a column written by importers and
+  warmers, not by any user-facing endpoint. It previously accepted any URL and
+  used `redirect: 'follow'`, which meant *the destination was never checked at
+  all*: a `302` from an otherwise-trusted CDN to an internal or link-local
+  address was followed cross-origin. That matters more here than for a typical
+  fetcher, because this code runs in the image function (which holds
+  `SUPABASE_SERVICE_ROLE_KEY`) and, on success, republishes the bytes to the
+  PUBLIC `card-art` bucket at a derivable path. It now enforces an explicit
+  upstream allow-list — `assets.tcgdex.net` and `raw.githubusercontent.com`,
+  the only two hosts any code path can derive — with `redirect: 'manual'` and the
+  host re-checked on **every hop**, plus a resolved-address check that refuses
+  loopback, RFC1918, CGNAT and link-local answers (`169.254.169.254` included).
+  Non-web schemes and URLs carrying embedded credentials are refused outright,
+  as is an explicit port that is not the allow-listed one. The outgoing request
+  is then **rebuilt from a constant origin selected by that hostname** rather
+  than from the URL we were handed, so the scheme, host and port of the socket
+  we open are never derived from the input; only the path survives, and it is
+  checked after one decode against the same `[A-Za-z0-9.-]` id space
+  `parseImagePath` allows.
+  The pre-existing content checks (image content-type, magic-byte sniff,
+  non-empty, under 8 MB) are unchanged and remain complementary: they catch a
+  bad *body* from a good host, the allow-list catches a bad *host*.
+  `packages/storage/src/upstream.ts` is the single definition; a refusal is
+  reported like any other upstream miss, so it surfaces on the response's
+  `X-Image-Reason` header and in `warm:cloud`'s residue file rather than
+  failing silently.
+- **Object keys at the Storage choke points.** `objectExists`, `headObject`,
+  `uploadObject`, `moveObject`, `deleteObject` and `publicObjectUrl` address a
+  fixed host (`SUPABASE_URL`), so the exposure was path injection rather than
+  host redirection — but the key's allow-list lived in `parseImagePath`, in the
+  caller, and the bulk paths (`storage:backfill`, `rekey:set`, the warmers) reach
+  those functions with `relative_path` values read back out of Postgres.
+  `assertSafeObjectPath` (`packages/storage/src/object-path.ts`) now runs at each
+  of those functions, using the same segment allow-list the read path uses, and
+  **throws** rather than answering "not found" — a dangerous key must not be
+  mistaken for a cache miss. `encodeURI()` was never the boundary it looks like:
+  it escapes neither `/` nor `%`.
+- **The agent self-hop.** `packages/agent-tools/src/api.ts` built its URL as
+  `base + path`, where `path` is assembled from model-supplied ids. It now
+  resolves through `new URL()` against the configured base and verifies that the
+  result keeps the same scheme, host and path prefix, and the tool call sites
+  percent-encode the ids they interpolate. Host redirection was not reachable
+  there; parameter injection into an already-authenticated internal call was.
+
+**Known limits of the above.** The allow-list is enforced on the hostname and on
+the addresses that name resolves to at check time; `fetch` resolves the name
+again when it connects, so a determined DNS-rebinding attacker who already
+controls DNS for one of the two allow-listed CDNs is narrowed but not excluded.
+Closing that needs a connector that validates the socket's peer address, which is
+a larger change and has not been made. `assets.pkmn.gg` is deliberately absent
+from the allow-list — see DECISIONS.md 2026-08-27.
+
 **What the browser persists.** Besides Supabase's own session (its
 `sb-<ref>-auth-token` key), the SPA writes two of its own `localStorage` keys,
 neither of which is a credential and neither of which is ever read as one:
