@@ -775,7 +775,7 @@ DECKPAL_MCP_KEY=$(openssl rand -hex 32) node apps/mcp/dist/index.js
 | `DECKPAL_MCP_KEY` | Shared secret required in the `x-brain-key` header. Startup fails without it. |
 | `MCP_ALLOWED_HOSTS` | Comma-separated `Host` allowlist (DNS-rebinding protection). Default `127.0.0.1,localhost`. |
 | `DECKPAL_MCP_PORT` | Listen port. Default `3704`. |
-| `DECKPAL_API_BASE` | Where the REST API lives. Default `http://127.0.0.1:3700/deckpal/api`. |
+| `DECKPAL_API_BASE` | Where the REST API lives. Must be an **absolute** URL (scheme + host); every tool path is resolved against it with `new URL()` and rejected if it lands outside. Default `http://127.0.0.1:3700/deckpal/api`. |
 
 Expose it through your reverse proxy at whatever path you like, add the
 `x-brain-key` header there (or have the client send it), and point your MCP
