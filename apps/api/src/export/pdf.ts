@@ -170,6 +170,69 @@ class ColumnFlow {
 
 // ── Shared row painter for card checklists (checkbox • number • name • rarity) ─
 
+/**
+ * Row geometry for the two exports that print a sub-label under the card name.
+ *
+ * ── THE BUG THESE CONSTANTS EXIST TO CLOSE ───────────────────────────────────
+ *
+ * `rowHeight` was 15 and the sub-label was drawn at `cell.y + 9.5`. Measured
+ * against pdfkit's real metrics rather than guessed at:
+ *
+ *   Helvetica  9pt  currentLineHeight = 8.325
+ *   Helvetica  7pt  currentLineHeight = 6.475
+ *
+ * So the sub-label cleared the name (9.5 > 8.325) — the placement was fine —
+ * but it ran to **9.5 + 6.475 = 15.975 inside a 15pt row**, overflowing by
+ * ~1pt into the top of the next row's name. Every list export and every set
+ * checklist printed that collision on every row carrying a set id or a rarity.
+ *
+ * A single point is easy to dismiss on screen and is exactly the kind of defect
+ * that survives review, but it is a descender's worth of ink landing on the
+ * line below on a page someone prints and ticks off by hand.
+ *
+ * `rowHeight: 15` is the right height for a row that is ONE line of 9pt text,
+ * which is what it was when it was written. Nothing recomputed it when a second
+ * line was added underneath.
+ *
+ * So the geometry is DERIVED rather than typed in: `listRowMetrics()` asks
+ * pdfkit for each font's real line height and stacks them, which means a font
+ * or size change cannot silently reintroduce the overflow — and the regression
+ * test asserts the stack against those same metrics rather than against numbers
+ * copied out of here.
+ *
+ * The cost is ~2pt per row (15 → 17), i.e. about one extra page per fourteen.
+ * That is the price of the two lines not touching, and it is worth paying.
+ */
+export const ROW_NAME_SIZE = 9;
+export const ROW_SUB_SIZE = 7;
+/**
+ * Gap between the bottom of the name's line box and the top of the sub-label.
+ * Chosen so the sub-label lands where it always did (8.325 + 1.2 ≈ the original
+ * 9.5): the placement was never the bug, so it is deliberately not changed.
+ */
+export const ROW_SUB_LEAD = 1.2;
+/** Breathing room below the sub-label. Small: these are dense checklists. */
+export const ROW_SUB_GAP = 1.0;
+
+export interface ListRowMetrics {
+  /** Height of one flow row: name line + lead + sub-label line + gap. */
+  rowHeight: number;
+  /** Top of the sub-label, measured from the row's top. */
+  subLabelY: number;
+}
+
+/**
+ * Measured from the document, not assumed. `currentLineHeight()` accounts for
+ * the font's ascender and descender — exactly the part a bare point size leaves
+ * out, and the part that produced the overflow.
+ */
+export function listRowMetrics(doc: Doc): ListRowMetrics {
+  const nameLine = doc.font(F.reg).fontSize(ROW_NAME_SIZE).currentLineHeight();
+  const subLine = doc.font(F.reg).fontSize(ROW_SUB_SIZE).currentLineHeight();
+  const subLabelY = nameLine + ROW_SUB_LEAD;
+  return { subLabelY, rowHeight: subLabelY + subLine + ROW_SUB_GAP };
+}
+
 function cardRow(
   doc: Doc,
   cell: { x: number; y: number; w: number },
@@ -335,7 +398,8 @@ export function renderListPdf(stream: Writable, d: ListPdfData): void {
     return;
   }
 
-  const flow = new ColumnFlow(doc, { columns: 2, gutter: 24, rowHeight: 15 });
+  const rowMetrics = listRowMetrics(doc);
+  const flow = new ColumnFlow(doc, { columns: 2, gutter: 24, rowHeight: rowMetrics.rowHeight });
   for (const it of d.items) {
     const cell = flow.row();
     cardRow(doc, cell, {
@@ -345,7 +409,7 @@ export function renderListPdf(stream: Writable, d: ListPdfData): void {
       qty: d.kind === 'static' ? it.quantity : null,
     });
     if (it.setId) {
-      doc.font(F.reg).fontSize(7).fillColor(MUTED).text(it.setId, cell.x + 15 + 34, cell.y + 9.5, { width: cell.w - 49, lineBreak: false, ellipsis: true });
+      doc.font(F.reg).fontSize(ROW_SUB_SIZE).fillColor(MUTED).text(it.setId, cell.x + 15 + 34, cell.y + rowMetrics.subLabelY, { width: cell.w - 49, lineBreak: false, ellipsis: true });
     }
   }
 
@@ -370,12 +434,13 @@ export function renderSetChecklistPdf(stream: Writable, d: SetChecklistData): vo
     return;
   }
 
-  const flow = new ColumnFlow(doc, { columns: 2, gutter: 24, rowHeight: 15 });
+  const rowMetrics = listRowMetrics(doc);
+  const flow = new ColumnFlow(doc, { columns: 2, gutter: 24, rowHeight: rowMetrics.rowHeight });
   for (const c of d.cards) {
     const cell = flow.row();
     cardRow(doc, cell, { number: c.number, name: c.name, owned: c.owned });
     if (c.rarity) {
-      doc.font(F.reg).fontSize(7).fillColor(MUTED).text(c.rarity, cell.x + 15 + 34, cell.y + 9.5, { width: cell.w - 49, lineBreak: false, ellipsis: true });
+      doc.font(F.reg).fontSize(ROW_SUB_SIZE).fillColor(MUTED).text(c.rarity, cell.x + 15 + 34, cell.y + rowMetrics.subLabelY, { width: cell.w - 49, lineBreak: false, ellipsis: true });
     }
   }
 

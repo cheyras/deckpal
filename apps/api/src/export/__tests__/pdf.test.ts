@@ -24,10 +24,14 @@ import { Writable } from 'node:stream';
 import { once } from 'node:events';
 import { inflateSync } from 'node:zlib';
 
+import PDFDocument from 'pdfkit';
 import {
   renderDeckPdf,
   renderListPdf,
   renderSetChecklistPdf,
+  listRowMetrics,
+  ROW_NAME_SIZE,
+  ROW_SUB_SIZE,
   type DeckPdfData,
   type ListPdfData,
   type SetChecklistData,
@@ -185,4 +189,57 @@ test('list export keeps the Pokédex FEATURE labels while branding DeckPal', asy
 
   // …and the brand mark is still the product name, not the feature name.
   assert.ok(drawn.includes(BRAND_MARK), `expected the "${BRAND_MARK}" brand mark, got: ${JSON.stringify(drawn)}`);
+});
+
+// ── Row geometry: the sub-label must not collide with anything ───────────────
+//
+// The list export and the set checklist print a second line under the card name
+// (a set id, a rarity). `rowHeight` was 15 and that line was drawn at
+// `cell.y + 9.5` — two numbers that are each fine alone and overlap twice over
+// together, because a point SIZE is not a line HEIGHT.
+//
+// These assertions are made against pdfkit's OWN metrics rather than against
+// numbers copied out of `pdf.ts`, so a font or size change has to keep the
+// stack honest instead of merely keeping the constants matching each other.
+
+function metricsDoc(): PDFKit.PDFDocument {
+  // Not piped anywhere: nothing is rendered, this only measures fonts.
+  return new PDFDocument({ size: 'LETTER', margin: 54 });
+}
+
+test('the sub-label starts below the card name, not inside it', () => {
+  const doc = metricsDoc();
+  const nameLine = doc.font('Helvetica').fontSize(ROW_NAME_SIZE).currentLineHeight();
+  const m = listRowMetrics(doc);
+  assert.ok(
+    m.subLabelY >= nameLine,
+    `sub-label starts at ${m.subLabelY} but the ${ROW_NAME_SIZE}pt name runs to ${nameLine}`,
+  );
+});
+
+test('the sub-label finishes inside its own row, not on top of the next one', () => {
+  const doc = metricsDoc();
+  const subLine = doc.font('Helvetica').fontSize(ROW_SUB_SIZE).currentLineHeight();
+  const m = listRowMetrics(doc);
+  assert.ok(
+    m.subLabelY + subLine <= m.rowHeight,
+    `sub-label runs to ${m.subLabelY + subLine} in a ${m.rowHeight}pt row`,
+  );
+});
+
+test('the geometry that shipped really did overflow its row', () => {
+  // Pins the defect itself, with the numbers it actually had. The old placement
+  // (9.5) CLEARED the name — that part was never wrong, and this says so rather
+  // than overstating the bug. What it did not clear was its own row.
+  const doc = metricsDoc();
+  const nameLine = doc.font('Helvetica').fontSize(ROW_NAME_SIZE).currentLineHeight();
+  const subLine = doc.font('Helvetica').fontSize(ROW_SUB_SIZE).currentLineHeight();
+  assert.ok(9.5 >= nameLine, `the old offset 9.5 did clear a ${nameLine}pt name`);
+  assert.ok(
+    9.5 + subLine > 15,
+    `the old row height 15 would have contained a sub-label ending at ${9.5 + subLine}`,
+  );
+  // And the replacement does not.
+  const m = listRowMetrics(doc);
+  assert.ok(m.subLabelY + subLine <= m.rowHeight);
 });
