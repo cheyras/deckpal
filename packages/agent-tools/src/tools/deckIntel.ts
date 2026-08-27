@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
+import { errText } from '../shared.js';
 import { needDeck } from '../entities.js';
 import { pagingFooter, row, winLoss } from '../format.js';
 
@@ -269,7 +270,7 @@ const deckStrategyTool = defineTool({
       lines.push(`Snapshotted with v${after.deck.version} — strategy edits never bump the deck version.`);
       return ok(lines.join('\n'));
     } catch (err) {
-      return fail(`deck_strategy failed: ${(err as Error).message}`);
+      return fail(`deck_strategy failed: ${errText(err)}`);
     }
   },
 });
@@ -344,7 +345,7 @@ const addBattleLogTool = defineTool({
     } catch (err) {
       // Surface the API message verbatim — the ambiguous-owner 400 tells the
       // agent exactly how to retry (player_name or explicit result).
-      return fail(`add_battle_log failed: ${(err as Error).message}`);
+      return fail(`add_battle_log failed: ${errText(err)}`);
     }
   },
 });
@@ -458,7 +459,7 @@ const battleLogsTool = defineTool({
       if (picked.note) lines.push(picked.note);
       return ok(lines.join('\n'));
     } catch (err) {
-      return fail(`battle_logs failed: ${(err as Error).message}`);
+      return fail(`battle_logs failed: ${errText(err)}`);
     }
   },
 });
@@ -610,7 +611,7 @@ const deckHistoryTool = defineTool({
       );
       return ok(lines.join('\n'));
     } catch (err) {
-      return fail(`deck_history failed: ${(err as Error).message}`);
+      return fail(`deck_history failed: ${errText(err)}`);
     }
   },
 });
@@ -664,7 +665,7 @@ const editBattleLogTool = defineTool({
         ].join('\n'),
       );
     } catch (err) {
-      return fail(`edit_battle_log failed: ${(err as Error).message}`);
+      return fail(`edit_battle_log failed: ${errText(err)}`);
     }
   },
 });
@@ -700,7 +701,7 @@ const deleteBattleLogTool = defineTool({
       await ctx.api.send('DELETE', `${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`);
       return ok(`Deleted ${what}.`);
     } catch (err) {
-      return fail(`delete_battle_log failed: ${(err as Error).message}`);
+      return fail(`delete_battle_log failed: ${errText(err)}`);
     }
   },
 });

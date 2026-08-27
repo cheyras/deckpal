@@ -3,7 +3,7 @@ import type pg from 'pg';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { loadEnv, makePool, resolveToken, touchToken } from '@deckpal/db';
-import { makeApi, type Ctx } from '@deckpal/agent-tools';
+import { makeApi, redactEndpoints, type Ctx } from '@deckpal/agent-tools';
 import { withUserContext } from './rls.js';
 import { buildServer } from './server.js';
 
@@ -200,7 +200,7 @@ export function createCloudApp(): Express {
       try {
         resolved = await resolveToken(pool(), raw);
       } catch (err) {
-        console.error('[deckpal-mcp] token lookup failed:', (err as Error).message);
+        console.error('[deckpal-mcp] token lookup failed:', redactEndpoints(err));
         res.status(503).json({ error: { code: 'unavailable', message: 'Token store unreachable' } });
         return;
       }
@@ -214,7 +214,7 @@ export function createCloudApp(): Express {
       try {
         await touchToken(pool(), resolved.tokenId);
       } catch (err) {
-        console.error('[deckpal-mcp] last_used_at touch failed:', (err as Error).message);
+        console.error('[deckpal-mcp] last_used_at touch failed:', redactEndpoints(err));
       }
 
       // Just the REST base. This used to be a whole McpConfig — including a

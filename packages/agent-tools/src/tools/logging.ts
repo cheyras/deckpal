@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
+import { errText } from '../shared.js';
 import {
   describeCard,
   describeVariant,
@@ -393,13 +394,22 @@ const BUCKET_MS = 15 * 60 * 1000;
  *
  * The note is excluded on purpose: an agent that rewrites its note on retry
  * ("batch 1" → "batch 1 retry") must not thereby double-apply.
+ *
+ * The separator between the two halves is a NUL, so a user id cannot run into
+ * an operation label and let two different batches hash the same. It was
+ * written as a LITERAL NUL BYTE until 2026-08-27, which made this file binary
+ * to git — no CRLF normalisation, `Binary file … matches` from grep, and no
+ * reviewable diff, in the one file in this package that needed reviewing for
+ * issue #94. `\0` is the identical character and the identical hash input. Do
+ * not "tidy" it into a space: that would change every derived idempotency key,
+ * and a retry spanning the deploy would then apply twice.
  */
 function batchFingerprint(userId: string, planned: readonly Planned[]): string {
   const canonical = planned
     .map((p) => `${p.variant.id}:${p.mode === 'quantity' ? `set:${p.value}` : `delta:${p.value}`}`)
     .sort()
     .join('|');
-  return createHash('sha256').update(`${userId} ${canonical}`).digest('hex');
+  return createHash('sha256').update(`${userId}\0${canonical}`).digest('hex');
 }
 
 /**
@@ -536,7 +546,7 @@ const logCardsTool = defineTool({
             abandoned = {
               chunk: ci,
               remaining: chunks.slice(ci).reduce((n, c) => n + c.length, 0),
-              error: (err as Error).message,
+              error: errText(err),
             };
             break;
           }
@@ -672,7 +682,7 @@ const logCardsTool = defineTool({
         items: structured,
       });
     } catch (err) {
-      return fail(`log_cards failed: ${(err as Error).message}`);
+      return fail(`log_cards failed: ${errText(err)}`);
     }
   },
 });

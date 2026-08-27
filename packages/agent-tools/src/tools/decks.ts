@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
+import { errText } from '../shared.js';
 import { row, usd, winLoss } from '../format.js';
 import { meansCreate, needDeck, presentRef } from '../entities.js';
 import { strategyLabel } from './deckIntel.js';
@@ -297,7 +298,7 @@ async function runOps(ctx: Ctx, deckId: string, ops: Op[], versionNote?: string)
       lines.push(`  done: ${describeOp(op)}`);
     } catch (err) {
       failures++;
-      lines.push(`  FAILED: ${describeOp(op)} — ${(err as Error).message}`);
+      lines.push(`  FAILED: ${describeOp(op)} — ${errText(err)}`);
     }
   }
   return { lines, failures };
@@ -439,7 +440,7 @@ const decksTool = defineTool({
       }
       return ok(lines.join('\n'));
     } catch (err) {
-      return fail(`decks failed: ${(err as Error).message}`);
+      return fail(`decks failed: ${errText(err)}`);
     }
   },
 });
@@ -710,7 +711,7 @@ const saveDeckTool = defineTool({
       );
       return ok(lines.join('\n'));
     } catch (err) {
-      return fail(`save_deck failed: ${(err as Error).message}`);
+      return fail(`save_deck failed: ${errText(err)}`);
     }
   },
 });
@@ -796,7 +797,7 @@ const deleteDeckTool = defineTool({
           : `PURGED ${what}. This is gone for good.`,
       );
     } catch (err) {
-      return fail(`delete_deck failed: ${(err as Error).message}`);
+      return fail(`delete_deck failed: ${errText(err)}`);
     }
   },
 });

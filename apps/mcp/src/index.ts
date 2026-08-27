@@ -3,7 +3,7 @@ import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import type { RequestHandler } from 'express';
 import { loadEnv } from '@deckpal/db';
-import { q } from '@deckpal/agent-tools';
+import { q, redactEndpoints } from '@deckpal/agent-tools';
 import { buildCtx, type SelfHostCtx } from './ctx.js';
 import { buildServer } from './server.js';
 
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   try {
     ctx = await buildCtx();
   } catch (err) {
-    console.error(`[deckpal-mcp] FATAL: Postgres self-check failed: ${(err as Error).message}`);
+    console.error(`[deckpal-mcp] FATAL: Postgres self-check failed: ${redactEndpoints(err)}`);
     process.exit(1);
   }
   console.log(`[deckpal-mcp] db ok · default user id ${ctx.userId}`);
@@ -122,7 +122,7 @@ async function main(): Promise<void> {
         .close()
         .catch((err: unknown) => console.error(`[deckpal-mcp] handler close error: ${(err as Error).message}`))
         .then(() => ctx.pool.end())
-        .catch((err: unknown) => console.error(`[deckpal-mcp] pool end error: ${(err as Error).message}`))
+        .catch((err: unknown) => console.error(`[deckpal-mcp] pool end error: ${redactEndpoints(err)}`))
         .finally(() => process.exit(0));
     });
     // In-flight SSE streams can hold the server open; don't hang restarts.
@@ -140,7 +140,7 @@ const entryPath = process.env.pm_exec_path ?? process.argv[1] ?? '';
 const isMain = entryPath.endsWith('index.js') || entryPath.endsWith('index.ts');
 if (isMain) {
   main().catch((err: unknown) => {
-    console.error(`[deckpal-mcp] FATAL: ${(err as Error).message}`);
+    console.error(`[deckpal-mcp] FATAL: ${redactEndpoints(err)}`);
     process.exit(1);
   });
 }

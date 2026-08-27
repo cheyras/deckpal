@@ -166,6 +166,15 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   `{ content: [{ type:'text', text }] }` (optionally `structuredContent`), `fail(msg)` →
   `{ isError: true, content:[...] }`. `apps/mcp/src/adapters/mcp.ts`'s `toCallToolResult()` is what
   turns that envelope into MCP's `CallToolResult` on the wire. Never throw to the transport.
+- **The caught error is formatted by `errText()`** (`packages/agent-tools/src/shared.ts`), always —
+  not only in the tools whose file runs SQL. A `pg` message is built from the connection
+  parameters, and a tool result is read by a MODEL and, on this path, by a third-party model
+  provider: a driver error is reduced to its SQLSTATE, a statement timeout keeps its "narrow the
+  query" hint, and our own messages pass through with any DSN, IP address or `host:port` scrubbed
+  out. Whether a given catch can see a driver error is a call-graph question and it was answered
+  wrongly once (issue #94 — `log_cards` resolves cards over SQL before its write leaves the
+  process), so the rule is the checkable one, and
+  `packages/agent-tools/src/__tests__/toolErrors.test.ts` enforces it against the sources.
 - Descriptions state what the tool does, when to use it, **and when not to** (e.g. "for a single
   card use `get_card` instead"). Zod `.describe()` on every field — it's the only arg docs the
   model gets.
