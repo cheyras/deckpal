@@ -55,9 +55,27 @@ async function resolve(): Promise<boolean> {
   // Local dev is the owner's own machine against their own session; gating it
   // would mean nobody can build the feature they are building.
   if (import.meta.env.DEV) return true
-  // Self-host has exactly one user, behind their own reverse proxy. Same
-  // reasoning as the `/dev/decke` route guard, kept identical on purpose.
-  if (!isCloudMode) return true
+  // ── Self-host: NOT entitled, because there is nothing to talk to ───────────
+  //
+  // This used to `return true`, reasoning that self-host has exactly one user
+  // behind their own reverse proxy — the same reasoning the `/dev/decke` route
+  // guard uses. That reasoning is about PERMISSION, and it is still correct:
+  // the single self-host operator is obviously allowed to use their own copy.
+  //
+  // But permission is not the question this function actually answers. It
+  // decides whether to draw the button, and a button has to lead somewhere.
+  // Deck-E's turn endpoint is `POST /api/chat`, which exists ONLY as the Vercel
+  // serverless function in `api/chat.mjs`. `apps/api` has no Express route for
+  // it, so on a self-host deployment `useDeckeChat`'s `fetch('/api/chat')` hits
+  // the SPA fallback and gets HTML back — the same shape of failure issue #89
+  // produced for Purchase Set, and it surfaces only after the reader has opened
+  // the chat and typed something.
+  //
+  // So the honest answer for that tier is "no", and it is a fail-CLOSED no,
+  // which is the posture the rest of this file already takes. If a self-host
+  // turn endpoint ever ships, this is the line to revisit — and the condition
+  // to write then is "does the endpoint exist", not "is this cloud".
+  if (!isCloudMode) return false
   const me = await api.me()
   // `decke`, NOT `owner`. The endpoint gates on the owner PLUS
   // `DECKE_ENTITLED_USER_IDS`; reusing `owner` here made the two gates
