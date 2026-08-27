@@ -16,6 +16,7 @@ import { CardSheet } from './CardDetail'
 import { StrategyTab } from './deck/StrategyTab'
 import { BattlesTab } from './deck/BattlesTab'
 import { HistoryTab } from './deck/HistoryTab'
+import { useLateEntrance } from '../lib/lateEntrance'
 
 const FORMATS: DeckFormat[] = ['standard', 'expanded', 'glc', 'unlimited']
 const SECTION_TITLE = { pokemon: 'Pokémon', trainer: 'Trainer', energy: 'Energy' } as const
@@ -534,6 +535,8 @@ export function DeckBuilder() {
   const patchSearch = (p: Partial<DeckSearch>) => navigate({ search: { ...search, ...p } as never, resetScroll: false })
 
   const { data, isLoading, error } = useQuery({ queryKey: key, queryFn: ({ signal }) => api.deck(id, signal), placeholderData: keepPreviousData })
+  // Issue #49: the wrapper entrance fires while this is still a spinner.
+  const enter = useLateEntrance(isLoading && !data)
 
   const [showAdd, setShowAdd] = useState(false)
   const [showTest, setShowTest] = useState(false)
@@ -670,10 +673,10 @@ export function DeckBuilder() {
     <Content cap={1240}>
       <div className="mb-[16px]"><BackPill to="/decks" label="Deck Builder" /></div>
       {isLoading && !data && <Spinner label="Loading deck…" />}
-      {error && <ErrorState message={(error as Error).message} />}
+      {error && <ErrorState message={(error as Error).message} className={enter} />}
 
       {detail && deck && (
-        <div className="flex flex-col gap-[20px] lg:flex-row lg:items-start">
+        <div className={`flex flex-col gap-[20px] lg:flex-row lg:items-start ${enter}`}>
           {/* left: deck list */}
           <div className="min-w-0 flex-1">
             {/* The kebab shares the badge row rather than floating beside the whole

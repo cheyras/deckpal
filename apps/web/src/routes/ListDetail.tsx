@@ -12,6 +12,7 @@ import { Icon } from '../components/Icon'
 import { KebabMenu } from '../components/KebabMenu'
 import { fmtUsd, fmtDate } from '../lib/format'
 import { type ListSearch, type ListSortKey, LIST_SEARCH_DEFAULTS } from './listSearch'
+import { useLateEntrance } from '../lib/lateEntrance'
 
 const KIND_LABEL = { dynamic: 'Dynamic List', static: 'Static List', pokedex_binder: 'Pokédex Binder' } as const
 const SORTS: { key: ListSortKey; label: string }[] = [
@@ -104,6 +105,8 @@ export function ListDetail() {
     queryFn: ({ signal }) => api.list(id, signal),
     placeholderData: keepPreviousData,
   })
+  // Issue #49: the wrapper entrance fires while this is still a spinner.
+  const enter = useLateEntrance(isLoading && !data)
 
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
@@ -229,7 +232,7 @@ export function ListDetail() {
       </div>
 
       {isLoading && !data && <Spinner label="Loading list…" />}
-      {error && <ErrorState message={(error as Error).message} />}
+      {error && <ErrorState message={(error as Error).message} className={enter} />}
 
       {list && (
         <>
@@ -337,7 +340,7 @@ export function ListDetail() {
               a view switch. "The cards in this list" is a thing he can point at
               in every one of those states, which is the honest offer. */}
           <div
-            className="mt-[24px]"
+            className={`mt-[24px] ${enter}`}
             data-decke-list-items
             data-decke-landmark="[data-decke-list-items]"
             data-decke-label="the cards in this list"

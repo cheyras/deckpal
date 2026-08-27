@@ -11,6 +11,7 @@ import { useOnline } from '../lib/useOnline'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { variantMeta } from '../lib/variantStyle'
 import { Sheet, useSheetClose } from '../components/ui/Sheet'
+import { useLateEntrance } from '../lib/lateEntrance'
 
 // ── Optimistic progress maths — mirrors the server recompute (SCHEMA §5.3/§9.2)
 // so the three bars move instantly, then reconcile against the authoritative
@@ -356,6 +357,8 @@ function CardDetailBody({
     queryKey: ['card', cardId],
     queryFn: ({ signal }) => api.card(cardId, signal),
   })
+  // Issue #49: the wrapper entrance fires while this is still a spinner.
+  const enter = useLateEntrance(isLoading)
 
   // Series slug + set id are resolved from the fetched card (authoritative),
   // falling back to any caller-supplied hint before the fetch settles. Both feed
@@ -394,10 +397,10 @@ function CardDetailBody({
       )}
 
       {isLoading && <Spinner label="Loading card…" />}
-      {error && <ErrorState message={(error as Error).message} />}
+      {error && <ErrorState message={(error as Error).message} className={enter} />}
 
       {data && (
-        <div className="relative">
+        <div className={`relative ${enter}`}>
           {/* blurred hero art behind everything */}
           <div
             className="pointer-events-none absolute inset-x-0 top-0 z-(--z-art) h-[400px]"

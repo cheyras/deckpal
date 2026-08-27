@@ -7,6 +7,7 @@ import { SortChipStrip } from '../components/FilterControls'
 import { Icon } from '../components/Icon'
 import { GridView } from '../components/GridView'
 import { type GlobalSearch, type GlobalSortKey } from './globalSearch'
+import { useLateEntrance } from '../lib/lateEntrance'
 
 const PAGE_SIZE = 60
 
@@ -90,6 +91,9 @@ export function SearchResults() {
     placeholderData: keepPreviousData,
   })
 
+  // Issue #49: the wrapper entrance fires while this is still a spinner.
+  const enter = useLateEntrance(isLoading && !data)
+
   const cards = useMemo(() => (data?.cards ?? []).map(toCardRow), [data])
   const total = data?.pagination.total ?? 0
   const pageCount = data?.pagination.pageCount ?? 0
@@ -142,7 +146,7 @@ export function SearchResults() {
       ) : (
         <>
           {isLoading && !data && <Spinner label="Searching…" />}
-          {error && <ErrorState message={(error as Error).message} />}
+          {error && <ErrorState message={(error as Error).message} className={enter} />}
 
           {data && (
             <>
@@ -154,7 +158,7 @@ export function SearchResults() {
 
               {cards.length > 0 && (
                 <div
-                  className="mt-[24px]"
+                  className={`mt-[24px] ${enter}`}
                   style={{ opacity: isFetching ? 0.6 : 1 }}
                   data-decke-results-grid
                   data-decke-landmark="[data-decke-results-grid]"

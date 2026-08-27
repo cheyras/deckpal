@@ -14,6 +14,7 @@ import { AgentAccess } from '../components/AgentAccess'
 import { DeckeVisibility } from '../components/DeckeVisibility'
 import { Sheet } from '../components/ui/Sheet'
 import { fmtUsd } from '../lib/format'
+import { useLateEntrance } from '../lib/lateEntrance'
 
 const SHOWCASE_KEY = 'deckpal.showcase.v1'
 
@@ -69,6 +70,8 @@ const TABS = [
 export function Profile() {
   const navigate = useNavigate()
   const overview = useQuery({ queryKey: ['insights', 'overview'], queryFn: ({ signal }) => api.overview(signal) })
+  // Issue #49: the wrapper entrance fires while this is still a spinner.
+  const enter = useLateEntrance(overview.isLoading)
   const owned = useOwnedCards()
   // Self-host has no per-user account, so no query — 'Trainer' stays the
   // generic label there, exactly as before (issue #25 is cloud-only).
@@ -270,10 +273,10 @@ export function Profile() {
         <Tabs items={TABS} value="profile" className="mt-[16px]" />
 
         {overview.isLoading && <Spinner label="Loading profile…" />}
-        {overview.error && <ErrorState message={(overview.error as Error).message} />}
+        {overview.error && <ErrorState message={(overview.error as Error).message} className={enter} />}
 
         {ov && (
-          <div className="mt-[20px] flex flex-col gap-[16px]">
+          <div className={`mt-[20px] flex flex-col gap-[16px] ${enter}`}>
             {/* Showcase */}
             <section>
               <div className="mb-[10px] flex items-center justify-between">

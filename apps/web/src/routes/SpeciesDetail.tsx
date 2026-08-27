@@ -9,6 +9,7 @@ import { SpeciesName } from '../components/SpeciesName'
 import { CardSheet } from './CardDetail'
 import { fmtNumber, typeColor } from '../lib/format'
 import { SignInPrompt } from '../components/SignInPrompt'
+import { useLateEntrance } from '../lib/lateEntrance'
 
 // The card-detail route param $series is a series SLUG (e.g. "scarlet-violet"),
 // but the species-detail cards only carry the serie tcgdexId (e.g. "sv") inside
@@ -62,6 +63,8 @@ export function SpeciesDetail() {
     queryKey: ['species', speciesId],
     queryFn: ({ signal }) => api.species(speciesId, signal),
   })
+  // Issue #49: the wrapper entrance fires while this is still a spinner.
+  const enter = useLateEntrance(isLoading && !data)
   // Series slug map (tcgdexId → slug) for correct card-detail links.
   const seriesQ = useQuery({ queryKey: ['series'], queryFn: ({ signal }) => api.series(signal), staleTime: Infinity })
   const slugByTcgdex = useMemo(() => {
@@ -88,7 +91,7 @@ export function SpeciesDetail() {
       </div>
 
       {isLoading && !data && <Spinner label="Loading species…" />}
-      {error && <ErrorState message={(error as Error).message} />}
+      {error && <ErrorState message={(error as Error).message} className={enter} />}
 
       {sp && (
         <>
@@ -173,7 +176,7 @@ export function SpeciesDetail() {
           </div>
 
           <div
-            className="mt-[16px]"
+            className={`mt-[16px] ${enter}`}
             data-decke-species-cards
             data-decke-landmark="[data-decke-species-cards]"
             data-decke-label="the card grid for this species"

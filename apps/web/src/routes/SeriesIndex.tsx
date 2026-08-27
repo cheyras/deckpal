@@ -9,6 +9,7 @@ import { fmtDate } from '../lib/format'
 import { useSignedIn } from '../lib/session'
 import { SignInPrompt } from '../components/SignInPrompt'
 import { tailwindGradientStops } from '../lib/gradientPalette'
+import { useLateEntrance } from '../lib/lateEntrance'
 
 // ── Sort / group preferences (issue 14i8ys) ────────────────────────────────
 // Persisted to localStorage only when the user hits "Save as default"; otherwise
@@ -159,10 +160,10 @@ function SeriesCard({ s }: { s: SeriesSummary }) {
  * its own cards when the per-turn landmark budget has to drop some of them
  * (see `collectLandmarks` in `character/host/useDeckeChat.ts`).
  */
-function CardGrid({ list, group, label }: { list: SeriesSummary[]; group: string; label: string }) {
+function CardGrid({ list, group, label, className = '' }: { list: SeriesSummary[]; group: string; label: string; className?: string }) {
   return (
     <div
-      className="grid gap-[24px] [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]"
+      className={`grid gap-[24px] [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))] ${className}`}
       data-decke-series-grid={group}
       data-decke-landmark={`[data-decke-series-grid="${group}"]`}
       data-decke-label={label}
@@ -279,6 +280,7 @@ export function SeriesIndex() {
     queryKey: ['series'],
     queryFn: ({ signal }) => api.series(signal),
   })
+  const enter = useLateEntrance(isLoading)
   const signedIn = useSignedIn()
   const signedOut = signedIn === false
 
@@ -347,7 +349,7 @@ export function SeriesIndex() {
       </div>
 
       {isLoading && <Spinner label="Loading series…" />}
-      {error && <ErrorState message={(error as Error).message} />}
+      {error && <ErrorState message={(error as Error).message} className={enter} />}
 
       {/* Where the collection rings would be. One prompt for the page, not one
           per card — 21 sign-up buttons is an advert, not an affordance. */}
@@ -361,10 +363,10 @@ export function SeriesIndex() {
         </div>
       )}
 
-      {data && !groupByOwned && <CardGrid list={flat} group="all" label="the series grid" />}
+      {data && !groupByOwned && <CardGrid list={flat} group="all" label="the series grid" className={enter} />}
 
       {data && groupByOwned && (
-        <div className="flex flex-col gap-[24px]">
+        <div className={`flex flex-col gap-[24px] ${enter}`}>
           {owned.length > 0 ? (
             <CardGrid list={owned} group="owned" label="the grid of series you have collected" />
           ) : (
