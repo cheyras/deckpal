@@ -23,6 +23,17 @@ DeckPal has two deployment modes with different security models.
 manages sessions via `@supabase/supabase-js`. API requests carry a Supabase
 JWT as `Authorization: Bearer <token>`, verified by the API middleware.
 
+Every read of that session goes through `apps/web/src/lib/authSession.ts`, which
+puts a four-second deadline on it — `@supabase/auth-js` puts none on the token
+refresh the read can trigger, and an unbounded one held the whole app on a blank
+page (issue #75). **The deadline fails closed and is not an authorization
+decision.** Past it the request goes out with NO `Authorization` header and takes
+the server's 401, rather than being sent with a stale or assumed credential;
+equally, a timeout is never treated as a sign-out, so a stalled network cannot
+end a session or bounce a signed-in user to `/auth`. A build gate
+(`apps/web/scripts/check-auth-deadlines.mjs`) keeps that single choke point
+single.
+
 **Authorization:** Row-Level Security (RLS) policies on every table. Catalog
 data is world-readable. Per-user data (collection, decks, lists, battle logs)
 is restricted to the owning user via `user_id = (SELECT auth.uid())`.

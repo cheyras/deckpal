@@ -41,6 +41,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { readSession } from '../../lib/authSession'
 import {
   ABANDONED_REASON,
   DECLINED_REASON,
@@ -1982,8 +1983,11 @@ async function streamLeg(
   // without these the replayed part is not a valid call and cannot be resumed.
   const approvalInputs = new Map<string, Record<string, unknown>>()
 
-  const { data } = await supabase.auth.getSession()
-  const token = data.session?.access_token
+  // Bounded (lib/sessionDeadline.ts). Past the deadline the request goes out
+  // unauthenticated and /api/chat answers 401, which the chat renders as an
+  // error — a stalled read used to park the composer on "thinking" forever.
+  const { session } = await readSession()
+  const token = session?.access_token
   const res = await fetch('/api/chat', {
     method: 'POST',
     signal,

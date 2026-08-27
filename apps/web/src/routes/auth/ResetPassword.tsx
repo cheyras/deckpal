@@ -30,6 +30,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from '@tanstack/react-router'
 import { supabase } from '../../lib/supabase'
+import { readSession } from '../../lib/authSession'
 import { PASSWORD_MIN_LENGTH, friendlyAuthError, passwordProblem } from '../../lib/authErrors'
 import { Spinner } from '../../components/ui'
 import { Field } from '../../components/ui/Field'
@@ -91,11 +92,18 @@ export function ResetPassword() {
       }
     })
 
-    // Belt and braces: getSession() awaits the client's initializePromise, so
-    // this resolves after the URL fragment has been consumed either way.
-    void supabase.auth.getSession().then(({ data }) => {
+    // Belt and braces: the session read awaits the client's initializePromise,
+    // so it resolves after the URL fragment has been consumed either way.
+    // Bounded (lib/sessionDeadline.ts), and a TIMEOUT MUST NOT SET 'invalid':
+    // telling somebody their recovery link is dead because the network stalled
+    // is a lie that costs them a second email. Hold the pending phase and let
+    // `onLate` decide if the answer lands.
+    const decide = (session: unknown) => {
       if (!alive) return
-      setPhase((p) => (p === 'done' ? p : data.session ? 'ready' : 'invalid'))
+      setPhase((p) => (p === 'done' ? p : session ? 'ready' : 'invalid'))
+    }
+    void readSession(decide).then(({ session, timedOut }) => {
+      if (!timedOut) decide(session)
     })
 
     return () => {

@@ -13,6 +13,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../../lib/supabase'
+import { readSession } from '../../lib/authSession'
 import { PASSWORD_MIN_LENGTH, friendlyAuthError, passwordProblem } from '../../lib/authErrors'
 import { Field } from '../../components/ui/Field'
 import { FormAlert } from '../../components/ui/FormAlert'
@@ -33,8 +34,8 @@ export function ChangePassword() {
   // Which account is about to change — read from the local session, no request.
   useEffect(() => {
     let alive = true
-    void supabase.auth.getSession().then(({ data }) => {
-      if (alive) setEmail(data.session?.user.email ?? null)
+    void readSession().then(({ session }) => {
+      if (alive) setEmail(session?.user.email ?? null)
     })
     return () => {
       alive = false
