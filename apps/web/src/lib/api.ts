@@ -1,10 +1,21 @@
 // API client — consumes deckpal-api (read-only contract, API.md).
 // Cloud: /api (Vercel). Self-host: /deckpal/api (behind nginx proxy).
+//
+// THIS FILE OWNS THE BASE PATH. Nothing else in apps/web may write an API path
+// literal: the two deployments disagree about the prefix, so a hand-rolled
+// `fetch('/deckpal/api/…')` works in exactly one of them and, in the other,
+// lands on the SPA fallback — HTTP 200 with HTML, which sails past `res.ok`
+// and dies in the JSON parser with a message that names nothing (see
+// ./jsonContentType.ts, and issues #89 / #113 where that shipped). A caller
+// with no method here should get one, not a fetch of its own.
+// `apps/web/scripts/check-api-base.mjs` enforces this at build time.
 
 import { isCloudMode } from './supabase'
 import { readSession, refreshSessionBounded } from './authSession'
 import { isPublicPathname } from './landingRoute'
+import { isJsonContentType } from './jsonContentType'
 import type { ValueRangeKey } from './insightsCaption'
+import type { Goal } from '../routes/setSearch'
 
 const BASE = isCloudMode ? '/api' : '/deckpal/api'
 
@@ -83,6 +94,31 @@ async function apiError(res: Response): Promise<ApiError> {
   return new ApiError(await extractError(res), res.status)
 }
 
+/**
+ * Parse a SUCCESSFUL response, refusing anything that is not JSON.
+ *
+ * A 2xx with an HTML body is the signature of "this deployment does not route
+ * that path" — the SPA fallback answered instead of the API. `res.ok` cannot
+ * see it and `res.json()` reports it as a parser syntax error with no context
+ * (WebKit's is the notorious "The string did not match the expected pattern.").
+ * Naming the path and the type that came back is the difference between a bug
+ * report somebody can act on and one that reads as "the app is broken".
+ *
+ * The failure arm is an `ApiError` like every other failure here, so nothing
+ * that already catches API failures needs to learn a new shape.
+ */
+async function jsonBody<T>(res: Response, path: string): Promise<T> {
+  const contentType = res.headers.get('content-type')
+  if (!isJsonContentType(contentType)) {
+    throw new ApiError(
+      `${BASE}${path} answered ${res.status} with ${contentType ?? 'no content type'} instead of JSON — ` +
+        'this build is asking for an API path the deployment does not serve.',
+      res.status,
+    )
+  }
+  return res.json() as Promise<T>
+}
+
 // The one fetch pipeline: request → single 401-refresh retry (handle401, which
 // re-sends the same init with fresh auth headers) → ApiError on failure →
 // parsed JSON. Callers own their init — headers, body, keepalive, signal — and
@@ -95,7 +131,7 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
     if (retry) res = retry
   }
   if (!res.ok) throw await apiError(res)
-  return res.json() as Promise<T>
+  return jsonBody<T>(res, path)
 }
 
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -171,7 +207,7 @@ async function keepaliveJson<T>(path: string, body: unknown): Promise<T> {
     body: payload,
   })
   if (!res.ok) throw await apiError(res)
-  return res.json() as Promise<T>
+  return jsonBody<T>(res, path)
 }
 
 /**
@@ -680,6 +716,35 @@ export interface DeckPricing {
   missing: MissingCard[]
   massEntryText: string
 }
+/**
+ * GET /sets/:setId/massentry — TCGplayer cart deep links for everything still
+ * needed to finish a set at a goal. Per-user, so it is authenticated.
+ *
+ * Same shape family as {@link DeckMassEntry}; the extra fields are the echo of
+ * what was carted (`source`, `set`, `goal`, `finishes`, the rarity filters) so
+ * a caller can tell a set cart from a list cart without inspecting its own
+ * request. See `apps/api/src/routes/massentry.ts` → `cartPayload`.
+ */
+export interface SetMassEntry {
+  source: 'set'
+  set: { setId: string; name: string }
+  goal: Goal
+  /** `null` means every finish counts — the server normalises a full selection to null. */
+  finishes: string[] | null
+  rarity: string[] | null
+  rarityExclude: string[] | null
+  /** `cards` counts distinct Mass Entry LINES, not distinct cards (kept from the original shape). */
+  needed: { cards: number; items: number; unlinkable: number; exactLines: number; bestEffortLines: number }
+  lines: string[]
+  text: string
+  urls: string[]
+  exactUrls: string[]
+  bestEffortUrls: string[]
+  unlinkable: { name: string; number: string; setId: string; variant: string | null }[]
+  warnings: string[]
+  note: string
+}
+
 // GET /decks/:id/massentry — TCGplayer cart deep links for the missing cards
 // (same shape family as GET /sets/:setId/massentry).
 export interface DeckMassEntry {
@@ -1053,6 +1118,24 @@ export const api = {
     get<SeriesDetailResponse>(`/series/${encodeURIComponent(slug)}`, signal),
   set: (setId: string, params: URLSearchParams, signal?: AbortSignal) =>
     get<SetDetailResponse>(`/sets/${encodeURIComponent(setId)}?${params.toString()}`, signal),
+  /**
+   * A TCGplayer cart deep link for everything still needed to finish a set.
+   *
+   * `finishes` is the variant scope for master/grandmaster; pass `null` (or the
+   * full set of finishes, which the server normalises to null) to count every
+   * printing. It is meaningless for `complete`, where any one printing finishes
+   * a card, so callers pass null there.
+   *
+   * Route parity note: this is the SET twin of `deckMassEntry`, and it exists
+   * because `PurchaseSetMenu` used to hand-roll the fetch — with the self-host
+   * base path, no `Authorization` header and no 401 refresh, so the whole
+   * feature was dead on cloud (#89, and #113 which is the user-visible half).
+   */
+  setMassEntry: (setId: string, goal: Goal, finishes: readonly string[] | null, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ goal })
+    for (const f of finishes ?? []) params.append('finish', f)
+    return get<SetMassEntry>(`/sets/${encodeURIComponent(setId)}/massentry?${params.toString()}`, signal)
+  },
   card: (cardId: string, signal?: AbortSignal) =>
     get<CardDetailResponse>(`/cards/${encodeURIComponent(cardId)}`, signal),
   // Set an absolute owned quantity for a variant.
