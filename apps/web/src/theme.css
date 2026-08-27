@@ -372,7 +372,7 @@ button {
   outline-offset: 2px;
 }
 
-/* App logotype — "Pokédex" in the top chrome. Live text, series-logo inspired:
+/* App logotype — "DeckPal" in the top chrome. Live text, series-logo inspired:
    heavy weight + slight forward skew, a light-to-dark gradient within the
    action-primary hue family (all 4 stops, so recoloring action-primary never
    leaves a foreign-hue fringe at the top/bottom of the glyphs — see

@@ -70,6 +70,17 @@ jobs:
       - name: Deck-E screen schema tests (pure, no DB)
         run: pnpm --filter deckpal-api test:decke
 
+      # The PDF exports' brand mark, read back out of a rendered PDF. Every
+      # export shipped a header saying `pokédex` — a name two renames old —
+      # for as long as the feature has existed, because nothing rendered a PDF
+      # in CI and the literal was invisible to a reader of the diff (issue
+      # #92). The same suite pins the other direction: the `pokedex_binder`
+      # kind's "Pokédex binder" label names the DEX FEATURE and must survive a
+      # future rename sweep. Its own step, for the same reason as the rows
+      # below — CI does not run `pnpm -r test`, so an unwired suite never runs.
+      - name: PDF export brand mark (pure, no DB)
+        run: pnpm --filter deckpal-api test:export
+
       # The variant-classification suite. It lives in `packages/agent-tools`
       # rather than in the API, because that is where `pickVariant` lives — and
       # it pins the HARD CONSTRAINT that the approval card's provenance is a NEW
