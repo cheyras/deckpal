@@ -858,3 +858,53 @@ export const CLIENT_TOOLS = [
   'journey',
   'escort',
 ] as const
+
+/**
+ * Tools THIS MODULE executes, server-side, before the stream moves on.
+ *
+ * The complement of `CLIENT_TOOLS`, and stated rather than implied because
+ * `COSMETIC_TOOLS` below is the union of the two and a union built from one
+ * half is not a union. `tools.test.ts` pins both halves against the structural
+ * property that actually decides it — whether the tool has an `execute`.
+ */
+export const SERVER_TOOLS = ['express', 'showScreen'] as const
+
+/**
+ * EVERY tool `buildTools` exposes: the character's own vocabulary.
+ *
+ * The repo counts Deck-E's tools as "9 cosmetic, 23 data, 4 deep" (see
+ * `focus.ts`); this is the first nine, whoever runs them. It exists because two
+ * places need the WHOLE set rather than either half:
+ *
+ *   - `narration.ts` strips these names when the model writes one as prose
+ *     instead of calling it. That list was hand-written and went stale the day
+ *     `journey` and `escort` were added — a leak the filter was built to catch
+ *     and silently stopped catching. It derives from here now.
+ *   - anything else that has to reason about "a Deck-E tool name" as a
+ *     vocabulary rather than as a routing decision.
+ *
+ * `CLIENT_TOOLS` stays the routing question — who fulfils it — and is NOT a
+ * substitute: it is missing `express` and `showScreen`, which the model leaked
+ * first and most often.
+ */
+export const COSMETIC_TOOLS = [...SERVER_TOOLS, ...CLIENT_TOOLS] as const
+
+/**
+ * The four deep tools, by name.
+ *
+ * Written out rather than derived because `buildDeepTools` needs a live
+ * `DeepToolOptions` to construct, and the only caller that wants just the NAMES
+ * is `narration.ts`'s leak filter, which runs on a streaming hot path and must
+ * not build a tool set to ask what they are called.
+ *
+ * `deep.test.ts` pins this against `Object.keys(buildDeepTools(…))`, so it is a
+ * cheap copy that cannot go stale — which is exactly the arrangement the old
+ * `TOOL_TAGS` literal did NOT have, and the reason it claimed seven names while
+ * the factory returned nine.
+ */
+export const DEEP_TOOLS = [
+  'plan_deck',
+  'analyze_collection',
+  'research_meta',
+  'write_strategy_guide',
+] as const

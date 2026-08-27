@@ -1171,9 +1171,21 @@ only by a live deployment, and the ordering bugs were in exactly that half (the
 held tail was flushed under a literal `id: 'narration'`, naming a block no
 `text-start` ever opened — our own reader concatenates and does not care, a
 conformant one drops it, and what it drops is the end of a real sentence). The
-filter is deliberately narrow, anchored on our seven tool names in any namespace
+filter is deliberately narrow, anchored on our own tool names in any namespace
 and in the `name="…"` attribute form the gate suite caught on the preview, so
-`<b>` and `10% < 15%` survive. It also says plainly what it cannot do: four of
+`<b>` and `10% < 15%` survive. That list is DERIVED from `COSMETIC_TOOLS` in
+`tools.ts` rather than written out. It was a hand-written seven while
+`buildTools` exposed nine, so a leaked `<journey>` or `<xai:escort>` walked
+straight past the filter for as long as those two tools had existed — no type
+error, no failing test, and the only symptom a reader seeing markup in a speech
+bubble (issue #90). `tools.test.ts` now pins `COSMETIC_TOOLS` to the tools that
+factory actually returns, and `narration.test.ts` asserts every one of them is
+stripped in all three shapes, so a tool cannot be added without the filter
+learning it. The 23 data tools and 4 deep tools stay deliberately out of scope:
+their names are ordinary English (`decks`, `lists`, `health`, `revert`) and the
+attribute rule strips a whole element on a bare `name="…"` match, which trades a
+leak nobody has measured for false positives on prose that happens daily. It
+also says plainly what it cannot do: four of
 five observed failures were not markup but bare prose — `flyTo
 [data-decke-goal-switcher] point=true` — and no pattern catches that without
 also eating sentences he is supposed to say.
