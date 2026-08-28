@@ -84,7 +84,8 @@ import {
   type SustainSpec,
 } from './sustain'
 import { blenderToThree, BODY_H, BODY_W, DEG, MOUTH } from './constants'
-import { sampleTrack, solveFlight, type FlightSample, type FlightTrack } from './flight'
+import { sampleTrack, screenSpan, solveFlight, type FlightSample, type FlightTrack } from './flight'
+import { GLIDE_SHAPE, worthHopping } from './hopWorth'
 import {
   homeCorner,
   parkOn,
@@ -2329,18 +2330,38 @@ export class DeckE {
     const from = this.track
       ? this.flightSample.pos.clone()
       : this.anchor.clone()
-    const shape = shapeFor(from, to, this.legIndex++)
     const vFov = (this.stage.camera.fov * Math.PI) / 180
+    const tanHalfFovY = Math.tan(vFov / 2)
+    // ── A HOP IS PUNCTUATION, AND MOST MOVES ARE NOT SENTENCES ──────────────
+    //
+    // `shapeFor`'s arc has a constant floor, so before this every re-park of a
+    // few pixels rose and descended exactly like a trip across the page. See
+    // `hopWorth.ts` for the owner's words and where the threshold sits. Below
+    // it he takes the same solved, eased path with the arc and the bow set to
+    // zero — a slide, not a different animation and not a cut.
+    const hop = worthHopping(
+      screenSpan(from, to, this.stage.camera, tanHalfFovY, viewHeight()),
+      this.characterHeightPx,
+    )
+    // THE LEG INDEX ONLY ADVANCES FOR A HOP. It alternates the bow's sign so an
+    // out-and-back traces a lens rather than retracing one line; a glide has no
+    // bow, and letting it consume an index would flip the next real hop's sweep
+    // for no reason the reader could see.
+    const shape = hop ? shapeFor(from, to, this.legIndex++) : GLIDE_SHAPE
     this.track = solveFlight(from, to, {
       camera: this.stage.camera,
-      tanHalfFovY: Math.tan(vFov / 2),
+      tanHalfFovY,
       ...shape,
       // Playback speed only — a queued (via-background) leg launched from the
       // arrival branch inherits the same rate, so the whole trip is one pace.
       rate: this.legRate,
     })
     this.trackStart = this.elapsed
-    this.rampMod(TRAVEL_MOD_MS)
+    // AND A NUDGE DOES NOT DAMP HIS IDLE EITHER. The travel modulation exists
+    // because a full-amplitude float on top of a real flight reads as an
+    // unstable wobble; ramping it down and back up around a 20px correction is
+    // its own small hiccup, in the hover rather than in the path.
+    if (hop) this.rampMod(TRAVEL_MOD_MS)
     // A queued leg inherits the drive already in progress; only a fresh flight
     // starts or clears one, and `flyTo` sets it just before calling in.
     if (!this.legQueue.length && this.pendingScroll === null) this.scrollDrive = null
