@@ -1,5 +1,5 @@
 import { storageEnv } from './config.js';
-import { assertSafeObjectPath, storageUrl } from './object-path.js';
+import { assertSafeObjectPath, encodeObjectPath, storageUrl } from './object-path.js';
 
 /**
  * Supabase Storage access over its REST API — no SDK, no extra dependency, and
@@ -23,9 +23,10 @@ import { assertSafeObjectPath, storageUrl } from './object-path.js';
 export function publicObjectUrl(objectPath: string): string {
   assertSafeObjectPath(objectPath, 'publicObjectUrl');
   const { supabaseUrl, bucket } = storageEnv();
-  // Each segment is validated above ([A-Za-z0-9.-] only), so encodeURI is
-  // belt-and-braces, not the security boundary — it escapes neither '/' nor '%'.
-  return storageUrl(supabaseUrl, `storage/v1/object/public/${bucket}/${encodeURI(objectPath)}`).href;
+  // Encoded per SEGMENT, so '/' and '?' and '#' cannot survive inside one. The
+  // guard inside `encodeObjectPath` is still the boundary; this is a second,
+  // independent reason a key cannot escape the path rather than the only one.
+  return storageUrl(supabaseUrl, `storage/v1/object/public/${bucket}/${encodeObjectPath(objectPath, 'publicObjectUrl')}`).href;
 }
 
 function authHeaders(): Record<string, string> {
@@ -180,7 +181,7 @@ export async function uploadObject(
 ): Promise<UploadResult> {
   assertSafeObjectPath(objectPath, 'uploadObject');
   const { supabaseUrl, bucket } = storageEnv();
-  const url = storageUrl(supabaseUrl, `storage/v1/object/${bucket}/${encodeURI(objectPath)}`).href;
+  const url = storageUrl(supabaseUrl, `storage/v1/object/${bucket}/${encodeObjectPath(objectPath, 'objectRequest')}`).href;
   return withRetries(
     maxAttempts,
     () =>
@@ -374,7 +375,7 @@ export async function deleteObject(objectPath: string, timeoutMs = 10_000): Prom
     // construct either way, but the two shapes did not read the same to CodeQL:
     // the assigned form cleared and the inline one raised a fresh alert (#64).
     // Consistency here is cheaper than arguing with the analyser.
-    const url = storageUrl(supabaseUrl, `storage/v1/object/${bucket}/${encodeURI(objectPath)}`).href;
+    const url = storageUrl(supabaseUrl, `storage/v1/object/${bucket}/${encodeObjectPath(objectPath, 'objectRequest')}`).href;
     const res = await fetch(url, {
       method: 'DELETE',
       headers: authHeaders(),
