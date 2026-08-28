@@ -45,7 +45,6 @@ import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
 import { ChatMarkdown } from './chat/ChatMarkdown'
 import { ThinkingRow } from './chat/ThinkingRow'
 import { ToolRow } from './chat/ToolRow'
-import { keyboardInset, readViewport, shouldPinScroll } from './keyboardInset'
 import { parkFloor } from './parkFloor'
 import { toolRowFromChip } from './chat/toolRowState'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
@@ -1539,105 +1538,6 @@ export function DeckeChat({
     announceTimerRef.current = window.setTimeout(() => setAnnouncement(text), 80)
   }, [busy, lastAssistant])
 
-  /**
-   * ── THE PANEL'S FLOOR IS THE VISUAL VIEWPORT'S, NOT THE LAYOUT VIEWPORT'S ──
-   *
-   * *"I'm still seeing that downward drift happening after the keyboard is
-   * dismissed. The chat bar goes down most of the way with the keyboard, but
-   * then it slowly animates downward until it hits its final resting place."*
-   *
-   * `keyboardInset.ts` carries the mechanism at length. The short version: this
-   * panel is `fixed bottom-0`, iOS does not shrink the layout viewport for a
-   * keyboard, and WebKit's answer is to SCROLL the held document to reveal the
-   * composer — which lifts every fixed layer on the page. When the keyboard
-   * leaves, iOS unwinds that scroll on its own clock, after the keyboard's own
-   * animation has finished, and the panel rides all of it down. There is no CSS
-   * transition to shorten because none of it is ours.
-   *
-   * Lifting the panel ourselves means there is nothing left to reveal, so the
-   * reveal-scroll never happens and neither does its unwind.
-   *
-   * PHONE ONLY. A desktop panel is inset from a sidebar and a header with no
-   * software keyboard anywhere near it, and `readViewport` would be answering a
-   * question nobody asked.
-   */
-  const [kbInset, setKbInset] = useState(0)
-  useEffect(() => {
-    if (desktop || !visible || shownMinimised) {
-      setKbInset(0)
-      return
-    }
-    const vv = window.visualViewport
-    if (!vv) return
-    let raf = 0
-    let applied = 0
-    /**
-     * Consecutive pin attempts that did not move `scrollY`.
-     *
-     * A BUDGET, because a pin that cannot work must not be retried for ever.
-     * `window.scrollTo` on a document held with `overflow: hidden` is a no-op
-     * in some engines, and a no-op retried every frame is a busy loop that
-     * never converges — AND it would leave the panel riding a scroll while the
-     * inset lifts it again, i.e. lifted twice. Three failures is enough to
-     * conclude the page cannot be moved from here; the inset alone then does
-     * whatever it can and nothing spins.
-     */
-    let pinMisses = 0
-    const PIN_GIVE_UP = 3
-    const apply = () => {
-      const sample = readViewport()
-      const next = keyboardInset(sample)
-      applied = next
-      setKbInset((prev) => (prev === next ? prev : next))
-      // ── AND HOLD THE DOCUMENT AT 0 ──────────────────────────────────────
-      //
-      // The inset removes the REASON for WebKit's reveal-scroll; this removes
-      // the scroll itself. Both are needed: a focus that lands before the first
-      // `resize` fires, or a hardware keyboard attaching, can still produce one,
-      // and a single frame of it is a frame of the panel sliding.
-      //
-      // `shouldPinScroll` refuses while a keyboard is up and the inset is NOT
-      // applied — see its note. That case is "we could not measure the
-      // keyboard", and pinning there would take away the only thing keeping the
-      // composer visible.
-      if (window.scrollY === 0) {
-        pinMisses = 0
-        return
-      }
-      if (pinMisses >= PIN_GIVE_UP || !shouldPinScroll(sample, applied)) return
-      const before = window.scrollY
-      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
-      // BOTH SPELLINGS. `scrollTo` is the one that works on the engine this is
-      // for; `scrollingElement` is the one that works when a held document has
-      // taken the window API out of play. Neither is a substitute for checking
-      // whether anything actually happened.
-      if (window.scrollY !== 0) {
-        const el = document.scrollingElement
-        if (el) el.scrollTop = 0
-      }
-      pinMisses = window.scrollY === before ? pinMisses + 1 : 0
-    }
-    // COALESCED TO A FRAME. `visualViewport` fires `resize` and `scroll`
-    // continuously through the keyboard's animation — dozens of events — and
-    // each one would otherwise be a React render of the whole panel plus a
-    // `scrollTo`. One per frame is as often as any of it can be seen.
-    const schedule = () => {
-      if (raf) return
-      raf = requestAnimationFrame(() => {
-        raf = 0
-        apply()
-      })
-    }
-    apply()
-    vv.addEventListener('resize', schedule)
-    vv.addEventListener('scroll', schedule)
-    return () => {
-      if (raf) cancelAnimationFrame(raf)
-      vv.removeEventListener('resize', schedule)
-      vv.removeEventListener('scroll', schedule)
-    }
-  }, [desktop, visible, shownMinimised])
-
   // ── Scroll authority ──────────────────────────────────────────────────────
   //
   // THE ORDER HERE IS THE WHOLE THING, and getting it wrong teleports him.
@@ -2199,10 +2099,6 @@ export function DeckeChat({
           // and it is the same offset the scrim uses, from the same source.
           left: desktop ? 'var(--app-sidebar-w)' : 0,
           top: 'calc(var(--app-header-h) + env(safe-area-inset-top))',
-          // THE FLOOR. Zero — the `bottom-0` class's own value — whenever there
-          // is no keyboard or no way to measure one, so nothing about the
-          // ordinary case changes. See the `kbInset` effect.
-          bottom: kbInset ? `${kbInset}px` : undefined,
         } as React.CSSProperties}
         className={[
           // GLASS ON BOTH, and pointer-transparent on both. It was already so
