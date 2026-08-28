@@ -1234,32 +1234,6 @@ half.
 
 ### 15g. The chat surface — a transcript, and a way to walk somebody there
 
-**The panel's floor is the VISUAL viewport, not the layout viewport.** On iOS the
-layout viewport does not shrink for the software keyboard — only the visual one
-does — so a `fixed; bottom: 0` composer would sit behind it. WebKit's answer is
-to SCROLL the document to reveal the focused input, and it does this even to a
-document held with `overflow: hidden`; every fixed layer on the page rides that
-scroll. Measured on an iPhone (`character/viewport.ts`): the canvas's client
-rect goes `0..760` with the keyboard down and `-268..492` with it up.
-
-That reveal works, and its unwind is a defect: when the keyboard leaves, WebKit
-animates the document back to 0 on its own clock, *after* the keyboard's own
-animation has finished, and the whole panel slides down with it. Reported in
-those terms — *"the chat bar goes down most of the way with the keyboard, but
-then it slowly animates downward until it hits its final resting place"* — and
-there is no CSS transition to shorten, because none of it is ours.
-
-So `character/host/keyboardInset.ts` lifts the panel's own floor by the measured
-keyboard height and the document is pinned at `scrollY === 0`. With nothing left
-to reveal there is no reveal-scroll, and therefore no unwind to watch. **The two
-halves ship together**: pinning the scroll without the inset would remove the
-only thing keeping the composer clear of the keyboard, so `shouldPinScroll`
-refuses unless the inset is actually applied, and every unreadable viewport
-returns an inset of 0 — which is the old layout exactly. The pin is also
-budgeted: three attempts that do not move `scrollY` and it stops, because a
-no-op retried every frame would leave the panel riding a scroll *and* lifted by
-the inset, i.e. lifted twice.
-
 **The panel is the content pane.** On desktop it occupies the space between the
 sidebar and the right edge, below the header; both stay sharp and usable. On a
 phone the scrim starts below the app header **by offset, not by z-index**, and

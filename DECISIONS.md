@@ -13324,79 +13324,46 @@ found to be worth acting on directly.
 - The park box now carries `data-decke-approval` on the card, so the geometry is
   assertable from outside rather than by reading pixels out of a WebGL buffer.
 
-## 2026-08-28 — The chat bar's drift was WebKit unwinding a scroll, not Deck-E chasing a mark
+## 2026-08-28 — REVERTED: the keyboard-inset panel (#129). It was worse on the device.
 
-**Decided by:** Claude (Opus 5) on behalf of @cheyras, after the earlier pass
-today did not fix what was reported.
+**Decided by:** @cheyras, on a real phone. Reverted by Claude (Opus 5).
 
-**The correction first.** This morning's entry treated the post-keyboard drift as
-Deck-E re-parking six times and fixed that — correctly; he now settles in one
-hop, and the probe still measures it. It was **not the defect the owner was
-describing**, and the second report says so precisely:
+**What was reverted.** #129 lifted the chat panel's floor by the measured
+keyboard height and pinned `window.scrollY` at 0, to stop the panel riding
+WebKit's reveal-scroll and its slow unwind.
 
-> *"I'm still seeing that downward drift happening after the keyboard is
-> dismissed. The chat bar goes down most of the way with the keyboard, but then
-> it slowly animates downward until it hits its final resting place."*
+**What it actually did**, reported from the device:
 
-The thing that drifts is the **panel**. He was tracking a composer that is
-itself sliding, so no amount of work on his flight logic could have ended it.
-Six flights → one was real and is worth keeping; it was also the wrong layer.
+> *"Now the drift is happening while the keyboard is up, and deck e is BEHIND
+> the keyboard. It feels incredibly glitchy and just shitty."*
 
-**The mechanism.** The panel is `fixed; bottom: 0` — the LAYOUT viewport's
-floor. iOS does not shrink the layout viewport for a keyboard, only the visual
-one, so a bottom-anchored composer would be behind it. WebKit's answer is to
-scroll the document to reveal the focused input, which it does even to a
-document held with `overflow: hidden`, and every fixed layer rides that scroll.
-`character/viewport.ts` already had the measurement, taken on a real iPhone for
-an unrelated bug and never connected to this one:
+Both symptoms are the same cause and both were foreseeable from the design:
 
-```
-keyboard down   canvas client rect     0 .. 760
-keyboard up     canvas client rect  -268 .. 492
-```
+- **The pin fights WebKit continuously.** WebKit re-issues its reveal-scroll;
+  the effect resets it every frame; neither wins. The `PIN_GIVE_UP` budget did
+  not help, because `pinMisses` resets to 0 every time `scrollY` returns to 0 —
+  so a fight the pin keeps *winning* momentarily never counts as a failure and
+  the loop never stops. That tug-of-war IS the new drift, and it happens while
+  the keyboard is up, which is a phase the old code never had a problem in.
+- **His canvas was never lifted.** The panel's floor moved; the character canvas
+  is a separate `fixed inset-0 h-[100lvh]` layer and stayed full height. With
+  the document held at 0 rather than scrolled, the bottom of that canvas sits
+  under the keyboard — so he is drawn behind it.
 
-The reveal half works and the previous pass wrote it down as the fix for that
-path. The unwind half is the defect: when the keyboard leaves, WebKit returns
-the document to 0 **on its own clock, after the keyboard's animation has
-finished**, and the panel rides all of it. There is no CSS transition to shorten
-and no timer to reduce, because none of it is ours.
-
-**Decision.** `character/host/keyboardInset.ts`: the panel's floor rises by the
-measured keyboard height, and the document is pinned at `scrollY === 0`. With
-nothing left to reveal, the reveal-scroll does not happen and neither does its
-unwind. The drift is not damped — the mechanism that produced it is gone.
-
-**Why the two halves are one change.** Pinning the scroll alone would remove the
-only thing lifting the composer clear of the keyboard and leave somebody typing
-into a box they cannot see — a worse defect than the one being fixed, and a
-silent one. `shouldPinScroll` therefore refuses while a keyboard is up and the
-inset is not applied, and a property test asserts there is no sample for which
-the pin is allowed without it.
-
-**Measured**, at 390×844, faking the visual viewport on the real component
-(`probe-keyboard-settle.mjs`, which carries a `--control`):
-
-| | bar lifts for a 268px keyboard | his mark | drift after the keyboard leaves |
-|---|---|---|---|
-| before | **0px** (it depends entirely on the reveal-scroll) | 0px | — |
-| after | **268px** | **268px** | **0px across 2s** |
+**The lesson, and it is about verification rather than about keyboards.** The
+probe faked `visualViewport` and asserted the panel's floor. It could not
+exercise WebKit's reveal-scroll, that limitation was written down in the probe's
+own header and in the entry this replaces — and the change was merged and
+deployed anyway on a green probe. **A stated limitation is not a mitigation.**
+For a defect whose entire mechanism is one engine's behaviour, "verified" means
+verified on that engine; nothing else is evidence, and shipping on the strength
+of a test that cannot see the mechanism is how two consecutive passes reached
+production without fixing what was reported.
 
 **Implications.**
-- **A headless browser has no software keyboard, and this is honest about it.**
-  The probe fakes `visualViewport` on the real object and dispatches its real
-  event, so the component's listener, its rAF coalescing and its render all run
-  as they do on the phone — but WebKit's reveal-scroll itself is not
-  reproducible anywhere, and is not claimed to be tested. The arithmetic is
-  pinned against the hardware numbers above instead.
-- **Every unreadable viewport returns an inset of 0**, which is the old layout
-  byte for byte. This is allowed to decline to act; it must never act on a
-  number it does not believe, because the failure mode is a panel floating in
-  the middle of the screen with full confidence.
-- **The pin is budgeted.** Three attempts that do not move `scrollY` and it
-  stops. `window.scrollTo` is a no-op on a held document in some engines, and a
-  no-op retried every frame would leave the panel riding a scroll AND lifted by
-  the inset — lifted twice, which is worse than either.
-- `KEYBOARD_MIN_PX` (80) sits under every real keyboard (~216px is the shortest
-  iPhone one) and over every toolbar slide and rounding artefact. Both bounds
-  are asserted, so a future tweak cannot close the gap from either side.
-- Phone only, and asserted: a faked keyboard moves the desktop composer 0px.
+- The original drift is back and remains open. It is the ANIMATED UNWIND after
+  dismissal, and the next attempt should touch only that — not the keyboard-up
+  path, which worked, and not `scrollY` on a repeating timer.
+- Anything targeting this must be checked on the owner's phone against a
+  preview deployment BEFORE it is merged. No further keyboard change ships on
+  a headless green tick.
