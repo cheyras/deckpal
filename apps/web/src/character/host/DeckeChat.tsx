@@ -45,6 +45,7 @@ import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
 import { ChatMarkdown } from './chat/ChatMarkdown'
 import { ThinkingRow } from './chat/ThinkingRow'
 import { ToolRow } from './chat/ToolRow'
+import { keyboardInset, readViewport } from './keyboardInset'
 import { parkFloor } from './parkFloor'
 import { toolRowFromChip } from './chat/toolRowState'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
@@ -1538,6 +1539,65 @@ export function DeckeChat({
     announceTimerRef.current = window.setTimeout(() => setAnnouncement(text), 80)
   }, [busy, lastAssistant])
 
+  /**
+   * ── THE PANEL'S FLOOR FOLLOWS THE VISUAL VIEWPORT ─────────────────────────
+   *
+   * One formula, in `keyboardInset.ts`, which carries the whole story. The
+   * short version: iOS reveals a focused input by shifting the visual viewport,
+   * and `visualViewport.offsetTop` does not reset promptly when the keyboard is
+   * dismissed — so every `fixed` layer is left drawn too high and eases down as
+   * that number unwinds on iOS's own clock. That is the reported drift.
+   *
+   * NOTHING HERE TOUCHES `window.scrollY`. The previous attempt (#129, reverted)
+   * pinned it, fought WebKit every frame, and produced a worse drift while the
+   * keyboard was UP. The established technique does not go near the scroll
+   * position and neither does this.
+   *
+   * AND NOTHING HERE MOVES HIM. His park box is a DOM element inside this
+   * panel, and `DeckE` already re-measures its canvas origin on `visualViewport`
+   * resize and scroll — so a correct panel is a correct character. #129's other
+   * mistake was moving the panel and leaving his canvas behind, which drew him
+   * behind the keyboard.
+   *
+   * PHONE ONLY: a desktop panel is inset from a sidebar and a header, with no
+   * software keyboard anywhere near it.
+   */
+  const [kbBottom, setKbBottom] = useState(0)
+  useEffect(() => {
+    if (desktop || !visible || shownMinimised) {
+      setKbBottom(0)
+      return
+    }
+    const vv = window.visualViewport
+    if (!vv) return
+    let raf = 0
+    const apply = () => {
+      const next = keyboardInset(readViewport())
+      setKbBottom((prev) => (prev === next ? prev : next))
+    }
+    // COALESCED TO A FRAME. `visualViewport` fires both events continuously
+    // through the keyboard's animation; one render per frame is as often as any
+    // of it can be seen.
+    const schedule = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        apply()
+      })
+    }
+    apply()
+    // BOTH EVENTS. `resize` is the keyboard arriving and leaving; `scroll` is
+    // the visual viewport being shifted WITHOUT a size change, which is exactly
+    // the stale-`offsetTop` window this exists for.
+    vv.addEventListener('resize', schedule)
+    vv.addEventListener('scroll', schedule)
+    return () => {
+      if (raf) cancelAnimationFrame(raf)
+      vv.removeEventListener('resize', schedule)
+      vv.removeEventListener('scroll', schedule)
+    }
+  }, [desktop, visible, shownMinimised])
+
   // ── Scroll authority ──────────────────────────────────────────────────────
   //
   // THE ORDER HERE IS THE WHOLE THING, and getting it wrong teleports him.
@@ -2099,6 +2159,10 @@ export function DeckeChat({
           // and it is the same offset the scrim uses, from the same source.
           left: desktop ? 'var(--app-sidebar-w)' : 0,
           top: 'calc(var(--app-header-h) + env(safe-area-inset-top))',
+          // Zero — the `bottom-0` class's own value — whenever there is no
+          // keyboard, no `visualViewport`, or nothing believable to read, which
+          // is almost always. See the `kbBottom` effect.
+          bottom: kbBottom ? `${kbBottom}px` : undefined,
         } as React.CSSProperties}
         className={[
           // GLASS ON BOTH, and pointer-transparent on both. It was already so
