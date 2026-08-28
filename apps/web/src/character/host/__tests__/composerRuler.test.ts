@@ -29,7 +29,13 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ruleComposer, rulerFor, type ComposerRuler } from '../composerRuler'
+import {
+  HEIGHT_EPS,
+  ruleComposer,
+  rulerFor,
+  steadyHeight,
+  type ComposerRuler,
+} from '../composerRuler'
 
 /** A 1440x900 laptop, the viewport the review was recorded at. */
 const W = 1440
@@ -105,4 +111,54 @@ test('the ruler is still reported on the frame the viewport changes', () => {
   const wide = ruleComposer(null, { composerH: REST, w: W, h: H })
   const sample = { composerH: 80, w: 390, h: 780 }
   assert.equal(rulerFor(wide, sample), 80)
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE DEADBAND — the other half of the slow drift (2026-08-27)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('a one-pixel re-measure is not a size change', () => {
+  // It is not a cheap no-op either, which is the point. His height sets
+  // `parkW`, `parkW` sets the transcript's `--decke-gutter`, the gutter
+  // re-wraps every bubble beside him, and `DeckeHost`'s mark watch is watching
+  // what that does to the layout — so one pixel buys a re-wrap, a moved mark,
+  // a 420 ms debounce and a re-park whose own measurement can land one pixel
+  // off again. That loop is the staircase `MARK_HOP_MIN_PX` documents, seen
+  // from the end that GENERATES the moves rather than the end that flies them.
+  assert.equal(steadyHeight(188, 189), 188)
+  assert.equal(steadyHeight(188, 187), 188)
+  assert.equal(steadyHeight(188, 186), 188)
+})
+
+test('a real change still lands, in both directions', () => {
+  // A rotation, a keyboard, a viewport that actually changed. The deadband must
+  // not be able to pin him to a size the layout has left behind.
+  assert.equal(steadyHeight(188, 191), 191)
+  assert.equal(steadyHeight(188, 136), 136)
+  // The measured 136 -> 188 pop this file's header is about is nowhere near it.
+  assert.equal(steadyHeight(136, 188), 188)
+})
+
+test('the threshold is invisible on a character this size', () => {
+  // 3 px on the ~136-188 px he is measured at. Stated as a ratio so a future
+  // change to either number has to look at this.
+  assert.ok(HEIGHT_EPS / 136 < 0.025, 'the deadband is big enough to see')
+})
+
+test('zero is always applied, on the way in and on the way out', () => {
+  // `0` means "no size yet" when the controller boots and "the panel is gone"
+  // when it tears down. Treating either as a small change leaves him at a stale
+  // size with nothing left running to correct it.
+  assert.equal(steadyHeight(0, 2), 2, 'his first measurement must not be swallowed')
+  assert.equal(steadyHeight(188, 0), 0, 'the teardown must not be swallowed')
+})
+
+test('the deadband cannot creep', () => {
+  // The baseline is the height last APPLIED, never the last measured — so a
+  // slow ramp of sub-threshold samples holds at the applied value instead of
+  // walking it up two pixels at a time, which would be the drift rebuilt out of
+  // rounding error.
+  let applied = 188
+  for (const sample of [189, 190, 189, 190, 189, 190]) applied = steadyHeight(applied, sample)
+  assert.equal(applied, 188)
 })

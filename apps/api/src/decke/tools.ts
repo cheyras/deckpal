@@ -524,6 +524,15 @@ export function buildTools(
    * as the next turn's evidence, so a panel that emits no chip is a panel the
    * next turn does not know exists — and redraws.
    *
+   * ── AND THEN ONE OF THE TWO WAS TAKEN BACK OUT (2026-08-27) ───────────────
+   *
+   * Both halves of the argument above are about `showScreen`, and only
+   * `showScreen` still emits. `express` does not, by the owner's ruling — see
+   * the long note at its `execute`. A panel is a thing on the screen that the
+   * next turn has to know about; an animation is the character moving, which
+   * the reader is already watching and which `lookupRecord` has always refused
+   * to replay as evidence.
+   *
    * Optional, because the dev preview and the tests have no stream to write to.
    */
   onEvent?: (e: ToolEvent) => void,
@@ -545,8 +554,36 @@ export function buildTools(
         commands: z.array(commandSchema).min(1).max(6)
           .describe('Applied in order. Combine a few to express one reaction.'),
       }),
-      execute: async ({ commands }, { toolCallId }) => {
-        began(toolCallId, 'express', 'Change how he looks', { commands })
+      execute: async ({ commands }) => {
+        // ── NO CHIP. THE READER NEVER SEES THIS ONE. ────────────────────────
+        //
+        // *"The 'change how he looks' commands don't need to be telegraphed to
+        // the user ever."* — 2026-08-27, filed against a transcript where a
+        // message whose entire content was feedback came back with `Change how
+        // he looks · applied 1 command(s)` above the reply.
+        //
+        // It is the tool's own contract, stated in its description one screen
+        // up: *"The user never sees these commands — only your words and the
+        // animation."* The chip was added by the pass that made `showScreen`
+        // visible, on the reasoning quoted in this function's header — a turn
+        // that drew a panel and then narrated it "read, in the transcript, as
+        // nine searches and a flight with nothing visual in it at all". That
+        // argument is entirely about PANELS and it does not reach this tool: an
+        // animation is not a lookup, it is not evidence, and the reader can
+        // already see it — it is playing on the character four inches away.
+        //
+        // The second half of that argument does not reach it either.
+        // `messagesToWire` replays each chip's summary as the next turn's
+        // evidence, which is why `showScreen` keeps its chip — but `express` is
+        // in `lookupRecord`'s `NOT_EVIDENCE` set and has never been replayed,
+        // for the reason given there: listing an animation under "you actually
+        // ran these, so the figures in them are real" is a category error. So
+        // there is nothing downstream of this that a missing chip can starve.
+        //
+        // `began`/`ended` are still used by every other tool in this file; the
+        // silence is this one tool's, not the wrapper's. The browser learns the
+        // commands from the `data-decke` part below, which is how it has always
+        // learned them — the chip was never the channel.
         // Validated HERE, because the flat schema above cannot express which
         // fields go with which op. A rejected command is reported back rather
         // than dropped: the engine's own surface rejects loudly and never
@@ -600,14 +637,6 @@ export function buildTools(
           'Animation applied; the user sees it. Do not describe or repeat it in words. ' +
           'If you have not finished answering, carry on — and call express again when ' +
           'what you are saying changes character. If you already have, add nothing.'
-        ended(
-          toolCallId,
-          'express',
-          'Change how he looks',
-          errors.length
-            ? `${good.length} of ${commands.length} applied — ${errors.length} rejected`
-            : `applied ${good.length} command(s)`,
-        )
         return errors.length
           ? { applied: good.length, errors, done }
           : { applied: good.length, done }

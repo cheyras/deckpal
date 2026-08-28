@@ -38,6 +38,7 @@
  */
 
 import type { DeckeConversationSummary, DeckeHistoryTurn } from '../../../lib/api'
+import { isShownInTranscript } from './lookupRecord'
 import type { ToolPhase, ToolRowData } from './toolRowState'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -329,9 +330,24 @@ export function historyToolRow(
   }
 }
 
-/** Every row of one recorded turn, in the order the record has them. */
+/**
+ * Every row of one recorded turn, in the order the record has them.
+ *
+ * MINUS THE ONES THAT ARE NOT SHOWN. `express` was written into the record for
+ * as long as it emitted a chip, so the archive holds turns the live transcript
+ * would no longer draw — and a history view that shows `Change how he looks`
+ * for a conversation that no longer would is the same defect, just older. See
+ * `NOT_SHOWN` in `lookupRecord.ts`.
+ *
+ * FILTERED AFTER THE INDEX IS TAKEN, so an id stays pinned to the position the
+ * record has, not to the position after a removal. Two renders of the same
+ * transcript have to agree about a React key, and the record is the only thing
+ * that cannot change under them.
+ */
 export function historyToolRows(turn: DeckeHistoryTurn): ToolRowData[] {
-  return turn.tools.map((t, i) => historyToolRow(t, turn.seq, i))
+  return turn.tools
+    .map((t, i) => historyToolRow(t, turn.seq, i))
+    .filter((r) => isShownInTranscript(r.name))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
