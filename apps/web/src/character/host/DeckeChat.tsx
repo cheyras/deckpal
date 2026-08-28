@@ -45,7 +45,7 @@ import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
 import { ChatMarkdown } from './chat/ChatMarkdown'
 import { ThinkingRow } from './chat/ThinkingRow'
 import { ToolRow } from './chat/ToolRow'
-import { panelBox, readPanelViewport, type PanelBox } from './panelViewport'
+import { panelBox, readPanelViewport } from './panelViewport'
 import { composerFocused, consumesScroll } from './panelScrollLock'
 import { KbDiag, kbDiagMode } from './KbDiag'
 import { parkFloor } from './parkFloor'
@@ -1559,49 +1559,66 @@ export function DeckeChat({
    * every frame, and shipped a worse drift than the one it fixed. The scroll is
    * READ, through the header's own client rect, and never argued with.
    *
+   * ── WRITTEN AS CUSTOM PROPERTIES, IN THE HANDLER, NOT AS STATE ─────────────
+   *
+   * iOS animates the visual viewport up over roughly a fifth of a second, so
+   * these events arrive every frame for the length of the keyboard's slide.
+   * Routing that through React state put the panel's new geometry a render
+   * behind the viewport it was measured from — one frame per event where the
+   * panel was drawn against a viewport that had already moved. His park box is
+   * in the panel, so that frame is a frame of him standing somewhere wrong.
+   *
+   * Writing two custom properties on the element instead lands the geometry in
+   * the same frame as the event, and costs no re-render at all. React keeps
+   * ownership of the EXPRESSIONS below, which name their own authored fallbacks
+   * for desktop, for a missing `visualViewport`, and for the first paint — so
+   * the two never fight over the same declaration.
+   *
    * PHONE ONLY: a desktop panel is inset from a sidebar and a header, with no
    * software keyboard anywhere near it.
    */
-  const [box, setBox] = useState<PanelBox | null>(null)
   useEffect(() => {
+    const panel = panelRef.current
+    if (!panel) return
+    const clear = () => {
+      panel.style.removeProperty('--decke-panel-top')
+      panel.style.removeProperty('--decke-panel-h')
+      panel.style.removeProperty('--decke-panel-bottom')
+    }
     if (desktop || !visible || shownMinimised) {
-      setBox(null)
+      clear()
       return
     }
     const vv = window.visualViewport
     if (!vv) return
-    let raf = 0
     const apply = () => {
-      const next = panelBox(readPanelViewport())
-      setBox((prev) =>
-        prev && next && prev.top === next.top && prev.height === next.height ? prev : next,
-      )
-    }
-    // COALESCED TO A FRAME. All three of these fire continuously through the
-    // keyboard's animation and through a flick; one render per frame is as
-    // often as any of it can be seen.
-    const schedule = () => {
-      if (raf) return
-      raf = requestAnimationFrame(() => {
-        raf = 0
-        apply()
-      })
+      const box = panelBox(readPanelViewport())
+      // NOTHING BELIEVABLE, NOTHING WRITTEN — the fallbacks in the style below
+      // are the panel's authored geometry, which is the right answer whenever
+      // this cannot produce one.
+      if (!box) {
+        clear()
+        return
+      }
+      panel.style.setProperty('--decke-panel-top', `${box.top}px`)
+      panel.style.setProperty('--decke-panel-h', `${box.height}px`)
+      panel.style.setProperty('--decke-panel-bottom', 'auto')
     }
     apply()
     // THE DOCUMENT SCROLL IS THE ONE THAT MATTERS, and it is the one the
     // previous attempts never listened to. `visualViewport` fires for the
     // keyboard arriving and leaving; the flick that drags a riding `fixed`
     // panel off the keyboard is a plain document scroll and nothing else.
-    vv.addEventListener('resize', schedule)
-    vv.addEventListener('scroll', schedule)
-    window.addEventListener('scroll', schedule, { passive: true, capture: true })
-    window.addEventListener('resize', schedule)
+    vv.addEventListener('resize', apply)
+    vv.addEventListener('scroll', apply)
+    window.addEventListener('scroll', apply, { passive: true, capture: true })
+    window.addEventListener('resize', apply)
     return () => {
-      if (raf) cancelAnimationFrame(raf)
-      vv.removeEventListener('resize', schedule)
-      vv.removeEventListener('scroll', schedule)
-      window.removeEventListener('scroll', schedule, { capture: true })
-      window.removeEventListener('resize', schedule)
+      vv.removeEventListener('resize', apply)
+      vv.removeEventListener('scroll', apply)
+      window.removeEventListener('scroll', apply, { capture: true })
+      window.removeEventListener('resize', apply)
+      clear()
     }
   }, [desktop, visible, shownMinimised])
 
@@ -2205,16 +2222,19 @@ export function DeckeChat({
           // fixes the collision by construction rather than by padding it away,
           // and it is the same offset the scrim uses, from the same source.
           left: desktop ? 'var(--app-sidebar-w)' : 0,
-          // THE AUTHORED VALUES ARE THE FALLBACK, and they are what desktop,
-          // a missing `visualViewport` and a route with no app header all get:
-          // start under the header, run to the floor. See the `box` effect.
-          top: box ? `${box.top}px` : 'calc(var(--app-header-h) + env(safe-area-inset-top))',
+          // THE FALLBACK IS THE AUTHORED GEOMETRY, named here rather than in a
+          // branch: start under the header and run to the floor. That is what
+          // desktop gets, what a missing `visualViewport` gets, what a route
+          // with no app header gets, and what the first paint gets before the
+          // effect above has measured anything.
+          //
           // A HEIGHT REPLACES `bottom-0` RATHER THAN NUDGING IT. Both edges
           // move together — the floor onto the keyboard, and the ceiling back
           // down to the top of what can be seen once WebKit has carried the app
           // header off the screen.
-          height: box ? `${box.height}px` : undefined,
-          bottom: box ? 'auto' : undefined,
+          top: 'var(--decke-panel-top, calc(var(--app-header-h) + env(safe-area-inset-top)))',
+          height: 'var(--decke-panel-h, auto)',
+          bottom: 'var(--decke-panel-bottom, 0px)',
         } as React.CSSProperties}
         className={[
           // GLASS ON BOTH, and pointer-transparent on both. It was already so

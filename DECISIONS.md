@@ -84,6 +84,33 @@ transition and holds it for the keyboard's whole slide-up.
 machine's dev server could not reach the live backend, so no conversation could
 be created. `absorbs` is unit-tested for it; the DOM walk around it is 15 lines.
 
+### Follow-up, same day: he trailed the panel, then overshot it
+
+The owner filmed the fixed build on his own phone: the first keyboard-up was
+clean, the second had him slide up too far and hop back down. Read frame by
+frame at 60fps, the shape was not a bad number — it was a race:
+
+- iOS **animates** the visual viewport up over ~200ms rather than jumping, so
+  the panel is re-placed every frame for the length of the keyboard's slide.
+- `DeckE` marked his station dirty on document `scroll` and on `resize` only.
+  Neither fires during that animation. **`update()`'s own comment claimed a
+  `visualViewport` listener that had never existed.** So for ten frames he
+  trailed ~150px below the composer, then whatever re-park did fire landed on a
+  box measured mid-animation and put him ~190px above it, and he eased back
+  down. Whether you saw it depended on where the re-park fell — hence one clean
+  entrance and one bad one.
+
+Two changes: `DeckE` now listens to `visualViewport` `resize` and `scroll` (the
+comment is true now), so he re-solves from the live rect each frame and TRACKS
+rather than flies; and the panel's geometry is written as two CSS custom
+properties in the event handler instead of through React state, so it lands in
+the same frame as the viewport it was measured from rather than a render later.
+React keeps the expressions and their authored fallbacks; the effect owns only
+the variables, so the two never fight over one declaration.
+
+Filmed again on the simulator, both entrances: he holds a constant offset to the
+composer for the whole slide. No trail, no overshoot, no hop.
+
 ---
 
 ## 2026-08-26 — The reprint oracle stops hashing the catalogue on every validate

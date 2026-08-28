@@ -924,6 +924,25 @@ export class DeckE {
     // inside one.
     window.addEventListener('scroll', this.onScroll, { passive: true, capture: true })
 
+    // AND THE VIEWPORT ITSELF CAN MOVE HIS MARK WITHOUT ANY SCROLL AT ALL.
+    //
+    // This listener was described in `update()`'s comment for a while before it
+    // existed, which is exactly the kind of thing that costs an afternoon. The
+    // software keyboard is the case: iOS animates the visual viewport up over
+    // roughly a fifth of a second, the chat panel is re-placed against it every
+    // frame (`host/panelViewport.ts`), and his park box rides along inside it —
+    // while `scroll` fires once at the start and never again.
+    //
+    // Without this he TRAILS the composer for the whole slide, then whatever
+    // re-park does fire lands on a box measured somewhere in the middle of the
+    // animation, and he arrives too high and eases back down. Filmed at 60fps
+    // on the owner's phone: ten frames of him ~150px below the composer, then a
+    // jump to ~190px above it, then a settle. Marking the station dirty makes
+    // him re-solve from the live rect each frame, which is tracking rather than
+    // flying, and there is nothing left to correct afterwards.
+    window.visualViewport?.addEventListener('resize', this.onScroll)
+    window.visualViewport?.addEventListener('scroll', this.onScroll)
+
     // STOP THE PAGE RUBBER-BANDING OUT FROM UNDER HIM.
     //
     //   "When I scroll beyond like the limit, that highlight and him don't go
@@ -3203,6 +3222,8 @@ export class DeckE {
     // walk's to free) and which are its own.
     this.art?.dispose()
     window.removeEventListener('scroll', this.onScroll, { capture: true })
+    window.visualViewport?.removeEventListener('resize', this.onScroll)
+    window.visualViewport?.removeEventListener('scroll', this.onScroll)
     document.documentElement.style.overscrollBehaviorY = this.overscrollWas
     // Before `clearHighlight` below, which removes the ring but not the layer:
     // a layer left pinned would sit at a stale document offset for whatever
