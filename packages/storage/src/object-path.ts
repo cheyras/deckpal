@@ -188,3 +188,28 @@ export function storageOrigin(supabaseUrl: string): URL {
 export function storageUrl(supabaseUrl: string, path: string): URL {
   return new URL(path.replace(/^\/+/, ''), `${storageOrigin(supabaseUrl).origin}/`);
 }
+
+/**
+ * A validated object key, encoded segment by segment, ready to sit in a URL path.
+ *
+ * ── WHY NOT `encodeURI`, WHICH IS WHAT THE CALL SITES USED ──────────────────
+ *
+ * `encodeURI` escapes neither `/` nor `?` nor `#` — by design, because it is
+ * meant for whole URLs. That is fine as belt-and-braces behind
+ * `assertSafeObjectPath`, and it is precisely why it is not a sanitizer: the
+ * three characters it lets through are the three that let a path stop being a
+ * path.
+ *
+ * `encodeURIComponent` per segment escapes all of them. Against keys that have
+ * already passed the guard — segments are `[A-Za-z0-9][A-Za-z0-9.-]*`, none of
+ * which is escaped — it is a no-op, so this changes no URL this codebase has
+ * ever produced. That is asserted in the tests rather than claimed here.
+ *
+ * What it changes is the defence: the encoding no longer depends on the guard
+ * having run first to be safe. Two independent reasons a segment cannot escape
+ * the path, instead of one and a convention.
+ */
+export function encodeObjectPath(objectPath: string, where: string): string {
+  assertSafeObjectPath(objectPath, where);
+  return objectPath.split('/').map(encodeURIComponent).join('/');
+}
