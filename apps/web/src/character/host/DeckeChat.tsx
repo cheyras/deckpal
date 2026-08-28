@@ -45,6 +45,7 @@ import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
 import { ChatMarkdown } from './chat/ChatMarkdown'
 import { ThinkingRow } from './chat/ThinkingRow'
 import { ToolRow } from './chat/ToolRow'
+import { parkFloor } from './parkFloor'
 import { toolRowFromChip } from './chat/toolRowState'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
 import { deepRequestLine } from './chat/deepRequest'
@@ -743,6 +744,17 @@ export function renderGreeting(said: SaidThisOpening, name: string | null): stri
 export const PARK_LANDMARK = 'data-decke-park'
 
 /**
+ * The approval card, so its geometry can be asserted from outside.
+ *
+ * The card is the floor he stands on while it is up (`parkFloor.ts`), and the
+ * one thing a unit test cannot check about that is whether the measurement ever
+ * reaches the park box. `probe-approval-clearance.mjs` reads both boxes on a
+ * real 390px viewport and fails if any part of the card is behind him — which
+ * needs a stable handle on the card, and a class name is not one.
+ */
+export const APPROVAL_LANDMARK = 'data-decke-approval'
+
+/**
  * Fallback stand point if the landmark is not in the DOM — he is parked before
  * the panel has laid out, or someone renders the host without the chat.
  * Deliberately the same lower-left CORNER the landmark describes.
@@ -1072,6 +1084,25 @@ export function DeckeChat({
   const parkRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLFormElement | null>(null)
   /**
+   * The approval card, when one is up — the OTHER floor he can stand on.
+   *
+   * *"We have this issue where the permission prompts, he's covering it up.
+   * I'd like him to like jump up above the permission prompt. That would be
+   * much better … so we can actually read the text that he's covering up."*
+   *
+   * Recorded on the 2026-08-27 mobile tape at 0:54, and visible on every frame
+   * from 0:44 to 1:20. He parks on the composer's top edge, and the approval
+   * card is a SIBLING ABOVE the composer in the same bottom stack — so the one
+   * moment the panel puts a block of text beside the one thing that has to be
+   * answered, the character is standing in front of it. On the frame at 1:10
+   * his head covers the whole of *"the deep research takes longer and uses more
+   * than a normal request"*, which is the sentence the dialog exists to show.
+   *
+   * `composerTop` already had exactly the right shape for this; it was only
+   * ever asking about the wrong element. See `standOn`.
+   */
+  const askRef = useRef<HTMLDivElement | null>(null)
+  /**
    * The panel itself, and it exists for ONE reason: it is the park box's
    * containing block, so it is the only honest reference for a `bottom` offset
    * measured in the same coordinate space the offset is applied in. See
@@ -1305,39 +1336,79 @@ export function DeckeChat({
    * listener.
    */
   const [composerTop, setComposerTop] = useState(0)
+  /**
+   * The same number for the APPROVAL CARD, and zero when there is not one.
+   *
+   * Measured separately rather than by pointing `composerTop` at whichever
+   * element is current, because the two have different lifetimes: the composer
+   * is there for the whole visit and the card arrives and leaves mid-turn. One
+   * piece of state that swapped its subject would be indistinguishable, at the
+   * park box, from a composer that had suddenly grown 400px.
+   */
+  const [askTop, setAskTop] = useState(0)
+  /**
+   * The panel's own height, for the ceiling `standOn` needs.
+   *
+   * An approval card can be most of a phone screen — the one on the 2026-08-27
+   * tape is a title, a request line, three lines of consequence and two buttons
+   * — and "stand above it" solved without a ceiling puts a 200px character off
+   * the top of the panel, which is the same defect as covering the card with
+   * the sign flipped.
+   */
+  const [panelH, setPanelH] = useState(0)
   useLayoutEffect(() => {
     const el = composerRef.current
-    if (!el) {
+    const ask = askRef.current
+    if (!el && !ask) {
       setComposerTop(0)
+      setAskTop(0)
       return
     }
-    const measure = () =>
-      setComposerTop((prev) => {
-        const panel = panelRef.current
-        if (!panel) return prev
-        const next = Math.round(
-          panel.getBoundingClientRect().bottom - el.getBoundingClientRect().top,
-        )
-        // Sub-pixel jitter from a rounding boundary would otherwise re-render
-        // the whole panel — and re-fly him — several times a second while a
-        // textarea animates its own height.
-        return Math.abs(next - prev) < 1 ? prev : next
-      })
+    /**
+     * How high one card's top edge sits above the panel's floor.
+     *
+     * `null` for an element that is not there, which is not the same as zero:
+     * zero is a card flush with the bottom of the panel, and the park box reads
+     * a falsy `composerTop` as "not measured yet" and falls back.
+     */
+    const above = (node: Element | null, panel: Element): number | null => {
+      if (!node) return null
+      return Math.round(panel.getBoundingClientRect().bottom - node.getBoundingClientRect().top)
+    }
+    // Sub-pixel jitter from a rounding boundary would otherwise re-render the
+    // whole panel — and re-fly him — several times a second while a textarea
+    // animates its own height.
+    const settle = (prev: number, next: number | null) =>
+      next === null ? 0 : Math.abs(next - prev) < 1 ? prev : next
+    const measure = () => {
+      const panel = panelRef.current
+      if (!panel) return
+      setPanelH((prev) => settle(prev, Math.round(panel.getBoundingClientRect().height)))
+      setComposerTop((prev) => settle(prev, above(composerRef.current, panel)))
+      setAskTop((prev) => settle(prev, above(askRef.current, panel)))
+    }
     measure()
     // BOTH ENDS OF THE SUBTRACTION. The composer is the auto-grow — typing a
     // third line moves its top edge without touching anything React knows
     // about. The panel is the other term now that the measurement is relative
     // to it, and its height moves on its own: a phone keyboard shortens the
     // visual viewport without necessarily firing `resize` on every browser.
+    //
+    // AND THE APPROVAL CARD, which grows its own preview open and closed under
+    // a disclosure without React re-rendering this component at all.
     const ro = new ResizeObserver(measure)
-    ro.observe(el)
+    if (el) ro.observe(el)
+    if (ask) ro.observe(ask)
     if (panelRef.current) ro.observe(panelRef.current)
     window.addEventListener('resize', measure)
     return () => {
       ro.disconnect()
       window.removeEventListener('resize', measure)
     }
-  }, [visible, shownMinimised, empty, spent, desktop])
+    // `asking` mounts and unmounts `askRef`'s node, and neither is a resize of
+    // anything already observed — so the effect has to be rebuilt around it.
+  }, [visible, shownMinimised, empty, spent, desktop, asking])
+
 
   // HIS FOOTPRINT, from the one number that decides his size.
   //
@@ -1347,6 +1418,14 @@ export function DeckeChat({
   const parkW = Math.round(parkH * SILHOUETTE_ASPECT)
   const gutter =
     desktop || !characterPx ? 0 : Math.max(0, PARK_LEFT + parkW + PARK_GAP - CONTENT_PAD)
+
+  /**
+   * The floor he stands on: the composer, or the approval card when one is up.
+   *
+   * `parkFloor.ts` carries the rule, the clamp and the recording it comes from
+   * — a `.ts` sibling for the same reason `composerRuler.ts` is one.
+   */
+  const standOn = parkFloor({ composerTop, askTop, panelH, parkH, above: PARK_ABOVE })
 
   /**
    * When the turn in progress started, for the thinking row's counter.
@@ -1669,18 +1748,18 @@ export function DeckeChat({
   const stickRef = useRef(true)
   const [atLatest, setAtLatest] = useState(true)
   //
-  // `composerTop` IS A DEPENDENCY, and it is the one that was missing. `reflow`
+  // `standOn` IS A DEPENDENCY, and it is the one that was missing. `reflow`
   // measures the park box's top edge, and the park box is positioned FROM
-  // `composerTop` — so every time the composer grows a line, the line he has to
-  // be above moves, and every `data-clear` decision taken against the old
-  // position is stale. Nothing else here would notice: the composer's own
-  // `ResizeObserver` is not a React render, and a textarea growing fires
-  // neither `scroll` nor `resize`.
+  // `standOn` — so every time the composer grows a line, or an approval card
+  // arrives and lifts him over it, the line he has to be above moves, and every
+  // `data-clear` decision taken against the old position is stale. Nothing else
+  // here would notice: the composer's own `ResizeObserver` is not a React
+  // render, and a textarea growing fires neither `scroll` nor `resize`.
   useLayoutEffect(() => {
     const el = transcriptRef.current
     if (el && stickRef.current) el.scrollTop = el.scrollHeight
     reflow()
-  }, [messages, reflow, gutter, composerTop])
+  }, [messages, reflow, gutter, standOn])
 
   /**
    * Go to the end, and put focus somewhere it can survive.
@@ -2628,7 +2707,11 @@ export function DeckeChat({
           the reader's collection, and the default posture should be no.
         */}
         {asking?.length ? (
-          <div className="mx-auto w-full max-w-[760px]">
+          /* `askRef`: the card is the floor he stands on while it is up. See
+             `parkFloor` — without this he is drawn across the text of the one
+             dialog in the app that has to be read before it is answered. The
+             landmark is how the probe asserts that from outside. */
+          <div ref={askRef} {...{ [APPROVAL_LANDMARK]: '' }} className="mx-auto w-full max-w-[760px]">
           <ApprovalCard
             title={asking[0].title}
             // What he understood the request to be. Null for a tool whose call
@@ -2807,19 +2890,25 @@ export function DeckeChat({
           `DeckeHost` parks him beside the composer itself and this landmark is
           not rendered at all. Nothing here moves him there.
 
-          MEASURED, NOT OFFSET FROM THE BOTTOM. `composerTop` is the live
-          distance from the panel's floor to the top of the composer card, so
+          MEASURED, NOT OFFSET FROM THE BOTTOM. `standOn` is the live distance
+          from the panel's floor to the top of the card he is standing on, so
           the home indicator, the empty-state FLIP and a textarea that has grown
           to four lines all move him by exactly the amount they moved the thing
           he is standing on — where the old `calc()` had to restate the safe
           area by hand and could only ever be right about one of the three.
 
-          `composerTop` is measured against THIS BOX'S CONTAINING BLOCK — the
-          panel — and not against the viewport, which is a correctness
-          requirement rather than a preference: the panel is mid-entrance and
-          translated a full height down when the measurement first runs. See
-          the long note on `composerTop` for what measuring the wrong reference
-          cost, which was this placement not being used at all.
+          AND THE CARD IS NOT ALWAYS THE COMPOSER. While an approval is up he
+          stands on THAT instead, because it is stacked above the composer and
+          he was otherwise drawn across the text of it. `standOn` is the whole
+          of that rule and carries the ceiling that keeps him on screen when the
+          card is a tall one.
+
+          It is measured against THIS BOX'S CONTAINING BLOCK — the panel — and
+          not against the viewport, which is a correctness requirement rather
+          than a preference: the panel is mid-entrance and translated a full
+          height down when the measurement first runs. See the long note on
+          `composerTop` for what measuring the wrong reference cost, which was
+          this placement not being used at all.
         */}
         {!desktop && characterPx > 0 ? (
           <div
@@ -2829,8 +2918,8 @@ export function DeckeChat({
             className="pointer-events-none absolute opacity-0"
             style={{
               left: `${PARK_LEFT}px`,
-              bottom: composerTop
-                ? `${composerTop + PARK_ABOVE}px`
+              bottom: standOn
+                ? `${standOn + PARK_ABOVE}px`
                 : // Not yet measured — one or two frames on open, and the whole
                   // time he is out of credits and the composer has been replaced
                   // by a notice. The old resting height, for the reason

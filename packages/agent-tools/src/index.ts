@@ -68,6 +68,14 @@ export { apiBase, makeApi, type Api } from './api.js';
 export { q, q1, type Queryable } from './db.js';
 
 /**
+ * Re-exported for `apps/api/src/decke/noOp.ts`, which has to resolve a deck
+ * reference the same way the write tool does in order to ask whether a write
+ * would change anything. Resolving it differently there — by trusting the id as
+ * sent, say — would compare against a deck the write would not have touched.
+ */
+export { needDeck } from './entities.js';
+
+/**
  * Re-exported because `apps/mcp/src/server.ts` backs the `collection://summary`
  * resource with the same text `collection_summary` returns (SPEC §5 resource),
  * and a resource is not a tool — it needs the function, not the definition.

@@ -88,6 +88,34 @@ export const TOOL_RECORD_PREFIX = '[lookups on that turn, for your own reference
  */
 const NOT_EVIDENCE = new Set(['express'])
 
+/**
+ * Calls that get NO TRANSCRIPT ROW AT ALL.
+ *
+ * *"The 'change how he looks' commands don't need to be telegraphed to the user
+ * ever."* — 2026-08-27, against a transcript where a message whose whole content
+ * was feedback came back with `Change how he looks · applied 1 command(s)` above
+ * the reply. The tool's own description has always promised the opposite: *"The
+ * user never sees these commands — only your words and the animation."*
+ *
+ * THE SERVER ALREADY STOPPED SENDING IT (`decke/tools.ts` — the note at
+ * `express`'s `execute`), so on the live backend this set is never consulted.
+ * It is here because the browser is not the only thing that writes chips and
+ * because a self-hosted or older API is free to send whatever it likes: a
+ * promise that "the user never sees these" is worth having enforced on the side
+ * that does the showing. One `Set.has` per chip.
+ *
+ * NOT the same set as `NOT_EVIDENCE`, and they must not be merged. That one is
+ * about what the NEXT TURN is told; this one is about what the READER is shown,
+ * and `showScreen` is deliberately in neither — a panel is both replayed and
+ * displayed.
+ */
+export const NOT_SHOWN = new Set(['express'])
+
+/** Does this call get a row in the transcript? */
+export function isShownInTranscript(name: string): boolean {
+  return !NOT_SHOWN.has(name)
+}
+
 export function lookupRecord(
   chips: readonly RecordedCall[],
 ): { type: 'text'; text: string } | null {

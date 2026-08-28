@@ -902,6 +902,7 @@ apps/api/src/decke/
   meter.ts              the daily chat_turns / deep_calls cap, check-and-charge in one statement
   models.ts             which model each job gets, and why (measured, not assumed)
   adapters/aisdk.ts     ToolDefinition -> the AI SDK's tool(), plus the approval policy (§15c, §15e)
+  noOp.ts               "would this write change anything?" -- no dialog if not (§15e)
   focus.ts              which tools he can SEE on a given step (§15f)
   grounding.ts          the card ids a tool actually returned this turn (§15f)
   narration.ts          tool syntax that reached the reader as prose, removed (§15f)
@@ -1022,6 +1023,24 @@ A denial goes back as an answer, so he can say "alright, left it alone" instead
 of stopping mid-turn with no explanation, and an abort resolves the question as
 a denial — otherwise pressing stop with an approval on screen parks the turn's
 promise for ever.
+
+**Two calls are answered without a dialog, and both are refusals to interrupt
+somebody for nothing.** A call whose (tool, arguments) the reader has already
+declined in this conversation is refused with a sentence rather than asked a
+second time (`decke/declined.ts`; measured at four re-asks each for
+`research_meta` and `deck_strategy` across one corpus). And a write that would
+change nothing is not a write: `decke/noOp.ts` answers "would this change
+anything?" for the tools that can answer it cheaply, and `deck_strategy` sending
+back the guide already stored is neither asked about nor run. Measured against
+the live model, n=44, asked for insights about a deck: eight proposed guide
+writes, **every one of them byte-identical to the stored guide**.
+
+Both consult the same predicate from `needsApproval` AND from `execute`, because
+`needsApproval: false` means "raise no dialog" and never "run it" — the two
+halves disagreeing is an unapproved write, which is strictly worse than the
+nuisance either fixes. Every path that cannot answer returns "it changes
+something", so a thrown fetch or an unresolvable deck costs a dialog and can
+never cost a silent write.
 
 **The answer travels back as the whole tool call, replayed with the verdict
 attached**, and that construction has now produced two shipped defects.

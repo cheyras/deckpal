@@ -57,6 +57,99 @@ export const MARK_SETTLE_MS = 420
 export const MARK_MOVE_EPS = 1
 
 /**
+ * The move above which chasing the mark is worth a FLIGHT rather than a cut.
+ *
+ * ── THE SLOW DRIFT, MEASURED OFF THE 2026-08-27 MOBILE TAPE ─────────────────
+ *
+ * *"See how that is like slowly drifting downward before it rests at the
+ * bottom? It's also causing him to do a lot of jitter and stuff as he has to
+ * readjust a bunch."*
+ *
+ * Tracked frame by frame at 10 Hz, from the moment the software keyboard
+ * dismissed at 0:36.6 to the moment he came to rest at 0:41.5: his silhouette's
+ * bottom edge fell in SIX discrete hops with a small retreat between each pair
+ * — 218 → 228 → 232 → 236 → 241 → 244 → 246, in the tape's 1/10-scale pixels,
+ * about 90 CSS px in just under five seconds. Six hops is not one animation. It
+ * is this watch firing six times: 100 ms poll, `MARK_SETTLE_MS` of trailing
+ * debounce, a full `flyTo` with its ease-in and its ease-out, land, and the
+ * mark has moved a handful of pixels again by the time he gets there.
+ *
+ * Neither half of that is wrong on its own. The watch exists because a mark
+ * that moves without an event is the defect it documents at length, and the
+ * debounce exists because a leading-edge park aims him at a position the mark
+ * is still leaving. What was missing is that A FEW PIXELS IS NOT A JOURNEY. A
+ * flight has an arc, a facing re-assertion and an arrival; played out to cover
+ * four pixels it reads as exactly what it was called on camera — a fidget.
+ *
+ * So a small correction is a CUT. He is simply already at the new mark on the
+ * next frame, which is invisible at this distance and cannot chain into the
+ * next one. A real move — the composer's first-message drop, an approval card
+ * arriving, a rotation — still gets the flight it deserves.
+ *
+ * 24 px is chosen as roughly one line of transcript text: below it, nothing the
+ * layout can do to him is a thing a reader would describe as him moving.
+ */
+export const MARK_HOP_MIN_PX = 24
+
+/**
+ * How long the mark must have been LET ALONE for the next move to be a journey.
+ *
+ * ── WHY A SIZE THRESHOLD ALONE WAS NOT ENOUGH ────────────────────────────────
+ *
+ * Measured, on `probe-park-settle.mjs`, replaying the tape's six hops into a
+ * real panel at 390x844: `main` took SIX flights to settle. A size threshold on
+ * its own took FOUR — better, and still a staircase, because a drift that
+ * arrives 13 px at a time crosses 24 px every second hop and buys another
+ * flight for doing so.
+ *
+ * The missing idea is that YOU CANNOT FLY TO A MOVING TARGET. A flight is the
+ * gesture for "that thing moved, I am going to it" — it has a launch, an arc
+ * and an arrival, and it is worth watching exactly once. What follows, while
+ * the layout is still settling under him, is not another journey; it is him
+ * keeping station, and keeping station is a cut. So the first move of a quiet
+ * mark is flown and everything in the same disturbance is tracked.
+ *
+ * That gives one flight for the composer's first-message drop, one for an
+ * approval card arriving, and one for the whole of the tape's drift — which is
+ * what "he moved out of the way" is supposed to look like.
+ *
+ * 1200 ms is comfortably past `MARK_SETTLE_MS` plus the flight it dispatches,
+ * so the clock cannot still be inside the previous journey when it is read.
+ */
+export const MARK_QUIET_MS = 1200
+
+/**
+ * Fly to the new mark, or cut to it?
+ *
+ * Both leave him standing in the right place; only one of them is a journey the
+ * reader watches him take. `'fly'` needs BOTH of:
+ *
+ *   - a move big enough to read as a move (`MARK_HOP_MIN_PX`), measured against
+ *     where he was last DISPATCHED rather than against the previous sample, so
+ *     a drift cannot arrive under the threshold in instalments; and
+ *   - a mark that had been still (`MARK_QUIET_MS`) before it moved, so a
+ *     disturbance that takes several seconds to settle costs one journey and
+ *     not one per instalment.
+ *
+ * `null` on either side is not a move at all and is therefore not a flight —
+ * the caller has already decided not to park.
+ */
+export function parkStyle(
+  before: MarkBox | null,
+  after: MarkBox | null,
+  sinceLastParkMs: number,
+  opts: { min?: number; quiet?: number } = {},
+): 'fly' | 'cut' {
+  if (!before || !after) return 'cut'
+  const moved =
+    Math.abs(after.top - before.top) +
+    Math.abs(after.left - before.left) +
+    Math.abs(after.h - before.h)
+  if (moved < (opts.min ?? MARK_HOP_MIN_PX)) return 'cut'
+  return sinceLastParkMs >= (opts.quiet ?? MARK_QUIET_MS) ? 'fly' : 'cut'
+}
+
+/**
  * Has the mark moved enough to be worth a re-park?
  *
  * `null` on either side is NOT a move, and both halves of that matter:
