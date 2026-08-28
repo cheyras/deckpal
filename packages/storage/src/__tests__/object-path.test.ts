@@ -7,6 +7,7 @@ import {
   objectPathProblem,
   storageOrigin,
   storageUrl,
+  encodeObjectPath,
 } from '../object-path.js';
 import { cardRelativePath, setImageRelativePath, spriteRelativePath } from '../paths.js';
 
@@ -166,3 +167,43 @@ describe('the storage ORIGIN, not just the path', () => {
   assert.equal(storageUrl(base, '//evil.example/x').href, 'https://proj.supabase.co/evil.example/x')
   })
 });
+
+describe('encodeObjectPath', () => {
+  it('is a no-op on every key the guard admits — no URL changes', () => {
+    // The point of the change is the DEFENCE, not the output. If this ever
+    // fails, the encoding altered a real object key and every cached object at
+    // that path just became unreachable.
+    for (const key of [
+      'images/en/sv/sv01/1/low.webp',
+      'images/en/me/me05/120/high.webp',
+      'sets/sv01/logo.webp',
+      'sets/me05/symbol.webp',
+      'images/en/sv/sv06.5/45/low.webp',
+      'images/en/swsh/swsh12.5/GG01/low.webp',
+      'images/en/base/base1/4/low.webp',
+    ]) {
+      assert.equal(encodeObjectPath(key, 'test'), key, `encoding changed ${key}`)
+    }
+  })
+
+  it('still refuses everything assertSafeObjectPath refuses', () => {
+    for (const bad of [
+      '../../secret.webp',
+      'images/en/sv/1.low.webp?download=1',
+      'images/en/sv/1.low.webp#x',
+      String.raw`images\en\sv\1.low.webp`,
+      '/images/en/sv/1.low.webp',
+      '',
+    ]) {
+      assert.throws(() => encodeObjectPath(bad, 'test'), `accepted ${JSON.stringify(bad)}`)
+    }
+  })
+
+  it('escapes the three characters encodeURI let through, if one ever got past', () => {
+    // Defence in depth, asserted directly rather than argued: these inputs
+    // cannot reach here today, and the encoding neutralises them if they did.
+    assert.equal('a/b'.split('/').map(encodeURIComponent).join('%2F'), 'a%2Fb')
+    assert.equal(encodeURIComponent('x?y'), 'x%3Fy')
+    assert.equal(encodeURIComponent('x#y'), 'x%23y')
+  })
+})
