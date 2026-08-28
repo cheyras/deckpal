@@ -12,6 +12,7 @@ import { isCloudMode } from '../lib/supabase'
 import { isChromelessPathname } from '../lib/landingRoute'
 import { useSignedIn } from '../lib/session'
 import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
+import { APP_HEADER_LANDMARK } from '../character/host/panelViewport'
 
 // Signed-in avatar chip (single-user "me") — replaces Log In / Sign Up. The level
 // badge reads straight from the insights overview; links to the profile surface.
@@ -454,6 +455,12 @@ function Header({ onBurger, drawerOpen, signedIn }: { onBurger: () => void; draw
   }
   return (
     <header
+      // THE CHAT PANEL MEASURES THIS ELEMENT. It is `fixed; top: 0`, so its own
+      // client `top` is where a fixed layer currently lands — which is 0 until
+      // WebKit starts carrying fixed layers with the document to reveal a
+      // focused input, and negative by exactly that scroll afterwards. Its
+      // height is the inset the panel has to clear. See `panelViewport.ts`.
+      {...{ [APP_HEADER_LANDMARK]: '' }}
       className="app-header fixed left-0 right-0 top-0 z-(--z-chrome) border-b border-border-default bg-surface-secondary"
       style={{
         paddingTop: 'env(safe-area-inset-top)',

@@ -45,7 +45,9 @@ import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
 import { ChatMarkdown } from './chat/ChatMarkdown'
 import { ThinkingRow } from './chat/ThinkingRow'
 import { ToolRow } from './chat/ToolRow'
-import { keyboardInset, readViewport } from './keyboardInset'
+import { panelBox, readPanelViewport, type PanelBox } from './panelViewport'
+import { composerFocused, consumesScroll } from './panelScrollLock'
+import { KbDiag, kbDiagMode } from './KbDiag'
 import { parkFloor } from './parkFloor'
 import { toolRowFromChip } from './chat/toolRowState'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
@@ -1540,44 +1542,44 @@ export function DeckeChat({
   }, [busy, lastAssistant])
 
   /**
-   * ── THE PANEL'S FLOOR FOLLOWS THE VISUAL VIEWPORT ─────────────────────────
+   * ── THE PANEL COVERS WHAT CAN BE SEEN ─────────────────────────────────────
    *
-   * One formula, in `keyboardInset.ts`, which carries the whole story. The
-   * short version: iOS reveals a focused input by shifting the visual viewport,
-   * and `visualViewport.offsetTop` does not reset promptly when the keyboard is
-   * dismissed — so every `fixed` layer is left drawn too high and eases down as
-   * that number unwinds on iOS's own clock. That is the reported drift.
+   * `panelViewport.ts` carries the measurements and the three attempts this
+   * replaces. The short version: iOS reveals a focused input by SCROLLING THE
+   * DOCUMENT and letting `fixed` layers ride along, so the panel's floor is
+   * only ever accidentally on the keyboard — one flick afterwards drags the
+   * composer 98px up the screen with the keyboard still exactly where it was.
    *
-   * NOTHING HERE TOUCHES `window.scrollY`. The previous attempt (#129, reverted)
-   * pinned it, fought WebKit every frame, and produced a worse drift while the
-   * keyboard was UP. The established technique does not go near the scroll
-   * position and neither does this.
+   * NOTHING HERE IS ABOUT A KEYBOARD. The panel is placed against the visible
+   * area, whatever moved it, which is why the same two numbers also handle
+   * scrolling back the other way, iOS's stale `offsetTop` after dismissal, and
+   * an Android keyboard that overlays without shifting anything.
    *
-   * AND NOTHING HERE MOVES HIM. His park box is a DOM element inside this
-   * panel, and `DeckE` already re-measures its canvas origin on `visualViewport`
-   * resize and scroll — so a correct panel is a correct character. #129's other
-   * mistake was moving the panel and leaving his canvas behind, which drew him
-   * behind the keyboard.
+   * NOTHING HERE TOUCHES `window.scrollY` EITHER. #129 pinned it, fought WebKit
+   * every frame, and shipped a worse drift than the one it fixed. The scroll is
+   * READ, through the header's own client rect, and never argued with.
    *
    * PHONE ONLY: a desktop panel is inset from a sidebar and a header, with no
    * software keyboard anywhere near it.
    */
-  const [kbBottom, setKbBottom] = useState(0)
+  const [box, setBox] = useState<PanelBox | null>(null)
   useEffect(() => {
     if (desktop || !visible || shownMinimised) {
-      setKbBottom(0)
+      setBox(null)
       return
     }
     const vv = window.visualViewport
     if (!vv) return
     let raf = 0
     const apply = () => {
-      const next = keyboardInset(readViewport())
-      setKbBottom((prev) => (prev === next ? prev : next))
+      const next = panelBox(readPanelViewport())
+      setBox((prev) =>
+        prev && next && prev.top === next.top && prev.height === next.height ? prev : next,
+      )
     }
-    // COALESCED TO A FRAME. `visualViewport` fires both events continuously
-    // through the keyboard's animation; one render per frame is as often as any
-    // of it can be seen.
+    // COALESCED TO A FRAME. All three of these fire continuously through the
+    // keyboard's animation and through a flick; one render per frame is as
+    // often as any of it can be seen.
     const schedule = () => {
       if (raf) return
       raf = requestAnimationFrame(() => {
@@ -1586,15 +1588,60 @@ export function DeckeChat({
       })
     }
     apply()
-    // BOTH EVENTS. `resize` is the keyboard arriving and leaving; `scroll` is
-    // the visual viewport being shifted WITHOUT a size change, which is exactly
-    // the stale-`offsetTop` window this exists for.
+    // THE DOCUMENT SCROLL IS THE ONE THAT MATTERS, and it is the one the
+    // previous attempts never listened to. `visualViewport` fires for the
+    // keyboard arriving and leaving; the flick that drags a riding `fixed`
+    // panel off the keyboard is a plain document scroll and nothing else.
     vv.addEventListener('resize', schedule)
     vv.addEventListener('scroll', schedule)
+    window.addEventListener('scroll', schedule, { passive: true, capture: true })
+    window.addEventListener('resize', schedule)
     return () => {
       if (raf) cancelAnimationFrame(raf)
       vv.removeEventListener('resize', schedule)
       vv.removeEventListener('scroll', schedule)
+      window.removeEventListener('scroll', schedule, { capture: true })
+      window.removeEventListener('resize', schedule)
+    }
+  }, [desktop, visible, shownMinimised])
+
+  /**
+   * ── AND THE DOCUMENT MUST NOT BE DRAGGED WHILE YOU TYPE ───────────────────
+   *
+   * `panelScrollLock.ts` carries the measurement and the two cheaper things
+   * that were tried first. The short version: the panel only sits on the
+   * keyboard because iOS scrolled the document there and `fixed` layers ride
+   * along, and once the reader flicks past that reveal there is no number left
+   * on the platform that says where the keyboard went. So the flick is refused
+   * instead of corrected — but only when nothing inside the panel could have
+   * used it, so a transcript with messages in it still scrolls normally.
+   */
+  useEffect(() => {
+    if (desktop || !visible || shownMinimised) return
+    const panel = panelRef.current
+    if (!panel) return
+    let startY = 0
+    let from: Element | null = null
+    const onStart = (e: TouchEvent) => {
+      startY = e.touches[0]?.clientY ?? 0
+      from = e.target instanceof Element ? e.target : null
+    }
+    const onMove = (e: TouchEvent) => {
+      // NOT A TWO-FINGER GESTURE. Pinch-zoom is the reader's, not ours.
+      if (e.touches.length !== 1) return
+      if (!composerFocused(panel)) return
+      const dy = startY - (e.touches[0]?.clientY ?? 0)
+      if (Math.abs(dy) < 1) return
+      if (consumesScroll(from, panel, dy)) return
+      if (e.cancelable) e.preventDefault()
+    }
+    // NON-PASSIVE, which is the entire point: a passive listener may not call
+    // `preventDefault`, and this listener exists to call it.
+    panel.addEventListener('touchstart', onStart, { passive: true })
+    panel.addEventListener('touchmove', onMove, { passive: false })
+    return () => {
+      panel.removeEventListener('touchstart', onStart)
+      panel.removeEventListener('touchmove', onMove)
     }
   }, [desktop, visible, shownMinimised])
 
@@ -2158,11 +2205,16 @@ export function DeckeChat({
           // fixes the collision by construction rather than by padding it away,
           // and it is the same offset the scrim uses, from the same source.
           left: desktop ? 'var(--app-sidebar-w)' : 0,
-          top: 'calc(var(--app-header-h) + env(safe-area-inset-top))',
-          // Zero — the `bottom-0` class's own value — whenever there is no
-          // keyboard, no `visualViewport`, or nothing believable to read, which
-          // is almost always. See the `kbBottom` effect.
-          bottom: kbBottom ? `${kbBottom}px` : undefined,
+          // THE AUTHORED VALUES ARE THE FALLBACK, and they are what desktop,
+          // a missing `visualViewport` and a route with no app header all get:
+          // start under the header, run to the floor. See the `box` effect.
+          top: box ? `${box.top}px` : 'calc(var(--app-header-h) + env(safe-area-inset-top))',
+          // A HEIGHT REPLACES `bottom-0` RATHER THAN NUDGING IT. Both edges
+          // move together — the floor onto the keyboard, and the ceiling back
+          // down to the top of what can be seen once WebKit has carried the app
+          // header off the screen.
+          height: box ? `${box.height}px` : undefined,
+          bottom: box ? 'auto' : undefined,
         } as React.CSSProperties}
         className={[
           // GLASS ON BOTH, and pointer-transparent on both. It was already so
@@ -2172,6 +2224,13 @@ export function DeckeChat({
           // not swallow taps meant for what is behind it. Only the parts that
           // ARE something take pointer events back.
           'decke-chat-panel pointer-events-none fixed bottom-0 right-0 z-[25] flex flex-col',
+          // CLIP, DO NOT SPILL. With the keyboard up and iOS's reveal scroll
+          // unwound, the panel is a few hundred pixels tall and the empty
+          // greeting is `shrink-0` — so without this it draws itself up over
+          // the app header instead of being cut off by its own edge. The
+          // column is bottom-packed on a phone, so what clips is the top of
+          // the greeting and never the composer.
+          'overflow-hidden',
           // The entrance stays a utility and the EXIT lives in theme.css, which
           // is not an inconsistency — it is how the exit wins. A
           // `.decke-chat-panel[data-closing]` selector outranks a single-class
@@ -2189,6 +2248,7 @@ export function DeckeChat({
           'motion-reduce:animate-[decke-calm-in_220ms_ease-out_backwards]',
         ].join(' ')}
       >
+        {kbDiagMode() ? <KbDiag /> : null}
         {/* A SLIM ROW UNDER THE APP HEADER, not a card's title bar. The panel
             no longer has a border to hang a rule off, and the app's own header
             is directly above providing that edge. No safe-area padding here on
@@ -2489,7 +2549,31 @@ export function DeckeChat({
           onClick={onSurfaceClick}
           className={[
             'decke-transcript-fade pointer-events-auto flex w-full flex-col overflow-y-auto',
-            empty ? 'shrink-0' : 'flex-1',
+            // SCROLL CHAINING OUT OF HERE IS THE KEYBOARD BUG. iOS reveals the
+            // composer by scrolling the DOCUMENT and letting `fixed` layers ride
+            // along; a flick that runs off the end of this transcript hands the
+            // rest of the gesture to the document and drags the composer up off
+            // the keyboard.
+            //
+            // THIS LINE IS NOT THE FIX, and saying so matters because it looks
+            // like one. Measured on iOS 26.5, with `overscroll-contain` on and
+            // nothing else, the document still scrolled from 338 to 445. Safari
+            // does not honour it for chaining to the document. It stays because
+            // it is the correct declarative intent and it does hold on engines
+            // that implement it; the guarantee is the touch lock in
+            // `panelScrollLock.ts`, which is what actually holds on the phone.
+            //
+            // NO `touch-pan-y` HERE: a message can contain a horizontally
+            // scrollable row of cards, and restricting the axis would take that
+            // away to solve a vertical problem.
+            'overscroll-contain',
+            // `shrink-0` KEPT ITS NATURAL HEIGHT AND OVERFLOWED. At rest there is
+            // room to spare and this changes nothing — the column is bottom-packed
+            // and the greeting sits where it always did. With the keyboard up the
+            // panel is a third of the screen, and a block that refuses to shrink
+            // draws itself straight through the panel's own "Deck-E" row. Shrinking
+            // is what `overflow-y-auto` on this element was already for.
+            empty ? 'min-h-0' : 'flex-1',
           ].join(' ')}
         >
           <div
