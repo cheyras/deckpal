@@ -56,7 +56,7 @@ import {
 import { messageText, messageTools, type ChatMessage } from './DeckeChat'
 import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
-import { freshCalls, lookupRecord } from './chat/lookupRecord'
+import { freshCalls, isShownInTranscript, lookupRecord } from './chat/lookupRecord'
 import {
   CLIENT_TOOLS,
   isClientTool,
@@ -928,6 +928,13 @@ export function useDeckeChat(
             /* an unknown state must never take a turn down */
           }
         }
+        // ── SOME CALLS ARE NOT SHOWN, AND THE BEAT ABOVE STILL RUNS ────────
+        //
+        // Placed BELOW the beat on purpose. `express` earns no transcript row
+        // — see `NOT_SHOWN` — but it is still a real tool boundary, and C21's
+        // punctuation is about the boundary, not about the row. Filtering at
+        // the top of this function would have taken the beat with it.
+        if (!isShownInTranscript(chip.name)) return
         setMessages((m) =>
           m.map((x) => {
             if (x.id !== replyId) return x

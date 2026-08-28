@@ -49,6 +49,7 @@ import { allTools, type Ctx, type ToolDefinition, type ToolResult } from '@deckp
 import { withToolCtx, type ToolCtxOptions } from '../ctx.js';
 import { CallLedger, callKey } from '../repeat.js';
 import { alreadyDeclinedMessage } from '../declined.js';
+import { NoOpMemo, noOpMessage } from '../noOp.js';
 import { briefArgs } from '../toolArgs.js';
 
 /**
@@ -751,6 +752,17 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
   const declined = opts.declined ?? new Set<string>();
   const alreadyDeclined = (name: string, input: unknown): boolean =>
     declined.size > 0 && declined.has(callKey(name, input));
+  /**
+   * "Would this write change anything?", memoised for this request.
+   *
+   * Read by `needsApproval` and by `execute`, exactly as `alreadyDeclined` is
+   * and for the identical reason — see `noOp.ts` for the recording behind it.
+   * Every failure resolves to `false`, so the worst this can do is leave the
+   * dialog exactly where it was.
+   */
+  const noOp = new NoOpMemo();
+  const isNoOpWrite = (name: string, input: unknown): Promise<boolean> =>
+    noOp.isNoOpWrite(name, input, (fn) => withToolCtx(opts, fn));
   const maxChars = opts.maxChars ?? DEFAULT_MAX_TOOL_CHARS;
   const out: ToolSet = {};
 
@@ -783,7 +795,16 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
       needsApproval:
         opts.approvals === 'upstream'
           ? false
-          : (input: unknown) => requiresApproval(def, input) && !alreadyDeclined(def.name, input),
+          : async (input: unknown) => {
+              if (!requiresApproval(def, input)) return false;
+              if (alreadyDeclined(def.name, input)) return false;
+              // AND NOT FOR A WRITE THAT CHANGES NOTHING. `noOp.ts` carries the
+              // measurement: asked for insights about a deck, he read the
+              // stored strategy guide and proposed saving it back byte for
+              // byte, which put a consent dialog in front of the reader for a
+              // no-op. Consent is for consequences.
+              return !(await isNoOpWrite(def.name, input));
+            },
       /**
        * RUN THE DRY RUN FOR THE DIALOG, HERE, BEFORE ANYONE IS ASKED.
        *
@@ -863,6 +884,22 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             return message;
           }
 
+          // NOT EXECUTED EITHER, and this is the half that keeps the pair in
+          // step: `needsApproval` returned false for this call, so nothing
+          // held it — running it here would be an unapproved write. It is a
+          // no-op by construction, but "it would not have mattered" is not the
+          // standard this boundary is held to. The memo means this costs no
+          // second round trip; it is the same answer `needsApproval` got.
+          if (await isNoOpWrite(def.name, args)) {
+            opts.onEvent?.({
+              phase: 'ok',
+              ...chip,
+              summary: 'nothing to change — already says exactly that',
+              ...argsPart(args),
+            });
+            return noOpMessage(def.name);
+          }
+
           // If this call was NOT classified as needing approval, then it is a
           // preview — so make it one, explicitly, rather than trusting a
           // default to agree with the classification.
@@ -898,6 +935,10 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
 
           if (!def.annotations.readOnlyHint) {
             ledger.invalidate();
+            // AND THE NO-OP MEMO, for the same reason and on the same trigger:
+            // a guide that matched before an edit does not match after one, and
+            // a stale "that would change nothing" would drop a real edit.
+            noOp.invalidate();
             return (await runOnce()).text;
           }
 

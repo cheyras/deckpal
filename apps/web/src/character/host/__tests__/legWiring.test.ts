@@ -94,12 +94,11 @@ test('the last leg wins, because that is the one the reader saw end', () => {
 })
 
 test('a panel is a tool call the transcript can see', () => {
-  // `showScreen` and `express` had, between them, NOT ONE appearance in the
-  // owner's entire recorded history: chips came only from the data-tool
-  // wrapper, and these two are built separately and spread in beside them. So a
-  // turn that drew a decklist panel read, in the record, as nine searches and a
-  // flight with nothing visual in it — which sent the first diagnosis of that
-  // turn looking in the wrong place.
+  // `showScreen` had NOT ONE appearance in the owner's entire recorded history:
+  // chips came only from the data-tool wrapper, and it is built separately and
+  // spread in beside them. So a turn that drew a decklist panel read, in the
+  // record, as nine searches and a flight with nothing visual in it — which
+  // sent the first diagnosis of that turn looking in the wrong place.
   //
   // It matters beyond the record: the summary of a chip is what gets replayed
   // as the next leg's evidence, so a panel that emits no chip is a panel the
@@ -112,7 +111,36 @@ test('a panel is a tool call the transcript can see', () => {
   const tools = code(read('../../../../../api/src/decke/tools.ts'))
   assert.match(tools, /began\(toolCallId, 'showScreen'/, 'showScreen stopped announcing itself')
   assert.match(tools, /ended\(\s*toolCallId,\s*'showScreen'/, 'showScreen stopped reporting its result')
-  assert.match(tools, /began\(toolCallId, 'express'/, 'express stopped announcing itself')
+})
+
+test('an animation is not a tool call the transcript can see', () => {
+  // THE OTHER HALF OF THE PAIR ABOVE, AND IT WENT THE OTHER WAY (2026-08-27).
+  //
+  // `express` used to emit a chip too, from the same pass and on the same
+  // reasoning. The owner overruled it against a recorded turn whose entire
+  // content was feedback and which came back with `Change how he looks ·
+  // applied 1 command(s)` above the reply: *"the 'change how he looks' commands
+  // don't need to be telegraphed to the user ever."*
+  //
+  // The panel argument does not transfer. A panel is a thing on the screen the
+  // NEXT leg has to know about, which is why its summary is replayed; an
+  // animation is the character moving, the reader is already watching it, and
+  // `lookupRecord`'s `NOT_EVIDENCE` has always refused to replay it. So nothing
+  // downstream is starved by the silence.
+  //
+  // PINNED AT BOTH ENDS, because either one alone puts the row back: the server
+  // must not send it, and the client must not draw one if something else does.
+  const tools = code(read('../../../../../api/src/decke/tools.ts'))
+  assert.doesNotMatch(tools, /'express',\s*'Change how he looks'/, 'express started announcing itself again')
+  const record = code(read('../chat/lookupRecord.ts'))
+  assert.match(record, /NOT_SHOWN = new Set\(\['express'\]\)/, 'the client-side guard is gone')
+  assert.match(HOOK, /if \(!isShownInTranscript\(chip\.name\)\) return/, 'the hook stopped consulting it')
+  // AND BELOW THE BEAT, not above it. `express` earns no row, but it is still a
+  // real tool boundary and C21's punctuation hangs off exactly that.
+  assert.ok(
+    HOOK.indexOf('const beat = beatForChip') < HOOK.indexOf('if (!isShownInTranscript(chip.name)) return'),
+    'the guard was moved above the beat, which silences C21 as well as the row',
+  )
 })
 
 test("the panel's summary carries the instruction, not just the fact", () => {

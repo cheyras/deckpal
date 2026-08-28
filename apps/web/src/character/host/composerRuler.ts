@@ -95,3 +95,38 @@ export function rulerFor(ruler: ComposerRuler | null, sample: { composerH: numbe
   if (next.w !== sample.w || next.h !== sample.h) return null
   return next.resting
 }
+
+/**
+ * How many pixels of height change are worth acting on.
+ *
+ * ── THE LOOP THIS BREAKS ─────────────────────────────────────────────────────
+ *
+ * His height is not a leaf. It sets `parkW`, which sets the transcript's
+ * `--decke-gutter`, which re-wraps every bubble beside him, which changes what
+ * the layout does under the composer — and `DeckeHost`'s mark watch is looking
+ * straight at that. So a one-pixel re-measure is not one pixel of anything: it
+ * is a re-wrap, a moved mark, a debounce and a re-park, whose own `measure()`
+ * can land one pixel off again.
+ *
+ * That is the other half of the slow drift `MARK_HOP_MIN_PX` describes. The
+ * threshold there stops a small move being FLOWN; this stops it being
+ * GENERATED, and the two are worth having separately because either one alone
+ * still leaves a cut being made several times a second for nothing.
+ *
+ * 3 px is under the smallest change anybody can see on a ~200 px character and
+ * comfortably over the rounding boundaries a `getBoundingClientRect` on a
+ * fractional-DPR phone lands on.
+ */
+export const HEIGHT_EPS = 3
+
+/**
+ * The height to apply, given the one already applied.
+ *
+ * ZERO IS ALWAYS APPLIED, in both directions. `0` means "he has no size yet" on
+ * the way in and "the panel is gone" on the way out; treating either as a small
+ * change would leave him at a stale size with nothing to correct it.
+ */
+export function steadyHeight(applied: number, next: number): number {
+  if (!applied || !next) return next
+  return Math.abs(next - applied) < HEIGHT_EPS ? applied : next
+}

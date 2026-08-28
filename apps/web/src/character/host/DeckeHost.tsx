@@ -42,8 +42,8 @@ import {
   STAND_MOBILE,
 } from './DeckeChat'
 import { deckeHidden, onDeckeVisibilityChange } from '../deckePreference'
-import { type ComposerRuler, ruleComposer, rulerFor } from './composerRuler'
-import { MARK_SETTLE_MS, MARK_WATCH_MS, markMoved, type MarkBox } from './markWatch'
+import { type ComposerRuler, ruleComposer, rulerFor, steadyHeight } from './composerRuler'
+import { MARK_SETTLE_MS, MARK_WATCH_MS, markMoved, parkStyle, type MarkBox } from './markWatch'
 import { DeckeBubble, type Rect } from './DeckeBubble'
 import { DeckeFarewell } from './DeckeFarewell'
 import { pickFarewell } from './deckeVoice'
@@ -366,6 +366,15 @@ export function DeckeHost() {
    * can force the dolly to settle before it solves a destination against it.
    */
   const measureRef = useRef<(() => void) | null>(null)
+  /**
+   * The character height last APPLIED, for `steadyHeight`'s deadband.
+   *
+   * A ref rather than reading `charPx` back: `measure` runs from a
+   * `ResizeObserver` and from the mark watch, neither of which re-creates the
+   * closure, so a captured state value would be stale exactly when several
+   * measurements arrive in a row — which is the case the deadband is for.
+   */
+  const appliedPxRef = useRef(0)
   /** Read inside `measure`, which is not re-created when the chat opens. */
   const chatOpenRef = useRef(false)
   chatOpenRef.current = chatOpen
@@ -1326,6 +1335,26 @@ function settledRect(el: HTMLElement): DOMRect {
     }
     let last = read()
     let settle = 0
+    /**
+     * Where the mark was when he was last actually sent after it.
+     *
+     * NOT `last`, which is one 100 ms sample ago. The question a cut-or-fly
+     * decision has to answer is "how far is this from where he is STANDING",
+     * and a drift that arrives four pixels at a time would answer that with
+     * four every single time and fly on every one of them — which is the
+     * six-hop staircase `MARK_HOP_MIN_PX` documents, reproduced exactly by the
+     * obvious version of this. It is re-based only when he is dispatched.
+     */
+    let parkedAgainst = last
+    /**
+     * When he was last sent after the mark, for `parkStyle`'s quiet test.
+     *
+     * Seeded from the entrance's own landing so the first genuine move after
+     * the panel opens is measured from a real event rather than from 1970 —
+     * and 0 when the entrance has not landed yet, which reads as "he has been
+     * still for ever" and lets the first real move be a flight.
+     */
+    let dispatchedAt = entranceParkedAtRef.current
     // The entrance's landing re-baselines this watch — see
     // `entranceParkedAtRef`. Without it the watch chases the panel's own
     // entrance and lands a second flight on top of the first.
@@ -1341,18 +1370,29 @@ function settledRect(el: HTMLElement): DOMRect {
         settle = window.setTimeout(parkNow, MARK_SETTLE_MS)
         return
       }
+      // FLY OR CUT. Both put him in the right place; only one is a journey the
+      // reader watches. `markWatch.ts` carries the rule and the recording it
+      // was measured against — the short version is that a few pixels is a cut,
+      // and so is anything that arrives while the layout is still settling,
+      // because you cannot fly to a moving target.
+      const now = Date.now()
+      const style = parkStyle(parkedAgainst, last, dispatchedAt ? now - dispatchedAt : Infinity)
+      parkedAgainst = last
+      dispatchedAt = now
       // MEASURE, THEN MOVE — the order the chat effect above spells out.
       // `setCharacterHeight` dollies the camera, so a destination solved before
       // it lands somewhere else after it. This path can change the height as
       // well as the position: he is sized from the composer, and a composer
       // that grew a line is both taller and higher up.
       measureRef.current?.()
-      parkRef.current()
+      parkRef.current(style === 'fly' ? {} : { instant: true })
     }
     const id = window.setInterval(() => {
       if (entranceParkedAtRef.current !== baselinedAt) {
         baselinedAt = entranceParkedAtRef.current
         last = read()
+        parkedAgainst = last
+        dispatchedAt = entranceParkedAtRef.current
         window.clearTimeout(settle)
         return
       }
@@ -1580,6 +1620,12 @@ function settledRect(el: HTMLElement): DOMRect {
           rulerRef.current = null
           px = characterHeightFor(w, h)
         }
+        // A PIXEL IS NOT A SIZE CHANGE, and here it is not even a cheap one:
+        // his height sets the transcript's gutter, the gutter re-wraps the
+        // bubbles beside him, and the mark watch is looking at what that does.
+        // `steadyHeight` carries the measurement and the loop it breaks.
+        if (px !== null) px = steadyHeight(appliedPxRef.current, px)
+        if (px !== null) appliedPxRef.current = px
         // The PUBLIC method, not `decke.stage`'s: the dolly moves the camera,
         // and the controller's own wrapper is what re-solves his station in
         // the same frame — the invariant this file used to enforce by
@@ -1729,6 +1775,10 @@ function settledRect(el: HTMLElement): DOMRect {
       // room for". A stale height would reserve a gutter for a character that is
       // no longer on the page.
       setCharPx(0)
+      // And the deadband's baseline with it, so the next controller's first
+      // measurement is applied whole rather than compared against a height
+      // belonging to a canvas that no longer exists.
+      appliedPxRef.current = 0
       // AND BACK TO "NOT READY". `phase` drives the canvas's own opacity, and
       // leaving it at `ready` across a chromeless-route round trip means the
       // NEXT mount paints a brand-new canvas at full opacity while the runtime,
