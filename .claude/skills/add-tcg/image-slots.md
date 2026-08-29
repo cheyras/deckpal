@@ -72,6 +72,27 @@ new `kind` outside the migration-006 CHECK list needs an additive migration.
   crosswalk — see `packages/storage/src/setImageFallback.ts` for the exclusion rulings. The series index
   falls back to the rep set's **symbol** tile (`/api/series.repHasLogo`).
 
+
+- **Residue, settled 2026-08-29 (second sourcing pass).** 50 of the 90 originally
+  missing (setId, kind) pairs are filled from the static crosswalk in
+  `packages/storage/src/setImageFallback.ts`. The remaining 40 break down as:
+  **12 McDonald's LOGOS** (trademark — nine are one byte-identical 76,597-byte
+  corporate mark); **20 Trainer Kit LOGOS** (a dead end proved with bytes:
+  pokemontcg.io serves ONE logo for all four EX kits, md5
+  `5ee8b8810dc52db8faaf04eefc337bf9`, and Bulbagarden Archives holds no Trainer
+  Kit logo files at all, only per-half-deck SYMBOLS); and **8 pairs with no logo
+  as a concept** (`mfb` symbol, `miscp` symbol+logo, `mee` logo, `mep` logo,
+  `xya` logo, `exu` logo, `ex5.5` logo) — promo aggregates, energy subsets and
+  variant groupings, all of which returned nothing across TCGdex in every
+  language, Bulbagarden and Wikimedia Commons.
+- **Two lessons for the next sweep of this slot.** (1) TCGdex does NOT 404 for a
+  missing asset — the request HANGS, so probe with a short deadline and treat a
+  timeout as absent, or a sweep stalls and returns nothing. (2) Bulbagarden names
+  Trainer Kit symbols after the POKEMON, not the kit (`SetSymbolExcadrill Half
+  Deck.png`), so a set-name search misses them; enumerate the category instead.
+  That is why two BW Trainer Kit symbols were first reported as upstream gaps and
+  then found on a second pass.
+
 ### set-symbol — status: active
 - Purpose / renders: the small set symbol/icon shown beside a set / on cards.
 - Cardinality: per-set

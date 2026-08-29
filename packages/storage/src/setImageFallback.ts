@@ -30,7 +30,15 @@ import type { SetImageKind } from './paths.js';
  * different sets, which reads as a bug rather than a real set identity.
  *
  * The remaining residue (`xya`, `2021swsh`, `2024sv`, `2023sv`, `exu`, `ex5.5`,
- * `miscp`, the `tk-*` symbol rows, and `mfb`'s symbol) has no approved source:
+ * TRAINER KIT LOGOS ARE A SETTLED DEAD END (2026-08-29, with byte evidence):
+ * pokemontcg.io serves ONE logo for all four EX kits (md5
+ * 5ee8b8810dc52db8faaf04eefc337bf9) and Bulbagarden Archives holds no Trainer
+ * Kit logo files at all — only per-half-deck SYMBOLS. Real per-kit logos do
+ * not exist in any approved source, so all 20 keep their text treatment.
+ * Eight further pairs (mfb symbol, miscp symbol+logo, mee logo, mep logo, xya
+ * logo, exu logo, ex5.5 logo) returned nothing across TCGdex in all languages,
+ * Bulbagarden and Wikimedia Commons: they are promo aggregates, energy subsets
+ * and variant groupings that have no logo as a concept.
  * no confirmed image upstream, or the only candidate is one of the excluded
  * classes above. These stay blank; the UI's derived acronym tag is the correct
  * rendering for them.
@@ -92,6 +100,26 @@ export const SET_IMAGE_FALLBACK_TABLE: readonly SetImageFallbackEntry[] = [
   { setId: 'sm7.5', kind: 'logo', sourceUrl: 'https://images.pokemontcg.io/sm75/logo.png' },
   { setId: 'bog', kind: 'logo', sourceUrl: 'https://images.pokemontcg.io/bp/logo.png' },
   { setId: 'mfb', kind: 'logo', sourceUrl: 'https://archives.bulbagarden.net/media/upload/1/1d/My_First_Battle_logo.png' },
+
+  // ── Added 2026-08-29 (second sourcing pass) ────────────────────────────────
+  // Found only after sweeping TCGdex across ALL languages and Bulbagarden's
+  // MediaWiki category listings; a set-name search finds none of them. The two
+  // BW Trainer Kit half-deck symbols were previously reported as genuine
+  // upstream gaps — they exist, under "<Pokemon> Half Deck" rather than under
+  // the kit's name, which is why the first pass missed them.
+  { setId: 'tk-bw-e', kind: 'symbol', sourceUrl: 'https://archives.bulbagarden.net/media/upload/1/1f/SetSymbolExcadrill_Half_Deck.png' },
+  { setId: 'tk-bw-z', kind: 'symbol', sourceUrl: 'https://archives.bulbagarden.net/media/upload/0/01/SetSymbolZoroark_Half_Deck.png' },
+  { setId: 'exu', kind: 'symbol', sourceUrl: 'https://archives.bulbagarden.net/media/upload/6/63/SetSymbolUnseen_Forces.png' },
+  { setId: 'xya', kind: 'symbol', sourceUrl: 'https://archives.bulbagarden.net/media/upload/e/ed/Yellow_A_symbol.png' },
+  // McDonald's SYMBOLS only. The 12 McDonald's LOGOS remain excluded on
+  // trademark grounds (DECISIONS 2026-08-10, reconfirmed 2026-08-29: nine are
+  // one byte-identical 76,597-byte corporate mark). These symbols are distinct
+  // files and are the genuine printed expansion marks.
+  { setId: '2023sv', kind: 'symbol', sourceUrl: 'https://archives.bulbagarden.net/media/upload/9/91/SetSymbolMcDonalds_Collection_2023.png' },
+  { setId: '2024sv', kind: 'symbol', sourceUrl: 'https://archives.bulbagarden.net/media/upload/7/71/SetSymbolMcDonalds_Collection_2024.png' },
+  // TCGdex has this one under `en` after all; the first pass only ever asked
+  // the catalog, which stores NULL for it.
+  { setId: 'ex5.5', kind: 'symbol', sourceUrl: 'https://assets.tcgdex.net/en/ex/ex5.5/symbol.webp' },
 ];
 
 const FALLBACK_BY_KEY: ReadonlyMap<string, string> = new Map(

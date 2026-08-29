@@ -4,7 +4,7 @@ import { SET_IMAGE_FALLBACK_TABLE, setImageFallbackUrl } from '../setImageFallba
 import type { SetImageKind } from '../paths.js';
 
 /**
- * The set-image fallback crosswalk — the 43 (setId, kind) pairs the warmer fills
+ * The set-image fallback crosswalk — the 50 (setId, kind) pairs the warmer fills
  * when the catalog column is NULL, plus the residue that must stay blank.
  *
  * What would actually break if this drifted:
@@ -17,15 +17,15 @@ import type { SetImageKind } from '../paths.js';
  *  - a set we already serve from the catalog resolving non-null — the fallback
  *    would race the catalog and re-fetch a file that already exists.
  *
- * Source of truth: inputs/fill-worklist.json (generated 2026-08-29). 43 fill,
- * 47 residue. The two exclusion rulings that must hold: McDonald's LOGOS
+ * Source of truth: inputs/fill-worklist.json (generated 2026-08-29). 50 fill,
+ * 40 residue. The two exclusion rulings that must hold: McDonald's LOGOS
  * (trademark, DECISIONS.md 2026-08-10) and the Trainer Kit LOGOS (owner decision
  * 2026-08-29 — one byte-identical wordmark across four EX Trainer Kit sets).
  */
 
-describe('setImageFallbackUrl — the 43 approved pairs resolve to their exact URL', () => {
-  it('the table holds exactly the 43 approved pairs (no silent add or drop)', () => {
-    assert.equal(SET_IMAGE_FALLBACK_TABLE.length, 43);
+describe('setImageFallbackUrl — the 50 approved pairs resolve to their exact URL', () => {
+  it('the table holds exactly the 50 approved pairs (no silent add or drop)', () => {
+    assert.equal(SET_IMAGE_FALLBACK_TABLE.length, 50);
   });
 
   it('every approved pair resolves to its exact approved sourceUrl', () => {
@@ -68,14 +68,15 @@ describe('setImageFallbackUrl — the 43 approved pairs resolve to their exact U
   });
 });
 
-describe('setImageFallbackUrl — the 47 residue pairs resolve to null', () => {
+describe('setImageFallbackUrl — the 40 residue pairs resolve to null', () => {
   // Every (setId, kind) the owner ruled must stay blank (fill-worklist.json
   // `residue`). A non-null here means the warmer would fetch and cache an
   // excluded image — the McDonald's corporate logo or a Trainer Kit wordmark.
   const RESIDUE: Array<[string, SetImageKind]> = [
-    ['mfb', 'symbol'], ['xya', 'symbol'], ['2024sv', 'symbol'], ['2023sv', 'symbol'],
-    ['tk-bw-e', 'symbol'], ['tk-bw-z', 'symbol'], ['exu', 'symbol'], ['ex5.5', 'symbol'],
-    ['miscp', 'symbol'], ['mee', 'logo'], ['mep', 'logo'], ['xya', 'logo'],
+    // xya/2024sv/2023sv/tk-bw-e/tk-bw-z/exu/ex5.5 symbols LEFT this list on
+    // 2026-08-29: a second sweep (TCGdex all languages + Bulbagarden category
+    // listings) found real sources for them. They are asserted above instead.
+    ['mfb', 'symbol'], ['miscp', 'symbol'], ['mee', 'logo'], ['mep', 'logo'], ['xya', 'logo'],
     ['2016xy', 'logo'], ['2022swsh', 'logo'], ['2021swsh', 'logo'], ['2014xy', 'logo'],
     ['2012bw', 'logo'], ['2024sv', 'logo'], ['2023sv', 'logo'], ['2019sm', 'logo'],
     ['2017sm', 'logo'], ['2018sm', 'logo'], ['2011bw', 'logo'], ['2015xy', 'logo'],
@@ -87,8 +88,8 @@ describe('setImageFallbackUrl — the 47 residue pairs resolve to null', () => {
     ['ex5.5', 'logo'], ['tk-dp-l', 'logo'], ['miscp', 'logo'],
   ];
 
-  it('residue has 47 entries (no silent add or drop)', () => {
-    assert.equal(RESIDUE.length, 47);
+  it('residue has 40 entries (no silent add or drop)', () => {
+    assert.equal(RESIDUE.length, 40);
   });
 
   for (const [setId, kind] of RESIDUE) {
@@ -149,7 +150,7 @@ describe('setImageFallbackUrl — the excluded classes stay null', () => {
 });
 
 describe('setImageFallbackUrl — sets we already serve resolve to null', () => {
-  // A set whose (setId, kind) is NOT in the 43-entry table is served from the
+  // A set whose (setId, kind) is NOT in the 50-entry table is served from the
   // catalog (or has no source at all). The fallback must not re-route it.
   const SERVED: Array<[string, SetImageKind]> = [
     ['sv01', 'logo'], ['sv01', 'symbol'],
