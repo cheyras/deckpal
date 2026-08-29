@@ -14043,3 +14043,91 @@ goes 241.81px -> 245.20px on hover and the card is uncut.
   hover-only, and the reduced-motion block carries exactly the same scoping.
 - The class name `.px-card-art` is a contract between this file and
   `CardImage.tsx`. Renaming it in one place silently disables the effect.
+
+## 2026-08-29 — Rarity is drawn as the mark the card actually prints, read off the scans
+
+**Decided by:** @cheyras, implemented by Claude Opus 5 via a Ringer swarm
+**Decision:** `rarityGlyph()` — five Unicode characters standing in for all 30
+catalog rarity values — is replaced by `lib/rarity.ts` (a data table) and
+`components/RarityMark.tsx` (hand-authored SVG). Every entry is derived from a
+real high-resolution card scan, named in that entry's comment, and NOT from a
+press release, a wiki, or a prose description.
+
+**Why:** The old mapping collapsed `Illustration rare`, `Special illustration
+rare`, `Hyper rare` and `Ultra Rare` onto one white star, so a card printing
+three gold stars and a card printing one black star looked identical in the
+grid. Two things only the scans could settle:
+
+- **Hyper rare prints THREE gold stars** (jtg/188). One gold star is
+  Illustration rare (me1/133), two gold is Special illustration rare (me1/177).
+  A first pass built from a written source had Hyper rare at two.
+- **Six rarities print a plain star where we had invented a letter badge** —
+  `V`, `PRIME`, `LEGEND`, `RADIANT`, `TGU`, `SH`. That is the same defect the
+  owner complained about for set symbols (a badge of letters standing in for the
+  real glyph), reproduced in the rarity marks. Corrected against swsh12/008,
+  hgss2/84, hgss2/90, swsh12/016, swsh12tg/TG23 and swsh45sv/SV105.
+
+**Implications:**
+
+- **The print is the source of truth.** Do not "improve" an entry from a
+  description; fetch `https://images.pokemontcg.io/<set>/<number>_hires.png` and
+  look at it. Every entry cites the card it was read from, so any claim in the
+  table is re-checkable by one HTTP GET.
+- The printed colour tracks the CARD's own background — a star is inked black on
+  a pale card and white on a dark one — so it is contrast, not identity. Our UI
+  has a single dark surface, so `black` resolves to `currentColor` and both read
+  as the REGULAR star. **The distinction that must survive is regular vs gold.**
+  `Double rare` and `Ultra Rare` are allowed to look alike, because they do on
+  the card; do not invent a matte-vs-metallic treatment to separate them.
+- We author the geometry ourselves. No Pokémon-specific rarity artwork is
+  cleanly licensed: Malie's SVG set publishes no reuse grant (its licensing
+  section reads "FIXME") and Bulbagarden's files carry only an uploader's
+  fair-use claim. Shipping traced or downloaded marks was rejected in favour of
+  our own shapes, which is also what the owner asked for.
+- `Promo`, `Classic Collection` and `Black White Rare` are **UNVERIFIED** — no
+  scan was obtained for them. They keep their previous treatment and say so in
+  the table. Do not quietly promote them.
+- A contract test the implementing agent could not edit pins the star ladder and
+  forbids a `wordmark` shape on any of the six corrected rarities, so this cannot
+  silently regress.
+
+## 2026-08-29 — Rarity glyphs are sized by ink area, not by bounding box
+
+**Decided by:** @cheyras, implemented by Claude Opus 5 via a Ringer swarm
+**Decision:** `lib/rarityShapes.ts` registers every rarity glyph as MEASURABLE
+geometry (a polygon's points, or a circle) rather than as an opaque SVG path
+string, computes each shape's area, and derives its render scale as
+`opticalScale = sqrt(TARGET_INK_AREA / inkArea)`. `RarityMark` applies that scale
+about the glyph's centre. Multi-glyph rows are spaced by `GLYPH_GAP_RATIO`
+(0.08), a fraction of glyph size rather than a fixed pixel gap.
+
+**Why:** Every glyph was drawn to the same 24x24 viewBox, so their BOUNDING
+BOXES matched while their ink did not. A five-point star covers ~37% of the area
+a circle of the same box covers and a diamond ~64%, so the stars read as
+noticeably smaller than the circles — which is what the owner saw. Matching boxes
+is the wrong invariant; matching ink is the right one. Measured before/after, on
+a 24x24 box: circle 254.5 -> scale 0.627, diamond 162.0 -> 0.786, star 95.2 ->
+1.025, star-outline 116.0 -> 0.928, sparkle 80.0 -> 1.118. Ink spread across the
+whole set afterwards: **0.000%**.
+
+**Implications:**
+
+- **The scale is DERIVED, never hand-tuned, and that is the point.** The owner
+  asked for "a standing system so that all rarity glyphs throughout the TCG (and
+  for future TCGs that will be added later) automatically visually read as the
+  same size". A lookup table of eyeballed numbers would look identical today and
+  rot the moment anyone adds a shape. A contract test asserts the sqrt identity
+  exactly, so pasting a magic constant FAILS — adding a shape to a future game
+  means drawing it and nothing else.
+- Area is exact and dependency-free: the shoelace formula for polygons,
+  `pi*r^2` for circles. Shapes must therefore be authored as polygons or
+  circles; a future shape needing curves has to flatten them or extend the area
+  function, and the registry says so.
+- `TARGET_INK_AREA` (100) is the single tuned constant in the system. It is
+  bounded from above by the requirement that the largest scaled glyph still fit
+  the 24x24 box — the sparkle binds it at 22.36. Raise it and the sparkle
+  overflows and clips. Because stars are the sparsest shape, parity is reached by
+  bringing circles and diamonds DOWN rather than pushing stars out of the box,
+  which is normal practice in icon design.
+- Outline shapes are measured as outer area minus inner area, not as their filled
+  twin's area, or hollow marks would still read small.
