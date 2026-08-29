@@ -59,9 +59,61 @@
  */
 
 import { callKey } from './repeat.js'
+import { NO_WORK } from './deepOutcome.js'
 
 /** `approval.ts`'s wording for a panel that was never answered. Not a refusal. */
 const ABANDONED_REASON = 'the reader did not answer'
+
+/**
+ * The deep tier's "nothing happened" tail, replicated here because
+ * `deepOutcome.ts` keeps it module-private (it is not in this pass's ownership).
+ *
+ * A declined guide or research call is the SAME class of non-result as a
+ * refused `plan_deck`: the tool did not run, and a polite first-person sentence
+ * is the easiest thing in the world to continue from as though it had. Leading
+ * with `[[NO_WORK]]` and ending with this discipline means the model cannot
+ * narrate a refused guide or research call as work that happened — see
+ * `deepOutcome.ts` for the incident that marker exists to prevent.
+ */
+const NO_WORK_TAIL =
+  'There is NO result. Do not describe, summarise, continue from or refer to ' +
+  'work that did not happen. Do not say "let\'s build", do not list cards, do not ' +
+  'give counts. Say plainly that it did not happen and why, and stop.'
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * A CHANGED MIND IS THE READER'S SENTENCE — the bypass the name-level lie hid
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The name-level suppression is IRREVERSIBLE for the conversation: the same
+ * predicate that refused the first reworded guide save refuses the second, so
+ * "call it again and it will ask" was provably false — a refusal the message
+ * itself promised would not happen. The one fact the model cannot fake is the
+ * reader's own sentence, and `printingSaid.ts` already built the witness for it:
+ * reduce a sentence to padded lowercase tokens and match a fixed vocabulary on
+ * its boundaries. The same shape is reused here, so a reader who actually
+ * raises the subject again — "yes, write up the strategy guide" — re-opens the
+ * guide family, and "look it up, the current meta lists" re-opens research.
+ *
+ * The BYPASS is name-level only: an exact (tool, args) decline still suppresses
+ * the exact call (the reader declined THAT call), and the approval dialog is
+ * the real check on a re-opened reworded call — a wrong bypass just shows a
+ * dialog the reader dismisses again, which is the safe failure direction.
+ */
+const tokens = (s: string) => ` ${s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `
+
+/** Words that re-open the guide family, pre-normalised once like `printingSaid`'s NEEDLES. */
+const GUIDE_NEEDLES = ['guide', 'strategy', 'write it up', 'save it'].map(tokens)
+
+/** Words that re-open the research_meta family, pre-normalised once. */
+const RESEARCH_NEEDLES = ['research', 'meta', 'look it up', 'current lists'].map(tokens)
+
+/** Did the reader's own latest message name this family? Mirrors `readerNamedPrinting`. */
+const readerMentions = (text: unknown, needles: readonly string[]): boolean => {
+  if (typeof text !== 'string' || !text.trim()) return false
+  const hay = tokens(text)
+  return needles.some((n) => hay.includes(n))
+}
 
 /**
  * ══════════════════════════════════════════════════════════════════════════════
@@ -175,17 +227,29 @@ class GuideDeclinedSet extends Set<string> {
   private readonly guideDeclined: boolean
   /** True when ANY research_meta call was declined in this conversation. */
   private readonly researchDeclined: boolean
+  /**
+   * True when the reader's OWN latest message re-opens the guide family — so a
+   * reworded guide save asks again rather than being refused without a dialog.
+   * Name-level only; an exact (tool, args) decline still suppresses the exact
+   * call.
+   */
+  private readonly guideReopened: boolean
+  /** Same, for the research_meta family. */
+  private readonly researchReopened: boolean
 
-  constructor(entries: Iterable<string>) {
+  constructor(entries: Iterable<string>, latestUserText?: string) {
     super(entries)
     this.guideDeclined = [...this].some(isGuideWrite)
     this.researchDeclined = [...this].some(isResearchMeta)
+    this.guideReopened = readerMentions(latestUserText, GUIDE_NEEDLES)
+    this.researchReopened = readerMentions(latestUserText, RESEARCH_NEEDLES)
   }
 
   override has(key: string): boolean {
     if (super.has(key)) return true
-    if (this.guideDeclined && isGuideWrite(key)) return true
-    if (this.researchDeclined && isResearchMeta(key)) return true
+    // Name-level only; the bypass re-opens the family, never the exact call.
+    if (this.guideDeclined && isGuideWrite(key) && !this.guideReopened) return true
+    if (this.researchDeclined && isResearchMeta(key) && !this.researchReopened) return true
     return false
   }
 }
@@ -204,10 +268,16 @@ class GuideDeclinedSet extends Set<string> {
  * Returns a `GuideDeclinedSet` so the two guide tools are suppressed by name —
  * see the section header above. Every other tool keeps the exact (tool, args)
  * semantics the set's entries record.
+ *
+ * `latestUserText` is the reader's OWN latest message (chat.mjs threads it via
+ * its `latestUserText(messages)` helper). It is the one fact the model cannot
+ * fake, and it is what re-opens a name-level family the reader raises again —
+ * see the bypass section above. Absent or unmatching, the name-level
+ * suppression stands for the conversation.
  */
-export function declinedCalls(messages: unknown): Set<string> {
+export function declinedCalls(messages: unknown, latestUserText?: string): Set<string> {
   const out: string[] = []
-  if (!Array.isArray(messages)) return new GuideDeclinedSet(out)
+  if (!Array.isArray(messages)) return new GuideDeclinedSet(out, latestUserText)
   for (const m of messages) {
     const parts = m?.parts
     if (!Array.isArray(parts)) continue
@@ -220,7 +290,42 @@ export function declinedCalls(messages: unknown): Set<string> {
       out.push(callKey(p.type.slice('tool-'.length), p.input ?? {}))
     }
   }
-  return new GuideDeclinedSet(out)
+  return new GuideDeclinedSet(out, latestUserText)
+}
+
+/**
+ * Did research (or a card read) actually run in this conversation?
+ *
+ * The no_research evidence bar on the guide card is findings-length theatre
+ * without this: a guide can be backed by research the reader never ran, because
+ * `findings` content is the model's own text and unverifiable. This scans the
+ * replayed history the same way `declinedCalls` scans for declines — a
+ * `tool-research_meta` or `tool-get_card` part that ran to a result, whether the
+ * reader approved it (`approval.approved === true`, the approval-gated path) or
+ * it returned a read result (`state: 'output-available'`, the read path).
+ *
+ * What this CANNOT verify, and the residual the bar now documents: that the
+ * `findings` TEXT the model passes matches what research actually returned.
+ * Provenance of the call is verifiable from history; content of the text is
+ * not. The card now fires when findings is trivial OR this returns false, so a
+ * guide is "backed by research" only when research genuinely ran AND the
+ * findings are non-trivial.
+ */
+export function researchRanInConversation(messages: unknown): boolean {
+  if (!Array.isArray(messages)) return false
+  for (const m of messages) {
+    const parts = m?.parts
+    if (!Array.isArray(parts)) continue
+    for (const p of parts) {
+      if (!p || typeof p.type !== 'string' || !p.type.startsWith('tool-')) continue
+      const name = p.type.slice('tool-'.length)
+      if (name !== RESEARCH_TOOL && name !== 'get_card') continue
+      const a = p.approval
+      if (a && a.approved === true) return true
+      if (p.state === 'output-available') return true
+    }
+  }
+  return false
 }
 
 /**
@@ -242,15 +347,33 @@ export function declinedCalls(messages: unknown): Set<string> {
  * re-ask is the other half of the same measured complaint, and "this exact
  * research_meta call" is wrong when the query was reworded. The research message
  * names the act — meta research — and says the same.
+ *
+ * TRUTHFUL, AND MARKED: the name-level decline is irreversible for the
+ * conversation — the same predicate that refused the first reworded call
+ * refuses the next — so the message never promises a bare re-call will ask.
+ * Only the reader raising it themselves (the `latestUserText` bypass) brings a
+ * reworded call back to a dialog. Every message leads with `[[NO_WORK]]` and
+ * ends with the deep tier's discipline tail, so a refused guide or research
+ * call cannot be narrated as work that happened.
  */
 export function alreadyDeclinedMessage(tool: string): string {
   if (GUIDE_TOOLS.has(tool)) return guideDeclinedMessage()
   if (tool === RESEARCH_TOOL) return researchDeclinedMessage()
+  return exactDeclinedMessage(tool)
+}
+
+/**
+ * The exact (tool, args) refusal: the one shape that IS reversible by different
+ * arguments, so it says so plainly. Still marked and tailed — a bare re-call with
+ * the same arguments will not ask; only different arguments bring a dialog back.
+ */
+function exactDeclinedMessage(tool: string): string {
   return (
-    `They already said no to this exact ${tool} call in this conversation, so it has not run ` +
+    `${NO_WORK} REFUSED — they already said no to this exact ${tool} call in this conversation, so it has not run ` +
     `and they have not been asked again. Nothing changed. Do not ask a third time and do not ` +
     `work around it — carry on with what they actually wanted, or say plainly that you cannot ` +
-    `do this part without it. If they tell you to go ahead, call it again and it will ask.`
+    `do this part without it. Calling it again with the same arguments will not ask; only ` +
+    `different arguments bring a dialog back. ${NO_WORK_TAIL}`
   )
 }
 
@@ -266,12 +389,12 @@ export function alreadyDeclinedMessage(tool: string): string {
  */
 function guideDeclinedMessage(): string {
   return (
-    `They already said no to saving a strategy guide in this conversation, so it has not run ` +
+    `${NO_WORK} REFUSED — they already said no to saving a strategy guide in this conversation, so it has not run ` +
     `and they have not been asked again. Nothing changed — rewording the guide is not a new ` +
     `question. Drop the subject: unless they raise it themselves, do not propose another guide ` +
     `save, and do not work around it — carry on with what they actually wanted, or say plainly ` +
-    `that you cannot do this part without it. If they tell you to go ahead, call it again and ` +
-    `it will ask.`
+    `that you cannot do this part without it. Only the reader raising saving a strategy guide ` +
+    `themselves brings the dialog back; a bare re-call will not ask. ${NO_WORK_TAIL}`
   )
 }
 
@@ -286,11 +409,11 @@ function guideDeclinedMessage(): string {
  */
 function researchDeclinedMessage(): string {
   return (
-    `They already said no to research_meta in this conversation, so it has not run ` +
+    `${NO_WORK} REFUSED — they already said no to research_meta in this conversation, so it has not run ` +
     `and they have not been asked again. Nothing changed — rewording the query is not a new ` +
     `question. Drop the subject: unless they raise it themselves, do not propose another ` +
     `research_meta call, and do not work around it — carry on with what they actually wanted, ` +
-    `or say plainly that you cannot do this part without it. If they tell you to go ahead, ` +
-    `call it again and it will ask.`
+    `or say plainly that you cannot do this part without it. Only the reader raising ` +
+    `research_meta themselves brings the dialog back; a bare re-call will not ask. ${NO_WORK_TAIL}`
   )
 }

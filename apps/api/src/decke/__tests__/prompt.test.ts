@@ -259,6 +259,13 @@ test('the two navigation intents are split — jump and escort, both stated', ()
   // it, but walking a route someone asked to be shown is not miming.
   assert.match(p, /Nobody wants to watch you click through something you could have executed/)
   assert.match(p, /when the WAY THERE is what they asked for, walking it is not a detour/)
+
+  // A deck, a list or a card someone asks to be SHOWN is still a walk — never a
+  // bare goTo. The escort/journey tool descriptions used to contradict this
+  // ("not a walk, use goTo" unconditionally); this pin makes a future edit that
+  // drops the sentence collide loudly, on either side of the mirror.
+  assert.match(p, /A deck, a list, or a card someone asks to be shown is still a walk/)
+  assert.match(p, /never a bare `goTo`/)
 })
 
 test('a denial has to be stated, not implied', () => {

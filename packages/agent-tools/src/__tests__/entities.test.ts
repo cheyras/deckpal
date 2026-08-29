@@ -88,8 +88,8 @@ test('normaliseSetId lowercases, because a model will shout an id', () => {
 // tag on the bottom left') and agents burned ~20 discovery calls per session
 // because nothing mapped them. Each alias below is verified against
 // `apps/api/src/deck/data/ptcgl-set-alias.json`, the repo's own hand-authored
-// authority for the deck parser's set join — see notes.md for the per-code
-// evidence trail.
+// authority for the deck parser's set join — see that file's own `_comment` for
+// the per-code evidence trail.
 
 test('normaliseSetId maps a verified printed code to its catalog id', () => {
   // PAL is printed on Paldea Evolved cards; this catalog stores it as sv02.

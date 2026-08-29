@@ -137,6 +137,41 @@ test('scoreDeckMatch: empty array when nothing scores above zero', () => {
   assert.deepEqual(scored, []);
 });
 
+test('re-parse against the best candidate populates the fields the deck-agnostic parse leaves null (the hollow shape that shipped broken)', () => {
+  // The log-preview route's primary call was parseBattleLog(log, [], playerName).
+  // With an empty deck list, owner identification (name-key overlap) can NEVER
+  // resolve "me", so the parser early-returns before the perspective-dependent
+  // fields are filled — only turns and playerCards survive. This is the hollow
+  // `parsed` block that shipped, pinned here at the pure level: the exact shape
+  // the route used to return on its primary call path.
+  const hollow = parseBattleLog(CODED, []); // deck-agnostic, no playerName
+  assert.equal(hollow.players.me, null);
+  assert.equal(hollow.players.opponent, null);
+  assert.equal(hollow.result, null);
+  assert.equal(hollow.confidence, 'low');
+  assert.deepEqual(hollow.myPokemon, []);
+  assert.equal(hollow.opponentDeckGuess, null);
+  assert.deepEqual(hollow.prizesTaken, { me: 0, opponent: 0 });
+  assert.ok(hollow.totalTurns > 0, 'turns are perspective-free and survive');
+  assert.ok(hollow.playerCards.length === 2, 'both players extracted for scoring');
+
+  // The fix: after scoring the candidates, RE-PARSE the log against the best
+  // candidate's card NAMES (the rows are already loaded — no re-query). Owner
+  // identification now overlaps the real deck and resolves "me" → every
+  // perspective-dependent field is populated, and `confidence` becomes
+  // meaningful ('high' on a clear-margin overlap).
+  const bestDeckNames = CODED_DECK_CARDS.map((c) => c.name);
+  const full = parseBattleLog(CODED, bestDeckNames);
+  assert.equal(full.players.me, 'PlayerA');
+  assert.equal(full.players.opponent, 'PlayerB');
+  assert.equal(full.confidence, 'high');
+  assert.equal(full.result, 'loss');
+  assert.ok(full.myPokemon.length > 0, 'myPokemon populated by the re-parse');
+  assert.ok(full.opponentDeckGuess, 'opponentDeckGuess populated by the re-parse');
+  assert.match(full.opponentDeckGuess!, /Cynthia's Garchomp ex/);
+  assert.deepEqual(full.prizesTaken, { me: 3, opponent: 6 });
+});
+
 test('scoreDeckMatch + normalizeCardCode agree on a foil printing', () => {
   // Slowpoke is a foil (me5_29_ph → me05-029, foil) in the coded fixture; the
   // deck carries that exact id, so the foil printing counts as a code match.

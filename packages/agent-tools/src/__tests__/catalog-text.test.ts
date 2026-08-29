@@ -303,6 +303,7 @@ test('get_card renders weakness, resistance and retreat on one compact line', as
 //    newest-first — including sets the reader owns nothing from.
 // ════════════════════════════════════════════════════════════════════════════
 test('set_progress all_sets lists every set newest-first with card and owned counts', async () => {
+  let sawCatalogueFilter = false;
   const sets: Row[] = [
     {
       set_tid: 'sv06',
@@ -324,8 +325,11 @@ test('set_progress all_sets lists every set newest-first with card and owned cou
     },
   ];
   const db = stubDb((sql: string): Row[] => {
-    // The count query has no JOIN on series; the page query does.
-    if (sql.includes('card_set') && !sql.includes('series se')) return [{ total: String(sets.length) }];
+    // The count query returns a total; the page query returns the set rows.
+    // Both now join series and filter `se.catalogue_code = 'en'` (the enabled
+    // catalogue — mirrors entities.ts's English-first tie-break).
+    if (sql.includes("catalogue_code = 'en'")) sawCatalogueFilter = true;
+    if (sql.includes('count(*) AS total')) return [{ total: String(sets.length) }];
     if (sql.includes('card_set') && sql.includes('series se')) return sets;
     return [];
   });
@@ -347,6 +351,8 @@ test('set_progress all_sets lists every set newest-first with card and owned cou
   assert.match(out, /200 cards/);
   assert.match(out, /owned 12/);
   assert.match(out, /released 2024-03-22/);
+  // The overview is scoped to the enabled (English) catalogue.
+  assert.ok(sawCatalogueFilter, 'all_sets did not filter by catalogue_code = \'en\'');
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -392,4 +398,24 @@ test('search_cards exclude_owned filters to cards not owned at the SQL level', a
   const res = await searchCards.handler({ exclude_owned: true, page: 1, page_size: 50 }, ctx(db));
   assert.equal(res.isError, undefined);
   assert.ok(sawFilter, 'exclude_owned did not add COALESCE(o.qty, 0) = 0 to the SQL');
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 8. owned_only AND exclude_owned together is `qty > 0 AND qty = 0` — always
+//    false, so it silently returned zero rows. It now fails loudly before any
+//    query rather than reading as an empty catalog.
+// ════════════════════════════════════════════════════════════════════════════
+test('search_cards owned_only + exclude_owned fails rather than returning zero rows', async () => {
+  let queried = false;
+  const db = stubDb((sql: string): Row[] => {
+    queried = true;
+    return [];
+  });
+  const res = await searchCards.handler(
+    { owned_only: true, exclude_owned: true, page: 1, page_size: 50 },
+    ctx(db),
+  );
+  assert.equal(res.isError, true, 'the contradictory pair must fail, not return ok');
+  assert.match(res.text, /contradictory — pass one or the other/i);
+  assert.equal(queried, false, 'the failure must happen before any query is run');
 });

@@ -34,7 +34,14 @@
 /** Fields worth showing, per deep tool, in the order they read best. */
 const SHAPE: Record<string, readonly string[]> = {
   plan_deck: ['idea', 'format'],
-  deck_strategy: ['deck_name', 'deck_id'],
+  // `deck_strategy`'s real schema field is `deck_id` only — see its inputSchema
+  // in packages/agent-tools/src/tools/deckIntel.ts (deck_id, markdown). `markdown`
+  // is up to 40,000 chars and is not restatement material; `deck_id` (a UUID or
+  // an exact name) is the one field that carries the request. The dead-key bug
+  // fixed for `write_strategy_guide` (deck_name/deck_id → deck/focus) was live
+  // here too: `deck_name` is not a field the tool declares, so every call
+  // resolved `null` and the card rendered no restatement at all.
+  deck_strategy: ['deck_id'],
   // `deck` and `focus` are the real schema fields — see `write_strategy_guide`'s
   // inputSchema in apps/api/src/decke/deep.ts (deck, focus, findings, deepest).
   // `findings` is up to 4,000 chars and is not restatement material; the

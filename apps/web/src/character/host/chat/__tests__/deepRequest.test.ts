@@ -119,6 +119,46 @@ test('write_strategy_guide with no deck renders null, never a placeholder', () =
   }
 })
 
+// ── THE SAME DEAD-KEY BUG, ON deck_strategy ─────────────────────────────────
+//
+// `deck_strategy`'s SHAPE used to list `deck_name` and `deck_id`, but the tool's
+// inputSchema (packages/agent-tools/src/tools/deckIntel.ts) declares `deck_id`
+// only — `deck_name` is not a field. So every call resolved `null`, and the
+// consent card rendered no restatement at all, exactly as `write_strategy_guide`
+// did before it. The fix reads the real field (`deck_id`).
+
+test('deck_strategy renders the deck id from the real `deck_id` field', () => {
+  const out = deepRequestLine('deck_strategy', { deck_id: 'Slowking toolbox' })!
+  assert.ok(out, 'a strategy call with a deck must produce a line, not null')
+  assert.match(out, /Slowking toolbox/)
+})
+
+test('deck_strategy with no deck_id renders null, never a placeholder', () => {
+  for (const input of [{}, { deck_id: '' }, { deck_id: '   ' }, { deck_name: 'x' }]) {
+    assert.equal(deepRequestLine('deck_strategy', input), null, JSON.stringify(input))
+  }
+})
+
+// ── research_meta: the one deep tool that was never asserted to render ───────
+//
+// `research_meta`'s real schema fields are `query` and `topic` (see its
+// inputSchema in apps/api/src/decke/deep.ts). The SHAPE already lists them, but
+// no test asserted that a call renders — so a future dead-key edit (a renamed
+// field, a dropped entry) would have failed silently.
+
+test('research_meta renders the query then the topic from the real fields', () => {
+  assert.equal(
+    deepRequestLine('research_meta', { query: 'is Dragapult ex still good', topic: 'Standard meta' }),
+    'is Dragapult ex still good · Standard meta',
+  )
+})
+
+test('research_meta with no query renders null, never a placeholder', () => {
+  for (const input of [{}, { query: '' }, { query: '   ' }]) {
+    assert.equal(deepRequestLine('research_meta', input), null, JSON.stringify(input))
+  }
+})
+
 // ── THE NO-RESEARCH FACT, RENDERED FROM THE SIGNED INPUT ─────────────────────
 //
 // `needsApproval` in apps/api/src/decke/deep.ts injects `no_research: true`

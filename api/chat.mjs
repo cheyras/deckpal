@@ -63,6 +63,15 @@ const MAX_STEPS = 12
 const CLIENT_SET = new Set(CLIENT_TOOLS)
 
 /**
+ * The server-executed cosmetic tools (`express`, `showScreen`), as a Set, for
+ * the empty-answer guard's panel/server carve-out: a turn that ran one of these
+ * and produced no text is NOT an empty-answer defect — the panel IS the answer.
+ * Built from the real `SERVER_TOOLS` export so it cannot go stale. See
+ * `decke/turnGuards.ts`.
+ */
+const SERVER_SET = new Set(SERVER_TOOLS)
+
+/**
  * Tools whose over-long arguments may be trimmed by `repairToolCall`.
  *
  * A tool belongs here only if it RENDERS rather than stores, and only if its
@@ -84,12 +93,13 @@ import { createGateway } from '@ai-sdk/gateway'
 // allowlist are server concerns in the first place.
 import { verifySupabaseJwt, createSupabaseJwksProvider } from '../apps/api/dist/auth.js'
 import { buildSystemPrompt } from '../apps/api/dist/decke/prompt.js'
-import { buildTools, CLIENT_TOOLS } from '../apps/api/dist/decke/tools.js'
+import { buildTools, CLIENT_TOOLS, SERVER_TOOLS } from '../apps/api/dist/decke/tools.js'
 import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
 import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
-import { declinedCalls } from '../apps/api/dist/decke/declined.js'
+import { declinedCalls, researchRanInConversation } from '../apps/api/dist/decke/declined.js'
+import { extractPastedLog } from '../apps/api/dist/decke/pastedLog.js'
 import {
   BALANCE_SQL,
   COST,
@@ -112,10 +122,12 @@ import {
   needsAnswerNudge,
   needsContinuation,
   errorBudgetExceeded,
+  shouldFireFlailing,
   summarizeFailures,
   phantomClaims,
   ungroundedCardIds,
   harvestObservedIds,
+  seedObservedIds,
 } from '../apps/api/dist/decke/turnGuards.js'
 import { makePool } from '@deckpal/db'
 
@@ -460,7 +472,11 @@ async function serve(request) {
   // having declined it every time, and wrote in the chat that this was the
   // problem. A matching call is now refused without a dialog. See
   // `decke/declined.ts` for why the tool is not simply taken away instead.
-  const declined = declinedCalls(messages)
+  //
+  // `latestUserText` is the reader's OWN latest message — the one fact the model
+  // cannot fake, and what re-opens a name-level family (guide / research) the
+  // reader raises again. See `declined.ts`'s bypass section.
+  const declined = declinedCalls(messages, latestUserText(messages))
 
   // ── THE METER ─────────────────────────────────────────────────────────────
   //
@@ -638,6 +654,21 @@ async function serve(request) {
       // expose its ids, and the ownership of this pass does not extend to
       // editing it, so the proxy is the seam.
       const observedIds = new Set()
+      // ── SEED FROM THE REPLAYED CONVERSATION (cross-leg blindness) ──────────
+      //
+      // Without this, a card id that appeared in an EARLIER leg's tool result —
+      // and so is legitimately in the reader's context — is absent from this
+      // turn's `observedIds`, and `ungroundedCardIds` would flag it as invented
+      // when the model names it back. The reader typed it to ask about it; the
+      // model answered using it; the guard corrected a detail grounded two legs
+      // ago. Seeding from the incoming messages closes that: anything the
+      // conversation already carried is observed before any tool runs.
+      //
+      // Serialized cheaply — the text and tool parts of each message flattened
+      // to strings — and run through the one `harvestObservedIds` regex, so what
+      // counts as "observed" here cannot disagree with what the turn's own tool
+      // results will add.
+      for (const id of seedObservedIds(replayedText(messages))) observedIds.add(id)
       const groundingForTools = {
         observe: (text) => {
           grounding.observe(text)
@@ -684,6 +715,15 @@ async function serve(request) {
           // whether or not one was asked for, so his word cannot be the witness
           // to his own guess. See `printingSaid.ts` for the measurement.
           readerNamedPrinting: readerNamedPrinting(latestUserText(messages)),
+          // ── THE PASTE CHANNEL ──────────────────────────────────────────────
+          //
+          // The reader's pasted PTCG Live battle log, extracted from the
+          // replayed conversation so the model never has to re-emit a ~3,000-
+          // token log into a 1,200-token output budget. `extractPastedLog` walks
+          // the same `messages` array this request parsed; the adapter
+          // substitutes it for a `@pasted` sentinel or a truncated prefix. See
+          // `decke/pastedLog.ts` for the heuristic and its bounds.
+          pastedLog: () => extractPastedLog(messages),
           // ── AND WHAT THEY HAVE ALREADY SAID NO TO ────────────────────────
           //
           // Read from the replayed history, the only place it can come from:
@@ -731,6 +771,16 @@ async function serve(request) {
           // grid. research_meta is excluded at the tool, not here.
           grounding: groundingForTools,
           onEvent: emitToolEvent(writer),
+          // ── PROVENANCE FOR THE NO-RESEARCH BAR ─────────────────────────────
+          //
+          // Did research (or a card read) actually run in this conversation?
+          // `researchRanInConversation` scans the same replayed `messages` for a
+          // `tool-research_meta` or `tool-get_card` part that ran to a result.
+          // The guide card's `no_research` flag fires when findings is trivial OR
+          // this returns false, so a guide is "backed by research" only when
+          // research genuinely ran AND the findings are non-trivial. See
+          // `decke/declined.ts` and `decke/deep.ts`.
+          researchRan: () => researchRanInConversation(messages),
         }),
       }
 
@@ -860,6 +910,18 @@ async function serve(request) {
             const settled = lastCalls.length > 0 && lastCalls.every((n) => ACTS.has(n))
             return spoke && settled
           },
+          // ── THE CIRCUIT BREAKER (c) ──────────────────────────────────────────
+          //
+          // The flailing guard used to be a POST-MORTEM only: it summarised the
+          // turn's failures AFTER the loop had already burned to the 12-step
+          // cap. The mine asked for a circuit breaker, and this is it — stop
+          // issuing further steps once the error budget across `guardEvents` is
+          // exceeded, so a turn that has already failed 5 times does not spend
+          // its remaining 7 steps failing the same way. `errorBudgetExceeded`
+          // is the same predicate the closing-step NOTE uses, so the breaker and
+          // the note agree on what "too many" means. The `onFinish` note below
+          // then explains what happened.
+          () => errorBudgetExceeded(guardEvents.map((e) => e.phase)),
         ],
         // ── WHAT HE CAN SEE, PER STEP ─────────────────────────────────────
         //
@@ -1272,6 +1334,48 @@ function latestUserText(messages) {
       .join(' ')
   }
   return ''
+}
+
+/**
+ * The replayed conversation flattened to strings, for cross-leg id seeding.
+ *
+ * Walks every message's `parts` and collects the string content a card id could
+ * be hiding in: text parts (user and assistant), tool-call `input` serialised,
+ * and tool-result `output` / `state` strings. The point is not a faithful
+ * transcript — it is a CHEAP sweep for ids the conversation already carried, so
+ * `seedObservedIds` can mark them observed before this turn's tools run. See the
+ * seeding block beside `observedIds` and `decke/turnGuards.ts`'s
+ * `seedObservedIds`.
+ */
+function replayedText(messages) {
+  if (!Array.isArray(messages)) return []
+  const out = []
+  for (const m of messages) {
+    const parts = m?.parts
+    if (!Array.isArray(parts)) continue
+    for (const p of parts) {
+      if (!p || typeof p !== 'object') continue
+      if (p.type === 'text' && typeof p.text === 'string') {
+        out.push(p.text)
+        continue
+      }
+      // Tool parts: the input (may carry ids the reader/model typed) and any
+      // output / state string (tool results are where ids come from).
+      if (typeof p.type === 'string' && p.type.startsWith('tool-')) {
+        if (p.input && typeof p.input === 'object') {
+          try {
+            out.push(JSON.stringify(p.input))
+          } catch {
+            /* non-serialisable input is not a seeding concern */
+          }
+        }
+        if (typeof p.output === 'string') out.push(p.output)
+        if (typeof p.state === 'string') out.push(p.state)
+        if (typeof p.result === 'string') out.push(p.result)
+      }
+    }
+  }
+  return out
 }
 
 /**

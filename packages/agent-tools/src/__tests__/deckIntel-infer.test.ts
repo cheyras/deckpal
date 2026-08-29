@@ -92,9 +92,12 @@ test('add_battle_log with no deck_id returns ranked candidates (real ids, best f
   });
   const ctx = makeCtx(api);
 
-  const res = await byName('add_battle_log').handler({ log: 'RAW LOG', player_name: 'Me' }, ctx);
+  const res = await byName('add_battle_log').handler({ log: 'RAW LOG', player_name: 'Me', dry_run: true }, ctx);
 
   assert.equal(res.isError, undefined, 'the candidates path is a NON-ERROR result');
+  // dry_run: true (the new default) → the branch's own SPEC claim is now real:
+  // "Nothing was logged." is the first line, the candidates follow.
+  assert.ok(res.text.startsWith('Nothing was logged.'), 'dry_run: true → "Nothing was logged." on line 1');
   // Both real ids, best first.
   assert.match(res.text, /aaa-111/);
   assert.match(res.text, /bbb-222/);
@@ -119,9 +122,10 @@ test('add_battle_log with no deck_id and zero candidates says so and lists NONE'
   });
   const ctx = makeCtx(api);
 
-  const res = await byName('add_battle_log').handler({ log: 'RAW' }, ctx);
+  const res = await byName('add_battle_log').handler({ log: 'RAW', dry_run: true }, ctx);
 
   assert.equal(res.isError, undefined);
+  assert.ok(res.text.startsWith('Nothing was logged.'), 'dry_run: true → "Nothing was logged." on line 1');
   assert.match(res.text, /matched none of your decks/i);
   // No invented candidate rows and no invented ids — the entities doctrine,
   // applied to the new path: never an invented example id in a message.
@@ -139,9 +143,10 @@ test('add_battle_log with exactly one candidate names it as the only match and S
   });
   const ctx = makeCtx(api);
 
-  const res = await byName('add_battle_log').handler({ log: 'RAW' }, ctx);
+  const res = await byName('add_battle_log').handler({ log: 'RAW', dry_run: true }, ctx);
 
   assert.equal(res.isError, undefined);
+  assert.ok(res.text.startsWith('Nothing was logged.'), 'dry_run: true → "Nothing was logged." on line 1');
   assert.match(res.text, /only-1/);
   assert.match(res.text, /Only Deck/);
   assert.match(res.text, /matches one of your decks/i);
@@ -151,7 +156,7 @@ test('add_battle_log with exactly one candidate names it as the only match and S
 
 // ── add_battle_log: dry_run with deck_id → "Nothing was logged.", no write ────
 
-test('add_battle_log dry_run with deck_id renders "Nothing was logged." and calls no write endpoint', async () => {
+test('add_battle_log dry_run with deck_id renders the substance on line 1 and "Nothing was logged." on line 2, calls no write endpoint', async () => {
   const api = stubApi({
     get: (path) => {
       if (path === '/decks') return { decks: [{ id: 'deck-1', name: 'Charizard ex', formatCode: 'standard', version: 3 }] };
@@ -170,7 +175,11 @@ test('add_battle_log dry_run with deck_id renders "Nothing was logged." and call
   );
 
   assert.equal(res.isError, undefined);
-  assert.ok(res.text.startsWith('Nothing was logged.'), `first line was: ${res.text.split('\n')[0]}`);
+  // Line 1 carries the substance — deck name + parsed result — so the approval
+  // card (which takes line 1 via summarise) names the deck, not just "Nothing was logged."
+  assert.ok(res.text.startsWith("Would attach to 'Charizard ex'"), `first line was: ${res.text.split('\n')[0]}`);
+  // "Nothing was logged." moved to line 2.
+  assert.match(res.text, /Nothing was logged\./);
   // The deck it would attach to, and the parsed line, are both shown.
   assert.match(res.text, /Charizard ex/);
   assert.match(res.text, /v3/);
@@ -182,7 +191,7 @@ test('add_battle_log dry_run with deck_id renders "Nothing was logged." and call
 
 // ── edit_battle_log: dry_run → field-by-field would-change plan, no write ──────
 
-test('edit_battle_log dry_run renders a current → new plan and writes nothing', async () => {
+test('edit_battle_log dry_run renders the substance on line 1 and "Nothing was changed." on line 2, writes nothing', async () => {
   const api = stubApi({
     get: (path) => {
       if (path === '/decks') return { decks: [{ id: 'deck-1', name: 'Charizard ex', formatCode: 'standard', version: 3 }] };
@@ -219,7 +228,10 @@ test('edit_battle_log dry_run renders a current → new plan and writes nothing'
   );
 
   assert.equal(res.isError, undefined);
-  assert.ok(res.text.startsWith('Nothing was changed.'), `first line was: ${res.text.split('\n')[0]}`);
+  // Line 1 carries the substance — which log on which deck, and which fields.
+  assert.ok(res.text.startsWith("Would change log #7 on 'Charizard ex'"), `first line was: ${res.text.split('\n')[0]}`);
+  // "Nothing was changed." moved to line 2.
+  assert.match(res.text, /Nothing was changed\./);
   // Field-by-field: current → new for each changed field.
   assert.match(res.text, /result: WIN → LOSS/);
   assert.match(res.text, /notes: old notes → new notes/);

@@ -781,9 +781,9 @@ export function buildTools(
         'reveals a series nothing has been collected from yet. ' +
         'If a landmark never appears the walk stops there and tells you which step, which target and why — ' +
         'steps after it do not run, so do not describe them as though they did. ' +
-        'A LIST and a DECK each have their own page — /lists/<id> and /decks/<id> — so taking someone to one is a single ' +
-        '`goTo` call with that route, not a walk; do not use escort for those. ' +
-        'For a walk this cannot express — anywhere that is not a set, a series, a list or a deck — use `journey` and write the steps yourself.',
+        'A LIST and a DECK each have their own page — /lists/<id> and /decks/<id> — so "take me to it" is a single ' +
+        '`goTo` call with that route, never escort; "show me where" is still a hand-authored `journey`, never a bare `goTo`. ' +
+        'For a walk this cannot express — anywhere that is not a set or a series — use `journey` and write the steps yourself.',
       inputSchema: z.object({
         seriesSlug: z
           .string()
@@ -809,7 +809,7 @@ export function buildTools(
       description:
         'Escort someone somewhere no `escort` call can reach: ONE call carrying the whole way there, in order, run start to finish. ' +
         'Reach for this only when the destination is NOT a set or a series — for those, `escort` builds the same walk from two ids and is far less to get right. ' +
-        'A LIST page or a DECK page is one route (/lists/<id>, /decks/<id>), not a walk — use `goTo` for those and be done. ' +
+        'A LIST page or a DECK page is one route (/lists/<id>, /decks/<id>) — "take me to it" is a single `goTo` and be done; "show me where" is still a walk, so use `journey`. ' +
         'Steps: say a line, goTo a page, flyTo a landmark, highlight one, click a pressable one, or ensure ' +
         'one is there by pressing the thing that reveals it. ' +
         'Every step that names a landmark waits for it, so there is no pause to ask for. ' +

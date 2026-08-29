@@ -251,7 +251,13 @@ function deckGuess(p: PlayerState): string | null {
  *     token like `mee` or `ec` has no run to pad).
  *   • A trailing `-N` on the set token becomes `.N` (sv6-5 → sv6.5,
  *     rsv10-5 → rsv10.5) — the catalogue writes subset sets with a dot, Live
- *     prints a dash.
+ *     prints a dash. The `-N` may carry a SINGLE trailing letter (sv10-5b →
+ *     sv10.5b): this is EXTRAPOLATED from the numeric rule — no observed
+ *     real-log pair carries a letter suffix on a subset, so the dotted form is
+ *     a guess at the catalogue's convention. An under-match (the catalogue
+ *     actually writes `sv10-5b` or `sv105b`) is therefore possible, but a
+ *     FALSE HIT is not: a token that does not match a real catalogue id simply
+ *     fails to score a code match and falls back to name-only matching.
  *   • The collector number zero-pads to 3 digits (38 → 038, 7 → 007).
  *   • A trailing `_xx` printing-variant suffix (only `_ph` has been observed in
  *     real logs; it marks a foil printing) is stripped and returned as `foil`.
@@ -280,9 +286,13 @@ export function normalizeCardCode(raw: string): NormalizedCardCode | null {
   };
 }
 
-/** Set-token half of normalizeCardCode: lowercase, `-N` → `.N`, pad one digit. */
+/**
+ * Set-token half of normalizeCardCode: lowercase, `-N[b]?` → `.N[b]?` (the
+ * subset dash, optionally carrying a single trailing letter — EXTRAPOLATED, see
+ * normalizeCardCode's docstring), then pad a one-digit numeric run to two.
+ */
 function normaliseSetToken(raw: string): string {
-  let s = raw.toLowerCase().replace(/-(\d+)$/, '.$1');
+  let s = raw.toLowerCase().replace(/-(\d+[a-z]?)$/, '.$1');
   const m = s.match(/^([a-z]+)(\d)(\D.*)?$/);
   if (m) s = `${m[1]}0${m[2]}${m[3] ?? ''}`;
   return s;
@@ -549,6 +559,31 @@ function parseInner(rawLog: string, deckCardNames: string[], playerName?: string
     // say so explicitly instead of returning a confident-looking wrong answer.
     // Only fires when a deck was actually supplied: a deck-agnostic parse (the
     // log-preview route passes []) has no deck to overlap and must not warn.
+    //
+    // ── ACCEPTED RESIDUAL — the confidently-INVERTED signature is NOT caught ──
+    //
+    // This tripwire catches the BOTH-ZERO signature (neither player overlaps the
+    // deck). It does NOT catch the nonzero-but-skewed signature this parser's own
+    // docstring records above (battle #34 and #36): a drift where one player's
+    // cards happened to overlap the deck by a clear margin, but the WRONG player
+    // — the opponent — so the parser returned confidence 'high' with the owner
+    // identified as the opponent and every perspective-dependent field inverted.
+    // That is a confident-looking wrong answer, the exact failure mode the
+    // tripwire exists to flag, and it sails straight through because the margin
+    // test (`scored[0].score > scored[1].score`) passes.
+    //
+    // Why not fixed here: the only independent oracle that could contradict a
+    // name-level pick is the card-CODE level (the owner plays their exact
+    // printings; `codesMentioned` is captured per player, and normalizeCardCode
+    // resolves to a catalogue id). But this function receives only deck card
+    // NAMES — not ids — so it cannot score code overlap. Threading deck card
+    // ids in is a signature change across both call sites (POST /:id/logs and the
+    // log-preview re-parse) plus a new warning branch, and a name-only heuristic
+    // (thin margin, shared generic trainers/energy) would false-positive on
+    // legitimate close games. That is a real feature, not a cheap sanity, and it
+    // is left for the deck-intel pass that owns owner disambiguation. Until then,
+    // #34/#36's signature remains the known uncovered case — do NOT claim
+    // otherwise (no faked coverage): the tripwire says "both zero", not "inverted".
     if (
       deckCardNames.length > 0 &&
       names.length >= 2 &&

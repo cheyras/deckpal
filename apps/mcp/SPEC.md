@@ -429,20 +429,23 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
     the previous guide's first heading + length so an accidental overwrite is visible. Strategy
     edits NEVER bump the deck version (§6b) and the descriptions say so.
 16. **`add_battle_log`** — `{ deck_id?, log, result?, player_name?, opponent_deck?, notes?,
-    played_at?, dry_run? = false }`. `POST /decks/:id/logs`: the API parses the raw PTCG Live log
+    played_at?, dry_run? = true }`. `POST /decks/:id/logs`: the API parses the raw PTCG Live log
     (result, opponent, turns, prizes, KOs, deck guess) and attaches it to the deck's CURRENT
     version. Explicit `result`/`opponent_deck` arguments are authoritative over parser output
     (2026-08-29 — a passed opponent once lost to the parser's inversion). The
     ambiguous-owner 400 is surfaced verbatim — it tells the agent to retry with `player_name`
-    (exact screen name) or an explicit `result`.
+    (exact screen name) or an explicit `result`. In the DeckPal app, Deck-E passes
+    `log: "@pasted"` and the server substitutes the pasted text; over MCP pass the raw log.
+    Defaults to a dry run — "Nothing was logged." leads that render; re-run with
+    `dry_run: false` to attach the log.
 
     **`deck_id` omitted (2026-08-29): a pure read.** The tool calls `POST /decks/log-preview`,
     which parses the log and scores it against every deck's current-version card list
     (name overlap + normalized PTCG Live card codes, both players considered), and returns
     ranked candidates — real ids, names, versions, scores — plus the parsed-result line. Nothing
     is written, whatever the candidate count; the agent re-calls with the chosen `deck_id`.
-    Zero candidates lists NONE (never an invented id). `dry_run: true` previews what would be
-    logged ("Nothing was logged." first line), with or without `deck_id`.
+    Zero candidates lists NONE (never an invented id). "Nothing was logged." leads the dry-run
+    render, with or without `deck_id`.
 17. **`battle_logs`** — `{ deck_id, log_id?, version?, include_raw? = false, page?, page_size? }`.
     List mode: one compact row per game, newest first, W/L footer (`3W–1L–0T`) over the filter
     scope plus a per-version breakdown when unfiltered. `log_id`: full detail incl parsed fields.
@@ -456,8 +459,9 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
     whether the revert will bump or amend) before anything is written. Non-destructive by
     design — history is never deleted — hence `destructiveHint: false`.
 19. **`edit_battle_log`** — `{ deck_id, log_id, result?|null, opponent?|null, opponent_deck?|null,
-    notes?|null, played_at?, dry_run? = false }`. `dry_run: true` (2026-08-29) renders a
-    field-by-field would-change plan ("Nothing was changed." first line) without writing.
+    notes?|null, played_at?, dry_run? = true }`. Defaults to a dry run (2026-08-29) — a
+    field-by-field would-change plan ("Nothing was changed." first line) without writing;
+    re-run with `dry_run: false` to apply.
     `PATCH /decks/:id/logs/:logId` — classification-only corrections
     (e.g. the parser left NO RESULT on a non-standard ending); raw log + attached version are
     immutable; nulls clear (not `played_at`); per-version records recompute immediately. Added

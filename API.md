@@ -697,9 +697,10 @@ version.
 ### POST /deckpal/api/decks/log-preview
 Added 2026-08-29 for battle-log deck inference. Body `{ "log" (required,
 ≤50000), "player_name"? }` (camelCase `playerName` also accepted). Parses the
-log **without writing anything** and scores it against every non-deleted deck's
-current-version card list (name overlap strengthened by normalized PTCG Live
-card codes; both players considered, so an unidentified owner still ranks).
+log **without writing anything** and scores it against the 40 most-recently-updated
+non-deleted decks' current-version card lists (name overlap strengthened by
+normalized PTCG Live card codes; both players considered, so an unidentified
+owner still ranks) — a per-user recency cap rather than a full scan.
 ```json
 200 { "parsed": { "result": "win", "opponent": "Robni16", "turns": 14,
                   "prizes": { "me": 6, "opponent": 5 }, "confidence": "high",
@@ -709,7 +710,14 @@ card codes; both players considered, so an unidentified owner still ranks).
                         "version": 3, "score": 11, "matchedNames": 9, "total": 26 } ] }
 ```
 `candidates` is sorted by score descending, capped at 5, and `[]` when nothing
-scores above zero. Consumed by the agent tool `add_battle_log` when `deck_id`
+scores above zero.
+```json
+429 { "error": "rate_limited", "message": "Too many log-preview calls.", "retryAfterSeconds": 3 }
+```
+Rate-limited at **20 log-preview calls/min per user** — a JSON error envelope, not
+a bare status. The counter is **best-effort per instance** (not shared across
+replicas), so a burst may slip through; retry after the pause rather than
+re-pasting the log. Consumed by the agent tool `add_battle_log` when `deck_id`
 is omitted.
 
 ### GET /deckpal/api/decks/:id/logs/:logId

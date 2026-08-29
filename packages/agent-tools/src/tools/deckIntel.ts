@@ -233,8 +233,10 @@ function previewParsedLine(p: LogPreviewParsed): string {
  * candidate → the same shape, naming it as the only match. The model still
  * calls add_battle_log again with deck_id; this path never writes.
  */
-function renderLogPreview(preview: LogPreviewResponse): ToolResult {
-  const lines: string[] = [previewParsedLine(preview.parsed)];
+function renderLogPreview(preview: LogPreviewResponse, dryRun?: boolean): ToolResult {
+  const lines: string[] = [];
+  if (dryRun) lines.push('Nothing was logged.');
+  lines.push(previewParsedLine(preview.parsed));
   const cands = preview.candidates;
   if (cands.length === 0) {
     lines.push('This log matched none of your decks. Name the deck (or pass its id) and call add_battle_log again with deck_id set.');
@@ -260,9 +262,8 @@ function renderAddDryRun(
   overrides: { result?: 'win' | 'loss' | 'tie'; opponent_deck?: string; notes?: string },
 ): ToolResult {
   const lines = [
+    `Would attach to '${deck.name}'${deck.version != null ? ` (v${deck.version})` : ''}: ${previewParsedLine(parsed)}`,
     'Nothing was logged.',
-    row(`preview for '${deck.name}'`, deck.version ? `v${deck.version}` : null, deck.formatCode ?? null),
-    previewParsedLine(parsed),
   ];
   if (overrides.result !== undefined) lines.push(`result override: ${overrides.result}`);
   if (overrides.opponent_deck !== undefined) lines.push(`opponent_deck override: ${overrides.opponent_deck}`);
@@ -376,9 +377,10 @@ const addBattleLogTool = defineTool({
     'CURRENT version — the list the game was played with — so per-version win/loss records ' +
     'accumulate. Parser-derived fields fill anything you omit. OMIT deck_id to rank the log ' +
     'against your decks first: the tool returns ranked candidate decks (real ids, names, ' +
-    'scores) and writes nothing — call it again with deck_id set to the one you mean. Pass ' +
-    'dry_run: true to parse and preview what would be logged without writing (with or without ' +
-    'deck_id). If the parser cannot tell which player owns this deck it returns an error ' +
+    'scores) and writes nothing — call it again with deck_id set to the one you mean. ' +
+    'dry_run defaults to TRUE: the first call only previews what would be logged without writing ' +
+    '(with or without deck_id); re-call with dry_run: false to actually attach the log. ' +
+    'If the parser cannot tell which player owns this deck it returns an error ' +
     'asking for player_name (the exact screen name in the log) or an explicit result — retry ' +
     'with one of those. Read logs back with battle_logs; to correct or remove an existing ' +
     'entry use edit_battle_log / delete_battle_log.',
@@ -409,8 +411,8 @@ const addBattleLogTool = defineTool({
     played_at: z.string().optional().describe('ISO-8601 timestamp of when the game was played. Omit for now.'),
     dry_run: z
       .boolean()
-      .default(false)
-      .describe('true: parse and preview what would be logged, write nothing (works with or without deck_id). false (default): attach the log to the deck.'),
+      .default(true)
+      .describe('true (default): parse and preview what would be logged, write nothing (works with or without deck_id). Re-call with dry_run: false to attach the log.'),
   }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   handler: async ({ deck_id: deckRef, log, result, player_name, opponent_deck, notes, played_at, dry_run }, ctx) => {
@@ -434,7 +436,7 @@ const addBattleLogTool = defineTool({
           log,
           ...(player_name !== undefined ? { player_name } : {}),
         })) as LogPreviewResponse;
-        return renderLogPreview(preview);
+        return renderLogPreview(preview, dry_run);
       }
 
       // ── deck_id GIVEN → strict resolve, then write or preview ──────────────
@@ -616,7 +618,9 @@ const deckHistoryTool = defineTool({
     'guide unless include_strategy: false) — non-destructive, history is never deleted, and the ' +
     'same auto-bump rule decides whether the revert lands as a new version. revert_to defaults ' +
     'to a dry run showing the exact card diff that would be applied; re-run with dry_run: false ' +
-    'to execute. Battle logs are read with battle_logs, not here.',
+    'to execute. A revert that creates a new version reports "created v<N> from v<N-1>"; one that ' +
+    'amends in place reports "amended v<N> in place (no battle logs yet)". Battle logs are read ' +
+    'with battle_logs, not here.',
   inputSchema: z.object({
     deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
     version: z
@@ -722,8 +726,10 @@ const deckHistoryTool = defineTool({
         })) as RevertPayload;
         const r = res.revert;
         const lines = [
-          `Reverted '${res.deck.name}' to v${r.toVersion} → deck is now v${r.version} ` +
-            (r.bumped ? '(new version created — the previous one had battle logs).' : '(amended in place — no battle logs on it).'),
+          `Reverted '${res.deck.name}' to v${r.toVersion} → ` +
+            (r.bumped
+              ? `created v${r.version} from v${r.version - 1} (the previous version had battle logs; its snapshot is kept in deck_history).`
+              : `amended v${r.version} in place (no battle logs yet).`),
           `deck now: ${res.counts.total} card(s), ${res.validation.legal ? 'legal' : 'NOT legal'}, strategy ${strategyLabel(res.deck.strategyMd)}`,
         ];
         for (const s of r.skippedCards) {
@@ -763,8 +769,10 @@ const editBattleLogTool = defineTool({
     'non-standard ending and left NO RESULT), opponent name, opponent-deck label, notes, or ' +
     'played_at. The raw log text and the version it attaches to are immutable — this edits ' +
     'classification only, and per-version win/loss records recompute from it immediately. ' +
-    'Passing null clears a field (not played_at). Pass dry_run: true to preview the ' +
-    'field-by-field changes (current → new) without writing. To remove an entry entirely ' +
+    'Passing null clears a field (not played_at). ' +
+    'dry_run defaults to TRUE: the first call only previews the field-by-field changes ' +
+    '(current → new) without writing; re-call with dry_run: false to apply. ' +
+    'To remove an entry entirely ' +
     'use delete_battle_log; to add one use add_battle_log.',
   inputSchema: z.object({
     deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
@@ -780,8 +788,8 @@ const editBattleLogTool = defineTool({
     played_at: z.string().optional().describe('Corrected ISO-8601 played-at timestamp.'),
     dry_run: z
       .boolean()
-      .default(false)
-      .describe('true: preview the field-by-field would-change plan (current → new), change nothing. false (default): apply the edit.'),
+      .default(true)
+      .describe('true (default): preview the field-by-field would-change plan (current → new), change nothing. Re-call with dry_run: false to apply the edit.'),
   }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   handler: async ({ deck_id: deckRef, log_id, result, opponent, opponent_deck, notes, played_at, dry_run }, ctx) => {
@@ -805,9 +813,15 @@ const editBattleLogTool = defineTool({
       // is still an error rather than an empty plan.
       if (dry_run) {
         const { log: l } = (await ctx.api.get(`${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`)) as { log: LogFull };
+        const fields: string[] = [];
+        if (result !== undefined) fields.push('result');
+        if (opponent !== undefined) fields.push('opponent');
+        if (opponent_deck !== undefined) fields.push('opponent_deck');
+        if (notes !== undefined) fields.push('notes');
+        if (played_at !== undefined) fields.push('played_at');
         const lines = [
+          `Would change log #${l.id} on '${picked.value.name}': ${fields.join(', ')}`,
           'Nothing was changed.',
-          row(`preview edit of battle #${l.id}`, `v${l.deckVersion}`),
         ];
         if (result !== undefined) lines.push(`  result: ${l.result ? l.result.toUpperCase() : 'NO RESULT'} → ${result ? result.toUpperCase() : 'NO RESULT'}`);
         if (opponent !== undefined) lines.push(`  opponent: ${l.opponent ?? '(none)'} → ${opponent ?? '(none)'}`);

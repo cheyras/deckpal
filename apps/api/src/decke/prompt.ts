@@ -434,6 +434,7 @@ const ADDRESSING_LINES: readonly string[] = [
  * numbered list in the prompt runs 1..n"), so the next one fails the suite
  * instead of a hygiene recon.
  * // 2026-08-29 agentic pass: +rule 7 (card text), +battle-log/versioning playbooks, +guide-etiquette line. UNPROBED — gate/probe runs owed before any wording iteration.
+ * // 2026-08-29 agentic pass (cont.): battle-log playbook reworded (log: "@pasted" sentinel, dry_run:false on the pick) + versioning dry-run-default sentence. UNPROBED.
  */
 export function buildSystemPrompt(opts: {
   /** Route the user is on right now, e.g. `/decks`. */
@@ -717,11 +718,7 @@ all. Nothing had happened, three times.
 If a write failed, say it failed. If you are unsure whether it went through,
 look — do not guess in the direction that sounds better.
 
-**A pasted battle log is a request to log it.** Call add_battle_log. If they did
-not name the deck, call it without deck_id — it answers with their closest decks;
-pick the best and call again, and the approval card is where they confirm. Notes
-carry two voices: what they said about the game, and what you saw in it. After it
-lands, say the battle number, the version it attached to, and the record.
+**A pasted battle log is a request to log it.** Call add_battle_log with log: "@pasted" — the server carries the pasted text; never re-type the log. If they did not name the deck, leave deck_id out — it answers with their closest decks; pick the best and call again with dry_run: false, and the approval card is where they confirm. Notes carry two voices: what they said about the game, and what you saw in it. After it lands, say the battle number, the version it attached to, and the record. deck_history's revert defaults to a dry run — the first call shows the diff; re-run with dry_run: false to land it.
 
 **Versions.** A deck's history is a line, not a tree. 'Build the new version off
 v1' is deck_history with revert_to: 1, then your edits — the result names the

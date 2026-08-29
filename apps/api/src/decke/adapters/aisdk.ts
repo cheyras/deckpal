@@ -342,6 +342,24 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    * `0` disables truncation — for the analysis tier, which wants everything.
    */
   maxChars?: number;
+  /**
+   * The raw PTCG Live battle log the READER pasted into this conversation, or
+   * `null` when none was found.
+   *
+   * The paste channel: `add_battle_log` requires re-emitting a pasted 8–15 KB
+   * log (~3,000 tokens) as its `log` argument, and the chat model's
+   * `maxOutputTokens` is 1,200 — the arithmetic forbids it. The raw log already
+   * sits in the USER message the model is answering; `api/chat.mjs` passes this
+   * as `() => extractPastedLog(messages)` (see `pastedLog.ts`), and the adapter
+   * substitutes it for a call whose `log` is the sentinel `@pasted` (the model
+   * declines to re-type it) or a truncated prefix of the paste (the model tried
+   * and ran out of budget). See `applyPastedLog` below.
+   *
+   * OPTIONAL and absent by default — MCP and the sub-agent tool sets pay
+   * nothing, and every existing test is unaffected — the substitution is a
+   * no-op when nobody supplies a paste.
+   */
+  pastedLog?: () => string | null;
 }
 
 /**
@@ -491,6 +509,104 @@ export function forcePreview(def: ToolDefinition, input: unknown): unknown {
   const hasDryRun = def.inputSchema ? 'dry_run' in def.inputSchema.shape : false;
   if (!hasDryRun) return input;
   return { ...(input as Record<string, unknown>), dry_run: true };
+}
+
+/**
+ * The paste channel — what the model is told instead of being asked to re-type
+ * a ~3,000-token log into a 1,200-token output budget.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * ONE SEAM, NEXT TO THE OTHER COERCIONS
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `forcePreview` coerces a held write into a dry run; this coerces a
+ * paste-referencing `add_battle_log` call into carrying the log the READER
+ * already pasted, so the model never re-types it. It sits beside `forcePreview`
+ * for the same reason `forcePreview` sits beside `wouldMutate`: the coercion and
+ * the classification must read the same expression, and a future edit that
+ * changes one without the other is the bug this placement makes visible.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * WHEN IT SUBSTITUTES — and when it refuses
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Scoped to `add_battle_log` ONLY (the one tool whose `log` argument is a
+ * pasted battle log): for any other tool the call passes through untouched,
+ * which is the "other tools untouched" property the test pins. Within
+ * `add_battle_log`, a `log` argument is substituted when it is either:
+ *
+ *   • the sentinel `'@pasted'` — the model explicitly declines to re-emit the
+ *     log and asks the server to substitute the one in the conversation; OR
+ *   • a TRUNCATED PREFIX of the paste — `>= 200` chars that match the extracted
+ *     paste after whitespace-normalization (runs of whitespace collapsed to one
+ *     space and trimmed). The model tried to paste the log and ran out of
+ *     budget; what it sent is a prefix of what the reader did. `>= 200` keeps a
+ *     short coincidence ("Setup\nPlayerA's Turn") from counting as a prefix.
+ *
+ * When the sentinel is used BUT no paste was found this conversation, the call
+ * does NOT proceed with the literal `'@pasted'` — that would reach the parser as
+ * the string "@pasted" and log garbage. It returns a fail-shaped result telling
+ * the model no pasted log was found and to ask the reader to paste one, and the
+ * handler is never called. A truncated prefix with no paste is left as the
+ * model sent it: there is nothing to substitute, the parser gates on quality,
+ * and using the model's (truncated) log is the best available answer.
+ */
+export const PASTED_LOG_SENTINEL = '@pasted';
+
+/** What the model is told when it sent `@pasted` but no paste was found. */
+export const NO_PASTE_FOUND_MESSAGE =
+  'No pasted battle log was found in this conversation, so add_battle_log did not run. ' +
+  'Ask the reader to paste the full PTCG Live battle log, then call add_battle_log again ' +
+  `with log set to ${PASTED_LOG_SENTINEL}.`;
+
+/** The result of {@link applyPastedLog}: either a substituted value or a refusal. */
+export type PasteSubstitution =
+  | { kind: 'ok'; value: unknown }
+  | { kind: 'fail'; message: string };
+
+/**
+ * Substitute the reader's pasted log into an `add_battle_log` call, or refuse.
+ *
+ * Pure and exported so the substitution is unit-testable with a stub handler
+ * that records its args (the parser is not the thing under test — the seam is).
+ * Called from `execute` and from the forced-preview path in `onInputAvailable`;
+ * both thread the `ok` value to the handler and return the `fail` message
+ * without calling it.
+ *
+ * @param def   the tool definition — only `add_battle_log` is touched.
+ * @param input the (already-`forcePreview`-coerced) call arguments.
+ * @param paste the extracted paste, or `null`/`undefined` when none was found.
+ */
+export function applyPastedLog(
+  def: ToolDefinition,
+  input: unknown,
+  paste: string | null | undefined,
+): PasteSubstitution {
+  // ONLY add_battle_log carries a `log` argument the model would paste-trim;
+  // every other tool passes through untouched.
+  if (def.name !== 'add_battle_log') return { kind: 'ok', value: input };
+  const args = input as { log?: unknown } | null | undefined;
+  const log = args?.log;
+  if (typeof log !== 'string') return { kind: 'ok', value: input };
+
+  // The sentinel: the model declines to re-type and asks the server to
+  // substitute. With no paste found, refuse rather than hand the handler the
+  // literal string "@pasted" — the handler is never called.
+  if (log === PASTED_LOG_SENTINEL) {
+    if (!paste) return { kind: 'fail', message: NO_PASTE_FOUND_MESSAGE };
+    return { kind: 'ok', value: { ...(args as Record<string, unknown>), log: paste } };
+  }
+
+  // A truncated prefix: what the model sent is a >= 200-char prefix of the
+  // paste (after whitespace-normalization). Substitute the full text; the
+  // parser downstream still gates on quality, but the model meant the whole log.
+  if (log.length >= 200 && paste) {
+    const norm = (s: string): string => s.replace(/\s+/g, ' ').trim();
+    if (norm(paste).startsWith(norm(log))) {
+      return { kind: 'ok', value: { ...(args as Record<string, unknown>), log: paste } };
+    }
+  }
+  return { kind: 'ok', value: input };
 }
 
 /**
@@ -884,12 +1000,27 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
         if (alreadyDeclined(def.name, input)) return;
         if (!requiresApproval(def, input)) return;
         if (!canPreviewSafely(def, input)) return;
+        // ── THE PASTE CHANNEL (preview half) ──────────────────────────────────
+        //
+        // Same substitution as `execute` below, on the dry run that populates
+        // the approval card: a `@pasted` or truncated-prefix `log` is replaced
+        // with the reader's pasted log before the handler runs, so the card
+        // shows the real log rather than the literal "@pasted". When the
+        // sentinel was used but no paste was found, skip the preview — `execute`
+        // will return the fail result and the card falls back to the plain
+        // dialog, exactly as a preview that could not run does.
+        const previewInput = forcePreview(def, input);
+        const pastedPreview = opts.pastedLog;
+        const subPreview: PasteSubstitution = pastedPreview
+          ? applyPastedLog(def, previewInput, pastedPreview())
+          : { kind: 'ok', value: previewInput };
+        if (subPreview.kind === 'fail') return;
         try {
           // `forcePreview` again, not a cached value: the coercion and the
           // guard must read the same expression, or a future edit can make them
           // disagree about which arguments were checked.
           const result = await withToolCtx(opts, (ctx: Ctx) =>
-            def.handler(forcePreview(def, input), ctx),
+            def.handler(subPreview.value, ctx),
           );
           emit(buildApprovalPreview(def, toolCallId, result, opts.readerNamedPrinting === true));
         } catch {
@@ -943,6 +1074,25 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           // default to agree with the classification.
           const effective = requiresApproval(def, args) ? args : forcePreview(def, args);
 
+          // ── THE PASTE CHANNEL (execute half) ────────────────────────────────
+          //
+          // Substitute the reader's pasted log into an `add_battle_log` call
+          // before the handler runs — see `applyPastedLog`. ONE seam, read here
+          // and in the forced-preview path above, so a future edit that changes
+          // the substitution changes both or neither. When the sentinel was sent
+          // but no paste was found, refuse WITHOUT calling the handler: return
+          // the fail message so the model can ask the reader to paste the log,
+          // and never hand the parser the literal string "@pasted".
+          const pasted = opts.pastedLog;
+          const sub: PasteSubstitution = pasted
+            ? applyPastedLog(def, effective, pasted())
+            : { kind: 'ok', value: effective };
+          if (sub.kind === 'fail') {
+            opts.onEvent?.({ phase: 'error', ...chip, summary: 'no pasted log found this conversation' });
+            return sub.message;
+          }
+          const runEffective = sub.value;
+
           // ── ASKED ALREADY? ───────────────────────────────────────────────
           //
           // Only reads take this path. A write is always executed — "add one
@@ -956,7 +1106,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           // and is a write. `registry.ts` says so and this is why it is
           // required there.
           const runOnce = async (): Promise<{ text: string; failed: boolean }> => {
-            const result = await withToolCtx(opts, (ctx: Ctx) => def.handler(effective, ctx));
+            const result = await withToolCtx(opts, (ctx: Ctx) => def.handler(runEffective, ctx));
             const text = clampToolText(result.text, maxChars);
             // BEFORE the clamp would have been wrong: an id cut off by the
             // ceiling is an id the model never saw, and grounding it would let
@@ -980,7 +1130,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             return (await runOnce()).text;
           }
 
-          const { text, repeated } = await ledger.share(callKey(def.name, effective), runOnce);
+          const { text, repeated } = await ledger.share(callKey(def.name, runEffective), runOnce);
 
           if (repeated) {
             // A REPEAT GETS ITS OWN CHIP, and it says so. The reader watching

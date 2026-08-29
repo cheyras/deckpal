@@ -88,9 +88,13 @@ test('a write tool with NO dry_run always needs approval', () => {
     assert.equal(requiresApproval(d, {}), true)
     assert.equal(requiresApproval(d, { dry_run: true }), true, `${n} has no dry_run to honour`)
   }
-  // And the two that left the set: they HAVE a dry_run now, so they classify
-  // exactly like log_cards — omitted dry_run is a PREVIEW (forcePreview makes
-  // it one), and only an explicit `dry_run: false` is the write that asks.
+  // And the two that left the set: they HAVE a dry_run now (defaulting to TRUE),
+  // so they classify exactly like log_cards — omitted dry_run is a PREVIEW
+  // (forcePreview makes it one), and only an explicit `dry_run: false` is the
+  // write that asks. The SDK applies zod defaults BEFORE classification, so
+  // an omitted dry_run now arrives as true (preview) — the raw-{} pin below
+  // and the real flow agree (wouldMutate returns false for both true and undefined;
+  // only an explicit false is a mutation).
   //
   // The real-write pin passes deck_id: add_battle_log with NO deck_id is a
   // pure read (the tool's omitted-deck branch calls log-preview and writes
@@ -109,9 +113,14 @@ test('add_battle_log with NO deck_id is a pure read — no approval, even with d
   // against the caller's decks and writes nothing — the handler's omitted-deck
   // branch (deckIntel.ts: "OMIT deck_id … writes nothing"). It takes that
   // branch before dry_run is consulted, so dry_run is irrelevant to whether it
-  // mutates. Classifying on dry_run alone (default false) would have shown a
-  // consent dialog for a call that cannot write — misleading consent. The
-  // fix is name-scoped to add_battle_log; edit_battle_log requires deck_id.
+  // mutates. Classifying on dry_run alone would have shown a consent dialog for
+  // a call that cannot write whenever dry_run was false — misleading consent.
+  // The fix is name-scoped to add_battle_log; edit_battle_log requires deck_id.
+  //
+  // deck_id: '' is treated as absent too: presentRef (entities.ts:155–159) trims
+  // and normalizes '' to undefined, and wouldMutate's `!(input)?.deck_id` mirrors
+  // that (`!''` is true), so an empty deck_id stays on the read path — the handler
+  // resolves it via needDeck → presentRef('') → undefined → not-found, never writes.
   const add = get('add_battle_log')
   // The reader's actual call shape: a pasted log, no deck picked yet.
   assert.equal(requiresApproval(add, { log: 'RAW LOG' }), false, 'no deck_id → read, no dialog')
@@ -119,6 +128,10 @@ test('add_battle_log with NO deck_id is a pure read — no approval, even with d
   assert.equal(requiresApproval(add, { log: 'RAW LOG', dry_run: false }), false, 'no deck_id → still a read')
   // And it cannot mutate, which is what the dialog exists to prevent.
   assert.equal(wouldMutate(add, { log: 'RAW LOG', dry_run: false }), false)
+  // deck_id: '' — presentRef normalizes it to absent (entities.ts:155–159), so the
+  // classifier treats it the same as omitted: no approval, cannot write.
+  assert.equal(requiresApproval(add, { deck_id: '', log: 'RAW LOG' }), false, "deck_id: '' → read, no dialog")
+  assert.equal(wouldMutate(add, { deck_id: '', log: 'RAW LOG', dry_run: false }), false, "deck_id: '' → cannot write even with dry_run: false")
   // deck_id GIVEN → back to the ordinary dry_run rule: false is the real write.
   assert.equal(requiresApproval(add, { deck_id: 'x', log: 'RAW LOG', dry_run: false }), true)
 })

@@ -262,6 +262,20 @@ test('normalizeCardCode: rules across the shapes seen in the fixture', () => {
   assert.deepEqual(normalizeCardCode('(sv7_58)'), { cardId: 'sv07-058', foil: false });
 });
 
+test('normalizeCardCode: extrapolated single-trailing-letter subset (sv10-5b → sv10.5b, no observed real-log pair)', () => {
+  // Extrapolated from the numeric subset rule: a `-N` carrying one trailing
+  // letter becomes `.N<letter>`. No observed real-log pair carries this shape,
+  // so the dotted catalogue form is a guess — an under-match is possible, but a
+  // false hit is not (a token that matches no real catalogue id simply scores
+  // no code match and falls back to name-only matching).
+  assert.deepEqual(normalizeCardCode('sv10-5b_38'), { cardId: 'sv10.5b-038', foil: false });
+  // The existing numeric subset pairs are unchanged by the extension.
+  assert.deepEqual(normalizeCardCode('sv6-5_38'), { cardId: 'sv06.5-038', foil: false });
+  assert.deepEqual(normalizeCardCode('me2-5_280'), { cardId: 'me02.5-280', foil: false });
+  assert.deepEqual(normalizeCardCode('rsv10-5_171'), { cardId: 'rsv10.5-171', foil: false });
+  assert.deepEqual(normalizeCardCode('sv10_102'), { cardId: 'sv10-102', foil: false });
+});
+
 test('normalizeCardCode: non-codes return null, never a wrong id', () => {
   for (const junk of ['', '()', '(Ability) Cheer On', '(Item) Premium Power Pro', 'sv7', 'Cynthia', 'null', 'sv7_']) {
     assert.equal(normalizeCardCode(junk), null, `should be null: ${JSON.stringify(junk)}`);

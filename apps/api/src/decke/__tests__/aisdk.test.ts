@@ -18,6 +18,7 @@ import {
   dataToolSummary,
   requiresApproval,
   safeToolError,
+  wouldMutate,
 } from '../adapters/aisdk.js'
 
 /** Enough of the options to build a tool set; nothing here ever executes. */
@@ -193,6 +194,9 @@ test('add_battle_log and edit_battle_log are previewable now that they have dry_
   assert.equal(canPreviewSafely(edit, { deck_id: 'x', log_id: 1, result: 'win', dry_run: false }), true)
 
   // A preview (dry_run omitted OR true) needs no approval and is previewable.
+  // The SDK applies zod defaults BEFORE classification: an omitted dry_run now
+  // arrives as true (preview), so { log: 'L' } classifies the same as
+  // { log: 'L', dry_run: true } — both are previews.
   assert.equal(requiresApproval(add, { log: 'L' }), false, 'omitted dry_run → preview, no approval')
   assert.equal(requiresApproval(add, { deck_id: 'x', log: 'L', dry_run: true }), false)
   assert.equal(canPreviewSafely(add, { log: 'L' }), true)
@@ -226,6 +230,12 @@ test('add_battle_log with NO deck_id is a read — no approval even with dry_run
   // deck_id given → the ordinary dry_run rule applies again.
   assert.equal(requiresApproval(add, { deck_id: 'x', log: 'RAW LOG', dry_run: false }), true)
   assert.equal(canPreviewSafely(add, { deck_id: 'x', log: 'RAW LOG', dry_run: false }), true)
+
+  // deck_id: '' — presentRef (entities.ts:155–159) normalizes '' to undefined,
+  // and wouldMutate's `!(input)?.deck_id` treats it as absent (`!''` is true).
+  // The handler resolves it via needDeck → presentRef('') → not-found, never writes.
+  assert.equal(requiresApproval(add, { deck_id: '', log: 'RAW LOG' }), false, "deck_id: '' → read, no approval")
+  assert.equal(wouldMutate(add, { deck_id: '', log: 'RAW LOG', dry_run: false }), false, "deck_id: '' → cannot write even with dry_run: false")
 
   // edit_battle_log has NO such read branch and must keep classifying on dry_run
   // alone — the carve-out did not leak across to it.

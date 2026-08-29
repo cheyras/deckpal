@@ -271,8 +271,7 @@ function blankFold(folded: string): boolean {
  * EVERY ENTRY IS GROUNDED IN THE REPO — `apps/api/src/deck/data/ptcgl-set-alias.json`,
  * the hand-authored authority for the deck parser's set join, verified against
  * the live DB set list (its own `_comment`). Many of the target ids are
- * independently confirmed by test fixtures and code comments (noted in
- * `notes.md`). No alias was guessed.
+ * independently confirmed by test fixtures and code comments. No alias was guessed.
  *
  * MATCHES ON THE EXACT WHOLE TOKEN ONLY, case-insensitively. `'PAL'` resolves
  * to `sv02`; `'Paldean Fates'` does NOT, because the alias fires on the token

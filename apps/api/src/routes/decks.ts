@@ -130,6 +130,16 @@ export function rateLimitCheck(
 // Module-local state for the route. ONE map per process, keyed by userId —
 // never by IP (the route is authed; userId is the right identity). Swept on a
 // timer so a quiet process does not accumulate buckets for ever.
+//
+// HONEST LIMITATION — this is a per-PROCESS limiter, not a global one. On
+// Vercel each warm lambda instance has its own Map, so the real ceiling is
+// 20/min × (number of warm instances), not 20/min total. That is acceptable
+// here because the load-bearing bound on log-preview cost is LOG_PREVIEW_DECK_CAP
+// (the per-request deck fan-out), not this limiter: a single request is already
+// bounded, so a caller over-running the per-instance cap mostly adds latency,
+// not unbounded work. This limiter is best-effort per instance — it stops a
+// tight loop on ONE instance, not a flood across many. If a true global cap is
+// ever needed it has to live in shared state (Redis/edge), not in a Map.
 const logPreviewBuckets = new Map<string, RateBucket>();
 setInterval(() => {
   const now = Date.now();
@@ -1526,16 +1536,34 @@ decksRouter.post(
 //     candidates: [{ deckId, name, format, version, score, matchedNames, total }] }
 // candidates are sorted by score descending, capped at 5, and an empty array
 // when nothing scores above zero.
+//
+// `parsed` is built from a RE-PARSE against the best-scoring candidate's card
+// names when one exists (see below), so owner identification — which scores the
+// overlap between the cards each player plays and the deck — can actually
+// resolve "me" and populate result/opponent/prizes/myPokemon/opponentDeckGuess
+// with a meaningful confidence. When NO candidate scores above zero the response
+// keeps the deck-agnostic parse: turns survives (it is perspective-free) but
+// result, opponent, prizes, myPokemon and opponentDeckGuess are NULL and
+// confidence is 'low' — owner identification cannot run without a deck, and the
+// caller must supply playerName or an explicit result at attach time.
 decksRouter.post(
   '/log-preview',
   asyncHandler(async (req, res) => {
     const userId = currentUserId(req);
     // Per-user rate limit (security finding B): the parse+score loop is
     // unbounded fan-out a caller could hammer. 20/min/user is far above any
-    // real use and stops a tight loop cold. Plain text, not JSON — a 429 the
-    // agent or a browser can read either way.
+    // real use and stops a tight loop cold. Returned as the SAME JSON envelope
+    // the agent-tools API client reads ({ error: { code, message } }, see
+    // packages/agent-tools/src/api.ts) — a plain-text 429 made JSON.parse throw,
+    // so the client fell back to 'deckpal-api POST /decks/log-preview → 429' and
+    // discarded this authored guidance entirely (verified repro). Status stays 429.
     if (!logPreviewRateOk(userId)) {
-      res.status(429).type('text').send('Too many log-preview requests — try again shortly.');
+      res.status(429).json({
+        error: {
+          code: 'rate_limited',
+          message: 'Too many log-preview requests — try again shortly.',
+        },
+      });
       return;
     }
     const body = req.body ?? {};
@@ -1556,9 +1584,13 @@ decksRouter.post(
     // CAPPED at the recent decks (security finding B): the scoring set is the
     // recent decks — 40 is far above any real collection and bounds the fan-out
     // (2 queries per deck). Ordered by updated_at DESC so the cap keeps the
-    // decks a reader actually touches, not the long tail.
+    // decks a reader actually touches, not the long tail. `id DESC` is a
+    // deterministic tiebreaker: updated_at ties are common (a bulk edit bumps
+    // several decks in one tick) and without it the cap is nondeterministic on
+    // which of the tied decks survives the LIMIT. deck.id is the UUID PK
+    // (research/SCHEMA.md), the table's stable key.
     const metas = await q<DeckMeta>(
-      `${DECK_META_SELECT} WHERE user_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT ${LOG_PREVIEW_DECK_CAP}`,
+      `${DECK_META_SELECT} WHERE user_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC, id DESC LIMIT ${LOG_PREVIEW_DECK_CAP}`,
       [userId],
     );
 
@@ -1571,6 +1603,11 @@ decksRouter.post(
       matchedNames: number;
       total: number;
     }[] = [];
+    // The best-scoring candidate's card NAMES, kept so the log can be re-parsed
+    // against them without a second query (the rows are already loaded above).
+    // Null until a candidate scores above zero.
+    let bestDeckNames: string[] | null = null;
+    let bestScore = 0;
     for (const meta of metas) {
       const { rows } = await loadRows(meta.id, userId);
       const deckCards = rows.map((r) => ({ name: r.name, cardId: r.tcgdex_id }));
@@ -1585,19 +1622,41 @@ decksRouter.post(
         matchedNames: m.matchedNames,
         total: m.total,
       });
+      if (m.score > bestScore) {
+        bestScore = m.score;
+        // Re-parse needs only the names (owner identification scores name-key
+        // overlap, exactly as POST /:id/logs passes names from deck_card⋈card).
+        bestDeckNames = rows.map((r) => r.name);
+      }
     }
     candidates.sort((a, b) => b.score - a.score);
+
+    // Re-parse against the best candidate's card names so owner identification
+    // can resolve "me". The deck-agnostic parse above (parseBattleLog with [])
+    // could never overlap an empty deck list, so it early-returned before
+    // result/opponent/prizes/myPokemon/opponentDeckGuess were populated — only
+    // turns and playerCards survived (the hollow shape that shipped broken).
+    // The deck rows are already loaded (bestDeckNames); this re-uses them, it
+    // does NOT re-query. This also makes `confidence` meaningful: a clear-margin
+    // name overlap → 'high'. playerName, when supplied, still overrides scoring
+    // exactly as it does on the deck-agnostic parse, so this never makes a
+    // populated parse worse. When no candidate scores, bestDeckNames stays null
+    // and the deck-agnostic parse stands (see the response-contract comment
+    // above for which fields are null in that case).
+    const responseParsed = bestDeckNames
+      ? parseBattleLog(body.log, bestDeckNames, playerName)
+      : parsed;
 
     userCache(res);
     res.json({
       parsed: {
-        result: parsed.result,
-        opponent: parsed.players.opponent,
-        turns: parsed.totalTurns,
-        prizes: parsed.prizesTaken,
-        confidence: parsed.confidence,
-        myPokemon: parsed.myPokemon,
-        opponentDeckGuess: parsed.opponentDeckGuess,
+        result: responseParsed.result,
+        opponent: responseParsed.players.opponent,
+        turns: responseParsed.totalTurns,
+        prizes: responseParsed.prizesTaken,
+        confidence: responseParsed.confidence,
+        myPokemon: responseParsed.myPokemon,
+        opponentDeckGuess: responseParsed.opponentDeckGuess,
       },
       candidates: candidates.slice(0, 5),
     });

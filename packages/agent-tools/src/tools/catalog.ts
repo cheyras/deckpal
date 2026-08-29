@@ -256,6 +256,14 @@ const searchCardsTool = defineTool({
     try {
       const query = args.query?.trim();
 
+      // owned_only AND exclude_owned together is `qty > 0 AND qty = 0` — always
+      // false, so it silently returns zero rows. The descriptions say "do not
+      // pass both"; this makes it fail loudly before any query rather than read
+      // as an empty catalog.
+      if (args.owned_only && args.exclude_owned) {
+        return fail('owned_only and exclude_owned are contradictory — pass one or the other.');
+      }
+
       // RESOLVED, NOT COMPARED. `cs.tcgdex_id = 'sv3pt5'` matched nothing and
       // said nothing about why; the filter now accepts the name, the near-miss
       // spellings, and reports a real choice when the name is ambiguous.
@@ -951,9 +959,15 @@ const setProgressTool = defineTool({
         // `card_set`, so a set with zero owned cards still appears with its
         // release date and card count. Ordered by release date descending.
         if (args.all_sets) {
+          // Scoped to the enabled (English) catalogue — `se.catalogue_code = 'en'`,
+          // mirroring the English-first tie-break in `entities.ts`'s SET_ORDER
+          // (`(s.catalogue_code = 'en') DESC`). Without this the overview lists
+          // every catalogue that shares a tcgdex_id, so a set appears once per
+          // language it was printed in. Both the count and the page query carry
+          // the same filter so the paging footer's total agrees with the rows.
           const totalRow = await q1<{ total: string }>(
             ctx.db,
-            `SELECT count(*) AS total FROM card_set`,
+            `SELECT count(*) AS total FROM card_set cs JOIN series se ON se.id = cs.series_id WHERE se.catalogue_code = 'en'`,
             [],
           );
           const total = Number(totalRow?.total ?? 0);
@@ -972,6 +986,7 @@ const setProgressTool = defineTool({
                    JOIN card_variant cv ON cv.id = ci.card_variant_id
                   WHERE ci.user_id = $1 AND ci.quantity > 0
                ) o ON o.card_id = c.id
+              WHERE se.catalogue_code = 'en'
               GROUP BY cs.id, cs.tcgdex_id, cs.name, se.slug, se.name, cs.released_on
               ORDER BY cs.released_on DESC NULLS LAST, cs.tcgdex_id
               LIMIT $2 OFFSET $3`,
