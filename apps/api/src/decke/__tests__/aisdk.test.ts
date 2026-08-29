@@ -13,9 +13,12 @@ import { allTools } from '@deckpal/agent-tools'
 import {
   DEFAULT_MAX_TOOL_CHARS,
   buildDataTools,
+  canPreviewSafely,
   clampToolText,
   dataToolSummary,
+  requiresApproval,
   safeToolError,
+  wouldMutate,
 } from '../adapters/aisdk.js'
 
 /** Enough of the options to build a tool set; nothing here ever executes. */
@@ -163,4 +166,79 @@ test('our own deliberate errors DO pass through, because they were written to be
   })
   assert.match(safeToolError(timeout), /stopped waiting/)
   assert.equal(safeToolError(new Error('aborted')), 'aborted')
+})
+
+// ── add_battle_log / edit_battle_log are now PREVIEWABLE (they gained dry_run)
+//
+// The classification is schema-driven: `wouldMutate` / `forcePreview` /
+// `canPreviewSafely` all key off `'dry_run' in def.inputSchema.shape`. Once
+// those two tools carry a `dry_run`, the SDK's forced-dry-run approval preview
+// path can populate their approval cards the way it does for any other dry_run
+// write — `forcePreview` flips dry_run to true, the handler writes nothing, and
+// `canPreviewSafely` returns true. `deck_strategy` is the lone write with no
+// dry_run, so it stays unpreviewable and always needs approval. The editable
+// hard-code in `buildApprovalPreview` is unchanged (editable stays log_cards).
+
+test('add_battle_log and edit_battle_log are previewable now that they have dry_run', () => {
+  const byName = (n: string) => allTools().find((d) => d.name === n)!
+  const add = byName('add_battle_log')
+  const edit = byName('edit_battle_log')
+
+  // A real write (explicit dry_run:false) still needs the reader to approve it.
+  assert.equal(requiresApproval(add, { deck_id: 'x', log: 'L', dry_run: false }), true)
+  assert.equal(requiresApproval(edit, { deck_id: 'x', log_id: 1, result: 'win', dry_run: false }), true)
+
+  // …but it CAN be previewed safely: forcePreview flips dry_run to true, so the
+  // handler writes nothing, and the approval card is populated from that dry run.
+  assert.equal(canPreviewSafely(add, { deck_id: 'x', log: 'L', dry_run: false }), true)
+  assert.equal(canPreviewSafely(edit, { deck_id: 'x', log_id: 1, result: 'win', dry_run: false }), true)
+
+  // A preview (dry_run omitted OR true) needs no approval and is previewable.
+  // The SDK applies zod defaults BEFORE classification: an omitted dry_run now
+  // arrives as true (preview), so { log: 'L' } classifies the same as
+  // { log: 'L', dry_run: true } — both are previews.
+  assert.equal(requiresApproval(add, { log: 'L' }), false, 'omitted dry_run → preview, no approval')
+  assert.equal(requiresApproval(add, { deck_id: 'x', log: 'L', dry_run: true }), false)
+  assert.equal(canPreviewSafely(add, { log: 'L' }), true)
+  assert.equal(canPreviewSafely(edit, { deck_id: 'x', log_id: 1, result: 'win', dry_run: true }), true)
+})
+
+test('deck_strategy still has no dry_run — never previewable, always needs approval', () => {
+  const byName = (n: string) => allTools().find((d) => d.name === n)!
+  const strat = byName('deck_strategy')
+
+  // No dry_run in the schema → forcePreview leaves the input untouched and
+  // wouldMutate stays true, so the handler would perform the very write the
+  // reader has not authorised. canPreviewSafely must refuse it.
+  assert.equal(canPreviewSafely(strat, { deck_id: 'x', markdown: 'guide' }), false)
+  assert.equal(requiresApproval(strat, { deck_id: 'x', markdown: 'guide' }), true)
+})
+
+test('add_battle_log with NO deck_id is a read — no approval even with dry_run false', () => {
+  // SECURITY FINDING (A): the omitted-deck_id branch calls log-preview and
+  // writes nothing, before dry_run is consulted. So dry_run:false must NOT be
+  // read as permission to write when there is no deck_id to write to. The
+  // special case is name-scoped to add_battle_log; edit_battle_log requires
+  // deck_id and is unaffected (pinned below to stay that way).
+  const byName = (n: string) => allTools().find((d) => d.name === n)!
+  const add = byName('add_battle_log')
+
+  // The reader's real shape: a pasted log, deck not yet chosen.
+  assert.equal(requiresApproval(add, { log: 'RAW LOG' }), false)
+  assert.equal(requiresApproval(add, { log: 'RAW LOG', dry_run: false }), false, 'no deck_id → read regardless of dry_run')
+
+  // deck_id given → the ordinary dry_run rule applies again.
+  assert.equal(requiresApproval(add, { deck_id: 'x', log: 'RAW LOG', dry_run: false }), true)
+  assert.equal(canPreviewSafely(add, { deck_id: 'x', log: 'RAW LOG', dry_run: false }), true)
+
+  // deck_id: '' — presentRef (entities.ts:155–159) normalizes '' to undefined,
+  // and wouldMutate's `!(input)?.deck_id` treats it as absent (`!''` is true).
+  // The handler resolves it via needDeck → presentRef('') → not-found, never writes.
+  assert.equal(requiresApproval(add, { deck_id: '', log: 'RAW LOG' }), false, "deck_id: '' → read, no approval")
+  assert.equal(wouldMutate(add, { deck_id: '', log: 'RAW LOG', dry_run: false }), false, "deck_id: '' → cannot write even with dry_run: false")
+
+  // edit_battle_log has NO such read branch and must keep classifying on dry_run
+  // alone — the carve-out did not leak across to it.
+  const edit = byName('edit_battle_log')
+  assert.equal(requiresApproval(edit, { log_id: 1, dry_run: false }), true, 'edit_battle_log still asks on a real write')
 })

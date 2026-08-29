@@ -138,10 +138,10 @@ test('the rules that matter most are numbered in the order they matter', () => {
   const rules = p
     .split('\n')
     .filter((l) => /^\d+\. \*\*/.test(l))
-    .slice(0, 6)
+    .slice(0, 7)
   assert.deepEqual(
     rules.map((l) => l.slice(0, l.indexOf(' '))),
-    ['1.', '2.', '3.', '4.', '5.', '6.'],
+    ['1.', '2.', '3.', '4.', '5.', '6.', '7.'],
   )
   const rule = (n: number): string => {
     const line = rules[n - 1]
@@ -152,6 +152,7 @@ test('the rules that matter most are numbered in the order they matter', () => {
   assert.match(rule(3), /If they correct you, look it up/)
   assert.match(rule(4), /Read before you advise/)
   assert.match(rule(6), /Never claim to have changed anything you did not change/)
+  assert.match(rule(7), /Card text is looked up, not remembered/)
 })
 
 test('a signed-out visitor is still told not to promise writes', () => {
@@ -258,6 +259,13 @@ test('the two navigation intents are split — jump and escort, both stated', ()
   // it, but walking a route someone asked to be shown is not miming.
   assert.match(p, /Nobody wants to watch you click through something you could have executed/)
   assert.match(p, /when the WAY THERE is what they asked for, walking it is not a detour/)
+
+  // A deck, a list or a card someone asks to be SHOWN is still a walk — never a
+  // bare goTo. The escort/journey tool descriptions used to contradict this
+  // ("not a walk, use goTo" unconditionally); this pin makes a future edit that
+  // drops the sentence collide loudly, on either side of the mirror.
+  assert.match(p, /A deck, a list, or a card someone asks to be shown is still a walk/)
+  assert.match(p, /never a bare `goTo`/)
 })
 
 test('a denial has to be stated, not implied', () => {

@@ -82,6 +82,55 @@ test('normaliseSetId lowercases, because a model will shout an id', () => {
   assert.ok(normaliseSetId('ME05').includes('me05'));
 });
 
+// ── normaliseSetId: printed set-code aliases ─────────────────────────────────
+//
+// Users dictate the 2–4 letter codes printed on physical cards ('PAL in the
+// tag on the bottom left') and agents burned ~20 discovery calls per session
+// because nothing mapped them. Each alias below is verified against
+// `apps/api/src/deck/data/ptcgl-set-alias.json`, the repo's own hand-authored
+// authority for the deck parser's set join — see that file's own `_comment` for
+// the per-code evidence trail.
+
+test('normaliseSetId maps a verified printed code to its catalog id', () => {
+  // PAL is printed on Paldea Evolved cards; this catalog stores it as sv02.
+  assert.ok(normaliseSetId('PAL').includes('sv02'));
+  // MEW is the code for Pokémon 151, which TCGdex writes sv03.5.
+  assert.ok(normaliseSetId('MEW').includes('sv03.5'));
+  // PBL is printed on Pitch Black cards — me05, the set this test suite keeps
+  // using as its example id.
+  assert.ok(normaliseSetId('PBL').includes('me05'));
+  // PFL is printed on Phantasmal Flames cards — me02.
+  assert.ok(normaliseSetId('PFL').includes('me02'));
+  // POR is printed on Perfect Order cards — me03.
+  assert.ok(normaliseSetId('POR').includes('me03'));
+});
+
+test('normaliseSetId maps codes case-insensitively', () => {
+  // A reader dictates 'pal' or 'Pal' or 'PAL' — all the same code.
+  assert.ok(normaliseSetId('pal').includes('sv02'));
+  assert.ok(normaliseSetId('Pal').includes('sv02'));
+  assert.ok(normaliseSetId('PAL').includes('sv02'));
+});
+
+test('normaliseSetId leaves an unknown code alone — no alias is guessed', () => {
+  // A code that is not in the alias map must not gain any candidate beyond
+  // what the mechanical spelling rules already produce. Guessing here silently
+  // corrupts a write.
+  const out = normaliseSetId('QQQ');
+  assert.deepEqual(out, ['qqq']);
+  assert.ok(!out.includes('sv01'), 'an unknown code must not pick up a real set id');
+});
+
+test('a code that is a SUBSTRING of a set name does not collide', () => {
+  // 'PAL' is a substring of 'Paldean Fates' and of 'Paldea Evolved'. The alias
+  // fires on the EXACT WHOLE TOKEN, so 'Paldean Fates' must NOT gain sv02 as a
+  // candidate — that would resolve a named-set lookup to the wrong set.
+  const out = normaliseSetId('Paldean Fates');
+  assert.ok(!out.includes('sv02'), 'a name containing a code must not trigger the alias');
+  // But the exact token 'PAL' still does.
+  assert.ok(normaliseSetId('PAL').includes('sv02'));
+});
+
 // ── matchNamed: decks and lists ──────────────────────────────────────────────
 
 const DECKS = [

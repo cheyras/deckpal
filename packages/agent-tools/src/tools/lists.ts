@@ -296,7 +296,11 @@ const editListTool = defineTool({
     "'holo', …) — so you do NOT need to look up variant ids first. add_missing does the whole " +
     'job server-side: "everything missing for this goal in this set, optionally minus certain ' +
     'rarities or above a price" in one call. remove_item_ids are the item UUIDs shown by the ' +
-    'lists tool. Defaults to a dry run that prints the exact operations without executing — ' +
+    'lists tool. Renaming changes the name only, not what a list holds — to change contents use ' +
+    'add_cards, add_missing or remove_item_ids. kind (static or dynamic) is set at create and cannot ' +
+    'be changed by edit: a dynamic list tracks ownership live but does NOT re-filter by its name, so ' +
+    'a list called "under $5" holds whatever was added, not every card under $5. ' +
+    'Defaults to a dry run that prints the exact operations without executing — ' +
     're-run with dry_run:false to apply. Lists never modify the collection itself.',
   inputSchema: z.object({
     // ── SAY WHICH, RATHER THAN LEAVING IT TO BE INFERRED ────────────────────

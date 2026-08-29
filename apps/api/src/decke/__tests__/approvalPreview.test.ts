@@ -47,8 +47,8 @@ function withDryRun(): ToolDefinition {
 }
 
 /**
- * A write tool with NO `dry_run`, like `deck_strategy`, `add_battle_log` and
- * `edit_battle_log`. For these a preview is not expressible at all.
+ * A write tool with NO `dry_run`, like `deck_strategy`. For these a preview is
+ * not expressible at all.
  */
 function withoutDryRun(): ToolDefinition {
   return defineTool({

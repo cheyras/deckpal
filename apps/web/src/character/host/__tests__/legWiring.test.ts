@@ -103,9 +103,13 @@ test('a panel is a tool call the transcript can see', () => {
   // It matters beyond the record: the summary of a chip is what gets replayed
   // as the next leg's evidence, so a panel that emits no chip is a panel the
   // next leg does not know exists.
+  // `groundingForTools` is the turn-guards proxy (2026-08-29): it delegates
+  // observe/seen/size to the real grounding and additionally harvests observed
+  // ids for the ungrounded-card-id guard. The pin cares that buildTools is
+  // handed A grounding and the chip emitter — the proxy satisfies both.
   assert.match(
     CHAT,
-    /buildTools\(writer, grounding, repairs, emitToolEvent\(writer\)\)/,
+    /buildTools\(writer, groundingForTools, repairs, emitToolEvent\(writer\)\)/,
     'the cosmetic tools stopped emitting chips',
   )
   const tools = code(read('../../../../../api/src/decke/tools.ts'))

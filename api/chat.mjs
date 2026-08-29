@@ -56,6 +56,22 @@ import {
 const MAX_STEPS = 12
 
 /**
+ * The browser-fulfilled tools, as a Set, for the empty-answer guard's
+ * navigation-handoff carve-out. Built from the real `CLIENT_TOOLS` export so it
+ * cannot go stale the way a hand-written copy would. See `decke/turnGuards.ts`.
+ */
+const CLIENT_SET = new Set(CLIENT_TOOLS)
+
+/**
+ * The server-executed cosmetic tools (`express`, `showScreen`), as a Set, for
+ * the empty-answer guard's panel/server carve-out: a turn that ran one of these
+ * and produced no text is NOT an empty-answer defect — the panel IS the answer.
+ * Built from the real `SERVER_TOOLS` export so it cannot go stale. See
+ * `decke/turnGuards.ts`.
+ */
+const SERVER_SET = new Set(SERVER_TOOLS)
+
+/**
  * Tools whose over-long arguments may be trimmed by `repairToolCall`.
  *
  * A tool belongs here only if it RENDERS rather than stores, and only if its
@@ -77,12 +93,13 @@ import { createGateway } from '@ai-sdk/gateway'
 // allowlist are server concerns in the first place.
 import { verifySupabaseJwt, createSupabaseJwksProvider } from '../apps/api/dist/auth.js'
 import { buildSystemPrompt } from '../apps/api/dist/decke/prompt.js'
-import { buildTools } from '../apps/api/dist/decke/tools.js'
+import { buildTools, CLIENT_TOOLS, SERVER_TOOLS } from '../apps/api/dist/decke/tools.js'
 import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
 import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
-import { declinedCalls } from '../apps/api/dist/decke/declined.js'
+import { declinedCalls, researchRanInConversation } from '../apps/api/dist/decke/declined.js'
+import { extractPastedLog } from '../apps/api/dist/decke/pastedLog.js'
 import {
   BALANCE_SQL,
   COST,
@@ -101,6 +118,17 @@ import { stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/n
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
 import { RepairLog, clampStrings } from '../apps/api/dist/decke/repair.js'
+import {
+  needsAnswerNudge,
+  needsContinuation,
+  errorBudgetExceeded,
+  shouldFireFlailing,
+  summarizeFailures,
+  phantomClaims,
+  ungroundedCardIds,
+  harvestObservedIds,
+  seedObservedIds,
+} from '../apps/api/dist/decke/turnGuards.js'
 import { makePool } from '@deckpal/db'
 
 /**
@@ -444,7 +472,11 @@ async function serve(request) {
   // having declined it every time, and wrote in the chat that this was the
   // problem. A matching call is now refused without a dialog. See
   // `decke/declined.ts` for why the tool is not simply taken away instead.
-  const declined = declinedCalls(messages)
+  //
+  // `latestUserText` is the reader's OWN latest message — the one fact the model
+  // cannot fake, and what re-opens a name-level family (guide / research) the
+  // reader raises again. See `declined.ts`'s bypass section.
+  const declined = declinedCalls(messages, latestUserText(messages))
 
   // ── THE METER ─────────────────────────────────────────────────────────────
   //
@@ -551,7 +583,13 @@ async function serve(request) {
    * finished turn should not carry "Checking your collection…" in its history
    * for ever, nor re-bill it on the next turn.
    */
+  // Tool-call lifecycle events, collected for the turn-end guards: the 'error'
+  // phase count feeds the flailing guard, and {name,title} feed its summary.
+  // Declared in `serve` scope (before `emitToolEvent`) so the sink here can push
+  // to it; read inside `execute` by the guard block. One per request.
+  const guardEvents = []
   const emitToolEvent = (writer) => (event) => {
+    guardEvents.push(event)
     try {
       writer.write({ type: 'data-decke-tool', data: event, transient: true })
     } catch {
@@ -609,10 +647,43 @@ async function serve(request) {
       // step one is what `showScreen` may draw on step three — evidence is a
       // property of the turn, not of a call.
       const grounding = createGrounding()
+      // The same evidence, as a Set, for the ungrounded-id guard below. Built by
+      // TAPPING `grounding.observe` through a structural proxy that delegates
+      // every method to the real grounding and harvests ids into this Set using
+      // the one `CARD_ID` regex `turnGuards.ts` owns. `grounding.ts` does not
+      // expose its ids, and the ownership of this pass does not extend to
+      // editing it, so the proxy is the seam.
+      const observedIds = new Set()
+      // ── SEED FROM THE REPLAYED CONVERSATION (cross-leg blindness) ──────────
+      //
+      // Without this, a card id that appeared in an EARLIER leg's tool result —
+      // and so is legitimately in the reader's context — is absent from this
+      // turn's `observedIds`, and `ungroundedCardIds` would flag it as invented
+      // when the model names it back. The reader typed it to ask about it; the
+      // model answered using it; the guard corrected a detail grounded two legs
+      // ago. Seeding from the incoming messages closes that: anything the
+      // conversation already carried is observed before any tool runs.
+      //
+      // Serialized cheaply — the text and tool parts of each message flattened
+      // to strings — and run through the one `harvestObservedIds` regex, so what
+      // counts as "observed" here cannot disagree with what the turn's own tool
+      // results will add.
+      for (const id of seedObservedIds(replayedText(messages))) observedIds.add(id)
+      const groundingForTools = {
+        observe: (text) => {
+          grounding.observe(text)
+          for (const id of harvestObservedIds(text)) observedIds.add(id)
+        },
+        seen: (id) => grounding.seen(id),
+        size: () => grounding.size(),
+      }
       // What `repairToolCall` below mended, so the tool can say so in its own
       // result rather than being silently corrected. Per request, like the
       // grounding beside it.
       const repairs = new RepairLog()
+      // Whether a guard (including the circles guard above) already wrote this
+      // turn. AT MOST ONE guard step per turn — never stacked.
+      let guardFired = false
 
       const allDeckeTools = {
         // `emitToolEvent` here too, so a panel becomes a row like every data
@@ -621,7 +692,7 @@ async function serve(request) {
         // compacted evidence the client replays into the next leg, so a turn
         // that drew a panel and then flew somewhere came back not knowing the
         // panel existed and narrated its contents a second time.
-        ...buildTools(writer, grounding, repairs, emitToolEvent(writer)),
+        ...buildTools(writer, groundingForTools, repairs, emitToolEvent(writer)),
         // READS AND WRITES, because the approval round-trip now exists.
         //
         // `include: () => true` is not "no filter" — every write is still
@@ -644,6 +715,15 @@ async function serve(request) {
           // whether or not one was asked for, so his word cannot be the witness
           // to his own guess. See `printingSaid.ts` for the measurement.
           readerNamedPrinting: readerNamedPrinting(latestUserText(messages)),
+          // ── THE PASTE CHANNEL ──────────────────────────────────────────────
+          //
+          // The reader's pasted PTCG Live battle log, extracted from the
+          // replayed conversation so the model never has to re-emit a ~3,000-
+          // token log into a 1,200-token output budget. `extractPastedLog` walks
+          // the same `messages` array this request parsed; the adapter
+          // substitutes it for a `@pasted` sentinel or a truncated prefix. See
+          // `decke/pastedLog.ts` for the heuristic and its bounds.
+          pastedLog: () => extractPastedLog(messages),
           // ── AND WHAT THEY HAVE ALREADY SAID NO TO ────────────────────────
           //
           // Read from the replayed history, the only place it can come from:
@@ -655,7 +735,7 @@ async function serve(request) {
           // write) and `research_meta` (a deep call), four declines apiece
           // across the corpus. See `decke/declined.ts`.
           declined,
-          grounding,
+          grounding: groundingForTools,
         }),
         // THE DEEP TIER. Four sub-agents, each with its own model, step
         // budget and tool subset — see `decke/deep.ts`.
@@ -689,8 +769,18 @@ async function serve(request) {
           // panel. Without it every id that exists only in a plan_deck result is
           // partitioned invented and stripped — the payoff turn renders an empty
           // grid. research_meta is excluded at the tool, not here.
-          grounding,
+          grounding: groundingForTools,
           onEvent: emitToolEvent(writer),
+          // ── PROVENANCE FOR THE NO-RESEARCH BAR ─────────────────────────────
+          //
+          // Did research (or a card read) actually run in this conversation?
+          // `researchRanInConversation` scans the same replayed `messages` for a
+          // `tool-research_meta` or `tool-get_card` part that ran to a result.
+          // The guide card's `no_research` flag fires when findings is trivial OR
+          // this returns false, so a guide is "backed by research" only when
+          // research genuinely ran AND the findings are non-trivial. See
+          // `decke/declined.ts` and `decke/deep.ts`.
+          researchRan: () => researchRanInConversation(messages),
         }),
       }
 
@@ -820,6 +910,18 @@ async function serve(request) {
             const settled = lastCalls.length > 0 && lastCalls.every((n) => ACTS.has(n))
             return spoke && settled
           },
+          // ── THE CIRCUIT BREAKER (c) ──────────────────────────────────────────
+          //
+          // The flailing guard used to be a POST-MORTEM only: it summarised the
+          // turn's failures AFTER the loop had already burned to the 12-step
+          // cap. The mine asked for a circuit breaker, and this is it — stop
+          // issuing further steps once the error budget across `guardEvents` is
+          // exceeded, so a turn that has already failed 5 times does not spend
+          // its remaining 7 steps failing the same way. `errorBudgetExceeded`
+          // is the same predicate the closing-step NOTE uses, so the breaker and
+          // the note agree on what "too many" means. The `onFinish` note below
+          // then explains what happened.
+          () => errorBudgetExceeded(guardEvents.map((e) => e.phase)),
         ],
         // ── WHAT HE CAN SEE, PER STEP ─────────────────────────────────────
         //
@@ -1076,10 +1178,115 @@ async function serve(request) {
               'I went round in circles on that one and ran out of room before I could ' +
               'answer — I never got to the reply. Ask me again, or narrow it down a bit?',
           })
+          // The circles guard COUNTS toward the one-guard-per-turn budget — if it
+          // wrote, no turn-guard below may fire. Never stack nudges.
+          guardFired = true
         }
       } catch {
         // A turn that failed hard has its own error path. This is only here to
         // catch the SILENT case, and it must not manufacture a second failure.
+      }
+
+      // ── TURN-END GUARDS: the four control-flow gaps the prompt could not close
+      //
+      // MINE FINDING (owner's 28-conversation history):
+      //   (a) EMPTY ANSWERS — 13 of 28 turns: data tools ran, ZERO answer text,
+      //       finishReason 'tool-calls'/null at 1–11 steps. The circles guard
+      //       above fires only at the 12-step cap, so the 1–11-step empty turn
+      //       went untouched. Quotes: "You didn't fucking show me it at all";
+      //       "you told me you weee escorting me. You didn't actually DO it".
+      //   (b) TRUNCATION — answers cut mid-sentence on finishReason 'length'
+      //       ("Here's your Mewtwo (Base").
+      //   (c) FLAILING — 12–24 tool calls, 5–12 errors across DIFFERENT tools/
+      //       args, so the per-tool repeat ledger and empty-run counter never
+      //       fired. Quote: "He's doing tons of tool calls for absolutely zero
+      //       reason."
+      //   (d) PHANTOM ACTIONS / UNGROUNDED IDS — the answer said "I'm creating
+      //       the list now" / "I just wiped it clean and rebuilt it" / "pulling
+      //       both up" while NO write or navigation tool was called (5 of 28
+      //       turns, the angriest quotes); or named a card id no tool returned
+      //       ("search returned me02-013, answer said me02-125").
+      //
+      // This codebase has twice measured prompt-only fixes at zero, so these are
+      // detectors + a text-delta injection, not prompt rules. See
+      // `decke/turnGuards.ts` for the pure logic pinned by its own test.
+      //
+      // ONE GUARD PER TURN. The first match in the fixed priority order below
+      // writes and the rest are skipped; the circles guard above has already
+      // claimed the turn if it fired. The meter/credits refusal returns before
+      // the stream (see `meterTurn`), so this block is never reached on a
+      // refused turn — the "never inject when the meter refused" rule holds by
+      // construction.
+      //
+      // MECHANISM: the note is written as a `text-delta`, the SAME injection
+      // the circles guard uses — the proven, minimal writer.write this file
+      // already has. A second full model step was considered and rejected for
+      // this pass as non-minimal and untestable in a Vercel function; the
+      // detectors carry the decision logic and the note is the spec's verbatim
+      // nudge text. See `notes.md` for the trade.
+      try {
+        if (guardFired) {
+          // The circles guard already wrote this turn. Never stack.
+        } else {
+          const steps = await result.steps
+          const answerText = steps.map((s) => (s.text ?? '')).join('\n')
+          const calledToolNames = []
+          for (const s of steps) for (const c of (s.toolCalls ?? [])) calledToolNames.push(c.toolName)
+          const phases = guardEvents.map((e) => e.phase)
+          // `result.finishReason` is an already-settled promise by this point;
+          // awaiting it again is cheap and keeps this block self-contained.
+          const finishReason = await result.finishReason.catch(() => undefined)
+
+          // THE NOTE IS READER-FACING. A text-delta renders in the transcript
+          // as Deck-E's own words (exactly like the circles guard's line above)
+          // — so every note is an honest first-person admission the reader can
+          // act on, never an instruction addressed at the model. It also lands
+          // in the replayed history, where the model reads its own admission on
+          // the next leg — the corrective signal rides the same sentence.
+          // (Orchestrator correction 2026-08-29: the first cut of these strings
+          // was written TO the model and would have rendered as gibberish.)
+          let note = null
+          if (needsContinuation(String(finishReason ?? ''))) {
+            // (b) TRUNCATION — cut off mid-sentence.
+            note = ' …I got cut off mid-sentence there. Say "keep going" and I\'ll finish the thought.'
+          } else if (errorBudgetExceeded(phases)) {
+            // (c) FLAILING — too many errors across the turn; stop and summarise.
+            const chips = guardEvents
+              .filter((e) => e.phase === 'error')
+              .map((e) => ({ name: e.name, title: e.title }))
+            note =
+              `\n\nI kept hitting walls there. ${summarizeFailures(chips)} ` +
+              'Rather than keep flailing, tell me to try a different way — or ask it differently and I will.'
+          } else if (needsAnswerNudge(answerText, calledToolNames, CLIENT_SET)) {
+            // (a) EMPTY ANSWER — tools ran, no client tool, nothing said.
+            note =
+              'I looked things up and then never actually answered you — that\'s on me. ' +
+              'Ask that again and I\'ll answer from what I found.'
+          } else {
+            // (d) PHANTOM ACTIONS / UNGROUNDED IDS — only meaningful AFTER the
+            // model produced text, which is why this branch is last: (a) above
+            // already owned the empty-text turn.
+            const phantoms = phantomClaims(answerText, calledToolNames)
+            const ungrounded = ungroundedCardIds(answerText, observedIds)
+            if (phantoms.length > 0) {
+              note =
+                '\n\nOne correction: I talked about doing that just now, but I never actually ran it — ' +
+                'nothing has changed. Say the word and I\'ll actually do it.'
+            } else if (ungrounded.length > 0) {
+              note =
+                `\n\nA caution: I named ${ungrounded.join(', ')} without looking it up this turn — ` +
+                'don\'t trust that detail until I check it. Ask me to verify and I will.'
+            }
+          }
+
+          if (note) {
+            guardFired = true
+            writer.write({ type: 'text-delta', id: 'turn-guard', delta: note })
+          }
+        }
+      } catch {
+        // A guard must never manufacture a second failure on a turn that may
+        // already have one. The detection is best-effort; the turn stands.
       }
     },
   })
@@ -1127,6 +1334,48 @@ function latestUserText(messages) {
       .join(' ')
   }
   return ''
+}
+
+/**
+ * The replayed conversation flattened to strings, for cross-leg id seeding.
+ *
+ * Walks every message's `parts` and collects the string content a card id could
+ * be hiding in: text parts (user and assistant), tool-call `input` serialised,
+ * and tool-result `output` / `state` strings. The point is not a faithful
+ * transcript — it is a CHEAP sweep for ids the conversation already carried, so
+ * `seedObservedIds` can mark them observed before this turn's tools run. See the
+ * seeding block beside `observedIds` and `decke/turnGuards.ts`'s
+ * `seedObservedIds`.
+ */
+function replayedText(messages) {
+  if (!Array.isArray(messages)) return []
+  const out = []
+  for (const m of messages) {
+    const parts = m?.parts
+    if (!Array.isArray(parts)) continue
+    for (const p of parts) {
+      if (!p || typeof p !== 'object') continue
+      if (p.type === 'text' && typeof p.text === 'string') {
+        out.push(p.text)
+        continue
+      }
+      // Tool parts: the input (may carry ids the reader/model typed) and any
+      // output / state string (tool results are where ids come from).
+      if (typeof p.type === 'string' && p.type.startsWith('tool-')) {
+        if (p.input && typeof p.input === 'object') {
+          try {
+            out.push(JSON.stringify(p.input))
+          } catch {
+            /* non-serialisable input is not a seeding concern */
+          }
+        }
+        if (typeof p.output === 'string') out.push(p.output)
+        if (typeof p.state === 'string') out.push(p.state)
+        if (typeof p.result === 'string') out.push(p.result)
+      }
+    }
+  }
+  return out
 }
 
 /**
