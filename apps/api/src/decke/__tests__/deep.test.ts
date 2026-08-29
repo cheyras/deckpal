@@ -96,15 +96,22 @@ function timedStream(chunks: unknown[], o: { gapMs: number; forever?: boolean })
 }
 
 /** A gateway whose every model id resolves to the same fake. */
-function fakeGateway(chunks: unknown[], o: { gapMs: number; forever?: boolean }): GatewayProvider {
+function fakeGateway(
+  chunks: unknown[],
+  o: { gapMs: number; forever?: boolean; onPrompt?: (p: unknown) => void },
+): GatewayProvider {
   const model = new MockLanguageModelV3({
-    doStream: async () => ({ stream: timedStream(chunks, o) as never }),
+    doStream: async (req) => {
+      if (o.onPrompt) o.onPrompt(req.prompt)
+      return { stream: timedStream(chunks, o) as never }
+    },
   })
   return (() => model) as unknown as GatewayProvider
 }
 
 interface Runnable {
   execute: (args: Record<string, unknown>, o: { toolCallId: string }) => Promise<string>
+  needsApproval?: (input: unknown) => boolean | Promise<boolean>
 }
 
 /**
@@ -123,6 +130,10 @@ async function runDeep(o: {
   budgetMs?: number
   heartbeatMs?: number
   allowed?: boolean
+  declined?: ReadonlySet<string>
+  onPrompt?: (p: unknown) => void
+  /** Override the default args for the tool — used to pass `findings` etc. */
+  args?: Record<string, unknown>
 }): Promise<{ events: ToolEvent[]; text: string }> {
   const previous = process.env[DECKE_DEEP_BUDGET_VAR]
   if (o.budgetMs != null) process.env[DECKE_DEEP_BUDGET_VAR] = String(o.budgetMs)
@@ -130,10 +141,15 @@ async function runDeep(o: {
   try {
     const deep = buildDeepTools({
       ctx: CTX,
-      gateway: fakeGateway(o.chunks, { gapMs: o.gapMs, ...(o.forever ? { forever: true } : {}) }),
+      gateway: fakeGateway(o.chunks, {
+        gapMs: o.gapMs,
+        ...(o.forever ? { forever: true } : {}),
+        ...(o.onPrompt ? { onPrompt: o.onPrompt } : {}),
+      }),
       charge: async () => ({ allowed: o.allowed ?? true, cap: 10 }),
       onEvent: (e) => events.push(e),
       heartbeatMs: o.heartbeatMs ?? 40,
+      ...(o.declined ? { declined: o.declined } : {}),
     }) as unknown as Record<string, Runnable>
     const name = o.tool ?? 'analyze_collection'
     // ── THE ARGUMENTS EACH TOOL ACTUALLY TAKES ────────────────────────────
@@ -146,13 +162,14 @@ async function runDeep(o: {
     //
     // A harness that supplies the wrong shape is testing the harness.
     const args: Record<string, unknown> =
-      name === 'research_meta'
+      o.args ??
+      (name === 'research_meta'
         ? { query: 'what is winning Standard right now?' }
         : name === 'plan_deck'
           ? { idea: 'a mill deck' }
           : name === 'write_strategy_guide'
             ? { deck: 'Toolbox Slowking' }
-            : { question: 'what should I finish?' }
+            : { question: 'what should I finish?' })
     const text = await deep[name]!.execute(args, { toolCallId: 't1' })
     return { events, text }
   } finally {
@@ -472,4 +489,134 @@ test('DEEP_TOOLS matches what buildDeepTools actually returns', () => {
     charge: async () => ({ allowed: true, cap: 10 }),
   })
   assert.deepEqual([...DEEP_TOOLS].sort(), Object.keys(deep).sort())
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FINDINGS CHANNEL — research-backed guides, and the no-research note
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// The owner requires strategy-guide updates to always be based on real
+// research. `findings` (max 4,000 chars) is the evidence inlet the write
+// sub-agent builds from; `focus` stays the short directive it already was. The
+// security split is unchanged: the write sub-agent still gets NO research tools.
+//
+// When `findings` is absent or trivial (< 80 chars), a `no_research` flag is
+// injected into the input the approval card renders — the X2-compliant way to
+// show the reader that the guide is not backed by research.
+
+test('findings are threaded into the write sub-agent prompt', async () => {
+  // The evidence inlet: the conversational model runs research_meta, then
+  // passes what it learned in `findings`. The sub-agent must build from it.
+  const findings =
+    'Dragapult ex is the top deck in Standard at 51% win rate across 77 tournaments ' +
+    '(4,602 players, 10,042 matches), per Limitless. Charizard ex is second at 48%.'
+  let captured: unknown
+  await runDeep({
+    tool: 'write_strategy_guide',
+    chunks: [
+      { type: 'stream-start', warnings: [] },
+      { type: 'text-start', id: '0' },
+      { type: 'text-delta', id: '0', delta: 'Guide written and stored.' },
+      { type: 'text-end', id: '0' },
+      finish('stop'),
+    ],
+    gapMs: 5,
+    onPrompt: (p) => {
+      captured = p
+    },
+    args: { deck: 'Toolbox Slowking', findings },
+  })
+  const s = JSON.stringify(captured)
+  assert.ok(
+    s.includes('Research findings to build from'),
+    `findings were not threaded into the prompt: ${s.slice(0, 300)}`,
+  )
+  assert.ok(
+    s.includes('Dragapult ex is the top deck'),
+    `the findings content did not reach the prompt: ${s.slice(0, 300)}`,
+  )
+})
+
+test('a guide with no findings is told to say so', async () => {
+  // "A guide written with empty findings will say so to the reader." When
+  // `findings` is absent, the sub-agent is instructed to name its own gap.
+  let captured: unknown
+  await runDeep({
+    tool: 'write_strategy_guide',
+    chunks: [
+      { type: 'stream-start', warnings: [] },
+      { type: 'text-start', id: '0' },
+      { type: 'text-delta', id: '0', delta: 'Guide written.' },
+      { type: 'text-end', id: '0' },
+      finish('stop'),
+    ],
+    gapMs: 5,
+    onPrompt: (p) => {
+      captured = p
+    },
+  })
+  const s = JSON.stringify(captured)
+  assert.ok(
+    s.includes('No research findings were provided'),
+    `an empty-findings guide was not told to say so: ${s.slice(0, 300)}`,
+  )
+})
+
+test('the no-research note is put in the input when findings is absent', () => {
+  // The approval card renders the real args. Putting the fact in the input is
+  // the X2-compliant way to show the reader that no research backs this guide.
+  const deep = buildDeepTools({
+    ctx: CTX,
+    gateway: (() => {}) as never,
+    charge: async () => ({ allowed: true, cap: 10 }),
+  }) as unknown as Record<string, Runnable>
+  const input: Record<string, unknown> = { deck: 'Toolbox Slowking' }
+  const approved = deep['write_strategy_guide']!.needsApproval!(input)
+  assert.equal(approved, true, 'a guide without findings should still ask for approval')
+  assert.equal(
+    input.no_research,
+    true,
+    'the input should carry a no_research note when findings is absent',
+  )
+})
+
+test('the no-research note is absent when findings is substantial', () => {
+  // Findings above the trivial threshold (< 80 chars) means the guide IS backed
+  // by research, and the input should not carry the no-research flag.
+  const deep = buildDeepTools({
+    ctx: CTX,
+    gateway: (() => {}) as never,
+    charge: async () => ({ allowed: true, cap: 10 }),
+  }) as unknown as Record<string, Runnable>
+  const input: Record<string, unknown> = {
+    deck: 'Toolbox Slowking',
+    findings: 'A'.repeat(100),
+  }
+  const approved = deep['write_strategy_guide']!.needsApproval!(input)
+  assert.equal(approved, true, 'a guide with findings should ask for approval')
+  assert.equal(
+    input.no_research,
+    undefined,
+    'the input should NOT carry a no_research note when findings is substantial',
+  )
+})
+
+test('the no-research note is present when findings is trivially short', () => {
+  // Exactly at the boundary: < 80 chars of trimmed findings is trivial.
+  const deep = buildDeepTools({
+    ctx: CTX,
+    gateway: (() => {}) as never,
+    charge: async () => ({ allowed: true, cap: 10 }),
+  }) as unknown as Record<string, Runnable>
+  const input: Record<string, unknown> = {
+    deck: 'Toolbox Slowking',
+    findings: 'short',
+  }
+  const approved = deep['write_strategy_guide']!.needsApproval!(input)
+  assert.equal(approved, true)
+  assert.equal(
+    input.no_research,
+    true,
+    'a trivially short findings should still trigger the no-research note',
+  )
 })

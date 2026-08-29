@@ -786,6 +786,20 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
      * grounding it would let web prose license a card grid.
      */
     grounds?: boolean;
+    /**
+     * Is this one of the two guide tools whose declines suppress by NAME?
+     *
+     * Set ONLY for `write_strategy_guide`. The other guide tool,
+     * `deck_strategy`, lives in the data-tool adapter (`aisdk.ts`) and is
+     * suppressed by the same `GuideDeclinedSet` — see `declined.ts`'s header
+     * for the owner's "ask maybe once" complaint and the name-level design.
+     *
+     * When true, `needsApproval` also injects a `no_research` flag into the
+     * input the approval card renders, exactly when `findings` is absent or
+     * trivial — so the reader can see, before tapping, that the guide is not
+     * backed by research. See the `write_strategy_guide` spec below.
+     */
+    guide?: boolean;
     // HISTORY — superseded: a `writes?: boolean` flag lived here and gated
     // `needsApproval` on the one tool that stores (`write_strategy_guide`).
     // The every-deep-call-asks reversal below made it dead, and it is gone;
@@ -832,7 +846,27 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
     // done it." `false` here means RAISE NO DIALOG, not "run it" — `execute`
     // refuses it below, and both read the same predicate so they cannot
     // disagree about which calls are exempt.
-    needsApproval: (input: unknown) => !alreadyDeclined(spec.name, input),
+    needsApproval: (input: unknown) => {
+      const declined = alreadyDeclined(spec.name, input);
+      // ── THE NO-RESEARCH NOTE, put where the reader can see it ──────────────
+      //
+      // The approval card renders the real args — the X2-compliant way to
+      // show the reader that a guide is not backed by research is to put the
+      // fact IN the input. `findings` is the only evidence inlet the write
+      // sub-agent has (see the `write_strategy_guide` spec below), and when it
+      // is absent or trivial (< 80 chars) the guide will say so — the owner
+      // requires that, and this is how the reader knows it before tapping.
+      //
+      // Injected only when NOT declined (a declined call raises no dialog and
+      // `execute` refuses it below), and only for the guide tool, so the other
+      // three deep tools' inputs are untouched.
+      if (!declined && spec.guide && input && typeof input === 'object') {
+        const a = input as Record<string, unknown>;
+        const f = typeof a.findings === 'string' ? a.findings.trim() : '';
+        if (f.length < 80) a.no_research = true;
+      }
+      return !declined;
+    },
     execute: async (args: Record<string, unknown>, { toolCallId }: { toolCallId: string }) => {
       const chip = { id: toolCallId, name: spec.name, title: spec.title };
       if (alreadyDeclined(spec.name, args)) {
@@ -1158,6 +1192,8 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
       name: 'write_strategy_guide',
       // Holds real catalogue tools: an id here was resolved against the database.
       grounds: true,
+      // The one deep tool whose declines suppress by NAME — see `declined.ts`.
+      guide: true,
       title: 'Write and store a strategy guide',
       // THE ONE DEEP TOOL THAT WRITES. Asked once, at the boundary a person
       // can actually evaluate.
@@ -1170,20 +1206,40 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
       // claims exactly the synthesis this product is for was inviting itself to
       // make the meta half up.
       //
-      // Now it says what it does. If a guide should carry the current meta, the
-      // caller researches first and passes the findings in `focus` — which
-      // keeps the web text where it belongs: read by the conversational model,
-      // under the frame that says it is data, never fetched by the sub-agent
-      // that also holds a write.
+      // ── NOW `findings` IS THE EVIDENCE INLET, AND `focus` STAYS SHORT ──────
+      //
+      // `focus` (300 chars) was the only directive the sub-agent got, and it
+      // was never wide enough to carry research. `findings` (4,000 chars) is
+      // the evidence inlet: the conversational model runs `research_meta` or
+      // reads the deck's own data first, then passes what it learned here.
+      // The security split is unchanged — the write sub-agent still gets NO
+      // research tools. `findings` is text the caller already framed as DATA,
+      // not a capability handed to the thing that also holds a write.
+      //
+      // A guide written with empty findings will say so to the reader — the
+      // owner requires that strategy-guide updates always be based on real
+      // research, and the honest shape of that requirement is a guide that
+      // names its own gap when the gap is there.
       description:
-        'Write a real strategy guide for one of their decks and save it. Reads the deck and ' +
-        'its battle logs, then writes the guide and stores it with deck_strategy. ' +
-        'It CANNOT look anything up on the web — if the guide should reflect the current ' +
-        'meta, research that first and pass what you found in `focus`. ' +
+        'Write a real strategy guide for one of their decks and save it. Research first: run ' +
+        'research_meta or read the deck\'s own data, and pass what you found in `findings`. ' +
+        'A guide written with empty findings will say so to the reader. ' +
+        'Reads the deck and its battle logs, then writes the guide and stores it with ' +
+        'deck_strategy. It CANNOT look anything up on the web — `findings` is the only ' +
+        'evidence inlet; the sub-agent that writes holds no research tools. ' +
         'Note that deck_strategy only STORES text — this is the tool that writes it.',
       inputSchema: z.object({
         deck: z.string().max(120).describe('Which deck, by name or id.'),
         focus: z.string().max(300).optional().describe('Anything specific they asked for.'),
+        findings: z
+          .string()
+          .max(4000)
+          .optional()
+          .describe(
+            'Research findings the guide must build from. Run research_meta or read the ' +
+              "deck's own data first, and pass what you learned here. A guide written with " +
+              'empty findings will say so to the reader.',
+          ),
         deepest: z.boolean().optional().describe('Only on an explicit request for your best work.'),
       }),
       run: async (args, progress) => {
@@ -1193,7 +1249,22 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
           choice,
           modelId: pickModel(choice, args.deepest === true),
           instructions: `${ANALYST}\n\nYou are writing a strategy guide for one deck. Read the deck's card list and its battle logs first. Name real cards from the list. Cite real results from the logs. A guide that could have been written about any deck is a failure, however well written.\n\nWhen the guide is ready, store it with deck_strategy. Then report what you stored, briefly.`,
-          prompt: `Write a strategy guide for the deck: ${String(args.deck ?? '')}${args.focus ? `\nThey particularly want: ${String(args.focus)}` : ''}`,
+          // ── `findings` IS THE EVIDENCE THE GUIDE IS BUILT FROM ────────────
+          //
+          // Threaded into the prompt as the research the sub-agent must build
+          // from — not into the instructions, which are the preamble the
+          // sub-agent always reads. `focus` stays the short directive it
+          // already was; `findings` is the longer channel the owner requires.
+          //
+          // When findings is absent or trivial the sub-agent is told to say so
+          // — the owner requires that a guide name its own gap, and this is the
+          // last thing the sub-agent reads before it writes.
+          prompt:
+            `Write a strategy guide for the deck: ${String(args.deck ?? '')}` +
+            `${args.focus ? `\nThey particularly want: ${String(args.focus)}` : ''}` +
+            (typeof args.findings === 'string' && args.findings.trim()
+              ? `\n\nResearch findings to build from:\n${String(args.findings)}`
+              : '\n\nNo research findings were provided. Say so to the reader — a guide written without research is a guide that says it was written without looking anything up.'),
           // Reads PLUS the one write it needs, and `approvals: 'upstream'`
           // because the human was already asked — this whole tool required
           // approval before it ran (see `needsApproval` above).

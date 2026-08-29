@@ -6,7 +6,7 @@ import { currentUserId } from '../identity.js';
 import { recordDeckChange, recordStrategyChange, type SnapshotEntry } from '../deck/versions.js';
 import { closeBatch, openBatch, OPS, parseSource, recordEvents } from '../mutations.js';
 import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
-import { parseBattleLog } from '../deck/battlelog.js';
+import { mergeLogFields, parseBattleLog, scoreDeckMatch } from '../deck/battlelog.js';
 import {
   validateDeck, resolveDeck, buildReprintOracle,
   parsePtcgl, parseMassEntry, serializeMassEntry,
@@ -1415,7 +1415,11 @@ decksRouter.post(
       );
       const parsed = parseBattleLog(rawLog, names.rows.map((r) => r.name), playerName);
 
-      const result = explicitResult ?? parsed.result;
+      // Explicit args win: caller-supplied result / opponent / opponentDeck are
+      // authoritative over parser output; the parser fills whatever the caller
+      // omitted. Centralised in mergeLogFields so the override contract is
+      // pinned by a unit test, not just inline `??` at the call site.
+      const merged = mergeLogFields(parsed, { result: explicitResult, opponent, opponentDeck });
       if (parsed.players.me === null && explicitResult === undefined) {
         throw badRequest(
           playerName
@@ -1433,9 +1437,9 @@ decksRouter.post(
               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, COALESCE($10::timestamptz, now()), $11)
          RETURNING id, deck_version, raw_log, result, opponent, opponent_deck, notes, parsed, source, played_at, created_at`,
         [
-          deckId, version, rawLog, result,
-          opponent ?? parsed.players.opponent,
-          opponentDeck ?? parsed.opponentDeckGuess,
+          deckId, version, rawLog, merged.result,
+          merged.opponent,
+          merged.opponentDeck,
           notes, JSON.stringify(parsed), source, playedAt, userId,
         ],
       );
@@ -1444,6 +1448,84 @@ decksRouter.post(
 
     userCache(res);
     res.status(201).json({ log: shapeLogFull(out.log), attachedToVersion: out.attachedToVersion });
+  }),
+);
+
+// POST /decks/log-preview — parse a pasted log (NO writes anywhere) and score
+// it against the caller's decks' current-version card lists, so the agent can
+// pick which deck a log belongs to before attaching it. Pure scoring lives in
+// scoreDeckMatch; this handler only loads + shapes, in the file's house style
+// (asyncHandler, currentUserId, q/loadRows, userCache, res.json).
+//
+// Response contract (load-bearing — a follow-up builds the agent tool against
+// exactly these field names):
+//   { parsed: { result, opponent, turns, prizes, confidence, myPokemon, opponentDeckGuess },
+//     candidates: [{ deckId, name, format, version, score, matchedNames, total }] }
+// candidates are sorted by score descending, capped at 5, and an empty array
+// when nothing scores above zero.
+decksRouter.post(
+  '/log-preview',
+  asyncHandler(async (req, res) => {
+    const userId = currentUserId(req);
+    const body = req.body ?? {};
+    if (typeof body.log !== 'string' || !body.log.trim()) throw badRequest('log is required');
+    if (body.log.length > RAW_LOG_MAX) throw badRequest(`log too large (max ${RAW_LOG_MAX} chars)`);
+    // The brief names this body field `player_name` (snake_case); accept it
+    // literally so the follow-up agent tool — built against the brief's field
+    // names — works. Fall back to the file's camelCase convention for any other
+    // caller. Either way an empty/absent value means "omit" (deck-agnostic parse).
+    const playerName = parseOptText(body.player_name ?? body.playerName, 100, 'player_name') ?? undefined;
+
+    // Deck-agnostic parse: no deck names are passed, so owner scoring will not
+    // resolve "me" (and the drift tripwire is suppressed for an empty deck).
+    // parsed.playerCards carries both players' extracted names + codes, which is
+    // what scoreDeckMatch ranks decks on.
+    const parsed = parseBattleLog(body.log, [], playerName);
+
+    const metas = await q<DeckMeta>(
+      `${DECK_META_SELECT} WHERE user_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC`,
+      [userId],
+    );
+
+    const candidates: {
+      deckId: string;
+      name: string;
+      format: FormatCode;
+      version: number;
+      score: number;
+      matchedNames: number;
+      total: number;
+    }[] = [];
+    for (const meta of metas) {
+      const { rows } = await loadRows(meta.id, userId);
+      const deckCards = rows.map((r) => ({ name: r.name, cardId: r.tcgdex_id }));
+      const m = scoreDeckMatch(parsed, deckCards);
+      if (m.score <= 0) continue; // nothing above zero → not a candidate
+      candidates.push({
+        deckId: meta.id,
+        name: meta.name,
+        format: meta.format_code,
+        version: meta.version,
+        score: m.score,
+        matchedNames: m.matchedNames,
+        total: m.total,
+      });
+    }
+    candidates.sort((a, b) => b.score - a.score);
+
+    userCache(res);
+    res.json({
+      parsed: {
+        result: parsed.result,
+        opponent: parsed.players.opponent,
+        turns: parsed.totalTurns,
+        prizes: parsed.prizesTaken,
+        confidence: parsed.confidence,
+        myPokemon: parsed.myPokemon,
+        opponentDeckGuess: parsed.opponentDeckGuess,
+      },
+      candidates: candidates.slice(0, 5),
+    });
   }),
 );
 

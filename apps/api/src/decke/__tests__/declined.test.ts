@@ -126,3 +126,123 @@ test('the ABANDONED wording matches the client that emits it, exactly', async ()
   const declined = declinedCalls([msg([part('research_meta', { q: 1 }, false, 'the reader declined')])]);
   assert.equal(declined.size, 1, 'a real decline must still be recorded');
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SUGGEST-ONCE ETIQUETTE — the two guide tools, declined by NAME
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// The owner: "ask maybe once, and if the user seems uninterested, stop
+// persistently asking." The ledger above keys on (tool, args), so a reworded
+// guide re-offer asks again. The two guide tools — `deck_strategy` (when it
+// writes) and `write_strategy_guide` — are the same act at two boundaries, and
+// a decline of EITHER suppresses further calls to BOTH, by name, regardless of
+// arguments. A read-only `deck_strategy` call (no markdown) is NOT suppressed.
+
+test('a declined write_strategy_guide suppresses further deck_strategy writes regardless of args', () => {
+  // The symmetry of the act: declining the writer suppresses the storage tool
+  // too, because a reworded deck_strategy write is the same guide save.
+  const declined = declinedCalls([
+    msg([part('write_strategy_guide', { deck: 'Toolbox Slowking' }, false, 'the reader declined')]),
+  ]);
+  assert.ok(
+    declined.has(callKey('deck_strategy', { deck_id: 'd1', markdown: '# New Guide\n\nA reworded one.' })),
+    'a write_strategy_guide decline did not suppress a deck_strategy write',
+  );
+});
+
+test('a declined deck_strategy WRITE suppresses further write_strategy_guide calls regardless of args', () => {
+  // And the reverse: declining the storage shape suppresses the writer shape.
+  const declined = declinedCalls([
+    msg([part('deck_strategy', { deck_id: 'd1', markdown: '# Old Guide' }, false, 'the reader declined')]),
+  ]);
+  assert.ok(
+    declined.has(callKey('write_strategy_guide', { deck: 'Toolbox Slowking', focus: 'sideboarding' })),
+    'a deck_strategy write decline did not suppress a write_strategy_guide call',
+  );
+});
+
+test('a declined deck_strategy READ does NOT suppress guide calls', () => {
+  // "a read-only deck_strategy call (no markdown arg) is NOT suppressed — only
+  // the write shape is." A read is a different question.
+  const declined = declinedCalls([
+    msg([part('deck_strategy', { deck_id: 'd1' }, false, 'the reader declined')]),
+  ]);
+  assert.ok(
+    !declined.has(callKey('write_strategy_guide', { deck: 'd1' })),
+    'a read decline suppressed a write_strategy_guide call',
+  );
+  assert.ok(
+    !declined.has(callKey('deck_strategy', { deck_id: 'd1', markdown: '# Guide' })),
+    'a read decline suppressed a deck_strategy write',
+  );
+  // The exact read call IS still suppressed by (tool, args) — that is unchanged.
+  assert.ok(
+    declined.has(callKey('deck_strategy', { deck_id: 'd1' })),
+    'the exact read call was not suppressed by its own (tool, args) decline',
+  );
+});
+
+test('reworded guide args are still suppressed by the name-level decline', () => {
+  // The measured complaint: the model rewords the guide and calls
+  // deck_strategy again with different markdown. Different args, same act —
+  // suppressed by name.
+  const declined = declinedCalls([
+    msg([part('deck_strategy', { deck_id: 'd1', markdown: '# Guide v1' }, false, 'the reader declined')]),
+  ]);
+  assert.ok(
+    declined.has(callKey('deck_strategy', { deck_id: 'd1', markdown: '# Guide v2 — completely reworded' })),
+    'a reworded deck_strategy write was not suppressed by the name-level decline',
+  );
+});
+
+test('other tools are unaffected by a guide decline', () => {
+  // Only the two guide tools suppress by name. Everything else keeps exact
+  // (tool, args) semantics.
+  const declined = declinedCalls([
+    msg([part('write_strategy_guide', { deck: 'd1' }, false, 'the reader declined')]),
+  ]);
+  assert.ok(
+    !declined.has(callKey('research_meta', { query: 'what is winning Standard?' })),
+    'a guide decline suppressed an unrelated tool',
+  );
+  assert.ok(
+    !declined.has(callKey('plan_deck', { idea: 'a mill deck' })),
+    'a guide decline suppressed an unrelated tool',
+  );
+});
+
+test('a read-shape deck_strategy call is NOT suppressed by a guide decline', () => {
+  // The other half of "only the write shape is": a write_strategy_guide decline
+  // suppresses deck_strategy writes but NOT reads.
+  const declined = declinedCalls([
+    msg([part('write_strategy_guide', { deck: 'd1' }, false, 'the reader declined')]),
+  ]);
+  assert.ok(
+    !declined.has(callKey('deck_strategy', { deck_id: 'd1' })),
+    'a read-shape deck_strategy call was suppressed by a guide decline',
+  );
+});
+
+test('the guide refusal message acknowledges the earlier no and forbids work-arounds', () => {
+  // The doctrine: acknowledge the earlier no, drop the subject unless the
+  // reader raises it, forbid work-arounds. The guide message names the act,
+  // not the exact tool call — because rewording is not a new question.
+  for (const tool of ['write_strategy_guide', 'deck_strategy'] as const) {
+    const m = alreadyDeclinedMessage(tool);
+    assert.match(m, /already said no/);
+    assert.match(m, /has not run/);
+    assert.match(m, /do not work around it/i);
+    assert.match(m, /Drop the subject/);
+    assert.match(m, /If they tell you to go ahead/);
+    // It does NOT say "this exact" — the whole point of the name-level
+    // suppression is that rewording is not a new question.
+    assert.doesNotMatch(m, /this exact/);
+  }
+});
+
+test('a non-guide tool keeps the exact-call refusal message', () => {
+  // The existing doctrine for every other tool: name the exact call. The guide
+  // rewording does not change this.
+  const m = alreadyDeclinedMessage('research_meta');
+  assert.match(m, /this exact research_meta call/);
+});

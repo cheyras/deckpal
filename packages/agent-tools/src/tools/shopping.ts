@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { FINISHES, GOALS, errText } from '../shared.js';
+import { explainMiss, needList, resolveSet, resolvedNote, MISS_ADVICE } from '../entities.js';
 
 /**
  * `set_cart` — TCGplayer Mass Entry deep links, built from a set, a saved list,
@@ -173,18 +174,39 @@ const setCartTool = defineTool({
       if (given.length === 0) return fail('Pass one of set_id, list_id, or items.');
       if (given.length > 1) return fail('Pass exactly ONE of set_id, list_id, or items — they are three different sources.');
 
+      const notes: string[] = [];
       let r: CartResponse;
       if (args.set_id) {
+        // RESOLVED, NOT COMPARED RAW. Every sibling tool routes set_id through
+        // `resolveSet` so names, near-miss spellings and printed codes all reach
+        // the API as a canonical id. `set_cart` was the one that did not, so
+        // 'sv3.5' or 'PAL' failed in the one shopping tool that accepted them
+        // everywhere else.
+        const found = await resolveSet(ctx, args.set_id);
+        if (found.kind !== 'found') {
+          return fail(explainMiss('set', args.set_id, found, MISS_ADVICE.set));
+        }
+        const setId = found.value.tcgdexId;
+        const setNote = resolvedNote('set', args.set_id, setId, found.value.name, found.matchedBy);
+        if (setNote) notes.push(setNote);
+
         const params = new URLSearchParams({ goal: args.goal ?? 'complete' });
         for (const f of args.finishes ?? []) params.append('finish', f);
         for (const v of args.rarity ?? []) params.append('rarity', v);
         for (const v of args.rarity_exclude ?? []) params.append('rarity_exclude', v);
-        r = (await ctx.api.get(`/sets/${encodeURIComponent(args.set_id.trim())}/massentry?${params.toString()}`)) as CartResponse;
+        r = (await ctx.api.get(`/sets/${encodeURIComponent(setId)}/massentry?${params.toString()}`)) as CartResponse;
       } else if (args.list_id) {
+        // A list NAME or a uuid — resolved the way `lists` and `edit_list` do,
+        // so 'My Shopping List' reaches the API as the list's uuid rather than
+        // a 404.
+        const picked = await needList(ctx, args.list_id);
+        if (!picked.ok) return fail(picked.message);
+        if (picked.note) notes.push(picked.note);
+
         const params = new URLSearchParams();
         if (args.missing_only) params.set('missing_only', 'true');
         r = (await ctx.api.get(
-          `/lists/${encodeURIComponent(args.list_id.trim())}/massentry${params.size ? `?${params.toString()}` : ''}`,
+          `/lists/${encodeURIComponent(picked.value.id)}/massentry${params.size ? `?${params.toString()}` : ''}`,
         )) as CartResponse;
       } else {
         r = (await ctx.api.send('POST', '/massentry', {
@@ -196,7 +218,9 @@ const setCartTool = defineTool({
         })) as CartResponse;
       }
 
-      return ok(render(r).join('\n'), {
+      const lines = render(r);
+      for (const n of notes) lines.push(n);
+      return ok(lines.join('\n'), {
         source: r.source,
         set: r.set?.setId,
         list: r.list?.id,
