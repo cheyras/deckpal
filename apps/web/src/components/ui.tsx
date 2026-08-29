@@ -298,29 +298,34 @@ function EnergySymbolsMark({ size }: { size: number }) {
 // no layout shift. `name` is optional & backward-compatible.
 export function SetSymbolTile({
   setId,
-  hasSymbol,
   name,
   size = 40,
 }: {
   setId?: string | null
-  hasSymbol?: boolean | null
   name?: string | null
   size?: number
 }) {
   const [failed, setFailed] = useState(false)
   const mark = setMarkKind(setId, name)
-  const showImg = Boolean(setId && hasSymbol && !mark && !failed)
+  // `hasSymbol` (Boolean(set.symbolUrl)) used to gate the image attempt, but the
+  // catalog column is NULL for exactly the sets the fallback crosswalk now
+  // sources, so the tile would never ask for an asset that exists. Attempt the
+  // image for every non-energy set and let the image-tier ladder degrade: object
+  // URL → /deckpal/images → the authored mark (promo) or the derived tag. A set
+  // that HAS a real symbol prefers it; the authored mark is the promo fallback
+  // when the image ladder exhausts (no real symbol), not the derived tag.
+  const showImg = Boolean(setId && mark !== 'energy' && !failed)
   return (
     <div
       className="flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-on-light"
       style={{ width: size, height: size }}
     >
-      {mark === 'promo' ? (
-        <PromoStarMark size={size} />
-      ) : mark === 'energy' ? (
+      {mark === 'energy' ? (
         <EnergySymbolsMark size={size} />
       ) : showImg ? (
         <SetSymbolImg setId={setId!} onExhausted={() => setFailed(true)} />
+      ) : mark === 'promo' ? (
+        <PromoStarMark size={size} />
       ) : (
         <span
           className="font-black leading-none text-surface-on-light-text"
