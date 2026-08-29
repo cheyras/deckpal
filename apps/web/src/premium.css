@@ -861,17 +861,52 @@
 }
 
 /* Card art. A trading-card app's card images should sit on the page like the
-   objects they photograph, and lift when you reach for one. */
-:root[data-skin='premium'] a img,
-:root[data-skin='premium'] button img {
+   objects they photograph, and lift when you reach for one.
+
+   The lift used to live on the <img> itself (`a:hover img { transform ... }`).
+   That was a clip bug. The img sits inside CardImage's wrapper, which carries
+   `overflow-hidden` and the card's border radius, so scaling the picture
+   scaled it INSIDE a frame that did not move — the frame cropped the extra
+   pixels off every edge and the card did not grow, its own art was eaten.
+   The correct thing to transform is the FRAME. `.px-card-art` is CardImage's
+   wrapper (the rounded, clipping box itself), so scaling it scales that box
+   along with its contents and nothing is cropped: the whole card grows, which
+   is what was asked for.
+
+   A transformed element paints in its own stacking context, so a growing card
+   has to be lifted above its neighbours explicitly or the next grid tile
+   paints over it. `z-index: 1` on hover/focus does that without promoting
+   every tile at rest; `transform: translateZ(0)` on the base warms the layer
+   so the rise does not stall a paint layer mid-hover. Note the gutter: the
+   set grid is virtualised with a tight gutter, and an ANCESTOR with
+   `overflow-hidden` above the tile would still clip the grown card — that
+   parent is not this file's to touch, so if growth is clipped by an ancestor
+   the fix belongs there, not here.
+
+   The scope is `.px-card-art` only. The old unscoped `a:hover img` also
+   moved set logos and set-symbol tiles on the series and set-index pages,
+   Pokedex species sprites, the desktop and mobile avatars, the collapsed-nav
+   bitmap brand mark, and the brand marks on the landing and auth pages —
+   none of those are card art and the owner never asked for a lifting
+   avatar, so they are deliberately left still. Cropped thumbnails that do
+   not go through CardImage (deck/list covers, table-view and deck-builder
+   row thumbnails) simply stop lifting too; reaching them would mean
+   re-applying the old unscoped rule, which is exactly what reintroduces
+   the clip. Keyboard users get :focus-visible alongside :hover so the
+   affordance is not hover-only. */
+:root[data-skin='premium'] .px-card-art {
   transition:
     transform var(--px-dur) var(--px-spring),
     filter var(--px-dur) var(--px-ease);
+  transform: translateZ(0);
 }
-:root[data-skin='premium'] a:hover img,
-:root[data-skin='premium'] button:hover img {
+:root[data-skin='premium'] a:hover .px-card-art,
+:root[data-skin='premium'] a:focus-visible .px-card-art,
+:root[data-skin='premium'] button:hover .px-card-art,
+:root[data-skin='premium'] button:focus-visible .px-card-art {
   transform: translateY(-2px) scale(1.014);
   filter: drop-shadow(0 8px 14px rgb(0 0 0 / 0.55));
+  z-index: 1;
 }
 
 /* Sheets cast a real shadow onto the scrim. The MOVEMENT lives in theme.css
@@ -1030,13 +1065,16 @@
      skeleton shimmer is left alone on purpose: it is nothing but an
      opacity fade already, and it is the one animation in this file whose
      entire job is telling a reduced-motion reader that something is still
-     loading. */
-  :root[data-skin='premium'] a img,
-  :root[data-skin='premium'] button img {
+     loading. Scoped to `.px-card-art` to mirror §6 exactly, including the
+     :focus-visible arm — a reduced-motion keyboard user still gets the
+     glow, just not the travel. */
+  :root[data-skin='premium'] .px-card-art {
     transition: filter var(--px-dur) var(--px-ease);
   }
-  :root[data-skin='premium'] a:hover img,
-  :root[data-skin='premium'] button:hover img {
+  :root[data-skin='premium'] a:hover .px-card-art,
+  :root[data-skin='premium'] a:focus-visible .px-card-art,
+  :root[data-skin='premium'] button:hover .px-card-art,
+  :root[data-skin='premium'] button:focus-visible .px-card-art {
     transform: none;
   }
   :root[data-skin='premium'] .bg-track-subtle > div {
