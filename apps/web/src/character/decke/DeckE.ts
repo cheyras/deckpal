@@ -84,7 +84,8 @@ import {
   type SustainSpec,
 } from './sustain'
 import { blenderToThree, BODY_H, BODY_W, DEG, MOUTH } from './constants'
-import { sampleTrack, solveFlight, type FlightSample, type FlightTrack } from './flight'
+import { sampleTrack, screenSpan, solveFlight, type FlightSample, type FlightTrack } from './flight'
+import { GLIDE_SHAPE, worthHopping } from './hopWorth'
 import {
   homeCorner,
   parkOn,
@@ -923,6 +924,25 @@ export class DeckE {
     // scroll container counts too — the element he is presenting is very often
     // inside one.
     window.addEventListener('scroll', this.onScroll, { passive: true, capture: true })
+
+    // AND THE VIEWPORT ITSELF CAN MOVE HIS MARK WITHOUT ANY SCROLL AT ALL.
+    //
+    // This listener was described in `update()`'s comment for a while before it
+    // existed, which is exactly the kind of thing that costs an afternoon. The
+    // software keyboard is the case: iOS animates the visual viewport up over
+    // roughly a fifth of a second, the chat panel is re-placed against it every
+    // frame (`host/panelViewport.ts`), and his park box rides along inside it —
+    // while `scroll` fires once at the start and never again.
+    //
+    // Without this he TRAILS the composer for the whole slide, then whatever
+    // re-park does fire lands on a box measured somewhere in the middle of the
+    // animation, and he arrives too high and eases back down. Filmed at 60fps
+    // on the owner's phone: ten frames of him ~150px below the composer, then a
+    // jump to ~190px above it, then a settle. Marking the station dirty makes
+    // him re-solve from the live rect each frame, which is tracking rather than
+    // flying, and there is nothing left to correct afterwards.
+    window.visualViewport?.addEventListener('resize', this.onScroll)
+    window.visualViewport?.addEventListener('scroll', this.onScroll)
 
     // STOP THE PAGE RUBBER-BANDING OUT FROM UNDER HIM.
     //
@@ -2310,18 +2330,38 @@ export class DeckE {
     const from = this.track
       ? this.flightSample.pos.clone()
       : this.anchor.clone()
-    const shape = shapeFor(from, to, this.legIndex++)
     const vFov = (this.stage.camera.fov * Math.PI) / 180
+    const tanHalfFovY = Math.tan(vFov / 2)
+    // ── A HOP IS PUNCTUATION, AND MOST MOVES ARE NOT SENTENCES ──────────────
+    //
+    // `shapeFor`'s arc has a constant floor, so before this every re-park of a
+    // few pixels rose and descended exactly like a trip across the page. See
+    // `hopWorth.ts` for the owner's words and where the threshold sits. Below
+    // it he takes the same solved, eased path with the arc and the bow set to
+    // zero — a slide, not a different animation and not a cut.
+    const hop = worthHopping(
+      screenSpan(from, to, this.stage.camera, tanHalfFovY, viewHeight()),
+      this.characterHeightPx,
+    )
+    // THE LEG INDEX ONLY ADVANCES FOR A HOP. It alternates the bow's sign so an
+    // out-and-back traces a lens rather than retracing one line; a glide has no
+    // bow, and letting it consume an index would flip the next real hop's sweep
+    // for no reason the reader could see.
+    const shape = hop ? shapeFor(from, to, this.legIndex++) : GLIDE_SHAPE
     this.track = solveFlight(from, to, {
       camera: this.stage.camera,
-      tanHalfFovY: Math.tan(vFov / 2),
+      tanHalfFovY,
       ...shape,
       // Playback speed only — a queued (via-background) leg launched from the
       // arrival branch inherits the same rate, so the whole trip is one pace.
       rate: this.legRate,
     })
     this.trackStart = this.elapsed
-    this.rampMod(TRAVEL_MOD_MS)
+    // AND A NUDGE DOES NOT DAMP HIS IDLE EITHER. The travel modulation exists
+    // because a full-amplitude float on top of a real flight reads as an
+    // unstable wobble; ramping it down and back up around a 20px correction is
+    // its own small hiccup, in the hover rather than in the path.
+    if (hop) this.rampMod(TRAVEL_MOD_MS)
     // A queued leg inherits the drive already in progress; only a fresh flight
     // starts or clears one, and `flyTo` sets it just before calling in.
     if (!this.legQueue.length && this.pendingScroll === null) this.scrollDrive = null
@@ -3203,6 +3243,8 @@ export class DeckE {
     // walk's to free) and which are its own.
     this.art?.dispose()
     window.removeEventListener('scroll', this.onScroll, { capture: true })
+    window.visualViewport?.removeEventListener('resize', this.onScroll)
+    window.visualViewport?.removeEventListener('scroll', this.onScroll)
     document.documentElement.style.overscrollBehaviorY = this.overscrollWas
     // Before `clearHighlight` below, which removes the ring but not the layer:
     // a layer left pinned would sit at a stale document offset for whatever

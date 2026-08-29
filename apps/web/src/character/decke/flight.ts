@@ -193,6 +193,34 @@ function makeMetric(camera: Camera, tanHalfFovY: number) {
 }
 
 /**
+ * How far the SILHOUETTE moves between two world points, in CSS pixels.
+ *
+ * The same metric the solver paces by, asked one question instead of 400.
+ * `makeMetric` normalises both axes by the VERTICAL half-FOV, so 1.0 is half
+ * the viewport's height and the conversion is one multiply — and it is the
+ * vertical axis precisely because that is the one held fixed on resize, so this
+ * answer does not change when the window gets wider.
+ *
+ * Screen distance and not world distance, because a move straight at the lens
+ * covers world units and almost no screen. See `hopWorth.ts`, which is the
+ * caller and carries the reasoning for why anything asks.
+ */
+export function screenSpan(
+  a: Vector3,
+  b: Vector3,
+  camera: Camera,
+  tanHalfFovY: number,
+  viewportHeight: number,
+): number {
+  const ndc = makeMetric(camera, tanHalfFovY)
+  const n0 = { x: 0, y: 0, z: 0 }
+  const n1 = { x: 0, y: 0, z: 0 }
+  ndc(a, n0)
+  ndc(b, n1)
+  return Math.hypot(n1.x - n0.x, n1.y - n0.y) * (viewportHeight / 2)
+}
+
+/**
  * The velocity profile.
  *
  * Three rules, each learned from a failure:
