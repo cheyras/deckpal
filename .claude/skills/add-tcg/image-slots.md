@@ -60,16 +60,17 @@ new `kind` outside the migration-006 CHECK list needs an additive migration.
 - Cache path: `<CACHE_ROOT>/sets/<setId>/logo.webp`  →  served: `GET /deckpal/images/sets/<setId>/logo.webp`
 - image_asset kind: `set-logo` · cache_key: `set:<setId>:logo`
 - Format: webp; single.
-- Sourcing: the catalog source's set-level logo URL (Pokémon: `card_set` base URLs from TCGdex). Enumerate from `card_set`. See `apps/images/src/setWarmer.ts`.
+- Sourcing: the catalog source's set-level logo URL (Pokémon: `card_set` base URLs from TCGdex); enumerate from `card_set`. **Fallback** when `card_set.logo_url` is NULL: the approved crosswalk in `packages/storage/src/setImageFallback.ts` (`setImageFallbackUrl(setId, 'logo')` — 15 approved pairs sourced from pokemontcg.io `.png` files and Bulbagarden) — `apps/images/src/setWarmer.ts` consults it; the catalog column always takes precedence. See `apps/images/src/setWarmer.ts`.
 - Optimization: single small asset; graceful client fallback to a text card on 404 (no broken image).
 - Verify: `curl /deckpal/images/sets/<setId>/logo.webp` → 200; series index renders the base-set logo.
 - Game-specific: no (most TCGs have set/expansion logos).
-- Known residue (2026-08-10, #15): TCGdex publishes **no logo for any of the 12 McDonald's Collection
-  sets** in any of its 14 languages (CDN 404s on `en|univ/mc/<set>/logo`), so a whole series has none.
-  Do **not** fill it from pokemontcg.io — its `mcd*` logos are byte-identical across nine sets and are
-  McDonald's *corporate* logo, not a set logo (see DECISIONS.md 2026-08-10 for the trademark line).
-  The series index instead falls back to the rep set's **symbol** tile (`/api/series.repHasLogo` says
-  which asset exists), and sets with neither get `deriveSetTag`'s year. Same shape for Trainer kits.
+- Known residue (2026-08-29): 38 logo pairs stay blank — **20 Trainer Kit logos** (`tk-*`/`tk-ex-*` sets
+  share one byte-identical generic wordmark; owner decision 2026-08-29, reads as a bug across sets) and
+  **12 McDonald's Collection logos** (the `mcd*` logo files are the byte-identical corporate Golden
+  Arches, not a set logo; DECISIONS.md 2026-08-10 trademark ruling), plus 6 more (`mee`, `mep`, `xya`,
+  `exu`, `ex5.5`, `miscp`) with no approved source. These render `deriveSetTag`; do **not** "complete" the
+  crosswalk — see `packages/storage/src/setImageFallback.ts` for the exclusion rulings. The series index
+  falls back to the rep set's **symbol** tile (`/api/series.repHasLogo`).
 
 ### set-symbol — status: active
 - Purpose / renders: the small set symbol/icon shown beside a set / on cards.
@@ -77,10 +78,15 @@ new `kind` outside the migration-006 CHECK list needs an additive migration.
 - Cache path: `<CACHE_ROOT>/sets/<setId>/symbol.webp`  →  served: `GET /deckpal/images/sets/<setId>/symbol.webp`
 - image_asset kind: `set-symbol` · cache_key: `set:<setId>:symbol`
 - Format: webp; single.
-- Sourcing: catalog set-symbol URL; enumerate from `card_set`. Same warmer family as set-logo.
+- Sourcing: catalog set-symbol URL (`card_set.symbol_url`); enumerate from `card_set`. **Fallback** when `symbol_url` is NULL: `setImageFallbackUrl(setId, 'symbol')` (same crosswalk, `packages/storage/src/setImageFallback.ts`) — 28 approved pairs from pokemontcg.io `.png` + Bulbagarden, including the McDonald's *symbols* (a genuine printed expansion mark, unlike the logos) and MEP. Same warmer family as set-logo.
 - Optimization: tiny; 404 → neutral client placeholder.
 - Verify: `curl … /symbol.webp` → 200 (some sets legitimately have none → placeholder is correct).
 - Game-specific: no.
+- Known residue (2026-08-29): 9 symbol pairs stay blank — the Trainer Kit / EX symbols (`tk-bw-e`,
+  `tk-bw-z`, `exu`, `ex5.5`, `miscp`), `mfb`'s symbol, `xya`, and the `2023sv`/`2024sv` symbols have no
+  approved source; the UI's derived acronym tag is the correct rendering. The McDonald's *logos* are a
+  separate residue (see set-logo); the McDonald's *symbols* ARE filled. Do not add to the crosswalk —
+  see `packages/storage/src/setImageFallback.ts`.
 
 ### species-sprite — status: active
 - Purpose / renders: Pokédex grid + species pages — pixel sprite and official-artwork, each with a shiny variant.
