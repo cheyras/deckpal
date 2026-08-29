@@ -135,3 +135,14 @@ test('the reprint oracle can rescue a rotated-out card, and the tab honours it',
   assert.equal(verdict(rotated, 'standard', noReprint).legal, false);
   assert.equal(verdict(rotated, 'standard', { isInFormatByReprint: () => true }).legal, true);
 });
+
+test('a card with NO regulation mark says so, rather than printing a dash', () => {
+  // Caught by looking at the rendered TCG tab: a pre-Sword-&-Shield card read
+  // "has regulation mark — and has no legal reprint", where the dash IS the
+  // absent mark. Survivable in a deck violation list, reads as a typo when the
+  // modal states the sentence on its own.
+  const v = verdict(facts({ regulationMark: null }), 'standard');
+  assert.equal(v.legal, false);
+  assert.match(v.reasons[0]!, /has no regulation mark/);
+  assert.doesNotMatch(v.reasons[0]!, /regulation mark —/);
+});

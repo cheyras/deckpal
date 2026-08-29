@@ -30,10 +30,11 @@
 // rather than surfacing as a confusing spawn failure 4 MB into a download.
 
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { fetchBinary } from './http.js';
 import type { TcgcsvPriceEnvelope, TcgcsvPriceRow } from './types.js';
 
 const execFileAsync = promisify(execFile);
@@ -88,15 +89,19 @@ export interface ArchiveDay {
 export async function fetchArchiveDay(date: string, sevenZip: string): Promise<ArchiveDay | null> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`bad archive date: ${date}`);
 
-  const res = await fetch(archiveUrl(date));
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`archive ${date}: HTTP ${res.status}`);
-  const bytes = Buffer.from(await res.arrayBuffer());
+  // `fetchBinary`, never a bare `fetch`: TCGCSV answers 401 to a generic or
+  // missing User-Agent, and a bare fetch sends exactly that. This was not a
+  // theory — the first draft used `fetch` and every archive request came back
+  // 401 while the same URL fetched fine from curl. It also carries the 100 ms
+  // inter-request floor TCGCSV asks for, which matters more here than anywhere
+  // else in this app: a two-year replay is 730 sequential requests.
+  const bytes = await fetchBinary(archiveUrl(date));
+  if (bytes === null) return null; // TCGCSV has not published this date
 
   const dir = await mkdtemp(join(tmpdir(), 'deckpal-prices-'));
   try {
     const archivePath = join(dir, 'prices.7z');
-    await (await import('node:fs/promises')).writeFile(archivePath, bytes);
+    await writeFile(archivePath, bytes);
     // -bso0/-bsp0 silence the banner and the progress meter; -y auto-confirms.
     await execFileAsync(sevenZip, ['x', archivePath, `-o${dir}`, '-y', '-bso0', '-bsp0'], {
       maxBuffer: 64 * 1024 * 1024,
