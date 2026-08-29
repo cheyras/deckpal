@@ -160,11 +160,19 @@ export function RarityMark({
   className?: string
 }) {
   const spec = rarityMark(rarity)
+  // HOOKS BEFORE THE EARLY RETURN. `useId` has to run on every render of this
+  // component, including the no-mark one: a mounted instance whose `rarity`
+  // crosses the none/non-none boundary would otherwise render a different
+  // number of hooks between passes and take the subtree down with React #310.
+  // That is reachable in production — CardDetail keeps the tab body mounted
+  // across ?card= changes, and 'None' is a real catalog value (energies) — so
+  // this ordering is load-bearing, not stylistic.
+  const uid = useId().replace(/:/g, '')
+
   // No mark (null / 'None' / a true no-rarity card) — render nothing, and do not
   // announce it. A null rarity must never produce a broken box.
   if (spec.shape === 'none') return null
 
-  const uid = useId().replace(/:/g, '')
   const gap = Math.max(1, Math.round(size * GLYPH_GAP_RATIO))
 
   return (
