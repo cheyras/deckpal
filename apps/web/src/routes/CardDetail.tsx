@@ -6,6 +6,7 @@ import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, Tabs } from '../
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
+import { RarityMark } from '../components/RarityMark'
 import { fmtPrice, fmtDate, fmtNumber, fmtRelative } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
@@ -898,7 +899,10 @@ function CardTab({
         )}
         {c.rarity && (
           <Attribute label="Rarity">
-            <Chip>{c.rarity}</Chip>
+            <Chip>
+              <RarityMark rarity={c.rarity} size={16} className="mr-[6px]" />
+              {c.rarity}
+            </Chip>
           </Attribute>
         )}
         <Attribute label="Release Date">

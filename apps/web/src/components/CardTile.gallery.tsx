@@ -56,6 +56,14 @@ export default {
         setId: 'swsh1',
       },
     },
+    {
+      label: 'hyper rare (three gold stars)',
+      props: {
+        card: { ...mockCard, rarity: 'Hyper rare' },
+        seriesSlug: 'sv',
+        setId: 'sv09',
+      },
+    },
   ],
   knobs: {
     eager: { kind: 'boolean' },
