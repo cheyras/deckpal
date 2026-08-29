@@ -23,7 +23,7 @@ export default {
     { label: 'no radius', props: { ...PLACEHOLDER, alt: 'Card', radius: 0 } },
   ],
   knobs: {
-    radius: { kind: 'number', min: 0, max: 24, step: 2 },
+    radius: { kind: 'text' },
     eager: { kind: 'boolean' },
   },
 } satisfies GalleryMeta<{

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { CARD_ASPECT_RATIO } from '../lib/cardGeometry'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type ScanMatch, type ScanResponse } from '../lib/api'
 import {
@@ -29,7 +30,9 @@ import { fmtNumber } from '../lib/format'
 // ── tuning ──────────────────────────────────────────────────────────────────
 const FRAME_MS = 700 // how often we grab + send a frame while live
 const STABLE_FRAMES = 2 // identical confident matches in a row before we commit
-const CARD_ASPECT = 63 / 88 // TCG card width:height — the guide + capture aspect
+// The capture guide is the same physical card the grid draws, so it takes the
+// shared token rather than keeping a second copy of 63/88 that could drift.
+const CARD_ASPECT = CARD_ASPECT_RATIO
 // Capture MARGIN beyond the guide (each dimension, total). A card that's tilted
 // or a touch outside the brackets gets clipped by an exact-guide crop, and no
 // server-side probe can recover pixels that were never sent — a 4°-tilted card
