@@ -1,0 +1,1530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Card-Detector Bakeoff Harness</title>
+<style>
+  :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#30363d; --txt:#e6edf3; --mut:#8b949e; --grn:#3fb950; --cyn:#39d0d8; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  header { padding:10px 16px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  h1 { font-size:15px; margin:0; font-weight:600; }
+  .tabs { display:flex; gap:4px; }
+  .tab { padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--panel); cursor:pointer; }
+  .tab.active { background:#1f6feb; border-color:#1f6feb; color:#fff; }
+  main { padding:16px; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+  .stage { position:relative; background:#000; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  canvas { display:block; image-rendering:pixelated; }
+  .controls { display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap; }
+  button, select { font:inherit; background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; }
+  button:hover { border-color:#58a6ff; }
+  .readout { font-size:12px; color:var(--mut); }
+  .readout b { color:var(--txt); }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; min-width:240px; }
+  .panel h2 { font-size:13px; margin:0 0 8px; }
+  .kv { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
+  .kv span:first-child { color:var(--mut); }
+  .legend span { display:inline-block; margin-right:10px; }
+  .swatch { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+  details { margin-top:8px; }
+  pre { background:#010409; border:1px solid var(--line); border-radius:6px; padding:8px; overflow:auto; font-size:12px; }
+  .seam { background:#1c0d0d; border:1px solid #6f1212; }
+  .hidden { display:none !important; }
+  .err { color:#f85149; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Card-Detector Bakeoff Harness</h1>
+  <div class="tabs">
+    <div class="tab active" data-tab="fixtures">Fixtures</div>
+    <div class="tab" data-tab="live">Live camera</div>
+  </div>
+  <div class="readout" id="hdrReadout"></div>
+</header>
+
+<main>
+  <!-- FIXTURES TAB -->
+  <section id="tab-fixtures">
+    <div class="row">
+      <div>
+        <div class="stage">
+          <canvas id="fxCanvas" width="320" height="240" style="width:640px;height:480px"></canvas>
+        </div>
+        <div class="controls">
+          <button id="prev">◀ Prev</button>
+          <button id="play">▶ Play</button>
+          <button id="next">Next ▶</button>
+          <span class="readout">Frame <b id="fxIdx">0</b>/<b id="fxTotal">0</b></span>
+          <span class="readout">detect: <b id="fxMs">—</b> ms</span>
+          <span class="readout">fps: <b id="fxFps">—</b></span>
+        </div>
+        <div class="legend readout" style="margin-top:8px">
+          <span><i class="swatch" style="background:var(--grn)"></i>ground truth</span>
+          <span><i class="swatch" style="background:var(--cyn)"></i>window.detect()</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Frame info</h2>
+        <div class="kv"><span>id</span><span id="info-id">—</span></div>
+        <div class="kv"><span>background</span><span id="info-bg">—</span></div>
+        <div class="kv"><span>partial</span><span id="info-partial">—</span></div>
+        <div class="kv"><span>cards</span><span id="info-cards">—</span></div>
+        <div class="kv"><span>quads returned</span><span id="info-quads">—</span></div>
+        <div class="kv"><span>last error</span><span id="info-err" class="err">—</span></div>
+        <details>
+          <summary>detect() source</summary>
+          <pre id="srcView" class="seam"></pre>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- LIVE CAMERA TAB -->
+  <section id="tab-live" class="hidden">
+    <div class="row">
+      <div>
+        <div class="stage">
+          <canvas id="liveCanvas" width="320" height="240" style="width:640px;height:480px"></canvas>
+        </div>
+        <div class="controls">
+          <button id="camStart">Start camera</button>
+          <button id="camStop">Stop</button>
+          <span class="readout">detect: <b id="liveMs">—</b> ms</span>
+          <span class="readout">fps: <b id="liveFps">—</b></span>
+          <span class="readout err" id="liveErr"></span>
+        </div>
+        <div class="legend readout" style="margin-top:8px">
+          <span><i class="swatch" style="background:var(--cyn)"></i>window.detect() output</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+/* =========================================================================
+ * INLINE SCENE GENERATOR — ported from kit-scene.mjs (dependency-free, no DOM
+ * beyond CanvasRenderingContext2D.putImageData). Deterministic from seed.
+ * ========================================================================= */
+const FRAME_W = 320, FRAME_H = 240, CARD_ASPECT = 63/88;
+
+function mulberry32(seed){let a=seed>>>0;return function(){a|=0;a=(a+0x6d2b79f5)|0;let t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296;};}
+function hash2(ix,iy){let h=(ix*374761393+iy*668265263)|0;h=(h^(h>>>13))|0;h=Math.imul(h,1274126177)|0;h=(h^(h>>>16))>>>0;return h/4294967296;}
+function smooth(t){return t*t*(3-2*t);}
+function valueNoise(x,y){const ix=Math.floor(x),iy=Math.floor(y);const fx=x-ix,fy=y-iy;const v00=hash2(ix,iy),v10=hash2(ix+1,iy),v01=hash2(ix,iy+1),v11=hash2(ix+1,iy+1);const sx=smooth(fx),sy=smooth(fy);const a=v00+(v10-v00)*sx,b=v01+(v11-v01)*sx;return a+(b-a)*sy;}
+function fbm(x,y){let s=0,amp=0.5,freq=1;for(let o=0;o<4;o++){s+=valueNoise(x*freq,y*freq)*amp;freq*=2;amp*=0.5;}return s;}
+const vsub=(a,b)=>({x:a.x-b.x,y:a.y-b.y});const cross=(a,b)=>a.x*b.y-a.y*b.x;
+function hashStr(s){let h=2166136261>>>0;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}return h>>>0;}
+
+function invBilinear(px,py,p0,p1,p2,p3){
+  const a=vsub(p1,p0),b=vsub(p3,p0),c={x:p0.x-p1.x+p2.x-p3.x,y:p0.y-p1.y+p2.y-p3.y},d={x:px-p0.x,y:py-p0.y};
+  const A=cross(a,c),B=cross(a,b)-cross(d,c),C=-cross(d,b);
+  let u;
+  if(Math.abs(A)<1e-9){if(Math.abs(B)<1e-9)return null;u=-C/B;}
+  else{const disc=B*B-4*A*C;if(disc<0)return null;const sq=Math.sqrt(disc);const u1=(-B-sq)/(2*A),u2=(-B+sq)/(2*A);if(u1>=-1e-6&&u1<=1+1e-6)u=u1;else if(u2>=-1e-6&&u2<=1+1e-6)u=u2;else return null;}
+  if(u<-1e-6||u>1+1e-6)return null;
+  const dx=b.x+c.x*u,dy=b.y+c.y*u,rx=d.x-a.x*u,ry=d.y-a.y*u;
+  const v=Math.abs(dx)>Math.abs(dy)?rx/dx:ry/dy;
+  if(v<-1e-6||v>1+1e-6)return null;
+  return {u,v};
+}
+
+function makeCardColors(rng){
+  const palettes=[[{r:30,g:40,b:90},{r:120,g:80,b:200},{r:220,g:120,b:60}],[{r:20,g:70,b:50},{r:90,g:180,b:120},{r:230,g:220,b:90}],[{r:70,g:20,b:50},{r:200,g:60,b:90},{r:250,g:180,b:120}],[{r:10,g:30,b:70},{r:40,g:120,b:220},{r:180,g:230,b:255}],[{r:50,g:40,b:20},{r:180,g:140,b:60},{r:240,g:220,b:150}],[{r:30,g:60,b:60},{r:60,g:160,b:170},{r:200,g:240,b:230}]];
+  const pal=palettes[Math.floor(rng()*palettes.length)];
+  const borders=[{r:245,g:245,b:240},{r:25,g:25,b:30},{r:230,g:70,b:60},{r:60,g:120,b:230},{r:240,g:200,b:40},{r:30,g:180,b:90}];
+  return {pal,border:borders[Math.floor(rng()*borders.length)],nameBar:{r:235,g:235,b:225}};
+}
+function lerpC(c1,c2,t){return {r:c1.r+(c2.r-c1.r)*t,g:c1.g+(c2.g-c1.g)*t,b:c1.b+(c2.b-c1.b)*t};}
+function artColor(pal,u,v){const t=(u+v)*0.5;if(t<0.5)return lerpC(pal[0],pal[1],t*2);return lerpC(pal[1],pal[2],(t-0.5)*2);}
+
+function buildCardCorners(rng,partial){
+  const W=FRAME_W,H=FRAME_H;
+  const scale=0.25+rng()*0.45, ch=scale*H, cw=ch*CARD_ASPECT;
+  const rot=(-90+rng()*180)*Math.PI/180;
+  let cx=W*(0.5+(rng()-0.5)*0.5), cy=H*(0.5+(rng()-0.5)*0.5);
+  if(partial){const edge=Math.floor(rng()*4);const push=(cw+ch)*0.25*(0.6+rng()*0.5);
+    if(edge===0)cx=Math.min(cx,cw*0.5+push*0.3)-push;else if(edge===1)cx=W-(cw*0.5)+push;else if(edge===2)cy=ch*0.5-push;else cy=H-(ch*0.5)+push;}
+  const local=[{x:-cw/2,y:-ch/2},{x:cw/2,y:-ch/2},{x:cw/2,y:ch/2},{x:-cw/2,y:ch/2}];
+  const cos=Math.cos(rot),sin=Math.sin(rot);
+  let rc=local.map(p=>({x:cx+(p.x*cos-p.y*sin),y:cy+(p.x*sin+p.y*cos)}));
+  const midTop={x:(rc[0].x+rc[1].x)/2,y:(rc[0].y+rc[1].y)/2}, midBot={x:(rc[2].x+rc[3].x)/2,y:(rc[2].y+rc[3].y)/2};
+  let upx=midTop.x-midBot.x,upy=midTop.y-midBot.y;let ul=Math.hypot(upx,upy)||1;upx/=ul;upy/=ul;
+  let rx=rc[1].x-rc[0].x,ry=rc[1].y-rc[0].y;let rl=Math.hypot(rx,ry)||1;rx/=rl;ry/=rl;
+  const dist=ch*(1.2+rng()*1.6), lateral=(rng()-0.5)*ch*0.9;
+  const vp={x:cx+upx*dist+rx*lateral,y:cy+upy*dist+ry*lateral};
+  const k=0.1+rng()*0.4, ksign=rng()<0.5?1:-1;
+  const depth=[ksign*k,ksign*k*0.85,ksign*k*0.08,ksign*k*0.18];
+  const fc=rc.map((p,i)=>{const f=1-depth[i];return {x:vp.x+(p.x-vp.x)*f,y:vp.y+(p.y-vp.y)*f};});
+  return {corners:fc.map(p=>[+p.x.toFixed(3),+p.y.toFixed(3)]),rotationDeg:+(rot*180/Math.PI).toFixed(2),scale:+scale.toFixed(4)};
+}
+
+function renderBackground(data,bg,rng){
+  if(bg==='felt'){
+    for(let y=0;y<FRAME_H;y++)for(let x=0;x<FRAME_W;x++){const i=(y*FRAME_W+x)*4;const n=fbm(x*0.03,y*0.03)-0.5;const vig=1-0.25*((x-160)**2+(y-120)**2)/(160**2+120**2);data[i]=(18+n*40)*vig;data[i+1]=(52+n*45)*vig;data[i+2]=(30+n*35)*vig;data[i+3]=255;}
+  } else if(bg==='wood'){
+    const phase=rng()*10, tilt=(rng()-0.5)*0.4;
+    for(let y=0;y<FRAME_H;y++)for(let x=0;x<FRAME_W;x++){const i=(y*FRAME_W+x)*4;const u=x+tilt*y;const grain=Math.sin(u*0.5+phase+fbm(x*0.02,y*0.2)*6);const n=fbm(x*0.05,y*0.05)-0.5;const t=grain*0.5+0.5;data[i]=70+t*50+n*25;data[i+1]=45+t*35+n*18;data[i+2]=25+t*20+n*10;data[i+3]=255;}
+  } else if(bg==='cluttered'){
+    for(let i=0;i<data.length;i+=4){data[i]=38;data[i+1]=38;data[i+2]=44;data[i+3]=255;}
+    const n=6+Math.floor(rng()*5);
+    for(let s=0;s<n;s++){const x=Math.floor(rng()*FRAME_W),y=Math.floor(rng()*FRAME_H),w=20+Math.floor(rng()*90),h=8+Math.floor(rng()*70);const cr=Math.floor(rng()*256),cg=Math.floor(rng()*256),cb=Math.floor(rng()*256);const filled=rng()<0.6;
+      if(filled){for(let yy=y;yy<y+h&&yy<FRAME_H;yy++)for(let xx=x;xx<x+w&&xx<FRAME_W;xx++){if(yy<0||xx<0)continue;const i=(yy*FRAME_W+xx)*4;data[i]=cr;data[i+1]=cg;data[i+2]=cb;data[i+3]=255;}}
+      else{for(let xx=x;xx<x+w&&xx<FRAME_W;xx++){if(xx<0)continue;if(y>=0&&y<FRAME_H){const i=(y*FRAME_W+xx)*4;data[i]=cr;data[i+1]=cg;data[i+2]=cb;data[i+3]=255;}const y2=y+h-1;if(y2>=0&&y2<FRAME_H){const i=(y2*FRAME_W+xx)*4;data[i]=cr;data[i+1]=cg;data[i+2]=cb;data[i+3]=255;}}}
+    }
+    const lines=2+Math.floor(rng()*3);
+    for(let s=0;s<lines;s++){let x0=Math.floor(rng()*FRAME_W),y0=Math.floor(rng()*FRAME_H);const len=30+rng()*120,ang=rng()*Math.PI*2;const cr=Math.floor(rng()*256),cg=Math.floor(rng()*256),cb=Math.floor(rng()*256);
+      for(let t=0;t<len;t++){const x=Math.floor(x0+Math.cos(ang)*t),y=Math.floor(y0+Math.sin(ang)*t);if(x<0||x>=FRAME_W||y<0||y>=FRAME_H)break;const i=(y*FRAME_W+x)*4;data[i]=cr;data[i+1]=cg;data[i+2]=cb;data[i+3]=255;}}
+  } else if(bg==='glare'){
+    for(let i=0;i<data.length;i+=4){data[i]=130;data[i+1]=132;data[i+2]=140;data[i+3]=255;}
+    for(let y=0;y<FRAME_H;y++)for(let x=0;x<FRAME_W;x++){const i=(y*FRAME_W+x)*4;const n=fbm(x*0.04,y*0.04)-0.5;data[i]=130+n*30;data[i+1]=132+n*30;data[i+2]=140+n*30;data[i+3]=255;}
+    const ax=rng()*FRAME_W,ay=rng()*FRAME_H,ang=Math.PI/4+(rng()-0.5)*0.6;const nx=-Math.sin(ang),ny=Math.cos(ang),width=50+rng()*60;
+    for(let y=0;y<FRAME_H;y++)for(let x=0;x<FRAME_W;x++){const d=(x-ax)*nx+(y-ay)*ny;const t=Math.exp(-(d*d)/(2*width*width));const i=(y*FRAME_W+x)*4;data[i]=Math.min(255,data[i]+120*t);data[i+1]=Math.min(255,data[i+1]+120*t);data[i+2]=Math.min(255,data[i+2]+120*t);}
+  } else { for(let i=0;i<data.length;i+=4){data[i]=18;data[i+1]=52;data[i+2]=30;data[i+3]=255;} }
+}
+
+function rasterizeCard(data,cornersArr,bg,sceneId,cardIdx){
+  const p0={x:cornersArr[0][0],y:cornersArr[0][1]},p1={x:cornersArr[1][0],y:cornersArr[1][1]},p2={x:cornersArr[2][0],y:cornersArr[2][1]},p3={x:cornersArr[3][0],y:cornersArr[3][1]};
+  const colorRng=mulberry32((hashStr(sceneId)^Math.imul(cardIdx+1,2654435761))>>>0);
+  const {pal,border,nameBar}=makeCardColors(colorRng);
+  let minX=Math.min(p0.x,p1.x,p2.x,p3.x),maxX=Math.max(p0.x,p1.x,p2.x,p3.x),minY=Math.min(p0.y,p1.y,p2.y,p3.y),maxY=Math.max(p0.y,p1.y,p2.y,p3.y);
+  minX=Math.max(0,Math.floor(minX)-1);maxX=Math.min(FRAME_W-1,Math.ceil(maxX)+1);minY=Math.max(0,Math.floor(minY)-1);maxY=Math.min(FRAME_H-1,Math.ceil(maxY)+1);
+  const cRU=0.07,cRV=0.07;const glareBand=bg==='glare';const glareV=0.3+colorRng()*0.4,glareW=0.12;
+  for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){
+    const uv=invBilinear(x+0.5,y+0.5,p0,p1,p2,p3);if(!uv)continue;let u=uv.u,v=uv.v;
+    if(u<cRU&&v<cRV){const dx=(u-cRU)/cRU,dy=(v-cRV)/cRV;if(dx*dx+dy*dy>1)continue;}
+    else if(u>1-cRU&&v<cRV){const dx=(u-(1-cRU))/cRU,dy=(v-cRV)/cRV;if(dx*dx+dy*dy>1)continue;}
+    else if(u>1-cRU&&v>1-cRV){const dx=(u-(1-cRU))/cRU,dy=(v-(1-cRV))/cRV;if(dx*dx+dy*dy>1)continue;}
+    else if(u<cRU&&v>1-cRV){const dx=(u-cRU)/cRU,dy=(v-(1-cRV))/cRV;if(dx*dx+dy*dy>1)continue;}
+    const i=(y*FRAME_W+x)*4;const noise=(hash2(x*7+13,y*13+7)-0.5)*18;
+    let col;const bT=0.06;
+    if(u<bT||u>1-bT||v<bT||v>1-bT){col=border;}
+    else{const iu=(u-bT)/(1-2*bT),iv=(v-bT)/(1-2*bT);if(iv>=0.04&&iv<=0.12){col=nameBar;}else{col=artColor(pal,iu,iv);}
+      if(glareBand){const dt=Math.abs(iv-glareV);if(dt<glareW){const gt=1-dt/glareW;col=lerpC(col,{r:250,g:250,b:250},gt*0.7);}}}
+    data[i]=Math.max(0,Math.min(255,col.r+noise));data[i+1]=Math.max(0,Math.min(255,col.g+noise));data[i+2]=Math.max(0,Math.min(255,col.b+noise));data[i+3]=255;
+  }
+}
+
+function renderFrame(scene){
+  const data=new Uint8ClampedArray(FRAME_W*FRAME_H*4);
+  const bgRng=mulberry32(hashStr(scene.id)^0x9e3779b9);
+  renderBackground(data,scene.background,bgRng);
+  for(let c=0;c<scene.cards.length;c++)rasterizeCard(data,scene.cards[c].corners,scene.background,scene.id,c);
+  return {width:FRAME_W,height:FRAME_H,data};
+}
+
+function makeScenes(seed){
+  const rng=mulberry32(seed);const plan=[];
+  for(let i=0;i<12;i++)plan.push({bg:'cluttered'});for(let i=0;i<10;i++)plan.push({bg:'glare'});for(let i=0;i<15;i++)plan.push({bg:'felt'});for(let i=0;i<15;i++)plan.push({bg:'wood'});
+  for(let i=plan.length-1;i>0;i--){const j=Math.floor(rng()*(i+1));[plan[i],plan[j]]=[plan[j],plan[i]];}
+  for(let i=0;i<10;i++)plan[i].cards=2;for(let i=0;i<8;i++)plan[10+i].partial=true;
+  for(const p of plan){if(!p.cards)p.cards=1;if(p.partial===undefined)p.partial=false;}
+  const scenes=[];
+  for(let idx=0;idx<plan.length;idx++){const p=plan[idx];const sceneSeed=(seed^(idx*2654435761))>>>0;const cardRng=mulberry32(sceneSeed);const cards=[];
+    for(let c=0;c<p.cards;c++)cards.push(buildCardCorners(cardRng,p.partial&&c===0));
+    scenes.push({id:'S'+String(idx).padStart(3,'0'),background:p.bg,partial:!!p.partial,cards});}
+  return scenes;
+}
+
+/* =========================================================================
+ * DETECTOR SEAM — a competing lane replaces this function (or assigns
+ * window.detect) with its own implementation. See kit-README.md for the contract.
+ * ========================================================================= */
+
+// DETECTOR GOES HERE — full body of detector-hybrid.mjs, adapted from ESM to an
+// inline script: `export default detect` becomes `window.detect = detect`, and the
+// two introspection-only exports lose their `export` keyword (illegal outside a
+// module). Every helper function, every CFG constant, and the whole pipeline
+// (front end -> contour lane + line lane -> pre-screen -> refine -> outward snap ->
+// verify -> NMS -> final refine) is otherwise byte-identical to detector-hybrid.mjs.
+// detector-hybrid.mjs
+// Hybrid trading-card quad detector. Pure, dependency-free ESM. Reads pixels only:
+// no imports, no file access, no globals, no mutation of the input buffer.
+//
+//   export default detect({ width, height, data }) -> [ [[x,y],[x,y],[x,y],[x,y]], ... ]
+//
+// PIPELINE
+//   generate (loosely, from two lanes)  ->  pre-screen  ->  sub-pixel refine
+//     ->  outward snap  ->  strict verify  ->  IoU + containment NMS  ->  final refine
+//
+//   front end   One pass over the frame producing (a) colour-Sobel gradient magnitude
+//               over R/G/B, which sees chroma borders grayscale misses, and (b) the
+//               gradient ORIENTATION of the dominant channel. Orientation is what
+//               separates "this side lies on an edge" from "this side happens to cross
+//               textured background", and it is used at every later stage.
+//               All thresholds downstream key off this frame's own gradient
+//               distribution (percentile, clamped to absolute bounds), because a dark
+//               felt frame and a washed-out glare frame differ by an order of magnitude.
+//
+//   lane A      From detector-contour: NMS-thinned + hysteresis edge map -> morphological
+//               close -> connected components -> convex hull -> angle-simplify -> the 4
+//               longest edges -> adjacent-line intersection. Intersecting side LINES (not
+//               taking polygon vertices) is what recovers the sharp corners hiding behind
+//               a card's rounded corners; it is why this lane is the accurate one.
+//               Run at two operating points: tight (separates touching structures) and
+//               loose (closes a border broken by glare or low contrast).
+//
+//   lane B      From detector-lines: Hough peaks -> quads assembled from one near-parallel
+//               pair crossed with one near-perpendicular pair. Survives borders broken by
+//               occlusion or glare and, unlike a contour, extrapolates sides to corners
+//               that lie OUTSIDE the frame -- 24 of the 62 fixture cards have at least one.
+//               Pairs are pre-filtered on gap*gap/sin(angle) (approximate area) and
+//               gap/gap (approximate aspect) before any intersection is computed.
+//
+//   refine      From the detector-opencv notes: per-side gradient-ridge walk with parabolic
+//               sub-pixel peak fit, total-least-squares line fit with residual outlier
+//               rejection, then adjacent-line intersection. Two passes (wide then narrow),
+//               frame-clipped so a card hanging off the edge still refines from its
+//               visible span. This is where corner error goes from ~10 px to ~1 px.
+//
+//   snap out    A candidate very often locks onto a card's INNER border edge instead of its
+//               silhouette -- they are only a few percent apart and look equally good. If a
+//               consistent parallel edge runs just outside a quad on 3+ sides, the outward
+//               version is emitted as well and verification chooses. Worth ~5 cards.
+//
+//   verify      From the detector-opencv notes, strengthened and moved AFTER refinement,
+//               where a real card has snapped onto its border and a false positive has not:
+//               orientation-gated per-side edge continuity (judged on the second-worst side,
+//               so one occluded or low-contrast side is survivable), inside/outside colour
+//               contrast, inner-border-ring signature scanned over a range of insets,
+//               rim colour uniformity (median-based, so a partly covered rim still counts),
+//               "no parallel edge just outside me", plus area / aspect / opposite-side /
+//               convexity / visible-fraction.
+//
+//   nms         Polygon-IoU suppression keeping the best-scoring cluster member, with two
+//               corrections: a barely-lower-scoring quad that CONTAINS the incumbent wins
+//               (the silhouette beats the inner ring), and a final sweep drops any output
+//               that sits inside a larger one (a card is never inside another card -- this
+//               kills quads drawn on a card's own face, e.g. its top edge plus its name bar).
+//
+// Every CFG entry can be overridden by an environment variable for tuning; the reads are
+// guarded so the module also runs unchanged in a browser.
+
+const ENV = (typeof process !== 'undefined' && process.env) || {};
+const n = (k, d) => (ENV[k] !== undefined ? +ENV[k] : d);
+
+const CFG = {
+  // ---- generation: contour lane ----
+  USE_CONTOUR: n('H_UC', 1),
+  CANNY_PCT_HI: n('H_CPH', 0.982),   // adaptive strong-edge percentile
+  CANNY_FLOOR: n('H_CF', 130),       // absolute floor for the strong threshold
+  CANNY_CEIL: n('H_CC', 420),        // absolute cap (a huge-contrast frame must not blind us)
+  CANNY_LO_FRAC: n('H_CLF', 0.42),   // weak threshold as a fraction of the strong one
+  CLOSE_R: n('H_CLOSE', 1),
+  MIN_CC_PIX: n('H_MINCC', 55),
+  MAX_CC_PIX: n('H_MAXCC', 9000),   // safety valve: a component bigger than this is not a card
+  ANG_TOL: n('H_ANG', 0.32),
+  // ---- generation: line lane ----
+  USE_LINES: n('H_UL', 1),
+  THETA_BINS: n('H_TB', 48),
+  VOTE_PCT: n('H_VP', 0.985),
+  VOTE_FLOOR: n('H_VF', 95),
+  VOTE_CEIL: n('H_VC', 300),
+  MAX_VOTERS: n('H_MAXVOTE', 9000),   // safety valve on pathological frames
+  MAX_RAW: n('H_MAXRAW', 12000),      // safety valve on candidate explosion
+  RHO_STEP: n('H_RHOSTEP', 1),
+  PEAK_MIN_VOTES: n('H_PMV', 10),
+  POOL_N: n('H_POOL', 48),
+  PAR_TOL: n('H_PAR', 0.30),
+  PERP_LO: n('H_PLO', 1.00),
+  PERP_HI: n('H_PHI', 2.14),
+  MIN_GAP: n('H_GAP', 14),
+  MAX_PAIRS: n('H_MAXPAIR', 40),
+  // ---- geometry gates ----
+  MIN_AREA: n('H_MINA', 1300),
+  MAX_AREA: n('H_MAXA', 25500),
+  OUT_MARGIN: n('H_OUTM', 130),
+  ASP_LO: n('H_ASPLO', 0.28),
+  ASP_HI: n('H_ASPHI', 3.4),
+  OPP_SIM: n('H_OPP', 0.55),
+  MIN_VIS: n("H_MINVIS", 0.34),
+  // ---- edge evidence ----
+  EDGE_T: n('H_ET', 210),        // gradient magnitude that counts as a real edge
+  ORIENT_T: n('H_OT', 0.68),     // |cos| between the gradient and the side normal
+  BAND: n('H_BAND', 2),          // perpendicular search half-width when scoring
+  SUP_SAMPLES: n('H_SS', 21),
+  MIN_SIDE_SAMPLES: n('H_MSS', 6),
+  MIN_JUDGED: n('H_MJ', 3),
+  MIN_TOTAL_SAMPLES: n('H_MTS', 44),
+  SUP_MIN: n('H_SUPMIN', 0.72),  // worst side support
+  SUP_MEAN: n('H_SUPMEAN', 0.85),
+  // ---- pre-refine screening ----
+  PRE_BAND: n('H_PBAND', 3.5),
+  PRE_MIN: n('H_PREMIN', 0.55),
+  PRE_KEEP: n('H_PREKEEP', 70),
+  // ---- refinement ----
+  REF_PASSES: n('H_RP', 2),
+  REF_SAMPLES: n('H_RS', 17),
+  REF_HALF1: n('H_RH1', 6),
+  REF_HALF2: n('H_RH2', 3),
+  REF_MINPEAK: n('H_RMP', 90),
+  REF_MAXMOVE: n('H_RMM', 14),
+  // ---- card signature ----
+  BC_MIN: n('H_BCMIN', 22),      // per-side inside/outside colour contrast
+  BC_MEAN: n('H_BCMEAN', 40),
+  RING_T: n('H_RINGT', 150),     // gradient for the inner border ring
+  RING_MIN: n('H_RINGMIN', 0.55),
+  UNIF_SCALE: n('H_UNIFS', 55),
+  // These two feed the SCORE by default (gates disabled at 0 / 1). They are kept as
+  // hard gates for the real-camera phase, where a stricter operating point may be wanted.
+  UNIF_MIN: n('H_UNIFMIN', 0.0),
+  OUTER_MAX: n('H_OUTERMAX', 1.0),
+  // ---- output ----
+  NMS_IOU: n('H_IOU', 0.30),
+  CONTAIN_FRAC: n('H_CONT', 0.72),   // drop a quad this fraction inside another output quad...
+  CONTAIN_AREA: n('H_CONTA', 0.60),  // ...but only when it is also this much smaller
+  OUTER_PREF: n('H_OUTPREF', 0.12),  // score slack for preferring the outer of two concentric quads
+  FINAL_REFINE: n('H_FINREF', 1),
+  EXPAND: n('H_EXPAND', 1),
+  EXPAND_MAX_FRAC: n('H_EXPMAX', 0.14),
+  MAX_OUT: n('H_MAXOUT', 2),
+  SCORE_MIN: n('H_SMIN', 0.58),
+  SCORE_MIN2: n('H_SMIN2', 0.58),    // bar for the 2nd and later quad in a frame
+};
+
+const PI = Math.PI, HPI = Math.PI / 2;
+
+// ---------------------------------------------------------------------------
+// front end: colour-Sobel magnitude + dominant-channel gradient orientation
+// ---------------------------------------------------------------------------
+// magnitude value with `p` of all pixels below it
+function magPercentile(mag, maxMag, N, p) {
+  const B = 512, scale = B / (maxMag + 1);
+  const hist = new Int32Array(B);
+  for (let i = 0; i < N; i++) hist[(mag[i] * scale) | 0]++;
+  const keep = Math.floor(N * (1 - p));
+  let acc = 0;
+  for (let v = B - 1; v >= 0; v--) {
+    acc += hist[v];
+    if (acc >= keep) return (v + 1) / scale;
+  }
+  return 0;
+}
+
+function frontEnd(W, H, data) {
+  const N = W * H;
+  const mag = new Float32Array(N);
+  const gxo = new Float32Array(N), gyo = new Float32Array(N);
+  const rowW = W * 4;
+  let maxMag = 0;
+  for (let y = 1; y < H - 1; y++) {
+    let p = (y * W + 1) * 4;
+    const row = y * W;
+    for (let x = 1; x < W - 1; x++, p += 4) {
+      let gx2 = 0, gy2 = 0, bestE = -1, bgx = 0, bgy = 0;
+      for (let c = 0; c < 3; c++) {
+        const i = p + c;
+        const tl = data[i - rowW - 4], tc = data[i - rowW], tr = data[i - rowW + 4];
+        const ml = data[i - 4], mr = data[i + 4];
+        const bl2 = data[i + rowW - 4], bc = data[i + rowW], br = data[i + rowW + 4];
+        const gx = tr + 2 * mr + br - tl - 2 * ml - bl2;
+        const gy = bl2 + 2 * bc + br - tl - 2 * tc - tr;
+        gx2 += gx * gx; gy2 += gy * gy;
+        const e = gx * gx + gy * gy;
+        if (e > bestE) { bestE = e; bgx = gx; bgy = gy; }
+      }
+      const m = Math.sqrt(gx2 + gy2);
+      const i2 = row + x;
+      mag[i2] = m;
+      const nm = Math.sqrt(bestE) || 1;
+      gxo[i2] = bgx / nm; gyo[i2] = bgy / nm;
+      if (m > maxMag) maxMag = m;
+    }
+  }
+  return { mag, gxo, gyo, maxMag };
+}
+
+function sampleMagBilinear(mag, W, H, x, y) {
+  if (x < 0) x = 0; else if (x > W - 1) x = W - 1;
+  if (y < 0) y = 0; else if (y > H - 1) y = H - 1;
+  const x0 = x | 0, y0 = y | 0;
+  const x1 = x0 + 1 < W ? x0 + 1 : x0, y1 = y0 + 1 < H ? y0 + 1 : y0;
+  const fx = x - x0, fy = y - y0;
+  const a = mag[y0 * W + x0], b = mag[y0 * W + x1];
+  const c = mag[y1 * W + x0], d = mag[y1 * W + x1];
+  const t = a + (b - a) * fx, u = c + (d - c) * fx;
+  return t + (u - t) * fy;
+}
+
+// ---------------------------------------------------------------------------
+// geometry helpers
+// ---------------------------------------------------------------------------
+function polyArea(q) {
+  let a = 0;
+  for (let i = 0; i < q.length; i++) {
+    const j = (i + 1) % q.length;
+    a += q[i][0] * q[j][1] - q[j][0] * q[i][1];
+  }
+  return Math.abs(a) / 2;
+}
+function isConvex(q) {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = q[i], b = q[(i + 1) % 4], c = q[(i + 2) % 4];
+    const cr = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+    if (Math.abs(cr) < 1e-6) continue;
+    const s = cr > 0 ? 1 : -1;
+    if (sign === 0) sign = s; else if (s !== sign) return false;
+  }
+  return sign !== 0;
+}
+function sidesOf(q) {
+  const s = [];
+  for (let i = 0; i < 4; i++) {
+    const a = q[i], b = q[(i + 1) % 4];
+    s.push(Math.hypot(b[0] - a[0], b[1] - a[1]));
+  }
+  return s;
+}
+function centroid(q) {
+  let x = 0, y = 0;
+  for (const p of q) { x += p[0]; y += p[1]; }
+  return [x / 4, y / 4];
+}
+// clip convex polygon `poly` by convex polygon `clip` (Sutherland-Hodgman)
+function clipPoly(poly, clip) {
+  let out = poly;
+  const nc = clip.length;
+  // orientation of clip
+  let a2 = 0;
+  for (let i = 0; i < nc; i++) { const j = (i + 1) % nc; a2 += clip[i][0] * clip[j][1] - clip[j][0] * clip[i][1]; }
+  const ccw = a2 > 0 ? 1 : -1;
+  for (let e = 0; e < nc && out.length; e++) {
+    const A = clip[e], B = clip[(e + 1) % nc];
+    const ex = B[0] - A[0], ey = B[1] - A[1];
+    const side = (p) => ccw * (ex * (p[1] - A[1]) - ey * (p[0] - A[0]));
+    const next = [];
+    for (let i = 0; i < out.length; i++) {
+      const cur = out[i], prev = out[(i - 1 + out.length) % out.length];
+      const sc = side(cur), sp = side(prev);
+      if (sc >= 0) {
+        if (sp < 0) {
+          const t = sp / (sp - sc);
+          next.push([prev[0] + (cur[0] - prev[0]) * t, prev[1] + (cur[1] - prev[1]) * t]);
+        }
+        next.push(cur);
+      } else if (sp >= 0) {
+        const t = sp / (sp - sc);
+        next.push([prev[0] + (cur[0] - prev[0]) * t, prev[1] + (cur[1] - prev[1]) * t]);
+      }
+    }
+    out = next;
+  }
+  return out;
+}
+function polyIoU(a, b) {
+  const inter = clipPoly(a, b);
+  if (inter.length < 3) return 0;
+  const ia = polyArea(inter);
+  const u = polyArea(a) + polyArea(b) - ia;
+  return u > 0 ? ia / u : 0;
+}
+function frameRect(W, H) { return [[0, 0], [W - 1, 0], [W - 1, H - 1], [0, H - 1]]; }
+function lineFromPts(p1, p2) {
+  let a = p2[1] - p1[1], b = p1[0] - p2[0];
+  const nm = Math.hypot(a, b) || 1;
+  a /= nm; b /= nm;
+  return [a, b, a * p1[0] + b * p1[1]];
+}
+function lineIntersect(l1, l2) {
+  const det = l1[0] * l2[1] - l2[0] * l1[1];
+  if (Math.abs(det) < 1e-9) return null;
+  return [(l1[2] * l2[1] - l2[2] * l1[1]) / det, (l1[0] * l2[2] - l2[0] * l1[2]) / det];
+}
+function fitLineTLS(pts) {
+  const N = pts.length;
+  let mx = 0, my = 0;
+  for (const p of pts) { mx += p[0]; my += p[1]; }
+  mx /= N; my /= N;
+  let sxx = 0, sxy = 0, syy = 0;
+  for (const p of pts) {
+    const dx = p[0] - mx, dy = p[1] - my;
+    sxx += dx * dx; sxy += dx * dy; syy += dy * dy;
+  }
+  const tr = sxx + syy, det = sxx * syy - sxy * sxy;
+  const lam = (tr - Math.sqrt(Math.max(0, tr * tr - 4 * det))) / 2;
+  let a = sxy, b = lam - sxx;
+  if (Math.abs(a) < 1e-9 && Math.abs(b) < 1e-9) { a = sxx <= syy ? 1 : 0; b = sxx <= syy ? 0 : 1; }
+  const nm = Math.hypot(a, b) || 1;
+  a /= nm; b /= nm;
+  return [a, b, a * mx + b * my];
+}
+// bilinear interior point (corners cyclic C0..C3; u along C0->C1, v along C0->C3)
+function bl(C, u, v) {
+  const ax = C[0][0] + (C[1][0] - C[0][0]) * u, ay = C[0][1] + (C[1][1] - C[0][1]) * u;
+  const bx = C[3][0] + (C[2][0] - C[3][0]) * u, by = C[3][1] + (C[2][1] - C[3][1]) * u;
+  return [ax + (bx - ax) * v, ay + (by - ay) * v];
+}
+function insetQuad(q, f) {
+  return [bl(q, f, f), bl(q, 1 - f, f), bl(q, 1 - f, 1 - f), bl(q, f, 1 - f)];
+}
+
+// ---------------------------------------------------------------------------
+// gen A: adaptive threshold -> close -> connected components -> hull quad
+// ---------------------------------------------------------------------------
+// Canny-style: non-maximum suppression along the gradient direction, then
+// hysteresis. Thinning is what keeps neighbouring structures from merging into
+// one connected component when the map is closed.
+// Non-maximum suppression along the gradient direction. Computed once and shared
+// by both lanes: thinning stops neighbouring structures from merging into one
+// connected component, and it sharpens the Hough peaks (only ridge crests vote).
+function nmsThin(F, W, H, loT) {
+  const { mag, gxo, gyo } = F;
+  const thin = new Uint8Array(W * H);
+  for (let y = 2; y < H - 2; y++) {
+    const row = y * W;
+    for (let x = 2; x < W - 2; x++) {
+      const i = row + x;
+      const m = mag[i];
+      if (m < loT) continue;
+      const gx = gxo[i], gy = gyo[i];
+      if (m >= sampleMagBilinear(mag, W, H, x + gx, y + gy) &&
+          m >= sampleMagBilinear(mag, W, H, x - gx, y - gy)) thin[i] = 1;
+    }
+  }
+  return thin;
+}
+
+// Hysteresis over an already-thinned map at a given strong threshold.
+function hysteresis(thinMap, mag, W, H, hiT, loT) {
+  const N = W * H;
+  const thin = new Uint8Array(N);
+  for (let i = 0; i < N; i++) if (thinMap[i] && mag[i] >= loT) thin[i] = mag[i] >= hiT ? 2 : 1;
+  const out = new Uint8Array(N);
+  const stack = new Int32Array(N);
+  let sp = 0;
+  for (let i = 0; i < N; i++) if (thin[i] === 2) { out[i] = 1; stack[sp++] = i; }
+  while (sp > 0) {
+    const p = stack[--sp];
+    const px = p % W, py = (p / W) | 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      const yy = py + dy; if (yy < 0 || yy >= H) continue;
+      const base = yy * W;
+      for (let dx = -1; dx <= 1; dx++) {
+        const xx = px + dx; if (xx < 0 || xx >= W) continue;
+        const q = base + xx;
+        if (thin[q] === 1 && !out[q]) { out[q] = 1; stack[sp++] = q; }
+      }
+    }
+  }
+  return out;
+}
+function closeBinary(bin, W, H, r) {
+  const N = W * H;
+  const tmp = new Uint8Array(N), row = new Uint8Array(N);
+  for (let y = 0; y < H; y++) {
+    const off = y * W;
+    for (let x = 0; x < W; x++) {
+      let v = 0;
+      for (let d = -r; d <= r; d++) { const xx = x + d; if (xx >= 0 && xx < W && bin[off + xx]) { v = 1; break; } }
+      row[off + x] = v;
+    }
+  }
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      let v = 0;
+      for (let d = -r; d <= r; d++) { const yy = y + d; if (yy >= 0 && yy < H && row[yy * W + x]) { v = 1; break; } }
+      tmp[y * W + x] = v;
+    }
+  for (let y = 0; y < H; y++) {
+    const off = y * W;
+    for (let x = 0; x < W; x++) {
+      let v = 1;
+      for (let d = -r; d <= r; d++) { const xx = x + d; if (xx < 0 || xx >= W || !tmp[off + xx]) { v = 0; break; } }
+      row[off + x] = v;
+    }
+  }
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      let v = 1;
+      for (let d = -r; d <= r; d++) { const yy = y + d; if (yy < 0 || yy >= H || !row[yy * W + x]) { v = 0; break; } }
+      bin[y * W + x] = v;
+    }
+}
+function convexHull(pts) {
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const nn = p.length;
+  if (nn < 3) return p;
+  const cr = (O, A, B) => (A[0] - O[0]) * (B[1] - O[1]) - (A[1] - O[1]) * (B[0] - O[0]);
+  const lo = [], up = [];
+  for (let i = 0; i < nn; i++) {
+    while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p[i]) <= 0) lo.pop();
+    lo.push(p[i]);
+  }
+  for (let i = nn - 1; i >= 0; i--) {
+    while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], p[i]) <= 0) up.pop();
+    up.push(p[i]);
+  }
+  lo.pop(); up.pop();
+  return lo.concat(up);
+}
+function simplifyByAngle(poly, tol) {
+  const cur = poly.map((p) => [p[0], p[1]]);
+  while (cur.length > 4) {
+    let best = -1, bestTurn = Infinity;
+    for (let i = 0; i < cur.length; i++) {
+      const prev = cur[(i - 1 + cur.length) % cur.length];
+      const next = cur[(i + 1) % cur.length];
+      const dx1 = cur[i][0] - prev[0], dy1 = cur[i][1] - prev[1];
+      const dx2 = next[0] - cur[i][0], dy2 = next[1] - cur[i][1];
+      if (Math.hypot(dx1, dy1) < 1e-9 || Math.hypot(dx2, dy2) < 1e-9) { best = i; bestTurn = -1; break; }
+      let t = Math.atan2(dy2, dx2) - Math.atan2(dy1, dx1);
+      t = Math.atan2(Math.sin(t), Math.cos(t));
+      if (Math.abs(t) < bestTurn) { bestTurn = Math.abs(t); best = i; }
+    }
+    if (best < 0 || bestTurn >= tol) break;
+    cur.splice(best, 1);
+  }
+  return cur;
+}
+function quadFromHull(hull) {
+  const simp = simplifyByAngle(hull, CFG.ANG_TOL);
+  if (simp.length < 4) return null;
+  const edges = [];
+  for (let i = 0; i < simp.length; i++) {
+    const a = simp[i], b = simp[(i + 1) % simp.length];
+    edges.push({ i, len: Math.hypot(b[0] - a[0], b[1] - a[1]), a, b });
+  }
+  edges.sort((p, q) => q.len - p.len);
+  const top4 = edges.slice(0, 4);
+  top4.sort((p, q) => p.i - q.i);
+  const corners = [];
+  for (let i = 0; i < 4; i++) {
+    const e1 = top4[i], e2 = top4[(i + 1) % 4];
+    const c = lineIntersect(lineFromPts(e1.a, e1.b), lineFromPts(e2.a, e2.b));
+    if (!c || !isFinite(c[0]) || !isFinite(c[1])) return null;
+    corners.push(c);
+  }
+  return [corners[3], corners[0], corners[1], corners[2]];
+}
+function contourCandidates(thinMap, F, W, H, hiT, loT, closeR, out) {
+  const bin = hysteresis(thinMap, F.mag, W, H, hiT, loT);
+  if (closeR > 0) closeBinary(bin, W, H, closeR);
+  const N = W * H;
+  const seen = new Uint8Array(N);
+  const stack = new Int32Array(N);
+  // A convex hull is decided by the leftmost and rightmost pixel of each scanline,
+  // so collect only those (<= 2H points) instead of every component pixel. That
+  // keeps a huge noisy component cheap rather than quadratic-feeling.
+  const rowMin = new Int32Array(H), rowMax = new Int32Array(H);
+  for (let start = 0; start < N; start++) {
+    if (!bin[start] || seen[start]) continue;
+    let sp = 0, cn = 0, ymin = H, ymax = -1;
+    stack[sp++] = start; seen[start] = 1;
+    while (sp > 0) {
+      const p = stack[--sp];
+      const px = p % W, py = (p / W) | 0;
+      cn++;
+      if (py < ymin) ymin = py;
+      if (py > ymax) ymax = py;
+      if (rowMax[py] === 0 && rowMin[py] === 0) { rowMin[py] = px + 1; rowMax[py] = px + 1; }
+      else {
+        if (px + 1 < rowMin[py]) rowMin[py] = px + 1;
+        if (px + 1 > rowMax[py]) rowMax[py] = px + 1;
+      }
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = py + dy; if (yy < 0 || yy >= H) continue;
+        const base = yy * W;
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const xx = px + dx; if (xx < 0 || xx >= W) continue;
+          const q = base + xx;
+          if (bin[q] && !seen[q]) { seen[q] = 1; stack[sp++] = q; }
+        }
+      }
+    }
+    const pts = [];
+    for (let y = ymin; y <= ymax; y++) {
+      if (rowMin[y]) {
+        pts.push([rowMin[y] - 1, y]);
+        if (rowMax[y] !== rowMin[y]) pts.push([rowMax[y] - 1, y]);
+        rowMin[y] = 0; rowMax[y] = 0;
+      }
+    }
+    if (cn < CFG.MIN_CC_PIX || cn > CFG.MAX_CC_PIX) continue;
+    const hull = convexHull(pts);
+    if (hull.length < 4) continue;
+    const ha = polyArea(hull);
+    if (ha < CFG.MIN_AREA * 0.5 || ha > CFG.MAX_AREA * 1.6) continue;
+    const q = quadFromHull(hull);
+    if (q) out.push({ q, src: 'c' });
+    if (out.length >= CFG.MAX_RAW) return;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// gen B: Hough lines -> parallel/perpendicular quad assembly
+// ---------------------------------------------------------------------------
+function houghLines(mag, W, H, VT) {
+  const TB = CFG.THETA_BINS;
+  const RS = CFG.RHO_STEP;
+  const diag = Math.hypot(W, H);
+  const rhoBins = ((2 * Math.ceil(diag)) / RS + 2) | 0;
+  const rhoOff = Math.ceil(diag);
+  const cosT = new Float64Array(TB), sinT = new Float64Array(TB);
+  for (let t = 0; t < TB; t++) { const th = (t * PI) / TB; cosT[t] = Math.cos(th) / RS; sinT[t] = Math.sin(th) / RS; }
+  const acc = new Int32Array(TB * rhoBins);
+  const off = rhoOff / RS + 0.5;
+  for (let y = 1; y < H - 1; y++) {
+    const row = y * W;
+    for (let x = 1; x < W - 1; x++) {
+      const i = row + x;
+      if (mag[i] < VT) continue;
+      for (let t = 0; t < TB; t++) acc[t * rhoBins + ((x * cosT[t] + y * sinT[t] + off) | 0)]++;
+    }
+  }
+  const peaks = [];
+  const PMV = CFG.PEAK_MIN_VOTES;
+  const DR = Math.max(2, Math.round(4 / RS));
+  for (let t = 0; t < TB; t++) {
+    const base = t * rhoBins;
+    for (let ri = 1; ri < rhoBins - 1; ri++) {
+      const v = acc[base + ri];
+      if (v < PMV) continue;
+      let isMax = true;
+      for (let dt = -2; dt <= 2 && isMax; dt++) {
+        const tt = t + dt; if (tt < 0 || tt >= TB) continue;
+        const b2 = tt * rhoBins;
+        for (let dr = -DR; dr <= DR; dr++) {
+          const rr = ri + dr; if (rr < 0 || rr >= rhoBins) continue;
+          if (dt === 0 && dr === 0) continue;
+          if (acc[b2 + rr] > v) { isMax = false; break; }
+        }
+      }
+      if (isMax) peaks.push({ t, ri, v });
+    }
+  }
+  peaks.sort((a, b) => b.v - a.v);
+  const used = new Uint8Array(peaks.length);
+  const lines = [];
+  for (let i = 0; i < peaks.length && lines.length < CFG.POOL_N; i++) {
+    if (used[i]) continue;
+    used[i] = 1;
+    const p = peaks[i];
+    let tS = p.t * p.v, rS = p.ri * p.v, wS = p.v;
+    for (let j = i + 1; j < peaks.length; j++) {
+      if (used[j]) continue;
+      const q = peaks[j];
+      let dt = Math.abs(q.t - p.t); if (dt > TB / 2) dt = TB - dt;
+      if (dt > 1.4 || Math.abs(q.ri - p.ri) * CFG.RHO_STEP > 2.6) continue;
+      used[j] = 1;
+      tS += q.t * q.v; rS += q.ri * q.v; wS += q.v;
+    }
+    const th = ((tS / wS) * PI) / TB;
+    lines.push({ th, rho: (rS / wS) * RS - rhoOff, v: wS, ct: Math.cos(th), st: Math.sin(th) });
+  }
+  return lines;
+}
+function angDiff(a, b) {
+  let d = a - b;
+  while (d > HPI) d -= PI;
+  while (d < -HPI) d += PI;
+  return Math.abs(d);
+}
+function interOfLines(a, b) {
+  const det = a.ct * b.st - b.ct * a.st;
+  if (Math.abs(det) < 1e-4) return null;
+  return [(a.rho * b.st - b.rho * a.st) / det, (a.ct * b.rho - b.ct * a.rho) / det];
+}
+function lineCandidates(mag, W, H, VT, out) {
+  const lines = houghLines(mag, W, H, VT);
+  const L = lines.length;
+  if (L < 4) return;
+  const BINW = CFG.PAR_TOL;
+  const NB = Math.ceil(PI / BINW);
+  const perpBin = Math.round(HPI / BINW);
+  const buckets = [];
+  for (let b = 0; b < NB; b++) buckets.push([]);
+  for (let i = 0; i < L; i++) {
+    let b = Math.floor(lines[i].th / BINW);
+    if (b >= NB) b = NB - 1; if (b < 0) b = 0;
+    buckets[b].push(i);
+  }
+  const pairsOf = (list) => {
+    const ps = [];
+    for (let i = 0; i < list.length; i++)
+      for (let j = i + 1; j < list.length; j++) {
+        const A = lines[list[i]], B = lines[list[j]];
+        if (angDiff(A.th, B.th) > BINW) continue;
+        const gap = Math.abs(A.rho - B.rho);
+        if (gap < CFG.MIN_GAP || gap > 300) continue;
+        ps.push({ a: A, b: B, gap, v: A.v + B.v });
+      }
+    ps.sort((x, y) => y.v - x.v);
+    return ps.length > CFG.MAX_PAIRS ? ps.slice(0, CFG.MAX_PAIRS) : ps;
+  };
+  const bucketPairs = buckets.map(pairsOf);
+  const OM = CFG.OUT_MARGIN;
+  for (let bA = 0; bA < NB; bA++) {
+    const PA = bucketPairs[bA];
+    if (!PA.length) continue;
+    const seen = new Set();
+    for (let d = -1; d <= 1; d++) {
+      const bB = ((bA + perpBin + d) % NB + NB) % NB;
+      if (seen.has(bB)) continue;
+      seen.add(bB);
+      const PB = bucketPairs[bB];
+      if (!PB.length) continue;
+      for (const pa of PA) for (const pb of PB) {
+        const ad = angDiff(pa.a.th, pb.a.th);
+        if (ad < CFG.PERP_LO || ad > CFG.PERP_HI) continue;
+        const s = Math.abs(Math.sin(ad)) || 1e-3;
+        const approxArea = (pa.gap * pb.gap) / s;
+        if (approxArea < CFG.MIN_AREA * 0.7 || approxArea > CFG.MAX_AREA * 1.4) continue;
+        const ar = pa.gap / pb.gap;
+        if (ar < CFG.ASP_LO * 0.8 || ar > CFG.ASP_HI * 1.25) continue;
+        const c0 = interOfLines(pa.a, pb.a); if (!c0) continue;
+        const c1 = interOfLines(pa.a, pb.b); if (!c1) continue;
+        const c2 = interOfLines(pa.b, pb.b); if (!c2) continue;
+        const c3 = interOfLines(pa.b, pb.a); if (!c3) continue;
+        const q = [c0, c1, c2, c3];
+        let bad = false;
+        for (const p of q) if (!(p[0] > -OM && p[1] > -OM && p[0] < W + OM && p[1] < H + OM)) { bad = true; break; }
+        if (bad || !isConvex(q)) continue;
+        const a = polyArea(q);
+        if (a < CFG.MIN_AREA || a > CFG.MAX_AREA) continue;
+        out.push({ q, src: 'l' });
+        if (out.length >= CFG.MAX_RAW) return;
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// edge evidence: orientation-gated support along the sides of a quad
+// ---------------------------------------------------------------------------
+function sideSupport(quad, F, W, H, band, K) {
+  const { mag, gxo, gyo } = F;
+  const T = CFG.EDGE_T, OT = CFG.ORIENT_T;
+  const sup = new Array(4), cnt = new Array(4), str = new Array(4);
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i + 1) % 4];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const Ln = Math.hypot(dx, dy) || 1;
+    const nx = -dy / Ln, ny = dx / Ln;
+    let hit = 0, tot = 0, sSum = 0;
+    for (let s = 0; s < K; s++) {
+      const t = 0.06 + (0.88 * s) / (K - 1);
+      const px = a[0] + dx * t, py = a[1] + dy * t;
+      if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
+      tot++;
+      let best = 0;
+      for (let o = -band; o <= band; o += 1) {
+        const xi = Math.round(px + nx * o), yi = Math.round(py + ny * o);
+        if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
+        const idx = yi * W + xi;
+        const m = mag[idx];
+        if (m <= best) continue;
+        const or = Math.abs(gxo[idx] * nx + gyo[idx] * ny);
+        if (or < OT) continue;
+        best = m;
+      }
+      sSum += best > 900 ? 900 : best;
+      if (best > T) hit++;
+    }
+    sup[i] = tot ? hit / tot : -1;
+    cnt[i] = tot;
+    str[i] = tot ? sSum / tot / 900 : 0;
+  }
+  return { sup, cnt, str };
+}
+
+// inside/outside colour contrast per side
+function boundaryContrast(quad, data, W, H) {
+  const bcs = [];
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i + 1) % 4];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const Ln = Math.hypot(dx, dy) || 1;
+    const nx = -dy / Ln, ny = dx / Ln;
+    let acc = 0, cnt = 0;
+    for (let k = 1; k < 14; k++) {
+      const t = k / 14;
+      const px = a[0] + dx * t, py = a[1] + dy * t;
+      const ix = Math.round(px + nx * 3.5), iy = Math.round(py + ny * 3.5);
+      const ox = Math.round(px - nx * 3.5), oy = Math.round(py - ny * 3.5);
+      if (ix < 1 || iy < 1 || ix > W - 2 || iy > H - 2) continue;
+      if (ox < 1 || oy < 1 || ox > W - 2 || oy > H - 2) continue;
+      const ii = (iy * W + ix) * 4, oi = (oy * W + ox) * 4;
+      acc += Math.hypot(data[ii] - data[oi], data[ii + 1] - data[oi + 1], data[ii + 2] - data[oi + 2]);
+      cnt++;
+    }
+    bcs.push(cnt ? acc / cnt : -1);
+  }
+  return bcs;
+}
+
+// A card carries a concentric inner border edge a few percent inside its outline.
+// Scan a range of insets and keep the best-supported one.
+function innerRing(quad, F, W, H) {
+  const { mag, gxo, gyo } = F;
+  let best = 0;
+  for (const f of [0.04, 0.055, 0.07, 0.09, 0.12]) {
+    const r = insetQuad(quad, f);
+    let hit = 0, tot = 0;
+    for (let i = 0; i < 4; i++) {
+      const a = r[i], b = r[(i + 1) % 4];
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const Ln = Math.hypot(dx, dy) || 1;
+      const nx = -dy / Ln, ny = dx / Ln;
+      for (let s = 0; s < 11; s++) {
+        const t = 0.08 + (0.84 * s) / 10;
+        const px = a[0] + dx * t, py = a[1] + dy * t;
+        if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
+        tot++;
+        for (let o = -1; o <= 1; o++) {
+          const xi = Math.round(px + nx * o), yi = Math.round(py + ny * o);
+          if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
+          const idx = yi * W + xi;
+          if (mag[idx] > CFG.RING_T && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > 0.6) { hit++; break; }
+        }
+      }
+    }
+    if (tot >= 20) { const d = hit / tot; if (d > best) best = d; }
+  }
+  return best;
+}
+
+// A card OUTLINE has open background just outside it. A quad drawn on structure
+// INSIDE a card (name bar, art panel, the border's inner edge) has the card's own
+// border running parallel a few pixels further out. Returns per-side fractions of
+// "there is a parallel edge just outside me"; low is card-like.
+function outerParallel(quad, F, W, H) {
+  const { mag, gxo, gyo } = F;
+  const ctr = centroid(quad);
+  const res = [];
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i + 1) % 4];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const Ln = Math.hypot(dx, dy) || 1;
+    let nx = -dy / Ln, ny = dx / Ln;
+    const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    if ((mx + nx - ctr[0]) ** 2 + (my + ny - ctr[1]) ** 2 < (mx - ctr[0]) ** 2 + (my - ctr[1]) ** 2) { nx = -nx; ny = -ny; }
+    let hit = 0, tot = 0;
+    for (let s = 0; s < 11; s++) {
+      const t = 0.15 + (0.7 * s) / 10;
+      const px = a[0] + dx * t, py = a[1] + dy * t;
+      if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
+      tot++;
+      for (let o = 3; o <= 9; o++) {
+        const xi = Math.round(px + nx * o), yi = Math.round(py + ny * o);
+        if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
+        const idx = yi * W + xi;
+        if (mag[idx] > CFG.EDGE_T && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > CFG.ORIENT_T) { hit++; break; }
+      }
+    }
+    res.push(tot >= 5 ? hit / tot : 0);
+  }
+  return res;
+}
+
+// A card's rim is one uniform colour all the way round. Returns [uniformity 0..1,
+// rim-to-interior contrast].
+function borderUniformity(quad, data, W, H) {
+  const rim = insetQuad(quad, 0.035);
+  const inner = insetQuad(quad, 0.16);
+  const cols = [], icols = [];
+  for (let i = 0; i < 4; i++) {
+    const a = rim[i], b = rim[(i + 1) % 4];
+    const ia = inner[i], ib = inner[(i + 1) % 4];
+    for (let s = 0; s < 9; s++) {
+      const t = 0.1 + (0.8 * s) / 8;
+      const px = Math.round(a[0] + (b[0] - a[0]) * t), py = Math.round(a[1] + (b[1] - a[1]) * t);
+      if (px >= 0 && py >= 0 && px < W && py < H) {
+        const o = (py * W + px) * 4;
+        cols.push([data[o], data[o + 1], data[o + 2]]);
+      }
+      const qx = Math.round(ia[0] + (ib[0] - ia[0]) * t), qy = Math.round(ia[1] + (ib[1] - ia[1]) * t);
+      if (qx >= 0 && qy >= 0 && qx < W && qy < H) {
+        const o = (qy * W + qx) * 4;
+        icols.push([data[o], data[o + 1], data[o + 2]]);
+      }
+    }
+  }
+  if (cols.length < 12 || icols.length < 12) return [0.5, 0];
+  // median is robust to a partly occluded / glare-washed rim
+  const med = (arr) => {
+    const c = [0, 1, 2].map((k) => {
+      const v = arr.map((p) => p[k]).sort((a, b) => a - b);
+      return v[v.length >> 1];
+    });
+    return c;
+  };
+  const mc = med(cols), mi = med(icols);
+  let inl = 0;
+  for (const c of cols) if (Math.hypot(c[0] - mc[0], c[1] - mc[1], c[2] - mc[2]) < CFG.UNIF_SCALE) inl++;
+  const unif = inl / cols.length;
+  const contrast = Math.hypot(mc[0] - mi[0], mc[1] - mi[1], mc[2] - mi[2]);
+  return [unif, contrast];
+}
+
+// ---------------------------------------------------------------------------
+// sub-pixel refinement
+// ---------------------------------------------------------------------------
+function refineQuad(quad, F, W, H, half) {
+  const { mag, gxo, gyo } = F;
+  const lines = [];
+  const K = CFG.REF_SAMPLES;
+  for (let i = 0; i < 4; i++) {
+    const c0 = quad[i], c1 = quad[(i + 1) % 4];
+    const dx = c1[0] - c0[0], dy = c1[1] - c0[1];
+    const Ln = Math.hypot(dx, dy);
+    if (Ln < 8) { lines.push(lineFromPts(c0, c1)); continue; }
+    const nx = -dy / Ln, ny = dx / Ln;
+    const pts = [];
+    for (let s = 0; s < K; s++) {
+      const t = 0.12 + (0.76 * s) / (K - 1);
+      const px = c0[0] + dx * t, py = c0[1] + dy * t;
+      if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
+      let bv = -1, bo = 0;
+      for (let o = -half; o <= half; o += 0.5) {
+        const qx = px + nx * o, qy = py + ny * o;
+        if (qx < 1 || qy < 1 || qx > W - 2 || qy > H - 2) continue;
+        const idx = (Math.round(qy)) * W + Math.round(qx);
+        if (Math.abs(gxo[idx] * nx + gyo[idx] * ny) < CFG.ORIENT_T) continue;
+        const v = sampleMagBilinear(mag, W, H, qx, qy);
+        if (v > bv) { bv = v; bo = o; }
+      }
+      if (bv < CFG.REF_MINPEAK) continue;
+      const vm = sampleMagBilinear(mag, W, H, px + nx * (bo - 0.6), py + ny * (bo - 0.6));
+      const vp = sampleMagBilinear(mag, W, H, px + nx * (bo + 0.6), py + ny * (bo + 0.6));
+      const dn = vm - 2 * bv + vp;
+      let o = bo;
+      if (Math.abs(dn) > 1e-6) {
+        const corr = (0.6 * (vm - vp)) / (2 * dn);
+        if (Math.abs(corr) <= 0.6) o = bo + corr;
+      }
+      pts.push([px + nx * o, py + ny * o]);
+    }
+    if (pts.length < 4) { lines.push(lineFromPts(c0, c1)); continue; }
+    let ln = fitLineTLS(pts);
+    const keep = [];
+    for (const p of pts) if (Math.abs(ln[0] * p[0] + ln[1] * p[1] - ln[2]) < 1.6) keep.push(p);
+    if (keep.length >= 4 && keep.length < pts.length) ln = fitLineTLS(keep);
+    lines.push(ln);
+  }
+  const out = [];
+  for (let i = 0; i < 4; i++) {
+    const p = lineIntersect(lines[i], lines[(i + 3) % 4]);
+    if (!p || !isFinite(p[0]) || !isFinite(p[1]) ||
+      Math.hypot(p[0] - quad[i][0], p[1] - quad[i][1]) > CFG.REF_MAXMOVE) out.push([quad[i][0], quad[i][1]]);
+    else out.push(p);
+  }
+  return out;
+}
+
+// A candidate very often locks onto a card's INNER border edge rather than its
+// silhouette (they are only a few percent apart). If a consistent parallel edge
+// runs just outside this quad on 3+ sides, emit the outward version too and let
+// verification choose between them.
+function expandToOuter(quad, F, W, H) {
+  const { mag, gxo, gyo } = F;
+  const ctr = centroid(quad);
+  const base = [], sgn = [], off = [];
+  let good = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i + 1) % 4];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const Ln = Math.hypot(dx, dy) || 1;
+    let nx = -dy / Ln, ny = dx / Ln;
+    const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    if ((mx + nx - ctr[0]) ** 2 + (my + ny - ctr[1]) ** 2 < (mx - ctr[0]) ** 2 + (my - ctr[1]) ** 2) { nx = -nx; ny = -ny; }
+    const ln = lineFromPts(a, b);
+    base.push(ln);
+    sgn.push(ln[0] * nx + ln[1] * ny >= 0 ? 1 : -1);
+    const found = [];
+    for (let s = 0; s < 11; s++) {
+      const t = 0.15 + (0.7 * s) / 10;
+      const px = a[0] + dx * t, py = a[1] + dy * t;
+      if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
+      let bv = 0, bo = 0;
+      for (let o = 2.5; o <= 14; o += 0.5) {
+        const xi = Math.round(px + nx * o), yi = Math.round(py + ny * o);
+        if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
+        const idx = yi * W + xi;
+        if (mag[idx] > bv && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > CFG.ORIENT_T) { bv = mag[idx]; bo = o; }
+      }
+      if (bv > CFG.EDGE_T) found.push(bo);
+    }
+    if (found.length >= 6) {
+      found.sort((x, y) => x - y);
+      const med = found[found.length >> 1];
+      if (found.filter((v) => Math.abs(v - med) < 2).length / found.length > 0.6) { off.push(med); good++; continue; }
+    }
+    off.push(null);
+  }
+  if (good < 3) return null;
+  const known = off.filter((v) => v !== null).sort((a, b) => a - b);
+  const medOff = known[known.length >> 1];
+  // A card's rim is a small fraction of the card; an offset larger than that means
+  // the scan latched onto background structure, not the silhouette.
+  if (medOff > CFG.EXPAND_MAX_FRAC * Math.sqrt(polyArea(quad))) return null;
+  const lines = base.map((ln, i) => [ln[0], ln[1], ln[2] + (off[i] === null ? medOff : off[i]) * sgn[i]]);
+  const out = [];
+  for (let i = 0; i < 4; i++) {
+    const p = lineIntersect(lines[i], lines[(i + 3) % 4]);
+    if (!p || !isFinite(p[0]) || !isFinite(p[1])) return null;
+    out.push(p);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// verification (post-refine)
+// ---------------------------------------------------------------------------
+function geomOk(quad, W, H) {
+  if (!isConvex(quad)) return null;
+  for (const p of quad) {
+    if (!isFinite(p[0]) || !isFinite(p[1])) return null;
+    if (p[0] < -CFG.OUT_MARGIN || p[1] < -CFG.OUT_MARGIN || p[0] > W + CFG.OUT_MARGIN || p[1] > H + CFG.OUT_MARGIN) return null;
+  }
+  const area = polyArea(quad);
+  if (area < CFG.MIN_AREA || area > CFG.MAX_AREA) return null;
+  const s = sidesOf(quad);
+  const o1 = Math.min(s[0], s[2]) / Math.max(s[0], s[2]);
+  const o2 = Math.min(s[1], s[3]) / Math.max(s[1], s[3]);
+  if (Math.min(o1, o2) < CFG.OPP_SIM) return null;
+  const asp = ((s[0] + s[2]) / 2) / ((s[1] + s[3]) / 2);
+  if (asp < CFG.ASP_LO || asp > CFG.ASP_HI) return null;
+  const inter = clipPoly(quad.map((p) => [p[0], p[1]]), frameRect(W, H));
+  const vis = inter.length < 3 ? 0 : polyArea(inter) / area;
+  if (vis < CFG.MIN_VIS) return null;
+  return { area, asp, opp: Math.min(o1, o2), vis };
+}
+
+function features(quad, F, data, W, H) {
+  const g = geomOk(quad, W, H);
+  if (!g) return null;
+  const { sup, cnt, str } = sideSupport(quad, F, W, H, CFG.BAND, CFG.SUP_SAMPLES);
+  let judged = 0, tot = 0, sSum = 0, strSum = 0;
+  const js = [];
+  for (let i = 0; i < 4; i++) {
+    tot += cnt[i];
+    if (cnt[i] >= CFG.MIN_SIDE_SAMPLES) { judged++; sSum += sup[i]; strSum += str[i]; js.push(sup[i]); }
+  }
+  if (judged < CFG.MIN_JUDGED || tot < CFG.MIN_TOTAL_SAMPLES) return null;
+  js.sort((a, b) => a - b);
+  // one side may be occluded, in shadow or the same colour as the background:
+  // judge on the second-worst side, but let the mean punish a wholly missing one.
+  const sMin = js[Math.min(1, js.length - 1)];
+  const supMean = sSum / judged, strMean = strSum / judged;
+  const bcs = boundaryContrast(quad, data, W, H);
+  let bmin = 1e9, bsum = 0, bn = 0;
+  for (const b of bcs) if (b >= 0) { if (b < bmin) bmin = b; bsum += b; bn++; }
+  if (bn < 3) return null;
+  const bmean = bsum / bn;
+  const ring = innerRing(quad, F, W, H);
+  const [unif, rimContrast] = borderUniformity(quad, data, W, H);
+  const op = outerParallel(quad, F, W, H).sort((a, b) => a - b);
+  // ignore the single worst side (a neighbouring card or a table edge may hug one)
+  const outer = (op[0] + op[1] + op[2]) / 3;
+  return { ...g, supMin: sMin, supMean, strMean, bmin, bmean, ring, unif, rimContrast, outer };
+}
+
+function scoreOf(f) {
+  const edge = 0.5 * f.supMin + 0.5 * f.supMean;
+  const strength = Math.min(1, f.strMean / 0.42);
+  const contrast = Math.min(1, f.bmean / 130) * 0.6 + Math.min(1, f.bmin / 70) * 0.4;
+  const sig = 0.5 * f.ring + 0.5 * f.unif;
+  const clear = 1 - Math.min(1, f.outer / 0.75);
+  return 0.22 * edge + 0.12 * strength + 0.16 * contrast + 0.28 * sig + 0.22 * clear;
+}
+
+function verify(quad, F, data, W, H) {
+  const f = features(quad, F, data, W, H);
+  if (!f) return null;
+  if (f.supMin < CFG.SUP_MIN || f.supMean < CFG.SUP_MEAN) return null;
+  if (f.bmin < CFG.BC_MIN || f.bmean < CFG.BC_MEAN) return null;
+  if (f.ring < CFG.RING_MIN) return null;
+  if (f.unif < CFG.UNIF_MIN) return null;
+  if (f.outer > CFG.OUTER_MAX) return null;
+  const score = scoreOf(f);
+  if (score < CFG.SCORE_MIN) return null;
+  return { quad, score, ...f };
+}
+
+// ---------------------------------------------------------------------------
+// main
+// ---------------------------------------------------------------------------
+window.detect = function detect(input) { return run(input, null); };
+
+// Development introspection only. Returns the candidate set at each stage.
+function __stages(input) { const st = {}; run(input, st); return st; }
+// Development introspection only. Feature vector for an arbitrary quad.
+function __features(quad, { width, height, data }) {
+  const W = width | 0, H = height | 0;
+  const F = frontEnd(W, H, data);
+  const f = features(quad.map((p) => [p[0], p[1]]), F, data, W, H);
+  return f ? { ...f, score: scoreOf(f) } : null;
+}
+
+function run({ width, height, data }, stages) {
+  const W = width | 0, H = height | 0;
+  if (!W || !H || !data) return [];
+  const F = frontEnd(W, H, data);
+  const { mag, maxMag } = F;
+  if (maxMag < CFG.CANNY_FLOOR) return [];
+
+  // Adaptive thresholds: a dark-felt frame and a washed-out glare frame have
+  // gradient scales an order of magnitude apart, so both lanes key off the
+  // frame's own gradient distribution, clamped to sane absolute bounds.
+  const pctHi = magPercentile(mag, maxMag, W * H, CFG.CANNY_PCT_HI);
+  const hiT = Math.min(CFG.CANNY_CEIL, Math.max(CFG.CANNY_FLOOR, pctHi));
+  const loT = hiT * CFG.CANNY_LO_FRAC;
+  let VT = Math.min(CFG.VOTE_CEIL, Math.max(CFG.VOTE_FLOOR, magPercentile(mag, maxMag, W * H, CFG.VOTE_PCT)));
+  // Safety valve: on a pathologically noisy frame the ceiling would let most of the
+  // image vote. Bound the voter count so run time stays bounded too.
+  {
+    let voters = 0;
+    for (let i = 0; i < W * H; i++) if (mag[i] >= VT) voters++;
+    if (voters > CFG.MAX_VOTERS) VT = Math.max(VT, magPercentile(mag, maxMag, W * H, 1 - CFG.MAX_VOTERS / (W * H)));
+  }
+
+  const thinMap = nmsThin(F, W, H, Math.min(loT, VT, hiT * 0.28));
+
+  const raw = [];
+  if (CFG.USE_CONTOUR) {
+    // two operating points: a tight one that separates touching structures and a
+    // loose one that closes a card border broken by glare or low contrast.
+    contourCandidates(thinMap, F, W, H, hiT, loT, CFG.CLOSE_R, raw);
+    contourCandidates(thinMap, F, W, H, hiT * 0.55, hiT * 0.28, CFG.CLOSE_R + 1, raw);
+  }
+  if (CFG.USE_LINES) lineCandidates(mag, W, H, VT, raw);
+  if (!raw.length) { if (stages) Object.assign(stages, { raw: [], coarse: [], refined: [], verified: [], out: [] }); return []; }
+
+  // ---- cheap pre-screen: geometry + wide-band side support, keep the best few ----
+  const screened = [];
+  for (const c of raw) {
+    if (!geomOk(c.q, W, H)) continue;
+    const { sup, cnt } = sideSupport(c.q, F, W, H, CFG.PRE_BAND, 11);
+    const js = [];
+    for (let i = 0; i < 4; i++) if (cnt[i] >= 4) js.push(sup[i]);
+    if (js.length < 3) continue;
+    // same tolerance as verification: ignore the single worst side
+    js.sort((a, b) => b - a);
+    const best3 = js.slice(0, 3);
+    const pre = best3.reduce((a, b) => a + b, 0) / best3.length;
+    if (pre < CFG.PRE_MIN) continue;
+    const ct = centroid(c.q);
+    screened.push({ q: c.q, pre, src: c.src, cx: ct[0], cy: ct[1], a: polyArea(c.q) });
+  }
+  // coarse dedupe (pre-refine)
+  screened.sort((a, b) => b.pre - a.pre);
+  const coarse = [];
+  for (const c of screened) {
+    let dup = false;
+    for (const d of coarse) {
+      if (Math.hypot(c.cx - d.cx, c.cy - d.cy) < 3.5 && Math.abs(c.a - d.a) / Math.max(c.a, d.a) < 0.08) { dup = true; break; }
+    }
+    if (!dup) coarse.push(c);
+    if (coarse.length >= CFG.PRE_KEEP) break;
+  }
+
+  // ---- refine -> verify ----
+  const verified = [];
+  const refined = [];
+  for (const c of coarse) {
+    let q = c.q;
+    for (let p = 0; p < CFG.REF_PASSES; p++) q = refineQuad(q, F, W, H, p === 0 ? CFG.REF_HALF1 : CFG.REF_HALF2);
+    if (stages) refined.push(q);
+    const v = verify(q, F, data, W, H);
+    if (v) { v.src = c.src; verified.push(v); }
+    if (CFG.EXPAND) {
+      let e = expandToOuter(q, F, W, H);
+      if (e) {
+        e = refineQuad(e, F, W, H, CFG.REF_HALF2);
+        if (stages) refined.push(e);
+        const ve = verify(e, F, data, W, H);
+        if (ve) { ve.src = c.src + 'x'; verified.push(ve); }
+      }
+    }
+  }
+  if (stages) {
+    stages.raw = raw.map((c) => ({ q: c.q, src: c.src }));
+    stages.nRawC = raw.filter((c) => c.src === 'c').length;
+    stages.nRawL = raw.length - stages.nRawC;
+    stages.nScreened = screened.length;
+    stages.coarse = coarse.map((c) => c.q);
+    stages.refined = refined;
+    stages.verified = verified.map((v) => ({ q: v.quad, ...v, quad: undefined }));
+  }
+  if (!verified.length) { if (stages) stages.out = []; return []; }
+
+  // ---- NMS: keep the best-scoring member of each overlapping cluster ----
+  verified.sort((a, b) => b.score - a.score || b.area - a.area);
+  const out = [];
+  for (const cand of verified) {
+    if (out.length && cand.score < CFG.SCORE_MIN2) break;
+    let dup = false, replace = -1;
+    for (let i = 0; i < out.length; i++) {
+      const o = out[i];
+      const inter = clipPoly(cand.quad.map((p) => [p[0], p[1]]), o.quad);
+      const ia = inter.length >= 3 ? polyArea(inter) : 0;
+      // a card is never mostly inside another card: this kills quads drawn on a
+      // card's own internal structure that are too small to trip the IoU test.
+      const overlaps = polyIoU(cand.quad, o.quad) > CFG.NMS_IOU || ia / cand.area > CFG.CONTAIN_FRAC;
+      if (!overlaps) continue;
+      // Same object. A card's inner border edge and its silhouette are only a few
+      // percent apart and score almost identically; the silhouette is the answer,
+      // so let a barely-lower-scoring quad that CONTAINS the incumbent take over.
+      if (ia / o.area > 0.9 && cand.area > o.area * 1.04 && cand.score > o.score - CFG.OUTER_PREF) replace = i;
+      dup = true;
+      break;
+    }
+    if (replace >= 0) out[replace] = cand;
+    else if (!dup) out.push(cand);
+    if (out.length >= CFG.MAX_OUT * 2) break;
+  }
+  // Score order alone is not enough: a strip of a card's own face (its outer edge
+  // plus the name-bar edge, say) can outrank the card and be accepted first, after
+  // which the card no longer suppresses it. Sweep once more at the end and drop
+  // anything that sits inside another survivor -- no card is inside another card.
+  for (let i = 0; i < out.length; i++) {
+    for (let j = 0; j < out.length; j++) {
+      if (i === j || !out[i] || !out[j]) continue;
+      // Only a small inner structure, never a genuinely occluded neighbouring card.
+      if (out[i].area > CFG.CONTAIN_AREA * out[j].area) continue;
+      const inter = clipPoly(out[i].quad.map((p) => [p[0], p[1]]), out[j].quad);
+      if (inter.length >= 3 && polyArea(inter) / out[i].area > CFG.CONTAIN_FRAC) { out[i] = null; break; }
+    }
+  }
+  const kept = out.filter(Boolean).slice(0, CFG.MAX_OUT);
+  out.length = 0;
+  for (const c of kept) out.push(c);
+  if (CFG.FINAL_REFINE) {
+    for (const c of out) c.quad = refineQuad(c.quad, F, W, H, 2);
+  }
+  if (stages) stages.out = out.map((c) => c.quad);
+  return out.map((c) => c.quad.map((p) => [p[0], p[1]]));
+}
+
+
+/* =========================================================================
+ * Harness UI
+ * ========================================================================= */
+const SCENES = makeScenes(20260829);
+let fxIndex = 0, playing = false, playTimer = null;
+let fpsBuf = [], lastFrameTs = 0;
+
+const fxCanvas = document.getElementById('fxCanvas');
+const fxCtx = fxCanvas.getContext('2d');
+const fxIdxEl = document.getElementById('fxIdx');
+const fxTotalEl = document.getElementById('fxTotal');
+const fxMsEl = document.getElementById('fxMs');
+const fxFpsEl = document.getElementById('fxFps');
+
+fxTotalEl.textContent = SCENES.length;
+
+function drawQuad(ctx, quad, color, dash){
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.setLineDash(dash||[]);
+  ctx.beginPath();
+  ctx.moveTo(quad[0][0], quad[0][1]);
+  for(let k=1;k<4;k++) ctx.lineTo(quad[k][0], quad[k][1]);
+  ctx.closePath(); ctx.stroke();
+  ctx.setLineDash([]);
+  for(let k=0;k<4;k++){ctx.fillStyle=color;ctx.fillRect(quad[k][0]-2,quad[k][1]-2,4,4);}
+}
+
+function renderFixture(i){
+  const scene = SCENES[i];
+  const frame = renderFrame(scene);
+  const img = new ImageData(frame.data, frame.width, frame.height);
+  fxCtx.putImageData(img, 0, 0);
+  // ground truth (green, solid)
+  for(const card of scene.cards) drawQuad(fxCtx, card.corners, '#3fb950', []);
+  // detector (cyan, dashed) — scaled coordinates match since canvas backing = 320x240
+  let quads=[], ms=NaN, err='';
+  try{
+    const t0=performance.now();
+    quads=window.detect({width:frame.width,height:frame.height,data:frame.data})||[];
+    ms=performance.now()-t0;
+  }catch(e){err=String(e&&e.message||e);}
+  for(const q of quads){ if(q&&q.length>=4) drawQuad(fxCtx,q,'#39d0d8',[4,3]); }
+
+  fxIdxEl.textContent = i;
+  fxMsEl.textContent = isFinite(ms)?ms.toFixed(2):'—';
+  // rolling fps (window of last 30 frames)
+  const now=performance.now();
+  if(lastFrameTs){const dt=now-lastFrameTs;if(dt>0){fpsBuf.push(1000/dt);if(fpsBuf.length>30)fpsBuf.shift();}}
+  lastFrameTs=now;
+  fxFpsEl.textContent = fpsBuf.length? (fpsBuf.reduce((a,b)=>a+b,0)/fpsBuf.length).toFixed(1):'—';
+
+  document.getElementById('info-id').textContent = scene.id;
+  document.getElementById('info-bg').textContent = scene.background;
+  document.getElementById('info-partial').textContent = scene.partial?'yes':'no';
+  document.getElementById('info-cards').textContent = scene.cards.length;
+  document.getElementById('info-quads').textContent = quads.length;
+  document.getElementById('info-err').textContent = err||'—';
+}
+
+function step(d){ fxIndex=(fxIndex+d+SCENES.length)%SCENES.length; renderFixture(fxIndex); }
+document.getElementById('prev').onclick=()=>{if(playing)togglePlay();step(-1);};
+document.getElementById('next').onclick=()=>{if(playing)togglePlay();step(1);};
+function togglePlay(){
+  playing=!playing;
+  document.getElementById('play').textContent=playing?'⏸ Pause':'▶ Play';
+  if(playing){ lastFrameTs=0; playTimer=setInterval(()=>step(1), 400); }
+  else clearInterval(playTimer);
+}
+document.getElementById('play').onclick=togglePlay;
+
+document.getElementById('srcView').textContent = (window.detect.toString||'').call? window.detect.toString() : String(window.detect);
+
+renderFixture(0);
+
+/* ---------- Live camera tab ---------- */
+const liveCanvas=document.getElementById('liveCanvas');
+const liveCtx=liveCanvas.getContext('2d');
+const liveVideo=document.createElement('video');
+liveVideo.muted=true; liveVideo.playsInline=true;
+let camStream=null, camRAF=null, liveFpsBuf=[], liveLast=0;
+
+document.getElementById('camStart').onclick=async()=>{
+  try{
+    camStream=await navigator.mediaDevices.getUserMedia({video:{width:320,height:240,facingMode:{ideal:'environment'}},audio:false});
+    liveVideo.srcObject=camStream; await liveVideo.play();
+    camLoop();
+    document.getElementById('liveErr').textContent='';
+  }catch(e){document.getElementById('liveErr').textContent=String(e&&e.message||e);}
+};
+document.getElementById('camStop').onclick=()=>{
+  if(camRAF)cancelAnimationFrame(camRAF); camRAF=null;
+  if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null;}
+};
+function camLoop(){
+  if(!camStream){return;}
+  liveCtx.drawImage(liveVideo,0,0,320,240);
+  let ms=NaN;
+  try{
+    const img=liveCtx.getImageData(0,0,320,240);
+    const t0=performance.now();
+    const quads=window.detect({width:320,height:240,data:img.data})||[];
+    ms=performance.now()-t0;
+    for(const q of quads){ if(q&&q.length>=4) drawQuad(liveCtx,q,'#39d0d8',[4,3]); }
+  }catch(e){document.getElementById('liveErr').textContent=String(e&&e.message||e);}
+  const now=performance.now();
+  if(liveLast){const dt=now-liveLast;if(dt>0){liveFpsBuf.push(1000/dt);if(liveFpsBuf.length>30)liveFpsBuf.shift();}}
+  liveLast=now;
+  document.getElementById('liveMs').textContent=isFinite(ms)?ms.toFixed(2):'—';
+  document.getElementById('liveFps').textContent=liveFpsBuf.length?(liveFpsBuf.reduce((a,b)=>a+b,0)/liveFpsBuf.length).toFixed(1):'—';
+  camRAF=requestAnimationFrame(camLoop);
+}
+
+/* ---------- tabs ---------- */
+document.querySelectorAll('.tab').forEach(t=>{
+  t.onclick=()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    const which=t.dataset.tab;
+    document.getElementById('tab-fixtures').classList.toggle('hidden',which!=='fixtures');
+    document.getElementById('tab-live').classList.toggle('hidden',which!=='live');
+    if(which!=='live'){ if(camRAF)cancelAnimationFrame(camRAF); }
+  };
+});
+</script>
+</body>
+</html>

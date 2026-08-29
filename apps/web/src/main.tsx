@@ -508,12 +508,49 @@ const deckeCompareRoute = createRoute({
   component: DeckeCompareRoute,
 })
 
+/**
+ * `/dev/scan-harness` — the card-detector bakeoff harness: fixture replay with
+ * ground-truth overlays, plus a live-camera tab running the hybrid quad
+ * detector on-device.
+ *
+ * Same owner gate as the other /dev routes. The harness itself is a
+ * self-contained HTML artifact carried as a raw string in this lazy chunk
+ * (~72 KB pre-gzip), so only whoever opens the route pays for it.
+ */
+const LazyScanHarness = lazyRoute(() => import('./routes/dev/ScanHarness'))
+const ScanHarnessRoute = () => (
+  <Suspense
+    fallback={
+      <div className="flex h-screen items-center justify-center text-text-muted">Loading…</div>
+    }
+  >
+    <LazyScanHarness />
+  </Suspense>
+)
+const scanHarnessRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/dev/scan-harness',
+  beforeLoad: async () => {
+    if (import.meta.env.DEV) return
+    if (!isCloudMode) return
+    try {
+      const me = await api.me()
+      if (me.owner) return
+    } catch {
+      // Signed out, or /me unavailable — fall through to not-found.
+    }
+    throw notFound()
+  },
+  component: ScanHarnessRoute,
+})
+
 const routeTree = rootRoute.addChildren([
   ...coreRoutes,
   designRoute,
   deckeRoute,
   deckeCompareRoute,
   chatUiRoute,
+  scanHarnessRoute,
 ])
 
 const router = createRouter({
