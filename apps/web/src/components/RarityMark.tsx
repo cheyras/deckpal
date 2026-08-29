@@ -1,5 +1,6 @@
 import { useId } from 'react'
 import { rarityMark, type RarityShape, type RarityTone } from '../lib/rarity'
+import { GLYPH_GAP_RATIO, opticalScale } from '../lib/rarityShapes'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Renders a printed rarity mark as inline SVG — original geometry, not TPCi
@@ -58,17 +59,29 @@ function ShapeGlyph({ shape, tone, uid, size }: { shape: RarityShape; tone: Rari
   // real cards carry; black stars take no edge.
   const edge = tone === 'gold' || tone === 'silver' ? '#ffffff' : 'none'
 
+  // Optical scale: every glyph is scaled about the CENTRE of the 24×24 box
+  // (translate to centre, scale, translate back) so it lands on the same ink
+  // area as every other glyph — see rarityShapes.ts. Scaling about the origin
+  // would shift every glyph off-centre; scaling about (12, 12) keeps each glyph
+  // centred in its box while equalising its visual weight.
+  const k = opticalScale(shape)
+  const tf = `translate(12 12) scale(${k}) translate(-12 -12)`
+
   if (shape === 'circle') {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
-        <circle cx="12" cy="12" r="9" fill={fill} />
+        <g transform={tf}>
+          <circle cx="12" cy="12" r="9" fill={fill} />
+        </g>
       </svg>
     )
   }
   if (shape === 'diamond') {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
-        <path d="M12 3L21 12L12 21L3 12Z" fill={fill} />
+        <g transform={tf}>
+          <path d="M12 3L21 12L12 21L3 12Z" fill={fill} />
+        </g>
       </svg>
     )
   }
@@ -76,7 +89,9 @@ function ShapeGlyph({ shape, tone, uid, size }: { shape: RarityShape; tone: Rari
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
         {tone === 'rainbow' && <RainbowDef uid={uid} />}
-        <path d={STAR_D} fill={fill} stroke={edge} strokeOpacity={0.5} strokeWidth={1} strokeLinejoin="round" />
+        <g transform={tf}>
+          <path d={STAR_D} fill={fill} stroke={edge} strokeOpacity={0.5} strokeWidth={1} strokeLinejoin="round" />
+        </g>
       </svg>
     )
   }
@@ -85,7 +100,9 @@ function ShapeGlyph({ shape, tone, uid, size }: { shape: RarityShape; tone: Rari
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
         {tone === 'rainbow' && <RainbowDef uid={uid} />}
-        <path d={STAR_D} fill="none" stroke={stroke} strokeWidth={1.8} strokeLinejoin="round" />
+        <g transform={tf}>
+          <path d={STAR_D} fill="none" stroke={stroke} strokeWidth={1.8} strokeLinejoin="round" />
+        </g>
       </svg>
     )
   }
@@ -98,8 +115,10 @@ function ShapeGlyph({ shape, tone, uid, size }: { shape: RarityShape; tone: Rari
     // gold stroke gives the "double-stroke" character so the mark reads at 14px.
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
-        <path d={SPARKLE_D} fill={fill} stroke="#ffffff" strokeOpacity={0.6} strokeWidth={1} strokeLinejoin="round" />
-        <path d={SPARKLE_INNER_D} fill="none" stroke="#fff3d6" strokeOpacity={0.75} strokeWidth={1} strokeLinejoin="round" />
+        <g transform={tf}>
+          <path d={SPARKLE_D} fill={fill} stroke="#ffffff" strokeOpacity={0.6} strokeWidth={1} strokeLinejoin="round" />
+          <path d={SPARKLE_INNER_D} fill="none" stroke="#fff3d6" strokeOpacity={0.75} strokeWidth={1} strokeLinejoin="round" />
+        </g>
       </svg>
     )
   }
@@ -109,8 +128,10 @@ function ShapeGlyph({ shape, tone, uid, size }: { shape: RarityShape; tone: Rari
     // in for the reversed-out wordmark; the accessible name carries "Promo".
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
-        <path d={STAR_D} fill="currentColor" />
-        <rect x="2" y="10.4" width="20" height="3.2" rx="0.6" fill="#ffffff" />
+        <g transform={tf}>
+          <path d={STAR_D} fill="currentColor" />
+          <rect x="2" y="10.4" width="20" height="3.2" rx="0.6" fill="#ffffff" />
+        </g>
       </svg>
     )
   }
@@ -120,7 +141,9 @@ function ShapeGlyph({ shape, tone, uid, size }: { shape: RarityShape; tone: Rari
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
         {tone === 'rainbow' && <RainbowDef uid={uid} />}
-        <path d={STAR_D} fill={fill} stroke={edge} strokeOpacity={0.5} strokeWidth={1} strokeLinejoin="round" />
+        <g transform={tf}>
+          <path d={STAR_D} fill={fill} stroke={edge} strokeOpacity={0.5} strokeWidth={1} strokeLinejoin="round" />
+        </g>
       </svg>
     )
   }
@@ -142,7 +165,7 @@ export function RarityMark({
   if (spec.shape === 'none') return null
 
   const uid = useId().replace(/:/g, '')
-  const gap = Math.max(1, Math.round(size * 0.12))
+  const gap = Math.max(1, Math.round(size * GLYPH_GAP_RATIO))
 
   return (
     <span
