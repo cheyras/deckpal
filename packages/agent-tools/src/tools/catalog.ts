@@ -158,7 +158,8 @@ const searchCardsTool = defineTool({
     'it takes the set NAME as readily as the id. Searching for a set name in ' +
     '`query` always returns nothing, however many ways you spell it. ' +
     'Accent-insensitive substring, with ' +
-    'optional filters: set, category, rarity, Standard legality, owned-only, and minimum ' +
+    'optional filters: set, category, rarity, Standard legality, owned-only, not-owned (exclude_owned), ' +
+    'and minimum ' +
     'USD market value. Each row shows owned quantity and best USD market price. Rows sharing a ' +
     'name sort cheapest first. PREFER THE CHEAPEST PRINTING OF THE SAME CARD — a regular and a ' +
     'Special Illustration Rare play identically and can differ by hundreds of dollars — but ' +
@@ -215,6 +216,13 @@ const searchCardsTool = defineTool({
     category: z.enum(['Pokemon', 'Trainer', 'Energy']).optional().describe('Limit to one card category.'),
     rarity: z.string().optional().describe("Exact rarity name, case-insensitive, e.g. 'Double Rare'."),
     owned_only: z.boolean().default(false).describe('true → only cards you own at least one copy of (any variant).'),
+    exclude_owned: z
+      .boolean()
+      .default(false)
+      .describe(
+        'true → only cards you do NOT own (owned quantity 0 or no row) — the filter for "cards I do not own" / ' +
+          'buy-recommendation asks. Mirrors owned_only the other way; do not pass both.',
+      ),
     standard_legal: z.boolean().optional().describe('Filter on Standard-format legality (card.legal_standard).'),
     // ── `0` IS NOT A NO-OP, AND IT WAS BEING SENT AS ONE ────────────────────
     //
@@ -312,6 +320,7 @@ const searchCardsTool = defineTool({
         });
       }
       if (args.owned_only) filters.push({ label: 'owned_only', sql: () => `COALESCE(o.qty, 0) > 0` });
+      if (args.exclude_owned) filters.push({ label: 'exclude_owned', sql: () => `COALESCE(o.qty, 0) = 0` });
       // `> 0`, not `!== undefined` — see the schema. A zero minimum is not a
       // filter, and treating it as one cost a third of the catalogue on every
       // call of the turn that failed.

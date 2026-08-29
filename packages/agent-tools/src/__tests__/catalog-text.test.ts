@@ -28,6 +28,7 @@ import { catalogTools } from '../tools/catalog.js';
 
 const getCard = catalogTools.find((t) => t.name === 'get_card')!;
 const setProgress = catalogTools.find((t) => t.name === 'set_progress')!;
+const searchCards = catalogTools.find((t) => t.name === 'search_cards')!;
 
 type Row = Record<string, unknown>;
 
@@ -362,4 +363,33 @@ test('set_progress without all_sets still reads user_set_progress, not card_set'
   const res = await setProgress.handler({ goal: 'complete' }, ctx(db));
   assert.equal(res.isError, undefined);
   assert.equal(res.text, 'No sets have any progress yet.');
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 7. search_cards exclude_owned adds a COALESCE(o.qty, 0) = 0 filter at the
+//    SQL level — the "cards I do not own" filter for buy-recommendation asks.
+//    Mirrors owned_only (COALESCE(o.qty, 0) > 0) the other way. The handler's
+//    filter composition is testable at the unit level because the stub db
+//    dispatch inspects the SQL string.
+// ════════════════════════════════════════════════════════════════════════════
+test('search_cards exclude_owned filters to cards not owned at the SQL level', async () => {
+  let sawFilter = false;
+  const db = stubDb((sql: string): Row[] => {
+    if (sql.includes('COALESCE(o.qty, 0) = 0')) sawFilter = true;
+    if (sql.includes('count(*) AS total')) return [{ total: '1' }];
+    // page query
+    return [{
+      name: 'Charizard',
+      tcgdex_id: 'sv06-186',
+      rarity: 'Double rare',
+      owned_qty: null,
+      best_minor: 2500,
+      series_slug: 'scarlet-violet',
+      playable_fingerprint: null,
+      hp: 180,
+    }];
+  });
+  const res = await searchCards.handler({ exclude_owned: true, page: 1, page_size: 50 }, ctx(db));
+  assert.equal(res.isError, undefined);
+  assert.ok(sawFilter, 'exclude_owned did not add COALESCE(o.qty, 0) = 0 to the SQL');
 });

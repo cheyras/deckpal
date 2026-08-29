@@ -87,6 +87,19 @@ const ABANDONED_REASON = 'the reader did not answer'
 const GUIDE_TOOLS = new Set(['deck_strategy', 'write_strategy_guide'])
 
 /**
+ * The deep tool whose decline suppresses further calls of the same name,
+ * regardless of arguments — the same name-level suppression as the guide pair,
+ * keyed to research_meta alone.
+ *
+ * A research_meta decline must NOT suppress guides, and a guide decline must NOT
+ * suppress research_meta: the two are independent. The measured complaint —
+ * "You asked to do meta research. I said no because you'd already done it" —
+ * is a reworded research_meta re-ask, which the (tool, args) ledger above does
+ * not catch.
+ */
+const RESEARCH_TOOL = 'research_meta'
+
+/**
  * The NUL that `callKey` uses as its separator — the one byte no tool name can
  * contain, so it is the safe split point between name and arguments.
  */
@@ -127,31 +140,53 @@ function isGuideWrite(key: string): boolean {
 }
 
 /**
- * A decline set that ALSO suppresses by name for the two guide tools.
+ * Is this callKey a research_meta call — any shape, any arguments?
+ *
+ * Same NUL cut as `guideName`, but keyed to research_meta alone: the name-level
+ * suppression for research_meta does not distinguish write from read — a
+ * declined research_meta suppresses further research_meta calls of ANY shape,
+ * because the measured complaint was a reworded re-ask.
+ */
+function isResearchMeta(key: string): boolean {
+  const i = key.indexOf(KEY_SEP)
+  return i >= 0 && key.slice(0, i) === RESEARCH_TOOL
+}
+
+/**
+ * A decline set that ALSO suppresses by name for the two guide tools, and for
+ * research_meta.
  *
  * `has` checks the exact (tool, args) key first — that path is unchanged for
- * every tool. Only when no exact match is found AND a guide write was declined
- * somewhere in this conversation does it suppress by name: a `write_strategy`
- * call of any shape, and a `deck_strategy` call of the write shape, are both
- * refused without a dialog.
+ * every tool. Only when no exact match is found does it suppress by name:
+ *   - a guide write was declined somewhere in this conversation → a
+ *     `write_strategy_guide` call of any shape, and a `deck_strategy` call of
+ *     the write shape, are both refused without a dialog.
+ *   - a research_meta call was declined somewhere in this conversation → any
+ *     further research_meta call, any shape, is refused without a dialog.
+ * The two are independent: a guide decline does not suppress research_meta, and
+ * a research_meta decline does not suppress guides.
  *
  * The `size` check in every caller (`declined.size > 0 && declined.has(...)`)
  * still reads the real entry count, so the short-circuit is honest: an empty set
- * means nothing was refused, guide or otherwise.
+ * means nothing was refused, guide, research or otherwise.
  */
 class GuideDeclinedSet extends Set<string> {
   /** True when ANY guide-tool write was declined in this conversation. */
   private readonly guideDeclined: boolean
+  /** True when ANY research_meta call was declined in this conversation. */
+  private readonly researchDeclined: boolean
 
   constructor(entries: Iterable<string>) {
     super(entries)
     this.guideDeclined = [...this].some(isGuideWrite)
+    this.researchDeclined = [...this].some(isResearchMeta)
   }
 
   override has(key: string): boolean {
     if (super.has(key)) return true
-    if (!this.guideDeclined) return false
-    return isGuideWrite(key)
+    if (this.guideDeclined && isGuideWrite(key)) return true
+    if (this.researchDeclined && isResearchMeta(key)) return true
+    return false
   }
 }
 
@@ -202,9 +237,15 @@ export function declinedCalls(messages: unknown): Set<string> {
  * wrong when what was declined was a different shape of the same act. The guide
  * message names the act — saving a strategy guide — and says the subject is
  * dropped unless the reader raises it themselves.
+ *
+ * For research_meta the message is research-specific: a reworded research_meta
+ * re-ask is the other half of the same measured complaint, and "this exact
+ * research_meta call" is wrong when the query was reworded. The research message
+ * names the act — meta research — and says the same.
  */
 export function alreadyDeclinedMessage(tool: string): string {
   if (GUIDE_TOOLS.has(tool)) return guideDeclinedMessage()
+  if (tool === RESEARCH_TOOL) return researchDeclinedMessage()
   return (
     `They already said no to this exact ${tool} call in this conversation, so it has not run ` +
     `and they have not been asked again. Nothing changed. Do not ask a third time and do not ` +
@@ -231,5 +272,25 @@ function guideDeclinedMessage(): string {
     `save, and do not work around it — carry on with what they actually wanted, or say plainly ` +
     `that you cannot do this part without it. If they tell you to go ahead, call it again and ` +
     `it will ask.`
+  )
+}
+
+/**
+ * The research_meta-specific refusal: the same doctrine as
+ * `guideDeclinedMessage`, worded for the act research_meta performs.
+ *
+ * "This exact research_meta call" is wrong when the query was reworded — the
+ * whole point of the name-level suppression is that rewording is not a new
+ * question. So this names the act, says the subject is dropped unless the
+ * reader raises it, and forbids work-arounds, exactly as the doctrine requires.
+ */
+function researchDeclinedMessage(): string {
+  return (
+    `They already said no to research_meta in this conversation, so it has not run ` +
+    `and they have not been asked again. Nothing changed — rewording the query is not a new ` +
+    `question. Drop the subject: unless they raise it themselves, do not propose another ` +
+    `research_meta call, and do not work around it — carry on with what they actually wanted, ` +
+    `or say plainly that you cannot do this part without it. If they tell you to go ahead, ` +
+    `call it again and it will ask.`
   )
 }

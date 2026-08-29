@@ -22,11 +22,11 @@ const msg = (parts: unknown[]) => ({ role: 'assistant', parts });
 
 test('a declined call is remembered, keyed by tool AND arguments', () => {
   const declined = declinedCalls([
-    msg([part('research_meta', { query: 'dhelmise meta' }, false, 'the reader declined')]),
+    msg([part('plan_deck', { idea: 'mill', format: 'standard' }, false, 'the reader declined')]),
   ]);
-  assert.ok(declined.has(callKey('research_meta', { query: 'dhelmise meta' })));
+  assert.ok(declined.has(callKey('plan_deck', { idea: 'mill', format: 'standard' })));
   // Different arguments are a different question and must still be askable.
-  assert.ok(!declined.has(callKey('research_meta', { query: 'something else' })));
+  assert.ok(!declined.has(callKey('plan_deck', { idea: 'control', format: 'expanded' })));
 });
 
 test('an APPROVED call is not remembered as a refusal', () => {
@@ -90,8 +90,8 @@ test('a non-tool part carrying an approval-shaped object is ignored', () => {
 });
 
 test('the refusal message tells him not to ask again, and how it can be undone', () => {
-  const m = alreadyDeclinedMessage('research_meta');
-  assert.match(m, /research_meta/);
+  const m = alreadyDeclinedMessage('plan_deck');
+  assert.match(m, /plan_deck/);
   assert.match(m, /has not run/);
   assert.match(m, /Nothing changed/);
   assert.match(m, /Do not ask a third time/);
@@ -240,9 +240,58 @@ test('the guide refusal message acknowledges the earlier no and forbids work-aro
   }
 });
 
-test('a non-guide tool keeps the exact-call refusal message', () => {
+test('a non-guide, non-research tool keeps the exact-call refusal message', () => {
   // The existing doctrine for every other tool: name the exact call. The guide
-  // rewording does not change this.
+  // and research_meta rewordings do not change this.
+  const m = alreadyDeclinedMessage('plan_deck');
+  assert.match(m, /this exact plan_deck call/);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RESEARCH_META — declined by NAME, same mechanism as the guide pair but
+// keyed to research_meta alone. A research decline does NOT suppress guides,
+// and a guide decline does NOT suppress research_meta.
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// The other half of the measured complaint: "You asked to do meta research. I
+// said no because you'd already done it." A reworded research_meta is the same
+// act — a declined research_meta suppresses further research_meta calls of ANY
+// shape, not just the exact one.
+
+test('a declined research_meta suppresses further research_meta calls regardless of args', () => {
+  const declined = declinedCalls([
+    msg([part('research_meta', { query: 'dhelmise meta' }, false, 'the reader declined')]),
+  ]);
+  assert.ok(
+    declined.has(callKey('research_meta', { query: 'something completely different' })),
+    'a research_meta decline did not suppress a reworded research_meta call',
+  );
+});
+
+test('a research_meta decline does NOT suppress guide tools', () => {
+  // The two name-level suppressions are independent: a research_meta decline
+  // must not suppress a guide write, and vice versa.
+  const declined = declinedCalls([
+    msg([part('research_meta', { query: 'x' }, false, 'the reader declined')]),
+  ]);
+  assert.ok(
+    !declined.has(callKey('write_strategy_guide', { deck: 'd1' })),
+    'a research_meta decline suppressed a guide call',
+  );
+  assert.ok(
+    !declined.has(callKey('deck_strategy', { deck_id: 'd1', markdown: '# Guide' })),
+    'a research_meta decline suppressed a guide write',
+  );
+});
+
+test('the research_meta refusal message acknowledges the earlier no and forbids work-arounds', () => {
   const m = alreadyDeclinedMessage('research_meta');
-  assert.match(m, /this exact research_meta call/);
+  assert.match(m, /already said no/);
+  assert.match(m, /has not run/);
+  assert.match(m, /do not work around it/i);
+  assert.match(m, /Drop the subject/);
+  assert.match(m, /If they tell you to go ahead/);
+  // It does NOT say "this exact" — the whole point of the name-level
+  // suppression is that rewording is not a new question.
+  assert.doesNotMatch(m, /this exact/);
 });

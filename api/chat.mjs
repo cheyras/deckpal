@@ -56,6 +56,13 @@ import {
 const MAX_STEPS = 12
 
 /**
+ * The browser-fulfilled tools, as a Set, for the empty-answer guard's
+ * navigation-handoff carve-out. Built from the real `CLIENT_TOOLS` export so it
+ * cannot go stale the way a hand-written copy would. See `decke/turnGuards.ts`.
+ */
+const CLIENT_SET = new Set(CLIENT_TOOLS)
+
+/**
  * Tools whose over-long arguments may be trimmed by `repairToolCall`.
  *
  * A tool belongs here only if it RENDERS rather than stores, and only if its
@@ -77,7 +84,7 @@ import { createGateway } from '@ai-sdk/gateway'
 // allowlist are server concerns in the first place.
 import { verifySupabaseJwt, createSupabaseJwksProvider } from '../apps/api/dist/auth.js'
 import { buildSystemPrompt } from '../apps/api/dist/decke/prompt.js'
-import { buildTools } from '../apps/api/dist/decke/tools.js'
+import { buildTools, CLIENT_TOOLS } from '../apps/api/dist/decke/tools.js'
 import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
 import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
@@ -101,6 +108,15 @@ import { stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/n
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
 import { RepairLog, clampStrings } from '../apps/api/dist/decke/repair.js'
+import {
+  needsAnswerNudge,
+  needsContinuation,
+  errorBudgetExceeded,
+  summarizeFailures,
+  phantomClaims,
+  ungroundedCardIds,
+  harvestObservedIds,
+} from '../apps/api/dist/decke/turnGuards.js'
 import { makePool } from '@deckpal/db'
 
 /**
@@ -551,7 +567,13 @@ async function serve(request) {
    * finished turn should not carry "Checking your collection…" in its history
    * for ever, nor re-bill it on the next turn.
    */
+  // Tool-call lifecycle events, collected for the turn-end guards: the 'error'
+  // phase count feeds the flailing guard, and {name,title} feed its summary.
+  // Declared in `serve` scope (before `emitToolEvent`) so the sink here can push
+  // to it; read inside `execute` by the guard block. One per request.
+  const guardEvents = []
   const emitToolEvent = (writer) => (event) => {
+    guardEvents.push(event)
     try {
       writer.write({ type: 'data-decke-tool', data: event, transient: true })
     } catch {
@@ -609,10 +631,28 @@ async function serve(request) {
       // step one is what `showScreen` may draw on step three — evidence is a
       // property of the turn, not of a call.
       const grounding = createGrounding()
+      // The same evidence, as a Set, for the ungrounded-id guard below. Built by
+      // TAPPING `grounding.observe` through a structural proxy that delegates
+      // every method to the real grounding and harvests ids into this Set using
+      // the one `CARD_ID` regex `turnGuards.ts` owns. `grounding.ts` does not
+      // expose its ids, and the ownership of this pass does not extend to
+      // editing it, so the proxy is the seam.
+      const observedIds = new Set()
+      const groundingForTools = {
+        observe: (text) => {
+          grounding.observe(text)
+          for (const id of harvestObservedIds(text)) observedIds.add(id)
+        },
+        seen: (id) => grounding.seen(id),
+        size: () => grounding.size(),
+      }
       // What `repairToolCall` below mended, so the tool can say so in its own
       // result rather than being silently corrected. Per request, like the
       // grounding beside it.
       const repairs = new RepairLog()
+      // Whether a guard (including the circles guard above) already wrote this
+      // turn. AT MOST ONE guard step per turn — never stacked.
+      let guardFired = false
 
       const allDeckeTools = {
         // `emitToolEvent` here too, so a panel becomes a row like every data
@@ -621,7 +661,7 @@ async function serve(request) {
         // compacted evidence the client replays into the next leg, so a turn
         // that drew a panel and then flew somewhere came back not knowing the
         // panel existed and narrated its contents a second time.
-        ...buildTools(writer, grounding, repairs, emitToolEvent(writer)),
+        ...buildTools(writer, groundingForTools, repairs, emitToolEvent(writer)),
         // READS AND WRITES, because the approval round-trip now exists.
         //
         // `include: () => true` is not "no filter" — every write is still
@@ -655,7 +695,7 @@ async function serve(request) {
           // write) and `research_meta` (a deep call), four declines apiece
           // across the corpus. See `decke/declined.ts`.
           declined,
-          grounding,
+          grounding: groundingForTools,
         }),
         // THE DEEP TIER. Four sub-agents, each with its own model, step
         // budget and tool subset — see `decke/deep.ts`.
@@ -689,7 +729,7 @@ async function serve(request) {
           // panel. Without it every id that exists only in a plan_deck result is
           // partitioned invented and stripped — the payoff turn renders an empty
           // grid. research_meta is excluded at the tool, not here.
-          grounding,
+          grounding: groundingForTools,
           onEvent: emitToolEvent(writer),
         }),
       }
@@ -1076,10 +1116,115 @@ async function serve(request) {
               'I went round in circles on that one and ran out of room before I could ' +
               'answer — I never got to the reply. Ask me again, or narrow it down a bit?',
           })
+          // The circles guard COUNTS toward the one-guard-per-turn budget — if it
+          // wrote, no turn-guard below may fire. Never stack nudges.
+          guardFired = true
         }
       } catch {
         // A turn that failed hard has its own error path. This is only here to
         // catch the SILENT case, and it must not manufacture a second failure.
+      }
+
+      // ── TURN-END GUARDS: the four control-flow gaps the prompt could not close
+      //
+      // MINE FINDING (owner's 28-conversation history):
+      //   (a) EMPTY ANSWERS — 13 of 28 turns: data tools ran, ZERO answer text,
+      //       finishReason 'tool-calls'/null at 1–11 steps. The circles guard
+      //       above fires only at the 12-step cap, so the 1–11-step empty turn
+      //       went untouched. Quotes: "You didn't fucking show me it at all";
+      //       "you told me you weee escorting me. You didn't actually DO it".
+      //   (b) TRUNCATION — answers cut mid-sentence on finishReason 'length'
+      //       ("Here's your Mewtwo (Base").
+      //   (c) FLAILING — 12–24 tool calls, 5–12 errors across DIFFERENT tools/
+      //       args, so the per-tool repeat ledger and empty-run counter never
+      //       fired. Quote: "He's doing tons of tool calls for absolutely zero
+      //       reason."
+      //   (d) PHANTOM ACTIONS / UNGROUNDED IDS — the answer said "I'm creating
+      //       the list now" / "I just wiped it clean and rebuilt it" / "pulling
+      //       both up" while NO write or navigation tool was called (5 of 28
+      //       turns, the angriest quotes); or named a card id no tool returned
+      //       ("search returned me02-013, answer said me02-125").
+      //
+      // This codebase has twice measured prompt-only fixes at zero, so these are
+      // detectors + a text-delta injection, not prompt rules. See
+      // `decke/turnGuards.ts` for the pure logic pinned by its own test.
+      //
+      // ONE GUARD PER TURN. The first match in the fixed priority order below
+      // writes and the rest are skipped; the circles guard above has already
+      // claimed the turn if it fired. The meter/credits refusal returns before
+      // the stream (see `meterTurn`), so this block is never reached on a
+      // refused turn — the "never inject when the meter refused" rule holds by
+      // construction.
+      //
+      // MECHANISM: the note is written as a `text-delta`, the SAME injection
+      // the circles guard uses — the proven, minimal writer.write this file
+      // already has. A second full model step was considered and rejected for
+      // this pass as non-minimal and untestable in a Vercel function; the
+      // detectors carry the decision logic and the note is the spec's verbatim
+      // nudge text. See `notes.md` for the trade.
+      try {
+        if (guardFired) {
+          // The circles guard already wrote this turn. Never stack.
+        } else {
+          const steps = await result.steps
+          const answerText = steps.map((s) => (s.text ?? '')).join('\n')
+          const calledToolNames = []
+          for (const s of steps) for (const c of (s.toolCalls ?? [])) calledToolNames.push(c.toolName)
+          const phases = guardEvents.map((e) => e.phase)
+          // `result.finishReason` is an already-settled promise by this point;
+          // awaiting it again is cheap and keeps this block self-contained.
+          const finishReason = await result.finishReason.catch(() => undefined)
+
+          // THE NOTE IS READER-FACING. A text-delta renders in the transcript
+          // as Deck-E's own words (exactly like the circles guard's line above)
+          // — so every note is an honest first-person admission the reader can
+          // act on, never an instruction addressed at the model. It also lands
+          // in the replayed history, where the model reads its own admission on
+          // the next leg — the corrective signal rides the same sentence.
+          // (Orchestrator correction 2026-08-29: the first cut of these strings
+          // was written TO the model and would have rendered as gibberish.)
+          let note = null
+          if (needsContinuation(String(finishReason ?? ''))) {
+            // (b) TRUNCATION — cut off mid-sentence.
+            note = ' …I got cut off mid-sentence there. Say "keep going" and I\'ll finish the thought.'
+          } else if (errorBudgetExceeded(phases)) {
+            // (c) FLAILING — too many errors across the turn; stop and summarise.
+            const chips = guardEvents
+              .filter((e) => e.phase === 'error')
+              .map((e) => ({ name: e.name, title: e.title }))
+            note =
+              `\n\nI kept hitting walls there. ${summarizeFailures(chips)} ` +
+              'Rather than keep flailing, tell me to try a different way — or ask it differently and I will.'
+          } else if (needsAnswerNudge(answerText, calledToolNames, CLIENT_SET)) {
+            // (a) EMPTY ANSWER — tools ran, no client tool, nothing said.
+            note =
+              'I looked things up and then never actually answered you — that\'s on me. ' +
+              'Ask that again and I\'ll answer from what I found.'
+          } else {
+            // (d) PHANTOM ACTIONS / UNGROUNDED IDS — only meaningful AFTER the
+            // model produced text, which is why this branch is last: (a) above
+            // already owned the empty-text turn.
+            const phantoms = phantomClaims(answerText, calledToolNames)
+            const ungrounded = ungroundedCardIds(answerText, observedIds)
+            if (phantoms.length > 0) {
+              note =
+                '\n\nOne correction: I talked about doing that just now, but I never actually ran it — ' +
+                'nothing has changed. Say the word and I\'ll actually do it.'
+            } else if (ungrounded.length > 0) {
+              note =
+                `\n\nA caution: I named ${ungrounded.join(', ')} without looking it up this turn — ` +
+                'don\'t trust that detail until I check it. Ask me to verify and I will.'
+            }
+          }
+
+          if (note) {
+            guardFired = true
+            writer.write({ type: 'text-delta', id: 'turn-guard', delta: note })
+          }
+        }
+      } catch {
+        // A guard must never manufacture a second failure on a turn that may
+        // already have one. The detection is best-effort; the turn stands.
       }
     },
   })
