@@ -413,9 +413,23 @@ rows and ~3-4 GB. It is chunked (`limit` days per run), skips days already
 ingested, and self-chains until `remaining` reaches 0.
 
 Add these repository secrets — Settings → Secrets and variables → Actions → *New
-repository secret*. The values are exactly the matching lines of your `.env.cloud`:
+repository secret*. The values are exactly the matching lines of your cloud env
+file, `.env.prod`.
 
-| Secret | Value (from `.env.cloud`) | Required |
+> **This section said `.env.cloud` until 2026-08-29, and no such file exists.**
+> That is not a cosmetic slip: the runbook pointed at a file nobody had, the
+> four secrets were therefore never created, and `catalog-refresh.yml` failed
+> its credentials preflight on every scheduled run from the day it shipped —
+> silently, because a red weekly job nobody is watching looks like no job at
+> all. **Resolved 2026-08-29:** the secrets were set from `.env.prod`, and both
+> `price-refresh` and `catalog-refresh` completed successfully within the hour —
+> the catalog's first green run ever. Verify with `gh secret list` (expect five)
+> and `GET /api/health` → `syncs`, which reports the last successful run per job
+> from `sync_run` and is the authoritative check; a green Actions run only says
+> the workflow executed.
+
+
+| Secret | Value (from `.env.prod`) | Required |
 |---|---|---|
 | `SUPABASE_DB_HOST` | `PGHOST` — the Supabase pooler host | yes |
 | `SUPABASE_DB_NAME` | `PGDATABASE` | yes |
@@ -440,10 +454,10 @@ catalog is already correct at that point; re-run the workflow once the re-key is
 done and it goes green (the importer sees no rename the second time).
 
 **Running it by hand** — the same thing the workflow does, from a checkout with
-`.env.cloud` present:
+`.env.prod` present:
 
 ```bash
-ENV_FILE=.env.cloud scripts/refresh-catalog.sh    # extract (B3-safe) + import
+ENV_FILE=.env.prod scripts/refresh-catalog.sh     # extract (B3-safe) + import
 SKIP_IMPORT=1 scripts/refresh-catalog.sh          # extract + delta report only
 ```
 
@@ -460,7 +474,7 @@ refetch would destroy art rather than restore it:
 ```bash
 # disk tier (self-host cache; PG* pointed at that box's database)
 pnpm --filter deckpal-images rekey:set --rename <old>:<new>
-# object tier (Supabase Storage; .env.cloud loaded)
+# object tier (Supabase Storage; .env.prod loaded)
 pnpm --filter deckpal-images rekey:set --object-store --rename <old>:<new>
 # then prove both tiers
 pnpm --filter deckpal-images manifest:check
@@ -866,7 +880,7 @@ one (see SECURITY.md).
 Applying to production:
 
 ```bash
-set -a && . ./.env.cloud && set +a && pnpm migrate     # SUPABASE_MODE is set in .env.cloud
+set -a && . ./.env.prod && set +a && pnpm migrate      # SUPABASE_MODE is set in .env.prod
 ```
 
 Then, before deploying code, confirm the tables answer under a real token:
