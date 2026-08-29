@@ -421,7 +421,12 @@ file, `.env.prod`.
 > four secrets were therefore never created, and `catalog-refresh.yml` failed
 > its credentials preflight on every scheduled run from the day it shipped —
 > silently, because a red weekly job nobody is watching looks like no job at
-> all. Verify with `gh secret list`; an empty list means none of this runs.
+> all. **Resolved 2026-08-29:** the secrets were set from `.env.prod`, and both
+> `price-refresh` and `catalog-refresh` completed successfully within the hour —
+> the catalog's first green run ever. Verify with `gh secret list` (expect five)
+> and `GET /api/health` → `syncs`, which reports the last successful run per job
+> from `sync_run` and is the authoritative check; a green Actions run only says
+> the workflow executed.
 
 
 | Secret | Value (from `.env.prod`) | Required |

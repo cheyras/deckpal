@@ -13954,6 +13954,16 @@ non-existent file is a runbook that does not get followed.
   preflight naming the four secrets by hand instead of dying as an ECONNREFUSED
   is the half of B11 that did work.
 
-**Still blocked on the maintainer:** setting the four secrets is a B9
-infrastructure write with production credentials, so it is not mine to do.
-Until they exist, neither the price poll nor the catalog refresh runs.
+**Resolved the same day.** The owner set the five secrets from `.env.prod`
+(a B9 write with production credentials, theirs to make, not mine). Both jobs
+were then dispatched by hand rather than left to prove themselves on a schedule:
+
+- `price-refresh` succeeded in 1m39s — the first price ingest in 20 days. Cards
+  went from `priced_at 2026-08-09` to `2026-08-28`, i.e. "as of 22 days ago"
+  became "as of yesterday".
+- `catalog-refresh` succeeded in 5m43s — its **first green run ever**, catching
+  up three missed Sundays of set updates.
+
+Both are now armed on their schedules. `GET /api/health` → `syncs` is the
+authoritative check that they stay that way; a green Actions run only says the
+workflow executed, while `sync_run` says the database was actually written.
