@@ -10,10 +10,15 @@ import { useSignedIn } from '../lib/session'
 import { SignInPrompt } from '../components/SignInPrompt'
 import { tailwindGradientStops } from '../lib/gradientPalette'
 import { useLateEntrance } from '../lib/lateEntrance'
+import { pushSettings, SETTINGS_HYDRATED_EVENT } from '../lib/settingsSync'
 
 // ── Sort / group preferences (issue 14i8ys) ────────────────────────────────
-// Persisted to localStorage only when the user hits "Save as default"; otherwise
-// changes are session-local. Default = most-recent-first, grouped by owned.
+// Saved (via "Save as default") to the ACCOUNT — user_settings.series_* per
+// migration 049 — with localStorage as the offline cache the initial render
+// reads synchronously. lib/settingsSync.ts writes that cache from the server
+// on boot and fires SETTINGS_HYDRATED_EVENT, which re-reads it below.
+// Otherwise changes are session-local. Default = most-recent-first, grouped
+// by owned.
 type SortKey = 'recency' | 'az' | 'pct'
 type SortDir = 'asc' | 'desc'
 interface Prefs {
@@ -285,6 +290,13 @@ export function SeriesIndex() {
   const signedOut = signedIn === false
 
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs)
+  // The account's values can land after this mounted (boot sync, or sign-in
+  // in another tab): re-read the cache the sync layer just wrote.
+  useEffect(() => {
+    const onHydrated = () => setPrefs(loadPrefs())
+    window.addEventListener(SETTINGS_HYDRATED_EVENT, onHydrated)
+    return () => window.removeEventListener(SETTINGS_HYDRATED_EVENT, onHydrated)
+  }, [])
   const [savedFlash, setSavedFlash] = useState(false)
   const [showOthers, setShowOthers] = useState(false)
   const savedFlashTimer = useRef<number | null>(null)
@@ -296,6 +308,8 @@ export function SeriesIndex() {
   }, [])
 
   const savePrefs = () => {
+    // Account first (the durable copy), cache second (the fast one).
+    pushSettings({ seriesSortKey: prefs.sortKey, seriesSortDir: prefs.sortDir, seriesGroupOwned: prefs.groupByOwned })
     try {
       localStorage.setItem(PREFS_KEY, JSON.stringify(prefs))
       setSavedFlash(true)

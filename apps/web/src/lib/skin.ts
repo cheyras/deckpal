@@ -20,6 +20,20 @@ function isSkin(v: string | null): v is Skin {
   return v === 'premium' || v === 'classic'
 }
 
+/**
+ * The device's stored choice ONLY — no URL override, no default. The settings
+ * sync layer (lib/settingsSync.ts) uses this to tell "the user chose classic
+ * here" apart from "this device never chose", which readSkin() cannot.
+ */
+export function readStoredSkin(): Skin | null {
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY)
+    return isSkin(stored) ? stored : null
+  } catch {
+    return null
+  }
+}
+
 export function readSkin(): Skin {
   if (typeof window === 'undefined') return DEFAULT_SKIN
   try {

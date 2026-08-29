@@ -999,6 +999,35 @@ export interface MeResponse {
    */
   decke?: boolean
 }
+/**
+ * The account's settings row (user_settings + migration 049's UI columns).
+ * `skin`/`topbar` are null when the account never chose — the app default
+ * applies. See lib/settingsSync.ts for how these meet the localStorage caches.
+ */
+export interface UserSettings {
+  defaultGoal: 'complete' | 'master' | 'grandmaster'
+  displayCurrency: string
+  pricingEnabled: boolean
+  showCollectionValue: boolean
+  binderPocketSize: 4 | 9 | 12 | 16
+  binderStackVariants: boolean
+  binderAdditionalVariants: 'hide' | 'inline' | 'end'
+  deckeHidden: boolean
+  skin: 'premium' | 'classic' | null
+  topbar: 'cover' | 'flat' | null
+  seriesSortKey: 'recency' | 'az' | 'pct'
+  seriesSortDir: 'asc' | 'desc'
+  seriesGroupOwned: boolean
+}
+
+/** One featured card on the profile (user_showcase; slot is 1-based). */
+export interface ShowcaseSlot {
+  slot: number
+  cardId: string
+  name: string
+  images: { low: string; high: string }
+}
+
 export interface CollectionEvent {
   eventId: string
   occurredAt: string
@@ -1360,6 +1389,15 @@ export const api = {
 
   // Signed-in identity — real username, not the JWT's (often-empty) metadata.
   me: (signal?: AbortSignal) => get<MeResponse>('/me', signal),
+  // Account settings (migration 049) — the server-side home of what used to be
+  // device-only preferences. PATCH takes any subset and returns the whole row.
+  settings: (signal?: AbortSignal) => get<{ settings: UserSettings }>('/me/settings', signal),
+  updateSettings: (patch: Partial<UserSettings>) => send<{ settings: UserSettings }>('PATCH', '/me/settings', patch),
+  // Profile showcase — the user_showcase table, replacing the old
+  // localStorage-only `deckpal.showcase.v1`. PUT replaces the whole set; the
+  // server resolves each card id to its primary variant.
+  showcase: (signal?: AbortSignal) => get<{ showcase: ShowcaseSlot[] }>('/me/showcase', signal),
+  setShowcase: (cards: (string | null)[]) => send<{ showcase: ShowcaseSlot[] }>('PUT', '/me/showcase', { cards }),
 
   // Insights / gamification (Phase 6)
   overview: (signal?: AbortSignal) => get<InsightsOverview>('/insights/overview', signal),

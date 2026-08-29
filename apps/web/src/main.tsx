@@ -21,6 +21,7 @@ import './premium.css'
 import { initSkin } from './lib/skin'
 import { preconnectArtOrigin } from './lib/cardArt'
 import { initTopbar } from './lib/topbar'
+import { initSettingsSync } from './lib/settingsSync'
 import { registerPwa } from './pwa'
 import { lazyRoute } from './lib/lazyRoute'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
@@ -559,6 +560,10 @@ router.subscribe('onRendered', () => {
 // Before first paint, so the skin never flashes from classic to premium.
 initSkin()
 initTopbar()
+// Then let the ACCOUNT have the final say: pull the server-side settings and
+// apply them over the device cache (migration 049 — "remembered on this
+// device only" stopped being the deal). Async on purpose; boot never waits.
+initSettingsSync()
 // Open the connection to the card-art origin now, not when the first tile asks.
 // Card art is served straight off the Storage CDN (lib/cardArt.ts), which is a
 // different origin from the app — so without this the first image on a cold load
