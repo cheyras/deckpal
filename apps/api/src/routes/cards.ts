@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import { cardImages, q, q1, shapePrice, tcgplayerUrl, type PriceRow } from '../db.js';
+import { cardImages, pool, q, q1, shapePrice, tcgplayerUrl, type PriceRow } from '../db.js';
 import { asyncHandler, notFound, userCache } from '../http.js';
 import { optionalUserId } from '../identity.js';
+import { cardLegality, formatConfig, loadByTcgdexId, buildReprintOracle } from '../deck/index.js';
 
 export const cardsRouter: Router = Router();
 
@@ -249,5 +250,36 @@ cardsRouter.get(
         prices: (pricesByVariant.get(v.id) ?? []).map(shapePrice),
       })),
     });
+  }),
+);
+
+/**
+ * GET /deckpal/api/cards/:cardId/legality — per-format eligibility for one card.
+ *
+ * Its own endpoint, fetched only when the card modal's TCG tab is opened, rather
+ * than a field on the card payload. `GET /cards/:cardId` is on a hot path (the
+ * table view opens one per row for its variant counters), and this adds a
+ * catalogue round trip for the reprint oracle that the other 95% of card reads
+ * would pay for nothing.
+ *
+ * Public: legality is a property of the card, not of anyone's collection.
+ */
+cardsRouter.get(
+  '/:cardId/legality',
+  asyncHandler(async (req, res) => {
+    const cardTcgdexId = String(req.params.cardId);
+    const facts = await loadByTcgdexId(pool, cardTcgdexId);
+    if (!facts) throw notFound(`No card '${cardTcgdexId}'`);
+
+    // The reprint oracle (§2.1.5) is what stops a rotated-out printing being
+    // reported as illegal when a fingerprint-identical legal reprint exists.
+    // Standard is the only format whose pool is mark-based, so it is the only
+    // one that needs it; `buildReprintOracle` self-shortcuts when the card
+    // already carries a legal mark.
+    const legalMarks = formatConfig('standard').legal_marks;
+    const oracle = await buildReprintOracle(pool, [facts], legalMarks);
+
+    userCache(res);
+    res.json(cardLegality(facts, { isInFormatByReprint: oracle }));
   }),
 );

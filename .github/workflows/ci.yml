@@ -137,6 +137,14 @@ jobs:
       - name: Insights caption tests (pure, no DB)
         run: pnpm --filter deckpal-web test:insights
 
+      # The chunked price-history replay's resume protocol. A two-year backfill
+      # is ~16 sequential workflow runs and its failure mode is a run that
+      # reports success while the range never advances — sixteen green runs and
+      # no progress. Wired here for the same reason the caption suite above was:
+      # CI does not run `pnpm -r test`, so an unwired suite never runs at all.
+      - name: Price backfill resume protocol (pure, no DB)
+        run: pnpm --filter deckpal-sync test:pure
+
       # Mass Entry line building (product-id lines, the all-or-nothing URL
       # split), idempotency key derivation, batch folding, and the source guard
       # that keeps every card_list/deck read filtering deleted_at.

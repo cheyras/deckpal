@@ -467,6 +467,13 @@ export interface CardDetailResponse {
   variants: Variant[]
 }
 
+/** Per-card format eligibility — GET /cards/:cardId/legality. */
+export interface CardLegalityResponse {
+  /** The vendored legality data's own 'as of' date. */
+  checkedAt: string
+  formats: { format: 'standard' | 'expanded' | 'glc' | 'unlimited'; legal: boolean; reasons: string[] }[]
+}
+
 export interface CollectionBatchResponse {
   batchId: string
   replayed: boolean
@@ -1319,6 +1326,9 @@ export const api = {
     kind?: 'bug' | 'feature'
   }) =>
     send<{ id: string; saved?: string; issueUrl?: string; issueNumber?: number; note?: string }>('POST', '/bugs', body),
+  cardLegality: (cardId: string, signal?: AbortSignal) =>
+    get<CardLegalityResponse>(`/cards/${encodeURIComponent(cardId)}/legality`, signal),
+
   insightsValue: (range: ValueRange, currency = 'USD', signal?: AbortSignal) =>
     get<ValueResponse>(`/insights/value?range=${range}&currency=${encodeURIComponent(currency)}`, signal),
   dex: (params: URLSearchParams, signal?: AbortSignal) =>

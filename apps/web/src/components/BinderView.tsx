@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Link } from '@tanstack/react-router'
 import type { CardRow } from '../lib/api'
 import { Icon } from './Icon'
+import { CardLink } from './CardLink'
 
 // Binder view (UI-SPEC §3.25, pkmn.gg captures §15.3).
 //
@@ -69,17 +69,22 @@ function Pocket({
       )}
     </div>
   )
-  // An owned/bright card links through to its card page when we have routing keys.
-  if (bright && card && seriesSlug && setId && card.number) {
+  // An owned/bright card links through to its card detail. `CardLink` decides
+  // whether that is a sheet over this page or a navigation; the slot only needs
+  // a card with a number. It used to additionally require `seriesSlug && setId`
+  // from the caller, which meant binder slots on a LIST page — where ListDetail
+  // passes neither, because a list spans many sets — rendered no link at all.
+  if (bright && card && card.number) {
     return (
-      <Link
-        to="/series/$series/$set/$number"
-        params={{ series: card.seriesSlug ?? seriesSlug, set: card.setId ?? setId, number: card.number }}
+      <CardLink
+        card={card}
+        seriesSlug={seriesSlug}
+        setId={setId}
         className="relative block"
         style={{ aspectRatio: '300 / 418' }}
       >
         {inner}
-      </Link>
+      </CardLink>
     )
   }
   return (

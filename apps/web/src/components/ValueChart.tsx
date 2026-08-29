@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { ValuePoint } from '../lib/api'
 import { fmtMoney } from '../lib/format'
 
@@ -26,8 +26,30 @@ export function ValueChart({
   const wrapRef = useRef<HTMLDivElement>(null)
   const [hover, setHover] = useState<number | null>(null)
 
-  // Fixed viewBox; SVG scales to container width. Generous left pad for $ labels.
-  const W = 640
+  // ── WHY THE WIDTH IS MEASURED RATHER THAN FIXED ────────────────────────────
+  //
+  // This used to be `viewBox="0 0 640 H"` with `width="100%"` and
+  // `preserveAspectRatio="none"`, which is a non-uniform scale: at a 1300px
+  // container the x-axis is stretched 2.03x while y is left at 1x. Every glyph
+  // came out elongated and every `<circle>` rendered as an ellipse. The tell,
+  // spotted in the 2026-08-29 walkthrough, was that the hover tooltip looked
+  // fine while everything else did not — the tooltip is an HTML div outside the
+  // SVG, so it was the one element the transform never touched.
+  //
+  // Measuring the container and using those pixels as the viewBox makes the
+  // mapping 1:1, so `preserveAspectRatio` has nothing left to do. 640 is kept
+  // only as the pre-measure value for the first paint.
+  const [measured, setMeasured] = useState(0)
+  useLayoutEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setMeasured(e.contentRect.width))
+    ro.observe(el)
+    setMeasured(el.getBoundingClientRect().width)
+    return () => ro.disconnect()
+  }, [])
+
+  const W = Math.max(320, Math.round(measured) || 640)
   const H = height
   const padL = 64
   const padR = 16
@@ -83,7 +105,6 @@ export function ValueChart({
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
         height={H}
-        preserveAspectRatio="none"
         onMouseMove={onMove}
         onMouseLeave={() => setHover(null)}
         role="img"

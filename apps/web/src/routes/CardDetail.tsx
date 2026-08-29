@@ -315,6 +315,69 @@ const TABS = [
 // small and once large.
 const DECK_TAB = { key: 'In this deck', label: 'In this deck' } as const
 
+const FORMAT_LABEL: Record<string, string> = {
+  standard: 'Standard',
+  expanded: 'Expanded',
+  glc: 'Gym Leader Challenge',
+  unlimited: 'Unlimited',
+}
+
+/**
+ * Format legality for one card.
+ *
+ * Fetched lazily — this is a tab, and the endpoint costs a catalogue round trip
+ * for the reprint oracle that the other two tabs have no use for.
+ *
+ * The verified-on date is not decoration. The rules behind this are vendored
+ * JSON with an `as_of` stamp (`apps/api/src/deck/data/_provenance.json`), and
+ * rotation moves them roughly every April. A legality answer that does not say
+ * how old its rulebook is invites being trusted past its expiry, which is the
+ * exact failure the vendoring decision was made to avoid.
+ */
+function TcgTab({ cardId }: { cardId: string }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['card-legality', cardId],
+    queryFn: ({ signal }) => api.cardLegality(cardId, signal),
+  })
+
+  if (isLoading) return <Spinner label="Checking formats…" />
+  if (error) return <ErrorState message={(error as Error).message} />
+  if (!data) return null
+
+  return (
+    <div className="mt-[16px]">
+      <ul className="flex flex-col gap-[8px]">
+        {data.formats.map((f) => (
+          <li
+            key={f.format}
+            className="flex flex-wrap items-center justify-between gap-[8px] rounded-lg bg-surface-secondary px-[14px] py-[10px]"
+          >
+            <span className="text-[15px] font-semibold text-text-primary">
+              {FORMAT_LABEL[f.format] ?? f.format}
+            </span>
+            {f.legal ? (
+              <span className="flex items-center gap-[6px] text-[14px] font-bold text-change-positive">
+                <Icon name="check" size={14} /> Legal
+              </span>
+            ) : (
+              <span className="text-[14px] font-bold text-text-muted">Not legal</span>
+            )}
+            {/* The reason sits on its own line so a long ban citation does not
+                squeeze the verdict off the row at 390px. */}
+            {f.reasons.length > 0 && (
+              <p className="w-full text-[14px] leading-[20px] text-text-muted">{f.reasons.join(' ')}</p>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-[12px] text-[14px] text-text-muted">
+        Format rules verified {data.checkedAt.slice(0, 10)}.
+      </p>
+    </div>
+  )
+}
+
+
 // Standalone route (deep links / direct navigation to /series/$series/$set/$number).
 // Renders the shared body inside the page Content column; on the set page the same
 // body is rendered inside CardSheet instead.
@@ -466,11 +529,7 @@ function CardDetailBody({
                   Price history — coming soon.
                 </div>
               )}
-              {tab === 'TCG' && (
-                <div className="py-[40px] text-center text-[14px] text-text-muted">
-                  Format legality — coming soon.
-                </div>
-              )}
+              {tab === 'TCG' && <TcgTab cardId={cardId} />}
             </div>
           </div>
         </div>

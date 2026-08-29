@@ -16,8 +16,13 @@ const RANGES: { key: ValueRange; label: string }[] = [
   { key: '3m', label: '3 Months' },
   { key: '6m', label: '6 Months' },
   { key: '1y', label: '1 Year' },
+  { key: '18m', label: '18 Months' },
+  { key: '2y', label: '2 Years' },
 ]
-const PRO_RANGES = ['1.5 Years', '2 Years']
+// There is no paid tier. 1.5y/2y used to render as disabled chips stamped PRO —
+// a gate in front of a door that was never built, on data the API had no window
+// for either. Both are ordinary ranges now (owner's call, 2026-08-29); the
+// server-side halves are `Range`/`RANGE_INTERVAL` in insights/collectionValue.ts.
 
 export function Insights() {
   const [tab, setTab] = useState<'overview' | 'trends'>('overview')
@@ -160,17 +165,6 @@ export function Insights() {
                 >
                   {r.label}
                 </button>
-              ))}
-              {PRO_RANGES.map((r) => (
-                <span
-                  key={r}
-                  className="flex h-[32px] cursor-not-allowed items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] text-[14px] font-semibold text-icon-disabled"
-                >
-                  {r}
-                  <span className="rounded bg-pro-pink px-[5px] py-[1px] text-[14px] font-extrabold text-pro-pink-text">
-                    PRO
-                  </span>
-                </span>
               ))}
             </div>
 

@@ -15,7 +15,7 @@
 // back to the nominal start of the selected range? If not, say so instead of
 // silently rendering the same-looking chart under four different button labels.
 
-export type ValueRangeKey = '30d' | '3m' | '6m' | '1y'
+export type ValueRangeKey = '30d' | '3m' | '6m' | '1y' | '18m' | '2y'
 
 export interface DatedPoint {
   date: string // YYYY-MM-DD
@@ -47,6 +47,12 @@ function rangeWindowStart(range: ValueRangeKey, from: Date): Date {
       break
     case '1y':
       d.setUTCFullYear(d.getUTCFullYear() - 1)
+      break
+    case '18m':
+      d.setUTCMonth(d.getUTCMonth() - 18)
+      break
+    case '2y':
+      d.setUTCFullYear(d.getUTCFullYear() - 2)
       break
   }
   return d

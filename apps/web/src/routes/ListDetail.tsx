@@ -6,6 +6,7 @@ import { Content, Spinner, ErrorState, BackPill, ProgressBar, EmptyState, Button
 import { GridView } from '../components/GridView'
 import { TableView } from '../components/TableView'
 import { BinderView } from '../components/BinderView'
+import { CardSheet } from './CardDetail'
 import { SearchBox, ViewToggle, SortChipStrip, OwnershipButtons } from '../components/FilterControls'
 import { AddCardModal, ConfirmModal, ListFormModal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
@@ -365,6 +366,22 @@ export function ListDetail() {
             )}
           </div>
         </>
+      )}
+
+      {/* Card detail as a bottom-sheet driven by ?card=<cardId>, keeping this page
+          mounted so scroll, filter and sort survive an open→close cycle. Same
+          mechanism as the set and species pages.
+
+          It is also the fix for "I clicked a card and Back didn't return me to the
+          list": until 2026-08-29 a list tile navigated to the standalone card
+          route, whose BackPill can only point at the card's SET — that is the only
+          ancestor a `/series/$series/$set/$number` URL carries. A sheet has no
+          back problem, because nothing was left. */}
+      {search.card && (
+        <CardSheet
+          cardId={search.card}
+          onClose={() => patch({ card: undefined })}
+        />
       )}
 
       {showAdd && list && (

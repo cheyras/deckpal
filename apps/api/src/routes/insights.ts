@@ -5,6 +5,7 @@ import { currentUserId, optionalUserId } from '../identity.js';
 import { pct, TRAINER_UNIQUE_MODE, trainerLevelProgress } from '../insights/trainerLevel.js';
 import {
   aggregateValue,
+  RANGES,
   currentCollectionValue,
   snapshotCollectionValue,
   topMovers,
@@ -120,12 +121,12 @@ insightsRouter.get(
   }),
 );
 
-/** GET /insights/value?range=30d|3m|6m|1y&currency=USD|EUR|JPY — value over time. */
+/** GET /insights/value?range=30d|3m|6m|1y|18m|2y&currency=USD|EUR|JPY — value over time. */
 insightsRouter.get(
   '/value',
   asyncHandler(async (req, res) => {
     const userId = currentUserId(req);
-    const range = oneOf<Range>(req.query.range, ['30d', '3m', '6m', '1y'], '30d');
+    const range = oneOf<Range>(req.query.range, RANGES, '30d');
     const currency = oneOf(req.query.currency, ['USD', 'EUR', 'JPY'] as const, 'USD');
     // These three calls used to be a Promise.all. In SUPABASE_MODE they share
     // one RLS PoolClient, so node-postgres serialised them anyway — the

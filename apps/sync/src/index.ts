@@ -2,7 +2,8 @@ import cron from 'node-cron';
 import { loadEnv, makePool } from '@deckpal/db';
 import { ingestTcgcsvPrices } from './prices/tcgcsv.js';
 import { ingestCardmarket } from './prices/cardmarket.js';
-import { runReconcile, runSnapshotCollection } from './jobs/api-jobs.js';
+import { runReconcile, runSnapshotCollection } from './jobs/api-jobs.js';
+import { snapshotAllUsers } from './jobs/valueSnapshot.js';
 import type { Queryable } from './prices/db.js';
 
 // The node-cron scheduler. FOUR of the seven jobs are real (see REAL_JOBS): the two price
@@ -75,9 +76,20 @@ async function runJob(job: JobName, fn: (c: Queryable) => Promise<unknown>): Pro
 export const REAL_JOBS: Partial<Record<JobName, (c: Queryable) => Promise<unknown>>> = {
   'prices-tcgcsv': (c) => ingestTcgcsvPrices(c),
   'prices-cardmarket': (c) => ingestCardmarket(c),
+  // Self-host: one user, so the HTTP endpoint's "whoever is signed in" is the
+  // right and only answer, and going through the API keeps one copy of the
+  // value rule. Cloud does NOT use this job — a scheduled runner holds a
+  // database password and no session, so it calls snapshotAllUsers directly
+  // (.github/workflows/price-refresh.yml, jobs/valueSnapshot.ts).
   'snapshot-collection': (c) => runSnapshotCollection(c),
   reconcile: (c) => runReconcile(c),
 };
+
+/**
+ * The multi-user snapshot, exported for the scheduled cloud runner. Deliberately
+ * NOT in REAL_JOBS: it is not a node-cron job, it is what Actions invokes.
+ */
+export const snapshotEveryUser = snapshotAllUsers;
 
 async function main(): Promise<void> {
   // Prove DB reachability at boot, then idle as the scheduler.

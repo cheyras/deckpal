@@ -347,8 +347,15 @@ listsRouter.get(
         artist: r.illustrator,
         variantCount: Number(r.variant_count ?? 1),
         // Per-item routing (a list spans many sets) — the tile links using these.
+        // `setId` is the SET's tcgdex id (`setcode`), never the series' (`serie`).
+        // It was `r.serie` until 2026-08-29, which made every card link off every
+        // list page resolve to `/series/<slug>/<seriesId>/<n>` — so CardDetail built
+        // the id `base-60` for a card that is `base1-60` and rendered "No card
+        // 'base-60'". The images line below is the reason it was invisible in
+        // review: `cardImages()` takes serie AND setcode, so the art was always
+        // right and only the click was wrong.
         seriesSlug: r.series_slug,
-        setId: r.serie,
+        setId: r.setcode,
         setName: r.set_name,
         images: r.serie && r.setcode && r.local_id ? cardImages(r.serie, r.setcode, r.local_id) : { low: '', high: '' },
         price: r.market_minor != null ? { market: toMajor(r.market_minor, r.currency_code ?? 'USD'), currency: (r.currency_code ?? 'USD').trim() } : null,
