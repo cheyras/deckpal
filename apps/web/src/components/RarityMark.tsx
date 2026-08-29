@@ -154,10 +154,18 @@ export function RarityMark({
   rarity,
   size = 14,
   className,
+  decorative = false,
 }: {
   rarity: string | null | undefined
   size?: number
   className?: string
+  /**
+   * Suppress the accessible name. Set this wherever the rarity's NAME is already
+   * visible beside the mark (the card sheet's chip, the scanner's match row) —
+   * otherwise a screen reader announces it twice ("Rare Rare"). On the grid tile
+   * the mark is the only rarity content, so it keeps its name by default.
+   */
+  decorative?: boolean
 }) {
   const spec = rarityMark(rarity)
   // HOOKS BEFORE THE EARLY RETURN. `useId` has to run on every render of this
@@ -178,8 +186,7 @@ export function RarityMark({
   return (
     <span
       className={className}
-      role="img"
-      aria-label={spec.label}
+      {...(decorative ? { 'aria-hidden': true } : { role: 'img', 'aria-label': spec.label })}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

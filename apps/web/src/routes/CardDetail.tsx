@@ -900,7 +900,7 @@ function CardTab({
         {c.rarity && (
           <Attribute label="Rarity">
             <Chip>
-              <RarityMark rarity={c.rarity} size={16} className="mr-[6px]" />
+              <RarityMark rarity={c.rarity} size={16} className="mr-[6px]" decorative />
               {c.rarity}
             </Chip>
           </Attribute>

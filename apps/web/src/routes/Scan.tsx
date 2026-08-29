@@ -190,7 +190,7 @@ function MatchTile({ match, best }: { match: ScanMatch; best: boolean }) {
           <span className="truncate">{match.setName} · {fmtNumber(match.number)}</span>
           {match.rarity && (
             <span className="shrink-0 inline-flex items-center gap-[4px]">
-              <RarityMark rarity={match.rarity} />
+              <RarityMark rarity={match.rarity} decorative />
               {match.rarity}
             </span>
           )}

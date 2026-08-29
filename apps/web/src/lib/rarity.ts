@@ -273,7 +273,7 @@ export const RARITY_MARKS: Record<string, RarityMarkSpec> = {
     count: 2,
     tone: 'black',
     label: 'Black White Rare',
-    note: 'two black stars with white outside edging (first solid, second hollow)',
+    note: 'UNVERIFIED (no scan obtained). Drawn as two hollow stars; if a scan shows the two differ, split the spec rather than editing this note.',
   },
 }
 

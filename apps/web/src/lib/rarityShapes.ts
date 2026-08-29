@@ -107,15 +107,16 @@ export const RARITY_SHAPES: Record<RarityShape, Shape> = {
 export const TARGET_INK_AREA = 100
 
 // The gap between glyphs in a multi-glyph mark, as a fraction of the glyph
-// (rendered) size. At most 0.12 so a row of stars reads as one cluster, not
-// separate marks; tightened from the old 0.12 so multi-star marks sit closer.
+// (rendered) size, so the spacing scales with the mark instead of being a
+// fixed pixel gap. Kept at or below 0.12 so a two- or three-star mark reads as
+// ONE cluster rather than as separate marks sitting side by side.
 export const GLYPH_GAP_RATIO = 0.08
 
 // ── geometry maths (dependency-free) ──────────────────────────────────────
 
 // Shoelace formula: 0.5 × |Σ (x_i × y_{i+1} − x_{i+1} × y_i)|. The absolute
 // value makes the result independent of winding direction.
-function polygonArea(points: ReadonlyArray<readonly [number, number]>): number {
+export function polygonArea(points: ReadonlyArray<readonly [number, number]>): number {
   let sum = 0
   const n = points.length
   for (let i = 0; i < n; i++) {

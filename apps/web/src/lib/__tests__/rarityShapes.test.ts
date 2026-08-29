@@ -17,6 +17,7 @@ import {
   shapeInkArea,
   opticalScale,
   shapeExtent,
+  polygonArea,
 } from '../rarityShapes.js';
 import { type RarityShape } from '../rarity.js';
 
@@ -136,4 +137,16 @@ test('the sparkle is the binding constraint — it is the sparsest shape by area
     }
   }
   assert.equal(maxName, 'star-double-stroke', 'the sparkle must be the binding constraint');
+});
+
+// The earlier version of this check re-implemented the shoelace formula inside
+// the test and compared it against itself, so it could not have caught a wrong
+// implementation. These values are computed by hand and asserted against the
+// REAL function.
+test('polygonArea matches hand-computed areas', () => {
+  assert.equal(polygonArea([[0, 0], [1, 0], [1, 1], [0, 1]]), 1); // unit square
+  assert.equal(polygonArea([[0, 0], [0, 1], [1, 1], [1, 0]]), 1); // winding must not matter
+  assert.equal(polygonArea([[0, 0], [4, 0], [0, 3]]), 6); // 3-4-5 right triangle
+  assert.equal(polygonArea([[0, 0], [1, 1], [2, 2]]), 0); // collinear -> no area
+  assert.equal(polygonArea([[0, 0], [2, 0], [2, 2], [0, 2]]), 4); // 2x2 square
 });
