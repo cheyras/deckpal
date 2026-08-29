@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CardRow, type TileVariant } from '../lib/api'
-import { fmtPrice, fmtNumber, rarityGlyph } from '../lib/format'
+import { fmtPrice, fmtNumber } from '../lib/format'
+import { RarityMark } from './RarityMark'
 import { useOnline } from '../lib/useOnline'
 import { useSignedIn } from '../lib/session'
 import { CardImage } from './CardImage'
@@ -212,7 +213,7 @@ export function CardTile({
         <div className="flex items-center justify-between">
           <span className="text-[14px] leading-[23px] text-text-muted">{fmtNumber(card.number)}</span>
           <span className="text-[14px] leading-[23px] text-text-secondary" title={card.rarity ?? ''}>
-            {rarityGlyph(card.rarity)}
+            <RarityMark rarity={card.rarity} />
           </span>
         </div>
       </div>

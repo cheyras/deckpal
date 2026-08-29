@@ -57,17 +57,6 @@ export function fmtNumber(n: string): string {
   return `#${n}`
 }
 
-// Printed rarity glyph (UI-SPEC §3.2 — rendered as glyphs, not tokens).
-export function rarityGlyph(rarity: string | null): string {
-  if (!rarity) return ''
-  const r = rarity.toLowerCase()
-  if (r.includes('double rare')) return '☆☆'
-  if (r.includes('rare')) return '☆'
-  if (r.includes('uncommon')) return '◇'
-  if (r.includes('common')) return '○'
-  return '◆'
-}
-
 // Pokémon type → accent colour (for dex type pills). Lowercase slug keys, as the
 // insights backend returns them (e.g. "fire", "grass", "psychic").
 const TYPE_COLORS: Record<string, string> = {
