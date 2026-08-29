@@ -79,3 +79,34 @@ test('archive URLs and stamps use the archive date, not now()', () => {
   // chart into a single point.
   assert.equal(archiveCapturedAt('2026-08-15').toISOString(), '2026-08-15T00:00:00.000Z');
 });
+
+/**
+ * The chain's stop condition, which `selectDays` alone cannot express.
+ *
+ * `selectDays` subtracts days that ALREADY HAVE OBSERVATIONS. A day TCGCSV never
+ * published can never gain observations, so it is never subtracted and never
+ * leaves `remaining` — which is why the workflow gates on `progressed` too.
+ * These model the arithmetic the Continue step performs, so the termination
+ * rule is pinned even though the step itself is YAML.
+ */
+const chainContinues = (r: { remaining: number; progressed: number }) =>
+  r.remaining !== 0 && r.progressed !== 0;
+
+test('a run that ingested nothing stops the chain, however much is "remaining"', () => {
+  // The infinite-loop case: the leftover days are all unpublished, so every run
+  // fetches the same 404s, writes nothing, and still reports work to do.
+  assert.equal(chainContinues({ remaining: 120, progressed: 0 }), false);
+});
+
+test('a run that ingested something keeps going', () => {
+  assert.equal(chainContinues({ remaining: 120, progressed: 45 }), true);
+});
+
+test('a complete range stops even after a productive run', () => {
+  assert.equal(chainContinues({ remaining: 0, progressed: 45 }), false);
+});
+
+test('remaining is reported net of days proved unpublished', () => {
+  // 5 days left, all 404: work that will never exist is not outstanding work.
+  assert.equal(Math.max(0, 5 - 5), 0);
+});

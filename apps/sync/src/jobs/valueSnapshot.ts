@@ -11,8 +11,16 @@
 // having it impersonate each account in turn over HTTP. That keeps one copy of
 // the value rule, at the cost of building an impersonation path that does not
 // exist today — a real security surface, for a diary entry. The owner's call
-// (2026-08-29) was the set-based statement below, with a test pinning it
-// against the API's arithmetic so the two copies cannot drift.
+// (2026-08-29) was the set-based statement below.
+//
+// ── HOW THE TWO COPIES ARE KEPT HONEST ─────────────────────────────────────
+// Not by a unit test: both halves are SQL over the live schema, so a pure test
+// could only re-implement the rule a third time. `prices value-parity` runs
+// BOTH and diffs them per (user, currency) — B7 keeps live-DB checks out of CI,
+// so it is a command you run, not a gate. Verified 2026-08-29: USD 84824 /
+// EUR 90659 / 604 unique / 1298 cards, matching the app exactly.
+//
+// Run it after touching either copy.
 //
 // ── The rule being copied ──────────────────────────────────────────────────
 // `collectionValue.ts` `ownedPriceRows` + `aggregateValue` + `ownedCounts`:
@@ -155,6 +163,15 @@ export async function backfillValuePoints(
 ): Promise<BackfillResult> {
   const maxStale = opts.maxPriceStalenessDays ?? 2;
   const skipped: BackfillResult['skipped'] = [];
+
+  // Which currencies the live table can price today — the yardstick for
+  // "did this day lose one?" rather than a hardcoded list that would go stale
+  // the moment a source is added.
+  const { rows: curRows } = await client.query<{ currency_code: string }>(
+    `SELECT DISTINCT upper(btrim(currency_code)) AS currency_code
+       FROM price_current WHERE market_minor IS NOT NULL`,
+  );
+  const expectedCurrencies = curRows.map((r) => r.currency_code);
   let inserted = 0;
   let days = 0;
 
@@ -184,6 +201,26 @@ export async function backfillValuePoints(
         reason: `no price observation within ${maxStale} day(s) of ${d} — the day cannot be reconstructed, only guessed`,
       });
       continue;
+    }
+
+    // The gate above asks "is there ANY fresh price?", which passes as soon as
+    // one source is healthy. A currency whose feed was down that day then gets
+    // no row and no complaint — the chart simply has a hole in EUR while USD
+    // looks complete. Name the currencies actually reconstructible for the day,
+    // so a per-currency outage is reported rather than absorbed.
+    const { rows: curs } = await client.query<{ currency_code: string }>(
+      `SELECT DISTINCT upper(btrim(po.currency_code)) AS currency_code
+         FROM price_observation po
+        WHERE po.market_minor IS NOT NULL
+          AND po.captured_at < ($1::date + 1)
+          AND po.captured_at >= ($1::date + 1) - ($2::text || ' days')::interval`,
+      [d, String(maxStale + 1)],
+    );
+    const have = new Set(curs.map((c) => c.currency_code));
+    for (const c of expectedCurrencies) {
+      if (!have.has(c)) {
+        skipped.push({ date: d, reason: `${c} has no price observation within ${maxStale} day(s) of ${d}` });
+      }
     }
 
     const { rows } = await client.query<{ user_id: string }>(
@@ -254,29 +291,111 @@ export async function backfillValuePoints(
  */
 export async function ledgerAgreesWithCollection(
   client: Queryable,
-): Promise<{ user_id: string; ledger_qty: number; actual_qty: number }[]> {
-  const { rows } = await client.query<{ user_id: string; ledger_qty: string; actual_qty: string }>(
+): Promise<{ user_id: string; card_variant_id: string; ledger_qty: number; actual_qty: number }[]> {
+  const { rows } = await client.query<{
+    user_id: string; card_variant_id: string; ledger_qty: string; actual_qty: string;
+  }>(
+    // Per (user, VARIANT), not per user total. Two drifts that cancel in the
+    // sum — +1 on one variant, -1 on another — would pass a totals comparison
+    // while still corrupting every reconstructed value, because different
+    // variants carry different prices.
     `WITH ledger AS (
-       SELECT user_id, COALESCE(sum(quantity), 0) AS qty FROM (
-         SELECT DISTINCT ON (ce.user_id, ce.card_variant_id)
-                ce.user_id, ce.quantity_after AS quantity
-           FROM collection_event ce
-          ORDER BY ce.user_id, ce.card_variant_id, ce.occurred_at DESC, ce.id DESC
-       ) x WHERE quantity > 0 GROUP BY user_id
+       SELECT DISTINCT ON (ce.user_id, ce.card_variant_id)
+              ce.user_id, ce.card_variant_id, ce.quantity_after AS quantity
+         FROM collection_event ce
+        ORDER BY ce.user_id, ce.card_variant_id, ce.occurred_at DESC, ce.id DESC
      ),
      actual AS (
-       SELECT user_id, COALESCE(sum(quantity), 0) AS qty
-         FROM collection_item WHERE quantity > 0 GROUP BY user_id
+       SELECT user_id, card_variant_id, quantity
+         FROM collection_item WHERE quantity > 0
      )
      SELECT COALESCE(l.user_id, a.user_id) AS user_id,
-            COALESCE(l.qty, 0) AS ledger_qty,
-            COALESCE(a.qty, 0) AS actual_qty
-       FROM ledger l FULL OUTER JOIN actual a ON a.user_id = l.user_id
-      WHERE COALESCE(l.qty, 0) <> COALESCE(a.qty, 0)`,
+            COALESCE(l.card_variant_id, a.card_variant_id) AS card_variant_id,
+            COALESCE(l.quantity, 0) AS ledger_qty,
+            COALESCE(a.quantity, 0) AS actual_qty
+       FROM (SELECT * FROM ledger WHERE quantity > 0) l
+       FULL OUTER JOIN actual a
+         ON a.user_id = l.user_id AND a.card_variant_id = l.card_variant_id
+      WHERE COALESCE(l.quantity, 0) <> COALESCE(a.quantity, 0)
+      LIMIT 50`,
   );
   return rows.map((r) => ({
     user_id: r.user_id,
+    card_variant_id: r.card_variant_id,
     ledger_qty: Number(r.ledger_qty),
     actual_qty: Number(r.actual_qty),
   }));
+}
+
+/**
+ * Do the SQL copy of the value rule and the API's TypeScript copy agree?
+ *
+ * The duplication was accepted deliberately (see the header); this is the check
+ * that keeps it honest. It runs the SQL totals and, for the same accounts, the
+ * arithmetic `collectionValue.ts` performs — `max(market_minor)` per
+ * (variant, currency), then `SUM(quantity x best)` — from the same rows the API
+ * would read, and reports any per-(user, currency) disagreement.
+ *
+ * Not a unit test: both halves are SQL over the live schema, so a pure test
+ * could only re-implement the rule a third time and pin nothing. B7 keeps
+ * live-DB checks out of CI, so this is a command (`prices value-parity`) to run
+ * after touching either copy.
+ */
+export async function valueParity(client: Queryable): Promise<{
+  user_id: string; currency_code: string; sql_minor: number; ts_minor: number;
+}[]> {
+  // The SQL copy's totals, without writing anything.
+  const { rows: sqlRows } = await client.query<{ user_id: string; currency_code: string; total_minor: string }>(
+    `WITH best AS (
+       SELECT pc.card_variant_id, upper(btrim(pc.currency_code)) AS currency_code,
+              max(pc.market_minor) AS best_minor
+         FROM price_current pc WHERE pc.market_minor IS NOT NULL
+        GROUP BY pc.card_variant_id, upper(btrim(pc.currency_code))
+     ),
+     owned AS (
+       SELECT ci.user_id, ci.card_variant_id, ci.quantity
+         FROM collection_item ci WHERE ci.quantity > 0
+     )
+     SELECT o.user_id::text, b.currency_code,
+            sum(o.quantity::bigint * b.best_minor)::text AS total_minor
+       FROM owned o JOIN best b ON b.card_variant_id = o.card_variant_id
+      GROUP BY o.user_id, b.currency_code`,
+  );
+
+  // The rows the API's `ownedPriceRows` returns, folded the way `aggregateValue`
+  // folds them — one row per (owned variant, currency), summed in JS.
+  const { rows: tsRows } = await client.query<{ user_id: string; currency: string; qty: string; best: string }>(
+    `WITH best AS (
+       SELECT pc.card_variant_id, pc.currency_code, max(pc.market_minor) AS best_minor
+         FROM price_current pc WHERE pc.market_minor IS NOT NULL
+        GROUP BY pc.card_variant_id, pc.currency_code
+     )
+     SELECT ci.user_id::text, b.currency_code AS currency,
+            ci.quantity::text AS qty, b.best_minor::text AS best
+       FROM collection_item ci JOIN best b ON b.card_variant_id = ci.card_variant_id
+      WHERE ci.quantity > 0`,
+  );
+  const ts = new Map<string, number>();
+  for (const r of tsRows) {
+    const key = `${r.user_id}|${r.currency.trim().toUpperCase()}`;
+    ts.set(key, (ts.get(key) ?? 0) + Number(r.qty) * Number(r.best));
+  }
+
+  const out: { user_id: string; currency_code: string; sql_minor: number; ts_minor: number }[] = [];
+  const seen = new Set<string>();
+  for (const r of sqlRows) {
+    const key = `${r.user_id}|${r.currency_code}`;
+    seen.add(key);
+    const a = Number(r.total_minor);
+    const b = ts.get(key) ?? 0;
+    if (a !== b) out.push({ user_id: r.user_id, currency_code: r.currency_code, sql_minor: a, ts_minor: b });
+  }
+  // A pair the SQL copy produced no row for at all is the more dangerous
+  // direction: a silently missing currency rather than a wrong number.
+  for (const [key, b] of ts) {
+    if (seen.has(key)) continue;
+    const [user_id, currency_code] = key.split('|') as [string, string];
+    out.push({ user_id, currency_code, sql_minor: 0, ts_minor: b });
+  }
+  return out;
 }

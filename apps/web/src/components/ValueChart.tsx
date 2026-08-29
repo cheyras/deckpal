@@ -95,9 +95,18 @@ export function ValueChart({
   const rawMin = values.length ? Math.min(...values) : 0
   const rawMax = values.length ? Math.max(...values) : 0
   // Pad the value axis so a flat/near-flat series isn't a hairline on the floor.
+  //
+  // The flat-series pad used to floor at 1 CURRENCY UNIT, which is sized for a
+  // collection total and absurd for a single card: a bulk common flat at $0.08
+  // got an axis from -$0.92 to $1.08 — negative price labels, and the line
+  // floating meaninglessly in the middle. Proportional first, with an absolute
+  // floor small enough not to swamp a ten-cent card.
   const span = rawMax - rawMin
-  const pad = span > 0 ? span * 0.15 : Math.max(rawMax * 0.05, 1)
-  const yMin = rawMin - pad
+  const pad = span > 0 ? span * 0.15 : Math.max(Math.abs(rawMax) * 0.05, 0.01)
+  // Money does not go below zero, so neither does the axis. A series that is
+  // genuinely near zero should sit near the floor of the chart — that IS the
+  // information — rather than be centred over an impossible negative gridline.
+  const yMin = Math.max(0, rawMin - pad)
   const yMax = rawMax + pad
   const yRange = yMax - yMin || 1
 
@@ -114,8 +123,13 @@ export function ValueChart({
   const xMax = days.length ? Math.max(...days) : 0
   const xRange = xMax - xMin || 1
 
+  // Centre when there is nothing to spread across — one point, or several
+  // series that all report on the SAME day (the state the cloud tier passes
+  // through after its first archive day). Keyed on the date span rather than
+  // the point count, or multi-series same-day data pins every marker to the
+  // left edge.
   const x = (iso: string): number =>
-    all.length <= 1 ? padL + plotW / 2 : padL + ((dayNumber(iso) - xMin) / xRange) * plotW
+    xMax === xMin ? padL + plotW / 2 : padL + ((dayNumber(iso) - xMin) / xRange) * plotW
   const y = (v: number): number => padT + (1 - (v - yMin) / yRange) * plotH
 
   const pathFor = (l: ChartSeries): string =>

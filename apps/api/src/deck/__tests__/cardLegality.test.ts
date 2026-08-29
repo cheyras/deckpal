@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cardLegality } from '../cardLegality.js';
-import { formatConfig } from '../data.js';
+import { formatConfig, formatsCheckedAt } from '../data.js';
 import type { CardFacts } from '../types.js';
 
 /**
@@ -113,8 +113,11 @@ test('the report carries the vendored rulebook date, not today', () => {
   const { checkedAt } = cardLegality(facts(), noReprint);
   // Must be the data's own `as_of`, so a stale rulebook is visible rather than
   // being silently restamped with the time of the request.
+  // Asserted against the vendored file, NOT "is it today" — the latter goes red
+  // on the one day a data refresh happens to land, which is precisely the day
+  // someone is looking at this suite.
   assert.match(checkedAt, /^\d{4}-\d{2}-\d{2}/);
-  assert.equal(checkedAt.slice(0, 10) === new Date().toISOString().slice(0, 10), false);
+  assert.equal(checkedAt, formatsCheckedAt());
 });
 
 test('the Standard verdict uses the same legal_marks the deck panel does', () => {

@@ -70,6 +70,18 @@ export interface PriceBackfillDay {
 export interface PriceBackfillResult {
   /** Days in range that already had data and were not re-downloaded. */
   alreadyPresent: number;
+  /**
+   * Days that gained observations in THIS run.
+   *
+   * The chain's stop condition, and not the same question as `remaining`. A day
+   * TCGCSV never published can never gain observations, so it is never in
+   * `alreadyIngestedDays` and never leaves `remaining` — a range whose leftover
+   * days are all unpublished would otherwise re-dispatch itself forever,
+   * re-fetching the same 404s every few minutes against the production
+   * database. `progressed === 0` means this run achieved nothing and the next
+   * one would achieve the same nothing.
+   */
+  progressed: number;
   /** Days still to do after this run — 0 means the range is complete. */
   remaining: number;
   days: PriceBackfillDay[];
@@ -196,5 +208,20 @@ export async function backfillPricesFromArchive(
     days.push({ date: d, groupsMatched: matched, observations: dayObs, unmatchedRows: unmatched });
   }
 
-  return { alreadyPresent: done.size, remaining, days, missingDays, observations };
+  // Days that ACTUALLY landed rows. `days` excludes 404s already (they `continue`
+  // before being pushed), but a day can also be present-and-empty if every row
+  // failed to join, so count the ones that wrote something.
+  const progressed = days.filter((d) => d.observations > 0).length;
+
+  // `remaining` excludes days this run PROVED are unpublished — reporting them
+  // as outstanding work invites a human to keep re-running for days that will
+  // never exist.
+  return {
+    alreadyPresent: done.size,
+    progressed,
+    remaining: Math.max(0, remaining - missingDays.length),
+    days,
+    missingDays,
+    observations,
+  };
 }

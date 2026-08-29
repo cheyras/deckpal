@@ -10,6 +10,8 @@
 //                                              Days already ingested are skipped, so
 //                                              re-running is how you resume a chunked
 //                                              replay; --limit caps days per run.
+//   value-parity                               does the SQL value rule agree with the
+//                                              API's TypeScript one? (live DB, not CI)
 //   snapshot    [--on=YYYY-MM-DD]              today's collection-value point, ALL users
 //   snapshot-backfill --from=D --to=D [--max-stale=N]
 //                                              reconstruct missing value points from the
@@ -23,7 +25,7 @@ import { ingestCardmarket } from './cardmarket.js';
 import { crossFillReverse, AFFECTED_SERIES } from './crossfill.js';
 import { backfillPricesFromArchive } from './backfill.js';
 import {
-  backfillValuePoints, ledgerAgreesWithCollection, snapshotAllUsers,
+  backfillValuePoints, ledgerAgreesWithCollection, snapshotAllUsers, valueParity,
 } from '../jobs/valueSnapshot.js';
 import { recomputeCoverage } from './coverage.js';
 import type { Queryable } from './db.js';
@@ -88,6 +90,7 @@ async function main(): Promise<void> {
       // and bury the one number that says whether to run it again.
       console.log(JSON.stringify({
         processed: r.days.length,
+        progressed: r.progressed,
         observations: r.observations,
         alreadyPresent: r.alreadyPresent,
         remaining: r.remaining,
@@ -98,8 +101,13 @@ async function main(): Promise<void> {
       if (r.missingDays.length) {
         console.warn(`[prices] no archive published for: ${r.missingDays.join(', ')}`);
       }
-      if (r.remaining > 0) {
+      if (r.remaining > 0 && r.progressed > 0) {
         console.warn(`[prices] ${r.remaining} day(s) still to do — run the same command again to continue.`);
+      } else if (r.remaining > 0) {
+        console.warn(
+          `[prices] ${r.remaining} day(s) left but this run ingested nothing — every day it tried is ` +
+          'unpublished upstream. Re-running will not help; the range is as complete as TCGCSV allows.',
+        );
       }
     } else if (cmd === 'snapshot') {
       const r = await snapshotAllUsers(client, { observedOn: flag('on') ?? null });
@@ -128,9 +136,21 @@ async function main(): Promise<void> {
       });
       console.log(JSON.stringify(r, null, 2));
       for (const s of r.skipped) console.warn(`[prices] skipped ${s.date}: ${s.reason}`);
+    } else if (cmd === 'value-parity') {
+      // The check the duplicated value rule is kept honest by. Live-DB, so B7
+      // keeps it out of CI — run it after touching either copy.
+      const diffs = await valueParity(client);
+      if (diffs.length === 0) {
+        console.log(JSON.stringify({ agree: true }, null, 2));
+      } else {
+        console.error('[prices] the SQL and TypeScript value rules DISAGREE:');
+        console.error(JSON.stringify(diffs, null, 2));
+        process.exitCode = 1;
+      }
     } else {
       console.error(
-        'usage: cli.ts <tcgcsv|cardmarket|crossfill|recompute|backfill|snapshot|snapshot-backfill> [flags]',
+        'usage: cli.ts <tcgcsv|cardmarket|crossfill|recompute|backfill|snapshot|' +
+        'snapshot-backfill|value-parity> [flags]',
       );
       process.exitCode = 2;
     }

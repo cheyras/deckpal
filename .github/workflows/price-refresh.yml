@@ -60,7 +60,7 @@ on:
         description: 'Which job to run by hand'
         type: choice
         default: prices-tcgcsv
-        options: [prices-tcgcsv, prices-cardmarket, snapshot, reconcile]
+        options: [prices-tcgcsv, prices-cardmarket, snapshot]
       force:
         description: 'Ingest even when the upstream stamp is unchanged'
         type: boolean
@@ -183,9 +183,25 @@ jobs:
         if: steps.what.outputs.job == 'nightly' || steps.what.outputs.job == 'snapshot'
         run: pnpm --filter deckpal-sync prices snapshot
 
-      - name: Set-progress reconcile
-        if: steps.what.outputs.job == 'nightly' || steps.what.outputs.job == 'reconcile'
-        run: pnpm --filter deckpal-sync run-once reconcile
+      # ── WHY THERE IS NO RECONCILE STEP ──────────────────────────────────
+      # `run-once reconcile` POSTs `${DECKPAL_API_BASE}/collection/reconcile`
+      # (jobs/api-jobs.ts), defaulting to 127.0.0.1:3700. There is no API on an
+      # Actions runner, so the step would ECONNREFUSE, write a `failed` sync_run
+      # row, and turn every 21:10 run red — and a workflow that is red every
+      # night is a workflow nobody reads on the night it matters.
+      #
+      # Pointing it at deckpal.app does not help: like the value snapshot, the
+      # endpoint is `currentUserId`-scoped and a runner holds a database
+      # password and no session. The snapshot got an all-users SQL path
+      # (jobs/valueSnapshot.ts); reconcile has not, because
+      # `recomputeSetProgress` is a non-trivial statement and a second copy is
+      # the same drift risk that one is carefully tested against.
+      #
+      # Nothing is silently lost by omitting it. `user_set_progress` is
+      # recomputed IN THE SAME TRANSACTION as every collection write
+      # (routes/collection.ts), so reconcile is a drift sweep, not the thing
+      # that keeps progress correct. Self-host still runs it on its own cron.
+      # Tracked in roadmap/plans/lists-prices-insights.md.
 
       # A green run that did nothing and a green run that ingested 40,000 rows
       # look identical in the Actions list. The */15 schedule makes that a real

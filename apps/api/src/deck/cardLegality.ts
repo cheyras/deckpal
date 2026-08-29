@@ -28,7 +28,9 @@
  */
 import { formatsCheckedAt } from './data.js';
 import { validateDeck, type ValidateContext } from './formats.js';
-import type { CardFacts, Category, DeckEntry, FormatCode, Violation } from './types.js';
+import type {
+  CardFacts, Category, DeckEntry, FormatCode, Violation, ViolationCode,
+} from './types.js';
 
 /**
  * Violation codes that describe THE CARD's eligibility, as opposed to how a
@@ -44,13 +46,44 @@ import type { CardFacts, Category, DeckEntry, FormatCode, Violation } from './ty
  * rather than about the deck — unlike ACE_SPEC_LIMIT or RADIANT_LIMIT, whose
  * caps are >0 and can only be exceeded by a deck.
  */
-const CARD_SCOPED = new Set([
-  'NOT_IN_FORMAT',
-  'BANNED',
-  'NOT_TOURNAMENT_LEGAL',
-  'RULE_BOX_FORBIDDEN',
-  'ACE_SPEC_FORBIDDEN',
-]);
+/**
+ * EVERY violation code, classified. Exhaustive on purpose.
+ *
+ * A plain allowlist fails OPEN: a future card-scoped rule that nobody adds here
+ * is silently filtered out and the card is reported LEGAL — the worse direction
+ * to be wrong in, by this file's own standard. Typing the map as
+ * `Record<ViolationCode, …>` makes adding a code to the union a COMPILE ERROR
+ * until it is triaged, which is the only mechanism that survives someone who
+ * has never read this comment.
+ */
+const CLASSIFICATION: Record<ViolationCode, 'card' | 'construction'> = {
+  // About the CARD: it may not appear in this format at all.
+  NOT_IN_FORMAT: 'card',        // mark/set outside the pool
+  BANNED: 'card',               // named on the format's ban list
+  NOT_TOURNAMENT_LEGAL: 'card', // GLC excludes non-tournament-legal cards
+  RULE_BOX_FORBIDDEN: 'card',   // GLC admits no rule-box cards — a limit of zero
+  ACE_SPEC_FORBIDDEN: 'card',   // GLC admits no ACE SPEC — a limit of zero
+
+  // About the DECK. A single card either cannot trigger these (every limit here
+  // is > 0, so one copy is always within it) or they describe construction and
+  // import bookkeeping rather than eligibility.
+  DECK_SIZE: 'construction',
+  NO_BASIC_POKEMON: 'construction',
+  COPY_LIMIT: 'construction',
+  SINGLETON: 'construction',
+  ACE_SPEC_LIMIT: 'construction',
+  RADIANT_LIMIT: 'construction',
+  PRISM_STAR_LIMIT: 'construction',
+  TYPE_MISMATCH: 'construction',   // GLC's single declared type is a deck choice
+  EXCLUSIVE_GROUP: 'construction',
+  UNRESOLVED_CARD: 'construction', // an import artefact
+  TOTAL_MISMATCH: 'construction',  // an import artefact
+  STALE_FORMAT_DATA: 'construction', // a warning about the data, not the card
+};
+
+const CARD_SCOPED: ReadonlySet<string> = new Set(
+  (Object.keys(CLASSIFICATION) as ViolationCode[]).filter((c) => CLASSIFICATION[c] === 'card'),
+);
 
 /** A `DeckEntry` must declare its section; for one card it is just its category. */
 const SECTION: Record<Category, DeckEntry['section']> = {

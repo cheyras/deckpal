@@ -67,6 +67,14 @@ concurrency:
   group: price-backfill
   cancel-in-progress: false
 
+# The Continue step re-dispatches this workflow, which the default GITHUB_TOKEN
+# cannot do unless it may write to Actions. Declared rather than assumed: if the
+# repository default is read-only, `gh workflow run` 403s and the chain stops
+# after run 1, leaving the range half-done with nothing scheduled to resume it.
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   backfill:
     runs-on: ubuntu-latest
@@ -134,13 +142,16 @@ jobs:
           pnpm --filter deckpal-sync prices backfill $args | tee result.json
           # The command prints a single JSON object; `remaining` is the only
           # field that decides whether this needs running again.
-          remaining=$(node -e "
+          read -r remaining progressed <<<"$(node -e "
             const fs=require('fs');
             const t=fs.readFileSync('result.json','utf8');
             const i=t.indexOf('{'), j=t.lastIndexOf('}');
-            process.stdout.write(String(JSON.parse(t.slice(i,j+1)).remaining ?? 0));
-          ")
+            const r=JSON.parse(t.slice(i,j+1));
+            process.stdout.write(String(r.remaining ?? 0)+' '+String(r.progressed ?? 0));
+          ")"
           echo "remaining=$remaining" >> "$GITHUB_OUTPUT"
+          echo "progressed=$progressed" >> "$GITHUB_OUTPUT"
+          echo "remaining=$remaining progressed=$progressed"
 
       - name: Summary
         if: always()
@@ -157,14 +168,22 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Self-chaining. A 730-day replay is ~16 runs at limit=45; doing that by
-      # hand is 16 chances to forget. Stops on its own when `remaining` hits 0,
-      # so it cannot loop forever — and a dry run never chains, because it never
-      # reduces `remaining` and would chain until the API rate-limited it.
+      # hand is 16 chances to forget.
+      #
+      # TWO conditions, not one. `remaining != 0` alone does NOT terminate: a day
+      # TCGCSV never published can never gain observations, so it never leaves
+      # the to-do set, and a range whose leftover days are all unpublished would
+      # re-dispatch forever — a full checkout+install every few minutes against
+      # the production database, achieving nothing. `progressed` is the number of
+      # days that actually landed rows, so requiring it to be non-zero means each
+      # chained run must do real work or the chain ends. A dry run never chains
+      # (it writes nothing, so `progressed` is always 0).
       - name: Continue
         if: >-
           inputs.auto_continue &&
           inputs.dry_run != true &&
-          steps.run.outputs.remaining != '0'
+          steps.run.outputs.remaining != '0' &&
+          steps.run.outputs.progressed != '0'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
