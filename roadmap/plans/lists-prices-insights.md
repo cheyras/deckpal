@@ -196,6 +196,21 @@ self-healing instead of a permanent notch.
 
 ---
 
+## Running the backfill — ORDER MATTERS
+
+`price_observation` is EMPTY on Supabase: `scripts/migrate-to-cloud.mjs:74`
+never copied it. So:
+
+1. `price-backfill.yml` first (archives → `price_observation`), 2024-08-29 → today.
+2. `prices snapshot-backfill --from=… --to=…` second (ledgers → `collection_value_point`).
+
+Reversed, step 2 skips every day with "no price observation within N days" — the
+honest answer to the wrong question.
+
+Measured cost, after joining to this catalogue: **28,622 rows per day**, so two
+years is ~20.9M rows / ~2.9 GB. (44,385 rows per archived day carry a market
+price; the rest are sealed product and groups this catalogue does not carry.)
+
 ## Done gate
 
 1. `pnpm --filter @deckpal/db build && pnpm --filter @deckpal/storage build &&
