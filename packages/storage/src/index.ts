@@ -41,6 +41,13 @@ export {
   type Quality,
   type SetImageKind,
 } from './paths.js';
+export {
+  SET_IMAGE_FALLBACK_TABLE,
+  setImageFallbackUrl,
+  isSetImageFallbackUrl,
+  SET_IMAGE_FALLBACK_POLICY,
+  type SetImageFallbackEntry,
+} from './setImageFallback.js';
 export { isWebp, sniffContentType } from './sniff.js';
 export { PLACEHOLDER_CONTENT_TYPE, PLACEHOLDER_WEBP } from './placeholder.js';
 export {

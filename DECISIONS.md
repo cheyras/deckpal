@@ -14131,3 +14131,90 @@ whole set afterwards: **0.000%**.
   which is normal practice in icon design.
 - Outline shapes are measured as outer area minus inner area, not as their filled
   twin's area, or hollow marks would still read small.
+
+## 2026-08-29 — Set symbols and logos: a static crosswalk fills 43 of the 90 gaps, 47 stay blank on purpose
+
+**Decided by:** @cheyras, implemented by Claude Opus 5 via a Ringer swarm
+**Decision:** `packages/storage/src/setImageFallback.ts` holds a static
+(setId, kind) -> source URL crosswalk. `setWarmer` consults it when
+`card_set.logo_url` / `symbol_url` is NULL, and `SetSymbolTile` no longer gates
+the image on a catalog URL that is null for exactly the sets we are trying to
+fill. **43 pairs become fillable; 47 stay blank deliberately.**
+
+**Why:** For all 90 missing pairs BOTH catalog columns are null, so the warmer
+never even tried and the UI fell back to a derived letter tag — `TG` on every
+Trainer Gallery, `PE` on Prismatic Evolutions, `ME02` on Phantasmal Flames. Two
+findings made this cheaper than it looked:
+
+- **Our ids are zero-padded and dotted; the source's are not.** `me02` -> `me2`,
+  `sv08.5` -> `sv8pt5`, `sm3.5` -> `sm35`, `cel25cc` -> `cel25c`. A plain id
+  match found nothing; normalising found 54 of 90.
+- **Subsets serve their parent's symbol under their own id.** Verified byte-for-
+  byte: `swsh12tg/symbol.png` and `swsh12/symbol.png` are identical (md5
+  `d83e51dffd610a4d8fd4f27f4f72e396`). So Trainer Gallery, Galarian Gallery,
+  Classic Collection and Shiny Vault need a fetch, not a fallback rule.
+
+**Implications:**
+
+- **All 12 McDonald's Collection LOGOS stay excluded**, upholding the 2026-08-10
+  ruling. Independently reproduced here: nine of them are byte-identical at
+  76,597 bytes — the McDonald's corporate mark, not a set logo. The **9
+  McDonald's SYMBOLS are included** (owner's call, 2026-08-29): unlike the
+  logos, each is distinct and is the genuine printed expansion symbol.
+- **The four EX Trainer Kit logos stay excluded** (owner's call, 2026-08-29):
+  they are one byte-identical generic "Trainer Kit" wordmark, and the same logo
+  on four different sets reads as a bug rather than as design. All 20 Trainer
+  Kits keep their text treatment, which at least is uniform.
+- **Three files come from Bulbagarden** (MEE symbol, MEP Black Star Promos
+  symbol, My First Battle logo) under a contributor fair-use claim rather than a
+  transferable licence. The owner accepted that risk knowingly for these three
+  only; it is not a precedent for the slot.
+- **Nothing here has been warmed yet.** This commit is code plus tests only — no
+  database write, no Supabase Storage write. The actual fill is a separate,
+  owner-approved operation, and the cloud path only takes effect once deployed,
+  because `warm:cloud` drives the DEPLOYED image tier's lazy fill.
+- Provenance still goes through the B1 choke point with `fromUrl(<the URL
+  actually fetched>)`. The fallback sources are PNG, not the TCGdex `.webp` that
+  `setImageSourceUrl()` assumes, so the source-URL derivation handles both.
+
+## 2026-08-29 — The cloud tier can actually fill set imagery (the crosswalk had no effect without this)
+
+**Decided by:** @cheyras, implemented by Claude Opus 5 via a Ringer swarm
+**Decision:** `resolveSourceUrl()` in `apps/api/src/images/handler.ts` now
+consults `setImageFallbackUrl()` when a set logo/symbol has no recorded source,
+and `cloudWarm` gained `--assets sets|cards|both` (default both) so set imagery
+has a bulk fill path at all.
+
+**Why:** Two gaps meant the 43-entry crosswalk shipped earlier the same day could
+never have reached deckpal.app, and both failed silently:
+
+- The cloud handler's set branch ended `return null` under a comment reading
+  "Set imagery has no derivable URL — the upstream path lives in card_set, and
+  every recorded set row carries it. A NULL here is a real dead end." That was
+  true when written and stopped being true when the crosswalk landed; nothing
+  told the handler. Every one of those 43 assets would have kept answering the
+  placeholder forever, no matter how many times the page was viewed.
+- `cloudWarm` built its work-list purely from `card.images.low/high`. Set logos
+  and symbols were left entirely to per-page-view lazy fill, so there was no bulk
+  command to run even once the handler could resolve them.
+
+**Implications:**
+
+- Resolution ORDER is load-bearing and tested: a recorded `source_url` still
+  wins; the crosswalk is consulted only when there is none; a (setId, kind) the
+  crosswalk does not know still resolves to `null`, which is the honest dead end.
+  Card behaviour is untouched.
+- The provenance written is the URL ACTUALLY FETCHED, never the assumed crosswalk
+  entry, and the write still goes through `putStorageAsset` — contract B1 is
+  unchanged. Nothing is written unless a fetch succeeded; a miss still answers
+  the placeholder with the existing short TTL so it self-heals.
+- The comment above `resolveSourceUrl` was extended rather than replaced. It
+  documents a real past bug in detail and is worth keeping; it now also records
+  that set imagery has exactly one more thing to try and what governs it.
+- The fill itself is an operator action, not a deploy-time one:
+  `pnpm --filter deckpal-images warm:cloud -- --assets sets`. It needs no
+  credentials because it drives the DEPLOYED tier's own lazy fill rather than
+  uploading anything itself — deliberately, so there is only one implementation
+  of the provenance rules. It therefore only works once this code is live.
+- Dry run against production on 2026-08-29: 398 set assets in the work-list
+  (2 per set across 199 sets). Most already exist and answer a cheap `302 HIT`.

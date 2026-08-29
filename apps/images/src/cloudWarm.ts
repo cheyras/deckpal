@@ -3,7 +3,8 @@ import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 /**
- * warm:cloud — fill the CLOUD object tier for every card in the catalog.
+ * warm:cloud — fill the CLOUD object tier for every card and set image in the
+ * catalog.
  *
  * WHY THIS EXISTS. The cloud tier had no bulk warm path at all, and the gap was
  * invisible because each individual miss still "worked":
@@ -24,8 +25,9 @@ import { dirname } from 'node:path';
  * "the art loads slowly and unevenly, and some tiles never load" actually was.
  *
  * WHAT IT DOES. It drives the deployed image tier's OWN lazy fill over a work-list
- * of every card the catalog has. It writes nothing itself: each GET makes the
- * handler resolve the asset's source, fetch it, and write bytes+row together
+ * of every card the catalog has, plus a logo and a symbol for every set it
+ * reports. It writes nothing itself: each GET makes the handler resolve the
+ * asset's source, fetch it, and write bytes+row together
  * through `putStorageAsset` — the B1 choke point — exactly as a page view would.
  * That is deliberate. A second fetch-and-upload implementation here would be a
  * second thing to keep in step with the handler's provenance rules, and the class
@@ -36,11 +38,19 @@ import { dirname } from 'node:path';
  * base URL. It needs no database, no service-role key and no session.
  *
  *   pnpm --filter deckpal-images warm:cloud -- --dry-run
- *   pnpm --filter deckpal-images warm:cloud                        # low + high, whole catalog
+ *   pnpm --filter deckpal-images warm:cloud                        # cards + sets, low + high
  *   pnpm --filter deckpal-images warm:cloud -- --qualities low
  *   pnpm --filter deckpal-images warm:cloud -- --set sv10 --concurrency 6
  *   pnpm --filter deckpal-images warm:cloud -- --base https://staging.example.com
  *   pnpm --filter deckpal-images warm:cloud -- --warm-edge   # also fill the CDN
+ *   pnpm --filter deckpal-images warm:cloud -- --assets sets        # set logos + symbols only
+ *   pnpm --filter deckpal-images warm:cloud -- --assets cards       # card art only
+ *
+ * DEFAULT warms BOTH cards and sets (--assets both). Set imagery (logos +
+ * symbols) was added 2026-08-29: before that the work-list was card art only,
+ * so set logos/symbols were left to per-page-view lazy fill. `--qualities`
+ * applies to cards only; set images are one file per kind (logo.webp /
+ * symbol.webp), so the qualities flag is ignored for set jobs.
  *
  * IDEMPOTENT AND RESUMABLE. A warm asset answers `302 X-Cache: HIT` and costs one
  * cheap request; only a miss fills. Progress is written to `--state` as it goes,
@@ -57,6 +67,7 @@ import { dirname } from 'node:path';
 interface Args {
   base: string;
   qualities: string[];
+  assets: 'cards' | 'sets' | 'both';
   concurrency: number;
   set: string | null;
   limit: number;
@@ -76,9 +87,14 @@ function parseArgs(argv: string[]): Args {
     .map((q) => q.trim())
     .filter((q) => q === 'low' || q === 'high');
   if (qualities.length === 0) throw new Error('--qualities must name at least one of low,high');
+  const assets = (get('assets', 'both') as string);
+  if (assets !== 'cards' && assets !== 'sets' && assets !== 'both') {
+    throw new Error('--assets must be one of cards, sets, both');
+  }
   return {
     base: (get('base', 'https://deckpal.app') as string).replace(/\/+$/, ''),
     qualities,
+    assets,
     concurrency: Math.max(1, Number(get('concurrency', '8'))),
     set: get('set') ?? null,
     limit: Number(get('limit', '0')),
@@ -90,6 +106,7 @@ function parseArgs(argv: string[]): Args {
 }
 
 interface Job {
+  category: 'card' | 'set';
   setId: string;
   cardId: string;
   url: string;
@@ -143,23 +160,34 @@ async function buildWorkList(args: Args): Promise<Job[]> {
   const jobs: Job[] = [];
   for (const setId of setIds) {
     if (args.set && setId !== args.set) continue;
-    let page = 1;
-    for (;;) {
-      const url =
-        `${args.base}/api/sets/${encodeURIComponent(setId)}` +
-        `?pageSize=250&page=${page}&own=all&goal=complete`;
-      const body = await getJson<{
-        cards: CardRow[];
-        pagination: { pageCount: number };
-      }>(url);
-      for (const card of body.cards) {
-        for (const q of args.qualities) {
-          const path = q === 'low' ? card.images.low : card.images.high;
-          if (path) jobs.push({ setId, cardId: card.cardId, url: `${args.base}${path}`, key: path });
-        }
+    // Set imagery: logo + symbol for every set the catalog reports. The handler
+    // resolves each through the approved crosswalk when the catalog column is
+    // NULL (see handler.ts resolveSourceFromManifest / setImageFallbackUrl).
+    if (args.assets === 'sets' || args.assets === 'both') {
+      for (const image of ['logo', 'symbol'] as const) {
+        const path = `/deckpal/images/sets/${setId}/${image}.webp`;
+        jobs.push({ category: 'set', setId, cardId: image, url: `${args.base}${path}`, key: path });
       }
-      if (page >= body.pagination.pageCount || body.cards.length === 0) break;
-      page++;
+    }
+    if (args.assets === 'cards' || args.assets === 'both') {
+      let page = 1;
+      for (;;) {
+        const url =
+          `${args.base}/api/sets/${encodeURIComponent(setId)}` +
+          `?pageSize=250&page=${page}&own=all&goal=complete`;
+        const body = await getJson<{
+          cards: CardRow[];
+          pagination: { pageCount: number };
+        }>(url);
+        for (const card of body.cards) {
+          for (const q of args.qualities) {
+            const path = q === 'low' ? card.images.low : card.images.high;
+            if (path) jobs.push({ category: 'card', setId, cardId: card.cardId, url: `${args.base}${path}`, key: path });
+          }
+        }
+        if (page >= body.pagination.pageCount || body.cards.length === 0) break;
+        page++;
+      }
     }
   }
   return jobs;
@@ -223,7 +251,7 @@ async function warmOne(job: Job, warmEdge: boolean): Promise<{ outcome: Outcome;
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   console.log(
-    `[warm:cloud] ${args.base} — qualities ${args.qualities.join('+')}, concurrency ${args.concurrency}` +
+    `[warm:cloud] ${args.base} — assets ${args.assets}, qualities ${args.qualities.join('+')}, concurrency ${args.concurrency}` +
       `${args.set ? `, set ${args.set}` : ''}${args.dryRun ? ' (dry run)' : ''}`,
   );
 
@@ -246,8 +274,9 @@ async function main(): Promise<void> {
 
   await mkdir(dirname(args.state), { recursive: true }).catch(() => undefined);
 
-  const counts: Record<Outcome, number> = { filled: 0, hit: 0, placeholder: 0, failed: 0 };
-  const residue: Array<{ setId: string; cardId: string; key: string; reason: string }> = [];
+  const cardCounts: Record<Outcome, number> = { filled: 0, hit: 0, placeholder: 0, failed: 0 };
+  const setCounts: Record<Outcome, number> = { filled: 0, hit: 0, placeholder: 0, failed: 0 };
+  const residue: Array<{ category: 'card' | 'set'; setId: string; cardId: string; key: string; reason: string }> = [];
   const started = Date.now();
   let index = 0;
   let processed = 0;
@@ -263,9 +292,10 @@ async function main(): Promise<void> {
         if (i >= jobs.length) return;
         const job = jobs[i]!;
         const { outcome, reason } = await warmOne(job, args.warmEdge);
+        const counts = job.category === 'set' ? setCounts : cardCounts;
         counts[outcome]++;
         if (outcome === 'placeholder' || outcome === 'failed') {
-          residue.push({ setId: job.setId, cardId: job.cardId, key: job.key, reason: reason ?? '' });
+          residue.push({ category: job.category, setId: job.setId, cardId: job.cardId, key: job.key, reason: reason ?? '' });
         }
         // A failure is recorded too: re-running should not re-hammer upstream for
         // art it has already told us it does not have. Delete the state file to
@@ -274,9 +304,10 @@ async function main(): Promise<void> {
         if (++processed % 250 === 0) {
           const rate = processed / ((Date.now() - started) / 1000);
           const eta = (jobs.length - processed) / rate / 60;
+          const total = (k: Outcome) => cardCounts[k] + setCounts[k];
           console.log(
-            `[warm:cloud] ${processed}/${jobs.length}  filled=${counts.filled} hit=${counts.hit} ` +
-              `placeholder=${counts.placeholder} failed=${counts.failed}  ${rate.toFixed(1)}/s  eta ${eta.toFixed(0)}min`,
+            `[warm:cloud] ${processed}/${jobs.length}  filled=${total('filled')} hit=${total('hit')} ` +
+              `placeholder=${total('placeholder')} failed=${total('failed')}  ${rate.toFixed(1)}/s  eta ${eta.toFixed(0)}min`,
           );
           await flush();
         }
@@ -289,8 +320,9 @@ async function main(): Promise<void> {
 
   const secs = (Date.now() - started) / 1000;
   console.log(
-    `\n[warm:cloud] done in ${secs.toFixed(0)}s — filled=${counts.filled} hit=${counts.hit} ` +
-      `placeholder=${counts.placeholder} failed=${counts.failed}`,
+    `\n[warm:cloud] done in ${secs.toFixed(0)}s — ` +
+      `cards: filled=${cardCounts.filled} hit=${cardCounts.hit} placeholder=${cardCounts.placeholder} failed=${cardCounts.failed} | ` +
+      `sets: filled=${setCounts.filled} hit=${setCounts.hit} placeholder=${setCounts.placeholder} failed=${setCounts.failed}`,
   );
 
   if (residue.length > 0) {

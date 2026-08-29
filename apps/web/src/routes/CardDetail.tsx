@@ -591,7 +591,7 @@ function CardDetailBody({
                 </button>
               </div>
               <div className="mt-[10px] flex items-center gap-[10px]">
-                <SetSymbolTile setId={data.card.set.setId} hasSymbol={Boolean(data.card.set.symbolUrl)} size={28} />
+                <SetSymbolTile setId={data.card.set.setId} size={28} />
                 <Link
                   to="/series/$series/$set"
                   params={{ series: seriesSlug, set: setId }}

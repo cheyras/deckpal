@@ -60,16 +60,38 @@ new `kind` outside the migration-006 CHECK list needs an additive migration.
 - Cache path: `<CACHE_ROOT>/sets/<setId>/logo.webp`  →  served: `GET /deckpal/images/sets/<setId>/logo.webp`
 - image_asset kind: `set-logo` · cache_key: `set:<setId>:logo`
 - Format: webp; single.
-- Sourcing: the catalog source's set-level logo URL (Pokémon: `card_set` base URLs from TCGdex). Enumerate from `card_set`. See `apps/images/src/setWarmer.ts`.
+- Sourcing: the catalog source's set-level logo URL (Pokémon: `card_set` base URLs from TCGdex); enumerate from `card_set`. **Fallback** when `card_set.logo_url` is NULL: the approved crosswalk in `packages/storage/src/setImageFallback.ts` (`setImageFallbackUrl(setId, 'logo')` — 15 approved pairs sourced from pokemontcg.io `.png` files and Bulbagarden) — `apps/images/src/setWarmer.ts` consults it; the catalog column always takes precedence. See `apps/images/src/setWarmer.ts`.
 - Optimization: single small asset; graceful client fallback to a text card on 404 (no broken image).
 - Verify: `curl /deckpal/images/sets/<setId>/logo.webp` → 200; series index renders the base-set logo.
 - Game-specific: no (most TCGs have set/expansion logos).
-- Known residue (2026-08-10, #15): TCGdex publishes **no logo for any of the 12 McDonald's Collection
-  sets** in any of its 14 languages (CDN 404s on `en|univ/mc/<set>/logo`), so a whole series has none.
-  Do **not** fill it from pokemontcg.io — its `mcd*` logos are byte-identical across nine sets and are
-  McDonald's *corporate* logo, not a set logo (see DECISIONS.md 2026-08-10 for the trademark line).
-  The series index instead falls back to the rep set's **symbol** tile (`/api/series.repHasLogo` says
-  which asset exists), and sets with neither get `deriveSetTag`'s year. Same shape for Trainer kits.
+- Known residue (2026-08-29): 38 logo pairs stay blank — **20 Trainer Kit logos** (`tk-*`/`tk-ex-*` sets
+  share one byte-identical generic wordmark; owner decision 2026-08-29, reads as a bug across sets) and
+  **12 McDonald's Collection logos** (the `mcd*` logo files are the byte-identical corporate Golden
+  Arches, not a set logo; DECISIONS.md 2026-08-10 trademark ruling), plus 6 more (`mee`, `mep`, `xya`,
+  `exu`, `ex5.5`, `miscp`) with no approved source. These render `deriveSetTag`; do **not** "complete" the
+  crosswalk — see `packages/storage/src/setImageFallback.ts` for the exclusion rulings. The series index
+  falls back to the rep set's **symbol** tile (`/api/series.repHasLogo`).
+
+
+- **Residue, settled 2026-08-29 (second sourcing pass).** 50 of the 90 originally
+  missing (setId, kind) pairs are filled from the static crosswalk in
+  `packages/storage/src/setImageFallback.ts`. The remaining 40 break down as:
+  **12 McDonald's LOGOS** (trademark — nine are one byte-identical 76,597-byte
+  corporate mark); **20 Trainer Kit LOGOS** (a dead end proved with bytes:
+  pokemontcg.io serves ONE logo for all four EX kits, md5
+  `5ee8b8810dc52db8faaf04eefc337bf9`, and Bulbagarden Archives holds no Trainer
+  Kit logo files at all, only per-half-deck SYMBOLS); and **8 pairs with no logo
+  as a concept** (`mfb` symbol, `miscp` symbol+logo, `mee` logo, `mep` logo,
+  `xya` logo, `exu` logo, `ex5.5` logo) — promo aggregates, energy subsets and
+  variant groupings, all of which returned nothing across TCGdex in every
+  language, Bulbagarden and Wikimedia Commons.
+- **Two lessons for the next sweep of this slot.** (1) TCGdex does NOT 404 for a
+  missing asset — the request HANGS, so probe with a short deadline and treat a
+  timeout as absent, or a sweep stalls and returns nothing. (2) Bulbagarden names
+  Trainer Kit symbols after the POKEMON, not the kit (`SetSymbolExcadrill Half
+  Deck.png`), so a set-name search misses them; enumerate the category instead.
+  That is why two BW Trainer Kit symbols were first reported as upstream gaps and
+  then found on a second pass.
 
 ### set-symbol — status: active
 - Purpose / renders: the small set symbol/icon shown beside a set / on cards.
@@ -77,10 +99,16 @@ new `kind` outside the migration-006 CHECK list needs an additive migration.
 - Cache path: `<CACHE_ROOT>/sets/<setId>/symbol.webp`  →  served: `GET /deckpal/images/sets/<setId>/symbol.webp`
 - image_asset kind: `set-symbol` · cache_key: `set:<setId>:symbol`
 - Format: webp; single.
-- Sourcing: catalog set-symbol URL; enumerate from `card_set`. Same warmer family as set-logo.
+- Sourcing: catalog set-symbol URL (`card_set.symbol_url`); enumerate from `card_set`. **Fallback** when `symbol_url` is NULL: `setImageFallbackUrl(setId, 'symbol')` (same crosswalk, `packages/storage/src/setImageFallback.ts`) — 35 approved symbol pairs from pokemontcg.io `.png` + Bulbagarden, including the McDonald's *symbols* (a genuine printed expansion mark, unlike the logos) and MEP. Same warmer family as set-logo.
 - Optimization: tiny; 404 → neutral client placeholder.
 - Verify: `curl … /symbol.webp` → 200 (some sets legitimately have none → placeholder is correct).
 - Game-specific: no.
+- Known residue (2026-08-29, after the second sourcing pass): only **2 symbol pairs** stay blank —
+  `mfb` and `miscp`. Everything else in the earlier draft of this note (`tk-bw-e`, `tk-bw-z`, `exu`,
+  `ex5.5`, `xya`, `2023sv`, `2024sv`) IS filled: Bulbagarden files Trainer Kit symbols under the
+  POKEMON's name (`SetSymbolExcadrill Half Deck.png`), not the kit's, so a set-name search misses
+  them — enumerate the category instead. The McDonald's *logos* are a separate residue (see
+  set-logo); the McDonald's *symbols* ARE filled. See `packages/storage/src/setImageFallback.ts`.
 
 ### species-sprite — status: active
 - Purpose / renders: Pokédex grid + species pages — pixel sprite and official-artwork, each with a shiny variant.
