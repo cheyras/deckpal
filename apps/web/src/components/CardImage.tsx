@@ -18,6 +18,7 @@
 // one wasted 400 from Storage and then behaves exactly as it did before.
 import { useState } from 'react'
 import { directArtUrl } from '../lib/cardArt'
+import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
 export function CardImage({
   low,
@@ -25,14 +26,19 @@ export function CardImage({
   alt,
   eager = false,
   className = '',
-  radius = 8,
+  // A NUMBER is treated as pixels — for callers that deliberately pin a compact
+  // radius (Deck-E screen thumbnails, approval previews). The DEFAULT is the
+  // physical-card percentage, so the corner scales with the rendered width and
+  // a thumbnail keeps the same SHAPE as a detail view rather than the same
+  // pixel radius. A STRING is applied verbatim to `border-radius`.
+  radius = CARD_RADIUS_CSS,
 }: {
   low: string
   high: string
   alt: string
   eager?: boolean
   className?: string
-  radius?: number
+  radius?: number | string
 }) {
   const direct = directArtUrl(low)
   const directHigh = directArtUrl(high)
@@ -56,10 +62,12 @@ export function CardImage({
       ? `${direct} 245w, ${directHigh ?? high} 600w`
       : `${low} 245w, ${high} 600w`
 
+  const borderRadius = typeof radius === 'number' ? `${radius}px` : radius
+
   return (
     <div
-      className={`relative w-full overflow-hidden bg-surface-tertiary ${className}`}
-      style={{ aspectRatio: '245 / 337', borderRadius: radius }}
+      className={`px-card-art relative w-full overflow-hidden bg-surface-tertiary ${className}`}
+      style={{ aspectRatio: CARD_ASPECT_RATIO_CSS, borderRadius }}
     >
       {step < 2 && src && (
         <img
@@ -80,7 +88,7 @@ export function CardImage({
           onError={() => setStep((s) => s + 1)}
           {...(eager ? { fetchPriority: 'high' as const } : {})}
           className="absolute inset-0 h-full w-full object-cover"
-          style={{ borderRadius: radius }}
+          style={{ borderRadius }}
         />
       )}
     </div>

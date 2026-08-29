@@ -6,6 +6,7 @@ import { Icon } from './Icon'
 import { Button } from './ui/Button'
 import { SelectableCard } from './ui/SelectableCard'
 import { Sheet } from './ui/Sheet'
+import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
 // ── Modal shell ───────────────────────────────────────────────────────────────
 // Kept as a name so callers read the same, but it is a Sheet now: portalled to
@@ -228,8 +229,8 @@ export function AddCardModal({
                 disabled={addingId === c.cardId}
                 className="group flex flex-col rounded-lg border border-transparent p-[6px] text-left hover:border-border-default hover:bg-surface-tertiary disabled:opacity-50"
               >
-                <div className="relative overflow-hidden rounded-md">
-                  <img src={c.images.low} alt={c.name} loading="lazy" className="aspect-[245/337] w-full object-cover" />
+                <div className="relative overflow-hidden" style={{ borderRadius: CARD_RADIUS_CSS }}>
+                  <img src={c.images.low} alt={c.name} loading="lazy" className="w-full object-cover" style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }} />
                   <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[14px] font-bold text-white opacity-0 group-hover:opacity-100">
                     {addingId === c.cardId ? 'Adding…' : '+ Add'}
                   </span>

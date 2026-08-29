@@ -4,6 +4,7 @@ import { Icon } from './Icon'
 import { CardLink } from './CardLink'
 
 import { variantMeta } from '../lib/variantStyle'
+import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
 // Binder view (UI-SPEC §3.25, pkmn.gg captures §15.3).
 //
@@ -50,7 +51,7 @@ function Pocket({
   const inner = (
     <div
       className="relative h-full w-full"
-      style={{ aspectRatio: '300 / 418' }}
+      style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }}
       title={variantLabel ? `${card?.name} — ${variantLabel}` : undefined}
     >
       {card && card.images.low ? (
@@ -61,10 +62,11 @@ function Pocket({
           alt={variantLabel ? `Slot ${slot}: ${card.name} (${variantLabel})` : `Slot ${slot}: ${card.name}`}
           loading="lazy"
           decoding="async"
-          className="absolute inset-0 h-full w-full rounded-[6px] object-cover"
+          className="absolute inset-0 h-full w-full object-cover"
+          style={{ borderRadius: CARD_RADIUS_CSS }}
         />
       ) : (
-        <div className="absolute inset-0 rounded-[6px] bg-surface-tertiary" />
+        <div className="absolute inset-0 bg-surface-tertiary" style={{ borderRadius: CARD_RADIUS_CSS }} />
       )}
       {card?.variant && variantLabel && (
         <span
@@ -76,8 +78,8 @@ function Pocket({
       {!bright && (
         <>
           <div
-            className="absolute inset-0 rounded-[6px]"
-            style={{ background: 'var(--color-overlay-scrim-strong)', zIndex: 1 }}
+            className="absolute inset-0"
+            style={{ background: 'var(--color-overlay-scrim-strong)', borderRadius: CARD_RADIUS_CSS, zIndex: 1 }}
           />
           <div
             className="absolute inset-0 flex flex-col items-center justify-center leading-none"
@@ -102,14 +104,14 @@ function Pocket({
         seriesSlug={seriesSlug}
         setId={setId}
         className="relative block"
-        style={{ aspectRatio: '300 / 418' }}
+        style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }}
       >
         {inner}
       </CardLink>
     )
   }
   return (
-    <div className="relative" style={{ aspectRatio: '300 / 418' }}>
+    <div className="relative" style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }}>
       {inner}
     </div>
   )
