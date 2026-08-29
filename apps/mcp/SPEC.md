@@ -89,14 +89,19 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
   list carrying ids, never guessed — the rule card resolution has always followed. **Reads take
   the single best fuzzy match; every WRITE takes an exact id or an exact unique name only**, and
   a prefix or trigram hit comes back as a choice. That asymmetry is load-bearing:
-  `deck_strategy`, `add_battle_log` and `edit_battle_log` have no `dry_run`, and MCP has no
-  approval dialog, so a fuzzy match reaching one of them would silently rewrite the wrong deck.
+  `deck_strategy` has no `dry_run`, and MCP has no approval dialog, so a fuzzy match reaching it
+  would silently rewrite the wrong deck. (`add_battle_log` and `edit_battle_log` gained a real
+  `dry_run` in the 2026-08-29 agentic pass; their writes still resolve strictly, and
+  `add_battle_log` with NO `deck_id` at all is a pure read — see #16.)
 - **`sv3pt5` is not a set id in this catalog.** It is TCGdex's public spelling of `sv03.5`, and it
   appeared as an example in migration 003's column comment, in `search_cards`'s input schema and
   in `set_progress`'s not-found message. Deck-E called it nine times in a single turn.
   `normaliseSetId` now maps both it and the unpadded `sv3.5` onto the real id — and no example id
   is quoted in any failure message any more. Any example that does appear in a description must
-  be verified against the catalog first.
+  be verified against the catalog first. Since 2026-08-29 `normaliseSetId` also resolves the
+  **printed set codes** users dictate from physical cards (`SVI`, `PAL`, `TEF`, `PRE`, `BLK`,
+  `MEG`, `PFL`, `POR`, `PBL`, `CRI`, …) — exact whole-token, case-insensitive, every alias
+  grounded in `apps/api/src/deck/data/ptcgl-set-alias.json`, never guessed.
 - Money: DB stores integer minor units (`price_current.market_minor` etc.). Tools always render
   majors with currency (`$3.12`), NULL price = "unpriced", **never $0**. Unpriced counts are
   reported separately in any valuation sum.
@@ -288,7 +293,12 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
    one dropped to identify the culprit, and recognises a SET name or
    search-engine syntax in `query`.
 4. **`get_card`** — `{ card_id? | name? + set_id? + number? }`. Card core (category, rarity, HP,
-   regulation mark, legality flags, set + local number), then per-variant rows: kind code,
+   regulation mark, legality flags, set + local number), then — since 2026-08-29 — **full rules
+   text**: Abilities (kind, name, effect), attacks (cost, name, damage, effect), the
+   Trainer/Tool/Energy `effect` line, weakness/resistance and retreat, rendered from
+   `card_ability`/`card_attack`/`card_matchup`/`card` (migration 003; sections omitted when a card
+   has no rows). This is the grounding surface: an agent can now check what a card DOES before
+   advising on it, instead of answering from memory. Then per-variant rows: kind code,
    display name, tier (from `variant_tier_resolved` — never re-derive), owned qty, market price,
    TCGplayer link when present. Ambiguous → candidate list. Same trailing `series <slug>` addition
    as `search_cards`.
@@ -300,7 +310,10 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
    express "no special illustrations" and reading `rarity` per card was the only way. Same trailing
    `series <slug>` addition as `search_cards` (2026-08-21).
    No `set_id`: all sets with any progress from `user_set_progress` (owned/total per goal, %
-   sorted desc, paged). With `set_id`: all three goals' numbers + the missing cards for the
+   sorted desc, paged). `all_sets? = false` (2026-08-29): when true the overview lists EVERY
+   catalog set — id, name, series, released_on, card count, owned count (0 included), newest
+   first — so release-order questions are grounded instead of answered from model memory. With
+   `set_id`: all three goals' numbers + the missing cards for the
    requested goal (via `master_required_variant` for master; paged) + **cost-to-complete** (Σ
    cheapest market price of missing required variants; unpriced listed separately, never $0).
 6. **`collection_log`** — `{ since?: ISO, source?, limit? = 50 }`. The agentic-logging read
@@ -415,11 +428,24 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
     `PUT /decks/:id/strategy` replaces the whole guide (empty string clears); the response names
     the previous guide's first heading + length so an accidental overwrite is visible. Strategy
     edits NEVER bump the deck version (§6b) and the descriptions say so.
-16. **`add_battle_log`** — `{ deck_id, log, result?, player_name?, opponent_deck?, notes?,
-    played_at? }`. `POST /decks/:id/logs`: the API parses the raw PTCG Live log (result, opponent,
-    turns, prizes, KOs, deck guess) and attaches it to the deck's CURRENT version. The
+16. **`add_battle_log`** — `{ deck_id?, log, result?, player_name?, opponent_deck?, notes?,
+    played_at?, dry_run? = true }`. `POST /decks/:id/logs`: the API parses the raw PTCG Live log
+    (result, opponent, turns, prizes, KOs, deck guess) and attaches it to the deck's CURRENT
+    version. Explicit `result`/`opponent_deck` arguments are authoritative over parser output
+    (2026-08-29 — a passed opponent once lost to the parser's inversion). The
     ambiguous-owner 400 is surfaced verbatim — it tells the agent to retry with `player_name`
-    (exact screen name) or an explicit `result`.
+    (exact screen name) or an explicit `result`. In the DeckPal app, Deck-E passes
+    `log: "@pasted"` and the server substitutes the pasted text; over MCP pass the raw log.
+    Defaults to a dry run — "Nothing was logged." leads that render; re-run with
+    `dry_run: false` to attach the log.
+
+    **`deck_id` omitted (2026-08-29): a pure read.** The tool calls `POST /decks/log-preview`,
+    which parses the log and scores it against every deck's current-version card list
+    (name overlap + normalized PTCG Live card codes, both players considered), and returns
+    ranked candidates — real ids, names, versions, scores — plus the parsed-result line. Nothing
+    is written, whatever the candidate count; the agent re-calls with the chosen `deck_id`.
+    Zero candidates lists NONE (never an invented id). "Nothing was logged." leads the dry-run
+    render, with or without `deck_id`.
 17. **`battle_logs`** — `{ deck_id, log_id?, version?, include_raw? = false, page?, page_size? }`.
     List mode: one compact row per game, newest first, W/L footer (`3W–1L–0T`) over the filter
     scope plus a per-version breakdown when unfiltered. `log_id`: full detail incl parsed fields.
@@ -433,7 +459,10 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
     whether the revert will bump or amend) before anything is written. Non-destructive by
     design — history is never deleted — hence `destructiveHint: false`.
 19. **`edit_battle_log`** — `{ deck_id, log_id, result?|null, opponent?|null, opponent_deck?|null,
-    notes?|null, played_at? }`. `PATCH /decks/:id/logs/:logId` — classification-only corrections
+    notes?|null, played_at?, dry_run? = true }`. Defaults to a dry run (2026-08-29) — a
+    field-by-field would-change plan ("Nothing was changed." first line) without writing;
+    re-run with `dry_run: false` to apply.
+    `PATCH /decks/:id/logs/:logId` — classification-only corrections
     (e.g. the parser left NO RESULT on a non-standard ending); raw log + attached version are
     immutable; nulls clear (not `played_at`); per-version records recompute immediately. Added
     2026-07-31 after an agent had no way to correct a timeout-win misparse (battle #8).
@@ -444,7 +473,9 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
 ### Shopping — via deckpal-api (`readOnlyHint: true`)
 
 21. **`set_cart`** — exactly one of `{ set_id, goal?, finishes?, rarity?, rarity_exclude? }`,
-    `{ list_id, missing_only? }`, or `{ items: [{ variant_id | card_id, quantity? }] }`. Wraps
+    `{ list_id, missing_only? }`, or `{ items: [{ variant_id | card_id, quantity? }] }`.
+    `set_id` and `list_id` go through the same resolvers as every other tool (2026-08-29 — this
+    was the one tool that passed them raw, so `sv3.5` or a list NAME failed only here). Wraps
     `GET /sets/:setId/massentry`, `GET /lists/:id/massentry` and `POST /massentry` — one builder
     (`apps/api/src/tcgplayer/massentry.ts`), shared with the web UI's Purchase Set button.
     Builds links only — never buys anything; the user opens them in their own logged-in browser.

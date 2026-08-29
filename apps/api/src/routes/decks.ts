@@ -6,7 +6,7 @@ import { currentUserId } from '../identity.js';
 import { recordDeckChange, recordStrategyChange, type SnapshotEntry } from '../deck/versions.js';
 import { closeBatch, openBatch, OPS, parseSource, recordEvents } from '../mutations.js';
 import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
-import { parseBattleLog } from '../deck/battlelog.js';
+import { mergeLogFields, parseBattleLog, scoreDeckMatch } from '../deck/battlelog.js';
 import {
   validateDeck, resolveDeck, buildReprintOracle,
   parsePtcgl, parseMassEntry, serializeMassEntry,
@@ -80,6 +80,79 @@ const STRATEGY_MAX = 40000;
 const VERSION_NOTE_MAX = 500;
 const LOG_NOTES_MAX = 2000;
 const RAW_LOG_MAX = 50000;
+
+// ── POST /decks/log-preview fan-out bounds (security finding B) ───────────────
+//
+// The log-preview handler scores a pasted log against the caller's decks, 2
+// queries per deck, and used to iterate EVERY non-deleted deck with no rate
+// limit — an unbounded fan-out a caller could hammer. Two bounds:
+//   • LOG_PREVIEW_DECK_CAP caps the scoring set to the RECENT decks (40 is far
+//     above any real collection and bounds the fan-out).
+//   • a per-user in-memory rate limit (20 req/min) stops a caller running the
+//     parse+score loop in a tight loop. bugs.ts's rate limiter is module-local
+//     (not exported), so the minimal pattern is replicated here rather than
+//     shared — same shape: a Map of buckets with a resetAt, swept on a timer.
+/** Exported so logPreview.test.ts can pin the bound without a database. */
+export const LOG_PREVIEW_DECK_CAP = 40;
+export const LOG_PREVIEW_RATE_MAX = 20; // requests per user per window
+export const LOG_PREVIEW_RATE_WINDOW_MS = 60_000; // 1 minute
+export const LOG_PREVIEW_RATE_SWEEP_MS = 5 * 60_000; // sweep stale buckets every 5 min
+
+export interface RateBucket {
+  count: number;
+  resetAt: number;
+}
+
+/**
+ * Pure rate-limit decision for ONE bucket. Returns the (possibly new/updated)
+ * bucket to store and whether the request is under the cap. The route keeps a
+ * `Map<userId, RateBucket>` and threads `Date.now()`; tests call this directly
+ * with a fixed clock so the limiter can be pinned without a DB or a timer.
+ *
+ * First request in a window starts a fresh bucket at count 1; an expired
+ * window resets the same way. The bucket is ALWAYS returned (count bumped),
+ * so a burst just over the limit is recorded — the caller is refused, not
+ * silently let through, and the next in-window request sees the real count.
+ */
+export function rateLimitCheck(
+  bucket: RateBucket | undefined,
+  now: number,
+  max: number = LOG_PREVIEW_RATE_MAX,
+  windowMs: number = LOG_PREVIEW_RATE_WINDOW_MS,
+): { ok: boolean; bucket: RateBucket } {
+  if (!bucket || bucket.resetAt <= now) {
+    return { ok: 1 <= max, bucket: { count: 1, resetAt: now + windowMs } };
+  }
+  const count = bucket.count + 1;
+  return { ok: count <= max, bucket: { count, resetAt: bucket.resetAt } };
+}
+
+// Module-local state for the route. ONE map per process, keyed by userId —
+// never by IP (the route is authed; userId is the right identity). Swept on a
+// timer so a quiet process does not accumulate buckets for ever.
+//
+// HONEST LIMITATION — this is a per-PROCESS limiter, not a global one. On
+// Vercel each warm lambda instance has its own Map, so the real ceiling is
+// 20/min × (number of warm instances), not 20/min total. That is acceptable
+// here because the load-bearing bound on log-preview cost is LOG_PREVIEW_DECK_CAP
+// (the per-request deck fan-out), not this limiter: a single request is already
+// bounded, so a caller over-running the per-instance cap mostly adds latency,
+// not unbounded work. This limiter is best-effort per instance — it stops a
+// tight loop on ONE instance, not a flood across many. If a true global cap is
+// ever needed it has to live in shared state (Redis/edge), not in a Map.
+const logPreviewBuckets = new Map<string, RateBucket>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [user, b] of logPreviewBuckets) {
+    if (b.resetAt <= now) logPreviewBuckets.delete(user);
+  }
+}, LOG_PREVIEW_RATE_SWEEP_MS).unref();
+
+function logPreviewRateOk(userId: string): boolean {
+  const res = rateLimitCheck(logPreviewBuckets.get(userId), Date.now());
+  logPreviewBuckets.set(userId, res.bucket);
+  return res.ok;
+}
 
 // ── The shared loader: one query → CardFacts (for the engine) + display rows (for the UI) ──
 
@@ -1415,7 +1488,11 @@ decksRouter.post(
       );
       const parsed = parseBattleLog(rawLog, names.rows.map((r) => r.name), playerName);
 
-      const result = explicitResult ?? parsed.result;
+      // Explicit args win: caller-supplied result / opponent / opponentDeck are
+      // authoritative over parser output; the parser fills whatever the caller
+      // omitted. Centralised in mergeLogFields so the override contract is
+      // pinned by a unit test, not just inline `??` at the call site.
+      const merged = mergeLogFields(parsed, { result: explicitResult, opponent, opponentDeck });
       if (parsed.players.me === null && explicitResult === undefined) {
         throw badRequest(
           playerName
@@ -1433,9 +1510,9 @@ decksRouter.post(
               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, COALESCE($10::timestamptz, now()), $11)
          RETURNING id, deck_version, raw_log, result, opponent, opponent_deck, notes, parsed, source, played_at, created_at`,
         [
-          deckId, version, rawLog, result,
-          opponent ?? parsed.players.opponent,
-          opponentDeck ?? parsed.opponentDeckGuess,
+          deckId, version, rawLog, merged.result,
+          merged.opponent,
+          merged.opponentDeck,
           notes, JSON.stringify(parsed), source, playedAt, userId,
         ],
       );
@@ -1444,6 +1521,145 @@ decksRouter.post(
 
     userCache(res);
     res.status(201).json({ log: shapeLogFull(out.log), attachedToVersion: out.attachedToVersion });
+  }),
+);
+
+// POST /decks/log-preview — parse a pasted log (NO writes anywhere) and score
+// it against the caller's decks' current-version card lists, so the agent can
+// pick which deck a log belongs to before attaching it. Pure scoring lives in
+// scoreDeckMatch; this handler only loads + shapes, in the file's house style
+// (asyncHandler, currentUserId, q/loadRows, userCache, res.json).
+//
+// Response contract (load-bearing — a follow-up builds the agent tool against
+// exactly these field names):
+//   { parsed: { result, opponent, turns, prizes, confidence, myPokemon, opponentDeckGuess },
+//     candidates: [{ deckId, name, format, version, score, matchedNames, total }] }
+// candidates are sorted by score descending, capped at 5, and an empty array
+// when nothing scores above zero.
+//
+// `parsed` is built from a RE-PARSE against the best-scoring candidate's card
+// names when one exists (see below), so owner identification — which scores the
+// overlap between the cards each player plays and the deck — can actually
+// resolve "me" and populate result/opponent/prizes/myPokemon/opponentDeckGuess
+// with a meaningful confidence. When NO candidate scores above zero the response
+// keeps the deck-agnostic parse: turns survives (it is perspective-free) but
+// result, opponent, prizes, myPokemon and opponentDeckGuess are NULL and
+// confidence is 'low' — owner identification cannot run without a deck, and the
+// caller must supply playerName or an explicit result at attach time.
+decksRouter.post(
+  '/log-preview',
+  asyncHandler(async (req, res) => {
+    const userId = currentUserId(req);
+    // Per-user rate limit (security finding B): the parse+score loop is
+    // unbounded fan-out a caller could hammer. 20/min/user is far above any
+    // real use and stops a tight loop cold. Returned as the SAME JSON envelope
+    // the agent-tools API client reads ({ error: { code, message } }, see
+    // packages/agent-tools/src/api.ts) — a plain-text 429 made JSON.parse throw,
+    // so the client fell back to 'deckpal-api POST /decks/log-preview → 429' and
+    // discarded this authored guidance entirely (verified repro). Status stays 429.
+    if (!logPreviewRateOk(userId)) {
+      res.status(429).json({
+        error: {
+          code: 'rate_limited',
+          message: 'Too many log-preview requests — try again shortly.',
+        },
+      });
+      return;
+    }
+    const body = req.body ?? {};
+    if (typeof body.log !== 'string' || !body.log.trim()) throw badRequest('log is required');
+    if (body.log.length > RAW_LOG_MAX) throw badRequest(`log too large (max ${RAW_LOG_MAX} chars)`);
+    // The brief names this body field `player_name` (snake_case); accept it
+    // literally so the follow-up agent tool — built against the brief's field
+    // names — works. Fall back to the file's camelCase convention for any other
+    // caller. Either way an empty/absent value means "omit" (deck-agnostic parse).
+    const playerName = parseOptText(body.player_name ?? body.playerName, 100, 'player_name') ?? undefined;
+
+    // Deck-agnostic parse: no deck names are passed, so owner scoring will not
+    // resolve "me" (and the drift tripwire is suppressed for an empty deck).
+    // parsed.playerCards carries both players' extracted names + codes, which is
+    // what scoreDeckMatch ranks decks on.
+    const parsed = parseBattleLog(body.log, [], playerName);
+
+    // CAPPED at the recent decks (security finding B): the scoring set is the
+    // recent decks — 40 is far above any real collection and bounds the fan-out
+    // (2 queries per deck). Ordered by updated_at DESC so the cap keeps the
+    // decks a reader actually touches, not the long tail. `id DESC` is a
+    // deterministic tiebreaker: updated_at ties are common (a bulk edit bumps
+    // several decks in one tick) and without it the cap is nondeterministic on
+    // which of the tied decks survives the LIMIT. deck.id is the UUID PK
+    // (research/SCHEMA.md), the table's stable key.
+    const metas = await q<DeckMeta>(
+      `${DECK_META_SELECT} WHERE user_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC, id DESC LIMIT ${LOG_PREVIEW_DECK_CAP}`,
+      [userId],
+    );
+
+    const candidates: {
+      deckId: string;
+      name: string;
+      format: FormatCode;
+      version: number;
+      score: number;
+      matchedNames: number;
+      total: number;
+    }[] = [];
+    // The best-scoring candidate's card NAMES, kept so the log can be re-parsed
+    // against them without a second query (the rows are already loaded above).
+    // Null until a candidate scores above zero.
+    let bestDeckNames: string[] | null = null;
+    let bestScore = 0;
+    for (const meta of metas) {
+      const { rows } = await loadRows(meta.id, userId);
+      const deckCards = rows.map((r) => ({ name: r.name, cardId: r.tcgdex_id }));
+      const m = scoreDeckMatch(parsed, deckCards);
+      if (m.score <= 0) continue; // nothing above zero → not a candidate
+      candidates.push({
+        deckId: meta.id,
+        name: meta.name,
+        format: meta.format_code,
+        version: meta.version,
+        score: m.score,
+        matchedNames: m.matchedNames,
+        total: m.total,
+      });
+      if (m.score > bestScore) {
+        bestScore = m.score;
+        // Re-parse needs only the names (owner identification scores name-key
+        // overlap, exactly as POST /:id/logs passes names from deck_card⋈card).
+        bestDeckNames = rows.map((r) => r.name);
+      }
+    }
+    candidates.sort((a, b) => b.score - a.score);
+
+    // Re-parse against the best candidate's card names so owner identification
+    // can resolve "me". The deck-agnostic parse above (parseBattleLog with [])
+    // could never overlap an empty deck list, so it early-returned before
+    // result/opponent/prizes/myPokemon/opponentDeckGuess were populated — only
+    // turns and playerCards survived (the hollow shape that shipped broken).
+    // The deck rows are already loaded (bestDeckNames); this re-uses them, it
+    // does NOT re-query. This also makes `confidence` meaningful: a clear-margin
+    // name overlap → 'high'. playerName, when supplied, still overrides scoring
+    // exactly as it does on the deck-agnostic parse, so this never makes a
+    // populated parse worse. When no candidate scores, bestDeckNames stays null
+    // and the deck-agnostic parse stands (see the response-contract comment
+    // above for which fields are null in that case).
+    const responseParsed = bestDeckNames
+      ? parseBattleLog(body.log, bestDeckNames, playerName)
+      : parsed;
+
+    userCache(res);
+    res.json({
+      parsed: {
+        result: responseParsed.result,
+        opponent: responseParsed.players.opponent,
+        turns: responseParsed.totalTurns,
+        prizes: responseParsed.prizesTaken,
+        confidence: responseParsed.confidence,
+        myPokemon: responseParsed.myPokemon,
+        opponentDeckGuess: responseParsed.opponentDeckGuess,
+      },
+      candidates: candidates.slice(0, 5),
+    });
   }),
 );
 

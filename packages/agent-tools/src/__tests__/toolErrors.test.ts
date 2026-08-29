@@ -42,6 +42,7 @@ import type { ToolDefinition } from '../registry.js';
 import { errText, redactEndpoints } from '../shared.js';
 import { listTools } from '../tools/lists.js';
 import { loggingTools } from '../tools/logging.js';
+import { shoppingTools } from '../tools/shopping.js';
 
 // ── The errors, in the shapes `pg` really produces ───────────────────────────
 
@@ -143,6 +144,108 @@ test('edit_list — the sibling planner — is guarded too', async () => {
   assert.equal(res.isError, true);
   assert.match(res.text, /edit_list failed/);
   assertSaysNothingSecret(res.text, 'edit_list');
+});
+
+// ── set_cart: resolution bypass fix ──────────────────────────────────────────
+//
+// `set_cart` passed set_id and list_id RAW to the API while every sibling tool
+// resolved them — so 'sv3.5', 'PAL' or a list NAME failed in the one shopping
+// tool. These tests pin that both now go through the same resolvers.
+
+/** A minimal CartResponse the mock API can return. */
+function cartResponse(source: 'set' | 'list'): unknown {
+  return {
+    source,
+    set: source === 'set' ? { setId: 'sv02', name: 'Paldea Evolved' } : undefined,
+    list: source === 'list' ? { id: 'list-uuid-42', name: 'Shopping List', kind: 'static' } : undefined,
+    goal: 'complete',
+    finishes: null,
+    rarity: null,
+    rarityExclude: null,
+    needed: { cards: 0, items: 0, unlinkable: 0, exactLines: 0, bestEffortLines: 0 },
+    lines: [],
+    text: '',
+    urls: [],
+    exactUrls: [],
+    bestEffortUrls: [],
+    unlinkable: [],
+    warnings: [],
+    note: '',
+  };
+}
+
+test('set_cart resolves a printed set code before calling the API', async () => {
+  const apiPaths: string[] = [];
+  const ctx = {
+    userId: '00000000-0000-4000-8000-00000000dead',
+    db: {
+      query: async (_sql: string, params: unknown[]) => {
+        // resolveSet: WHERE lower(cs.tcgdex_id) = ANY($1). Return sv02 when the
+        // alias added it as a candidate.
+        const ids = params[0] as string[];
+        if (ids.includes('sv02')) {
+          return {
+            rows: [{ id: '201', tcgdex_id: 'sv02', name: 'Paldea Evolved', series_slug: 'sv', released_on: '2023-03-31' }],
+          };
+        }
+        return { rows: [] };
+      },
+    },
+    api: {
+      base: 'http://127.0.0.1:3700/deckpal/api',
+      get: async (path: string) => {
+        apiPaths.push(path);
+        if (path.startsWith('/sets/sv02/massentry')) return cartResponse('set');
+        return {};
+      },
+      send: async () => cartResponse('set'),
+    },
+  } as unknown as Ctx;
+
+  const res = await tool(shoppingTools, 'set_cart').handler({ set_id: 'PAL' }, ctx);
+  assert.equal(res.isError, undefined, 'should succeed');
+  assert.ok(apiPaths.some((p) => p.startsWith('/sets/sv02/massentry')), 'used the resolved set id');
+  assert.ok(!apiPaths.some((p) => p.includes('/sets/PAL')), 'did not pass the raw code to the API');
+});
+
+test('set_cart resolves a list NAME before calling the API', async () => {
+  const apiPaths: string[] = [];
+  const ctx = {
+    userId: '00000000-0000-4000-8000-00000000dead',
+    db: { query: async () => ({ rows: [] }) },
+    api: {
+      base: 'http://127.0.0.1:3700/deckpal/api',
+      get: async (path: string) => {
+        apiPaths.push(path);
+        if (path === '/lists') return { lists: [{ id: 'list-uuid-42', name: 'Shopping List' }] };
+        if (path.startsWith('/lists/list-uuid-42/massentry')) return cartResponse('list');
+        return {};
+      },
+      send: async () => cartResponse('list'),
+    },
+  } as unknown as Ctx;
+
+  const res = await tool(shoppingTools, 'set_cart').handler({ list_id: 'Shopping List' }, ctx);
+  assert.equal(res.isError, undefined, 'should succeed');
+  assert.ok(apiPaths.some((p) => p.startsWith('/lists/list-uuid-42/massentry')), 'used the resolved list id');
+  assert.ok(!apiPaths.some((p) => p.includes('Shopping%20List')), 'did not pass the raw name to the API');
+});
+
+test('set_cart with an unresolvable set_id fails with a resolution message, not a raw API error', async () => {
+  const ctx = {
+    userId: '00000000-0000-4000-8000-00000000dead',
+    db: { query: async () => ({ rows: [] }) },
+    api: {
+      base: 'http://127.0.0.1:3700/deckpal/api',
+      get: async (): Promise<never> => Promise.reject(new Error('the API was never reached')),
+      send: async (): Promise<never> => Promise.reject(new Error('the API was never reached')),
+    },
+  } as unknown as Ctx;
+
+  const res = await tool(shoppingTools, 'set_cart').handler({ set_id: 'ZZZZZ' }, ctx);
+  assert.equal(res.isError, true);
+  assert.match(res.text, /No set matches/);
+  assert.ok(!/set_cart failed/.test(res.text), 'must not reach the catch block');
 });
 
 // ── 2. `errText` itself ──────────────────────────────────────────────────────

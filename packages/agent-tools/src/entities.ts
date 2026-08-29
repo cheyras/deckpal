@@ -261,9 +261,61 @@ function blankFold(folded: string): boolean {
 }
 
 /**
+ * Printed set codes → this catalog's `tcgdex_id`.
+ *
+ * The 2–4 letter codes printed on physical cards (`PAL` in the tag on the
+ * bottom left, `MEG` on the Mega Evolution booster). Users dictate them and
+ * agents burned ~20 discovery calls per session because nothing mapped them to
+ * the ids this catalog keys on.
+ *
+ * EVERY ENTRY IS GROUNDED IN THE REPO — `apps/api/src/deck/data/ptcgl-set-alias.json`,
+ * the hand-authored authority for the deck parser's set join, verified against
+ * the live DB set list (its own `_comment`). Many of the target ids are
+ * independently confirmed by test fixtures and code comments. No alias was guessed.
+ *
+ * MATCHES ON THE EXACT WHOLE TOKEN ONLY, case-insensitively. `'PAL'` resolves
+ * to `sv02`; `'Paldean Fates'` does NOT, because the alias fires on the token
+ * `'paldean fates'`, not on a substring. A code that is a substring of a set
+ * name — `PAL` is a substring of `Paldea` — therefore cannot collide with that
+ * name. This is the safety property: a wrong alias silently corrupts a write,
+ * and a substring match is the easiest way to be wrong.
+ *
+ * As with every other candidate `normaliseSetId` produces, the database still
+ * decides whether the target id exists — an alias to a set this catalog does
+ * not carry is a harmless miss, never a false hit.
+ */
+const SET_CODE_ALIASES: Readonly<Record<string, string>> = {
+  // Scarlet & Violet era
+  svi: 'sv01',
+  pal: 'sv02',
+  obf: 'sv03',
+  mew: 'sv03.5',
+  par: 'sv04',
+  paf: 'sv04.5',
+  tef: 'sv05',
+  twm: 'sv06',
+  sfa: 'sv06.5',
+  scr: 'sv07',
+  ssp: 'sv08',
+  pre: 'sv08.5',
+  jtg: 'sv09',
+  dri: 'sv10',
+  blk: 'sv10.5b',
+  wht: 'sv10.5w',
+  // Mega Evolution era
+  meg: 'me01',
+  pfl: 'me02',
+  asc: 'me02.5',
+  por: 'me03',
+  pbl: 'me05',
+  cri: 'me04',
+  mee: 'mee',
+};
+
+/**
  * Put a set id into this catalog's own spelling.
  *
- * TWO REAL FAILURES, ONE FUNCTION.
+ * THREE REAL FAILURES, ONE FUNCTION.
  *
  * 1. **`pt` for a decimal point.** TCGdex's public ids write "Pokémon 151" as
  *    `sv3pt5`; this catalog stores `sv03.5`. The model called `sv3pt5` NINE
@@ -276,13 +328,21 @@ function blankFold(folded: string): boolean {
  * 2. **Unpadded numbers.** The same turn tried `sv3.5`, which is `sv03.5` with
  *    a zero missing — one character from correct, and a hard failure.
  *
- * Both are mechanical, so they are fixed mechanically rather than by asking a
- * model to be more careful. This ONLY ever produces a candidate spelling; the
- * database still decides whether it exists.
+ * 3. **Printed set codes.** A reader says `PAL` and an agent has no way to turn
+ *    that into `sv02` — ~20 discovery calls per session, because nothing mapped
+ *    the printed code to the catalog id. The alias map above is looked up on
+ *    the exact whole token, and its target becomes a candidate here.
+ *
+ * All three are mechanical, so they are fixed mechanically rather than by
+ * asking a model to be more careful. This ONLY ever produces a candidate
+ * spelling; the database still decides whether it exists.
  */
 export function normaliseSetId(raw: string): string[] {
   const base = raw.trim().toLowerCase();
   const out = new Set<string>([base]);
+  // Printed set code alias — exact whole token only. See SET_CODE_ALIASES.
+  const aliased = SET_CODE_ALIASES[base];
+  if (aliased) out.add(aliased);
   // `pt` between digits is a decimal point: sv3pt5 → sv3.5
   const depointed = base.replace(/(\d)pt(\d)/g, '$1.$2');
   out.add(depointed);

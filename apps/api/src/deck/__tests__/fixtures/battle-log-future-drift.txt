@@ -1,0 +1,19 @@
+Setup
+Alice drew 7 cards for the opening hand.
+Bob drew 7 cards for the opening hand.
+Bob decided to go first.
+Alice's Turn
+Alice played [sv10|102] Cynthia's Gible to the Active Spot.
+Alice attached [ec|5] Basic Psychic Energy to [sv10|102] Cynthia's Gible in the Active Spot.
+Bob's Turn
+Bob played [sv7|58] Slowking to the Active Spot.
+Bob attached [ec|5] Basic Psychic Energy to [sv7|58] Slowking in the Active Spot.
+Bob's [sv7|58] Slowking used Hydro Pump on Alice's [sv10|102] Cynthia's Gible for 30 damage.
+Alice's [sv10|102] Cynthia's Gible was Knocked Out!
+Bob took a Prize card.
+Alice's Turn
+Alice played [sv10|232] Cynthia's Garchomp ex to the Active Spot.
+Alice's [sv10|232] Cynthia's Garchomp ex used Corkscrew Dive on Bob's [sv7|58] Slowking for 100 damage.
+Bob's [sv7|58] Slowking was Knocked Out!
+Alice took 2 Prize cards.
+All Prize cards taken. Alice wins.

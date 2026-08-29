@@ -85,3 +85,97 @@ test('the cost is its own sentence and never our internal name for the tier', ()
   assert.doesNotMatch(DEEP_COST_NOTE, /credit/i, 'a number here would be a price on a deployment that is not charging')
   assert.match(DEEP_COST_NOTE, /more than a normal/i)
 })
+
+// ── THE BUG THAT PUT THIS FILE BACK INTO THE EDITOR ──────────────────────────
+//
+// `write_strategy_guide` is the one deep tool that WRITES, so its consent card
+// is the one surface where a bare "Write and store a strategy guide?" is most
+// clearly a reflex tap with nothing behind it. The SHAPE used to list
+// `deck_name` and `deck_id`, which are not fields the tool's inputSchema
+// declares — see apps/api/src/decke/deep.ts, whose `write_strategy_guide`
+// inputSchema is { deck, focus, findings, deepest }. So every call resolved
+// `null`, and the card rendered no restatement at all.
+//
+// The fix reads `deck` (and `focus`); the deck name now renders.
+
+test('write_strategy_guide renders the deck name from the real `deck` field', () => {
+  const out = deepRequestLine('write_strategy_guide', { deck: 'Slowking toolbox' })!
+  assert.ok(out, 'a guide call with a deck must produce a line, not null')
+  assert.match(out, /Slowking toolbox/)
+})
+
+test('write_strategy_guide with a focus renders deck then focus', () => {
+  assert.equal(
+    deepRequestLine('write_strategy_guide', { deck: 'Slowking toolbox', focus: 'mirror matchups' }),
+    'Slowking toolbox · mirror matchups',
+  )
+})
+
+test('write_strategy_guide with no deck renders null, never a placeholder', () => {
+  // The honest shape when no field carries anything: the card falls back to its
+  // headline. A line assembled from nothing is the failure this pass removes.
+  for (const input of [{}, { deck: '' }, { deck: '   ' }]) {
+    assert.equal(deepRequestLine('write_strategy_guide', input), null, JSON.stringify(input))
+  }
+})
+
+// ── THE SAME DEAD-KEY BUG, ON deck_strategy ─────────────────────────────────
+//
+// `deck_strategy`'s SHAPE used to list `deck_name` and `deck_id`, but the tool's
+// inputSchema (packages/agent-tools/src/tools/deckIntel.ts) declares `deck_id`
+// only — `deck_name` is not a field. So every call resolved `null`, and the
+// consent card rendered no restatement at all, exactly as `write_strategy_guide`
+// did before it. The fix reads the real field (`deck_id`).
+
+test('deck_strategy renders the deck id from the real `deck_id` field', () => {
+  const out = deepRequestLine('deck_strategy', { deck_id: 'Slowking toolbox' })!
+  assert.ok(out, 'a strategy call with a deck must produce a line, not null')
+  assert.match(out, /Slowking toolbox/)
+})
+
+test('deck_strategy with no deck_id renders null, never a placeholder', () => {
+  for (const input of [{}, { deck_id: '' }, { deck_id: '   ' }, { deck_name: 'x' }]) {
+    assert.equal(deepRequestLine('deck_strategy', input), null, JSON.stringify(input))
+  }
+})
+
+// ── research_meta: the one deep tool that was never asserted to render ───────
+//
+// `research_meta`'s real schema fields are `query` and `topic` (see its
+// inputSchema in apps/api/src/decke/deep.ts). The SHAPE already lists them, but
+// no test asserted that a call renders — so a future dead-key edit (a renamed
+// field, a dropped entry) would have failed silently.
+
+test('research_meta renders the query then the topic from the real fields', () => {
+  assert.equal(
+    deepRequestLine('research_meta', { query: 'is Dragapult ex still good', topic: 'Standard meta' }),
+    'is Dragapult ex still good · Standard meta',
+  )
+})
+
+test('research_meta with no query renders null, never a placeholder', () => {
+  for (const input of [{}, { query: '' }, { query: '   ' }]) {
+    assert.equal(deepRequestLine('research_meta', input), null, JSON.stringify(input))
+  }
+})
+
+// ── THE NO-RESEARCH FACT, RENDERED FROM THE SIGNED INPUT ─────────────────────
+//
+// `needsApproval` in apps/api/src/decke/deep.ts injects `no_research: true`
+// into the input when `findings` is absent or trivial (< 80 chars). That is the
+// X2-compliant way to show the reader a guide is not backed by research: a
+// server-computed flag in the real input, not model prose. This renders it.
+
+test('no_research: true appends the no-research warning to the line', () => {
+  const out = deepRequestLine('write_strategy_guide', {
+    deck: 'Slowking toolbox',
+    no_research: true,
+  })!
+  assert.match(out, /Slowking toolbox/)
+  assert.match(out, /no research this conversation/)
+})
+
+test('without no_research the warning does not appear', () => {
+  const out = deepRequestLine('write_strategy_guide', { deck: 'Slowking toolbox' })!
+  assert.doesNotMatch(out, /no research/i)
+})

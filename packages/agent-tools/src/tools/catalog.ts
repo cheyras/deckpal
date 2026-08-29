@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { q, q1 } from '../db.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
-import { money, pagingFooter, row } from '../format.js';
+import { money, nfmt, pagingFooter, row } from '../format.js';
 import { describeCard, resolveCard } from '../resolve.js';
 import type { RarityPeel } from '../entities.js';
 import { explainMiss, peelRarity, presentRef, resolveSet, resolvedNote } from '../entities.js';
@@ -158,7 +158,8 @@ const searchCardsTool = defineTool({
     'it takes the set NAME as readily as the id. Searching for a set name in ' +
     '`query` always returns nothing, however many ways you spell it. ' +
     'Accent-insensitive substring, with ' +
-    'optional filters: set, category, rarity, Standard legality, owned-only, and minimum ' +
+    'optional filters: set, category, rarity, Standard legality, owned-only, not-owned (exclude_owned), ' +
+    'and minimum ' +
     'USD market value. Each row shows owned quantity and best USD market price. Rows sharing a ' +
     'name sort cheapest first. PREFER THE CHEAPEST PRINTING OF THE SAME CARD — a regular and a ' +
     'Special Illustration Rare play identically and can differ by hundreds of dollars — but ' +
@@ -215,6 +216,13 @@ const searchCardsTool = defineTool({
     category: z.enum(['Pokemon', 'Trainer', 'Energy']).optional().describe('Limit to one card category.'),
     rarity: z.string().optional().describe("Exact rarity name, case-insensitive, e.g. 'Double Rare'."),
     owned_only: z.boolean().default(false).describe('true → only cards you own at least one copy of (any variant).'),
+    exclude_owned: z
+      .boolean()
+      .default(false)
+      .describe(
+        'true → only cards you do NOT own (owned quantity 0 or no row) — the filter for "cards I do not own" / ' +
+          'buy-recommendation asks. Mirrors owned_only the other way; do not pass both.',
+      ),
     standard_legal: z.boolean().optional().describe('Filter on Standard-format legality (card.legal_standard).'),
     // ── `0` IS NOT A NO-OP, AND IT WAS BEING SENT AS ONE ────────────────────
     //
@@ -247,6 +255,14 @@ const searchCardsTool = defineTool({
   handler: async (args, ctx) => {
     try {
       const query = args.query?.trim();
+
+      // owned_only AND exclude_owned together is `qty > 0 AND qty = 0` — always
+      // false, so it silently returns zero rows. The descriptions say "do not
+      // pass both"; this makes it fail loudly before any query rather than read
+      // as an empty catalog.
+      if (args.owned_only && args.exclude_owned) {
+        return fail('owned_only and exclude_owned are contradictory — pass one or the other.');
+      }
 
       // RESOLVED, NOT COMPARED. `cs.tcgdex_id = 'sv3pt5'` matched nothing and
       // said nothing about why; the filter now accepts the name, the near-miss
@@ -312,6 +328,7 @@ const searchCardsTool = defineTool({
         });
       }
       if (args.owned_only) filters.push({ label: 'owned_only', sql: () => `COALESCE(o.qty, 0) > 0` });
+      if (args.exclude_owned) filters.push({ label: 'exclude_owned', sql: () => `COALESCE(o.qty, 0) = 0` });
       // `> 0`, not `!== undefined` — see the schema. A zero minimum is not a
       // filter, and treating it as one cost a third of the catalogue on every
       // call of the turn that failed.
@@ -555,6 +572,29 @@ interface CardCoreRow {
   legal_expanded: boolean;
   released_on: string | null;
   illustrator: string | null;
+  // ── RULES TEXT (migration 003) ──────────────────────────────────────────
+  // `retreat` is on `card` itself; `effect` is the Trainer/Tool/Energy body
+  // text (and occasionally a rule-box line on a Pokémon). Fetched here so the
+  // one core query stays one query — abilities/attacks/matchups are junction
+  // tables and get their own SELECTs below.
+  retreat: number | null;
+  effect: string | null;
+}
+interface AbilityRow {
+  name: string;
+  kind: string | null;
+  effect: string | null;
+}
+interface AttackRow {
+  cost: string | null;
+  name: string;
+  damage: string | null;
+  effect: string | null;
+}
+interface MatchupRow {
+  kind: string;
+  type: string;
+  value: string;
 }
 interface VariantRow {
   id: string;
@@ -577,8 +617,11 @@ const getCardTool = defineTool({
   title: 'Card detail (variants, tiers, prices)',
   description:
     'Full detail for ONE card: identity, rarity, HP, regulation mark, legality, set and ' +
-    'collector number, then every printing variant with its kind, completion tier, owned ' +
-    'quantity, per-source market prices, and TCGplayer link. Identify the card by TCGdex ' +
+    'collector number, and FULL RULES TEXT — Abilities (name, type, effect), attacks ' +
+    '(cost, name, damage, effect), the Trainer/Tool/Energy effect line, and weakness/' +
+    'resistance plus retreat — so the card can be advised on by what it DOES, not from ' +
+    'memory. Then every printing variant with its kind, completion tier, owned quantity, ' +
+    'per-source market prices, and TCGplayer link. Identify the card by TCGdex ' +
     "card_id (e.g. 'me05-084') or by name plus optional set_id/number — an ambiguous name " +
     'returns the candidate list rather than guessing. For browsing many cards use ' +
     'search_cards instead.',
@@ -622,7 +665,7 @@ const getCardTool = defineTool({
       const core = await q1<CardCoreRow>(
         ctx.db,
         `SELECT category, rarity, hp, regulation_mark, legal_standard, legal_expanded,
-                released_on::text AS released_on, illustrator
+                released_on::text AS released_on, illustrator, retreat, effect
            FROM card WHERE id = $1`,
         [card.id],
       );
@@ -654,6 +697,31 @@ const getCardTool = defineTool({
         priceByVariant.set(pr.card_variant_id, arr);
       }
 
+      // ── RULES TEXT (migration 003) ───────────────────────────────────────
+      // Three junction tables + the `effect`/`retreat` columns already on
+      // `card`. Each is fetched independently and rendered only when it has
+      // rows, so a card with no text (a basic Energy, say) comes out exactly as
+      // it did before — no empty section headers. Effect text is verbatim but
+      // collapsed to one line: the catalog stores multi-line bodies, and SPEC §4
+      // is one compact row per line.
+      const abilities = await q<AbilityRow>(
+        ctx.db,
+        `SELECT name, kind, effect FROM card_ability WHERE card_id = $1 ORDER BY ord`,
+        [card.id],
+      );
+      const attacks = await q<AttackRow>(
+        ctx.db,
+        `SELECT cost, name, damage, effect FROM card_attack WHERE card_id = $1 ORDER BY ord`,
+        [card.id],
+      );
+      const matchups = await q<MatchupRow>(
+        ctx.db,
+        `SELECT kind, type, value FROM card_matchup WHERE card_id = $1 ORDER BY kind, ord`,
+        [card.id],
+      );
+      const oneLine = (s: string | null | undefined): string | null =>
+        s ? s.replace(/\s+/g, ' ').trim() || null : null;
+
       // The trailing `series <slug>` cell completes the card's address: the
       // card route is /series/<seriesSlug>/<setId>/<number>, and nothing else
       // in this line supplies the slug (SERIES_SLUG_NOTE above).
@@ -673,6 +741,36 @@ const getCardTool = defineTool({
             core.illustrator ? `illus. ${core.illustrator}` : null,
           ),
         );
+      }
+      // Rules text sits between identity and printings: it is what the card
+      // DOES, and the incident this fixes (an agent advising from memory because
+      // no tool exposed the text) is exactly a "text not in context" failure.
+      if (abilities.length > 0) {
+        lines.push(`abilities (${abilities.length}):`);
+        for (const a of abilities) {
+          lines.push('  ' + row(a.kind ?? 'Ability', a.name, oneLine(a.effect) ?? ''));
+        }
+      }
+      if (attacks.length > 0) {
+        lines.push(`attacks (${attacks.length}):`);
+        for (const at of attacks) {
+          lines.push('  ' + row(at.cost, at.name, at.damage, oneLine(at.effect) ?? ''));
+        }
+      }
+      if (core) {
+        const eff = oneLine(core.effect);
+        if (eff) lines.push(`effect: ${eff}`);
+        // Weakness/resistance (card_matchup) and retreat (card.retreat) share a
+        // single compact line — they are the card's combat stats. Omitted
+        // entirely when the card has none of them, which is the common case for
+        // Trainers.
+        const weak = matchups.filter((m) => m.kind === 'weakness');
+        const resist = matchups.filter((m) => m.kind === 'resistance');
+        const parts: string[] = [];
+        if (weak.length) parts.push(`weakness ${weak.map((w) => `${w.type} ${w.value}`).join(', ')}`);
+        if (resist.length) parts.push(`resistance ${resist.map((r) => `${r.type} ${r.value}`).join(', ')}`);
+        if (core.retreat !== null) parts.push(`retreat ${core.retreat}`);
+        if (parts.length) lines.push(row(...parts));
       }
       lines.push(`variants (${variants.length}):`);
       for (const v of variants) {
@@ -709,6 +807,15 @@ interface OverviewRow {
   m_total: number | null;
   g_owned: number | null;
   g_total: number | null;
+}
+interface AllSetsRow {
+  set_tid: string;
+  set_name: string;
+  series_slug: string;
+  series_name: string;
+  released_on: string | null;
+  card_count: string;
+  owned_count: string;
 }
 interface GoalRow {
   goal: Goal;
@@ -760,7 +867,9 @@ const setProgressTool = defineTool({
     // as the way to turn a set NAME into an id, and for the case that actually
     // arises — a set you do not own yet — it returns nothing at all.
     'every set YOU ALREADY OWN SOMETHING FROM, sorted by completion of the requested goal ' +
-    '(a set you own nothing from does not appear — pass its name as set_id to reach it). ' +
+    '(a set you own nothing from does not appear — pass its name as set_id to reach it, or ' +
+    'pass all_sets: true to list EVERY set in the catalog newest-first with its card count ' +
+    'and how many you own, even zero). ' +
     'With set_id: ' +
     "that set's three goal lines plus the paged list of missing cards/variants for the " +
     'requested goal with the cheapest USD price each, and the total cost to finish (unpriced ' +
@@ -777,6 +886,22 @@ const setProgressTool = defineTool({
       .optional()
       .describe(
         "One set, by id ('me05') or by NAME ('Pitch Black'). Omit it for the overview of sets you have progress in.",
+      ),
+    // THE OVERVIEW ONLY LISTS SETS YOU OWN SOMETHING FROM. A release-order
+    // question ("what came out after Paldea Evolved?") on a catalogue this big
+    // cannot be answered from the progress overview, because sets with zero
+    // owned cards have no row — and it was answered from model memory, which is
+    // the same defect shape as the missing rules text. `all_sets` lists every
+    // set straight from card_set, with owned=0 where applicable, so the model
+    // never has to reach for memory to order sets by release.
+    all_sets: z
+      .boolean()
+      .default(false)
+      .describe(
+        'Without set_id: list EVERY set in the catalog (id, name, series, release date, card ' +
+          'count, and your owned count — 0 is fine) ordered by release date descending, instead ' +
+          'of only the sets you already own something from. Use this for release-order or ' +
+          '"what sets exist" questions.',
       ),
     goal: z
       .enum(GOALS)
@@ -826,6 +951,62 @@ const setProgressTool = defineTool({
       // as what it means it is the overview the caller was asking for.
       const setRef = presentRef(args.set_id);
       if (!setRef) {
+        // `all_sets`: EVERY set in the catalogue, not just the ones with
+        // progress. The default overview's `HAVING max(owned_required) > 0`
+        // quietly deletes every set the reader owns nothing from — which is
+        // exactly the set a release-order question is about, and it was being
+        // answered from model memory. This branch reads straight from
+        // `card_set`, so a set with zero owned cards still appears with its
+        // release date and card count. Ordered by release date descending.
+        if (args.all_sets) {
+          // Scoped to the enabled (English) catalogue — `se.catalogue_code = 'en'`,
+          // mirroring the English-first tie-break in `entities.ts`'s SET_ORDER
+          // (`(s.catalogue_code = 'en') DESC`). Without this the overview lists
+          // every catalogue that shares a tcgdex_id, so a set appears once per
+          // language it was printed in. Both the count and the page query carry
+          // the same filter so the paging footer's total agrees with the rows.
+          const totalRow = await q1<{ total: string }>(
+            ctx.db,
+            `SELECT count(*) AS total FROM card_set cs JOIN series se ON se.id = cs.series_id WHERE se.catalogue_code = 'en'`,
+            [],
+          );
+          const total = Number(totalRow?.total ?? 0);
+          const rows = await q<AllSetsRow>(
+            ctx.db,
+            `SELECT cs.tcgdex_id AS set_tid, cs.name AS set_name, se.slug AS series_slug,
+                    se.name AS series_name, cs.released_on::text AS released_on,
+                    count(DISTINCT c.id) AS card_count,
+                    count(DISTINCT o.card_id) AS owned_count
+               FROM card_set cs
+               JOIN series se ON se.id = cs.series_id
+               LEFT JOIN card c ON c.set_id = cs.id AND c.lang = 'en'
+               LEFT JOIN (
+                 SELECT DISTINCT cv.card_id
+                   FROM collection_item ci
+                   JOIN card_variant cv ON cv.id = ci.card_variant_id
+                  WHERE ci.user_id = $1 AND ci.quantity > 0
+               ) o ON o.card_id = c.id
+              WHERE se.catalogue_code = 'en'
+              GROUP BY cs.id, cs.tcgdex_id, cs.name, se.slug, se.name, cs.released_on
+              ORDER BY cs.released_on DESC NULLS LAST, cs.tcgdex_id
+              LIMIT $2 OFFSET $3`,
+            [ctx.userId, args.page_size, offset],
+          );
+          if (total === 0) return ok('No sets in the catalog.');
+          const lines = rows.map((r) =>
+            row(
+              `${r.set_name} (${r.set_tid})`,
+              `series ${r.series_slug}`,
+              r.released_on ? `released ${r.released_on}` : null,
+              `${nfmt(Number(r.card_count))} cards`,
+              `owned ${nfmt(Number(r.owned_count))}`,
+            ),
+          );
+          return ok(
+            [`All sets, newest first:`, ...lines, pagingFooter(args.page, args.page_size, total)].join('\n'),
+            { total, all_sets: true },
+          );
+        }
         // Overview: one line per set with any progress, sorted by goal pct
         // desc. `goal` is bound as $4 in the ORDER BY FILTER clauses below —
         // parameterized like everything else, never interpolated.

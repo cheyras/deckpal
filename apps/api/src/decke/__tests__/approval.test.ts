@@ -76,15 +76,64 @@ test('ONLY an explicit boolean false is read as permission to write', () => {
 })
 
 test('a write tool with NO dry_run always needs approval', () => {
-  // Three of them: a preview is not expressible, so every call is a real write.
-  // This falls out of the rule rather than being a special case, which is why
-  // the rule is written the way it is.
-  for (const n of ['deck_strategy', 'add_battle_log', 'edit_battle_log']) {
+  // One of them now: a guide replace has no meaningful "what would change"
+  // short of the whole guide, so a preview is not expressible and every call is
+  // a real write. This falls out of the rule rather than being a special case,
+  // which is why the rule is written the way it is. (`add_battle_log` and
+  // `edit_battle_log` left this set in the 2026-08-29 agentic pass when they
+  // gained a real dry_run — their previewability pins live in aisdk.test.ts.)
+  for (const n of ['deck_strategy']) {
     const d = get(n)
     assert.equal(d.inputSchema && 'dry_run' in d.inputSchema.shape, false, `${n} gained a dry_run`)
     assert.equal(requiresApproval(d, {}), true)
     assert.equal(requiresApproval(d, { dry_run: true }), true, `${n} has no dry_run to honour`)
   }
+  // And the two that left the set: they HAVE a dry_run now (defaulting to TRUE),
+  // so they classify exactly like log_cards — omitted dry_run is a PREVIEW
+  // (forcePreview makes it one), and only an explicit `dry_run: false` is the
+  // write that asks. The SDK applies zod defaults BEFORE classification, so
+  // an omitted dry_run now arrives as true (preview) — the raw-{} pin below
+  // and the real flow agree (wouldMutate returns false for both true and undefined;
+  // only an explicit false is a mutation).
+  //
+  // The real-write pin passes deck_id: add_battle_log with NO deck_id is a
+  // pure read (the tool's omitted-deck branch calls log-preview and writes
+  // nothing — see the dedicated test below), so without deck_id the dry_run
+  // flag is irrelevant and the call cannot ask. deck_id makes it the write.
+  for (const n of ['add_battle_log', 'edit_battle_log']) {
+    const d = get(n)
+    assert.equal(d.inputSchema && 'dry_run' in d.inputSchema.shape, true, `${n} lost its dry_run`)
+    assert.equal(requiresApproval(d, {}), false, `${n}: omitted dry_run is a preview`)
+    assert.equal(requiresApproval(d, { deck_id: 'x', dry_run: false }), true, `${n}: the real write asks`)
+  }
+})
+
+test('add_battle_log with NO deck_id is a pure read — no approval, even with dry_run false', () => {
+  // SECURITY FINDING (A): add_battle_log called WITHOUT deck_id ranks the log
+  // against the caller's decks and writes nothing — the handler's omitted-deck
+  // branch (deckIntel.ts: "OMIT deck_id … writes nothing"). It takes that
+  // branch before dry_run is consulted, so dry_run is irrelevant to whether it
+  // mutates. Classifying on dry_run alone would have shown a consent dialog for
+  // a call that cannot write whenever dry_run was false — misleading consent.
+  // The fix is name-scoped to add_battle_log; edit_battle_log requires deck_id.
+  //
+  // deck_id: '' is treated as absent too: presentRef (entities.ts:155–159) trims
+  // and normalizes '' to undefined, and wouldMutate's `!(input)?.deck_id` mirrors
+  // that (`!''` is true), so an empty deck_id stays on the read path — the handler
+  // resolves it via needDeck → presentRef('') → undefined → not-found, never writes.
+  const add = get('add_battle_log')
+  // The reader's actual call shape: a pasted log, no deck picked yet.
+  assert.equal(requiresApproval(add, { log: 'RAW LOG' }), false, 'no deck_id → read, no dialog')
+  // dry_run:false does NOT flip it back to a write — there is no deck to write to.
+  assert.equal(requiresApproval(add, { log: 'RAW LOG', dry_run: false }), false, 'no deck_id → still a read')
+  // And it cannot mutate, which is what the dialog exists to prevent.
+  assert.equal(wouldMutate(add, { log: 'RAW LOG', dry_run: false }), false)
+  // deck_id: '' — presentRef normalizes it to absent (entities.ts:155–159), so the
+  // classifier treats it the same as omitted: no approval, cannot write.
+  assert.equal(requiresApproval(add, { deck_id: '', log: 'RAW LOG' }), false, "deck_id: '' → read, no dialog")
+  assert.equal(wouldMutate(add, { deck_id: '', log: 'RAW LOG', dry_run: false }), false, "deck_id: '' → cannot write even with dry_run: false")
+  // deck_id GIVEN → back to the ordinary dry_run rule: false is the real write.
+  assert.equal(requiresApproval(add, { deck_id: 'x', log: 'RAW LOG', dry_run: false }), true)
 })
 
 test('a call classified as a preview is FORCED to be one', () => {
