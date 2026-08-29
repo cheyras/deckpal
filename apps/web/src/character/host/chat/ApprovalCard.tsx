@@ -105,6 +105,7 @@ import { useId, type JSX } from 'react'
 import { Icon } from '../../../components/Icon'
 import { CardImage } from '../../../components/CardImage'
 import { Button } from '../../../components/ui/Button'
+import { CARD_ASPECT_RATIO_CSS } from '../../../lib/cardGeometry'
 import { useCardArt, type CardArtMap } from './useCardArt'
 import { DEEP_COST_NOTE } from './deepRequest'
 import {
@@ -188,9 +189,9 @@ export type ApprovalCardProps = {
  *
  * Small enough that four rows fit in a chat panel without becoming a gallery,
  * big enough that a person can tell a Charizard from a Gardevoir at a glance,
- * which is the entire job. `CardImage` fixes the 245:337 box before a byte
- * arrives, so the rows do not reflow as art lands — on a consent dialog, a
- * layout that moves under the cursor between reading and clicking is not a
+ * which is the entire job. `CardImage` fixes the 63:88 physical-card box before
+ * a byte arrives, so the rows do not reflow as art lands — on a consent dialog,
+ * a layout that moves under the cursor between reading and clicking is not a
  * cosmetic problem.
  *
  * `undefined` (still asking) draws the empty box, which is the skeleton.
@@ -228,7 +229,7 @@ function RowThumb({ row, art, faded }: { row: PreviewRow; art: CardArtMap; faded
       ) : (
         <div
           className="flex w-full items-center justify-center rounded-[4px] border border-dashed border-border-default bg-surface-primary"
-          style={{ aspectRatio: '245 / 337' }}
+          style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }}
         >
           {found === null ? <span className="text-[13px] text-text-muted">?</span> : null}
         </div>

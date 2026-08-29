@@ -3,6 +3,7 @@ import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { CardRow } from '../lib/api'
 import { CardTile } from './CardTile'
 import { prefersReducedMotion } from '../lib/reducedMotion'
+import { CARD_ASPECT_RATIO_INVERSE } from '../lib/cardGeometry'
 
 // Fluid grid + window virtualization (wiki: Frontend-Research §B.2). ONE ResizeObserver is
 // the source of truth for column count; we virtualize ROWS (row-major reading
@@ -16,7 +17,11 @@ const GAP_X = 53
 const GAP_X_SM = 23
 const GAP_Y = 30
 const FOOTER = 74
-const IMG_RATIO = 337 / 245
+// The art-height ratio for row-height arithmetic — height / width, the exact
+// reciprocal of CardImage's aspect (lib/cardGeometry.ts). MEASUREMENT-CRITICAL:
+// if this disagrees with the painted aspect, virtualised rows overlap, total
+// scroll height is mis-sized, and scrollToIndex centres on the wrong row.
+const IMG_RATIO = CARD_ASPECT_RATIO_INVERSE
 
 function colsFor(width: number): { cols: number; small: boolean } {
   const small = width < 567

@@ -16,6 +16,7 @@ import { Sheet } from '../components/ui/Sheet'
 import { fmtUsd } from '../lib/format'
 import { useLateEntrance } from '../lib/lateEntrance'
 import { signOutBounded } from '../lib/authSession'
+import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
 const SHOWCASE_KEY = 'deckpal.showcase.v1'
 
@@ -301,8 +302,8 @@ export function Profile() {
                     ) : (
                       <button
                         onClick={() => setPicking(i)}
-                        className="flex w-full items-center justify-center rounded-lg border-2 border-dashed border-border-default text-text-muted hover:border-action-primary hover:text-action-primary"
-                        style={{ aspectRatio: '245 / 337' }}
+                        className="flex w-full items-center justify-center border-2 border-dashed border-border-default text-text-muted hover:border-action-primary hover:text-action-primary"
+                        style={{ aspectRatio: CARD_ASPECT_RATIO_CSS, borderRadius: CARD_RADIUS_CSS }}
                       >
                         <span className="flex flex-col items-center gap-[6px] text-[14px]">
                           <Icon name="plus" size={22} />

@@ -4,8 +4,9 @@
  * These are NOT screenshots. Every one is real DOM/CSS/SVG built from the same
  * design tokens, radii and idioms as the app itself — the completion ring is
  * LevelRing's arc language, the two-bar cluster is ProgressCluster, the tiles
- * keep CardImage's 245:337 box and 8px radius, the area chart is ValueChart's
- * gradient-under-line, and the deck rows reuse the real EnergyIcon glyphs.
+ * keep CardImage's 63:88 physical-card box and proportional radius, the area
+ * chart is ValueChart's gradient-under-line, and the deck rows reuse the real
+ * EnergyIcon glyphs.
  *
  * IP: no Pokémon card art, no character names, no Poké Ball or wordmark. Card
  * tiles are abstract gradient placeholders. Set names are the factual English
@@ -18,6 +19,7 @@ import { useId, type CSSProperties, type ReactNode } from 'react'
 import { EnergyIcon } from '../../components/EnergyIcon'
 import { Icon } from '../../components/Icon'
 import { tailwindGradient, tailwindGradientStops } from '../../lib/gradientPalette'
+import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../../lib/cardGeometry'
 
 // action-primary-strong is cyan-300, action-primary is cyan-400 (theme.css) —
 // keep these in sync if those tokens' hue family changes.
@@ -60,10 +62,11 @@ function AppFrame({
 }
 
 /**
- * Abstract stand-in for a card. Keeps CardImage's exact 245:337 box and 8px
- * radius so the grids inherit the app's rhythm — but where a real card has art
- * this has a saturated accent window, and where it has a name it has a bar.
- * Reads unmistakably as "a card" at grid size without being one.
+ * Abstract stand-in for a card. Keeps CardImage's exact 63:88 physical-card
+ * box and proportional corner radius so the grids inherit the app's rhythm —
+ * but where a real card has art this has a saturated accent window, and where
+ * it has a name it has a bar. Reads unmistakably as "a card" at grid size
+ * without being one.
  */
 function CardPlaceholder({
   accent = 'var(--color-variant-normal)',
@@ -74,9 +77,10 @@ function CardPlaceholder({
 }) {
   return (
     <div
-      className="relative w-full overflow-hidden rounded-lg"
+      className="relative w-full overflow-hidden"
       style={{
-        aspectRatio: '245 / 337',
+        aspectRatio: CARD_ASPECT_RATIO_CSS,
+        borderRadius: CARD_RADIUS_CSS,
         background:
           'linear-gradient(165deg, var(--color-surface-raised) 0%, var(--color-surface-tertiary) 46%, var(--color-surface-secondary) 100%)',
         boxShadow: 'inset 0 0 0 1px rgb(255 255 255 / 0.08)',
@@ -112,8 +116,8 @@ function CardPlaceholder({
 function EmptyPocket({ slot }: { slot: number }) {
   return (
     <div
-      className="flex w-full items-center justify-center rounded-lg border border-dashed border-surface-quaternary bg-surface-tertiary-subtle"
-      style={{ aspectRatio: '245 / 337' }}
+      className="flex w-full items-center justify-center border border-dashed border-surface-quaternary bg-surface-tertiary-subtle"
+      style={{ aspectRatio: CARD_ASPECT_RATIO_CSS, borderRadius: CARD_RADIUS_CSS }}
     >
       <span className="text-[9px] font-semibold text-text-muted">#{slot}</span>
     </div>
@@ -746,7 +750,7 @@ export function BinderMockup() {
         <span className="ml-auto text-[11px] font-semibold text-text-muted">Page 3 / 9</span>
       </div>
 
-      {/* Capped and centred: nine 245:337 pockets across a full feature column
+      {/* Capped and centred: nine 63:88 pockets across a full feature column
           would run past 1000px tall and dwarf the copy beside it. */}
       <div className="mx-auto grid max-w-[380px] grid-cols-3 gap-[9px] rounded-xl border border-border-default bg-surface-tertiary-subtle p-[9px]">
         {POCKETS.map((accent, i) =>
