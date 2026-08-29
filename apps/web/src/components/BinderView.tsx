@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import type { CardRow } from '../lib/api'
 import { Icon } from './Icon'
-import { CardLink } from './CardLink'
+import { CardLink } from './CardLink'
+
 import { variantMeta } from '../lib/variantStyle'
 
 // Binder view (UI-SPEC §3.25, pkmn.gg captures §15.3).

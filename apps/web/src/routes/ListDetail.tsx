@@ -6,7 +6,8 @@ import { Content, Spinner, ErrorState, BackPill, ProgressBar, EmptyState, Button
 import { GridView } from '../components/GridView'
 import { TableView } from '../components/TableView'
 import { BinderView } from '../components/BinderView'
-import { CardSheet } from './CardDetail'
+import { CardSheet } from './CardDetail'
+
 import { VariantChip } from '../components/VariantChip'
 import { SearchBox, ViewToggle, SortChipStrip, OwnershipButtons } from '../components/FilterControls'
 import { AddCardModal, ConfirmModal, ListFormModal } from '../components/ListModals'

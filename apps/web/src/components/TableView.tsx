@@ -6,7 +6,8 @@ import { useSignedIn } from '../lib/session'
 import { CounterBox } from './ui/CounterBox'
 import { Icon } from './Icon'
 import { variantMeta } from '../lib/variantStyle'
-import { CardLink } from './CardLink'
+import { CardLink } from './CardLink'
+
 import { VariantChip } from './VariantChip'
 
 // Per-variant quantity counters for a table row — the same mechanism as the grid

@@ -8,7 +8,8 @@ import { CardImage } from './CardImage'
 import { CounterBox } from './ui/CounterBox'
 import { Icon } from './Icon'
 import { variantMeta } from '../lib/variantStyle'
-import { CardLink } from './CardLink'
+import { CardLink } from './CardLink'
+
 import { VariantBadge } from './VariantChip'
 
 // Per-variant quantity counters (pkmn.gg's little count boxes).

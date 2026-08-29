@@ -2,7 +2,8 @@ import cron from 'node-cron';
 import { loadEnv, makePool } from '@deckpal/db';
 import { ingestTcgcsvPrices } from './prices/tcgcsv.js';
 import { ingestCardmarket } from './prices/cardmarket.js';
-import { runReconcile, runSnapshotCollection } from './jobs/api-jobs.js';
+import { runReconcile, runSnapshotCollection } from './jobs/api-jobs.js';
+
 import { snapshotAllUsers } from './jobs/valueSnapshot.js';
 import type { Queryable } from './prices/db.js';
 
