@@ -1,30 +1,57 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import type { ValuePoint } from '../lib/api'
 import { fmtMoney } from '../lib/format'
 
 // Hand-rolled SVG line chart (wiki: Frontend-Research §6: recharts REJECTED for bundle size).
 // Zero charting dependency — a linear scale computed by hand is more than enough
-// for a single yellow value series, and it degrades honestly at the cold start:
+// for a value series, and it degrades honestly at the cold start:
 // with <2 points there is no trend to draw, so we render the single reading as a
 // lone marker on a flat baseline and let the caller show the "not enough history"
 // copy. We NEVER interpolate or pad the axis (matches pkmn.gg — pkmn.gg captures §14.4).
+//
+// ── One chart, two callers ─────────────────────────────────────────────────
+// Insights draws ONE series (collection value). The card modal's Price tab draws
+// one per PRINTING, because "what is this card worth" has a different answer for
+// the Normal and the Reverse Holofoil and showing one number for both is the
+// same conflation the `+N Variants` badge was making. Rather than fork a second
+// chart, `series` is the general shape and `points` is the one-series shorthand.
+
+/** One line. `color` is any CSS colour; the caller owns the palette. */
+export interface ChartSeries {
+  label: string
+  color: string
+  points: readonly { date: string; value: number }[]
+}
 
 function shortDate(iso: string): string {
   const [, m, d] = iso.split('-')
   return m && d ? `${Number(m)}/${Number(d)}` : iso
 }
 
+/** Days since epoch — the x scale's unit. */
+function dayNumber(iso: string): number {
+  return Math.floor(Date.parse(`${iso}T00:00:00Z`) / 86_400_000)
+}
+
 export function ValueChart({
   points,
+  series,
   currency,
   height = 240,
 }: {
-  points: ValuePoint[]
+  /**
+   * One-series shorthand. Ignored when `series` is given.
+   *
+   * Typed by what this component READS, not by `ValuePoint` — it never touches
+   * `valueMinor`, and demanding it would force every caller with a plain
+   * date/value series (the price history) to invent one.
+   */
+  points?: readonly { date: string; value: number }[]
+  series?: readonly ChartSeries[]
   currency: string
   height?: number
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
-  const [hover, setHover] = useState<number | null>(null)
+  const [hover, setHover] = useState<string | null>(null)
 
   // ── WHY THE WIDTH IS MEASURED RATHER THAN FIXED ────────────────────────────
   //
@@ -49,6 +76,11 @@ export function ValueChart({
     return () => ro.disconnect()
   }, [])
 
+  const lines: ChartSeries[] =
+    series && series.length
+      ? [...series]
+      : [{ label: 'Your Collection', color: 'var(--color-action-primary)', points: points ?? [] }]
+
   const W = Math.max(320, Math.round(measured) || 640)
   const H = height
   const padL = 64
@@ -58,7 +90,8 @@ export function ValueChart({
   const plotW = W - padL - padR
   const plotH = H - padT - padB
 
-  const values = points.map((p) => p.value)
+  const all = lines.flatMap((l) => l.points)
+  const values = all.map((p) => p.value)
   const rawMin = values.length ? Math.min(...values) : 0
   const rawMax = values.length ? Math.max(...values) : 0
   // Pad the value axis so a flat/near-flat series isn't a hairline on the floor.
@@ -68,36 +101,61 @@ export function ValueChart({
   const yMax = rawMax + pad
   const yRange = yMax - yMin || 1
 
-  const x = (i: number): number =>
-    points.length <= 1 ? padL + plotW / 2 : padL + (i / (points.length - 1)) * plotW
+  // ── THE X AXIS IS TIME, NOT POSITION ───────────────────────────────────────
+  //
+  // It used to be the point's INDEX. That is indistinguishable from a date scale
+  // while readings are daily and unbroken, and wrong the moment they are not:
+  // the three-week ingest outage in August 2026 rendered as a single step of the
+  // same width as a one-day move, which is a chart quietly reporting that
+  // nothing happened for twenty days. It also cannot place two series whose
+  // observation dates differ, which is every card with more than one printing.
+  const days = all.map((p) => dayNumber(p.date))
+  const xMin = days.length ? Math.min(...days) : 0
+  const xMax = days.length ? Math.max(...days) : 0
+  const xRange = xMax - xMin || 1
+
+  const x = (iso: string): number =>
+    all.length <= 1 ? padL + plotW / 2 : padL + ((dayNumber(iso) - xMin) / xRange) * plotW
   const y = (v: number): number => padT + (1 - (v - yMin) / yRange) * plotH
 
-  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(p.value)}`).join(' ')
+  const pathFor = (l: ChartSeries): string =>
+    l.points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(p.date)} ${y(p.value)}`).join(' ')
+
+  const single = lines.length === 1
   const areaPath =
-    points.length >= 2
-      ? `${linePath} L ${x(points.length - 1)} ${padT + plotH} L ${x(0)} ${padT + plotH} Z`
+    single && lines[0]!.points.length >= 2
+      ? `${pathFor(lines[0]!)} L ${x(lines[0]!.points[lines[0]!.points.length - 1]!.date)} ${padT + plotH} L ${x(lines[0]!.points[0]!.date)} ${padT + plotH} Z`
       : ''
 
   const ticks = 4
   const yTicks = Array.from({ length: ticks + 1 }, (_, i) => yMin + (yRange * i) / ticks)
 
+  // Every distinct date across every series, for the x labels and hit-testing.
+  const dates = [...new Set(all.map((p) => p.date))].sort()
+
   const onMove = (e: React.MouseEvent<SVGSVGElement>): void => {
-    if (points.length === 0) return
+    if (dates.length === 0) return
     const rect = e.currentTarget.getBoundingClientRect()
     const px = ((e.clientX - rect.left) / rect.width) * W
-    let best = 0
+    let best = dates[0]!
     let bestD = Infinity
-    points.forEach((_, i) => {
-      const d = Math.abs(x(i) - px)
-      if (d < bestD) {
-        bestD = d
-        best = i
+    for (const d of dates) {
+      const dist = Math.abs(x(d) - px)
+      if (dist < bestD) {
+        bestD = dist
+        best = d
       }
-    })
+    }
     setHover(best)
   }
 
-  const active = hover != null ? points[hover] : null
+  // What each series was worth on the hovered date, skipping series with no
+  // reading that day rather than interpolating one.
+  const readings = hover
+    ? lines
+        .map((l) => ({ line: l, point: l.points.find((p) => p.date === hover) }))
+        .filter((r) => r.point !== undefined)
+    : []
 
   return (
     <div ref={wrapRef} className="relative w-full">
@@ -108,7 +166,7 @@ export function ValueChart({
         onMouseMove={onMove}
         onMouseLeave={() => setHover(null)}
         role="img"
-        aria-label="Collection value over time"
+        aria-label={single ? 'Value over time' : 'Market price over time, by printing'}
       >
         <defs>
           <linearGradient id="valArea" x1="0" y1="0" x2="0" y2="1">
@@ -144,46 +202,61 @@ export function ValueChart({
           )
         })}
 
+        {/* The filled area is a single-series flourish. With several printings
+            on one chart, overlapping translucent fills read as a third colour
+            that means nothing. */}
         {areaPath && <path d={areaPath} fill="url(#valArea)" />}
-        {points.length >= 2 && (
-          <path d={linePath} fill="none" stroke="var(--color-action-primary)" strokeWidth={2.5} strokeLinejoin="round" />
+
+        {lines.map((l) =>
+          l.points.length >= 2 ? (
+            <path
+              key={`line-${l.label}`}
+              d={pathFor(l)}
+              fill="none"
+              stroke={l.color}
+              strokeWidth={2.5}
+              strokeLinejoin="round"
+            />
+          ) : null,
         )}
 
         {/* markers */}
-        {points.map((p, i) => (
-          <circle
-            key={p.date}
-            cx={x(i)}
-            cy={y(p.value)}
-            r={hover === i ? 5 : points.length === 1 ? 5 : 3}
-            fill="var(--color-action-primary)"
-            stroke="var(--color-surface-primary)"
-            strokeWidth={2}
-          />
-        ))}
+        {lines.map((l) =>
+          l.points.map((p) => (
+            <circle
+              key={`${l.label}-${p.date}`}
+              cx={x(p.date)}
+              cy={y(p.value)}
+              r={hover === p.date ? 5 : all.length === 1 ? 5 : 3}
+              fill={l.color}
+              stroke="var(--color-surface-primary)"
+              strokeWidth={2}
+            />
+          )),
+        )}
 
         {/* x labels (thinned to ~6 across) */}
-        {points.map((p, i) => {
-          const stepEvery = Math.max(1, Math.ceil(points.length / 6))
-          if (points.length > 1 && i % stepEvery !== 0 && i !== points.length - 1) return null
+        {dates.map((d, i) => {
+          const stepEvery = Math.max(1, Math.ceil(dates.length / 6))
+          if (dates.length > 1 && i % stepEvery !== 0 && i !== dates.length - 1) return null
           return (
             <text
-              key={`x${p.date}`}
-              x={x(i)}
+              key={`x${d}`}
+              x={x(d)}
               y={H - 8}
               textAnchor="middle"
               fill="var(--color-text-muted)"
               fontSize={10}
             >
-              {shortDate(p.date)}
+              {shortDate(d)}
             </text>
           )
         })}
 
-        {active && (
+        {hover && (
           <line
-            x1={x(hover!)}
-            x2={x(hover!)}
+            x1={x(hover)}
+            x2={x(hover)}
             y1={padT}
             y2={padT + plotH}
             stroke="var(--color-action-primary)"
@@ -193,19 +266,27 @@ export function ValueChart({
         )}
       </svg>
 
-      {active && (
+      {hover && readings.length > 0 && (
         <div
           className="pointer-events-none absolute z-(--z-popover) -translate-x-1/2 rounded-lg border border-border-default bg-surface-secondary px-[10px] py-[6px] text-[14px] shadow-panel"
           style={{
-            left: `${(x(hover!) / W) * 100}%`,
+            left: `${(x(hover) / W) * 100}%`,
             top: 8,
           }}
         >
-          <div className="flex items-center gap-[6px]">
-            <span className="inline-block h-[8px] w-[8px] rounded-sm bg-action-primary" />
-            <span className="font-semibold text-text-primary">{fmtMoney(active.value, currency, 2)}</span>
-          </div>
-          <div className="text-text-muted">{shortDate(active.date)}</div>
+          {readings.map(({ line, point }) => (
+            <div key={line.label} className="flex items-center gap-[6px] whitespace-nowrap">
+              <span
+                className="inline-block h-[8px] w-[8px] shrink-0 rounded-sm"
+                style={{ background: line.color }}
+              />
+              {!single && <span className="text-text-muted">{line.label}</span>}
+              <span className="font-semibold text-text-primary">
+                {fmtMoney(point!.value, currency, 2)}
+              </span>
+            </div>
+          ))}
+          <div className="text-text-muted">{shortDate(hover)}</div>
         </div>
       )}
     </div>

@@ -6,7 +6,8 @@ import { Content, Spinner, ErrorState, BackPill, ProgressBar, EmptyState, Button
 import { GridView } from '../components/GridView'
 import { TableView } from '../components/TableView'
 import { BinderView } from '../components/BinderView'
-import { CardSheet } from './CardDetail'
+import { CardSheet } from './CardDetail'
+import { VariantChip } from '../components/VariantChip'
 import { SearchBox, ViewToggle, SortChipStrip, OwnershipButtons } from '../components/FilterControls'
 import { AddCardModal, ConfirmModal, ListFormModal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
@@ -78,9 +79,10 @@ function ReorderRows({ items, onMove, onRemove }: { items: ListItem[]; onMove: (
           {it.images.low && <img src={it.images.low} alt="" className="h-[56px] w-[40px] rounded object-cover" />}
           <div className="min-w-0 flex-1">
             <div className="truncate text-[14px] font-semibold text-text-primary">{it.name}</div>
-            <div className="text-[14px] text-text-muted">
-              {it.setName} · {it.variant?.displayName}
-              {it.staticQuantity != null && <span className="ml-[6px] font-bold text-text-secondary">×{it.staticQuantity}</span>}
+            <div className="flex flex-wrap items-center gap-x-[6px] text-[14px] text-text-muted">
+              <span>{it.setName}</span>
+              {it.variant && <VariantChip variant={it.variant} className="text-text-body" />}
+              {it.staticQuantity != null && <span className="font-bold text-text-secondary">×{it.staticQuantity}</span>}
             </div>
           </div>
           <button onClick={() => onRemove(it)} aria-label={`Remove ${it.name}`} className="flex h-[32px] w-[32px] items-center justify-center rounded-full bg-action-danger text-action-danger-text hover:bg-action-danger-hover">

@@ -8,7 +8,8 @@ import { CardImage } from './CardImage'
 import { CounterBox } from './ui/CounterBox'
 import { Icon } from './Icon'
 import { variantMeta } from '../lib/variantStyle'
-import { CardLink } from './CardLink'
+import { CardLink } from './CardLink'
+import { VariantBadge } from './VariantChip'
 
 // Per-variant quantity counters (pkmn.gg's little count boxes).
 //
@@ -159,10 +160,21 @@ export function CardTile({
             the bright half of a card and reads as text spilling off its own
             background. A dark scrim plus body-weight text holds up over both a
             black holo border and a pale green frame. */}
-        {card.variantCount > 1 && (
-          <span className="absolute bottom-[8px] left-[8px] rounded-md bg-overlay-scrim-strong px-[8px] py-[3px] text-[12px] font-medium leading-[18px] text-text-body backdrop-blur-sm">
-            <span className="font-bold text-text-primary">+{card.variantCount - 1}</span> Variants
-          </span>
+        {/* THE SPECIFIC PRINTING WINS OVER THE CATALOGUE COUNT.
+            `card.variant` is present only on list rows, where the reader is
+            asking "which printing did I add?" — and `+N Variants` answers "how
+            many other printings exist", which is a different question and was
+            being mistaken for the first one (2026-08-29 walkthrough). On the set
+            page there is no `card.variant`, every printing is on screen anyway,
+            and the count is the useful fact, so nothing there changes. */}
+        {card.variant ? (
+          <VariantBadge variant={card.variant} />
+        ) : (
+          card.variantCount > 1 && (
+            <span className="absolute bottom-[8px] left-[8px] rounded-md bg-overlay-scrim-strong px-[8px] py-[3px] text-[12px] font-medium leading-[18px] text-text-body backdrop-blur-sm">
+              <span className="font-bold text-text-primary">+{card.variantCount - 1}</span> Variants
+            </span>
+          )
         )}
         {badge && (
           <span className="absolute bottom-[8px] right-[8px] rounded-md bg-action-primary-strong px-[8px] py-[3px] text-[12px] font-bold leading-[18px] text-action-primary-strong-text">

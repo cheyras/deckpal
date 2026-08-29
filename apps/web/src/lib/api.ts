@@ -398,6 +398,20 @@ export interface CardRow {
   // Optional per-card routing (present on list items, which span many sets).
   seriesSlug?: string | null
   setId?: string | null
+  // The SPECIFIC printing this row is about, present on list items only.
+  //
+  // A list stores `list_item.card_variant_id`, so it has always known whether
+  // you added the Holofoil or the Reverse — it just never said so, and showed
+  // the catalogue's `+N Variants` badge instead, which answers a different
+  // question ("this card has N other printings in existence"). Two variants of
+  // one card are two separate rows in the same list, and before 2026-08-29 they
+  // rendered as two identical-looking tiles.
+  //
+  // Declared on CardRow rather than only on ListItem because the tile, the
+  // table row and the binder slot all receive `CardRow` and all three need to
+  // render it; `ListItem extends CardRow`, so the field already flowed here at
+  // runtime and was merely invisible to the type.
+  variant?: { kind: string | null; displayName: string | null; tier: string | null; isPrimary: boolean | null }
 }
 export interface SetDetailResponse {
   set: {
@@ -472,6 +486,19 @@ export interface CardLegalityResponse {
   /** The vendored legality data's own 'as of' date. */
   checkedAt: string
   formats: { format: 'standard' | 'expanded' | 'glc' | 'unlimited'; legal: boolean; reasons: string[] }[]
+}
+
+/** Observed market price over time, one series per printing. */
+export interface CardPriceHistoryResponse {
+  currency: string
+  range: ValueRange
+  series: {
+    variantId: number
+    kind: string
+    displayName: string
+    tier: string | null
+    points: { date: string; value: number }[]
+  }[]
 }
 
 export interface CollectionBatchResponse {
@@ -1326,6 +1353,12 @@ export const api = {
     kind?: 'bug' | 'feature'
   }) =>
     send<{ id: string; saved?: string; issueUrl?: string; issueNumber?: number; note?: string }>('POST', '/bugs', body),
+  cardPriceHistory: (cardId: string, range: ValueRange, currency = 'USD', signal?: AbortSignal) =>
+    get<CardPriceHistoryResponse>(
+      `/cards/${encodeURIComponent(cardId)}/prices?range=${range}&currency=${encodeURIComponent(currency)}`,
+      signal,
+    ),
+
   cardLegality: (cardId: string, signal?: AbortSignal) =>
     get<CardLegalityResponse>(`/cards/${encodeURIComponent(cardId)}/legality`, signal),
 
