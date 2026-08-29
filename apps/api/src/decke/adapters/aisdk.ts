@@ -414,10 +414,14 @@ export function clampToolText(text: string, maxChars: number): string {
  *                            has to authorise something before being told what
  *                            it would do — which is the opposite of the point.
  *
- * Three write tools have no `dry_run` at all — `deck_strategy`,
- * `add_battle_log`, `edit_battle_log` — so every call to them is a real write
- * and every call needs approval. That falls out of the rule rather than being a
- * special case, which is why the rule is written this way round.
+ * One write tool has no `dry_run` at all — `deck_strategy` — so every call to
+ * it is a real write and every call needs approval. That falls out of the rule
+ * rather than being a special case, which is why the rule is written this way
+ * round. (`add_battle_log` and `edit_battle_log` now HAVE a `dry_run`, so the
+ * schema-driven `wouldMutate` / `forcePreview` / `canPreviewSafely` below treat
+ * them as previewable exactly like any other dry_run write — see the test that
+ * pins it. `deck_strategy` is the lone hold-out because a guide replace has no
+ * meaningful "what would change" short of the whole guide.)
  *
  * ── AND THE SERVER FORCES THE PREVIEW ────────────────────────────────────────
  *
@@ -452,8 +456,8 @@ export function requiresApproval(def: ToolDefinition, input: unknown): boolean {
  * Force a preview to actually be one.
  *
  * Returns the arguments a preview call should run with. Only touches tools that
- * HAVE a `dry_run`; for the three that do not, a preview is not expressible and
- * the call needed approval anyway.
+ * HAVE a `dry_run`; for the one that does not (`deck_strategy`), a preview is
+ * not expressible and the call needed approval anyway.
  */
 export function forcePreview(def: ToolDefinition, input: unknown): unknown {
   if (def.annotations.readOnlyHint) return input;
@@ -520,12 +524,19 @@ export function safeToolError(err: unknown): string {
  * THE GUARD THAT KEEPS THE DIALOG FROM BECOMING THE WRITE
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * `forcePreview` only touches tools that HAVE a `dry_run`. Three write tools do
- * not — `deck_strategy`, `add_battle_log`, `edit_battle_log` — so for those it
- * returns the input unchanged, and running the handler to populate a consent
- * dialog would PERFORM THE VERY WRITE the reader has not yet authorised. That
- * is not a hypothetical: it is one missing line away, and the failure would be
- * silent, because the dialog would still open and still look like it was asking.
+ * `forcePreview` only touches tools that HAVE a `dry_run`. One write tool does
+ * not — `deck_strategy` — so for it `forcePreview` returns the input unchanged,
+ * and running the handler to populate a consent dialog would PERFORM THE VERY
+ * WRITE the reader has not yet authorised. That is not a hypothetical: it is
+ * one missing line away, and the failure would be silent, because the dialog
+ * would still open and still look like it was asking.
+ *
+ * (`add_battle_log` and `edit_battle_log` gained a `dry_run`, so they are no
+ * longer in this set — `forcePreview` flips them to a preview and the handler
+ * writes nothing, the same as any other dry_run write. The editable hard-code
+ * in `buildApprovalPreview` is unchanged and stays `log_cards`-only: their
+ * approval cards populate with the dry run's first line, but the reader cannot
+ * strike rows on them.)
  *
  * So the question is not "does this tool have a dry run" — it is the same
  * question `execute` asks, put to the coerced arguments: after `forcePreview`,

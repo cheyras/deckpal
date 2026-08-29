@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { defineTool, type ToolDefinition } from '../registry.js';
-import { fail, ok } from '../result.js';
+import { fail, ok, type ToolResult } from '../result.js';
 import { errText } from '../shared.js';
 import { needDeck } from '../entities.js';
 import { pagingFooter, row, winLoss } from '../format.js';
@@ -116,6 +116,38 @@ interface LogsPayload {
   pagination: { page: number; pageSize: number; total: number; pageCount: number };
 }
 
+// ── log-preview (POST /decks/log-preview) payload ─────────────────────────────
+// Authoritative shape: see the response-contract comment on the handler in
+// apps/api/src/routes/decks.ts. The agent calls this when a battle log is
+// pasted with no named deck, so it can pick which deck the log belongs to
+// before attaching it — and the approval card, not a prose "which deck?"
+// stall, is where the reader confirms.
+
+interface LogPreviewParsed {
+  result: 'win' | 'loss' | 'tie' | null;
+  opponent: string | null;
+  turns: number | null;
+  prizes: { me: number; opponent: number } | null;
+  confidence: 'high' | 'low';
+  myPokemon: string[];
+  opponentDeckGuess: string | null;
+}
+
+interface LogPreviewCandidate {
+  deckId: string;
+  name: string;
+  format: string;
+  version: number;
+  score: number;
+  matchedNames: number;
+  total: number;
+}
+
+interface LogPreviewResponse {
+  parsed: LogPreviewParsed;
+  candidates: LogPreviewCandidate[];
+}
+
 /** Trimmed-down deck detail — enough for names/versions in confirmations. */
 interface DeckDetailLite {
   deck: { id: string; name: string; formatCode: string; version: number; strategyMd: string | null };
@@ -177,6 +209,66 @@ function diffLines(diff: Diff): string[] {
   for (const c of diff.changed) lines.push(`  ${c.name} | ${c.tcgdexId} | x${c.from} → x${c.to}`);
   if (lines.length === 0) lines.push('  (no card changes)');
   return lines;
+}
+
+/** "WIN vs Robni16 (Dragapult ex / Dusknoir) | 12 turns | confidence high" — the parsed-result line echoed on the log-preview path. */
+function previewParsedLine(p: LogPreviewParsed): string {
+  const res = p.result ? p.result.toUpperCase() : 'NO RESULT';
+  const opp = p.opponent ?? 'unknown';
+  return row(
+    `${res} vs ${opp}${p.opponentDeckGuess ? ` (${p.opponentDeckGuess})` : ''}`,
+    p.turns != null ? `${p.turns} turns` : null,
+    p.prizes ? `prizes ${p.prizes.me}-${p.prizes.opponent}` : null,
+    `confidence ${p.confidence}`,
+  );
+}
+
+/**
+ * The deck_id-omitted result: ranked candidates (one compact row each, real id
+ * first), with the parsed line echoed so the model can carry it into the
+ * follow-up call. Non-error, no write — regardless of candidate count.
+ *
+ * Zero candidates → say so and ask the model to name a deck, listing NONE
+ * (never an invented id — the entities doctrine, applied here too). One
+ * candidate → the same shape, naming it as the only match. The model still
+ * calls add_battle_log again with deck_id; this path never writes.
+ */
+function renderLogPreview(preview: LogPreviewResponse): ToolResult {
+  const lines: string[] = [previewParsedLine(preview.parsed)];
+  const cands = preview.candidates;
+  if (cands.length === 0) {
+    lines.push('This log matched none of your decks. Name the deck (or pass its id) and call add_battle_log again with deck_id set.');
+    return ok(lines.join('\n'));
+  }
+  lines.push(cands.length === 1 ? 'This log matches one of your decks:' : 'Ranked candidate decks (best first):');
+  for (const c of cands) {
+    lines.push(row(c.deckId, c.name, `v${c.version}`, c.format, `score ${c.score}`, `matched ${c.matchedNames}/${c.total}`));
+  }
+  lines.push('Call add_battle_log again with deck_id set to the one you mean (or dry_run: true to preview the log first).');
+  return ok(lines.join('\n'));
+}
+
+/**
+ * The dry_run-with-deck_id result: what WOULD be logged, no write. The deck is
+ * already resolved strictly; the parse comes from log-preview (deck-agnostic).
+ * Caller-supplied overrides that would attach are shown so an accidental
+ * explicit result/opponent_deck is visible before it lands.
+ */
+function renderAddDryRun(
+  deck: { id: string; name: string; formatCode?: string; version?: number },
+  parsed: LogPreviewParsed,
+  overrides: { result?: 'win' | 'loss' | 'tie'; opponent_deck?: string; notes?: string },
+): ToolResult {
+  const lines = [
+    'Nothing was logged.',
+    row(`preview for '${deck.name}'`, deck.version ? `v${deck.version}` : null, deck.formatCode ?? null),
+    previewParsedLine(parsed),
+  ];
+  if (overrides.result !== undefined) lines.push(`result override: ${overrides.result}`);
+  if (overrides.opponent_deck !== undefined) lines.push(`opponent_deck override: ${overrides.opponent_deck}`);
+  if (overrides.notes !== undefined) lines.push(`notes: ${trunc(overrides.notes, 80)}`);
+  lines.push('Re-run with dry_run: false to log this game.');
+  return ok(lines.join('\n'));
 }
 
 /** Client-side snapshot diff (same rule as the API's): from → to, keyed by cardId. */
@@ -282,12 +374,19 @@ const addBattleLogTool = defineTool({
     'Attach a raw PTCG Live battle log to a deck. The log is parsed server-side (result, ' +
     "opponent, turns, prizes, knockouts, opponent-deck guess) and attaches to the deck's " +
     'CURRENT version — the list the game was played with — so per-version win/loss records ' +
-    'accumulate. Parser-derived fields fill anything you omit. If the parser cannot tell which ' +
-    'player owns this deck it returns an error asking for player_name (the exact screen name in ' +
-    'the log) or an explicit result — retry with one of those. Read logs back with battle_logs; ' +
-    'to correct or remove an existing entry use edit_battle_log / delete_battle_log.',
+    'accumulate. Parser-derived fields fill anything you omit. OMIT deck_id to rank the log ' +
+    'against your decks first: the tool returns ranked candidate decks (real ids, names, ' +
+    'scores) and writes nothing — call it again with deck_id set to the one you mean. Pass ' +
+    'dry_run: true to parse and preview what would be logged without writing (with or without ' +
+    'deck_id). If the parser cannot tell which player owns this deck it returns an error ' +
+    'asking for player_name (the exact screen name in the log) or an explicit result — retry ' +
+    'with one of those. Read logs back with battle_logs; to correct or remove an existing ' +
+    'entry use edit_battle_log / delete_battle_log.',
   inputSchema: z.object({
-    deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
+    deck_id: z
+      .string()
+      .optional()
+      .describe('The deck, by UUID or by its exact name. OMIT to rank the log against your decks and pick — nothing is written.'),
     log: z.string().max(50000).describe('The raw PTCG Live battle log text, pasted verbatim (max 50000 chars).'),
     result: z
       .enum(['win', 'loss', 'tie'])
@@ -308,14 +407,54 @@ const addBattleLogTool = defineTool({
       .describe("Archetype label for the opponent's deck, e.g. 'Dragapult ex / Dusknoir'. The parser guesses when omitted."),
     notes: z.string().max(2000).optional().describe('Free-text notes about the game — misplays, key turns, matchup reads.'),
     played_at: z.string().optional().describe('ISO-8601 timestamp of when the game was played. Omit for now.'),
+    dry_run: z
+      .boolean()
+      .default(false)
+      .describe('true: parse and preview what would be logged, write nothing (works with or without deck_id). false (default): attach the log to the deck.'),
   }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  handler: async ({ deck_id: deckRef, log, result, player_name, opponent_deck, notes, played_at }, ctx) => {
+  handler: async ({ deck_id: deckRef, log, result, player_name, opponent_deck, notes, played_at, dry_run }, ctx) => {
     try {
+      // ── deck_id OMITTED → rank the log, write nothing ──────────────────────
+      //
+      // This is the path the owner's #1 ask opens up: a pasted battle log with
+      // no named deck used to dead-end, because add_battle_log required deck_id
+      // (strict) and there was no way to ask "which of my decks is this?". The
+      // server now has POST /decks/log-preview, which parses the log and scores
+      // it against the caller's decks' current-version card lists. We call it,
+      // render the ranked candidates, and hand the choice back — the model
+      // calls add_battle_log AGAIN with the chosen deck_id, and the approval
+      // card (not a prose "which deck?" stall) is where the reader confirms.
+      //
+      // NEVER writes, even with one candidate: writes stay strict per the
+      // entities doctrine (a fuzzy-ish pick is a choice, never an action), and
+      // log-preview itself does no write anywhere.
+      if (deckRef === undefined) {
+        const preview = (await ctx.api.send('POST', '/decks/log-preview', {
+          log,
+          ...(player_name !== undefined ? { player_name } : {}),
+        })) as LogPreviewResponse;
+        return renderLogPreview(preview);
+      }
+
+      // ── deck_id GIVEN → strict resolve, then write or preview ──────────────
       // STRICT — attaches a battle log to a deck version, so an approximate name is a choice, never an action.
       const picked = await needDeck(ctx, deckRef, { strict: true });
       if (!picked.ok) return fail(picked.message);
       const deckId = picked.value.id;
+
+      // dry_run → parse and preview what WOULD be logged, no write. Reuses the
+      // deck-agnostic parser behind log-preview (the only non-writing parse);
+      // the deck is resolved strictly above for the header line. See notes.md
+      // for the approximation this makes vs. the deck-specific parse the real
+      // write performs.
+      if (dry_run) {
+        const preview = (await ctx.api.send('POST', '/decks/log-preview', {
+          log,
+          ...(player_name !== undefined ? { player_name } : {}),
+        })) as LogPreviewResponse;
+        return renderAddDryRun(picked.value, preview.parsed, { result, opponent_deck, notes });
+      }
 
       const res = (await ctx.api.send('POST', `${deckPath(deckId)}/logs`, {
         rawLog: log,
@@ -624,8 +763,9 @@ const editBattleLogTool = defineTool({
     'non-standard ending and left NO RESULT), opponent name, opponent-deck label, notes, or ' +
     'played_at. The raw log text and the version it attaches to are immutable — this edits ' +
     'classification only, and per-version win/loss records recompute from it immediately. ' +
-    'Passing null clears a field (not played_at). To remove an entry entirely use ' +
-    'delete_battle_log; to add one use add_battle_log.',
+    'Passing null clears a field (not played_at). Pass dry_run: true to preview the ' +
+    'field-by-field changes (current → new) without writing. To remove an entry entirely ' +
+    'use delete_battle_log; to add one use add_battle_log.',
   inputSchema: z.object({
     deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
     log_id: z.number().int().positive().describe('Battle log id (the #N from battle_logs).'),
@@ -638,9 +778,13 @@ const editBattleLogTool = defineTool({
     opponent_deck: z.string().max(200).nullable().optional().describe("Archetype label, e.g. 'Dragapult ex / Dusknoir'; null clears."),
     notes: z.string().max(2000).nullable().optional().describe('Replacement notes; null clears.'),
     played_at: z.string().optional().describe('Corrected ISO-8601 played-at timestamp.'),
+    dry_run: z
+      .boolean()
+      .default(false)
+      .describe('true: preview the field-by-field would-change plan (current → new), change nothing. false (default): apply the edit.'),
   }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-  handler: async ({ deck_id: deckRef, log_id, result, opponent, opponent_deck, notes, played_at }, ctx) => {
+  handler: async ({ deck_id: deckRef, log_id, result, opponent, opponent_deck, notes, played_at, dry_run }, ctx) => {
     try {
       // STRICT — edits a stored battle log, so an approximate name is a choice, never an action.
       const picked = await needDeck(ctx, deckRef, { strict: true });
@@ -654,6 +798,26 @@ const editBattleLogTool = defineTool({
       if (notes !== undefined) body.notes = notes;
       if (played_at !== undefined) body.playedAt = played_at;
       if (Object.keys(body).length === 0) return fail('edit_battle_log: pass at least one field to change.');
+
+      // dry_run → fetch the log via the existing read path and render a
+      // field-by-field would-change plan (current → new), no write. The same
+      // non-empty-body guard above applies, so a dry run with nothing to change
+      // is still an error rather than an empty plan.
+      if (dry_run) {
+        const { log: l } = (await ctx.api.get(`${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`)) as { log: LogFull };
+        const lines = [
+          'Nothing was changed.',
+          row(`preview edit of battle #${l.id}`, `v${l.deckVersion}`),
+        ];
+        if (result !== undefined) lines.push(`  result: ${l.result ? l.result.toUpperCase() : 'NO RESULT'} → ${result ? result.toUpperCase() : 'NO RESULT'}`);
+        if (opponent !== undefined) lines.push(`  opponent: ${l.opponent ?? '(none)'} → ${opponent ?? '(none)'}`);
+        if (opponent_deck !== undefined) lines.push(`  opponent_deck: ${l.opponentDeck ?? '(none)'} → ${opponent_deck ?? '(none)'}`);
+        if (notes !== undefined) lines.push(`  notes: ${l.notes ? trunc(l.notes, 60) : '(none)'} → ${notes ? trunc(notes, 60) : '(none)'}`);
+        if (played_at !== undefined) lines.push(`  played_at: ${day(l.playedAt)} → ${played_at}`);
+        lines.push('Re-run with dry_run: false to apply these changes.');
+        return ok(lines.join('\n'));
+      }
+
       const res = (await ctx.api.send('PATCH', `${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`, body)) as { log: LogFull };
       const l = res.log;
       const totals = (await ctx.api.get(`${deckPath(deckId)}/logs?version=${encodeURIComponent(l.deckVersion)}&pageSize=1`)) as LogsPayload;

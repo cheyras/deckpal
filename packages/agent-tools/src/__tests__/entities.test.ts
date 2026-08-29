@@ -99,6 +99,10 @@ test('normaliseSetId maps a verified printed code to its catalog id', () => {
   // PBL is printed on Pitch Black cards — me05, the set this test suite keeps
   // using as its example id.
   assert.ok(normaliseSetId('PBL').includes('me05'));
+  // PFL is printed on Phantasmal Flames cards — me02.
+  assert.ok(normaliseSetId('PFL').includes('me02'));
+  // POR is printed on Perfect Order cards — me03.
+  assert.ok(normaliseSetId('POR').includes('me03'));
 });
 
 test('normaliseSetId maps codes case-insensitively', () => {

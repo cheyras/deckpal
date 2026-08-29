@@ -76,14 +76,26 @@ test('ONLY an explicit boolean false is read as permission to write', () => {
 })
 
 test('a write tool with NO dry_run always needs approval', () => {
-  // Three of them: a preview is not expressible, so every call is a real write.
-  // This falls out of the rule rather than being a special case, which is why
-  // the rule is written the way it is.
-  for (const n of ['deck_strategy', 'add_battle_log', 'edit_battle_log']) {
+  // One of them now: a guide replace has no meaningful "what would change"
+  // short of the whole guide, so a preview is not expressible and every call is
+  // a real write. This falls out of the rule rather than being a special case,
+  // which is why the rule is written the way it is. (`add_battle_log` and
+  // `edit_battle_log` left this set in the 2026-08-29 agentic pass when they
+  // gained a real dry_run — their previewability pins live in aisdk.test.ts.)
+  for (const n of ['deck_strategy']) {
     const d = get(n)
     assert.equal(d.inputSchema && 'dry_run' in d.inputSchema.shape, false, `${n} gained a dry_run`)
     assert.equal(requiresApproval(d, {}), true)
     assert.equal(requiresApproval(d, { dry_run: true }), true, `${n} has no dry_run to honour`)
+  }
+  // And the two that left the set: they HAVE a dry_run now, so they classify
+  // exactly like log_cards — omitted dry_run is a PREVIEW (forcePreview makes
+  // it one), and only an explicit `dry_run: false` is the write that asks.
+  for (const n of ['add_battle_log', 'edit_battle_log']) {
+    const d = get(n)
+    assert.equal(d.inputSchema && 'dry_run' in d.inputSchema.shape, true, `${n} lost its dry_run`)
+    assert.equal(requiresApproval(d, {}), false, `${n}: omitted dry_run is a preview`)
+    assert.equal(requiresApproval(d, { dry_run: false }), true, `${n}: the real write asks`)
   }
 })
 

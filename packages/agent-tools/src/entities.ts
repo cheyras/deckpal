@@ -305,7 +305,9 @@ const SET_CODE_ALIASES: Readonly<Record<string, string>> = {
   wht: 'sv10.5w',
   // Mega Evolution era
   meg: 'me01',
+  pfl: 'me02',
   asc: 'me02.5',
+  por: 'me03',
   pbl: 'me05',
   cri: 'me04',
   mee: 'mee',
