@@ -4,7 +4,7 @@
 // framework for one pure function.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rangeCoverageCaption } from '../insightsCaption.js';
+import { rangeCoverageCaption, rangeWindow } from '../insightsCaption.js';
 
 // Fixed "today" so every case is deterministic regardless of when the suite runs.
 const TODAY = new Date('2026-08-11T00:00:00.000Z');
@@ -70,3 +70,46 @@ test('month/year ranges use calendar semantics (3m from 2026-08-11 → 2026-05-1
   );
   assert.equal(rangeCoverageCaption([{ date: '2025-08-11' }, { date: '2026-08-08' }], '1y', TODAY), null);
 });
+
+/**
+ * The chart's x-axis DOMAIN.
+ *
+ * The axis used to fit the data, so with ten days recorded every range chip drew
+ * the same picture — a full-width line under a label saying "2 Years". The
+ * window is now handed to the chart, so a short history reads as a short line in
+ * a long axis. These pin the window arithmetic the axis depends on.
+ */
+test('a range window ends today and starts a real interval back', () => {
+  const now = new Date('2026-08-29T12:00:00Z')
+  assert.deepEqual(rangeWindow('30d', now), { from: '2026-07-30', to: '2026-08-29' })
+  assert.deepEqual(rangeWindow('3m', now), { from: '2026-05-29', to: '2026-08-29' })
+  assert.deepEqual(rangeWindow('1y', now), { from: '2025-08-29', to: '2026-08-29' })
+  // 2025-03-01, not 02-28: Aug 29 minus 18 months lands on Feb 29 2025, which
+  // does not exist, and JS rolls it forward. `rangeWindowStart` documents this
+  // month-length slop as immaterial, and it is — but pin the real answer so the
+  // next reader does not 'fix' the code to match a wrong expectation.
+  assert.deepEqual(rangeWindow('18m', now), { from: '2025-03-01', to: '2026-08-29' })
+  assert.deepEqual(rangeWindow('2y', now), { from: '2024-08-29', to: '2026-08-29' })
+})
+
+test('every range gives a DIFFERENT window — the bug this fixes', () => {
+  // The whole complaint was that the chips looked identical. They can only
+  // differ visually if their windows differ.
+  const now = new Date('2026-08-29T12:00:00Z')
+  const keys = ['30d', '3m', '6m', '1y', '18m', '2y'] as const
+  const froms = keys.map((k) => rangeWindow(k, now).from)
+  assert.equal(new Set(froms).size, keys.length, `windows collided: ${froms.join(', ')}`)
+  // And they must be strictly ordered oldest-first as the label implies.
+  const sorted = [...froms].sort().reverse()
+  assert.deepEqual(froms, sorted, 'a longer range must start earlier')
+})
+
+test('the window is wider than a short history, so the line cannot fill it', () => {
+  // 20 days of readings inside a 2-year window: the axis spans ~730 days, so the
+  // data occupies a few percent of it. That ratio IS the message.
+  const now = new Date('2026-08-29T12:00:00Z')
+  const { from, to } = rangeWindow('2y', now)
+  const days = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 86_400_000
+  assert.ok(days(from, to) > 700, 'a 2y window should span two years of axis')
+  assert.ok(20 / days(from, to) < 0.05, 'and 20 days of data should be a small slice of it')
+})

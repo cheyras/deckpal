@@ -7,7 +7,7 @@ import { LevelRing } from '../components/LevelRing'
 import { ValueChart } from '../components/ValueChart'
 import { Icon } from '../components/Icon'
 import { AvatarDisc, useAvatar } from '../components/Avatar'
-import { rangeCoverageCaption } from '../lib/insightsCaption'
+import { rangeCoverageCaption, rangeWindow } from '../lib/insightsCaption'
 import { fmtMoney } from '../lib/format'
 import { useLateEntrance } from '../lib/lateEntrance'
 
@@ -16,8 +16,13 @@ const RANGES: { key: ValueRange; label: string }[] = [
   { key: '3m', label: '3 Months' },
   { key: '6m', label: '6 Months' },
   { key: '1y', label: '1 Year' },
+  { key: '18m', label: '18 Months' },
+  { key: '2y', label: '2 Years' },
 ]
-const PRO_RANGES = ['1.5 Years', '2 Years']
+// There is no paid tier. 1.5y/2y used to render as disabled chips stamped PRO —
+// a gate in front of a door that was never built, on data the API had no window
+// for either. Both are ordinary ranges now (owner's call, 2026-08-29); the
+// server-side halves are `Range`/`RANGE_INTERVAL` in insights/collectionValue.ts.
 
 export function Insights() {
   const [tab, setTab] = useState<'overview' | 'trends'>('overview')
@@ -161,17 +166,6 @@ export function Insights() {
                   {r.label}
                 </button>
               ))}
-              {PRO_RANGES.map((r) => (
-                <span
-                  key={r}
-                  className="flex h-[32px] cursor-not-allowed items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] text-[14px] font-semibold text-icon-disabled"
-                >
-                  {r}
-                  <span className="rounded bg-pro-pink px-[5px] py-[1px] text-[14px] font-extrabold text-pro-pink-text">
-                    PRO
-                  </span>
-                </span>
-              ))}
             </div>
 
             {/* legend */}
@@ -185,7 +179,7 @@ export function Insights() {
                 <Spinner label="Loading series…" />
               ) : val && val.series.points.length >= 2 ? (
                 <div>
-                  <ValueChart points={val.series.points} currency={val.currency} />
+                  <ValueChart points={val.series.points} domain={rangeWindow(range)} currency={val.currency} />
                   {/* Issue #26: with real history shorter than the selected window, every
                       range renders the identical chart with no explanation. Say so instead
                       of silently rendering the same-looking chart under four button labels
@@ -197,7 +191,7 @@ export function Insights() {
                 </div>
               ) : val && val.series.points.length === 1 ? (
                 <div>
-                  <ValueChart points={val.series.points} currency={val.currency} height={160} />
+                  <ValueChart points={val.series.points} domain={rangeWindow(range)} currency={val.currency} height={160} />
                   <div className="mt-[8px] rounded-lg border border-border-default bg-surface-tertiary-subtle px-[14px] py-[10px] text-[14px] text-text-body">
                     Only one daily snapshot exists so far (started {val.series.points[0]!.date}). A value trend appears
                     once a second day is recorded — we don't draw a line we don't have.

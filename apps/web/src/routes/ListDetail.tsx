@@ -6,6 +6,9 @@ import { Content, Spinner, ErrorState, BackPill, ProgressBar, EmptyState, Button
 import { GridView } from '../components/GridView'
 import { TableView } from '../components/TableView'
 import { BinderView } from '../components/BinderView'
+import { CardSheet } from './CardDetail'
+
+import { VariantChip } from '../components/VariantChip'
 import { SearchBox, ViewToggle, SortChipStrip, OwnershipButtons } from '../components/FilterControls'
 import { AddCardModal, ConfirmModal, ListFormModal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
@@ -77,9 +80,10 @@ function ReorderRows({ items, onMove, onRemove }: { items: ListItem[]; onMove: (
           {it.images.low && <img src={it.images.low} alt="" className="h-[56px] w-[40px] rounded object-cover" />}
           <div className="min-w-0 flex-1">
             <div className="truncate text-[14px] font-semibold text-text-primary">{it.name}</div>
-            <div className="text-[14px] text-text-muted">
-              {it.setName} · {it.variant?.displayName}
-              {it.staticQuantity != null && <span className="ml-[6px] font-bold text-text-secondary">×{it.staticQuantity}</span>}
+            <div className="flex flex-wrap items-center gap-x-[6px] text-[14px] text-text-muted">
+              <span>{it.setName}</span>
+              {it.variant && <VariantChip variant={it.variant} className="text-text-body" />}
+              {it.staticQuantity != null && <span className="font-bold text-text-secondary">×{it.staticQuantity}</span>}
             </div>
           </div>
           <button onClick={() => onRemove(it)} aria-label={`Remove ${it.name}`} className="flex h-[32px] w-[32px] items-center justify-center rounded-full bg-action-danger text-action-danger-text hover:bg-action-danger-hover">
@@ -365,6 +369,22 @@ export function ListDetail() {
             )}
           </div>
         </>
+      )}
+
+      {/* Card detail as a bottom-sheet driven by ?card=<cardId>, keeping this page
+          mounted so scroll, filter and sort survive an open→close cycle. Same
+          mechanism as the set and species pages.
+
+          It is also the fix for "I clicked a card and Back didn't return me to the
+          list": until 2026-08-29 a list tile navigated to the standalone card
+          route, whose BackPill can only point at the card's SET — that is the only
+          ancestor a `/series/$series/$set/$number` URL carries. A sheet has no
+          back problem, because nothing was left. */}
+      {search.card && (
+        <CardSheet
+          cardId={search.card}
+          onClose={() => patch({ card: undefined })}
+        />
       )}
 
       {showAdd && list && (

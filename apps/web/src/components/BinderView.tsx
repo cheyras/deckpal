@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
-import { Link } from '@tanstack/react-router'
 import type { CardRow } from '../lib/api'
 import { Icon } from './Icon'
+import { CardLink } from './CardLink'
+
+import { variantMeta } from '../lib/variantStyle'
 
 // Binder view (UI-SPEC §3.25, pkmn.gg captures §15.3).
 //
@@ -37,20 +39,39 @@ function Pocket({
   seriesSlug?: string
   setId?: string
 }) {
+  // A pocket is ~140px of full-bleed art. Two variants of one card occupy two
+  // pockets and, before 2026-08-29, were two identical pictures — the same
+  // ambiguity the list grid had. A text chip here would truncate to noise at
+  // this size, so the signal is a colour pip in the corner (the same colour the
+  // chip, the count boxes and the modal's variant table use) plus the variant
+  // name in the alt text and the tooltip, which is where a screen reader and a
+  // hovering mouse respectively will look for it.
+  const variantLabel = card?.variant?.displayName ?? card?.variant?.kind ?? null
   const inner = (
-    <div className="relative h-full w-full" style={{ aspectRatio: '300 / 418' }}>
+    <div
+      className="relative h-full w-full"
+      style={{ aspectRatio: '300 / 418' }}
+      title={variantLabel ? `${card?.name} — ${variantLabel}` : undefined}
+    >
       {card && card.images.low ? (
         <img
           src={card.images.low}
           srcSet={`${card.images.low} 245w, ${card.images.high} 600w`}
           sizes="140px"
-          alt={`Slot ${slot}: ${card.name}`}
+          alt={variantLabel ? `Slot ${slot}: ${card.name} (${variantLabel})` : `Slot ${slot}: ${card.name}`}
           loading="lazy"
           decoding="async"
           className="absolute inset-0 h-full w-full rounded-[6px] object-cover"
         />
       ) : (
         <div className="absolute inset-0 rounded-[6px] bg-surface-tertiary" />
+      )}
+      {card?.variant && variantLabel && (
+        <span
+          className="absolute right-[5px] top-[5px] h-[10px] w-[10px] rounded-sm ring-1 ring-overlay-scrim-strong"
+          style={{ background: variantMeta({ kind: card.variant.kind ?? '', tier: card.variant.tier }).fill, zIndex: 3 }}
+          aria-hidden="true"
+        />
       )}
       {!bright && (
         <>
@@ -69,17 +90,22 @@ function Pocket({
       )}
     </div>
   )
-  // An owned/bright card links through to its card page when we have routing keys.
-  if (bright && card && seriesSlug && setId && card.number) {
+  // An owned/bright card links through to its card detail. `CardLink` decides
+  // whether that is a sheet over this page or a navigation; the slot only needs
+  // a card with a number. It used to additionally require `seriesSlug && setId`
+  // from the caller, which meant binder slots on a LIST page — where ListDetail
+  // passes neither, because a list spans many sets — rendered no link at all.
+  if (bright && card && card.number) {
     return (
-      <Link
-        to="/series/$series/$set/$number"
-        params={{ series: card.seriesSlug ?? seriesSlug, set: card.setId ?? setId, number: card.number }}
+      <CardLink
+        card={card}
+        seriesSlug={seriesSlug}
+        setId={setId}
         className="relative block"
         style={{ aspectRatio: '300 / 418' }}
       >
         {inner}
-      </Link>
+      </CardLink>
     )
   }
   return (

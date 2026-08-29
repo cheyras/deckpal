@@ -54,7 +54,10 @@ export async function resolveSets(client: Queryable, filter: string[] | null): P
 // (productId, printing) → card_variant.id for one set. Printing-aware so the two rows of a shared
 // product (Normal + Reverse Holofoil) each land on the right variant — this is where the TCGplayer
 // side of the reverse-holo distinction is honoured (it is keyed by printing name, unlike Cardmarket).
-async function variantLookup(client: Queryable, setId: number): Promise<Map<string, number>> {
+// Exported for the archive backfill, which builds one lookup per SET ONCE and
+// reuses it across every replayed day. Calling this per (set, day) instead would
+// be 217 x 730 = 158,000 identical queries for a two-year replay.
+export async function variantLookup(client: Queryable, setId: number): Promise<Map<string, number>> {
   const { rows } = await client.query<{ id: string; pid: number; printing: string | null }>(
     `SELECT cv.id, cv.tcgplayer_product_id AS pid, cv.tcgplayer_printing AS printing
        FROM card_variant cv JOIN card c ON c.id = cv.card_id
@@ -72,8 +75,16 @@ export interface PriceIngestResult {
 }
 
 // Reusable per-set writer: given already-fetched price rows, join + write. Returns rows written.
+//
+// `updateCurrent` exists for the archive backfill and defaults to the live
+// behaviour. `price_current` is the LATEST price per variant, with no history —
+// so replaying an archive from three weeks ago through this function with the
+// default would leave every card in the app quoting a three-week-old price as
+// if it were today's. The backfill appends observations and leaves the hot
+// snapshot alone; only a live run may write it.
 export async function writeSetPrices(
   client: Queryable, setId: number, prices: TcgcsvPriceRow[], capturedAt: Date, runId: number | null,
+  opts: { updateCurrent?: boolean } = {},
 ): Promise<{ observations: number; matched: number; unmatched: number }> {
   const lut = await variantLookup(client, setId);
   const points: PricePoint[] = [];
@@ -84,7 +95,7 @@ export async function writeSetPrices(
     points.push({ cardVariantId: cv, sourceId: SOURCE_ID, sourceCode: SOURCE_CODE, currency: CURRENCY, metrics: tcgplayerMetrics(row) });
   }
   const observations = await appendObservations(client, points, capturedAt, runId);
-  await upsertCurrent(client, points, capturedAt);
+  if (opts.updateCurrent !== false) await upsertCurrent(client, points, capturedAt);
   return { observations, matched: points.length, unmatched };
 }
 

@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "test:pure": "node --import tsx --test src/prices/__tests__/*.test.ts",
     "start": "node dist/index.js",
     "run-once": "tsx src/run-once.ts",
     "import:catalog": "tsx src/catalog/cli.ts",
