@@ -162,7 +162,7 @@ test('the reveal seam is one contract, named in one place', () => {
   )
 })
 
-test('the addressable-card audit: exactly two components carry the tile address', () => {
+test('the addressable-card audit: exactly one component carries the tile address', () => {
   // The same tripwire the clickable audit is, for the same reason. This
   // attribute is what makes an element reachable WITHOUT a landmark ancestor,
   // so marking a new thing with it widens what Deck-E can point at by exactly
@@ -172,15 +172,24 @@ test('the addressable-card audit: exactly two components carry the tile address'
   assert.deepEqual(
     markedAddressableFiles(root),
     [
-      // The card tile itself, on its own anchor, for every page that renders a
-      // grid of cards: the set page, the species page, a list, search results.
-      'components/CardTile.tsx',
-      // The set page's table view, so "take me to that card" means the same
-      // thing whichever of the three views the reader left the page in.
-      'components/TableView.tsx',
+      // ONE file, since 2026-08-29. The address used to sit on CardTile and on
+      // TableView separately, because each built its own `<Link>` — and those
+      // two copies of "where does clicking a card go" had already drifted (the
+      // tile opened a scroll-preserving sheet where the row navigated away, and
+      // the binder slot rendered no link at all on a list page). Both now render
+      // `CardLink`, which owns the destination AND the address, so a card is
+      // addressable in exactly the places it is clickable, by construction.
+      //
+      // A SHRINKING list is as much a reason to look as a growing one: if this
+      // ever reports zero, `data-decke-card` has been dropped and every "take me
+      // to that card" silently stops resolving.
+      'components/CardLink.tsx',
     ],
-    'something new was marked addressable. It becomes a flyTo/highlight target with ' +
-      'no landmark ancestor required — confirm it is a card tile, then add it here.',
+    'the set of addressable-card components changed. This attribute makes an ' +
+      'element a flyTo/highlight target with no landmark ancestor required, so ' +
+      'a new entry widens what Deck-E can point at by exactly that thing — ' +
+      'confirm it is a card link, then add it here. An entry DISAPPEARING is ' +
+      'worse: it means cards stopped being addressable at all.',
   )
 })
 

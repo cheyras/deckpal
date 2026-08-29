@@ -61,3 +61,38 @@ export function variantMeta(v: { kind: string; tier?: string | null }): VariantM
     order: 0,
   }
 }
+
+/**
+ * Line colours for a multi-printing chart, one per series.
+ *
+ * `variantMeta` is the one definition of a printing's colour and the standard
+ * tiers are genuinely distinct there — normal is stone-200, reverse is cyan-400,
+ * holofoil is pink-400. But EVERY special-tier printing shares a single token
+ * (`--color-variant-other`), which is right for a chip (a chip carries its own
+ * label beside the swatch) and collapses as a chart line: a card with three
+ * special printings would draw three identical greys.
+ *
+ * So: keep the system colour wherever it is unambiguous, and give any printing
+ * that would COLLIDE with one already used a distinct hue instead. The chart
+ * legend names every line, so a substituted colour only has to be tellable
+ * apart — it carries no meaning the label does not already give.
+ *
+ * The hues deliberately skip cyan (~190) and pink (~330), so a substitute can
+ * never be mistaken for "this is the reverse holo" or "this is the holofoil".
+ */
+const SPECIAL_HUES = [45, 265, 145, 20, 240, 90]
+
+export function seriesColors(
+  variants: readonly { kind: string; tier?: string | null }[],
+): string[] {
+  const used = new Set<string>()
+  let next = 0
+  return variants.map((v) => {
+    const own = variantMeta(v).color
+    if (!used.has(own)) {
+      used.add(own)
+      return own
+    }
+    return `hsl(${SPECIAL_HUES[next++ % SPECIAL_HUES.length]} 70% 62%)`
+  })
+}

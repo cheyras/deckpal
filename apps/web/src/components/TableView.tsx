@@ -1,4 +1,3 @@
-import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CardDetailResponse, type CardRow, type Variant } from '../lib/api'
 import { fmtPrice, fmtNumber } from '../lib/format'
@@ -7,6 +6,9 @@ import { useSignedIn } from '../lib/session'
 import { CounterBox } from './ui/CounterBox'
 import { Icon } from './Icon'
 import { variantMeta } from '../lib/variantStyle'
+import { CardLink } from './CardLink'
+
+import { VariantChip } from './VariantChip'
 
 // Per-variant quantity counters for a table row — the same mechanism as the grid
 // tiles (CardTile.VariantCounters): read the card's variants from the shared
@@ -94,16 +96,12 @@ export function TableView({
         const series = card.seriesSlug ?? seriesSlug
         const set = card.setId ?? setId
         return (
-          <Link
+          <CardLink
             key={(card as { itemId?: string }).itemId ?? card.cardId}
-            to="/series/$series/$set/$number"
-            params={{ series, set, number: card.number }}
+            card={card}
+            seriesSlug={series}
+            setId={set}
             className="group flex items-stretch overflow-hidden rounded-lg bg-surface-tertiary hover:bg-action-default-hover"
-            // Deck-E's address for this card, the same attribute `CardTile`
-            // carries so that "take me to Pitch Black 84" means the same thing
-            // whichever view the reader happens to have left the page in. This
-            // list is not virtualized, so the row is simply there to be found.
-            data-decke-card={card.cardId}
           >
             {/* Thumbnail: object-cover into a landscape window crops to the card's
                 art box — full card width, centred on the upper illustration. */}
@@ -120,8 +118,14 @@ export function TableView({
             <div className="flex flex-1 items-center gap-[16px] px-[16px] py-[12px]">
               <span className="w-[48px] shrink-0 text-[14px] text-text-muted">{fmtNumber(card.number)}</span>
               <span className="font-display flex-1 truncate text-[14px] font-medium text-text-primary">{card.name}</span>
-              {card.variantCount > 1 && (
-                <span className="hidden text-[14px] text-text-muted sm:inline">{card.variantCount} variants</span>
+              {/* Same swap as the grid tile: on a list the reader wants the
+                  printing THIS row is, not how many printings exist. */}
+              {card.variant ? (
+                <VariantChip variant={card.variant} className="hidden text-text-body sm:inline-flex" />
+              ) : (
+                card.variantCount > 1 && (
+                  <span className="hidden text-[14px] text-text-muted sm:inline">{card.variantCount} variants</span>
+                )
               )}
               <span className="text-[14px] font-medium text-change-positive">{fmtPrice(card.price)}</span>
               {/* Write affordance: hidden signed-out (the API sends no quantities
@@ -129,7 +133,7 @@ export function TableView({
               {set && signedIn === true && <RowCounters cardId={`${set}-${card.number}`} setId={set} />}
               <Icon name="chevron-right" size={16} className="text-icon-muted" />
             </div>
-          </Link>
+          </CardLink>
         )
       })}
     </div>

@@ -380,10 +380,37 @@ The script (`scripts/migrate-to-cloud.ts`):
 
 ### 6. GitHub Actions sync setup
 
-**`.github/workflows/catalog-refresh.yml` — weekly catalog refresh (Sundays
-04:30 UTC), plus `workflow_dispatch`.** This is the only scheduled data workflow
-that exists today; price and snapshot ingests still run from the `deckpal-sync`
-process (Path B below) and are not yet wired to Actions.
+Three scheduled data workflows, all driven by the same five secrets below.
+
+| Workflow | Schedule | What it does |
+|---|---|---|
+| `catalog-refresh.yml` | Sundays 04:30 UTC | `card` / `card_set` in step with upstream TCGdex |
+| `price-refresh.yml` | every 15 min, plus 02:10 and 21:10 UTC | polls TCGCSV's `last-updated.txt` and ingests on change; nightly Cardmarket ingest, all-users value snapshot, set-progress reconcile |
+| `price-backfill.yml` | manual only | replays TCGCSV daily archives into `price_observation` for a past range |
+
+**`price-refresh.yml` is what keeps prices and the Insights charts alive on the
+cloud tier.** Until 2026-08-29 nothing did: `apps/sync` is a long-running
+node-cron process that has to be running *somewhere*, `vercel.json` has no
+`crons`, and this section previously said in as many words that the price and
+snapshot ingests "are not yet wired to Actions". Every scheduled job stopped on
+2026-08-08 and nothing noticed for three weeks — the app served prices "as of 22
+days ago" and every Insights range chip drew the same ten days. See DECISIONS.md
+2026-08-29.
+
+The 15-minute tick is a POLL, not an ingest: TCGCSV publishes once a day (~20:05
+UTC), so `ingestTcgcsvPrices` checks `last-updated.txt` first and returns
+`{skipped:true}` when the stamp is unchanged. ~95 of the ~96 daily ticks are one
+30-byte request and a single-row query.
+
+**Verifying it is alive:** `GET /api/health` → `syncs` reports the last
+successful run per job, straight from `sync_run`. That block is what diagnosed
+the original outage and is the authoritative check — a green Actions run only
+says the workflow executed.
+
+`price-backfill.yml` is manual because its range is a decision with a storage
+bill attached: one archived day is ~44k price rows, so a two-year replay is ~32M
+rows and ~3-4 GB. It is chunked (`limit` days per run), skips days already
+ingested, and self-chains until `remaining` reaches 0.
 
 Add these repository secrets — Settings → Secrets and variables → Actions → *New
 repository secret*. The values are exactly the matching lines of your `.env.cloud`:

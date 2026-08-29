@@ -51,6 +51,39 @@ async function politeFetch(url: string, opts: FetchOpts = {}): Promise<Response>
   }
 }
 
+/**
+ * A BINARY body, for the daily price archives (`prices-YYYY-MM-DD.ppmd.7z`).
+ *
+ * Goes through the same gate as every other TCGCSV call rather than calling
+ * `fetch` directly, and that is not tidiness: TCGCSV answers **401** to a
+ * generic or missing User-Agent, which is exactly what a bare `fetch` sends.
+ * The first draft of `archive.ts` did call `fetch` directly and every request
+ * came back 401 — a scheduled 730-day replay would have failed on day one,
+ * reporting "no archive published" for a file that is plainly there.
+ *
+ * Returns `null` for 404 instead of throwing, because TCGCSV has not published
+ * every historical date and a gap is a fact the caller reports rather than an
+ * error that should abandon the other 729 days.
+ */
+export async function fetchBinary(url: string, opts: FetchOpts = {}): Promise<Buffer | null> {
+  const { minIntervalMs = TCGCSV_MIN_INTERVAL_MS, timeoutMs = 120_000 } = opts;
+  if (minIntervalMs > 0) await throttle(minIntervalMs);
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/octet-stream' },
+      signal: ctrl.signal,
+    });
+    if (res.status === 404) return null;
+    if (res.status === 429 || res.status === 403) throw new RateLimited(res.status, url);
+    if (!res.ok) throw new Error(`HTTP ${res.status} on ${url}`);
+    return Buffer.from(await res.arrayBuffer());
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 export async function fetchText(url: string, opts?: FetchOpts): Promise<string> {
   const res = await politeFetch(url, opts);
   return res.text();

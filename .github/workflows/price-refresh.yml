@@ -1,0 +1,221 @@
+# Price refresh + the daily collection-value snapshot — the scheduled jobs that
+# keep deckpal.app's prices and Insights charts alive.
+#
+# ── Why this workflow exists ────────────────────────────────────────────────
+# `apps/sync/src/index.ts` is a long-running node-cron process. It has to be
+# RUNNING somewhere, and on the cloud tier nothing ran it: `vercel.json` has no
+# `crons`, and `catalog-refresh.yml` was the only scheduled data workflow.
+# DEPLOYMENT.md §6 said so out loud — "price and snapshot ingests still run from
+# the deckpal-sync process and are not yet wired to Actions" — and that sentence
+# described an outage rather than a plan.
+#
+# Every scheduled job silently stopped on 2026-08-08 and nothing noticed for
+# three weeks. By 2026-08-29 the app was quoting prices "as of 22 days ago", the
+# Insights chart held 10 days of history and stopped dead on 8/8, and all four
+# range chips rendered the same picture because there was nothing else to draw.
+# One missing cron, four symptoms. See DECISIONS.md 2026-08-29.
+#
+# ── Why 15 minutes, when the data is daily ──────────────────────────────────
+# TCGCSV publishes ONCE a day, around 20:05 UTC. There is no faster feed to
+# consume — the owner asked for "as close to real time as possible", and the
+# honest ceiling without a TCGplayer partner agreement (which this app
+# deliberately does not have; the card modal says "no affiliate relationship")
+# is "within minutes of publication".
+#
+# So the tick is 15 minutes and the work is conditional. `ingestTcgcsvPrices`
+# fetches `last-updated.txt` FIRST and returns `{skipped:true}` when the stamp
+# matches the last successful run (`lastOkStamp`), so 95 of the ~96 daily ticks
+# are one 30-byte HTTP request and a single-row query. Only the tick that sees a
+# new stamp does the ~218-group walk. The alternative — a nightly run at a fixed
+# hour — would leave prices up to 24h stale for no saving worth having.
+#
+# GitHub's scheduler is best-effort and runs late under load. That is fine here:
+# the job is idempotent (B8) and the poll is cheap, so a late tick costs nothing
+# and a missed one is picked up by the next.
+#
+# ── Contracts ───────────────────────────────────────────────────────────────
+# B2  Every step passes PGPOOL_MAX=1. These are worker jobs on the session port.
+# B8  Idempotent: `appendObservations` is ON CONFLICT DO NOTHING on the natural
+#     key and the value snapshot is ON CONFLICT DO NOTHING per (user, day,
+#     currency). Re-running any step is a no-op, which is why nothing here has
+#     `continue-on-error`.
+# B9  This mutates catalog price data only. No Supabase settings, no Vercel
+#     config, no storage policies.
+# B11 The same five secrets `catalog-refresh.yml` documents. A missing one is
+#     reported by name in the preflight, not as an ECONNREFUSED to 127.0.0.1.
+name: Price refresh
+
+on:
+  schedule:
+    # Every 15 minutes: poll TCGCSV's last-updated stamp, ingest only on change.
+    - cron: '*/15 * * * *'
+    # Cardmarket (EUR) publishes on its own daily cadence; 02:10 UTC + the
+    # nightly value snapshot and set-progress sweep at 21:10, after the usual
+    # 20:05 TCGCSV publish has been picked up by the poll above.
+    - cron: '10 2 * * *'
+    - cron: '10 21 * * *'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which job to run by hand'
+        type: choice
+        default: prices-tcgcsv
+        options: [prices-tcgcsv, prices-cardmarket, snapshot]
+      force:
+        description: 'Ingest even when the upstream stamp is unchanged'
+        type: boolean
+        default: false
+
+# One price run at a time. Two concurrent ingests would each be idempotent on
+# their own and still interleave their per-group transactions against the same
+# rows. Queue rather than cancel: a run mid-ingest must finish on its own terms.
+# `cancel-in-progress: false` matters more here than in catalog-refresh, because
+# a */15 schedule WILL overlap a slow full ingest.
+concurrency:
+  group: price-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PGHOST: ${{ secrets.SUPABASE_DB_HOST }}
+      PGPORT: ${{ secrets.SUPABASE_DB_PORT || '5432' }}
+      PGDATABASE: ${{ secrets.SUPABASE_DB_NAME }}
+      PGUSER: ${{ secrets.SUPABASE_DB_USER }}
+      PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PGSSLMODE: require
+      # B2 / B8: these are worker jobs and must not be able to ask for more than
+      # one connection, whatever the default becomes.
+      PGPOOL_MAX: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Fail on the missing secret, not on the connection it would have made.
+      - name: Preflight — credentials present
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${PGHOST:-}" ]     || missing+=(SUPABASE_DB_HOST)
+          [ -n "${PGDATABASE:-}" ] || missing+=(SUPABASE_DB_NAME)
+          [ -n "${PGUSER:-}" ]     || missing+=(SUPABASE_DB_USER)
+          [ -n "${PGPASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Price refresh is not configured::Missing repository secret(s): ${missing[*]}. See the header of .github/workflows/price-refresh.yml."
+            exit 1
+          fi
+          echo "credentials present for ${PGUSER}@${PGHOST}:${PGPORT}/${PGDATABASE}"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      # apps/sync resolves @deckpal/db through its dist/ (main: dist/index.js),
+      # which a fresh workspace does not have.
+      - name: Build @deckpal/db
+        run: pnpm --filter @deckpal/db build
+
+      # ── Which schedule fired? ────────────────────────────────────────────
+      # `github.event.schedule` is the literal cron expression, so the three
+      # entries above are distinguishable without a second workflow file.
+      - name: Decide what to run
+        id: what
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          CHOICE: ${{ inputs.job }}
+        run: |
+          set -euo pipefail
+          # String equality, not `case`. A `case` pattern is a GLOB, so the cron
+          # expressions would need quoting to be literal — and a quoted pattern
+          # is matched INCLUDING its quotes against an unquoted expansion, which
+          # silently never matches and sends every scheduled run to the default.
+          if [ "$EVENT" = 'workflow_dispatch' ]; then
+            job="$CHOICE"
+          elif [ "$SCHEDULE" = '*/15 * * * *' ]; then
+            job=prices-tcgcsv
+          elif [ "$SCHEDULE" = '10 2 * * *' ]; then
+            job=prices-cardmarket
+          elif [ "$SCHEDULE" = '10 21 * * *' ]; then
+            job=nightly
+          else
+            echo "::error title=Unrecognised trigger::event=$EVENT schedule=$SCHEDULE — no job mapped. Add it to the ladder in this step rather than defaulting, or a schedule change becomes a silent no-op."
+            exit 1
+          fi
+          echo "job=$job" >> "$GITHUB_OUTPUT"
+          echo "resolved job: $job (event=$EVENT schedule=${SCHEDULE:-none})"
+
+      # The cheap path: `ingestTcgcsvPrices` fetches last-updated.txt and returns
+      # {skipped:true} when it matches the last OK run, so an unchanged tick is
+      # one small request and one query.
+      - name: TCGCSV price ingest
+        if: steps.what.outputs.job == 'prices-tcgcsv'
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.force }}" = "true" ]; then
+            pnpm --filter deckpal-sync prices tcgcsv --force
+          else
+            pnpm --filter deckpal-sync run-once prices-tcgcsv
+          fi
+
+      - name: Cardmarket price ingest
+        if: steps.what.outputs.job == 'prices-cardmarket'
+        run: pnpm --filter deckpal-sync run-once prices-cardmarket
+
+      # The nightly pair. The snapshot is the ALL-USERS SQL path, not the
+      # per-user HTTP endpoint: a scheduled runner holds a database password and
+      # no session, so `currentUserId(req)` would resolve to nobody and snapshot
+      # nothing. See apps/sync/src/jobs/valueSnapshot.ts.
+      - name: Collection-value snapshot (all users)
+        if: steps.what.outputs.job == 'nightly' || steps.what.outputs.job == 'snapshot'
+        run: pnpm --filter deckpal-sync prices snapshot
+
+      # ── WHY THERE IS NO RECONCILE STEP ──────────────────────────────────
+      # `run-once reconcile` POSTs `${DECKPAL_API_BASE}/collection/reconcile`
+      # (jobs/api-jobs.ts), defaulting to 127.0.0.1:3700. There is no API on an
+      # Actions runner, so the step would ECONNREFUSE, write a `failed` sync_run
+      # row, and turn every 21:10 run red — and a workflow that is red every
+      # night is a workflow nobody reads on the night it matters.
+      #
+      # Pointing it at deckpal.app does not help: like the value snapshot, the
+      # endpoint is `currentUserId`-scoped and a runner holds a database
+      # password and no session. The snapshot got an all-users SQL path
+      # (jobs/valueSnapshot.ts); reconcile has not, because
+      # `recomputeSetProgress` is a non-trivial statement and a second copy is
+      # the same drift risk that one is carefully tested against.
+      #
+      # Nothing is silently lost by omitting it. `user_set_progress` is
+      # recomputed IN THE SAME TRANSACTION as every collection write
+      # (routes/collection.ts), so reconcile is a drift sweep, not the thing
+      # that keeps progress correct. Self-host still runs it on its own cron.
+      # Tracked in roadmap/plans/lists-prices-insights.md.
+
+      # A green run that did nothing and a green run that ingested 40,000 rows
+      # look identical in the Actions list. The */15 schedule makes that a real
+      # problem: without this, "is the price feed alive?" is only answerable by
+      # opening a log. `/api/health` reports the same facts from the database
+      # side (its `syncs` block is what diagnosed the original outage).
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### Price refresh"
+            echo ""
+            echo "- job: \`${{ steps.what.outputs.job }}\`"
+            echo "- trigger: \`${{ github.event_name }} ${{ github.event.schedule }}\`"
+            echo ""
+            echo "Check \`GET /api/health\` → \`syncs\` for the authoritative last-run stamps."
+          } >> "$GITHUB_STEP_SUMMARY"

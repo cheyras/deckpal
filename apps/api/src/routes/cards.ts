@@ -1,9 +1,26 @@
 import { Router } from 'express';
-import { cardImages, q, q1, shapePrice, tcgplayerUrl, type PriceRow } from '../db.js';
-import { asyncHandler, notFound, userCache } from '../http.js';
+import { cardImages, pool, q, q1, shapePrice, tcgplayerUrl, toMajor, type PriceRow } from '../db.js';
+import { asyncHandler, notFound, oneOf, userCache } from '../http.js';
 import { optionalUserId } from '../identity.js';
+import { cardLegality, formatConfig, loadByTcgdexId, buildReprintOracle } from '../deck/index.js';
 
 export const cardsRouter: Router = Router();
+
+/**
+ * The windows the price chart offers, mirroring the Insights value chart's
+ * (`insights/collectionValue.ts`). Two range vocabularies in one app would be a
+ * small betrayal of the reader every time they moved between the two charts.
+ */
+const PRICE_RANGES = ['30d', '3m', '6m', '1y', '18m', '2y'] as const;
+type PriceRange = (typeof PRICE_RANGES)[number];
+const PRICE_RANGE_INTERVAL: Record<PriceRange, string> = {
+  '30d': '30 days',
+  '3m': '3 months',
+  '6m': '6 months',
+  '1y': '1 year',
+  '18m': '18 months',
+  '2y': '2 years',
+};
 
 interface CardRow {
   id: string;
@@ -249,5 +266,123 @@ cardsRouter.get(
         prices: (pricesByVariant.get(v.id) ?? []).map(shapePrice),
       })),
     });
+  }),
+);
+
+/**
+ * GET /deckpal/api/cards/:cardId/legality — per-format eligibility for one card.
+ *
+ * Its own endpoint, fetched only when the card modal's TCG tab is opened, rather
+ * than a field on the card payload. `GET /cards/:cardId` is on a hot path (the
+ * table view opens one per row for its variant counters), and this adds a
+ * catalogue round trip for the reprint oracle that the other 95% of card reads
+ * would pay for nothing.
+ *
+ * Public: legality is a property of the card, not of anyone's collection.
+ */
+cardsRouter.get(
+  '/:cardId/legality',
+  asyncHandler(async (req, res) => {
+    const cardTcgdexId = String(req.params.cardId);
+    const facts = await loadByTcgdexId(pool, cardTcgdexId);
+    if (!facts) throw notFound(`No card '${cardTcgdexId}'`);
+
+    // The reprint oracle (§2.1.5) is what stops a rotated-out printing being
+    // reported as illegal when a fingerprint-identical legal reprint exists.
+    // Standard is the only format whose pool is mark-based, so it is the only
+    // one that needs it; `buildReprintOracle` self-shortcuts when the card
+    // already carries a legal mark.
+    const legalMarks = formatConfig('standard').legal_marks;
+    const oracle = await buildReprintOracle(pool, [facts], legalMarks);
+
+    userCache(res);
+    res.json(cardLegality(facts, { isInFormatByReprint: oracle }));
+  }),
+);
+
+/**
+ * GET /deckpal/api/cards/:cardId/prices?range=30d|3m|6m|1y|18m|2y&currency=USD
+ * — observed market price over time, one series per variant.
+ *
+ * The card modal's Price tab read "Price history — coming soon" for as long as
+ * it existed, and the data was there the whole time: `price_observation` is
+ * append-only, partitioned by month, and carries the SOURCE's own stamp rather
+ * than ingest time (`007_pricing.sql:49`). What was missing was a reader.
+ *
+ * Grouped by DAY, not by observation. Two ingests can land on one calendar day
+ * (a live run and a replayed archive carry different `captured_at` times for
+ * the same date) and a chart with two points on one day reads as volatility
+ * that did not happen. `max(market_minor)` per day matches how the collection
+ * total picks its price across sources.
+ *
+ * Public, like the rest of this router: a price is a property of the card.
+ */
+cardsRouter.get(
+  '/:cardId/prices',
+  asyncHandler(async (req, res) => {
+    const cardTcgdexId = String(req.params.cardId);
+    const range = oneOf(req.query.range, PRICE_RANGES, '3m');
+    const currency = oneOf(req.query.currency, ['USD', 'EUR', 'JPY'] as const, 'USD');
+
+    const card = await q1<{ id: string }>(
+      `SELECT id FROM card WHERE tcgdex_id = $1 AND lang = 'en'`,
+      [cardTcgdexId],
+    );
+    if (!card) throw notFound(`No card '${cardTcgdexId}'`);
+
+    const rows = await q<{
+      variant_id: string;
+      variant_kind_code: string;
+      display_name: string | null;
+      kind_display: string;
+      tier: string | null;
+      observed_on: string;
+      market_minor: string;
+    }>(
+      `SELECT cv.id AS variant_id, cv.variant_kind_code,
+              cv.display_name, vk.display_name AS kind_display, t.tier,
+              to_char(po.captured_at, 'YYYY-MM-DD') AS observed_on,
+              max(po.market_minor) AS market_minor
+         FROM card_variant cv
+         JOIN variant_kind vk ON vk.code = cv.variant_kind_code
+    LEFT JOIN variant_tier_resolved t ON t.card_variant_id = cv.id
+         JOIN price_observation po ON po.card_variant_id = cv.id
+        WHERE cv.card_id = $1
+          AND po.market_minor IS NOT NULL
+          AND upper(btrim(po.currency_code)) = $2
+          AND po.captured_at >= (CURRENT_DATE - $3::interval)
+        GROUP BY cv.id, cv.variant_kind_code, cv.display_name, vk.display_name, t.tier,
+                 to_char(po.captured_at, 'YYYY-MM-DD')
+        ORDER BY cv.sort_order, 6`,
+      [card.id, currency, PRICE_RANGE_INTERVAL[range]],
+    );
+
+    const byVariant = new Map<string, {
+      variantId: number;
+      kind: string;
+      displayName: string;
+      tier: string | null;
+      points: { date: string; value: number }[];
+    }>();
+    for (const r of rows) {
+      let series = byVariant.get(r.variant_id);
+      if (!series) {
+        series = {
+          variantId: Number(r.variant_id),
+          kind: r.variant_kind_code,
+          displayName: r.display_name ?? r.kind_display,
+          tier: r.tier,
+          points: [],
+        };
+        byVariant.set(r.variant_id, series);
+      }
+      series.points.push({
+        date: r.observed_on,
+        value: toMajor(Number(r.market_minor), currency) ?? 0,
+      });
+    }
+
+    userCache(res);
+    res.json({ currency, range, series: [...byVariant.values()] });
   }),
 );
