@@ -17,6 +17,7 @@ import { StrategyTab } from './deck/StrategyTab'
 import { BattlesTab } from './deck/BattlesTab'
 import { HistoryTab } from './deck/HistoryTab'
 import { useLateEntrance } from '../lib/lateEntrance'
+import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
 const FORMATS: DeckFormat[] = ['standard', 'expanded', 'glc', 'unlimited']
 const SECTION_TITLE = { pokemon: 'Pokémon', trainer: 'Trainer', energy: 'Energy' } as const
@@ -324,8 +325,8 @@ function DeckAddModal({ format, onClose, onAdd, addingId }: {
             {results.map((c) => (
               <button key={c.cardId} onClick={() => onAdd(c.cardId, qty)} disabled={addingId === c.cardId}
                 className="group flex flex-col rounded-lg border border-transparent p-[6px] text-left hover:border-border-default hover:bg-surface-tertiary disabled:opacity-50">
-                <div className="relative overflow-hidden rounded-md">
-                  <img src={c.images.low} alt={c.name} loading="lazy" className="aspect-[245/337] w-full object-cover" />
+                <div className="relative overflow-hidden" style={{ borderRadius: CARD_RADIUS_CSS }}>
+                  <img src={c.images.low} alt={c.name} loading="lazy" className="w-full object-cover" style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }} />
                   <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[14px] font-bold text-white opacity-0 group-hover:opacity-100">
                     {addingId === c.cardId ? 'Adding…' : `+ Add ${qty}`}
                   </span>
@@ -371,8 +372,8 @@ function TestHandModal({ deckId, onClose }: { deckId: string; onClose: () => voi
             <div className="grid grid-cols-4 gap-[10px] sm:grid-cols-7">
               {data.hand.map((c, i) => (
                 <div key={i} className="flex flex-col items-center gap-[4px]">
-                  <div className={`relative overflow-hidden rounded-md ${c.isBasicPokemon ? 'ring-2 ring-change-positive' : ''}`}>
-                    {c.image ? <img src={c.image} alt={c.name} className="aspect-[245/337] w-full object-cover" /> : <div className="aspect-[245/337] w-full bg-surface-tertiary" />}
+                  <div className={`relative overflow-hidden ${c.isBasicPokemon ? 'ring-2 ring-change-positive' : ''}`} style={{ borderRadius: CARD_RADIUS_CSS }}>
+                    {c.image ? <img src={c.image} alt={c.name} className="w-full object-cover" style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }} /> : <div className="w-full bg-surface-tertiary" style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }} />}
                   </div>
                   <span className="line-clamp-2 text-center text-[14px] leading-[13px] text-text-secondary">{c.name}</span>
                 </div>
