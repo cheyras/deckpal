@@ -15,6 +15,7 @@ import { readSession, refreshSessionBounded } from './authSession'
 import { isPublicPathname } from './landingRoute'
 import { isJsonContentType } from './jsonContentType'
 import type { ValueRangeKey } from './insightsCaption'
+import type { PriceGrain, PriceHistoryPoint } from './priceGrain'
 import type { Goal } from '../routes/setSearch'
 
 const BASE = isCloudMode ? '/api' : '/deckpal/api'
@@ -488,7 +489,25 @@ export interface CardLegalityResponse {
   formats: { format: 'standard' | 'expanded' | 'glc' | 'unlimited'; legal: boolean; reasons: string[] }[]
 }
 
-/** Observed market price over time, one series per printing. */
+// One definition of the point shape — priceGrain.ts owns it (that module stays
+// runtime-import-free); these re-exports keep every import site pointing here.
+export type { PriceGrain, PriceHistoryPoint }
+
+/**
+ * Observed market price over time, one series per printing, at whatever GRAIN
+ * that stretch of history still exists in.
+ *
+ * The points used to be `{date, value}`. Since the retention tiers landed
+ * (migration 048) history is kept daily for ~30 days, weekly for ~6 months and
+ * monthly forever, so every point carries the full OHLC bucket and a `grain`
+ * saying which tier it came from. A DAY is a degenerate bucket —
+ * `open = high = low = close`, `start = end = highOn = lowOn`, `n = 1` — so a
+ * caller that only wants a line reads `close` and never branches on grain.
+ *
+ * The endpoint's JSDoc carries the contract for what may be ASSERTED from a
+ * bucket; it matters here too, because this type is what an agent tool would
+ * eventually be built on.
+ */
 export interface CardPriceHistoryResponse {
   currency: string
   range: ValueRange
@@ -497,7 +516,7 @@ export interface CardPriceHistoryResponse {
     kind: string
     displayName: string
     tier: string | null
-    points: { date: string; value: number }[]
+    points: PriceHistoryPoint[]
   }[]
 }
 

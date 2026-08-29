@@ -13,7 +13,7 @@ export interface Queryable {
 }
 
 export type SyncStatus = 'running' | 'ok' | 'partial' | 'failed' | 'skipped';
-export type PriceJob = 'prices-tcgcsv' | 'prices-cardmarket' | 'products-tcgcsv';
+export type PriceJob = 'prices-tcgcsv' | 'prices-cardmarket' | 'products-tcgcsv' | 'prices-rollup';
 
 // ── sync_run lifecycle ────────────────────────────────────────────────────────
 export async function startRun(

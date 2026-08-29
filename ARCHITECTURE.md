@@ -347,6 +347,13 @@ JSON-to-object expansion) and would OOM most environments.
 The TCGplayer feed comes from TCGCSV, once daily. Cardmarket is likewise daily.
 Every price in the UI renders "as of {date}" -- honest by construction.
 
+The same honesty applies backwards in time. Old history is not daily -- it is
+weekly and then monthly OHLC buckets, because daily-forever does not fit the
+disk. So the price chart draws each period's CLOSE as a line with its low-to-high
+range as a band, and captions which stretch is which grain ("daily since Jul 30 ·
+weekly to Feb · monthly before"). A chart whose left half is smoother than its
+right half, with nothing saying why, reads as the market having calmed down.
+
 ### Sync jobs -- GitHub Actions
 
 The existing importers (`apps/sync/src/`) are idempotent, resumable, and use
@@ -492,7 +499,13 @@ stamp is one `INSERT` and never a migration.
 materialized into `user_set_progress`.
 
 **Price history** is append-only and partitioned, keyed
-`(variant, source, currency, captured_at)` with `captured_at` from the source.
+`(variant, source, currency, captured_at)` with `captured_at` from the source —
+and TIERED BY AGE: daily rows for ~30 days, then weekly OHLC buckets for ~6
+months, then monthly buckets forever (`price_bucket`, migration 048). Daily
+forever is ~6.6 GB/year against an 8 GB allowance; the tiers are ~2.9 GB steady
+state. The rollup verifies every bucket against the source it is about to
+destroy, and drops a partition only one run after retiring it. `research/SCHEMA.md`
+§7.5.
 
 `user_id` is on every user-owned row; catalog and pricing tables are global.
 

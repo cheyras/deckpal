@@ -380,13 +380,15 @@ The script (`scripts/migrate-to-cloud.ts`):
 
 ### 6. GitHub Actions sync setup
 
-Three scheduled data workflows, all driven by the same five secrets below.
+Four data workflows, all driven by the same five secrets below. Three are
+scheduled; `price-rollup.yml` is dispatch-only until its first supervised run.
 
 | Workflow | Schedule | What it does |
 |---|---|---|
 | `catalog-refresh.yml` | Sundays 04:30 UTC | `card` / `card_set` in step with upstream TCGdex |
 | `price-refresh.yml` | every 15 min, plus 02:10 and 21:10 UTC | polls TCGCSV's `last-updated.txt` and ingests on change; nightly Cardmarket ingest, all-users value snapshot, set-progress reconcile |
 | `price-backfill.yml` | manual only | replays TCGCSV daily archives into `price_observation` for a past range |
+| `price-rollup.yml` | **manual only, cron commented out** | tiered retention: rolls old months into weekly/monthly OHLC `price_bucket` rows, verifies them against the source, then retires and later DROPS the daily partition |
 
 **`price-refresh.yml` is what keeps prices and the Insights charts alive on the
 cloud tier.** Until 2026-08-29 nothing did: `apps/sync` is a long-running
@@ -406,6 +408,35 @@ UTC), so `ingestTcgcsvPrices` checks `last-updated.txt` first and returns
 successful run per job, straight from `sync_run`. That block is what diagnosed
 the original outage and is the authoritative check — a green Actions run only
 says the workflow executed.
+
+**`price-rollup.yml` destroys data by design, so its `schedule:` block ships
+COMMENTED OUT.** Daily price rows forever are ~6.6 GB/year against a Supabase Pro
+allowance of 8 GB; the tiers are ~2.9 GB steady state, growing ~0.27 GB/year. The
+order for arming it is in the workflow's own header: backfill chain complete →
+`dry_run: true` dispatch → supervised catch-up in `limit`-sized chunks, oldest
+first → record the `pg_total_relation_size` totals before and after in
+DECISIONS.md → only then uncomment the cron, in its own commit. A job that
+destroys history does not get to introduce itself on a schedule.
+
+**There is a repair deadline, and it is finite.** A month with days nobody
+ingested is refused by the rollup (and the run HALTS there rather than rolling
+past it), so the normal outcome of an ingest outage is a red rollup naming the
+missing days — replay them with `price-backfill.yml` and re-run. The
+`allow_gaps` input exists for days TCGCSV genuinely never published; using it
+makes the hole permanent, because after the partition is dropped the buckets are
+the only copy. On the monthly cron the window between an outage and its month
+becoming eligible is roughly 35-65 days.
+
+One disclosed cost of the tiers, unrelated to outages: `prices snapshot-backfill`
+can honestly skip a small number of days just after a weekly quarter is dropped,
+where the nearest bucket close is older than the tier's window allows. Those days
+are reported by date, not silently omitted.
+
+Its retention windows (30 days daily / ~6 months weekly / monthly forever) are
+NAMED CONSTANTS in `apps/sync/src/prices/rollup.ts`, deliberately not environment
+variables — so per B11 there is no runtime configuration here that can be
+silently unset. If they ever become tunable they gain a row in the table below
+in the same commit.
 
 `price-backfill.yml` is manual because its range is a decision with a storage
 bill attached: one archived day is ~44k price rows, so a two-year replay is ~32M

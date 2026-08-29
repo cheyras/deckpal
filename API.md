@@ -234,6 +234,71 @@ Empty `prices` ⇒ render "no price". `buyUrl` is `null` when there is no TCGpla
 mapping at all. `quantity` is the requesting user's owned count of that variant (0 if
 unowned) — the initial value for the card-detail quantity stepper.
 
+## GET /deckpal/api/cards/:cardId/prices
+Observed market price over time, one series per PRINTING, at whatever GRAIN that
+stretch of history still exists in.
+
+| param | kind | notes |
+|---|---|---|
+| `range` | `30d`\|`3m`\|`6m`\|`1y`\|`18m`\|`2y` | default `3m`; same vocabulary as the Insights value chart |
+| `currency` | `USD`\|`EUR`\|`JPY` | default `USD` |
+
+```json
+{ "currency":"USD", "range":"2y",
+  "series":[ { "variantId":15, "kind":"holo-unlimited", "displayName":"Holofoil", "tier":"standard",
+               "points":[
+                 { "grain":"month","start":"2025-03-01","end":"2025-03-31",
+                   "open":780.10,"high":812.00,"low":749.55,"close":801.20,
+                   "highOn":"2025-03-09","lowOn":"2025-03-22",
+                   "mean":779.40,"median":781.00,"n":31 },
+                 { "grain":"week","start":"2026-02-23","end":"2026-03-01",
+                   "open":800.43,"high":806.10,"low":795.00,"close":802.75,
+                   "highOn":"2026-02-25","lowOn":"2026-02-28",
+                   "mean":800.90,"median":801.10,"n":7 },
+                 { "grain":"day","start":"2026-08-15","end":"2026-08-15",
+                   "open":812.34,"high":812.34,"low":812.34,"close":812.34,
+                   "highOn":"2026-08-15","lowOn":"2026-08-15",
+                   "mean":812.34,"median":812.34,"n":1 } ] } ] }
+```
+
+**Three tiers, one point shape.** Daily rows forever do not fit the disk
+(~6.6 GB/year at three TCGs), so history is kept daily for ~30 days, as weekly
+OHLC buckets for ~6 months, and as monthly buckets forever — see
+`research/SCHEMA.md` §7.5. A DAY is a **degenerate bucket**:
+`open = high = low = close`, `start = end = highOn = lowOn`, `n = 1`. A client
+that only wants a line reads `close` and never branches on `grain`.
+
+Points are ordered oldest first, month → week → day, and are contiguous — the
+rollup HALTS rather than rolling past a month it cannot finish, precisely so
+that the daily floor never jumps over a month whose rows would then be visible
+at no grain at all. The one edge that is not covered is the window's own left
+edge: a bucket that starts before `range` begins is excluded, so a 1y or 2y
+chart can begin up to a month after its nominal start. Two seams overlap by up
+to six days each — the tiers are not a clean tiling (a month
+bucket and its own week buckets describe the same days at two grains) and an
+overlap was chosen over a gap deliberately: a chart with a hole in it reads as
+missing data. `n` is the number of days actually observed in the bucket, so a
+week with `n: 5` had a two-day ingest gap.
+
+**What may be asserted from a bucket** — this is a CONTRACT, and it ships
+verbatim in the endpoint's JSDoc because rollup destroys real information:
+
+- **MAY**: open/close/high/low/mean/median of a bucket; the exact dates and
+  values of the period's high and low (`highOn`/`lowOn` are true daily facts
+  that survive the rollup); trend across buckets; volatility DERIVED from OHLC
+  (Parkinson / Garman-Klass — there is no stored variance, because
+  `corr(stddev, high-low) = 0.9878` measured over 633,431 real weekly buckets,
+  and no VWAP, because TCGCSV supplies no volume).
+- **MAY NOT**: any specific day's price inside a week or month bucket other than
+  the two extremes; the path between them; durations ("stayed under \$5 for
+  eleven days"); a second or third dip within one bucket.
+
+"It dipped to \$4.00 on the 12th" is licensed if and only if `lowOn` says the
+12th and `low` says \$4.00.
+
+No agent tool exposes price history today (`get_card` serves current prices
+only). Any that later does must carry the block above unchanged.
+
 ## GET /deckpal/api/search
 The 12-filter advanced search. AND across fields, OR within a multi-value field.
 

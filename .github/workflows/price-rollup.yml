@@ -1,0 +1,232 @@
+# Price history rollup — tiered retention for `price_observation`.
+#
+# ⚠ THIS WORKFLOW DESTROYS DATA BY DESIGN. It rolls a month of daily price rows
+# up into weekly and monthly OHLC buckets, PROVES the buckets are exactly what
+# the source says, detaches the month's partition, and DROPS a partition that a
+# previous run detached. See `apps/sync/src/prices/rollup.ts` for the safety
+# argument and `roadmap/plans/price-retention-tiers.md` for why any of it exists.
+#
+# ── Why it exists ───────────────────────────────────────────────────────────
+# Measured against the live database on 2026-08-29: 28,622 Pokémon price rows a
+# day join to a `card_variant`, at ~112 bytes each. Adding Magic (~103k matched
+# rows/day) and Yu-Gi-Oh puts daily-forever at ~6.6 GB/YEAR against a Supabase
+# Pro allowance of 8 GB. The tiers are ~2.9 GB steady state, growing ~0.27
+# GB/year. The two-year Pokémon backfill alone is ~2.5 GB, ~2.2 GB of which the
+# catch-up rollup reclaims.
+#
+# ── THE SCHEDULE IS DELIBERATELY NOT ENABLED ────────────────────────────────
+# A job that destroys history does not get to introduce itself on a cron. The
+# order is:
+#
+#   1. The archive backfill chain reports `remaining: 0` (price-backfill.yml).
+#   2. The owner dispatches this workflow with `dry_run: true` and reads the
+#      report — eligible months, bucket counts, nothing written.
+#   3. The owner dispatches the real catch-up, oldest months first, in `limit`
+#      sized chunks, checking `verification` on each run. Nothing is DROPPED in
+#      the run that retires it; the next run re-verifies and drops.
+#   4. The `pg_total_relation_size` totals before/after go in the DECISIONS.md
+#      entry — the reclaim is the deliverable, so it gets measured.
+#   5. ONLY THEN is the `schedule:` block below uncommented, in its own commit.
+#
+# Steady state after that is one small run a month: at the start of month M+2
+# there is exactly one newly-eligible month (M), so `limit: 3` is headroom
+# rather than a workload.
+#
+# ── Contracts ───────────────────────────────────────────────────────────────
+# B2  PGPOOL_MAX=1. A worker job on the SESSION port — the verification builds a
+#     TEMP table, which does not survive transaction pooling.
+# B8  Idempotent and resumable: every bucket write is ON CONFLICT DO UPDATE and
+#     every check is re-derived from the data, so a run that dies halfway is
+#     resumed by running it again. There is no cursor outside the data itself.
+# B9  This mutates catalogue price data only — no Supabase settings, no Vercel
+#     config, no storage policies. The RANGE it destroys is the owner's
+#     decision, which is why the first run is dispatched by hand.
+# B11 The retention windows are constants in `rollup.ts`, NOT environment
+#     variables, so this workflow has no configuration that can be silently
+#     unset. The five secrets below are the same ones `price-refresh.yml` uses.
+name: Price history rollup
+
+on:
+  # ⚠ Uncomment ONLY after the supervised catch-up described above has run and
+  # been verified. The 3rd of the month leaves the live ingest two full days to
+  # own the new month before anything two months older is considered.
+  #
+  # schedule:
+  #   - cron: '20 4 3 * *'
+  workflow_dispatch:
+    inputs:
+      month:
+        description: 'One month, YYYY-MM. Blank = every eligible month, oldest first.'
+        required: false
+        default: ''
+      limit:
+        description: 'Max months to roll up in this run (ignored when month is set)'
+        required: true
+        default: '3'
+      dry_run:
+        description: 'Report what would be written, detached and dropped — write nothing'
+        type: boolean
+        default: true
+      force:
+        description: 'Roll up a month that is still INSIDE the 30-day daily window'
+        type: boolean
+        default: false
+      allow_gaps:
+        description: 'Roll up a month with days nobody ever ingested (makes the hole PERMANENT — replay first)'
+        type: boolean
+        default: false
+
+# Never two rollups at once, and never a rollup beside itself. The command also
+# takes the `prices-rollup` AND `prices-backfill` advisory locks, so a manual
+# `prices backfill` cannot interleave either — a rollup during an incomplete
+# replay would bake a partial month into buckets, verify it against the same
+# partial source, and drop the rest.
+concurrency:
+  group: price-rollup
+  cancel-in-progress: false
+
+jobs:
+  rollup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PGHOST: ${{ secrets.SUPABASE_DB_HOST }}
+      PGPORT: ${{ secrets.SUPABASE_DB_PORT || '5432' }}
+      PGDATABASE: ${{ secrets.SUPABASE_DB_NAME }}
+      PGUSER: ${{ secrets.SUPABASE_DB_USER }}
+      PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PGSSLMODE: require
+      # B2: a worker job. The TEMP table the verification builds needs the
+      # session port, and one connection is all this ever wants.
+      PGPOOL_MAX: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Fail on the missing secret, not on the connection it would have made.
+      - name: Preflight — credentials present
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${PGHOST:-}" ]     || missing+=(SUPABASE_DB_HOST)
+          [ -n "${PGDATABASE:-}" ] || missing+=(SUPABASE_DB_NAME)
+          [ -n "${PGUSER:-}" ]     || missing+=(SUPABASE_DB_USER)
+          [ -n "${PGPASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Price rollup is not configured::Missing repository secret(s): ${missing[*]}. See the header of .github/workflows/price-rollup.yml."
+            exit 1
+          fi
+          echo "credentials present for ${PGUSER}@${PGHOST}:${PGPORT}/${PGDATABASE}"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      # apps/sync resolves @deckpal/db through its dist/ (main: dist/index.js),
+      # which a fresh workspace does not have.
+      - name: Build @deckpal/db
+        run: pnpm --filter @deckpal/db build
+
+      # A safety net rather than a formality: 048 creates the table this writes
+      # to, and running the rollup against a database without it would fail on
+      # the first INSERT rather than on a sentence that says what is missing.
+      - name: Preflight — price_bucket exists
+        run: |
+          set -euo pipefail
+          # @deckpal/db is ESM, so this is an import and not a require —
+          # `require()` of an ESM module is a hard error on Node 20.
+          node --input-type=module -e "
+            import { makePool, loadEnv } from './packages/db/dist/index.js';
+            loadEnv();
+            const pool = makePool(1);
+            try {
+              const r = await pool.query(\"SELECT to_regclass('public.price_bucket') AS t\");
+              if (!r.rows[0].t) {
+                console.error('::error title=Migration 048 has not been applied::price_bucket does not exist. Run pnpm migrate against this database first.');
+                process.exit(1);
+              }
+              console.log('price_bucket present');
+            } finally {
+              await pool.end();
+            }
+          "
+
+      - name: Roll up
+        id: run
+        run: |
+          set -euo pipefail
+          args=""
+          if [ -n "${{ inputs.month }}" ]; then
+            args="$args --month=${{ inputs.month }}"
+          else
+            args="$args --limit=${{ inputs.limit }}"
+          fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then args="$args --dry-run"; fi
+          if [ "${{ inputs.force }}"   = "true" ]; then args="$args --force";   fi
+          if [ "${{ inputs.allow_gaps }}" = "true" ]; then args="$args --allow-gaps"; fi
+          echo "running: prices rollup $args"
+          # The command exits non-zero when the run HALTED at a month, when
+          # eligible months went unattempted behind it, or when a retired
+          # partition failed re-verification. All mean "look at this", and all
+          # leave the months that did succeed committed — so the failure is
+          # recorded rather than swallowed, and the run is still progress.
+          #
+          # A halt is not a nuisance to route around: the two things that cause
+          # one — an unreadable straddling week, and a month with days nobody
+          # ingested — are the two ways this job can destroy history that was
+          # still recoverable a moment earlier.
+          set +e
+          pnpm --filter deckpal-sync prices rollup $args | tee result.json
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          node -e "
+            const fs=require('fs');
+            const t=fs.readFileSync('result.json','utf8');
+            const i=t.indexOf('{'), j=t.lastIndexOf('}');
+            const r=JSON.parse(t.slice(i,j+1));
+            const out=[
+              'rolled='+(r.rolled||[]).length,
+              'halted='+(r.haltedAt||[]).length,
+              'blocked='+(r.notAttempted||[]).length,
+              'dropped='+(r.droppedPartitions||[]).filter(d=>d.dropped).length,
+              'reclaimed='+(r.bytesReclaimed||0),
+            ].join('\n');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, out+'\n');
+          "
+          exit $code
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Price history rollup"
+            echo ""
+            echo "- dry run: \`${{ inputs.dry_run }}\`"
+            echo "- months rolled up: **${{ steps.run.outputs.rolled }}**"
+            echo "- halted at: **${{ steps.run.outputs.halted }}** month(s)"
+            echo "- eligible months not attempted behind the halt: **${{ steps.run.outputs.blocked }}**"
+            echo "- partitions dropped: **${{ steps.run.outputs.dropped }}**"
+            echo "- bytes reclaimed: **${{ steps.run.outputs.reclaimed }}**"
+            echo ""
+            echo "A partition retired by THIS run is dropped by the NEXT one, which"
+            echo "re-verifies its buckets first. Until then the daily rows are still"
+            echo "readable from the \`…_retired\` table."
+            echo ""
+            echo '```json'
+            cat result.json 2>/dev/null || echo '{}'
+            echo '```'
+            echo ""
+            echo "Check \`GET /api/health\` → \`syncs\` for the \`prices-rollup\` status."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -302,18 +302,87 @@ cardsRouter.get(
 
 /**
  * GET /deckpal/api/cards/:cardId/prices?range=30d|3m|6m|1y|18m|2y&currency=USD
- * — observed market price over time, one series per variant.
+ * — observed market price over time, one series per variant, at whatever GRAIN
+ * that stretch of history still exists in.
  *
  * The card modal's Price tab read "Price history — coming soon" for as long as
  * it existed, and the data was there the whole time: `price_observation` is
  * append-only, partitioned by month, and carries the SOURCE's own stamp rather
  * than ingest time (`007_pricing.sql:49`). What was missing was a reader.
  *
+ * ── THREE TIERS, ONE POINT SHAPE ───────────────────────────────────────────
+ * Daily rows forever do not fit the disk (~6.6 GB/year at the scale this app is
+ * heading for), so `apps/sync/src/prices/rollup.ts` keeps the last ~30 days
+ * daily, ~6 months of WEEKLY OHLC buckets, and MONTHLY buckets forever. Making
+ * the reader present three tiers as one series is deliberate: uniformity is the
+ * reader's problem, solved here, rather than the writer's — see the "Why the
+ * daily tier stays in price_observation" section of the plan.
+ *
+ * So every point carries the full bucket shape, and a DAY is a degenerate
+ * bucket: `open = high = low = close`, `start = end = highOn = lowOn`, `n = 1`.
+ * A client that only wants a line reads `close` and never branches.
+ *
+ * ── HOW THE GRAIN IS CHOSEN ────────────────────────────────────────────────
+ * Two cheap floors, from the two small `bucket_start` indexes 048 creates —
+ * no partition introspection, and self-adjusting as the rollup runs:
+ *
+ *   day_floor  = max(month bucket_start) + 1 month   (NULL ⇒ nothing is rolled
+ *                                                     up yet ⇒ all daily)
+ *   week_floor = min(week bucket_start)              (NULL ⇒ no weekly tier)
+ *
+ * month grain serves [range_start, week_floor), week grain
+ * [week_floor, day_floor), daily [day_floor, today].
+ *
+ * ── THE TWO SEAMS ──────────────────────────────────────────────────────────
+ * The tiers are not a clean tiling and cannot be: a month bucket and that same
+ * month's week buckets describe THE SAME DAYS at two grains, and ISO weeks do
+ * not respect month boundaries. Something has to give at each floor, and the
+ * choice everywhere is a small OVERLAP rather than a gap — a chart that draws
+ * one week twice is cosmetic; a chart with a hole in it looks like missing data
+ * and gets reported as a bug.
+ *
+ *   day floor   a week bucket starting in the last rolled-up month can extend
+ *               up to six days past `day_floor`, so those days appear both in
+ *               that week's band and as daily points.
+ *   week floor  `month_ceiling` is the last day the MONTH tier is responsible
+ *               for — the end of the last month served at month grain. The week
+ *               tier picks up from the first week that ENDS after it, which is
+ *               at most six days of overlap. Without this the boundary month
+ *               would be drawn twice IN FULL: once as one wide month band and
+ *               again as its own four or five weekly bands.
+ *
+ * Both are bounded by six days by construction, and both are documented rather
+ * than special-cased in the writer.
+ *
  * Grouped by DAY, not by observation. Two ingests can land on one calendar day
  * (a live run and a replayed archive carry different `captured_at` times for
  * the same date) and a chart with two points on one day reads as volatility
  * that did not happen. `max(market_minor)` per day matches how the collection
- * total picks its price across sources.
+ * total picks its price across sources, and is exactly the day-series the
+ * rollup buckets, so the two tiers cannot disagree about what a day was worth.
+ *
+ * ── WHAT AN AGENT MAY ASSERT FROM THIS RESPONSE ────────────────────────────
+ * ⚠ THIS TEXT IS A CONTRACT. It MUST ship verbatim in any `packages/agent-tools`
+ * or MCP tool that later exposes price history — none does today (`get_card`
+ * serves current prices only). Rollup destroys real information, and an agent
+ * that does not know WHICH information will invent it.
+ *
+ * Grounded on `grain`, an agent:
+ *
+ *   MAY assert — open/close/high/low/mean/median of a bucket; the exact dates
+ *   and values of the period's high and low (`highOn`/`lowOn` are TRUE DAILY
+ *   FACTS that survive the rollup); trend across buckets; and volatility
+ *   DERIVED from OHLC (Parkinson or Garman-Klass — never a stored variance,
+ *   which would be a second name for the range: corr(stddev, high-low) = 0.9878
+ *   measured over 633,431 real weekly buckets).
+ *
+ *   MAY NOT assert — any specific day's price inside a week or month bucket
+ *   other than the two extremes; the path between them; durations ("stayed
+ *   under $5 for eleven days"); or a second/third dip or spike within one
+ *   bucket. Those are the things the rollup genuinely destroys.
+ *
+ * "It dipped to $4.00 on the 12th" is licensed if and only if `lowOn` says the
+ * 12th and `low` says $4.00.
  *
  * Public, like the rest of this router: a price is a property of the card.
  */
@@ -336,24 +405,113 @@ cardsRouter.get(
       display_name: string | null;
       kind_display: string;
       tier: string | null;
-      observed_on: string;
-      market_minor: string;
+      grain: 'day' | 'week' | 'month';
+      start_on: string;
+      end_on: string;
+      open_minor: string;
+      high_minor: string;
+      low_minor: string;
+      close_minor: string;
+      high_on: string;
+      low_on: string;
+      mean_minor: string;
+      median_minor: string;
+      n_obs: number;
     }>(
-      `SELECT cv.id AS variant_id, cv.variant_kind_code,
-              cv.display_name, vk.display_name AS kind_display, t.tier,
-              to_char(po.captured_at, 'YYYY-MM-DD') AS observed_on,
-              max(po.market_minor) AS market_minor
-         FROM card_variant cv
-         JOIN variant_kind vk ON vk.code = cv.variant_kind_code
-    LEFT JOIN variant_tier_resolved t ON t.card_variant_id = cv.id
-         JOIN price_observation po ON po.card_variant_id = cv.id
-        WHERE cv.card_id = $1
-          AND po.market_minor IS NOT NULL
-          AND upper(btrim(po.currency_code)) = $2
-          AND po.captured_at >= (CURRENT_DATE - $3::interval)
-        GROUP BY cv.id, cv.variant_kind_code, cv.display_name, vk.display_name, t.tier,
-                 to_char(po.captured_at, 'YYYY-MM-DD')
-        ORDER BY cv.sort_order, 6`,
+      `WITH floors AS (
+         SELECT (SELECT max(bucket_start) + interval '1 month'
+                   FROM price_bucket WHERE grain = 'month')::date AS day_floor,
+                (SELECT min(bucket_start)
+                   FROM price_bucket WHERE grain = 'week')::date  AS week_floor_raw
+       ),
+       b AS (
+         -- With month buckets but no week ones (every week quarter dropped, or
+         -- a catch-up that only ever wrote month grain), the weekly band is
+         -- empty and month grain runs straight up to the daily floor.
+         SELECT f.day_floor,
+                COALESCE(f.week_floor_raw, f.day_floor) AS week_floor,
+                -- The last day the MONTH tier is responsible for. Derived from
+                -- the months actually served rather than from week_floor's own
+                -- month, so a week_floor that happens to BE the first of a
+                -- month does not push the weekly tier forward by a month and
+                -- open a real gap. NULL when nothing is rolled up, which makes
+                -- the week band's predicate NULL and therefore empty — correct,
+                -- since there are no week buckets either.
+                COALESCE(
+                  (SELECT (max(bucket_start) + interval '1 month' - interval '1 day')::date
+                     FROM price_bucket
+                    WHERE grain = 'month' AND bucket_start < f.week_floor_raw),
+                  f.week_floor_raw - 1
+                ) AS month_ceiling,
+                (CURRENT_DATE - $3::interval)::date AS from_day
+           FROM floors f
+       ),
+       v AS (
+         SELECT cv.id, cv.variant_kind_code, cv.display_name,
+                vk.display_name AS kind_display, t.tier, cv.sort_order
+           FROM card_variant cv
+           JOIN variant_kind vk ON vk.code = cv.variant_kind_code
+      LEFT JOIN variant_tier_resolved t ON t.card_variant_id = cv.id
+          WHERE cv.card_id = $1
+       ),
+       pts AS (
+         SELECT v.id AS variant_id, 'month'::text AS grain,
+                pb.bucket_start AS start_on,
+                (pb.bucket_start + interval '1 month' - interval '1 day')::date AS end_on,
+                pb.open_minor, pb.high_minor, pb.low_minor, pb.close_minor,
+                pb.high_on, pb.low_on, pb.mean_minor, pb.median_minor, pb.n_obs
+           FROM v
+           CROSS JOIN b
+           JOIN price_bucket pb ON pb.card_variant_id = v.id
+          WHERE pb.grain = 'month'
+            AND upper(btrim(pb.currency_code)) = $2
+            AND pb.bucket_start >= b.from_day
+            AND pb.bucket_start <  b.week_floor
+         UNION ALL
+         SELECT v.id, 'week'::text,
+                pb.bucket_start, (pb.bucket_start + 6)::date,
+                pb.open_minor, pb.high_minor, pb.low_minor, pb.close_minor,
+                pb.high_on, pb.low_on, pb.mean_minor, pb.median_minor, pb.n_obs
+           FROM v
+           CROSS JOIN b
+           JOIN price_bucket pb ON pb.card_variant_id = v.id
+          WHERE pb.grain = 'week'
+            AND upper(btrim(pb.currency_code)) = $2
+            AND pb.bucket_start >= b.from_day
+            -- ENDS after the month tier's last day, not STARTS after it: the
+            -- week straddling that boundary is what closes the gap.
+            AND (pb.bucket_start + 6) > b.month_ceiling
+            AND pb.bucket_start <  b.day_floor
+         UNION ALL
+         -- The degenerate bucket. A day IS its own open, high, low and close.
+         SELECT v.id, 'day'::text, d.day, d.day,
+                d.val, d.val, d.val, d.val, d.day, d.day, d.val, d.val, 1::smallint
+           FROM v
+           CROSS JOIN b
+           JOIN LATERAL (
+             SELECT (po.captured_at AT TIME ZONE 'UTC')::date AS day,
+                    max(po.market_minor) AS val
+               FROM price_observation po
+              WHERE po.card_variant_id = v.id
+                AND po.market_minor IS NOT NULL
+                AND upper(btrim(po.currency_code)) = $2
+                AND po.captured_at >= (b.from_day AT TIME ZONE 'UTC')
+                AND (b.day_floor IS NULL
+                     OR po.captured_at >= (b.day_floor AT TIME ZONE 'UTC'))
+              GROUP BY 1
+           ) d ON true
+       )
+       SELECT p.variant_id, v.variant_kind_code, v.display_name, v.kind_display, v.tier,
+              p.grain,
+              to_char(p.start_on, 'YYYY-MM-DD') AS start_on,
+              to_char(p.end_on,   'YYYY-MM-DD') AS end_on,
+              p.open_minor, p.high_minor, p.low_minor, p.close_minor,
+              to_char(p.high_on,  'YYYY-MM-DD') AS high_on,
+              to_char(p.low_on,   'YYYY-MM-DD') AS low_on,
+              p.mean_minor, p.median_minor, p.n_obs
+         FROM pts p
+         JOIN v ON v.id = p.variant_id
+        ORDER BY v.sort_order, p.start_on`,
       [card.id, currency, PRICE_RANGE_INTERVAL[range]],
     );
 
@@ -362,8 +520,15 @@ cardsRouter.get(
       kind: string;
       displayName: string;
       tier: string | null;
-      points: { date: string; value: number }[];
+      points: {
+        grain: 'day' | 'week' | 'month';
+        start: string; end: string;
+        open: number; high: number; low: number; close: number;
+        highOn: string; lowOn: string;
+        mean: number; median: number; n: number;
+      }[];
     }>();
+    const money = (m: string): number => toMajor(Number(m), currency) ?? 0;
     for (const r of rows) {
       let series = byVariant.get(r.variant_id);
       if (!series) {
@@ -377,8 +542,18 @@ cardsRouter.get(
         byVariant.set(r.variant_id, series);
       }
       series.points.push({
-        date: r.observed_on,
-        value: toMajor(Number(r.market_minor), currency) ?? 0,
+        grain: r.grain,
+        start: r.start_on,
+        end: r.end_on,
+        open: money(r.open_minor),
+        high: money(r.high_minor),
+        low: money(r.low_minor),
+        close: money(r.close_minor),
+        highOn: r.high_on,
+        lowOn: r.low_on,
+        mean: money(r.mean_minor),
+        median: money(r.median_minor),
+        n: Number(r.n_obs),
       });
     }
 
