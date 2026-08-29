@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { api, type CardDetailResponse, type Progress, type SetDetailResponse, type Variant } from '../lib/api'
+import { api, type CardDetailResponse, type Progress, type SetDetailResponse, type ValueRange, type Variant } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, Tabs } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
+import { RarityMark } from '../components/RarityMark'
 import { fmtPrice, fmtDate, fmtNumber, fmtRelative } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
-import { variantMeta } from '../lib/variantStyle'
+import { variantMeta, seriesColors } from '../lib/variantStyle'
+
+import { ValueChart } from '../components/ValueChart'
+import { rangeWindow } from '../lib/insightsCaption'
 import { Sheet, useSheetClose } from '../components/ui/Sheet'
 import { useLateEntrance } from '../lib/lateEntrance'
 
@@ -315,6 +319,160 @@ const TABS = [
 // small and once large.
 const DECK_TAB = { key: 'In this deck', label: 'In this deck' } as const
 
+const PRICE_RANGES: { key: ValueRange; label: string }[] = [
+  { key: '30d', label: '30D' },
+  { key: '3m', label: '3M' },
+  { key: '6m', label: '6M' },
+  { key: '1y', label: '1Y' },
+  { key: '18m', label: '18M' },
+  { key: '2y', label: '2Y' },
+]
+
+/**
+ * Observed market price over time, one line per PRINTING.
+ *
+ * Per printing, not per card, because "what is this worth" has a different
+ * answer for the Normal and the Reverse Holofoil — collapsing them into one
+ * line is the same conflation the `+N Variants` badge was making elsewhere.
+ *
+ * This tab read "Price history — coming soon" from the day it shipped while
+ * `price_observation` accumulated the data the whole time; what was missing was
+ * a reader, and (until 2026-08-29) a scheduled job to keep filling it.
+ */
+function PriceTab({ cardId }: { cardId: string }) {
+  const [range, setRange] = useState<ValueRange>('3m')
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['card-prices', cardId, range],
+    queryFn: ({ signal }) => api.cardPriceHistory(cardId, range, 'USD', signal),
+  })
+
+  const drawable = (data?.series ?? []).filter((s) => s.points.length > 0)
+  const colors = seriesColors(drawable)
+  const series = drawable.map((s, i) => ({
+    label: s.displayName,
+    color: colors[i]!,
+    points: s.points,
+  }))
+  const total = series.reduce((n, s) => n + s.points.length, 0)
+
+  return (
+    <div className="mt-[16px]">
+      <div className="flex flex-wrap gap-[6px]">
+        {PRICE_RANGES.map((r) => (
+          <button
+            key={r.key}
+            onClick={() => setRange(r.key)}
+            className={[
+              'h-[28px] rounded-full px-[12px] text-[14px] font-semibold',
+              range === r.key
+                ? 'bg-action-primary text-action-primary-text'
+                : 'bg-surface-tertiary text-text-body hover:bg-action-default-hover',
+            ].join(' ')}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-[14px]">
+        {isLoading && !data ? (
+          <Spinner label="Loading prices…" />
+        ) : error ? (
+          <ErrorState message={(error as Error).message} />
+        ) : total >= 2 ? (
+          <>
+            <ValueChart series={series} domain={rangeWindow(range)} currency={data!.currency} height={200} />
+            {/* One legend entry per printing. With a single printing the line
+                needs no label — the card above it is the label. */}
+            {series.length > 1 && (
+              <div className="mt-[10px] flex flex-wrap gap-x-[14px] gap-y-[4px]">
+                {series.map((s) => (
+                  <span key={s.label} className="flex items-center gap-[6px] text-[14px] text-text-muted">
+                    <span className="inline-block h-[8px] w-[8px] rounded-sm" style={{ background: s.color }} />
+                    {s.label}
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          // Honest about WHICH kind of nothing this is: a card nobody has ever
+          // priced looks identical to a feed that has stopped, and the second is
+          // a bug worth reporting while the first is not.
+          <p className="py-[40px] text-center text-[14px] text-text-muted">
+            {total === 1
+              ? 'Only one price reading so far — a trend needs a second day.'
+              : 'No recorded price history for this card in this window.'}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const FORMAT_LABEL: Record<string, string> = {
+  standard: 'Standard',
+  expanded: 'Expanded',
+  glc: 'Gym Leader Challenge',
+  unlimited: 'Unlimited',
+}
+
+/**
+ * Format legality for one card.
+ *
+ * Fetched lazily — this is a tab, and the endpoint costs a catalogue round trip
+ * for the reprint oracle that the other two tabs have no use for.
+ *
+ * The verified-on date is not decoration. The rules behind this are vendored
+ * JSON with an `as_of` stamp (`apps/api/src/deck/data/_provenance.json`), and
+ * rotation moves them roughly every April. A legality answer that does not say
+ * how old its rulebook is invites being trusted past its expiry, which is the
+ * exact failure the vendoring decision was made to avoid.
+ */
+function TcgTab({ cardId }: { cardId: string }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['card-legality', cardId],
+    queryFn: ({ signal }) => api.cardLegality(cardId, signal),
+  })
+
+  if (isLoading) return <Spinner label="Checking formats…" />
+  if (error) return <ErrorState message={(error as Error).message} />
+  if (!data) return null
+
+  return (
+    <div className="mt-[16px]">
+      <ul className="flex flex-col gap-[8px]">
+        {data.formats.map((f) => (
+          <li
+            key={f.format}
+            className="flex flex-wrap items-center justify-between gap-[8px] rounded-lg bg-surface-secondary px-[14px] py-[10px]"
+          >
+            <span className="text-[15px] font-semibold text-text-primary">
+              {FORMAT_LABEL[f.format] ?? f.format}
+            </span>
+            {f.legal ? (
+              <span className="flex items-center gap-[6px] text-[14px] font-bold text-change-positive">
+                <Icon name="check" size={14} /> Legal
+              </span>
+            ) : (
+              <span className="text-[14px] font-bold text-text-muted">Not legal</span>
+            )}
+            {/* The reason sits on its own line so a long ban citation does not
+                squeeze the verdict off the row at 390px. */}
+            {f.reasons.length > 0 && (
+              <p className="w-full text-[14px] leading-[20px] text-text-muted">{f.reasons.join(' ')}</p>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-[12px] text-[14px] text-text-muted">
+        Format rules verified {data.checkedAt.slice(0, 10)}.
+      </p>
+    </div>
+  )
+}
+
+
 // Standalone route (deep links / direct navigation to /series/$series/$set/$number).
 // Renders the shared body inside the page Content column; on the set page the same
 // body is rendered inside CardSheet instead.
@@ -433,7 +591,7 @@ function CardDetailBody({
                 </button>
               </div>
               <div className="mt-[10px] flex items-center gap-[10px]">
-                <SetSymbolTile setId={data.card.set.setId} hasSymbol={Boolean(data.card.set.symbolUrl)} size={28} />
+                <SetSymbolTile setId={data.card.set.setId} size={28} />
                 <Link
                   to="/series/$series/$set"
                   params={{ series: seriesSlug, set: setId }}
@@ -461,16 +619,8 @@ function CardDetailBody({
                   pending={mutation.isPending}
                 />
               )}
-              {tab === 'Price' && (
-                <div className="py-[40px] text-center text-[14px] text-text-muted">
-                  Price history — coming soon.
-                </div>
-              )}
-              {tab === 'TCG' && (
-                <div className="py-[40px] text-center text-[14px] text-text-muted">
-                  Format legality — coming soon.
-                </div>
-              )}
+              {tab === 'Price' && <PriceTab cardId={cardId} />}
+              {tab === 'TCG' && <TcgTab cardId={cardId} />}
             </div>
           </div>
         </div>
@@ -749,7 +899,10 @@ function CardTab({
         )}
         {c.rarity && (
           <Attribute label="Rarity">
-            <Chip>{c.rarity}</Chip>
+            <Chip>
+              <RarityMark rarity={c.rarity} size={16} className="mr-[6px]" decorative />
+              {c.rarity}
+            </Chip>
           </Attribute>
         )}
         <Attribute label="Release Date">

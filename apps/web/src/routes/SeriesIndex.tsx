@@ -129,7 +129,7 @@ function SeriesCard({ s }: { s: SeriesSummary }) {
               (s.repHasLogo ? (
                 <SetLogo setId={s.repSetId} imgClassName="max-h-[48px] max-w-[180px]" />
               ) : (
-                <SetSymbolTile setId={s.repSetId} hasSymbol={s.repHasSymbol} name={s.name} size={48} />
+                <SetSymbolTile setId={s.repSetId} name={s.name} size={48} />
               ))}
           </div>
           <div className="font-display text-[18px] font-semibold leading-[27px] text-text-primary">{s.name}</div>

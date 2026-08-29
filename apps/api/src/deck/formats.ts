@@ -118,7 +118,14 @@ function ruleStandardPool(work: WorkCard[], cfg: FormatConfig, ctx: ValidateCont
       code: 'NOT_IN_FORMAT',
       severity: 'error',
       rule: `Standard is limited to regulation marks ${cfg.legal_marks.join(', ')}.`,
-      message: `${w.card.name} (${w.card.setTcgdexId.toUpperCase()} ${w.card.localId}) has regulation mark ${w.card.regulationMark ?? '—'} and has no legal reprint.`,
+      // A card with NO mark at all (everything pre-Sword & Shield) used to read
+      // "has regulation mark — and has no legal reprint", where the dash IS the
+      // absent mark. That was survivable in a deck violation list and reads as a
+      // typo in the card modal's TCG tab, which states the same sentence on its
+      // own. Say which of the two situations it is.
+      message: w.card.regulationMark
+        ? `${w.card.name} (${w.card.setTcgdexId.toUpperCase()} ${w.card.localId}) has regulation mark ${w.card.regulationMark} and has no legal reprint.`
+        : `${w.card.name} (${w.card.setTcgdexId.toUpperCase()} ${w.card.localId}) has no regulation mark and has no legal reprint.`,
       scope: 'card',
       subject: w.card.name,
       card_ids: [w.card.id],

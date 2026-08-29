@@ -114,6 +114,17 @@ export async function loadBySetNumber(
   return rows[0] ? (await factsFromRows(pool, [rows[0]]))[0]! : null;
 }
 
+/** Load one card by its catalogue id ('base1-60'). Exact, unlike splitting the
+ *  id on '-': a set id may itself contain punctuation ('me02.5'), so the caller
+ *  should never have to take the string apart. */
+export async function loadByTcgdexId(pool: pg.Pool, tcgdexId: string): Promise<CardFacts | null> {
+  const { rows } = await pool.query<CardRow>(
+    `${CARD_SELECT} WHERE c.tcgdex_id = $1 AND c.lang='en' LIMIT 1`,
+    [tcgdexId],
+  );
+  return rows[0] ? (await factsFromRows(pool, [rows[0]]))[0]! : null;
+}
+
 /** All prints of a normalized name (parenthetical-insensitive via LIKE prefilter + JS filter). */
 export async function loadByName(pool: pg.Pool, rawName: string): Promise<CardFacts[]> {
   const nn = normalizeName(rawName);

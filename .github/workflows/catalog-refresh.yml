@@ -36,7 +36,10 @@
 #
 # ── Secrets the repository owner must add ───────────────────────────────────
 # Settings → Secrets and variables → Actions → New repository secret. The values
-# are exactly the matching lines of the owner's local `.env.cloud`:
+# are exactly the matching lines of the owner's local cloud env file, which is
+# `.env.prod` (this doc said `.env.cloud` from the day it shipped; no such file
+# has ever existed, which is a fair explanation for why these secrets went
+# unset and every scheduled run of this workflow failed its preflight):
 #
 #   SUPABASE_DB_HOST      ← PGHOST      (the Supabase pooler host)
 #   SUPABASE_DB_NAME      ← PGDATABASE

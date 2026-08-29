@@ -36,9 +36,13 @@ export {
   formatConfig, formatsCheckedAt, banList, glcRules, glcTypes,
   resolveSetAlias, setAliases, ACE_SPEC_NAMES,
 } from './data.js';
+export {
+  cardLegality, LEGALITY_FORMATS,
+  type CardLegality, type CardFormatLegality,
+} from './cardLegality.js';
 // DB adapter (read-only) is exported separately so the pure engine has no pg dep at import.
 export {
-  makeDeckPool, resolveDeck, resolveLine, loadBySetNumber, loadByName,
+  makeDeckPool, resolveDeck, resolveLine, loadBySetNumber, loadByName, loadByTcgdexId,
   computeFingerprints, fingerprintInputs, buildReprintOracle,
 } from './db.js';
 export {

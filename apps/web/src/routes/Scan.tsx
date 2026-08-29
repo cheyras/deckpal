@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { CARD_ASPECT_RATIO } from '../lib/cardGeometry'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type ScanMatch, type ScanResponse } from '../lib/api'
 import {
@@ -17,6 +18,7 @@ import { CardImage } from '../components/CardImage'
 import { CardSheet } from './CardDetail'
 import { Icon } from '../components/Icon'
 import { fmtNumber } from '../lib/format'
+import { RarityMark } from '../components/RarityMark'
 
 // The scanner (Phase 8 flagship). A live rear-camera view is embedded in the page
 // with a card-shaped alignment guide; frames are grabbed continuously, cropped to
@@ -29,7 +31,9 @@ import { fmtNumber } from '../lib/format'
 // ── tuning ──────────────────────────────────────────────────────────────────
 const FRAME_MS = 700 // how often we grab + send a frame while live
 const STABLE_FRAMES = 2 // identical confident matches in a row before we commit
-const CARD_ASPECT = 63 / 88 // TCG card width:height — the guide + capture aspect
+// The capture guide is the same physical card the grid draws, so it takes the
+// shared token rather than keeping a second copy of 63/88 that could drift.
+const CARD_ASPECT = CARD_ASPECT_RATIO
 // Capture MARGIN beyond the guide (each dimension, total). A card that's tilted
 // or a touch outside the brackets gets clipped by an exact-guide crop, and no
 // server-side probe can recover pixels that were never sent — a 4°-tilted card
@@ -154,7 +158,10 @@ function MatchTile({ match, best }: { match: ScanMatch; best: boolean }) {
 
   const tile = (
     <div className="relative">
-      <CardImage low={match.images.low} high={match.images.high} alt={`${match.name} — ${fmtNumber(match.number)}`} radius={8} />
+      {/* No `radius` override: the scanner's match tile is a card like any other,
+          so it takes CardImage's proportional default and rounds to the same
+          shape as the grid instead of a fixed 8px. */}
+      <CardImage low={match.images.low} high={match.images.high} alt={`${match.name} — ${fmtNumber(match.number)}`} />
       {best && (
         <span className="absolute left-[8px] top-[8px] rounded-md bg-action-primary-strong px-[8px] py-[3px] text-[14px] font-bold leading-[16px] text-action-primary-strong-text shadow-panel">
           Best match
@@ -181,7 +188,12 @@ function MatchTile({ match, best }: { match: ScanMatch; best: boolean }) {
         <div className="truncate text-[15px] font-semibold leading-[20px] text-text-primary">{match.name}</div>
         <div className="flex items-center justify-between text-[14px] text-text-muted">
           <span className="truncate">{match.setName} · {fmtNumber(match.number)}</span>
-          {match.rarity && <span className="shrink-0">{match.rarity}</span>}
+          {match.rarity && (
+            <span className="shrink-0 inline-flex items-center gap-[4px]">
+              <RarityMark rarity={match.rarity} decorative />
+              {match.rarity}
+            </span>
+          )}
         </div>
       </div>
 

@@ -380,15 +380,56 @@ The script (`scripts/migrate-to-cloud.ts`):
 
 ### 6. GitHub Actions sync setup
 
-**`.github/workflows/catalog-refresh.yml` — weekly catalog refresh (Sundays
-04:30 UTC), plus `workflow_dispatch`.** This is the only scheduled data workflow
-that exists today; price and snapshot ingests still run from the `deckpal-sync`
-process (Path B below) and are not yet wired to Actions.
+Three scheduled data workflows, all driven by the same five secrets below.
+
+| Workflow | Schedule | What it does |
+|---|---|---|
+| `catalog-refresh.yml` | Sundays 04:30 UTC | `card` / `card_set` in step with upstream TCGdex |
+| `price-refresh.yml` | every 15 min, plus 02:10 and 21:10 UTC | polls TCGCSV's `last-updated.txt` and ingests on change; nightly Cardmarket ingest, all-users value snapshot, set-progress reconcile |
+| `price-backfill.yml` | manual only | replays TCGCSV daily archives into `price_observation` for a past range |
+
+**`price-refresh.yml` is what keeps prices and the Insights charts alive on the
+cloud tier.** Until 2026-08-29 nothing did: `apps/sync` is a long-running
+node-cron process that has to be running *somewhere*, `vercel.json` has no
+`crons`, and this section previously said in as many words that the price and
+snapshot ingests "are not yet wired to Actions". Every scheduled job stopped on
+2026-08-08 and nothing noticed for three weeks — the app served prices "as of 22
+days ago" and every Insights range chip drew the same ten days. See DECISIONS.md
+2026-08-29.
+
+The 15-minute tick is a POLL, not an ingest: TCGCSV publishes once a day (~20:05
+UTC), so `ingestTcgcsvPrices` checks `last-updated.txt` first and returns
+`{skipped:true}` when the stamp is unchanged. ~95 of the ~96 daily ticks are one
+30-byte request and a single-row query.
+
+**Verifying it is alive:** `GET /api/health` → `syncs` reports the last
+successful run per job, straight from `sync_run`. That block is what diagnosed
+the original outage and is the authoritative check — a green Actions run only
+says the workflow executed.
+
+`price-backfill.yml` is manual because its range is a decision with a storage
+bill attached: one archived day is ~44k price rows, so a two-year replay is ~32M
+rows and ~3-4 GB. It is chunked (`limit` days per run), skips days already
+ingested, and self-chains until `remaining` reaches 0.
 
 Add these repository secrets — Settings → Secrets and variables → Actions → *New
-repository secret*. The values are exactly the matching lines of your `.env.cloud`:
+repository secret*. The values are exactly the matching lines of your cloud env
+file, `.env.prod`.
 
-| Secret | Value (from `.env.cloud`) | Required |
+> **This section said `.env.cloud` until 2026-08-29, and no such file exists.**
+> That is not a cosmetic slip: the runbook pointed at a file nobody had, the
+> four secrets were therefore never created, and `catalog-refresh.yml` failed
+> its credentials preflight on every scheduled run from the day it shipped —
+> silently, because a red weekly job nobody is watching looks like no job at
+> all. **Resolved 2026-08-29:** the secrets were set from `.env.prod`, and both
+> `price-refresh` and `catalog-refresh` completed successfully within the hour —
+> the catalog's first green run ever. Verify with `gh secret list` (expect five)
+> and `GET /api/health` → `syncs`, which reports the last successful run per job
+> from `sync_run` and is the authoritative check; a green Actions run only says
+> the workflow executed.
+
+
+| Secret | Value (from `.env.prod`) | Required |
 |---|---|---|
 | `SUPABASE_DB_HOST` | `PGHOST` — the Supabase pooler host | yes |
 | `SUPABASE_DB_NAME` | `PGDATABASE` | yes |
@@ -413,10 +454,10 @@ catalog is already correct at that point; re-run the workflow once the re-key is
 done and it goes green (the importer sees no rename the second time).
 
 **Running it by hand** — the same thing the workflow does, from a checkout with
-`.env.cloud` present:
+`.env.prod` present:
 
 ```bash
-ENV_FILE=.env.cloud scripts/refresh-catalog.sh    # extract (B3-safe) + import
+ENV_FILE=.env.prod scripts/refresh-catalog.sh     # extract (B3-safe) + import
 SKIP_IMPORT=1 scripts/refresh-catalog.sh          # extract + delta report only
 ```
 
@@ -433,7 +474,7 @@ refetch would destroy art rather than restore it:
 ```bash
 # disk tier (self-host cache; PG* pointed at that box's database)
 pnpm --filter deckpal-images rekey:set --rename <old>:<new>
-# object tier (Supabase Storage; .env.cloud loaded)
+# object tier (Supabase Storage; .env.prod loaded)
 pnpm --filter deckpal-images rekey:set --object-store --rename <old>:<new>
 # then prove both tiers
 pnpm --filter deckpal-images manifest:check
@@ -839,7 +880,7 @@ one (see SECURITY.md).
 Applying to production:
 
 ```bash
-set -a && . ./.env.cloud && set +a && pnpm migrate     # SUPABASE_MODE is set in .env.cloud
+set -a && . ./.env.prod && set +a && pnpm migrate      # SUPABASE_MODE is set in .env.prod
 ```
 
 Then, before deploying code, confirm the tables answer under a real token:

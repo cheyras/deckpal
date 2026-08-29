@@ -20,14 +20,23 @@
 import type pg from 'pg';
 import { pool, q, toMajor } from '../db.js';
 
-export type Range = '30d' | '3m' | '6m' | '1y';
+// The 18m/2y windows were rendered by the web client as decorative "PRO" chips
+// with no server support behind them. The owner's call on 2026-08-29: there is
+// no paid tier and no plan for one, so the gate was advertising a product that
+// does not exist. They are ordinary ranges.
+export type Range = '30d' | '3m' | '6m' | '1y' | '18m' | '2y';
 
 const RANGE_INTERVAL: Record<Range, string> = {
   '30d': '30 days',
   '3m': '3 months',
   '6m': '6 months',
   '1y': '1 year',
+  '18m': '18 months',
+  '2y': '2 years',
 };
+
+/** Every range the API accepts, in display order. The web chips mirror this. */
+export const RANGES = Object.keys(RANGE_INTERVAL) as Range[];
 
 // ── Pure aggregation ──────────────────────────────────────────────────────────
 

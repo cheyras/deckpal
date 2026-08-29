@@ -69,18 +69,18 @@ const setSymbolTileGallery = {
   section: 'primitive',
   description: 'White tile showing a set symbol, with fallback ladders (promo star, energy marks, derived acronym).',
   component: SetSymbolTile,
-  defaults: { setId: 'swsh1', hasSymbol: true, name: 'Sword & Shield', size: 40 },
+  defaults: { setId: 'swsh1', name: 'Sword & Shield', size: 40 },
   variants: [
-    { label: 'with symbol', props: { setId: 'swsh1', hasSymbol: true, name: 'Sword & Shield', size: 40 } },
-    { label: 'text fallback', props: { setId: 'xy10', hasSymbol: false, name: 'Fates Collide', size: 40 } },
-    { label: 'promo set', props: { setId: 'swshp', hasSymbol: false, name: 'SWSH Black Star Promos', size: 40 } },
-    { label: 'large', props: { setId: 'swsh1', hasSymbol: true, name: 'Sword & Shield', size: 64 } },
-    { label: 'no data', props: { setId: null, hasSymbol: null, name: null, size: 40 } },
+    { label: 'with symbol', props: { setId: 'swsh1', name: 'Sword & Shield', size: 40 } },
+    { label: 'acronym fallback (unknown set id)', props: { setId: 'no-such-set', name: 'Fates Collide', size: 40 } },
+    { label: 'promo set', props: { setId: 'swshp', name: 'SWSH Black Star Promos', size: 40 } },
+    { label: 'large', props: { setId: 'swsh1', name: 'Sword & Shield', size: 64 } },
+    { label: 'no data', props: { setId: null, name: null, size: 40 } },
   ],
   knobs: {
     size: { kind: 'number', min: 20, max: 120, step: 4 },
   },
-} satisfies GalleryMeta<{ setId?: string | null; hasSymbol?: boolean | null; name?: string | null; size?: number }>
+} satisfies GalleryMeta<{ setId?: string | null; name?: string | null; size?: number }>
 
 // ── Spinner ─────────────────────────────────────────────────────────────
 

@@ -27,6 +27,7 @@
 import { useEffect, useId, useLayoutEffect, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { CardImage } from '../../components/CardImage'
+import { CARD_ASPECT_RATIO_CSS } from '../../lib/cardGeometry'
 // SHARED WITH THE APPROVAL CARD, which is the point of it having moved out of
 // this file. See `chat/useCardArt.ts`.
 import { useCardArt } from './chat/useCardArt'
@@ -396,7 +397,7 @@ function CardGrid({
               ) : (
                 <div
                   className="flex w-full items-center justify-center rounded-md bg-surface-primary p-[6px] text-center"
-                  style={{ aspectRatio: '245 / 337' }}
+                  style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }}
                 >
                   {found === null ? (
                     <span className="font-mono text-[10px] leading-[14px] break-words text-text-body">

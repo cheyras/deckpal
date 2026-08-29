@@ -12,6 +12,12 @@ export interface ListSearch {
   view: ViewMode
   own: Ownership
   q: string
+  // `?card=<cardId>` opens the card-detail bottom-sheet OVER the list, the same
+  // mechanism the set and species pages use. Keyed by the full card id (not the
+  // number) because a list spans many sets — the species page has the same
+  // property and makes the same choice. Absent unless a card is open, so it
+  // never appears in a shared list URL.
+  card?: string
 }
 
 export const LIST_SEARCH_DEFAULTS: ListSearch = {
@@ -34,5 +40,6 @@ export function validateListSearch(raw: Record<string, unknown>): ListSearch {
     view: pick(raw.view, VIEWS, LIST_SEARCH_DEFAULTS.view),
     own: pick(raw.own, OWNS, LIST_SEARCH_DEFAULTS.own),
     q: typeof raw.q === 'string' ? raw.q : LIST_SEARCH_DEFAULTS.q,
+    card: typeof raw.card === 'string' && raw.card ? raw.card : undefined,
   }
 }

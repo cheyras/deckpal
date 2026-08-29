@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Link, useRouterState } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CardRow, type TileVariant } from '../lib/api'
-import { fmtPrice, fmtNumber, rarityGlyph } from '../lib/format'
+import { fmtPrice, fmtNumber } from '../lib/format'
+import { RarityMark } from './RarityMark'
 import { useOnline } from '../lib/useOnline'
 import { useSignedIn } from '../lib/session'
 import { CardImage } from './CardImage'
 import { CounterBox } from './ui/CounterBox'
 import { Icon } from './Icon'
 import { variantMeta } from '../lib/variantStyle'
-import type { CardSearch } from '../routes/setSearch'
+import { CardLink } from './CardLink'
+
+import { VariantBadge } from './VariantChip'
 
 // Per-variant quantity counters (pkmn.gg's little count boxes).
 //
@@ -137,20 +139,8 @@ export function CardTile({
   // when the tile already renders an ownership total, a badge, or a remove button
   // (their lower-right corner is spoken for) or has no real set to resolve.
   const showCounters = signedIn === true && !ownership && !badge && !onRemove && Boolean(set)
-  // On the set page AND the species page the tile opens the detail as a bottom-sheet
-  // (a ?card= search change that leaves the current page mounted → scroll/filter
-  // preserved) instead of a full-page nav. Elsewhere (lists) it links to the card
-  // route as before. "Current page" = the leaf route match; opening the sheet is only
-  // a search-param change, so the leaf stays put and tiles remain in sheet mode. The
-  // standalone card route ('/…/$set/$number') is a different leaf.
-  //   • Set page keys ?card= by card NUMBER (SetDetail rebuilds the id from its set).
-  //   • Species page spans many sets, so it keys ?card= by the full cardId.
-  const leafId = useRouterState({ select: (s) => s.matches[s.matches.length - 1]?.routeId })
-  const speciesId = useRouterState({
-    select: (s) => (s.matches[s.matches.length - 1]?.params as { speciesId?: string } | undefined)?.speciesId,
-  })
-  const onSetPage = leafId === '/series/$series/$set'
-  const onSpeciesPage = leafId === '/pokedex/$speciesId'
+  // Where a click goes is `CardLink`'s decision, not this component's — see the
+  // header there for why it stopped being three separate decisions.
 
   const inner = (
     <>
@@ -172,10 +162,21 @@ export function CardTile({
             the bright half of a card and reads as text spilling off its own
             background. A dark scrim plus body-weight text holds up over both a
             black holo border and a pale green frame. */}
-        {card.variantCount > 1 && (
-          <span className="absolute bottom-[8px] left-[8px] rounded-md bg-overlay-scrim-strong px-[8px] py-[3px] text-[12px] font-medium leading-[18px] text-text-body backdrop-blur-sm">
-            <span className="font-bold text-text-primary">+{card.variantCount - 1}</span> Variants
-          </span>
+        {/* THE SPECIFIC PRINTING WINS OVER THE CATALOGUE COUNT.
+            `card.variant` is present only on list rows, where the reader is
+            asking "which printing did I add?" — and `+N Variants` answers "how
+            many other printings exist", which is a different question and was
+            being mistaken for the first one (2026-08-29 walkthrough). On the set
+            page there is no `card.variant`, every printing is on screen anyway,
+            and the count is the useful fact, so nothing there changes. */}
+        {card.variant ? (
+          <VariantBadge variant={card.variant} />
+        ) : (
+          card.variantCount > 1 && (
+            <span className="absolute bottom-[8px] left-[8px] rounded-md bg-overlay-scrim-strong px-[8px] py-[3px] text-[12px] font-medium leading-[18px] text-text-body backdrop-blur-sm">
+              <span className="font-bold text-text-primary">+{card.variantCount - 1}</span> Variants
+            </span>
+          )
         )}
         {badge && (
           <span className="absolute bottom-[8px] right-[8px] rounded-md bg-action-primary-strong px-[8px] py-[3px] text-[12px] font-bold leading-[18px] text-action-primary-strong-text">
@@ -212,76 +213,16 @@ export function CardTile({
         <div className="flex items-center justify-between">
           <span className="text-[14px] leading-[23px] text-text-muted">{fmtNumber(card.number)}</span>
           <span className="text-[14px] leading-[23px] text-text-secondary" title={card.rarity ?? ''}>
-            {rarityGlyph(card.rarity)}
+            <RarityMark rarity={card.rarity} />
           </span>
         </div>
       </div>
     </>
   )
 
-  // ── DECK-E'S ADDRESS FOR THIS ONE CARD ─────────────────────────────────────
-  //
-  // The full card id (`me05-084`), on the tile's own anchor, on every tile this
-  // component renders anywhere. It is the second deliberate marking in the app
-  // — `data-decke-landmark` is the other — and it is the one that sits ON the
-  // thing rather than around it, because the grid is virtualized and a tile is
-  // not a place, it is a row that happens to be on screen.
-  //
-  // A plain attribute and nothing else: no ref, no registry, no effect, no
-  // per-tile subscription. There can be three hundred of these on a page and
-  // several dozen mounting per second while somebody flicks through a set, so
-  // whatever addressing costs has to be paid by the code that goes LOOKING for
-  // a tile (`uiTools.resolveTarget`, and the reveal listener on the set page),
-  // never by the tile itself. See `DECKE_REVEAL_EVENT` in
-  // `character/host/uiTools.ts` for the half that makes an off-screen id
-  // reachable at all.
-  //
-  // Pointable, not pressable: no `data-decke-clickable` here, deliberately —
-  // this anchor opens the card sheet, and the click allowlist is a separate and
-  // smaller list for exactly that kind of reason.
-  const address = { 'data-decke-card': card.cardId }
-
-  // Set page: open the sheet via a scroll-preserving search-param change.
-  if (onSetPage) {
-    return (
-      <Link
-        to="/series/$series/$set"
-        params={{ series, set }}
-        search={((prev: CardSearch) => ({ ...prev, card: card.number })) as never}
-        resetScroll={false}
-        className="group block"
-        {...address}
-      >
-        {inner}
-      </Link>
-    )
-  }
-
-  // Species page: same sheet, keyed by the full cardId (the page spans many sets).
-  if (onSpeciesPage && speciesId) {
-    return (
-      <Link
-        to="/pokedex/$speciesId"
-        params={{ speciesId }}
-        search={((prev: { card?: string }) => ({ ...prev, card: card.cardId })) as never}
-        resetScroll={false}
-        className="group block"
-        {...address}
-      >
-        {inner}
-      </Link>
-    )
-  }
-
-  // Everywhere else: full navigation to the standalone card route.
   return (
-    <Link
-      to="/series/$series/$set/$number"
-      params={{ series, set, number: card.number }}
-      className="group block"
-      {...address}
-    >
+    <CardLink card={card} seriesSlug={series} setId={set} className="group block">
       {inner}
-    </Link>
+    </CardLink>
   )
 }

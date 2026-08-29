@@ -13531,6 +13531,694 @@ the variables, so the two never fight over one declaration.
 Filmed again on the simulator, both entrances: he holds a constant offset to the
 composer for the whole slide. No trail, no overshoot, no hop.
 
+## 2026-08-29 — The scheduled jobs had been dead for three weeks, and four bugs were one bug
+
+**Decided by:** Chey (walkthrough recording, 2026-08-29) + agent
+**Decision:** Wire the price and snapshot ingests to GitHub Actions, replay two
+years of TCGCSV archives into `price_observation`, and fix the list card links,
+the stretched value chart, the decorative PRO chips and the empty TCG tab.
+
+**Why:** A 14-minute screen recording reported nine problems. `GET /api/health`
+answered four of them at once:
+
+```
+prices-tcgcsv        ok  finishedAt 2026-08-08T19:30Z
+prices-cardmarket    ok  finishedAt 2026-08-09T01:00Z
+snapshot-collection  ok  finishedAt 2026-08-08T20:00Z
+reconcile            ok  finishedAt 2026-08-09T00:00Z
+```
+
+`apps/sync/src/index.ts` is a long-running node-cron process. It has to be
+RUNNING somewhere, and on the cloud tier nothing ran it — `vercel.json` has no
+`crons` and `catalog-refresh.yml` was the only scheduled data workflow.
+DEPLOYMENT.md §6 even said so ("price and snapshot ingests still run from the
+deckpal-sync process and are not yet wired to Actions"), which turned out to be
+a description of an outage rather than a plan. So: "market price as of 22 days
+ago", an Insights chart that stopped on 8/8, and all four range chips drawing
+the same ten days because there was nothing else to draw. One missing cron, four
+symptoms.
+
+**Implications:**
+
+- **`price-refresh.yml`**, mirroring `catalog-refresh.yml`'s shape and secrets.
+  The tick is */15 and the work is conditional: TCGCSV publishes ONCE a day
+  (~20:05 UTC), `ingestTcgcsvPrices` already checks `last-updated.txt` and
+  returns `{skipped:true}` on an unchanged stamp, so ~95 of ~96 daily ticks are
+  one 30-byte request. The owner asked for "as close to real time as possible";
+  the honest ceiling without a TCGplayer partner agreement — which this app
+  deliberately does not have — is "within minutes of publication", not
+  continuous.
+- **The value snapshot needed an all-users path.** All three API-backed jobs are
+  `currentUserId(req)`-scoped, which was right for one account and snapshots
+  nothing for a runner holding a database password and no session. Rejected:
+  giving the runner a credential that can impersonate any account — a real
+  security surface, for a diary entry. Chosen: one set-based statement
+  (`jobs/valueSnapshot.ts`), with the collection-wide `unique_cards` /
+  `total_quantity` written onto every currency row exactly as the endpoint does.
+- **Two years of price history, replayed from archives.** The live endpoint
+  serves only today, so the 8/9→8/29 gap first looked permanently unrecoverable:
+  the ownership ledger (`collection_event`) survived, but there were no prices to
+  value it with, and carrying the last known price forward for three weeks draws
+  a flat line and calls it market data. TCGCSV does publish per-day archives
+  (`prices-YYYY-MM-DD.ppmd.7z`, from 2024-02-08), whose files are byte-identical
+  in shape to the live envelope — so the gap is recoverable with REAL observed
+  prices, and the chart can have a past longer than the snapshot job's own
+  uptime. Owner's call: 2024-08-29 → today, all variants. Measured cost: 44,385
+  priced rows per archived day, so ~32M rows and ~3-4 GB.
+- **`price_current` is never written by the backfill.** It holds the LATEST
+  price per variant; replaying 2024 through `writeSetPrices`'s default would
+  leave the whole app quoting two-year-old prices as today's. Hence the
+  `updateCurrent` option.
+- **The chart was stretched because of `preserveAspectRatio="none"`.** A fixed
+  640-wide viewBox scaled to a ~1300px container is a 2.03x horizontal stretch:
+  elongated text, circles rendered as ellipses. The tell was the owner's own —
+  the hover tooltip looked fine, because it is an HTML div outside the SVG.
+  `ValueChart` now measures its container and uses real pixels as the viewBox.
+- **Every card link from every list page 404'd.** `lists.ts` mapped
+  `setId: r.serie` — the SERIES tcgdex id — so a tile linked to
+  `/series/base/base/60` and `CardDetail` asked for `base-60` when the card is
+  `base1-60`. Invisible in review because the images line two rows below takes
+  serie AND setcode and was always right; only the click was wrong.
+- **List pages open the card as a SHEET now.** That is also the fix for "it
+  didn't go back to lists": the standalone card route's BackPill can only point
+  at the card's set, because that is the only ancestor the URL carries. A sheet
+  has no back problem. The routing rule moved into `components/CardLink.tsx` —
+  it had drifted across three copies (tile, table row, binder slot), and the
+  binder slot silently rendered no link at all on list pages.
+- **The PRO chips are gone.** 1.5y/2y were disabled chips stamped PRO in front
+  of a tier that does not exist, over ranges the API had no window for either.
+  Both are ordinary ranges (`18m`, `2y`) now.
+- **The TCG tab computes legality, it does not echo `card.legal_standard`.**
+  That column is documented in `003_catalog.sql:68` as "upstream-mirror ONLY;
+  NOT the legality predicate". `deck/cardLegality.ts` runs the real validator on
+  a one-card deck and keeps only card-scoped violations, so the card tab and the
+  deck builder's legality panel cannot disagree. `formats.test.ts`'s "every
+  production validateDeck call supplies the reprint oracle" fired on the first
+  draft, which had made the oracle optional — for GLC's `cel25cc` cards it is the
+  only pool route that fires, so omitting it reports a legal card illegal. The
+  oracle is a required argument as a result.
+
+**Corrections to the brief, recorded because the assumptions were load-bearing:**
+
+- **Decks are not variant-scoped.** `deck_card`'s PK is `(deck_id, card_id)` and
+  `011_formats_decks.sql:100` says so on the line that creates it. The H/J/I chip
+  visible in the deck rows is the REGULATION MARK, not a variant. Fixing this is
+  `roadmap/plans/variant-scoped-decks.md`, already written from the 2026-08-12
+  note; it is a live-DB PK change and stays on its own branch.
+- **`+3 Variants` means "this card has 3 other printings in the catalog"**, not
+  "3 variants are in this list".
+- **Dynamic lists are reference-sets by prior decision** (`lists.ts:16-26`), not
+  saved queries, so owning Growlithe correctly did not remove him. The owner has
+  chosen to change that design to a re-evaluated saved query; deferred to its own
+  branch.
+
+## 2026-08-29 — Lists say which printing, and the Price tab stops promising
+
+**Decided by:** Chey (walkthrough recording, 2026-08-29) + agent
+**Decision:** On a list, the badge names the VARIANT that was added instead of
+counting the ones that exist; the card modal's Price tab draws real observed
+history, one line per printing.
+
+**Why:** Reported verbatim: *"I'm not sure what plus one variance means. Does
+that mean that we added all of those variants to this list, or does it mean that
+this card just has more variants?"* It meant the second, on a screen where the
+reader was asking the first — two questions, one badge, and the badge was
+answering the one nobody had. A list has always stored
+`list_item.card_variant_id`, so it knew the answer and never said it; two
+variants of one card are already two rows and rendered as two identical tiles.
+
+**Implications:**
+
+- `components/VariantChip.tsx` — one chip, coloured from `lib/variantStyle.ts`
+  so a printing is one colour in the tile, the table row, the count boxes and
+  the modal's variant table. `VariantBadge` is the on-art overlay variant; the
+  scrim note `CardTile` already carried applies unchanged.
+- The catalogue's `+N Variants` badge is not deleted, it is SUPERSEDED where a
+  specific printing is in play. On the set page every printing is on screen and
+  the count is the useful fact, so nothing there changes.
+- The binder pocket gets a colour pip, not a chip: a pocket is ~140px of
+  full-bleed art and a text label truncates to noise. The variant name goes in
+  the alt text and the tooltip, which is where a screen reader and a hovering
+  mouse respectively look.
+- **`ValueChart`'s x axis is now TIME, not index.** It had to be, to place two
+  printings whose observation dates differ. It also fixes something nobody
+  reported: an index scale drew the three-week August ingest outage as a single
+  step the same width as a one-day move — a chart quietly reporting that nothing
+  happened for twenty days.
+- The Price tab reads `price_observation`, which had been accumulating the whole
+  time; what was missing was a reader. Grouped by DAY, because a live run and a
+  replayed archive carry different `captured_at` times for the same date and two
+  points on one day read as volatility that did not happen.
+- Its empty states distinguish "no readings" from "one reading". A card nobody
+  has ever priced looks identical to a feed that has stopped, and only the
+  second is worth reporting.
+
+**Still deferred, deliberately:** the deck builder does NOT get per-variant
+rows. `deck_card` is keyed on the card, so there is nothing to show — see
+`roadmap/plans/variant-scoped-decks.md`. Doing the list half without the deck
+half is not an oversight: the list half is a rendering change over data that
+already exists, and the deck half is a live-database primary-key migration
+across eight subsystems.
+
+## 2026-08-29 — price_observation was empty on cloud, and it was never a bug
+
+**Decided by:** agent, verifying against the live database
+**Decision:** Record that `price_observation` holds ZERO rows on Supabase, that
+this is the documented behaviour of the cloud migration rather than a defect,
+and that the archive backfill is therefore the ONLY source of price history for
+this deployment — not merely repair for the August outage.
+
+**Why:** Verification found 0 rows in `price_observation` while `sync_run`
+reported sixteen successful `prices-tcgcsv` runs writing ~27,000 rows each and
+`price_current` held 53,959 rows. That looks exactly like a silent write failure
+in `appendObservations`, which would also have meant the new backfill wrote
+nothing and reported success. It is not. `scripts/migrate-to-cloud.mjs:74`:
+
+> `// NOTE: price_observation is partitioned and huge — migrated separately if at all`
+
+The table was deliberately left behind when the product moved to Supabase.
+`sync_run` came across, which is why the history claims work that was done on
+the old box.
+
+**Implications:**
+
+- The Price tab ships correct and EMPTY until the backfill runs. That is worth
+  knowing before someone reports it as broken.
+- `backfillValuePoints` reads `price_observation`, so ORDER MATTERS: replay the
+  price archives first, then reconstruct value points. Run the other way round
+  and every day is skipped with "no price observation within N days", which is
+  the honest answer to the wrong question.
+- **Measured, replacing the earlier estimate:** one archived day yields 44,385
+  Pokémon rows with a market price, of which **28,622 join to a `card_variant`**
+  in this catalogue (178 sets carry a TCGplayer group id; 33,064 variants carry
+  a product id). So two years is **~20.9M rows, ~2.9 GB** — not the ~32M/4-6 GB
+  quoted from the unjoined row count. The unmatched remainder is sealed product
+  and groups this catalogue does not carry.
+- One day (2026-08-15, 28,412 rows) was written during verification to prove the
+  write path. Re-running it inserted 0, and `price_current` stayed at its
+  2026-08-09 stamp — so B8 idempotency and the `updateCurrent: false` decision
+  are both confirmed against production rather than asserted.
+
+**Verified against the live database, not inferred:**
+
+| Check | Result |
+|---|---|
+| Value-snapshot SQL vs the app's own totals | USD 84824 / EUR 90659, 604 unique, 1298 cards — matches the recording's `$848.24`, `€906.59`, `604`, `1298` exactly |
+| `collection_event` vs `collection_item` | agree for every account, so ledger reconstruction is sound |
+| List card links | `/series/base/base1/60` → `base1-60` (was `base-60`) |
+| Two printings in one list | two rows, chips read "Normal" and "1st Edition Normal Shadowless" |
+| `GET /cards/:id/legality` | Ponyta `base1-60` illegal in Standard/Expanded/GLC, legal Unlimited; Rellor `sv08-013` (mark H) legal in all four |
+| `GET /cards/:id/prices` | two series for `sv08-013` — Normal $0.08, Reverse Holofoil $0.16 |
+
+**Still unverified:** pixel rendering. The browser extension is not connected in
+this environment and the repo has no Playwright, so the chart's aspect ratio,
+the variant chips and the sheet-over-list were verified through the API and the
+data, not by looking at them. The AGENTS.md gate for browser verification at
+desktop and 390px is NOT met.
+
+## 2026-08-29 — Looking at the pages found two bugs the tests could not
+
+**Decided by:** agent, browser verification with the QA account
+**Decision:** Route the archive download through `politeFetch`'s User-Agent, and
+say "has no regulation mark" when a card has none.
+
+**Why:** Both were invisible to typechecks and unit tests, and both were found
+in the first ten minutes of actually driving the app.
+
+1. **TCGCSV answers 401 to a generic User-Agent.** `archive.ts` called bare
+   `fetch()`. Every archive request came back 401 while the same URL fetched
+   fine from curl — so a scheduled 730-day replay would have failed on day one,
+   reporting "no archive published" for files that are plainly there.
+   `prices/http.ts` has documented this since it was written ("TCGCSV blocks
+   generic/missing UAs") and the new code simply did not use it. Fixed with
+   `fetchBinary`, which also carries the 100 ms inter-request floor — and that
+   matters more here than anywhere else in this app, because a two-year replay
+   is 730 sequential requests. Nine days replayed successfully immediately
+   after the fix.
+2. **"has regulation mark — and has no legal reprint."** The dash IS the absent
+   mark. Survivable in a deck violation list; reads as a typo in the card
+   modal's TCG tab, which states the sentence on its own. Now branches on
+   whether a mark exists. Pinned by a test.
+
+**A third thing, and it was NOT a bug:** the chart measured 1:1 at 1440 but
+still reported `preserveAspectRatio="none"` and a 640 viewBox at 390 — the exact
+symptom of the bug supposedly just fixed. The served bundle also carried the
+OLD `aria-label`, which is what gave it away: a stale Vite transform, not the
+product. After clearing `node_modules/.vite` and restarting, both widths serve
+the new code. Worth recording because the false positive was more convincing
+than the real bug.
+
+**Browser verification, QA account, live database (AGENTS.md gate 1 now met):**
+
+| Surface | Desktop 1440 | Mobile 390 |
+|---|---|---|
+| Insights chart | viewBox `0 0 950 240` into 950 px, dot 6.00 x 6.00 | viewBox `0 0 320 240` into 318 px, dot 5.96 x 5.96 |
+| Range chips | 30 Days / 3 Months / 6 Months / 1 Year / 18 Months / 2 Years, **0 PRO badges** | wraps to two rows |
+| List variants | two Ponyta tiles chipped "Normal" and "1st Edition Normal Shadowless"; **no `+N Variants`** | — |
+| Card from a list | URL gains `&card=base1-60` and the list stays mounted — a sheet, not a navigation | — |
+| TCG tab | Standard / Expanded / GLC not legal, Unlimited legal, "Format rules verified 2026-07-27" | — |
+| Price tab | a real 20-day line, $0.60-$0.69, with the 6 range chips | — |
+
+Console errors across every page: **0**.
+
+**Data written during verification** (all real, all inside the approved
+two-year replay): 15 archive days, 426,278 `price_observation` rows spanning
+2026-08-09 to 2026-08-28; reconstructed value points for those days; today's
+snapshot for both accounts. `price_current` never moved off its 2026-08-09
+stamp, which is the `updateCurrent: false` contract holding.
+
+## 2026-08-29 — Review of #133: the nightly job that could not succeed, and the chain that could not stop
+
+**Decided by:** Fable review of PR #133 + agent
+**Decision:** Drop the reconcile step from the cloud workflow, gate the
+self-chaining backfill on real progress, and make the violation classification
+exhaustive.
+
+**The two that would have hurt:**
+
+1. **The nightly reconcile step could never succeed.** `run-once reconcile`
+   POSTs `${DECKPAL_API_BASE}/collection/reconcile` (`jobs/api-jobs.ts`),
+   defaulting to `127.0.0.1:3700`. There is no API on an Actions runner, so
+   every 21:10 run would ECONNREFUSE, write a `failed` sync_run row and go red —
+   nightly, forever. Exactly the trap the value snapshot was given an all-users
+   SQL path to avoid, not carried across to the job sitting beside it.
+   Removed rather than faked: `user_set_progress` is recomputed IN THE SAME
+   TRANSACTION as every collection write (`routes/collection.ts`), so reconcile
+   is a drift sweep and losing it on cloud costs correctness nothing. A workflow
+   that is red every night is one nobody reads on the night it matters.
+
+2. **The self-chaining backfill could loop forever**, and its own comment
+   claimed it could not. `remaining` came from `selectDays`, which subtracts
+   days that ALREADY HAVE OBSERVATIONS — and a day TCGCSV never published can
+   never gain them. Once the publishable days were done, a range with more
+   missing days than `limit` would re-dispatch a full checkout+install every few
+   minutes against production, forever, achieving nothing. Not hypothetical: the
+   2026-08-09 → 08-28 verification range had 5 unpublished days in 20.
+   `progressed` (days that actually landed rows) is now the stop condition, and
+   `remaining` is reported net of days proved unpublished. The
+   `selectDays` tests were correct and tested the wrong layer — the loop lived
+   in what fed `alreadyDone`.
+
+**Also fixed:**
+
+- `permissions: actions: write` declared on the backfill workflow. The Continue
+  step re-dispatches via `gh workflow run`; if the repo default is read-only
+  that 403s and the chain stops after run 1, half-done. B11's shape: verify,
+  do not infer.
+- **`valueSnapshot.ts` claimed a drift-pin test that was never written.** Both
+  halves of the value rule are SQL over the live schema, so a pure test could
+  only re-implement it a third time. Replaced the claim with the thing that
+  actually checks it: `prices value-parity` runs both and diffs per (user,
+  currency). B7 keeps it out of CI. First run: `{"agree": true}`.
+- The value backfill's freshness gate asked "is there ANY fresh price?", so a
+  day where one currency's feed was down wrote the healthy currency and reported
+  nothing. It now names the currencies it could not reconstruct.
+- `ledgerAgreesWithCollection` compared per-user TOTALS; two drifts that cancel
+  (+1 one variant, -1 another) passed while still corrupting every reconstructed
+  value, since variants carry different prices. Now per (user, variant).
+- **`ValueChart` drew negative price labels.** The flat-series pad floored at 1
+  currency unit — sized for a collection total, absurd for a card: a bulk common
+  flat at $0.08 got an axis from -$0.92 to $1.08. Proportional, floor $0.01, and
+  the axis no longer goes below zero because money does not. Same fix pass:
+  several series all reporting on ONE date pinned every marker to the left edge
+  (the state cloud passes through after its first archive day) — the centring
+  branch now keys on the date span, not the point count.
+- `CARD_SCOPED` was an allowlist that fails OPEN: a future card-scoped rule
+  nobody adds would be filtered and the card reported LEGAL. Now an exhaustive
+  `Record<ViolationCode, 'card' | 'construction'>`, so adding a code to the
+  union is a compile error until someone triages it.
+- The legality suite asserted `checkedAt !== today`, which goes red on the one
+  day a data refresh lands. Asserts against `formatsCheckedAt()` now.
+
+**Reviewed and found clean:** the `lists.ts` `setId` fix, SQL/TS value parity
+(confirmed by the new command against live data), `updateCurrent: false`,
+memory bounds over a 730-day run, the new public endpoints' injection and
+result-size surface, and contracts B2/B4/B7/B11.
+
+**Left as noted, not fixed:** day-bucketing SQL is session-timezone sensitive
+(correct as deployed — UTC on Supabase and Actions — but a self-host box west of
+UTC would mis-key the resume set); marker count on a 2y multi-printing chart is
+untested on a phone; `/cards/:id/legality` is public, cacheable data sent
+`private, no-cache`.
+
+## 2026-08-29 — The axis is the window you asked for, not the data you happen to have
+
+**Decided by:** Chey (preview review) + agent
+**Decision:** Both charts take an explicit x-axis DOMAIN from the selected
+range. The line occupies only the part of it that has readings.
+
+**Why:** *"I'd like the chart to still expand past recorded history, but just
+have the actual chart line start when there is history. I think this will be
+even more clear."* — and separately, the per-card price chart was not scaling to
+its window at all.
+
+One root cause. The axis was derived from the DATA, so with twenty days recorded
+every range chip drew an identical full-width line: "2 Years" and "30 Days" were
+the same picture under different labels. `rangeCoverageCaption` explained it in
+words underneath a chart that contradicted it. Handing `ValueChart` the window
+makes the emptiness the message — a year of axis with six days of line says how
+much history exists far better than a sentence can.
+
+**Implications:**
+
+- `rangeWindow(range)` in `lib/insightsCaption.ts` — the module that already
+  owned the range union and the window arithmetic `rangeCoverageCaption` uses.
+  One definition, two charts.
+- The domain is UNIONED with the data extent, never replaces it, so a reading
+  outside the window is drawn rather than silently clipped.
+- **Axis ticks had to change with it.** They were the data's dates thinned to
+  six, which on a two-year axis meant six labels from one week in August. They
+  now spread across the window; past ~180 days the label becomes month + year,
+  because `8/29` repeated across two years does not say which August. Hit-testing
+  still uses the data's dates — only a real reading can be hovered.
+- First and last ticks anchor `start`/`end` rather than `middle`; centred on the
+  plot edge, half the glyph falls outside the viewBox and clips.
+- Measured after: 30 Days draws the line across 15.3% of the plot, 1 Year 1.3%,
+  2 Years 0.6%. Before, all three were 100%.
+
+**A palette bug found while verifying this:** the price chart coloured each
+printing with `variantMeta`, whose standard tiers are genuinely distinct
+(stone-200 / cyan-400 / pink-400) but whose SPECIAL tier is one shared token.
+Correct for a chip, which carries its label inside it; collapsed as a 2.5px
+stroke. `ex9-55` has one standard printing and three specials — four lines, one
+near-white and three identical greys. `seriesColors` in `lib/variantStyle.ts`
+now keeps the system colour wherever it is unambiguous and gives a colliding
+printing a distinct hue, skipping the cyan and pink the standard tiers own so a
+substitute can never read as "this is the reverse holo". The legend names every
+line, so a special's colour only has to be tellable apart.
+
+## 2026-08-29 — The runbook pointed at a file nobody has, and that is why nothing was scheduled
+
+**Decided by:** Chey ("don't we keep all these in .env.cloud instead of .env.prod?") + agent
+**Decision:** The cloud credentials file is `.env.prod`. Correct all six
+references that named `.env.cloud`.
+
+**Why:** After merging #133 I dispatched `price-refresh.yml` to validate its
+secrets rather than wait for the `*/15` tick. It failed in ten seconds:
+
+```
+Missing repository secret(s): SUPABASE_DB_HOST SUPABASE_DB_NAME
+                              SUPABASE_DB_USER SUPABASE_DB_PASSWORD
+```
+
+`gh secret list` returns EMPTY — the repository has no secrets at all. Which
+means `catalog-refresh.yml` has failed its preflight on every scheduled run
+since it shipped on 2026-08-10; the last two Sundays both died in ~13 seconds.
+The catalog has been as stale as the prices, and nobody knew, because a red
+weekly job nobody watches looks exactly like no job at all.
+
+The cause is a documentation defect. `catalog-refresh.yml` and `DEPLOYMENT.md`
+both instruct the owner to copy the five values from `.env.cloud`. **That file
+has never existed.** The cloud credentials live in `.env.prod` — verified: it
+carries `PGHOST=aws-1-us-west-2.pooler.supabase.com`,
+`PGUSER=postgres.jbdfhbmspaqpfzylnlze`, `SUPABASE_MODE=1`, and it is the file
+this session read to query production all day. A runbook that names a
+non-existent file is a runbook that does not get followed.
+
+**Implications:**
+
+- Six references corrected across `catalog-refresh.yml` and `DEPLOYMENT.md`,
+  including the self-host `ENV_FILE=` and `pnpm migrate` lines, which would have
+  sent anyone following them to the same missing file.
+- The secrets table now carries a note saying what the wrong filename cost, so
+  the next reader understands the section is load-bearing rather than
+  boilerplate — and a `gh secret list` check to confirm.
+- **This is AGENTS.md gate 6 catching itself.** The gate says a feature that
+  works but leaves a doc describing the old behaviour "is a bug report waiting
+  to be filed by whoever reads the stale doc next". Here it was worse than a
+  waiting bug report: the stale doc silently disabled two scheduled jobs for
+  three weeks.
+- I made the same class of error inside #133 — I wrote that the secrets were
+  "presumably already set since `catalog-refresh.yml` needs them", which is an
+  inference, is exactly what contract B11 rule 3 forbids, and was wrong. The
+  preflight naming the four secrets by hand instead of dying as an ECONNREFUSED
+  is the half of B11 that did work.
+
+**Resolved the same day.** The owner set the five secrets from `.env.prod`
+(a B9 write with production credentials, theirs to make, not mine). Both jobs
+were then dispatched by hand rather than left to prove themselves on a schedule:
+
+- `price-refresh` succeeded in 1m39s — the first price ingest in 20 days. Cards
+  went from `priced_at 2026-08-09` to `2026-08-28`, i.e. "as of 22 days ago"
+  became "as of yesterday".
+- `catalog-refresh` succeeded in 5m43s — its **first green run ever**, catching
+  up three missed Sundays of set updates.
+
+Both are now armed on their schedules. `GET /api/health` → `syncs` is the
+authoritative check that they stay that way; a green Actions run only says the
+workflow executed, while `sync_run` says the database was actually written.
+
+## 2026-08-29 — Card boxes use the real card's geometry: 63 x 88 mm, radius 4.7619% of width
+
+**Decided by:** @cheyras, implemented by Claude Opus 5 via a Ringer swarm
+**Decision:** `lib/cardGeometry.ts` is the single source of truth for every box
+that draws a card. A standard Pokémon TCG card is **63 x 88 mm with a 3 mm
+corner**, so the box aspect becomes `63 / 88` (0.7159090909) and the corner
+radius becomes **4.7619% of the rendered width** — about 11.7px at our 245px
+grid tile, 28.6px in a 600px detail view. The ratio and the percentage are
+COMPUTED from the three millimetre constants, never typed in as decimals.
+
+**Why:** Both numbers used to be arbitrary. The box was `245 / 337` (0.7273,
+**1.55% too wide** — a 5.2px vertical error at 245px) with a flat `8px` radius.
+Card art without an alpha channel therefore showed the photographed card's own
+rounded edge sitting inside a differently-rounded frame. A percentage radius
+also fixes a subtler bug: a fixed pixel radius makes a thumbnail and a detail
+view different SHAPES, where a proportional one keeps them the same card.
+
+**Implications:**
+
+- `GridView`'s `IMG_RATIO` is derived from the same constant. It feeds
+  virtualised row-height arithmetic, so if it ever disagrees with what
+  `CardImage` paints, rows overlap, total scroll height is wrong and
+  `scrollToIndex` centres on the wrong row. Deriving it makes that
+  unrepresentable rather than merely unlikely.
+- A percentage `border-radius` resolves against each axis INDEPENDENTLY, so the
+  horizontal and vertical percentages are given separately (4.7619% / 3.40909%).
+  Collapsing them to one value gives an elliptical corner on a non-square box.
+- `BinderView` had a third ratio (`300 / 418`) across three synchronised layers;
+  all of them move together or the pocket alignment breaks.
+- Empty and loading placeholders (Profile, Deck-E screen, approval card, landing
+  mockups) share the token, or the layout visibly shifts when art loads.
+- **The 3 mm radius is triangulated, not official.** It comes from a Japanese
+  die-cutting specification quoting 63x88 with "R3" corners plus a Pokémon-
+  specific size guide; a second manufacturer quotes 2.5 mm for standard cards,
+  and one source notes the radius varies between print runs. The credible range
+  is 2.5-3.0 mm and no TPCi factory drawing is published. The 63x88 footprint,
+  by contrast, is well attested and unchanged since 1996. The module says all of
+  this in a comment rather than implying a precision we do not have.
+- `routes/Scan.tsx` already carried `CARD_ASPECT = 63 / 88` for its capture
+  guide. The right number was in the codebase; it just was not where the grid
+  could see it.
+
+## 2026-08-29 — The hover lift moves the card's FRAME, not the image inside it
+
+**Decided by:** @cheyras, implemented by Claude Opus 5 via a Ringer swarm
+**Decision:** `premium.css` no longer transforms `a:hover img` / `button:hover
+img`. The lift is scoped to `.px-card-art` — the wrapper `CardImage` draws, the
+one that owns `overflow-hidden` and the border radius — in both the default and
+the `prefers-reduced-motion` block.
+
+**Why:** The old rule scaled the `<img>` INSIDE a frame that did not move, so
+the frame cropped the extra pixels off every edge. The card did not grow; its
+own art was eaten. Transforming the rounded, clipping box scales the clip along
+with its contents, so nothing is cropped. Measured after the change: the frame
+goes 241.81px -> 245.20px on hover and the card is uncut.
+
+**Implications:**
+
+- **This was a deliberately global selector and its blast radius was the bug.**
+  `a:hover img` also moved set logos, set-symbol tiles, Pokédex species sprites,
+  the desktop and mobile avatars, the collapsed-nav brand mark and the landing
+  and auth brand marks. None of those are card art; they are now still, and that
+  is the intended outcome, not collateral damage. Verified: a set logo's own
+  `transform` is `none` on hover, and its offset inside its link is unchanged.
+- Cropped thumbnails that do NOT go through `CardImage` (deck and list covers,
+  table-view rows, deck-builder rows) also stop lifting. Reaching them would
+  mean reinstating the unscoped rule, which is what caused the clipping.
+- The transformed frame paints in its own stacking context, so it takes
+  `z-index` on hover to stay above its grid neighbours. An ancestor with
+  `overflow-hidden` would still clip a grown card; that fix belongs in the
+  ancestor, not here.
+- `:focus-visible` is included alongside `:hover`, so the affordance is not
+  hover-only, and the reduced-motion block carries exactly the same scoping.
+- The class name `.px-card-art` is a contract between this file and
+  `CardImage.tsx`. Renaming it in one place silently disables the effect.
+
+## 2026-08-29 — Rarity is drawn as the mark the card actually prints, read off the scans
+
+**Decided by:** @cheyras, implemented by Claude Opus 5 via a Ringer swarm
+**Decision:** `rarityGlyph()` — five Unicode characters standing in for all 30
+catalog rarity values — is replaced by `lib/rarity.ts` (a data table) and
+`components/RarityMark.tsx` (hand-authored SVG). Every entry is derived from a
+real high-resolution card scan, named in that entry's comment, and NOT from a
+press release, a wiki, or a prose description.
+
+**Why:** The old mapping collapsed `Illustration rare`, `Special illustration
+rare`, `Hyper rare` and `Ultra Rare` onto one white star, so a card printing
+three gold stars and a card printing one black star looked identical in the
+grid. Two things only the scans could settle:
+
+- **Hyper rare prints THREE gold stars** (jtg/188). One gold star is
+  Illustration rare (me1/133), two gold is Special illustration rare (me1/177).
+  A first pass built from a written source had Hyper rare at two.
+- **Six rarities print a plain star where we had invented a letter badge** —
+  `V`, `PRIME`, `LEGEND`, `RADIANT`, `TGU`, `SH`. That is the same defect the
+  owner complained about for set symbols (a badge of letters standing in for the
+  real glyph), reproduced in the rarity marks. Corrected against swsh12/008,
+  hgss2/84, hgss2/90, swsh12/016, swsh12tg/TG23 and swsh45sv/SV105.
+
+**Implications:**
+
+- **The print is the source of truth.** Do not "improve" an entry from a
+  description; fetch `https://images.pokemontcg.io/<set>/<number>_hires.png` and
+  look at it. Every entry cites the card it was read from, so any claim in the
+  table is re-checkable by one HTTP GET.
+- The printed colour tracks the CARD's own background — a star is inked black on
+  a pale card and white on a dark one — so it is contrast, not identity. Our UI
+  has a single dark surface, so `black` resolves to `currentColor` and both read
+  as the REGULAR star. **The distinction that must survive is regular vs gold.**
+  `Double rare` and `Ultra Rare` are allowed to look alike, because they do on
+  the card; do not invent a matte-vs-metallic treatment to separate them.
+- We author the geometry ourselves. No Pokémon-specific rarity artwork is
+  cleanly licensed: Malie's SVG set publishes no reuse grant (its licensing
+  section reads "FIXME") and Bulbagarden's files carry only an uploader's
+  fair-use claim. Shipping traced or downloaded marks was rejected in favour of
+  our own shapes, which is also what the owner asked for.
+- `Promo`, `Classic Collection` and `Black White Rare` are **UNVERIFIED** — no
+  scan was obtained for them. They keep their previous treatment and say so in
+  the table. Do not quietly promote them.
+- A contract test the implementing agent could not edit pins the star ladder and
+  forbids a `wordmark` shape on any of the six corrected rarities, so this cannot
+  silently regress.
+
+## 2026-08-29 — Rarity glyphs are sized by ink area, not by bounding box
+
+**Decided by:** @cheyras, implemented by Claude Opus 5 via a Ringer swarm
+**Decision:** `lib/rarityShapes.ts` registers every rarity glyph as MEASURABLE
+geometry (a polygon's points, or a circle) rather than as an opaque SVG path
+string, computes each shape's area, and derives its render scale as
+`opticalScale = sqrt(TARGET_INK_AREA / inkArea)`. `RarityMark` applies that scale
+about the glyph's centre. Multi-glyph rows are spaced by `GLYPH_GAP_RATIO`
+(0.08), a fraction of glyph size rather than a fixed pixel gap.
+
+**Why:** Every glyph was drawn to the same 24x24 viewBox, so their BOUNDING
+BOXES matched while their ink did not. A five-point star covers ~37% of the area
+a circle of the same box covers and a diamond ~64%, so the stars read as
+noticeably smaller than the circles — which is what the owner saw. Matching boxes
+is the wrong invariant; matching ink is the right one. Measured before/after, on
+a 24x24 box: circle 254.5 -> scale 0.627, diamond 162.0 -> 0.786, star 95.2 ->
+1.025, star-outline 116.0 -> 0.928, sparkle 80.0 -> 1.118. Ink spread across the
+whole set afterwards: **0.000%**.
+
+**Implications:**
+
+- **The scale is DERIVED, never hand-tuned, and that is the point.** The owner
+  asked for "a standing system so that all rarity glyphs throughout the TCG (and
+  for future TCGs that will be added later) automatically visually read as the
+  same size". A lookup table of eyeballed numbers would look identical today and
+  rot the moment anyone adds a shape. A contract test asserts the sqrt identity
+  exactly, so pasting a magic constant FAILS — adding a shape to a future game
+  means drawing it and nothing else.
+- Area is exact and dependency-free: the shoelace formula for polygons,
+  `pi*r^2` for circles. Shapes must therefore be authored as polygons or
+  circles; a future shape needing curves has to flatten them or extend the area
+  function, and the registry says so.
+- `TARGET_INK_AREA` (100) is the single tuned constant in the system. It is
+  bounded from above by the requirement that the largest scaled glyph still fit
+  the 24x24 box — the sparkle binds it at 22.36. Raise it and the sparkle
+  overflows and clips. Because stars are the sparsest shape, parity is reached by
+  bringing circles and diamonds DOWN rather than pushing stars out of the box,
+  which is normal practice in icon design.
+- Outline shapes are measured as outer area minus inner area, not as their filled
+  twin's area, or hollow marks would still read small.
+
+## 2026-08-29 — Set symbols and logos: a static crosswalk fills 43 of the 90 gaps, 47 stay blank on purpose
+
+**Decided by:** @cheyras, implemented by Claude Opus 5 via a Ringer swarm
+**Decision:** `packages/storage/src/setImageFallback.ts` holds a static
+(setId, kind) -> source URL crosswalk. `setWarmer` consults it when
+`card_set.logo_url` / `symbol_url` is NULL, and `SetSymbolTile` no longer gates
+the image on a catalog URL that is null for exactly the sets we are trying to
+fill. **43 pairs become fillable; 47 stay blank deliberately.**
+
+**Why:** For all 90 missing pairs BOTH catalog columns are null, so the warmer
+never even tried and the UI fell back to a derived letter tag — `TG` on every
+Trainer Gallery, `PE` on Prismatic Evolutions, `ME02` on Phantasmal Flames. Two
+findings made this cheaper than it looked:
+
+- **Our ids are zero-padded and dotted; the source's are not.** `me02` -> `me2`,
+  `sv08.5` -> `sv8pt5`, `sm3.5` -> `sm35`, `cel25cc` -> `cel25c`. A plain id
+  match found nothing; normalising found 54 of 90.
+- **Subsets serve their parent's symbol under their own id.** Verified byte-for-
+  byte: `swsh12tg/symbol.png` and `swsh12/symbol.png` are identical (md5
+  `d83e51dffd610a4d8fd4f27f4f72e396`). So Trainer Gallery, Galarian Gallery,
+  Classic Collection and Shiny Vault need a fetch, not a fallback rule.
+
+**Implications:**
+
+- **All 12 McDonald's Collection LOGOS stay excluded**, upholding the 2026-08-10
+  ruling. Independently reproduced here: nine of them are byte-identical at
+  76,597 bytes — the McDonald's corporate mark, not a set logo. The **9
+  McDonald's SYMBOLS are included** (owner's call, 2026-08-29): unlike the
+  logos, each is distinct and is the genuine printed expansion symbol.
+- **The four EX Trainer Kit logos stay excluded** (owner's call, 2026-08-29):
+  they are one byte-identical generic "Trainer Kit" wordmark, and the same logo
+  on four different sets reads as a bug rather than as design. All 20 Trainer
+  Kits keep their text treatment, which at least is uniform.
+- **Three files come from Bulbagarden** (MEE symbol, MEP Black Star Promos
+  symbol, My First Battle logo) under a contributor fair-use claim rather than a
+  transferable licence. The owner accepted that risk knowingly for these three
+  only; it is not a precedent for the slot.
+- **Nothing here has been warmed yet.** This commit is code plus tests only — no
+  database write, no Supabase Storage write. The actual fill is a separate,
+  owner-approved operation, and the cloud path only takes effect once deployed,
+  because `warm:cloud` drives the DEPLOYED image tier's lazy fill.
+- Provenance still goes through the B1 choke point with `fromUrl(<the URL
+  actually fetched>)`. The fallback sources are PNG, not the TCGdex `.webp` that
+  `setImageSourceUrl()` assumes, so the source-URL derivation handles both.
+
+## 2026-08-29 — The cloud tier can actually fill set imagery (the crosswalk had no effect without this)
+
+**Decided by:** @cheyras, implemented by Claude Opus 5 via a Ringer swarm
+**Decision:** `resolveSourceUrl()` in `apps/api/src/images/handler.ts` now
+consults `setImageFallbackUrl()` when a set logo/symbol has no recorded source,
+and `cloudWarm` gained `--assets sets|cards|both` (default both) so set imagery
+has a bulk fill path at all.
+
+**Why:** Two gaps meant the 43-entry crosswalk shipped earlier the same day could
+never have reached deckpal.app, and both failed silently:
+
+- The cloud handler's set branch ended `return null` under a comment reading
+  "Set imagery has no derivable URL — the upstream path lives in card_set, and
+  every recorded set row carries it. A NULL here is a real dead end." That was
+  true when written and stopped being true when the crosswalk landed; nothing
+  told the handler. Every one of those 43 assets would have kept answering the
+  placeholder forever, no matter how many times the page was viewed.
+- `cloudWarm` built its work-list purely from `card.images.low/high`. Set logos
+  and symbols were left entirely to per-page-view lazy fill, so there was no bulk
+  command to run even once the handler could resolve them.
+
+**Implications:**
+
+- Resolution ORDER is load-bearing and tested: a recorded `source_url` still
+  wins; the crosswalk is consulted only when there is none; a (setId, kind) the
+  crosswalk does not know still resolves to `null`, which is the honest dead end.
+  Card behaviour is untouched.
+- The provenance written is the URL ACTUALLY FETCHED, never the assumed crosswalk
+  entry, and the write still goes through `putStorageAsset` — contract B1 is
+  unchanged. Nothing is written unless a fetch succeeded; a miss still answers
+  the placeholder with the existing short TTL so it self-heals.
+- The comment above `resolveSourceUrl` was extended rather than replaced. It
+  documents a real past bug in detail and is worth keeping; it now also records
+  that set imagery has exactly one more thing to try and what governs it.
+- The fill itself is an operator action, not a deploy-time one:
+  `pnpm --filter deckpal-images warm:cloud -- --assets sets`. It needs no
+  credentials because it drives the DEPLOYED tier's own lazy fill rather than
+  uploading anything itself — deliberately, so there is only one implementation
+  of the provenance rules. It therefore only works once this code is live.
+- Dry run against production on 2026-08-29: 398 set assets in the work-list
+  (2 per set across 199 sets). Most already exist and answer a cheap `302 HIT`.
+
 ## 2026-08-29 — The agentic pass: ground what he says, infer what they meant, ask once
 
 **Decided by:** the owner (narrated brief, capture-20260829-092156), executed by
