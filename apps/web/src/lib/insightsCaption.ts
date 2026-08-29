@@ -33,7 +33,7 @@ function isoDate(d: Date): string {
  * count, so this agrees with Postgres's `interval '3 months'` etc. to within a
  * day at month-length edge cases, which is immaterial here.
  */
-function rangeWindowStart(range: ValueRangeKey, from: Date): Date {
+export function rangeWindowStart(range: ValueRangeKey, from: Date): Date {
   const d = new Date(from.getTime())
   switch (range) {
     case '30d':
@@ -82,4 +82,20 @@ export function rangeCoverageCaption(
   const windowStart = isoDate(rangeWindowStart(range, today))
   if (first <= windowStart) return null
   return `Showing all ${points.length} days of recorded history (started ${first}).`
+}
+
+/**
+ * The full window a range names, as ISO dates — the chart's x-axis DOMAIN.
+ *
+ * The axis used to be derived from the data, which made every range chip draw
+ * an identical picture whenever recorded history was shorter than the window:
+ * ten days of readings stretched edge-to-edge under a label saying "2 Years".
+ * The caption explained it, but the picture still lied.
+ *
+ * Handing the chart the window instead means "2 Years" draws two years of axis
+ * with the line occupying only the part that exists — which shows how much
+ * history there is, rather than describing it underneath a chart that disagrees.
+ */
+export function rangeWindow(range: ValueRangeKey, now: Date = new Date()): { from: string; to: string } {
+  return { from: isoDate(rangeWindowStart(range, now)), to: isoDate(now) }
 }

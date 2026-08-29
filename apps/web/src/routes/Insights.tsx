@@ -7,7 +7,7 @@ import { LevelRing } from '../components/LevelRing'
 import { ValueChart } from '../components/ValueChart'
 import { Icon } from '../components/Icon'
 import { AvatarDisc, useAvatar } from '../components/Avatar'
-import { rangeCoverageCaption } from '../lib/insightsCaption'
+import { rangeCoverageCaption, rangeWindow } from '../lib/insightsCaption'
 import { fmtMoney } from '../lib/format'
 import { useLateEntrance } from '../lib/lateEntrance'
 
@@ -179,7 +179,7 @@ export function Insights() {
                 <Spinner label="Loading series…" />
               ) : val && val.series.points.length >= 2 ? (
                 <div>
-                  <ValueChart points={val.series.points} currency={val.currency} />
+                  <ValueChart points={val.series.points} domain={rangeWindow(range)} currency={val.currency} />
                   {/* Issue #26: with real history shorter than the selected window, every
                       range renders the identical chart with no explanation. Say so instead
                       of silently rendering the same-looking chart under four button labels
@@ -191,7 +191,7 @@ export function Insights() {
                 </div>
               ) : val && val.series.points.length === 1 ? (
                 <div>
-                  <ValueChart points={val.series.points} currency={val.currency} height={160} />
+                  <ValueChart points={val.series.points} domain={rangeWindow(range)} currency={val.currency} height={160} />
                   <div className="mt-[8px] rounded-lg border border-border-default bg-surface-tertiary-subtle px-[14px] py-[10px] text-[14px] text-text-body">
                     Only one daily snapshot exists so far (started {val.series.points[0]!.date}). A value trend appears
                     once a second day is recorded — we don't draw a line we don't have.

@@ -9,9 +9,10 @@ import { EnergyIcon } from '../components/EnergyIcon'
 import { fmtPrice, fmtDate, fmtNumber, fmtRelative } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
-import { variantMeta } from '../lib/variantStyle'
+import { variantMeta, seriesColors } from '../lib/variantStyle'
 
 import { ValueChart } from '../components/ValueChart'
+import { rangeWindow } from '../lib/insightsCaption'
 import { Sheet, useSheetClose } from '../components/ui/Sheet'
 import { useLateEntrance } from '../lib/lateEntrance'
 
@@ -344,13 +345,13 @@ function PriceTab({ cardId }: { cardId: string }) {
     queryFn: ({ signal }) => api.cardPriceHistory(cardId, range, 'USD', signal),
   })
 
-  const series = (data?.series ?? [])
-    .filter((s) => s.points.length > 0)
-    .map((s) => ({
-      label: s.displayName,
-      color: variantMeta({ kind: s.kind, tier: s.tier }).color,
-      points: s.points,
-    }))
+  const drawable = (data?.series ?? []).filter((s) => s.points.length > 0)
+  const colors = seriesColors(drawable)
+  const series = drawable.map((s, i) => ({
+    label: s.displayName,
+    color: colors[i]!,
+    points: s.points,
+  }))
   const total = series.reduce((n, s) => n + s.points.length, 0)
 
   return (
@@ -379,7 +380,7 @@ function PriceTab({ cardId }: { cardId: string }) {
           <ErrorState message={(error as Error).message} />
         ) : total >= 2 ? (
           <>
-            <ValueChart series={series} currency={data!.currency} height={200} />
+            <ValueChart series={series} domain={rangeWindow(range)} currency={data!.currency} height={200} />
             {/* One legend entry per printing. With a single printing the line
                 needs no label — the card above it is the label. */}
             {series.length > 1 && (

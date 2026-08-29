@@ -27,6 +27,31 @@ function shortDate(iso: string): string {
   return m && d ? `${Number(m)}/${Number(d)}` : iso
 }
 
+/**
+ * Axis label for a tick, at a scale that stays unambiguous.
+ *
+ * `8/29` repeated across a two-year axis says nothing about WHICH August. Past
+ * roughly six months the day stops mattering and the year starts to, so the
+ * label becomes month + 2-digit year.
+ */
+function axisLabel(iso: string, spanDays: number): string {
+  const [y, m, d] = iso.split('-')
+  if (!y || !m || !d) return iso
+  if (spanDays > 180) return `${Number(m)}/${y.slice(2)}`
+  return `${Number(m)}/${Number(d)}`
+}
+
+/** `n` evenly spaced day-numbers across [a, b], inclusive of both ends. */
+function spread(a: number, b: number, n: number): number[] {
+  if (b <= a) return [a]
+  const step = (b - a) / (n - 1)
+  return Array.from({ length: n }, (_, i) => Math.round(a + step * i))
+}
+
+function isoOfDay(day: number): string {
+  return new Date(day * 86_400_000).toISOString().slice(0, 10)
+}
+
 /** Days since epoch — the x scale's unit. */
 function dayNumber(iso: string): number {
   return Math.floor(Date.parse(`${iso}T00:00:00Z`) / 86_400_000)
@@ -35,6 +60,7 @@ function dayNumber(iso: string): number {
 export function ValueChart({
   points,
   series,
+  domain,
   currency,
   height = 240,
 }: {
@@ -47,6 +73,17 @@ export function ValueChart({
    */
   points?: readonly { date: string; value: number }[]
   series?: readonly ChartSeries[]
+  /**
+   * The x-axis window, as ISO dates. Without it the axis fits the DATA, which
+   * makes every range chip draw the same picture when recorded history is
+   * shorter than the window — ten days stretched edge-to-edge under a label
+   * saying "2 Years". With it, the axis is the window the reader chose and the
+   * line occupies only the part that exists, so the gap IS the message.
+   *
+   * The data extent is unioned in, so a point outside the window is never
+   * clipped silently.
+   */
+  domain?: { from: string; to: string }
   currency: string
   height?: number
 }) {
@@ -119,8 +156,12 @@ export function ValueChart({
   // nothing happened for twenty days. It also cannot place two series whose
   // observation dates differ, which is every card with more than one printing.
   const days = all.map((p) => dayNumber(p.date))
-  const xMin = days.length ? Math.min(...days) : 0
-  const xMax = days.length ? Math.max(...days) : 0
+  const dataMin = days.length ? Math.min(...days) : 0
+  const dataMax = days.length ? Math.max(...days) : 0
+  // Union, not replacement: the caller's window governs, but a reading outside
+  // it still has to be drawable rather than silently clipped.
+  const xMin = domain ? Math.min(dayNumber(domain.from), days.length ? dataMin : Infinity) : dataMin
+  const xMax = domain ? Math.max(dayNumber(domain.to), days.length ? dataMax : -Infinity) : dataMax
   const xRange = xMax - xMin || 1
 
   // Centre when there is nothing to spread across — one point, or several
@@ -130,6 +171,9 @@ export function ValueChart({
   // left edge.
   const x = (iso: string): number =>
     xMax === xMin ? padL + plotW / 2 : padL + ((dayNumber(iso) - xMin) / xRange) * plotW
+  // With a window far wider than the data, a single reading is one dot in a lot
+  // of empty axis. That is the honest picture, so it is drawn rather than
+  // special-cased away.
   const y = (v: number): number => padT + (1 - (v - yMin) / yRange) * plotH
 
   const pathFor = (l: ChartSeries): string =>
@@ -144,8 +188,19 @@ export function ValueChart({
   const ticks = 4
   const yTicks = Array.from({ length: ticks + 1 }, (_, i) => yMin + (yRange * i) / ticks)
 
-  // Every distinct date across every series, for the x labels and hit-testing.
+  // Hit-testing uses the DATA's dates — only a real reading can be hovered.
   const dates = [...new Set(all.map((p) => p.date))].sort()
+
+  // Axis ticks are a different question from hit-testing. With an explicit
+  // window they must span the WINDOW (otherwise a 2-year axis is labelled with
+  // six dates from one week in August); without one they thin the data dates as
+  // before.
+  const tickDates = domain
+    ? spread(xMin, xMax, 6).map(isoOfDay)
+    : dates.filter((_, i) => {
+        const stepEvery = Math.max(1, Math.ceil(dates.length / 6))
+        return dates.length <= 1 || i % stepEvery === 0 || i === dates.length - 1
+      })
 
   const onMove = (e: React.MouseEvent<SVGSVGElement>): void => {
     if (dates.length === 0) return
@@ -249,23 +304,21 @@ export function ValueChart({
           )),
         )}
 
-        {/* x labels (thinned to ~6 across) */}
-        {dates.map((d, i) => {
-          const stepEvery = Math.max(1, Math.ceil(dates.length / 6))
-          if (dates.length > 1 && i % stepEvery !== 0 && i !== dates.length - 1) return null
-          return (
-            <text
-              key={`x${d}`}
-              x={x(d)}
-              y={H - 8}
-              textAnchor="middle"
-              fill="var(--color-text-muted)"
-              fontSize={10}
-            >
-              {shortDate(d)}
-            </text>
-          )
-        })}
+        {/* x labels — ~6 across the window (or across the data, with no window) */}
+        {tickDates.map((d, i) => (
+          <text
+            key={`x${d}-${i}`}
+            x={x(d)}
+            y={H - 8}
+            // The first and last ticks sit ON the plot edges; centring them
+            // there pushes half the glyph outside the viewBox and it clips.
+            textAnchor={i === 0 ? 'start' : i === tickDates.length - 1 ? 'end' : 'middle'}
+            fill="var(--color-text-muted)"
+            fontSize={10}
+          >
+            {axisLabel(d, xRange)}
+          </text>
+        ))}
 
         {hover && (
           <line
