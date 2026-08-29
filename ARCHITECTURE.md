@@ -396,6 +396,15 @@ same host (`apps/mcp/SPEC.md` §3), so write logic — upsert, `collection_event
 append, `recomputeSetProgress`, one transaction — stays defined exactly once
 in `apps/api/src/routes/*`, however many surfaces call it.
 
+Two cross-cutting flows added 2026-08-29 (the agentic pass): **card rules
+text** — `get_card` renders abilities/attacks/effects/matchups from the
+migration-003 tables, making the catalog the grounding source for any rules
+claim on either front-end; and **battle-log deck inference** — `add_battle_log`
+with no `deck_id` calls `POST /decks/log-preview` (parse + score the log
+against every deck's current-version list, `apps/api/src/deck/battlelog.ts`'s
+`scoreDeckMatch`) and returns ranked candidates as a pure read; the write
+happens only on a second, explicit call.
+
 Two adapters translate that one definition into a protocol:
 
 - **`apps/mcp/src/adapters/mcp.ts`** — the only file that knows the tools are

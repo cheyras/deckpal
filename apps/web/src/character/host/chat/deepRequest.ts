@@ -35,9 +35,15 @@
 const SHAPE: Record<string, readonly string[]> = {
   plan_deck: ['idea', 'format'],
   deck_strategy: ['deck_name', 'deck_id'],
-  write_strategy_guide: ['deck_name', 'deck_id'],
+  // `deck` and `focus` are the real schema fields — see `write_strategy_guide`'s
+  // inputSchema in apps/api/src/decke/deep.ts (deck, focus, findings, deepest).
+  // `findings` is up to 4,000 chars and is not restatement material; the
+  // no-research fact it implies is rendered from `no_research` below.
+  write_strategy_guide: ['deck', 'focus'],
   analyze_collection: ['question'],
-  research_meta: ['question', 'format'],
+  // `query` and `topic` are the real schema fields — see `research_meta`'s
+  // inputSchema in apps/api/src/decke/deep.ts (query, topic).
+  research_meta: ['query', 'topic'],
 };
 
 /** Trim, collapse whitespace, and cut on a word boundary rather than mid-word. */
@@ -67,6 +73,15 @@ export function deepRequestLine(name: string, input: unknown): string | null {
     // qualifiers and are short by nature ("Standard", "GLC").
     const v = tidy(obj[f], parts.length === 0 ? 160 : 40);
     if (v) parts.push(v);
+  }
+  // The no-research fact, carried in the real signed input. The server injects
+  // `no_research: true` into a `write_strategy_guide` call when `findings` is
+  // absent or trivial (see `needsApproval` in apps/api/src/decke/deep.ts), so
+  // the reader can see — before tapping — that the guide is not backed by
+  // research. This is X2-compliant: it renders a server-computed flag, not
+  // model prose. Fixed text, so it bypasses `tidy`.
+  if (obj.no_research === true) {
+    parts.push('no research this conversation — the guide will say so');
   }
   if (parts.length === 0) return null;
   return parts.join(' · ');

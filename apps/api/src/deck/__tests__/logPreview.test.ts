@@ -149,3 +149,70 @@ test('scoreDeckMatch + normalizeCardCode agree on a foil printing', () => {
 function twinWithoutIds(cards: { name: string; cardId: string }[]) {
   return cards.map((c) => ({ name: c.name, cardId: null }));
 }
+
+// ── POST /decks/log-preview fan-out bounds (security finding B) ──────────────
+//
+// The route handler used to iterate EVERY non-deleted deck (2 queries each)
+// with no rate limit — an unbounded fan-out. The fix ships two bounds: a cap
+// on the scoring set and a per-user rate limit. The route itself needs a live
+// DB (excluded from CI), but the cap constant and the pure rate-limit decision
+// are exported and pinned here. bugs.ts's rate limiter is module-local (not
+// exported), so decks.ts replicates the minimal pattern locally — same shape,
+// and the pure core is lifted out so it can be tested without a timer.
+import {
+  LOG_PREVIEW_DECK_CAP,
+  LOG_PREVIEW_RATE_MAX,
+  LOG_PREVIEW_RATE_WINDOW_MS,
+  rateLimitCheck,
+} from '../../routes/decks.js';
+
+test('LOG_PREVIEW_DECK_CAP bounds the log-preview fan-out', () => {
+  // 40 is far above any real collection and caps the 2-queries-per-deck loop.
+  // Pinned as a constant so a future loosening is a deliberate edit, not drift.
+  assert.equal(LOG_PREVIEW_DECK_CAP, 40);
+  assert.ok(LOG_PREVIEW_DECK_CAP > 0 && LOG_PREVIEW_DECK_CAP <= 100, 'cap must bound, not disable, the fan-out');
+});
+
+test('rateLimitCheck: under the cap passes; the (max+1)th in the window is refused', () => {
+  const now = 1_000_000;
+  // First request starts a fresh bucket.
+  let res = rateLimitCheck(undefined, now);
+  assert.equal(res.ok, true);
+  assert.equal(res.bucket.count, 1);
+  assert.equal(res.bucket.resetAt, now + LOG_PREVIEW_RATE_WINDOW_MS);
+
+  // Fill the window up to the cap — each one still ok, count climbing.
+  let bucket = res.bucket;
+  for (let i = 2; i <= LOG_PREVIEW_RATE_MAX; i++) {
+    res = rateLimitCheck(bucket, now + i);
+    assert.equal(res.ok, true, `request ${i} should pass (cap ${LOG_PREVIEW_RATE_MAX})`);
+    bucket = res.bucket;
+  }
+  assert.equal(bucket.count, LOG_PREVIEW_RATE_MAX);
+
+  // The very next in-window request is refused — but the bucket still records
+  // it, so a burst just over the limit is counted rather than silently dropped.
+  res = rateLimitCheck(bucket, now + LOG_PREVIEW_RATE_MAX + 1);
+  assert.equal(res.ok, false, 'the request over the cap must be refused (429)');
+  assert.equal(res.bucket.count, LOG_PREVIEW_RATE_MAX + 1);
+});
+
+test('rateLimitCheck: an expired window resets — the limit is per-window, not per-process', () => {
+  const now = 5_000_000;
+  // A bucket whose window has closed resets to a fresh count of 1, even if the
+  // previous window was hammered over the cap. This is what stops a one-off
+  // burst from locking a user out for ever.
+  const expired = { count: 999, resetAt: now - 1 };
+  const res = rateLimitCheck(expired, now);
+  assert.equal(res.ok, true);
+  assert.equal(res.bucket.count, 1);
+  assert.equal(res.bucket.resetAt, now + LOG_PREVIEW_RATE_WINDOW_MS);
+});
+
+test('rateLimitCheck: a missing bucket is treated as a first request, never as "refused"', () => {
+  // undefined must not throw and must not be read as over-the-limit.
+  const res = rateLimitCheck(undefined, 0);
+  assert.equal(res.ok, true);
+  assert.equal(res.bucket.count, 1);
+});
+

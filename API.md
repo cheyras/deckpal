@@ -675,7 +675,9 @@ Summaries only — never `rawLog`. `totals` covers the same filter scope.
 Body `{ "rawLog" (required, ≤50000), "result"?, "opponent"?, "opponentDeck"?,
 "notes"? (≤2000), "playedAt"? (ISO), "playerName"?, "source"? }`. Runs the PTCG
 Live parser; parser-derived `result` / `opponent` / `opponentDeck` (deck guess)
-fill any fields the caller omitted. Attaches to the deck's **current** version.
+fill any fields the caller omitted — **explicit caller values always win over
+the parser** (2026-08-29, `mergeLogFields`). Attaches to the deck's **current**
+version.
 `400` when the parser cannot tell which player owns the deck **and** neither
 `playerName` nor an explicit `result` was given (the message says which to pass).
 ```json
@@ -691,6 +693,24 @@ fill any fields the caller omitted. Attaches to the deck's **current** version.
                            "opponentPokemon": ["Dreepy","…"], "myPokemon": ["Poltchageist","…"],
                            "opponentDeckGuess": "Dragapult ex / Dusknoir" } } }
 ```
+
+### POST /deckpal/api/decks/log-preview
+Added 2026-08-29 for battle-log deck inference. Body `{ "log" (required,
+≤50000), "player_name"? }` (camelCase `playerName` also accepted). Parses the
+log **without writing anything** and scores it against every non-deleted deck's
+current-version card list (name overlap strengthened by normalized PTCG Live
+card codes; both players considered, so an unidentified owner still ranks).
+```json
+200 { "parsed": { "result": "win", "opponent": "Robni16", "turns": 14,
+                  "prizes": { "me": 6, "opponent": 5 }, "confidence": "high",
+                  "myPokemon": ["Poltchageist","…"],
+                  "opponentDeckGuess": "Dragapult ex / Dusknoir" },
+      "candidates": [ { "deckId": "…", "name": "Toolbox Slowking", "format": "standard",
+                        "version": 3, "score": 11, "matchedNames": 9, "total": 26 } ] }
+```
+`candidates` is sorted by score descending, capped at 5, and `[]` when nothing
+scores above zero. Consumed by the agent tool `add_battle_log` when `deck_id`
+is omitted.
 
 ### GET /deckpal/api/decks/:id/logs/:logId
 The full row — same `log` shape as the 201 above (summary fields + `rawLog` +

@@ -209,3 +209,26 @@ test('deck_strategy still has no dry_run — never previewable, always needs app
   assert.equal(canPreviewSafely(strat, { deck_id: 'x', markdown: 'guide' }), false)
   assert.equal(requiresApproval(strat, { deck_id: 'x', markdown: 'guide' }), true)
 })
+
+test('add_battle_log with NO deck_id is a read — no approval even with dry_run false', () => {
+  // SECURITY FINDING (A): the omitted-deck_id branch calls log-preview and
+  // writes nothing, before dry_run is consulted. So dry_run:false must NOT be
+  // read as permission to write when there is no deck_id to write to. The
+  // special case is name-scoped to add_battle_log; edit_battle_log requires
+  // deck_id and is unaffected (pinned below to stay that way).
+  const byName = (n: string) => allTools().find((d) => d.name === n)!
+  const add = byName('add_battle_log')
+
+  // The reader's real shape: a pasted log, deck not yet chosen.
+  assert.equal(requiresApproval(add, { log: 'RAW LOG' }), false)
+  assert.equal(requiresApproval(add, { log: 'RAW LOG', dry_run: false }), false, 'no deck_id → read regardless of dry_run')
+
+  // deck_id given → the ordinary dry_run rule applies again.
+  assert.equal(requiresApproval(add, { deck_id: 'x', log: 'RAW LOG', dry_run: false }), true)
+  assert.equal(canPreviewSafely(add, { deck_id: 'x', log: 'RAW LOG', dry_run: false }), true)
+
+  // edit_battle_log has NO such read branch and must keep classifying on dry_run
+  // alone — the carve-out did not leak across to it.
+  const edit = byName('edit_battle_log')
+  assert.equal(requiresApproval(edit, { log_id: 1, dry_run: false }), true, 'edit_battle_log still asks on a real write')
+})

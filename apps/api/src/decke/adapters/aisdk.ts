@@ -436,6 +436,33 @@ export function clampToolText(text: string, maxChars: number): string {
 /** Would this call actually change something? */
 export function wouldMutate(def: ToolDefinition, input: unknown): boolean {
   if (def.annotations.readOnlyHint) return false;
+  // ── add_battle_log with NO deck_id is a pure read, not a write ─────────────
+  //
+  // SECURITY FINDING (A): the tool's own contract makes its omitted-deck_id
+  // branch a read BY CONSTRUCTION. deckIntel.ts: "OMIT deck_id to rank the log
+  // against your decks first … and writes nothing — call it again with deck_id
+  // set". That branch calls POST /decks/log-preview (a read), renders ranked
+  // candidates, and returns BEFORE `dry_run` is ever consulted — so the call
+  // cannot mutate regardless of dry_run. But `wouldMutate` classified on
+  // `dry_run` alone (default false), so the reader was shown a consent dialog
+  // for a call that is incapable of writing. Misleading consent is the
+  // opposite of informed consent, so this returns false for that shape.
+  //
+  // WHY A NAME-SCOPED SPECIAL CASE IS ACCEPTABLE HERE, mirroring the existing
+  // `log_cards`-only editable hard-code in `buildApprovalPreview` (another
+  // name-scoped carve-out that exists because a tool's own contract, not a
+  // generic rule, decides the shape): the omitted-deck read is a property of
+  // the tool's CONTRACT, not a heuristic about the input. The handler takes it
+  // before dry_run, so no input value can make that branch write. Narrowly
+  // scoped to add_battle_log; `edit_battle_log` requires deck_id+log_id and has
+  // no read branch, so it is untouched.
+  //
+  // `forcePreview` needs no change: for a no-deck_id call it flips dry_run to
+  // true (harmless — the handler's read branch ignores dry_run), and the
+  // handler takes the same read branch either way.
+  if (def.name === 'add_battle_log' && !(input as { deck_id?: unknown } | null | undefined)?.deck_id) {
+    return false;
+  }
   const hasDryRun = def.inputSchema ? 'dry_run' in def.inputSchema.shape : false;
   if (!hasDryRun) return true;
   const dry = (input as { dry_run?: unknown } | null | undefined)?.dry_run;

@@ -85,3 +85,57 @@ test('the cost is its own sentence and never our internal name for the tier', ()
   assert.doesNotMatch(DEEP_COST_NOTE, /credit/i, 'a number here would be a price on a deployment that is not charging')
   assert.match(DEEP_COST_NOTE, /more than a normal/i)
 })
+
+// ── THE BUG THAT PUT THIS FILE BACK INTO THE EDITOR ──────────────────────────
+//
+// `write_strategy_guide` is the one deep tool that WRITES, so its consent card
+// is the one surface where a bare "Write and store a strategy guide?" is most
+// clearly a reflex tap with nothing behind it. The SHAPE used to list
+// `deck_name` and `deck_id`, which are not fields the tool's inputSchema
+// declares — see apps/api/src/decke/deep.ts, whose `write_strategy_guide`
+// inputSchema is { deck, focus, findings, deepest }. So every call resolved
+// `null`, and the card rendered no restatement at all.
+//
+// The fix reads `deck` (and `focus`); the deck name now renders.
+
+test('write_strategy_guide renders the deck name from the real `deck` field', () => {
+  const out = deepRequestLine('write_strategy_guide', { deck: 'Slowking toolbox' })!
+  assert.ok(out, 'a guide call with a deck must produce a line, not null')
+  assert.match(out, /Slowking toolbox/)
+})
+
+test('write_strategy_guide with a focus renders deck then focus', () => {
+  assert.equal(
+    deepRequestLine('write_strategy_guide', { deck: 'Slowking toolbox', focus: 'mirror matchups' }),
+    'Slowking toolbox · mirror matchups',
+  )
+})
+
+test('write_strategy_guide with no deck renders null, never a placeholder', () => {
+  // The honest shape when no field carries anything: the card falls back to its
+  // headline. A line assembled from nothing is the failure this pass removes.
+  for (const input of [{}, { deck: '' }, { deck: '   ' }]) {
+    assert.equal(deepRequestLine('write_strategy_guide', input), null, JSON.stringify(input))
+  }
+})
+
+// ── THE NO-RESEARCH FACT, RENDERED FROM THE SIGNED INPUT ─────────────────────
+//
+// `needsApproval` in apps/api/src/decke/deep.ts injects `no_research: true`
+// into the input when `findings` is absent or trivial (< 80 chars). That is the
+// X2-compliant way to show the reader a guide is not backed by research: a
+// server-computed flag in the real input, not model prose. This renders it.
+
+test('no_research: true appends the no-research warning to the line', () => {
+  const out = deepRequestLine('write_strategy_guide', {
+    deck: 'Slowking toolbox',
+    no_research: true,
+  })!
+  assert.match(out, /Slowking toolbox/)
+  assert.match(out, /no research this conversation/)
+})
+
+test('without no_research the warning does not appear', () => {
+  const out = deepRequestLine('write_strategy_guide', { deck: 'Slowking toolbox' })!
+  assert.doesNotMatch(out, /no research/i)
+})

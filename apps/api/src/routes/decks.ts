@@ -81,6 +81,69 @@ const VERSION_NOTE_MAX = 500;
 const LOG_NOTES_MAX = 2000;
 const RAW_LOG_MAX = 50000;
 
+// ── POST /decks/log-preview fan-out bounds (security finding B) ───────────────
+//
+// The log-preview handler scores a pasted log against the caller's decks, 2
+// queries per deck, and used to iterate EVERY non-deleted deck with no rate
+// limit — an unbounded fan-out a caller could hammer. Two bounds:
+//   • LOG_PREVIEW_DECK_CAP caps the scoring set to the RECENT decks (40 is far
+//     above any real collection and bounds the fan-out).
+//   • a per-user in-memory rate limit (20 req/min) stops a caller running the
+//     parse+score loop in a tight loop. bugs.ts's rate limiter is module-local
+//     (not exported), so the minimal pattern is replicated here rather than
+//     shared — same shape: a Map of buckets with a resetAt, swept on a timer.
+/** Exported so logPreview.test.ts can pin the bound without a database. */
+export const LOG_PREVIEW_DECK_CAP = 40;
+export const LOG_PREVIEW_RATE_MAX = 20; // requests per user per window
+export const LOG_PREVIEW_RATE_WINDOW_MS = 60_000; // 1 minute
+export const LOG_PREVIEW_RATE_SWEEP_MS = 5 * 60_000; // sweep stale buckets every 5 min
+
+export interface RateBucket {
+  count: number;
+  resetAt: number;
+}
+
+/**
+ * Pure rate-limit decision for ONE bucket. Returns the (possibly new/updated)
+ * bucket to store and whether the request is under the cap. The route keeps a
+ * `Map<userId, RateBucket>` and threads `Date.now()`; tests call this directly
+ * with a fixed clock so the limiter can be pinned without a DB or a timer.
+ *
+ * First request in a window starts a fresh bucket at count 1; an expired
+ * window resets the same way. The bucket is ALWAYS returned (count bumped),
+ * so a burst just over the limit is recorded — the caller is refused, not
+ * silently let through, and the next in-window request sees the real count.
+ */
+export function rateLimitCheck(
+  bucket: RateBucket | undefined,
+  now: number,
+  max: number = LOG_PREVIEW_RATE_MAX,
+  windowMs: number = LOG_PREVIEW_RATE_WINDOW_MS,
+): { ok: boolean; bucket: RateBucket } {
+  if (!bucket || bucket.resetAt <= now) {
+    return { ok: 1 <= max, bucket: { count: 1, resetAt: now + windowMs } };
+  }
+  const count = bucket.count + 1;
+  return { ok: count <= max, bucket: { count, resetAt: bucket.resetAt } };
+}
+
+// Module-local state for the route. ONE map per process, keyed by userId —
+// never by IP (the route is authed; userId is the right identity). Swept on a
+// timer so a quiet process does not accumulate buckets for ever.
+const logPreviewBuckets = new Map<string, RateBucket>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [user, b] of logPreviewBuckets) {
+    if (b.resetAt <= now) logPreviewBuckets.delete(user);
+  }
+}, LOG_PREVIEW_RATE_SWEEP_MS).unref();
+
+function logPreviewRateOk(userId: string): boolean {
+  const res = rateLimitCheck(logPreviewBuckets.get(userId), Date.now());
+  logPreviewBuckets.set(userId, res.bucket);
+  return res.ok;
+}
+
 // ── The shared loader: one query → CardFacts (for the engine) + display rows (for the UI) ──
 
 interface DeckRow {
@@ -1467,6 +1530,14 @@ decksRouter.post(
   '/log-preview',
   asyncHandler(async (req, res) => {
     const userId = currentUserId(req);
+    // Per-user rate limit (security finding B): the parse+score loop is
+    // unbounded fan-out a caller could hammer. 20/min/user is far above any
+    // real use and stops a tight loop cold. Plain text, not JSON — a 429 the
+    // agent or a browser can read either way.
+    if (!logPreviewRateOk(userId)) {
+      res.status(429).type('text').send('Too many log-preview requests — try again shortly.');
+      return;
+    }
     const body = req.body ?? {};
     if (typeof body.log !== 'string' || !body.log.trim()) throw badRequest('log is required');
     if (body.log.length > RAW_LOG_MAX) throw badRequest(`log too large (max ${RAW_LOG_MAX} chars)`);
@@ -1482,8 +1553,12 @@ decksRouter.post(
     // what scoreDeckMatch ranks decks on.
     const parsed = parseBattleLog(body.log, [], playerName);
 
+    // CAPPED at the recent decks (security finding B): the scoring set is the
+    // recent decks — 40 is far above any real collection and bounds the fan-out
+    // (2 queries per deck). Ordered by updated_at DESC so the cap keeps the
+    // decks a reader actually touches, not the long tail.
     const metas = await q<DeckMeta>(
-      `${DECK_META_SELECT} WHERE user_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC`,
+      `${DECK_META_SELECT} WHERE user_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT ${LOG_PREVIEW_DECK_CAP}`,
       [userId],
     );
 

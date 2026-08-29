@@ -91,12 +91,36 @@ test('a write tool with NO dry_run always needs approval', () => {
   // And the two that left the set: they HAVE a dry_run now, so they classify
   // exactly like log_cards — omitted dry_run is a PREVIEW (forcePreview makes
   // it one), and only an explicit `dry_run: false` is the write that asks.
+  //
+  // The real-write pin passes deck_id: add_battle_log with NO deck_id is a
+  // pure read (the tool's omitted-deck branch calls log-preview and writes
+  // nothing — see the dedicated test below), so without deck_id the dry_run
+  // flag is irrelevant and the call cannot ask. deck_id makes it the write.
   for (const n of ['add_battle_log', 'edit_battle_log']) {
     const d = get(n)
     assert.equal(d.inputSchema && 'dry_run' in d.inputSchema.shape, true, `${n} lost its dry_run`)
     assert.equal(requiresApproval(d, {}), false, `${n}: omitted dry_run is a preview`)
-    assert.equal(requiresApproval(d, { dry_run: false }), true, `${n}: the real write asks`)
+    assert.equal(requiresApproval(d, { deck_id: 'x', dry_run: false }), true, `${n}: the real write asks`)
   }
+})
+
+test('add_battle_log with NO deck_id is a pure read — no approval, even with dry_run false', () => {
+  // SECURITY FINDING (A): add_battle_log called WITHOUT deck_id ranks the log
+  // against the caller's decks and writes nothing — the handler's omitted-deck
+  // branch (deckIntel.ts: "OMIT deck_id … writes nothing"). It takes that
+  // branch before dry_run is consulted, so dry_run is irrelevant to whether it
+  // mutates. Classifying on dry_run alone (default false) would have shown a
+  // consent dialog for a call that cannot write — misleading consent. The
+  // fix is name-scoped to add_battle_log; edit_battle_log requires deck_id.
+  const add = get('add_battle_log')
+  // The reader's actual call shape: a pasted log, no deck picked yet.
+  assert.equal(requiresApproval(add, { log: 'RAW LOG' }), false, 'no deck_id → read, no dialog')
+  // dry_run:false does NOT flip it back to a write — there is no deck to write to.
+  assert.equal(requiresApproval(add, { log: 'RAW LOG', dry_run: false }), false, 'no deck_id → still a read')
+  // And it cannot mutate, which is what the dialog exists to prevent.
+  assert.equal(wouldMutate(add, { log: 'RAW LOG', dry_run: false }), false)
+  // deck_id GIVEN → back to the ordinary dry_run rule: false is the real write.
+  assert.equal(requiresApproval(add, { deck_id: 'x', log: 'RAW LOG', dry_run: false }), true)
 })
 
 test('a call classified as a preview is FORCED to be one', () => {
