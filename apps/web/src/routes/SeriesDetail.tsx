@@ -75,7 +75,7 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
             <div className="font-display truncate text-[16px] font-semibold text-text-primary">{set.name}</div>
             <div className="text-[14px] text-text-muted">{fmtDate(set.releasedOn)}</div>
           </div>
-          <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.symbolUrl)} name={set.name} size={36} />
+          <SetSymbolTile setId={set.setId} name={set.name} size={36} />
         </div>
         {/* The bar now takes all the slack instead of being capped at 120px, so
             it spans to the row's right edge. The labels still hold their size —

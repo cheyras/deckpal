@@ -298,12 +298,10 @@ function EnergySymbolsMark({ size }: { size: number }) {
 // no layout shift. `name` is optional & backward-compatible.
 export function SetSymbolTile({
   setId,
-  hasSymbol,
   name,
   size = 40,
 }: {
   setId?: string | null
-  hasSymbol?: boolean | null
   name?: string | null
   size?: number
 }) {

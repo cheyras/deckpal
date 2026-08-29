@@ -1,7 +1,7 @@
 import type { SetImageKind } from './paths.js';
 
 /**
- * Set-image fallback crosswalk — the 43 (setId, kind) pairs the catalog cannot
+ * Set-image fallback crosswalk — the 50 (setId, kind) pairs the catalog cannot
  * source (`card_set.logo_url` / `card_set.symbol_url` are NULL for them) but for
  * which an approved image EXISTS upstream and has been fetched + confirmed.
  *
@@ -29,7 +29,6 @@ import type { SetImageKind } from './paths.js';
  * one byte-identical generic wordmark that would show the SAME logo on four
  * different sets, which reads as a bug rather than a real set identity.
  *
- * The remaining residue (`xya`, `2021swsh`, `2024sv`, `2023sv`, `exu`, `ex5.5`,
  * TRAINER KIT LOGOS ARE A SETTLED DEAD END (2026-08-29, with byte evidence):
  * pokemontcg.io serves ONE logo for all four EX kits (md5
  * 5ee8b8810dc52db8faaf04eefc337bf9) and Bulbagarden Archives holds no Trainer
@@ -51,7 +50,7 @@ export interface SetImageFallbackEntry {
 }
 
 /**
- * The 43 approved (setId, kind) → sourceUrl mappings. A literal table, never
+ * The 50 approved (setId, kind) → sourceUrl mappings. A literal table, never
  * read from a file at runtime. Exported so tests and tooling can enumerate it.
  */
 export const SET_IMAGE_FALLBACK_TABLE: readonly SetImageFallbackEntry[] = [
@@ -136,3 +135,44 @@ export function setImageFallbackUrl(setId: string, kind: SetImageKind): string |
   if (typeof setId !== 'string' || setId.length === 0) return null;
   return FALLBACK_BY_KEY.get(`${setId}|${kind}`) ?? null;
 }
+
+/** Every URL in the table, for an exact-membership check. */
+const FALLBACK_URLS: ReadonlySet<string> = new Set(SET_IMAGE_FALLBACK_TABLE.map((e) => e.sourceUrl));
+
+/** True only for a URL that is literally in the table above. */
+export function isSetImageFallbackUrl(url: string): boolean {
+  return FALLBACK_URLS.has(url);
+}
+
+/**
+ * The upstream policy for fetching a crosswalk asset — and ONLY for that.
+ *
+ * The cloud tier's default `IMAGE_SOURCE_POLICY` allow-lists two hosts
+ * (assets.tcgdex.net, raw.githubusercontent.com) because those are the only
+ * origins a CARD path can derive. 49 of the 50 entries here live on two other
+ * hosts, so under that policy every crosswalk fetch is refused and the whole
+ * table is inert on the cloud tier — the third failure of exactly that class in
+ * this feature, caught in review rather than in production.
+ *
+ * This does NOT widen the global control. It is a SEPARATE policy, used only on
+ * the set-fallback path, and it is strictly tighter than a host allow-list:
+ * callers must ALSO pass `isSetImageFallbackUrl()`, so the only fetchable URLs
+ * are the ~50 literals compiled into this file. No user input reaches it, there
+ * is no derivable URL space, and adding a host here is impossible without also
+ * adding a table row that review would see.
+ *
+ * The hosts are DERIVED from the table so the two can never drift apart.
+ */
+const FALLBACK_ORIGINS: ReadonlyMap<string, string> = new Map(
+  SET_IMAGE_FALLBACK_TABLE.map((e) => {
+    const u = new URL(e.sourceUrl);
+    return [u.host, `${u.protocol}//${u.host}`] as [string, string];
+  }),
+);
+
+export const SET_IMAGE_FALLBACK_POLICY = {
+  originFor(host: string): string | null {
+    return FALLBACK_ORIGINS.get(host) ?? null;
+  },
+  allowPrivateAddresses: false,
+};

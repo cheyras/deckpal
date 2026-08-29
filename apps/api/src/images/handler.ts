@@ -15,6 +15,8 @@ import {
   putUnmanifestedObject,
   recordProvenanceIfUnknown,
   setImageFallbackUrl,
+  isSetImageFallbackUrl,
+  SET_IMAGE_FALLBACK_POLICY,
   type ParsedImage,
 } from '@deckpal/storage';
 
@@ -148,6 +150,8 @@ interface ManifestSource {
 export interface ResolvedSource {
   url: string;
   provenanceWasUnknown: boolean;
+  /** Set only for a crosswalk URL, which fetches under its own tighter policy. */
+  viaFallback?: boolean;
 }
 
 /**
@@ -186,7 +190,7 @@ export function resolveSourceFromManifest(
     // end); provenance recorded after a successful fetch is the URL that actually
     // served bytes, never the crosswalk entry we started from.
     const fallback = setImageFallbackUrl(asset.setId, asset.image);
-    if (fallback) return { url: fallback, provenanceWasUnknown: true };
+    if (fallback) return { url: fallback, provenanceWasUnknown: true, viaFallback: true };
     return null;
   }
   return null;
@@ -213,7 +217,15 @@ async function fill(res: ServerResponse, asset: ParsedImage): Promise<void> {
 
   // A 404 on the recorded URL only rules out that *extension* — TCGdex serves the
   // same base as .webp/.png/.jpg and does not keep all three forever.
-  const attempt = await fetchSourceBytesWithExtensionFallback(source.url);
+  // A crosswalk URL fetches under SET_IMAGE_FALLBACK_POLICY, not the tier's
+  // default: the default allow-lists only the hosts a CARD path can derive, so
+  // every crosswalk fetch would be refused and the table would be inert here.
+  // The scoped policy is strictly tighter, not looser — `isSetImageFallbackUrl`
+  // pins the URL to a literal in the compiled-in table before it is used.
+  const viaFallback = source.viaFallback === true && isSetImageFallbackUrl(source.url);
+  const attempt = viaFallback
+    ? await fetchSourceBytesWithExtensionFallback(source.url, 15_000, SET_IMAGE_FALLBACK_POLICY)
+    : await fetchSourceBytesWithExtensionFallback(source.url);
   const fetched = attempt.result;
   if (!fetched.ok) {
     sendFailure(res, asset, `upstream ${fetched.httpStatus}: ${fetched.reason}`);

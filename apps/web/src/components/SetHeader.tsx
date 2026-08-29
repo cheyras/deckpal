@@ -52,7 +52,7 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
           </div>
 
           <div className="ml-auto flex items-center gap-[10px]">
-            <SetSymbolTile setId={set.setId} hasSymbol={Boolean(set.images.symbolUrl)} name={set.name} size={40} />
+            <SetSymbolTile setId={set.setId} name={set.name} size={40} />
             <a href={tcgSearchUrl} target="_blank" rel="noreferrer" className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
               <Icon name="external" size={16} className="text-action-brand" /> Shop
             </a>

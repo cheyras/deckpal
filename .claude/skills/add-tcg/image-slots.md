@@ -99,15 +99,16 @@ new `kind` outside the migration-006 CHECK list needs an additive migration.
 - Cache path: `<CACHE_ROOT>/sets/<setId>/symbol.webp`  →  served: `GET /deckpal/images/sets/<setId>/symbol.webp`
 - image_asset kind: `set-symbol` · cache_key: `set:<setId>:symbol`
 - Format: webp; single.
-- Sourcing: catalog set-symbol URL (`card_set.symbol_url`); enumerate from `card_set`. **Fallback** when `symbol_url` is NULL: `setImageFallbackUrl(setId, 'symbol')` (same crosswalk, `packages/storage/src/setImageFallback.ts`) — 28 approved pairs from pokemontcg.io `.png` + Bulbagarden, including the McDonald's *symbols* (a genuine printed expansion mark, unlike the logos) and MEP. Same warmer family as set-logo.
+- Sourcing: catalog set-symbol URL (`card_set.symbol_url`); enumerate from `card_set`. **Fallback** when `symbol_url` is NULL: `setImageFallbackUrl(setId, 'symbol')` (same crosswalk, `packages/storage/src/setImageFallback.ts`) — 35 approved symbol pairs from pokemontcg.io `.png` + Bulbagarden, including the McDonald's *symbols* (a genuine printed expansion mark, unlike the logos) and MEP. Same warmer family as set-logo.
 - Optimization: tiny; 404 → neutral client placeholder.
 - Verify: `curl … /symbol.webp` → 200 (some sets legitimately have none → placeholder is correct).
 - Game-specific: no.
-- Known residue (2026-08-29): 9 symbol pairs stay blank — the Trainer Kit / EX symbols (`tk-bw-e`,
-  `tk-bw-z`, `exu`, `ex5.5`, `miscp`), `mfb`'s symbol, `xya`, and the `2023sv`/`2024sv` symbols have no
-  approved source; the UI's derived acronym tag is the correct rendering. The McDonald's *logos* are a
-  separate residue (see set-logo); the McDonald's *symbols* ARE filled. Do not add to the crosswalk —
-  see `packages/storage/src/setImageFallback.ts`.
+- Known residue (2026-08-29, after the second sourcing pass): only **2 symbol pairs** stay blank —
+  `mfb` and `miscp`. Everything else in the earlier draft of this note (`tk-bw-e`, `tk-bw-z`, `exu`,
+  `ex5.5`, `xya`, `2023sv`, `2024sv`) IS filled: Bulbagarden files Trainer Kit symbols under the
+  POKEMON's name (`SetSymbolExcadrill Half Deck.png`), not the kit's, so a set-name search misses
+  them — enumerate the category instead. The McDonald's *logos* are a separate residue (see
+  set-logo); the McDonald's *symbols* ARE filled. See `packages/storage/src/setImageFallback.ts`.
 
 ### species-sprite — status: active
 - Purpose / renders: Pokédex grid + species pages — pixel sprite and official-artwork, each with a shiny variant.
