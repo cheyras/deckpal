@@ -70,7 +70,7 @@ function ListCard({ list }: { list: ListSummary }) {
       <div className="relative flex h-[132px] items-center justify-center overflow-hidden bg-surface-secondary">
         <CoverMosaic list={list} />
         <span className="absolute right-[10px] top-[10px] rounded-full bg-surface-primary/80 px-[10px] py-[3px] text-[14px] font-bold text-text-secondary backdrop-blur-sm">
-          {KIND_META[list.kind].label}
+          {list.rule ? 'Smart List' : KIND_META[list.kind].label}
         </span>
         {list.visibility === 'public' && (
           <span className="absolute left-[10px] top-[10px] rounded-full bg-action-primary-strong px-[10px] py-[3px] text-[14px] font-bold text-action-primary-strong-text">
@@ -96,6 +96,14 @@ function ListCard({ list }: { list: ListSummary }) {
                 <span className="font-bold text-action-primary">{list.progress.pct}%</span>
               </div>
             </>
+          ) : list.rule ? (
+            // A smart list's membership is what you're MISSING, so "owned"
+            // progress is meaningless — the count and cost to finish are the
+            // whole story, and "to get" says which story it is.
+            <div className="flex items-center justify-between text-[14px]">
+              <span className="font-semibold text-text-secondary">{list.itemCount} to get</span>
+              <span className="text-change-positive">{fmtUsd(list.marketValueUsd)}</span>
+            </div>
           ) : (
             <div className="flex items-center justify-between text-[14px]">
               <span className="font-semibold text-text-secondary">{list.itemCount} cards</span>

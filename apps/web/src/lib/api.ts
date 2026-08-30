@@ -555,6 +555,24 @@ export interface ListProgress {
   pct: number
   copies: number
 }
+/**
+ * A smart list's saved query (migration 050) — the addMissing spec plus
+ * hand-exclusions. Present on a rule-backed dynamic list; null/absent on a
+ * reference list. `setName` is resolved server-side for display.
+ */
+export interface ListRule {
+  setId: string
+  setName: string | null
+  goal: 'complete' | 'master' | 'grandmaster'
+  finishes: string[] | null
+  rarity: string[] | null
+  rarityExclude: string[] | null
+  maxPriceUsd: number | null
+  pricedOnly: boolean
+  /** card_variant ids removed by hand ("remove" on a smart list excludes). */
+  exclude: number[]
+}
+
 export interface ListSummary {
   id: string
   kind: ListKind
@@ -570,6 +588,9 @@ export interface ListSummary {
   coverImage: { low: string; high: string } | null
   /** Up to 8 distinct cards for the index tile's mosaic, cover pick first. */
   coverImages: { low: string; high: string }[]
+  /** Present on a smart list; null on a reference/static/binder list. */
+  rule: ListRule | null
+  ruleEvaluatedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -591,12 +612,16 @@ export interface ListItem extends CardRow {
 export interface ListDetailResponse {
   list: ListSummary
   items: ListItem[]
+  /** Smart lists only: the cards removed by hand, for un-excluding. */
+  excluded?: { variantId: number; cardId: string; name: string; number: string }[]
 }
 export interface CreateListBody {
   name: string
   kind: ListKind
   description?: string | null
   visibility?: ListVisibility
+  /** Making it a smart list: the saved query (kind must be 'dynamic'). */
+  rule?: Partial<ListRule> | null
 }
 export interface UpdateListBody {
   name?: string
@@ -605,6 +630,9 @@ export interface UpdateListBody {
   isFavorite?: boolean
   itemOrder?: string[]
   coverCardVariantId?: number | null
+  /** Replace the smart list's rule; null PINS it (materialises the current
+   *  evaluation into stored rows and detaches the rule). */
+  rule?: Partial<ListRule> | null
 }
 
 // ── Search (used by the Add-to-List picker) ────────────────────

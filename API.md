@@ -467,6 +467,17 @@ static, pokedex_binder}`):
   stored references; **ownership is read through from the collection at read
   time** and never stored on the list, so the progress cluster (owned/total,
   copies) auto-syncs with the collection live. Mirrors pkmn.gg's Dynamic List.
+- **dynamic + rule** ("smart list", migration 050) — the dynamic list carries a
+  saved query instead of stored rows: the `addMissing` spec (`setId`, `goal`,
+  `finishes`, `rarity`, `rarityExclude`, `maxPriceUsd`, `pricedOnly`) plus
+  `exclude` (variant ids removed by hand) and a server-resolved `setName`.
+  Membership is re-evaluated on EVERY read via `missingForGoal` — own a card
+  and it leaves the list. Item add/bulk-add/reorder are refused with a 400
+  ("membership is its rule"); DELETE of the synthetic `rule-<variantId>` item
+  id records an exclusion instead of deleting a row. `PATCH { "rule": null }`
+  PINS the list: the current evaluation is materialised into stored rows and
+  the rule detached. Rule set/exclusion are undoable (`list.rule.set`,
+  `list.rule.exclude` in the mutation log).
 - **static** — an ordered **bag** of `card_variant` references; duplicates allowed,
   each row carries its own `static_quantity` (≥1). No collection tie, no progress.
 - **pokedex_binder** — one slot per dex species (`list_item.dex_id`). Read-through
@@ -489,7 +500,12 @@ summary aggregates.
                "coverImages": [ { "low": "…", "high": "…" } ],
                "createdAt": "…", "updatedAt": "…" } ] }
 ```
-`progress` is `null` for `static` lists (no collection tie). `coverImages` is
+`progress` is `null` for `static` lists (no collection tie) **and for smart
+lists** (owned is 0 by construction — an owned card is no longer missing, so
+it is no longer a member; their tiles show count + cost-to-finish instead).
+Summaries carry `rule` (the saved query, or `null`) and `ruleEvaluatedAt`;
+a smart list's `itemCount`/`marketValueUsd`/`coverImages` come from evaluating
+its rule at read time. `coverImages` is
 up to 8 DISTINCT CARDS in list order with the explicit cover pick first —
 the index tile's mosaic (distinct by card, because a static list holding four
 copies of one card is a quantity, not four tiles). `coverImage` remains the
