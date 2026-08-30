@@ -622,7 +622,11 @@ const deckHistoryTool = defineTool({
     'amends in place reports "amended v<N> in place (no battle logs yet)". Battle logs are read ' +
     'with battle_logs, not here.',
   inputSchema: z.object({
-    deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
+    // Reading the timeline or a snapshot takes a NAME, the way `decks` and
+    // `battle_logs` do; only revert_to demands a UUID or an exact name.
+    deck_id: z
+      .string()
+      .describe('The deck, by UUID or by NAME — reverting needs the UUID or the exact name.'),
     version: z
       .number()
       .int()
@@ -652,8 +656,16 @@ const deckHistoryTool = defineTool({
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   handler: async ({ deck_id: deckRef, version, revert_to, include_strategy, note, dry_run }, ctx) => {
     try {
-      // STRICT — can roll a deck back to an older list, so an approximate name is a choice, never an action.
-      const picked = await needDeck(ctx, deckRef, { strict: true });
+      // ── STRICT ONLY WHEN IT REVERTS ─────────────────────────────────────
+      //
+      // `revert_to` rolls a deck back to an older list, so an approximate name
+      // there is a choice, never an action — that half is unchanged. But this
+      // handler resolves ONCE, above the mode branch, so the timeline and
+      // snapshot GETs below were strict too. Measured in one turn:
+      // `decks({deck_id: 'slowking toolbox'})` returned the deck and
+      // `deck_history({deck_id: 'slowking toolbox'})` refused it. Same fix,
+      // same reason, as deck_strategy above and `decks` (tools/decks.ts).
+      const picked = await needDeck(ctx, deckRef, { strict: revert_to !== undefined });
       if (!picked.ok) return fail(picked.message);
       const deckId = picked.value.id;
 
@@ -684,6 +696,11 @@ const deckHistoryTool = defineTool({
         lines.push('cards:');
         for (const c of v.cards) lines.push(`  x${c.quantity} ${c.name} | ${c.tcgdexId}`);
         if (v.cards.length === 0) lines.push('  (empty)');
+        // NAME THE DECK WHENEVER A NAME WAS RESOLVED, as battle_logs does. A
+        // version snapshot carries version numbers and card rows but never the
+        // deck itself, so a wrong loose hit would render a real, checkable-looking
+        // list of a deck nobody asked about with nothing on screen to notice it by.
+        if (picked.note) lines.push(picked.note);
         return ok(lines.join('\n'));
       }
 
@@ -754,6 +771,9 @@ const deckHistoryTool = defineTool({
       lines.push(
         `${res.versions.length} version(s), current v${res.current} — pass version: N for a snapshot+diff, revert_to: N to restore.`,
       );
+      // Same reason as the snapshot branch: a timeline is all version numbers
+      // and dates, with no deck name anywhere in it.
+      if (picked.note) lines.push(picked.note);
       return ok(lines.join('\n'));
     } catch (err) {
       return fail(`deck_history failed: ${errText(err)}`);

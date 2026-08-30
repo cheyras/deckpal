@@ -147,7 +147,7 @@ test('an approval carries no `reason`; a denial carries one', () => {
 
   const no = approvalReplayPart(a, false)
   assert.equal(no.approval.approved, false)
-  assert.equal(no.approval.reason, 'the reader declined')
+  assert.equal(no.approval.reason, DECLINED_REASON)
   // The signature is replayed on a DENIAL too. The SDK validates the approval
   // either way; an unsigned "no" fails the same check an unsigned "yes" does,
   // and the reader's decline would surface as the same "brain glitched".
@@ -316,7 +316,7 @@ test('the real convertToModelMessages carries a denial through as a denial', asy
   const response = content.find((c) => c.type === 'tool-approval-response')
   assert.ok(response)
   assert.equal(response.approved, false)
-  assert.equal(response.reason, 'the reader declined')
+  assert.equal(response.reason, DECLINED_REASON)
 
   // The SDK also synthesises the tool RESULT for the call that will now never
   // run, so the model sees a closed loop rather than a dangling tool_use —
@@ -325,7 +325,7 @@ test('the real convertToModelMessages carries a denial through as a denial', asy
   const result = content.find((c) => c.type === 'tool-result')
   assert.ok(result, 'a denied call left a dangling tool_use with no result')
   assert.equal(result.toolCallId, 'call_a7f3')
-  assert.deepEqual(result.output, { type: 'execution-denied', reason: 'the reader declined' })
+  assert.deepEqual(result.output, { type: 'execution-denied', reason: DECLINED_REASON })
 })
 
 test('the shape bug 1 shipped is still exactly as broken as recorded', async () => {
@@ -409,4 +409,36 @@ test('a reserved approval leg is not a free extra step for ordinary work', () =>
   assert.equal(legBudget(0), MAX_LEGS)
   assert.equal(legBudget(1), MAX_LEGS + 1)
   assert.equal(legBudget(2), MAX_LEGS + 2)
+})
+
+test('the FIRST decline carries the same doctrine the repeat decline does', () => {
+  // Measured, 2026-08-29: the reader cancelled an approval and the next reply
+  // read as though they had agreed — "Got it, let's pull the real picture
+  // instead of guessing. First, I'll grab your deck's battle logs and strategy
+  // guide. One sec." — and the turn then ended with nothing run. Their words:
+  // "after i cancelled, you output a response that seemed canned like it was
+  // fore-assuming that i would say yes."
+  //
+  // A REPEAT decline has been answered server-side with a full [[NO_WORK]]
+  // briefing since #138 (`apps/api/src/decke/declined.ts`). This string is the
+  // entire thing the model is told about the FIRST one — the one the reader
+  // actually performs — and it was four words.
+  //
+  // The marker must LEAD: the prompt rule keys on a result *starting with* it.
+  assert.ok(DECLINED_REASON.startsWith('[[NO_WORK]]'), 'prompt.ts cannot match a marker that does not lead')
+  // Nothing happened, and it must not be narrated as though it had.
+  assert.match(DECLINED_REASON, /nothing was written and nothing changed/i)
+  assert.match(DECLINED_REASON, /There is NO result/)
+  assert.match(DECLINED_REASON, /do not carry on with the plan that needed it/i)
+  // A refusal is not a problem to solve: no re-offer, no work-around.
+  assert.match(DECLINED_REASON, /Do not re-offer it and do not work around it/i)
+  // …but he must still answer what they actually said. This is where it differs
+  // from `declined.ts`'s tail, which ends in "and stop".
+  assert.match(DECLINED_REASON, /follow what they actually said/i)
+
+  // AND `ABANDONED_REASON` STAYS EXACTLY AS IT WAS. `declined.ts` compares
+  // against this string with `===` to tell a closed panel from a refusal;
+  // changing it would silently disable a tool because somebody's phone locked.
+  assert.equal(ABANDONED_REASON, 'the reader did not answer')
+  assert.ok(!ABANDONED_REASON.startsWith('[[NO_WORK]]'), 'an unanswered panel is not a refusal')
 })

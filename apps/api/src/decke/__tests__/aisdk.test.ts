@@ -18,6 +18,7 @@ import {
   dataToolSummary,
   requiresApproval,
   safeToolError,
+  summariseError,
   wouldMutate,
 } from '../adapters/aisdk.js'
 
@@ -241,4 +242,67 @@ test('add_battle_log with NO deck_id is a read — no approval even with dry_run
   // alone — the carve-out did not leak across to it.
   const edit = byName('edit_battle_log')
   assert.equal(requiresApproval(edit, { log_id: 1, dry_run: false }), true, 'edit_battle_log still asks on a real write')
+})
+
+test('deck_strategy WITHOUT markdown is a read — no approval card for a look', () => {
+  // Measured, 2026-08-29: the reader asked for "the low-down on my slowking
+  // toolbox deck" — a pure read — and was shown "Let him write the strategy
+  // guide for this deck?". `wouldMutate` classified on dry_run alone, and
+  // deck_strategy has none, so every shape read as a write. The tool's own
+  // contract makes the markdown-less branch a read: it returns the guide text
+  // and returns BEFORE the PUT, so no input value can make it write.
+  //
+  // Their words: "the permission prompt asked if you could WRITE this strategy
+  // guide, when the request really only necessitated reading it."
+  const strat = allTools().find((d) => d.name === 'deck_strategy')!
+  assert.equal(wouldMutate(strat, { deck_id: 'x' }), false)
+  assert.equal(requiresApproval(strat, { deck_id: 'x' }), false, 'read shape -> no approval')
+  // An explicitly undefined markdown is the same read.
+  assert.equal(requiresApproval(strat, { deck_id: 'x', markdown: undefined }), false)
+  // AND THE WRITE SHAPE IS UNTOUCHED — still always-approval, still
+  // unpreviewable. `declined.ts` draws the same line (`isGuideWrite`).
+  assert.equal(wouldMutate(strat, { deck_id: 'x', markdown: '# Guide' }), true)
+  assert.equal(requiresApproval(strat, { deck_id: 'x', markdown: '# Guide' }), true)
+  assert.equal(canPreviewSafely(strat, { deck_id: 'x', markdown: '# Guide' }), false)
+  // Even an empty guide is a replace — it wipes what is there.
+  assert.equal(requiresApproval(strat, { deck_id: 'x', markdown: '' }), true)
+})
+
+test('an ERROR chip keeps the lines its first line was leading to', () => {
+  // Measured, 2026-08-29: the reader saw
+  //   "No deck is named exactly 'slowking toolbox'. The closest is:"
+  // and nothing after it, and read the candidate list as missing. It was never
+  // missing — the MODEL got all three lines. `summarise` cuts to the first
+  // line, and this message's first line is a colon-ended lead-in whose entire
+  // job is to introduce the second.
+  const miss = summariseError({
+    isError: true,
+    text: [
+      "No deck is named exactly 'slowking toolbox'. The closest is:",
+      'd_91f2 - Toolbox Slowking',
+      'If that is the one you mean, call this again with its id.',
+    ].join('\n'),
+  } as never)
+  assert.match(miss, /The closest is:/)
+  assert.match(miss, /Toolbox Slowking/, 'the candidate the lead-in promised is still cut off')
+  assert.ok(miss.length <= 120, `chip cap broken: ${miss.length}`)
+})
+
+test('summariseError keeps the chip cap, and a one-line error is unchanged', () => {
+  // The cap is what bounds a chip, not the line count — so a long candidate
+  // list stops at the ceiling rather than overflowing the row.
+  const long = summariseError({ isError: true, text: ['lead-in:', 'x'.repeat(200)].join('\n') } as never)
+  assert.ok(long.length <= 120)
+  assert.match(long, /^lead-in:/)
+  // And a single line that is already over the ceiling is cut, with the ellipsis
+  // the row's own truncation marker — the cap is the last thing applied.
+  const oneLong = summariseError({ isError: true, text: 'y'.repeat(300) } as never)
+  assert.ok(oneLong.length <= 120, `chip cap broken: ${oneLong.length}`)
+  assert.ok(oneLong.endsWith('…'))
+  // The commonest error has one line, and it must survive verbatim.
+  assert.equal(
+    summariseError({ isError: true, text: 'battle_logs failed: Internal server error' } as never),
+    'battle_logs failed: Internal server error',
+  )
+  assert.equal(summariseError({ isError: true, text: '' } as never), '')
 })

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type pg from 'pg';
-import { cardImages, pool, q, q1, toMajor, tcgplayerUrl, withTx } from '../db.js';
+import { cardImages, dbHandle, q, q1, toMajor, tcgplayerUrl, withTx } from '../db.js';
 import { asyncHandler, badRequest, clampInt, notFound, oneOf, parseName, parseOptText, str, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { recordDeckChange, recordStrategyChange, type SnapshotEntry } from '../deck/versions.js';
@@ -26,10 +26,12 @@ export const decksRouter: Router = Router();
  * validateDeck()/resolveDeck()/drawOpeningHand()/serializePtcgl(), and shapes the
  * result for the UI.
  *
- * The engine's db.ts adapter is read-only and takes a pg.Pool; we pass the shared
- * API pool (budget 2) so no extra connection is opened. Building CardFacts here
- * (loadDeckRows) duplicates data-adaptation, not rule logic — the engine exports no
- * "facts by card id" helper and its internals are off-limits.
+ * The engine's db.ts adapter is read-only and takes a Queryable; it is handed
+ * `dbHandle()`, never `pool` — inside SUPABASE_MODE the request already holds a
+ * pooled client and `pool.query()` would check out a second one against the same
+ * `max` (B2, and see db.ts). Building CardFacts here (loadDeckRows) duplicates
+ * data-adaptation, not rule logic — the engine exports no "facts by card id"
+ * helper and its internals are off-limits.
  *
  * Live schema (read from the DB, not SCHEMA.md's richer proposal):
  *   deck(id uuid, user_id, format_code, glc_type, name, description, cover_card_id,
@@ -322,13 +324,13 @@ function buildDeckModel(meta: DeckMeta, rows: DeckRow[], types: Map<number, Poke
   };
 }
 
-/** Run the engine with a reprint oracle (built from the shared pool) for pool-checked formats. */
+/** Run the engine with a reprint oracle (built on the request's connection) for pool-checked formats. */
 async function validate(deck: Deck, facts: CardFacts[]): Promise<ValidationResult> {
   const cfg = formatConfig(deck.formatCode);
   if (cfg.pool_strategy === 'all' || facts.length === 0) {
     return validateDeck(deck, {});
   }
-  const oracle = await buildReprintOracle(pool, facts, cfg.legal_marks);
+  const oracle = await buildReprintOracle(dbHandle(), facts, cfg.legal_marks);
   return validateDeck(deck, { isInFormatByReprint: oracle });
 }
 
@@ -827,7 +829,7 @@ decksRouter.post(
       parsed = parsePtcgl(text);
     }
 
-    const resolved = await resolveDeck(pool, parsed, format, glcType);
+    const resolved = await resolveDeck(dbHandle(), parsed, format, glcType);
 
     // Aggregate resolved entries by catalogue card id (same print on two lines sums).
     const byCard = new Map<number, number>();
@@ -909,7 +911,7 @@ decksRouter.get(
       setTcgdexId: r.set_tcgdex_id,
       setName: r.set_name,
     }));
-    const { text, warnings } = await buildPtcglExport(exportRows, (row) => findLiveReprint(pool, row));
+    const { text, warnings } = await buildPtcglExport(exportRows, (row) => findLiveReprint(dbHandle(), row));
     userCache(res);
     res.json({ format: kind, text, warnings });
   }),

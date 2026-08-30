@@ -154,3 +154,58 @@ test("the panel's summary carries the instruction, not just the fact", () => {
   const tools = code(read('../../../../../api/src/decke/tools.ts'))
   assert.match(tools, /do not repeat it in words/, 'the replayed summary lost its instruction')
 })
+
+// ── THE TURN BOUNDARY DOES NOT ERASE A FAILURE EITHER ───────────────────────
+//
+// Same defect one level up. `lookupRecord` replays `ok`/`partial` only, so an
+// error chip died with its turn and the server — which keeps nothing between
+// requests — had by construction no record that any tool had ever failed.
+// `battle_logs` 500ed on four turns of one conversation and was re-called on
+// every one of them, once in the turn straight after promising not to.
+//
+// `failureParts` has real unit tests in `chat/__tests__/lookupRecord.test.ts`.
+// What cannot be imported, and what the bug would live in, is the CALL SITE.
+
+test('the next turn carries what FAILED, not only what was found', () => {
+  assert.match(
+    HOOK,
+    /for \(const failure of failureParts\(messageTools\(m\)\)\) parts\.push\(failure\)/,
+    'messagesToWire stopped replaying failures — the circuit breaker goes blind',
+  )
+  // In `messagesToWire`, which is the TURN boundary. `freshCalls` covers legs.
+  const wire = HOOK.slice(HOOK.indexOf('function messagesToWire'))
+  assert.match(wire.slice(0, 1600), /failureParts\(/)
+})
+
+test('the server rebuilds the failure ledger from those parts', () => {
+  // The client half is worthless without the server half, and the server half
+  // is worthless without the client half — so both are pinned in one place.
+  assert.match(CHAT, /const failing = failingTools\(messages\)/)
+  assert.match(CHAT, /\n\s*failing,\r?\n\s*retryRequested,/)
+})
+
+test('the conversation id reaches the request, for the breaker log line', () => {
+  // LOG-ONLY. `decke/failing.ts` writes one structured line when a breaker
+  // opens; without an id two outages read as one.
+  assert.match(HOOK, /await streamLeg\(wire, conversationRef\.current, ac\.signal, \{/)
+  assert.match(HOOK, /body: JSON\.stringify\(\{[\s\S]{0,200}?conversationId,/)
+  // The SAME id the turn is filed under, so the log and the transcript line up.
+  assert.match(HOOK, /conversationId: conversationRef\.current,/)
+})
+
+test('a real decline tells him what a repeat decline is already told', () => {
+  // Measured: the reader cancelled an approval and the next reply read as
+  // though they had agreed. The server-side REPEAT refusal has carried the
+  // whole doctrine since #138; the first no — the one they actually perform —
+  // was four words. It is not a prompt fix: `prompt.ts` already says "WHEN THEY
+  // SAY NO, THE FIRST THING YOU SAY IS THAT NOTHING CHANGED", and that
+  // transcript is what that sentence produced.
+  const approval = code(read('../approval.ts'))
+  assert.match(approval, /export const DECLINED_REASON =\s*\r?\n?\s*'\[\[NO_WORK\]\] REFUSED/)
+  // The marker must LEAD — `prompt.ts`'s rule keys on a result starting with it.
+  const prompt = read('../../../../../api/src/decke/prompt.ts')
+  assert.match(prompt, /back starting with .{0,2}\[\[NO_WORK\]\]/)
+  // ABANDONED_REASON stays short and distinct: `declined.ts` compares against
+  // it exactly, and an unanswered panel is not a refusal.
+  assert.match(approval, /export const ABANDONED_REASON = 'the reader did not answer'/)
+})
