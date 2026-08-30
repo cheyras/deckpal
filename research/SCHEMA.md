@@ -2286,6 +2286,15 @@ CREATE TABLE card_list (
   UNIQUE (id, kind)                                         -- target of the list_item composite FK
 );
 
+-- Migration 050 (2026-08-29): smart lists. A dynamic list MAY carry a saved
+-- query re-evaluated on every read (the addMissing spec + exclusions; see
+-- apps/api/src/listRules.ts). NULL rule = the pre-050 reference-set
+-- behaviour, unchanged.
+ALTER TABLE card_list
+  ADD COLUMN rule JSONB,
+  ADD COLUMN rule_evaluated_at TIMESTAMPTZ,
+  ADD CONSTRAINT card_list_rule_dynamic_only CHECK (rule IS NULL OR kind = 'dynamic');
+
 CREATE TABLE list_item (
   id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   list_id  UUID   NOT NULL,
