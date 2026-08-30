@@ -20,7 +20,7 @@ import { strategyLabel } from './deckIntel.js';
 
 const SOURCE = 'deckpal-mcp';
 const FORMATS = ['standard', 'expanded', 'glc', 'unlimited'] as const;
-const INCLUDES = ['cards', 'validate', 'pricing', 'testhand'] as const;
+const INCLUDES = ['cards', 'validate', 'pricing', 'testhand', 'strategy'] as const;
 
 // ── API response shapes (only the fields these tools render) ─────────────────
 
@@ -316,10 +316,12 @@ const decksTool = defineTool({
     'list with owned counts), validate (format-legality violations), pricing (the ' +
     'buy-the-missing-cards gap analysis: owned vs needed per card, cost to close, TCGplayer ' +
     'mass-entry lines + cart deep link(s) the user can open to pre-fill a TCGplayer cart), ' +
-    'testhand (a sample opening hand). Read-only. To create or edit a deck ' +
+    'testhand (a sample opening hand), strategy (the FULL strategy-guide markdown — the ' +
+    'header line only ever reports its heading and length, so ask for this include to actually ' +
+    'read it). Read-only. To create or edit a deck ' +
     'use save_deck; to delete use delete_deck. Deck intelligence has its own tools: ' +
-    'deck_strategy (the full strategy guide), battle_logs (game results per version), ' +
-    'deck_history (version timeline, snapshots, revert).',
+    'deck_strategy (reads the same guide, and is the only way to WRITE one), battle_logs ' +
+    '(game results per version), deck_history (version timeline, snapshots, revert).',
   inputSchema: z.object({
     // TAKES THE NAME. `decks` failed five times in the transcript record on
     // 'dhelmise', 'slowking-toolbox' and 'None' — a reader saying "my dhelmise
@@ -338,7 +340,8 @@ const decksTool = defineTool({
       .array(z.enum(INCLUDES))
       .optional()
       .describe(
-        "Extra sections to fetch for one deck: 'cards', 'validate', 'pricing', 'testhand'. Ignored without deck_id.",
+        "Extra sections to fetch for one deck: 'cards', 'validate', 'pricing', 'testhand', " +
+          "'strategy' (the whole guide text). Ignored without deck_id.",
       ),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
@@ -436,7 +439,30 @@ const decksTool = defineTool({
         );
       }
       if (want.size === 0) {
-        lines.push("(also available: include: ['validate','pricing','testhand'])");
+        lines.push("(also available: include: ['validate','pricing','testhand','strategy'])");
+      }
+      // ── THE GUIDE ITSELF, NOT A LABEL FOR IT ────────────────────────────
+      //
+      // `strategyLabel` on the header line renders "'# Opening plan' (14267
+      // chars)" — a true sentence containing none of the guide. Measured: asked
+      // about a deck's strategy, the model read that line, told the reader the
+      // guide was "14k characters", and then offered a second, approval-gated
+      // `deck_strategy` call to actually read it. `strategyMd` was already in
+      // the payload this handler had in hand, so the extra round trip bought
+      // nothing.
+      //
+      // Rendered LAST and in full: in full because deck_strategy's read branch
+      // returns the whole guide and two tools returning different amounts of
+      // the same text is how a reader gets told something false about it; last
+      // because it is the only unbounded section here, and the compact rows
+      // above stay contiguous ahead of it.
+      if (want.has('strategy')) {
+        const md = detail.deck.strategyMd;
+        lines.push(
+          md && md.trim()
+            ? [`strategy guide (${md.length} chars):`, '---', md].join('\n')
+            : 'strategy guide: none yet — write one with deck_strategy.',
+        );
       }
       return ok(lines.join('\n'));
     } catch (err) {
