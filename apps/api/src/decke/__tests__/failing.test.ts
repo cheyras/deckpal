@@ -63,6 +63,67 @@ test('failures in distinct turns accumulate, and successes never count', () => {
   assert.equal(counts.get('decks'), 1)
 })
 
+/**
+ * The one text part a plain read's success travels on — `lookupRecord`'s
+ * replayed block. The prefix literal is pinned on the browser side too
+ * (`lookupRecord.test.ts`); the two must match or recovery goes blind.
+ */
+const record = (...lines: string[]) => ({
+  type: 'text',
+  text: `[lookups on that turn, for your own reference — you actually ran these]\n${lines.join('\n')}`,
+})
+
+test('a SUCCESS closes the breaker — a recovered tool is not held against itself', () => {
+  // The measured conversation, tool by tool: decks failed once in turn 2 and
+  // once in turn 4 but SUCCEEDED from turn 3 on — and decks is where every
+  // useful fact in turns 5–7 came from. Counting failures forever would have
+  // refused a demonstrably working tool for the rest of the conversation.
+  const counts = failingTools([
+    msg([failed('decks', 'decks failed: Internal server error')]),
+    msg([record('decks: Slowking Toolbox (v3) — 60 cards')]),
+    msg([failed('decks', 'decks failed: Internal server error')]),
+  ])
+  // One failure since the last success, not two since the dawn of time.
+  assert.equal(counts.get('decks'), 1)
+})
+
+test('within one turn, success dominates: fail-then-work is a turn where it works', () => {
+  // Turn 2 of the transcript exactly: decks errored, then a second decks call
+  // returned the deck. The turn proved the tool works.
+  const partCounts = failingTools([
+    msg([failed('decks', 'decks failed: Internal server error'), ok('decks')]),
+  ])
+  assert.equal(partCounts.get('decks'), undefined)
+  const recordCounts = failingTools([
+    msg([failed('decks', 'decks failed: Internal server error'), record('decks: Slowking Toolbox (v3)')]),
+  ])
+  assert.equal(recordCounts.get('decks'), undefined)
+})
+
+test('a recovery read from the record resets only ITS tool, and the count restarts after', () => {
+  const counts = failingTools([
+    msg([failed('battle_logs', ERR)]),
+    // battle_logs recovered here (turn 3 of the transcript)…
+    msg([record('battle_logs: #52 | v3 | LOSS vs Mizvkage01', 'decks: Slowking Toolbox (v3)')]),
+    // …then went down and stayed down (turns 4–6).
+    msg([failed('battle_logs', ERR)]),
+    msg([failed('battle_logs', ERR)]),
+  ])
+  assert.equal(counts.get('battle_logs'), CIRCUIT_BUDGET)
+  assert.equal(circuitOpen(counts, 'battle_logs'), true)
+})
+
+test('ordinary prose mentioning a tool name is not a recovery', () => {
+  // Only the record block speaks for results; "decks: whatever" in the model's
+  // own words (no prefix) must not close anything.
+  const counts = failingTools([
+    msg([failed('decks', 'decks failed: Internal server error')]),
+    msg([{ type: 'text', text: 'decks: I could not read them' }]),
+    msg([failed('decks', 'decks failed: Internal server error')]),
+  ])
+  assert.equal(counts.get('decks'), CIRCUIT_BUDGET)
+})
+
 test('nothing on the wire means nothing has failed', () => {
   assert.equal(failingTools([]).size, 0)
   assert.equal(failingTools(null).size, 0)

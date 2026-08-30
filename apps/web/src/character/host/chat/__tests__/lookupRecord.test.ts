@@ -43,6 +43,11 @@ test('a finished lookup becomes one line, prefixed so it cannot read as speech',
   assert.ok(rec, 'two finished calls are evidence')
   assert.equal(rec.type, 'text')
   assert.ok(rec.text.startsWith(TOOL_RECORD_PREFIX), 'marked as a record, not folded into his words')
+  // THE LITERAL IS A WIRE CONTRACT. The server's circuit breaker
+  // (apps/api/src/decke/failing.ts) replicates this exact string to read
+  // recoveries out of the replayed record — a browser module and a server
+  // module cannot import each other. Change one, change both.
+  assert.equal(TOOL_RECORD_PREFIX, '[lookups on that turn, for your own reference —')
   assert.match(rec.text, /decks: Slowking Toolbox \(v2\) — 60 cards/)
   assert.match(rec.text, /showScreen: panel drawn, 3 block\(s\)/)
 })

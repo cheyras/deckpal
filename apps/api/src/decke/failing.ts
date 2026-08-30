@@ -146,8 +146,35 @@ export function readerAsksRetry(text: unknown): boolean {
 }
 
 /**
+ * REPLICATED from `apps/web/src/character/host/chat/lookupRecord.ts`, the same
+ * way `declined.ts` replicates `[[NO_WORK]]` from `deepOutcome.ts`: a browser
+ * module and a server module cannot import each other, and the prefix is the
+ * wire contract between them. A test on each side pins the literal.
+ */
+const TOOL_RECORD_PREFIX = '[lookups on that turn, for your own reference —'
+
+/**
+ * The tools a turn's replayed lookup record says RAN TO A RESULT.
+ *
+ * Ordinary read successes do not ride the wire as tool parts — `lookupRecord`
+ * replays them as one text block whose lines are `<tool>: <summary>` — so a
+ * breaker that read only structured parts would be blind to recovery. Each
+ * chip is one line by construction (`summarise`/`summariseError` never emit a
+ * newline), so a line-anchored name is exactly one ok-or-partial call.
+ */
+function recordedOkTools(text: string): string[] {
+  if (!text.startsWith(TOOL_RECORD_PREFIX)) return []
+  const out: string[] = []
+  for (const line of text.split('\n').slice(1)) {
+    const m = /^([a-z][a-z0-9_]*): /.exec(line)
+    if (m) out.push(m[1]!)
+  }
+  return out
+}
+
+/**
  * How many distinct earlier turns each tool failed in, from the replayed
- * conversation.
+ * conversation — counting only failures SINCE THE TOOL LAST SUCCEEDED.
  *
  * The part shape is the one `lookupRecord.ts`'s `failureParts` produces and the
  * AI SDK understands: `{type:'tool-<name>', toolCallId, input, state:
@@ -156,6 +183,18 @@ export function readerAsksRetry(text: unknown): boolean {
  *
  * ONE MESSAGE COUNTS ONCE, however many times the tool failed inside it. That
  * is what makes the unit a turn rather than a call; see the header.
+ *
+ * A SUCCESS CLOSES THE BREAKER — a real circuit breaker half-opens and resets
+ * on a good probe, and the measured conversation shows why this one must:
+ * `decks` failed once in turn 2 and once in turn 4 but SUCCEEDED in every turn
+ * from 3 on, and it was `decks` that supplied every fact the useful answers
+ * were built from. Counting failures forever would have opened its circuit at
+ * turn 5 and refused a demonstrably working tool for the rest of the
+ * conversation — trading "hammers a dead tool" for "boycotts a live one".
+ * Success is read from both channels it travels on: an `output-available` tool
+ * part (approval-carrying calls) and the turn's lookup-record block (plain
+ * reads). Within one turn, success dominates: a turn where the tool failed and
+ * then worked is a turn where it works.
  */
 export function failingTools(messages: unknown): Map<string, number> {
   const counts = new Map<string, number>()
@@ -163,14 +202,25 @@ export function failingTools(messages: unknown): Map<string, number> {
   for (const m of messages) {
     const parts = (m as { parts?: unknown })?.parts
     if (!Array.isArray(parts)) continue
-    const thisTurn = new Set<string>()
+    const failedThisTurn = new Set<string>()
+    const okThisTurn = new Set<string>()
     for (const p of parts) {
-      const part = p as { type?: unknown; state?: unknown } | null
-      if (!part || typeof part.type !== 'string' || !part.type.startsWith('tool-')) continue
-      if (part.state !== 'output-error') continue
-      thisTurn.add(part.type.slice('tool-'.length))
+      const part = p as { type?: unknown; state?: unknown; text?: unknown } | null
+      if (!part) continue
+      if (part.type === 'text' && typeof part.text === 'string') {
+        for (const name of recordedOkTools(part.text)) okThisTurn.add(name)
+        continue
+      }
+      if (typeof part.type !== 'string' || !part.type.startsWith('tool-')) continue
+      const name = part.type.slice('tool-'.length)
+      if (part.state === 'output-error') failedThisTurn.add(name)
+      else if (part.state === 'output-available') okThisTurn.add(name)
     }
-    for (const name of thisTurn) counts.set(name, (counts.get(name) ?? 0) + 1)
+    for (const name of okThisTurn) {
+      counts.delete(name)
+      failedThisTurn.delete(name)
+    }
+    for (const name of failedThisTurn) counts.set(name, (counts.get(name) ?? 0) + 1)
   }
   return counts
 }
