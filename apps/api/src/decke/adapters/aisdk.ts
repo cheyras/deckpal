@@ -56,6 +56,7 @@ import {
   circuitOpenLogLine,
 } from '../failing.js';
 import { NoOpMemo, noOpMessage } from '../noOp.js';
+import { ALREADY_TOLD_NOTE, alreadyTold } from '../toldAlready.js';
 import { briefArgs } from '../toolArgs.js';
 
 /**
@@ -296,6 +297,19 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    * `failing.ts`. The model cannot write this sentence; only they can.
    */
   retryRequested?: boolean;
+  /**
+   * The `<tool>\u0000<summary>` keys of every lookup the READER WAS ALREADY
+   * SHOWN in an earlier turn of this conversation.
+   *
+   * Rebuilt per request from the replayed lookup records by `toldAlready.ts`,
+   * the same way `declined` and `failing` are. A call whose summary matches one
+   * of these still RUNS and still gets its ordinary `ok` chip — only the
+   * model-facing result text is annotated, telling it not to deliver the same
+   * answer a second time. The reader watched the same deck summary arrive on
+   * five consecutive turns and said so twice. Absent means nothing has been
+   * reported yet — correct for a sub-agent and for the tests.
+   */
+  priorSummaries?: ReadonlySet<string>;
   /**
    * This conversation's id, for the one structured log line a tripped breaker
    * writes. Never used for anything else, and its absence must never suppress
@@ -923,10 +937,25 @@ function buildApprovalPreview(
 /** The chip's length ceiling, shared by both summarisers so they cannot drift. */
 const SUMMARY_CAP = 120;
 
+/**
+ * One-line summary of a result's TEXT — the first line, capped.
+ *
+ * Split out from `summarise` below because it has a second caller that has only
+ * the text: the already-told annotation compares this turn's summary against
+ * the summaries earlier turns replayed, and on a repeat-ledger hit the
+ * `ToolResult` object belongs to a call that settled in a different closure.
+ * ONE function, so the string the reader was shown and the string compared
+ * against it cannot drift apart. (Clamping cannot separate them either: it cuts
+ * at `maxChars`, thousands of characters past this cap, and only ever appends.)
+ */
+export function summariseText(text: string): string {
+  const first = text.split('\n', 1)[0] ?? '';
+  return first.length > SUMMARY_CAP ? `${first.slice(0, SUMMARY_CAP - 3)}…` : first;
+}
+
 /** One-line summary of what a tool actually returned, for its chip. */
 function summarise(result: ToolResult): string {
-  const first = result.text.split('\n', 1)[0] ?? '';
-  return first.length > SUMMARY_CAP ? `${first.slice(0, SUMMARY_CAP - 3)}…` : first;
+  return summariseText(result.text);
 }
 
 /**
@@ -1008,6 +1037,12 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
   // which has no conversation to have failed in.
   const failing = opts.failing ?? new Map<string, number>();
   const retryRequested = opts.retryRequested === true;
+  // ── AND WHAT THEY HAVE ALREADY BEEN SHOWN ─────────────────────────────────
+  //
+  // Third of the same shape, and the last: rebuilt per request from the
+  // replayed lookup records, never held between them. Empty for a sub-agent,
+  // which has no reader to have told anything to.
+  const told = opts.priorSummaries ?? new Set<string>();
   // ONE LOG LINE PER TOOL PER REQUEST. A breaker that trips on three calls in
   // one turn is one outage, and three identical lines is three times the noise
   // for the same fact.
@@ -1301,7 +1336,27 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             text.trimStart(),
           );
           const nudge = ledger.noteEmptiness(def.name, emptyish);
-          return nudge ? text + nudge : text;
+
+          // ── AND AN ANSWER THEY HAVE ALREADY BEEN GIVEN ────────────────────
+          //
+          // The two guards above are both PER LEG. This one is the only thing
+          // in `execute` that can see across a turn boundary on a SUCCEEDING
+          // tool, and that is the gap the transcript fell through: `decks`
+          // returned the same summary on turns 3, 4, 5, 6 and 7 — never once
+          // failing, so the breaker above could not open — and the same deck
+          // stats were narrated to the reader every one of those turns. They
+          // said so twice. See `toldAlready.ts`.
+          //
+          // X2: THE CHIP IS NOT TOUCHED. The lookup really ran and `ok` is the
+          // truth about it; this rides on the MODEL's copy of the result only,
+          // and nothing here reaches the transcript. It is also not a turn-end
+          // guard, so it does not spend the one-note-per-turn budget
+          // (`guardFired`) — it is a property of this result, not an admission
+          // about the turn.
+          const restated = alreadyTold(told, def.name, summariseText(text))
+            ? ALREADY_TOLD_NOTE
+            : '';
+          return `${text}${nudge ?? ''}${restated}`;
         } catch (err) {
           // A message, not an object: this string goes straight into the
           // model's context, and it should read like something that happened

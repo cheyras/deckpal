@@ -151,25 +151,41 @@ export function readerAsksRetry(text: unknown): boolean {
  * module and a server module cannot import each other, and the prefix is the
  * wire contract between them. A test on each side pins the literal.
  */
-const TOOL_RECORD_PREFIX = '[lookups on that turn, for your own reference —'
+export const TOOL_RECORD_PREFIX = '[lookups on that turn, for your own reference —'
+
+/** One replayed `<tool>: <summary>` line — the name, and what it found. */
+export type RecordedLookup = { name: string; summary: string }
 
 /**
- * The tools a turn's replayed lookup record says RAN TO A RESULT.
+ * The lookups a turn's replayed record says RAN TO A RESULT, with their
+ * summaries.
  *
  * Ordinary read successes do not ride the wire as tool parts — `lookupRecord`
  * replays them as one text block whose lines are `<tool>: <summary>` — so a
  * breaker that read only structured parts would be blind to recovery. Each
  * chip is one line by construction (`summarise`/`summariseError` never emit a
  * newline), so a line-anchored name is exactly one ok-or-partial call.
+ *
+ * THE SUMMARY IS RETURNED because a second reader wants it: `toldAlready.ts`
+ * compares it against the summary THIS turn's identical call produces, and both
+ * strings come from the same `summarise` on the server. This is the one parser
+ * for that block, deliberately — two of them would drift the moment
+ * `lookupRecord` changed its line shape, and the breaker's recovery signal and
+ * the already-told annotation would then disagree about what a turn recorded.
  */
-function recordedOkTools(text: string): string[] {
+export function recordedLookups(text: string): RecordedLookup[] {
   if (!text.startsWith(TOOL_RECORD_PREFIX)) return []
-  const out: string[] = []
+  const out: RecordedLookup[] = []
   for (const line of text.split('\n').slice(1)) {
-    const m = /^([a-z][a-z0-9_]*): /.exec(line)
-    if (m) out.push(m[1]!)
+    const m = /^([a-z][a-z0-9_]*): (.*)$/.exec(line)
+    if (m) out.push({ name: m[1]!, summary: m[2]! })
   }
   return out
+}
+
+/** Just the names, for the breaker's recovery check. */
+function recordedOkTools(text: string): string[] {
+  return recordedLookups(text).map((l) => l.name)
 }
 
 /**
