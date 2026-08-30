@@ -1036,7 +1036,8 @@ key format is mine; the requirement that one exist is `ROUTE-MAP.md`'s.
 | Table | Grain | Growth | Purpose |
 |---|---|---|---|
 | `price_current` | one row per `(variant, source, currency)` | **bounded**, ~50–90 k rows forever | Every price *display*: card tile, variant table, set value, deck price, collection value, price sorts. UPSERTed. |
-| `price_observation` | one row per `(variant, source, currency, day)` | **append-only**, see §11 | The per-variant chart series. `BEHAVIOR-SPEC.md` §9.2. |
+| `price_observation` | one row per `(variant, source, currency, day)` | **append-only**, RETAINED ~30 days (§7.5) | The per-variant chart series, at daily grain with all nine metrics. `BEHAVIOR-SPEC.md` §9.2. |
+| `price_bucket` | one row per `(variant, source, currency, grain, period)` | derived; weekly ~6 months, monthly FOREVER (§7.5) | What survives the daily partition being dropped: OHLC + mean/median/n over `market_minor`. |
 | `collection_value_point` | one row per `(user, day)` | ~365/user/yr | The user's own collection-value history. **Must be a separate, user-owned table** — [E] `BEHAVIOR-SPEC.md` §2.4: Reset Collection clears "activity log **and** total collection price history" but must not touch catalog market history. |
 
 Splitting current from history is the single change that makes whole-catalogue pricing affordable
@@ -1246,6 +1247,118 @@ INSERT INTO price_source_field_map VALUES
    NULL price on any `holo` variant and a non-NULL price on its `reverse` variant.
    [E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §3 item 3 — *"Pin it with `swsh3-136`. Highest correctness-per-minute item on
    this list."*
+
+## 7.5 Tiered retention — what history is kept, and in what shape
+
+Migration `048_price_bucket.sql`. Daily rows forever do not fit the disk.
+Measured against the live database on 2026-08-29, these are counts and not
+estimates:
+
+| Fact | Number |
+|---|---|
+| Pokémon rows/day that join to a `card_variant` | 28,622 |
+| Storage per `price_observation` row | ~112 B → ~3.2 MB/day |
+| Daily-forever, Pokémon + Magic + Yu-Gi-Oh | **~6.6 GB/year** |
+| Supabase Pro includes | 8 GB |
+
+So retention is tiered by age, and each non-daily bucket stores the **shape** of
+its period rather than a closing value:
+
+| Tier | Window | Table | Mechanism when it expires |
+|---|---|---|---|
+| daily | last ~30 days | `price_observation` | monthly partition DETACHed, then DROPped one run later |
+| weekly | ~30 days to ~6 months | `price_bucket` (`grain='week'`) | quarterly sub-partition DROPped |
+| monthly | beyond ~6 months | `price_bucket` (`grain='month'`) | never — month grain is forever |
+
+**Why a bucket and not a close.** Measured over 633,431 real weekly buckets
+(>=6 observations, >\$0.50): **close alone misleads 46.8% of the time** — that
+fraction of weeks close at or near an extreme of their own range. Average
+intra-week range is 4.2% of close; 11.0% of weeks swing >10%.
+
+**Why there is no variance column.** `corr(stddev, high-low) = 0.9878` over the
+same sample, so a stored variance would be a second name for the range.
+Volatility is DERIVED on read (Parkinson / Garman-Klass from OHLC). Parkinson
+(1980) is why that is not a compromise: the range is a *more* efficient
+volatility estimator than close-to-close sampling, so these buckets measure
+volatility better per byte than the daily closes they replace.
+
+**Why there is no VWAP column.** TCGCSV supplies no volume. Recorded so nobody
+rediscovers its absence and designs around a column that cannot exist. (For the
+same reason the arithmetic mean IS the time-weighted mean here: observations are
+daily and evenly spaced.)
+
+**Why only `market_minor`.** It is the one metric every consumer reads — the
+price chart, the collection value rule, and Cardmarket maps its headline
+`trend` into it, so EUR series are covered too. The other eight metrics live on
+in the 30-day daily window and in `price_current`; bucketing all nine would
+multiply storage ~9x for columns nothing reads historically. They are
+deliberately lost with the partition.
+
+**Why the daily tier stays in `price_observation`.** Considered and rejected:
+degenerate `grain='day'` buckets for one uniform table. The ingest choke point
+(`appendObservations`) would either double-write ~28.6k rows/day or move
+wholesale, churning the one path three jobs share; daily rows carry nine metrics
+plus `priced_at`/`sync_run_id` provenance a bucket cannot hold; and the
+retention mechanism this schema was built for — monthly partitions you can DROP
+— already lives there. Uniformity is the READER's problem and is solved there:
+`GET /cards/:cardId/prices` returns every point in one bucket shape, a day row
+presenting as `open=high=low=close`, `n=1`.
+
+**RLS is enabled on `price_bucket` AND on its partitions.** Every table since
+021 carries the world-readable / nobody-writable pair, and this one needs it
+more than most: the API serves `/cards/:id/prices` under `SET LOCAL role` =
+`anon`/`authenticated`, those roles hold default CRUD grants on public-schema
+tables on Supabase, and after the rollup runs this table is the ONLY copy of
+that history in the database. The partitions are enabled individually because
+Postgres does not apply a parent's policies to a partition reached directly by
+name — a parent-only enable leaves `price_bucket_month` writable. Quarters
+created at runtime get the same treatment in `ensureWeekBucketPartition`.
+(The same parent-only gap exists on `price_observation`'s runtime partitions,
+which 021 does not cover. Pre-existing; flagged rather than fixed here.)
+
+**Completeness is checked before correctness.** Every verification below
+compares the buckets to THE PARTITION, which is the right question for "did the
+rollup summarise correctly" and blind to "was there anything to summarise". A
+month with an eight-day ingest outage rolls up, verifies perfectly, and makes
+that hole permanent — and then `backfill.ts`, which treats a bucketed day as
+ingested, would skip exactly the days needing repair. So a month with days
+carrying no observation at all is REFUSED by name, and the replay guard only
+counts a day as covered when some series' `n_obs` equals its bucket's full
+span. `--allow-gaps` is the acknowledgement that the missing days are days
+TCGCSV never published.
+
+**A refusal HALTS the run rather than skipping the month.** Rolling past a month
+would move `day_floor` beyond it, and the reader serves daily rows only from
+`day_floor` forward — so the skipped month's data would sit in the database
+visible at no grain, a months-long hole in every chart. Halting keeps
+`day_floor` at the first un-rolled month, which is the invariant the reader
+depends on.
+
+**No `REVOKE UPDATE, DELETE` on `price_bucket`**, unlike `price_observation`
+(§7.2). An observation log must not be rewritten; a bucket is derived,
+recomputable state, and the rollup upserts it `ON CONFLICT DO UPDATE` — which is
+exactly what makes the job re-runnable and resumable (B8).
+
+**The straddle-week invariant.** ISO weeks cross month boundaries, so ownership
+is pinned: rollup(M) computes the week buckets for every ISO week whose START
+falls in M, reading the PARENT table so a straddler sees its first days of M+1.
+Months are processed oldest-first, and partition M+1 is not dropped until
+rollup(M+1) a month later, so by induction:
+
+> Partition M is dropped only when its month bucket exists and every ISO week
+> overlapping M has been bucketed — the weeks starting in M by this run, the
+> week reaching back into M-1 by last month's run.
+
+**Verify BEFORE drop.** The source is about to be destroyed, so "the job ran" is
+not proof. Per month, in order: snapshot `n_obs`; upsert both grains; recompute
+the same aggregation into a TEMP table and `EXCEPT` it against what is stored in
+BOTH directions; check conservation (`sum(n_obs)` over the month buckets equals
+the distinct `(variant, source, currency, day)` count in the partition, so a
+series that got no bucket cannot hide); check no bucket SHRANK; only then DETACH
+and rename to `…_retired`. The DROP happens one run later, after the month
+bucket is re-derived from the retired table itself. Month buckets are built from
+the DAILY rows, never from week buckets — a median of weekly medians is not a
+median.
 
 ## 7.4 FX
 
