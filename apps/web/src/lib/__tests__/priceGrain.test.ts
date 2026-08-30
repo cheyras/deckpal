@@ -116,3 +116,27 @@ test('dates format without leading zeros and without locale drift', () => {
   assert.equal(shortMonth('2026-02-23'), 'Feb')
   assert.equal(shortMonth('2026-12-01'), 'Dec')
 })
+
+// ── The shape-change crash (2026-08-30) ────────────────────────────────────
+
+test('an OLD-shape cached point is dropped, not mapped to an unplottable one', () => {
+  // A PWA keeps the previous bundle running, and the service worker caches API
+  // GETs for seven days. Both directions of that skew are real: this is the one
+  // where a NEW bundle receives an OLD `{date, value}` body. Mapping it gave
+  // `{date: undefined}`, and one such point made every axis tick NaN — which
+  // threw a RangeError out of `Date.toISOString` and unmounted the whole card
+  // page behind "Something went wrong!".
+  const stale = [{ date: '2026-08-01', value: 5 }, { date: '2026-08-02', value: 6 }] as never
+  assert.deepEqual(chartPoints(stale), [])
+})
+
+test('a mixed batch keeps the well-formed points and drops the rest', () => {
+  const mixed = [
+    day('2026-08-15', 42),
+    { date: '2026-08-16', value: 7 } as never,
+    week('2026-02-02', 100, 140, 90, 120),
+  ]
+  const out = chartPoints(mixed)
+  assert.equal(out.length, 2)
+  assert.deepEqual(out.map((p) => p.date), ['2026-08-15', '2026-02-08'])
+})

@@ -1,10 +1,15 @@
 # Price history: tiered retention and rollup
 
-**Status:** IMPLEMENTED on branch `prices/retention-tiers` (2026-08-29). All eleven
-work items are done; done gates 1 and 7 pass. Gates 2-6 are live-database and browser
-gates that CANNOT be run from the implementing machine (no Postgres, no Docker, no
-`psql`; the live credentials live in repo secrets) — they are owed to a human and the
-rollup workflow ships with its cron commented out for exactly that reason.
+**Status:** DONE. Shipped as PR #141 (2026-08-29) and run on production 2026-08-30.
+All eleven work items and **all seven done gates** are met: migration 048 applied to
+the live Supabase project, 23 months rolled up oldest-first with every verification
+exact, **2.374 GiB → 0.495 GiB**, the endpoint serving mixed grains, the Price tab
+verified in a real browser at desktop and 390px, and the monthly cron armed.
+
+Production surfaced two defects no local harness could: Supabase's 2-minute
+`statement_timeout` (the job now raises its own), and a PWA serving the OLD bundle
+against the NEW response shape, which crashed the card page — see DECISIONS.md
+2026-08-30. Both fixed.
 
 In place of them the entire pipeline was executed against a REAL Postgres 18 engine
 (PGlite/WASM): migration 048 applied verbatim, ~1,500 synthetic observations across 24
