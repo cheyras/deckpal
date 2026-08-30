@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Card-Detector Bakeoff Harness</title>
+<title>Card-Scanner Harness v2 — Tracker + Reticle</title>
 <style>
   :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#30363d; --txt:#e6edf3; --mut:#8b949e; --grn:#3fb950; --cyn:#39d0d8; }
   * { box-sizing: border-box; }
@@ -22,6 +22,8 @@
   button:hover { border-color:#58a6ff; }
   .readout { font-size:12px; color:var(--mut); }
   .readout b { color:var(--txt); }
+  .toggle { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--mut); cursor:pointer; user-select:none; }
+  .toggle input { cursor:pointer; }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; min-width:240px; }
   .panel h2 { font-size:13px; margin:0 0 8px; }
   .kv { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
@@ -37,7 +39,7 @@
 </head>
 <body>
 <header>
-  <h1>Card-Detector Bakeoff Harness</h1>
+  <h1>Card-Scanner Harness v2 — Tracker + Reticle</h1>
   <div class="tabs">
     <div class="tab active" data-tab="fixtures">Fixtures</div>
     <div class="tab" data-tab="live">Live camera</div>
@@ -92,12 +94,18 @@
         <div class="controls">
           <button id="camStart">Start camera</button>
           <button id="camStop">Stop</button>
+          <label class="toggle"><input type="checkbox" id="toggleReticle" checked> Reticle</label>
+          <label class="toggle"><input type="checkbox" id="toggleStability" checked> Stability</label>
           <span class="readout">detect: <b id="liveMs">—</b> ms</span>
           <span class="readout">fps: <b id="liveFps">—</b></span>
+          <span class="readout">stable: <b id="liveStable">—</b></span>
+          <span class="readout">pending: <b id="livePending">—</b></span>
           <span class="readout err" id="liveErr"></span>
         </div>
         <div class="legend readout" style="margin-top:8px">
-          <span><i class="swatch" style="background:var(--cyn)"></i>window.detect() output</span>
+          <span><i class="swatch" style="background:var(--cyn)"></i>stable (tracked, smoothed)</span>
+          <span><i class="swatch" style="background:var(--cyn);opacity:.35"></i>pending (not yet stable)</span>
+          <span>reticle off / Stability off = raw window.detect() output, for A/B comparison</span>
         </div>
       </div>
     </div>
@@ -241,9 +249,53 @@ function makeScenes(seed){
 // module). Every helper function, every CFG constant, and the whole pipeline
 // (front end -> contour lane + line lane -> pre-screen -> refine -> outward snap ->
 // verify -> NMS -> final refine) is otherwise byte-identical to detector-hybrid.mjs.
-// detector-hybrid.mjs
+// detector-hybrid-v2.mjs
 // Hybrid trading-card quad detector. Pure, dependency-free ESM. Reads pixels only:
 // no imports, no file access, no globals, no mutation of the input buffer.
+//
+// v2 CHANGES (see notes-v2.md). Driven by real iPad camera frames, on which v1
+// found nothing on 7 of 8 clean card presentations:
+//
+//   1. OUTPUT VALIDITY GATE. Every emitted quad is passed through `orderQuad`,
+//      which re-orders the corners by angle about their centroid (repairing a
+//      bowtie whose corners are merely permuted) and then requires a strictly
+//      convex, non-degenerate, consistently wound polygon -- dropping anything
+//      that is genuinely self-intersecting. This runs AFTER the final refine
+//      pass, which is where v1 leaked malformed polygons: verification checked
+//      convexity, then `FINAL_REFINE` moved the corners again with no re-check.
+//
+//   2. ORIENTATION-STRATIFIED HOUGH POOL (the real-frame root cause). v1 kept
+//      the globally top-`POOL_N` Hough peaks by raw vote count. Vote count is
+//      proportional to line LENGTH, so a card held in landscape -- long sides
+//      ~200px, short sides ~90px -- had its two short sides ranked #54..#268 in
+//      a cluttered frame, far outside a pool of 48, while table edges, plate
+//      rims and wood-grain runs took every slot. The card's two long sides were
+//      always in the pool; its two short sides never were, so no quad could be
+//      assembled. The pool is now a per-orientation-bin quota plus a global
+//      fill, so short sides compete only against other lines of their own
+//      orientation.
+//
+//   3. WRAP-AWARE LINE PAIRING. Hough theta lives on [0, PI) and wraps: a side
+//      at theta=0.06 and the opposite side at theta=3.11 are the same
+//      orientation family, but v1 bucketed by floor(theta / PAR_TOL) and paired
+//      only WITHIN a bucket, so such a pair was never formed -- and its `gap`
+//      was computed without negating the wrapped line's rho, giving 356px for a
+//      209px-wide card. Pairing is now formed globally with wrap-folded angle
+//      and sign-corrected rho.
+//
+//   4. CANDIDATE-RELATIVE EDGE / RING THRESHOLDS. `EDGE_T=210` and `RING_T=150`
+//      were absolute gradient floors calibrated on crisp synthetic frames. On
+//      real (softer, JPEG-chained) frames a genuine card border peaks lower, so
+//      support collapsed. Both are now derived from the median oriented ridge
+//      magnitude measured on the candidate's OWN sides, clamped to [floor,
+//      the old absolute value]. On a crisp frame the clamp binds and behaviour
+//      is unchanged; on a soft frame the threshold follows the frame down.
+//      This widens an adaptive range rather than lowering a floor to noise.
+//
+//   5. Verification gates re-seated for real evidence (SUP_MEAN, RING_MIN),
+//      with the inner-border ring scanned over a wider inset range because a
+//      card in a toploader shows its printed border further inside the detected
+//      silhouette than a bare card does.
 //
 //   export default detect({ width, height, data }) -> [ [[x,y],[x,y],[x,y],[x,y]], ... ]
 //
@@ -323,17 +375,33 @@ const CFG = {
   THETA_BINS: n('H_TB', 48),
   VOTE_PCT: n('H_VP', 0.985),
   VOTE_FLOOR: n('H_VF', 95),
-  VOTE_CEIL: n('H_VC', 300),
+  VOTE_CEIL: n('H_VC', 240),   // v2: lowered so weak short edges still vote (see notes)
   MAX_VOTERS: n('H_MAXVOTE', 9000),   // safety valve on pathological frames
   MAX_RAW: n('H_MAXRAW', 12000),      // safety valve on candidate explosion
   RHO_STEP: n('H_RHOSTEP', 1),
   PEAK_MIN_VOTES: n('H_PMV', 10),
-  POOL_N: n('H_POOL', 48),
-  PAR_TOL: n('H_PAR', 0.30),
+  POOL_N: n('H_POOL', 72),
+  // Orientation stratification of the line pool. Raw vote count is proportional
+  // to line length, so a global top-N pool systematically starves the SHORT
+  // sides of a card presented in landscape. Each orientation bin gets a
+  // guaranteed quota first; the remaining slots are filled globally by votes.
+  SEL_BINS: n('H_SELB', 12),
+  POOL_PER_BIN: n('H_POOLPB', 4),
+  MAX_PEAKS: n('H_MAXPEAK', 900),  // safety valve on the pre-merge peak list
+  PAR_TOL: n('H_PAR', 0.30),      // orientation bucket width (bucketing only)
+  // How near-parallel two opposite sides must be. v1 had no such parameter: it
+  // paired lines only within one PAR_TOL bucket, so the tolerance it actually
+  // applied depended on where the two lines fell relative to an arbitrary bin
+  // edge (anywhere from 0 to 0.30 rad). Now the pairing is global and the
+  // tolerance is uniform -- which means it has to be stated, and stated at the
+  // physically right value: opposite sides of a card under real perspective
+  // converge by well under 0.2 rad at the obliquities a scan is usable at.
+  PAR_TOL2: n('H_PAR2', 0.12),
   PERP_LO: n('H_PLO', 1.00),
   PERP_HI: n('H_PHI', 2.14),
+  PERP_SPAN: n('H_PSPAN', 1),   // orientation-bucket half-window for the perpendicular cross
   MIN_GAP: n('H_GAP', 14),
-  MAX_PAIRS: n('H_MAXPAIR', 40),
+  MAX_PAIRS: n('H_MAXPAIR', 24),
   // ---- geometry gates ----
   MIN_AREA: n('H_MINA', 1300),
   MAX_AREA: n('H_MAXA', 25500),
@@ -341,21 +409,37 @@ const CFG = {
   ASP_LO: n('H_ASPLO', 0.28),
   ASP_HI: n('H_ASPHI', 3.4),
   OPP_SIM: n('H_OPP', 0.55),
-  MIN_VIS: n("H_MINVIS", 0.34),
+  CORNER_MIN: n('H_CORNMIN', 0),   // smallest allowed interior corner angle, degrees
+  // v2: 0.34 -> 0.80. The loose value was there for the synthetic kit's cards that
+  // hang off the frame edge; measured, it buys no kit detections (rate identical
+  // at 0.80) and only false positives (kit FP 7 -> 6), while on real frames it was
+  // letting a quad that is mostly OUTSIDE the preview be emitted as "a card". A
+  // card less than 80% inside the preview cannot be scanned anyway. OUT_MARGIN
+  // still allows a card whose extrapolated CORNERS fall outside the frame.
+  MIN_VIS: n("H_MINVIS", 0.80),
   // ---- edge evidence ----
-  EDGE_T: n('H_ET', 210),        // gradient magnitude that counts as a real edge
+  // EDGE_T is now a CEILING, not a fixed threshold. The threshold actually used
+  // on a candidate is clamp(EDGE_REL * median-ridge-on-its-own-sides,
+  // EDGE_FLOOR, EDGE_T). A crisp frame's median is large, the clamp binds at
+  // EDGE_T and v1 behaviour is reproduced exactly; a soft real-camera frame's
+  // median is smaller and the threshold follows it down instead of starving.
+  EDGE_T: n('H_ET', 210),        // gradient magnitude that counts as a real edge (ceiling)
+  EDGE_REL: n('H_EREL', 0.52),   // fraction of the candidate's own ridge median
+  EDGE_FLOOR: n('H_EFLOOR', 108), // never trust a ridge weaker than this
   ORIENT_T: n('H_OT', 0.68),     // |cos| between the gradient and the side normal
   BAND: n('H_BAND', 2),          // perpendicular search half-width when scoring
   SUP_SAMPLES: n('H_SS', 21),
   MIN_SIDE_SAMPLES: n('H_MSS', 6),
   MIN_JUDGED: n('H_MJ', 3),
   MIN_TOTAL_SAMPLES: n('H_MTS', 44),
-  SUP_MIN: n('H_SUPMIN', 0.72),  // worst side support
-  SUP_MEAN: n('H_SUPMEAN', 0.85),
+  SUP_MIN: n('H_SUPMIN', 0.60),  // second-worst side support
+  SUP_MEAN: n('H_SUPMEAN', 0.78),
+  STR_MIN: n('H_STRMIN', 0.20),  // absolute ridge strength floor (0..1), guards the relative rule
   // ---- pre-refine screening ----
   PRE_BAND: n('H_PBAND', 3.5),
-  PRE_MIN: n('H_PREMIN', 0.55),
+  PRE_MIN: n('H_PREMIN', 0.65),
   PRE_KEEP: n('H_PREKEEP', 70),
+  DEDUP_PX: n('H_DEDUP', 3),     // raw-candidate collapse grid, in pixels
   // ---- refinement ----
   REF_PASSES: n('H_RP', 2),
   REF_SAMPLES: n('H_RS', 17),
@@ -364,26 +448,39 @@ const CFG = {
   REF_MINPEAK: n('H_RMP', 90),
   REF_MAXMOVE: n('H_RMM', 14),
   // ---- card signature ----
-  BC_MIN: n('H_BCMIN', 22),      // per-side inside/outside colour contrast
+  BC_MIN: n('H_BCMIN', 18),      // per-side inside/outside colour contrast
   BC_MEAN: n('H_BCMEAN', 40),
-  RING_T: n('H_RINGT', 150),     // gradient for the inner border ring
-  RING_MIN: n('H_RINGMIN', 0.55),
+  RING_T: n('H_RINGT', 150),     // gradient for the inner border ring (ceiling; see EDGE_T)
+  RING_REL: n('H_RINGREL', 0.38),
+  RING_FLOOR: n('H_RINGFLOOR', 80),
+  RING_BAND: n('H_RINGBAND', 2), // perpendicular tolerance when hunting the ring
+  RING_MIN: n('H_RINGMIN', 0.45),
   UNIF_SCALE: n('H_UNIFS', 55),
+  DETAIL_GRID: n('H_DGRID', 7),
+  DETAIL_MIN: n('H_DMIN', 0.0),   // interior printed-detail fraction
+  RIMC_MIN: n('H_RIMC', 14),     // rim-to-interior colour contrast: a card has a printed border
+  RIMC_SCALE: n('H_RIMCS', 90),
+  SIG_RING: n('H_SIGRING', 0.42),
+  SIG_UNIF: n('H_SIGUNIF', 0.28),
+  SIG_RIMC: n('H_SIGRIMC', 0.30),
   // These two feed the SCORE by default (gates disabled at 0 / 1). They are kept as
   // hard gates for the real-camera phase, where a stricter operating point may be wanted.
   UNIF_MIN: n('H_UNIFMIN', 0.0),
   OUTER_MAX: n('H_OUTERMAX', 1.0),
+  OUTER_SCAN_FRAC: n('H_OSF', 0.22),  // outward scan depth as a fraction of sqrt(area)
+  OUTER_SCAN_MAX: n('H_OSM', 26),
   // ---- output ----
   NMS_IOU: n('H_IOU', 0.30),
   CONTAIN_FRAC: n('H_CONT', 0.72),   // drop a quad this fraction inside another output quad...
   CONTAIN_AREA: n('H_CONTA', 0.60),  // ...but only when it is also this much smaller
+  CONTAIN_VERIFIED: n('H_CONTV', 1), // sweep containment against every verified quad, not just outputs
   OUTER_PREF: n('H_OUTPREF', 0.12),  // score slack for preferring the outer of two concentric quads
   FINAL_REFINE: n('H_FINREF', 1),
   EXPAND: n('H_EXPAND', 1),
   EXPAND_MAX_FRAC: n('H_EXPMAX', 0.14),
   MAX_OUT: n('H_MAXOUT', 2),
   SCORE_MIN: n('H_SMIN', 0.58),
-  SCORE_MIN2: n('H_SMIN2', 0.58),    // bar for the 2nd and later quad in a frame
+  SCORE_MIN2: n('H_SMIN2', 0.85),    // bar for the 2nd and later quad in a frame
 };
 
 const PI = Math.PI, HPI = Math.PI / 2;
@@ -472,6 +569,53 @@ function isConvex(q) {
   }
   return sign !== 0;
 }
+// ---------------------------------------------------------------------------
+// OUTPUT VALIDITY GATE
+// ---------------------------------------------------------------------------
+// A quad is acceptable only if it is a SIMPLE, STRICTLY CONVEX quadrilateral.
+// `isConvex` above tolerates collinear corners (it skips |cross| < 1e-6), which
+// admits degenerate slivers; and it is only ever applied before the final
+// refinement pass moves the corners. This is the check applied to output.
+//
+// A self-intersecting "bowtie" is very often nothing but a corner PERMUTATION
+// of a perfectly good quad -- two adjacent corners swapped by a refinement that
+// crossed two side lines. Sorting the four corners by angle about their
+// centroid undoes exactly that, and is a no-op on an already-correct quad. If
+// the reordered polygon is still not convex, the quad is genuinely malformed
+// (one corner lies inside the triangle of the other three) and is dropped.
+function isStrictlyConvex(q) {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = q[i], b = q[(i + 1) % 4], c = q[(i + 2) % 4];
+    const ux = b[0] - a[0], uy = b[1] - a[1];
+    const vx = c[0] - b[0], vy = c[1] - b[1];
+    const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
+    if (lu < 1e-6 || lv < 1e-6) return false;          // duplicate corner
+    const cr = (ux * vy - uy * vx) / (lu * lv);        // sin of the turn angle
+    if (Math.abs(cr) < 1e-3) return false;             // collinear -> degenerate
+    const s = cr > 0 ? 1 : -1;
+    if (sign === 0) sign = s; else if (s !== sign) return false;
+  }
+  return sign !== 0;
+}
+// Returns a repaired, consistently wound, strictly convex quad, or null.
+function orderQuad(q) {
+  if (!q || q.length !== 4) return null;
+  for (const p of q) if (!isFinite(p[0]) || !isFinite(p[1])) return null;
+  let cx = 0, cy = 0;
+  for (const p of q) { cx += p[0]; cy += p[1]; }
+  cx /= 4; cy /= 4;
+  const idx = [0, 1, 2, 3].sort(
+    (i, j) => Math.atan2(q[i][1] - cy, q[i][0] - cx) - Math.atan2(q[j][1] - cy, q[j][0] - cx)
+  );
+  const out = idx.map((i) => [q[i][0], q[i][1]]);
+  for (let i = 0; i < 4; i++) {
+    const a = out[i], b = out[(i + 1) % 4];
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 1) return null;
+  }
+  return isStrictlyConvex(out) ? out : null;
+}
+
 function sidesOf(q) {
   const s = [];
   for (let i = 0; i < 4; i++) {
@@ -799,9 +943,13 @@ function houghLines(mag, W, H, VT) {
     }
   }
   peaks.sort((a, b) => b.v - a.v);
+  if (peaks.length > CFG.MAX_PEAKS) peaks.length = CFG.MAX_PEAKS;
   const used = new Uint8Array(peaks.length);
-  const lines = [];
-  for (let i = 0; i < peaks.length && lines.length < CFG.POOL_N; i++) {
+  const merged = [];
+  // Merge neighbouring accumulator peaks into one line each. v1 stopped this
+  // loop as soon as POOL_N lines existed, which silently made the pool "the
+  // POOL_N highest-voted lines" -- see the stratification note below.
+  for (let i = 0; i < peaks.length; i++) {
     if (used[i]) continue;
     used[i] = 1;
     const p = peaks[i];
@@ -815,9 +963,37 @@ function houghLines(mag, W, H, VT) {
       tS += q.t * q.v; rS += q.ri * q.v; wS += q.v;
     }
     const th = ((tS / wS) * PI) / TB;
-    lines.push({ th, rho: (rS / wS) * RS - rhoOff, v: wS, ct: Math.cos(th), st: Math.sin(th) });
+    merged.push({ th, rho: (rS / wS) * RS - rhoOff, v: wS, ct: Math.cos(th), st: Math.sin(th) });
   }
-  return lines;
+  if (merged.length <= CFG.POOL_N) return merged;
+
+  // ---- orientation-stratified selection -------------------------------------
+  // Hough vote count is proportional to line LENGTH. A card held in landscape
+  // has long sides ~2x its short sides, so a pool taken as the global top-N by
+  // votes fills up with long background structure (table edges, plate rims,
+  // wood grain) and the card's two SHORT sides never make it in -- measured at
+  // ranks #54..#268 on the field fixtures, against a pool of 48. Without those
+  // two lines no quad can be assembled at all, which is exactly the observed
+  // "zero quads on a clearly presented card".
+  //
+  // So: give every orientation bin a guaranteed quota, then fill the rest of
+  // the pool globally. A short side now competes only with lines of its own
+  // orientation, where it is one of the strongest.
+  merged.sort((a, b) => b.v - a.v);
+  const SB = CFG.SEL_BINS;
+  const quota = new Int32Array(SB);
+  const pool = [];
+  const taken = new Uint8Array(merged.length);
+  for (let i = 0; i < merged.length && pool.length < CFG.POOL_N; i++) {
+    let b = Math.floor((merged[i].th / PI) * SB);
+    if (b >= SB) b = SB - 1; if (b < 0) b = 0;
+    if (quota[b] >= CFG.POOL_PER_BIN) continue;
+    quota[b]++; taken[i] = 1; pool.push(merged[i]);
+  }
+  for (let i = 0; i < merged.length && pool.length < CFG.POOL_N; i++) {
+    if (!taken[i]) pool.push(merged[i]);
+  }
+  return pool;
 }
 function angDiff(a, b) {
   let d = a - b;
@@ -837,33 +1013,51 @@ function lineCandidates(mag, W, H, VT, out) {
   const BINW = CFG.PAR_TOL;
   const NB = Math.ceil(PI / BINW);
   const perpBin = Math.round(HPI / BINW);
-  const buckets = [];
-  for (let b = 0; b < NB; b++) buckets.push([]);
+  // ---- wrap-aware near-parallel pairing --------------------------------------
+  // Hough theta lives on [0, PI) and WRAPS. A card's left side at theta=0.06 and
+  // its right side at theta=3.11 are 0.09 rad apart, i.e. the same orientation
+  // family -- but v1 bucketed by floor(theta / PAR_TOL) and only paired lines
+  // WITHIN one bucket, so they landed in bucket 0 and bucket 10 and were never
+  // paired. Worse, the wrapped line's (theta, rho) representation carries the
+  // opposite normal, so `|A.rho - B.rho|` reported 356px for a 209px-wide card
+  // and would have been rejected as too far apart even if they had met.
+  //
+  // Pairs are now formed over the whole pool with the angle folded into
+  // [-PI/2, PI/2] and rho sign-corrected when the fold happens. Pairs are then
+  // bucketed by orientation only for the cheap perpendicular cross-product step.
+  const bucketPairs = [];
+  for (let b = 0; b < NB; b++) bucketPairs.push([]);
   for (let i = 0; i < L; i++) {
-    let b = Math.floor(lines[i].th / BINW);
-    if (b >= NB) b = NB - 1; if (b < 0) b = 0;
-    buckets[b].push(i);
+    for (let j = i + 1; j < L; j++) {
+      const A = lines[i], B = lines[j];
+      let dth = B.th - A.th, rhoB = B.rho;
+      if (dth > HPI) { dth -= PI; rhoB = -rhoB; }
+      else if (dth < -HPI) { dth += PI; rhoB = -rhoB; }
+      if (Math.abs(dth) > CFG.PAR_TOL2) continue;
+      const gap = Math.abs(A.rho - rhoB);
+      if (gap < CFG.MIN_GAP || gap > 300) continue;
+      // Orientation of the pair, taken from the higher-voted (more reliable)
+      // member so a pair is bucketed consistently.
+      const th = A.v >= B.v ? A.th : ((B.th % PI) + PI) % PI;
+      let bk = Math.floor(th / BINW);
+      if (bk >= NB) bk = NB - 1; if (bk < 0) bk = 0;
+      bucketPairs[bk].push({ a: A, b: B, gap, v: A.v + B.v, th });
+    }
   }
-  const pairsOf = (list) => {
-    const ps = [];
-    for (let i = 0; i < list.length; i++)
-      for (let j = i + 1; j < list.length; j++) {
-        const A = lines[list[i]], B = lines[list[j]];
-        if (angDiff(A.th, B.th) > BINW) continue;
-        const gap = Math.abs(A.rho - B.rho);
-        if (gap < CFG.MIN_GAP || gap > 300) continue;
-        ps.push({ a: A, b: B, gap, v: A.v + B.v });
-      }
+  for (let b = 0; b < NB; b++) {
+    const ps = bucketPairs[b];
     ps.sort((x, y) => y.v - x.v);
-    return ps.length > CFG.MAX_PAIRS ? ps.slice(0, CFG.MAX_PAIRS) : ps;
-  };
-  const bucketPairs = buckets.map(pairsOf);
+    if (ps.length > CFG.MAX_PAIRS) ps.length = CFG.MAX_PAIRS;
+  }
   const OM = CFG.OUT_MARGIN;
   for (let bA = 0; bA < NB; bA++) {
     const PA = bucketPairs[bA];
     if (!PA.length) continue;
     const seen = new Set();
-    for (let d = -1; d <= 1; d++) {
+    // v1 scanned only d = -1..1, so the effective perpendicularity window was
+    // ~[1.2, PI/2] rather than the [PERP_LO, PI/2] the config asks for. A
+    // handheld card at a real oblique angle shears its corners past that.
+    for (let d = -CFG.PERP_SPAN; d <= CFG.PERP_SPAN; d++) {
       const bB = ((bA + perpBin + d) % NB + NB) % NB;
       if (seen.has(bB)) continue;
       seen.add(bB);
@@ -881,6 +1075,13 @@ function lineCandidates(mag, W, H, VT, out) {
         const c1 = interOfLines(pa.a, pb.b); if (!c1) continue;
         const c2 = interOfLines(pa.b, pb.b); if (!c2) continue;
         const c3 = interOfLines(pa.b, pb.a); if (!c3) continue;
+        // NOT repaired by re-ordering here: these four points come out of the
+        // pair crossing in cyclic order BY CONSTRUCTION, so a crossed result
+        // means the two pairs do not bracket a rectangle at all. Re-ordering
+        // such a configuration manufactures a plausible-looking quad out of
+        // nothing -- measured at ~15x the raw candidate count and a collapse in
+        // both precision and speed. Repair belongs at the output, where the
+        // geometry has already been earned.
         const q = [c0, c1, c2, c3];
         let bad = false;
         for (const p of q) if (!(p[0] > -OM && p[1] > -OM && p[0] < W + OM && p[1] < H + OM)) { bad = true; break; }
@@ -897,21 +1098,36 @@ function lineCandidates(mag, W, H, VT, out) {
 // ---------------------------------------------------------------------------
 // edge evidence: orientation-gated support along the sides of a quad
 // ---------------------------------------------------------------------------
-function sideSupport(quad, F, W, H, band, K) {
+// Phase 1: the raw oriented-ridge peak found for each sample of each side.
+// Separated from thresholding so the threshold can be derived from the ridge
+// magnitudes this candidate actually shows (see sideSupport below).
+// Scratch buffers. sideRidges runs once per raw candidate in the pre-screen --
+// several thousand times on a busy frame -- so it must not allocate. The
+// detector is synchronous and non-reentrant, so module-level scratch is safe.
+const SCRATCH_K = 64;
+const RIDGE_PEAKS = [
+  new Float32Array(SCRATCH_K), new Float32Array(SCRATCH_K),
+  new Float32Array(SCRATCH_K), new Float32Array(SCRATCH_K),
+];
+const RIDGE_CNT = new Int32Array(4);
+const RIDGE_POS = new Float32Array(SCRATCH_K * 4);
+
+function sideRidges(quad, F, W, H, band, K) {
   const { mag, gxo, gyo } = F;
-  const T = CFG.EDGE_T, OT = CFG.ORIENT_T;
-  const sup = new Array(4), cnt = new Array(4), str = new Array(4);
+  const OT = CFG.ORIENT_T;
+  const peaks = RIDGE_PEAKS;
+  const cnt = RIDGE_CNT;
+  if (K > SCRATCH_K) K = SCRATCH_K;
   for (let i = 0; i < 4; i++) {
     const a = quad[i], b = quad[(i + 1) % 4];
     const dx = b[0] - a[0], dy = b[1] - a[1];
     const Ln = Math.hypot(dx, dy) || 1;
     const nx = -dy / Ln, ny = dx / Ln;
-    let hit = 0, tot = 0, sSum = 0;
+    let tot = 0;
     for (let s = 0; s < K; s++) {
       const t = 0.06 + (0.88 * s) / (K - 1);
       const px = a[0] + dx * t, py = a[1] + dy * t;
       if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
-      tot++;
       let best = 0;
       for (let o = -band; o <= band; o += 1) {
         const xi = Math.round(px + nx * o), yi = Math.round(py + ny * o);
@@ -919,18 +1135,51 @@ function sideSupport(quad, F, W, H, band, K) {
         const idx = yi * W + xi;
         const m = mag[idx];
         if (m <= best) continue;
-        const or = Math.abs(gxo[idx] * nx + gyo[idx] * ny);
-        if (or < OT) continue;
+        if (Math.abs(gxo[idx] * nx + gyo[idx] * ny) < OT) continue;
         best = m;
       }
-      sSum += best > 900 ? 900 : best;
-      if (best > T) hit++;
+      peaks[i][tot++] = best;
+    }
+    cnt[i] = tot;
+  }
+  return { peaks, cnt };
+}
+
+// The threshold a candidate's own evidence justifies. `EDGE_T` calibrated to the
+// synthetic kit's crisp ~1px edges; a real camera frame that has been through
+// optics blur, sensor noise, JPEG and rescaling carries the same border at a
+// materially lower peak magnitude, and a fixed floor simply erases it. Keying
+// off the candidate's OWN median ridge is scale-free: it reproduces v1 exactly
+// wherever the ridges are strong (the clamp binds at EDGE_T) and follows a soft
+// frame down, with EDGE_FLOOR stopping it from ever descending into noise.
+function ridgeThreshold(peaks, cnt, ceil, rel, floor) {
+  const pos = RIDGE_POS;
+  let np = 0;
+  for (let i = 0; i < 4; i++) for (let s = 0; s < cnt[i]; s++) if (peaks[i][s] > 0) pos[np++] = peaks[i][s];
+  if (np < 8) return ceil;
+  const view = pos.subarray(0, np);
+  view.sort();                       // TypedArray.sort is numeric
+  const med = view[np >> 1];
+  const t = rel * med;
+  return t > ceil ? ceil : (t < floor ? floor : t);
+}
+
+function sideSupport(quad, F, W, H, band, K) {
+  const { peaks, cnt } = sideRidges(quad, F, W, H, band, K);
+  const T = ridgeThreshold(peaks, cnt, CFG.EDGE_T, CFG.EDGE_REL, CFG.EDGE_FLOOR);
+  const sup = new Array(4), str = new Array(4);
+  for (let i = 0; i < 4; i++) {
+    const tot = cnt[i];
+    let hit = 0, sSum = 0;
+    for (let s = 0; s < tot; s++) {
+      const v = peaks[i][s];
+      sSum += v > 900 ? 900 : v;
+      if (v > T) hit++;
     }
     sup[i] = tot ? hit / tot : -1;
-    cnt[i] = tot;
     str[i] = tot ? sSum / tot / 900 : 0;
   }
-  return { sup, cnt, str };
+  return { sup, cnt, str, edgeT: T };
 }
 
 // inside/outside colour contrast per side
@@ -960,10 +1209,17 @@ function boundaryContrast(quad, data, W, H) {
 
 // A card carries a concentric inner border edge a few percent inside its outline.
 // Scan a range of insets and keep the best-supported one.
-function innerRing(quad, F, W, H) {
+// v2: the inset list runs deeper (0.15 / 0.18) because every card the field
+// test presented was inside a clear rigid toploader -- the silhouette the
+// detector locks onto is the TOPLOADER's edge, so the card's printed border sits
+// noticeably further in than the 4-12% a bare card shows. The perpendicular
+// search band and the ring threshold are both widened/derived for the same
+// reason blur widens everything else.
+function innerRing(quad, F, W, H, ringT) {
   const { mag, gxo, gyo } = F;
+  const RB = CFG.RING_BAND;
   let best = 0;
-  for (const f of [0.04, 0.055, 0.07, 0.09, 0.12]) {
+  for (const f of [0.04, 0.055, 0.07, 0.09, 0.12, 0.15, 0.18]) {
     const r = insetQuad(quad, f);
     let hit = 0, tot = 0;
     for (let i = 0; i < 4; i++) {
@@ -976,11 +1232,11 @@ function innerRing(quad, F, W, H) {
         const px = a[0] + dx * t, py = a[1] + dy * t;
         if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
         tot++;
-        for (let o = -1; o <= 1; o++) {
+        for (let o = -RB; o <= RB; o++) {
           const xi = Math.round(px + nx * o), yi = Math.round(py + ny * o);
           if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
           const idx = yi * W + xi;
-          if (mag[idx] > CFG.RING_T && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > 0.6) { hit++; break; }
+          if (mag[idx] > ringT && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > 0.6) { hit++; break; }
         }
       }
     }
@@ -993,10 +1249,17 @@ function innerRing(quad, F, W, H) {
 // INSIDE a card (name bar, art panel, the border's inner edge) has the card's own
 // border running parallel a few pixels further out. Returns per-side fractions of
 // "there is a parallel edge just outside me"; low is card-like.
-function outerParallel(quad, F, W, H) {
+function outerParallel(quad, F, W, H, edgeT) {
   const { mag, gxo, gyo } = F;
   const ctr = centroid(quad);
   const res = [];
+  // v2: the scan depth scales with the candidate. v1 looked 3..9 px out, which
+  // is the right distance to catch a quad locked onto a card's INNER border
+  // ring, but far too shallow to catch a quad drawn across a card's face --
+  // whose parent border is a sixth of the card away, 10-25px on these frames.
+  // Face sub-quads were the largest single false-positive class.
+  const scan = Math.min(CFG.OUTER_SCAN_MAX,
+    Math.max(9, CFG.OUTER_SCAN_FRAC * Math.sqrt(polyArea(quad))));
   for (let i = 0; i < 4; i++) {
     const a = quad[i], b = quad[(i + 1) % 4];
     const dx = b[0] - a[0], dy = b[1] - a[1];
@@ -1010,16 +1273,40 @@ function outerParallel(quad, F, W, H) {
       const px = a[0] + dx * t, py = a[1] + dy * t;
       if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
       tot++;
-      for (let o = 3; o <= 9; o++) {
+      for (let o = 3; o <= scan; o++) {
         const xi = Math.round(px + nx * o), yi = Math.round(py + ny * o);
         if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
         const idx = yi * W + xi;
-        if (mag[idx] > CFG.EDGE_T && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > CFG.ORIENT_T) { hit++; break; }
+        if (mag[idx] > edgeT && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > CFG.ORIENT_T) { hit++; break; }
       }
     }
     res.push(tot >= 5 ? hit / tot : 0);
   }
   return res;
+}
+
+// A trading card's interior is PRINTED: artwork, a name bar, type icons, body
+// text. A microwave door, a photo frame, a phone in a case, a QR-code panel and
+// a crease in a mailer -- the false positives the field test actually produced
+// -- are bordered rectangles with an interior that is flat or nearly so.
+// Fraction of an interior grid whose local gradient exceeds the same
+// candidate-relative ridge threshold everything else uses.
+function innerDetail(quad, F, W, H, ringT) {
+  const { mag } = F;
+  const G = CFG.DETAIL_GRID;
+  let hit = 0, tot = 0;
+  for (let a = 0; a < G; a++) {
+    const u = 0.18 + (0.64 * a) / (G - 1);
+    for (let b = 0; b < G; b++) {
+      const v = 0.18 + (0.64 * b) / (G - 1);
+      const p = bl(quad, u, v);
+      const xi = Math.round(p[0]), yi = Math.round(p[1]);
+      if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
+      tot++;
+      if (mag[yi * W + xi] > ringT) hit++;
+    }
+  }
+  return tot >= 12 ? hit / tot : 0.5;
 }
 
 // A card's rim is one uniform colour all the way round. Returns [uniformity 0..1,
@@ -1123,6 +1410,10 @@ function refineQuad(quad, F, W, H, half) {
 // verification choose between them.
 function expandToOuter(quad, F, W, H) {
   const { mag, gxo, gyo } = F;
+  // Same candidate-relative rule as sideSupport: on a soft frame the parallel
+  // outer edge we are hunting for is as faint as the one we are standing on.
+  const r0 = sideRidges(quad, F, W, H, CFG.BAND, CFG.SUP_SAMPLES);
+  const edgeT = ridgeThreshold(r0.peaks, r0.cnt, CFG.EDGE_T, CFG.EDGE_REL, CFG.EDGE_FLOOR);
   const ctr = centroid(quad);
   const base = [], sgn = [], off = [];
   let good = 0;
@@ -1148,7 +1439,7 @@ function expandToOuter(quad, F, W, H) {
         const idx = yi * W + xi;
         if (mag[idx] > bv && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > CFG.ORIENT_T) { bv = mag[idx]; bo = o; }
       }
-      if (bv > CFG.EDGE_T) found.push(bo);
+      if (bv > edgeT) found.push(bo);
     }
     if (found.length >= 6) {
       found.sort((x, y) => x - y);
@@ -1190,16 +1481,31 @@ function geomOk(quad, W, H) {
   if (Math.min(o1, o2) < CFG.OPP_SIM) return null;
   const asp = ((s[0] + s[2]) / 2) / ((s[1] + s[3]) / 2);
   if (asp < CFG.ASP_LO || asp > CFG.ASP_HI) return null;
+  // Rectangularity. A card is a rectangle, so under a real (projective) camera
+  // its corner angles stay near 90 deg and cannot both collapse. v1 gated only
+  // on opposite-side length similarity, which a sheared parallelogram passes
+  // perfectly -- and a sheared parallelogram is exactly what a pair of unrelated
+  // background lines crossed with another pair produces.
+  let minAng = 180;
+  for (let i = 0; i < 4; i++) {
+    const a = quad[(i + 3) % 4], b = quad[i], c = quad[(i + 1) % 4];
+    const ux = a[0] - b[0], uy = a[1] - b[1], vx = c[0] - b[0], vy = c[1] - b[1];
+    const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
+    if (lu < 1e-6 || lv < 1e-6) return null;
+    const ang = Math.acos(Math.max(-1, Math.min(1, (ux * vx + uy * vy) / (lu * lv)))) * 180 / PI;
+    if (ang < minAng) minAng = ang;
+  }
+  if (minAng < CFG.CORNER_MIN) return null;
   const inter = clipPoly(quad.map((p) => [p[0], p[1]]), frameRect(W, H));
   const vis = inter.length < 3 ? 0 : polyArea(inter) / area;
   if (vis < CFG.MIN_VIS) return null;
-  return { area, asp, opp: Math.min(o1, o2), vis };
+  return { area, asp, opp: Math.min(o1, o2), vis, minAng };
 }
 
 function features(quad, F, data, W, H) {
   const g = geomOk(quad, W, H);
   if (!g) return null;
-  const { sup, cnt, str } = sideSupport(quad, F, W, H, CFG.BAND, CFG.SUP_SAMPLES);
+  const { sup, cnt, str, edgeT } = sideSupport(quad, F, W, H, CFG.BAND, CFG.SUP_SAMPLES);
   let judged = 0, tot = 0, sSum = 0, strSum = 0;
   const js = [];
   for (let i = 0; i < 4; i++) {
@@ -1217,19 +1523,27 @@ function features(quad, F, data, W, H) {
   for (const b of bcs) if (b >= 0) { if (b < bmin) bmin = b; bsum += b; bn++; }
   if (bn < 3) return null;
   const bmean = bsum / bn;
-  const ring = innerRing(quad, F, W, H);
+  const ringT = Math.max(CFG.RING_FLOOR, Math.min(CFG.RING_T, (CFG.RING_REL / CFG.EDGE_REL) * edgeT));
+  const ring = innerRing(quad, F, W, H, ringT);
+  const detail = innerDetail(quad, F, W, H, ringT);
   const [unif, rimContrast] = borderUniformity(quad, data, W, H);
-  const op = outerParallel(quad, F, W, H).sort((a, b) => a - b);
+  const op = outerParallel(quad, F, W, H, edgeT).sort((a, b) => a - b);
   // ignore the single worst side (a neighbouring card or a table edge may hug one)
   const outer = (op[0] + op[1] + op[2]) / 3;
-  return { ...g, supMin: sMin, supMean, strMean, bmin, bmean, ring, unif, rimContrast, outer };
+  return { ...g, supMin: sMin, supMean, strMean, bmin, bmean, ring, detail, unif, rimContrast, outer, edgeT, ringT };
 }
 
 function scoreOf(f) {
   const edge = 0.5 * f.supMin + 0.5 * f.supMean;
   const strength = Math.min(1, f.strMean / 0.42);
   const contrast = Math.min(1, f.bmean / 130) * 0.6 + Math.min(1, f.bmin / 70) * 0.4;
-  const sig = 0.5 * f.ring + 0.5 * f.unif;
+  // v2 adds rimContrast to the card signature. It was already computed and then
+  // thrown away, and it is the sharpest single separator measured on the kit:
+  // true cards sit at 45..250 (5th..95th percentile), false positives at 0..200
+  // with a quarter of them at ZERO -- a quad whose rim looks exactly like its
+  // own interior is not a bordered card, it is a patch of something uniform.
+  const rimc = Math.min(1, f.rimContrast / CFG.RIMC_SCALE);
+  const sig = CFG.SIG_RING * f.ring + CFG.SIG_UNIF * f.unif + CFG.SIG_RIMC * rimc;
   const clear = 1 - Math.min(1, f.outer / 0.75);
   return 0.22 * edge + 0.12 * strength + 0.16 * contrast + 0.28 * sig + 0.22 * clear;
 }
@@ -1238,8 +1552,14 @@ function verify(quad, F, data, W, H) {
   const f = features(quad, F, data, W, H);
   if (!f) return null;
   if (f.supMin < CFG.SUP_MIN || f.supMean < CFG.SUP_MEAN) return null;
+  // The relative edge threshold is scale-free by design, so a hard absolute
+  // floor on ridge STRENGTH is what stops it from certifying a faint texture
+  // boundary as a card border.
+  if (f.strMean < CFG.STR_MIN) return null;
   if (f.bmin < CFG.BC_MIN || f.bmean < CFG.BC_MEAN) return null;
   if (f.ring < CFG.RING_MIN) return null;
+  if (f.rimContrast < CFG.RIMC_MIN) return null;
+  if (f.detail < CFG.DETAIL_MIN) return null;
   if (f.unif < CFG.UNIF_MIN) return null;
   if (f.outer > CFG.OUTER_MAX) return null;
   const score = scoreOf(f);
@@ -1296,9 +1616,30 @@ function run({ width, height, data }, stages) {
   if (CFG.USE_LINES) lineCandidates(mag, W, H, VT, raw);
   if (!raw.length) { if (stages) Object.assign(stages, { raw: [], coarse: [], refined: [], verified: [], out: [] }); return []; }
 
+  // ---- de-duplicate BEFORE the pre-screen ----------------------------------
+  // v1 deduped only after scoring every raw candidate. The wrap-aware pairing
+  // proposes many more quads, most of them near-identical neighbours of each
+  // other (adjacent Hough peaks on the same physical edge), and the pre-screen
+  // is the most expensive per-candidate step in the pipeline. Collapsing them
+  // on a coarse centroid/size grid first is free accuracy-wise -- refinement
+  // pulls any member of a cell onto the same edge -- and is most of the run
+  // time back.
+  const seenKey = new Set();
+  const uniq = [];
+  for (const c of raw) {
+    const q = c.q;
+    const cx = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) * 0.25;
+    const cy = (q[0][1] + q[1][1] + q[2][1] + q[3][1]) * 0.25;
+    const s = Math.sqrt(polyArea(q));
+    const key = ((cx / CFG.DEDUP_PX) | 0) + ':' + ((cy / CFG.DEDUP_PX) | 0) + ':' + ((s / CFG.DEDUP_PX) | 0);
+    if (seenKey.has(key)) continue;
+    seenKey.add(key);
+    uniq.push(c);
+  }
+
   // ---- cheap pre-screen: geometry + wide-band side support, keep the best few ----
   const screened = [];
-  for (const c of raw) {
+  for (const c of uniq) {
     if (!geomOk(c.q, W, H)) continue;
     const { sup, cnt } = sideSupport(c.q, F, W, H, CFG.PRE_BAND, 11);
     const js = [];
@@ -1329,17 +1670,28 @@ function run({ width, height, data }, stages) {
   const refined = [];
   for (const c of coarse) {
     let q = c.q;
-    for (let p = 0; p < CFG.REF_PASSES; p++) q = refineQuad(q, F, W, H, p === 0 ? CFG.REF_HALF1 : CFG.REF_HALF2);
+    for (let p = 0; p < CFG.REF_PASSES; p++) {
+      q = refineQuad(q, F, W, H, p === 0 ? CFG.REF_HALF1 : CFG.REF_HALF2);
+      // Refinement moves four corners independently and can cross two side
+      // lines, permuting the cyclic order into a bowtie. Repair it here rather
+      // than letting geomOk's convexity test throw the candidate away.
+      const r = orderQuad(q);
+      if (!r) { q = null; break; }
+      q = r;
+    }
+    if (!q) continue;
     if (stages) refined.push(q);
     const v = verify(q, F, data, W, H);
     if (v) { v.src = c.src; verified.push(v); }
     if (CFG.EXPAND) {
       let e = expandToOuter(q, F, W, H);
       if (e) {
-        e = refineQuad(e, F, W, H, CFG.REF_HALF2);
-        if (stages) refined.push(e);
-        const ve = verify(e, F, data, W, H);
-        if (ve) { ve.src = c.src + 'x'; verified.push(ve); }
+        e = orderQuad(refineQuad(e, F, W, H, CFG.REF_HALF2));
+        if (e) {
+          if (stages) refined.push(e);
+          const ve = verify(e, F, data, W, H);
+          if (ve) { ve.src = c.src + 'x'; verified.push(ve); }
+        }
       }
     }
   }
@@ -1354,10 +1706,50 @@ function run({ width, height, data }, stages) {
   }
   if (!verified.length) { if (stages) stages.out = []; return []; }
 
+  // ---- containment filter, BEFORE NMS ---------------------------------------
+  // No card sits inside another card, so a verified quad that lies wholly inside
+  // a sufficiently larger verified quad is interior structure -- a card's own
+  // name bar plus its top edge, say -- and must not compete for an output slot.
+  //
+  // v1 applied this idea only to the two quads that had already WON output
+  // slots, which is exactly when it cannot help: a face sub-quad routinely
+  // outscores the card it sits on, takes the slot first, and then has nothing
+  // above it to be suppressed by. Filtering the whole verified set instead both
+  // removes the sub-quad and lets the card it was drawn on win the slot.
+  // (Doing this as a post-NMS sweep instead is actively wrong: it deletes the
+  // sub-quad without promoting its container, and the frame emits nothing.)
+  let pool = verified;
+  if (CFG.CONTAIN_VERIFIED && verified.length > 1) {
+    const box = verified.map((v) => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const p of v.quad) {
+        if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+        if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+      }
+      return [x0, y0, x1, y1];
+    });
+    pool = [];
+    for (let i = 0; i < verified.length; i++) {
+      const a = verified[i], ba = box[i];
+      let inside = false;
+      for (let j = 0; j < verified.length && !inside; j++) {
+        if (i === j) continue;
+        const b = verified[j], bb = box[j];
+        if (a.area > CFG.CONTAIN_AREA * b.area) continue;
+        // cheap bbox reject before the polygon clip
+        if (ba[0] < bb[0] - 4 || ba[1] < bb[1] - 4 || ba[2] > bb[2] + 4 || ba[3] > bb[3] + 4) continue;
+        const inter = clipPoly(a.quad.map((p) => [p[0], p[1]]), b.quad);
+        if (inter.length >= 3 && polyArea(inter) / a.area > CFG.CONTAIN_FRAC) inside = true;
+      }
+      if (!inside) pool.push(a);
+    }
+    if (!pool.length) pool = verified;
+  }
+
   // ---- NMS: keep the best-scoring member of each overlapping cluster ----
-  verified.sort((a, b) => b.score - a.score || b.area - a.area);
+  pool.sort((a, b) => b.score - a.score || b.area - a.area);
   const out = [];
-  for (const cand of verified) {
+  for (const cand of pool) {
     if (out.length && cand.score < CFG.SCORE_MIN2) break;
     let dup = false, replace = -1;
     for (let i = 0; i < out.length; i++) {
@@ -1393,14 +1785,302 @@ function run({ width, height, data }, stages) {
     }
   }
   const kept = out.filter(Boolean).slice(0, CFG.MAX_OUT);
-  out.length = 0;
-  for (const c of kept) out.push(c);
-  if (CFG.FINAL_REFINE) {
-    for (const c of out) c.quad = refineQuad(c.quad, F, W, H, 2);
+
+  // ---- OUTPUT VALIDITY GATE ------------------------------------------------
+  // v1's last act was FINAL_REFINE, which moved corners AFTER the convexity
+  // check in geomOk -- so a refinement that crossed two side lines shipped a
+  // self-intersecting polygon (field stills c0042/c0043/c0045). Every quad now
+  // leaves through orderQuad: repaired by re-ordering if that is all it needs,
+  // reverted to the verified pre-refine geometry if refinement broke it, and
+  // dropped outright if neither is a simple convex quadrilateral.
+  const outQuads = [];
+  for (const c of kept) {
+    let q = null;
+    if (CFG.FINAL_REFINE) {
+      const r = orderQuad(refineQuad(c.quad, F, W, H, 2));
+      if (r && geomOk(r, W, H)) q = r;
+    }
+    if (!q) q = orderQuad(c.quad);
+    if (!q) continue;
+    c.quad = q;
+    outQuads.push(q.map((p) => [p[0], p[1]]));
   }
-  if (stages) stages.out = out.map((c) => c.quad);
-  return out.map((c) => c.quad.map((p) => [p[0], p[1]]));
+  if (stages) stages.out = outQuads;
+  return outQuads;
 }
+
+
+/* =========================================================================
+ * TRACKER — inlined from tracker.mjs (temporal stability + intent gating,
+ * P2 per FIELD-TEST-1.md). Byte-identical logic to tracker.mjs: the only
+ * change for this inline classic script is `export function createTracker`
+ * becoming a plain function declaration (no ESM export keyword is legal
+ * outside a module), plus a `window.createTracker = createTracker` alias at
+ * the end, mirroring the detector's own `window.detect = detect` pattern
+ * above. Full rationale for every default lives in tracker.mjs's header
+ * comment; only the essentials are repeated here.
+ * ========================================================================= */
+
+const CARD_ASPECT_W_OVER_H = 63 / 88; // card is 63mm x 88mm -> portrait
+
+function trkPolyArea(pts) {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length;
+    a += pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1];
+  }
+  return Math.abs(a) / 2;
+}
+
+function trkCentroidOf(pts) {
+  let x = 0, y = 0;
+  for (const p of pts) { x += p[0]; y += p[1]; }
+  return [x / pts.length, y / pts.length];
+}
+
+// Sutherland-Hodgman: clip polygon `subject` by convex polygon `clip`.
+function trkClipPoly(subject, clip) {
+  let out = subject;
+  const nc = clip.length;
+  let signedArea2 = 0;
+  for (let i = 0; i < nc; i++) {
+    const j = (i + 1) % nc;
+    signedArea2 += clip[i][0] * clip[j][1] - clip[j][0] * clip[i][1];
+  }
+  const ccw = signedArea2 > 0 ? 1 : -1;
+  for (let e = 0; e < nc && out.length; e++) {
+    const A = clip[e], B = clip[(e + 1) % nc];
+    const ex = B[0] - A[0], ey = B[1] - A[1];
+    const side = (p) => ccw * (ex * (p[1] - A[1]) - ey * (p[0] - A[0]));
+    const next = [];
+    for (let i = 0; i < out.length; i++) {
+      const cur = out[i], prev = out[(i - 1 + out.length) % out.length];
+      const sc = side(cur), sp = side(prev);
+      if (sc >= 0) {
+        if (sp < 0) {
+          const t = sp / (sp - sc);
+          next.push([prev[0] + (cur[0] - prev[0]) * t, prev[1] + (cur[1] - prev[1]) * t]);
+        }
+        next.push(cur);
+      } else if (sp >= 0) {
+        const t = sp / (sp - sc);
+        next.push([prev[0] + (cur[0] - prev[0]) * t, prev[1] + (cur[1] - prev[1]) * t]);
+      }
+    }
+    out = next;
+  }
+  return out;
+}
+
+function trkPolyIoU(a, b) {
+  const inter = trkClipPoly(a, b);
+  if (inter.length < 3) return 0;
+  const ia = trkPolyArea(inter);
+  const u = trkPolyArea(a) + trkPolyArea(b) - ia;
+  return u > 0 ? ia / u : 0;
+}
+
+function trkIsFiniteQuad(q) {
+  if (!Array.isArray(q) || q.length !== 4) return false;
+  for (const p of q) {
+    if (!Array.isArray(p) || p.length < 2) return false;
+    if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return false;
+  }
+  return true;
+}
+
+// Same cross-product sign-consistency check the detector itself uses:
+// rejects self-intersecting / non-convex quads. Defensive second gate — the
+// field test caught the shipped detector emitting exactly these on
+// overlapping cards (c0042/43/45); the detector owns the real fix.
+function trkIsConvexQuad(q) {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = q[i], b = q[(i + 1) % 4], c = q[(i + 2) % 4];
+    const cr = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+    if (Math.abs(cr) < 1e-9) continue;
+    const s = cr > 0 ? 1 : -1;
+    if (sign === 0) sign = s;
+    else if (s !== sign) return false;
+  }
+  return sign !== 0;
+}
+
+// Contain-fit a card-aspect (63:88) box within `maxWFrac` of frame width and
+// `maxHFrac` of frame height, whichever is tighter, then center it. On this
+// harness's landscape 320x240 working frame the height cap wins (so the box
+// fits fully on-screen instead of running off the top/bottom edges); on a
+// portrait-ish frame the width cap wins and the box really is ~72% of frame
+// width as specified.
+function trkDefaultReticle(frameW, frameH, maxWFrac = 0.72, maxHFrac = 0.92) {
+  const wFromWidthCap = maxWFrac * frameW;
+  const wFromHeightCap = maxHFrac * frameH * CARD_ASPECT_W_OVER_H;
+  const wPx = Math.min(wFromWidthCap, wFromHeightCap);
+  const hPx = wPx / CARD_ASPECT_W_OVER_H;
+  const w = wPx / frameW, h = hPx / frameH;
+  return { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
+}
+
+// Rotate `quad`'s starting corner (keeping winding direction) to whichever
+// offset best aligns it with `ref`'s corner order, so EMA smoothing below
+// blends corner-to-corner instead of averaging e.g. a top-left corner into a
+// bottom-right one because the detector's winding didn't start at the same
+// physical corner this frame.
+function trkAlignToReference(ref, quad) {
+  let best = quad, bestD = Infinity;
+  for (let r = 0; r < 4; r++) {
+    const rotated = [quad[r % 4], quad[(r + 1) % 4], quad[(r + 2) % 4], quad[(r + 3) % 4]];
+    let d = 0;
+    for (let i = 0; i < 4; i++) {
+      const dx = rotated[i][0] - ref[i][0], dy = rotated[i][1] - ref[i][1];
+      d += dx * dx + dy * dy;
+    }
+    if (d < bestD) { bestD = d; best = rotated; }
+  }
+  return best;
+}
+
+function trkCloneQuad(q) { return q.map((p) => [p[0], p[1]]); }
+
+function createTracker(cfg = {}) {
+  const frameW = cfg.frameW ?? 320;
+  const frameH = cfg.frameH ?? 240;
+
+  const C = {
+    reticle:
+      cfg.reticle === null
+        ? null
+        : Object.assign(trkDefaultReticle(frameW, frameH), cfg.reticle || {}),
+    minInsideFrac: cfg.minInsideFrac ?? 0.65,
+    assocIou: cfg.assocIou ?? 0.4,
+    stableFrames: cfg.stableFrames ?? 3,
+    graceFrames: cfg.graceFrames ?? 2,
+    smooth: cfg.smooth ?? 0.45,
+  };
+
+  let reticleRect = null;
+  if (C.reticle) {
+    const rx = C.reticle.x * frameW, ry = C.reticle.y * frameH;
+    const rw = C.reticle.w * frameW, rh = C.reticle.h * frameH;
+    reticleRect = {
+      x: rx, y: ry, w: rw, h: rh,
+      poly: [[rx, ry], [rx + rw, ry], [rx + rw, ry + rh], [rx, ry + rh]],
+    };
+  }
+
+  let tracks = []; // { id, status: 'pending'|'stable', hits, missed, coasting, smoothed, firstSeenTMs }
+  let nextId = 1;
+
+  function passesReticle(quad) {
+    if (!reticleRect) return true;
+    const [cx, cy] = trkCentroidOf(quad);
+    if (cx < reticleRect.x || cx > reticleRect.x + reticleRect.w) return false;
+    if (cy < reticleRect.y || cy > reticleRect.y + reticleRect.h) return false;
+    const area = trkPolyArea(quad);
+    const inter = trkClipPoly(quad, reticleRect.poly);
+    const insideFrac = inter.length >= 3 ? trkPolyArea(inter) / area : 0;
+    return insideFrac >= C.minInsideFrac;
+  }
+
+  function update(quadsIn, tMs) {
+    const gated = [];
+    for (const q of quadsIn || []) {
+      if (!trkIsFiniteQuad(q)) continue;
+      if (trkPolyArea(q) <= 0) continue;
+      if (!trkIsConvexQuad(q)) continue;
+      if (!passesReticle(q)) continue;
+      gated.push(q);
+    }
+
+    const pairs = [];
+    for (let ti = 0; ti < tracks.length; ti++) {
+      for (let qi = 0; qi < gated.length; qi++) {
+        const iou = trkPolyIoU(tracks[ti].smoothed, gated[qi]);
+        if (iou >= C.assocIou) pairs.push([iou, ti, qi]);
+      }
+    }
+    pairs.sort((a, b) => b[0] - a[0]);
+    const matchedTrack = new Array(tracks.length).fill(-1);
+    const matchedQuad = new Array(gated.length).fill(-1);
+    for (const [, ti, qi] of pairs) {
+      if (matchedTrack[ti] !== -1 || matchedQuad[qi] !== -1) continue;
+      matchedTrack[ti] = qi;
+      matchedQuad[qi] = ti;
+    }
+
+    const survivors = [];
+    for (let ti = 0; ti < tracks.length; ti++) {
+      const t = tracks[ti];
+      const qi = matchedTrack[ti];
+      if (qi !== -1) {
+        const aligned = trkAlignToReference(t.smoothed, gated[qi]);
+        const sm = t.smoothed;
+        for (let i = 0; i < 4; i++) {
+          sm[i][0] += (aligned[i][0] - sm[i][0]) * C.smooth;
+          sm[i][1] += (aligned[i][1] - sm[i][1]) * C.smooth;
+        }
+        t.missed = 0;
+        t.coasting = false;
+        if (t.status === 'pending') {
+          t.hits += 1;
+          if (t.hits >= C.stableFrames) t.status = 'stable';
+        }
+        survivors.push(t);
+      } else if (t.status === 'stable') {
+        t.missed += 1;
+        if (t.missed <= C.graceFrames) {
+          t.coasting = true;
+          survivors.push(t);
+        }
+        // else: dropout grace exhausted -> dies (not pushed)
+      }
+      // a 'pending' track with no match dies immediately: no grace period for
+      // anything that has not yet proven itself stable.
+    }
+
+    for (let qi = 0; qi < gated.length; qi++) {
+      if (matchedQuad[qi] !== -1) continue;
+      survivors.push({
+        id: nextId++,
+        status: 'pending',
+        hits: 1,
+        missed: 0,
+        coasting: false,
+        smoothed: trkCloneQuad(gated[qi]),
+        firstSeenTMs: tMs,
+      });
+    }
+
+    tracks = survivors;
+
+    const stable = [], pending = [];
+    for (const t of tracks) {
+      const entry = { quad: trkCloneQuad(t.smoothed), id: t.id, age: tMs - t.firstSeenTMs };
+      if (t.status === 'stable') {
+        entry.coasting = !!t.coasting;
+        stable.push(entry);
+      } else {
+        pending.push(entry);
+      }
+    }
+    return { stable, pending };
+  }
+
+  function reset() {
+    tracks = [];
+    nextId = 1;
+  }
+
+  // Introspection for the reticle-overlay renderer below.
+  function getReticle() {
+    return reticleRect
+      ? { x: reticleRect.x, y: reticleRect.y, w: reticleRect.w, h: reticleRect.h }
+      : null;
+  }
+
+  return { update, reset, getReticle };
+}
+window.createTracker = createTracker;
 
 
 /* =========================================================================
@@ -1476,17 +2156,76 @@ document.getElementById('srcView').textContent = (window.detect.toString||'').ca
 
 renderFixture(0);
 
-/* ---------- Live camera tab ---------- */
+/* ---------- Live camera tab ----------
+ * Routes window.detect() output through the tracker above. Fixtures tab
+ * (renderFixture, drawQuad) is untouched above this point — it validates the
+ * detector, not the tracker.
+ */
 const liveCanvas=document.getElementById('liveCanvas');
 const liveCtx=liveCanvas.getContext('2d');
 const liveVideo=document.createElement('video');
 liveVideo.muted=true; liveVideo.playsInline=true;
 let camStream=null, camRAF=null, liveFpsBuf=[], liveLast=0;
 
+// stable: solid, full-alpha, thicker. pending: faint thin outline (visually
+// secondary). Reticle-excluded quads get nothing drawn at all — the tracker
+// already dropped them before they became a track of either kind.
+const STABLE_STYLE  = { color:'#39d0d8', width:2.5, alpha:1,    dash:[] };
+const PENDING_STYLE = { color:'#39d0d8', width:1,   alpha:0.35, dash:[3,3] };
+
+function drawStyledQuad(ctx, quad, style){
+  ctx.save();
+  ctx.globalAlpha = style.alpha;
+  ctx.strokeStyle = style.color; ctx.lineWidth = style.width; ctx.setLineDash(style.dash);
+  ctx.beginPath();
+  ctx.moveTo(quad[0][0], quad[0][1]);
+  for(let k=1;k<4;k++) ctx.lineTo(quad[k][0], quad[k][1]);
+  ctx.closePath(); ctx.stroke();
+  ctx.restore();
+}
+
+function roundRectPath(ctx,x,y,w,h,r){
+  ctx.moveTo(x+r,y);
+  ctx.lineTo(x+w-r,y); ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r); ctx.arcTo(x,y,x+r,y,r);
+}
+
+// Rounded card-aspect alignment frame: subtle when idle, brightens and
+// thickens once a stable quad is locked inside it — the on-screen answer to
+// "i kind of still want there to be like a frame there ... mostly aligning
+// it but i just don't want it to have to be so dang exact" (FIELD-TEST-1.md).
+function drawReticle(ctx, rect, locked){
+  const rad = Math.max(4, Math.min(rect.w, rect.h) * 0.08);
+  ctx.save();
+  ctx.beginPath();
+  roundRectPath(ctx, rect.x, rect.y, rect.w, rect.h, rad);
+  ctx.strokeStyle = locked ? 'rgba(63,249,255,0.95)' : 'rgba(200,210,220,0.35)';
+  ctx.lineWidth = locked ? 3 : 1.25;
+  ctx.setLineDash(locked ? [] : [6,5]);
+  ctx.stroke();
+  ctx.restore();
+}
+
+let reticleOn = true, stabilityOn = true;
+function makeTracker(){ return createTracker({ frameW:320, frameH:240, reticle: reticleOn ? undefined : null }); }
+let tracker = makeTracker();
+
+document.getElementById('toggleReticle').onchange=(e)=>{
+  reticleOn = e.target.checked;
+  tracker = makeTracker(); // gate participation changed -> start the tracker clean
+};
+document.getElementById('toggleStability').onchange=(e)=>{
+  stabilityOn = e.target.checked;
+  tracker.reset(); // avoid stale tracks resurfacing instantly if toggled back on later
+};
+
 document.getElementById('camStart').onclick=async()=>{
   try{
     camStream=await navigator.mediaDevices.getUserMedia({video:{width:320,height:240,facingMode:{ideal:'environment'}},audio:false});
     liveVideo.srcObject=camStream; await liveVideo.play();
+    tracker.reset();
     camLoop();
     document.getElementById('liveErr').textContent='';
   }catch(e){document.getElementById('liveErr').textContent=String(e&&e.message||e);}
@@ -1498,19 +2237,35 @@ document.getElementById('camStop').onclick=()=>{
 function camLoop(){
   if(!camStream){return;}
   liveCtx.drawImage(liveVideo,0,0,320,240);
-  let ms=NaN;
+  let ms=NaN, stableN=0, pendingN=0;
   try{
     const img=liveCtx.getImageData(0,0,320,240);
     const t0=performance.now();
     const quads=window.detect({width:320,height:240,data:img.data})||[];
     ms=performance.now()-t0;
-    for(const q of quads){ if(q&&q.length>=4) drawQuad(liveCtx,q,'#39d0d8',[4,3]); }
+
+    const ret = tracker.getReticle();
+
+    if(stabilityOn){
+      const {stable, pending} = tracker.update(quads, performance.now());
+      stableN = stable.length; pendingN = pending.length;
+      if(reticleOn && ret) drawReticle(liveCtx, ret, stableN>0);
+      for(const p of pending) drawStyledQuad(liveCtx, p.quad, PENDING_STYLE);
+      for(const s of stable) drawStyledQuad(liveCtx, s.quad, STABLE_STYLE);
+    } else {
+      // Stability off: raw detector output, unfiltered and unsmoothed, for
+      // A/B comparison against the tracked view during field test 2.
+      if(reticleOn && ret) drawReticle(liveCtx, ret, false);
+      for(const q of quads){ if(q&&q.length>=4) drawQuad(liveCtx,q,'#39d0d8',[4,3]); }
+    }
   }catch(e){document.getElementById('liveErr').textContent=String(e&&e.message||e);}
   const now=performance.now();
   if(liveLast){const dt=now-liveLast;if(dt>0){liveFpsBuf.push(1000/dt);if(liveFpsBuf.length>30)liveFpsBuf.shift();}}
   liveLast=now;
   document.getElementById('liveMs').textContent=isFinite(ms)?ms.toFixed(2):'—';
   document.getElementById('liveFps').textContent=liveFpsBuf.length?(liveFpsBuf.reduce((a,b)=>a+b,0)/liveFpsBuf.length).toFixed(1):'—';
+  document.getElementById('liveStable').textContent = stabilityOn ? stableN : '—';
+  document.getElementById('livePending').textContent = stabilityOn ? pendingN : '—';
   camRAF=requestAnimationFrame(camLoop);
 }
 
