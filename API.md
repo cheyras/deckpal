@@ -7,7 +7,9 @@ Registered on the same app but documented elsewhere, not repeated here: OAuth
 2.1 + personal-access-token management (`/oauth`, `/tokens`) in
 `apps/mcp/SPEC.md`; Deck-E's history and owner-gate/account routes (`/decke`,
 `/me`) — and his chat function (`api/chat.mjs`) — in `DECKE-AGENT-SPEC.md`;
-the profile-avatar routes (`/avatar`) in `DECISIONS.md` 2026-08-10.
+the profile-avatar routes (`/avatar`) in `DECISIONS.md` 2026-08-10. `GET /me`
+itself stays documented in `DECKE-AGENT-SPEC.md`; its `/me/settings` and
+`/me/showcase` sub-routes are frontend surface and documented here (§Account).
 
 **Deployment modes:**
 
@@ -372,6 +374,48 @@ cards appear on both species). `sort` = `number`\|`price`\|`rarity`\|`artist`\|
 ```
 
 ---
+
+## Account — settings & showcase
+
+Per-user, backed by `user_settings` (005 + 049) and `user_showcase` (005).
+These are the server-side home of what used to be device-only localStorage
+preferences; the client treats localStorage as an offline cache of them
+(`apps/web/src/lib/settingsSync.ts`).
+
+### GET /deckpal/api/me/settings
+The account's whole settings row, camel-cased. `skin`/`topbar` are `null`
+when the account never chose — the app default applies.
+```json
+{ "settings": { "defaultGoal": "complete", "displayCurrency": "USD",
+                "pricingEnabled": true, "showCollectionValue": true,
+                "binderPocketSize": 9, "binderStackVariants": true,
+                "binderAdditionalVariants": "inline",
+                "deckeHidden": false, "skin": null, "topbar": null,
+                "seriesSortKey": "recency", "seriesSortDir": "desc",
+                "seriesGroupOwned": true } }
+```
+
+### PATCH /deckpal/api/me/settings
+Any subset of the fields above; returns the full updated row in the same
+shape. Unknown values are a `400` (never a silent reset to the default);
+`displayCurrency` is validated against the `currency` table; `skin`/`topbar`
+accept `null` to mean "follow the app default". A body with no known field is
+a `400`.
+
+### GET /deckpal/api/me/showcase
+The profile's featured cards in slot order (`user_showcase`, slots 1-based,
+up to 8 — the profile UI uses 4).
+```json
+{ "showcase": [ { "slot": 1, "cardId": "base1-4", "name": "Charizard",
+                  "images": { "low": "…", "high": "…" } } ] }
+```
+
+### PUT /deckpal/api/me/showcase
+`{ "cards": ["base1-4", null, "swsh3-20"] }` — replaces the whole showcase in
+one transaction. Each entry is a card id (resolved server-side to the card's
+primary variant, exactly as the list bulk-add does) or `null` for an empty
+slot. Unknown card id → `404`; more than 8 entries → `400`. Returns the GET
+shape.
 
 ## Collection — mutation & activity log
 
